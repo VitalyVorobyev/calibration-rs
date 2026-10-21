@@ -140,7 +140,7 @@ need their measurement first and stay opt-in until it is in.
 - [ ] UQ-NBV-CORE - Predicted covariance after adding a candidate view
   (rank-update of the information matrix), and a ranking of candidate
   target poses by the reduction in maximum projection σ. Library only; the
-  app's guided capture (APP-LIVE) and the book demo consume it. Gate:
+  app's Diagnose view and the book demo consume it. Gate:
   prediction matches the re-solve on synthetic scenes. Needs: UQ-QUALITY.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
@@ -296,25 +296,12 @@ takes or returns a covariance. Open with an ADR on the BA layering:
 - [ ] MVG-PNP-COV - Object pose from PnP with its covariance.
 - [ ] MVG-STEREO - Stereo from a calibration:
   - rectification straight from a rig export;
-  - rectify maps (IO-MAPS) and the disparity-to-depth matrix;
+  - the disparity-to-depth matrix;
   - depth σ from disparity σ;
   - a point cloud with per-point covariance.
 - [ ] MVG-PY - Python bindings for the MVG surface.
 - [ ] MVG-METROLOGY - A pixel-to-millimetre measurement API with σ, used by
   `../vision-metrology` (cross-repo). Needs: MVG-TRI-COV.
-
-## Interop and CLI (Phase 2)
-
-- [ ] IO-INTEROP - Import and export camera models in OpenCV YAML/JSON, ROS
-  `camera_info`, Kalibr YAML, COLMAP `cameras.txt` and mrcal
-  `.cameramodel`, with round-trip tests. Where a model cannot be
-  represented in a format, that is a typed error.
-- [ ] IO-MAPS - Undistort and rectify remap maps (and ROI) from a
-  calibrated camera, for downstream image pipelines.
-- [ ] CLI - A `vision-calibration` binary with `sniff`, `detect`,
-  `calibrate`, `report` and `convert` subcommands, run from a manifest. The
-  exit code follows the quality verdict. The report is JSON plus a
-  self-contained HTML page, the same one the app saves. Needs: UQ-QUALITY.
 
 ## Book (alongside)
 
@@ -324,7 +311,7 @@ takes or returns a covariance. Open with an ADR on the BA layering:
   - new chapters: detection and targets, the dataset manifest with a
     reference generated from its JSON schema, an uncertainty part
     (several chapters), an MVG part (pose recovery, BA, rectification,
-    dense stereo), interop, and the desktop app;
+    dense stereo), and the desktop app;
   - the Python README covers uncertainty.
 - [ ] BOOK-WASM - A `vision-calibration-wasm` crate (wasm-bindgen over the
   facade, `publish = false` at first), built by `publish-docs.yml` with a
@@ -369,17 +356,14 @@ into the new structure. ADR 0014 is rewritten with APP-SHELL.
     with σ.
   - Also covers empty states and the fail-fast error surfaces. Gate: a
     frontend review with no high-severity findings. Needs: APP-SHELL.
-- [ ] APP-SAVE-REPORT - Save the export and the HTML report (CLI) from a
-  run.
+- [ ] APP-SAVE-REPORT - Save the export and a self-contained HTML report
+  (parameters, σ, quality verdicts, residual plots) from a run.
 - [ ] LIB-PROGRESS - An iteration observer and a cancellation token through
   the optimization loop and the pipeline steps. Today the app reports
   three coarse stages and cannot stop a running solve. Python maps
   KeyboardInterrupt onto the token.
 - [ ] APP-DIST - Bundle the presets, so installers run without a source
   checkout (`repo_root_cmd` uses `CARGO_MANIFEST_DIR` today).
-- [~] APP-LIVE - Live GenICam capture through `viva-genicam`, with guided
-  capture from UQ-NBV-CORE. Parked until the maintainer decides to bring
-  capture into the app.
 - [ ] B-QUAL-TS7 - Move to TypeScript 7. **Blocked**: `typescript-eslint`
   rejects TS 7 (typescript-eslint#10940), and adopting it would drop the
   type-aware lint config. Revisit when typescript-eslint supports TS 7.
@@ -421,8 +405,10 @@ into the new structure. ADR 0014 is rewritten with APP-SHELL.
   and differentiation through the SE(3) retraction. Next lever: an analytic
   `ReprojPoint` Jacobian, checked against autodiff in tests.
 - [ ] BENCH-COMPARE - Extend the external comparisons: the OpenCV harness to
-  fisheye (CAM-KB) and stereo rectification; PoseLib and pycolmap for MVG;
-  a Ceres timing harness where it builds on all three platforms.
+  fisheye (CAM-KB) and stereo rectification; `camera-intrinsic-calibration`
+  (Rust, cross-platform) for the KB4 and EUCM models on the same
+  observations; PoseLib and pycolmap for MVG; a Ceres timing harness where
+  it builds on all three platforms.
 
 ## v1.0
 

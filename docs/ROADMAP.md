@@ -73,14 +73,13 @@ alongside both phases. Track names below match the backlog headings.
 | CAM | Kannala-Brandt fisheye, EUCM, double sphere and telecentric projection in every problem type, plus model selection | Per model: math note, synthetic matrix test, Python, book chapter; OpenCV comparison for fisheye |
 | CAL | Rigs whose cameras do not all see the reference camera, multi-target scenes, more hand-eye initializers, robot-pose and target-flatness uncertainty, cross-frame projection uncertainty | Synthetic-GT matrix per feature |
 | MVG | Metrology-grade geometry: observations with covariance, triangulated points and derived measurements (lengths, angles, planes) with σ that includes the calibration's covariance, BA on the optimization IR with covariance, stereo from a rig export to depth with σ | Monte-Carlo agreement for every propagated σ; comparison against PoseLib/pycolmap |
-| IO | Interchange formats (OpenCV, ROS, Kalibr, COLMAP, mrcal) and undistort/rectify maps; a user CLI that runs a manifest end to end and exits by the quality verdict | Round-trip tests per format; CLI integration tests |
 | PERF | Released solver speed-ups, analytic reprojection Jacobians, published timings | `calib-bench solver` against committed numbers |
 
 ### Alongside both phases
 
 | Track | Goal | Gate |
 |---|---|---|
-| Book | One user guide: tutorials merged in; Rust/Python tabs; chapters on detection, the manifest and its schema reference, uncertainty, MVG, interop and the app; interactive demos running the library in the browser through a wasm build | `check-docs`; every demo runs in the published book |
+| Book | One user guide: tutorials merged in; Rust/Python tabs; chapters on detection, the manifest and its schema reference, uncertainty, MVG and the app; interactive demos running the library in the browser through a wasm build | `check-docs`; every demo runs in the published book |
 | App | Rebuilt frontend on the `@vitavision/workbench` shell, organized as Project → Dataset → Detect → Calibrate → Diagnose → Use. Saved runs, reports, solver progress with cancel, installers that run without a source checkout | App gates (AGENTS.md §10) plus a frontend review with no high-severity findings |
 
 ## Ordering
@@ -111,7 +110,7 @@ are not design:
 
 ## Out of scope
 
-Each item states what would bring it in.
+Each item states why it is out or what would bring it in.
 
 - **Splined (non-parametric) camera models**: when a dataset shows the
   parametric models leave structured residuals above the detector noise.
@@ -121,7 +120,12 @@ Each item states what would bring it in.
 - **Full structure-from-motion** (incremental SfM, pose graphs, loop
   closure; ADR 0006): no trigger. That belongs in a dedicated SfM library.
 - **`rerun.io` / `egui` as the UI.**
-- **Live camera capture in the app**: gated on the maintainer's go
-  (backlog APP-LIVE).
+- **Live camera capture in the app**: the app works on recorded datasets.
+- **A user command-line tool**: the library, the Python package and the
+  app are the interfaces.
+- **Interchange formats and remap maps** (OpenCV, ROS, Kalibr, COLMAP,
+  mrcal files; undistort/rectify lookup tables): exports are JSON with a
+  published schema, and image remapping belongs to the image-processing
+  library that consumes the calibration.
 - **A community-grade contribution surface and multi-platform install
   docs.**
