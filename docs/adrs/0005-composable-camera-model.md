@@ -43,8 +43,9 @@ pixel = K(sensor(distortion(projection(p_c))))
   - Each projection defines its own validity domain and returns `None`
     outside it. There is no global `z > 0` test, so a fisheye camera sees
     beyond 90°.
-- **Back-projection returns a ray** `{ origin, direction }` with a unit
-  direction.
+- **Back-projection returns a ray** `{ origin, direction }`. The
+  direction is not normalized: for a pinhole camera it is the ray's point
+  on the `z = 1` plane, so pinhole back-projection is exact.
   - Central projections return the origin at the camera centre.
   - `Telecentric` returns a ray parallel to the optical axis from `(x, y, 0)`.
   - `Projection::is_central()` tells the two apart.
