@@ -1,7 +1,7 @@
 //! End-to-end synthetic GT round-trip tests for extended distortion models
 //! (Rational8, ThinPrism9, Division1) wired through the full pipeline:
 //!
-//!   config.distortion_model = X  →  step_init  →  step_optimize  →  export
+//!   config.camera.model.distortion = X  →  step_init  →  step_optimize  →  export
 //!
 //! All scenarios use noiseless synthetic data so reprojection RMS must be
 //! below 1e-2 px (tight tolerance).  Brown-Conrady5 regression is also
@@ -15,11 +15,11 @@
 #![allow(missing_docs)]
 
 use nalgebra::{Rotation3, Translation3};
+use vision_calibration_core::DistortionKind;
 use vision_calibration_core::{
     Camera, CameraProject, CorrespondenceView, Division, FxFyCxCy, IdentitySensor, Iso3, Pinhole,
     PlanarDataset, Pt2, Pt3, RationalPolynomial, ThinPrism, View, make_pinhole_camera,
 };
-use vision_calibration_optim::DistortionKind;
 use vision_calibration_pipeline::{
     common::{CalibratedCameras, calibrated_cameras},
     planar_intrinsics::{
@@ -141,7 +141,7 @@ fn run_pipeline(
     f64,
 ) {
     let mut config = PlanarIntrinsicsConfig::default();
-    config.distortion_model = model;
+    config.camera.model.distortion = model;
     // Allow k3 for the extended models; it doesn't affect them but keeps
     // BC5 test consistent.
     config.init.fix_k3 = false;
@@ -399,11 +399,11 @@ fn rational8_export_json_roundtrip() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Config JSON roundtrip with distortion_model field
+// Config JSON roundtrip of the camera model
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn planar_config_distortion_model_json_roundtrip() {
+fn planar_config_camera_model_json_roundtrip() {
     for model in [
         DistortionKind::BrownConrady5,
         DistortionKind::Rational8,
@@ -412,35 +412,36 @@ fn planar_config_distortion_model_json_roundtrip() {
         DistortionKind::None,
     ] {
         let mut config = PlanarIntrinsicsConfig::default();
-        config.distortion_model = model;
+        config.camera.model.distortion = model;
         let json = serde_json::to_string(&config).unwrap();
         let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            restored.distortion_model, model,
-            "distortion_model roundtrip failed for {model:?}"
+            restored.camera.model.distortion, model,
+            "camera.model.distortion roundtrip failed for {model:?}"
         );
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// A config without a `distortion_model` field defaults to BC5
+// A config without a `camera` group is pinhole + Brown-Conrady
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn planar_config_missing_distortion_model_defaults_to_bc5() {
-    // Simulate a config JSON written before `distortion_model` existed that has no `distortion_model` field.
-    // Serialize the default config, strip the distortion_model key, and verify
-    // deserialization still produces BrownConrady5 (via #[serde(default=...)]).
+fn planar_config_missing_camera_defaults_to_pinhole_bc5() {
     let default_config = PlanarIntrinsicsConfig::default();
     let mut json_val: serde_json::Value =
         serde_json::to_value(&default_config).expect("serialize default config");
-    json_val.as_object_mut().unwrap().remove("distortion_model");
+    json_val.as_object_mut().unwrap().remove("camera");
     let json_without_field = serde_json::to_string(&json_val).unwrap();
 
     let config: PlanarIntrinsicsConfig = serde_json::from_str(&json_without_field).unwrap();
     assert_eq!(
-        config.distortion_model,
+        config.camera.model.distortion,
         DistortionKind::BrownConrady5,
-        "missing field must default to BrownConrady5"
+        "missing camera must default to Brown-Conrady"
+    );
+    assert_eq!(
+        config.camera.model.sensor,
+        vision_calibration_core::SensorKind::Identity
     );
 }

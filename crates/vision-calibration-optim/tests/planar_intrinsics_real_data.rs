@@ -11,8 +11,8 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, DistortionModel, FxFyCxCy,
-    IntrinsicsFixMask, Mat3, NoMeta, PlanarDataset, Pt2, Pt3, Real, View,
+    BrownConrady5, CameraFix, CorrespondenceView, DistortionModel, FxFyCxCy, Mat3, NoMeta,
+    PlanarDataset, Pt2, Pt3, Real, View,
     test_utils::{CalibrationView, pixel_from_normalized, undistort_pixel_normalized},
 };
 use vision_calibration_linear::distortion_fit::DistortionFitOptions;
@@ -425,10 +425,9 @@ fn planar_intrinsics_parameter_fixing_works() {
     .unwrap();
 
     let opts = PlanarIntrinsicsSolveOptions {
-        fix_distortion: DistortionFixMask {
-            p1: true,
-            p2: true,
-            ..Default::default()
+        fix: CameraFix {
+            distortion: Some(vec!["k3".into(), "p1".into(), "p2".into()]),
+            ..CameraFix::default()
         },
         robust_loss: RobustLoss::None,
         ..Default::default()
@@ -510,10 +509,9 @@ fn planar_intrinsics_parameter_fixing_works() {
     .unwrap();
 
     let opts3 = PlanarIntrinsicsSolveOptions {
-        fix_intrinsics: IntrinsicsFixMask {
-            fx: true,
-            fy: true,
-            ..Default::default()
+        fix: CameraFix {
+            intrinsics: Some(vec!["fx".into(), "fy".into()]),
+            ..CameraFix::default()
         },
         robust_loss: RobustLoss::None,
         ..Default::default()

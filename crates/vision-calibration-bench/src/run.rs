@@ -34,7 +34,7 @@ pub mod tier_b {
     use vision_calibration::optim::{HandEyeMode, RobotPoseMeta};
     use vision_calibration::planar_intrinsics::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init,
-        step_optimize,
+        step_init_with_seed, step_optimize,
     };
     use vision_calibration::rig_extrinsics::{
         RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem, step_intrinsics_init_all,
@@ -52,15 +52,9 @@ pub mod tier_b {
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
         run_calibration as run_rig_laserline_device_calibration,
     };
-    // Named at module scope so `DetectedScheimpflugCamera` /
-    // `ScheimpflugSeededSolve` can carry them as struct fields; the rest of
-    // the seeded-route surface (`ScheimpflugIntrinsicsConfig`,
-    // `step_init_with_seed`, `step_optimize`, …) stays function-local and
-    // aliased in `solve_scheimpflug_seeded` to avoid colliding with the
-    // identically-named planar-intrinsics steps imported above.
-    use vision_calibration::scheimpflug_intrinsics::{
-        ScheimpflugIntrinsicsExport, ScheimpflugManualInit,
-    };
+    // Named at module scope so `DetectedScheimpflugCamera` can carry the seed;
+    // the seeded route's step functions are the planar ones imported above.
+    use vision_calibration::planar_intrinsics::PlanarManualInit;
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
         HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
@@ -68,16 +62,18 @@ pub mod tier_b {
         step_intrinsics_init, step_intrinsics_optimize,
     };
     use vision_calibration_core::{
-        BrownConrady5, Camera, CameraFixMask, DistortionFixMask, FeatureResidualHistogram,
-        FxFyCxCy, IntrinsicsFixMask, Pinhole, PinholeCamera, PlanarDataset, Pt2, ReprojectionStats,
-        ScheimpflugParams, TargetFeatureResidual, View, compute_planar_target_residuals,
+        BrownConrady5, Camera, CameraFix, CameraFixMask, CameraModelSpec, CameraParams,
+        DistortionFixMask, DistortionKind, DistortionParams, FeatureResidualHistogram, FxFyCxCy,
+        IntrinsicsFixMask, Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2,
+        ReprojectionStats, ScheimpflugParams, SensorKind, SensorParams, TargetFeatureResidual,
+        View, compute_planar_target_residuals,
     };
     use vision_calibration_optim::{
-        BackendSolveOptions, LaserlineResidualType, RigHandeyeLaserlineDataset,
+        BackendSolveOptions, LaserlineResidualType, PlanarIntrinsicsEstimate,
+        PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigHandeyeLaserlineDataset,
         RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
-        RigLaserlineView, RobustLoss, ScheimpflugFixMask, ScheimpflugIntrinsicsParams,
-        ScheimpflugIntrinsicsSolveOptions, SolveReport, SolverBackend,
-        optimize_rig_handeye_laserline, optimize_scheimpflug_intrinsics,
+        RigLaserlineView, RobustLoss, ScheimpflugFixMask, SolveReport, SolverBackend,
+        optimize_planar_intrinsics, optimize_rig_handeye_laserline,
     };
     #[cfg(feature = "laser")]
     use vision_metrology::{
@@ -228,7 +224,7 @@ pub mod tier_b {
         pub params: IntrinsicsParamReport,
         /// Raw residual distribution from per-feature recomputation.
         pub stats: IntrinsicsResidualStats,
-        /// Mean reported by `optimize_scheimpflug_intrinsics`.
+        /// Mean reported by `optimize_planar_intrinsics`.
         pub solver_mean_reproj_error: f64,
         /// Absolute difference between solver-reported and direct raw means.
         pub mean_crosscheck_abs_diff: f64,
@@ -360,7 +356,7 @@ pub mod tier_b {
     #[derive(Debug, Clone)]
     struct StagedIntrinsicsSolve {
         report: IntrinsicsCaseReport,
-        params: ScheimpflugIntrinsicsParams,
+        params: PlanarIntrinsicsParams,
         residuals: Vec<TargetFeatureResidual>,
     }
 
@@ -603,7 +599,7 @@ pub mod tier_b {
     /// half of [`run_scheimpflug_intrinsics`].
     ///
     /// Manifest-driven: the entry's `spec` must be a single-camera
-    /// `ScheimpflugIntrinsics` dataset manifest (inline or by path —
+    /// `PlanarIntrinsics` dataset manifest (inline or by path —
     /// relative paths resolve against `data_root`) describing the image
     /// glob, ROI tile, and target; the entry's `device_spec` (the ADR 0011
     /// `spec.json` sidecar) provides the seed via
@@ -622,7 +618,7 @@ pub mod tier_b {
         pub dataset: PlanarDataset,
         /// Device-spec-derived seed. `intrinsics` and `sensor` are always
         /// `Some` — see `device_seed::scheimpflug_seed`.
-        pub seed: ScheimpflugManualInit,
+        pub seed: PlanarManualInit,
         /// Detection stats for the `BenchRecord`.
         pub detection: Detection,
         /// Wall-clock detection time in milliseconds.
@@ -639,21 +635,21 @@ pub mod tier_b {
         use vision_calibration_pipeline::dataset_runner::build_planar_input;
 
         anyhow::ensure!(
-            entry.problem == ProblemKind::ScheimpflugIntrinsics,
-            "detect_scheimpflug_seeded_input called for {:?}",
+            entry.is_scheimpflug_planar(),
+            "detect_scheimpflug_seeded_input called for {:?} without a Scheimpflug sensor",
             entry.problem
         );
         let spec = resolve_dataset_spec(entry)?;
         anyhow::ensure!(
             spec.cameras.len() == 1,
-            "scheimpflug_intrinsics manifest must have exactly one camera, got {}",
+            "Scheimpflug planar manifest must have exactly one camera, got {}",
             spec.cameras.len()
         );
         let camera_id = spec.cameras[0].id.clone();
 
         let device_spec_rel = entry.device_spec.as_ref().with_context(|| {
             format!(
-                "entry `{}`: scheimpflug_intrinsics acceptance needs `device_spec` \
+                "entry `{}`: Scheimpflug planar acceptance needs `device_spec` \
                  (the ADR 0011 spec.json sidecar)",
                 entry.id
             )
@@ -704,7 +700,7 @@ pub mod tier_b {
     #[derive(Debug, Clone)]
     pub struct ScheimpflugSeededSolve {
         /// Session export.
-        pub export: ScheimpflugIntrinsicsExport,
+        pub export: PlanarIntrinsicsExport,
         /// Seeded-init wall-clock time in milliseconds.
         pub init_ms: u64,
         /// Optimize wall-clock time in milliseconds.
@@ -722,38 +718,27 @@ pub mod tier_b {
     /// basin study).
     pub fn solve_scheimpflug_seeded(
         dataset: PlanarDataset,
-        seed: ScheimpflugManualInit,
+        seed: PlanarManualInit,
         label: &str,
         backend: SolverBackend,
     ) -> Result<ScheimpflugSeededSolve> {
-        // `ScheimpflugIntrinsicsConfig::fix_scheimpflug` takes the single canonical
-        // `vision_calibration_optim::ScheimpflugFixMask` (already imported at module
-        // scope).
-        use vision_calibration::scheimpflug_intrinsics::{
-            ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
-            step_init_with_seed as sch_step_init_with_seed, step_optimize as sch_step_optimize,
-        };
-
-        let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(dataset).context("set_input failed")?;
-        let mut config = ScheimpflugIntrinsicsConfig::default();
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.camera.model = tilted_bc5_model();
         config.solver.max_iters = 120;
         config.solver.backend = backend;
-        config.fix_scheimpflug = ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: false,
-        };
         config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config).context("set_config failed")?;
 
         progress_label(label, "seeded scheimpflug init");
         let init_start = Instant::now();
-        sch_step_init_with_seed(&mut session, seed, None).context("seeded init failed")?;
+        step_init_with_seed(&mut session, seed, None).context("seeded init failed")?;
         let init_ms = ms_since(init_start);
 
         progress_label(label, "optimizing scheimpflug intrinsics");
         let opt_start = Instant::now();
-        sch_step_optimize(&mut session, None).context("optimize failed")?;
+        step_optimize(&mut session, None).context("optimize failed")?;
         let optimize_ms = ms_since(opt_start);
 
         let export = session.export().context("session.export failed")?;
@@ -776,8 +761,8 @@ pub mod tier_b {
     /// `calib-bench accept` gates on.
     pub fn run_scheimpflug_intrinsics(entry: &BenchEntry) -> Result<BenchRecord> {
         anyhow::ensure!(
-            entry.problem == ProblemKind::ScheimpflugIntrinsics,
-            "run_scheimpflug_intrinsics called for {:?}",
+            entry.is_scheimpflug_planar(),
+            "run_scheimpflug_intrinsics called for {:?} without a Scheimpflug sensor",
             entry.problem
         );
         let detected = detect_scheimpflug_seeded_input(entry)?;
@@ -830,7 +815,7 @@ pub mod tier_b {
         };
 
         Ok(BenchRecord {
-            ident: placeholder_ident(entry, "scheimpflug_intrinsics"),
+            ident: placeholder_ident(entry, "planar_intrinsics"),
             convergence,
             fit,
             generalization: None,
@@ -1634,7 +1619,7 @@ pub mod tier_b {
         }
         if config.manual_init.is_none() && entry.id == "rtv3d" {
             config.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
-            config.intrinsics.fix_tangential = true;
+            config.intrinsics.fix_tangential = Some(true);
         }
         let robot_rot_sigma = config.handeye_ba.robot_poses.rot_sigma;
         let robot_trans_sigma = config.handeye_ba.robot_poses.trans_sigma;
@@ -2045,6 +2030,73 @@ pub mod tier_b {
         seeds
     }
 
+    /// The camera model of the bench's tilted single-camera solves: pinhole,
+    /// Brown-Conrady, Scheimpflug sensor.
+    fn tilted_bc5_model() -> CameraModelSpec {
+        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug)
+    }
+
+    /// Planar-solve parameters of a tilted Brown-Conrady camera.
+    fn tilted_bc5_params(
+        intrinsics: FxFyCxCy<f64>,
+        distortion: BrownConrady5<f64>,
+        sensor: ScheimpflugParams,
+        poses: Vec<Iso3>,
+    ) -> Result<PlanarIntrinsicsParams> {
+        PlanarIntrinsicsParams::new(
+            CameraParams {
+                projection: ProjectionParams::Pinhole,
+                distortion: DistortionParams::BrownConrady5 { params: distortion },
+                sensor: SensorParams::Scheimpflug { params: sensor },
+                intrinsics,
+            },
+            poses,
+        )
+        .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// The tilt of a planar solve's camera (zero for an untilted one).
+    fn planar_tilt(params: &PlanarIntrinsicsParams) -> ScheimpflugParams {
+        match params.camera.sensor {
+            SensorParams::Scheimpflug { params } => params,
+            _ => ScheimpflugParams::default(),
+        }
+    }
+
+    /// The named fix lists of a tilted Brown-Conrady camera's masks.
+    fn tilted_bc5_fix(
+        intrinsics: IntrinsicsFixMask,
+        distortion: DistortionFixMask,
+        tilt: ScheimpflugFixMask,
+    ) -> CameraFix {
+        let names = |flags: &[(bool, &str)]| {
+            Some(
+                flags
+                    .iter()
+                    .filter(|(fixed, _)| *fixed)
+                    .map(|(_, name)| name.to_string())
+                    .collect(),
+            )
+        };
+        CameraFix {
+            intrinsics: names(&[
+                (intrinsics.fx, "fx"),
+                (intrinsics.fy, "fy"),
+                (intrinsics.cx, "cx"),
+                (intrinsics.cy, "cy"),
+            ]),
+            projection: Some(Vec::new()),
+            distortion: names(&[
+                (distortion.k1, "k1"),
+                (distortion.k2, "k2"),
+                (distortion.k3, "k3"),
+                (distortion.p1, "p1"),
+                (distortion.p2, "p2"),
+            ]),
+            sensor: names(&[(tilt.tilt_x, "tilt_x"), (tilt.tilt_y, "tilt_y")]),
+        }
+    }
+
     fn solve_centered_multistart(
         dataset: &PlanarDataset,
         seeds: &[IntrinsicsSeed],
@@ -2081,17 +2133,12 @@ pub mod tier_b {
         gate_px: f64,
     ) -> Result<StagedIntrinsicsSolve> {
         let initial = initial_intrinsics_params(dataset, seed)?;
-        let stage_a = optimize_scheimpflug_intrinsics(
+        let stage_a = optimize_planar_intrinsics(
             dataset,
             &initial,
-            ScheimpflugIntrinsicsSolveOptions {
+            PlanarIntrinsicsSolveOptions {
                 robust_loss: RobustLoss::None,
-                fix_intrinsics: IntrinsicsFixMask::all_fixed(),
-                fix_distortion: DistortionFixMask::all_fixed(),
-                fix_scheimpflug: ScheimpflugFixMask {
-                    tilt_x: true,
-                    tilt_y: true,
-                },
+                fix: CameraFix::all(tilted_bc5_model()),
                 fix_poses: Vec::new(),
                 bounds: None,
             },
@@ -2103,29 +2150,28 @@ pub mod tier_b {
         )
         .context("stage A pose-only Scheimpflug polish failed")?;
 
-        let centered_opts = ScheimpflugIntrinsicsSolveOptions {
+        let centered_opts = PlanarIntrinsicsSolveOptions {
             robust_loss: RobustLoss::Huber { scale: 1.0 },
-            fix_intrinsics: IntrinsicsFixMask {
-                fx: false,
-                fy: false,
-                cx: true,
-                cy: true,
-            },
-            fix_distortion: DistortionFixMask {
-                k1: false,
-                k2: false,
-                k3: true,
-                p1: true,
-                p2: true,
-            },
-            fix_scheimpflug: ScheimpflugFixMask {
-                tilt_x: false,
-                tilt_y: false,
-            },
+            fix: tilted_bc5_fix(
+                IntrinsicsFixMask {
+                    fx: false,
+                    fy: false,
+                    cx: true,
+                    cy: true,
+                },
+                DistortionFixMask {
+                    k1: false,
+                    k2: false,
+                    k3: true,
+                    p1: true,
+                    p2: true,
+                },
+                ScheimpflugFixMask::default(),
+            ),
             fix_poses: Vec::new(),
             bounds: None,
         };
-        let stage_b = optimize_scheimpflug_intrinsics(
+        let stage_b = optimize_planar_intrinsics(
             dataset,
             &stage_a.params,
             centered_opts.clone(),
@@ -2137,10 +2183,10 @@ pub mod tier_b {
         )
         .context("stage B robust centered Scheimpflug solve failed")?;
 
-        let stage_c = optimize_scheimpflug_intrinsics(
+        let stage_c = optimize_planar_intrinsics(
             dataset,
             &stage_b.params,
-            ScheimpflugIntrinsicsSolveOptions {
+            PlanarIntrinsicsSolveOptions {
                 robust_loss: RobustLoss::None,
                 ..centered_opts
             },
@@ -2166,7 +2212,7 @@ pub mod tier_b {
     fn initial_intrinsics_params(
         dataset: &PlanarDataset,
         seed: IntrinsicsSeed,
-    ) -> Result<ScheimpflugIntrinsicsParams> {
+    ) -> Result<PlanarIntrinsicsParams> {
         let intrinsics = FxFyCxCy {
             fx: seed.focal_px,
             fy: seed.focal_px,
@@ -2186,8 +2232,7 @@ pub mod tier_b {
             tilt_y: seed.tau_y,
         };
         let poses = initial_poses_for_dataset(dataset, &intrinsics)?;
-        ScheimpflugIntrinsicsParams::new(intrinsics, distortion, sensor, poses)
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        tilted_bc5_params(intrinsics, distortion, sensor, poses)
     }
 
     fn initial_poses_for_dataset(dataset: &PlanarDataset, k: &FxFyCxCy<f64>) -> Result<Vec<Iso3>> {
@@ -2322,22 +2367,21 @@ pub mod tier_b {
     fn solve_intrinsics_variant(
         dataset: &PlanarDataset,
         seed: IntrinsicsSeed,
-        initial: &ScheimpflugIntrinsicsParams,
+        initial: &PlanarIntrinsicsParams,
         gate_px: f64,
         config: IntrinsicsVariantConfig,
     ) -> Result<StagedIntrinsicsSolve> {
-        let opts = ScheimpflugIntrinsicsSolveOptions {
+        let opts = PlanarIntrinsicsSolveOptions {
             robust_loss: RobustLoss::Huber { scale: 1.0 },
-            fix_intrinsics: config.fix_intrinsics,
-            fix_distortion: config.fix_distortion,
-            fix_scheimpflug: ScheimpflugFixMask {
-                tilt_x: false,
-                tilt_y: false,
-            },
+            fix: tilted_bc5_fix(
+                config.fix_intrinsics,
+                config.fix_distortion,
+                ScheimpflugFixMask::default(),
+            ),
             fix_poses: Vec::new(),
             bounds: None,
         };
-        let robust = optimize_scheimpflug_intrinsics(
+        let robust = optimize_planar_intrinsics(
             dataset,
             initial,
             opts.clone(),
@@ -2348,10 +2392,10 @@ pub mod tier_b {
             },
         )
         .with_context(|| format!("{} robust solve failed", config.case))?;
-        let polished = optimize_scheimpflug_intrinsics(
+        let polished = optimize_planar_intrinsics(
             dataset,
             &robust.params,
-            ScheimpflugIntrinsicsSolveOptions {
+            PlanarIntrinsicsSolveOptions {
                 robust_loss: RobustLoss::None,
                 ..opts
             },
@@ -2379,17 +2423,18 @@ pub mod tier_b {
         case: &str,
         accepted_for_gate: bool,
         gate_px: f64,
-        estimate: vision_calibration_optim::ScheimpflugIntrinsicsEstimate,
+        estimate: PlanarIntrinsicsEstimate,
         note: Option<String>,
     ) -> Result<StagedIntrinsicsSolve> {
         // Bench staged solves are Brown-Conrady (the committed defaults);
         // `IntrinsicsParamReport` is BC5-shaped, so read the concrete coefficients.
-        let distortion = estimate.params.distortion_bc5();
+        let distortion = estimate.params.distortion().unwrap_or_default();
+        let tilt = planar_tilt(&estimate.params);
         let camera = Camera::new(
             Pinhole,
             distortion,
-            estimate.params.sensor.compile(),
-            estimate.params.intrinsics,
+            tilt.compile(),
+            estimate.params.camera.intrinsics,
         );
         let residuals =
             compute_planar_target_residuals(&camera, dataset, &estimate.params.camera_se3_target)
@@ -2403,17 +2448,17 @@ pub mod tier_b {
             estimate.mean_reproj_error
         );
         let params = IntrinsicsParamReport {
-            fx: estimate.params.intrinsics.fx,
-            fy: estimate.params.intrinsics.fy,
-            cx: estimate.params.intrinsics.cx,
-            cy: estimate.params.intrinsics.cy,
+            fx: estimate.params.camera.intrinsics.fx,
+            fy: estimate.params.camera.intrinsics.fy,
+            cx: estimate.params.camera.intrinsics.cx,
+            cy: estimate.params.camera.intrinsics.cy,
             k1: distortion.k1,
             k2: distortion.k2,
             k3: distortion.k3,
             p1: distortion.p1,
             p2: distortion.p2,
-            tau_x: estimate.params.sensor.tilt_x,
-            tau_y: estimate.params.sensor.tilt_y,
+            tau_x: tilt.tilt_x,
+            tau_y: tilt.tilt_y,
         };
         let report = IntrinsicsCaseReport {
             case: case.to_string(),

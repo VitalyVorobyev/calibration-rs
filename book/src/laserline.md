@@ -101,7 +101,7 @@ pub struct LaserlineDeviceConfig {
     // Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
     // { init_iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: bool = false }
+    //   fix_tangential: Option<bool> = None }  (None: false)
 
     pub sensor_init: ScheimpflugParams, // Initial sensor tilt (default: identity)
 

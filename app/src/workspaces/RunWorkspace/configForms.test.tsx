@@ -61,10 +61,14 @@ describe("config form (SchemaValueForm)", () => {
     // Nested objects are labelled groups; the plain enum is a labelled picker.
     expect(screen.getByRole("group", { name: "Init" })).toBeTruthy();
     expect(screen.getByRole("group", { name: "Solver" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "Fix camera" })).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Distortion model" }).textContent).toBe(
+    const model = screen.getByRole("group", { name: "Model" });
+    expect(within(model).getByRole("combobox", { name: "Distortion" }).textContent).toBe(
       "brown_conrady5",
     );
+    const sensor = within(model).getByRole("radiogroup", { name: "Sensor" });
+    expect(
+      within(sensor).getByRole<HTMLInputElement>("radio", { name: "identity" }).checked,
+    ).toBe(true);
   });
 
   it("propagates a number field edit into the produced config object", () => {
@@ -80,36 +84,33 @@ describe("config form (SchemaValueForm)", () => {
     expect(next.solver.max_iters).toBe(77);
     // Sibling fields are untouched by the edit.
     expect(next.solver.verbosity).toBe(0);
-    expect(next.distortion_model).toBe("brown_conrady5");
+    expect(next.camera.model.distortion).toBe("brown_conrady5");
   });
 
-  it("propagates a nested boolean toggle two levels deep", () => {
+  it("propagates a nested boolean toggle", () => {
     const onValueChange = vi.fn();
     renderForm(onValueChange);
-    const fixCamera = screen.getByRole("group", { name: "Fix camera" });
-    const distortionMask = within(fixCamera).getByRole("group", { name: "Distortion" });
-    const k3 = within(distortionMask).getByRole("switch", { name: /K3/ });
+    const init = screen.getByRole("group", { name: "Init" });
+    const k3 = within(init).getByRole("switch", { name: "Fix k3" });
     expect(k3.getAttribute("aria-checked")).toBe("true"); // fix_k3 defaults to true
 
     fireEvent.click(k3);
 
     expect(onValueChange).toHaveBeenCalledTimes(1);
     const next = onValueChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
-    expect(next.fix_camera.distortion.k3).toBe(false);
-    expect(next.fix_camera.distortion.k1).toBe(false); // untouched sibling
-    expect(next.fix_camera.intrinsics).toEqual(
-      DEFAULT_PLANAR_CONFIG.fix_camera.intrinsics,
-    );
+    expect(next.init.fix_k3).toBe(false);
+    expect(next.init.init_iterations).toBe(DEFAULT_PLANAR_CONFIG.init.init_iterations);
   });
 
   it("propagates a plain-string enum change", () => {
     const onValueChange = vi.fn();
     renderForm(onValueChange);
-    choose(screen.getByRole("combobox", { name: "Distortion model" }), "rational8");
+    const model = screen.getByRole("group", { name: "Model" });
+    choose(within(model).getByRole("combobox", { name: "Distortion" }), "rational8");
 
     expect(onValueChange).toHaveBeenCalledTimes(1);
     const next = onValueChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
-    expect(next.distortion_model).toBe("rational8");
+    expect(next.camera.model.distortion).toBe("rational8");
   });
 
   it("propagates an externally-tagged enum variant switch (RobustLoss)", () => {
@@ -129,6 +130,18 @@ describe("config form (SchemaValueForm)", () => {
     expect(typeof next.solver.robust_loss.Huber?.scale).toBe("number");
   });
 
+  it("propagates the sensor choice", () => {
+    const onValueChange = vi.fn();
+    renderForm(onValueChange);
+    const model = screen.getByRole("group", { name: "Model" });
+    const sensor = within(model).getByRole("radiogroup", { name: "Sensor" });
+    fireEvent.click(within(sensor).getByRole("radio", { name: "scheimpflug" }));
+
+    expect(onValueChange).toHaveBeenCalledTimes(1);
+    const next = onValueChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
+    expect(next.camera.model.sensor).toBe("scheimpflug");
+  });
+
   it("round-trips through a controlled harness: edits are visible in the DOM", () => {
     function Harness() {
       const [value, setValue] = useState<unknown>(DEFAULT_PLANAR_CONFIG);
@@ -145,11 +158,11 @@ describe("config form (SchemaValueForm)", () => {
     const maxIters = screen.getByRole<HTMLInputElement>("spinbutton", {
       name: "Max iters",
     });
-    expect(maxIters.value).toBe("50");
+    expect(maxIters.value).toBe("120");
 
     fireEvent.focus(maxIters);
-    fireEvent.change(maxIters, { target: { value: "120" } });
+    fireEvent.change(maxIters, { target: { value: "77" } });
 
-    expect(maxIters.value).toBe("120");
+    expect(maxIters.value).toBe("77");
   });
 });

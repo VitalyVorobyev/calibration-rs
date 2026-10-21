@@ -35,8 +35,7 @@ ScheimpflugFixMask: TypeAlias = JsonObject
 # Serde `snake_case` form of `DistortionKind`. `brown_conrady5` is the default
 # and the only model the rig / hand-eye / laserline consumers accept; the
 # extended models (`rational8`, `thin_prism9`, `division1`) are supported by the
-# two single-camera intrinsics workflows (PlanarIntrinsics and
-# ScheimpflugIntrinsics).
+# single-camera planar intrinsics workflow.
 DistortionModel: TypeAlias = Literal[
     "none",
     "brown_conrady5",
@@ -139,7 +138,6 @@ SingleCamHandeyeInput: TypeAlias = JsonObject
 RigExtrinsicsInput: TypeAlias = JsonObject
 RigHandeyeInput: TypeAlias = JsonObject
 LaserlineDeviceInput: TypeAlias = JsonObject
-ScheimpflugIntrinsicsInput: TypeAlias = JsonObject
 
 
 class SolveReport(TypedDict):
@@ -273,25 +271,12 @@ class LaserlineDeviceExport(TypedDict):
     per_cam_reproj_errors: list[float]
 
 
-class ScheimpflugIntrinsicsParams(TypedDict):
-    camera: CameraModel
-    camera_se3_target: list[Transform]
-
-
-class ScheimpflugIntrinsicsExport(TypedDict):
-    params: ScheimpflugIntrinsicsParams
-    report: SolveReport
-    mean_reproj_error: float
-    per_cam_reproj_errors: list[float]
-    uncertainty: Uncertainty
-
-
 class IntrinsicsInitConfig(TypedDict, total=False):
     """Shared per-camera linear-initialization stage."""
 
     init_iterations: int
     fix_k3: bool
-    fix_tangential: bool
+    fix_tangential: bool  # optional; absent = the camera's default
 
 
 class SolverConfig(TypedDict, total=False):
@@ -347,11 +332,36 @@ class SensorModeScheimpflug(TypedDict, total=False):
 SensorMode: TypeAlias = SensorModePinhole | SensorModeScheimpflug
 
 
+ProjectionModel: TypeAlias = Literal["pinhole"]
+SensorModel: TypeAlias = Literal["identity", "scheimpflug"]
+
+
+class CameraModelSpec(TypedDict, total=False):
+    """Camera model selector — serde ``CameraModelSpec``."""
+
+    projection: ProjectionModel
+    distortion: DistortionModel
+    sensor: SensorModel
+
+
+class CameraFix(TypedDict, total=False):
+    """Parameter names fixed per slot; an absent slot keeps the model default."""
+
+    intrinsics: list[str]
+    projection: list[str]
+    distortion: list[str]
+    sensor: list[str]
+
+
+class CameraConfig(TypedDict, total=False):
+    model: CameraModelSpec
+    fix: CameraFix
+
+
 class PlanarIntrinsicsConfig(TypedDict, total=False):
     init: IntrinsicsInitConfig
     solver: SolverConfig
-    distortion_model: DistortionModel
-    fix_camera: CameraFixMask
+    camera: CameraConfig
     fix_poses: list[int]
 
 
@@ -415,15 +425,6 @@ class LaserlineDeviceConfig(TypedDict, total=False):
 class RigLaserlineDeviceConfig(TypedDict, total=False):
     solver: SolverConfig
     laser_residual_type: LaserlineResidualType
-
-
-class ScheimpflugIntrinsicsConfig(TypedDict, total=False):
-    init: IntrinsicsInitConfig
-    solver: SolverConfig
-    distortion_model: DistortionModel
-    fix_camera: CameraFixMask
-    fix_scheimpflug: ScheimpflugFixMask
-    fix_poses: list[int]
 
 
 class RigHandeyeLaserlineBaConfig(TypedDict, total=False):

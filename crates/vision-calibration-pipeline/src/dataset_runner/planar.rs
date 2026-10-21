@@ -1,6 +1,5 @@
-//! `DatasetSpec → PlanarDataset` converter, shared by the
-//! `PlanarIntrinsics` and `ScheimpflugIntrinsics` topologies (both
-//! problem types consume the same `PlanarDataset` IR).
+//! `DatasetSpec → PlanarDataset` converter for the `PlanarIntrinsics`
+//! topology (any camera model; the config names the sensor).
 
 use std::path::{Path, PathBuf};
 
@@ -14,9 +13,9 @@ use super::{
 };
 
 /// Convert a single-camera planar manifest + cache into the existing
-/// [`PlanarDataset`] IR. Accepts the `PlanarIntrinsics` and
-/// `ScheimpflugIntrinsics` topologies — the Scheimpflug problem type
-/// consumes the same input, only its config differs. Returns the
+/// [`PlanarDataset`] IR. Accepts the `PlanarIntrinsics` topology — a
+/// tilted (Scheimpflug) camera consumes the same input, only its config
+/// differs. Returns the
 /// dataset plus a per-view list of the source image paths (for
 /// downstream `image_manifest` population).
 pub fn build_planar_input(
@@ -28,10 +27,7 @@ pub fn build_planar_input(
     // Order matters: gate on topology + target before touching the
     // filesystem so users with broken globs still see helpful
     // "wrong topology" or "wrong target" errors first.
-    if !matches!(
-        spec.topology,
-        Topology::PlanarIntrinsics | Topology::ScheimpflugIntrinsics
-    ) {
+    if spec.topology != Topology::PlanarIntrinsics {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -174,21 +170,6 @@ mod tests {
         let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
         let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
         assert!(matches!(err, RunError::UnsupportedTopology { .. }));
-    }
-
-    #[test]
-    fn accepts_scheimpflug_topology() {
-        // Scheimpflug shares the planar input path; the topology gate
-        // must not reject it. (The empty image list then fails
-        // validation, which proves we got past the gate.)
-        let mut spec = planar_spec_for_globless_test();
-        spec.topology = Topology::ScheimpflugIntrinsics;
-        let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
-        let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
-        assert!(
-            !matches!(err, RunError::UnsupportedTopology { .. }),
-            "scheimpflug must pass the topology gate, got {err:?}"
-        );
     }
 
     #[test]

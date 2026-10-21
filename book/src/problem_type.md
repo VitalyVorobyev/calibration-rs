@@ -2,7 +2,7 @@
 
 The `ProblemType` trait defines the interface for a calibration problem. It specifies the types for configuration, input, output, and export, along with validation and lifecycle hooks. The trait is intentionally minimal — behavior is implemented in external step functions, not trait methods.
 
-`ProblemType` is **sealed**: it can only be implemented by the eight problem types that ship with the pipeline crate, so downstream crates use it as a bound (`CalibrationSession<P: ProblemType>`) but do not implement it. Contributors adding a problem type inside the pipeline crate should read [Adding a New Pipeline Problem Type](new_pipeline.md).
+`ProblemType` is **sealed**: it can only be implemented by the seven problem types that ship with the pipeline crate, so downstream crates use it as a bound (`CalibrationSession<P: ProblemType>`) but do not implement it. Contributors adding a problem type inside the pipeline crate should read [Adding a New Pipeline Problem Type](new_pipeline.md).
 
 ## Definition
 
@@ -109,7 +109,6 @@ Defaults:
 | Type | `name()` | Steps |
 |------|----------|-------|
 | `PlanarIntrinsicsProblem` | `"planar_intrinsics_v2"` | init → optimize |
-| `ScheimpflugIntrinsicsProblem` | `"scheimpflug_intrinsics_v1"` | init → optimize |
 | `SingleCamHandeyeProblem` | `"single_cam_handeye_v2"` | intrinsics init → intrinsics optimize → hand-eye init → hand-eye optimize |
 | `LaserlineDeviceProblem` | `"laserline_device_v1"` | init → optimize |
 | `RigExtrinsicsProblem` | `"rig_extrinsics_v2"` | intrinsics init (all) → intrinsics optimize (all) → rig init → rig optimize |

@@ -87,7 +87,7 @@ impl SingleCamHandeyeInput {
 /// non-linear solve, and robot-pose refinement each live in their own
 /// shared sub-struct. Every group's own `Default` is the plain workspace
 /// default (no per-problem override is needed here, unlike
-/// `ScheimpflugIntrinsicsConfig`).
+/// `PlanarIntrinsicsConfig`'s iteration cap).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]

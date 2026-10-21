@@ -7,7 +7,7 @@ This is the recommended crate for most users. It re-exports all sub-crates throu
 ## Features
 
 - **Session API**: structured calibration workflows with step functions, state tracking, and JSON checkpointing
-- **Eight workflows**: planar intrinsics, Scheimpflug intrinsics, single-camera hand-eye, laserline device, rig extrinsics, rig hand-eye, rig laserline device, rig hand-eye + laserline
+- **Seven workflows**: planar intrinsics (straight or tilted Scheimpflug sensor), single-camera hand-eye, laserline device, rig extrinsics, rig hand-eye, rig laserline device, rig hand-eye + laserline
 - **Prelude module**: minimal imports for planar "hello world" calibration
 - **Foundation access**: core types, linear solvers, optimization, two-view geometry and MVG when needed
 
@@ -64,22 +64,33 @@ let result = session.export()?;
 # }
 ```
 
-### Scheimpflug Intrinsics Calibration
+### Tilted (Scheimpflug) Sensor
+
+A tilted sensor is a camera-model choice of planar intrinsics, not a separate
+workflow. Seeding the nominal mount tilt makes the solve trust that tilt basin:
 
 ```rust,no_run
-use vision_calibration::core::PlanarDataset;
+use vision_calibration::core::{FxFyCxCy, PlanarDataset, ScheimpflugParams, SensorKind};
 use vision_calibration::session::CalibrationSession;
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem, run_calibration,
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, PlanarManualInit, step_init_with_seed,
+    step_optimize,
 };
 
 # fn main() -> anyhow::Result<()> {
 # let dataset: PlanarDataset = unimplemented!();
-let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+let mut config = PlanarIntrinsicsConfig::default();
+config.camera.model.sensor = SensorKind::Scheimpflug;
+
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_config(config)?;
 session.set_input(dataset)?;
 
-let config = ScheimpflugIntrinsicsConfig::default();
-run_calibration(&mut session, Some(config))?;
+let mut seed = PlanarManualInit::default();
+seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 640.0, cy: 480.0 });
+seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 });
+step_init_with_seed(&mut session, seed, None)?;
+step_optimize(&mut session, None)?;
 let result = session.export()?;
 println!("mean reprojection error: {:.4}", result.mean_reproj_error);
 # Ok(())
@@ -90,8 +101,7 @@ println!("mean reprojection error: {:.4}", result.mean_reproj_error);
 
 | Problem Type | Steps |
 |---|---|
-| `PlanarIntrinsicsProblem` | `step_init` → `step_optimize` |
-| `ScheimpflugIntrinsicsProblem` | `step_init` → `step_optimize` |
+| `PlanarIntrinsicsProblem` (straight or tilted sensor) | `step_init` → `step_optimize` |
 | `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 | `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
 | `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
@@ -108,7 +118,7 @@ options.
 | Module | Description |
 |--------|-------------|
 | `session`, `common` | Session framework (`CalibrationSession`, `ProblemType`) and shared step/config types |
-| `planar_intrinsics`, `scheimpflug_intrinsics` | Single-camera intrinsics (Zhang's method; Scheimpflug tilt) |
+| `planar_intrinsics` | Single-camera intrinsics (Zhang's method), for any camera model including a Scheimpflug sensor |
 | `single_cam_handeye`, `laserline_device` | Hand-eye and camera + laser plane calibration |
 | `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, `rig_handeye_laserline` | Multi-camera rig workflows |
 | `device_seed`, `dataset_runner` | Device-spec seeding and manifest-driven dataset runs |

@@ -511,11 +511,6 @@
           "type": "string"
         },
         {
-          "const": "scheimpflug_intrinsics",
-          "description": "[`ScheimpflugIntrinsicsExport`](crate::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport).",
-          "type": "string"
-        },
-        {
           "const": "single_cam_handeye",
           "description": "[`SingleCamHandeyeExport`](crate::single_cam_handeye::SingleCamHandeyeExport).",
           "type": "string"
@@ -1261,7 +1256,7 @@
               "$ref": "#/definitions/PlanarIntrinsicsParams"
             }
           ],
-          "description": "Calibrated parameters."
+          "description": "Calibrated parameters; `params.camera.sensor` states whether a tilted\nsensor was calibrated."
         },
         "per_cam_reproj_errors": {
           "description": "Per-camera reprojection errors (single element for single-camera workflows).",
@@ -1300,7 +1295,7 @@
             },
             "status": "unavailable"
           },
-          "description": "Covariance of the calibrated parameters: `fx ± σ`, correlations, and\nthe noise level the residuals imply."
+          "description": "Covariance of the calibrated parameters: `fx ± σ` (and `tilt_x ± σ`\nfor a tilted sensor), correlations, and the noise level the residuals\nimply."
         }
       },
       "required": [
@@ -2209,115 +2204,6 @@
         }
       ]
     },
-    "ScheimpflugIntrinsicsExport": {
-      "description": "Export format for Scheimpflug intrinsics calibration.",
-      "properties": {
-        "image_manifest": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional pointer to the source images behind this export. When\npopulated, downstream viewers (the diagnose UI) can locate the\nsource image for each view. `None` means \"no images shipped\";\nthe calibration pipeline never reads this field."
-        },
-        "kind": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/ExportKind"
-            }
-          ],
-          "description": "Export-type discriminator — always [`ExportKind::ScheimpflugIntrinsics`]."
-        },
-        "mean_reproj_error": {
-          "description": "Mean per-point reprojection error in pixels.",
-          "format": "double",
-          "type": "number"
-        },
-        "params": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/ScheimpflugIntrinsicsParams"
-            }
-          ],
-          "description": "Estimated parameters."
-        },
-        "per_cam_reproj_errors": {
-          "description": "Per-camera reprojection errors (single element for single-camera workflows).",
-          "items": {
-            "format": "double",
-            "type": "number"
-          },
-          "type": "array"
-        },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature reprojection residuals. Single-camera, target\nonly — `laser` is empty; `target_hist_per_camera` is\n`Some(vec![one_entry])`."
-        },
-        "report": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/SolveReport"
-            }
-          ],
-          "description": "Backend solve report."
-        },
-        "uncertainty": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/Uncertainty"
-            }
-          ],
-          "default": {
-            "reason": {
-              "kind": "not_computed"
-            },
-            "status": "unavailable"
-          },
-          "description": "Covariance of the calibrated parameters: `fx ± σ`, `tilt_x ± σ`,\ncorrelations, and the noise level the residuals imply."
-        }
-      },
-      "required": [
-        "kind",
-        "params",
-        "report",
-        "mean_reproj_error",
-        "per_cam_reproj_errors"
-      ],
-      "type": "object"
-    },
-    "ScheimpflugIntrinsicsParams": {
-      "description": "Output parameter pack for Scheimpflug intrinsics calibration.",
-      "properties": {
-        "camera": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/CameraParams"
-            }
-          ],
-          "description": "Estimated camera model including intrinsics, distortion, and sensor parameters."
-        },
-        "camera_se3_target": {
-          "description": "Estimated pose `camera_se3_target` for each view.",
-          "items": {
-            "$ref": "#/definitions/Iso3Schema"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "camera",
-        "camera_se3_target"
-      ],
-      "type": "object"
-    },
     "ScheimpflugParams": {
       "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
       "properties": {
@@ -2845,9 +2731,6 @@
     },
     "run_progress": {
       "$ref": "#/definitions/RunProgress"
-    },
-    "scheimpflug_intrinsics_export": {
-      "$ref": "#/definitions/ScheimpflugIntrinsicsExport"
     },
     "single_cam_handeye_export": {
       "$ref": "#/definitions/SingleCamHandeyeExport"

@@ -80,9 +80,9 @@ fn planar_intrinsics() {
 }
 
 #[test]
-fn scheimpflug_intrinsics() {
+fn planar_intrinsics_scheimpflug() {
     check(
-        small(Problem::ScheimpflugIntrinsics, SensorKind::Scheimpflug),
+        small(Problem::PlanarIntrinsics, SensorKind::Scheimpflug),
         |gt| assert!(gt.sensor_tilt_deg.unwrap() < 1.0),
     );
 }
@@ -177,7 +177,7 @@ fn contaminated_scene_is_scored_against_its_outliers() {
 #[test]
 fn unsupported_combination_is_recorded_as_error() {
     let rec = run_scene(
-        &small(Problem::ScheimpflugIntrinsics, SensorKind::Pinhole),
+        &small(Problem::SingleCamHandeye, SensorKind::Scheimpflug),
         1,
         SolverBackend::TinySolver,
     );

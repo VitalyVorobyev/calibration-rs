@@ -16,7 +16,7 @@ own `[workspace]`) and path-pins the published crates:
 * **`vision-mvg`** — MVG pipelines: robust pose recovery, N-view triangulation, bundle adjustment (`refine` feature), Scheimpflug-aware rectification, dense stereo.
 * **`vision-calibration-dataset`** — `DatasetSpec` manifest, validator, folder sniffer.
 * **`vision-calibration-detect`** — target detectors (chessboard / ChArUco / puzzleboard / ring-grid) behind the sealed `Detector` trait + detection cache.
-* **`vision-calibration-pipeline`** — session framework, the eight problem types, `dataset_runner`.
+* **`vision-calibration-pipeline`** — session framework, the seven problem types, `dataset_runner`.
 * **`vision-calibration`** — facade re-exporting the above; the compatibility boundary.
 * **`vision-calibration-py`** — PyO3/maturin Python package (PyPI).
 * **`vision-calibration-bench`** (`publish = false`) — registry-driven dataset benchmarks + regression records, and the public regression suite in `regression/` (`calib-bench suite`).

@@ -9,6 +9,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: the `scheimpflug_intrinsics` workflow is merged into
+  `planar_intrinsics`. A tilted sensor is a value of the camera model, not a
+  separate problem type: planar intrinsics calibrates any distortion model
+  with an identity or a Scheimpflug sensor, and its export
+  (`PlanarIntrinsicsExport`, `kind: "planar_intrinsics"`) states the
+  calibrated sensor in `params.camera.sensor`. The config takes a `camera`
+  group, `CameraConfig { model: CameraModelSpec, fix: CameraFix }`, whose
+  `fix` lists name the parameters held fixed per slot; a slot left out keeps
+  the model's default (`k3` for Brown-Conrady; everything but `k1`, `k2` /
+  `lambda` under a Scheimpflug sensor) and an unknown name is a validation
+  error. The Scheimpflug behaviour is unchanged and follows the sensor: the
+  tangential-free linear stage, the radial-only default fix list, the
+  seeded k1 sweep and the cold-start staged multi-start.
+
+  | Before | After |
+  |---|---|
+  | `ScheimpflugIntrinsicsProblem`, module `scheimpflug_intrinsics` | `PlanarIntrinsicsProblem` with `camera.model.sensor = SensorKind::Scheimpflug` (JSON `"camera": {"model": {"sensor": "scheimpflug", …}}`) |
+  | `ScheimpflugIntrinsicsConfig` | `PlanarIntrinsicsConfig` |
+  | `distortion_model` | `camera.model.distortion` |
+  | `fix_camera.intrinsics` (`IntrinsicsFixMask`) | `camera.fix.intrinsics`, e.g. `["cx", "cy"]` |
+  | `fix_camera.distortion` (`DistortionFixMask`) | `camera.fix.distortion`, e.g. `["k3", "p1", "p2"]`; under a Scheimpflug sensor `k4`–`k6` and `s1`–`s4` are named directly instead of following the `k3` / `p1`+`p2` bits |
+  | `fix_scheimpflug: { tilt_x, tilt_y }` | `camera.fix.sensor`, e.g. `["tilt_y"]` |
+  | `init.fix_tangential: bool` (every config) | `init.fix_tangential: Option<bool>`; unset is the camera's default — `true` for a Scheimpflug planar camera, `false` otherwise (the rig, hand-eye and laser workflows resolve it to `false`) |
+  | planar `solver.max_iters` default 50 | 120 (sized for the tilt valley; the solver stops at convergence, and every planar regression and benchmark result is unchanged) |
+  | `ScheimpflugManualInit` | `PlanarManualInit`, which gains `sensor: Option<ScheimpflugParams>` (a typed error for an untilted camera); its `distortion` seed stays Brown-Conrady and is embedded into the configured model |
+  | `ScheimpflugIntrinsicsResult` / `ScheimpflugIntrinsicsExport` / `ScheimpflugIntrinsicsParams` / `…InitResult` / `…OptimizeResult` | `PlanarIntrinsicsEstimate` / `PlanarIntrinsicsExport` / `PlanarIntrinsicsParams` / `PlanarInitResult` (gains `sensor`) / `PlanarOptimizeResult` |
+  | `scheimpflug_intrinsics::run_calibration(session, Some(config))` | `session.set_config(config)?; planar_intrinsics::run_calibration(session)` |
+  | `ExportKind::ScheimpflugIntrinsics` (`"scheimpflug_intrinsics"`) | `ExportKind::PlanarIntrinsics` |
+  | dataset `Topology::ScheimpflugIntrinsics` (`"topology": "scheimpflug_intrinsics"`) | `"planar_intrinsics"`; the manifest describes the data, the config names the sensor |
+  | `device_seed::scheimpflug_seed` → `ScheimpflugManualInit` | returns `PlanarManualInit` with the tilt in `sensor` |
+  | optim `ScheimpflugIntrinsicsParams`, `ScheimpflugIntrinsicsSolveOptions`, `ScheimpflugIntrinsicsEstimate`, `optimize_scheimpflug_intrinsics` | `PlanarIntrinsicsParams` (a `CameraParams` with a Scheimpflug sensor), `PlanarIntrinsicsSolveOptions`, `PlanarIntrinsicsEstimate`, `optimize_planar_intrinsics` |
+  | optim `PlanarIntrinsicsSolveOptions { fix_intrinsics, fix_distortion, … }` | `{ robust_loss, fix: CameraFix, fix_poses, bounds: Option<CameraBounds> }` |
+  | optim `ScheimpflugBounds` | `CameraBounds` (tilt bounds need a Scheimpflug sensor) |
+  | `optimize_scheimpflug_intrinsics_staged(…, &ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions, …)` | the same name over `&PlanarIntrinsicsParams` and `PlanarIntrinsicsSolveOptions`; a non-Scheimpflug camera is a typed error |
+  | optim `params::distortion::{fix_mask_indices, distortion_kind}` | `CameraFix::resolve`, `CameraParams::spec` |
+  | facade `vision_calibration::optim::DistortionKind` | `vision_calibration::core::DistortionKind`, beside `CameraModelSpec`, `CameraFix`, `SensorKind` and `ProjectionKind`; `common::config::CameraConfig` is new |
+  | Python `run_scheimpflug_intrinsics`, `ScheimpflugIntrinsicsCalibrationConfig`, `ScheimpflugIntrinsicsResult` | `run_planar_intrinsics` with `PlanarCalibrationConfig(camera=CameraConfig(model=CameraModelSpec(sensor="scheimpflug")))`; `PlanarCalibrationResult.camera` is a `PinholeScheimpflugCamera` for a tilted camera |
+  | Python `PlanarCalibrationConfig.distortion_model` / `.fix_camera` | `.camera.model.distortion` / `.camera.fix` (`CameraFix`) |
+
+  A planar camera with a general homography sensor, a Scheimpflug sensor
+  without distortion, and a sensor change between `step_init` and
+  `step_optimize` are typed errors. The regression suite's `synth_scheimpflug`
+  entry runs through `planar_intrinsics` with the same data and results; its
+  observation file's `problem` tag and its stored result's `kind` read
+  `planar_intrinsics`. The benchmark's `scheimpflug_intrinsics` problem is
+  the `planar_intrinsics/scheimpflug/…` scenes, and a registry entry selects
+  the tilted route with `"problem": "planar_intrinsics", "planar_intrinsics":
+  {"sensor": "scheimpflug"}`.
+
 - The camera-model kinds live in `vision-calibration-core` with their
   parameter metadata: `ProjectionKind`, `DistortionKind`, `SensorKind` and
   `CameraModelSpec` (re-exported from `vision_calibration_optim::ir`).

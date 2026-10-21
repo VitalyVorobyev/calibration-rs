@@ -19,7 +19,6 @@ use crate::rig_extrinsics::RigExtrinsicsExport;
 use crate::rig_handeye::RigHandeyeExport;
 use crate::rig_handeye_laserline::RigHandeyeLaserlineExport;
 use crate::rig_laserline_device::RigLaserlineDeviceExport;
-use crate::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport;
 use crate::single_cam_handeye::SingleCamHandeyeExport;
 
 /// A calibration export's cameras and the uncertainty of its parameters.
@@ -104,7 +103,6 @@ pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn Calibrate
     )?;
     match kind {
         ExportKind::PlanarIntrinsics => typed::<PlanarIntrinsicsExport>(export),
-        ExportKind::ScheimpflugIntrinsics => typed::<ScheimpflugIntrinsicsExport>(export),
         ExportKind::SingleCamHandeye => typed::<SingleCamHandeyeExport>(export),
         ExportKind::LaserlineDevice => typed::<LaserlineDeviceExport>(export),
         ExportKind::RigExtrinsics => typed::<RigExtrinsicsExport>(export),
@@ -147,16 +145,6 @@ fn rig_camera_params(
 }
 
 impl CalibratedCameras for PlanarIntrinsicsExport {
-    fn camera_params(&self) -> Vec<CameraParams> {
-        vec![self.params.camera.clone()]
-    }
-
-    fn parameter_uncertainty(&self) -> &Uncertainty {
-        &self.uncertainty
-    }
-}
-
-impl CalibratedCameras for ScheimpflugIntrinsicsExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         vec![self.params.camera.clone()]
     }

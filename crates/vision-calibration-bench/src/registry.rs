@@ -20,7 +20,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::DistortionFixMask;
+use vision_calibration_core::{DistortionFixMask, SensorKind};
 use vision_calibration_dataset::DatasetSpec;
 
 /// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
@@ -116,6 +116,9 @@ pub struct BenchEntry {
     /// reports it loudly instead of silently passing it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accept: Option<AcceptGate>,
+    /// Planar intrinsics configuration overrides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planar_intrinsics: Option<PlanarIntrinsicsOverride>,
     /// Single-camera hand-eye configuration overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub single_cam_handeye: Option<SingleCamHandeyeOverride>,
@@ -142,6 +145,27 @@ impl BenchEntry {
     pub fn solver_backend(&self) -> SolverBackend {
         self.solver_backend.unwrap_or_default()
     }
+
+    /// Whether this is a planar-intrinsics entry for a tilted (Scheimpflug)
+    /// camera, run through the seeded Scheimpflug route.
+    pub fn is_scheimpflug_planar(&self) -> bool {
+        self.problem == ProblemKind::PlanarIntrinsics
+            && self
+                .planar_intrinsics
+                .as_ref()
+                .and_then(|o| o.sensor)
+                .is_some_and(|s| s == SensorKind::Scheimpflug)
+    }
+}
+
+/// Planar intrinsics config overrides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PlanarIntrinsicsOverride {
+    /// The camera's sensor. `scheimpflug` runs the seeded Scheimpflug route,
+    /// which needs the entry's `device_spec`; absent means an untilted camera.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensor: Option<SensorKind>,
 }
 
 /// Hard per-dataset acceptance gate (`calib-bench accept`).
@@ -185,10 +209,9 @@ pub enum Tier {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProblemKind {
-    /// Single-camera planar intrinsics (Zhang).
+    /// Single-camera planar intrinsics (Zhang); a tilted sensor is selected
+    /// by [`PlanarIntrinsicsOverride::sensor`].
     PlanarIntrinsics,
-    /// Scheimpflug (tilted-sensor) intrinsics.
-    ScheimpflugIntrinsics,
     /// Single-camera hand-eye.
     SingleCamHandeye,
     /// Multi-camera rig extrinsics.
@@ -574,7 +597,7 @@ impl RigHandeyeOverride {
             config.rig.refine_intrinsics_in_rig_ba = refine;
         }
         if let Some(fix_tangential) = self.fix_tangential {
-            config.intrinsics.fix_tangential = fix_tangential;
+            config.intrinsics.fix_tangential = Some(fix_tangential);
         }
         if let Some(ba) = &self.handeye_ba {
             apply_rig_ba(ba, config);
@@ -666,7 +689,6 @@ mod tests {
     fn problem_kind_mirrors_topology(t: Topology) -> ProblemKind {
         match t {
             Topology::PlanarIntrinsics => ProblemKind::PlanarIntrinsics,
-            Topology::ScheimpflugIntrinsics => ProblemKind::ScheimpflugIntrinsics,
             Topology::SingleCamHandeye => ProblemKind::SingleCamHandeye,
             Topology::RigExtrinsics => ProblemKind::RigExtrinsics,
             Topology::RigHandeye => ProblemKind::RigHandeye,
@@ -747,6 +769,7 @@ mod tests {
             accept: Some(AcceptGate {
                 max_per_cam_mean_px: 0.5,
             }),
+            planar_intrinsics: None,
             single_cam_handeye: None,
             rig_handeye: Some(RigHandeyeOverride {
                 sensor: Some(BenchSensorMode::Scheimpflug {

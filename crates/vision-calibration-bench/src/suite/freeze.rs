@@ -36,15 +36,10 @@ pub fn freeze_manifest(manifest_path: &Path, cache_dir: &Path) -> Result<Observa
 
     // First accepted image per camera, for the camera's image size.
     let (input, first_paths): (ProblemInput, Vec<Option<PathBuf>>) = match spec.topology {
-        Topology::PlanarIntrinsics | Topology::ScheimpflugIntrinsics => {
+        Topology::PlanarIntrinsics => {
             let run = build_planar_input(&spec, base, &cache, false)?;
             let first = vec![run.view_paths.first().cloned()];
-            let input = if spec.topology == Topology::PlanarIntrinsics {
-                ProblemInput::PlanarIntrinsics(run.dataset)
-            } else {
-                ProblemInput::ScheimpflugIntrinsics(run.dataset)
-            };
-            (input, first)
+            (ProblemInput::PlanarIntrinsics(run.dataset), first)
         }
         Topology::SingleCamHandeye => {
             let run = build_single_cam_handeye_input(&spec, base, &cache, false)?;

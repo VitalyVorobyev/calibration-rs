@@ -412,14 +412,17 @@ pub struct PoseColumnMap {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Calibration topology — selects the problem-type dispatch.
+///
+/// A topology describes the data (how many cameras, robot poses, laser
+/// images), not the camera model: a tilted (Scheimpflug) single camera is a
+/// `planar_intrinsics` dataset whose calibration config names the sensor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Topology {
-    /// Single camera, planar target — `PlanarIntrinsicsProblem`.
+    /// Single camera, planar target — `PlanarIntrinsicsProblem` (any camera
+    /// model, including a tilted sensor).
     PlanarIntrinsics,
-    /// Single camera with Scheimpflug tilt — `ScheimpflugIntrinsicsProblem`.
-    ScheimpflugIntrinsics,
     /// Single camera mounted on a robot — `SingleCamHandeyeProblem`.
     SingleCamHandeye,
     /// Camera + laser plane — `LaserlineDeviceProblem`.

@@ -29,8 +29,7 @@ Available as a Rust crate, a Python package, and a GUI.
 
 | Workflow | Solves for | Typical input |
 |---|---|---|
-| **Planar intrinsics** | `fx, fy, cx, cy` + Brown-Conrady distortion | one camera, N views of a flat target |
-| **Scheimpflug intrinsics** | the above + sensor tilt (`tilt_x`, `tilt_y`) | a tilted-sensor camera |
+| **Planar intrinsics** | `fx, fy, cx, cy` + distortion, and the sensor tilt (`tilt_x`, `tilt_y`) for a tilted (Scheimpflug) sensor | one camera, N views of a flat target |
 | **Rig extrinsics** | per-camera intrinsics + camera-to-rig poses | 2+ synchronised cameras |
 | **Single-camera hand-eye** | intrinsics + camera-to-gripper (or -to-base) transform | camera on/observing a robot arm |
 | **Rig hand-eye** | rig extrinsics + hand-eye, eye-in-hand or eye-to-hand | multi-camera head on a robot |
@@ -49,7 +48,8 @@ a re-detection).
 
 **Camera model** — cameras compose as `pixel = K(sensor(distortion(projection(dir))))`,
 so a Scheimpflug (tilted-sensor) camera is the pinhole model with a non-identity
-sensor homography rather than a separate code path.
+sensor homography rather than a separate code path. A workflow takes the model
+as config (`camera.model`), so the tilted sensor is a value, not a workflow.
 
 **Uncertainty** — every result carries the covariance of what it estimates:
 `fx ± σ`, the correlations between parameters, the noise the residuals imply,

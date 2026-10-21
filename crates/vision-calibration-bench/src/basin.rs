@@ -3,7 +3,7 @@
 //!
 //! `calib-bench basin` answers: *how much spec error can the ADR
 //! 0022/0023 seeded route absorb before it stops converging?* For every
-//! registered `scheimpflug_intrinsics` entry it:
+//! registered Scheimpflug planar entry it:
 //!
 //! 1. derives the device-spec seed and detects the camera's views once
 //!    (`run::detect_scheimpflug_seeded_input` — detection is the
@@ -31,10 +31,10 @@ mod tier_b {
     use std::path::PathBuf;
 
     use anyhow::{Context, Result};
-    use vision_calibration::scheimpflug_intrinsics::ScheimpflugManualInit;
+    use vision_calibration::planar_intrinsics::PlanarManualInit;
     use vision_calibration_core::{PlanarDataset, ReprojectionStats};
 
-    use crate::registry::{AcceptGate, BenchEntry, ProblemKind};
+    use crate::registry::{AcceptGate, BenchEntry};
     use crate::run::{detect_scheimpflug_seeded_input, progress_label, solve_scheimpflug_seeded};
 
     /// Focal-length multiplier sweep, applied to both `fx` and `fy`.
@@ -73,7 +73,7 @@ mod tier_b {
         /// always populates `intrinsics` and `sensor` (ADR 0011: both are
         /// load-bearing), so the `if let Some` guards are defensive, not
         /// load-bearing themselves.
-        fn apply(&self, seed: &ScheimpflugManualInit) -> ScheimpflugManualInit {
+        fn apply(&self, seed: &PlanarManualInit) -> PlanarManualInit {
             let mut out = seed.clone();
             match *self {
                 Cell::Baseline => {}
@@ -125,7 +125,7 @@ mod tier_b {
     fn cell_passes(
         dataset: &PlanarDataset,
         cell: Cell,
-        seed: &ScheimpflugManualInit,
+        seed: &PlanarManualInit,
         gate: AcceptGate,
         label: &str,
     ) -> bool {
@@ -200,12 +200,12 @@ mod tier_b {
     pub fn run_basin_study(entries: &[BenchEntry]) -> Result<String> {
         anyhow::ensure!(
             !entries.is_empty(),
-            "no scheimpflug_intrinsics entries provided to the basin study"
+            "no Scheimpflug planar entries provided to the basin study"
         );
         for entry in entries {
             anyhow::ensure!(
-                entry.problem == ProblemKind::ScheimpflugIntrinsics,
-                "basin study only supports scheimpflug_intrinsics entries, got `{}` ({:?})",
+                entry.is_scheimpflug_planar(),
+                "basin study only supports Scheimpflug planar entries, got `{}` ({:?})",
                 entry.id,
                 entry.problem
             );
@@ -424,7 +424,7 @@ mod tier_b {
                 id: "absent_scheimpflug".into(),
                 visibility: Visibility::Private,
                 tiers: vec![Tier::B],
-                problem: ProblemKind::ScheimpflugIntrinsics,
+                problem: crate::registry::ProblemKind::PlanarIntrinsics,
                 data_root: PathBuf::from("/nonexistent/basin-test-data"),
                 spec: None,
                 detector: None,
@@ -438,6 +438,9 @@ mod tier_b {
                 device_spec: None,
                 accept: Some(AcceptGate {
                     max_per_cam_mean_px: 0.5,
+                }),
+                planar_intrinsics: Some(crate::registry::PlanarIntrinsicsOverride {
+                    sensor: Some(vision_calibration_core::SensorKind::Scheimpflug),
                 }),
                 single_cam_handeye: None,
                 rig_handeye: None,

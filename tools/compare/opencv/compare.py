@@ -147,9 +147,15 @@ class Camera:
         return np.concatenate(errors)
 
 
-def camera_flags(problem: str) -> int:
+def tilted(entry: dict[str, Any]) -> bool:
+    """Whether the entry's config names a Scheimpflug (tilted) sensor."""
+    model = entry.get("config", {}).get("camera", {}).get("model", {})
+    return model.get("sensor") == "scheimpflug"
+
+
+def camera_flags(entry: dict[str, Any]) -> int:
     flags = cv2.CALIB_FIX_K3
-    if problem == "scheimpflug_intrinsics":
+    if tilted(entry):
         # The tilted-sensor model with calibration-rs's Scheimpflug parameter
         # set: the tangential terms held at zero, as they alias with the tilt,
         # and the extra rational and thin-prism terms too.
@@ -177,7 +183,7 @@ def observations(views: list[dict[str, Any]]) -> tuple[list[np.ndarray], list[np
 def planar(entry: dict[str, Any], obs: dict[str, Any]) -> dict[str, Any]:
     size = tuple(obs["cameras"][0]["image_size"])
     views = obs["input"]["views"]
-    cam = Camera(*observations([v["obs"] for v in views]), size, camera_flags(obs["problem"]))
+    cam = Camera(*observations([v["obs"] for v in views]), size, camera_flags(entry))
     method = "calibrateCameraExtended (CALIB_FIX_K3)"
     if cam.flags & cv2.CALIB_TILTED_MODEL:
         method = "calibrateCameraExtended (CALIB_TILTED_MODEL, CALIB_ZERO_TANGENT_DIST, CALIB_FIX_K3)"
@@ -335,7 +341,6 @@ def rig_handeye(entry: dict[str, Any], obs: dict[str, Any]) -> dict[str, Any]:
 
 PROBLEMS = {
     "planar_intrinsics": planar,
-    "scheimpflug_intrinsics": planar,
     "single_cam_handeye": single_cam_handeye,
     "rig_extrinsics": rig_extrinsics,
     "rig_handeye": rig_handeye,

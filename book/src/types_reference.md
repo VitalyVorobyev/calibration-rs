@@ -31,7 +31,10 @@ All based on `nalgebra` with `f64` precision:
 
 | Type | Variants | Used by |
 |------|----------|---------|
-| `DistortionKind` | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1` | `distortion_model` in the planar and Scheimpflug intrinsics configs, and (Brown-Conrady only) the Scheimpflug rig mode |
+| `DistortionKind` | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1` | `camera.model.distortion` in the planar intrinsics config, and (Brown-Conrady only) `distortion_model` of the Scheimpflug rig mode |
+| `SensorKind` | `Identity`, `Scheimpflug` | `camera.model.sensor` in the planar intrinsics config |
+| `CameraModelSpec` | `{ projection, distortion, sensor }` | `camera.model` in the planar intrinsics config |
+| `CameraFix` | `{ intrinsics, projection, distortion, sensor }`, each `Option<Vec<String>>` of parameter names | `camera.fix` in the planar intrinsics config; `None` keeps the model's default |
 | `SensorMode` | `Pinhole`, `Scheimpflug { init_tilt_x, init_tilt_y, fix_scheimpflug, distortion_mask_in_percam_ba, refine_scheimpflug_in_rig_ba, distortion_model }` | `sensor` in `RigExtrinsicsConfig` and `RigHandeyeConfig` (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)) |
 | `RobustLoss` | `None`, `Huber { scale }`, `Cauchy { scale }`, `Arctan { scale }` | `solver.robust_loss` and the laser `calib_loss` / `laser_loss` |
 | `HandEyeMode` | `EyeInHand`, `EyeToHand` | `handeye_init.handeye_mode` |

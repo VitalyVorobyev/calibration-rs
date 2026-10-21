@@ -17,7 +17,7 @@ and units, and a wrong guess yields a plausible-looking, wrong calibration.
 dataset in place: per-camera image sources (glob or list, optional ROI,
 optional laser frames), the target (`TargetSpec`, tagged on `kind`), robot
 poses with a column mapping onto canonical fields, the topology (which of
-the eight problem types), how images pair across cameras and with poses
+the seven problem types), how images pair across cameras and with poses
 (`by_index` or a shared filename token), the pose convention, an optional
 laser-extraction table and, for laser rigs, the frozen upstream
 calibration.

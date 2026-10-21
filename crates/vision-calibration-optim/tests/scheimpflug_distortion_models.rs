@@ -1,11 +1,11 @@
-//! Synthetic ground-truth round-trip tests for the Scheimpflug intrinsics path
+//! Synthetic ground-truth round-trip tests for the planar solve of a Scheimpflug camera
 //! across every distortion model (BrownConrady5, Rational8, ThinPrism9,
 //! Division1).
 //!
 //! Each test builds a Scheimpflug-tilted GT camera (a modest tilt so all board
 //! points stay in-frame), generates noiseless observations, seeds near GT with
 //! the extended distortion coefficients zeroed, runs
-//! [`optimize_scheimpflug_intrinsics`], and asserts a tight reprojection RMS
+//! [`optimize_planar_intrinsics`], and asserts a tight reprojection RMS
 //! (~1e-2 px) plus recovery of the leading barrel coefficient. Brown-Conrady5 is
 //! included as an explicit regression of the default path.
 
@@ -13,14 +13,13 @@
 
 use nalgebra::{Translation3, UnitQuaternion};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraModel, CameraParams, CameraProject, CorrespondenceView,
-    DistortionFixMask, DistortionParams, Division, FxFyCxCy, Iso3, Pinhole, PlanarDataset,
-    ProjectionParams, Pt2, Pt3, RationalPolynomial, ScheimpflugParams, SensorParams, ThinPrism,
-    View,
+    BrownConrady5, Camera, CameraFix, CameraModel, CameraParams, CameraProject, CorrespondenceView,
+    DistortionParams, Division, FxFyCxCy, Iso3, Pinhole, PlanarDataset, ProjectionParams, Pt2, Pt3,
+    RationalPolynomial, ScheimpflugParams, SensorParams, ThinPrism, View,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
-    optimize_scheimpflug_intrinsics,
+    BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    optimize_planar_intrinsics,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,17 +102,19 @@ fn make_dataset<C: CameraProject>(camera: &C, poses: &[Iso3]) -> PlanarDataset {
 }
 
 /// Build the runtime Scheimpflug camera model from a refined parameter pack.
-fn built_camera(params: &ScheimpflugIntrinsicsParams) -> CameraModel {
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: params.distortion.clone(),
-        sensor: SensorParams::Scheimpflug {
-            params: params.sensor,
-        },
-        intrinsics: params.intrinsics,
+fn built_camera(params: &PlanarIntrinsicsParams) -> CameraModel {
+    params
+        .camera
+        .build()
+        .expect("Scheimpflug sensor homography is always invertible")
+}
+
+/// The refined tilt of a Scheimpflug camera.
+fn tilt(params: &PlanarIntrinsicsParams) -> ScheimpflugParams {
+    match params.camera.sensor {
+        SensorParams::Scheimpflug { params } => params,
+        ref other => panic!("expected a Scheimpflug sensor, got {other:?}"),
     }
-    .build()
-    .expect("Scheimpflug sensor homography is always invertible")
 }
 
 /// Mean reprojection RMS for a built camera over the dataset.
@@ -150,31 +151,39 @@ fn seed_intrinsics() -> FxFyCxCy<f64> {
 /// Run the direct joint Scheimpflug solve seeded at GT poses (view 0 fixed for
 /// gauge) and return the refined camera + poses as a built model.
 ///
-/// `fix_distortion` selects which distortion coefficients are free: BC5 uses the
-/// production default (`radial_only`), while the extended-model round trips free
-/// every coefficient (`all_free`) because their GT carries nonzero higher-order
-/// radial / tangential / prism terms that must be recovered.
+/// `fix_distortion` selects which distortion coefficients are fixed: BC5 uses the
+/// model default (`None`: `k3`, `p1`, `p2` fixed), while the extended-model round
+/// trips free every coefficient (`Some(vec![])`) because their GT carries nonzero
+/// higher-order radial / tangential / prism terms that must be recovered.
 fn run_solve(
     dataset: &PlanarDataset,
     seed_distortion: DistortionParams,
-    fix_distortion: DistortionFixMask,
+    fix_distortion: Option<Vec<String>>,
     poses: &[Iso3],
-) -> (ScheimpflugIntrinsicsParams, f64) {
-    let initial = ScheimpflugIntrinsicsParams::new_with_distortion(
-        seed_intrinsics(),
-        seed_distortion,
-        // Seed the tilt near GT (mount angle is known on the supported path).
-        ScheimpflugParams {
-            tilt_x: 0.04,
-            tilt_y: -0.015,
+) -> (PlanarIntrinsicsParams, f64) {
+    let initial = PlanarIntrinsicsParams::new(
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: seed_distortion,
+            // Seed the tilt near GT (mount angle is known on the supported path).
+            sensor: SensorParams::Scheimpflug {
+                params: ScheimpflugParams {
+                    tilt_x: 0.04,
+                    tilt_y: -0.015,
+                },
+            },
+            intrinsics: seed_intrinsics(),
         },
         poses.to_vec(),
     )
     .expect("valid seed");
 
-    let opts = ScheimpflugIntrinsicsSolveOptions {
+    let opts = PlanarIntrinsicsSolveOptions {
         fix_poses: vec![0],
-        fix_distortion,
+        fix: CameraFix {
+            distortion: fix_distortion,
+            ..CameraFix::default()
+        },
         ..Default::default()
     };
     let backend_opts = BackendSolveOptions {
@@ -185,7 +194,7 @@ fn run_solve(
         min_error: Some(1e-16),
         ..Default::default()
     };
-    let est = optimize_scheimpflug_intrinsics(dataset, &initial, opts, backend_opts)
+    let est = optimize_planar_intrinsics(dataset, &initial, opts, backend_opts)
         .expect("scheimpflug solve must succeed");
     let rms = est.mean_reproj_error;
     (est.params, rms)
@@ -217,20 +226,20 @@ fn scheimpflug_bc5_round_trip() {
             ..BrownConrady5::default()
         },
     };
-    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::radial_only(), &poses);
+    let (params, rms) = run_solve(&dataset, seed, None, &poses);
     println!("[scheimpflug BC5] rms={rms:.4e} px");
     assert!(rms < 1e-2, "BC5 reprojection RMS too large: {rms:.4e}");
 
-    let d = params.distortion_bc5();
+    let d = params.distortion().expect("Brown-Conrady result");
     assert!(
         (d.k1 - dist_gt.k1).abs() < 1e-2,
         "k1 not recovered: {}",
         d.k1
     );
     assert!(
-        (params.sensor.tilt_x - sensor.tilt_x).abs() < 1e-2,
+        (tilt(&params).tilt_x - sensor.tilt_x).abs() < 1e-2,
         "tilt_x not recovered: {}",
-        params.sensor.tilt_x
+        tilt(&params).tilt_x
     );
 }
 
@@ -271,7 +280,7 @@ fn scheimpflug_rational8_round_trip() {
             iters: 10,
         },
     };
-    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::all_free(), &poses);
+    let (params, rms) = run_solve(&dataset, seed, Some(Vec::new()), &poses);
     println!("[scheimpflug Rational8] rms={rms:.4e} px");
     assert!(
         rms < 1e-2,
@@ -285,14 +294,17 @@ fn scheimpflug_rational8_round_trip() {
         "Rational8 direct reproj RMS: {rms_check:.4e}"
     );
 
-    if let DistortionParams::Rational { params: p } = &params.distortion {
+    if let DistortionParams::Rational { params: p } = &params.camera.distortion {
         assert!(
             (p.k1 - dist_gt.k1).abs() < 5e-2,
             "k1 not recovered: {}",
             p.k1
         );
     } else {
-        panic!("expected Rational distortion, got {:?}", params.distortion);
+        panic!(
+            "expected Rational distortion, got {:?}",
+            params.camera.distortion
+        );
     }
 }
 
@@ -335,7 +347,7 @@ fn scheimpflug_thinprism9_round_trip() {
             iters: 8,
         },
     };
-    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::all_free(), &poses);
+    let (params, rms) = run_solve(&dataset, seed, Some(Vec::new()), &poses);
     println!("[scheimpflug ThinPrism9] rms={rms:.4e} px");
     assert!(
         rms < 1e-2,
@@ -349,14 +361,17 @@ fn scheimpflug_thinprism9_round_trip() {
         "ThinPrism9 direct reproj RMS: {rms_check:.4e}"
     );
 
-    if let DistortionParams::ThinPrism { params: p } = &params.distortion {
+    if let DistortionParams::ThinPrism { params: p } = &params.camera.distortion {
         assert!(
             (p.k1 - dist_gt.k1).abs() < 5e-2,
             "k1 not recovered: {}",
             p.k1
         );
     } else {
-        panic!("expected ThinPrism distortion, got {:?}", params.distortion);
+        panic!(
+            "expected ThinPrism distortion, got {:?}",
+            params.camera.distortion
+        );
     }
 }
 
@@ -375,7 +390,7 @@ fn scheimpflug_division1_round_trip() {
 
     // lambda=0 is a valid seed (rationalized formula is analytic there).
     let seed = DistortionParams::Division { lambda: 0.0 };
-    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::all_free(), &poses);
+    let (params, rms) = run_solve(&dataset, seed, Some(Vec::new()), &poses);
     println!("[scheimpflug Division1] rms={rms:.4e} px");
     assert!(
         rms < 1e-2,
@@ -389,12 +404,15 @@ fn scheimpflug_division1_round_trip() {
         "Division1 direct reproj RMS: {rms_check:.4e}"
     );
 
-    if let DistortionParams::Division { lambda } = &params.distortion {
+    if let DistortionParams::Division { lambda } = &params.camera.distortion {
         assert!(
             (lambda - lambda_gt).abs() < 1e-2,
             "lambda not recovered: {lambda}"
         );
     } else {
-        panic!("expected Division distortion, got {:?}", params.distortion);
+        panic!(
+            "expected Division distortion, got {:?}",
+            params.camera.distortion
+        );
     }
 }

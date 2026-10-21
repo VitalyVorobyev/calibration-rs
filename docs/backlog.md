@@ -11,45 +11,26 @@ match the ROADMAP; each says its phase. Dependencies are named as
 One camera-model spec and one vocabulary across every problem type. The
 breaking changes of the program happen here, before v1.0.
 
-- [ ] API-CAM-CORE - Core side of ADR 0005; no change in results:
-  - each model implemented once, generic over `T: RealField` with no
-    `Copy` bound, with its metadata (names, dimension, bounds, default
-    fix);
-  - the projection takes the camera-frame point and back-projects to
-    `Ray { origin, direction }`;
-  - skew removed;
-  - the kind enums and `CameraModelSpec` moved into core.
-
-  The optimizer's camera kernels delegate to the core models, and the
-  duplicated math in `optim/src/factors/reprojection_model.rs` goes. Gate:
-  `suite check` and the bench baselines are unchanged.
-- [ ] API-CAM-DISPATCH - Per-slot camera-model dispatch (ADR 0008) in
-  place of the combination table in `optim/src/backend/mod.rs`:
-  - a projection parameter block slot;
-  - the projection threaded through the laser factors' back-projection
-    (pinhole is assumed today).
-
-  Gate: `calib-bench solver` timings within noise of the table dispatch,
-  and the backend parity tests pass. Needs: API-CAM-CORE.
 - [ ] API-CAM-BUILDERS - One optimizer builder per task, written against
   `CameraModelSpec`, with a shared camera-block helper for packing, named
-  fix lists and covariance labels. It replaces the per-sensor builders
-  (`planar_intrinsics`/`scheimpflug_intrinsics`,
-  `rig_extrinsics`/`rig_extrinsics_scheimpflug`, `handeye`/
-  `handeye_scheimpflug`) and the Brown-Conrady hard-typing in the laser
-  bundles. Gate: a synthetic matrix runs every builder with every
-  distortion kind and both sensors at the noise floor. Needs:
-  API-CAM-DISPATCH.
-- [ ] API-CAM-PIPELINE - The pipeline side of ADRs 0005 and 0013:
-  - every config takes `camera: CameraConfig { model, fix }`, and rigs add
+  fix lists and covariance labels. Done for the planar family
+  (`optimize_planar_intrinsics` serves both sensors). Left: the per-sensor
+  rig and hand-eye builders (`rig_extrinsics`/`rig_extrinsics_scheimpflug`,
+  `handeye`/`handeye_scheimpflug`) and the Brown-Conrady hard-typing in
+  the laser bundles. Gate: a synthetic matrix runs every builder with every
+  distortion kind and both sensors at the noise floor.
+- [ ] API-CAM-PIPELINE - The pipeline side of ADRs 0005 and 0013. Done for
+  planar intrinsics: `scheimpflug_intrinsics` is merged into it, and its
+  config takes `camera: CameraConfig { model, fix }`. Left:
+  - rig, hand-eye and laser configs take `camera`, and rigs add
     per-camera overrides;
-  - `scheimpflug_intrinsics` merges into `planar_intrinsics`;
-  - `SensorMode` goes away;
+  - `SensorMode` goes away (rigs resolve an unset `init.fix_tangential` to
+    `false` for either sensor until then);
   - every export carries `CameraParams` per camera.
 
   Python, the app's schemas and forms, the bench and the book follow in
   the same change. Gate: the CHANGELOG migration table, acceptance and
-  suite unchanged. Needs: API-CAM-BUILDERS.
+  suite unchanged. Needs: API-CAM-BUILDERS for each family.
 - [ ] API-VOCAB - One naming scheme, recorded in ADR 0024:
   - one output suffix; today `Estimate`, `Result` and `Output` are all
     used;

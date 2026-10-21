@@ -4,7 +4,7 @@
 //! running detection (cached) on the per-camera images.
 //!
 //! Converters:
-//! - [`build_planar_input`] — `PlanarIntrinsics` / `ScheimpflugIntrinsics`
+//! - [`build_planar_input`] — `PlanarIntrinsics` (any camera model)
 //!   (both consume a `PlanarDataset`).
 //! - [`build_rig_extrinsics_input`] — `RigExtrinsics` (`RigDataset<NoMeta>`).
 //! - [`build_rig_handeye_input`] — `RigHandeye`

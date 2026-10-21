@@ -2,18 +2,17 @@
 
 use serde::{Serialize, de::DeserializeOwned};
 use vision_calibration_pipeline::{
+    common::config::CameraConfig,
     laserline_device::{
         LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
         LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
     },
-    planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem},
+    planar_intrinsics::{
+        PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsExport,
+        PlanarIntrinsicsProblem, PlanarManualInit,
+    },
     rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput},
     rig_handeye::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput},
-    scheimpflug_intrinsics::{
-        ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport,
-        ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
-        ScheimpflugIntrinsicsResult,
-    },
     session::{CalibrationSession, ExportRecord, LogEntry, SessionMetadata},
     single_cam_handeye::{
         HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
@@ -32,24 +31,16 @@ fn session_contract_types_are_serde() {
     assert_json_contract::<LogEntry>();
     assert_json_contract::<ExportRecord<PlanarIntrinsicsExport>>();
     assert_json_contract::<CalibrationSession<PlanarIntrinsicsProblem>>();
-    assert_json_contract::<CalibrationSession<ScheimpflugIntrinsicsProblem>>();
     assert_json_contract::<CalibrationSession<LaserlineDeviceProblem>>();
 }
 
 #[test]
 fn planar_intrinsics_contract_types_are_serde() {
     assert_json_contract::<PlanarIntrinsicsConfig>();
+    assert_json_contract::<CameraConfig>();
+    assert_json_contract::<PlanarManualInit>();
+    assert_json_contract::<PlanarIntrinsicsEstimate>();
     assert_json_contract::<PlanarIntrinsicsExport>();
-}
-
-#[test]
-fn scheimpflug_intrinsics_contract_types_are_serde() {
-    assert_json_contract::<ScheimpflugFixMask>();
-    assert_json_contract::<ScheimpflugIntrinsicsInput>();
-    assert_json_contract::<ScheimpflugIntrinsicsConfig>();
-    assert_json_contract::<ScheimpflugIntrinsicsParams>();
-    assert_json_contract::<ScheimpflugIntrinsicsResult>();
-    assert_json_contract::<ScheimpflugIntrinsicsExport>();
 }
 
 #[test]

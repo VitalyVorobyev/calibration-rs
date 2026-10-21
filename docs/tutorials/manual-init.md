@@ -35,6 +35,7 @@ step_optimize(&mut session, None)?;
 step_init_with_seed(&mut session, PlanarManualInit {
     intrinsics: Some(nominal_camera_k),
     distortion: None,  // auto-initialized (or zeros when intrinsics seeded)
+    sensor: None,      // tilt seed — Scheimpflug camera only (a typed error otherwise)
     poses: None,       // auto-recovered from homographies using manual intrinsics
 }, None)?;
 step_optimize(&mut session, None)?;

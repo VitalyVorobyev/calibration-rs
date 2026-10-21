@@ -17,7 +17,7 @@ plain JSON, other calibration tools can run on exactly the same data.
 | `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | None stated |
 | `ds8` | `rig_handeye` | Three cameras on a Denso arm, 33 of 42 poses with a complete 10×14 chessboard (52 mm) | U.S. public domain |
 | `synth_planar` | `planar_intrinsics` | Synthetic: 20 views of a 13×9 board, 0.5 px noise | CC0 |
-| `synth_scheimpflug` | `scheimpflug_intrinsics` | Synthetic: a tilted sensor, 20 views, 0.5 px noise | CC0 |
+| `synth_scheimpflug` | `planar_intrinsics` | Synthetic: a tilted (Scheimpflug) sensor, 20 views, 0.5 px noise | CC0 |
 | `synth_handeye` | `single_cam_handeye` | Synthetic: eye-in-hand, 20 robot stations, 0.5 px noise | CC0 |
 | `synth_rig` | `rig_extrinsics` | Synthetic: two cameras, intrinsics refined with the rig, 20 views | CC0 |
 | `synth_laserline` | `laserline_device` | Synthetic: one camera and a laser plane, 20 views | CC0 |
@@ -210,7 +210,7 @@ cargo run --release -p vision-calibration-bench --bin calib-bench -- suite compa
 | Problem | OpenCV |
 |---|---|
 | `planar_intrinsics` | `calibrateCameraExtended` with `CALIB_FIX_K3` |
-| `scheimpflug_intrinsics` | the same with `CALIB_TILTED_MODEL` and `CALIB_ZERO_TANGENT_DIST`, the parameters our Scheimpflug model estimates (higher terms fixed) |
+| `planar_intrinsics` with a Scheimpflug sensor | the same with `CALIB_TILTED_MODEL` and `CALIB_ZERO_TANGENT_DIST`, the parameters our Scheimpflug model estimates (higher terms fixed) |
 | `single_cam_handeye` | `calibrateCameraExtended`, then `calibrateRobotWorldHandEye` (Shah) |
 | `rig_extrinsics` | `calibrateCameraExtended` per camera, then `stereoCalibrate` with `CALIB_FIX_INTRINSIC`, or refining the intrinsics when the entry does |
 | `rig_handeye` | per camera as for `single_cam_handeye`; the rig frame is camera 0's |

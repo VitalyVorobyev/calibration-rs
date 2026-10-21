@@ -77,13 +77,14 @@ pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
 
     // Topology: choose the most likely problem type from camera count and
     // pose presence; flag `topology` unresolved when the choice is genuinely
-    // ambiguous (single-cam intrinsics can be pinhole or Scheimpflug; N
-    // cameras without poses can be a rig or N independent mono calibrations).
+    // ambiguous (N cameras without poses can be a rig or N independent mono
+    // calibrations). A single camera's sensor (straight or tilted) is part of
+    // the calibration config, not the topology.
     let n = cameras.len();
     let has_poses = pose.is_some();
     let (topology, topology_ambiguous) = match (n, has_poses) {
         (1, true) => (Topology::SingleCamHandeye, false),
-        (1, false) => (Topology::PlanarIntrinsics, true),
+        (1, false) => (Topology::PlanarIntrinsics, false),
         (_, true) => (Topology::RigHandeye, false),
         (_, false) => (Topology::RigExtrinsics, true),
     };
@@ -554,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn single_camera_no_poses_is_planar_and_ambiguous() {
+    fn single_camera_no_poses_is_planar_intrinsics() {
         let dir = TempDir::new("planar");
         for i in 0..5 {
             dir.touch(&format!("frame_{i}.jpg"));
@@ -564,8 +565,9 @@ mod tests {
         assert_eq!(spec.cameras.len(), 1);
         assert_eq!(cam_glob(&spec, "cam0"), "*.jpg");
         assert_eq!(spec.topology, Topology::PlanarIntrinsics);
-        // Pinhole vs Scheimpflug is undecidable from images.
-        assert!(spec.unresolved.contains(&"topology".to_string()));
+        // The sensor (straight or tilted) is a config choice, so the
+        // topology itself is settled.
+        assert!(!spec.unresolved.contains(&"topology".to_string()));
         // No pose pairing is relevant for single-cam intrinsics.
         assert!(spec.pose_pairing.is_none());
     }

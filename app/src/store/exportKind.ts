@@ -6,7 +6,6 @@ import type {
   RigHandeyeExport,
   RigHandeyeLaserlineExport,
   RigLaserlineDeviceExport,
-  ScheimpflugIntrinsicsExport,
   SingleCamHandeyeExport,
 } from "../types/generated/diagnose-wire";
 
@@ -16,7 +15,6 @@ import type {
  * the pipeline via `bun run generate:types`. */
 export type CalibrationExport =
   | PlanarIntrinsicsExport
-  | ScheimpflugIntrinsicsExport
   | SingleCamHandeyeExport
   | LaserlineDeviceExport
   | RigExtrinsicsExport
@@ -24,7 +22,7 @@ export type CalibrationExport =
   | RigLaserlineDeviceExport
   | RigHandeyeLaserlineExport;
 
-/** Discriminator for the loaded calibration export: the eight wire kinds
+/** Discriminator for the loaded calibration export: the seven wire kinds
  * (from the generated {@link WireExportKind}) plus a UI-only `"unknown"`
  * sentinel for payloads that carry no recognised tag. */
 export type ExportKind = WireExportKind | "unknown";
@@ -38,7 +36,6 @@ export type ExportKind = WireExportKind | "unknown";
  * matching edit here, or the build fails. */
 const WIRE_KIND_LABELS: Record<WireExportKind, string> = {
   planar_intrinsics: "Planar intrinsics",
-  scheimpflug_intrinsics: "Scheimpflug intrinsics",
   single_cam_handeye: "Single-cam hand-eye",
   laserline_device: "Laserline device",
   rig_extrinsics: "Rig extrinsics",

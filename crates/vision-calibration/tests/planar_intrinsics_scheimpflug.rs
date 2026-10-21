@@ -1,16 +1,24 @@
+//! Planar intrinsics with a Scheimpflug camera, through the facade.
+
 #![allow(missing_docs)]
 
 use nalgebra::{Rotation3, Translation3};
 use vision_calibration::core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, PlanarDataset, Pt2, Pt3,
-    ScheimpflugParams, View,
+    BrownConrady5, Camera, CameraFix, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, PlanarDataset,
+    Pt2, Pt3, ScheimpflugParams, SensorKind, View,
 };
 use vision_calibration::optim::RobustLoss;
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
-    ScheimpflugIntrinsicsResult, ScheimpflugManualInit, run_calibration, step_init_with_seed,
-    step_optimize,
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsProblem, PlanarManualInit,
+    run_calibration, step_init_with_seed, step_optimize,
 };
+
+/// The default planar config with a Scheimpflug sensor.
+fn tilted_config() -> PlanarIntrinsicsConfig {
+    let mut config = PlanarIntrinsicsConfig::default();
+    config.camera.model.sensor = SensorKind::Scheimpflug;
+    config
+}
 use vision_calibration::session::CalibrationSession;
 
 fn make_target_points() -> Vec<Pt3> {
@@ -133,11 +141,12 @@ fn make_noisy_dataset(sensor: ScheimpflugParams, noise_px: f64) -> PlanarDataset
 
 fn run_pipeline(
     dataset: &PlanarDataset,
-    config: ScheimpflugIntrinsicsConfig,
-) -> anyhow::Result<ScheimpflugIntrinsicsResult> {
-    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    config: PlanarIntrinsicsConfig,
+) -> anyhow::Result<PlanarIntrinsicsEstimate> {
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_input(dataset.clone())?;
-    run_calibration(&mut session, Some(config))?;
+    session.set_config(config)?;
+    run_calibration(&mut session)?;
     session
         .output()
         .cloned()
@@ -237,7 +246,7 @@ fn make_rtv3d_like_dataset() -> (
     )
 }
 
-/// The **supported** Scheimpflug-intrinsics workflow (ADR 0011): a *coarse*
+/// The **supported** Scheimpflug workflow (ADR 0011): a *coarse*
 /// user-provided focal seed, refined to the true optimum. On this rtv3d-like
 /// strong-tilt + strong-distortion data, from-scratch Zhang lands in a wrong
 /// basin; a coarse focal seed (≈9 % low, principal point at image center, no
@@ -248,21 +257,15 @@ fn make_rtv3d_like_dataset() -> (
 fn seeded_coarse_prior_converges_on_strong_tilt_distortion() {
     let (dataset, gt_intr, _gt_dist, gt_sensor) = make_rtv3d_like_dataset();
 
-    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_input(dataset).expect("input");
+    session.set_config(tilted_config()).expect("config");
 
-    let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.fix_scheimpflug = ScheimpflugFixMask {
-        tilt_x: false,
-        tilt_y: false,
-    };
-    session.set_config(config).expect("config");
-
-    // `ScheimpflugManualInit` is `#[non_exhaustive]`; build via Default + field
+    // `PlanarManualInit` is `#[non_exhaustive]`; build via Default + field
     // assignment. The realistic Scheimpflug prior: a coarse focal (≈9% low, pp at
     // image center) and the nominal mount tilt (≈−5°, a known mechanical spec).
     // distortion/poses stay None (auto). The seeded tilt is trusted directly.
-    let mut seed = ScheimpflugManualInit::default();
+    let mut seed = PlanarManualInit::default();
     seed.intrinsics = Some(FxFyCxCy {
         fx: 1050.0,
         fy: 1050.0,
@@ -315,13 +318,7 @@ fn public_api_converges_on_synthetic_scheimpflug_dataset() {
         tilt_y: -0.008,
     };
     let dataset = make_dataset(sensor_gt);
-    let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.fix_scheimpflug = vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask {
-        tilt_x: false,
-        tilt_y: false,
-    };
-
-    let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
+    let result = run_pipeline(&dataset, tilted_config()).expect("scheimpflug calibration");
     let camera = result.params.camera;
 
     let intrinsics = camera.intrinsics;
@@ -343,12 +340,8 @@ fn public_api_converges_with_deterministic_noise() {
         tilt_y: -0.008,
     };
     let dataset = make_noisy_dataset(sensor_gt, 0.15);
-    let mut config = ScheimpflugIntrinsicsConfig::default();
+    let mut config = tilted_config();
     config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
-    config.fix_scheimpflug = ScheimpflugFixMask {
-        tilt_x: false,
-        tilt_y: false,
-    };
 
     let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
     assert!(result.mean_reproj_error < 2.0);
@@ -366,8 +359,7 @@ fn public_api_rejects_too_few_views() {
     let mut views = make_dataset(ScheimpflugParams::default()).views;
     views.truncate(2);
     let dataset = PlanarDataset::new(views).expect("dataset with 2 views");
-    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsConfig::default())
-        .expect_err("expected validation error");
+    let err = run_pipeline(&dataset, tilted_config()).expect_err("expected validation error");
     assert!(err.to_string().contains("need 3"));
 }
 
@@ -381,15 +373,14 @@ fn public_api_rejects_view_with_too_few_points() {
     )
     .expect("reduced observation");
     dataset.views[0] = View::without_meta(reduced);
-    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsConfig::default())
-        .expect_err("expected validation error");
+    let err = run_pipeline(&dataset, tilted_config()).expect_err("expected validation error");
     assert!(err.to_string().contains("has too few points"));
 }
 
 #[test]
 fn public_api_rejects_invalid_config() {
     let dataset = make_dataset(ScheimpflugParams::default());
-    let mut config = ScheimpflugIntrinsicsConfig::default();
+    let mut config = tilted_config();
     config.init.init_iterations = 0;
     let err = run_pipeline(&dataset, config).expect_err("expected invalid config");
     assert!(err.to_string().contains("init_iterations must be positive"));
@@ -397,25 +388,23 @@ fn public_api_rejects_invalid_config() {
 
 #[test]
 fn scheimpflug_config_json_roundtrip() {
-    let mut config = ScheimpflugIntrinsicsConfig::default();
+    let mut config = tilted_config();
     config.init.init_iterations = 3;
     config.solver.max_iters = 75;
     config.solver.robust_loss = RobustLoss::Cauchy { scale: 0.9 };
-    config.fix_scheimpflug = ScheimpflugFixMask {
-        tilt_x: true,
-        tilt_y: false,
+    config.camera.fix = CameraFix {
+        sensor: Some(vec!["tilt_x".into()]),
+        ..CameraFix::default()
     };
     let json = serde_json::to_string(&config).expect("serialize config");
-    let restored: ScheimpflugIntrinsicsConfig =
-        serde_json::from_str(&json).expect("deserialize config");
+    let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).expect("deserialize config");
     assert_eq!(restored.init.init_iterations, 3);
     assert_eq!(restored.solver.max_iters, 75);
     assert!(matches!(
         restored.solver.robust_loss,
         RobustLoss::Cauchy { scale } if (scale - 0.9).abs() < 1e-12
     ));
-    assert!(restored.fix_scheimpflug.tilt_x);
-    assert!(!restored.fix_scheimpflug.tilt_y);
+    assert_eq!(restored.camera, config.camera);
 }
 
 #[test]
@@ -424,10 +413,9 @@ fn scheimpflug_result_json_roundtrip() {
         tilt_x: 0.008,
         tilt_y: -0.006,
     });
-    let result = run_pipeline(&dataset, ScheimpflugIntrinsicsConfig::default())
-        .expect("scheimpflug calibration");
+    let result = run_pipeline(&dataset, tilted_config()).expect("scheimpflug calibration");
     let json = serde_json::to_string(&result).expect("serialize result");
-    let restored: ScheimpflugIntrinsicsResult =
+    let restored: PlanarIntrinsicsEstimate =
         serde_json::from_str(&json).expect("deserialize result");
     assert!(restored.mean_reproj_error.is_finite());
     assert_eq!(restored.params.camera_se3_target.len(), dataset.num_views());

@@ -21,8 +21,6 @@ use serde::{Deserialize, Serialize};
 pub enum ExportKind {
     /// [`PlanarIntrinsicsExport`](crate::planar_intrinsics::PlanarIntrinsicsExport).
     PlanarIntrinsics,
-    /// [`ScheimpflugIntrinsicsExport`](crate::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport).
-    ScheimpflugIntrinsics,
     /// [`SingleCamHandeyeExport`](crate::single_cam_handeye::SingleCamHandeyeExport).
     SingleCamHandeye,
     /// [`LaserlineDeviceExport`](crate::laserline_device::LaserlineDeviceExport).
@@ -57,7 +55,6 @@ mod tests {
     fn roundtrips_every_variant() {
         for kind in [
             ExportKind::PlanarIntrinsics,
-            ExportKind::ScheimpflugIntrinsics,
             ExportKind::SingleCamHandeye,
             ExportKind::LaserlineDevice,
             ExportKind::RigExtrinsics,

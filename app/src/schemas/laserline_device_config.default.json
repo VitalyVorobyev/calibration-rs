@@ -1,7 +1,6 @@
 {
   "init": {
     "fix_k3": true,
-    "fix_tangential": false,
     "init_iterations": 2
   },
   "optimize": {

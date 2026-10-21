@@ -71,7 +71,6 @@ export type FrameKind = "target" | "laser";
  */
 export type ExportKind =
   | "planar_intrinsics"
-  | "scheimpflug_intrinsics"
   | "single_cam_handeye"
   | "laserline_device"
   | "rig_extrinsics"
@@ -275,7 +274,6 @@ export interface DiagnoseWireTypes {
   rig_handeye_laserline_export?: RigHandeyeLaserlineExport;
   rig_laserline_device_export?: RigLaserlineDeviceExport;
   run_progress?: RunProgress;
-  scheimpflug_intrinsics_export?: ScheimpflugIntrinsicsExport;
   single_cam_handeye_export?: SingleCamHandeyeExport;
 }
 /**
@@ -952,7 +950,8 @@ export interface PlanarIntrinsicsExport {
    */
   mean_reproj_error: number;
   /**
-   * Calibrated parameters.
+   * Calibrated parameters; `params.camera.sensor` states whether a tilted
+   * sensor was calibrated.
    */
   params: PlanarIntrinsicsParams;
   /**
@@ -970,8 +969,9 @@ export interface PlanarIntrinsicsExport {
    */
   report: SolveReport;
   /**
-   * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
-   * the noise level the residuals imply.
+   * Covariance of the calibrated parameters: `fx ± σ` (and `tilt_x ± σ`
+   * for a tilted sensor), correlations, and the noise level the residuals
+   * imply.
    */
   uncertainty?: Uncertainty;
 }
@@ -1450,62 +1450,6 @@ export interface RunProgress {
    * The stage that just started.
    */
   stage: RunStage;
-}
-/**
- * Export format for Scheimpflug intrinsics calibration.
- */
-export interface ScheimpflugIntrinsicsExport {
-  /**
-   * Optional pointer to the source images behind this export. When
-   * populated, downstream viewers (the diagnose UI) can locate the
-   * source image for each view. `None` means "no images shipped";
-   * the calibration pipeline never reads this field.
-   */
-  image_manifest?: ImageManifest | null;
-  /**
-   * Export-type discriminator — always [`ExportKind::ScheimpflugIntrinsics`].
-   */
-  kind: ExportKind;
-  /**
-   * Mean per-point reprojection error in pixels.
-   */
-  mean_reproj_error: number;
-  /**
-   * Estimated parameters.
-   */
-  params: ScheimpflugIntrinsicsParams;
-  /**
-   * Per-camera reprojection errors (single element for single-camera workflows).
-   */
-  per_cam_reproj_errors: number[];
-  /**
-   * Per-feature reprojection residuals. Single-camera, target
-   * only — `laser` is empty; `target_hist_per_camera` is
-   * `Some(vec![one_entry])`.
-   */
-  per_feature_residuals?: PerFeatureResiduals;
-  /**
-   * Backend solve report.
-   */
-  report: SolveReport;
-  /**
-   * Covariance of the calibrated parameters: `fx ± σ`, `tilt_x ± σ`,
-   * correlations, and the noise level the residuals imply.
-   */
-  uncertainty?: Uncertainty;
-}
-/**
- * Output parameter pack for Scheimpflug intrinsics calibration.
- */
-export interface ScheimpflugIntrinsicsParams {
-  /**
-   * Estimated camera model including intrinsics, distortion, and sensor parameters.
-   */
-  camera: CameraParams;
-  /**
-   * Estimated pose `camera_se3_target` for each view.
-   */
-  camera_se3_target: Iso3Schema[];
 }
 /**
  * Export format for single-camera hand-eye calibration.

@@ -14,12 +14,16 @@ design separates problem definition from solver implementation using an intermed
   linearize the problem, selected by `BackendSolveOptions::backend`; sparse
   Cholesky or QR linear solvers
 - **Built-in problems** (`problems::*`):
-  - `planar_intrinsics`, `scheimpflug_intrinsics`: single-camera intrinsics + per-view poses
+  - `planar_intrinsics`: single-camera intrinsics + per-view poses for any camera model,
+    including a tilted (Scheimpflug) sensor, plus a staged multi-start solve for a tilted
+    sensor started without a tilt estimate
   - `rig_extrinsics`, `rig_extrinsics_scheimpflug`: multi-camera rig bundle adjustment (supports missing observations)
   - `handeye`, `handeye_scheimpflug`: rig + robot hand-eye (eye-in-hand / eye-to-hand) with optional robot pose refinement
   - `laserline_bundle`, `laserline_rig_bundle`: laser plane refinement (single camera / rig)
   - `rig_handeye_laserline_bundle`: joint rig + hand-eye + laser plane
-- **Structured parameter fixing** via `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask` (+ per-camera overrides)
+- **Named parameter fixing**: a `CameraFix` lists the parameters held fixed per camera slot
+  (`intrinsics`, `distortion`, `sensor`), validated against the camera model; the multi-camera
+  problems still take `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask` (+ per-camera overrides)
 - **Robust loss functions** (`None`, `Huber`, `Cauchy`, `Arctan`)
 - **Manifold-aware optimization** for SE(3) parameters
 
@@ -49,8 +53,8 @@ Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Doma
 
 ```rust,no_run
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCy, Iso3, PlanarDataset, Pt2,
-    Pt3, View,
+    BrownConrady5, CameraFix, CorrespondenceView, FxFyCxCy, Iso3, PlanarDataset, Pt2, Pt3,
+    View,
 };
 use vision_calibration_optim::{
     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
@@ -75,7 +79,7 @@ let init = PlanarIntrinsicsParams::new_from_components(
 // 3. Configure the solve.
 let opts = PlanarIntrinsicsSolveOptions {
     robust_loss: RobustLoss::Huber { scale: 2.0 },
-    fix_distortion: DistortionFixMask { k3: true, ..Default::default() },
+    fix: CameraFix::default(), // the model's defaults: k3 fixed
     ..Default::default()
 };
 
@@ -93,23 +97,24 @@ above); the integration tests listed under [Examples](#examples) show end-to-end
 
 ## Parameter Fixing
 
-Selectively fix parameters during optimization:
+Name the parameters to hold fixed, per camera slot. A slot left `None` keeps
+the camera model's default (`k3` for Brown-Conrady; everything but `k1`, `k2`
+under a Scheimpflug sensor); an explicit list replaces it, and an unknown name
+is an error before any work:
 
 ```rust
-use vision_calibration_core::{DistortionFixMask, IntrinsicsFixMask};
+use vision_calibration_core::CameraFix;
 use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
 
+let names = |n: &[&str]| Some(n.iter().map(|s| s.to_string()).collect());
 let opts = PlanarIntrinsicsSolveOptions {
-    // Fix intrinsics, optimize only distortion
-    fix_intrinsics: IntrinsicsFixMask::all_fixed(),
-
-    // Fix tangential distortion, keep k3 fixed (default)
-    fix_distortion: DistortionFixMask {
-        p1: true,
-        p2: true,
-        ..Default::default()
+    fix: CameraFix {
+        // Fix intrinsics, optimize only distortion
+        intrinsics: names(&["fx", "fy", "cx", "cy"]),
+        // Fix k3 and tangential distortion
+        distortion: names(&["k3", "p1", "p2"]),
+        ..CameraFix::default()
     },
-
     ..Default::default()
 };
 ```

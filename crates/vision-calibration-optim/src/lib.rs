@@ -32,7 +32,7 @@
 //! ## Basic Planar Intrinsics Calibration
 //!
 //! ```rust,no_run
-//! use vision_calibration_core::{BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCy, Iso3, PlanarDataset, Pt2, Pt3, View};
+//! use vision_calibration_core::{BrownConrady5, CameraFix, CorrespondenceView, FxFyCxCy, Iso3, PlanarDataset, Pt2, Pt3, View};
 //! use vision_calibration_optim::{
 //!     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
 //!     PlanarIntrinsicsSolveOptions, RobustLoss,
@@ -78,7 +78,8 @@
 //! // 3. Configure optimization
 //! let opts = PlanarIntrinsicsSolveOptions {
 //!     robust_loss: RobustLoss::Huber { scale: 2.0 },
-//!     fix_distortion: DistortionFixMask { k3: true, ..Default::default() }, // Fix k3 to prevent overfitting
+//!     // The model's defaults: k3 held fixed to prevent overfitting.
+//!     fix: CameraFix::default(),
 //!     ..Default::default()
 //! };
 //!
@@ -106,14 +107,18 @@
 //!
 //! ## Flexible Parameter Fixing
 //!
-//! Use \[`ir::FixedMask`\] to selectively fix optimization variables:
+//! Name the camera parameters to hold fixed, per slot. A slot left `None`
+//! keeps the camera model's default; an explicit list replaces it:
 //!
 //! ```rust
 //! # use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
-//! # use vision_calibration_core::{DistortionFixMask, IntrinsicsFixMask};
+//! # use vision_calibration_core::CameraFix;
 //! let opts = PlanarIntrinsicsSolveOptions {
-//!     fix_intrinsics: IntrinsicsFixMask { fx: true, ..Default::default() }, // Fix focal length
-//!     fix_distortion: DistortionFixMask { p1: true, p2: true, ..Default::default() }, // Fix tangential distortion
+//!     fix: CameraFix {
+//!         intrinsics: Some(vec!["fx".into()]),                     // fix the focal length
+//!         distortion: Some(vec!["k3".into(), "p1".into(), "p2".into()]), // and k3 + tangential
+//!         ..CameraFix::default()
+//!     },
 //!     ..Default::default()
 //! };
 //! ```
@@ -170,13 +175,11 @@ pub use crate::params::laser_plane::LaserPlane;
 pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};
 
 pub use crate::problems::planar_intrinsics::{
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
     optimize_planar_intrinsics,
 };
 pub use crate::problems::scheimpflug_intrinsics::{
-    ScheimpflugBounds, ScheimpflugFixMask, ScheimpflugIntrinsicsEstimate,
-    ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions, ScheimpflugStagedInitOptions,
-    optimize_scheimpflug_intrinsics, optimize_scheimpflug_intrinsics_staged,
+    ScheimpflugFixMask, ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
 };
 
 pub use crate::problems::handeye::{

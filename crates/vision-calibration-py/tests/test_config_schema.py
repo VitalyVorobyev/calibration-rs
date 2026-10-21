@@ -2,13 +2,12 @@
 
 These pin the ``to_payload()`` shape of the new/changed calibration configs to
 what the Rust ``serde`` derives expect. The failure mode they guard against is
-silent drift: because the Rust config structs do **not** use
-``#[serde(deny_unknown_fields)]``, a mis-named Python payload key would be
-ignored and the field would fall back to its Rust default — a wrong result with
-no error. Each key name and default value asserted here was read off the Rust
+silent drift: a mis-named Python payload key must not be ignored so that the
+field falls back to its Rust default — a wrong result with no error. Each key name and default value asserted here was read off the Rust
 source of truth:
 
-* ``common/config.rs`` — ``default_distortion_kind`` (``BrownConrady5``).
+* ``PlanarIntrinsicsConfig`` — grouped ``init`` / ``solver`` / ``camera``
+  (model + named fix lists) / ``fix_poses``; ``max_iters`` defaults to 120.
 * ``vision-calibration-optim`` ``DistortionKind`` — ``#[serde(rename_all =
   "snake_case")]``.
 * ``rig_family.rs`` ``SensorMode`` — ``#[serde(tag = "kind")]`` (internally
@@ -38,37 +37,52 @@ class DistortionModelSchemaTest(unittest.TestCase):
             {"none", "brown_conrady5", "rational8", "thin_prism9", "division1"},
         )
 
-    def test_planar_default_distortion_model_is_brown_conrady5(self) -> None:
+    def test_planar_default_payload_shape(self) -> None:
         payload = vc.PlanarCalibrationConfig().to_payload()
-        self.assertEqual(payload["distortion_model"], "brown_conrady5")
-        # The new key sits at top level next to the pre-existing grouped keys.
+        self.assertEqual(set(payload), {"init", "solver", "camera", "fix_poses"})
         self.assertEqual(
-            set(payload),
-            {"init", "solver", "distortion_model", "fix_camera", "fix_poses"},
+            payload["camera"],
+            {
+                "model": {
+                    "projection": "pinhole",
+                    "distortion": "brown_conrady5",
+                    "sensor": "identity",
+                },
+                "fix": {},
+            },
         )
+        # Planar solves default to 120 iterations (the tilt valley needs headroom).
+        self.assertEqual(payload["solver"]["max_iters"], 120)
 
-    def test_planar_distortion_model_roundtrips_each_model(self) -> None:
+    def test_init_omits_unset_fix_tangential(self) -> None:
+        self.assertNotIn("fix_tangential", vc.IntrinsicsInitConfig().to_payload())
+        explicit = vc.IntrinsicsInitConfig(fix_tangential=False).to_payload()
+        self.assertIs(explicit["fix_tangential"], False)
+
+    def test_planar_distortion_roundtrips_each_model(self) -> None:
         for model in ("none", "brown_conrady5", "rational8", "thin_prism9", "division1"):
-            cfg = vc.PlanarCalibrationConfig(distortion_model=model)  # type: ignore[arg-type]
+            cfg = vc.PlanarCalibrationConfig(
+                camera=vc.CameraConfig(model=vc.CameraModelSpec(distortion=model))  # type: ignore[arg-type]
+            )
             payload = cfg.to_payload()
-            self.assertEqual(payload["distortion_model"], model)
+            self.assertEqual(payload["camera"]["model"]["distortion"], model)
             restored = vc.PlanarCalibrationConfig.from_mapping(payload)
-            self.assertEqual(restored.distortion_model, model)
+            self.assertEqual(restored.camera.model.distortion, model)
 
-    def test_scheimpflug_default_payload_shape(self) -> None:
-        payload = vc.ScheimpflugIntrinsicsCalibrationConfig().to_payload()
-        self.assertEqual(payload["distortion_model"], "brown_conrady5")
-        # Scheimpflug overrides the shared camera-fix default to `radial_only`.
-        self.assertEqual(payload["fix_camera"]["distortion"], _RADIAL_ONLY)
-        # `ScheimpflugFixMask::default()` frees both tilt axes.
-        self.assertEqual(payload["fix_scheimpflug"], {"tilt_x": False, "tilt_y": False})
+    def test_camera_fix_payload_omits_unset_slots(self) -> None:
+        fix = vc.CameraFix(distortion=["k1"], sensor=[])
+        self.assertEqual(fix.to_payload(), {"distortion": ["k1"], "sensor": []})
+        self.assertEqual(vc.CameraFix.from_payload(fix.to_payload()).to_payload(), fix.to_payload())
 
-    def test_scheimpflug_distortion_model_roundtrips(self) -> None:
-        cfg = vc.ScheimpflugIntrinsicsCalibrationConfig(distortion_model="thin_prism9")
-        payload = cfg.to_payload()
-        self.assertEqual(payload["distortion_model"], "thin_prism9")
-        restored = vc.ScheimpflugIntrinsicsCalibrationConfig.from_mapping(payload)
-        self.assertEqual(restored.distortion_model, "thin_prism9")
+    def test_camera_config_rejects_unknown_fields(self) -> None:
+        with self.assertRaises(ValueError):
+            vc.CameraConfig.from_payload({"bogus": 1})
+        with self.assertRaises(ValueError):
+            vc.CameraModelSpec.from_payload({"bogus": 1})
+        with self.assertRaises(ValueError):
+            vc.CameraFix.from_payload({"bogus": []})
+        with self.assertRaises(ValueError):
+            vc.PlanarCalibrationConfig.from_mapping({"distortion_model": "none"})
 
 
 class SensorModeSchemaTest(unittest.TestCase):

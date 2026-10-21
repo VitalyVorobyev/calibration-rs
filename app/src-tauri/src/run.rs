@@ -53,10 +53,6 @@ use vision_calibration::rig_laserline_device::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
     run_calibration as run_rig_laserline_device_calibration,
 };
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
-    run_calibration as run_scheimpflug_calibration,
-};
 use vision_calibration::session::{CalibrationSession, ProblemType};
 use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeConfig, SingleCamHandeyeProblem,
@@ -292,7 +288,6 @@ pub fn cancel_run_cmd(run_id: String, registry: State<'_, RunRegistry>) -> bool 
 pub fn default_config_cmd(topology: String) -> Result<serde_json::Value, String> {
     let value = match topology.as_str() {
         "planar_intrinsics" => serde_json::to_value(PlanarIntrinsicsConfig::default()),
-        "scheimpflug_intrinsics" => serde_json::to_value(ScheimpflugIntrinsicsConfig::default()),
         "single_cam_handeye" => serde_json::to_value(SingleCamHandeyeConfig::default()),
         "laserline_device" => serde_json::to_value(LaserlineDeviceConfig::default()),
         "rig_extrinsics" => serde_json::to_value(RigExtrinsicsConfig::default()),
@@ -337,15 +332,6 @@ fn run_blocking(
             started,
             ctx,
             run_planar_calibration,
-        ),
-        Topology::ScheimpflugIntrinsics => run_planar_topology::<ScheimpflugIntrinsicsProblem>(
-            &spec,
-            config_json,
-            base_dir,
-            &detection_cache,
-            started,
-            ctx,
-            |session| run_scheimpflug_calibration(session, None),
         ),
         Topology::RigExtrinsics => run_rig_topology::<RigExtrinsicsProblem, _>(
             &spec,
@@ -1221,7 +1207,6 @@ mod tests {
     fn default_config_round_trips_per_topology() {
         for topology in [
             "planar_intrinsics",
-            "scheimpflug_intrinsics",
             "single_cam_handeye",
             "laserline_device",
             "rig_extrinsics",

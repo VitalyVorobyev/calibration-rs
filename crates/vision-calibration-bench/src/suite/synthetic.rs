@@ -31,7 +31,7 @@ pub fn synthesize(scene_id: &str) -> Result<(ObservationSet, Truth)> {
     let scene = Scene::build(&spec)?;
     let input = match scene.data.clone() {
         SceneData::Planar { input, .. } => ProblemInput::PlanarIntrinsics(input),
-        SceneData::Scheimpflug { input, .. } => ProblemInput::ScheimpflugIntrinsics(input),
+        SceneData::Scheimpflug { input, .. } => ProblemInput::PlanarIntrinsics(input),
         SceneData::SingleCamHandeye { input, .. } => ProblemInput::SingleCamHandeye(input),
         SceneData::Laserline { input, .. } => ProblemInput::LaserlineDevice(input),
         SceneData::Rig { input, .. } => ProblemInput::RigExtrinsics(input),

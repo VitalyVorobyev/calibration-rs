@@ -20,8 +20,10 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCy, Iso3, Mat3, NoMeta,
-    PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams, View, make_pinhole_camera,
+    BrownConrady5, CameraFix, CameraModelSpec, CameraParams, CorrespondenceView, DistortionFixMask,
+    DistortionParams, FxFyCxCy, IntrinsicsFixMask, Iso3, Mat3, NoMeta, PinholeCamera,
+    PlanarDataset, ProjectionParams, Pt2, Real, ScheimpflugParams, SensorKind, SensorParams, View,
+    make_pinhole_camera,
 };
 use vision_calibration_linear::prelude::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
@@ -31,7 +33,7 @@ use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
     ScheimpflugIntrinsicsLinearInit, estimate_scheimpflug_intrinsics_iterative,
 };
-use vision_calibration_optim::{DistortionKind, ScheimpflugFixMask};
+use vision_calibration_optim::{DistortionKind, PlanarIntrinsicsParams, ScheimpflugFixMask};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sensor mode (public — re-exported by rig_extrinsics and rig_handeye)
@@ -574,6 +576,95 @@ pub(crate) fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
         (false, true) => format!("(manual: {})", manual.join(", ")),
         (true, false) => format!("(auto: {})", auto.join(", ")),
         (true, true) => "(empty)".to_string(),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-camera planar solves of rig cameras
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The camera model of a rig camera: pinhole, Brown-Conrady, with or without
+/// a Scheimpflug sensor (rigs are Brown-Conrady throughout).
+pub(crate) fn rig_camera_model(tilted: bool) -> CameraModelSpec {
+    let sensor = if tilted {
+        SensorKind::Scheimpflug
+    } else {
+        SensorKind::Identity
+    };
+    CameraModelSpec::pinhole(DistortionKind::BrownConrady5, sensor)
+}
+
+/// Planar-solve parameters of a tilted rig camera.
+///
+/// # Errors
+///
+/// [`Error`] when `camera_se3_target` is empty.
+pub(crate) fn tilted_planar_params(
+    intrinsics: FxFyCxCy<Real>,
+    distortion: BrownConrady5<Real>,
+    sensor: ScheimpflugParams,
+    camera_se3_target: Vec<Iso3>,
+) -> Result<PlanarIntrinsicsParams, Error> {
+    Ok(PlanarIntrinsicsParams::new(
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 { params: distortion },
+            sensor: SensorParams::Scheimpflug { params: sensor },
+            intrinsics,
+        },
+        camera_se3_target,
+    )?)
+}
+
+/// The Brown-Conrady coefficients of a rig camera's planar solve (zero for
+/// any other distortion, which rigs never configure).
+pub(crate) fn rig_distortion(params: &PlanarIntrinsicsParams) -> BrownConrady5<Real> {
+    match &params.camera.distortion {
+        DistortionParams::BrownConrady5 { params } => *params,
+        _ => BrownConrady5::default(),
+    }
+}
+
+/// The sensor tilt of a rig camera's planar solve (zero for an untilted
+/// camera).
+pub(crate) fn rig_tilt(params: &PlanarIntrinsicsParams) -> ScheimpflugParams {
+    match params.camera.sensor {
+        SensorParams::Scheimpflug { params } => params,
+        SensorParams::Identity | SensorParams::Homography { .. } => ScheimpflugParams::default(),
+    }
+}
+
+/// The named fix lists of a rig camera's Brown-Conrady masks.
+pub(crate) fn rig_camera_fix(
+    intrinsics: IntrinsicsFixMask,
+    distortion: DistortionFixMask,
+    tilt: ScheimpflugFixMask,
+) -> CameraFix {
+    let names = |flags: &[(bool, &str)]| {
+        Some(
+            flags
+                .iter()
+                .filter(|(fixed, _)| *fixed)
+                .map(|(_, name)| name.to_string())
+                .collect(),
+        )
+    };
+    CameraFix {
+        intrinsics: names(&[
+            (intrinsics.fx, "fx"),
+            (intrinsics.fy, "fy"),
+            (intrinsics.cx, "cx"),
+            (intrinsics.cy, "cy"),
+        ]),
+        projection: Some(Vec::new()),
+        distortion: names(&[
+            (distortion.k1, "k1"),
+            (distortion.k2, "k2"),
+            (distortion.k3, "k3"),
+            (distortion.p1, "p1"),
+            (distortion.p2, "p2"),
+        ]),
+        sensor: names(&[(tilt.tilt_x, "tilt_x"), (tilt.tilt_y, "tilt_y")]),
     }
 }
 

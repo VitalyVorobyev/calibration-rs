@@ -43,7 +43,7 @@ enum Command {
     /// Run deterministic diagnostic sweeps.
     Diagnose(DiagnoseArgs),
     /// Convergence-basin study for the seeded Scheimpflug init:
-    /// perturb every registered `scheimpflug_intrinsics` entry's
+    /// perturb every registered Scheimpflug planar entry's
     /// device-spec seed over a structured grid and report the gate
     /// pass-rate per cell, per dataset family. Never wired into CI.
     Basin(BasinArgs),
@@ -162,7 +162,7 @@ struct BasinArgs {
     /// `registry/public.json` plus `registry/private.json` when present.
     #[arg(long)]
     registry: Vec<PathBuf>,
-    /// Only sweep these `scheimpflug_intrinsics` dataset ids (repeat or
+    /// Only sweep these Scheimpflug planar dataset ids (repeat or
     /// comma-separate). Defaults to every registered entry.
     #[arg(long, value_delimiter = ',')]
     only: Vec<String>,
@@ -501,7 +501,7 @@ fn cmd_accept(args: &AcceptArgs) -> Result<()> {
     Ok(())
 }
 
-/// Load, filter (`--only`), and filesystem-resolve the `scheimpflug_intrinsics`
+/// Load, filter (`--only`), and filesystem-resolve the Scheimpflug planar
 /// entries the `basin` subcommand sweeps. Mirrors `cmd_accept`'s registry
 /// loading + `--only` handling.
 fn load_basin_entries(args: &BasinArgs) -> Result<Vec<BenchEntry>> {
@@ -517,10 +517,10 @@ fn load_basin_entries(args: &BasinArgs) -> Result<Vec<BenchEntry>> {
             load_registry(path).with_context(|| format!("load registry {}", path.display()))?;
         entries.extend(registry.datasets);
     }
-    entries.retain(|e| e.problem == ProblemKind::ScheimpflugIntrinsics);
+    entries.retain(BenchEntry::is_scheimpflug_planar);
     anyhow::ensure!(
         !entries.is_empty(),
-        "no scheimpflug_intrinsics datasets registered in {}",
+        "no Scheimpflug planar datasets registered in {}",
         registries
             .iter()
             .map(|p| p.display().to_string())
@@ -533,7 +533,7 @@ fn load_basin_entries(args: &BasinArgs) -> Result<Vec<BenchEntry>> {
         for id in &args.only {
             anyhow::ensure!(
                 known.contains(&id.as_str()),
-                "--only id `{id}` is not a registered scheimpflug_intrinsics dataset (known: {})",
+                "--only id `{id}` is not a registered Scheimpflug planar dataset (known: {})",
                 known.join(", ")
             );
         }
@@ -541,7 +541,7 @@ fn load_basin_entries(args: &BasinArgs) -> Result<Vec<BenchEntry>> {
     }
     anyhow::ensure!(
         !entries.is_empty(),
-        "no scheimpflug_intrinsics datasets selected for the basin study"
+        "no Scheimpflug planar datasets selected for the basin study"
     );
 
     Ok(entries.into_iter().map(resolve_entry_data_root).collect())
@@ -666,8 +666,10 @@ fn run_dataset_record(entry: &BenchEntry) -> Result<BenchRecord> {
     let entry = resolve_entry_data_root(entry.clone());
 
     let mut record = match entry.problem {
+        ProblemKind::PlanarIntrinsics if entry.is_scheimpflug_planar() => {
+            run_scheimpflug_intrinsics(&entry)?
+        }
         ProblemKind::PlanarIntrinsics => run_planar_intrinsics(&entry)?,
-        ProblemKind::ScheimpflugIntrinsics => run_scheimpflug_intrinsics(&entry)?,
         ProblemKind::RigExtrinsics => run_rig_extrinsics(&entry)?,
         ProblemKind::SingleCamHandeye => run_single_cam_handeye(&entry)?,
         ProblemKind::RigHandeye => run_rig_handeye(&entry)?,

@@ -155,8 +155,9 @@ pub struct SingleCamHandeyeConfig {
 
 All four groups keep their shared workspace defaults —
 `SingleCamHandeyeConfig` is the one problem type that needs no
-per-problem override (unlike, say, `ScheimpflugIntrinsicsConfig`, which
-bumps `solver.max_iters` to 120 and flips two `init` defaults). See
+per-problem override (unlike, say, `PlanarIntrinsicsConfig`, which
+raises `solver.max_iters` to 120 and whose `init.fix_tangential` default
+follows the camera's sensor). See
 [distortion model selection](./distortion-model-selection.md) for the
 `IntrinsicsInitConfig` fields in more depth.
 

@@ -106,10 +106,10 @@ class ResultUncertaintyTest(unittest.TestCase):
         # The fixture camera has no tilt, and its views do not separate a
         # sensor tilt from a principal-point shift: the result names them
         # instead of reporting a meaningless covariance.
-        result = vc.run_scheimpflug_intrinsics(
+        result = vc.run_planar_intrinsics(
             planar_calibration_dataset(8),
-            vc.ScheimpflugIntrinsicsCalibrationConfig(
-                fix_scheimpflug={"tilt_x": False, "tilt_y": False}
+            vc.PlanarCalibrationConfig(
+                camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug"))
             ),
         )
         u = result.uncertainty

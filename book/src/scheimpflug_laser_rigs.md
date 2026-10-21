@@ -4,40 +4,36 @@ Four pieces extend the basic workflows to tilted-sensor cameras and laser-triang
 
 | Piece | Solves |
 |-------|--------|
-| `ScheimpflugIntrinsicsProblem` | Single-camera intrinsics, distortion, and sensor tilt from planar views |
+| `PlanarIntrinsicsProblem` with a Scheimpflug sensor | Single-camera intrinsics, distortion, and sensor tilt from planar views |
 | `SensorMode` | Selects a pinhole or Scheimpflug camera for the rig problems |
 | `RigLaserlineDeviceProblem` | One laser plane per camera of an already-calibrated rig |
 | `RigHandeyeLaserlineProblem` | Rig, hand-eye, and laser planes jointly |
 
 See [Sensor Models and Scheimpflug Tilt](sensor.md) for the tilt model and [Laserline Device Calibration](laserline.md) for the single-camera laser problem.
 
-## ScheimpflugIntrinsics
+## Single Tilted Camera
 
-Same input as [Planar Intrinsics](planar_intrinsics.md) (`PlanarDataset`), with two extra parameters: the sensor tilt angles $(\tau_x, \tau_y)$.
-
-```rust
-pub struct ScheimpflugIntrinsicsConfig {
-    pub init: IntrinsicsInitConfig,
-    pub solver: SolverConfig,
-    pub distortion_model: DistortionKind,     // default BrownConrady5
-    pub fix_camera: CameraFixMask,
-    pub fix_scheimpflug: ScheimpflugFixMask,  // { tilt_x, tilt_y }
-    pub fix_poses: Vec<usize>,                // default []
-}
-```
-
-Tilt, focal length, and distortion are strongly coupled, so seed a coarse prior (the nominal focal length and the nominal mount tilt) instead of relying on the from-scratch initialization:
+A single tilted camera is calibrated by [Planar Intrinsics](planar_intrinsics.md)
+with `camera.model.sensor = SensorKind::Scheimpflug`: same input
+(`PlanarDataset`), two extra parameters, the sensor tilt angles
+$(\tau_x, \tau_y)$. Tilt, focal length, and distortion are strongly coupled,
+so seed a coarse prior (the nominal focal length and the nominal mount tilt)
+instead of relying on the from-scratch initialization:
 
 ```rust
-use vision_calibration::core::{FxFyCxCy, ScheimpflugParams};
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugIntrinsicsProblem, ScheimpflugManualInit, step_init_with_seed, step_optimize,
+use vision_calibration::core::{FxFyCxCy, ScheimpflugParams, SensorKind};
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, PlanarManualInit, step_init_with_seed,
+    step_optimize,
 };
 
-let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+let mut config = PlanarIntrinsicsConfig::default();
+config.camera.model.sensor = SensorKind::Scheimpflug;
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_config(config)?;
 session.set_input(dataset)?; // PlanarDataset
 
-let mut seed = ScheimpflugManualInit::default();
+let mut seed = PlanarManualInit::default();
 seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 360.0, cy: 270.0 });
 seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 });
 
@@ -46,7 +42,7 @@ step_optimize(&mut session, None)?;
 let export = session.export()?;
 ```
 
-`run_calibration(&mut session, Some(config))` runs the unseeded `step_init` and `step_optimize` in one call.
+`run_calibration(&mut session)` runs the unseeded `step_init` and `step_optimize` in one call. The [Planar Intrinsics](planar_intrinsics.md#tilted-scheimpflug-sensor) chapter describes the seeded and cold-start solves.
 
 ## SensorMode for Rigs
 
@@ -54,7 +50,7 @@ let export = session.export()?;
 
 ```rust
 use vision_calibration::core::DistortionFixMask;
-use vision_calibration::optim::DistortionKind;
+use vision_calibration::core::DistortionKind;
 use vision_calibration::rig_extrinsics::SensorMode;
 
 session.update_config(|c| {
@@ -133,5 +129,5 @@ As in the single-camera laser problem, calibration and laser residuals use separ
 ## Examples
 
 - Rust: `cargo run -p vision-calibration --example laserline_device_session` (single-camera laser plane with a Scheimpflug-capable sensor) and `cargo run -p vision-calibration --example rig_handeye_synthetic` (the rig hand-eye stage that feeds the rig laser problems).
-- Rust tests showing seeded Scheimpflug calibration: `crates/vision-calibration/tests/scheimpflug_intrinsics.rs`.
-- Python: `crates/vision-calibration-py/examples/laserline_device_session.py` and `rig_handeye_synthetic.py`; the package also exposes `run_scheimpflug_intrinsics`, `run_rig_laserline_device`, and `run_rig_handeye_laserline`.
+- Rust tests showing seeded Scheimpflug calibration: `crates/vision-calibration/tests/planar_intrinsics_scheimpflug.rs`.
+- Python: `crates/vision-calibration-py/examples/laserline_device_session.py` and `rig_handeye_synthetic.py`; a tilted single camera runs through `run_planar_intrinsics` with `camera.model.sensor = "scheimpflug"`, and the package also exposes `run_rig_laserline_device` and `run_rig_handeye_laserline`.

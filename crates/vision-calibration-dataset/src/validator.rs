@@ -323,10 +323,9 @@ fn topology_camera_range(t: Topology) -> (usize, usize) {
         // Single-camera topologies must have exactly one camera; an
         // extra camera in the manifest is almost always a user mistake
         // (wrong topology selected, leftover entry from a copy-paste).
-        Topology::PlanarIntrinsics
-        | Topology::ScheimpflugIntrinsics
-        | Topology::SingleCamHandeye
-        | Topology::LaserlineDevice => (1, 1),
+        Topology::PlanarIntrinsics | Topology::SingleCamHandeye | Topology::LaserlineDevice => {
+            (1, 1)
+        }
         // Rig topologies need at least two cameras; the upper bound is
         // unconstrained (puzzle 130×130 ships with 6).
         Topology::RigExtrinsics

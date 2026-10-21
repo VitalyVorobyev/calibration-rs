@@ -19,7 +19,6 @@ use vision_calibration_pipeline::rig_extrinsics::{self, RigExtrinsicsProblem};
 use vision_calibration_pipeline::rig_handeye::{self, RigHandeyeProblem};
 use vision_calibration_pipeline::rig_handeye_laserline::{self, RigHandeyeLaserlineProblem};
 use vision_calibration_pipeline::rig_laserline_device::{self, RigLaserlineDeviceProblem};
-use vision_calibration_pipeline::scheimpflug_intrinsics::{self, ScheimpflugIntrinsicsProblem};
 use vision_calibration_pipeline::session::{CalibrationSession, ProblemType};
 use vision_calibration_pipeline::single_cam_handeye::{self, SingleCamHandeyeProblem};
 
@@ -59,10 +58,9 @@ pub struct ObservedCamera {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "problem", content = "input", rename_all = "snake_case")]
 pub enum ProblemInput {
-    /// Planar intrinsics of one camera.
+    /// Planar intrinsics of one camera (any camera model; the entry's config
+    /// names the sensor).
     PlanarIntrinsics(<PlanarIntrinsicsProblem as ProblemType>::Input),
-    /// Scheimpflug intrinsics of one camera.
-    ScheimpflugIntrinsics(<ScheimpflugIntrinsicsProblem as ProblemType>::Input),
     /// Hand-eye calibration of one camera.
     SingleCamHandeye(<SingleCamHandeyeProblem as ProblemType>::Input),
     /// One camera plus a laser plane.
@@ -82,7 +80,6 @@ impl ProblemInput {
     pub fn problem_name(&self) -> &'static str {
         match self {
             Self::PlanarIntrinsics(_) => "planar_intrinsics",
-            Self::ScheimpflugIntrinsics(_) => "scheimpflug_intrinsics",
             Self::SingleCamHandeye(_) => "single_cam_handeye",
             Self::LaserlineDevice(_) => "laserline_device",
             Self::RigExtrinsics(_) => "rig_extrinsics",
@@ -115,13 +112,6 @@ impl ProblemInput {
                 overrides,
                 backend,
                 planar_intrinsics::run_calibration,
-            ),
-            Self::ScheimpflugIntrinsics(input) => calibrate::<ScheimpflugIntrinsicsProblem>(
-                name,
-                input,
-                overrides,
-                backend,
-                |session| scheimpflug_intrinsics::run_calibration(session, None),
             ),
             Self::SingleCamHandeye(input) => calibrate::<SingleCamHandeyeProblem>(
                 name,

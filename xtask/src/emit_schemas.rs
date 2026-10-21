@@ -27,7 +27,6 @@ use vision_calibration_pipeline::rig_extrinsics::RigExtrinsicsConfig;
 use vision_calibration_pipeline::rig_handeye::RigHandeyeConfig;
 use vision_calibration_pipeline::rig_handeye_laserline::RigHandeyeLaserlineConfig;
 use vision_calibration_pipeline::rig_laserline_device::RigLaserlineDeviceConfig;
-use vision_calibration_pipeline::scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig;
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
 
 pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
@@ -38,7 +37,6 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
     let entries: Vec<(&str, Value, Option<Value>)> = vec![
         ("dataset_spec", schema_value::<DatasetSpec>(), None),
         entry::<PlanarIntrinsicsConfig>("planar_intrinsics_config"),
-        entry::<ScheimpflugIntrinsicsConfig>("scheimpflug_intrinsics_config"),
         entry::<SingleCamHandeyeConfig>("single_cam_handeye_config"),
         entry::<LaserlineDeviceConfig>("laserline_device_config"),
         entry::<RigExtrinsicsConfig>("rig_extrinsics_config"),
