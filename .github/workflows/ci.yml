@@ -22,12 +22,20 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Pull requests restore main's cache but do not save their own: saving
+      # costs minutes on Windows and a PR's cache is rarely reused.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # Formatting, lints, generated files and docs are platform-independent,
+      # so they run on Linux only; tests run on every OS.
       - name: Cargo fmt
+        if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --all --check
 
       - name: Cargo clippy
+        if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Cargo test
@@ -38,14 +46,17 @@ jobs:
       # `app/src/schemas/` stale and the form loses (or keeps) a field.
       # Counterpart of the `app-src-tauri` job's wire-type schema check.
       - name: Check generated config schemas are up to date
+        if: matrix.os == 'ubuntu-latest'
         run: cargo run -p xtask -- emit-schemas --check
 
       # User-facing docs (READMEs, book, tutorials, CHANGELOG, published
       # rustdoc, the Python package) must not cite internal material.
       - name: Check user-facing docs
+        if: matrix.os == 'ubuntu-latest'
         run: cargo run -p xtask -- check-docs
 
       - name: Cargo doc
+        if: matrix.os == 'ubuntu-latest'
         run: cargo doc --no-deps --workspace
 
   msrv:
