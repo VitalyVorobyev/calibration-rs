@@ -7,8 +7,9 @@ Laserline calibration jointly estimates camera parameters and a laser plane from
 ### Parameters
 
 - Camera intrinsics: $K = (f_x, f_y, c_x, c_y)$
-- Distortion: $\mathbf{d} = (k_1, k_2, k_3, p_1, p_2)$
-- Sensor tilt: $(\tau_x, \tau_y)$ (optional, for Scheimpflug cameras)
+- Distortion: the coefficients of the configured model, e.g.
+  $\mathbf{d} = (k_1, k_2, k_3, p_1, p_2)$ for Brown-Conrady
+- Sensor tilt: $(\tau_x, \tau_y)$ (Scheimpflug cameras only)
 - Per-view poses: $\{T_v\}$ (camera-to-target SE(3))
 - Laser plane: normal $\hat{\mathbf{n}} \in S^2$, distance $d \in \mathbb{R}$
 
@@ -93,17 +94,23 @@ $$d_\perp = \frac{|(\mathbf{q} - \mathbf{p}_0) \times \hat{\mathbf{d}}_{\text{2D
 
 ## Configuration
 
-`init` and `solver` are the shared sub-structs; `optimize` groups the
-laser-specific bundle-adjustment settings:
+`init` and `solver` are the shared sub-structs, `camera` the camera model
+and its fixed parameters (as in [Planar Intrinsics](planar_intrinsics.md)),
+and `optimize` groups the laser-specific bundle-adjustment settings:
 
 ```rust
 pub struct LaserlineDeviceConfig {
     // Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
     // { init_iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: Option<bool> = None }  (None: false)
+    //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug
+    //   sensor, false otherwise)
 
-    pub sensor_init: ScheimpflugParams, // Initial sensor tilt (default: identity)
+    // The camera model (any distortion kind, an identity or Scheimpflug
+    // sensor) and the parameters the bundle adjustment holds fixed, named per
+    // slot; a slot left out keeps the model's default (`k3` for Brown-Conrady;
+    // everything but the low-order radial terms under a Scheimpflug sensor).
+    pub camera: CameraConfig, // { model: CameraModelSpec, fix: CameraFix }
 
     // Non-linear solve stage settings. `robust_loss` is not consulted here —
     // laser-carrying stages use `optimize.calib_loss`/`optimize.laser_loss`.
@@ -118,13 +125,14 @@ pub struct LaserlineDeviceOptimizeConfig {
     pub laser_loss: RobustLoss,        // Default: Huber { scale: 1.0 }, in the residual's unit
     pub calib_weight: f64,             // Weight for calibration residuals (default: 1.0)
     pub laser_weight: f64,             // Weight for laser residuals (default: 1.0)
-    pub fix_camera: CameraFixMask,     // { intrinsics, distortion } — full per-field granularity
-    pub fix_sensor: bool,              // Default: true
     pub fix_poses: Vec<usize>,         // Default: empty (each pose is set by its own corners)
     pub fix_plane: bool,
     pub laser_residual_type: LaserlineResidualType, // Default: LineDistNormalized
 }
 ```
+
+The line-distance residual needs a projection that keeps lines straight
+(the pinhole); the configuration is checked before the solve.
 
 ### Weight Balancing
 
@@ -153,7 +161,9 @@ if let Some(cov) = export.estimate.uncertainty.covariance() {
 }
 ```
 
-The estimate's `uncertainty` covers the intrinsics, distortion and the
+`export.estimate.params.camera` is the calibrated camera in its model
+(`CameraParams`). The estimate's `uncertainty` covers the camera's free
+parameters (intrinsics, distortion and, for a tilted sensor, the tilt) and the
 laser plane (`plane.nx`, `plane.ny`, `plane.nz`, `plane.d`, in the camera
 frame), with each view's target pose as a per-view block; see
 [Parameter Uncertainty](uncertainty.md). The rig laserline result labels
@@ -162,4 +172,21 @@ laserline result adds the planes to the rig hand-eye labels.
 
 ## Scheimpflug Support
 
-For laser profilers with tilted sensors, the sensor model parameters $(\tau_x, \tau_y)$ are jointly optimized. The reprojection factor's `PINHOLE4_DIST5_SCHEIMPFLUG2` camera-model descriptor selects the extended projection chain.
+Laser profilers usually tilt their sensor. Select it in the camera model:
+
+```rust
+let mut config = LaserlineDeviceConfig::default();
+config.camera = CameraConfig::new(CameraModelSpec::pinhole(
+    DistortionKind::BrownConrady5,
+    SensorKind::Scheimpflug,
+));
+```
+
+Without a seed, `step_init` estimates the tilt with the linear tilt sweep and
+refines the camera alone through the staged tilt multi-start before it fits
+the laser plane, because a cold `tilt = 0` start falls into the
+tilt / principal-point / distortion degeneracy. A known mount tilt goes in the
+manual-init `sensor` seed (`step_init_with_seed`), which replaces the sweep;
+name `tilt_x` and `tilt_y` in `camera.fix.sensor` to hold it. By default the
+bundle adjustment refines the tilt. A tilt seed for an untilted camera must be
+zero.

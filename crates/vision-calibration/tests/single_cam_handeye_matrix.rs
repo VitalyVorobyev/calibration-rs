@@ -115,7 +115,7 @@ fn solve_with(
         SolverBackend::TinySolver,
     );
     let factrs = solve_on(input, mode, refine_robot_poses, SolverBackend::Factrs);
-    let (a, b) = (&tiny.camera.k, &factrs.camera.k);
+    let (a, b) = (&tiny.camera.intrinsics, &factrs.camera.intrinsics);
     for (name, x, y) in [
         ("fx", a.fx, b.fx),
         ("fy", a.fy, b.fy),
@@ -218,11 +218,11 @@ fn single_cam_handeye_recovers_gt_across_grid_and_noise() {
             // scale with the injected amplitude.
             let focal_tol = if noise_px == 0.0 { 0.003 } else { 0.03 };
             assert!(
-                (export.camera.k.fx - cell.fx).abs() / cell.fx < focal_tol
-                    && (export.camera.k.fy - cell.fy).abs() / cell.fy < focal_tol,
+                (export.camera.intrinsics.fx - cell.fx).abs() / cell.fx < focal_tol
+                    && (export.camera.intrinsics.fy - cell.fy).abs() / cell.fy < focal_tol,
                 "{label}: focal ({}, {}) vs gt ({}, {})",
-                export.camera.k.fx,
-                export.camera.k.fy,
+                export.camera.intrinsics.fx,
+                export.camera.intrinsics.fy,
                 cell.fx,
                 cell.fy
             );

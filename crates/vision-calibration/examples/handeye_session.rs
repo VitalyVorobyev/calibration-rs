@@ -91,12 +91,12 @@ fn main() -> Result<()> {
     let init_cam = &intr_init.camera;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-        init_cam.k.fx, init_cam.k.fy, init_cam.k.cx, init_cam.k.cy
+        init_cam.intrinsics.fx,
+        init_cam.intrinsics.fy,
+        init_cam.intrinsics.cx,
+        init_cam.intrinsics.cy
     );
-    println!(
-        "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}",
-        init_cam.dist.k1, init_cam.dist.k2, init_cam.dist.p1, init_cam.dist.p2
-    );
+    println!("  Distortion: {:?}", init_cam.distortion);
     println!();
 
     // Step 2: Intrinsics optimization
@@ -106,12 +106,9 @@ fn main() -> Result<()> {
     let opt_cam = &intr_opt.camera;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-        opt_cam.k.fx, opt_cam.k.fy, opt_cam.k.cx, opt_cam.k.cy
+        opt_cam.intrinsics.fx, opt_cam.intrinsics.fy, opt_cam.intrinsics.cx, opt_cam.intrinsics.cy
     );
-    println!(
-        "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}",
-        opt_cam.dist.k1, opt_cam.dist.k2, opt_cam.dist.p1, opt_cam.dist.p2
-    );
+    println!("  Distortion: {:?}", opt_cam.distortion);
     println!("  Reprojection error: {:.4} px", intr_opt.mean_reproj_error);
     println!();
 
@@ -154,17 +151,13 @@ fn main() -> Result<()> {
 
 fn print_final_result(export: &SingleCamHandeyeExport) {
     println!("Camera intrinsics:");
-    println!("  fx = {:.2}", export.camera.k.fx);
-    println!("  fy = {:.2}", export.camera.k.fy);
-    println!("  cx = {:.2}", export.camera.k.cx);
-    println!("  cy = {:.2}", export.camera.k.cy);
+    let k = &export.camera.intrinsics;
+    println!("  fx = {:.2}", k.fx);
+    println!("  fy = {:.2}", k.fy);
+    println!("  cx = {:.2}", k.cx);
+    println!("  cy = {:.2}", k.cy);
 
-    println!("Distortion:");
-    println!("  k1 = {:.6}", export.camera.dist.k1);
-    println!("  k2 = {:.6}", export.camera.dist.k2);
-    println!("  k3 = {:.6}", export.camera.dist.k3);
-    println!("  p1 = {:.6}", export.camera.dist.p1);
-    println!("  p2 = {:.6}", export.camera.dist.p2);
+    println!("Distortion: {:?}", export.camera.distortion);
 
     match export.handeye_mode {
         HandEyeMode::EyeInHand => {

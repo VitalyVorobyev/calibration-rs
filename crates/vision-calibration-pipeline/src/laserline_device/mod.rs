@@ -1,7 +1,9 @@
 //! Single laserline device calibration pipeline.
 //!
 //! Calibrates a single area camera + laser plane device using planar target
-//! observations and laser line pixels (no hand-eye at this stage).
+//! observations and laser line pixels (no hand-eye at this stage). The
+//! camera is the configured model (`camera.model`): any distortion kind, an
+//! identity or a Scheimpflug sensor.
 
 mod problem;
 mod state;

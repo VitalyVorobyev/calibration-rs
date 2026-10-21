@@ -1,9 +1,5 @@
 # ADR 0005: Composable Camera Model
 
-**Implementation in progress** (backlog API-CAM-CORE, API-CAM-DISPATCH,
-API-CAM-BUILDERS and API-CAM-PIPELINE). Until those tasks land, the code
-still follows the previous design; this note goes with the last of them.
-
 ## Context
 
 A calibration library has to cover these lens and sensor types:
@@ -36,6 +32,12 @@ pixel = K(sensor(distortion(projection(p_c))))
 | Distortion | normalized → distorted normalized | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1`, `KannalaBrandt4` | the coefficients |
 | Sensor | distorted normalized → sensor plane | `Identity`, `Scheimpflug` | `tilt_x, tilt_y` |
 | K | sensor plane → pixels | one model, `fx, fy, cx, cy` | — |
+
+The code has the `Pinhole` projection, the five non-fisheye distortion
+kinds and both sensors. `Equidistant`, `Eucm`, `DoubleSphere`,
+`Telecentric` and `KannalaBrandt4` are the design's planned kinds (backlog
+CAM-KB, CAM-EUCM-DS, CAM-TELECENTRIC); the sections on them below are what
+those tasks implement.
 
 - **The projection takes the point, not a direction.**
   - Central projections use only its direction.
@@ -85,20 +87,27 @@ Each kind also declares its metadata once, in core:
 - name;
 - parameter names;
 - dimension;
-- bounds (EUCM `alpha ∈ [0, 1]`, `beta > 0`);
-- parameters it fixes by default.
+- bounds (EUCM `alpha ∈ [0, 1]`, `beta > 0`; added with the first kind
+  that has them);
+- parameters it fixes by default (`CameraModelSpec::default_fix`, which
+  also holds the cross-slot rules).
 
-Covariance labels, fix-list validation, the JSON schema and the Python
-types all derive from that metadata.
+Covariance labels, fix-list validation and the optimizer's block layout
+derive from that metadata; the JSON schema and the Python types carry the
+kind and parameter names.
 
 ### A camera model is a spec plus values
 
 `CameraModelSpec { projection, distortion, sensor }` names the kinds, and
 `CameraParams` holds the values. `CameraParams::spec()` recovers the spec.
-The kind enums live in core; the optimizer's `CameraModelDesc` is the
-spec.
+The kind enums live in core; the optimizer's factors carry the same
+`CameraModelSpec`.
 
-Every problem config takes a `camera` group:
+Every problem config that calibrates a camera takes a `camera` group
+(planar intrinsics, single-camera hand-eye, the laserline device, the rigs,
+and through its rig stage the joint rig laser problem). The rig laserline
+device calibrates no camera: it takes each camera's `CameraParams` from the
+upstream rig.
 
 ```rust
 camera: CameraConfig {
@@ -118,9 +127,14 @@ Rules for the lists:
   name is a typed error.
 - An absent list means the spec's default: the union of each kind's own
   defaults, plus the cross-slot rules in `CameraModelSpec::default_fix`. A
-  Scheimpflug sensor holds `k3, p1, p2`, because tangential distortion
-  absorbs tilt. A telecentric lens without distortion holds `cx, cy`,
-  because they are unobservable.
+  Scheimpflug sensor holds every coefficient but the low-order radial ones
+  (`k3, p1, p2` for Brown-Conrady), because tangential and higher-order
+  distortion absorb tilt. A telecentric lens without distortion holds
+  `cx, cy`, because they are unobservable.
+- A stage that holds more than the model's default names its own default
+  per model the same way: the joint rig laser solve holds every
+  higher-order coefficient and the tilt of each camera unless its
+  `joint_ba.fix` lists say otherwise.
 
 Rigs take one `camera` for all cameras, plus optional per-camera overrides
 keyed by camera index, so lenses can be mixed.
@@ -172,7 +186,8 @@ covariance reports them as fixed rather than unobservable.
   model, such as epipolar geometry with a non-central camera, rejects it
   with a typed error.
 - **Numerical tests:** each model ships a math note and a synthetic matrix
-  test across every problem type.
+  test across every problem type (`optim/tests/camera_model_matrix.rs` and
+  the rig extrinsics matrix in `optim/tests/rig_extrinsics.rs`).
 - **Breaking changes:**
   - removing skew;
   - the `camera` config group;

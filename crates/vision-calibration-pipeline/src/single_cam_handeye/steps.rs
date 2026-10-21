@@ -30,17 +30,16 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PinholeCamera, PlanarDataset, Real,
-    RigView, RigViewObs, View, make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CameraParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real, RigView, RigViewObs,
+    ScheimpflugParams, SensorKind, View,
 };
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
-use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
-    PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobotPoseMeta, optimize_handeye,
-    optimize_planar_intrinsics,
+    PlanarIntrinsicsParams, RobotPoseMeta, optimize_handeye,
 };
 
+use crate::planar_family::{CameraSeed, bootstrap_camera, check_sensor_seed, optimize_camera};
 use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
@@ -58,19 +57,25 @@ pub use crate::common::{
 /// hand-eye calibration.
 ///
 /// All fields are `Option<T>`. `None` means auto-init via Zhang's method (same path
-/// as plain `step_intrinsics_init`); `Some` means use the provided value.
+/// as plain `step_intrinsics_init`); `Some` means use the provided value. The
+/// seeds are values in the configured camera model.
 ///
 /// Partial-seed semantics mirror `PlanarManualInit`: when `intrinsics` is seeded
 /// but `target_poses` is `None`, poses are recovered from per-view homographies
 /// using the manual intrinsics. When intrinsics are seeded and distortion is not,
-/// distortion defaults to `BrownConrady5::default()`.
+/// distortion starts at zero. A distortion seed holds Brown-Conrady
+/// coefficients, embedded into the camera's distortion model. `sensor` seeds
+/// the tilt of a Scheimpflug camera (a seeded tilt replaces the tilt sweep);
+/// an untilted camera takes only a zero tilt.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct SingleCamIntrinsicsManualInit {
     /// Manual intrinsics seed.
     pub intrinsics: Option<FxFyCxCy<Real>>,
-    /// Manual distortion seed.
+    /// Manual Brown-Conrady distortion seed.
     pub distortion: Option<BrownConrady5<Real>>,
+    /// Manual sensor tilt seed (Scheimpflug camera; zero otherwise).
+    pub sensor: Option<ScheimpflugParams>,
     /// Manual per-view target poses (`camera_se3_target`).
     pub target_poses: Option<Vec<Iso3>>,
 }
@@ -110,31 +115,6 @@ fn input_to_planar_dataset(input: &SingleCamHandeyeInput) -> Result<PlanarDatase
     PlanarDataset::new(views).map_err(Error::Core)
 }
 
-/// Estimate initial target pose from camera intrinsics and view observations.
-fn estimate_target_pose(
-    k_matrix: &vision_calibration_core::Mat3,
-    view: &CorrespondenceView,
-) -> Result<Iso3, Error> {
-    // Compute homography
-    let board_2d: Vec<vision_calibration_core::Pt2> = view
-        .points_3d
-        .iter()
-        .map(|p| vision_calibration_core::Pt2::new(p.x, p.y))
-        .collect();
-    let pixel_2d: Vec<vision_calibration_core::Pt2> = view
-        .points_2d
-        .iter()
-        .map(|v| vision_calibration_core::Pt2::new(v.x, v.y))
-        .collect();
-
-    let h = dlt_homography(&board_2d, &pixel_2d)
-        .map_err(|e| Error::numerical(format!("failed to compute homography: {e}")))?;
-
-    // Recover pose from homography
-    estimate_planar_pose_from_h(k_matrix, &h)
-        .map_err(|e| Error::numerical(format!("failed to recover pose from homography: {e}")))
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Results
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,8 +126,8 @@ fn estimate_target_pose(
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SingleCamIntrinsicsInitResult {
-    /// Initial pinhole camera estimate (intrinsics + distortion).
-    pub camera: PinholeCamera,
+    /// Initial camera estimate, in the configured model.
+    pub camera: CameraParams,
     /// Per-view initial target poses (`camera_se3_target`).
     pub target_poses: Vec<Iso3>,
 }
@@ -156,8 +136,8 @@ pub struct SingleCamIntrinsicsInitResult {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SingleCamIntrinsicsOptimizeResult {
-    /// Refined pinhole camera (intrinsics + distortion).
-    pub camera: PinholeCamera,
+    /// Refined camera, in the configured model.
+    pub camera: CameraParams,
     /// Refined per-view target poses (`camera_se3_target`).
     pub target_poses: Vec<Iso3>,
     /// Mean reprojection error in pixels after intrinsics optimization.
@@ -198,13 +178,21 @@ pub struct SingleCamHandeyeOptimizeResult {
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Initialize intrinsics, distortion, and per-view target poses from any
-/// combination of manual seeds and auto-estimation.
+/// Initialize the camera and per-view target poses from any combination of
+/// manual seeds and auto-estimation.
 ///
 /// This is the load-bearing intrinsics-stage init. [`step_intrinsics_init`] is a
 /// thin delegate with `SingleCamIntrinsicsManualInit::default()`.
 ///
-/// See [`SingleCamIntrinsicsManualInit`] for partial-seed semantics.
+/// The camera's model is `session.config.camera.model`: Zhang's method, or for a
+/// Scheimpflug sensor its tilted variant with a linear tilt sweep. See
+/// [`SingleCamIntrinsicsManualInit`] for partial-seed semantics.
+///
+/// # Errors
+///
+/// - Input not set; a non-zero tilt seed for an untilted camera; manual
+///   target poses whose count differs from the view count.
+/// - The linear initialization fails.
 pub fn step_intrinsics_init_with_seed(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     manual: SingleCamIntrinsicsManualInit,
@@ -215,97 +203,73 @@ pub fn step_intrinsics_init_with_seed(
     let view_count = input.views.len();
     let opts = opts.unwrap_or_default();
     let config = &session.config;
+    let model = config.camera.model;
+
+    if let Some(sensor) = &manual.sensor
+        && let Err(e) = check_sensor_seed(model, sensor, "sensor")
+    {
+        session.log_failure("intrinsics_init", e.to_string());
+        return Err(e);
+    }
+    if let Some(p) = &manual.target_poses
+        && p.len() != view_count
+    {
+        let msg = format!(
+            "manual target_poses count ({}) does not match view count ({})",
+            p.len(),
+            view_count
+        );
+        session.log_failure("intrinsics_init", msg.clone());
+        return Err(Error::invalid_input(msg));
+    }
 
     let mut manual_fields: Vec<&'static str> = Vec::new();
     let mut auto_fields: Vec<&'static str> = Vec::new();
-
-    let camera = if let Some(k) = manual.intrinsics {
-        manual_fields.push("intrinsics");
-        let dist = match manual.distortion {
-            Some(d) => {
-                manual_fields.push("distortion");
-                d
-            }
-            None => {
-                auto_fields.push("distortion");
-                BrownConrady5::default()
-            }
-        };
-        make_pinhole_camera(k, dist)
-    } else {
-        auto_fields.push("intrinsics");
-        // The camera is untilted: tangential terms stay free unless configured.
-        let init_opts = config.intrinsics.iterative_opts(opts.iterations, false);
-        let planar_dataset = input_to_planar_dataset(input)?;
-        let bootstrap_camera = match estimate_intrinsics_iterative(&planar_dataset, init_opts) {
-            Ok(c) => c,
-            Err(e) => {
-                session.log_failure("intrinsics_init", e.to_string());
-                return Err(Error::from(e));
-            }
-        };
-        let dist = match manual.distortion {
-            Some(d) => {
-                manual_fields.push("distortion");
-                d
-            }
-            None => {
-                auto_fields.push("distortion");
-                bootstrap_camera.dist
-            }
-        };
-        make_pinhole_camera(bootstrap_camera.k, dist)
-    };
-
-    let initial_poses = match manual.target_poses {
-        Some(p) => {
-            manual_fields.push("target_poses");
-            if p.len() != view_count {
-                let msg = format!(
-                    "manual target_poses count ({}) does not match view count ({})",
-                    p.len(),
-                    view_count
-                );
-                session.log_failure("intrinsics_init", msg.clone());
-                return Err(Error::invalid_input(msg));
-            }
-            p
-        }
-        None => {
-            auto_fields.push("target_poses");
-            let k_matrix = vision_calibration_core::Mat3::new(
-                camera.k.fx,
-                0.0,
-                camera.k.cx,
-                0.0,
-                camera.k.fy,
-                camera.k.cy,
-                0.0,
-                0.0,
-                1.0,
-            );
-            input
-                .views
-                .iter()
-                .enumerate()
-                .map(|(idx, view)| {
-                    estimate_target_pose(&k_matrix, &view.obs).map_err(|e| {
-                        Error::numerical(format!("failed to estimate pose for view {idx}: {e}"))
-                    })
-                })
-                .collect::<Result<Vec<_>, Error>>()?
+    let mut note = |name: &'static str, seeded: bool| {
+        if seeded {
+            manual_fields.push(name);
+        } else {
+            auto_fields.push(name);
         }
     };
+    note("intrinsics", manual.intrinsics.is_some());
+    note("distortion", manual.distortion.is_some());
+    if model.sensor == SensorKind::Scheimpflug {
+        note("sensor", manual.sensor.is_some());
+    }
+    note("target_poses", manual.target_poses.is_some());
+
+    // An unset `fix_tangential` holds the tangential terms for a tilted
+    // sensor, whose tilt they trade off against.
+    let init_opts = config
+        .intrinsics
+        .iterative_opts(opts.iterations, model.sensor == SensorKind::Scheimpflug);
+    let planar_dataset = input_to_planar_dataset(input)?;
+    let seed = CameraSeed {
+        intrinsics: manual.intrinsics,
+        distortion: manual.distortion,
+        sensor: manual.sensor,
+    };
+    let bootstrap = match bootstrap_camera(0, model, &planar_dataset, &seed, init_opts) {
+        Ok(b) => b,
+        Err(e) => {
+            session.log_failure("intrinsics_init", e.to_string());
+            return Err(e);
+        }
+    };
+    let camera = bootstrap.camera;
+    let initial_poses = manual.target_poses.unwrap_or(bootstrap.poses);
 
     session.state.initial_camera = Some(camera.clone());
     session.state.initial_target_poses = Some(initial_poses.clone());
 
     let source = format_init_source(&manual_fields, &auto_fields);
+    let k = camera.intrinsics;
     session.log_success_with_notes(
         "intrinsics_init",
         format!(
             "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
-            camera.k.fx, camera.k.fy, camera.k.cx, camera.k.cy, source
+            k.fx, k.fy, k.cx, k.cy, source
         ),
     );
 
@@ -364,18 +328,14 @@ pub fn step_intrinsics_optimize(
         .clone()
         .ok_or_else(|| Error::not_available("initial poses"))?;
 
+    check_camera_model(&initial_camera, config.camera.model)?;
+
     // Build initial params
-    let initial_params = PlanarIntrinsicsParams::from_pinhole(initial_camera, initial_poses)
+    let initial_params = PlanarIntrinsicsParams::new(initial_camera, initial_poses)
         .map_err(|e| Error::numerical(format!("failed to build params: {e}")))?;
 
     // Convert to PlanarDataset
     let planar_dataset = input_to_planar_dataset(input)?;
-
-    // Configure optimization
-    let solve_opts = PlanarIntrinsicsSolveOptions {
-        robust_loss: config.solver.robust_loss,
-        ..Default::default()
-    };
 
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
@@ -383,25 +343,25 @@ pub fn step_intrinsics_optimize(
         ..config.solver.backend_options()
     };
 
-    // Run optimization
-    let result = match optimize_planar_intrinsics(
+    // Run optimization: a plain planar solve, or the staged tilt
+    // multi-start for a Scheimpflug sensor.
+    let result = match optimize_camera(
+        0,
         &planar_dataset,
         &initial_params,
-        solve_opts,
+        &config.camera,
+        &config.solver,
         backend_opts,
     ) {
         Ok(r) => r,
         Err(e) => {
             session.log_failure("intrinsics_optimize", e.to_string());
-            return Err(Error::from(e));
+            return Err(e);
         }
     };
 
     // Update state
-    let camera = result
-        .params
-        .pinhole_camera()
-        .map_err(|e| Error::numerical(format!("intrinsics result not pinhole-compatible: {e}")))?;
+    let camera = result.params.camera.clone();
     let target_poses = result.params.poses().to_vec();
     let mean_reproj_error = result.mean_reproj_error;
     session.state.optimized_camera = Some(camera.clone());
@@ -633,6 +593,7 @@ pub fn step_handeye_optimize(
         .optimized_camera
         .clone()
         .ok_or_else(|| Error::not_available("optimized camera"))?;
+    check_camera_model(&camera, config.camera.model)?;
     let (handeye, target_pose) = match config.handeye_init.handeye_mode {
         vision_calibration_optim::HandEyeMode::EyeInHand => {
             let handeye = session
@@ -677,7 +638,7 @@ pub fn step_handeye_optimize(
 
     // Build initial params
     let initial = HandEyeParams {
-        cameras: vec![pinhole_camera_params(&camera)],
+        cameras: vec![camera],
         cam_to_rig: vec![Iso3::identity()], // Single cam = rig frame
         handeye,
         target_poses: vec![target_pose],
@@ -686,8 +647,7 @@ pub fn step_handeye_optimize(
     // Configure solve options
     let solve_opts = HandEyeSolveOptions {
         robust_loss: config.solver.robust_loss,
-        // The model's default: k3 held.
-        fix: Vec::new(),
+        fix: vec![config.camera.fix.clone()],
         fix_extrinsics: vec![true], // Fix cam_to_rig for single camera
         fix_handeye: false,
         fix_target_poses: Vec::new(),
@@ -729,6 +689,20 @@ pub fn step_handeye_optimize(
     })
 }
 
+/// Check the camera in state still has the model the config names.
+fn check_camera_model(
+    camera: &CameraParams,
+    configured: vision_calibration_core::CameraModelSpec,
+) -> Result<(), Error> {
+    if camera.spec() != Some(configured) {
+        return Err(Error::invalid_input(format!(
+            "the camera model changed since step_intrinsics_init (now {configured:?}); run it \
+             again"
+        )));
+    }
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline Function
 // ─────────────────────────────────────────────────────────────────────────────
@@ -754,7 +728,9 @@ pub fn run_calibration(
 mod tests {
     use super::*;
     use nalgebra::{Rotation3, Translation3};
-    use vision_calibration_core::{BrownConrady5, FxFyCxCy, Pt2, Pt3, make_pinhole_camera};
+    use vision_calibration_core::{
+        BrownConrady5, CorrespondenceView, FxFyCxCy, Pt2, Pt3, make_pinhole_camera,
+    };
     use vision_calibration_optim::HandEyeMode;
 
     fn make_test_camera() -> vision_calibration_core::PinholeCamera {
@@ -829,7 +805,7 @@ mod tests {
         step_intrinsics_init(&mut session, None).unwrap();
 
         assert!(session.state.has_intrinsics_init());
-        let k = session.state.initial_camera.unwrap().k;
+        let k = session.state.initial_camera.unwrap().intrinsics;
         // Check intrinsics are reasonable (within 20% of ground truth)
         assert!((k.fx - 800.0).abs() < 160.0);
         assert!((k.fy - 780.0).abs() < 160.0);

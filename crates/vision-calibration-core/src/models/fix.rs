@@ -137,13 +137,8 @@ impl CameraModelSpec {
     ///   (`k1`, `k2`; the division model's `lambda`): tangential and
     ///   higher-order terms trade off against the tilt.
     pub fn default_fix(&self) -> CameraFix {
-        let names = self.distortion.param_names();
         let distortion: Vec<&str> = if self.sensor == SensorKind::Scheimpflug {
-            names
-                .iter()
-                .copied()
-                .filter(|n| !matches!(*n, "k1" | "k2" | "lambda"))
-                .collect()
+            self.distortion.higher_order_names()
         } else if self.distortion == DistortionKind::BrownConrady5 {
             vec!["k3"]
         } else {
@@ -200,6 +195,20 @@ mod tests {
             CameraFix::default().resolve(prism).unwrap().distortion,
             vec![2, 3, 4, 5, 6, 7, 8]
         );
+    }
+
+    #[test]
+    fn higher_order_names_exclude_the_low_order_radial_terms() {
+        assert_eq!(
+            DistortionKind::BrownConrady5.higher_order_names(),
+            ["k3", "p1", "p2"]
+        );
+        assert_eq!(
+            DistortionKind::ThinPrism9.higher_order_names(),
+            ["k3", "p1", "p2", "s1", "s2", "s3", "s4"]
+        );
+        assert!(DistortionKind::Division1.higher_order_names().is_empty());
+        assert!(DistortionKind::None.higher_order_names().is_empty());
     }
 
     #[test]

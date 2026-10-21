@@ -168,7 +168,9 @@ e.g., strongly tilted Scheimpflug rigs. For those, also set
 `per_cam_sensors` to the nominal mount tilts: a seeded tilt is used verbatim
 and skips the linear stage's tilt sweep. A non-zero tilt for a camera with an
 identity sensor is an error; a zero tilt is accepted. (`RigHandeyeConfig::manual_init`
-takes the same `per_cam_sensors`.)
+takes the same `per_cam_sensors`; the single-camera seeds —
+`PlanarManualInit`, `SingleCamIntrinsicsManualInit` and
+`LaserlineDeviceManualInit` — take one tilt in `sensor`, with the same rule.)
 
 ### Coupling rule (rig stage)
 

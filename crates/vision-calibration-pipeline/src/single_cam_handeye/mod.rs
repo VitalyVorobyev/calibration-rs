@@ -7,8 +7,11 @@
 //!
 //! The calibration proceeds in four steps:
 //!
-//! 1. **Intrinsics initialization**: Zhang's method with iterative distortion estimation
+//! 1. **Intrinsics initialization**: Zhang's method with iterative distortion
+//!    estimation, embedded into the configured camera model (`camera.model`);
+//!    for a Scheimpflug sensor, the linear tilt sweep (or a tilt seed)
 //! 2. **Intrinsics optimization**: Non-linear refinement of camera parameters
+//!    (the staged tilt multi-start for a Scheimpflug sensor without a seed)
 //! 3. **Hand-eye initialization**: Tsai-Lenz linear estimation from pose pairs
 //! 4. **Hand-eye optimization**: Bundle adjustment with optional robot pose refinement
 //!
@@ -60,7 +63,9 @@
 //! - Hand-eye mode: `EyeInHand`
 //! - Robot pose refinement: enabled with 0.5° rotation prior and 1mm translation prior
 //! - Single fixed target pose (not per-view)
-//! - k3 distortion fixed by default
+//! - Camera model: pinhole, Brown-Conrady, identity sensor (`camera.model`);
+//!   any distortion kind and a Scheimpflug sensor are supported
+//! - The model's default fix lists (`camera.fix`): k3 for Brown-Conrady
 
 mod problem;
 mod state;

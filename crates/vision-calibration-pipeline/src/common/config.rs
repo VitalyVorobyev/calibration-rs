@@ -86,6 +86,27 @@ impl CameraConfig {
             .map(|_| ())
             .map_err(|e| crate::Error::invalid_input(format!("camera.fix: {e}")))
     }
+
+    /// Check a single camera calibrated from its own planar views can be:
+    /// its fix lists name parameters of the model, and a Scheimpflug sensor
+    /// comes with a distortion model — the tilt is estimated jointly with the
+    /// radial terms, which tell it apart from a principal-point shift.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::Error::InvalidInput`] naming the problem.
+    pub(crate) fn validate_single_camera(&self) -> Result<(), crate::Error> {
+        self.validate()?;
+        if self.model.sensor == SensorKind::Scheimpflug
+            && self.model.distortion == DistortionKind::None
+        {
+            return Err(crate::Error::invalid_input(
+                "a Scheimpflug sensor needs a distortion model: the tilt is estimated \
+                 jointly with the radial terms",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// One camera of a rig whose model differs from the rig's `camera`, so a

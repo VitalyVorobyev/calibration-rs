@@ -30,13 +30,12 @@ compiles against:
 | `ThinPrism9` | 9 | `[k1, k2, k3, p1, p2, s1, s2, s3, s4]` |
 | `Division1` | 1 | `[lambda]` |
 
-`BrownConrady5` is the default. Planar intrinsics, rig extrinsics and rig
-hand-eye calibrate every kind (`Rational8`, `ThinPrism9`, `Division1`) with a
-straight or a tilted (Scheimpflug) sensor; a rig takes the kind per camera
-(`camera` plus `camera_overrides`). The single-camera hand-eye and laserline
-workflows, and the rig laser workflows, expect Brown-Conrady coefficients (the
-rig laser workflows also accept no distortion): an extended-model export
-cannot flow into them, and they reject it with a typed error.
+`BrownConrady5` is the default. Every workflow calibrates every kind
+(`Rational8`, `ThinPrism9`, `Division1`) with a straight or a tilted
+(Scheimpflug) sensor: planar intrinsics, single-camera hand-eye and the
+laserline device through `camera`, the rigs per camera (`camera` plus
+`camera_overrides`). The rig laser workflows take each camera of the upstream
+rig in its own model.
 
 ### The fix lists
 
@@ -182,9 +181,9 @@ why it is not the default.
   inputs. Not accepted with a Scheimpflug sensor — the tilt is estimated
   jointly with the radial terms, so config validation rejects `None` with a
   typed error.
-- **Single-camera hand-eye and laserline pipelines**, and the rig laser
-  workflows: Brown-Conrady (rig laser also accepts no distortion). Rig
-  extrinsics and rig hand-eye take any kind through `camera.model.distortion`.
+- **Hand-eye and laser workflows**: the same `camera.model.distortion`
+  choice as planar intrinsics; a rig sets it per camera, and the rig laser
+  workflows inherit each camera's model from the upstream rig.
 
 ## What to read next
 

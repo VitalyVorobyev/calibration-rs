@@ -1,8 +1,11 @@
-//! Laserline bundle adjustment: joint optimization of camera intrinsics, distortion,
+//! Laserline bundle adjustment: joint optimization of a camera (any model),
 //! target poses, and laser plane parameters.
 //!
 //! This problem builder combines standard planar calibration observations (corners)
 //! with laser line observations to estimate laser plane parameters in camera frame.
+//! The camera's model ([`CameraParams::spec`]) selects its parameter blocks: any
+//! distortion kind, and an identity or Scheimpflug sensor (an untilted camera has
+//! no sensor block).
 
 use crate::Error;
 #[cfg(test)]
@@ -13,26 +16,21 @@ use crate::factors::laserline::{
     laser_line_dist_core, laser_line_distance, laser_point_to_plane_core,
 };
 use crate::ir::{
-    CameraModelSpec, DistortionKind, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR,
-    ReprojChain, ResidualBlock, RobustLoss, SensorKind,
+    FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    RobustLoss,
 };
-use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
-use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
+use crate::params::camera::{
+    CameraBlockInput, add_camera_blocks, camera_block_values, camera_spec, unpack_camera,
+};
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use crate::uncertainty;
-use nalgebra::{DVector, DVectorView};
+use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, CameraParams, DistortionParams, FxFyCxCy, Iso3, Pinhole,
-    Pt2, Real, ScheimpflugParams, SensorParams, Uncertainty, View,
+    CameraFix, CameraModel, CameraModelSpec, CameraParams, Iso3, Pt2, Uncertainty, View,
 };
-
-/// The laserline device camera: Brown-Conrady distortion and a
-/// Scheimpflug sensor (a straight sensor is zero tilt).
-const LASER_CAMERA: CameraModelSpec =
-    CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
 
 /// Metadata for a laserline view (laser pixels + optional weights).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,12 +90,9 @@ pub type LaserlineDataset = Vec<LaserlineView>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LaserlineParams {
-    /// Camera intrinsics.
-    pub intrinsics: FxFyCxCy<Real>,
-    /// Brown-Conrady distortion parameters.
-    pub distortion: BrownConrady5<Real>,
-    /// Scheimpflug sensor parameters (use defaults for identity sensor).
-    pub sensor: ScheimpflugParams,
+    /// The camera, in its model: any distortion kind, and an identity or
+    /// Scheimpflug sensor.
+    pub camera: CameraParams,
     /// Per-view target poses (`camera_se3_target`).
     #[cfg_attr(
         feature = "schemars",
@@ -114,20 +109,12 @@ impl LaserlineParams {
     /// # Errors
     ///
     /// Returns [`Error::InsufficientData`] if `poses` is empty.
-    pub fn new(
-        intrinsics: FxFyCxCy<Real>,
-        distortion: BrownConrady5<Real>,
-        sensor: ScheimpflugParams,
-        poses: Vec<Iso3>,
-        plane: LaserPlane,
-    ) -> Result<Self, Error> {
+    pub fn new(camera: CameraParams, poses: Vec<Iso3>, plane: LaserPlane) -> Result<Self, Error> {
         if poses.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
         }
         Ok(Self {
-            intrinsics,
-            distortion,
-            sensor,
+            camera,
             poses,
             plane,
         })
@@ -142,9 +129,10 @@ pub struct LaserlineEstimate {
     pub params: LaserlineParams,
     /// Backend solve report.
     pub report: SolveReport,
-    /// Covariance of the refined parameters: intrinsics, distortion, sensor
-    /// tilt and the laser plane (`plane.nx … plane.d`, in the camera frame),
-    /// with each view's target pose as a per-view block.
+    /// Covariance of the refined parameters: the camera's free parameters
+    /// (intrinsics, distortion and, for a tilted sensor, the tilt) and the
+    /// laser plane (`plane.nx … plane.d`, in the camera frame), with each
+    /// view's target pose as a per-view block.
     #[serde(default)]
     pub uncertainty: Uncertainty,
 }
@@ -196,19 +184,15 @@ pub struct LaserlineSolveOptions {
     pub laser_loss: RobustLoss,
     /// Global weight multiplier for laser plane residuals.
     pub laser_weight: f64,
-    /// Per-parameter mask for fixing camera intrinsics/distortion during
-    /// optimization. Lowered to the IR at full per-field granularity (see
-    /// `vision_calibration_core::IntrinsicsFixMask::to_indices` and
-    /// `vision_calibration_core::DistortionFixMask::to_indices`) — any
-    /// individual field may be fixed independently (no all-or-nothing bool
-    /// groups).
-    pub fix_camera: CameraFixMask,
-    /// Fix Scheimpflug sensor parameters during optimization
-    pub fix_sensor: bool,
+    /// Camera parameters held fixed, named per slot and resolved against the
+    /// initial camera's model. The default holds the model's defaults (`k3`
+    /// for Brown-Conrady; everything but the low-order radial terms under a
+    /// Scheimpflug sensor).
+    pub fix: CameraFix,
     /// Indices of target poses to hold fixed. None by default: each view's
     /// pose is measured by its own corners, so there is no gauge to fix.
     pub fix_poses: Vec<usize>,
-    /// Indices of planes to fix
+    /// Hold the laser plane fixed.
     pub fix_plane: bool,
     /// Laser residual type: point-to-plane distance or line-distance in normalized plane
     pub laser_residual_type: LaserlineResidualType,
@@ -223,30 +207,12 @@ impl Default for LaserlineSolveOptions {
             // distance in pixels.
             laser_loss: RobustLoss::Huber { scale: 1.0 },
             laser_weight: 1.0,
-            fix_camera: CameraFixMask::default(), // intrinsics free, k3 fixed
-            fix_sensor: true,
+            fix: CameraFix::default(),
             fix_poses: Vec::new(),
             fix_plane: false,
             laser_residual_type: LaserlineResidualType::LineDistNormalized, // New default
         }
     }
-}
-
-fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
-    DVector::from_vec(vec![sensor.tilt_x, sensor.tilt_y])
-}
-
-fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
-    if sensor.len() != 2 {
-        return Err(Error::invalid_input(format!(
-            "Scheimpflug sensor params require 2D vector, got {}",
-            sensor.len()
-        )));
-    }
-    Ok(ScheimpflugParams {
-        tilt_x: sensor[0],
-        tilt_y: sensor[1],
-    })
 }
 
 /// Compute reprojection and laser residual statistics for a solution.
@@ -259,7 +225,7 @@ fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> Result<ScheimpflugParams,
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if the dataset and params have different view counts, or if
-/// intrinsics/distortion packing fails.
+/// the camera has a general homography sensor.
 pub fn compute_laserline_stats(
     dataset: &LaserlineDataset,
     params: &LaserlineParams,
@@ -273,16 +239,7 @@ pub fn compute_laserline_stats(
         )));
     }
 
-    let camera = Camera::new(
-        Pinhole,
-        params.distortion,
-        params.sensor.compile(),
-        params.intrinsics,
-    );
-
-    let intr_vec = pack_intrinsics(&params.intrinsics);
-    let dist_vec = pack_distortion(&params.distortion);
-    let sensor_vec = pack_scheimpflug(&params.sensor);
+    let camera = LaserCameraModel::new(&params.camera)?;
     let plane_normal = params.plane.normal_to_dvec();
     let plane_distance = params.plane.distance_to_dvec();
 
@@ -302,7 +259,7 @@ pub fn compute_laserline_stats(
         let mut view_reproj_count = 0usize;
         for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
             let p_cam = pose.transform_point(p3d);
-            if let Some(projected) = camera.project_point(&p_cam) {
+            if let Some(projected) = camera.camera.project_point(&p_cam) {
                 let err = (projected - *p2d).norm();
                 view_reproj_sum += err;
                 view_reproj_count += 1;
@@ -323,13 +280,7 @@ pub fn compute_laserline_stats(
         for laser_pixel in &view.meta.laser_pixels {
             let residual = match residual_type {
                 LaserlineResidualType::PointToPlane => laser_point_to_plane_core(
-                    &CameraBlocks::new(
-                        LASER_CAMERA,
-                        intr_vec.as_slice(),
-                        &[],
-                        dist_vec.as_slice(),
-                        sensor_vec.as_slice(),
-                    ),
+                    &camera.blocks(),
                     pose_vec.as_view(),
                     plane_normal.as_view(),
                     plane_distance.as_view(),
@@ -337,13 +288,7 @@ pub fn compute_laserline_stats(
                     1.0,
                 )[0],
                 LaserlineResidualType::LineDistNormalized => laser_line_dist_core(
-                    &CameraBlocks::new(
-                        LASER_CAMERA,
-                        intr_vec.as_slice(),
-                        &[],
-                        dist_vec.as_slice(),
-                        sensor_vec.as_slice(),
-                    ),
+                    &camera.blocks(),
                     pose_vec.as_view(),
                     plane_normal.as_view(),
                     plane_distance.as_view(),
@@ -406,7 +351,8 @@ pub struct LaserResidualRecords {
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if `dataset.len() != params.poses.len()`.
+/// Returns [`Error::InvalidInput`] if `dataset.len() != params.poses.len()`
+/// or the camera has a general homography sensor.
 pub fn compute_laserline_feature_residuals(
     dataset: &LaserlineDataset,
     params: &LaserlineParams,
@@ -419,7 +365,7 @@ pub fn compute_laserline_feature_residuals(
         )));
     }
 
-    let camera = LaserCameraModel::new(&params.intrinsics, &params.distortion, &params.sensor)?;
+    let camera = LaserCameraModel::new(&params.camera)?;
     let mut out = LaserResidualRecords::default();
     for (view_idx, view) in dataset.iter().enumerate() {
         camera.view_residuals(
@@ -436,63 +382,36 @@ pub fn compute_laserline_feature_residuals(
 /// One camera of a laser problem, both as a projection model and as the
 /// packed parameter blocks the laser residual kernels take.
 pub(crate) struct LaserCameraModel {
-    camera: LaserlineCamera,
-    intrinsics: DVector<f64>,
-    distortion: DVector<f64>,
-    sensor: DVector<f64>,
+    camera: CameraModel,
+    spec: CameraModelSpec,
+    blocks: Vec<DVector<f64>>,
 }
 
 /// Points sampled along a view's projected laser line.
 const LASER_LINE_SAMPLES: usize = 33;
 
-/// A camera in the laserline device model: its intrinsics, Brown-Conrady
-/// distortion and sensor tilt. No distortion is zero Brown-Conrady
-/// coefficients, and an untilted sensor zero tilt (exactly the identity
-/// mapping).
-///
-/// # Errors
-///
-/// [`Error::InvalidInput`] naming camera `index` for any other distortion
-/// model or a general homography sensor: the laser residuals are evaluated
-/// in the Brown-Conrady model.
-pub(crate) fn laser_camera_parts(
-    camera: &CameraParams,
-    index: usize,
-) -> Result<(FxFyCxCy<Real>, BrownConrady5<Real>, ScheimpflugParams), Error> {
-    let distortion = match &camera.distortion {
-        DistortionParams::BrownConrady5 { params } => *params,
-        DistortionParams::None => BrownConrady5::default(),
-        other => {
-            return Err(Error::invalid_input(format!(
-                "camera {index}: laser residuals need Brown-Conrady (or no) distortion, got \
-                 {other:?}"
-            )));
-        }
-    };
-    let sensor = match camera.sensor {
-        SensorParams::Identity => ScheimpflugParams::default(),
-        SensorParams::Scheimpflug { params } => params,
-        SensorParams::Homography { .. } => {
-            return Err(Error::invalid_input(format!(
-                "camera {index}: laser residuals need an identity or Scheimpflug sensor"
-            )));
-        }
-    };
-    Ok((camera.intrinsics, distortion, sensor))
-}
-
 impl LaserCameraModel {
-    pub(crate) fn new(
-        intrinsics: &FxFyCxCy<Real>,
-        distortion: &BrownConrady5<Real>,
-        sensor: &ScheimpflugParams,
-    ) -> Result<Self, Error> {
+    /// The laser model of `camera`, in its own model.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] for a general homography sensor (no camera
+    /// model describes it).
+    pub(crate) fn new(camera: &CameraParams) -> Result<Self, Error> {
+        let spec = camera_spec(camera)?;
+        let model = camera
+            .build()
+            .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
         Ok(Self {
-            camera: Camera::new(Pinhole, *distortion, sensor.compile(), *intrinsics),
-            intrinsics: pack_intrinsics(intrinsics),
-            distortion: pack_distortion(distortion),
-            sensor: pack_scheimpflug(sensor),
+            camera: model,
+            spec,
+            blocks: camera_block_values(camera),
         })
+    }
+
+    /// The camera's blocks, as the residual kernels take them.
+    fn blocks(&self) -> CameraBlocks<'_, f64> {
+        CameraBlocks::split(self.spec, &self.blocks).0
     }
 
     /// Append the records of one view's laser pixels and its projected laser
@@ -519,13 +438,7 @@ impl LaserCameraModel {
             residual.observed_px = [px.x, px.y];
             residual.residual_m = point.map(|p| plane.point_distance(&p));
             residual.residual_px = laser_line_distance(
-                &CameraBlocks::new(
-                    LASER_CAMERA,
-                    self.intrinsics.as_slice(),
-                    &[],
-                    self.distortion.as_slice(),
-                    self.sensor.as_slice(),
-                ),
+                &self.blocks(),
                 pose_vec.as_view(),
                 normal.as_view(),
                 distance.as_view(),
@@ -591,7 +504,7 @@ impl LaserCameraModel {
 /// (z = 0 in the target frame); the point in the camera frame. `None` if the
 /// ray is parallel to the plane or meets it behind the camera.
 fn target_plane_point(
-    camera: &LaserlineCamera,
+    camera: &CameraModel,
     cam_se3_target: &Iso3,
     px: &Pt2,
 ) -> Option<nalgebra::Point3<f64>> {
@@ -643,36 +556,14 @@ fn solve_2x2(a00: f64, a01: f64, b0: f64, a10: f64, a11: f64, b1: f64) -> Option
     Some(((b0 * a11 - a01 * b1) / det, (a00 * b1 - b0 * a10) / det))
 }
 
-/// Concrete laserline camera type assembled from [`LaserlineParams`].
-pub(crate) type LaserlineCamera = Camera<
-    Real,
-    Pinhole,
-    BrownConrady5<Real>,
-    vision_calibration_core::HomographySensor<Real>,
-    FxFyCxCy<Real>,
->;
-
 /// Extract solution from backend result.
 fn extract_solution(
     ir: &ProblemIR,
     solution: crate::backend::BackendSolution,
+    spec: CameraModelSpec,
     num_poses: usize,
 ) -> Result<LaserlineEstimate, Error> {
-    let intrinsics = unpack_intrinsics(
-        solution
-            .params
-            .get("cam")
-            .ok_or_else(|| Error::numerical("missing intrinsics in solution"))?
-            .as_view(),
-    )?;
-
-    let distortion = unpack_distortion(
-        solution
-            .params
-            .get("dist")
-            .ok_or_else(|| Error::numerical("missing distortion in solution"))?
-            .as_view(),
-    )?;
+    let camera = unpack_camera(&solution.params, spec, None)?;
 
     let mut poses = Vec::new();
     for i in 0..num_poses {
@@ -696,21 +587,14 @@ fn extract_solution(
         .ok_or_else(|| Error::numerical(format!("missing {} in solution", distance_name)))?;
 
     let plane = LaserPlane::from_split_dvec(plane_normal.as_view(), plane_distance.as_view())?;
-    let sensor = unpack_scheimpflug(
-        solution
-            .params
-            .get("sensor")
-            .ok_or_else(|| Error::numerical("missing sensor in solution"))?
-            .as_view(),
-    )?;
 
     let labels: Vec<_> = ir
         .params
         .iter()
-        .map(|block| uncertainty::planar_block_labels(block, LASER_CAMERA))
+        .map(|block| uncertainty::planar_block_labels(block, spec))
         .collect();
     Ok(LaserlineEstimate {
-        params: LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?,
+        params: LaserlineParams::new(camera, poses, plane)?,
         uncertainty: uncertainty::labelled(ir, &solution.uncertainty, &labels),
         report: solution.solve_report,
     })
@@ -718,23 +602,25 @@ fn extract_solution(
 
 /// Optimize laserline calibration with joint bundle adjustment.
 ///
-/// This function jointly optimizes camera intrinsics, distortion parameters,
-/// camera-to-target poses, and laser plane parameters using both calibration
-/// feature observations and laser line observations.
+/// This function jointly optimizes the camera (its parameters not held by
+/// `opts.fix`), camera-to-target poses, and laser plane parameters using both
+/// calibration feature observations and laser line observations. The camera
+/// model is the one `initial.camera` holds: any distortion kind, and an
+/// identity or Scheimpflug sensor.
 ///
 /// # Errors
 ///
-/// Returns [`Error`] if IR construction or solver backend fails.
+/// Returns [`Error`] if the camera has a general homography sensor, a fix
+/// list names a parameter the model does not have, the line-distance
+/// residual is asked of a projection that bends lines, or IR construction or
+/// the solver backend fails.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use vision_calibration_optim::problems::laserline_bundle::*;
-/// use vision_calibration_core::ScheimpflugParams;
+/// use vision_calibration_optim::*;
 ///
-/// let dataset = views;
-/// let sensor = ScheimpflugParams::default(); // identity sensor
-/// let initial = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?;
+/// let initial = LaserlineParams::new(camera, poses, plane)?;
 /// let opts = LaserlineSolveOptions::default();
 /// let backend_opts = BackendSolveOptions::default();
 ///
@@ -751,9 +637,10 @@ pub fn optimize_laserline(
     opts: &LaserlineSolveOptions,
     backend_opts: &BackendSolveOptions,
 ) -> Result<LaserlineEstimate, Error> {
+    let spec = camera_spec(&initial.camera)?;
     let (ir, initial_map) = build_laserline_ir(dataset, initial, opts)?;
     let solution = backend::solve(&ir, &initial_map, backend_opts)?;
-    extract_solution(&ir, solution, dataset.len())
+    extract_solution(&ir, solution, spec, dataset.len())
 }
 
 /// Build IR for laserline bundle adjustment.
@@ -781,36 +668,19 @@ fn build_laserline_ir(
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();
 
-    // Add intrinsics parameter block
-    let intrinsics_fixed = FixedMask::fix_indices(&opts.fix_camera.intrinsics.to_indices());
-    let intrinsics_id = ir.add_param_block(
-        "cam",
-        INTRINSICS_DIM,
-        ManifoldKind::Euclidean,
-        intrinsics_fixed,
-        None,
-    );
-    initial_map.insert("cam".to_string(), pack_intrinsics(&initial.intrinsics));
-
-    // Add distortion parameter block
-    let distortion_fixed = FixedMask::fix_indices(&opts.fix_camera.distortion.to_indices());
-    let distortion_id = ir.add_param_block(
-        "dist",
-        DISTORTION_DIM,
-        ManifoldKind::Euclidean,
-        distortion_fixed,
-        None,
-    );
-    initial_map.insert("dist".to_string(), pack_distortion(&initial.distortion));
-
-    // Add sensor parameter block (Scheimpflug)
-    let sensor_fixed = if opts.fix_sensor {
-        FixedMask::all_fixed(2)
-    } else {
-        FixedMask::all_free()
-    };
-    let sensor_id = ir.add_param_block("sensor", 2, ManifoldKind::Euclidean, sensor_fixed, None);
-    initial_map.insert("sensor".to_string(), pack_scheimpflug(&initial.sensor));
+    let spec = camera_spec(&initial.camera)?;
+    let fixed = opts.fix.resolve(spec)?;
+    let camera_blocks = add_camera_blocks(
+        &mut ir,
+        &mut initial_map,
+        &[CameraBlockInput {
+            params: &initial.camera,
+            fixed: &fixed,
+            bounds: None,
+        }],
+        false,
+    )?
+    .remove(0);
 
     // Add pose parameter blocks (one per view)
     let mut pose_ids = Vec::new();
@@ -865,13 +735,10 @@ fn build_laserline_ir(
         {
             let w = view.obs.weight(pt_idx) * opts.calib_weight;
             ir.add_residual_block(ResidualBlock {
-                params: vec![intrinsics_id, distortion_id, sensor_id, pose_id],
+                params: camera_blocks.with(&[pose_id]),
                 loss: opts.calib_loss,
                 factor: FactorKind::ReprojPoint {
-                    model: CameraModelSpec::pinhole(
-                        DistortionKind::BrownConrady5,
-                        SensorKind::Scheimpflug,
-                    ),
+                    model: spec,
                     chain: ReprojChain::SinglePose,
                     pw: [pt_3d.x, pt_3d.y, pt_3d.z],
                     uv: [pt_2d.x, pt_2d.y],
@@ -888,19 +755,13 @@ fn build_laserline_ir(
             // Select factor type based on options
             let factor = match opts.laser_residual_type {
                 LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
-                    model: CameraModelSpec::pinhole(
-                        DistortionKind::BrownConrady5,
-                        SensorKind::Scheimpflug,
-                    ),
+                    model: spec,
                     chain: LaserChain::SinglePose,
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,
                 },
                 LaserlineResidualType::LineDistNormalized => FactorKind::LaserLineDistance {
-                    model: CameraModelSpec::pinhole(
-                        DistortionKind::BrownConrady5,
-                        SensorKind::Scheimpflug,
-                    ),
+                    model: spec,
                     chain: LaserChain::SinglePose,
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,
@@ -908,14 +769,7 @@ fn build_laserline_ir(
             };
 
             ir.add_residual_block(ResidualBlock {
-                params: vec![
-                    intrinsics_id,
-                    distortion_id,
-                    sensor_id,
-                    pose_id,
-                    normal_id,
-                    distance_id,
-                ],
+                params: camera_blocks.with(&[pose_id, normal_id, distance_id]),
                 loss: opts.laser_loss,
                 factor,
                 residual_dim: 1,
@@ -923,6 +777,7 @@ fn build_laserline_ir(
         }
     }
 
+    ir.validate()?;
     Ok((ir, initial_map))
 }
 
@@ -930,8 +785,27 @@ fn build_laserline_ir(
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCy, Pt3, ScheimpflugParams,
+        BrownConrady5, Camera, CorrespondenceView, DistortionParams, FxFyCxCy, Pinhole,
+        ProjectionParams, Pt3, Real, ScheimpflugParams, SensorParams,
     };
+
+    /// A pinhole camera with Brown-Conrady distortion and `sensor`.
+    fn bc_camera(
+        intrinsics: FxFyCxCy<Real>,
+        distortion: BrownConrady5<Real>,
+        sensor: SensorParams,
+    ) -> CameraParams {
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 { params: distortion },
+            sensor,
+            intrinsics,
+        }
+    }
+
+    fn tilt(sensor: ScheimpflugParams) -> SensorParams {
+        SensorParams::Scheimpflug { params: sensor }
+    }
 
     #[test]
     fn ir_validation_catches_missing_param() {
@@ -964,9 +838,7 @@ mod tests {
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
         let initial = LaserlineParams::new(
-            intrinsics,
-            distortion,
-            ScheimpflugParams::default(),
+            bc_camera(intrinsics, distortion, SensorParams::Identity),
             poses,
             plane,
         )
@@ -989,14 +861,11 @@ mod tests {
         }
     }
 
-    /// `LaserlineSolveOptions::fix_camera:
-    /// CameraFixMask` replaced the `{fix_intrinsics, fix_distortion,
-    /// fix_k3}` bool trio. Pin that the *default* mask lowers to the exact
-    /// same IR `FixedMask`s as the old default trio
-    /// (`fix_intrinsics: false, fix_distortion: false, fix_k3: true`):
-    /// intrinsics all-free, distortion `{k3}`-only fixed.
+    /// The default fix holds the model's defaults: intrinsics free and `k3`
+    /// for Brown-Conrady; an untilted camera has no sensor block, a tilted
+    /// one a free tilt and its higher-order distortion terms held.
     #[test]
-    fn default_camera_fix_mask_matches_pre_adr0024_bool_trio() {
+    fn default_fix_follows_the_camera_model() {
         let dataset = vec![View::new(
             CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
@@ -1008,30 +877,44 @@ mod tests {
                 laser_weights: Vec::new(),
             },
         )];
-        let initial = LaserlineParams::new(
-            FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 512.0,
-                cy: 384.0,
-            },
-            BrownConrady5::default(),
-            ScheimpflugParams::default(),
+        let k = FxFyCxCy {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 512.0,
+            cy: 384.0,
+        };
+        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
+        let opts = LaserlineSolveOptions::default();
+
+        let untilted = LaserlineParams::new(
+            bc_camera(k, BrownConrady5::default(), SensorParams::Identity),
             vec![Iso3::identity()],
-            LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5),
+            plane.clone(),
         )
         .unwrap();
+        let (ir, _) = build_laserline_ir(&dataset, &untilted, &opts).unwrap();
+        let fixed =
+            |ir: &ProblemIR, name: &str| ir.params[ir.param_by_name(name).unwrap().0].fixed.clone();
+        assert_eq!(fixed(&ir, "cam"), FixedMask::all_free());
+        assert_eq!(fixed(&ir, "dist"), FixedMask::fix_indices(&[2]));
+        assert!(ir.param_by_name("sensor").is_none());
 
-        let opts = LaserlineSolveOptions::default();
-        let (ir, _) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
-
-        let intrinsics_fixed = &ir.params[ir.param_by_name("cam").unwrap().0].fixed;
-        let distortion_fixed = &ir.params[ir.param_by_name("dist").unwrap().0].fixed;
-
-        // Old `fix_intrinsics: false` -> FixedMask::all_free().
-        assert_eq!(*intrinsics_fixed, FixedMask::all_free());
-        // Old `fix_distortion: false, fix_k3: true` -> only index 2 (k3) fixed.
-        assert_eq!(*distortion_fixed, FixedMask::fix_indices(&[2]));
+        let tilted = LaserlineParams::new(
+            bc_camera(
+                k,
+                BrownConrady5::default(),
+                tilt(ScheimpflugParams {
+                    tilt_x: 0.02,
+                    tilt_y: 0.0,
+                }),
+            ),
+            vec![Iso3::identity()],
+            plane,
+        )
+        .unwrap();
+        let (ir, _) = build_laserline_ir(&dataset, &tilted, &opts).unwrap();
+        assert_eq!(fixed(&ir, "dist"), FixedMask::fix_indices(&[2, 3, 4]));
+        assert_eq!(fixed(&ir, "sensor"), FixedMask::all_free());
     }
 
     #[test]
@@ -1096,9 +979,12 @@ mod tests {
             },
         )];
 
-        let params =
-            LaserlineParams::new(intrinsics, distortion, sensor, vec![cam_se3_target], plane)
-                .unwrap();
+        let params = LaserlineParams::new(
+            bc_camera(intrinsics, distortion, SensorParams::Identity),
+            vec![cam_se3_target],
+            plane,
+        )
+        .unwrap();
 
         let records = compute_laserline_feature_residuals(&dataset, &params).unwrap();
         let residuals = &records.features;
@@ -1205,9 +1091,12 @@ mod tests {
                 laser_weights: Vec::new(),
             },
         )];
-        let params =
-            LaserlineParams::new(intrinsics, distortion, sensor, vec![cam_se3_target], plane)
-                .unwrap();
+        let params = LaserlineParams::new(
+            bc_camera(intrinsics, distortion, tilt(sensor)),
+            vec![cam_se3_target],
+            plane,
+        )
+        .unwrap();
         let records = compute_laserline_feature_residuals(&dataset, &params).unwrap();
 
         let line = &records.lines[0].points_px;
@@ -1257,9 +1146,7 @@ mod tests {
             ),
         ];
         let params = LaserlineParams::new(
-            intrinsics,
-            distortion,
-            sensor,
+            bc_camera(intrinsics, distortion, tilt(sensor)),
             vec![Iso3::identity()],
             plane,
         )
@@ -1300,9 +1187,7 @@ mod tests {
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
         let initial = LaserlineParams::new(
-            intrinsics,
-            distortion,
-            ScheimpflugParams::default(),
+            bc_camera(intrinsics, distortion, SensorParams::Identity),
             poses,
             plane,
         )

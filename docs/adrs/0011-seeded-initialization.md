@@ -32,8 +32,12 @@ multi-stage problems name the stage (`step_rig_init_with_seed`,
   (Scheimpflug `p1 = p2 = 0`) applies only on the auto path.
 - `cam_se3_rig` and the per-view `rig_se3_target` are geometrically coupled:
   a rig seed provides both or neither, enforced with a typed error.
-- A hardware property that is not calibrated (the laserline device's
-  sensor model) is not seedable; it comes from the config.
+- The camera model (which kinds, e.g. a Scheimpflug sensor) is
+  configuration, not a seed (ADR 0013). The values it calibrates, the
+  sensor tilt included, are seedable like any other: `sensor` in the
+  single-camera seeds, `per_cam_sensors` in the rig seeds. A non-zero tilt
+  for an untilted camera is a typed error. A known mount tilt that should
+  not move is a seed plus a `camera.fix.sensor` list.
 - The init log records which fields were seeded and which automatic.
 
 ### Seeding is the official route for Scheimpflug and rig calibration

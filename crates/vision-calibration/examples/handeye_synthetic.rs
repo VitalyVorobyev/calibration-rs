@@ -117,7 +117,7 @@ fn main() -> Result<()> {
     // Step 1: Intrinsics initialization
     println!("--- Step 1: Intrinsics Initialization ---");
     let intr_init = step_intrinsics_init(&mut session, None)?;
-    let init_k = &intr_init.camera.k;
+    let init_k = &intr_init.camera.intrinsics;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
@@ -134,12 +134,9 @@ fn main() -> Result<()> {
     let opt_cam = &intr_opt.camera;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-        opt_cam.k.fx, opt_cam.k.fy, opt_cam.k.cx, opt_cam.k.cy
+        opt_cam.intrinsics.fx, opt_cam.intrinsics.fy, opt_cam.intrinsics.cx, opt_cam.intrinsics.cy
     );
-    println!(
-        "  Distortion: k1={:.4}, k2={:.4}",
-        opt_cam.dist.k1, opt_cam.dist.k2
-    );
+    println!("  Distortion: {:?}", opt_cam.distortion);
     println!("  Reprojection error: {:.4} px", intr_opt.mean_reproj_error);
     println!();
 
@@ -175,8 +172,7 @@ fn main() -> Result<()> {
     // Export and compare with ground truth
     println!("--- Final Results ---");
     let export = session.export()?;
-    let final_k = &export.camera.k;
-    let final_d = &export.camera.dist;
+    let final_k = &export.camera.intrinsics;
 
     println!("Camera intrinsics:");
     println!(
@@ -204,9 +200,7 @@ fn main() -> Result<()> {
         (final_k.cy - k_gt.cy).abs()
     );
 
-    println!("Distortion:");
-    println!("  k1: {:.5} (GT: 0)", final_d.k1);
-    println!("  k2: {:.5} (GT: 0)", final_d.k2);
+    println!("Distortion (GT: zero): {:?}", export.camera.distortion);
 
     println!("Hand-eye transform:");
     let he_t = export.gripper_se3_camera.unwrap().translation.vector.norm();

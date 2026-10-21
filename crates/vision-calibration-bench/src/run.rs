@@ -62,18 +62,18 @@ pub mod tier_b {
         step_intrinsics_init, step_intrinsics_optimize,
     };
     use vision_calibration_core::{
-        BrownConrady5, Camera, CameraFix, CameraModelSpec, CameraParams, DistortionFixMask,
-        DistortionKind, DistortionParams, FeatureResidualHistogram, FxFyCxCy, IntrinsicsFixMask,
-        Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, ReprojectionStats,
-        ScheimpflugParams, SensorKind, SensorParams, TargetFeatureResidual, View,
-        compute_planar_target_residuals, make_pinhole_camera,
+        BrownConrady5, Camera, CameraFix, CameraModelSpec, CameraParams, DistortionKind,
+        DistortionParams, FeatureResidualHistogram, FxFyCxCy, Pinhole, PinholeCamera,
+        PlanarDataset, ProjectionParams, Pt2, ReprojectionStats, ScheimpflugParams, SensorKind,
+        SensorParams, TargetFeatureResidual, View, compute_planar_target_residuals,
+        make_pinhole_camera,
     };
     use vision_calibration_optim::{
         BackendSolveOptions, LaserlineResidualType, PlanarIntrinsicsEstimate,
         PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigHandeyeLaserlineDataset,
         RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
-        RigLaserlineView, RobustLoss, ScheimpflugFixMask, SolveReport, SolverBackend,
-        optimize_planar_intrinsics, optimize_rig_handeye_laserline,
+        RigLaserlineView, RobustLoss, SolveReport, SolverBackend, optimize_planar_intrinsics,
+        optimize_rig_handeye_laserline,
     };
     #[cfg(feature = "laser")]
     use vision_metrology::{
@@ -363,8 +363,7 @@ pub mod tier_b {
     #[derive(Debug, Clone)]
     struct IntrinsicsVariantConfig {
         case: &'static str,
-        fix_intrinsics: IntrinsicsFixMask,
-        fix_distortion: DistortionFixMask,
+        fix: CameraFix,
         note: Option<String>,
     }
 
@@ -2063,37 +2062,15 @@ pub mod tier_b {
         }
     }
 
-    /// The named fix lists of a tilted Brown-Conrady camera's masks.
-    fn tilted_bc5_fix(
-        intrinsics: IntrinsicsFixMask,
-        distortion: DistortionFixMask,
-        tilt: ScheimpflugFixMask,
-    ) -> CameraFix {
-        let names = |flags: &[(bool, &str)]| {
-            Some(
-                flags
-                    .iter()
-                    .filter(|(fixed, _)| *fixed)
-                    .map(|(_, name)| name.to_string())
-                    .collect(),
-            )
-        };
+    /// The fix lists of a tilted Brown-Conrady camera: the named intrinsics
+    /// and distortion terms held, the tilt free.
+    fn tilted_bc5_fix(intrinsics: &[&str], distortion: &[&str]) -> CameraFix {
+        let names = |n: &[&str]| Some(n.iter().map(|s| s.to_string()).collect());
         CameraFix {
-            intrinsics: names(&[
-                (intrinsics.fx, "fx"),
-                (intrinsics.fy, "fy"),
-                (intrinsics.cx, "cx"),
-                (intrinsics.cy, "cy"),
-            ]),
+            intrinsics: names(intrinsics),
             projection: Some(Vec::new()),
-            distortion: names(&[
-                (distortion.k1, "k1"),
-                (distortion.k2, "k2"),
-                (distortion.k3, "k3"),
-                (distortion.p1, "p1"),
-                (distortion.p2, "p2"),
-            ]),
-            sensor: names(&[(tilt.tilt_x, "tilt_x"), (tilt.tilt_y, "tilt_y")]),
+            distortion: names(distortion),
+            sensor: Some(Vec::new()),
         }
     }
 
@@ -2152,22 +2129,7 @@ pub mod tier_b {
 
         let centered_opts = PlanarIntrinsicsSolveOptions {
             robust_loss: RobustLoss::Huber { scale: 1.0 },
-            fix: tilted_bc5_fix(
-                IntrinsicsFixMask {
-                    fx: false,
-                    fy: false,
-                    cx: true,
-                    cy: true,
-                },
-                DistortionFixMask {
-                    k1: false,
-                    k2: false,
-                    k3: true,
-                    p1: true,
-                    p2: true,
-                },
-                ScheimpflugFixMask::default(),
-            ),
+            fix: tilted_bc5_fix(&["cx", "cy"], &["k3", "p1", "p2"]),
             fix_poses: Vec::new(),
             bounds: None,
         };
@@ -2278,19 +2240,7 @@ pub mod tier_b {
             gate_px,
             IntrinsicsVariantConfig {
                 case: "diagnostic_cxcy_free",
-                fix_intrinsics: IntrinsicsFixMask {
-                    fx: false,
-                    fy: false,
-                    cx: false,
-                    cy: false,
-                },
-                fix_distortion: DistortionFixMask {
-                    k1: false,
-                    k2: false,
-                    k3: true,
-                    p1: true,
-                    p2: true,
-                },
+                fix: tilted_bc5_fix(&[], &["k3", "p1", "p2"]),
                 note: Some(
                     "diagnostic only: cx/cy released; gate still uses centered solution"
                         .to_string(),
@@ -2318,19 +2268,7 @@ pub mod tier_b {
             gate_px,
             IntrinsicsVariantConfig {
                 case: "diagnostic_k3_free",
-                fix_intrinsics: IntrinsicsFixMask {
-                    fx: false,
-                    fy: false,
-                    cx: true,
-                    cy: true,
-                },
-                fix_distortion: DistortionFixMask {
-                    k1: false,
-                    k2: false,
-                    k3: false,
-                    p1: true,
-                    p2: true,
-                },
+                fix: tilted_bc5_fix(&["cx", "cy"], &["p1", "p2"]),
                 note: Some("diagnostic only: k3 released".to_string()),
             },
         )?);
@@ -2342,19 +2280,7 @@ pub mod tier_b {
             gate_px,
             IntrinsicsVariantConfig {
                 case: "diagnostic_p1p2_free",
-                fix_intrinsics: IntrinsicsFixMask {
-                    fx: false,
-                    fy: false,
-                    cx: true,
-                    cy: true,
-                },
-                fix_distortion: DistortionFixMask {
-                    k1: false,
-                    k2: false,
-                    k3: true,
-                    p1: false,
-                    p2: false,
-                },
+                fix: tilted_bc5_fix(&["cx", "cy"], &["k3"]),
                 note: Some(
                     "diagnostic only: p1/p2 released to test missing model terms".to_string(),
                 ),
@@ -2373,11 +2299,7 @@ pub mod tier_b {
     ) -> Result<StagedIntrinsicsSolve> {
         let opts = PlanarIntrinsicsSolveOptions {
             robust_loss: RobustLoss::Huber { scale: 1.0 },
-            fix: tilted_bc5_fix(
-                config.fix_intrinsics,
-                config.fix_distortion,
-                ScheimpflugFixMask::default(),
-            ),
+            fix: config.fix,
             fix_poses: Vec::new(),
             bounds: None,
         };
@@ -3673,14 +3595,7 @@ pub mod tier_b {
         let mut artifacts = CalibrationArtifacts {
             spatial_unit: "mm".to_string(),
             angle_unit: "deg".to_string(),
-            cameras: vec![camera_artifact(
-                camera_id,
-                &export
-                    .params
-                    .pinhole_camera()
-                    .expect("planar export pinhole camera"),
-                None,
-            )],
+            cameras: vec![params_artifact(camera_id, &export.params.camera)],
             transforms: Vec::new(),
         };
         for (view_idx, pose) in export.params.camera_se3_target.iter().enumerate() {
@@ -3701,7 +3616,7 @@ pub mod tier_b {
         let mut artifacts = CalibrationArtifacts {
             spatial_unit: "mm".to_string(),
             angle_unit: "deg".to_string(),
-            cameras: vec![camera_artifact(camera_id, &export.camera, None)],
+            cameras: vec![params_artifact(camera_id, &export.camera)],
             transforms: Vec::new(),
         };
         if let Some(t) = &export.gripper_se3_camera {
@@ -3823,29 +3738,34 @@ pub mod tier_b {
         cameras
             .iter()
             .enumerate()
-            .map(|(idx, camera)| {
-                let dist = match &camera.distortion {
-                    DistortionParams::BrownConrady5 { params } => *params,
-                    _ => BrownConrady5::default(),
-                };
-                let sensor = match &camera.sensor {
-                    SensorParams::Scheimpflug { params } => Some(params),
-                    _ => None,
-                };
-                let mut artifact = camera_artifact(
-                    camera_id(layouts, idx),
-                    &make_pinhole_camera(camera.intrinsics, dist),
-                    sensor,
-                );
-                if let Some(model) = camera.spec() {
-                    artifact.distortion_model = serde_json::to_value(model.distortion)
-                        .ok()
-                        .and_then(|v| v.as_str().map(str::to_string))
-                        .unwrap_or(artifact.distortion_model);
-                }
-                artifact
-            })
+            .map(|(idx, camera)| params_artifact(camera_id(layouts, idx), camera))
             .collect()
+    }
+
+    /// The artifact of a camera in any model: its Brown-Conrady terms (zero
+    /// for another distortion model, which `distortion_model` names) and its
+    /// tilt.
+    fn params_artifact(camera_id: &str, camera: &CameraParams) -> CameraArtifact {
+        let dist = match &camera.distortion {
+            DistortionParams::BrownConrady5 { params } => *params,
+            _ => BrownConrady5::default(),
+        };
+        let sensor = match &camera.sensor {
+            SensorParams::Scheimpflug { params } => Some(params),
+            _ => None,
+        };
+        let mut artifact = camera_artifact(
+            camera_id,
+            &make_pinhole_camera(camera.intrinsics, dist),
+            sensor,
+        );
+        if let Some(model) = camera.spec() {
+            artifact.distortion_model = serde_json::to_value(model.distortion)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or(artifact.distortion_model);
+        }
+        artifact
     }
 
     fn camera_id(layouts: &[CameraLayout], index: usize) -> &str {

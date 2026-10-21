@@ -1,9 +1,5 @@
 # ADR 0013: Lens and Sensor Variants Are Camera Slots, Not Workflows
 
-**Implementation in progress** (backlog API-CAM-BUILDERS and API-CAM-PIPELINE). Planar
-intrinsics and the rig family (rig extrinsics, rig hand-eye) follow this
-design; single-camera hand-eye and the laser workflows do not yet.
-
 ## Context
 
 A planar intrinsics calibration, a rig, a hand-eye or a laser calibration
@@ -26,22 +22,31 @@ The workflow is a module, and the camera model is a config value
 (ADR 0005).
 
 - **One workflow per calibration task.** Planar intrinsics, hand-eye, rig
-  extrinsics, rig hand-eye and the laser workflows each take
-  `camera: CameraConfig`; rigs add per-camera overrides. There is no
+  extrinsics, rig hand-eye and the laserline device each take
+  `camera: CameraConfig`; rigs add per-camera overrides, and the rig laser
+  workflows take each camera's model from the upstream rig. There is no
   per-sensor workflow and no `SensorMode`.
 - **One optimizer builder per task.** Builders are written against
   `CameraModelSpec`. They build the camera blocks through one shared helper
   that handles packing, fix lists and covariance labels.
 - **Sensor-specific behaviour hangs off the spec's kinds, not the
   workflow:**
-  - the default fix list (a Scheimpflug sensor holds `k3, p1, p2`);
-  - zeroing tangential terms in the linear stage;
+  - the default fix list (a Scheimpflug sensor holds everything but the
+    low-order radial terms: `k3, p1, p2` for Brown-Conrady);
+  - zeroing tangential terms in the linear stage of a single-camera
+    workflow (the rig workflows keep them free for every camera);
   - the cold-start tilt sweep, which runs when the sensor is Scheimpflug
-    and no tilt seed is given;
-  - the seeded route (ADR 0011).
+    and no tilt seed is given: the linear tilt sweep, then the staged tilt
+    multi-start on the camera's own views;
+  - the seeded route (ADR 0011);
+  - a tilted sensor needs a distortion model in the single-camera
+    workflows, whose radial terms tell the tilt apart from a
+    principal-point shift.
 
-  Each is defined once and runs in every workflow that meets the
-  condition.
+  Each is defined once (`CameraModelSpec::default_fix`,
+  `planar_family::{bootstrap_camera, optimize_camera}`,
+  `CameraConfig::validate_single_camera`) and runs in every workflow that
+  meets the condition.
 - **Each step's output is unambiguous**, because the result holds
   `CameraParams`, whose sensor slot states what was calibrated.
 

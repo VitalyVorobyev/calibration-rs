@@ -6,14 +6,14 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    DistortionParams, ImageManifest, Iso3, PerFeatureResiduals, PinholeCamera, Uncertainty, View,
-    build_feature_histogram, compute_planar_target_residuals_views, make_pinhole_camera,
+    CameraParams, ImageManifest, Iso3, PerFeatureResiduals, Uncertainty, View,
+    build_feature_histogram, compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, handeye_observer_se3_target};
 
 use crate::common::ExportKind;
 use crate::common::config::{
-    HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
+    CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
 };
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -83,18 +83,27 @@ impl SingleCamHandeyeInput {
 
 /// Configuration for single-camera hand-eye calibration.
 ///
-/// Grouped by stage: per-camera linear init, hand-eye linear init,
-/// non-linear solve, and robot-pose refinement each live in their own
-/// shared sub-struct. Every group's own `Default` is the plain workspace
-/// default (no per-problem override is needed here, unlike
+/// Grouped by stage: per-camera linear init, the camera model, hand-eye
+/// linear init, non-linear solve, and robot-pose refinement each live in
+/// their own shared sub-struct. Every group's own `Default` is the plain
+/// workspace default (no per-problem override is needed here, unlike
 /// `PlanarIntrinsicsConfig`'s iteration cap).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct SingleCamHandeyeConfig {
-    /// Per-camera linear-initialization stage settings.
+    /// Per-camera linear-initialization stage settings. `fix_tangential`
+    /// defaults to `true` for a Scheimpflug sensor and `false` otherwise.
     pub intrinsics: IntrinsicsInitConfig,
+
+    /// The camera model and the parameters its solves (the intrinsics stage
+    /// and the hand-eye bundle adjustment) hold fixed. Any distortion kind
+    /// with an identity sensor; a Scheimpflug sensor needs a distortion
+    /// model. A tilted sensor's intrinsics stage runs a multi-start tilt
+    /// sweep; seed its tilt through the intrinsics manual init.
+    #[serde(default)]
+    pub camera: CameraConfig,
 
     /// Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
     pub handeye_init: HandeyeInitConfig,
@@ -118,8 +127,8 @@ pub struct SingleCamHandeyeExport {
     /// Export-type discriminator — always [`ExportKind::SingleCamHandeye`].
     pub kind: ExportKind,
 
-    /// Calibrated camera (intrinsics + distortion).
-    pub camera: PinholeCamera,
+    /// Calibrated camera, in the configured model.
+    pub camera: CameraParams,
 
     /// Hand-eye mode used to interpret the transforms.
     pub handeye_mode: HandEyeMode,
@@ -195,7 +204,7 @@ pub struct SingleCamHandeyeExport {
 /// Single-camera hand-eye calibration problem.
 ///
 /// Calibrates a single camera mounted on a robot arm, including:
-/// - Camera intrinsics and distortion
+/// - The camera, in the configured model (intrinsics, distortion, sensor)
 /// - Hand-eye transform (gripper-to-camera or camera-to-base)
 /// - Target pose in base frame
 ///
@@ -279,7 +288,7 @@ impl ProblemType for SingleCamHandeyeProblem {
         if config.robot_poses.refine {
             config.robot_poses.validate()?;
         }
-        Ok(())
+        config.camera.validate_single_camera()
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -295,23 +304,16 @@ impl ProblemType for SingleCamHandeyeProblem {
         output: &Self::Output,
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        // Extract the single camera (index 0 for single-cam setup); the
-        // hand-eye solve keeps its Brown-Conrady model.
+        // Extract the single camera (index 0 for single-cam setup).
         let camera = output
             .params
             .cameras
             .first()
+            .cloned()
             .ok_or_else(|| Error::invalid_input("no camera in output"))?;
-        let camera = match &camera.distortion {
-            DistortionParams::BrownConrady5 { params } => {
-                make_pinhole_camera(camera.intrinsics, *params)
-            }
-            other => {
-                return Err(Error::invalid_input(format!(
-                    "single-camera hand-eye exports a Brown-Conrady camera, got {other:?}"
-                )));
-            }
-        };
+        let model = camera
+            .build()
+            .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
 
         // Target pose (single fixed target pose; interpretation depends on mode)
         let target_pose = output
@@ -345,7 +347,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             &robot_poses,
             output.robot_deltas.as_deref(),
         );
-        let target = compute_planar_target_residuals_views(&camera, &input.views, &cam_se3_target)?;
+        let target = compute_planar_target_residuals_views(&model, &input.views, &cam_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
 
         let mut per_feature_residuals = PerFeatureResiduals::default();
@@ -373,6 +375,7 @@ impl ProblemType for SingleCamHandeyeProblem {
 mod tests {
     use super::*;
     use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
+    use vision_calibration_core::{DistortionKind, SensorKind};
     use vision_calibration_optim::RobustLoss;
 
     fn make_minimal_view() -> SingleCamHandeyeView {
@@ -444,6 +447,28 @@ mod tests {
         let config = SingleCamHandeyeConfig::default();
         let result = SingleCamHandeyeProblem::validate_config(&config);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_config_checks_the_camera() {
+        let tilted_without_distortion = SingleCamHandeyeConfig {
+            camera: CameraConfig::new(vision_calibration_core::CameraModelSpec::pinhole(
+                DistortionKind::None,
+                SensorKind::Scheimpflug,
+            )),
+            ..Default::default()
+        };
+        let err = SingleCamHandeyeProblem::validate_config(&tilted_without_distortion)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("distortion model"), "{err}");
+
+        let mut bad_fix = SingleCamHandeyeConfig::default();
+        bad_fix.camera.fix.sensor = Some(vec!["tilt_x".into()]);
+        let err = SingleCamHandeyeProblem::validate_config(&bad_fix)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("tilt_x"), "{err}");
     }
 
     #[test]

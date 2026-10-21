@@ -9,6 +9,7 @@ use crate::rig_laserline_device::{
     run_calibration as run_rig_laserline_calibration,
 };
 use crate::session::CalibrationSession;
+use vision_calibration_core::{CameraModelSpec, CameraParams};
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeMode, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
     optimize_rig_handeye_laserline,
@@ -64,7 +65,7 @@ pub fn run_calibration(
         laser_loss: config.joint_ba.laser_loss,
         calib_weight: config.joint_ba.calib_weight,
         laser_weight: config.joint_ba.laser_weight,
-        fix: joint_fix(&config.joint_ba, &joint_initial.cameras)?,
+        fix: joint_fix(&config.joint_ba, &joint_models(&joint_initial.cameras)?)?,
         fix_extrinsics: joint_fix_extrinsics(config.handeye.rig.reference_camera_idx, n),
         fix_handeye: config.joint_ba.fix_handeye,
         fix_target_ref: config.joint_ba.fix_target_ref,
@@ -94,6 +95,19 @@ pub fn run_calibration(
         ),
     );
     Ok(())
+}
+
+/// The models of the warm-started cameras.
+fn joint_models(cameras: &[CameraParams]) -> Result<Vec<CameraModelSpec>, Error> {
+    cameras
+        .iter()
+        .enumerate()
+        .map(|(i, camera)| {
+            camera.spec().ok_or_else(|| {
+                Error::invalid_input(format!("camera {i} has a general homography sensor"))
+            })
+        })
+        .collect()
 }
 
 fn joint_initial_from_exports(

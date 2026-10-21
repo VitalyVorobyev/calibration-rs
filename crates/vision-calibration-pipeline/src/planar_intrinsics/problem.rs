@@ -6,7 +6,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    DistortionKind, ImageManifest, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
+    ImageManifest, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
     build_feature_histogram, compute_planar_target_residuals,
 };
 use vision_calibration_linear::prelude::*;
@@ -212,14 +212,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         if config.init.init_iterations == 0 {
             return Err(Error::invalid_input("init_iterations must be positive"));
         }
-        config.camera.validate()?;
-        if config.is_scheimpflug() && config.camera.model.distortion == DistortionKind::None {
-            return Err(Error::invalid_input(
-                "a Scheimpflug sensor needs a distortion model: the tilt is estimated \
-                 jointly with the radial terms",
-            ));
-        }
-        Ok(())
+        config.camera.validate_single_camera()
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -266,6 +259,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vision_calibration_core::DistortionKind;
     use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
     use vision_calibration_optim::RobustLoss;
 

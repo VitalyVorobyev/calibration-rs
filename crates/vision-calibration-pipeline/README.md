@@ -11,8 +11,8 @@ export, and can be checkpointed to JSON (`to_json` / `from_json`).
 | Module | Problem type |
 |---|---|
 | `planar_intrinsics` | `PlanarIntrinsicsProblem` (any camera model, including a Scheimpflug sensor) |
-| `single_cam_handeye` | `SingleCamHandeyeProblem` |
-| `laserline_device` | `LaserlineDeviceProblem` |
+| `single_cam_handeye` | `SingleCamHandeyeProblem` (any camera model) |
+| `laserline_device` | `LaserlineDeviceProblem` (any camera model) |
 | `rig_extrinsics` | `RigExtrinsicsProblem` |
 | `rig_handeye` | `RigHandeyeProblem` |
 | `rig_laserline_device` | `RigLaserlineDeviceProblem` |

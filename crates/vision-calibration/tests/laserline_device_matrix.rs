@@ -147,10 +147,10 @@ fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
     let factrs = run(SolverBackend::Factrs);
     let (a, b) = (&tiny.estimate.params, &factrs.estimate.params);
     for (name, x, y) in [
-        ("fx", a.intrinsics.fx, b.intrinsics.fx),
-        ("fy", a.intrinsics.fy, b.intrinsics.fy),
-        ("cx", a.intrinsics.cx, b.intrinsics.cx),
-        ("cy", a.intrinsics.cy, b.intrinsics.cy),
+        ("fx", a.camera.intrinsics.fx, b.camera.intrinsics.fx),
+        ("fy", a.camera.intrinsics.fy, b.camera.intrinsics.fy),
+        ("cx", a.camera.intrinsics.cx, b.camera.intrinsics.cx),
+        ("cy", a.camera.intrinsics.cy, b.camera.intrinsics.cy),
     ] {
         assert!(
             (x - y).abs() <= 1e-2,

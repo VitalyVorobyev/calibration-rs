@@ -1,4 +1,12 @@
 {
+  "camera": {
+    "fix": {},
+    "model": {
+      "distortion": "brown_conrady5",
+      "projection": "pinhole",
+      "sensor": "identity"
+    }
+  },
   "handeye_init": {
     "handeye_mode": "EyeInHand",
     "min_motion_angle_deg": 5.0

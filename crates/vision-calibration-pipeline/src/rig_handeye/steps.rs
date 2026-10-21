@@ -23,11 +23,11 @@ use vision_calibration_optim::{
     optimize_rig_extrinsics, optimize_scheimpflug_intrinsics_staged,
 };
 
-use crate::planar_family::embed_distortion;
+use crate::planar_family::{camera_solve_opts, embed_distortion, optimize_camera};
 use crate::rig_family::{
     RigIntrinsicsSeeds, bootstrap_rig_intrinsics, check_camera_models, format_init_source,
-    guard_percam_reproj_errors, optimize_rig_camera, rig_ba_fix, rig_camera_solve_opts,
-    rig_distortion, rig_tilt, tilted_planar_params, views_to_planar_dataset,
+    guard_percam_reproj_errors, rig_ba_fix, rig_distortion, rig_tilt, tilted_planar_params,
+    views_to_planar_dataset,
 };
 use crate::session::CalibrationSession;
 
@@ -396,7 +396,7 @@ pub fn step_intrinsics_optimize_all(
 
         let tilted = camera_config.model.sensor == SensorKind::Scheimpflug;
         let result = if tilted && auto_init {
-            let solve_opts = rig_camera_solve_opts(&camera_config, &config.solver);
+            let solve_opts = camera_solve_opts(&camera_config, &config.solver);
             if camera_config.model == TILTED_BROWN_CONRADY {
                 scheimpflug_work_items.push(ScheimpflugCameraWork {
                     cam_idx,
@@ -416,7 +416,7 @@ pub fn step_intrinsics_optimize_all(
                 config.intrinsics.fix_k3,
             )?
         } else {
-            optimize_rig_camera(
+            optimize_camera(
                 cam_idx,
                 &planar_dataset,
                 &initial_params,

@@ -12,16 +12,17 @@ class TypedModelParsingTest(unittest.TestCase):
         self.assertFalse(hasattr(vc, "HandEyeMode"))
         self.assertTrue(hasattr(vc_types, "RobustLoss"))
 
-    def test_pinhole_camera_from_runtime_payload(self) -> None:
+    def test_pinhole_camera_from_camera_params_payload(self) -> None:
         payload = {
-            "proj": "Pinhole",
-            "k": {
+            "projection": {"type": "pinhole"},
+            "intrinsics": {
                 "fx": 800.0,
                 "fy": 780.0,
                 "cx": 640.0,
                 "cy": 360.0,
             },
-            "dist": {
+            "distortion": {
+                "type": "brown_conrady5",
                 "k1": 0.1,
                 "k2": -0.01,
                 "k3": 0.001,
@@ -29,11 +30,13 @@ class TypedModelParsingTest(unittest.TestCase):
                 "p2": 0.0,
                 "iters": 8,
             },
+            "sensor": {"type": "identity"},
         }
 
-        cam = vc.PinholeBrownConradyCamera.from_payload(payload)
+        cam = vc.PinholeCamera.from_payload(payload)
         self.assertAlmostEqual(cam.intrinsics.fx, 800.0)
         self.assertAlmostEqual(cam.intrinsics.fy, 780.0)
+        self.assertIsInstance(cam.distortion, vc.BrownConradyDistortion)
         self.assertAlmostEqual(cam.distortion.k1, 0.1)
         self.assertEqual(cam.distortion.iters, 8)
 

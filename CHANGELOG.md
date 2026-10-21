@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: single-camera hand-eye and the laserline device take the camera
+  model from the config, like every other workflow, and the laser workflows
+  evaluate each camera in its own model. `SingleCamHandeyeConfig` and
+  `LaserlineDeviceConfig` gain `camera: CameraConfig { model, fix }` (any
+  distortion kind, an identity or Scheimpflug sensor; fix lists named per
+  slot); their exports carry the camera as `CameraParams`. The rig laser
+  workflows (`rig_laserline_device`, `rig_handeye_laserline`) accept every
+  distortion kind per camera. The joint rig laser stage names its fixed
+  parameters per camera. The Brown-Conrady fix masks are removed.
+
+  | Before | After |
+  |---|---|
+  | `SingleCamHandeyeExport.camera: PinholeCamera` (JSON `{"k", "dist", "proj", "sensor", "_phantom"}`) | `camera: CameraParams` (JSON `{"projection", "distortion", "sensor", "intrinsics"}`, each slot tagged by `type`) |
+  | `SingleCamIntrinsicsInitResult.camera` / `SingleCamIntrinsicsOptimizeResult.camera: PinholeCamera` | `CameraParams` |
+  | `SingleCamHandeyeConfig` (Brown-Conrady, untilted) | gains `camera: CameraConfig`; default Brown-Conrady with an identity sensor, as before |
+  | `SingleCamIntrinsicsManualInit { intrinsics, distortion, target_poses }` | gains `sensor: Option<ScheimpflugParams>` (a Scheimpflug camera's tilt seed; a non-zero tilt for an untilted camera is a typed error) |
+  | `LaserlineDeviceConfig.sensor_init: ScheimpflugParams` | `camera.model.sensor = scheimpflug`, plus the manual-init seed `LaserlineDeviceManualInit.sensor` for a known tilt (without one, the linear tilt sweep and the staged tilt multi-start estimate it) |
+  | `LaserlineDeviceConfig.optimize.fix_camera: CameraFixMask` | `camera.fix.intrinsics` / `camera.fix.distortion`, e.g. `["cx", "cy"]`, `["k3", "p1", "p2"]` |
+  | `LaserlineDeviceConfig.optimize.fix_sensor: bool` (default `true`) | `camera.fix.sensor`; the default refines a Scheimpflug camera's tilt — name `["tilt_x", "tilt_y"]` to hold a known mount tilt. An untilted camera has no tilt |
+  | `LaserlineDeviceInitResult { intrinsics, distortion, … }` | `{ camera: CameraParams, … }` |
+  | `RigHandeyeLaserlineConfig.joint_ba.default_camera_fix: CameraFixMask` + `fix_scheimpflug: ScheimpflugFixMask` | `joint_ba.fix: Vec<CameraFix>`, one per camera; empty (the default) is the stage default: intrinsics and `k1`, `k2` (`lambda`) refined, the higher-order distortion terms and the tilt held — the old default masks |
+  | rig laser workflows: Brown-Conrady or no distortion only | any distortion kind per camera |
+  | optim `LaserlineParams { intrinsics, distortion: BrownConrady5, sensor: ScheimpflugParams, poses, plane }`; `LaserlineParams::new(k, d, s, poses, plane)` | `LaserlineParams { camera: CameraParams, poses, plane }`; `LaserlineParams::new(camera, poses, plane)` |
+  | optim `LaserlineSolveOptions { fix_camera: CameraFixMask, fix_sensor: bool, … }` | `{ fix: CameraFix, … }` (the model's defaults) |
+  | core `IntrinsicsFixMask`, `DistortionFixMask`, `CameraFixMask`; optim `ScheimpflugFixMask` | removed; `CameraFix` names the fixed parameters |
+  | optim `PlanarIntrinsicsParams::pinhole_camera()` | removed; read `params.camera` (`CameraParams`) |
+  | linear `LaserlinePlaneSolver::from_views` over a Brown-Conrady camera | over any `Camera<Real, P, D, Sm, K>`, e.g. a `CameraModel` from `CameraParams::build` |
+  | Python `SingleCamHandeyeResult.camera: PinholeBrownConradyCamera`; `LaserlineEstimateParams.intrinsics` / `.distortion` / `.sensor` | `PinholeCamera` or `PinholeScheimpflugCamera`; `LaserlineEstimateParams.camera`. `PinholeBrownConradyCamera` and `CameraFixMask` are removed |
+  | Python `LaserlineDeviceCalibrationConfig.sensor_init`, `LaserlineDeviceOptimizeConfig.fix_camera` / `.fix_sensor` | `LaserlineDeviceCalibrationConfig.camera` (`CameraConfig`) |
+  | Python `RigHandeyeLaserlineBaConfig.default_camera_fix` / `.fix_scheimpflug` | `.fix: list[CameraFix]` |
+
+  Behaviour notes. An unset `intrinsics.fix_tangential` / `init.fix_tangential`
+  of the single-camera hand-eye and laserline device follows the sensor, as
+  in planar intrinsics (`true` for a Scheimpflug sensor). A Scheimpflug camera
+  without a tilt seed gets the planar tilt route: the linear tilt sweep, then
+  the staged tilt multi-start on the camera's target views (the single-camera
+  hand-eye intrinsics stage; the laserline device's `step_init`, before the
+  plane fit). A camera model changed after the camera's init step is a typed
+  error. A single-camera hand-eye camera with a Scheimpflug sensor and no
+  distortion is a configuration error, as in planar intrinsics. The laserline
+  device's untilted camera has no sensor block, so the fixed zero-tilt labels
+  (`tilt_x`, `tilt_y`) leave its covariance. The default configurations give
+  the same results: the regression suite and solver benchmarks are
+  unchanged.
+
 - The shared linear-algebra primitives have one public path,
   `vision_calibration_core::linalg` (`normalize_points_2d/3d`, `null_space`,
   the polynomial root solvers, the SVD reshaping helpers).
@@ -38,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `fix_camera.intrinsics` (`IntrinsicsFixMask`) | `camera.fix.intrinsics`, e.g. `["cx", "cy"]` |
   | `fix_camera.distortion` (`DistortionFixMask`) | `camera.fix.distortion`, e.g. `["k3", "p1", "p2"]`; under a Scheimpflug sensor `k4`–`k6` and `s1`–`s4` are named directly instead of following the `k3` / `p1`+`p2` bits |
   | `fix_scheimpflug: { tilt_x, tilt_y }` | `camera.fix.sensor`, e.g. `["tilt_y"]` |
-  | `init.fix_tangential: bool` (every config) | `init.fix_tangential: Option<bool>`; unset is the camera's default — `true` for a Scheimpflug planar camera, `false` otherwise (the rig, hand-eye and laser workflows resolve it to `false`) |
+  | `init.fix_tangential: bool` (every config) | `init.fix_tangential: Option<bool>`; unset is the camera's default — `true` for a Scheimpflug camera, `false` otherwise (the rig workflows resolve it to `false` for every camera) |
   | planar `solver.max_iters` default 50 | 120 (sized for the tilt valley; the solver stops at convergence, and every planar regression and benchmark result is unchanged) |
   | `ScheimpflugManualInit` | `PlanarManualInit`, which gains `sensor: Option<ScheimpflugParams>` (a typed error for an untilted camera); its `distortion` seed stays Brown-Conrady and is embedded into the configured model |
   | `ScheimpflugIntrinsicsResult` / `ScheimpflugIntrinsicsExport` / `ScheimpflugIntrinsicsParams` / `…InitResult` / `…OptimizeResult` | `PlanarIntrinsicsEstimate` / `PlanarIntrinsicsExport` / `PlanarIntrinsicsParams` / `PlanarInitResult` (gains `sensor`) / `PlanarOptimizeResult` |
@@ -101,10 +146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identical for the default Brown-Conrady camera). A non-zero tilt seed for
   an untilted camera is an `InvalidInput` error (it was ignored). An unset
   `init.fix_tangential` still resolves to `false` for every rig camera. The
-  rig laser workflows (`rig_laserline_device`, `rig_handeye_laserline`)
-  accept Brown-Conrady or no distortion only, because their laser residuals
-  use the Brown-Conrady laserline-device model; any other kind is a typed
-  error. The joint rig laser bundle uses each camera's own model: an untilted
+  joint rig laser bundle uses each camera's own model: an untilted
   camera has no sensor block, so the fixed zero-tilt labels of its
   covariance (`cam*.tilt_*`) are gone. The regression suite and solver
   benchmarks are unchanged.

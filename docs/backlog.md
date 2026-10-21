@@ -11,32 +11,6 @@ match the ROADMAP; each says its phase. Dependencies are named as
 One camera-model spec and one vocabulary across every problem type. The
 breaking changes of the program happen here, before v1.0.
 
-- [ ] API-CAM-BUILDERS - One optimizer builder per task, written against
-  `CameraModelSpec`, with a shared camera-block helper (`params/camera.rs`)
-  for packing, named fix lists and covariance labels. Done for the planar
-  family and the rig family (`optimize_planar_intrinsics`,
-  `optimize_rig_extrinsics`, `optimize_handeye` serve both sensors and every
-  distortion kind). Left: the single-camera hand-eye builder and the laser
-  bundles (`laserline_bundle`'s Brown-Conrady + Scheimpflug `LASER_CAMERA`,
-  `LaserlineParams`), whose Brown-Conrady hard-typing also gates the rig
-  laser workflows to Brown-Conrady; the joint rig laser BA's
-  `default_camera_fix` / `fix_scheimpflug` masks move to named fix lists.
-  Gate: a synthetic matrix runs every builder with every distortion kind and
-  both sensors at the noise floor.
-- [ ] API-CAM-PIPELINE - The pipeline side of ADRs 0005 and 0013. Done for
-  planar intrinsics (`scheimpflug_intrinsics` merged into it) and the rig
-  family: rig extrinsics and rig hand-eye take `camera` plus per-camera
-  `camera_overrides`, `SensorMode` is gone, and their exports carry
-  `CameraParams` per camera. Left:
-  - single-camera hand-eye (`single_cam_handeye` config and its export's
-    `PinholeCamera`) and the laserline device take `camera`;
-  - the rig laser workflows lift their Brown-Conrady-or-none restriction
-    once the laser bundles take the camera spec;
-  - the joint rig laser BA's camera masks become named fix lists.
-
-  Python, the app's schemas and forms, the bench and the book follow in
-  the same change. Gate: the CHANGELOG migration table, acceptance and
-  suite unchanged. Needs: API-CAM-BUILDERS for each family.
 - [ ] API-VOCAB - One naming scheme, recorded in ADR 0024:
   - one output suffix; today `Estimate`, `Result` and `Output` are all
     used;
@@ -52,7 +26,8 @@ breaking changes of the program happen here, before v1.0.
     match `rig.refine_sensor` (the stage group carries the stage).
 
   Gate: the CHANGELOG migration table, and the facade compile-surface
-  test updated. Lands in the same release as API-CAM-PIPELINE.
+  test updated. Lands in the same release as the camera-spec configs
+  (`camera` in every workflow), so users migrate configs once.
 - [ ] API-DEDUP - One implementation per concept:
   - route `vision-calibration-bench`'s Tier-B detect adapters
     (`src/detect.rs`) through `vision-calibration-detect`;
@@ -230,7 +205,7 @@ Each model ships with:
 - the Python class;
 - a book chapter with a demo.
 
-All of them need: API-CAM-PIPELINE.
+Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 
 - [ ] CAM-KB - Kannala-Brandt equidistant fisheye (k1–k4) as a projection
   model. Gate: OpenCV `fisheye` comparison on a public fisheye set

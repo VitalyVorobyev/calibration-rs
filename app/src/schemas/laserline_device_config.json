@@ -1,83 +1,124 @@
 {
   "$defs": {
-    "CameraFixMask": {
-      "description": "Combined mask for camera calibration parameters.\n\nGroups intrinsics and distortion masks for convenient configuration.",
+    "CameraConfig": {
+      "additionalProperties": false,
+      "description": "The camera model a workflow calibrates, and which of its parameters stay\nfixed.\n\nThe model names one kind per slot — projection, distortion and sensor —\nso a tilted (Scheimpflug) sensor is a value of `model.sensor`, not a\nseparate workflow. Behaviour that depends on the sensor (default fix\nlists, the linear stage's tangential terms, the tilt multi-start) follows\nfrom the model.",
+      "properties": {
+        "fix": {
+          "$ref": "#/$defs/CameraFix",
+          "default": {},
+          "description": "Parameters held fixed during the non-linear solve, named per slot\n(`{\"intrinsics\": [\"cx\", \"cy\"], \"distortion\": [\"k3\"], \"sensor\":\n[\"tilt_y\"]}`). A slot left out keeps the model's default: `k3` for\nBrown-Conrady, and everything but the low-order radial terms (`k1`,\n`k2`; the division model's `lambda`) under a Scheimpflug sensor,\nbecause tangential and higher-order terms trade off against the tilt.\nAn unknown name is a configuration error."
+        },
+        "model": {
+          "$ref": "#/$defs/CameraModelSpec",
+          "description": "The camera model, one kind per slot. Default: pinhole projection,\nBrown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity\n(untilted) sensor — the model every workflow accepts."
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "CameraFix": {
+      "additionalProperties": false,
+      "description": "Camera parameters held fixed during a solve, named per slot.\n\nEach list names parameters of the model in that slot (`fx`, `cy`, `k3`,\n`tilt_y`, …). `None` means the model's default\n([`CameraModelSpec::default_fix`]); an empty list fixes nothing in that\nslot. Names are checked against the model by [`CameraFix::resolve`], before\nany work.",
       "properties": {
         "distortion": {
-          "$ref": "#/$defs/DistortionFixMask",
-          "description": "Mask for distortion (k1, k2, k3, p1, p2)."
+          "description": "Fixed distortion coefficients; default: `k3` for Brown-Conrady, and\neverything but the low-order radial terms under a Scheimpflug sensor.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "intrinsics": {
-          "$ref": "#/$defs/IntrinsicsFixMask",
-          "description": "Mask for intrinsics (fx, fy, cx, cy)."
+          "description": "Fixed intrinsics (`fx`, `fy`, `cx`, `cy`); default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "projection": {
+          "description": "Fixed projection parameters; default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sensor": {
+          "description": "Fixed sensor parameters (`tilt_x`, `tilt_y`); default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "CameraModelSpec": {
+      "additionalProperties": false,
+      "description": "A camera model: the kind in each slot. The values live in\n[`CameraParams`](super::CameraParams); [`CameraParams::spec`](super::CameraParams::spec)\nrecovers the spec from them.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionKind",
+          "description": "Distortion slot."
+        },
+        "projection": {
+          "$ref": "#/$defs/ProjectionKind",
+          "description": "Projection slot."
+        },
+        "sensor": {
+          "$ref": "#/$defs/SensorKind",
+          "description": "Sensor slot."
         }
       },
       "required": [
-        "intrinsics",
-        "distortion"
+        "projection",
+        "distortion",
+        "sensor"
       ],
       "type": "object"
     },
-    "DistortionFixMask": {
-      "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
-      "properties": {
-        "k1": {
-          "description": "Fix first radial distortion coefficient.",
-          "type": "boolean"
+    "DistortionKind": {
+      "description": "Which distortion model a camera carries.\n\n`dim() == 0` means the camera has no distortion parameter block.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No distortion; no parameter block.",
+          "type": "string"
         },
-        "k2": {
-          "description": "Fix second radial distortion coefficient.",
-          "type": "boolean"
+        {
+          "const": "brown_conrady5",
+          "description": "Brown-Conrady `[k1, k2, k3, p1, p2]`.",
+          "type": "string"
         },
-        "k3": {
-          "description": "Fix third radial distortion coefficient (fixed by default).",
-          "type": "boolean"
+        {
+          "const": "rational8",
+          "description": "Rational polynomial `[k1, k2, k3, k4, k5, k6, p1, p2]`.",
+          "type": "string"
         },
-        "p1": {
-          "description": "Fix first tangential distortion coefficient.",
-          "type": "boolean"
+        {
+          "const": "thin_prism9",
+          "description": "Brown-Conrady + thin-prism `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.",
+          "type": "string"
         },
-        "p2": {
-          "description": "Fix second tangential distortion coefficient.",
-          "type": "boolean"
+        {
+          "const": "division1",
+          "description": "Fitzgibbon division model `[lambda]`.",
+          "type": "string"
         }
-      },
-      "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2"
-      ],
-      "type": "object"
-    },
-    "IntrinsicsFixMask": {
-      "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   0     cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
-      "properties": {
-        "cx": {
-          "description": "Fix principal point x component.",
-          "type": "boolean"
-        },
-        "cy": {
-          "description": "Fix principal point y component.",
-          "type": "boolean"
-        },
-        "fx": {
-          "description": "Fix focal length x component.",
-          "type": "boolean"
-        },
-        "fy": {
-          "description": "Fix focal length y component.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "fx",
-        "fy",
-        "cx",
-        "cy"
-      ],
-      "type": "object"
+      ]
     },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
@@ -120,10 +161,6 @@
           "format": "double",
           "type": "number"
         },
-        "fix_camera": {
-          "$ref": "#/$defs/CameraFixMask",
-          "description": "Mask for fixing camera intrinsics/distortion parameters during\noptimization, at full per-field granularity — passed straight through\nto `vision_calibration_optim::LaserlineSolveOptions::fix_camera`."
-        },
         "fix_plane": {
           "description": "Fix laser plane parameters during optimization.",
           "type": "boolean"
@@ -136,10 +173,6 @@
             "type": "integer"
           },
           "type": "array"
-        },
-        "fix_sensor": {
-          "description": "Fix Scheimpflug sensor parameters during optimization.",
-          "type": "boolean"
         },
         "laser_loss": {
           "$ref": "#/$defs/RobustLoss",
@@ -160,8 +193,6 @@
         "laser_loss",
         "calib_weight",
         "laser_weight",
-        "fix_camera",
-        "fix_sensor",
         "fix_poses",
         "fix_plane",
         "laser_residual_type"
@@ -179,6 +210,16 @@
         {
           "const": "LineDistNormalized",
           "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProjectionKind": {
+      "description": "Which projection model a camera uses.",
+      "oneOf": [
+        {
+          "const": "pinhole",
+          "description": "Pinhole (perspective) projection; no parameters of its own.",
           "type": "string"
         }
       ]
@@ -262,25 +303,20 @@
         }
       ]
     },
-    "ScheimpflugParams": {
-      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
-      "properties": {
-        "tilt_x": {
-          "description": "Tilt around X axis in radians (alias: tau_x).",
-          "format": "double",
-          "type": "number"
+    "SensorKind": {
+      "description": "Which sensor model a camera uses.",
+      "oneOf": [
+        {
+          "const": "identity",
+          "description": "Sensor plane perpendicular to the optical axis; no parameters.",
+          "type": "string"
         },
-        "tilt_y": {
-          "description": "Tilt around Y axis in radians (alias: tau_y).",
-          "format": "double",
-          "type": "number"
+        {
+          "const": "scheimpflug",
+          "description": "Scheimpflug tilted sensor `[tilt_x, tilt_y]` (radians).",
+          "type": "string"
         }
-      },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
-      "type": "object"
+      ]
     },
     "SolverBackend": {
       "description": "Which engine linearizes the problem.\n\nBoth run the same Levenberg–Marquardt loop over the same residual\nkernels and reach the same minimizer; they differ in how they build the\nJacobian and how they fold in a robust loss.",
@@ -333,19 +369,27 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for laserline device calibration.\n\nSettings are grouped by stage.",
+  "description": "Configuration for laserline device calibration.\n\nSettings are grouped by stage; the camera model and its fixed parameters\nlive in [`CameraConfig`].",
   "properties": {
+    "camera": {
+      "$ref": "#/$defs/CameraConfig",
+      "default": {
+        "fix": {},
+        "model": {
+          "distortion": "brown_conrady5",
+          "projection": "pinhole",
+          "sensor": "identity"
+        }
+      },
+      "description": "The camera model and the parameters the bundle adjustment holds\nfixed. Any distortion kind, and an identity or Scheimpflug sensor;\nthe line-distance laser residual needs a projection that keeps lines\nstraight. A Scheimpflug sensor's tilt comes from the linear tilt\nsweep, or from the manual-init `sensor` seed; the default fix lists\nrefine it (name `tilt_x`, `tilt_y` in `fix.sensor` to hold a known\nmount tilt)."
+    },
     "init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
-      "description": "Per-camera linear-initialization stage settings."
+      "description": "Per-camera linear-initialization stage settings. `init.fix_tangential`\ndefaults to `true` for a Scheimpflug sensor and `false` otherwise."
     },
     "optimize": {
       "$ref": "#/$defs/LaserlineDeviceOptimizeConfig",
       "description": "Bundle-adjustment options."
-    },
-    "sensor_init": {
-      "$ref": "#/$defs/ScheimpflugParams",
-      "description": "Initial Scheimpflug sensor parameters (use zeros for pinhole/identity\nsensors; the optimizer refines from here unless `optimize.fix_sensor`\nis set)."
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
@@ -354,7 +398,6 @@
   },
   "required": [
     "init",
-    "sensor_init",
     "solver",
     "optimize"
   ],

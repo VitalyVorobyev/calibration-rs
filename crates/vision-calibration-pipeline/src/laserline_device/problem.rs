@@ -2,9 +2,10 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::SensorKind;
 use vision_calibration_core::{
-    Camera, CameraFixMask, ImageManifest, PerFeatureResiduals, Pinhole, ScheimpflugParams,
-    build_feature_histogram, compute_planar_target_residuals_views,
+    ImageManifest, PerFeatureResiduals, build_feature_histogram,
+    compute_planar_target_residuals_views,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
@@ -13,7 +14,7 @@ use vision_calibration_optim::{
 };
 
 use crate::common::ExportKind;
-use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
+use crate::common::config::{CameraConfig, IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
@@ -27,18 +28,25 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 
 /// Configuration for laserline device calibration.
 ///
-/// Settings are grouped by stage.
+/// Settings are grouped by stage; the camera model and its fixed parameters
+/// live in [`CameraConfig`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct LaserlineDeviceConfig {
-    /// Per-camera linear-initialization stage settings.
+    /// Per-camera linear-initialization stage settings. `init.fix_tangential`
+    /// defaults to `true` for a Scheimpflug sensor and `false` otherwise.
     pub init: IntrinsicsInitConfig,
-    /// Initial Scheimpflug sensor parameters (use zeros for pinhole/identity
-    /// sensors; the optimizer refines from here unless `optimize.fix_sensor`
-    /// is set).
-    pub sensor_init: ScheimpflugParams,
+    /// The camera model and the parameters the bundle adjustment holds
+    /// fixed. Any distortion kind, and an identity or Scheimpflug sensor;
+    /// the line-distance laser residual needs a projection that keeps lines
+    /// straight. A Scheimpflug sensor's tilt comes from the linear tilt
+    /// sweep, or from the manual-init `sensor` seed; the default fix lists
+    /// refine it (name `tilt_x`, `tilt_y` in `fix.sensor` to hold a known
+    /// mount tilt).
+    #[serde(default)]
+    pub camera: CameraConfig,
     /// Non-linear solve stage settings.
     ///
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
@@ -66,12 +74,6 @@ pub struct LaserlineDeviceOptimizeConfig {
     pub calib_weight: f64,
     /// Global weight for laser residuals.
     pub laser_weight: f64,
-    /// Mask for fixing camera intrinsics/distortion parameters during
-    /// optimization, at full per-field granularity — passed straight through
-    /// to `vision_calibration_optim::LaserlineSolveOptions::fix_camera`.
-    pub fix_camera: CameraFixMask,
-    /// Fix Scheimpflug sensor parameters during optimization.
-    pub fix_sensor: bool,
     /// Indices of target poses to hold fixed. None by default: each view's
     /// pose is measured by its own corners, so there is no gauge to fix.
     pub fix_poses: Vec<usize>,
@@ -88,8 +90,6 @@ impl Default for LaserlineDeviceOptimizeConfig {
             laser_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
             calib_weight: 1.0,
             laser_weight: 1.0,
-            fix_camera: CameraFixMask::default(),
-            fix_sensor: true,
             fix_poses: Vec::new(),
             fix_plane: false,
             laser_residual_type: LaserlineResidualType::LineDistNormalized,
@@ -98,24 +98,23 @@ impl Default for LaserlineDeviceOptimizeConfig {
 }
 
 impl LaserlineDeviceConfig {
-    /// Convert to vision-calibration-linear initialization options.
+    /// Convert to vision-calibration-linear initialization options. An unset
+    /// `init.fix_tangential` holds the tangential terms for a Scheimpflug
+    /// sensor, whose tilt they trade off against.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        // The camera is untilted: tangential terms stay free unless configured.
-        self.init.iterative_opts(None, false)
+        self.init
+            .iterative_opts(None, self.camera.model.sensor == SensorKind::Scheimpflug)
     }
 
-    /// Convert to vision-calibration-optim solve options.
-    ///
-    /// `optimize.fix_camera` passes straight through to the solver's
-    /// `fix_camera: CameraFixMask` field — no lowering or granularity loss.
+    /// Convert to vision-calibration-optim solve options; the camera's fix
+    /// lists come from `camera.fix`.
     pub fn solve_opts(&self) -> LaserlineSolveOptions {
         LaserlineSolveOptions {
             calib_loss: self.optimize.calib_loss,
             calib_weight: self.optimize.calib_weight,
             laser_loss: self.optimize.laser_loss,
             laser_weight: self.optimize.laser_weight,
-            fix_camera: self.optimize.fix_camera,
-            fix_sensor: self.optimize.fix_sensor,
+            fix: self.camera.fix.clone(),
             fix_poses: self.optimize.fix_poses.clone(),
             fix_plane: self.optimize.fix_plane,
             laser_residual_type: self.optimize.laser_residual_type,
@@ -214,7 +213,7 @@ impl ProblemType for LaserlineDeviceProblem {
         if config.optimize.laser_weight <= 0.0 {
             return Err(Error::invalid_input("laser_weight must be positive"));
         }
-        Ok(())
+        config.camera.validate_single_camera()
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -226,18 +225,13 @@ impl ProblemType for LaserlineDeviceProblem {
         output: &Self::Output,
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        // Reconstruct the full calibrated camera (pinhole core + Brown-Conrady
-        // distortion + Scheimpflug-tilted sensor) so target reprojection
-        // residuals match the projection model the optimizer used. Skipping
-        // the sensor here would mis-report errors for any non-identity
-        // Scheimpflug calibration.
+        // Evaluate the target residuals in the calibrated camera's full
+        // model (distortion and sensor), the model the optimizer used.
         let params = &output.estimate.params;
-        let camera = Camera::new(
-            Pinhole,
-            params.distortion,
-            params.sensor.compile(),
-            params.intrinsics,
-        );
+        let camera = params
+            .camera
+            .build()
+            .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
         let target = compute_planar_target_residuals_views(&camera, input, &params.poses)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
 
@@ -269,9 +263,23 @@ impl ProblemType for LaserlineDeviceProblem {
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, Pt2, Pt3, View,
+        BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy, Iso3,
+        Pinhole, ProjectionParams, Pt2, Pt3, ScheimpflugParams, SensorParams, View,
     };
     use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineParams, SolveReport};
+
+    fn bc_camera(
+        intrinsics: FxFyCxCy<f64>,
+        distortion: BrownConrady5<f64>,
+        sensor: SensorParams,
+    ) -> CameraParams {
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 { params: distortion },
+            sensor,
+            intrinsics,
+        }
+    }
 
     fn make_synthetic_scenario() -> (LaserlineDataset, LaserlineDeviceOutput) {
         // Camera + target plane setup matching the laser feature residual
@@ -285,7 +293,6 @@ mod tests {
             cy: 240.0,
         };
         let distortion = BrownConrady5::default();
-        let sensor = ScheimpflugParams::default();
         let camera = vision_calibration_core::make_pinhole_camera(intrinsics, distortion);
 
         let board = vec![
@@ -332,7 +339,12 @@ mod tests {
             ));
         }
 
-        let params = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane).unwrap();
+        let params = LaserlineParams::new(
+            bc_camera(intrinsics, distortion, SensorParams::Identity),
+            poses,
+            plane,
+        )
+        .unwrap();
         let estimate = LaserlineEstimate {
             params,
             report: SolveReport {
@@ -434,8 +446,16 @@ mod tests {
             },
         )];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -1.0);
-        let params =
-            LaserlineParams::new(intrinsics, distortion, sensor, vec![pose], plane).unwrap();
+        let params = LaserlineParams::new(
+            bc_camera(
+                intrinsics,
+                distortion,
+                SensorParams::Scheimpflug { params: sensor },
+            ),
+            vec![pose],
+            plane,
+        )
+        .unwrap();
         let output = LaserlineDeviceOutput {
             estimate: LaserlineEstimate {
                 params,
@@ -466,6 +486,28 @@ mod tests {
                 err
             );
         }
+    }
+
+    #[test]
+    fn validate_config_checks_the_camera() {
+        use vision_calibration_core::{CameraModelSpec, DistortionKind};
+        let config = LaserlineDeviceConfig {
+            camera: CameraConfig::new(CameraModelSpec::pinhole(
+                DistortionKind::None,
+                SensorKind::Scheimpflug,
+            )),
+            ..LaserlineDeviceConfig::default()
+        };
+        let err = LaserlineDeviceProblem::validate_config(&config)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("distortion model"), "{err}");
+        let mut config = LaserlineDeviceConfig::default();
+        config.camera.fix.sensor = Some(vec!["tilt_x".into()]);
+        let err = LaserlineDeviceProblem::validate_config(&config)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("tilt_x"), "{err}");
     }
 
     #[test]

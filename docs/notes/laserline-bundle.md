@@ -12,9 +12,12 @@ laser cost with a composed pose (§Rig axes).
 The camera is the planar/Scheimpflug families' composable camera (ADR 0005),
 `pixel = K( sensor( distort( project(X_c) ) ) )`, `X_c = T_C_T · X_t` — see
 [planar-intrinsics.md](planar-intrinsics.md) and
-[scheimpflug-intrinsics.md](scheimpflug-intrinsics.md). The sensor is a
-hardware property, fixed by default (`fix_sensor: true`) and taken from
-`config.sensor_init`, never from a manual-init seed (ADR 0011).
+[scheimpflug-intrinsics.md](scheimpflug-intrinsics.md). Its model is
+`config.camera.model` (ADRs 0005, 0013): any distortion kind, an identity or
+a Scheimpflug sensor; an untilted camera has no sensor block. The fixed
+parameters are `config.camera.fix`, named per slot; the default refines a
+Scheimpflug tilt, and a known mount tilt is the manual-init `sensor` seed
+held by naming it in `camera.fix.sensor`.
 
 The **laser plane** is stored in the camera frame as
 `LaserPlane { normal: Unit<Vector3>, distance }`
@@ -36,8 +39,12 @@ published crates ship no extractor, only the geometry that consumes it.
 
 ## Initialization
 
-1. **Intrinsics / distortion / poses** — the planar family's iterative Zhang
-   path (`estimate_intrinsics_iterative`).
+1. **Intrinsics / distortion / poses** — the per-camera bootstrap shared
+   with the rigs (`planar_family::bootstrap_camera`): Zhang's method embedded
+   into the model's distortion, or for a Scheimpflug sensor the linear tilt
+   sweep (a `sensor` seed replaces it). Without a tilt seed, a Scheimpflug
+   camera is then refined alone through the staged tilt multi-start
+   (`planar_family::optimize_camera`) before the plane fit.
 2. **Laser plane** — `LaserlinePlaneSolver::from_views`: each laser pixel is
    back-projected through the camera model (undistorted) to a camera-frame
    ray, intersected with the target plane (`z = 0` in the known per-view
@@ -46,14 +53,15 @@ published crates ship no extractor, only the geometry that consumes it.
    The fit rejects rank-1 (collinear) clouds, requires ≥ 2 views (one
    stripe alone is collinear), and records `initial_plane_rmse`.
 
-`step_init_with_seed` (ADR 0011) lets any of intrinsics / distortion / poses /
-plane be supplied instead of estimated.
+`step_init_with_seed` (ADR 0011) lets any of intrinsics / distortion / sensor
+tilt / poses / plane be supplied instead of estimated.
 
 ## Cost
 
 Joint bundle adjustment (`optimize_laserline`, IR per ADR 0008) over
-intrinsics, distortion (`k3` fixed by default), the sensor (if freed), all
-per-view poses (SE(3); `fix_poses` empty by default), and the laser plane
+the camera's parameters not held by `camera.fix` (the model's defaults:
+`k3` for Brown-Conrady; everything but `k1`, `k2` / `lambda` under a
+Scheimpflug sensor, whose tilt is free), all per-view poses (SE(3); `fix_poses` empty by default), and the laser plane
 (S² normal + scalar distance). Two residual families sum into one problem:
 
 ```

@@ -11,13 +11,13 @@ use crate::ir::{
     RobustLoss,
 };
 use crate::ir::{DistortionKind, SensorKind};
-use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
+use crate::params::distortion::pack_distortion_params;
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
+    BrownConrady5, Camera, DistortionParams, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
 };
 
 #[test]
@@ -139,12 +139,17 @@ fn scheimpflug_case(engine: SolverBackend) {
 
     let dist_id = ir.add_param_block(
         "dist",
-        DISTORTION_DIM,
+        DistortionKind::BrownConrady5.dim(),
         ManifoldKind::Euclidean,
         FixedMask::fix_indices(&[2]), // Fix k3
         None,
     );
-    initial_map.insert("dist".to_string(), pack_distortion(&distortion_init));
+    initial_map.insert(
+        "dist".to_string(),
+        pack_distortion_params(&DistortionParams::BrownConrady5 {
+            params: distortion_init,
+        }),
+    );
 
     let sensor_id = ir.add_param_block(
         "sensor",

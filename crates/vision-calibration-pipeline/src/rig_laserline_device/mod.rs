@@ -1,9 +1,10 @@
 //! Rig-level laserline calibration.
 //!
-//! Given a rig calibration (intrinsics, optional Scheimpflug sensors,
-//! cam_se3_rig, per-view rig_se3_target), calibrates one laser plane per
-//! camera and reports each plane in the rig frame. Pinhole rigs are handled
-//! as zero-tilt sensors (exactly the identity sensor mapping).
+//! Given a rig calibration (each camera's `CameraParams`, cam_se3_rig,
+//! per-view rig_se3_target), calibrates one laser plane per camera and
+//! reports each plane in the rig frame. Each camera's laser residuals are
+//! evaluated in its own model: any distortion kind, an identity or a
+//! Scheimpflug sensor.
 
 mod geometry;
 mod problem;

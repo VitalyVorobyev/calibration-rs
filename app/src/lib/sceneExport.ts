@@ -41,18 +41,14 @@ export function adaptSceneExport(data: AnyExport): AnyExport {
   const params = (data as unknown as LaserlineDeviceExport).estimate?.params;
   const plane = params?.plane;
   const poses = params?.poses;
-  // Need both the plane (camera frame) and the per-view poses to build a
-  // meaningful scene; bail (unchanged) if the export predates them.
-  if (!plane || !params || !Array.isArray(poses) || poses.length === 0) {
+  // Need the camera, the plane (camera frame) and the per-view poses to
+  // build a meaningful scene; bail (unchanged) if the export lacks them.
+  if (!plane || !params?.camera || !Array.isArray(poses) || poses.length === 0) {
     return data;
   }
 
-  const camera: CameraWire = {
-    projection: { type: "pinhole" },
-    distortion: { type: "brown_conrady5", ...params.distortion },
-    sensor: { type: "identity" },
-    intrinsics: params.intrinsics,
-  };
+  // The camera in its own model (distortion kind, tilted sensor or not).
+  const camera: CameraWire = params.camera;
 
   return {
     ...data,

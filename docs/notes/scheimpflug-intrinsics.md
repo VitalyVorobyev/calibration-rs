@@ -47,12 +47,11 @@ that basin instead of running the cold-start tilt sweep:
 - The first pose is not fixed: planar intrinsics has no pose gauge, and the
   homography-recovered seed pose is biased under strong distortion.
 
-The fix mask `DistortionFixMask { k1, k2, k3, p1, p2 }` is translated by
-name onto each model's packed layout (`fix_mask_indices`): Rational8's
-`k4..k6` follow `k3`, ThinPrism9's `s1..s4` are fixed when both `p1` and
-`p2` are, and Division1's `lambda` follows `k1`. The staging masks use the
-same translation, so every model keeps the defaults (`fix_k3`, tangential
-fixed).
+The fixed parameters are `CameraFix` lists named in each model's own
+coefficients (`CameraFix::resolve` maps them onto the packed layout); a slot
+left `None` takes `CameraModelSpec::default_fix`, which under a Scheimpflug
+sensor holds every coefficient but the low-order radial ones (`k1`, `k2`;
+Division1's `lambda`). The staging fix lists are named the same way.
 
 Unseeded `step_init` remains, documented as experimental with a warning in
 the init log; it shares the cold-start staged solver with the rig path.

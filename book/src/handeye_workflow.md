@@ -61,11 +61,13 @@ Joint non-linear optimization of all parameters:
 
 **Parameter blocks**:
 - `"cam"` (4D, Euclidean): intrinsics
-- `"dist"` (5D, Euclidean): distortion
+- `"dist"` (Euclidean): the distortion coefficients of the configured model
+  (absent without distortion)
+- `"sensor"` (2D, Euclidean): the sensor tilt, for a Scheimpflug camera
 - `"handeye"` (7D, SE3): gripper-to-camera transform
 - `"target"` (7D, SE3): base-to-target transform
 
-**Residual blocks**: one `ReprojPoint { model: PINHOLE4_DIST5, chain: HandEye { .. }, .. }` per observation.
+**Residual blocks**: one `ReprojPoint { model, chain: HandEye { .. }, .. }` per observation, `model` being the camera's `CameraModelSpec`.
 
 The robot poses are **not optimized** — they are known constants from the robot kinematics (passed as per-residual data).
 
@@ -84,15 +86,20 @@ This penalizes deviations from the nominal robot poses, allowing small correctio
 ## Configuration
 
 Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`,
-`HandeyeInitConfig`, `SolverConfig`, `RobotPoseConfig`) are reused across
-every hand-eye problem type:
+`CameraConfig`, `HandeyeInitConfig`, `SolverConfig`, `RobotPoseConfig`) are
+reused across every hand-eye problem type:
 
 ```rust
 pub struct SingleCamHandeyeConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,
     // { init_iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: Option<bool> = None }  (None: false)
+    //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug
+    //   sensor, false otherwise)
+
+    // The camera model (any distortion kind, an identity or Scheimpflug
+    // sensor) and the parameters its solves hold fixed, named per slot.
+    pub camera: CameraConfig, // { model: CameraModelSpec, fix: CameraFix }
 
     // Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
     pub handeye_init: HandeyeInitConfig,
@@ -139,10 +146,22 @@ step_handeye_init(&mut session, None)?;
 step_handeye_optimize(&mut session, None)?;
 
 let export = session.export()?;
+println!("Camera: {:?}", export.camera); // CameraParams, in the configured model
 println!("Hand-eye: {:?}", export.gripper_se3_camera);
 println!("Target in base: {:?}", export.base_se3_target);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 ```
+
+## Camera Models
+
+The camera model is the config's `camera.model`: any distortion kind
+(Brown-Conrady by default, rational, thin-prism, division, or none) and an
+identity or Scheimpflug sensor. The intrinsics stage dispatches on it like
+[Planar Intrinsics](planar_intrinsics.md): Zhang's method embedded into the
+model's distortion, and for a tilted sensor the linear tilt sweep followed by
+the staged tilt multi-start. A known tilt goes in the intrinsics manual-init
+`sensor` seed (`step_intrinsics_init_with_seed`); a tilt seed for an untilted
+camera must be zero. `camera.fix` names the parameters both solves hold.
 
 ## Practical Considerations
 

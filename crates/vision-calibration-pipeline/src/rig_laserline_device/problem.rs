@@ -15,7 +15,7 @@ use vision_calibration_optim::{
 
 use crate::common::ExportKind;
 use crate::common::config::SolverConfig;
-use crate::rig_family::{check_laser_cameras, rig_camera_models};
+use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
@@ -24,9 +24,8 @@ use super::state::RigLaserlineDeviceState;
 ///
 /// Mirrors a rig hand-eye result's per-camera parameters + cam→rig poses,
 /// plus the per-view rig→target poses the downstream laserline dataset
-/// spans. The laser residuals are evaluated in the Brown-Conrady model, so
-/// each camera has Brown-Conrady (or no) distortion and an identity or
-/// Scheimpflug sensor.
+/// spans. Each camera is evaluated in its own model: any distortion kind,
+/// and an identity or Scheimpflug sensor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigUpstreamCalibration {
@@ -229,7 +228,17 @@ impl ProblemType for RigLaserlineDeviceProblem {
                 "upstream per-camera lengths must equal num_cameras ({n})"
             )));
         }
-        check_laser_cameras(&input.upstream.cameras)?;
+        if let Some(i) = input
+            .upstream
+            .cameras
+            .iter()
+            .position(|c| c.spec().is_none())
+        {
+            return Err(Error::invalid_input(format!(
+                "upstream camera {i} has a general homography sensor; the laser residuals need \
+                 a camera model (an identity or Scheimpflug sensor)"
+            )));
+        }
         if input.upstream.rig_se3_target.len() != input.dataset.num_views() {
             return Err(Error::invalid_input(format!(
                 "upstream rig_se3_target has {} entries, expected {}",

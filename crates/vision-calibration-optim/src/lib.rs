@@ -180,7 +180,7 @@ pub use crate::problems::planar_intrinsics::{
     optimize_planar_intrinsics,
 };
 pub use crate::problems::scheimpflug_intrinsics::{
-    ScheimpflugFixMask, ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
+    ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
 };
 
 pub use crate::problems::handeye::{

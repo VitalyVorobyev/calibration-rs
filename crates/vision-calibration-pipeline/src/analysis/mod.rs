@@ -310,10 +310,10 @@ pub fn single_cam_handeye_report(
     export: &SingleCamHandeyeExport,
     views: &[SingleCamHandeyeView],
 ) -> Result<ReprojReport, Error> {
-    let cam = &export.camera;
-    let k = cam.k;
+    let cam = export.camera.build()?;
+    let k = export.camera.intrinsics;
 
-    let intrinsic = intrinsic_floor_handeye(cam, &k, views, 0);
+    let intrinsic = intrinsic_floor_handeye(&cam, &k, views, 0);
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, 1, views.len());
 

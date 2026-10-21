@@ -122,7 +122,7 @@ def main() -> None:
     print("=== Laserline Device Calibration (Synthetic, Python) ===")
     payload = make_input()
     result = vc.run_laserline_device(payload)
-    intr = result.estimate.params.intrinsics
+    intr = result.estimate.params.camera.intrinsics
     plane = result.estimate.params.plane
 
     print(f"Views: {len(payload.views)}")

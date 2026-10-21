@@ -15,9 +15,10 @@ use vision_calibration_optim::{
     optimize_rig_extrinsics,
 };
 
+use crate::planar_family::optimize_camera;
 use crate::rig_family::{
     RigIntrinsicsSeeds, bootstrap_rig_intrinsics, check_camera_models, format_init_source,
-    guard_percam_reproj_errors, optimize_rig_camera, rig_ba_fix, views_to_planar_dataset,
+    guard_percam_reproj_errors, rig_ba_fix, views_to_planar_dataset,
 };
 use crate::session::CalibrationSession;
 
@@ -323,7 +324,7 @@ pub fn step_intrinsics_optimize_all(
                 Error::numerical(format!("failed to build params for camera {cam_idx}: {e}"))
             })?;
 
-        let result = optimize_rig_camera(
+        let result = optimize_camera(
             cam_idx,
             &planar_dataset,
             &initial_params,

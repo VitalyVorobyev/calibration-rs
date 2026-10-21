@@ -1558,17 +1558,14 @@ mod tests {
         joint_config["joint_ba"]["robot_poses"]["refine"] = json!(true);
         // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
         // `handeye.rig.reference_camera_idx`.
-        joint_config["joint_ba"]["fix_scheimpflug"] = json!({"tilt_x": true, "tilt_y": true});
-        joint_config["joint_ba"]["default_camera_fix"] = json!({
-            "intrinsics": {"fx": false, "fy": false, "cx": true, "cy": true},
-            "distortion": {
-                "k1": false,
-                "k2": false,
-                "k3": true,
-                "p1": true,
-                "p2": true,
-            },
+        // Every camera is tilted: the principal point, the higher-order
+        // distortion terms and the tilt stay at their warm-start values.
+        let joint_fix = json!({
+            "intrinsics": ["cx", "cy"],
+            "distortion": ["k3", "p1", "p2"],
+            "sensor": ["tilt_x", "tilt_y"],
         });
+        joint_config["joint_ba"]["fix"] = json!(vec![joint_fix; 6]);
         let joint = match run_blocking_test(joint_manifest, joint_config, &dir) {
             RunResponse::Ok(s) => s,
             other => panic!("joint rig handeye laserline stage: expected Ok, got {other:?}"),

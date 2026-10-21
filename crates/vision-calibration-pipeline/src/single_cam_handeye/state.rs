@@ -4,7 +4,7 @@
 //! computed during the calibration pipeline.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Iso3, PinholeCamera};
+use vision_calibration_core::{CameraParams, Iso3};
 
 /// Intermediate state for single-camera hand-eye calibration.
 ///
@@ -18,8 +18,8 @@ pub(crate) struct SingleCamHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // From intrinsics initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial camera estimate (intrinsics + distortion).
-    pub initial_camera: Option<PinholeCamera>,
+    /// Initial camera estimate, in the configured model.
+    pub initial_camera: Option<CameraParams>,
 
     /// Initial target poses (cam_se3_target) per view from PnP.
     pub initial_target_poses: Option<Vec<Iso3>>,
@@ -27,8 +27,8 @@ pub(crate) struct SingleCamHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // From intrinsics optimization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Optimized camera (intrinsics + distortion).
-    pub optimized_camera: Option<PinholeCamera>,
+    /// Optimized camera, in the configured model.
+    pub optimized_camera: Option<CameraParams>,
 
     /// Optimized target poses (cam_se3_target) per view.
     pub optimized_target_poses: Option<Vec<Iso3>>,
@@ -98,7 +98,13 @@ impl SingleCamHandeyeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{BrownConrady5, FxFyCxCy};
+    use vision_calibration_core::{
+        BrownConrady5, FxFyCxCy, make_pinhole_camera, pinhole_camera_params,
+    };
+
+    fn camera(k: FxFyCxCy<f64>, d: BrownConrady5<f64>) -> CameraParams {
+        pinhole_camera_params(&make_pinhole_camera(k, d))
+    }
 
     #[test]
     fn default_state_not_initialized() {
@@ -111,7 +117,7 @@ mod tests {
 
     #[test]
     fn has_intrinsics_init_requires_both() {
-        let camera = vision_calibration_core::make_pinhole_camera(
+        let camera = camera(
             FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
@@ -137,7 +143,7 @@ mod tests {
 
     #[test]
     fn clear_handeye_keeps_intrinsics() {
-        let camera = vision_calibration_core::make_pinhole_camera(
+        let camera = camera(
             FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
@@ -165,7 +171,7 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let state = SingleCamHandeyeState {
-            initial_camera: Some(vision_calibration_core::make_pinhole_camera(
+            initial_camera: Some(camera(
                 FxFyCxCy {
                     fx: 800.0,
                     fy: 780.0,
@@ -193,6 +199,6 @@ mod tests {
 
         assert!(restored.has_intrinsics_init());
         assert!(restored.has_handeye_optimized());
-        assert_eq!(restored.initial_camera.unwrap().k.fx, 800.0);
+        assert_eq!(restored.initial_camera.unwrap().intrinsics.fx, 800.0);
     }
 }

@@ -495,15 +495,14 @@ pub mod rig_handeye_laserline {
 /// [`analysis`], not here — see that module's doc comment.
 pub mod core {
     pub use vision_calibration_core::{
-        BrownConrady5, Camera, CameraFix, CameraFixMask, CameraModel, CameraModelSpec,
-        CameraParams, CorrespondenceView, DistortionFixMask, DistortionKind, DistortionParams,
-        Division, FrameKind, FrameRef, FxFyCxCy, IdentitySensor, ImageManifest, IntrinsicsFixMask,
-        Iso3, Mat3, NoMeta, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
-        ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Real, ResidualKind,
-        ResidualNoise, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind, SensorModel,
-        SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable, Vec2, Vec3, View,
-        ViewCovariance, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
-        pixel_to_normalized,
+        BrownConrady5, Camera, CameraFix, CameraModel, CameraModelSpec, CameraParams,
+        CorrespondenceView, DistortionKind, DistortionParams, Division, FrameKind, FrameRef,
+        FxFyCxCy, IdentitySensor, ImageManifest, Iso3, Mat3, NoMeta, ParameterCovariance, Pinhole,
+        PinholeCamera, PixelRect, PlanarDataset, ProjectionKind, ProjectionParams, Pt2, Pt3,
+        RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs,
+        ScheimpflugParams, SensorKind, SensorModel, SensorParams, ThinPrism, Uncertainty,
+        UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
+        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].
