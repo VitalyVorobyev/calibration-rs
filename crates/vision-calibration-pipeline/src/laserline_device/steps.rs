@@ -3,17 +3,18 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, Pinhole, PlanarDataset, Pt2,
-    Real, SensorModel, View,
+    BrownConrady5, CameraModel, CameraModelSpec, CameraParams, FxFyCxCy, Iso3, NoMeta,
+    PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
 };
 use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
-use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    LaserPlane, LaserlineParams, LaserlineStats, compute_laserline_stats, optimize_laserline,
+    LaserPlane, LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, compute_laserline_stats,
+    optimize_laserline,
 };
 
+use crate::planar_family::{CameraSeed, bootstrap_camera, check_sensor_seed, optimize_camera};
 use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
@@ -37,13 +38,16 @@ pub struct DeviceInitOptions {
 /// - `None` means *auto-initialize this group* (same path as plain `step_init`).
 /// - `Some(value)` means *use this value*; do not auto-initialize.
 ///
-/// **Sensor is intentionally not in this struct** — for laserline devices the
-/// sensor model is a hardware property taken from `session.config.sensor_init`.
-///
-/// Partial-seed semantics:
-/// - `intrinsics: Some` skips `estimate_intrinsics_iterative`. Distortion defaults
-///   to `BrownConrady5::default()` (zeros) unless also seeded; poses recover from
-///   per-view homographies using the manual intrinsics.
+/// The camera model is `session.config.camera.model`; the seeds are values in
+/// it. Partial-seed semantics:
+/// - `intrinsics: Some` skips Zhang's method (and, for a Scheimpflug sensor,
+///   the linear tilt sweep). Distortion starts at zero unless also seeded;
+///   poses recover from per-view homographies using the manual intrinsics.
+/// - `distortion` seeds Brown-Conrady coefficients, embedded into the
+///   camera's distortion model (extra coefficients start at zero).
+/// - `sensor` seeds the tilt of a Scheimpflug camera; a seeded tilt replaces
+///   the linear tilt sweep. An untilted camera takes only a zero tilt (a
+///   non-zero one is a typed error).
 /// - `plane: Some` skips the linear plane fit. Note that `initial_plane_rmse` is
 ///   recorded as `None` in this case (no fit RMSE is meaningful for a manual seed).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -51,8 +55,10 @@ pub struct DeviceInitOptions {
 pub struct LaserlineDeviceManualInit {
     /// Manual intrinsics seed.
     pub intrinsics: Option<FxFyCxCy<Real>>,
-    /// Manual distortion seed.
+    /// Manual Brown-Conrady distortion seed.
     pub distortion: Option<BrownConrady5<Real>>,
+    /// Manual sensor tilt seed (Scheimpflug camera; zero otherwise).
+    pub sensor: Option<ScheimpflugParams>,
     /// Manual per-view poses (`camera_se3_target`).
     pub poses: Option<Vec<Iso3>>,
     /// Manual laser plane seed (camera-frame `(n̂, d)`).
@@ -80,10 +86,8 @@ pub struct DeviceOptimizeOptions {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LaserlineDeviceInitResult {
-    /// Initial pinhole intrinsics (fx, fy, cx, cy).
-    pub intrinsics: FxFyCxCy<Real>,
-    /// Initial Brown–Conrady distortion coefficients.
-    pub distortion: BrownConrady5<Real>,
+    /// Initial camera, in the configured model.
+    pub camera: CameraParams,
     /// Initial per-view target poses (`camera_se3_target`).
     pub poses: Vec<Iso3>,
     /// Initial laser plane (camera-frame `(n̂, d)`).
@@ -116,12 +120,6 @@ pub struct LaserlineDeviceOptimizeResult {
 // Helper Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
-    let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
-    let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
-    (board_2d, pixel_2d)
-}
-
 fn planar_dataset_from_input(
     input: &[vision_calibration_optim::LaserlineView],
 ) -> Result<PlanarDataset, Error> {
@@ -132,38 +130,11 @@ fn planar_dataset_from_input(
     PlanarDataset::new(views).map_err(Error::Core)
 }
 
-fn estimate_poses(
+fn linear_plane_init(
     input: &[vision_calibration_optim::LaserlineView],
-    intrinsics: &FxFyCxCy<vision_calibration_core::Real>,
-) -> Result<Vec<Iso3>, Error> {
-    let k_matrix = intrinsics.k_matrix();
-    let mut poses = Vec::with_capacity(input.len());
-    for (idx, view) in input.iter().enumerate() {
-        let (board_2d, pixel_2d) = board_and_pixel_points(&view.obs);
-        let h = dlt_homography(&board_2d, &pixel_2d).map_err(|e| {
-            Error::numerical(format!("failed to compute homography for view {idx}: {e}"))
-        })?;
-        let pose = estimate_planar_pose_from_h(&k_matrix, &h)
-            .map_err(|e| Error::numerical(format!("failed to recover pose for view {idx}: {e}")))?;
-        poses.push(pose);
-    }
-    Ok(poses)
-}
-
-fn linear_plane_init<Sm>(
-    input: &[vision_calibration_optim::LaserlineView],
-    camera: &Camera<
-        vision_calibration_core::Real,
-        Pinhole,
-        vision_calibration_core::BrownConrady5<vision_calibration_core::Real>,
-        Sm,
-        FxFyCxCy<vision_calibration_core::Real>,
-    >,
+    camera: &CameraModel,
     poses: &[Iso3],
-) -> Result<(vision_calibration_optim::LaserPlane, f64), Error>
-where
-    Sm: SensorModel<vision_calibration_core::Real>,
-{
+) -> Result<(LaserPlane, f64), Error> {
     let views: Vec<LinearLaserlineView> = input
         .iter()
         .zip(poses.iter())
@@ -175,8 +146,7 @@ where
 
     let estimate = LaserlinePlaneSolver::from_views(&views, camera)
         .map_err(|e| Error::numerical(format!("laser plane init failed: {e}")))?;
-    let plane =
-        vision_calibration_optim::LaserPlane::new(estimate.normal.into_inner(), estimate.distance);
+    let plane = LaserPlane::new(estimate.normal.into_inner(), estimate.distance);
     Ok((plane, estimate.rmse))
 }
 
@@ -196,18 +166,25 @@ fn update_state_with_stats(
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Initialize intrinsics, distortion, per-view poses, and laser plane from any
+/// Initialize the camera, per-view poses, and laser plane from any
 /// combination of manual seeds and auto-estimation.
 ///
 /// This is the load-bearing init function. [`step_init`] is a thin delegate that
 /// passes `LaserlineDeviceManualInit::default()` (all-`None`, full auto path).
 ///
-/// See [`LaserlineDeviceManualInit`] for partial-seed semantics. The sensor model
-/// is always taken from `session.config.sensor_init` regardless.
+/// The camera's model is `session.config.camera.model`. A held Scheimpflug
+/// tilt (the default, see `LaserlineDeviceConfig::holds_tilt`) is the
+/// `sensor` seed, or zero, and the camera initializes as untilted. An
+/// estimated tilt without a seed comes from the linear tilt sweep, then a
+/// camera-only solve on the target views through the staged tilt multi-start
+/// (a cold `tilt = 0` start falls into the tilt / principal-point /
+/// distortion degeneracy). See [`LaserlineDeviceManualInit`] for
+/// partial-seed semantics.
 ///
 /// # Errors
 ///
 /// - Input not set, or fewer than 3 views.
+/// - A non-zero `manual.sensor` for an untilted camera.
 /// - Auto-init computation fails (homography / Zhang's / linear plane).
 /// - `manual.poses` is `Some` but its length does not match the view count.
 pub fn step_init_with_seed(
@@ -218,6 +195,7 @@ pub fn step_init_with_seed(
     session.validate()?;
     let input = session.require_input()?;
     let view_count = input.len();
+    let model = session.config.camera.model;
 
     let opts = opts.unwrap_or_default();
     let mut init_opts = session.config.init_opts();
@@ -225,77 +203,98 @@ pub fn step_init_with_seed(
         init_opts.iterations = iters;
     }
 
+    if let Some(sensor) = &manual.sensor
+        && let Err(e) = check_sensor_seed(model, sensor, "sensor")
+    {
+        session.log_failure("init", e.to_string());
+        return Err(e);
+    }
+    if let Some(p) = &manual.poses
+        && p.len() != view_count
+    {
+        let msg = format!(
+            "manual poses count ({}) does not match view count ({})",
+            p.len(),
+            view_count
+        );
+        session.log_failure("init", msg.clone());
+        return Err(Error::invalid_input(msg));
+    }
+
     let mut manual_fields: Vec<&'static str> = Vec::new();
     let mut auto_fields: Vec<&'static str> = Vec::new();
+    let mut note = |name: &'static str, seeded: bool| {
+        if seeded {
+            manual_fields.push(name);
+        } else {
+            auto_fields.push(name);
+        }
+    };
+    note("intrinsics", manual.intrinsics.is_some());
+    note("distortion", manual.distortion.is_some());
+    if model.sensor == SensorKind::Scheimpflug {
+        note("sensor", manual.sensor.is_some());
+    }
+    note("poses", manual.poses.is_some());
+    note("plane", manual.plane.is_some());
 
-    let (intrinsics, distortion) = if let Some(k) = manual.intrinsics {
-        manual_fields.push("intrinsics");
-        let d = match manual.distortion {
-            Some(d) => {
-                manual_fields.push("distortion");
-                d
-            }
-            None => {
-                auto_fields.push("distortion");
-                BrownConrady5::default()
-            }
+    let planar_dataset = planar_dataset_from_input(input)?;
+    let seed = CameraSeed {
+        intrinsics: manual.intrinsics,
+        distortion: manual.distortion,
+        sensor: manual.sensor,
+    };
+    let holds_tilt = session.config.holds_tilt();
+    let bootstrap = if holds_tilt {
+        // A held tilt is known: initialize as an untilted camera, then
+        // attach the tilt (the seed, or zero).
+        let untilted = CameraModelSpec {
+            sensor: SensorKind::Identity,
+            ..model
         };
-        (k, d)
+        let seed = CameraSeed {
+            sensor: None,
+            ..seed
+        };
+        let mut boot = bootstrap_camera(0, untilted, &planar_dataset, &seed, init_opts)?;
+        boot.camera.sensor = SensorParams::Scheimpflug {
+            params: manual.sensor.unwrap_or_default(),
+        };
+        boot
     } else {
-        auto_fields.push("intrinsics");
-        let planar_dataset = planar_dataset_from_input(input)?;
-        let camera_init = estimate_intrinsics_iterative(&planar_dataset, init_opts)
-            .map_err(|e| Error::numerical(format!("intrinsics initialization failed: {e}")))?;
-        let d = match manual.distortion {
-            Some(d) => {
-                manual_fields.push("distortion");
-                d
-            }
-            None => {
-                auto_fields.push("distortion");
-                camera_init.dist
-            }
+        bootstrap_camera(0, model, &planar_dataset, &seed, init_opts)?
+    };
+    let (camera, bootstrap_poses) =
+        if model.sensor == SensorKind::Scheimpflug && !holds_tilt && manual.sensor.is_none() {
+            // Cold-start tilt: the camera alone, through the staged tilt
+            // multi-start, before the plane fit needs its rays.
+            let initial = PlanarIntrinsicsParams::new(bootstrap.camera, bootstrap.poses)?;
+            let refined = optimize_camera(
+                0,
+                &planar_dataset,
+                &initial,
+                &session.config.camera,
+                &session.config.solver,
+                session.config.solver.backend_options(),
+            )?;
+            (refined.params.camera, refined.params.camera_se3_target)
+        } else {
+            (bootstrap.camera, bootstrap.poses)
         };
-        (camera_init.k, d)
-    };
-
-    let poses = match manual.poses {
-        Some(p) => {
-            manual_fields.push("poses");
-            if p.len() != view_count {
-                let msg = format!(
-                    "manual poses count ({}) does not match view count ({})",
-                    p.len(),
-                    view_count
-                );
-                session.log_failure("init", msg.clone());
-                return Err(Error::invalid_input(msg));
-            }
-            p
-        }
-        None => {
-            auto_fields.push("poses");
-            estimate_poses(input, &intrinsics)?
-        }
-    };
-
-    let sensor = session.config.sensor_init;
-    let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
+    let poses = manual.poses.unwrap_or(bootstrap_poses);
 
     let (plane, plane_rmse) = match manual.plane {
-        Some(p) => {
-            manual_fields.push("plane");
-            (p, None)
-        }
+        Some(p) => (p, None),
         None => {
-            auto_fields.push("plane");
-            let (p, rmse) = linear_plane_init(input, &camera, &poses)?;
+            let model = camera
+                .build()
+                .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
+            let (p, rmse) = linear_plane_init(input, &model, &poses)?;
             (p, Some(rmse))
         }
     };
 
-    let initial_params =
-        LaserlineParams::new(intrinsics, distortion, sensor, poses.clone(), plane.clone())?;
+    let initial_params = LaserlineParams::new(camera.clone(), poses.clone(), plane.clone())?;
 
     session.state.initial_params = Some(initial_params);
     session.state.initial_plane_rmse = plane_rmse;
@@ -310,13 +309,12 @@ pub fn step_init_with_seed(
         "init",
         format!(
             "fx={:.1}, fy={:.1}, {} {}",
-            intrinsics.fx, intrinsics.fy, plane_note, source
+            camera.intrinsics.fx, camera.intrinsics.fy, plane_note, source
         ),
     );
 
     Ok(LaserlineDeviceInitResult {
-        intrinsics,
-        distortion,
+        camera,
         poses,
         plane,
         plane_rmse,
@@ -348,6 +346,12 @@ pub fn step_optimize(
         .initial_params
         .clone()
         .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
+    let configured = session.config.camera.model;
+    if initial.camera.spec() != Some(configured) {
+        return Err(Error::invalid_input(format!(
+            "the camera model changed since step_init (now {configured:?}); run it again"
+        )));
+    }
 
     let opts = opts.unwrap_or_default();
     let solve_opts = session.config.solve_opts();

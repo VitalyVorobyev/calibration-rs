@@ -741,18 +741,13 @@ fn laser_pixels(
 
 /// The labelled value of a laserline parameter pack.
 fn laserline_value(params: &LaserlineParams, label: &str) -> f64 {
-    let camera = make_pinhole_camera(params.intrinsics, params.distortion);
     let n = params.plane.normal;
     match label {
         "plane.nx" => n.x,
         "plane.ny" => n.y,
         "plane.nz" => n.z,
         "plane.d" => params.plane.distance,
-        camera_label => camera_error(
-            &pinhole_truth(0.0, 0.0),
-            &pinhole_camera_params(&camera),
-            camera_label,
-        ),
+        camera_label => camera_error(&pinhole_truth(0.0, 0.0), &params.camera, camera_label),
     }
 }
 
@@ -765,14 +760,8 @@ fn laserline_covariance_matches_monte_carlo() {
     let camera = pinhole_truth(1150.0, 372.0);
     let plane = laser_plane_truth();
     let poses = board_poses();
-    let gt = LaserlineParams::new(
-        camera.k,
-        camera.dist,
-        ScheimpflugParams::default(),
-        poses.clone(),
-        plane.clone(),
-    )
-    .unwrap();
+    let gt =
+        LaserlineParams::new(pinhole_camera_params(&camera), poses.clone(), plane.clone()).unwrap();
     let mut mc = MonteCarlo::default();
     for seed in 0..LARGE_SCENE_RUNS {
         let corners = UniformPixelNoise {

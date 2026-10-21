@@ -102,8 +102,8 @@ println!("mean reprojection error: {:.4}", result.mean_reproj_error);
 | Problem Type | Steps |
 |---|---|
 | `PlanarIntrinsicsProblem` (straight or tilted sensor) | `step_init` → `step_optimize` |
-| `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
-| `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
+| `SingleCamHandeyeProblem` (any camera model) | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
+| `LaserlineDeviceProblem` (any camera model) | `step_init` → `step_optimize` |
 | `RigExtrinsicsProblem` (any camera model per camera) | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 | `RigHandeyeProblem` | rig extrinsics steps → `step_handeye_init` → `step_handeye_optimize` |
 | `RigLaserlineDeviceProblem` | `step_init` → `step_optimize` (frozen rig hand-eye export as input) |
@@ -119,7 +119,7 @@ options.
 |--------|-------------|
 | `session`, `common` | Session framework (`CalibrationSession`, `ProblemType`) and shared step/config types |
 | `planar_intrinsics` | Single-camera intrinsics (Zhang's method), for any camera model including a Scheimpflug sensor |
-| `single_cam_handeye`, `laserline_device` | Hand-eye and camera + laser plane calibration |
+| `single_cam_handeye`, `laserline_device` | Hand-eye and camera + laser plane calibration, for any camera model |
 | `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, `rig_handeye_laserline` | Multi-camera rig workflows |
 | `device_seed`, `dataset_runner` | Device-spec seeding and manifest-driven dataset runs |
 | `dataset`, `detect` | Dataset manifests and target detection |

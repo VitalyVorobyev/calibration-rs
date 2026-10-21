@@ -31,10 +31,10 @@ All based on `nalgebra` with `f64` precision:
 
 | Type | Variants | Used by |
 |------|----------|---------|
-| `DistortionKind` | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1` | `camera.model.distortion` in the planar, rig extrinsics and rig hand-eye configs (per camera through `camera_overrides`) |
-| `SensorKind` | `Identity`, `Scheimpflug` | `camera.model.sensor` in the planar, rig extrinsics and rig hand-eye configs |
-| `CameraModelSpec` | `{ projection, distortion, sensor }` | `camera.model` in the planar, rig extrinsics and rig hand-eye configs |
-| `CameraFix` | `{ intrinsics, projection, distortion, sensor }`, each `Option<Vec<String>>` of parameter names | `camera.fix` in the same configs; `None` keeps the model's default |
+| `DistortionKind` | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1` | `camera.model.distortion` in every config that calibrates a camera (per camera through `camera_overrides` in a rig) |
+| `SensorKind` | `Identity`, `Scheimpflug` | `camera.model.sensor` in the same configs |
+| `CameraModelSpec` | `{ projection, distortion, sensor }` | `camera.model` in the planar, single-camera hand-eye, laserline-device, rig extrinsics and rig hand-eye configs |
+| `CameraFix` | `{ intrinsics, projection, distortion, sensor }`, each `Option<Vec<String>>` of parameter names | `camera.fix` in the same configs, and `joint_ba.fix` (one per camera) of the joint rig laser solve; `None` keeps the model's default |
 | `CameraOverride` | `{ camera, model, fix }` | `camera_overrides` in `RigExtrinsicsConfig` and `RigHandeyeConfig`: replaces one camera's model and fix lists (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)) |
 | `RobustLoss` | `None`, `Huber { scale }`, `Cauchy { scale }`, `Arctan { scale }` | `solver.robust_loss` and the laser `calib_loss` / `laser_loss` |
 | `HandEyeMode` | `EyeInHand`, `EyeToHand` | `handeye_init.handeye_mode` |
@@ -50,15 +50,6 @@ All based on `nalgebra` with `f64` precision:
 | `RigView<Meta>` | `obs: RigViewObs, meta` | Multi-camera view |
 | `RigDataset<Meta>` | `num_cameras, views` | Multi-camera input |
 | `ReprojectionStats` | `mean, rms, max, count` | Error statistics |
-
-## Fix Masks
-
-| Type | Fields | Description |
-|------|--------|-------------|
-| `IntrinsicsFixMask` | `fx, fy, cx, cy` (bool each) | Fix individual intrinsics |
-| `DistortionFixMask` | `k1, k2, k3, p1, p2` (bool each) | Fix individual distortion params |
-| `CameraFixMask` | `intrinsics, distortion` | Combined camera fix mask |
-| `ScheimpflugFixMask` | `tilt_x, tilt_y` (bool each) | Fix individual sensor tilt angles |
 
 ## Shared Config Groups
 

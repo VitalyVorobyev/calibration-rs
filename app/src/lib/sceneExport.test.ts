@@ -11,6 +11,11 @@ const CAMERA = {
   intrinsics: K,
 };
 
+const TILTED_CAMERA = {
+  ...CAMERA,
+  sensor: { type: "scheimpflug", tilt_x: 0.02, tilt_y: -0.01 },
+};
+
 const POSE = {
   rotation: [0, 0, 0, 1] as [number, number, number, number],
   translation: [0, 0, 0.5] as [number, number, number],
@@ -35,9 +40,7 @@ describe("adaptSceneExport", () => {
       per_feature_residuals: { target: [], laser: [] },
       estimate: {
         params: {
-          intrinsics: K,
-          distortion: DIST,
-          sensor: { tilt_x: 0, tilt_y: 0 },
+          camera: TILTED_CAMERA,
           plane: PLANE,
           poses: [POSE, POSE],
         },
@@ -46,7 +49,8 @@ describe("adaptSceneExport", () => {
 
     const adapted = adaptSceneExport(laser);
     expect(adapted.cameras).toHaveLength(1);
-    expect(adapted.cameras?.[0]!.intrinsics.fx).toBe(1000);
+    // The camera keeps its model (here a tilted sensor).
+    expect(adapted.cameras).toEqual([TILTED_CAMERA]);
     // Camera pinned at the rig origin (identity extrinsic).
     expect(adapted.cam_se3_rig).toEqual([
       { rotation: [0, 0, 0, 1], translation: [0, 0, 0] },
@@ -62,7 +66,7 @@ describe("adaptSceneExport", () => {
     const bare = {
       kind: "laserline_device",
       per_feature_residuals: { target: [] },
-      estimate: { params: { intrinsics: K, distortion: DIST } },
+      estimate: { params: { camera: CAMERA } },
     } as unknown as AnyExport;
     const adapted = adaptSceneExport(bare);
     expect(adapted.cameras).toBeUndefined();

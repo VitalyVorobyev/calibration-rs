@@ -8,7 +8,9 @@
 //! # Available Parameters
 //!
 //! - [`intrinsics::pack_intrinsics`] / [`intrinsics::unpack_intrinsics`] - Pinhole intrinsics
-//! - [`distortion::pack_distortion`] / [`distortion::unpack_distortion`] - Brown-Conrady distortion
+//! - [`camera`] - the blocks of a camera of any model (intrinsics, projection,
+//!   distortion, sensor), packed with named fix lists
+//! - [`distortion::pack_distortion_params`] / [`distortion::unpack_distortion_params`] - distortion of any kind
 //! - [`pose_se3::iso3_to_se3_dvec`] / [`pose_se3::se3_dvec_to_iso3`] - SE(3) pose conversions
 //! - Laser plane (normal + distance) (currently internal)
 

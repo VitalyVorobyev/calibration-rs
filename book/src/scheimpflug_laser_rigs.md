@@ -1,6 +1,6 @@
 # Scheimpflug and Laser Rigs
 
-Four pieces extend the basic workflows to tilted-sensor cameras and laser-triangulation rigs:
+Four pieces extend the basic workflows to tilted-sensor cameras and laser-triangulation rigs. A tilted sensor is a value of the camera model, `camera.model.sensor = Scheimpflug`, in every workflow: planar intrinsics, single-camera hand-eye, the laserline device and the rigs.
 
 | Piece | Solves |
 |-------|--------|
@@ -88,7 +88,7 @@ pub struct RigLaserlineDeviceInput {
 }
 ```
 
-`RigUpstreamCalibration` holds one `CameraParams` per camera, so it accepts untilted and Scheimpflug cameras alike. The laser residuals are evaluated in the Brown-Conrady laserline-device model, so the rig laser workflows accept Brown-Conrady or undistorted cameras only (any other distortion is a typed error). The usual source is a rig hand-eye export:
+`RigUpstreamCalibration` holds one `CameraParams` per camera, and each camera's laser residuals are evaluated in its own model, so the rig laser workflows accept every distortion kind and untilted and Scheimpflug cameras alike (a general homography sensor, which no camera model describes, is a typed error). The usual source is a rig hand-eye export:
 
 ```rust
 use vision_calibration::rig_laserline_device::{
@@ -110,12 +110,21 @@ The steps `step_init` and `step_optimize` are available for finer control. `data
 
 ```rust
 pub struct RigHandeyeLaserlineConfig {
-    pub handeye: RigHandeyeConfig,                  // warm-start stage (incl. `sensor`)
+    pub handeye: RigHandeyeConfig,                  // warm-start stage (incl. `camera`)
     pub laserline_init: RigLaserlineDeviceConfig,   // plane-initialization stage
     pub joint_ba: RigHandeyeLaserlineBaConfig,      // solver, calib_loss, laser_loss,
-                                                    // calib_weight, laser_weight, fix_handeye, ...
+                                                    // calib_weight, laser_weight, fix,
+                                                    // fix_handeye, ...
 }
 ```
+
+`joint_ba.fix` holds one `CameraFix` per camera, named in that camera's model.
+Left empty, every camera gets the joint stage's default: intrinsics and the
+low-order radial terms (`k1`, `k2`; the division model's `lambda`) refined,
+the higher-order distortion terms and the sensor tilt held at their
+warm-start values, because they trade off against the extrinsics and the
+laser planes. An entry's slot left out keeps the model's default, as in every
+`CameraFix`.
 
 The input is a `RigHandeyeLaserlineInput { views, num_cameras }`. Each `RigHandeyeLaserlineView` (exported from this module with `RigLaserlineView` and `RobotPoseMeta`) carries the per-camera target observations, the laser pixels, and the robot pose (`base_se3_gripper`). There is a single entry point:
 

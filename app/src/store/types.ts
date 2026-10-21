@@ -1,6 +1,5 @@
 import type { FrameKey, ImageManifest, PerFeatureResiduals } from "../types";
 import type {
-  Camera,
   CameraParams,
   ExportKind as WireExportKind,
   Iso3Schema,
@@ -22,7 +21,7 @@ export type { ExportKind } from "./exportKind";
  * translation is in meters. */
 export type Iso3Wire = Iso3Schema;
 
-/** One calibrated camera of a rig export — alias of the generated
+/** One calibrated camera of an export — alias of the generated
  * [`CameraParams`]: `{ projection, distortion, sensor, intrinsics }`, each
  * slot a tagged variant (`distortion.type`, `sensor.type`), so a rig can mix
  * lenses and tilted sensors per camera. */
@@ -55,8 +54,8 @@ export interface AnyExport {
   cameras?: CameraWire[];
   cam_se3_rig?: Iso3Wire[];
   rig_se3_target?: Iso3Wire[];
-  /** Present on planar_intrinsics, single_cam_handeye, laserline_device. */
-  camera?: Camera;
+  /** Present on single_cam_handeye. */
+  camera?: CameraWire;
   camera_se3_target?: Iso3Wire[];
   /** rig_handeye / rig_handeye_laserline / single_cam_handeye carry mode-tagged hand-eye fields. */
   handeye_mode?: string;

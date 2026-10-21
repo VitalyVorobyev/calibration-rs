@@ -1,99 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
-    "BrownConrady5": {
-      "description": "Brown-Conrady 5-parameter radial-tangential distortion model.",
-      "properties": {
-        "iters": {
-          "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "k1": {
-          "description": "Radial coefficient k1.",
-          "format": "double",
-          "type": "number"
-        },
-        "k2": {
-          "description": "Radial coefficient k2.",
-          "format": "double",
-          "type": "number"
-        },
-        "k3": {
-          "description": "Radial coefficient k3.",
-          "format": "double",
-          "type": "number"
-        },
-        "p1": {
-          "description": "Tangential coefficient p1.",
-          "format": "double",
-          "type": "number"
-        },
-        "p2": {
-          "description": "Tangential coefficient p2.",
-          "format": "double",
-          "type": "number"
-        }
-      },
-      "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2",
-        "iters"
-      ],
-      "type": "object"
-    },
-    "Camera": {
-      "description": "A composable camera model: projection -> distortion -> sensor -> intrinsics.",
-      "properties": {
-        "_phantom": {
-          "type": "null"
-        },
-        "dist": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/BrownConrady5"
-            }
-          ],
-          "description": "Distortion model (e.g. Brown-Conrady)."
-        },
-        "k": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/FxFyCxCy"
-            }
-          ],
-          "description": "Intrinsics model (K)."
-        },
-        "proj": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/Pinhole"
-            }
-          ],
-          "description": "Projection model (e.g. pinhole)."
-        },
-        "sensor": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/IdentitySensor"
-            }
-          ],
-          "description": "Sensor model (e.g. identity or tilted homography)."
-        }
-      },
-      "required": [
-        "proj",
-        "dist",
-        "sensor",
-        "k",
-        "_phantom"
-      ],
-      "type": "object"
-    },
     "CameraParams": {
       "description": "Serializable camera parameters for building a runtime model.",
       "properties": {
@@ -700,10 +607,6 @@
         }
       ]
     },
-    "IdentitySensor": {
-      "description": "Identity sensor model.",
-      "type": "null"
-    },
     "ImageManifest": {
       "description": "Image manifest carried alongside a calibration export.\n\n`root` is interpreted relative to the directory of the `export.json` that\nembeds the manifest. Each [`FrameRef::path`] is interpreted relative to\n`root`. Both layers of indirection make exports portable across machines\nas long as the image directory is co-located with the export.",
       "properties": {
@@ -973,7 +876,7 @@
             },
             "status": "unavailable"
           },
-          "description": "Covariance of the refined parameters: intrinsics, distortion, sensor\ntilt and the laser plane (`plane.nx … plane.d`, in the camera frame),\nwith each view's target pose as a per-view block."
+          "description": "Covariance of the refined parameters: the camera's free parameters\n(intrinsics, distortion and, for a tilted sensor, the tilt) and the\nlaser plane (`plane.nx … plane.d`, in the camera frame), with each\nview's target pose as a per-view block."
         }
       },
       "required": [
@@ -985,21 +888,13 @@
     "LaserlineParams": {
       "description": "Initial values for laserline bundle adjustment.",
       "properties": {
-        "distortion": {
+        "camera": {
           "allOf": [
             {
-              "$ref": "#/definitions/BrownConrady5"
+              "$ref": "#/definitions/CameraParams"
             }
           ],
-          "description": "Brown-Conrady distortion parameters."
-        },
-        "intrinsics": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/FxFyCxCy"
-            }
-          ],
-          "description": "Camera intrinsics."
+          "description": "The camera, in its model: any distortion kind, and an identity or\nScheimpflug sensor."
         },
         "plane": {
           "allOf": [
@@ -1015,20 +910,10 @@
             "$ref": "#/definitions/Iso3Schema"
           },
           "type": "array"
-        },
-        "sensor": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/ScheimpflugParams"
-            }
-          ],
-          "description": "Scheimpflug sensor parameters (use defaults for identity sensor)."
         }
       },
       "required": [
-        "intrinsics",
-        "distortion",
-        "sensor",
+        "camera",
         "poses",
         "plane"
       ],
@@ -1182,10 +1067,6 @@
         }
       },
       "type": "object"
-    },
-    "Pinhole": {
-      "description": "Classic pinhole projection model.",
-      "type": "null"
     },
     "PixelRect": {
       "description": "Inclusive-exclusive pixel rectangle: `[x, x+w) × [y, y+h)`.",
@@ -2164,26 +2045,6 @@
         }
       ]
     },
-    "ScheimpflugParams": {
-      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
-      "properties": {
-        "tilt_x": {
-          "description": "Tilt around X axis in radians (alias: tau_x).",
-          "format": "double",
-          "type": "number"
-        },
-        "tilt_y": {
-          "description": "Tilt around Y axis in radians (alias: tau_y).",
-          "format": "double",
-          "type": "number"
-        }
-      },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
-      "type": "object"
-    },
     "SensorParams": {
       "description": "Serializable sensor model parameters.",
       "oneOf": [
@@ -2273,10 +2134,10 @@
         "camera": {
           "allOf": [
             {
-              "$ref": "#/definitions/Camera"
+              "$ref": "#/definitions/CameraParams"
             }
           ],
-          "description": "Calibrated camera (intrinsics + distortion)."
+          "description": "Calibrated camera, in the configured model."
         },
         "camera_se3_base": {
           "anyOf": [

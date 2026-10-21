@@ -27,7 +27,7 @@
 use crate::Error;
 use nalgebra::{Point3, UnitVector3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, FxFyCxCy, Iso3, Pinhole, Pt2, Pt3, Real, SensorModel,
+    Camera, DistortionModel, IntrinsicsModel, Iso3, ProjectionModel, Pt2, Pt3, Real, SensorModel,
 };
 
 /// Laser line observations for a single view.
@@ -165,12 +165,14 @@ impl LaserlinePlaneSolver {
     /// This is the recommended method for laser plane estimation. Each view
     /// contributes laser pixels that are back-projected to 3D points using
     /// the known camera pose. Multiple views at different poses provide
-    /// non-collinear points, enabling robust plane fitting.
+    /// non-collinear points, enabling robust plane fitting. `camera` is any
+    /// camera model: each pixel is back-projected through its intrinsics,
+    /// sensor, distortion and projection.
     ///
     /// # Algorithm
     ///
     /// For each view:
-    /// 1. Undistort laser pixels using camera intrinsics and distortion
+    /// 1. Undistort laser pixels through the camera model
     /// 2. Back-project to rays in camera frame
     /// 3. Intersect rays with planar target (Z=0 in target frame)
     /// 4. Transform intersection points to camera frame
@@ -182,12 +184,15 @@ impl LaserlinePlaneSolver {
     /// - At least 2 views with different poses
     /// - Total points across views >= 3
     /// - Views must be at sufficiently different angles to break collinearity
-    pub fn from_views<Sm>(
+    pub fn from_views<P, D, Sm, K>(
         views: &[LaserlineView],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCy<Real>>,
+        camera: &Camera<Real, P, D, Sm, K>,
     ) -> Result<LinearPlaneEstimate, Error>
     where
+        P: ProjectionModel<Real>,
+        D: DistortionModel<Real>,
         Sm: SensorModel<Real>,
+        K: IntrinsicsModel<Real>,
     {
         if views.len() < 2 {
             return Err(Error::InsufficientData {
@@ -222,13 +227,16 @@ impl LaserlinePlaneSolver {
     /// 2. Transform ray to target frame (inverse of camera pose)
     /// 3. Intersect ray with target plane (Z=0)
     /// 4. Transform intersection point back to camera frame
-    fn compute_3d_points<Sm>(
+    fn compute_3d_points<P, D, Sm, K>(
         laser_pixels: &[Pt2],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCy<Real>>,
+        camera: &Camera<Real, P, D, Sm, K>,
         camera_se3_target: &Iso3,
     ) -> Result<Vec<Pt3>, Error>
     where
+        P: ProjectionModel<Real>,
+        D: DistortionModel<Real>,
         Sm: SensorModel<Real>,
+        K: IntrinsicsModel<Real>,
     {
         let mut points_camera = Vec::with_capacity(laser_pixels.len());
 
@@ -270,7 +278,7 @@ impl LaserlinePlaneSolver {
 mod tests {
     use super::*;
     use nalgebra::UnitQuaternion;
-    use vision_calibration_core::{PinholeCamera, make_pinhole_camera};
+    use vision_calibration_core::{BrownConrady5, FxFyCxCy, PinholeCamera, make_pinhole_camera};
 
     fn make_test_camera() -> PinholeCamera {
         let intrinsics = FxFyCxCy {

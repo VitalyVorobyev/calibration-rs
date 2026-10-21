@@ -11,7 +11,6 @@ use vision_calibration_optim::{
     optimize_rig_laserline,
 };
 
-use crate::rig_family::laser_camera;
 use crate::session::CalibrationSession;
 
 use super::problem::RigLaserlineDeviceProblem;
@@ -109,7 +108,7 @@ fn linear_plane_init(
     cam_idx: usize,
 ) -> Option<LaserPlane> {
     let rig_to_cam = input.upstream.cam_se3_rig[cam_idx];
-    let camera = laser_camera(&input.upstream.cameras[cam_idx], cam_idx).ok()?;
+    let camera = input.upstream.cameras[cam_idx].build().ok()?;
     let mut views = Vec::new();
     for (view_idx, view) in input.dataset.views.iter().enumerate() {
         let Some(laser_pixels) = view

@@ -61,8 +61,11 @@ CHANGELOG with migration notes.
   functions (`set_input` → `step_init` → `step_optimize` → `export`).
   Seven problem types: `PlanarIntrinsics`, `SingleCamHandeye`,
   `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, `RigLaserlineDevice`,
-  `RigHandeyeLaserline`. Planar intrinsics takes its sensor from
-  `camera.model`; the rig types take `camera` plus per-camera `camera_overrides`.
+  `RigHandeyeLaserline`. Every type that calibrates a camera takes
+  `camera: CameraConfig` (model + named fix lists: any distortion, an
+  identity or Scheimpflug sensor); the rig types add per-camera
+  `camera_overrides`, and the rig laser types take each camera's model from
+  the upstream rig. Exports carry `CameraParams`.
 - **Optimization IR** ([ADR 0008](../docs/adrs/0008-optimization-ir-and-backends.md)):
   problems are `ProblemIR` (parameter + residual blocks) compiled to a
   solver backend; factors are generic over `T: RealField` for autodiff

@@ -30,12 +30,9 @@ HandEyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
 # Engine that linearizes the problem; both reach the same minimizer.
 SolverBackend: TypeAlias = Literal["tiny_solver", "factrs"]
 LaserlineResidualType: TypeAlias = Literal["PointToPlane", "LineDistNormalized"]
-ScheimpflugFixMask: TypeAlias = JsonObject
 
-# Serde `snake_case` form of `DistortionKind`. `brown_conrady5` is the default
-# and the only model the rig / hand-eye / laserline consumers accept; the
-# extended models (`rational8`, `thin_prism9`, `division1`) are supported by the
-# single-camera planar intrinsics workflow.
+# Serde `snake_case` form of `DistortionKind`. `brown_conrady5` is the default;
+# every workflow accepts every model.
 DistortionModel: TypeAlias = Literal[
     "none",
     "brown_conrady5",
@@ -303,13 +300,6 @@ class HandeyeInitConfig(TypedDict, total=False):
     min_motion_angle_deg: float
 
 
-class CameraFixMask(TypedDict, total=False):
-    """Combined per-camera intrinsics + distortion fix mask."""
-
-    intrinsics: JsonObject
-    distortion: JsonObject
-
-
 ProjectionModel: TypeAlias = Literal["pinhole"]
 SensorModel: TypeAlias = Literal["identity", "scheimpflug"]
 
@@ -356,6 +346,7 @@ class PlanarIntrinsicsConfig(TypedDict, total=False):
 
 class SingleCamHandeyeConfig(TypedDict, total=False):
     intrinsics: IntrinsicsInitConfig
+    camera: CameraConfig
     handeye_init: HandeyeInitConfig
     solver: SolverConfig
     robot_poses: RobotPoseConfig
@@ -400,8 +391,6 @@ class LaserlineDeviceOptimizeConfig(TypedDict, total=False):
     laser_loss: RobustLoss
     calib_weight: float
     laser_weight: float
-    fix_camera: CameraFixMask
-    fix_sensor: bool
     fix_poses: list[int]
     fix_plane: bool
     laser_residual_type: LaserlineResidualType
@@ -409,7 +398,7 @@ class LaserlineDeviceOptimizeConfig(TypedDict, total=False):
 
 class LaserlineDeviceConfig(TypedDict, total=False):
     init: IntrinsicsInitConfig
-    sensor_init: JsonObject
+    camera: CameraConfig
     solver: SolverConfig
     optimize: LaserlineDeviceOptimizeConfig
 
@@ -428,8 +417,7 @@ class RigHandeyeLaserlineBaConfig(TypedDict, total=False):
     laser_loss: RobustLoss
     calib_weight: float
     laser_weight: float
-    default_camera_fix: CameraFixMask
-    fix_scheimpflug: ScheimpflugFixMask
+    fix: list[CameraFix]
     fix_handeye: bool
     fix_target_ref: bool
     robot_poses: RobotPoseConfig

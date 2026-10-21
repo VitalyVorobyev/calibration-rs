@@ -8,15 +8,14 @@ use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDevicePr
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFix, CameraFixMask, CameraModelSpec, CameraParams, DistortionFixMask, DistortionKind,
-    FeatureResidualHistogram, ImageManifest, IntrinsicsFixMask, Iso3, NoMeta, PerFeatureResiduals,
-    Real, RigDataset, RigView, RigViewObs, Uncertainty, build_feature_histogram,
-    compute_rig_target_residuals,
+    CameraFix, CameraModelSpec, CameraParams, FeatureResidualHistogram, ImageManifest, Iso3,
+    NoMeta, PerFeatureResiduals, Real, RigDataset, RigView, RigViewObs, Uncertainty,
+    build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     HandEyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
     RigHandeyeLaserlineEstimate, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView,
-    RigLaserlineDataset, RobustLoss, ScheimpflugFixMask, compute_rig_laserline_feature_residuals,
+    RigLaserlineDataset, RobustLoss, compute_rig_laserline_feature_residuals,
 };
 
 use crate::rig_family::rig_camera_models;
@@ -132,10 +131,9 @@ impl Default for RigHandeyeLaserlineConfig {
 /// Final joint BA options.
 ///
 /// The joint stage always pins the upstream rig's reference camera
-/// (`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera
-/// fixing uses core's [`CameraFixMask`] directly, applied to each camera's
-/// model: a flag for a parameter a model lacks (a tilt of an untilted
-/// sensor) does nothing.
+/// (`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Each
+/// camera's fixed parameters are named lists in that camera's model
+/// (`fix`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -158,11 +156,18 @@ pub struct RigHandeyeLaserlineBaConfig {
     pub calib_weight: f64,
     /// Weight for laser residuals.
     pub laser_weight: f64,
-    /// Default camera parameter fix mask applied to every camera.
-    pub default_camera_fix: CameraFixMask,
-    /// Fix the sensor tilt of each Scheimpflug camera during the joint
-    /// stage. Cameras with an untilted sensor have no tilt.
-    pub fix_scheimpflug: ScheimpflugFixMask,
+    /// Camera parameters held fixed in the joint stage, one entry per camera
+    /// in camera order, each named per slot in that camera's model
+    /// (`{"distortion": ["k3", "p1", "p2"], "sensor": ["tilt_x"]}`); a slot
+    /// left out of an entry keeps the model's default. Empty (the default)
+    /// gives every camera the stage default: intrinsics and the low-order
+    /// radial terms (`k1`, `k2`; the division model's `lambda`) refined,
+    /// the higher-order distortion terms and the sensor tilt held at their
+    /// warm-start values — they trade off against the extrinsics and the
+    /// laser planes in the joint solve. A name the camera's model does not
+    /// have is a configuration error.
+    #[serde(default)]
+    pub fix: Vec<CameraFix>,
     /// Fix the hand-eye transform during the joint stage.
     pub fix_handeye: bool,
     /// Fix the target reference pose during the joint stage.
@@ -184,20 +189,7 @@ impl Default for RigHandeyeLaserlineBaConfig {
             laser_loss: RobustLoss::None,
             calib_weight: 1.0,
             laser_weight: 1.0e4,
-            default_camera_fix: CameraFixMask {
-                intrinsics: IntrinsicsFixMask::all_free(),
-                distortion: DistortionFixMask {
-                    k1: false,
-                    k2: false,
-                    k3: true,
-                    p1: true,
-                    p2: true,
-                },
-            },
-            fix_scheimpflug: ScheimpflugFixMask {
-                tilt_x: true,
-                tilt_y: true,
-            },
+            fix: Vec::new(),
             fix_handeye: false,
             fix_target_ref: false,
             robot_poses: RobotPoseConfig::default(),
@@ -322,21 +314,6 @@ impl ProblemType for RigHandeyeLaserlineProblem {
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         RigHandeyeProblem::validate_config(&config.handeye)?;
-        // The laser residuals are evaluated in the Brown-Conrady model.
-        let models = std::iter::once(config.handeye.camera.model)
-            .chain(config.handeye.camera_overrides.iter().map(|o| o.model));
-        for model in models {
-            if !matches!(
-                model.distortion,
-                DistortionKind::BrownConrady5 | DistortionKind::None
-            ) {
-                return Err(Error::invalid_input(format!(
-                    "joint rig laserline calibration needs Brown-Conrady (or no) distortion \
-                     for every camera, got {:?}",
-                    model.distortion
-                )));
-            }
-        }
         RigLaserlineDeviceProblem::validate_config(&config.laserline_init)?;
         if config.joint_ba.solver.max_iters == 0 {
             return Err(Error::invalid_input(
@@ -351,7 +328,11 @@ impl ProblemType for RigHandeyeLaserlineProblem {
         crate::rig_handeye::RigHandeyeProblem::validate_input_config(
             &input.handeye_dataset(),
             &config.handeye,
-        )
+        )?;
+        let models: Vec<CameraModelSpec> = (0..input.num_cameras)
+            .map(|i| config.handeye.camera_for(i).model)
+            .collect();
+        joint_fix(&config.joint_ba, &models).map(|_| ())
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -497,64 +478,45 @@ fn corrected_robot_pose(robot_pose: Iso3, delta: [Real; 6]) -> Iso3 {
     delta_iso * robot_pose
 }
 
-/// The joint stage's fixed parameters of each camera: the stage's masks,
-/// named in the camera's model.
+/// The joint stage's fixed parameters of each camera of `models`: its entry
+/// of `config.fix`, or the stage default when the list is empty.
 ///
 /// # Errors
 ///
-/// [`Error::InvalidInput`] for a camera with a general homography sensor.
+/// [`Error::InvalidInput`] when `config.fix` has neither zero nor one entry
+/// per camera, or an entry names a parameter its camera's model does not
+/// have.
 pub(crate) fn joint_fix(
     config: &RigHandeyeLaserlineBaConfig,
-    cameras: &[CameraParams],
+    models: &[CameraModelSpec],
 ) -> Result<Vec<CameraFix>, Error> {
-    cameras
-        .iter()
-        .enumerate()
-        .map(|(i, camera)| {
-            let model = camera.spec().ok_or_else(|| {
-                Error::invalid_input(format!("camera {i} has a general homography sensor"))
-            })?;
-            Ok(mask_fix(
-                config.default_camera_fix,
-                config.fix_scheimpflug,
-                model,
-            ))
-        })
-        .collect()
+    if config.fix.is_empty() {
+        return Ok(models.iter().map(|m| joint_stage_default_fix(*m)).collect());
+    }
+    if config.fix.len() != models.len() {
+        return Err(Error::invalid_input(format!(
+            "joint_ba.fix has {} entries; expected none or one per camera ({})",
+            config.fix.len(),
+            models.len()
+        )));
+    }
+    for (i, (fix, model)) in config.fix.iter().zip(models).enumerate() {
+        fix.resolve(*model)
+            .map_err(|e| Error::invalid_input(format!("joint_ba.fix[{i}]: {e}")))?;
+    }
+    Ok(config.fix.clone())
 }
 
-/// The fix lists of `model` that a camera mask and a tilt mask name.
-fn mask_fix(camera: CameraFixMask, tilt: ScheimpflugFixMask, model: CameraModelSpec) -> CameraFix {
-    let names = |flags: &[(bool, &str)], valid: &[&str]| {
-        Some(
-            flags
-                .iter()
-                .filter(|(fixed, name)| *fixed && valid.contains(name))
-                .map(|(_, name)| name.to_string())
-                .collect(),
-        )
-    };
-    let (k, d) = (camera.intrinsics, camera.distortion);
+/// The joint stage's default fix of a camera of `model`: intrinsics and the
+/// low-order radial terms refined, the higher-order distortion terms and
+/// the sensor tilt held.
+fn joint_stage_default_fix(model: CameraModelSpec) -> CameraFix {
+    let names = |v: &[&str]| Some(v.iter().map(|n| n.to_string()).collect());
     CameraFix {
-        intrinsics: names(
-            &[(k.fx, "fx"), (k.fy, "fy"), (k.cx, "cx"), (k.cy, "cy")],
-            &["fx", "fy", "cx", "cy"],
-        ),
+        intrinsics: Some(Vec::new()),
         projection: Some(Vec::new()),
-        distortion: names(
-            &[
-                (d.k1, "k1"),
-                (d.k2, "k2"),
-                (d.k3, "k3"),
-                (d.p1, "p1"),
-                (d.p2, "p2"),
-            ],
-            model.distortion.param_names(),
-        ),
-        sensor: names(
-            &[(tilt.tilt_x, "tilt_x"), (tilt.tilt_y, "tilt_y")],
-            model.sensor.param_names(),
-        ),
+        distortion: names(&model.distortion.higher_order_names()),
+        sensor: names(model.sensor.param_names()),
     }
 }
 
@@ -568,6 +530,8 @@ pub(crate) fn joint_fix_extrinsics(reference_camera_idx: usize, n: usize) -> Vec
 mod tests {
     use super::*;
 
+    use vision_calibration_core::{DistortionKind, SensorKind};
+
     #[test]
     fn config_json_roundtrip_preserves_joint_defaults() {
         let cfg = RigHandeyeLaserlineConfig::default();
@@ -579,7 +543,56 @@ mod tests {
         );
         assert_eq!(restored.joint_ba.laser_weight, 1.0e4);
         assert!(restored.joint_ba.robot_poses.refine);
-        assert!(restored.joint_ba.default_camera_fix.distortion.p1);
-        assert!(restored.joint_ba.default_camera_fix.distortion.p2);
+        assert!(restored.joint_ba.fix.is_empty());
+    }
+
+    #[test]
+    fn joint_fix_defaults_hold_higher_order_terms_and_tilt() {
+        let untilted =
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+        let tilted =
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
+        let division = CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity);
+        let config = RigHandeyeLaserlineBaConfig::default();
+        let fix = joint_fix(&config, &[untilted, tilted, division]).unwrap();
+        let resolved: Vec<_> = fix
+            .iter()
+            .zip([untilted, tilted, division])
+            .map(|(f, m)| f.resolve(m).unwrap())
+            .collect();
+        assert!(resolved[0].intrinsics.is_empty());
+        assert_eq!(resolved[0].distortion, vec![2, 3, 4]);
+        assert!(resolved[0].sensor.is_empty());
+        assert_eq!(resolved[1].distortion, vec![2, 3, 4]);
+        assert_eq!(resolved[1].sensor, vec![0, 1]);
+        assert!(resolved[2].distortion.is_empty());
+    }
+
+    #[test]
+    fn joint_fix_entries_are_checked_per_camera() {
+        let untilted =
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+        let mut config = RigHandeyeLaserlineBaConfig {
+            fix: vec![CameraFix::default()],
+            ..RigHandeyeLaserlineBaConfig::default()
+        };
+        let err = joint_fix(&config, &[untilted, untilted])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("one per camera"), "{err}");
+        config.fix = vec![
+            CameraFix::default(),
+            CameraFix {
+                sensor: Some(vec!["tilt_x".into()]),
+                ..CameraFix::default()
+            },
+        ];
+        let err = joint_fix(&config, &[untilted, untilted])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("joint_ba.fix[1]") && err.contains("tilt_x"),
+            "{err}"
+        );
     }
 }

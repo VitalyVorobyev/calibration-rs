@@ -118,6 +118,18 @@ impl DistortionKind {
         }
     }
 
+    /// Names of the coefficients beyond the low-order radial terms (`k1`,
+    /// `k2`; the division model's `lambda`), in block order: the tangential,
+    /// thin-prism and higher-order radial terms, which trade off against a
+    /// sensor tilt and against the extrinsics of a joint solve.
+    pub fn higher_order_names(self) -> Vec<&'static str> {
+        self.param_names()
+            .iter()
+            .copied()
+            .filter(|n| !matches!(*n, "k1" | "k2" | "lambda"))
+            .collect()
+    }
+
     /// Distort normalized coordinates with coefficients `c` (in
     /// [`param_names`](Self::param_names) order).
     pub fn distort<T: RealField>(self, c: &[T], n: &Point2<T>) -> Point2<T> {

@@ -370,6 +370,9 @@ pub struct HandeyeBaOverride {
 /// Single-camera hand-eye config overrides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SingleCamHandeyeOverride {
+    /// Camera model and fix lists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera: Option<CameraConfig>,
     /// Hand-eye mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handeye_mode: Option<BenchHandEyeMode>,
@@ -472,6 +475,9 @@ impl From<BenchRobustLoss> for RobustLoss {
 impl SingleCamHandeyeOverride {
     /// Apply overrides to a default single-camera hand-eye config.
     pub fn apply_to(&self, config: &mut SingleCamHandeyeConfig) {
+        if let Some(camera) = &self.camera {
+            config.camera = camera.clone();
+        }
         if let Some(mode) = self.handeye_mode {
             config.handeye_init.handeye_mode = mode.into();
         }

@@ -73,7 +73,7 @@ pub mod synthetic;
 #[cfg(feature = "test-utils")]
 #[doc(hidden)]
 pub mod test_utils;
-/// Common types for observations, results, and options.
+/// Common types for observations and results.
 mod types;
 mod view;
 
@@ -98,15 +98,17 @@ pub use models::{
 };
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
-    CameraFixMask, CorrespondenceView, DistortionFixMask, FeatureResidualHistogram, FrameKind,
-    FrameRef, ImageManifest, IntrinsicsFixMask, LaserFeatureResidual, LaserLineTrace,
-    ParameterCovariance, PerFeatureResiduals, PixelRect, REPROJECTION_HISTOGRAM_EDGES_PX,
-    ReprojectionStats, ResidualKind, ResidualNoise, TargetFeatureResidual, Uncertainty,
-    UncertaintyUnavailable, ViewCovariance,
+    CorrespondenceView, FeatureResidualHistogram, FrameKind, FrameRef, ImageManifest,
+    LaserFeatureResidual, LaserLineTrace, ParameterCovariance, PerFeatureResiduals, PixelRect,
+    REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, ResidualKind, ResidualNoise,
+    TargetFeatureResidual, Uncertainty, UncertaintyUnavailable, ViewCovariance,
 };
 pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 
-/// Concrete pinhole camera alias used across single-camera workflows.
+/// Concrete pinhole camera with Brown-Conrady distortion and an untilted
+/// sensor: the camera Zhang's linear initialization returns and the
+/// synthetic generators project with. Calibration results carry
+/// [`CameraParams`], which states any model.
 ///
 /// Composition:
 /// - projection: [`Pinhole`]

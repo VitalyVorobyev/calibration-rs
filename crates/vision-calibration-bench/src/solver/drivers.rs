@@ -4,9 +4,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use vision_calibration::core::{
-    CameraParams, DistortionParams, PinholeCamera, SensorParams, pinhole_camera_params,
-};
+use vision_calibration::core::{CameraParams, DistortionParams, SensorParams};
 use vision_calibration::laserline_device::{
     LaserlineDeviceProblem, step_init as laser_init, step_optimize as laser_optimize,
 };
@@ -144,10 +142,6 @@ fn rig_cameras(cameras: &[CameraParams]) -> Result<Vec<CameraParamsSet>> {
     cameras.iter().map(camera_set).collect()
 }
 
-fn pinhole_set(camera: &PinholeCamera) -> Result<CameraParamsSet> {
-    camera_set(&pinhole_camera_params(camera))
-}
-
 fn solve_once(scene: &Scene) -> Result<Solved> {
     let mut ph = Phases::default();
     let (params, residuals, report) = match &scene.data {
@@ -199,7 +193,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: vec![pinhole_set(&e.camera)?],
+                    cameras: vec![camera_set(&e.camera)?],
                     handeye: e.gripper_se3_camera,
                     ..ModelParams::default()
                 },
@@ -217,11 +211,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let p = &e.estimate.params;
             (
                 ModelParams {
-                    cameras: vec![CameraParamsSet {
-                        k: p.intrinsics,
-                        dist: p.distortion,
-                        sensor: Some(p.sensor),
-                    }],
+                    cameras: vec![camera_set(&p.camera)?],
                     planes_cam: vec![p.plane.clone()],
                     ..ModelParams::default()
                 },

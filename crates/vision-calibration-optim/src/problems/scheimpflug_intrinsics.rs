@@ -19,16 +19,6 @@ use vision_calibration_core::{
     SensorParams, View,
 };
 
-/// Mask for Scheimpflug tilt parameters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ScheimpflugFixMask {
-    /// Keep `tilt_x` fixed during optimization.
-    pub tilt_x: bool,
-    /// Keep `tilt_y` fixed during optimization.
-    pub tilt_y: bool,
-}
-
 /// Generous bounds centered on an intrinsics estimate: focals within
 /// `[lo, hi]×` the estimate, principal point within a focal-scaled window,
 /// and tilt within `tilt_center ± tilt_bound`. Wide enough not to bias a

@@ -19,12 +19,12 @@ design separates problem definition from solver implementation using an intermed
     sensor started without a tilt estimate
   - `rig_extrinsics`: multi-camera rig bundle adjustment, any camera model per camera (supports missing observations)
   - `handeye`: rig + robot hand-eye (eye-in-hand / eye-to-hand), any camera model per camera, with optional robot pose refinement
-  - `laserline_bundle`, `laserline_rig_bundle`: laser plane refinement (single camera / rig)
-  - `rig_handeye_laserline_bundle`: joint rig + hand-eye + laser plane
+  - `laserline_bundle`, `laserline_rig_bundle`: laser plane refinement (single camera / rig),
+    any camera model per camera
+  - `rig_handeye_laserline_bundle`: joint rig + hand-eye + laser plane, any camera model per camera
 - **Named parameter fixing**: a `CameraFix` lists the parameters held fixed per camera slot
-  (`intrinsics`, `distortion`, `sensor`), validated against the camera model; the rig extrinsics and
-  hand-eye problems take one `CameraFix` per camera, and the laser bundles still take
-  `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask`
+  (`intrinsics`, `distortion`, `sensor`), validated against the camera model; single-camera
+  problems take one `CameraFix`, multi-camera problems one per camera
 - **Robust loss functions** (`None`, `Huber`, `Cauchy`, `Arctan`)
 - **Manifold-aware optimization** for SE(3) parameters
 

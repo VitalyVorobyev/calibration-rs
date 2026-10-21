@@ -2,12 +2,14 @@
 
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, Pt2, Pt3,
-    ScheimpflugParams, SensorModel, View,
+    BrownConrady5, Camera, CameraModelSpec, CorrespondenceView, DistortionKind, FxFyCxCy, Iso3,
+    Pinhole, Pt2, Pt3, ScheimpflugParams, SensorKind, SensorModel, SensorParams, View,
 };
 use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineView};
+use vision_calibration_pipeline::common::config::CameraConfig;
 use vision_calibration_pipeline::laserline_device::{
-    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceProblem, run_calibration,
+    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceManualInit,
+    LaserlineDeviceProblem, run_calibration, step_init_with_seed, step_optimize,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 
@@ -103,24 +105,48 @@ where
 }
 
 fn make_dataset(sensor: ScheimpflugParams) -> (Vec<LaserlineView>, FxFyCxCy<f64>, LaserPlane) {
+    make_dataset_with(sensor, BrownConrady5::default(), make_poses())
+}
+
+/// Ten views tilted up to ±0.25 rad about both axes, the board centred.
+fn make_oblique_poses() -> Vec<Iso3> {
+    [
+        (0.0, 0.0),
+        (0.25, 0.0),
+        (-0.25, 0.0),
+        (0.0, 0.25),
+        (0.0, -0.25),
+        (0.18, 0.18),
+        (-0.18, 0.18),
+        (0.18, -0.18),
+        (-0.18, -0.18),
+        (0.1, -0.05),
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, &(rx, ry))| {
+        Iso3::from_parts(
+            Translation3::new(-0.075, -0.06, 0.5 + 0.03 * (i % 3) as f64),
+            Rotation3::from_euler_angles(rx, ry, 0.05 * i as f64).into(),
+        )
+    })
+    .collect()
+}
+
+fn make_dataset_with(
+    sensor: ScheimpflugParams,
+    distortion: BrownConrady5<f64>,
+    poses: Vec<Iso3>,
+) -> (Vec<LaserlineView>, FxFyCxCy<f64>, LaserPlane) {
     let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
     };
-    let distortion = BrownConrady5 {
-        k1: 0.0,
-        k2: 0.0,
-        k3: 0.0,
-        p1: 0.0,
-        p2: 0.0,
-        iters: 8,
-    };
 
     let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
     let points_3d = make_target_points();
-    let poses = make_poses();
     let plane = make_laser_plane(&poses);
 
     let mut views = Vec::new();
@@ -169,8 +195,9 @@ fn pipeline_converges_pinhole() {
     let json = serde_json::to_string(&export).unwrap();
     let _: LaserlineDeviceExport = serde_json::from_str(&json).unwrap();
 
-    let fx_err = (params.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
-    let fy_err = (params.intrinsics.fy - intrinsics_gt.fy).abs() / intrinsics_gt.fy;
+    assert!(matches!(params.camera.sensor, SensorParams::Identity));
+    let fx_err = (params.camera.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
+    let fy_err = (params.camera.intrinsics.fy - intrinsics_gt.fy).abs() / intrinsics_gt.fy;
     assert!(fx_err < 0.05, "fx error too large: {:.3}%", fx_err * 100.0);
     assert!(fy_err < 0.05, "fy error too large: {:.3}%", fy_err * 100.0);
 
@@ -190,34 +217,139 @@ fn pipeline_converges_pinhole() {
 
 #[test]
 fn pipeline_converges_scheimpflug() {
+    // Radial distortion centres on the optical axis, which makes the tilt
+    // observable: without it a tilt is a principal-point shift and a pose
+    // rotation.
     let sensor_gt = ScheimpflugParams {
-        tilt_x: 0.01,
-        tilt_y: -0.008,
+        tilt_x: 0.04,
+        tilt_y: -0.03,
     };
-    let (dataset, _intrinsics_gt, _plane_gt) = make_dataset(sensor_gt);
+    let distortion = BrownConrady5 {
+        k1: -0.25,
+        k2: 0.08,
+        ..BrownConrady5::default()
+    };
+    let (dataset, _intrinsics_gt, _plane_gt) =
+        make_dataset_with(sensor_gt, distortion, make_oblique_poses());
 
+    // Estimated tilt, cold start: an explicit (empty) sensor fix list opts
+    // into estimating the tilt; the linear tilt sweep seeds it and the
+    // bundle refines it.
     let mut config = LaserlineDeviceConfig::default();
-    config.sensor_init = ScheimpflugParams {
-        tilt_x: 0.005,
-        tilt_y: -0.004,
-    };
-    config.optimize.fix_sensor = false;
+    config.camera = CameraConfig::new(tilted());
+    config.camera.fix.sensor = Some(Vec::new());
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-    session.set_input(dataset).unwrap();
-    run_calibration(&mut session, Some(config)).unwrap();
-
+    session.set_input(dataset.clone()).unwrap();
+    run_calibration(&mut session, Some(config.clone())).unwrap();
     let export = session.export().unwrap();
-    let est_sensor = export.estimate.params.sensor;
+    assert!(
+        export.mean_reproj_error < 1e-4,
+        "{}",
+        export.mean_reproj_error
+    );
+    assert_tilt(&export, sensor_gt);
 
+    // Default: a laserline device's mount tilt is held at its seed, as is
+    // an explicit hold.
+    for hold in [None, Some(vec!["tilt_x".into(), "tilt_y".into()])] {
+        let mut config = config.clone();
+        config.camera.fix.sensor = hold;
+        let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+        session.set_input(dataset.clone()).unwrap();
+        session.set_config(config).unwrap();
+        let mut seed = LaserlineDeviceManualInit::default();
+        seed.sensor = Some(sensor_gt);
+        step_init_with_seed(&mut session, seed, None).unwrap();
+        step_optimize(&mut session, None).unwrap();
+        let export = session.export().unwrap();
+        let SensorParams::Scheimpflug { params } = export.estimate.params.camera.sensor else {
+            panic!("tilted camera expected");
+        };
+        assert_eq!(
+            (params.tilt_x, params.tilt_y),
+            (sensor_gt.tilt_x, sensor_gt.tilt_y),
+            "a held tilt keeps its seed"
+        );
+    }
+
+    // Seeded: a known mount tilt, held fixed.
+    config.camera.fix.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);
+    let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+    session.set_input(dataset).unwrap();
+    session.set_config(config).unwrap();
+    let mut seed = LaserlineDeviceManualInit::default();
+    seed.sensor = Some(sensor_gt);
+    step_init_with_seed(&mut session, seed, None).unwrap();
+    step_optimize(&mut session, None).unwrap();
+    let export = session.export().unwrap();
+    let SensorParams::Scheimpflug { params } = export.estimate.params.camera.sensor else {
+        panic!("tilted camera expected");
+    };
+    assert_eq!(
+        (params.tilt_x, params.tilt_y),
+        (sensor_gt.tilt_x, sensor_gt.tilt_y),
+        "a held tilt keeps its seed"
+    );
+}
+
+fn tilted() -> CameraModelSpec {
+    CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug)
+}
+
+fn assert_tilt(export: &LaserlineDeviceExport, sensor_gt: ScheimpflugParams) {
+    let SensorParams::Scheimpflug { params: est } = export.estimate.params.camera.sensor else {
+        panic!("tilted camera expected");
+    };
     assert!(
-        (est_sensor.tilt_x - sensor_gt.tilt_x).abs() < 0.01,
-        "tilt_x error too large"
+        (est.tilt_x - sensor_gt.tilt_x).abs() < 1e-3,
+        "tilt_x error too large: {est:?}"
     );
     assert!(
-        (est_sensor.tilt_y - sensor_gt.tilt_y).abs() < 0.01,
-        "tilt_y error too large"
+        (est.tilt_y - sensor_gt.tilt_y).abs() < 1e-3,
+        "tilt_y error too large: {est:?}"
     );
+}
+
+#[test]
+fn tilt_seed_for_an_untilted_camera_must_be_zero() {
+    let (dataset, _k, _plane) = make_dataset(ScheimpflugParams::default());
+    let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+    session.set_input(dataset).unwrap();
+    let mut seed = LaserlineDeviceManualInit::default();
+    seed.sensor = Some(ScheimpflugParams::default());
+    assert!(step_init_with_seed(&mut session, seed.clone(), None).is_ok());
+    seed.sensor = Some(ScheimpflugParams {
+        tilt_x: 0.02,
+        tilt_y: 0.0,
+    });
+    let err = step_init_with_seed(&mut session, seed, None)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Scheimpflug"), "{err}");
+}
+
+#[test]
+fn every_distortion_kind_calibrates() {
+    let (dataset, intrinsics_gt, _plane) = make_dataset(ScheimpflugParams::default());
+    for kind in [
+        DistortionKind::None,
+        DistortionKind::BrownConrady5,
+        DistortionKind::Rational8,
+        DistortionKind::ThinPrism9,
+        DistortionKind::Division1,
+    ] {
+        let mut config = LaserlineDeviceConfig::default();
+        config.camera = CameraConfig::new(CameraModelSpec::pinhole(kind, SensorKind::Identity));
+        let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+        session.set_input(dataset.clone()).unwrap();
+        run_calibration(&mut session, Some(config)).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+        let export = session.export().unwrap();
+        let camera = &export.estimate.params.camera;
+        assert_eq!(camera.spec().map(|s| s.distortion), Some(kind));
+        let fx_err = (camera.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
+        assert!(fx_err < 0.05, "{kind:?}: fx error {:.3}%", fx_err * 100.0);
+    }
 }
 
 #[test]

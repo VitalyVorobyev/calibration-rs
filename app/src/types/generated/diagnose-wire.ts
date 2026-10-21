@@ -6,78 +6,6 @@
  */
 
 /**
- * The uncertainty of a result's estimated parameters.
- */
-export type Uncertainty =
-  | (ParameterCovariance & {
-      status: "available";
-    })
-  | {
-      /**
-       * Why the covariance is not available.
-       */
-      reason: UncertaintyUnavailable;
-      status: "unavailable";
-    };
-/**
- * A kind of residual, which sets its unit.
- */
-export type ResidualKind = "reprojection" | "laser_plane" | "laser_line";
-/**
- * Why a result has no covariance.
- */
-export type UncertaintyUnavailable =
-  | {
-      kind: "not_converged";
-    }
-  | {
-      kind: "rank_deficient";
-      /**
-       * Labels of the parameters involved.
-       */
-      unobservable: string[];
-    }
-  | {
-      kind: "at_bound";
-      /**
-       * Labels of the parameters on a bound.
-       */
-      labels: string[];
-    }
-  | {
-      kind: "no_redundancy";
-    }
-  | {
-      kind: "not_computed";
-    };
-/**
- * What a frame depicts, distinguishing target images from laser-on images.
- *
- * Laser problem types capture two images per `(pose, camera)` slot: one of
- * the calibration target and one with the laser line on. Both can appear in
- * the same [`ImageManifest`], discriminated by [`FrameRef::kind`].
- *
- * Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
- * which keeps exports without laser frames byte-stable and forward-readable.
- */
-export type FrameKind = "target" | "laser";
-/**
- * Identifies which calibration `*Export` a JSON payload holds.
- *
- * One variant per pipeline problem type, serialized as the snake_case module
- * name in the `kind` field of every `*Export`. Consumers (the desktop app's
- * `detectExportKind`, downstream tooling) read this single tag rather than
- * sniffing field presence.
- */
-export type ExportKind =
-  | "planar_intrinsics"
-  | "single_cam_handeye"
-  | "laserline_device"
-  | "rig_extrinsics"
-  | "rig_handeye"
-  | "rig_laserline_device"
-  | "rig_handeye_laserline";
-/**
  * Serializable distortion model parameters.
  */
 export type DistortionParams =
@@ -235,6 +163,78 @@ export type SensorParams =
       type: "scheimpflug";
     };
 /**
+ * The uncertainty of a result's estimated parameters.
+ */
+export type Uncertainty =
+  | (ParameterCovariance & {
+      status: "available";
+    })
+  | {
+      /**
+       * Why the covariance is not available.
+       */
+      reason: UncertaintyUnavailable;
+      status: "unavailable";
+    };
+/**
+ * A kind of residual, which sets its unit.
+ */
+export type ResidualKind = "reprojection" | "laser_plane" | "laser_line";
+/**
+ * Why a result has no covariance.
+ */
+export type UncertaintyUnavailable =
+  | {
+      kind: "not_converged";
+    }
+  | {
+      kind: "rank_deficient";
+      /**
+       * Labels of the parameters involved.
+       */
+      unobservable: string[];
+    }
+  | {
+      kind: "at_bound";
+      /**
+       * Labels of the parameters on a bound.
+       */
+      labels: string[];
+    }
+  | {
+      kind: "no_redundancy";
+    }
+  | {
+      kind: "not_computed";
+    };
+/**
+ * What a frame depicts, distinguishing target images from laser-on images.
+ *
+ * Laser problem types capture two images per `(pose, camera)` slot: one of
+ * the calibration target and one with the laser line on. Both can appear in
+ * the same [`ImageManifest`], discriminated by [`FrameRef::kind`].
+ *
+ * Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
+ * which keeps exports without laser frames byte-stable and forward-readable.
+ */
+export type FrameKind = "target" | "laser";
+/**
+ * Identifies which calibration `*Export` a JSON payload holds.
+ *
+ * One variant per pipeline problem type, serialized as the snake_case module
+ * name in the `kind` field of every `*Export`. Consumers (the desktop app's
+ * `detectExportKind`, downstream tooling) read this single tag rather than
+ * sniffing field presence.
+ */
+export type ExportKind =
+  | "planar_intrinsics"
+  | "single_cam_handeye"
+  | "laserline_device"
+  | "rig_extrinsics"
+  | "rig_handeye"
+  | "rig_laserline_device"
+  | "rig_handeye_laserline";
+/**
  * Hand-eye calibration mode.
  *
  * Specifies the transform chain used for hand-eye calibration.
@@ -251,14 +251,6 @@ export type HandEyeMode = "EyeInHand" | "EyeToHand";
  * pipeline API has none today (see the module docs).
  */
 export type RunStage = "detect" | "solve" | "export";
-/**
- * Classic pinhole projection model.
- */
-export type Pinhole = null;
-/**
- * Identity sensor model.
- */
-export type IdentitySensor = null;
 
 /**
  * Generated wire types for the diagnose app. Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.
@@ -432,9 +424,10 @@ export interface LaserlineEstimate {
    */
   report: SolveReport;
   /**
-   * Covariance of the refined parameters: intrinsics, distortion, sensor
-   * tilt and the laser plane (`plane.nx … plane.d`, in the camera frame),
-   * with each view's target pose as a per-view block.
+   * Covariance of the refined parameters: the camera's free parameters
+   * (intrinsics, distortion and, for a tilted sensor, the tilt) and the
+   * laser plane (`plane.nx … plane.d`, in the camera frame), with each
+   * view's target pose as a per-view block.
    */
   uncertainty?: Uncertainty;
 }
@@ -443,13 +436,10 @@ export interface LaserlineEstimate {
  */
 export interface LaserlineParams {
   /**
-   * Brown-Conrady distortion parameters.
+   * The camera, in its model: any distortion kind, and an identity or
+   * Scheimpflug sensor.
    */
-  distortion: BrownConrady5;
-  /**
-   * Camera intrinsics.
-   */
-  intrinsics: FxFyCxCy;
+  camera: CameraParams;
   /**
    * Laser plane parameters in camera frame.
    */
@@ -458,39 +448,27 @@ export interface LaserlineParams {
    * Per-view target poses (`camera_se3_target`).
    */
   poses: Iso3Schema[];
-  /**
-   * Scheimpflug sensor parameters (use defaults for identity sensor).
-   */
-  sensor: ScheimpflugParams;
 }
 /**
- * Brown-Conrady 5-parameter radial-tangential distortion model.
+ * Serializable camera parameters for building a runtime model.
  */
-export interface BrownConrady5 {
+export interface CameraParams {
   /**
-   * Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).
+   * Distortion model parameters.
    */
-  iters: number;
+  distortion: DistortionParams;
   /**
-   * Radial coefficient k1.
+   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
    */
-  k1: number;
+  intrinsics: FxFyCxCy;
   /**
-   * Radial coefficient k2.
+   * Projection model parameters.
    */
-  k2: number;
+  projection: ProjectionParams;
   /**
-   * Radial coefficient k3.
+   * Sensor model parameters.
    */
-  k3: number;
-  /**
-   * Tangential coefficient p1.
-   */
-  p1: number;
-  /**
-   * Tangential coefficient p2.
-   */
-  p2: number;
+  sensor: SensorParams;
 }
 /**
  * Standard pinhole intrinsics: focal lengths and principal point in pixels.
@@ -562,19 +540,6 @@ export interface Iso3Schema {
    * @maxItems 3
    */
   translation: [number, number, number];
-}
-/**
- * Scheimpflug tilt parameters (OpenCV-compatible).
- */
-export interface ScheimpflugParams {
-  /**
-   * Tilt around X axis in radians (alias: tau_x).
-   */
-  tilt_x: number;
-  /**
-   * Tilt around Y axis in radians (alias: tau_y).
-   */
-  tilt_y: number;
 }
 /**
  * Summary of backend solve outcome.
@@ -989,27 +954,6 @@ export interface PlanarIntrinsicsParams {
   camera_se3_target: Iso3Schema[];
 }
 /**
- * Serializable camera parameters for building a runtime model.
- */
-export interface CameraParams {
-  /**
-   * Distortion model parameters.
-   */
-  distortion: DistortionParams;
-  /**
-   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
-   */
-  intrinsics: FxFyCxCy;
-  /**
-   * Projection model parameters.
-   */
-  projection: ProjectionParams;
-  /**
-   * Sensor model parameters.
-   */
-  sensor: SensorParams;
-}
-/**
  * The projection uncertainty of one camera over its image.
  *
  * Grid nodes are evenly spaced from pixel `(0, 0)` to
@@ -1412,9 +1356,9 @@ export interface SingleCamHandeyeExport {
    */
   base_se3_target?: Iso3Schema | null;
   /**
-   * Calibrated camera (intrinsics + distortion).
+   * Calibrated camera, in the configured model.
    */
-  camera: Camera;
+  camera: CameraParams;
   /**
    * Eye-to-hand: camera_se3_base (T_C_B).
    *
@@ -1472,26 +1416,4 @@ export interface SingleCamHandeyeExport {
    * the noise level the residuals imply.
    */
   uncertainty?: Uncertainty;
-}
-/**
- * A composable camera model: projection -> distortion -> sensor -> intrinsics.
- */
-export interface Camera {
-  _phantom: null;
-  /**
-   * Distortion model (e.g. Brown-Conrady).
-   */
-  dist: BrownConrady5;
-  /**
-   * Intrinsics model (K).
-   */
-  k: FxFyCxCy;
-  /**
-   * Projection model (e.g. pinhole).
-   */
-  proj: Pinhole;
-  /**
-   * Sensor model (e.g. identity or tilted homography).
-   */
-  sensor: IdentitySensor;
 }

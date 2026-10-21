@@ -2,7 +2,9 @@
 //!
 //! The pipeline runs rig hand-eye, initializes per-camera laser planes from the
 //! frozen hand-eye geometry, then jointly refines the rig/hand-eye/laser
-//! parameters.
+//! parameters. Each camera keeps its own model (`handeye.camera` and
+//! `handeye.camera_overrides`); the joint stage names its fixed parameters
+//! per camera in `joint_ba.fix`.
 
 mod problem;
 mod state;

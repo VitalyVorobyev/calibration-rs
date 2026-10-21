@@ -14,9 +14,12 @@ source of truth:
   ``CameraConfig`` wrapper) plus ``camera_overrides`` (a list of
   ``{camera, model, fix}``); ``rig.refine_sensor`` and
   ``handeye_ba.refine_sensor``.
+* ``SingleCamHandeyeConfig`` / ``LaserlineDeviceConfig`` — ``camera`` (the
+  planar ``CameraConfig`` wrapper); no ``sensor_init`` / ``fix_camera`` /
+  ``fix_sensor``.
 * ``rig_handeye_laserline/problem.rs`` ``RigHandeyeLaserlineBaConfig`` defaults
-  (``calib_weight = 1.0``, ``laser_weight = 1e4``, ``fix_scheimpflug`` tilt
-  frozen, ``default_camera_fix.distortion`` = ``radial_only``).
+  (``calib_weight = 1.0``, ``laser_weight = 1e4``, ``fix`` empty — the stage
+  default).
 """
 
 from __future__ import annotations
@@ -26,7 +29,6 @@ import unittest
 
 import vision_calibration as vc
 import vision_calibration.types as vc_types
-from vision_calibration.models import _RADIAL_ONLY_DISTORTION_FIX_MASK as _RADIAL_ONLY
 
 
 class DistortionModelSchemaTest(unittest.TestCase):
@@ -174,6 +176,48 @@ class RigCameraConfigSchemaTest(unittest.TestCase):
             vc.CameraOverride.from_payload({"model": {}})
 
 
+class SingleCameraConfigSchemaTest(unittest.TestCase):
+    _DEFAULT_CAMERA = {
+        "model": {
+            "projection": "pinhole",
+            "distortion": "brown_conrady5",
+            "sensor": "identity",
+        },
+        "fix": {},
+    }
+
+    def test_single_cam_handeye_camera_key_and_roundtrip(self) -> None:
+        payload = vc.SingleCamHandeyeCalibrationConfig().to_payload()
+        self.assertEqual(
+            set(payload), {"intrinsics", "camera", "handeye_init", "solver", "robot_poses"}
+        )
+        self.assertEqual(payload["camera"], self._DEFAULT_CAMERA)
+        cfg = vc.SingleCamHandeyeCalibrationConfig(
+            camera=vc.CameraConfig(
+                model=vc.CameraModelSpec(distortion="division1", sensor="scheimpflug"),
+                fix=vc.CameraFix(sensor=["tilt_y"]),
+            )
+        )
+        restored = vc.SingleCamHandeyeCalibrationConfig.from_mapping(cfg.to_payload())
+        self.assertEqual(restored.to_payload(), cfg.to_payload())
+
+    def test_laserline_device_camera_key_and_removed_fields(self) -> None:
+        payload = vc.LaserlineDeviceCalibrationConfig().to_payload()
+        self.assertEqual(set(payload), {"init", "camera", "solver", "optimize"})
+        self.assertEqual(payload["camera"], self._DEFAULT_CAMERA)
+        self.assertNotIn("fix_camera", payload["optimize"])
+        self.assertNotIn("fix_sensor", payload["optimize"])
+        with self.assertRaises(ValueError):
+            vc.LaserlineDeviceCalibrationConfig.from_mapping({"sensor_init": {}})
+        with self.assertRaises(ValueError):
+            vc.LaserlineDeviceOptimizeConfig.from_mapping({"fix_sensor": True})
+        cfg = vc.LaserlineDeviceCalibrationConfig(
+            camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug"))
+        )
+        restored = vc.LaserlineDeviceCalibrationConfig.from_mapping(cfg.to_payload())
+        self.assertEqual(restored.to_payload(), cfg.to_payload())
+
+
 class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):
     def test_default_payload_has_three_warm_started_stages(self) -> None:
         payload = vc.RigHandeyeLaserlineCalibrationConfig().to_payload()
@@ -194,9 +238,8 @@ class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):
         self.assertEqual(ba["laser_loss"], "None")
         self.assertEqual(ba["calib_weight"], 1.0)
         self.assertEqual(ba["laser_weight"], 1.0e4)
-        # Joint stage freezes tilt and uses the radial-only camera fix mask.
-        self.assertEqual(ba["fix_scheimpflug"], {"tilt_x": True, "tilt_y": True})
-        self.assertEqual(ba["default_camera_fix"]["distortion"], _RADIAL_ONLY)
+        # An empty `fix` gives every camera the stage default.
+        self.assertEqual(ba["fix"], [])
         self.assertFalse(ba["fix_handeye"])
         self.assertFalse(ba["fix_target_ref"])
         self.assertEqual(
@@ -208,8 +251,7 @@ class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):
                 "laser_loss",
                 "calib_weight",
                 "laser_weight",
-                "default_camera_fix",
-                "fix_scheimpflug",
+                "fix",
                 "fix_handeye",
                 "fix_target_ref",
                 "robot_poses",
@@ -222,12 +264,21 @@ class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):
         self.assertEqual(restored.to_payload(), cfg.to_payload())
 
     def test_ba_config_roundtrips_and_rejects_unknown_field(self) -> None:
-        ba = vc.RigHandeyeLaserlineBaConfig(calib_weight=2.0, laser_weight=5.0e3)
-        restored = vc.RigHandeyeLaserlineBaConfig.from_mapping(ba.to_payload())
+        ba = vc.RigHandeyeLaserlineBaConfig(
+            calib_weight=2.0,
+            laser_weight=5.0e3,
+            fix=[vc.CameraFix(), vc.CameraFix(sensor=["tilt_x"])],
+        )
+        payload = ba.to_payload()
+        self.assertEqual(payload["fix"], [{}, {"sensor": ["tilt_x"]}])
+        restored = vc.RigHandeyeLaserlineBaConfig.from_mapping(payload)
         self.assertEqual(restored.calib_weight, 2.0)
         self.assertEqual(restored.laser_weight, 5.0e3)
+        self.assertEqual(restored.to_payload(), payload)
         with self.assertRaises(ValueError):
             vc.RigHandeyeLaserlineBaConfig.from_mapping({"bogus": 1})
+        with self.assertRaises(ValueError):
+            vc.RigHandeyeLaserlineBaConfig.from_mapping({"default_camera_fix": {}})
 
     def test_config_rejects_unknown_field(self) -> None:
         with self.assertRaises(ValueError):

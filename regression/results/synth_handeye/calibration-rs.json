@@ -16,23 +16,27 @@
       ]
     },
     "camera": {
-      "_phantom": null,
-      "dist": {
+      "distortion": {
         "iters": 8,
         "k1": 8.021546672625011e-6,
         "k2": 0.00006797078641456106,
         "k3": 0.0,
         "p1": -0.00034519621222795654,
-        "p2": 0.00010255321089882585
+        "p2": 0.00010255321089882585,
+        "type": "brown_conrady5"
       },
-      "k": {
+      "intrinsics": {
         "cx": 512.8627460372832,
         "cy": 382.7306463077447,
         "fx": 800.1793948272292,
         "fy": 780.5144753586125
       },
-      "proj": null,
-      "sensor": null
+      "projection": {
+        "type": "pinhole"
+      },
+      "sensor": {
+        "type": "identity"
+      }
     },
     "camera_se3_base": null,
     "gripper_se3_camera": {

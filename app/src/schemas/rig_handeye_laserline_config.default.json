@@ -41,26 +41,8 @@
   "joint_ba": {
     "calib_loss": "None",
     "calib_weight": 1.0,
-    "default_camera_fix": {
-      "distortion": {
-        "k1": false,
-        "k2": false,
-        "k3": true,
-        "p1": true,
-        "p2": true
-      },
-      "intrinsics": {
-        "cx": false,
-        "cy": false,
-        "fx": false,
-        "fy": false
-      }
-    },
+    "fix": [],
     "fix_handeye": false,
-    "fix_scheimpflug": {
-      "tilt_x": true,
-      "tilt_y": true
-    },
     "fix_target_ref": false,
     "laser_loss": "None",
     "laser_residual_type": "PointToPlane",

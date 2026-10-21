@@ -56,10 +56,8 @@ impl PlanarIntrinsicsParams {
         })
     }
 
-    /// Construct from a concrete [`PinholeCamera`] (Brown-Conrady) and poses.
-    ///
-    /// Convenience wrapper for rig calibration and tests that operate with the
-    /// concrete `PinholeCamera` type.
+    /// Construct from a concrete [`PinholeCamera`] (Brown-Conrady, untilted)
+    /// and poses — the camera the linear initialization returns.
     ///
     /// # Errors
     ///
@@ -69,31 +67,6 @@ impl PlanarIntrinsicsParams {
         camera_se3_target: Vec<Iso3>,
     ) -> Result<Self, Error> {
         Self::new(pinhole_camera_params(&camera), camera_se3_target)
-    }
-
-    /// Reconstruct a [`PinholeCamera`] (Brown-Conrady) from the stored params.
-    ///
-    /// Only valid when the stored distortion is `BrownConrady5` or `None`.
-    /// Rig calibration always uses Brown-Conrady, so this path is always safe
-    /// for rig consumers.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::InvalidInput`] if the stored distortion is not a
-    /// Brown-Conrady or `None` variant, or if intrinsics are unavailable.
-    pub fn pinhole_camera(&self) -> Result<PinholeCamera, Error> {
-        let k = self.intrinsics();
-        let dist = match &self.camera.distortion {
-            DistortionParams::None => BrownConrady5::default(),
-            DistortionParams::BrownConrady5 { params } => *params,
-            other => {
-                return Err(Error::invalid_input(format!(
-                    "pinhole_camera() requires BrownConrady5 or None distortion, got {:?}",
-                    std::mem::discriminant(other)
-                )));
-            }
-        };
-        Ok(make_pinhole_camera(k, dist))
     }
 
     /// Build the runtime [`CameraModel`] for residual computation.

@@ -1,14 +1,14 @@
 //! Rig-level laserline calibration.
 //!
 //! Thin orchestrator around [`super::laserline_bundle::optimize_laserline`]
-//! that runs per-camera single-device calibration with intrinsics, distortion,
-//! sensor, and per-view target poses all frozen (they are expected to come
-//! from an upstream rig + hand-eye calibration). The resulting per-camera
+//! that runs per-camera single-device calibration with each camera (in its
+//! own model) and the per-view target poses all frozen (they are expected to
+//! come from an upstream rig + hand-eye calibration). The resulting per-camera
 //! planes (in camera frame) are transformed into the rig frame via the
 //! provided `cam_to_rig` (`T_R_C`) transforms.
 //!
-//! Joint rig+plane bundle adjustment with rig-frame plane parameterization is
-//! a v1.1 follow-up; see the workspace plan.
+//! The joint rig + hand-eye + plane bundle adjustment is
+//! [`super::rig_handeye_laserline_bundle`].
 //!
 //! # Input shape
 //!
@@ -28,16 +28,17 @@
 
 use crate::Error;
 use crate::backend::BackendSolveOptions;
+use crate::params::camera::camera_spec;
 use crate::params::laser_plane::LaserPlane;
 use crate::problems::laserline_bundle::{
     LaserCameraModel, LaserResidualRecords, LaserlineMeta, LaserlineParams, LaserlineResidualType,
     LaserlineSolveOptions, LaserlineStats, LaserlineView, compute_laserline_stats,
-    laser_camera_parts, optimize_laserline,
+    optimize_laserline,
 };
 use crate::uncertainty;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFixMask, CameraParams, CorrespondenceView, Iso3, Pt2, Uncertainty, View,
+    CameraFix, CameraParams, CorrespondenceView, Iso3, Pt2, Uncertainty, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -137,9 +138,9 @@ impl RigLaserlineDataset {
 /// Upstream calibration consumed by the rig laserline solver.
 ///
 /// All of these parameters are held fixed during optimization (by design).
-/// They typically come from a rig hand-eye calibration. The laser residuals
-/// are evaluated in the Brown-Conrady model: each camera has Brown-Conrady
-/// (or no) distortion and an identity or Scheimpflug sensor.
+/// They typically come from a rig hand-eye calibration. Each camera is
+/// evaluated in its own model: any distortion kind, and an identity or
+/// Scheimpflug sensor.
 #[derive(Debug, Clone)]
 pub struct RigLaserlineUpstream {
     /// Per-camera camera parameters.
@@ -151,31 +152,15 @@ pub struct RigLaserlineUpstream {
 }
 
 /// Solve options for rig laserline calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RigLaserlineSolveOptions {
     /// Per-camera laserline solver knobs (shared by all cameras).
     ///
-    /// The fix-flags for intrinsics / distortion / sensor / poses are
-    /// overridden by this orchestrator so that upstream calibration stays
-    /// frozen.
+    /// Its camera fix lists and fixed poses are overridden by this
+    /// orchestrator so that the upstream calibration stays frozen.
     pub laserline: LaserlineSolveOptions,
     /// Laser residual type (propagated to the per-camera solver).
     pub laser_residual_type: LaserlineResidualType,
-}
-
-impl Default for RigLaserlineSolveOptions {
-    fn default() -> Self {
-        let laserline = LaserlineSolveOptions {
-            fix_camera: CameraFixMask::all_fixed(),
-            fix_sensor: true,
-            fix_poses: Vec::new(),
-            ..LaserlineSolveOptions::default()
-        };
-        Self {
-            laserline,
-            laser_residual_type: LaserlineResidualType::default(),
-        }
-    }
 }
 
 /// Compute per-pixel laser residual records for every laser observation in a
@@ -195,7 +180,7 @@ impl Default for RigLaserlineSolveOptions {
 ///
 /// Returns [`Error::InvalidInput`] if the per-camera or per-view slice
 /// lengths are inconsistent with the dataset shape, or a camera has a
-/// distortion model other than Brown-Conrady (or none).
+/// general homography sensor.
 pub fn compute_rig_laserline_feature_residuals(
     dataset: &RigLaserlineDataset,
     cameras: &[CameraParams],
@@ -221,8 +206,8 @@ pub fn compute_rig_laserline_feature_residuals(
         .iter()
         .enumerate()
         .map(|(c, camera)| {
-            let (k, distortion, sensor) = laser_camera_parts(camera, c)?;
-            LaserCameraModel::new(&k, &distortion, &sensor)
+            LaserCameraModel::new(camera)
+                .map_err(|e| Error::invalid_input(format!("camera {c}: {e}")))
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
@@ -264,8 +249,8 @@ pub struct RigLaserlineEstimate {
 
 /// Run per-camera laserline calibration and assemble rig-frame planes.
 ///
-/// Intrinsics / distortion / sensor / per-view poses are always frozen:
-/// the wrapper mutates `opts.laserline` to force this invariant so callers
+/// Every camera parameter and the per-view poses are always frozen: the
+/// wrapper overrides `opts.laserline` to force this invariant so callers
 /// cannot accidentally refine upstream parameters here. Use
 /// [`super::laserline_bundle::optimize_laserline`] directly for single-
 /// camera cases that need joint refinement.
@@ -299,11 +284,15 @@ pub fn optimize_rig_laserline(
             initial_planes_cam.len(),
         )));
     }
-    let laser_cameras = upstream
+    let frozen = upstream
         .cameras
         .iter()
         .enumerate()
-        .map(|(c, camera)| laser_camera_parts(camera, c))
+        .map(|(c, camera)| {
+            camera_spec(camera)
+                .map(CameraFix::all)
+                .map_err(|e| Error::invalid_input(format!("camera {c}: {e}")))
+        })
         .collect::<Result<Vec<_>, Error>>()?;
     if upstream.rig_se3_target.len() != dataset.num_views() {
         return Err(Error::invalid_input(format!(
@@ -318,10 +307,9 @@ pub fn optimize_rig_laserline(
     let mut per_camera_stats = Vec::with_capacity(n);
     let mut per_camera_uncertainty = Vec::with_capacity(n);
 
-    // Force upstream-freezing flags; propagate residual type.
+    // Propagate the residual type; the camera fix and poses are forced per
+    // camera below.
     let mut laser_opts = opts.laserline.clone();
-    laser_opts.fix_camera = CameraFixMask::all_fixed();
-    laser_opts.fix_sensor = true;
     laser_opts.laser_residual_type = opts.laser_residual_type;
 
     for (cam_idx, initial_plane_cam) in initial_planes_cam.iter().enumerate() {
@@ -362,15 +350,13 @@ pub fn optimize_rig_laserline(
             )));
         }
 
-        // Fix all poses for this camera (upstream already calibrated them).
+        // Fix the camera and all poses (upstream already calibrated them).
         let mut per_cam_opts = laser_opts.clone();
+        per_cam_opts.fix = frozen[cam_idx].clone();
         per_cam_opts.fix_poses = (0..views.len()).collect();
 
-        let (intrinsics, distortion, sensor) = laser_cameras[cam_idx];
         let initial = LaserlineParams::new(
-            intrinsics,
-            distortion,
-            sensor,
+            upstream.cameras[cam_idx].clone(),
             poses_cam,
             initial_plane_cam.clone(),
         )?;

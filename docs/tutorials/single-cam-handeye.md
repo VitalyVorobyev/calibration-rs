@@ -134,30 +134,36 @@ match export.handeye_mode {
 }
 ```
 
-`export.camera` is the calibrated `PinholeCamera` (intrinsics +
-Brown-Conrady distortion); `export.per_feature_residuals` carries
+`export.camera` is the calibrated camera (`CameraParams`) in the configured
+model; `export.per_feature_residuals` carries
 per-corner reprojection records (see
 [Per-feature residuals](./per-feature-residuals.md)).
 
 ## Config shape
 
-`SingleCamHandeyeConfig` groups four shared sub-structs from
+`SingleCamHandeyeConfig` groups five shared sub-structs from
 `vision_calibration::common::config`:
 
 ```rust
 pub struct SingleCamHandeyeConfig {
     pub intrinsics: IntrinsicsInitConfig,  // init_iterations, fix_k3, fix_tangential
+    pub camera: CameraConfig,              // model (distortion kind, sensor), fix lists
     pub handeye_init: HandeyeInitConfig,   // handeye_mode, min_motion_angle_deg
     pub solver: SolverConfig,              // max_iters, verbosity, robust_loss
     pub robot_poses: RobotPoseConfig,      // refine, rot_sigma, trans_sigma
 }
 ```
 
-All four groups keep their shared workspace defaults —
+All five groups keep their shared workspace defaults —
 `SingleCamHandeyeConfig` is the one problem type that needs no
 per-problem override (unlike, say, `PlanarIntrinsicsConfig`, which
-raises `solver.max_iters` to 120 and whose `init.fix_tangential` default
-follows the camera's sensor). See
+raises `solver.max_iters` to 120). As in planar intrinsics,
+`init.fix_tangential` defaults to the camera's sensor (held for a
+Scheimpflug sensor). `camera.model` picks any distortion kind and an
+untilted or a tilted (Scheimpflug) sensor; a tilted sensor's intrinsics stage
+runs the tilt sweep, or takes the `sensor` seed of
+`SingleCamIntrinsicsManualInit`. `camera.fix` names the parameters both the
+intrinsics stage and the hand-eye bundle adjustment hold. See
 [distortion model selection](./distortion-model-selection.md) for the
 `IntrinsicsInitConfig` fields in more depth.
 

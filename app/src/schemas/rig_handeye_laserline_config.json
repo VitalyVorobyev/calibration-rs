@@ -111,24 +111,6 @@
       },
       "type": "object"
     },
-    "CameraFixMask": {
-      "description": "Combined mask for camera calibration parameters.\n\nGroups intrinsics and distortion masks for convenient configuration.",
-      "properties": {
-        "distortion": {
-          "$ref": "#/$defs/DistortionFixMask",
-          "description": "Mask for distortion (k1, k2, k3, p1, p2)."
-        },
-        "intrinsics": {
-          "$ref": "#/$defs/IntrinsicsFixMask",
-          "description": "Mask for intrinsics (fx, fy, cx, cy)."
-        }
-      },
-      "required": [
-        "intrinsics",
-        "distortion"
-      ],
-      "type": "object"
-    },
     "CameraModelSpec": {
       "additionalProperties": false,
       "description": "A camera model: the kind in each slot. The values live in\n[`CameraParams`](super::CameraParams); [`CameraParams::spec`](super::CameraParams::spec)\nrecovers the spec from them.",
@@ -176,39 +158,6 @@
       "required": [
         "camera",
         "model"
-      ],
-      "type": "object"
-    },
-    "DistortionFixMask": {
-      "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
-      "properties": {
-        "k1": {
-          "description": "Fix first radial distortion coefficient.",
-          "type": "boolean"
-        },
-        "k2": {
-          "description": "Fix second radial distortion coefficient.",
-          "type": "boolean"
-        },
-        "k3": {
-          "description": "Fix third radial distortion coefficient (fixed by default).",
-          "type": "boolean"
-        },
-        "p1": {
-          "description": "Fix first tangential distortion coefficient.",
-          "type": "boolean"
-        },
-        "p2": {
-          "description": "Fix second tangential distortion coefficient.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2"
       ],
       "type": "object"
     },
@@ -330,34 +279,6 @@
       "required": [
         "handeye_mode",
         "min_motion_angle_deg"
-      ],
-      "type": "object"
-    },
-    "IntrinsicsFixMask": {
-      "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   0     cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
-      "properties": {
-        "cx": {
-          "description": "Fix principal point x component.",
-          "type": "boolean"
-        },
-        "cy": {
-          "description": "Fix principal point y component.",
-          "type": "boolean"
-        },
-        "fx": {
-          "description": "Fix focal length x component.",
-          "type": "boolean"
-        },
-        "fy": {
-          "description": "Fix focal length y component.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "fx",
-        "fy",
-        "cx",
-        "cy"
       ],
       "type": "object"
     },
@@ -544,7 +465,7 @@
     },
     "RigHandeyeLaserlineBaConfig": {
       "additionalProperties": false,
-      "description": "Final joint BA options.\n\nThe joint stage always pins the upstream rig's reference camera\n(`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera\nfixing uses core's [`CameraFixMask`] directly, applied to each camera's\nmodel: a flag for a parameter a model lacks (a tilt of an untilted\nsensor) does nothing.",
+      "description": "Final joint BA options.\n\nThe joint stage always pins the upstream rig's reference camera\n(`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Each\ncamera's fixed parameters are named lists in that camera's model\n(`fix`).",
       "properties": {
         "calib_loss": {
           "$ref": "#/$defs/RobustLoss",
@@ -555,17 +476,17 @@
           "format": "double",
           "type": "number"
         },
-        "default_camera_fix": {
-          "$ref": "#/$defs/CameraFixMask",
-          "description": "Default camera parameter fix mask applied to every camera."
+        "fix": {
+          "default": [],
+          "description": "Camera parameters held fixed in the joint stage, one entry per camera\nin camera order, each named per slot in that camera's model\n(`{\"distortion\": [\"k3\", \"p1\", \"p2\"], \"sensor\": [\"tilt_x\"]}`); a slot\nleft out of an entry keeps the model's default. Empty (the default)\ngives every camera the stage default: intrinsics and the low-order\nradial terms (`k1`, `k2`; the division model's `lambda`) refined,\nthe higher-order distortion terms and the sensor tilt held at their\nwarm-start values — they trade off against the extrinsics and the\nlaser planes in the joint solve. A name the camera's model does not\nhave is a configuration error.",
+          "items": {
+            "$ref": "#/$defs/CameraFix"
+          },
+          "type": "array"
         },
         "fix_handeye": {
           "description": "Fix the hand-eye transform during the joint stage.",
           "type": "boolean"
-        },
-        "fix_scheimpflug": {
-          "$ref": "#/$defs/ScheimpflugFixMask",
-          "description": "Fix the sensor tilt of each Scheimpflug camera during the joint\nstage. Cameras with an untilted sensor have no tilt."
         },
         "fix_target_ref": {
           "description": "Fix the target reference pose during the joint stage.",
@@ -600,8 +521,6 @@
         "laser_loss",
         "calib_weight",
         "laser_weight",
-        "default_camera_fix",
-        "fix_scheimpflug",
         "fix_handeye",
         "fix_target_ref",
         "robot_poses"
@@ -731,24 +650,6 @@
           "type": "object"
         }
       ]
-    },
-    "ScheimpflugFixMask": {
-      "description": "Mask for Scheimpflug tilt parameters.",
-      "properties": {
-        "tilt_x": {
-          "description": "Keep `tilt_x` fixed during optimization.",
-          "type": "boolean"
-        },
-        "tilt_y": {
-          "description": "Keep `tilt_y` fixed during optimization.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
-      "type": "object"
     },
     "ScheimpflugParams": {
       "description": "Scheimpflug tilt parameters (OpenCV-compatible).",

@@ -678,7 +678,7 @@
       "type": "object"
     },
     "RigUpstreamCalibration": {
-      "description": "Upstream rig calibration (frozen starting point).\n\nMirrors a rig hand-eye result's per-camera parameters + cam→rig poses,\nplus the per-view rig→target poses the downstream laserline dataset\nspans. The laser residuals are evaluated in the Brown-Conrady model, so\neach camera has Brown-Conrady (or no) distortion and an identity or\nScheimpflug sensor.",
+      "description": "Upstream rig calibration (frozen starting point).\n\nMirrors a rig hand-eye result's per-camera parameters + cam→rig poses,\nplus the per-view rig→target poses the downstream laserline dataset\nspans. Each camera is evaluated in its own model: any distortion kind,\nand an identity or Scheimpflug sensor.",
       "properties": {
         "cam_se3_rig": {
           "description": "Per-camera extrinsics `cam_se3_rig` (T_C_R).",

@@ -76,6 +76,11 @@ the facade and the JSON schemas.
 1. Module `vision-calibration-pipeline/src/<name>/` with `mod.rs`,
    `problem.rs`, `state.rs`, `steps.rs`.
 2. Implement `ProblemType` (Config, Input, State, Output, Export).
+   A camera it calibrates comes from `camera: CameraConfig` (a rig adds
+   `camera_overrides`) and is exported as `CameraParams`; the optimizer
+   builder packs it through optim's `params::camera` helper and evaluates
+   it through `CameraBlocks`, so every camera model works without
+   model-specific code.
 3. Step functions plus a `run_calibration` wrapper.
 4. Re-export from the facade (`vision-calibration/src/lib.rs`).
 5. Python binding in `vision-calibration-py`.
