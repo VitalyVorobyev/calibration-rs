@@ -12,21 +12,27 @@ One camera-model spec and one vocabulary across every problem type. The
 breaking changes of the program happen here, before v1.0.
 
 - [ ] API-CAM-BUILDERS - One optimizer builder per task, written against
-  `CameraModelSpec`, with a shared camera-block helper for packing, named
-  fix lists and covariance labels. Done for the planar family
-  (`optimize_planar_intrinsics` serves both sensors). Left: the per-sensor
-  rig and hand-eye builders (`rig_extrinsics`/`rig_extrinsics_scheimpflug`,
-  `handeye`/`handeye_scheimpflug`) and the Brown-Conrady hard-typing in
-  the laser bundles. Gate: a synthetic matrix runs every builder with every
-  distortion kind and both sensors at the noise floor.
+  `CameraModelSpec`, with a shared camera-block helper (`params/camera.rs`)
+  for packing, named fix lists and covariance labels. Done for the planar
+  family and the rig family (`optimize_planar_intrinsics`,
+  `optimize_rig_extrinsics`, `optimize_handeye` serve both sensors and every
+  distortion kind). Left: the single-camera hand-eye builder and the laser
+  bundles (`laserline_bundle`'s Brown-Conrady + Scheimpflug `LASER_CAMERA`,
+  `LaserlineParams`), whose Brown-Conrady hard-typing also gates the rig
+  laser workflows to Brown-Conrady; the joint rig laser BA's
+  `default_camera_fix` / `fix_scheimpflug` masks move to named fix lists.
+  Gate: a synthetic matrix runs every builder with every distortion kind and
+  both sensors at the noise floor.
 - [ ] API-CAM-PIPELINE - The pipeline side of ADRs 0005 and 0013. Done for
-  planar intrinsics: `scheimpflug_intrinsics` is merged into it, and its
-  config takes `camera: CameraConfig { model, fix }`. Left:
-  - rig, hand-eye and laser configs take `camera`, and rigs add
-    per-camera overrides;
-  - `SensorMode` goes away (rigs resolve an unset `init.fix_tangential` to
-    `false` for either sensor until then);
-  - every export carries `CameraParams` per camera.
+  planar intrinsics (`scheimpflug_intrinsics` merged into it) and the rig
+  family: rig extrinsics and rig hand-eye take `camera` plus per-camera
+  `camera_overrides`, `SensorMode` is gone, and their exports carry
+  `CameraParams` per camera. Left:
+  - single-camera hand-eye (`single_cam_handeye` config and its export's
+    `PinholeCamera`) and the laserline device take `camera`;
+  - the rig laser workflows lift their Brown-Conrady-or-none restriction
+    once the laser bundles take the camera spec;
+  - the joint rig laser BA's camera masks become named fix lists.
 
   Python, the app's schemas and forms, the bench and the book follow in
   the same change. Gate: the CHANGELOG migration table, acceptance and
@@ -41,7 +47,9 @@ breaking changes of the program happen here, before v1.0.
   - step options for every step (`rig_laserline_device::step_init` takes
     none);
   - Python names identical to Rust (`PlanarCalibrationConfig` becomes
-    `PlanarIntrinsicsConfig`).
+    `PlanarIntrinsicsConfig`);
+  - `rig.refine_intrinsics_in_rig_ba` becomes `rig.refine_intrinsics`, to
+    match `rig.refine_sensor` (the stage group carries the stage).
 
   Gate: the CHANGELOG migration table, and the facade compile-surface
   test updated. Lands in the same release as API-CAM-PIPELINE.

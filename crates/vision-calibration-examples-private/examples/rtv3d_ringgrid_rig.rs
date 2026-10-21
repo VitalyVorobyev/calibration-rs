@@ -6,7 +6,7 @@
 //! robot `tcp2base` poses, it recovers per-camera intrinsics, the rig extrinsics
 //! (`cam_se3_rig`), and the hand-eye transform.
 //!
-//! Pipeline (`RigHandeyeProblem`, `SensorMode::Scheimpflug`):
+//! Pipeline (`RigHandeyeProblem`, Scheimpflug camera model):
 //!   intrinsics init → intrinsics BA (+ tilt) → rig init → rig BA →
 //!   hand-eye init → hand-eye BA.
 //!
@@ -41,19 +41,22 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
     rig_handeye::{
-        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem, SensorMode,
+        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
     },
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    DistortionFixMask, FxFyCxCy, RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    CameraFix, CameraModelSpec, DistortionKind, FxFyCxCy, RigDataset, RigView, RigViewObs,
+    ScheimpflugParams, SensorKind,
 };
 use vision_calibration_examples_private::{
-    BoardRinggridSpec, detect_ringgrid_all, load_poses, load_ref_artifacts, load_ringgrid_board,
+    BoardRinggridSpec, camera_parts, detect_ringgrid_all, load_poses, load_ref_artifacts,
+    load_ringgrid_board,
 };
-use vision_calibration_optim::{HandEyeMode, RobotPoseMeta, RobustLoss, ScheimpflugFixMask};
+use vision_calibration_optim::{HandEyeMode, RobotPoseMeta, RobustLoss};
 
 const NUM_CAMERAS: usize = 6;
 const TILE_CX: f64 = 360.0;
@@ -157,24 +160,19 @@ fn main() -> Result<()> {
     cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
     cfg.handeye_init.handeye_mode = handeye_mode;
     // k1,k2 free; k3 + tangential fixed; both Scheimpflug tilts free.
-    cfg.sensor = SensorMode::Scheimpflug {
-        init_tilt_x: tilt_x_seed,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: false,
-        },
-        distortion_mask_in_percam_ba: DistortionFixMask {
-            k1: false,
-            k2: false,
-            k3: true,
-            p1: true,
-            p2: true,
-        },
-        refine_scheimpflug_in_rig_ba: false,
-        // Rig Scheimpflug bundle adjustment is Brown-Conrady-typed.
-        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
+    // The nominal tilt (`tilt_x_seed`) seeds the seeded init below through
+    // `per_cam_sensors`. It is used directly (the tilt sweep is skipped); a
+    // from-scratch run has no tilt seed and runs the sweep.
+    cfg.camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
+    cfg.camera.fix = CameraFix {
+        sensor: Some(Vec::new()),
+        distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
+        ..CameraFix::default()
     };
+    cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics_in_rig_ba = false;
     // Robot-pose refinement on by default; `RTV3D_RINGGRID_REFINE_ROBOT=0` holds
     // the measured poses fixed (a divergence-isolation knob).
@@ -185,7 +183,7 @@ fn main() -> Result<()> {
         cfg.handeye_ba.refine_cam_se3_rig = true;
     }
     if std::env::var("RTV3D_RINGGRID_REFINE_TILT").as_deref() == Ok("1") {
-        cfg.handeye_ba.refine_scheimpflug = true;
+        cfg.handeye_ba.refine_sensor = true;
     }
     println!("refine robot poses = {refine_robot}");
     session.set_config(cfg)?;
@@ -272,18 +270,16 @@ fn report(
     println!(
         "  cam |    fx    |    fy    |   cx   |   cy   |    k1     |    k2     |  tau_x° |  tau_y°"
     );
-    let sensors = export.sensors.as_ref();
     for i in 0..NUM_CAMERAS {
-        let c = &export.cameras[i];
-        let s = sensors.map(|s| s[i]).unwrap_or_default();
+        let (k, d, s) = camera_parts(&export.cameras[i]).expect("rig camera model");
         println!(
             "  {i:>3} | {:8.1} | {:8.1} | {:6.1} | {:6.1} | {:+.5} | {:+.5} | {:+.3} | {:+.3}",
-            c.k.fx,
-            c.k.fy,
-            c.k.cx,
-            c.k.cy,
-            c.dist.k1,
-            c.dist.k2,
+            k.fx,
+            k.fy,
+            k.cx,
+            k.cy,
+            d.k1,
+            d.k2,
             s.tilt_x.to_degrees(),
             s.tilt_y.to_degrees(),
         );

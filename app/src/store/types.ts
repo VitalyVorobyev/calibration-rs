@@ -1,6 +1,7 @@
 import type { FrameKey, ImageManifest, PerFeatureResiduals } from "../types";
 import type {
   Camera,
+  CameraParams,
   ExportKind as WireExportKind,
   Iso3Schema,
   LaserPlane,
@@ -21,11 +22,11 @@ export type { ExportKind } from "./exportKind";
  * translation is in meters. */
 export type Iso3Wire = Iso3Schema;
 
-/** Serialized pinhole `Camera<f64, Pinhole, BrownConrady5, IdentitySensor,
- * FxFyCxCy>` — alias of the generated [`Camera`]. The 3D viewer only
- * reads `k` and `dist`; `proj` / `sensor` / `_phantom` are inert for the
- * pinhole + identity-sensor composition. */
-export type PinholeCameraWire = Camera;
+/** One calibrated camera of a rig export — alias of the generated
+ * [`CameraParams`]: `{ projection, distortion, sensor, intrinsics }`, each
+ * slot a tagged variant (`distortion.type`, `sensor.type`), so a rig can mix
+ * lenses and tilted sensors per camera. */
+export type CameraWire = CameraParams;
 
 /** Laser plane wire format (`vision_calibration_optim::LaserPlane`) —
  * alias of the generated [`LaserPlane`]:
@@ -51,11 +52,11 @@ export interface AnyExport {
    * rig_laserline_device) omit it on the wire. */
   mean_reproj_error?: number;
   /** Present on rig_extrinsics, rig_handeye, rig_handeye_laserline, rig_laserline_device. */
-  cameras?: PinholeCameraWire[];
+  cameras?: CameraWire[];
   cam_se3_rig?: Iso3Wire[];
   rig_se3_target?: Iso3Wire[];
   /** Present on planar_intrinsics, single_cam_handeye, laserline_device. */
-  camera?: PinholeCameraWire;
+  camera?: Camera;
   camera_se3_target?: Iso3Wire[];
   /** rig_handeye / rig_handeye_laserline / single_cam_handeye carry mode-tagged hand-eye fields. */
   handeye_mode?: string;

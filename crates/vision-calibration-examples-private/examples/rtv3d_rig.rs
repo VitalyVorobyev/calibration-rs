@@ -12,7 +12,7 @@
 //! 1. Detect the ChArUco board in each of the 6 per-camera tiles per pose;
 //!    detect laser lines on `double_snap` poses (skipped when the dataset
 //!    ships no laser images).
-//! 2. `RigHandeyeProblem` with `SensorMode::Scheimpflug`, EyeToHand
+//! 2. `RigHandeyeProblem` with a Scheimpflug camera model, EyeToHand
 //!    (intrinsics → rig → hand-eye).
 //! 3. `RigLaserlineDeviceProblem` consuming the frozen upstream rig
 //!    calibration to recover the 6 laser planes (skipped without laser data).
@@ -42,10 +42,11 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
     device_seed::{self, DEVICE_SPEC_FILENAME, DeviceSpec},
     rig_handeye::{
-        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem, SensorMode,
+        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
     },
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
@@ -53,16 +54,17 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FrameRef, FxFyCxCy,
-    ImageManifest, Iso3, PixelRect, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind, FrameRef,
+    FxFyCxCy, ImageManifest, Iso3, PixelRect, Pt2, RigDataset, RigView, RigViewObs,
+    ScheimpflugParams, SensorKind,
 };
 use vision_calibration_examples_private::{
-    PoseEntry, detect_charuco, detect_laser, load_gray, load_poses, split_horizontal,
+    PoseEntry, camera_parts, detect_charuco, detect_laser, load_gray, load_poses, split_horizontal,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeMode, LaserPlane, LaserlineResidualType,
     RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams, RigHandeyeLaserlineView,
-    RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss, ScheimpflugFixMask,
+    RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
     evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
 };
 
@@ -164,24 +166,16 @@ fn main() -> Result<()> {
     // Scheimpflug: both tilts free (the reference system also frees tau_x/tau_y;
     // oracle tilts reach 0.27 rad). Distortion: k1, k2 free; k3 + tangential
     // fixed, matching the reference config (`fix_k3: true, fix_tangent: true`).
-    cfg.sensor = SensorMode::Scheimpflug {
-        init_tilt_x: 0.0,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: false,
-        },
-        distortion_mask_in_percam_ba: DistortionFixMask {
-            k1: false,
-            k2: false,
-            k3: true,
-            p1: true,
-            p2: true,
-        },
-        refine_scheimpflug_in_rig_ba: false,
-        // Rig Scheimpflug bundle adjustment is Brown-Conrady-typed.
-        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
+    cfg.camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
+    cfg.camera.fix = CameraFix {
+        sensor: Some(Vec::new()),
+        distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
+        ..CameraFix::default()
     };
+    cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics_in_rig_ba = false;
     let robot_rot_sigma = cfg.handeye_ba.robot_poses.rot_sigma;
     let robot_trans_sigma = cfg.handeye_ba.robot_poses.trans_sigma;
@@ -202,22 +196,8 @@ fn main() -> Result<()> {
         for (i, e) in intr_opt.per_cam_reproj_errors.iter().enumerate() {
             println!("    cam {i} intrinsics reproj = {e:?}");
         }
-        for (i, c) in intr_opt.per_cam_intrinsics.iter().enumerate() {
-            println!(
-                "    cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
-                c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
-            );
-        }
-        if let Some(sens) = &intr_opt.per_cam_sensors {
-            for (i, s) in sens.iter().enumerate() {
-                println!(
-                    "    cam {i} tilt: tilt_x={:+.4} rad ({:+.3}°) tilt_y={:+.4} rad ({:+.3}°)",
-                    s.tilt_x,
-                    s.tilt_x.to_degrees(),
-                    s.tilt_y,
-                    s.tilt_y.to_degrees()
-                );
-            }
+        for (i, c) in intr_opt.cameras.iter().enumerate() {
+            vision_calibration_examples_private::print_rig_camera("  ", &format!("cam {i}"), c);
         }
         let step_t = Instant::now();
         match &spec {
@@ -362,7 +342,7 @@ fn main() -> Result<()> {
 
         let upstream = rig_export
             .to_upstream_calibration(rig_se3_target)
-            .context("rig handeye export must be Scheimpflug for laserline upstream")?;
+            .context("rig handeye export to laserline upstream")?;
         let laserline_input = RigLaserlineDeviceInput {
             dataset: laserline_dataset,
             upstream,
@@ -419,13 +399,8 @@ fn main() -> Result<()> {
                 .expect("EyeToHand missing gripper_se3_target"),
         };
         let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
-        let scheimpflug_sensors = rig_export
-            .sensors
-            .clone()
-            .context("rig handeye export missing Scheimpflug sensors")?;
         let joint_initial = RigHandeyeLaserlineParams {
             cameras: rig_export.cameras.clone(),
-            sensors: scheimpflug_sensors,
             cam_to_rig,
             handeye,
             target_ref,
@@ -436,22 +411,20 @@ fn main() -> Result<()> {
             &joint_dataset,
             &joint_initial,
             initial_robot_deltas.as_deref(),
-        );
+        )?;
         println!("  stage 4 initial eval: {:.4} px", joint_initial_mean);
 
-        let cam_fix = CameraFixMask {
-            intrinsics: vision_calibration_core::IntrinsicsFixMask::all_free(),
-            distortion: DistortionFixMask {
-                k1: false,
-                k2: false,
-                k3: true,
-                p1: true,
-                p2: true,
-            },
+        // k1, k2 free; k3 + tangential fixed. Tilts converged in per-camera
+        // BA; hold them in the joint solve.
+        let cam_fix = CameraFix {
+            intrinsics: Some(Vec::new()),
+            distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
+            sensor: Some(vec!["tilt_x".to_string(), "tilt_y".to_string()]),
+            ..CameraFix::default()
         };
         let mut joint_opts = vision_calibration_optim::RigHandeyeLaserlineSolveOptions {
             laser_residual_type: LaserlineResidualType::PointToPlane,
-            fix_intrinsics: vec![cam_fix; NUM_CAMERAS],
+            fix: vec![cam_fix; NUM_CAMERAS],
             fix_extrinsics: (0..NUM_CAMERAS).map(|i| i == 0).collect(),
             ..Default::default()
         };
@@ -461,14 +434,6 @@ fn main() -> Result<()> {
         joint_opts.robot_rot_sigma = robot_rot_sigma;
         joint_opts.robot_trans_sigma = robot_trans_sigma;
         joint_opts.initial_robot_deltas = initial_robot_deltas;
-        // Tilts converged in per-camera BA; hold them in the joint solve.
-        joint_opts.fix_scheimpflug = vec![
-            ScheimpflugFixMask {
-                tilt_x: true,
-                tilt_y: true,
-            };
-            NUM_CAMERAS
-        ];
 
         let backend_opts = BackendSolveOptions {
             max_iters: 30,
@@ -882,27 +847,24 @@ fn compare_to_oracle(
     println!("\n══════════ oracle comparison (artifacts.json) ══════════");
     println!("note: oracle cam 5 is degenerate (fx=51, reproj 127 px) — its deltas are nominal");
 
-    let sensors = rig_export.sensors.as_deref().unwrap_or(&[]);
     println!("\nintrinsics (ours vs oracle):");
     println!(
         "  cam |     fx (Δ)      |     fy (Δ)      |    cx (Δ)    |    cy (Δ)    |  tau_x ours/orc  |  tau_y ours/orc"
     );
     for (i, cam) in rig_export.cameras.iter().enumerate() {
         let o = &oracle.cameras[i];
-        let (tx, ty) = sensors
-            .get(i)
-            .map(|s| (s.tilt_x, s.tilt_y))
-            .unwrap_or((0.0, 0.0));
+        let (k, _, tilt) = camera_parts(cam).expect("rig camera model");
+        let (tx, ty) = (tilt.tilt_x, tilt.tilt_y);
         println!(
             "   {i}  | {:7.1} ({:+6.1}) | {:7.1} ({:+6.1}) | {:6.1} ({:+5.1}) | {:6.1} ({:+5.1}) | {:+.4}/{:+.4} | {:+.4}/{:+.4}",
-            cam.k.fx,
-            cam.k.fx - o.fx,
-            cam.k.fy,
-            cam.k.fy - o.fy,
-            cam.k.cx,
-            cam.k.cx - o.cx,
-            cam.k.cy,
-            cam.k.cy - o.cy,
+            k.fx,
+            k.fx - o.fx,
+            k.fy,
+            k.fy - o.fy,
+            k.cx,
+            k.cx - o.cx,
+            k.cy,
+            k.cy - o.cy,
             tx,
             o.tau_x,
             ty,
@@ -920,7 +882,10 @@ fn compare_to_oracle(
         let ours_best = ours_joint.or(ours_he);
         let o = &oracle.cameras[i];
         let sane_fx = {
-            let fx = rig_export.cameras[i].k.fx;
+            let fx = camera_parts(&rig_export.cameras[i])
+                .expect("rig camera model")
+                .0
+                .fx;
             (1500.0..=2500.0).contains(&fx)
         };
         let beat = match ours_best {
@@ -954,7 +919,9 @@ fn compare_to_oracle(
             "hand-eye-stage"
         }
     );
-    println!("      frame convention and the tilt↔pose parameter split differ; |t| norms carry the scale criterion");
+    println!(
+        "      frame convention and the tilt↔pose parameter split differ; |t| norms carry the scale criterion"
+    );
     println!("  cam | rot Δ (deg) | trans Δ (mm) | |t| ours (mm) | |t| oracle (mm) | scale ok?");
     let mut extr_pass = true;
     for (i, ours) in extrinsics_source.iter().enumerate() {

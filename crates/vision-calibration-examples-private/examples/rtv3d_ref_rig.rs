@@ -10,7 +10,7 @@
 //! per pose, and the per-pose robot `tcp2base`. Nothing from `artifacts.json`
 //! is fed in; intrinsics are bootstrapped by Zhang's method per camera.
 //!
-//! Pipeline (`RigHandeyeProblem`, `SensorMode::Scheimpflug`, EyeInHand):
+//! Pipeline (`RigHandeyeProblem`, Scheimpflug camera model, EyeInHand):
 //!   intrinsics init (Zhang) → intrinsics BA (+ tilt) → rig init → rig BA →
 //!   hand-eye init → hand-eye BA.
 //!
@@ -32,19 +32,20 @@ use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
-    rig_handeye::{self as rh, RigHandeyeConfig, RigHandeyeProblem, SensorMode},
+    rig_handeye::{self as rh, RigHandeyeConfig, RigHandeyeProblem},
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, Iso3, RigDataset, RigView, RigViewObs,
-    ScheimpflugParams,
+    BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind, Iso3,
+    RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind,
 };
 use vision_calibration_examples_private::{
-    RefArtifacts, RefIntrinsic, load_gray, load_poses, load_ref_artifacts, split_horizontal,
-    split_opencv_distortion,
+    RefArtifacts, RefIntrinsic, camera_parts, load_gray, load_poses, load_ref_artifacts,
+    split_horizontal, split_opencv_distortion,
 };
-use vision_calibration_optim::{HandEyeMode, RobotPoseMeta, RobustLoss, ScheimpflugFixMask};
+use vision_calibration_optim::{HandEyeMode, RobotPoseMeta, RobustLoss};
 
 const NUM_CAMERAS: usize = 6;
 const BOARD_ROWS: u32 = 130;
@@ -126,24 +127,16 @@ fn main() -> Result<()> {
     cfg.handeye_init.handeye_mode = handeye_mode;
     // Match the oracle's lens config: k1,k2 free; k3 + tangential fixed; both
     // Scheimpflug tilts free.
-    cfg.sensor = SensorMode::Scheimpflug {
-        init_tilt_x: 0.0,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: false,
-        },
-        distortion_mask_in_percam_ba: DistortionFixMask {
-            k1: false,
-            k2: false,
-            k3: true,
-            p1: true,
-            p2: true,
-        },
-        refine_scheimpflug_in_rig_ba: false,
-        // Rig Scheimpflug bundle adjustment is Brown-Conrady-typed.
-        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
+    cfg.camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
+    cfg.camera.fix = CameraFix {
+        sensor: Some(Vec::new()),
+        distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
+        ..CameraFix::default()
     };
+    cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics_in_rig_ba = false;
     session.set_config(cfg)?;
 
@@ -216,24 +209,22 @@ fn compare(
     println!(
         "  cam |     fx (ref)      |     fy (ref)      |   cx (ref)    |   cy (ref)    |    k1 (ref)     |    k2 (ref)     |  tau_x° (ref)  |  tau_y° (ref)"
     );
-    let sensors = export.sensors.as_ref();
     for i in 0..NUM_CAMERAS {
-        let our = &export.cameras[i];
-        let our_s = sensors.map(|s| s[i]).unwrap_or_default();
+        let (our_k, our_d, our_s) = camera_parts(&export.cameras[i]).expect("rig camera model");
         let r = ref_params_from(art, i);
         println!(
             "  {i:>3} | {:8.1} ({:7.1}) | {:8.1} ({:7.1}) | {:6.1} ({:6.1}) | {:6.1} ({:6.1}) | {:+.4} ({:+.4}) | {:+.4} ({:+.4}) | {:+.3} ({:+.3}) | {:+.3} ({:+.3})",
-            our.k.fx,
+            our_k.fx,
             r.0,
-            our.k.fy,
+            our_k.fy,
             r.1,
-            our.k.cx,
+            our_k.cx,
             r.2,
-            our.k.cy,
+            our_k.cy,
             r.3,
-            our.dist.k1,
+            our_d.k1,
             r.4.k1,
-            our.dist.k2,
+            our_d.k2,
             r.4.k2,
             our_s.tilt_x.to_degrees(),
             r.5.tilt_x.to_degrees(),

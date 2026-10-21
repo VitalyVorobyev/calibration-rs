@@ -25,7 +25,7 @@
 mod observations;
 
 use anyhow::{Result, ensure};
-use vision_calibration::core::{BrownConrady5, FxFyCxCy, Iso3, PinholeCamera};
+use vision_calibration::core::{BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsInput, RigExtrinsicsManualInit, RigExtrinsicsProblem, RigIntrinsicsManualInit,
@@ -63,7 +63,7 @@ fn main() -> Result<()> {
     let intr_opt_a = step_intrinsics_optimize_all(&mut session_a, None)?;
     let rig_init_a = step_rig_init_with_seed(&mut session_a, RigExtrinsicsManualInit::default())?;
     let rig_opt_a = step_rig_optimize(&mut session_a, None)?;
-    let cameras_a = intr_opt_a.per_cam_intrinsics.clone();
+    let cameras_a = intr_opt_a.cameras.clone();
     let cam_se3_rig_a = rig_init_a.initial_cam_se3_rig.clone();
     let rig_se3_target_a = rig_init_a.initial_rig_se3_target.clone();
     let a_summary = summarize(&session_a, "Run A", &rig_opt_a, &cameras_a)?;
@@ -71,8 +71,15 @@ fn main() -> Result<()> {
     print_per_feature_residuals_summary(&mut session_a, "Run A")?;
     println!();
 
-    let per_cam_k: Vec<FxFyCxCy<f64>> = cameras_a.iter().map(|c| c.k).collect();
-    let per_cam_dist: Vec<BrownConrady5<f64>> = cameras_a.iter().map(|c| c.dist).collect();
+    let per_cam_k: Vec<FxFyCxCy<f64>> = cameras_a.iter().map(|c| c.intrinsics).collect();
+    // The rig's cameras are Brown-Conrady, the model of a distortion seed.
+    let per_cam_dist: Vec<BrownConrady5<f64>> = cameras_a
+        .iter()
+        .map(|c| match c.distortion {
+            DistortionParams::BrownConrady5 { params } => params,
+            _ => BrownConrady5::default(),
+        })
+        .collect();
 
     // ─── Run B: replay Run A's intermediates as manual seeds ──────────────
     println!("--- Run B: replay Run A's seeds via ManualInit ---");
@@ -89,7 +96,7 @@ fn main() -> Result<()> {
     // rig stage, but rig_optimize does not depend on it directly — it only
     // needs per_cam_intrinsics + per_cam_target_poses, both already set by
     // step_intrinsics_init_all_with_seed.
-    let cameras_b = intr_init_b.per_cam_intrinsics.clone();
+    let cameras_b = intr_init_b.cameras.clone();
     let mut rig_manual_b = RigExtrinsicsManualInit::default();
     rig_manual_b.cam_se3_rig = Some(cam_se3_rig_a.clone());
     rig_manual_b.rig_se3_target = Some(rig_se3_target_a.clone());
@@ -123,7 +130,7 @@ fn main() -> Result<()> {
     let intr_opt_c = step_intrinsics_optimize_all(&mut session_c, None)?;
     let _rig_init_c = step_rig_init_with_seed(&mut session_c, RigExtrinsicsManualInit::default())?;
     let rig_opt_c = step_rig_optimize(&mut session_c, None)?;
-    let cameras_c = intr_opt_c.per_cam_intrinsics.clone();
+    let cameras_c = intr_opt_c.cameras.clone();
     let c_summary = summarize(&session_c, "Run C", &rig_opt_c, &cameras_c)?;
     print_init_logs(session_c.log(), "Run C");
     println!();
@@ -162,7 +169,7 @@ struct RunSummary {
     label: String,
     mean_reproj: f64,
     per_cam_reproj: Vec<f64>,
-    cameras: Vec<PinholeCamera>,
+    cameras: Vec<CameraParams>,
     cam_se3_rig: Vec<Iso3>,
 }
 
@@ -170,7 +177,7 @@ fn summarize(
     session: &CalibrationSession<RigExtrinsicsProblem>,
     label: &str,
     rig_opt: &vision_calibration::rig_extrinsics::RigOptimizeResult,
-    cameras: &[PinholeCamera],
+    cameras: &[CameraParams],
 ) -> Result<RunSummary> {
     let mean_reproj = rig_opt.mean_reproj_error;
     let per_cam_reproj = rig_opt.per_cam_reproj_errors.clone();
@@ -178,7 +185,12 @@ fn summarize(
     let output = session
         .require_output()
         .map_err(|e| anyhow::anyhow!("{label}: no output: {e}"))?;
-    let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
+    let cam_se3_rig: Vec<Iso3> = output
+        .params
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
 
     println!("  {label}: mean reproj = {:.4} px", mean_reproj);
     for (i, err) in per_cam_reproj.iter().enumerate() {
@@ -194,7 +206,7 @@ fn summarize(
         );
     }
     for (i, cam) in cameras.iter().enumerate() {
-        let k = &cam.k;
+        let k = &cam.intrinsics;
         println!(
             "    cam {i}: fx={:.2}, fy={:.2}, cx={:.2}, cy={:.2}",
             k.fx, k.fy, k.cx, k.cy
@@ -244,10 +256,10 @@ fn print_compare(title: &str, a: &RunSummary, b: &RunSummary) {
     for (i, (ka, kb)) in a.cameras.iter().zip(b.cameras.iter()).enumerate() {
         println!(
             "    cam {i}: fx Δ = {:+.4}, fy Δ = {:+.4}, cx Δ = {:+.4}, cy Δ = {:+.4}",
-            kb.k.fx - ka.k.fx,
-            kb.k.fy - ka.k.fy,
-            kb.k.cx - ka.k.cx,
-            kb.k.cy - ka.k.cy,
+            kb.intrinsics.fx - ka.intrinsics.fx,
+            kb.intrinsics.fy - ka.intrinsics.fy,
+            kb.intrinsics.cx - ka.intrinsics.cx,
+            kb.intrinsics.cy - ka.intrinsics.cy,
         );
     }
     let _ = b.label.as_str();

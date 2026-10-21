@@ -58,6 +58,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the tilted route with `"problem": "planar_intrinsics", "planar_intrinsics":
   {"sensor": "scheimpflug"}`.
 
+- Breaking: rig extrinsics and rig hand-eye take the camera model from the
+  config. `SensorMode` is removed; `RigExtrinsicsConfig` and
+  `RigHandeyeConfig` (and so `RigHandeyeLaserlineConfig.handeye`) take
+  `camera: CameraConfig` for every camera and `camera_overrides:
+  Vec<CameraOverride { camera, model, fix }>` for single cameras. A camera
+  index out of range or listed twice, and a fix name the model does not have,
+  are validation errors. Outputs and exports carry one `CameraParams` per
+  camera, which states the calibrated distortion and sensor.
+
+  | Before | After |
+  |---|---|
+  | `sensor: SensorMode::Pinhole` / `Scheimpflug { … }`; JSON `"sensor": {"kind": …}` | `camera.model.sensor` = `identity` \| `scheimpflug`; a mixed rig uses `camera_overrides` |
+  | `sensor.distortion_model` (Brown-Conrady only) | `camera.model.distortion`: any kind (`none`, `brown_conrady5`, `rational8`, `thin_prism9`, `division1`), per camera |
+  | `fix_scheimpflug` | `camera.fix.sensor`, e.g. `["tilt_y"]` |
+  | `distortion_mask_in_percam_ba` | `camera.fix.distortion`; a Scheimpflug camera's default holds everything but `k1`, `k2` |
+  | `init_tilt_x` / `init_tilt_y` | removed; seed the tilt through manual init `per_cam_sensors` (rig hand-eye `manual_init`, rig extrinsics `RigIntrinsicsManualInit` with `step_intrinsics_init_all_with_seed`). Zero tilts need nothing: the linear tilt sweep already contains zero. A seed is used verbatim and skips the sweep |
+  | `refine_scheimpflug_in_rig_ba` | `rig.refine_sensor` |
+  | `handeye_ba.refine_scheimpflug` | `handeye_ba.refine_sensor` |
+  | `RigExtrinsicsOutput::{Pinhole, Scheimpflug}` | `RigExtrinsicsEstimate { params: RigExtrinsicsParams { cameras, cam_to_rig, rig_from_target }, … }` |
+  | `RigHandeyeOutput::{Pinhole, Scheimpflug}` | `HandEyeEstimate { params: HandEyeParams { cameras, cam_to_rig, handeye, target_poses }, … }` |
+  | exports' `cameras: Vec<PinholeCamera>` + `sensors` (`RigExtrinsicsExport`, `RigHandeyeExport`, `RigLaserlineDeviceExport`, `RigHandeyeLaserlineExport`) | `cameras: Vec<CameraParams>`; `sensors` is gone |
+  | `RigUpstreamCalibration { intrinsics, distortion, sensors, … }` | `RigUpstreamCalibration { cameras, cam_se3_rig, rig_se3_target }` |
+  | step results `per_cam_intrinsics` + `per_cam_sensors` | `cameras: Vec<CameraParams>` (`RigIntrinsicsInitAllResult`, `RigIntrinsicsOptimizeAllResult`, `RigOptimizeResult`, and the rig hand-eye equivalents) |
+  | optim `optimize_rig_extrinsics_scheimpflug`, `optimize_handeye_scheimpflug` and their `*Scheimpflug*` params, options and estimates | removed; `optimize_rig_extrinsics` and `optimize_handeye` take any camera model per camera |
+  | optim `RigExtrinsicsSolveOptions` / `HandEyeSolveOptions` `default_fix`, `camera_overrides`, `*scheimpflug*` | `fix: Vec<CameraFix>`, one per camera (empty = the models' defaults) |
+  | optim `RigHandeyeLaserlineParams.sensors` | removed; `cameras: Vec<CameraParams>` carries the sensors |
+  | optim `RigHandeyeLaserlineSolveOptions` `fix_intrinsics` / `fix_scheimpflug` | `fix: Vec<CameraFix>` |
+  | optim `RigLaserlineUpstream { intrinsics, distortion, sensors, … }`; `compute_rig_laserline_feature_residuals(…, intrinsics, distortion, …)` | `RigLaserlineUpstream { cameras, … }`; `…(dataset, cameras: &[CameraParams], cam_se3_rig, rig_se3_target, planes)` |
+  | optim `evaluate_rig_handeye_laserline(…)` | returns a `Result` |
+  | Python rig configs `sensor=` (`PinholeSensorMode`, `ScheimpflugSensorMode`, `SensorMode`) | `camera=CameraConfig(…)` and `camera_overrides=[…]`; the `SensorMode` classes are removed |
+
+  Behaviour notes. `rig.refine_intrinsics_in_rig_ba` holds each camera's fix
+  lists in the rig bundle adjustment (it held only `k3` of every camera;
+  identical for the default Brown-Conrady camera). A non-zero tilt seed for
+  an untilted camera is an `InvalidInput` error (it was ignored). An unset
+  `init.fix_tangential` still resolves to `false` for every rig camera. The
+  rig laser workflows (`rig_laserline_device`, `rig_handeye_laserline`)
+  accept Brown-Conrady or no distortion only, because their laser residuals
+  use the Brown-Conrady laserline-device model; any other kind is a typed
+  error. The joint rig laser bundle uses each camera's own model: an untilted
+  camera has no sensor block, so the fixed zero-tilt labels of its
+  covariance (`cam*.tilt_*`) are gone. The regression suite and solver
+  benchmarks are unchanged.
+
 - The camera-model kinds live in `vision-calibration-core` with their
   parameter metadata: `ProjectionKind`, `DistortionKind`, `SensorKind` and
   `CameraModelSpec` (re-exported from `vision_calibration_optim::ir`).
@@ -145,6 +189,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Per-camera `camera_overrides` in the rig extrinsics and rig hand-eye
+  configs (mixed lenses and sensors in one rig), and every distortion kind
+  (`none`, `brown_conrady5`, `rational8`, `thin_prism9`, `division1`) with
+  either sensor in both workflows, per camera.
+
 - **factrs solver backend.** Every workflow can solve with `factrs` instead
   of `tiny-solver` through `solver.backend` (Rust `SolverBackend`, JSON,
   Python `SolverConfig(backend="factrs")`, the app's config forms). Both
@@ -231,6 +280,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recognizes it.
 
 ### Changed
+
+- Breaking: the rig family is configured through the camera spec, and its
+  outputs and exports carry `CameraParams` per camera; the pinhole and
+  Scheimpflug rig builders of the optimizer are one. See Migration.
 
 - Each camera model is implemented once, in `vision-calibration-core`: the
   optimizer evaluates the same distortion, Scheimpflug and pinhole code

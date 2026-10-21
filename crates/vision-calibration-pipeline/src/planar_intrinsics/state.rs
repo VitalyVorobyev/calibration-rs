@@ -5,11 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraModelSpec, CameraParams, DistortionKind, DistortionParams, FxFyCxCy, Iso3,
-    Mat3, ProjectionParams, RationalPolynomial, Real, ScheimpflugParams, SensorKind, SensorParams,
-    ThinPrism,
+    BrownConrady5, CameraModelSpec, CameraParams, FxFyCxCy, Iso3, Mat3, ProjectionParams, Real,
+    ScheimpflugParams, SensorKind, SensorParams,
 };
 use vision_calibration_optim::PlanarIntrinsicsParams;
+
+use crate::planar_family::embed_distortion;
 
 /// Intermediate state for planar intrinsics calibration.
 ///
@@ -125,50 +126,11 @@ impl PlanarState {
     }
 }
 
-/// Embed Brown-Conrady linear-init coefficients into `kind`, zeroing any
-/// extra degrees of freedom (the division model's `lambda` starts at zero).
-pub(crate) fn embed_distortion(
-    bc5: &BrownConrady5<Real>,
-    kind: DistortionKind,
-) -> DistortionParams {
-    match kind {
-        DistortionKind::None => DistortionParams::None,
-        DistortionKind::BrownConrady5 => DistortionParams::BrownConrady5 { params: *bc5 },
-        DistortionKind::Rational8 => DistortionParams::Rational {
-            params: RationalPolynomial {
-                k1: bc5.k1,
-                k2: bc5.k2,
-                k3: bc5.k3,
-                k4: 0.0,
-                k5: 0.0,
-                k6: 0.0,
-                p1: bc5.p1,
-                p2: bc5.p2,
-                iters: 8,
-            },
-        },
-        DistortionKind::ThinPrism9 => DistortionParams::ThinPrism {
-            params: ThinPrism {
-                k1: bc5.k1,
-                k2: bc5.k2,
-                k3: bc5.k3,
-                p1: bc5.p1,
-                p2: bc5.p2,
-                s1: 0.0,
-                s2: 0.0,
-                s3: 0.0,
-                s4: 0.0,
-                iters: 8,
-            },
-        },
-        DistortionKind::Division1 => DistortionParams::Division { lambda: 0.0 },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use vision_calibration_core::Iso3;
+    use vision_calibration_core::{DistortionKind, DistortionParams};
 
     fn pinhole_bc5() -> CameraModelSpec {
         CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity)

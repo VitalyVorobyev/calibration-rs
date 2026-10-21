@@ -1,14 +1,12 @@
 //! Shared helpers for multi-camera rig calibration workflows.
 //!
-//! Internal to the pipeline crate. Consolidates **sensor-axis-aware** helpers
-//! used by `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, and their
-//! Scheimpflug siblings.
+//! Internal to the pipeline crate. Consolidates the per-camera helpers used
+//! by `rig_extrinsics`, `rig_handeye` and the rig laser workflows. Each rig
+//! camera has its own model ([`CameraModelSpec`]): the rig's `camera`
+//! config, or a per-camera override, so one rig can mix lenses.
 //!
-//! The shared abstraction is
-//! sensor-axis-only: each workflow module keeps its own `state.rs`,
-//! `problem.rs`, and `steps.rs` and consumes these helpers for sensor-aware
-//! bootstrap. The workflow axis (extrinsics-only / hand-eye / laser-plane)
-//! stays per-module because each has different state fields, step sequences,
+//! The workflow axis (extrinsics-only / hand-eye / laser-plane) stays
+//! per-module because each has different state fields, step sequences,
 //! residual blocks, and export shapes.
 //!
 //! This module is registered as `mod rig_family;` (private) in
@@ -18,12 +16,13 @@
 //! bootstrap helpers).
 
 use crate::Error;
-use serde::{Deserialize, Serialize};
+use crate::common::config::{CameraConfig, SolverConfig};
+use crate::planar_family::embed_distortion;
 use vision_calibration_core::{
-    BrownConrady5, CameraFix, CameraModelSpec, CameraParams, CorrespondenceView, DistortionFixMask,
-    DistortionParams, FxFyCxCy, IntrinsicsFixMask, Iso3, Mat3, NoMeta, PinholeCamera,
-    PlanarDataset, ProjectionParams, Pt2, Real, ScheimpflugParams, SensorKind, SensorParams, View,
-    make_pinhole_camera,
+    BrownConrady5, Camera, CameraFix, CameraModel, CameraModelSpec, CameraParams,
+    CorrespondenceView, DistortionParams, FxFyCxCy, HomographySensor, Iso3, Mat3, NoMeta, Pinhole,
+    PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Real, ScheimpflugParams, SensorKind,
+    SensorParams, View, make_pinhole_camera,
 };
 use vision_calibration_linear::prelude::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
@@ -33,148 +32,20 @@ use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
     ScheimpflugIntrinsicsLinearInit, estimate_scheimpflug_intrinsics_iterative,
 };
-use vision_calibration_optim::{DistortionKind, PlanarIntrinsicsParams, ScheimpflugFixMask};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Sensor mode (public — re-exported by rig_extrinsics and rig_handeye)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Sensor flavour for rig calibration workflows.
-///
-/// `Pinhole` is the default and matches a standard multi-camera rig with
-/// pure pinhole + Brown-Conrady distortion projection. `Scheimpflug` adds
-/// per-camera tilt parameters; per-camera intrinsics share the pinhole core
-/// but include a tilted sensor plane in projection.
-///
-/// The `Scheimpflug` variant carries its own bootstrap defaults and BA-stage
-/// fix masks so the rest of the workflow config stays shared between flavours.
-///
-/// Re-exported by [`crate::rig_extrinsics::SensorMode`] and
-/// [`crate::rig_handeye::SensorMode`] (single source of truth in `rig_family`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-#[serde(tag = "kind")]
-pub enum SensorMode {
-    /// Pinhole + Brown-Conrady projection (no sensor tilt).
-    #[default]
-    Pinhole,
-    /// Pinhole + Brown-Conrady + Scheimpflug-tilted sensor.
-    Scheimpflug {
-        /// Initial Scheimpflug tilt around X (radians) — used only when no
-        /// per-camera sensor seed is supplied via the workflow's manual init.
-        #[serde(default)]
-        init_tilt_x: f64,
-        /// Initial Scheimpflug tilt around Y (radians) — same convention.
-        #[serde(default)]
-        init_tilt_y: f64,
-        /// Mask for Scheimpflug parameters during per-camera intrinsics refinement.
-        #[serde(default)]
-        fix_scheimpflug: ScheimpflugFixMask,
-        /// Distortion mask applied during per-camera Scheimpflug intrinsics
-        /// refinement. Defaults to [`DistortionFixMask::radial_only`]
-        /// (k1, k2 free; k3, p1, p2 fixed) — a safe choice for typical
-        /// Scheimpflug rigs where tangential distortion can absorb tilt-like
-        /// signal. Narrow-FOV rigs that overfit k2 may want
-        /// `(k1, p1, p2) free, (k2, k3) fixed` instead.
-        #[serde(default = "default_scheimpflug_percam_distortion_mask")]
-        distortion_mask_in_percam_ba: DistortionFixMask,
-        /// Re-refine Scheimpflug parameters in rig BA (default: false).
-        #[serde(default)]
-        refine_scheimpflug_in_rig_ba: bool,
-        /// Distortion model for the per-camera Scheimpflug intrinsics.
-        ///
-        /// Only [`DistortionKind::BrownConrady5`] (the default) is supported:
-        /// the joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5
-        /// models are rejected up front by the rig `validate_config`
-        /// rather than deep in the solver. The field exists for schema
-        /// symmetry with the single-camera Scheimpflug path.
-        #[serde(default = "crate::common::config::default_distortion_kind")]
-        distortion_model: DistortionKind,
-    },
-}
-
-fn default_scheimpflug_percam_distortion_mask() -> DistortionFixMask {
-    DistortionFixMask::radial_only()
-}
-
-impl SensorMode {
-    /// `true` when the mode is the Scheimpflug variant.
-    pub fn is_scheimpflug(&self) -> bool {
-        matches!(self, Self::Scheimpflug { .. })
-    }
-
-    /// The configured Scheimpflug distortion model, or `None` for pinhole rigs.
-    ///
-    /// Used by the rig `validate_config` implementations to reject non-BC5
-    /// distortion models before any solve begins — the joint rig bundle
-    /// adjustment is Brown-Conrady-typed.
-    pub fn scheimpflug_distortion_model(&self) -> Option<DistortionKind> {
-        match self {
-            Self::Scheimpflug {
-                distortion_model, ..
-            } => Some(*distortion_model),
-            Self::Pinhole => None,
-        }
-    }
-}
-
-/// Per-camera intrinsics bundle covering both pinhole and Scheimpflug rigs.
-///
-/// `scheimpflug` is `None` for pinhole-only rigs and `Some(_)` when each
-/// camera also carries a Scheimpflug tilt model.
-///
-/// **Invariant:** when `scheimpflug` is `Some`, its length equals
-/// `cameras.len()`. Use [`Self::pinhole`] or [`Self::scheimpflug`] to construct
-/// to enforce this; direct field access is allowed inside the pipeline crate.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct RigSensorBundle {
-    pub cameras: Vec<PinholeCamera>,
-    pub scheimpflug: Option<Vec<ScheimpflugParams>>,
-}
-
-impl RigSensorBundle {
-    pub fn pinhole(cameras: Vec<PinholeCamera>) -> Self {
-        Self {
-            cameras,
-            scheimpflug: None,
-        }
-    }
-
-    pub fn scheimpflug(cameras: Vec<PinholeCamera>, sensors: Vec<ScheimpflugParams>) -> Self {
-        debug_assert_eq!(
-            cameras.len(),
-            sensors.len(),
-            "RigSensorBundle::scheimpflug: cameras vs sensors length mismatch"
-        );
-        Self {
-            cameras,
-            scheimpflug: Some(sensors),
-        }
-    }
-
-    /// Number of cameras in the bundle. Used by the `rig_family` test suite;
-    /// keep `pub(crate)` even when unused in production callers.
-    #[cfg(test)]
-    pub fn num_cameras(&self) -> usize {
-        self.cameras.len()
-    }
-
-    /// `true` when the bundle carries Scheimpflug sensor params.
-    #[cfg(test)]
-    pub fn is_scheimpflug(&self) -> bool {
-        self.scheimpflug.is_some()
-    }
-}
+use vision_calibration_optim::{
+    BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions, ScheimpflugStagedInitOptions, optimize_planar_intrinsics,
+    optimize_scheimpflug_intrinsics_staged,
+};
 
 /// Manual seeds for the per-camera rig intrinsics bootstrap.
 ///
-/// All fields are `Option<T>`. A `None` field runs the
-/// corresponding auto step. `per_cam_sensors` is consulted only when
-/// [`bootstrap_rig_intrinsics`] is called with [`SensorFlavour::Scheimpflug`];
-/// supplying it for a pinhole bootstrap is silently ignored.
+/// All fields are `Option<T>`. A `None` field runs the corresponding auto
+/// step. `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug
+/// sensor; a camera with an untilted sensor takes only a zero tilt (the
+/// identity a device spec gives a frontal camera).
 ///
-/// Per-camera vectors must equal `num_cameras` (validated by
+/// Per-camera vectors must equal the camera count (validated by
 /// [`bootstrap_rig_intrinsics`]).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RigIntrinsicsSeeds {
@@ -183,25 +54,11 @@ pub(crate) struct RigIntrinsicsSeeds {
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
-/// Sensor flavour selector for [`bootstrap_rig_intrinsics`].
-///
-/// `Scheimpflug { default_tilt_x, default_tilt_y }` supplies the per-camera
-/// fallback tilt when `seeds.per_cam_sensors` is `None`. The defaults are
-/// typically read from the workflow's `*Config::init_tilt_x/y`.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum SensorFlavour {
-    Pinhole,
-    Scheimpflug {
-        default_tilt_x: Real,
-        default_tilt_y: Real,
-    },
-}
-
 /// Bootstrap result for the per-camera intrinsics stage.
 #[derive(Debug, Clone)]
 pub(crate) struct RigIntrinsicsBootstrap {
-    /// Per-camera intrinsics + (optionally) per-camera Scheimpflug params.
-    pub bundle: RigSensorBundle,
+    /// Per-camera initial parameters, each in its camera's model.
+    pub cameras: Vec<CameraParams>,
     /// `[view][cam] -> Option<Iso3>`, `cam_se3_target` (T_C_T).
     pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
     /// Manually-seeded fields, for the session log.
@@ -213,83 +70,88 @@ pub(crate) struct RigIntrinsicsBootstrap {
 /// Per-camera rig intrinsics bootstrap shared by all rig workflows.
 ///
 /// Loops over cameras, extracts per-camera planar views via the supplied
-/// closure, and either uses seeded intrinsics or runs the iterative auto-fit.
-/// Per-camera target poses are recovered from per-camera homographies using
-/// whichever intrinsics were chosen.
-///
-/// For [`SensorFlavour::Scheimpflug`], per-camera sensor params are seeded
-/// from `seeds.per_cam_sensors` if present, else from the flavour's defaults.
+/// closure, and either uses seeded intrinsics or runs the iterative auto-fit
+/// (Zhang's method; for a Scheimpflug sensor, the tilted variant that also
+/// estimates the tilt). The linear stage fits Brown-Conrady coefficients,
+/// embedded into each camera's distortion model (extra coefficients start
+/// at zero). Per-camera target poses are recovered from per-camera
+/// homographies using whichever intrinsics were chosen.
 ///
 /// # Errors
 ///
-/// - Any per-camera Vec seed length disagrees with `num_cameras`.
+/// - `models` or any per-camera seed disagrees with the camera count, or a
+///   non-zero tilt seed is given for an untilted camera.
 /// - A camera has fewer than 3 valid views.
 /// - DLT homography or pose recovery fails on any view.
 /// - Iterative intrinsics estimation fails (auto-fit only).
 pub(crate) fn bootstrap_rig_intrinsics<F>(
-    num_cameras: usize,
+    models: &[CameraModelSpec],
     num_views: usize,
     extract_views: F,
     seeds: RigIntrinsicsSeeds,
     init_opts: IterativeIntrinsicsOptions,
-    flavour: SensorFlavour,
 ) -> Result<RigIntrinsicsBootstrap, Error>
 where
     F: Fn(usize) -> Vec<Option<View<NoMeta>>>,
 {
-    validate_seed_lengths(&seeds, num_cameras, &flavour)?;
-    let (manual_fields, auto_fields) = classify_seed_provenance(&seeds, &flavour);
+    let num_cameras = models.len();
+    validate_seeds(&seeds, models)?;
+    let (manual_fields, auto_fields) = classify_seed_provenance(&seeds, models);
 
     let mut cameras = Vec::with_capacity(num_cameras);
-    let mut sensors = match flavour {
-        SensorFlavour::Pinhole => None,
-        SensorFlavour::Scheimpflug { .. } => Some(Vec::with_capacity(num_cameras)),
-    };
     let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
 
-    #[allow(clippy::needless_range_loop)]
-    for cam_idx in 0..num_cameras {
+    for (cam_idx, model) in models.iter().enumerate() {
         let cam_views = extract_views(cam_idx);
         let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {
             Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
         })?;
 
         let camera_bootstrap =
-            build_camera_bootstrap_for_index(cam_idx, &seeds, &planar_dataset, init_opts, flavour)?;
+            build_camera_bootstrap_for_index(cam_idx, &seeds, &planar_dataset, init_opts, *model)?;
 
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
             per_cam_target_poses[global_idx][cam_idx] = Some(camera_bootstrap.poses[local_idx]);
         }
 
-        if let Some(s) = sensors.as_mut() {
-            s.push(
-                camera_bootstrap
-                    .sensor
-                    .unwrap_or_else(ScheimpflugParams::default),
-            );
-        }
-
-        cameras.push(camera_bootstrap.camera);
+        cameras.push(rig_camera_params(
+            &camera_bootstrap.camera,
+            camera_bootstrap.sensor,
+            *model,
+        ));
     }
 
-    let bundle = match sensors {
-        Some(s) => RigSensorBundle::scheimpflug(cameras, s),
-        None => RigSensorBundle::pinhole(cameras),
-    };
-
     Ok(RigIntrinsicsBootstrap {
-        bundle,
+        cameras,
         per_cam_target_poses,
         manual_fields,
         auto_fields,
     })
 }
 
-fn validate_seed_lengths(
-    seeds: &RigIntrinsicsSeeds,
-    num_cameras: usize,
-    flavour: &SensorFlavour,
-) -> Result<(), Error> {
+/// The parameters of a rig camera of `model` from its linear-init values:
+/// Brown-Conrady coefficients embedded into the model's distortion, and the
+/// tilt for a Scheimpflug sensor.
+fn rig_camera_params(
+    camera: &PinholeCamera,
+    tilt: Option<ScheimpflugParams>,
+    model: CameraModelSpec,
+) -> CameraParams {
+    CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: embed_distortion(&camera.dist, model.distortion),
+        sensor: match model.sensor {
+            SensorKind::Identity => SensorParams::Identity,
+            SensorKind::Scheimpflug => SensorParams::Scheimpflug {
+                params: tilt.unwrap_or_default(),
+            },
+        },
+        intrinsics: camera.k,
+    }
+}
+
+fn validate_seeds(seeds: &RigIntrinsicsSeeds, models: &[CameraModelSpec]) -> Result<(), Error> {
+    let num_cameras = models.len();
     if let Some(s) = &seeds.per_cam_intrinsics
         && s.len() != num_cameras
     {
@@ -308,22 +170,31 @@ fn validate_seed_lengths(
             num_cameras
         )));
     }
-    if matches!(flavour, SensorFlavour::Scheimpflug { .. })
-        && let Some(s) = &seeds.per_cam_sensors
-        && s.len() != num_cameras
-    {
-        return Err(Error::invalid_input(format!(
-            "per_cam_sensors length ({}) != num_cameras ({})",
-            s.len(),
-            num_cameras
-        )));
+    if let Some(s) = &seeds.per_cam_sensors {
+        if s.len() != num_cameras {
+            return Err(Error::invalid_input(format!(
+                "per_cam_sensors length ({}) != num_cameras ({})",
+                s.len(),
+                num_cameras
+            )));
+        }
+        for (cam_idx, (seed, model)) in s.iter().zip(models).enumerate() {
+            if model.sensor != SensorKind::Scheimpflug && (seed.tilt_x != 0.0 || seed.tilt_y != 0.0)
+            {
+                return Err(Error::invalid_input(format!(
+                    "per_cam_sensors[{cam_idx}]: a non-zero tilt seed needs a Scheimpflug \
+                     camera; camera {cam_idx}'s sensor is {:?}",
+                    model.sensor
+                )));
+            }
+        }
     }
     Ok(())
 }
 
 fn classify_seed_provenance(
     seeds: &RigIntrinsicsSeeds,
-    flavour: &SensorFlavour,
+    models: &[CameraModelSpec],
 ) -> (Vec<&'static str>, Vec<&'static str>) {
     let mut manual: Vec<&'static str> = Vec::new();
     let mut auto: Vec<&'static str> = Vec::new();
@@ -337,7 +208,7 @@ fn classify_seed_provenance(
     } else {
         auto.push("per_cam_distortion");
     }
-    if matches!(flavour, SensorFlavour::Scheimpflug { .. }) {
+    if models.iter().any(|m| m.sensor == SensorKind::Scheimpflug) {
         if seeds.per_cam_sensors.is_some() {
             manual.push("per_cam_sensors");
         } else {
@@ -387,10 +258,10 @@ fn build_camera_bootstrap_for_index(
     seeds: &RigIntrinsicsSeeds,
     planar_dataset: &PlanarDataset,
     init_opts: IterativeIntrinsicsOptions,
-    flavour: SensorFlavour,
+    model: CameraModelSpec,
 ) -> Result<CameraBootstrap, Error> {
-    match flavour {
-        SensorFlavour::Pinhole => {
+    match model.sensor {
+        SensorKind::Identity => {
             let camera = build_camera_for_index(cam_idx, seeds, planar_dataset, init_opts)?;
             let poses = estimate_poses_for_camera(cam_idx, planar_dataset, &camera.k)?;
             Ok(CameraBootstrap {
@@ -399,13 +270,10 @@ fn build_camera_bootstrap_for_index(
                 poses,
             })
         }
-        SensorFlavour::Scheimpflug {
-            default_tilt_x,
-            default_tilt_y,
-        } => {
+        SensorKind::Scheimpflug => {
             if seeds.per_cam_intrinsics.is_some() {
                 let camera = build_camera_for_index(cam_idx, seeds, planar_dataset, init_opts)?;
-                let sensor = sensor_for_index(cam_idx, seeds, &flavour);
+                let sensor = sensor_for_index(cam_idx, seeds);
                 let poses = estimate_poses_for_camera(cam_idx, planar_dataset, &camera.k)?;
                 return Ok(CameraBootstrap {
                     camera,
@@ -419,13 +287,6 @@ fn build_camera_bootstrap_for_index(
                 distortion_opts: init_opts.distortion_opts,
                 ..Default::default()
             };
-            push_unique_tilt_seed(
-                &mut scheimpflug_opts,
-                ScheimpflugParams {
-                    tilt_x: default_tilt_x,
-                    tilt_y: default_tilt_y,
-                },
-            );
             if let Some(per_cam_sensors) = seeds.per_cam_sensors.as_ref() {
                 let manual = per_cam_sensors[cam_idx];
                 scheimpflug_opts.tilt_x_seeds = vec![manual.tilt_x];
@@ -441,28 +302,6 @@ fn build_camera_bootstrap_for_index(
                 })?;
             Ok(scheimpflug_bootstrap_with_overrides(cam_idx, seeds, init))
         }
-    }
-}
-
-fn push_unique_tilt_seed(
-    opts: &mut LinearScheimpflugIntrinsicsInitOptions,
-    sensor: ScheimpflugParams,
-) {
-    if sensor.tilt_x.abs() <= opts.max_abs_tilt
-        && !opts
-            .tilt_x_seeds
-            .iter()
-            .any(|v| (*v - sensor.tilt_x).abs() < 1e-12)
-    {
-        opts.tilt_x_seeds.push(sensor.tilt_x);
-    }
-    if sensor.tilt_y.abs() <= opts.max_abs_tilt
-        && !opts
-            .tilt_y_seeds
-            .iter()
-            .any(|v| (*v - sensor.tilt_y).abs() < 1e-12)
-    {
-        opts.tilt_y_seeds.push(sensor.tilt_y);
     }
 }
 
@@ -502,24 +341,13 @@ fn estimate_poses_for_camera(
     Ok(poses)
 }
 
-fn sensor_for_index(
-    cam_idx: usize,
-    seeds: &RigIntrinsicsSeeds,
-    flavour: &SensorFlavour,
-) -> ScheimpflugParams {
-    if let Some(per_cam_sensors) = seeds.per_cam_sensors.as_ref() {
-        return per_cam_sensors[cam_idx];
-    }
-    match *flavour {
-        SensorFlavour::Pinhole => ScheimpflugParams::default(),
-        SensorFlavour::Scheimpflug {
-            default_tilt_x,
-            default_tilt_y,
-        } => ScheimpflugParams {
-            tilt_x: default_tilt_x,
-            tilt_y: default_tilt_y,
-        },
-    }
+/// The tilt seed of camera `cam_idx`: the manual seed, else zero.
+fn sensor_for_index(cam_idx: usize, seeds: &RigIntrinsicsSeeds) -> ScheimpflugParams {
+    seeds
+        .per_cam_sensors
+        .as_ref()
+        .map(|s| s[cam_idx])
+        .unwrap_or_default()
 }
 
 /// Build a planar dataset from per-view per-camera observations, returning
@@ -583,15 +411,171 @@ pub(crate) fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 // Per-camera planar solves of rig cameras
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The camera model of a rig camera: pinhole, Brown-Conrady, with or without
-/// a Scheimpflug sensor (rigs are Brown-Conrady throughout).
-pub(crate) fn rig_camera_model(tilted: bool) -> CameraModelSpec {
-    let sensor = if tilted {
-        SensorKind::Scheimpflug
+/// The planar solve options of rig camera `camera`.
+///
+/// An untilted camera frees every pose; a tilted one pins view 0's, the
+/// gauge its staged tilt solve has always used.
+pub(crate) fn rig_camera_solve_opts(
+    camera: &CameraConfig,
+    solver: &SolverConfig,
+) -> PlanarIntrinsicsSolveOptions {
+    PlanarIntrinsicsSolveOptions {
+        robust_loss: solver.robust_loss,
+        fix: camera.fix.clone(),
+        fix_poses: match camera.model.sensor {
+            SensorKind::Identity => Vec::new(),
+            SensorKind::Scheimpflug => vec![0],
+        },
+        bounds: None,
+    }
+}
+
+/// Refine one rig camera on its own views: a plain planar solve for an
+/// untilted camera, the staged multi-start for a tilted one (it breaks the
+/// tilt / principal-point / distortion degeneracy a cold `tilt = 0` solve
+/// falls into).
+///
+/// # Errors
+///
+/// [`Error::Numerical`] naming the camera when the solve fails.
+pub(crate) fn optimize_rig_camera(
+    cam_idx: usize,
+    dataset: &PlanarDataset,
+    initial: &PlanarIntrinsicsParams,
+    camera: &CameraConfig,
+    solver: &SolverConfig,
+    backend_opts: BackendSolveOptions,
+) -> Result<PlanarIntrinsicsEstimate, Error> {
+    let solve_opts = rig_camera_solve_opts(camera, solver);
+    match camera.model.sensor {
+        SensorKind::Identity => {
+            optimize_planar_intrinsics(dataset, initial, solve_opts, backend_opts).map_err(|e| {
+                Error::numerical(format!("optimization failed for camera {cam_idx}: {e}"))
+            })
+        }
+        SensorKind::Scheimpflug => optimize_scheimpflug_intrinsics_staged(
+            dataset,
+            initial,
+            solve_opts,
+            &ScheimpflugStagedInitOptions::default(),
+            backend_opts,
+        )
+        .map_err(|e| {
+            Error::numerical(format!(
+                "Scheimpflug intrinsics optimization failed for camera {cam_idx}: {e}"
+            ))
+        }),
+    }
+}
+
+/// Check the cameras in state still have the models the config names.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming the first camera whose model changed.
+pub(crate) fn check_camera_models(
+    cameras: &[CameraParams],
+    model_for: impl Fn(usize) -> CameraModelSpec,
+) -> Result<(), Error> {
+    for (i, camera) in cameras.iter().enumerate() {
+        let configured = model_for(i);
+        if camera.spec() != Some(configured) {
+            return Err(Error::invalid_input(format!(
+                "camera {i}'s model changed since step_intrinsics_init_all (now {configured:?}); \
+                 run it again"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The fixed parameters of a rig camera in the rig bundle adjustment.
+///
+/// Intrinsics, projection and distortion follow the camera's `fix` lists
+/// when `refine_intrinsics`, and are all held otherwise; a Scheimpflug
+/// tilt follows `fix.sensor` when `refine_sensor`, and is held otherwise.
+pub(crate) fn rig_ba_fix(
+    camera: &CameraConfig,
+    refine_intrinsics: bool,
+    refine_sensor: bool,
+) -> CameraFix {
+    let all = CameraFix::all(camera.model);
+    let mut fix = if refine_intrinsics {
+        camera.fix.clone()
     } else {
-        SensorKind::Identity
+        all.clone()
     };
-    CameraModelSpec::pinhole(DistortionKind::BrownConrady5, sensor)
+    fix.sensor = if refine_sensor {
+        camera.fix.sensor.clone()
+    } else {
+        all.sensor
+    };
+    fix
+}
+
+/// The runtime models of exported rig cameras.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for a camera whose sensor homography is singular
+/// (reachable only from a hand-edited export).
+pub(crate) fn rig_camera_models(cameras: &[CameraParams]) -> Result<Vec<CameraModel>, Error> {
+    cameras
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            c.build()
+                .map_err(|e| Error::invalid_input(format!("camera {i}: {e}")))
+        })
+        .collect()
+}
+
+/// Check every camera fits the laserline device's model: Brown-Conrady (or
+/// no) distortion and an identity or Scheimpflug sensor, the model the laser
+/// residuals are evaluated in.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming the first camera that does not.
+pub(crate) fn check_laser_cameras(cameras: &[CameraParams]) -> Result<(), Error> {
+    for (i, camera) in cameras.iter().enumerate() {
+        let distortion_ok = matches!(
+            camera.distortion,
+            DistortionParams::BrownConrady5 { .. } | DistortionParams::None
+        );
+        let sensor_ok = !matches!(camera.sensor, SensorParams::Homography { .. });
+        if !distortion_ok || !sensor_ok {
+            return Err(Error::invalid_input(format!(
+                "camera {i}: the laser workflows need Brown-Conrady (or no) distortion and an \
+                 identity or Scheimpflug sensor, got {:?}",
+                camera.spec()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The laserline device's camera type: Brown-Conrady distortion and a tilt
+/// homography sensor.
+pub(crate) type LaserCamera =
+    Camera<Real, Pinhole, BrownConrady5<Real>, HomographySensor<Real>, FxFyCxCy<Real>>;
+
+/// A camera in the laserline device's model (see [`check_laser_cameras`]):
+/// no distortion is zero Brown-Conrady coefficients, an untilted sensor zero
+/// tilt (exactly the identity mapping).
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for a camera outside that model.
+pub(crate) fn laser_camera(camera: &CameraParams, index: usize) -> Result<LaserCamera, Error> {
+    check_laser_cameras(std::slice::from_ref(camera))
+        .map_err(|e| Error::invalid_input(format!("camera {index}: {e}")))?;
+    Ok(Camera::new(
+        Pinhole,
+        rig_distortion(camera),
+        rig_tilt(camera).compile(),
+        camera.intrinsics,
+    ))
 }
 
 /// Planar-solve parameters of a tilted rig camera.
@@ -616,55 +600,20 @@ pub(crate) fn tilted_planar_params(
     )?)
 }
 
-/// The Brown-Conrady coefficients of a rig camera's planar solve (zero for
-/// any other distortion, which rigs never configure).
-pub(crate) fn rig_distortion(params: &PlanarIntrinsicsParams) -> BrownConrady5<Real> {
-    match &params.camera.distortion {
+/// The Brown-Conrady coefficients of a camera (zero for any other
+/// distortion).
+pub(crate) fn rig_distortion(camera: &CameraParams) -> BrownConrady5<Real> {
+    match &camera.distortion {
         DistortionParams::BrownConrady5 { params } => *params,
         _ => BrownConrady5::default(),
     }
 }
 
-/// The sensor tilt of a rig camera's planar solve (zero for an untilted
-/// camera).
-pub(crate) fn rig_tilt(params: &PlanarIntrinsicsParams) -> ScheimpflugParams {
-    match params.camera.sensor {
+/// The sensor tilt of a camera (zero for an untilted camera).
+pub(crate) fn rig_tilt(camera: &CameraParams) -> ScheimpflugParams {
+    match camera.sensor {
         SensorParams::Scheimpflug { params } => params,
         SensorParams::Identity | SensorParams::Homography { .. } => ScheimpflugParams::default(),
-    }
-}
-
-/// The named fix lists of a rig camera's Brown-Conrady masks.
-pub(crate) fn rig_camera_fix(
-    intrinsics: IntrinsicsFixMask,
-    distortion: DistortionFixMask,
-    tilt: ScheimpflugFixMask,
-) -> CameraFix {
-    let names = |flags: &[(bool, &str)]| {
-        Some(
-            flags
-                .iter()
-                .filter(|(fixed, _)| *fixed)
-                .map(|(_, name)| name.to_string())
-                .collect(),
-        )
-    };
-    CameraFix {
-        intrinsics: names(&[
-            (intrinsics.fx, "fx"),
-            (intrinsics.fy, "fy"),
-            (intrinsics.cx, "cx"),
-            (intrinsics.cy, "cy"),
-        ]),
-        projection: Some(Vec::new()),
-        distortion: names(&[
-            (distortion.k1, "k1"),
-            (distortion.k2, "k2"),
-            (distortion.k3, "k3"),
-            (distortion.p1, "p1"),
-            (distortion.p2, "p2"),
-        ]),
-        sensor: names(&[(tilt.tilt_x, "tilt_x"), (tilt.tilt_y, "tilt_y")]),
     }
 }
 
@@ -707,8 +656,8 @@ pub(crate) fn guard_percam_reproj_errors(errors: &[f64]) -> Result<(), Error> {
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, Camera, FxFyCxCy, Pinhole, ScheimpflugParams, View, make_pinhole_camera,
-        synthetic::planar,
+        BrownConrady5, Camera, DistortionKind, FxFyCxCy, Pinhole, ScheimpflugParams, View,
+        make_pinhole_camera, synthetic::planar,
     };
     use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 
@@ -785,74 +734,33 @@ mod tests {
         (per_cam_views, base.k, num_views)
     }
 
-    #[test]
-    fn bundle_constructors_enforce_invariants() {
-        let cams = vec![make_pinhole_camera(
-            FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-            },
-            BrownConrady5::default(),
-        )];
-        let pinhole = RigSensorBundle::pinhole(cams.clone());
-        assert_eq!(pinhole.num_cameras(), 1);
-        assert!(!pinhole.is_scheimpflug());
-
-        let scheim = RigSensorBundle::scheimpflug(cams, vec![ScheimpflugParams::default()]);
-        assert!(scheim.is_scheimpflug());
-        assert_eq!(scheim.scheimpflug.as_ref().unwrap().len(), 1);
+    fn untilted() -> CameraModelSpec {
+        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity)
     }
 
-    #[test]
-    fn bundle_serde_roundtrip() {
-        let cams = vec![make_pinhole_camera(
-            FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-            },
-            BrownConrady5::default(),
-        )];
-        let sensor = ScheimpflugParams {
-            tilt_x: 0.01,
-            tilt_y: -0.01,
-        };
-        let bundle = RigSensorBundle::scheimpflug(cams, vec![sensor]);
-
-        let json = serde_json::to_string_pretty(&bundle).expect("serialize");
-        let restored: RigSensorBundle = serde_json::from_str(&json).expect("deserialize");
-
-        assert_eq!(restored.num_cameras(), 1);
-        assert!(restored.is_scheimpflug());
-        assert_eq!(restored.cameras[0].k.fx, 800.0);
-        let sensors = restored.scheimpflug.as_ref().unwrap();
-        assert_eq!(sensors.len(), 1);
-        assert_eq!(sensors[0].tilt_x, sensor.tilt_x);
-        assert_eq!(sensors[0].tilt_y, sensor.tilt_y);
+    fn tilted() -> CameraModelSpec {
+        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug)
     }
 
     #[test]
     fn bootstrap_pinhole_recovers_synthetic_intrinsics() {
         let (per_cam_views, k_gt, num_views) = pinhole_two_camera_views();
         let result = bootstrap_rig_intrinsics(
-            2,
+            &[untilted(), untilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
             default_init_opts(),
-            SensorFlavour::Pinhole,
         )
         .expect("bootstrap");
 
-        assert_eq!(result.bundle.num_cameras(), 2);
-        assert!(!result.bundle.is_scheimpflug());
+        assert_eq!(result.cameras.len(), 2);
+        assert!(result.cameras.iter().all(|c| c.spec() == Some(untilted())));
         assert_eq!(result.per_cam_target_poses.len(), num_views);
-        for cam in &result.bundle.cameras {
-            assert!((cam.k.fx - k_gt.fx).abs() / k_gt.fx < 0.05, "fx off");
-            assert!((cam.k.fy - k_gt.fy).abs() / k_gt.fy < 0.05, "fy off");
+        for cam in &result.cameras {
+            let k = cam.intrinsics;
+            assert!((k.fx - k_gt.fx).abs() / k_gt.fx < 0.05, "fx off");
+            assert!((k.fy - k_gt.fy).abs() / k_gt.fy < 0.05, "fy off");
         }
         assert!(result.manual_fields.is_empty());
         assert_eq!(
@@ -869,34 +777,30 @@ mod tests {
         };
         let (per_cam_views, k_gt, num_views) = scheimpflug_two_camera_views(sensor_gt);
         let result = bootstrap_rig_intrinsics(
-            2,
+            &[tilted(), tilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
             default_init_opts(),
-            SensorFlavour::Scheimpflug {
-                default_tilt_x: 0.0,
-                default_tilt_y: 0.0,
-            },
         )
         .expect("bootstrap");
 
-        assert_eq!(result.bundle.num_cameras(), 2);
-        assert!(result.bundle.is_scheimpflug());
-        let sensors = result.bundle.scheimpflug.as_ref().unwrap();
-        assert_eq!(sensors.len(), 2);
+        assert_eq!(result.cameras.len(), 2);
+        let sensors: Vec<ScheimpflugParams> = result.cameras.iter().map(rig_tilt).collect();
+        assert!(result.cameras.iter().all(|c| c.spec() == Some(tilted())));
         // Auto-fitted sensors are estimated from the Scheimpflug-aware bootstrap.
-        for s in sensors {
+        for s in &sensors {
             assert!(s.tilt_x.is_finite());
             assert!(s.tilt_y.is_finite());
             assert!(s.tilt_x.abs() < 0.05);
             assert!(s.tilt_y.abs() < 0.05);
         }
-        for cam in &result.bundle.cameras {
+        for cam in &result.cameras {
             // Scheimpflug-projected views are still close to pinhole at small tilts.
-            assert!(cam.k.fx.is_finite());
-            assert!(cam.k.fy.is_finite());
-            assert!((cam.k.cx - k_gt.cx).abs() < k_gt.cx * 0.2);
+            let k = cam.intrinsics;
+            assert!(k.fx.is_finite());
+            assert!(k.fy.is_finite());
+            assert!((k.cx - k_gt.cx).abs() < k_gt.cx * 0.2);
         }
         assert_eq!(
             result.auto_fields,
@@ -916,18 +820,17 @@ mod tests {
             ..Default::default()
         };
         let result = bootstrap_rig_intrinsics(
-            2,
+            &[untilted(), untilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             seeds,
             default_init_opts(),
-            SensorFlavour::Pinhole,
         )
         .expect("bootstrap");
 
-        for cam in &result.bundle.cameras {
-            assert_eq!(cam.k.fx, k_gt.fx);
-            assert_eq!(cam.k.fy, k_gt.fy);
+        for cam in &result.cameras {
+            assert_eq!(cam.intrinsics.fx, k_gt.fx);
+            assert_eq!(cam.intrinsics.fy, k_gt.fy);
         }
         assert_eq!(result.manual_fields, vec!["per_cam_intrinsics"]);
         assert_eq!(result.auto_fields, vec!["per_cam_distortion"]);
@@ -945,19 +848,15 @@ mod tests {
             ..Default::default()
         };
         let result = bootstrap_rig_intrinsics(
-            2,
+            &[tilted(), tilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             seeds,
             default_init_opts(),
-            SensorFlavour::Scheimpflug {
-                default_tilt_x: 0.0,
-                default_tilt_y: 0.0,
-            },
         )
         .expect("bootstrap");
 
-        for s in result.bundle.scheimpflug.as_ref().unwrap() {
+        for s in result.cameras.iter().map(rig_tilt) {
             assert_eq!(s.tilt_x, sensor_gt.tilt_x);
             assert_eq!(s.tilt_y, sensor_gt.tilt_y);
         }
@@ -972,12 +871,11 @@ mod tests {
             ..Default::default()
         };
         let err = bootstrap_rig_intrinsics(
-            2,
+            &[untilted(), untilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             seeds,
             default_init_opts(),
-            SensorFlavour::Pinhole,
         )
         .expect_err("seed length mismatch should error");
         let msg = err.to_string();
@@ -993,16 +891,84 @@ mod tests {
             per_cam_views[1].clone(),
         ];
         let err = bootstrap_rig_intrinsics(
-            2,
+            &[untilted(), untilted()],
             num_views,
             |cam_idx| truncated[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
             default_init_opts(),
-            SensorFlavour::Pinhole,
         )
         .expect_err("insufficient views should error");
         let msg = err.to_string();
         assert!(msg.contains("camera 0"), "got: {msg}");
+    }
+
+    #[test]
+    fn bootstrap_mixes_lenses_per_camera() {
+        let (per_cam_views, _, num_views) = pinhole_two_camera_views();
+        let division = CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity);
+        let result = bootstrap_rig_intrinsics(
+            &[untilted(), division],
+            num_views,
+            |cam_idx| per_cam_views[cam_idx].clone(),
+            RigIntrinsicsSeeds::default(),
+            default_init_opts(),
+        )
+        .expect("bootstrap");
+        assert_eq!(result.cameras[0].spec(), Some(untilted()));
+        assert_eq!(result.cameras[1].spec(), Some(division));
+        // Only a Scheimpflug camera reports a tilt seed.
+        assert!(!result.auto_fields.contains(&"per_cam_sensors"));
+    }
+
+    #[test]
+    fn tilt_seed_for_an_untilted_camera_must_be_zero() {
+        let (per_cam_views, _, num_views) = pinhole_two_camera_views();
+        let zero = RigIntrinsicsSeeds {
+            per_cam_sensors: Some(vec![ScheimpflugParams::default(); 2]),
+            ..Default::default()
+        };
+        assert!(
+            bootstrap_rig_intrinsics(
+                &[untilted(), untilted()],
+                num_views,
+                |cam_idx| per_cam_views[cam_idx].clone(),
+                zero,
+                default_init_opts(),
+            )
+            .is_ok()
+        );
+        let tilted_seed = RigIntrinsicsSeeds {
+            per_cam_sensors: Some(vec![
+                ScheimpflugParams::default(),
+                ScheimpflugParams {
+                    tilt_x: 0.05,
+                    tilt_y: 0.0,
+                },
+            ]),
+            ..Default::default()
+        };
+        let err = bootstrap_rig_intrinsics(
+            &[untilted(), untilted()],
+            num_views,
+            |cam_idx| per_cam_views[cam_idx].clone(),
+            tilted_seed,
+            default_init_opts(),
+        )
+        .expect_err("a tilt seed for an untilted camera is rejected");
+        assert!(err.to_string().contains("per_cam_sensors[1]"), "{err}");
+    }
+
+    #[test]
+    fn rig_ba_fix_follows_the_stage_flags() {
+        let camera = CameraConfig::new(tilted());
+        let held = rig_ba_fix(&camera, false, false);
+        let resolved = held.resolve(tilted()).unwrap();
+        assert_eq!(resolved.intrinsics, vec![0, 1, 2, 3]);
+        assert_eq!(resolved.sensor, vec![0, 1]);
+        let refined = rig_ba_fix(&camera, true, true).resolve(tilted()).unwrap();
+        assert!(refined.intrinsics.is_empty());
+        assert_eq!(refined.distortion, vec![2, 3, 4]);
+        assert!(refined.sensor.is_empty());
     }
 
     #[test]

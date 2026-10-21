@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use vision_calibration::core::{
-    CameraParams, DistortionParams, PinholeCamera, ScheimpflugParams, SensorParams,
+    CameraParams, DistortionParams, PinholeCamera, SensorParams, pinhole_camera_params,
 };
 use vision_calibration::laserline_device::{
     LaserlineDeviceProblem, step_init as laser_init, step_optimize as laser_optimize,
@@ -15,11 +15,11 @@ use vision_calibration::planar_intrinsics::{
     step_init_with_seed as planar_init_with_seed, step_optimize as planar_optimize,
 };
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsOutput, RigExtrinsicsProblem, step_intrinsics_init_all_with_seed,
-    step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    RigExtrinsicsProblem, step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
+    step_rig_init, step_rig_optimize,
 };
 use vision_calibration::rig_handeye::{
-    RigHandeyeOutput, RigHandeyeProblem, step_handeye_init as rh_handeye_init,
+    RigHandeyeProblem, step_handeye_init as rh_handeye_init,
     step_handeye_optimize as rh_handeye_optimize,
     step_intrinsics_init_all_with_seed as rh_intrinsics_init,
     step_intrinsics_optimize_all as rh_intrinsics_optimize, step_rig_init as rh_rig_init,
@@ -140,19 +140,12 @@ fn camera_set(camera: &CameraParams) -> Result<CameraParamsSet> {
     Ok(CameraParamsSet { k, dist, sensor })
 }
 
-fn rig_cameras(
-    cameras: &[PinholeCamera],
-    sensors: Option<&[ScheimpflugParams]>,
-) -> Vec<CameraParamsSet> {
-    cameras
-        .iter()
-        .enumerate()
-        .map(|(i, c)| CameraParamsSet {
-            k: c.k,
-            dist: c.dist,
-            sensor: sensors.map(|s| s[i]),
-        })
-        .collect()
+fn rig_cameras(cameras: &[CameraParams]) -> Result<Vec<CameraParamsSet>> {
+    cameras.iter().map(camera_set).collect()
+}
+
+fn pinhole_set(camera: &PinholeCamera) -> Result<CameraParamsSet> {
+    camera_set(&pinhole_camera_params(camera))
 }
 
 fn solve_once(scene: &Scene) -> Result<Solved> {
@@ -206,7 +199,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: rig_cameras(std::slice::from_ref(&e.camera), None),
+                    cameras: vec![pinhole_set(&e.camera)?],
                     handeye: e.gripper_se3_camera,
                     ..ModelParams::default()
                 },
@@ -248,15 +241,11 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             ph.optimize(|| step_intrinsics_optimize_all(&mut s, None))?;
             ph.init(|| step_rig_init(&mut s))?;
             ph.optimize(|| step_rig_optimize(&mut s, None))?;
-            let report = match s.output() {
-                Some(RigExtrinsicsOutput::Pinhole(e)) => Some(e.report.clone()),
-                Some(RigExtrinsicsOutput::Scheimpflug(e)) => Some(e.report.clone()),
-                _ => None,
-            };
+            let report = s.output().map(|o| o.report.clone());
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: rig_cameras(&e.cameras, e.sensors.as_deref()),
+                    cameras: rig_cameras(&e.cameras)?,
                     cam_se3_rig: e.cam_se3_rig,
                     ..ModelParams::default()
                 },
@@ -275,15 +264,11 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             ph.optimize(|| rh_rig_optimize(&mut s, None))?;
             ph.init(|| rh_handeye_init(&mut s, None))?;
             ph.optimize(|| rh_handeye_optimize(&mut s, None))?;
-            let report = match s.output() {
-                Some(RigHandeyeOutput::Pinhole(e)) => Some(e.report.clone()),
-                Some(RigHandeyeOutput::Scheimpflug(e)) => Some(e.report.clone()),
-                _ => None,
-            };
+            let report = s.output().map(|o| o.report.clone());
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: rig_cameras(&e.cameras, e.sensors.as_deref()),
+                    cameras: rig_cameras(&e.cameras)?,
                     cam_se3_rig: e.cam_se3_rig,
                     handeye: e.gripper_se3_rig,
                     ..ModelParams::default()
@@ -318,7 +303,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: rig_cameras(&e.cameras, Some(&e.sensors)),
+                    cameras: rig_cameras(&e.cameras)?,
                     cam_se3_rig: e.cam_se3_rig,
                     handeye: e.gripper_se3_rig,
                     planes_cam: e.laser_planes_cam,

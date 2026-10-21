@@ -1,11 +1,9 @@
 //! Geometry helpers for rig-laserline devices.
 //!
-//! Maps observed laser pixels into 3D points using an upstream Scheimpflug rig
-//! hand-eye calibration together with per-camera laser planes.
+//! Maps observed laser pixels into 3D points using an upstream rig hand-eye
+//! calibration together with per-camera laser planes.
 
-use vision_calibration_core::{
-    DistortionModel, Iso3, Mat3, Pt2, Pt3, ScheimpflugParams, SensorModel, Vec3,
-};
+use vision_calibration_core::{Iso3, Pt2, Pt3, Vec3};
 use vision_calibration_optim::{HandEyeMode, LaserPlane};
 
 use crate::Error;
@@ -16,7 +14,7 @@ use crate::rig_handeye::RigHandeyeExport;
 /// Given:
 /// - `cam_idx`: which camera of the rig captured the pixel.
 /// - `pixel`: observed pixel on the laser line.
-/// - `rig_cal`: upstream rig + Scheimpflug hand-eye calibration.
+/// - `rig_cal`: upstream rig hand-eye calibration.
 /// - `laser_planes_rig`: laser planes (one per camera) expressed in rig frame.
 /// - `base_se3_gripper`: the robot gripper pose at the time the pixel was
 ///   observed. Required for `EyeToHand` (where the rig is fixed in base and
@@ -24,8 +22,8 @@ use crate::rig_handeye::RigHandeyeExport;
 ///
 /// Returns the 3D point in gripper (robot flange) frame:
 ///
-/// 1. Undistort `pixel` to a normalized camera-frame ray using the full
-///    pinhole + Brown-Conrady + Scheimpflug chain (inverted).
+/// 1. Back-project `pixel` to a camera-frame ray through the camera's model
+///    (intrinsics, sensor and distortion inverted).
 /// 2. Transform the ray into rig frame via `cam_se3_rig[cam_idx].inverse()`.
 /// 3. Intersect the ray with `laser_planes_rig[cam_idx]` (in rig frame).
 /// 4. Map the rig-frame point into the gripper frame using the hand-eye
@@ -33,9 +31,9 @@ use crate::rig_handeye::RigHandeyeExport;
 ///
 /// # Errors
 ///
-/// Returns [`Error`] if `cam_idx` is out of range, if the ray never intersects
-/// the plane, if undistortion fails, or if `base_se3_gripper` is missing in
-/// `EyeToHand` mode.
+/// Returns [`Error`] if `cam_idx` is out of range, if the camera model cannot
+/// be built, if the ray never intersects the plane, or if `base_se3_gripper`
+/// is missing in `EyeToHand` mode.
 pub fn pixel_to_gripper_point(
     cam_idx: usize,
     pixel: Pt2,
@@ -44,12 +42,6 @@ pub fn pixel_to_gripper_point(
     base_se3_gripper: Option<Iso3>,
 ) -> Result<Pt3, Error> {
     let n_cams = rig_cal.cameras.len();
-    // Pinhole rig: zero Scheimpflug tilt is exactly the identity sensor.
-    let sensors = match &rig_cal.sensors {
-        Some(sensors) => sensors.clone(),
-        None => vec![ScheimpflugParams::default(); n_cams],
-    };
-
     if cam_idx >= n_cams {
         return Err(Error::InvalidInput {
             reason: format!("cam_idx {cam_idx} out of range (num_cameras = {n_cams})"),
@@ -63,43 +55,22 @@ pub fn pixel_to_gripper_point(
             ),
         });
     }
-    if cam_idx >= sensors.len() || cam_idx >= rig_cal.cam_se3_rig.len() {
+    if cam_idx >= rig_cal.cam_se3_rig.len() {
         return Err(Error::InvalidInput {
             reason: "rig calibration missing per-cam data".to_string(),
         });
     }
 
-    let cam = &rig_cal.cameras[cam_idx];
-    let sensor = &sensors[cam_idx];
-
-    // Undistort pixel to a normalized camera-frame direction by inverting the full
-    // chain: pixel -> sensor (after Scheimpflug) -> normalized (after distortion) -> ray.
-    let k_matrix = Mat3::new(
-        cam.k.fx, 0.0, cam.k.cx, 0.0, cam.k.fy, cam.k.cy, 0.0, 0.0, 1.0,
-    );
-    let k_inv = k_matrix
-        .try_inverse()
-        .ok_or_else(|| Error::Numerical("intrinsics matrix is singular".to_string()))?;
-    let uv_h: Vec3 = Vec3::new(pixel.x, pixel.y, 1.0);
-    let sensor_h: Vec3 = k_inv * uv_h;
-    if sensor_h.z.abs() < 1e-12 {
-        return Err(Error::Numerical(
-            "pixel projects to infinity after K^-1".to_string(),
-        ));
-    }
-    let sensor_pt: Pt2 = Pt2::new(sensor_h.x / sensor_h.z, sensor_h.y / sensor_h.z);
-    // Invert Scheimpflug sensor (sensor -> distorted normalized).
-    let compiled_sensor = sensor.compile();
-    let distorted_pt = compiled_sensor.sensor_to_normalized(&sensor_pt);
-    // Invert distortion (distorted -> undistorted normalized).
-    let normalized = cam.dist.undistort(&distorted_pt);
-    // Ray direction in camera frame: (x_n, y_n, 1).
-    let dir_cam = Vec3::new(normalized.x, normalized.y, 1.0);
+    // Back-project the pixel through the camera's full model.
+    let camera = rig_cal.cameras[cam_idx]
+        .build()
+        .map_err(|e| Error::invalid_input(format!("camera {cam_idx}: {e}")))?;
+    let ray = camera.backproject_pixel(&pixel);
 
     // Transform ray origin/direction from camera to rig.
     let cam_to_rig = rig_cal.cam_se3_rig[cam_idx].inverse();
-    let origin_rig = cam_to_rig.translation.vector;
-    let dir_rig = cam_to_rig.rotation.transform_vector(&dir_cam);
+    let origin_rig: Vec3 = cam_to_rig.transform_point(&Pt3::from(ray.origin)).coords;
+    let dir_rig = cam_to_rig.rotation.transform_vector(&ray.direction);
 
     // Intersect with laser plane (in rig frame): n · (o + t d) + d_plane = 0.
     let plane = &laser_planes_rig[cam_idx];

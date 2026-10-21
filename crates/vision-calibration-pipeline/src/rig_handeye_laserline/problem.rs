@@ -8,10 +8,10 @@ use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDevicePr
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, CameraFixMask, DistortionFixMask, FeatureResidualHistogram, ImageManifest,
-    IntrinsicsFixMask, Iso3, NoMeta, PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset,
-    RigView, RigViewObs, ScheimpflugParams, Uncertainty, build_feature_histogram,
-    compute_rig_target_residuals, make_pinhole_camera,
+    CameraFix, CameraFixMask, CameraModelSpec, CameraParams, DistortionFixMask, DistortionKind,
+    FeatureResidualHistogram, ImageManifest, IntrinsicsFixMask, Iso3, NoMeta, PerFeatureResiduals,
+    Real, RigDataset, RigView, RigViewObs, Uncertainty, build_feature_histogram,
+    compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     HandEyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
@@ -19,6 +19,7 @@ use vision_calibration_optim::{
     RigLaserlineDataset, RobustLoss, ScheimpflugFixMask, compute_rig_laserline_feature_residuals,
 };
 
+use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeLaserlineState;
@@ -132,7 +133,9 @@ impl Default for RigHandeyeLaserlineConfig {
 ///
 /// The joint stage always pins the upstream rig's reference camera
 /// (`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera
-/// fixing uses core's [`CameraFixMask`] directly.
+/// fixing uses core's [`CameraFixMask`] directly, applied to each camera's
+/// model: a flag for a parameter a model lacks (a tilt of an untilted
+/// sensor) does nothing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -157,7 +160,8 @@ pub struct RigHandeyeLaserlineBaConfig {
     pub laser_weight: f64,
     /// Default camera parameter fix mask applied to every camera.
     pub default_camera_fix: CameraFixMask,
-    /// Fix Scheimpflug tilt parameters during the joint stage.
+    /// Fix the sensor tilt of each Scheimpflug camera during the joint
+    /// stage. Cameras with an untilted sensor have no tilt.
     pub fix_scheimpflug: ScheimpflugFixMask,
     /// Fix the hand-eye transform during the joint stage.
     pub fix_handeye: bool,
@@ -214,10 +218,8 @@ pub struct RigHandeyeLaserlineExport {
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Joint per-camera stats.
     pub per_camera_stats: Vec<RigHandeyeLaserlinePerCamStats>,
-    /// Per-camera pinhole camera parameters.
-    pub cameras: Vec<PinholeCamera>,
-    /// Per-camera Scheimpflug sensor parameters.
-    pub sensors: Vec<ScheimpflugParams>,
+    /// Per-camera parameters, each in its camera's model.
+    pub cameras: Vec<CameraParams>,
     /// Per-camera extrinsics `cam_se3_rig` (T_C_R).
     #[cfg_attr(
         feature = "schemars",
@@ -320,6 +322,21 @@ impl ProblemType for RigHandeyeLaserlineProblem {
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         RigHandeyeProblem::validate_config(&config.handeye)?;
+        // The laser residuals are evaluated in the Brown-Conrady model.
+        let models = std::iter::once(config.handeye.camera.model)
+            .chain(config.handeye.camera_overrides.iter().map(|o| o.model));
+        for model in models {
+            if !matches!(
+                model.distortion,
+                DistortionKind::BrownConrady5 | DistortionKind::None
+            ) {
+                return Err(Error::invalid_input(format!(
+                    "joint rig laserline calibration needs Brown-Conrady (or no) distortion \
+                     for every camera, got {:?}",
+                    model.distortion
+                )));
+            }
+        }
         RigLaserlineDeviceProblem::validate_config(&config.laserline_init)?;
         if config.joint_ba.solver.max_iters == 0 {
             return Err(Error::invalid_input(
@@ -365,14 +382,8 @@ pub(crate) fn export_joint(
     let rig_se3_target =
         materialize_rig_se3_target(input, params, mode, estimate.robot_deltas.as_deref());
     let target_dataset = input.target_dataset_no_meta();
-    let cameras_for_residuals: Vec<_> = params
-        .cameras
-        .iter()
-        .zip(params.sensors.iter())
-        .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-        .collect();
     let target = compute_rig_target_residuals(
-        &cameras_for_residuals,
+        &rig_camera_models(&params.cameras)?,
         &target_dataset,
         &cam_se3_rig,
         &rig_se3_target,
@@ -389,13 +400,9 @@ pub(crate) fn export_joint(
         .collect();
 
     let laser_dataset = input.laserline_dataset()?;
-    let laser_intrinsics: Vec<_> = params.cameras.iter().map(|c| c.k).collect();
-    let laser_distortion: Vec<_> = params.cameras.iter().map(|c| c.dist).collect();
     let laser = compute_rig_laserline_feature_residuals(
         &laser_dataset,
-        &laser_intrinsics,
-        &laser_distortion,
-        &params.sensors,
+        &params.cameras,
         &cam_se3_rig,
         &rig_se3_target,
         &params.planes_cam,
@@ -429,12 +436,7 @@ pub(crate) fn export_joint(
         laser_planes_rig: estimate.planes_rig.clone(),
         laser_planes_cam: params.planes_cam.clone(),
         per_camera_stats: estimate.per_cam_stats.clone(),
-        cameras: params
-            .cameras
-            .iter()
-            .map(|c| make_pinhole_camera(c.k, c.dist))
-            .collect(),
-        sensors: params.sensors.clone(),
+        cameras: params.cameras.clone(),
         cam_se3_rig,
         rig_se3_target,
         handeye_mode: mode,
@@ -495,18 +497,65 @@ fn corrected_robot_pose(robot_pose: Iso3, delta: [Real; 6]) -> Iso3 {
     delta_iso * robot_pose
 }
 
-pub(crate) fn joint_fix_intrinsics(
+/// The joint stage's fixed parameters of each camera: the stage's masks,
+/// named in the camera's model.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for a camera with a general homography sensor.
+pub(crate) fn joint_fix(
     config: &RigHandeyeLaserlineBaConfig,
-    n: usize,
-) -> Vec<CameraFixMask> {
-    vec![config.default_camera_fix; n]
+    cameras: &[CameraParams],
+) -> Result<Vec<CameraFix>, Error> {
+    cameras
+        .iter()
+        .enumerate()
+        .map(|(i, camera)| {
+            let model = camera.spec().ok_or_else(|| {
+                Error::invalid_input(format!("camera {i} has a general homography sensor"))
+            })?;
+            Ok(mask_fix(
+                config.default_camera_fix,
+                config.fix_scheimpflug,
+                model,
+            ))
+        })
+        .collect()
 }
 
-pub(crate) fn joint_fix_scheimpflug(
-    config: &RigHandeyeLaserlineBaConfig,
-    n: usize,
-) -> Vec<ScheimpflugFixMask> {
-    vec![config.fix_scheimpflug; n]
+/// The fix lists of `model` that a camera mask and a tilt mask name.
+fn mask_fix(camera: CameraFixMask, tilt: ScheimpflugFixMask, model: CameraModelSpec) -> CameraFix {
+    let names = |flags: &[(bool, &str)], valid: &[&str]| {
+        Some(
+            flags
+                .iter()
+                .filter(|(fixed, name)| *fixed && valid.contains(name))
+                .map(|(_, name)| name.to_string())
+                .collect(),
+        )
+    };
+    let (k, d) = (camera.intrinsics, camera.distortion);
+    CameraFix {
+        intrinsics: names(
+            &[(k.fx, "fx"), (k.fy, "fy"), (k.cx, "cx"), (k.cy, "cy")],
+            &["fx", "fy", "cx", "cy"],
+        ),
+        projection: Some(Vec::new()),
+        distortion: names(
+            &[
+                (d.k1, "k1"),
+                (d.k2, "k2"),
+                (d.k3, "k3"),
+                (d.p1, "p1"),
+                (d.p2, "p2"),
+            ],
+            model.distortion.param_names(),
+        ),
+        sensor: names(
+            &[(tilt.tilt_x, "tilt_x"), (tilt.tilt_y, "tilt_y")],
+            model.sensor.param_names(),
+        ),
+    }
 }
 
 /// The joint stage pins the extrinsic of the configured reference camera

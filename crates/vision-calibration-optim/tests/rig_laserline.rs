@@ -8,7 +8,8 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Unit, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
+    BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy, Pinhole,
+    ProjectionParams, Pt3, Real, ScheimpflugParams, SensorParams,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, LaserPlane, RigLaserlineDataset, RigLaserlineSolveOptions,
@@ -141,10 +142,14 @@ fn stereo_rig_laserline_recovers_planes() {
 
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();
 
+    let camera = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 { params: dist },
+        sensor: SensorParams::Scheimpflug { params: sensor },
+        intrinsics: intr,
+    };
     let upstream = RigLaserlineUpstream {
-        intrinsics: vec![intr, intr],
-        distortion: vec![dist, dist],
-        sensors: vec![sensor, sensor],
+        cameras: vec![camera.clone(), camera],
         cam_to_rig: cam_to_rig.to_vec(),
         rig_se3_target,
     };

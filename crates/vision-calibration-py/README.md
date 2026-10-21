@@ -69,6 +69,12 @@ result = vc.run_planar_intrinsics(dataset, config)
 print(result.camera.sensor)
 ```
 
+The rig configs take the same `camera` for every rig camera, plus
+`camera_overrides` to give individual cameras their own model and fix lists
+(`vc.CameraOverride(camera=1, model=vc.CameraModelSpec(sensor="scheimpflug"))`).
+Rig results report each camera as a `PinholeCamera` or, for a tilted sensor,
+a `PinholeScheimpflugCamera`.
+
 ## Runnable Python examples
 
 Workflow examples live in `crates/vision-calibration-py/examples/` and mirror the

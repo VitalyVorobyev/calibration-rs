@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { AnyExport } from "../store/types";
 import { adaptSceneExport } from "./sceneExport";
 
+const K = { fx: 1000, fy: 1000, cx: 320, cy: 240 };
+const DIST = { k1: 0, k2: 0, k3: 0, p1: 0, p2: 0, iters: 5 };
 const CAMERA = {
-  k: { fx: 1000, fy: 1000, cx: 320, cy: 240 },
-  dist: { k1: 0, k2: 0, k3: 0, p1: 0, p2: 0, iters: 5 },
-  proj: null,
-  sensor: null,
-  _phantom: null,
+  projection: { type: "pinhole" },
+  distortion: { type: "brown_conrady5", ...DIST },
+  sensor: { type: "identity" },
+  intrinsics: K,
 };
 
 const POSE = {
@@ -34,8 +35,8 @@ describe("adaptSceneExport", () => {
       per_feature_residuals: { target: [], laser: [] },
       estimate: {
         params: {
-          intrinsics: CAMERA.k,
-          distortion: CAMERA.dist,
+          intrinsics: K,
+          distortion: DIST,
           sensor: { tilt_x: 0, tilt_y: 0 },
           plane: PLANE,
           poses: [POSE, POSE],
@@ -45,7 +46,7 @@ describe("adaptSceneExport", () => {
 
     const adapted = adaptSceneExport(laser);
     expect(adapted.cameras).toHaveLength(1);
-    expect(adapted.cameras?.[0]!.k.fx).toBe(1000);
+    expect(adapted.cameras?.[0]!.intrinsics.fx).toBe(1000);
     // Camera pinned at the rig origin (identity extrinsic).
     expect(adapted.cam_se3_rig).toEqual([
       { rotation: [0, 0, 0, 1], translation: [0, 0, 0] },
@@ -61,7 +62,7 @@ describe("adaptSceneExport", () => {
     const bare = {
       kind: "laserline_device",
       per_feature_residuals: { target: [] },
-      estimate: { params: { intrinsics: CAMERA.k, distortion: CAMERA.dist } },
+      estimate: { params: { intrinsics: K, distortion: DIST } },
     } as unknown as AnyExport;
     const adapted = adaptSceneExport(bare);
     expect(adapted.cameras).toBeUndefined();

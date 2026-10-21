@@ -10,7 +10,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use vision_calibration::rig_handeye::RigHandeyeExport;
-use vision_calibration_core::{Camera, Iso3, Pinhole, Pt2, Real};
+use vision_calibration_core::{
+    CameraModel, CameraParams, DistortionParams, Iso3, Pt2, Real, SensorParams,
+};
 use vision_calibration_examples_private::PoseEntry;
 use vision_calibration_optim::{
     HandEyeMode, LaserPlane, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams,
@@ -32,13 +34,26 @@ pub(crate) struct ViewerExportInput<'a> {
     pub joint_est: &'a RigHandeyeLaserlineEstimate,
 }
 
-type ViewerCameraModel = Camera<
-    Real,
-    Pinhole,
-    vision_calibration_core::BrownConrady5<Real>,
-    vision_calibration_core::HomographySensor<Real>,
-    vision_calibration_core::FxFyCxCy<Real>,
->;
+type ViewerCameraModel = CameraModel;
+
+/// `[fx, fy, cx, cy]`, `[k1, k2, k3, p1, p2]` and `[tilt_x, tilt_y]` of a
+/// Brown-Conrady camera, for the viewer manifest.
+fn camera_arrays(camera: &CameraParams) -> Result<([Real; 4], [Real; 5], [Real; 2])> {
+    let k = &camera.intrinsics;
+    let DistortionParams::BrownConrady5 { params: d } = &camera.distortion else {
+        anyhow::bail!("viewer manifest expects Brown-Conrady distortion");
+    };
+    let tilt = match &camera.sensor {
+        SensorParams::Scheimpflug { params } => [params.tilt_x, params.tilt_y],
+        SensorParams::Identity => [0.0, 0.0],
+        SensorParams::Homography { .. } => anyhow::bail!("viewer manifest: unsupported sensor"),
+    };
+    Ok((
+        [k.fx, k.fy, k.cx, k.cy],
+        [d.k1, d.k2, d.k3, d.p1, d.p2],
+        tilt,
+    ))
+}
 
 struct StageBuildInput<'a> {
     id: &'a str,
@@ -71,7 +86,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         mode: input.rig_export.handeye_mode,
         robot_deltas: input.rig_export.robot_deltas.as_deref(),
         per_cam_stats: input.joint_initial_stats,
-    });
+    })?;
     let stage3 = build_stage(StageBuildInput {
         id: "stage3",
         label: "Rig laser plane fit",
@@ -82,7 +97,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         mode: input.rig_export.handeye_mode,
         robot_deltas: input.rig_export.robot_deltas.as_deref(),
         per_cam_stats: input.joint_initial_stats,
-    });
+    })?;
     let stage4 = build_stage(StageBuildInput {
         id: "stage4",
         label: "Joint rig + hand-eye + laser BA",
@@ -93,7 +108,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         mode: input.rig_export.handeye_mode,
         robot_deltas: input.joint_est.robot_deltas.as_deref(),
         per_cam_stats: &input.joint_est.per_cam_stats,
-    });
+    })?;
 
     let manifest = ViewerManifest {
         schema_version: 1,
@@ -133,30 +148,21 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
             .params
             .cameras
             .iter()
-            .zip(input.joint_est.params.sensors.iter())
             .enumerate()
-            .map(|(idx, (camera, sensor))| CameraRecord {
-                index: idx,
-                intrinsics: [
-                    camera.k.fx,
-                    camera.k.fy,
-                    camera.k.cx,
-                    camera.k.cy,
-                ],
-                distortion: [
-                    camera.dist.k1,
-                    camera.dist.k2,
-                    camera.dist.k3,
-                    camera.dist.p1,
-                    camera.dist.p2,
-                ],
-                scheimpflug: [sensor.tilt_x, sensor.tilt_y],
-                cam_se3_rig: iso_record(&input.joint_est.params.cam_to_rig[idx].inverse()),
-                cam_to_rig: iso_record(&input.joint_est.params.cam_to_rig[idx]),
-                laser_plane_camera: plane_record(&input.joint_est.params.planes_cam[idx]),
-                laser_plane_rig: plane_record(&input.joint_est.planes_rig[idx]),
+            .map(|(idx, camera)| {
+                let (intrinsics, distortion, scheimpflug) = camera_arrays(camera)?;
+                Ok(CameraRecord {
+                    index: idx,
+                    intrinsics,
+                    distortion,
+                    scheimpflug,
+                    cam_se3_rig: iso_record(&input.joint_est.params.cam_to_rig[idx].inverse()),
+                    cam_to_rig: iso_record(&input.joint_est.params.cam_to_rig[idx]),
+                    laser_plane_camera: plane_record(&input.joint_est.params.planes_cam[idx]),
+                    laser_plane_rig: plane_record(&input.joint_est.planes_rig[idx]),
+                })
             })
-            .collect(),
+            .collect::<Result<Vec<_>>>()?,
         handeye_mode: format!("{:?}", input.rig_export.handeye_mode),
         handeye: iso_record(&input.joint_est.params.handeye),
         target_ref: iso_record(&input.joint_est.params.target_ref),
@@ -186,10 +192,10 @@ fn copy_images(out_dir: &Path, data_dir: &Path, poses: &[PoseEntry]) -> Result<(
     Ok(())
 }
 
-fn build_stage(input: StageBuildInput<'_>) -> ViewerStage {
+fn build_stage(input: StageBuildInput<'_>) -> Result<ViewerStage> {
     let mut target_features = Vec::new();
     let mut laser_features = Vec::new();
-    let camera_models = camera_models(input.params);
+    let camera_models = camera_models(input.params)?;
 
     for (pose_idx, view) in input.detected.joint_views.iter().enumerate() {
         let robot_pose = if let Some(deltas) = input.robot_deltas {
@@ -258,7 +264,7 @@ fn build_stage(input: StageBuildInput<'_>) -> ViewerStage {
         }
     }
 
-    ViewerStage {
+    Ok(ViewerStage {
         id: input.id.to_string(),
         label: input.label.to_string(),
         mean_reproj_error_px: input.mean_reproj_error_px,
@@ -268,55 +274,43 @@ fn build_stage(input: StageBuildInput<'_>) -> ViewerStage {
             .map(<[[Real; 6]]>::to_vec)
             .unwrap_or_default(),
         per_camera_stats: input.per_cam_stats.to_vec(),
-        geometry: stage_geometry(input.params),
+        geometry: stage_geometry(input.params)?,
         target_features,
         laser_features,
-    }
+    })
 }
 
-fn stage_geometry(params: &RigHandeyeLaserlineParams) -> StageGeometry {
-    StageGeometry {
+fn stage_geometry(params: &RigHandeyeLaserlineParams) -> Result<StageGeometry> {
+    Ok(StageGeometry {
         handeye: iso_record(&params.handeye),
         target_ref: iso_record(&params.target_ref),
         cameras: params
             .cameras
             .iter()
-            .zip(params.sensors.iter())
             .enumerate()
-            .map(|(idx, (camera, sensor))| {
+            .map(|(idx, camera)| {
+                let (intrinsics, distortion, scheimpflug) = camera_arrays(camera)?;
                 let plane_rig = params.planes_cam[idx].transform_by(&params.cam_to_rig[idx]);
-                StageCameraRecord {
+                Ok(StageCameraRecord {
                     index: idx,
-                    intrinsics: [
-                        camera.k.fx,
-                        camera.k.fy,
-                        camera.k.cx,
-                        camera.k.cy,
-                    ],
-                    distortion: [
-                        camera.dist.k1,
-                        camera.dist.k2,
-                        camera.dist.k3,
-                        camera.dist.p1,
-                        camera.dist.p2,
-                    ],
-                    scheimpflug: [sensor.tilt_x, sensor.tilt_y],
+                    intrinsics,
+                    distortion,
+                    scheimpflug,
                     cam_se3_rig: iso_record(&params.cam_to_rig[idx].inverse()),
                     cam_to_rig: iso_record(&params.cam_to_rig[idx]),
                     laser_plane_camera: plane_record(&params.planes_cam[idx]),
                     laser_plane_rig: plane_record(&plane_rig),
-                }
+                })
             })
-            .collect(),
-    }
+            .collect::<Result<Vec<_>>>()?,
+    })
 }
 
-fn camera_models(params: &RigHandeyeLaserlineParams) -> Vec<ViewerCameraModel> {
+fn camera_models(params: &RigHandeyeLaserlineParams) -> Result<Vec<ViewerCameraModel>> {
     params
         .cameras
         .iter()
-        .zip(params.sensors.iter())
-        .map(|(camera, sensor)| Camera::new(Pinhole, camera.dist, sensor.compile(), camera.k))
+        .map(|camera| Ok(camera.build()?))
         .collect()
 }
 

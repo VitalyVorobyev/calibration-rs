@@ -1,8 +1,8 @@
 # ADR 0013: Lens and Sensor Variants Are Camera Slots, Not Workflows
 
-**Implementation in progress** (backlog API-CAM-BUILDERS and API-CAM-PIPELINE). Until those tasks
-land, the code still follows the previous design; this note goes with the
-last of them.
+**Implementation in progress** (backlog API-CAM-BUILDERS and API-CAM-PIPELINE). Planar
+intrinsics and the rig family (rig extrinsics, rig hand-eye) follow this
+design; single-camera hand-eye and the laser workflows do not yet.
 
 ## Context
 

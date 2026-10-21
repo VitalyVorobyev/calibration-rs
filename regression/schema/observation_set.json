@@ -1,47 +1,30 @@
 {
   "$defs": {
-    "BrownConrady5": {
-      "description": "Brown-Conrady 5-parameter radial-tangential distortion model.",
+    "CameraParams": {
+      "description": "Serializable camera parameters for building a runtime model.",
       "properties": {
-        "iters": {
-          "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
+        "distortion": {
+          "$ref": "#/$defs/DistortionParams",
+          "description": "Distortion model parameters."
         },
-        "k1": {
-          "description": "Radial coefficient k1.",
-          "format": "double",
-          "type": "number"
+        "intrinsics": {
+          "$ref": "#/$defs/FxFyCxCy",
+          "description": "Pinhole intrinsics (`fx, fy, cx, cy` in pixels)."
         },
-        "k2": {
-          "description": "Radial coefficient k2.",
-          "format": "double",
-          "type": "number"
+        "projection": {
+          "$ref": "#/$defs/ProjectionParams",
+          "description": "Projection model parameters."
         },
-        "k3": {
-          "description": "Radial coefficient k3.",
-          "format": "double",
-          "type": "number"
-        },
-        "p1": {
-          "description": "Tangential coefficient p1.",
-          "format": "double",
-          "type": "number"
-        },
-        "p2": {
-          "description": "Tangential coefficient p2.",
-          "format": "double",
-          "type": "number"
+        "sensor": {
+          "$ref": "#/$defs/SensorParams",
+          "description": "Sensor model parameters."
         }
       },
       "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2",
-        "iters"
+        "projection",
+        "distortion",
+        "sensor",
+        "intrinsics"
       ],
       "type": "object"
     },
@@ -89,6 +72,235 @@
         "points_2d"
       ],
       "type": "object"
+    },
+    "DistortionParams": {
+      "description": "Serializable distortion model parameters.",
+      "oneOf": [
+        {
+          "description": "No distortion.",
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady 5-parameter radial-tangential model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "brown_conrady5",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "OpenCV rational polynomial 8-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Numerator radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Numerator radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Numerator radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "k4": {
+              "description": "Denominator radial coefficient k4.",
+              "format": "double",
+              "type": "number"
+            },
+            "k5": {
+              "description": "Denominator radial coefficient k5.",
+              "format": "double",
+              "type": "number"
+            },
+            "k6": {
+              "description": "Denominator radial coefficient k6.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "rational",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "k4",
+            "k5",
+            "k6",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady + thin-prism 9-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "s1": {
+              "description": "Thin-prism coefficient s1 (x correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s2": {
+              "description": "Thin-prism coefficient s2 (x correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "s3": {
+              "description": "Thin-prism coefficient s3 (y correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s4": {
+              "description": "Thin-prism coefficient s4 (y correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "thin_prism",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fitzgibbon single-parameter division model.",
+          "properties": {
+            "lambda": {
+              "description": "Division distortion coefficient.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "division",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "lambda"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FxFyCxCy": {
       "description": "Standard pinhole intrinsics: focal lengths and principal point in pixels.\n\nThe pixel grid is assumed orthogonal, so `K` carries no skew term.",
@@ -265,6 +477,24 @@
         "views"
       ],
       "type": "object"
+    },
+    "ProjectionParams": {
+      "description": "Serializable projection model parameters.",
+      "oneOf": [
+        {
+          "description": "Classic pinhole model.",
+          "properties": {
+            "type": {
+              "const": "pinhole",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "RigDataset": {
       "description": "Multi-view dataset for a camera rig.",
@@ -448,7 +678,7 @@
       "type": "object"
     },
     "RigUpstreamCalibration": {
-      "description": "Upstream rig calibration (frozen starting point).\n\nMirrors a Scheimpflug hand-eye result's per-camera intrinsics + distortion +\nScheimpflug sensors + cam→rig poses, plus the per-view rig→target poses the\ndownstream laserline dataset spans.",
+      "description": "Upstream rig calibration (frozen starting point).\n\nMirrors a rig hand-eye result's per-camera parameters + cam→rig poses,\nplus the per-view rig→target poses the downstream laserline dataset\nspans. The laser residuals are evaluated in the Brown-Conrady model, so\neach camera has Brown-Conrady (or no) distortion and an identity or\nScheimpflug sensor.",
       "properties": {
         "cam_se3_rig": {
           "description": "Per-camera extrinsics `cam_se3_rig` (T_C_R).",
@@ -457,17 +687,10 @@
           },
           "type": "array"
         },
-        "distortion": {
-          "description": "Per-camera distortion.",
+        "cameras": {
+          "description": "Per-camera parameters, each in its camera's model.",
           "items": {
-            "$ref": "#/$defs/BrownConrady5"
-          },
-          "type": "array"
-        },
-        "intrinsics": {
-          "description": "Per-camera intrinsics.",
-          "items": {
-            "$ref": "#/$defs/FxFyCxCy"
+            "$ref": "#/$defs/CameraParams"
           },
           "type": "array"
         },
@@ -477,19 +700,10 @@
             "$ref": "#/$defs/Iso3Schema"
           },
           "type": "array"
-        },
-        "sensors": {
-          "description": "Per-camera Scheimpflug sensor parameters.",
-          "items": {
-            "$ref": "#/$defs/ScheimpflugParams"
-          },
-          "type": "array"
         }
       },
       "required": [
-        "intrinsics",
-        "distortion",
-        "sensors",
+        "cameras",
         "cam_se3_rig",
         "rig_se3_target"
       ],
@@ -567,25 +781,77 @@
       ],
       "type": "object"
     },
-    "ScheimpflugParams": {
-      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
-      "properties": {
-        "tilt_x": {
-          "description": "Tilt around X axis in radians (alias: tau_x).",
-          "format": "double",
-          "type": "number"
+    "SensorParams": {
+      "description": "Serializable sensor model parameters.",
+      "oneOf": [
+        {
+          "description": "Identity sensor model.",
+          "properties": {
+            "type": {
+              "const": "identity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
         },
-        "tilt_y": {
-          "description": "Tilt around Y axis in radians (alias: tau_y).",
-          "format": "double",
-          "type": "number"
+        {
+          "description": "Homography applied in the sensor plane.",
+          "properties": {
+            "h": {
+              "description": "Row-major homography matrix mapping normalized to sensor coordinates.",
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "homography",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "h"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Scheimpflug/tilted sensor model.",
+          "properties": {
+            "tilt_x": {
+              "description": "Tilt around X axis in radians (alias: tau_x).",
+              "format": "double",
+              "type": "number"
+            },
+            "tilt_y": {
+              "description": "Tilt around Y axis in radians (alias: tau_y).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "scheimpflug",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "tilt_x",
+            "tilt_y"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
-      "type": "object"
+      ]
     },
     "SingleCamHandeyeInput": {
       "description": "Input for single-camera hand-eye calibration.",

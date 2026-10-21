@@ -1,16 +1,16 @@
 //! End-to-end rig calibration on the 130x130 puzzleboard dataset.
 //!
 //! Drives the unified `rig_handeye::RigHandeyeProblem` with
-//! `SensorMode::Scheimpflug`. Per-camera intrinsics + distortion + tilt seeds
+//! a Scheimpflug camera model. Per-camera intrinsics + distortion + tilt seeds
 //! are supplied via `step_intrinsics_init_all_with_seed` and the
 //! `RigHandeyeIntrinsicsManualInit` struct. The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
-//! expressed via `SensorMode::Scheimpflug.distortion_mask_in_percam_ba`.
+//! expressed via `camera.fix.distortion`.
 //!
 //! Pipeline:
 //! 1. Detect 130x130 puzzleboard (1.014 mm cells) in each of the 6 per-camera
 //!    tiles for every pose.
 //! 2. Detect laser lines in double-snap poses.
-//! 3. `RigHandeyeProblem` session with `SensorMode::Scheimpflug` and EyeToHand
+//! 3. `RigHandeyeProblem` session with a Scheimpflug camera and EyeToHand
 //!    handeye mode (intrinsics → rig → hand-eye).
 //! 4. `RigLaserlineDeviceProblem` session consuming the frozen upstream rig
 //!    calibration to recover 6 laser planes in rig frame.
@@ -28,10 +28,9 @@ use std::time::Instant;
 #[path = "puzzle_130x130_rig/viewer.rs"]
 mod puzzle_viewer;
 
+use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
-    rig_handeye::{
-        RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem, SensorMode,
-    },
+    rig_handeye::{RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem},
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
         pixel_to_gripper_point,
@@ -39,8 +38,9 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FrameRef, FxFyCxCy,
-    ImageManifest, PixelRect, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind,
+    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, PixelRect, Pt2, RigDataset, RigView,
+    RigViewObs, ScheimpflugParams, SensorKind, SensorParams,
 };
 use vision_calibration_examples_private::{
     PoseEntry, detect_laser, detect_target, load_gray, load_poses, split_horizontal,
@@ -49,7 +49,7 @@ use vision_calibration_optim::{
     BackendSolveOptions, HandEyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset,
     RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
     RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
-    ScheimpflugFixMask, evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
+    evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
 };
 
 const NUM_CAMERAS: usize = 6;
@@ -143,24 +143,16 @@ fn main() -> Result<()> {
     //   sensor-mounting asymmetry that would otherwise leak into the rig.
     // - tilts are NOT re-refined in rig BA — that produced wildly
     //   inconsistent values (+13° tilt_y) without improving residuals.
-    cfg.sensor = SensorMode::Scheimpflug {
-        init_tilt_x: 0.0,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: true,
-        },
-        distortion_mask_in_percam_ba: DistortionFixMask {
-            k1: false,
-            k2: true,
-            k3: true,
-            p1: false,
-            p2: false,
-        },
-        refine_scheimpflug_in_rig_ba: false,
-        // Rig Scheimpflug bundle adjustment is Brown-Conrady-typed.
-        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
+    cfg.camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
+    cfg.camera.fix = CameraFix {
+        sensor: Some(vec!["tilt_y".to_string()]),
+        distortion: Some(vec!["k2".to_string(), "k3".to_string()]),
+        ..CameraFix::default()
     };
+    cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics_in_rig_ba = false;
     let robot_rot_sigma = cfg.handeye_ba.robot_poses.rot_sigma;
     let robot_trans_sigma = cfg.handeye_ba.robot_poses.trans_sigma;
@@ -182,10 +174,11 @@ fn main() -> Result<()> {
             "  step_intrinsics_init_all_with_seed: {:.2?}",
             step_t.elapsed()
         );
-        for (i, c) in intr_init.per_cam_intrinsics.iter().enumerate() {
+        for (i, c) in intr_init.cameras.iter().enumerate() {
+            let k = &c.intrinsics;
             println!(
                 "    [seeded] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
-                c.k.fx, c.k.fy, c.k.cx, c.k.cy
+                k.fx, k.fy, k.cx, k.cy
             );
         }
         let step_t = Instant::now();
@@ -194,22 +187,8 @@ fn main() -> Result<()> {
         for (i, e) in intr_opt.per_cam_reproj_errors.iter().enumerate() {
             println!("    cam {i} intrinsics reproj = {e:?}");
         }
-        for (i, c) in intr_opt.per_cam_intrinsics.iter().enumerate() {
-            println!(
-                "    cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
-                c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
-            );
-        }
-        if let Some(sens) = &intr_opt.per_cam_sensors {
-            for (i, s) in sens.iter().enumerate() {
-                println!(
-                    "    cam {i} tilt: tilt_x={:+.4} rad ({:+.3}°) tilt_y={:+.4} rad ({:+.3}°)",
-                    s.tilt_x,
-                    s.tilt_x.to_degrees(),
-                    s.tilt_y,
-                    s.tilt_y.to_degrees()
-                );
-            }
+        for (i, c) in intr_opt.cameras.iter().enumerate() {
+            vision_calibration_examples_private::print_rig_camera("  ", &format!("cam {i}"), c);
         }
         let step_t = Instant::now();
         let _rig_init = rh::step_rig_init(&mut rig_session)?;
@@ -228,22 +207,12 @@ fn main() -> Result<()> {
         // `rig.refine_intrinsics_in_rig_ba`); pull the current values from the
         // intrinsics-optimize result so the "after rig" line reflects the seed
         // that fed the rig stage.
-        for (i, c) in intr_opt.per_cam_intrinsics.iter().enumerate() {
-            println!(
-                "    [after rig] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
-                c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
+        for (i, c) in intr_opt.cameras.iter().enumerate() {
+            vision_calibration_examples_private::print_rig_camera(
+                "  ",
+                &format!("[after rig] cam {i}"),
+                c,
             );
-        }
-        if let Some(sens) = &intr_opt.per_cam_sensors {
-            for (i, s) in sens.iter().enumerate() {
-                println!(
-                    "    [after rig] cam {i} tilt: tilt_x={:+.4} ({:+.3}°) tilt_y={:+.4} ({:+.3}°)",
-                    s.tilt_x,
-                    s.tilt_x.to_degrees(),
-                    s.tilt_y,
-                    s.tilt_y.to_degrees()
-                );
-            }
         }
         let step_t = Instant::now();
         let _he_init = rh::step_handeye_init(&mut rig_session, None)?;
@@ -345,12 +314,9 @@ fn main() -> Result<()> {
     }
 
     // Build the upstream calibration via the unified helper.
-    // `to_upstream_calibration` errors on pinhole rigs (laserline still
-    // requires Scheimpflug sensor params); we configured Scheimpflug above so
-    // the unwrap is safe.
     let upstream = rig_export
         .to_upstream_calibration(rig_se3_target)
-        .context("rig handeye export must be Scheimpflug for laserline upstream")?;
+        .context("rig handeye export to laserline upstream")?;
     let laserline_input = RigLaserlineDeviceInput {
         dataset: laserline_dataset,
         upstream,
@@ -421,13 +387,8 @@ fn main() -> Result<()> {
     // Convert cam_se3_rig to cam_to_rig (T_rig_from_cam) for the optim block.
     let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
 
-    let scheimpflug_sensors = rig_export
-        .sensors
-        .clone()
-        .context("rig handeye export missing Scheimpflug sensors (pinhole mode?)")?;
     let joint_initial = RigHandeyeLaserlineParams {
         cameras: rig_export.cameras.clone(),
-        sensors: scheimpflug_sensors,
         cam_to_rig,
         handeye,
         target_ref,
@@ -438,25 +399,28 @@ fn main() -> Result<()> {
         &joint_dataset,
         &joint_initial,
         initial_robot_deltas.as_deref(),
-    );
+    )?;
     println!(
         "  stage 4 initial eval on canonical observations: {:.4} px",
         joint_initial_mean
     );
     print_joint_stats("initial", &joint_initial_stats);
 
-    // Fix distortion to radial-only (k1, k2); hold k3/p1/p2 at their warm-
-    // start values. Fix Scheimpflug tilts (they were converged per camera).
-    // Free everything else, except reference camera extrinsic for gauge.
-    let cam_fix = CameraFixMask {
-        intrinsics: vision_calibration_core::IntrinsicsFixMask::all_free(),
-        distortion: DistortionFixMask {
-            k1: false,
-            k2: true, // narrow FOV; keep k2 at warm-start value
-            k3: true,
-            p1: true,
-            p2: true,
-        },
+    // Fix distortion to radial-only (k1, k2) with k2 held at its warm-start
+    // value (narrow FOV); hold k3/p1/p2 too. Fix Scheimpflug tilts (they
+    // were converged per camera). Free the intrinsics, except the reference
+    // camera extrinsic for gauge.
+    let cam_fix = CameraFix {
+        intrinsics: Some(Vec::new()),
+        distortion: Some(
+            ["k2", "k3", "p1", "p2"]
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+        ),
+        // Scheimpflug tilts converge well in per-camera BA — don't refit here.
+        sensor: Some(vec!["tilt_x".to_string(), "tilt_y".to_string()]),
+        ..CameraFix::default()
     };
     let mut joint_opts = RigHandeyeLaserlineSolveOptions {
         // PointToPlane residual (meters): a 1 mm error is a 0.001 residual;
@@ -465,7 +429,7 @@ fn main() -> Result<()> {
         // LineDistNormalized is fruitful only after the joint geometry is
         // already well-conditioned (reproj < 1 px).
         laser_residual_type: LaserlineResidualType::PointToPlane,
-        fix_intrinsics: vec![cam_fix; NUM_CAMERAS],
+        fix: vec![cam_fix; NUM_CAMERAS],
         fix_extrinsics: (0..NUM_CAMERAS).map(|i| i == 0).collect(),
         ..Default::default()
     };
@@ -483,15 +447,6 @@ fn main() -> Result<()> {
     joint_opts.robot_rot_sigma = robot_rot_sigma;
     joint_opts.robot_trans_sigma = robot_trans_sigma;
     joint_opts.initial_robot_deltas = initial_robot_deltas;
-    // Scheimpflug tilts converge well in per-camera BA — don't refit here.
-    joint_opts.fix_scheimpflug = vec![
-        vision_calibration_optim::ScheimpflugFixMask {
-            tilt_x: true,
-            tilt_y: true,
-        };
-        NUM_CAMERAS
-    ];
-
     let backend_opts = BackendSolveOptions {
         max_iters: 30,
         verbosity: 1,
@@ -683,19 +638,30 @@ fn print_param_deltas(
     let mut max_plane_d = 0.0f64;
 
     for (a, b) in initial.cameras.iter().zip(final_params.cameras.iter()) {
-        max_fx = max_fx.max((a.k.fx - b.k.fx).abs().max((a.k.fy - b.k.fy).abs()));
-        max_c = max_c.max((a.k.cx - b.k.cx).abs().max((a.k.cy - b.k.cy).abs()));
-        max_dist = max_dist
-            .max((a.dist.k1 - b.dist.k1).abs())
-            .max((a.dist.k2 - b.dist.k2).abs())
-            .max((a.dist.k3 - b.dist.k3).abs())
-            .max((a.dist.p1 - b.dist.p1).abs())
-            .max((a.dist.p2 - b.dist.p2).abs());
-    }
-    for (a, b) in initial.sensors.iter().zip(final_params.sensors.iter()) {
-        max_tilt = max_tilt
-            .max((a.tilt_x - b.tilt_x).abs())
-            .max((a.tilt_y - b.tilt_y).abs());
+        let (ka, kb) = (&a.intrinsics, &b.intrinsics);
+        max_fx = max_fx.max((ka.fx - kb.fx).abs().max((ka.fy - kb.fy).abs()));
+        max_c = max_c.max((ka.cx - kb.cx).abs().max((ka.cy - kb.cy).abs()));
+        if let (
+            DistortionParams::BrownConrady5 { params: da },
+            DistortionParams::BrownConrady5 { params: db },
+        ) = (&a.distortion, &b.distortion)
+        {
+            max_dist = max_dist
+                .max((da.k1 - db.k1).abs())
+                .max((da.k2 - db.k2).abs())
+                .max((da.k3 - db.k3).abs())
+                .max((da.p1 - db.p1).abs())
+                .max((da.p2 - db.p2).abs());
+        }
+        if let (
+            SensorParams::Scheimpflug { params: ta },
+            SensorParams::Scheimpflug { params: tb },
+        ) = (&a.sensor, &b.sensor)
+        {
+            max_tilt = max_tilt
+                .max((ta.tilt_x - tb.tilt_x).abs())
+                .max((ta.tilt_y - tb.tilt_y).abs());
+        }
     }
     for (a, b) in initial
         .cam_to_rig

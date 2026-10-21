@@ -30,18 +30,13 @@ compiles against:
 | `ThinPrism9` | 9 | `[k1, k2, k3, p1, p2, s1, s2, s3, s4]` |
 | `Division1` | 1 | `[lambda]` |
 
-`BrownConrady5` is the default and the **only** model every downstream
-consumer accepts — rig bundle adjustment, hand-eye, and laserline all expect
-a `PinholeCamera` with Brown-Conrady coefficients. The extended models
-(`Rational8`, `ThinPrism9`, `Division1`) are available in planar intrinsics,
-with a straight or a tilted (Scheimpflug) sensor. An extended-model export
-is a dead end — it cannot flow into `RigExtrinsics` / `RigHandeye` /
-`LaserlineDevice`.
-
-`SensorMode::Scheimpflug` (the rig sensor flavour) also carries a
-`distortion_model` field, but `validate_config` rejects anything but
-`BrownConrady5` up front — the joint rig bundle adjustment is
-Brown-Conrady-typed throughout.
+`BrownConrady5` is the default. Planar intrinsics, rig extrinsics and rig
+hand-eye calibrate every kind (`Rational8`, `ThinPrism9`, `Division1`) with a
+straight or a tilted (Scheimpflug) sensor; a rig takes the kind per camera
+(`camera` plus `camera_overrides`). The single-camera hand-eye and laserline
+workflows, and the rig laser workflows, expect Brown-Conrady coefficients (the
+rig laser workflows also accept no distortion): an extended-model export
+cannot flow into them, and they reject it with a typed error.
 
 ### The fix lists
 
@@ -187,9 +182,9 @@ why it is not the default.
   inputs. Not accepted with a Scheimpflug sensor — the tilt is estimated
   jointly with the radial terms, so config validation rejects `None` with a
   typed error.
-- **Rig / hand-eye / laserline pipelines**: always Brown-Conrady. There is
-  no config knob to pass an extended model through — `SensorMode::Scheimpflug::distortion_model`
-  exists only for schema symmetry and is validated to `BrownConrady5`.
+- **Single-camera hand-eye and laserline pipelines**, and the rig laser
+  workflows: Brown-Conrady (rig laser also accepts no distortion). Rig
+  extrinsics and rig hand-eye take any kind through `camera.model.distortion`.
 
 ## What to read next
 

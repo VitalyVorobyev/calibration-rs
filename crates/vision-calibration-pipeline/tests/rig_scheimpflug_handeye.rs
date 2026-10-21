@@ -6,12 +6,13 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, RigDataset, RigView,
-    RigViewObs, ScheimpflugParams,
+    BrownConrady5, Camera, CameraModelSpec, CorrespondenceView, DistortionKind, FxFyCxCy, Pinhole,
+    Pt3, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind, SensorParams,
 };
 use vision_calibration_optim::RobotPoseMeta;
+use vision_calibration_pipeline::common::config::CameraConfig;
 use vision_calibration_pipeline::rig_handeye::{
-    RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem, SensorMode, run_calibration,
+    RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem, run_calibration,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 
@@ -123,14 +124,10 @@ fn scheimpflug_handeye_config() -> RigHandeyeConfig {
     // `RigHandeyeConfig` is `#[non_exhaustive]` — populate via Default + field
     // assignment from outside the crate.
     let mut cfg = RigHandeyeConfig::default();
-    cfg.sensor = SensorMode::Scheimpflug {
-        init_tilt_x: 0.0,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: Default::default(),
-        distortion_mask_in_percam_ba: vision_calibration_core::DistortionFixMask::radial_only(),
-        refine_scheimpflug_in_rig_ba: false,
-        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
-    };
+    cfg.camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
     cfg
 }
 
@@ -149,14 +146,17 @@ fn pipeline_converges_scheimpflug_rig_handeye() {
     let json = serde_json::to_string(&export).unwrap();
     let restored: RigHandeyeExport = serde_json::from_str(&json).unwrap();
     assert!(
-        restored.sensors.is_some(),
-        "Scheimpflug handeye export must carry sensors"
+        restored
+            .cameras
+            .iter()
+            .all(|c| matches!(c.sensor, SensorParams::Scheimpflug { .. })),
+        "Scheimpflug handeye export must carry each camera's tilt"
     );
 
     // Intrinsics convergence (~5% relative error).
     for (i, cam) in export.cameras.iter().enumerate() {
-        let fx_err = (cam.k.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
-        let fy_err = (cam.k.fy - intrinsics_gt.fy).abs() / intrinsics_gt.fy;
+        let fx_err = (cam.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
+        let fy_err = (cam.intrinsics.fy - intrinsics_gt.fy).abs() / intrinsics_gt.fy;
         assert!(fx_err < 0.05, "cam{i} fx error {:.3}%", fx_err * 100.0);
         assert!(fy_err < 0.05, "cam{i} fy error {:.3}%", fy_err * 100.0);
     }

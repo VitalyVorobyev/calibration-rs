@@ -21,7 +21,7 @@ use vision_calibration::optim::{
 };
 use vision_calibration::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarManualInit};
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsConfig, RigExtrinsicsInput, RigIntrinsicsManualInit, SensorMode,
+    RigExtrinsicsConfig, RigExtrinsicsInput, RigIntrinsicsManualInit,
 };
 use vision_calibration::rig_handeye::{RigHandeyeConfig, RigHandeyeInput};
 use vision_calibration::rig_handeye_laserline::{
@@ -113,7 +113,7 @@ impl fmt::Display for Problem {
     }
 }
 
-/// Sensor flavour of the scene (`SensorMode` for the rig problems).
+/// Sensor flavour of the scene (the cameras' `model.sensor`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SensorKind {
@@ -1029,15 +1029,14 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
     let mut config = RigExtrinsicsConfig::default();
     config.solver.robust_loss = b.spec.loss;
     if sensor == SensorKind::Scheimpflug {
-        config.sensor = SensorMode::Scheimpflug {
-            init_tilt_x: 0.0,
-            init_tilt_y: 0.0,
-            fix_scheimpflug: Default::default(),
-            distortion_mask_in_percam_ba: vision_calibration::core::DistortionFixMask::radial_only(
+        // Every camera tilted; the model's default fix lists hold all but
+        // the low-order radial terms.
+        config.camera = vision_calibration::common::config::CameraConfig::new(
+            vision_calibration::core::CameraModelSpec::pinhole(
+                vision_calibration::core::DistortionKind::BrownConrady5,
+                vision_calibration::core::SensorKind::Scheimpflug,
             ),
-            refine_scheimpflug_in_rig_ba: false,
-            distortion_model: vision_calibration::core::DistortionKind::BrownConrady5,
-        };
+        );
         config.solver.max_iters = 80;
     }
     // From a zero tilt the per-camera Scheimpflug init can settle in the
@@ -1169,9 +1168,17 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
     let views = rig_laser_views(b, &cameras, &layout, &planes, &rig_poses, obs)?;
     let dataset = RigLaserlineDataset::new(views, cameras.len())?;
     let upstream = RigUpstreamCalibration {
-        intrinsics: cameras.iter().map(|c| c.k).collect(),
-        distortion: cameras.iter().map(|c| c.dist).collect(),
-        sensors: vec![ScheimpflugParams::default(); cameras.len()],
+        cameras: cameras
+            .iter()
+            .map(|c| vision_calibration::core::CameraParams {
+                projection: vision_calibration::core::ProjectionParams::Pinhole,
+                distortion: vision_calibration::core::DistortionParams::BrownConrady5 {
+                    params: c.dist,
+                },
+                sensor: vision_calibration::core::SensorParams::Identity,
+                intrinsics: c.k,
+            })
+            .collect(),
         cam_se3_rig: layout,
         rig_se3_target: rig_poses,
     };

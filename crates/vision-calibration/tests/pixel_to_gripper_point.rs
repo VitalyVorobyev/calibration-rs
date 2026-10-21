@@ -6,7 +6,10 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
 use vision_calibration::{
-    core::{BrownConrady5, FxFyCxCy, Iso3, Pt2, Pt3, ScheimpflugParams, make_pinhole_camera},
+    core::{
+        BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3, ProjectionParams, Pt2, Pt3,
+        ScheimpflugParams, SensorParams,
+    },
     optim::LaserPlane,
     rig_handeye::RigHandeyeExport,
     rig_laserline_device::pixel_to_gripper_point,
@@ -31,19 +34,23 @@ fn make_eye_in_hand_export() -> RigHandeyeExport {
         p2: 0.0,
         iters: 5,
     };
-    let cam = make_pinhole_camera(intr, dist);
-    let sensor = ScheimpflugParams::default();
+    let cam = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 { params: dist },
+        sensor: SensorParams::Scheimpflug {
+            params: ScheimpflugParams::default(),
+        },
+        intrinsics: intr,
+    };
     let identity: Iso3 = Isometry3::identity();
 
     let camera_json = serde_json::to_string(&cam).unwrap();
-    let sensor_json = serde_json::to_string(&sensor).unwrap();
     let identity_json = serde_json::to_string(&identity).unwrap();
 
     let json = format!(
         r#"{{
             "kind": "rig_handeye",
             "cameras": [{camera_json}],
-            "sensors": [{sensor_json}],
             "cam_se3_rig": [{identity_json}],
             "handeye_mode": "EyeInHand",
             "gripper_se3_rig": {identity_json},
@@ -74,19 +81,23 @@ fn make_eye_to_hand_export() -> RigHandeyeExport {
         p2: 0.0,
         iters: 5,
     };
-    let cam = make_pinhole_camera(intr, dist);
-    let sensor = ScheimpflugParams::default();
+    let cam = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 { params: dist },
+        sensor: SensorParams::Scheimpflug {
+            params: ScheimpflugParams::default(),
+        },
+        intrinsics: intr,
+    };
     let identity: Iso3 = Isometry3::identity();
 
     let camera_json = serde_json::to_string(&cam).unwrap();
-    let sensor_json = serde_json::to_string(&sensor).unwrap();
     let identity_json = serde_json::to_string(&identity).unwrap();
 
     let json = format!(
         r#"{{
             "kind": "rig_handeye",
             "cameras": [{camera_json}],
-            "sensors": [{sensor_json}],
             "cam_se3_rig": [{identity_json}],
             "handeye_mode": "EyeToHand",
             "gripper_se3_rig": null,

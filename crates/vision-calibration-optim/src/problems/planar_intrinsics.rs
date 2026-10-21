@@ -11,19 +11,19 @@ use std::collections::{HashMap, HashSet};
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    Bound, CameraModelSpec, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
-    ResidualBlock, RobustLoss, SensorKind,
+    FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock, RobustLoss,
+    SensorKind,
 };
-use crate::params::distortion::{pack_distortion_params, unpack_distortion_params};
-use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
+pub use crate::params::camera::CameraBounds;
+use crate::params::camera::{CameraBlockInput, add_camera_blocks, camera_spec, unpack_camera};
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use crate::uncertainty;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModel, CameraParams, DistortionParams, FixedParams, FxFyCxCy,
-    Iso3, PinholeCamera, PlanarDataset, Real, ScheimpflugParams, SensorParams, TargetPose,
-    Uncertainty, View, compute_mean_reproj_error, make_pinhole_camera, pinhole_camera_params,
+    Iso3, PinholeCamera, PlanarDataset, Real, TargetPose, Uncertainty, View,
+    compute_mean_reproj_error, make_pinhole_camera, pinhole_camera_params,
 };
 
 /// Optimization result for planar intrinsics.
@@ -168,50 +168,6 @@ pub struct PlanarIntrinsicsEstimate {
     pub uncertainty: Uncertainty,
 }
 
-/// Optional per-parameter box bounds for a planar solve.
-///
-/// Each `Some((lower, upper))` constrains that parameter; `None` leaves it
-/// unbounded. On a tilted (Scheimpflug) sensor the bounds are the safety net
-/// that turns the cold-start runaway (`fx → 0`, `cx → -1e19`) into a finite,
-/// recoverable solve. Tilt bounds need a Scheimpflug sensor.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CameraBounds {
-    /// Bounds on `fx` (pixels).
-    pub fx: Option<(f64, f64)>,
-    /// Bounds on `fy` (pixels).
-    pub fy: Option<(f64, f64)>,
-    /// Bounds on `cx` (pixels).
-    pub cx: Option<(f64, f64)>,
-    /// Bounds on `cy` (pixels).
-    pub cy: Option<(f64, f64)>,
-    /// Bounds on `tilt_x` (radians); Scheimpflug sensor only.
-    pub tilt_x: Option<(f64, f64)>,
-    /// Bounds on `tilt_y` (radians); Scheimpflug sensor only.
-    pub tilt_y: Option<(f64, f64)>,
-}
-
-impl CameraBounds {
-    /// Per-index bounds for the `cam` block (`[fx, fy, cx, cy]`).
-    fn intrinsics_bounds(&self) -> Option<Vec<Bound>> {
-        index_bounds(&[self.fx, self.fy, self.cx, self.cy])
-    }
-
-    /// Per-index bounds for the `sensor` block (`[tilt_x, tilt_y]`).
-    fn sensor_bounds(&self) -> Option<Vec<Bound>> {
-        index_bounds(&[self.tilt_x, self.tilt_y])
-    }
-}
-
-fn index_bounds(bounds: &[Option<(f64, f64)>]) -> Option<Vec<Bound>> {
-    let v: Vec<Bound> = bounds
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, b)| b.map(|(lower, upper)| Bound { idx, lower, upper }))
-        .collect();
-    (!v.is_empty()).then_some(v)
-}
-
 /// Solve options for planar intrinsics, for any camera model.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsSolveOptions {
@@ -241,9 +197,9 @@ pub(crate) struct PlanarIrOptions<'a> {
 /// Build the backend-agnostic IR and initial values for a planar solve of
 /// `camera` (any camera model) and one pose per view.
 ///
-/// Blocks are `cam`, `dist` (when the distortion has parameters), `sensor`
-/// (when the sensor has parameters) and `pose/{i}`, in that order; the
-/// covariance labels rely on these names.
+/// Blocks are the camera's (`cam`, then `proj`, `dist` and `sensor` for the
+/// kinds that have parameters) and `pose/{i}`, in that order; the covariance
+/// labels rely on these names.
 pub(crate) fn build_planar_reprojection_ir(
     dataset: &PlanarDataset,
     camera: &CameraParams,
@@ -265,62 +221,22 @@ pub(crate) fn build_planar_reprojection_ir(
             dataset.num_views()
         )));
     }
-    let sensor_bounds = opts.bounds.and_then(CameraBounds::sensor_bounds);
-    if sensor_bounds.is_some() && model.sensor != SensorKind::Scheimpflug {
-        return Err(Error::invalid_input(format!(
-            "tilt bounds need a Scheimpflug sensor; the camera's sensor is {:?}",
-            model.sensor
-        )));
-    }
 
     let mut ir = ProblemIR::new();
     let mut initial_map: HashMap<String, DVector<f64>> = HashMap::new();
     let fixed_pose_set: HashSet<usize> = opts.fix_poses.iter().copied().collect();
 
-    let cam_id = ir.add_param_block(
-        "cam",
-        INTRINSICS_DIM,
-        ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&opts.fixed.intrinsics),
-        opts.bounds.and_then(CameraBounds::intrinsics_bounds),
-    );
-    initial_map.insert("cam".to_string(), pack_intrinsics(&camera.intrinsics));
-
-    // `dim == 0` (no distortion) emits no block; otherwise the packed vector
-    // length equals the spec's distortion dimension (IR validation guards a
-    // mismatch).
-    let dist_id = if model.distortion.dim() > 0 {
-        initial_map.insert(
-            "dist".to_string(),
-            pack_distortion_params(&camera.distortion),
-        );
-        Some(ir.add_param_block(
-            "dist",
-            model.distortion.dim(),
-            ManifoldKind::Euclidean,
-            FixedMask::fix_indices(&opts.fixed.distortion),
-            None,
-        ))
-    } else {
-        None
-    };
-
-    let sensor_id = match &camera.sensor {
-        SensorParams::Scheimpflug { params } => {
-            initial_map.insert(
-                "sensor".to_string(),
-                DVector::from_vec(vec![params.tilt_x, params.tilt_y]),
-            );
-            Some(ir.add_param_block(
-                "sensor",
-                model.sensor.dim(),
-                ManifoldKind::Euclidean,
-                FixedMask::fix_indices(&opts.fixed.sensor),
-                sensor_bounds,
-            ))
-        }
-        SensorParams::Identity | SensorParams::Homography { .. } => None,
-    };
+    let camera_blocks = add_camera_blocks(
+        &mut ir,
+        &mut initial_map,
+        &[CameraBlockInput {
+            params: camera,
+            fixed: opts.fixed,
+            bounds: opts.bounds,
+        }],
+        false,
+    )?
+    .remove(0);
 
     let mut pose_ids = Vec::with_capacity(poses.len());
     for (view_idx, pose) in poses.iter().enumerate() {
@@ -344,10 +260,6 @@ pub(crate) fn build_planar_reprojection_ir(
             .zip(view.obs.points_2d.iter())
             .enumerate()
         {
-            let mut params = vec![cam_id];
-            params.extend(dist_id);
-            params.extend(sensor_id);
-            params.push(pose_id);
             let factor = FactorKind::ReprojPoint {
                 model,
                 chain: ReprojChain::SinglePose,
@@ -356,7 +268,7 @@ pub(crate) fn build_planar_reprojection_ir(
                 w: view.obs.weight(point_idx),
             };
             ir.add_residual_block(ResidualBlock {
-                params,
+                params: camera_blocks.with(&[pose_id]),
                 loss: opts.robust_loss,
                 factor,
                 residual_dim: 2,
@@ -366,16 +278,6 @@ pub(crate) fn build_planar_reprojection_ir(
 
     ir.validate()?;
     Ok((ir, initial_map))
-}
-
-/// The spec of a planar camera; a general homography sensor has none.
-fn camera_spec(camera: &CameraParams) -> Result<CameraModelSpec, Error> {
-    camera.spec().ok_or_else(|| {
-        Error::invalid_input(
-            "planar intrinsics needs a camera model with a named sensor kind; \
-             a general homography sensor cannot be calibrated",
-        )
-    })
 }
 
 /// Build the IR of [`optimize_planar_intrinsics`] (for tests that inspect it).
@@ -432,42 +334,18 @@ pub fn optimize_planar_intrinsics(
         },
     )?;
     let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
-    let block = |name: &str| {
-        solution
-            .params
-            .get(name)
-            .ok_or_else(|| Error::numerical(format!("missing {name} solution block")))
-    };
 
-    let intrinsics = unpack_intrinsics(block("cam")?.as_view())?;
-    let distortion = if spec.distortion.dim() > 0 {
-        unpack_distortion_params(spec.distortion, block("dist")?.as_view())?
-    } else {
-        DistortionParams::None
-    };
-    let sensor = match spec.sensor {
-        SensorKind::Identity => SensorParams::Identity,
-        SensorKind::Scheimpflug => {
-            let s = block("sensor")?;
-            SensorParams::Scheimpflug {
-                params: ScheimpflugParams {
-                    tilt_x: s[0],
-                    tilt_y: s[1],
-                },
-            }
-        }
-    };
+    let camera = unpack_camera(&solution.params, spec, None)?;
     let mut poses = Vec::with_capacity(dataset.num_views());
     for i in 0..dataset.num_views() {
-        poses.push(se3_dvec_to_iso3(block(&format!("pose/{i}"))?.as_view())?);
+        let name = format!("pose/{i}");
+        let block = solution
+            .params
+            .get(&name)
+            .ok_or_else(|| Error::numerical(format!("missing {name} solution block")))?;
+        poses.push(se3_dvec_to_iso3(block.as_view())?);
     }
 
-    let camera = CameraParams {
-        projection: initial.camera.projection.clone(),
-        distortion,
-        sensor,
-        intrinsics,
-    };
     // The sensor is identity or Scheimpflug (compiled from its tilt angles),
     // both invertible by construction; only a general homography can fail.
     let camera_model = camera
@@ -481,7 +359,7 @@ pub fn optimize_planar_intrinsics(
     let labels: Vec<_> = ir
         .params
         .iter()
-        .map(|block| uncertainty::planar_block_labels(block, spec.distortion.param_names()))
+        .map(|block| uncertainty::planar_block_labels(block, spec))
         .collect();
     Ok(PlanarIntrinsicsEstimate {
         params: PlanarIntrinsicsParams::new(camera, poses)?,

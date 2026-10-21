@@ -16,7 +16,8 @@ use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use vision_calibration::core::{
-    BrownConrady5, FxFyCxCy, Iso3, Mat3, Pt2, Vec3, distort_to_pixel, pixel_to_normalized,
+    BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3, Mat3, Pt2, SensorParams, Vec3,
+    distort_to_pixel, pixel_to_normalized,
 };
 use vision_calibration::mvg::dense::{BlockMatchOptions, DisparityMap, GrayImage, match_block};
 use vision_calibration::mvg::rectification::{RectifyCamera, RectifyOptions, rectify_stereo_pair};
@@ -227,11 +228,21 @@ fn parse_camera(
         .and_then(|v| v.as_array())
         .and_then(|a| a.get(idx))
         .ok_or("camera index out of range")?;
-    let k: FxFyCxCy<f64> = serde_json::from_value(cam.get("k").ok_or("camera has no `k`")?.clone())
-        .map_err(|e| format!("camera.k decode: {e}"))?;
-    let dist: BrownConrady5<f64> =
-        serde_json::from_value(cam.get("dist").ok_or("camera has no `dist`")?.clone())
-            .map_err(|e| format!("camera.dist decode: {e}"))?;
+    let params: CameraParams =
+        serde_json::from_value(cam.clone()).map_err(|e| format!("camera decode: {e}"))?;
+    // Stereo rectification here is a pinhole + Brown-Conrady pipeline; a tilted
+    // sensor or another lens model would be silently mis-rectified, so refuse it.
+    if !matches!(params.sensor, SensorParams::Identity) {
+        return Err(format!(
+            "camera {idx} has a tilted sensor; depth needs untilted cameras"
+        ));
+    }
+    let DistortionParams::BrownConrady5 { params: dist } = params.distortion else {
+        return Err(format!(
+            "camera {idx} does not use Brown-Conrady distortion; depth supports only that model"
+        ));
+    };
+    let k: FxFyCxCy<f64> = params.intrinsics;
     // Distortion coefficients are in normalized coordinates, so they survive the
     // image downscale unchanged; only K scales.
     let mat = Matrix3::new(

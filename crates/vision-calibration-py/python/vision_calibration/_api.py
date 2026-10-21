@@ -301,8 +301,7 @@ def pixel_to_gripper_point(
     rig_cal:
         Rig hand-eye calibration result — either a typed
         :class:`~vision_calibration.models.RigHandeyeResult` or
-        a raw serde payload dict. Must be a Scheimpflug rig (``sensors``
-        field populated); pinhole rigs are not yet supported.
+        a raw serde payload dict.
     laser_planes_rig:
         Per-camera laser planes in rig frame — either typed
         :class:`~vision_calibration.models.LaserlinePlane` instances or

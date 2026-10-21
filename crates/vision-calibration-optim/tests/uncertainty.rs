@@ -13,7 +13,7 @@ use vision_calibration_core::{
     BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionParams, FxFyCxCy,
     Iso3, NoMeta, ParameterCovariance, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3,
     RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams, Uncertainty, Vec2, View,
-    make_pinhole_camera,
+    make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
@@ -131,9 +131,12 @@ fn pose_coordinate(truth: &Iso3, estimate: &Iso3, coordinate: &str) -> f64 {
 }
 
 /// The error of a labelled pinhole-camera parameter.
-fn camera_error(truth: &PinholeCamera, estimate: &PinholeCamera, label: &str) -> f64 {
-    let (k, kt) = (&estimate.k, &truth.k);
-    let (d, dt) = (&estimate.dist, &truth.dist);
+fn camera_error(truth: &PinholeCamera, estimate: &CameraParams, label: &str) -> f64 {
+    let DistortionParams::BrownConrady5 { params: d } = &estimate.distortion else {
+        panic!("the estimate lost its Brown-Conrady model");
+    };
+    let (k, kt) = (&estimate.intrinsics, &truth.k);
+    let dt = &truth.dist;
     match label {
         "fx" => k.fx - kt.fx,
         "fy" => k.fy - kt.fy,
@@ -473,7 +476,7 @@ fn rig_extrinsics_covariance_matches_monte_carlo() {
     ];
     let rig_se3_target = board_poses();
     let initial = RigExtrinsicsParams {
-        cameras: cameras.to_vec(),
+        cameras: cameras.iter().map(pinhole_camera_params).collect(),
         cam_to_rig: rig_se3_cam.to_vec(),
         rig_from_target: rig_se3_target.clone(),
     };
@@ -566,7 +569,7 @@ impl EyeInHand {
 
     fn initial(&self) -> HandEyeParams {
         HandEyeParams {
-            cameras: vec![self.camera.clone()],
+            cameras: vec![pinhole_camera_params(&self.camera)],
             cam_to_rig: vec![Iso3::identity()],
             handeye: self.gripper_se3_camera,
             target_poses: vec![self.base_se3_target],
@@ -745,7 +748,11 @@ fn laserline_value(params: &LaserlineParams, label: &str) -> f64 {
         "plane.ny" => n.y,
         "plane.nz" => n.z,
         "plane.d" => params.plane.distance,
-        camera_label => camera_error(&pinhole_truth(0.0, 0.0), &camera, camera_label),
+        camera_label => camera_error(
+            &pinhole_truth(0.0, 0.0),
+            &pinhole_camera_params(&camera),
+            camera_label,
+        ),
     }
 }
 

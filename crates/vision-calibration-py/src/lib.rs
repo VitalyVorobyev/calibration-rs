@@ -279,8 +279,7 @@ fn run_rig_handeye_laserline(
 ///     Observed pixel as ``[u, v]`` (2-element list or tuple).
 /// rig_cal:
 ///     Rig hand-eye calibration export (serde-compatible with
-///     `RigHandeyeExport`). Must be a Scheimpflug rig (i.e. its `sensors` field
-///     populated); pinhole rigs are not yet supported by this helper.
+///     `RigHandeyeExport`); pinhole and Scheimpflug rigs are both supported.
 /// laser_planes_rig:
 ///     Per-camera laser planes expressed in rig frame (list of serde-compatible
 ///     `LaserPlane` objects).
@@ -297,7 +296,7 @@ fn run_rig_handeye_laserline(
 /// ------
 /// ValueError
 ///     If `cam_idx` is out of range, any payload contains non-finite values,
-///     a required argument is missing, or the rig calibration is pinhole.
+///     or a required argument is missing.
 /// RuntimeError
 ///     If undistortion fails or the ray is parallel to the laser plane.
 #[pyfunction(signature = (cam_idx, pixel, rig_cal, laser_planes_rig, base_se3_gripper=None))]

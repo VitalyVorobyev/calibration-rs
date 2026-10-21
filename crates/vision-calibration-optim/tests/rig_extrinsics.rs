@@ -8,8 +8,9 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCy, NoMeta, Pt3, Real, RigDataset, RigView,
-    RigViewObs, make_pinhole_camera,
+    BrownConrady5, CameraParams, CorrespondenceView, DistortionKind, DistortionParams, FxFyCxCy,
+    NoMeta, ProjectionParams, Pt3, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    SensorParams, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions, optimize_rig_extrinsics,
@@ -161,7 +162,7 @@ fn stereo_rig_extrinsics_converges() {
     let cameras_init = intrinsics_init
         .iter()
         .zip(&distortion_init)
-        .map(|(k, d)| make_pinhole_camera(*k, *d))
+        .map(|(k, d)| pinhole_camera_params(&make_pinhole_camera(*k, *d)))
         .collect::<Vec<_>>();
 
     let initial = RigExtrinsicsParams {
@@ -191,7 +192,7 @@ fn stereo_rig_extrinsics_converges() {
 
     // Verify per-camera intrinsics and distortion convergence
     for (cam_idx, camera) in result.params.cameras.iter().enumerate() {
-        let intr_final = camera.k;
+        let intr_final = camera.intrinsics;
         let fx_error = (intr_final.fx - intrinsics_gt.fx).abs();
         let fy_error = (intr_final.fy - intrinsics_gt.fy).abs();
         let cx_error = (intr_final.cx - intrinsics_gt.cx).abs();
@@ -228,7 +229,9 @@ fn stereo_rig_extrinsics_converges() {
         );
 
         // Verify distortion convergence
-        let dist_final = camera.dist;
+        let DistortionParams::BrownConrady5 { params: dist_final } = camera.distortion else {
+            panic!("camera {cam_idx} lost its Brown-Conrady model");
+        };
         let k1_error = (dist_final.k1 - distortion_gt.k1).abs();
         let k2_error = (dist_final.k2 - distortion_gt.k2).abs();
         let p1_error = (dist_final.p1 - distortion_gt.p1).abs();
@@ -287,4 +290,187 @@ fn stereo_rig_extrinsics_converges() {
 
     println!("✓ Stereo rig extrinsics converged to ground truth");
     println!("  Final cost: {:.6e}", result.report.final_cost);
+}
+
+/// Distortion of each kind with small, physically plausible coefficients.
+fn distortion_of(kind: DistortionKind) -> DistortionParams {
+    use vision_calibration_core::{RationalPolynomial, ThinPrism};
+    match kind {
+        DistortionKind::None => DistortionParams::None,
+        DistortionKind::BrownConrady5 => DistortionParams::BrownConrady5 {
+            params: BrownConrady5 {
+                k1: -0.12,
+                k2: 0.03,
+                k3: 0.0,
+                p1: 0.0004,
+                p2: -0.0003,
+                iters: 8,
+            },
+        },
+        DistortionKind::Rational8 => DistortionParams::Rational {
+            params: RationalPolynomial {
+                k1: -0.12,
+                k2: 0.03,
+                k3: 0.0,
+                k4: 0.0,
+                k5: 0.0,
+                k6: 0.0,
+                p1: 0.0004,
+                p2: -0.0003,
+                iters: 8,
+            },
+        },
+        DistortionKind::ThinPrism9 => DistortionParams::ThinPrism {
+            params: ThinPrism {
+                k1: -0.12,
+                k2: 0.03,
+                k3: 0.0,
+                p1: 0.0004,
+                p2: -0.0003,
+                s1: 0.0,
+                s2: 0.0,
+                s3: 0.0,
+                s4: 0.0,
+                iters: 8,
+            },
+        },
+        DistortionKind::Division1 => DistortionParams::Division { lambda: -0.1 },
+    }
+}
+
+/// Every distortion kind with both sensors: camera 0 untilted, camera 1 with
+/// the sensor under test. Noise-free data and a perturbed start; the solve
+/// must reach the noise floor and recover camera 1's pose.
+#[test]
+fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
+    let kinds = [
+        DistortionKind::None,
+        DistortionKind::BrownConrady5,
+        DistortionKind::Rational8,
+        DistortionKind::ThinPrism9,
+        DistortionKind::Division1,
+    ];
+    let tilted = SensorParams::Scheimpflug {
+        params: ScheimpflugParams {
+            tilt_x: 0.05,
+            tilt_y: -0.03,
+        },
+    };
+    for kind in kinds {
+        for sensor in [SensorParams::Identity, tilted.clone()] {
+            let camera = |sensor: SensorParams, k: FxFyCxCy<Real>| CameraParams {
+                projection: ProjectionParams::Pinhole,
+                distortion: distortion_of(kind),
+                sensor,
+                intrinsics: k,
+            };
+            let k = FxFyCxCy {
+                fx: 800.0,
+                fy: 790.0,
+                cx: 640.0,
+                cy: 360.0,
+            };
+            let truth = [camera(SensorParams::Identity, k), camera(sensor.clone(), k)];
+            let models: Vec<_> = truth.iter().map(|c| c.build().unwrap()).collect();
+            let cam1_to_rig = Isometry3::from_parts(
+                Translation3::new(0.12, 0.01, 0.0),
+                Rotation3::from_euler_angles(0.0, 0.05, 0.02).into(),
+            );
+            let cam_to_rig = [Isometry3::identity(), cam1_to_rig];
+            let rig_from_target: Vec<_> = (0..6)
+                .map(|i| {
+                    let a = i as Real * 0.07;
+                    Isometry3::from_parts(
+                        Translation3::new(-0.1 + 0.04 * i as Real, 0.05 * a.sin(), 0.9),
+                        Rotation3::from_euler_angles(0.15 * a.cos(), -0.1 + a * 0.3, 0.1 * a)
+                            .into(),
+                    )
+                })
+                .collect();
+            let views: Vec<RigView<NoMeta>> = rig_from_target
+                .iter()
+                .map(|pose| {
+                    let cameras = (0..2)
+                        .map(|c| {
+                            let (mut p3, mut p2) = (Vec::new(), Vec::new());
+                            for y in -3..=3 {
+                                for x in -4..=4 {
+                                    let pw = Pt3::new(x as Real * 0.03, y as Real * 0.03, 0.0);
+                                    let p_cam = cam_to_rig[c]
+                                        .inverse_transform_point(&pose.transform_point(&pw));
+                                    if let Some(px) = models[c].project_point(&p_cam) {
+                                        p3.push(pw);
+                                        p2.push(px);
+                                    }
+                                }
+                            }
+                            Some(CorrespondenceView::new(p3, p2).unwrap())
+                        })
+                        .collect();
+                    RigView {
+                        meta: NoMeta,
+                        obs: RigViewObs { cameras },
+                    }
+                })
+                .collect();
+            let dataset = RigDataset::new(views, 2).unwrap();
+
+            let k_init = FxFyCxCy {
+                fx: 808.0,
+                fy: 784.0,
+                cx: 644.0,
+                cy: 357.0,
+            };
+            let initial = RigExtrinsicsParams {
+                cameras: vec![
+                    camera(SensorParams::Identity, k_init),
+                    camera(sensor.clone(), k_init),
+                ],
+                cam_to_rig: vec![
+                    Isometry3::identity(),
+                    Isometry3::from_parts(
+                        Translation3::new(0.115, 0.012, 0.003),
+                        Rotation3::from_euler_angles(0.004, 0.046, 0.018).into(),
+                    ),
+                ],
+                rig_from_target: rig_from_target.clone(),
+            };
+            let opts = RigExtrinsicsSolveOptions {
+                fix_extrinsics: vec![true, false],
+                ..Default::default()
+            };
+            let backend_opts = BackendSolveOptions {
+                max_iters: 100,
+                min_abs_decrease: Some(1e-14),
+                min_rel_decrease: Some(1e-14),
+                min_error: Some(1e-16),
+                ..Default::default()
+            };
+            let result = optimize_rig_extrinsics(dataset, initial, opts, backend_opts)
+                .unwrap_or_else(|e| panic!("{kind:?}/{sensor:?}: {e}"));
+            assert!(
+                result.mean_reproj_error < 1e-6,
+                "{kind:?}/{sensor:?}: reprojection {} px",
+                result.mean_reproj_error
+            );
+            for (c, (cam, gt)) in result.params.cameras.iter().zip(&truth).enumerate() {
+                assert_eq!(
+                    cam.spec(),
+                    gt.spec(),
+                    "{kind:?}/{sensor:?}: camera {c} model"
+                );
+                // A tilt trades off slightly against the focal length over
+                // six views, so the focal length is checked to 0.1 %.
+                let err = (cam.intrinsics.fx - gt.intrinsics.fx).abs() / gt.intrinsics.fx;
+                assert!(
+                    err < 1e-3,
+                    "{kind:?}/{sensor:?}: camera {c} fx rel err {err}"
+                );
+            }
+            let dt = (result.params.cam_to_rig[1].translation.vector
+                - cam1_to_rig.translation.vector)
+                .norm();
+            assert!(dt < 1e-3, "{kind:?}/{sensor:?}: cam1 translation err {dt}");
+        }
+    }
 }

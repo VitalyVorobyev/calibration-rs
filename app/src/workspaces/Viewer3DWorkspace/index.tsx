@@ -18,7 +18,7 @@ import {
 import { adaptSceneExport } from "../../lib/sceneExport";
 import { useStore } from "../../store";
 import { exportKindLabel } from "../../store/exportKind";
-import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
+import type { Iso3Wire, CameraWire } from "../../store/types";
 import type { FrameKey } from "../../types";
 import { Scene } from "./Scene";
 
@@ -199,7 +199,7 @@ export function Viewer3DWorkspace() {
 
 interface CameraIntrinsicsPanelProps {
   cameraIndex: number;
-  camera: PinholeCameraWire | undefined;
+  camera: CameraWire | undefined;
 }
 
 function CameraIntrinsicsPanel({ cameraIndex, camera }: CameraIntrinsicsPanelProps) {
@@ -214,28 +214,39 @@ function CameraIntrinsicsPanel({ cameraIndex, camera }: CameraIntrinsicsPanelPro
             intrinsics
           </div>
           <span className="text-fg-muted">fx</span>
-          <span>{camera.k.fx.toFixed(2)} px</span>
+          <span>{camera.intrinsics.fx.toFixed(2)} px</span>
           <span className="text-fg-muted">fy</span>
-          <span>{camera.k.fy.toFixed(2)} px</span>
+          <span>{camera.intrinsics.fy.toFixed(2)} px</span>
           <span className="text-fg-muted">cx</span>
-          <span>{camera.k.cx.toFixed(2)} px</span>
+          <span>{camera.intrinsics.cx.toFixed(2)} px</span>
           <span className="text-fg-muted">cy</span>
-          <span>{camera.k.cy.toFixed(2)} px</span>
-          {camera.dist && (
+          <span>{camera.intrinsics.cy.toFixed(2)} px</span>
+          {camera.sensor.type === "scheimpflug" && (
+            <>
+              <div className="col-span-2 mt-2 text-[10px] uppercase tracking-wider text-fg-muted">
+                sensor tilt (Scheimpflug)
+              </div>
+              <span className="text-fg-muted">tilt x</span>
+              <span>{camera.sensor.tilt_x.toFixed(5)} rad</span>
+              <span className="text-fg-muted">tilt y</span>
+              <span>{camera.sensor.tilt_y.toFixed(5)} rad</span>
+            </>
+          )}
+          {camera.distortion.type === "brown_conrady5" && (
             <>
               <div className="col-span-2 mt-2 text-[10px] uppercase tracking-wider text-fg-muted">
                 distortion (Brown-Conrady)
               </div>
               <span className="text-fg-muted">k1</span>
-              <span>{camera.dist.k1.toFixed(5)}</span>
+              <span>{camera.distortion.k1.toFixed(5)}</span>
               <span className="text-fg-muted">k2</span>
-              <span>{camera.dist.k2.toFixed(5)}</span>
+              <span>{camera.distortion.k2.toFixed(5)}</span>
               <span className="text-fg-muted">p1</span>
-              <span>{camera.dist.p1.toFixed(5)}</span>
+              <span>{camera.distortion.p1.toFixed(5)}</span>
               <span className="text-fg-muted">p2</span>
-              <span>{camera.dist.p2.toFixed(5)}</span>
+              <span>{camera.distortion.p2.toFixed(5)}</span>
               <span className="text-fg-muted">k3</span>
-              <span>{camera.dist.k3.toFixed(5)}</span>
+              <span>{camera.distortion.k3.toFixed(5)}</span>
             </>
           )}
         </div>

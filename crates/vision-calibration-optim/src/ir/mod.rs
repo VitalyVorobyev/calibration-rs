@@ -7,6 +7,6 @@ pub use types::{
     ManifoldKind, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 
-pub(crate) use types::{CameraSpecLayout, ParamBlock};
 #[cfg(test)]
-pub use types::{ParamId, ParamSlotSpec};
+pub use types::ParamSlotSpec;
+pub(crate) use types::{CameraSpecLayout, ParamBlock, ParamId};

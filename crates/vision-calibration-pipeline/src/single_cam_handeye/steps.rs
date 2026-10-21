@@ -30,8 +30,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PinholeCamera,
-    PlanarDataset, Real, RigView, RigViewObs, View, make_pinhole_camera,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PinholeCamera, PlanarDataset, Real,
+    RigView, RigViewObs, View, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_linear::prelude::*;
@@ -677,7 +677,7 @@ pub fn step_handeye_optimize(
 
     // Build initial params
     let initial = HandEyeParams {
-        cameras: vec![camera],
+        cameras: vec![pinhole_camera_params(&camera)],
         cam_to_rig: vec![Iso3::identity()], // Single cam = rig frame
         handeye,
         target_poses: vec![target_pose],
@@ -686,8 +686,8 @@ pub fn step_handeye_optimize(
     // Configure solve options
     let solve_opts = HandEyeSolveOptions {
         robust_loss: config.solver.robust_loss,
-        default_fix: CameraFixMask::default(),
-        camera_overrides: Vec::new(),
+        // The model's default: k3 held.
+        fix: Vec::new(),
         fix_extrinsics: vec![true], // Fix cam_to_rig for single camera
         fix_handeye: false,
         fix_target_poses: Vec::new(),

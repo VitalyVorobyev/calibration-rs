@@ -64,7 +64,10 @@
 //! - Rig extrinsics: NOT re-refined in hand-eye BA (set `handeye_ba.refine_cam_se3_rig: true` to enable)
 //! - Robot pose refinement: enabled with 0.5° rotation prior and 1mm translation prior
 //! - Single fixed target pose (not per-view)
-//! - k3 distortion fixed by default
+//! - Every camera has the model of `camera` (pinhole, Brown-Conrady, untilted
+//!   sensor by default) unless `camera_overrides` names it; each keeps its
+//!   model's default fix lists (`k3` for Brown-Conrady) unless `fix` says
+//!   otherwise
 
 mod problem;
 mod state;
@@ -73,7 +76,7 @@ mod steps;
 // Re-export types
 pub use problem::{
     HandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput,
-    RigHandeyeIntrinsicsManualInit, RigHandeyeOutput, RigHandeyeProblem, SensorMode,
+    RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
 };
 pub use steps::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
@@ -84,3 +87,5 @@ pub use steps::{
     step_handeye_optimize, step_intrinsics_init_all, step_intrinsics_init_all_with_seed,
     step_intrinsics_optimize_all, step_rig_init, step_rig_init_with_seed, step_rig_optimize,
 };
+/// The hand-eye bundle adjustment's estimate, the problem's output.
+pub use vision_calibration_optim::{HandEyeEstimate, HandEyeParams};

@@ -17,13 +17,14 @@ design separates problem definition from solver implementation using an intermed
   - `planar_intrinsics`: single-camera intrinsics + per-view poses for any camera model,
     including a tilted (Scheimpflug) sensor, plus a staged multi-start solve for a tilted
     sensor started without a tilt estimate
-  - `rig_extrinsics`, `rig_extrinsics_scheimpflug`: multi-camera rig bundle adjustment (supports missing observations)
-  - `handeye`, `handeye_scheimpflug`: rig + robot hand-eye (eye-in-hand / eye-to-hand) with optional robot pose refinement
+  - `rig_extrinsics`: multi-camera rig bundle adjustment, any camera model per camera (supports missing observations)
+  - `handeye`: rig + robot hand-eye (eye-in-hand / eye-to-hand), any camera model per camera, with optional robot pose refinement
   - `laserline_bundle`, `laserline_rig_bundle`: laser plane refinement (single camera / rig)
   - `rig_handeye_laserline_bundle`: joint rig + hand-eye + laser plane
 - **Named parameter fixing**: a `CameraFix` lists the parameters held fixed per camera slot
-  (`intrinsics`, `distortion`, `sensor`), validated against the camera model; the multi-camera
-  problems still take `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask` (+ per-camera overrides)
+  (`intrinsics`, `distortion`, `sensor`), validated against the camera model; the rig extrinsics and
+  hand-eye problems take one `CameraFix` per camera, and the laser bundles still take
+  `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask`
 - **Robust loss functions** (`None`, `Huber`, `Cauchy`, `Arctan`)
 - **Manifold-aware optimization** for SE(3) parameters
 

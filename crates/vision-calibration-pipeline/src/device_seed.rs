@@ -101,8 +101,9 @@ pub fn scheimpflug_seed(
 /// Per-camera intrinsics + sensor seeds for a rig hand-eye session, in the
 /// caller's `camera_ids` order.
 ///
-/// `per_cam_sensors` is always populated (identity tilt for frontal
-/// cameras); it is ignored by the pipeline under `SensorMode::Pinhole`.
+/// `per_cam_sensors` is always populated (zero tilt for frontal cameras):
+/// it seeds the tilt of each camera whose model has a Scheimpflug sensor,
+/// and an untilted camera accepts its zero tilt.
 /// `per_cam_distortion` stays `None` (auto).
 pub fn rig_intrinsics_seed(
     spec: &DeviceSpec,

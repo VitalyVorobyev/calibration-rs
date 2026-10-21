@@ -1,10 +1,11 @@
 //! Hand-eye calibration for robot-mounted cameras.
 //!
 //! Default optimization state (fixed target):
-//! - per-camera intrinsics and distortion
+//! - per-camera camera parameters, each camera in its own model (any
+//!   distortion kind, an identity or Scheimpflug sensor)
 //! - per-camera extrinsics (camera-to-rig)
-//! - hand-eye transform (mode-dependent; see `HandEyeInit::handeye`)
-//! - fixed target pose (mode-dependent; see `HandEyeInit::target_poses`)
+//! - hand-eye transform (mode-dependent; see [`HandEyeParams::handeye`])
+//! - fixed target pose (mode-dependent; see [`HandEyeParams::target_poses`])
 //! - optional per-view robot pose corrections delta_i in se(3), with zero-mean priors
 //!
 //! Transform chain (eye-in-hand):
@@ -22,20 +23,22 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
-use crate::ir::SensorKind;
 use crate::ir::{
-    CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR,
-    ReprojChain, ResidualBlock, RobustLoss,
+    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    RobustLoss,
 };
-use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
-use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
+use crate::params::camera::{CameraBlockInput, add_camera_blocks, unpack_camera};
 use crate::params::pose_se3::iso3_to_se3_dvec;
+use crate::problems::rig_extrinsics::{
+    ReprojectionSums, camera_models, resolve_camera_fix, solved_pose,
+};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    CameraFixMask, Iso3, PinholeCamera, Real, RigDataset, RigView, Uncertainty, make_pinhole_camera,
+    CameraFix, CameraModelSpec, CameraParams, FixedParams, Iso3, Real, RigDataset, RigView,
+    Uncertainty,
 };
 
 /// Per-view robot metadata required by hand-eye calibration.
@@ -94,15 +97,15 @@ impl HandEyeDataset {
 
 /// Initial values for hand-eye calibration.
 ///
-/// - `cam_to_rig`: camera pose in the rig frame (`T_C_R`)
+/// - `cam_to_rig`: camera pose in the rig frame (`T_R_C`)
 /// - `handeye`:
 ///   - `EyeInHand`: gripper pose in the rig frame (`T_G_R`)
 ///   - `EyeToHand`: rig pose in the base frame (`T_R_B`)
 /// - `target_poses`: fixed target pose(s) depending on the selected mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeParams {
-    /// Per-camera intrinsics and distortion.
-    pub cameras: Vec<PinholeCamera>,
+    /// Per-camera camera parameters, each in its own model.
+    pub cameras: Vec<CameraParams>,
     /// Per-camera extrinsics (camera-to-rig transforms).
     pub cam_to_rig: Vec<Iso3>,
     /// Hand-eye transform (mode-dependent).
@@ -125,10 +128,11 @@ pub struct HandEyeSolveOptions {
     /// Robust loss applied to reprojection residuals.
     pub robust_loss: RobustLoss,
 
-    /// Default mask for fixing camera parameters (applied to all cameras).
-    pub default_fix: CameraFixMask,
-    /// Optional per-camera overrides (None = use default_fix).
-    pub camera_overrides: Vec<Option<CameraFixMask>>,
+    /// Camera parameters held fixed, one entry per camera, each resolved
+    /// against that camera's model. Empty holds every camera's model
+    /// defaults (`k3` for Brown-Conrady; everything but the low-order radial
+    /// terms under a Scheimpflug sensor).
+    pub fix: Vec<CameraFix>,
     /// Per-camera extrinsics masking (length must match num_cameras).
     pub fix_extrinsics: Vec<bool>,
     /// Fix hand-eye transform (for testing with known hand-eye).
@@ -151,8 +155,7 @@ impl Default for HandEyeSolveOptions {
     fn default() -> Self {
         Self {
             robust_loss: RobustLoss::None,
-            default_fix: CameraFixMask::default(), // k3 fixed by default
-            camera_overrides: Vec::new(),
+            fix: Vec::new(),
             fix_extrinsics: Vec::new(),
             fix_handeye: false,
             fix_target_poses: Vec::new(),
@@ -251,74 +254,50 @@ pub fn handeye_observer_se3_target(
 
 /// Optimize hand-eye calibration using specified backend.
 ///
+/// Each camera keeps its own model, and `opts.fix` is resolved against it.
+///
 /// # Errors
 ///
-/// Returns [`Error`] if IR construction or solver backend fails.
+/// - [`Error::InvalidInput`] when a camera has a general homography sensor,
+///   `opts.fix` names a parameter a camera's model does not have or has the
+///   wrong length, or the parameter counts do not match the dataset.
+/// - Any IR construction or solver backend failure.
 pub fn optimize_handeye(
     dataset: HandEyeDataset,
     initial: HandEyeParams,
     opts: HandEyeSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<HandEyeEstimate, Error> {
-    let (ir, initial_map) = build_handeye_ir(&dataset, &initial, &opts)?;
+    let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
+    let (ir, initial_map) = build_handeye_ir(&dataset, &initial, &specs, &fixed, &opts)?;
     let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
 
-    // Extract per-camera calibrated parameters
-    let cameras = (0..dataset.data.num_cameras)
-        .map(|cam_idx| {
-            let intrinsics = unpack_intrinsics(
-                solution
-                    .params
-                    .get(&format!("cam/{}", cam_idx))
-                    .unwrap()
-                    .as_view(),
-            )?;
-            let distortion = unpack_distortion(
-                solution
-                    .params
-                    .get(&format!("dist/{}", cam_idx))
-                    .unwrap()
-                    .as_view(),
-            )?;
-            Ok(make_pinhole_camera(intrinsics, distortion))
-        })
+    let cameras = specs
+        .iter()
+        .enumerate()
+        .map(|(i, spec)| unpack_camera(&solution.params, *spec, Some(i)))
         .collect::<Result<Vec<_>, Error>>()?;
-
-    // Extract extrinsics
     let cam_to_rig = (0..dataset.data.num_cameras)
-        .map(|i| {
-            let key = format!("extr/{}", i);
-            crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
-        })
+        .map(|i| solved_pose(&solution.params, &format!("extr/{i}")))
         .collect::<Result<Vec<_>, Error>>()?;
+    let handeye = solved_pose(&solution.params, "handeye")?;
 
-    // Extract hand-eye transform
-    let handeye = crate::params::pose_se3::se3_dvec_to_iso3(
-        solution.params.get("handeye").unwrap().as_view(),
-    )?;
-
-    // Extract target poses
     let target_poses = if opts.relax_target_poses {
         (0..dataset.num_views())
-            .map(|i| {
-                let key = format!("target/{}", i);
-                crate::params::pose_se3::se3_dvec_to_iso3(
-                    solution.params.get(&key).unwrap().as_view(),
-                )
-            })
+            .map(|i| solved_pose(&solution.params, &format!("target/{i}")))
             .collect::<Result<Vec<_>, Error>>()?
     } else {
-        let target_pose = crate::params::pose_se3::se3_dvec_to_iso3(
-            solution.params.get("target").unwrap().as_view(),
-        )?;
-        vec![target_pose; dataset.num_views()]
+        vec![solved_pose(&solution.params, "target")?; dataset.num_views()]
     };
 
     let robot_deltas = if opts.refine_robot_poses {
         let mut deltas = Vec::with_capacity(dataset.num_views());
         for i in 0..dataset.num_views() {
-            let key = format!("robot_delta/{}", i);
-            let delta_vec = solution.params.get(&key).unwrap();
+            let key = format!("robot_delta/{i}");
+            let delta_vec = solution
+                .params
+                .get(&key)
+                .ok_or_else(|| Error::numerical(format!("missing {key} solution block")))?;
             deltas.push([
                 delta_vec[0],
                 delta_vec[1],
@@ -333,7 +312,6 @@ pub fn optimize_handeye(
         None
     };
 
-    // Compute reprojection error
     let params = HandEyeParams {
         cameras,
         cam_to_rig,
@@ -341,9 +319,9 @@ pub fn optimize_handeye(
         target_poses,
     };
     let (mean_reproj_error, per_cam_reproj_errors) =
-        compute_handeye_reproj_error(&dataset, &params, robot_deltas.as_ref());
+        compute_handeye_reproj_error(&dataset, &params, robot_deltas.as_deref())?;
     let labels = RigLabelling {
-        distortion: DistortionKind::BrownConrady5.param_names(),
+        cameras: &specs,
         multi_camera: dataset.data.num_cameras > 1,
         handeye_mode: Some(dataset.mode),
     }
@@ -359,112 +337,70 @@ pub fn optimize_handeye(
     })
 }
 
-/// Compute per-camera reprojection error for hand-eye calibration result.
+/// Mean reprojection error of a hand-eye result over the rig and per camera.
 ///
-/// Returns (mean_error, per_camera_errors).
+/// Points that do not project to a finite pixel are skipped; a camera without
+/// a valid point reports zero. In per-view target mode each view uses its own
+/// target pose.
 fn compute_handeye_reproj_error(
     dataset: &HandEyeDataset,
     params: &HandEyeParams,
-    robot_deltas: Option<&Vec<[Real; 6]>>,
-) -> (f64, Vec<f64>) {
-    use crate::ir::HandEyeMode;
-    use nalgebra::{UnitQuaternion, Vector3};
-
-    let num_cameras = dataset.data.num_cameras;
-    let mut per_cam_sum = vec![0.0f64; num_cameras];
-    let mut per_cam_count = vec![0usize; num_cameras];
-
-    // Precompute cam_se3_rig transforms (inverse of cam_to_rig)
+    robot_deltas: Option<&[[Real; 6]]>,
+) -> Result<(f64, Vec<f64>), Error> {
+    let models = camera_models(&params.cameras)?;
     let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
-
-    // handeye_inv = handeye^-1
     let handeye_inv = params.handeye.inverse();
-
-    // target_pose is assumed to be the first (and only) target pose for fixed-target mode
     let target_pose = params
         .target_poses
         .first()
         .cloned()
         .unwrap_or(Iso3::identity());
 
+    let mut sums = ReprojectionSums::new(dataset.data.num_cameras);
     for (view_idx, view) in dataset.data.views.iter().enumerate() {
-        let robot_pose = view.meta.base_se3_gripper;
-
-        // Apply robot delta if available
-        let robot_pose = if let Some(deltas) = robot_deltas {
-            let delta = &deltas[view_idx];
-            let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
-            let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
-            let angle = rot_vec.norm();
-            let delta_rot = if angle > 1e-12 {
-                UnitQuaternion::from_axis_angle(&nalgebra::Unit::new_normalize(rot_vec), angle)
-            } else {
-                UnitQuaternion::identity()
-            };
-            let delta_iso = Iso3::from_parts(nalgebra::Translation3::from(trans_vec), delta_rot);
-            delta_iso * robot_pose
+        let robot_pose = match robot_deltas {
+            Some(deltas) => apply_robot_delta(&view.meta.base_se3_gripper, &deltas[view_idx]),
+            None => view.meta.base_se3_gripper,
+        };
+        let view_target = if params.target_poses.len() == dataset.num_views() {
+            params.target_poses[view_idx]
         } else {
-            robot_pose
+            target_pose
         };
 
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
-            let Some(obs) = cam_obs else {
-                continue;
-            };
-            let camera = &params.cameras[cam_idx];
-
+            let Some(obs) = cam_obs else { continue };
             for (pt3, pt2) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
-                // Compute point in camera frame using hand-eye transform chain
                 let p_camera = match dataset.mode {
                     HandEyeMode::EyeInHand => {
                         // target -> base -> gripper -> rig -> camera
-                        let p_base = target_pose.transform_point(pt3);
+                        let p_base = view_target.transform_point(pt3);
                         let p_gripper = robot_pose.inverse_transform_point(&p_base);
                         let p_rig = handeye_inv.transform_point(&p_gripper);
                         cam_se3_rig[cam_idx].transform_point(&p_rig)
                     }
                     HandEyeMode::EyeToHand => {
                         // target -> gripper -> base -> rig -> camera
-                        let p_gripper = target_pose.transform_point(pt3);
+                        let p_gripper = view_target.transform_point(pt3);
                         let p_base = robot_pose.transform_point(&p_gripper);
                         let p_rig = params.handeye.transform_point(&p_base);
                         cam_se3_rig[cam_idx].transform_point(&p_rig)
                     }
                 };
-
-                // Project point
-                if let Some(proj) = camera.project_point_c(&p_camera.coords) {
-                    let err = (proj - *pt2).norm();
-                    per_cam_sum[cam_idx] += err;
-                    per_cam_count[cam_idx] += 1;
-                }
+                let error = models[cam_idx]
+                    .project_point(&p_camera)
+                    .map(|proj| (proj - *pt2).norm());
+                sums.add(cam_idx, error);
             }
         }
     }
-
-    // Compute per-camera mean errors
-    let per_cam_reproj_errors: Vec<f64> = per_cam_sum
-        .iter()
-        .zip(per_cam_count.iter())
-        .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 0.0 })
-        .collect();
-
-    // Compute overall mean
-    let total_sum: f64 = per_cam_sum.iter().sum();
-    let total_count: usize = per_cam_count.iter().sum();
-    let mean_reproj_error = if total_count > 0 {
-        total_sum / total_count as f64
-    } else {
-        0.0
-    };
-
-    (mean_reproj_error, per_cam_reproj_errors)
+    Ok(sums.means())
 }
 
 /// Build IR for hand-eye calibration.
 ///
 /// State vector:
-/// - intrinsics/distortion, extrinsics, hand-eye transform
+/// - the camera blocks, extrinsics, hand-eye transform
 /// - target pose (fixed by default, per-view in per-view target mode)
 /// - optional per-view robot pose deltas (se(3) tangent)
 ///
@@ -474,11 +410,13 @@ fn compute_handeye_reproj_error(
 fn build_handeye_ir(
     dataset: &HandEyeDataset,
     initial: &HandEyeParams,
+    specs: &[CameraModelSpec],
+    fixed: &[FixedParams],
     opts: &HandEyeSolveOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
     if initial.cameras.len() != dataset.data.num_cameras {
         return Err(Error::invalid_input(format!(
-            "intrinsics count {} != num_cameras {}",
+            "camera count {} != num_cameras {}",
             initial.cameras.len(),
             dataset.data.num_cameras
         )));
@@ -519,55 +457,20 @@ fn build_handeye_ir(
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();
 
-    // 1. Per-camera intrinsics blocks
-    let mut cam_ids = Vec::new();
-    for cam_idx in 0..dataset.data.num_cameras {
-        let cam_fix = opts
-            .camera_overrides
-            .get(cam_idx)
-            .copied()
-            .flatten()
-            .unwrap_or(opts.default_fix);
-        let fixed = cam_fix.intrinsics.to_indices();
-        let fixed_mask = FixedMask::fix_indices(&fixed);
+    // 1. Per-camera blocks, grouped by slot.
+    let inputs: Vec<CameraBlockInput<'_>> = initial
+        .cameras
+        .iter()
+        .zip(fixed)
+        .map(|(params, fixed)| CameraBlockInput {
+            params,
+            fixed,
+            bounds: None,
+        })
+        .collect();
+    let camera_blocks = add_camera_blocks(&mut ir, &mut initial_map, &inputs, true)?;
 
-        let key = format!("cam/{}", cam_idx);
-        let cam_id = ir.add_param_block(
-            &key,
-            INTRINSICS_DIM,
-            ManifoldKind::Euclidean,
-            fixed_mask,
-            None,
-        );
-        cam_ids.push(cam_id);
-        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k));
-    }
-
-    // 2. Per-camera distortion blocks
-    let mut dist_ids = Vec::new();
-    for cam_idx in 0..dataset.data.num_cameras {
-        let cam_fix = opts
-            .camera_overrides
-            .get(cam_idx)
-            .copied()
-            .flatten()
-            .unwrap_or(opts.default_fix);
-        let fixed = cam_fix.distortion.to_indices();
-        let fixed_mask = FixedMask::fix_indices(&fixed);
-
-        let key = format!("dist/{}", cam_idx);
-        let dist_id = ir.add_param_block(
-            &key,
-            DISTORTION_DIM,
-            ManifoldKind::Euclidean,
-            fixed_mask,
-            None,
-        );
-        dist_ids.push(dist_id);
-        initial_map.insert(key, pack_distortion(&initial.cameras[cam_idx].dist));
-    }
-
-    // 3. Per-camera extrinsics
+    // 2. Per-camera extrinsics
     let mut extr_ids = Vec::new();
     for cam_idx in 0..dataset.data.num_cameras {
         let fixed = if opts.fix_extrinsics.get(cam_idx).copied().unwrap_or(false) {
@@ -581,7 +484,7 @@ fn build_handeye_ir(
         initial_map.insert(key, iso3_to_se3_dvec(&initial.cam_to_rig[cam_idx]));
     }
 
-    // 4. Hand-eye transform
+    // 3. Hand-eye transform
     let handeye_fixed = if opts.fix_handeye {
         FixedMask::all_fixed(7)
     } else {
@@ -590,7 +493,7 @@ fn build_handeye_ir(
     let handeye_id = ir.add_param_block("handeye", 7, ManifoldKind::SE3, handeye_fixed, None);
     initial_map.insert("handeye".to_string(), iso3_to_se3_dvec(&initial.handeye));
 
-    // 5. Target pose (fixed by default) + residuals
+    // 4. Target pose (fixed by default) + residuals
     let target_id = if opts.relax_target_poses {
         None
     } else {
@@ -609,18 +512,19 @@ fn build_handeye_ir(
     };
 
     for (view_idx, view) in dataset.data.views.iter().enumerate() {
-        let target_id = if opts.relax_target_poses {
-            let fixed = if opts.fix_target_poses.contains(&view_idx) {
-                FixedMask::all_fixed(7)
-            } else {
-                FixedMask::all_free()
-            };
-            let key = format!("target/{}", view_idx);
-            let target_id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
-            initial_map.insert(key, iso3_to_se3_dvec(&initial.target_poses[view_idx]));
-            target_id
-        } else {
-            target_id.expect("target id should be set for fixed-target mode")
+        let target_id = match target_id {
+            Some(id) => id,
+            None => {
+                let fixed = if opts.fix_target_poses.contains(&view_idx) {
+                    FixedMask::all_fixed(7)
+                } else {
+                    FixedMask::all_free()
+                };
+                let key = format!("target/{}", view_idx);
+                let target_id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
+                initial_map.insert(key, iso3_to_se3_dvec(&initial.target_poses[view_idx]));
+                target_id
+            }
         };
 
         let robot_delta_id = if opts.refine_robot_poses {
@@ -660,62 +564,41 @@ fn build_handeye_ir(
 
         // Add residuals for each camera observation
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
-            if let Some(obs) = cam_obs {
-                for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
-                    let residual = if let Some(robot_delta_id) = robot_delta_id {
-                        ResidualBlock {
-                            params: vec![
-                                cam_ids[cam_idx],
-                                dist_ids[cam_idx],
-                                extr_ids[cam_idx],
-                                handeye_id,
-                                target_id,
-                                robot_delta_id,
-                            ],
-                            loss: opts.robust_loss,
-                            factor: FactorKind::ReprojPoint {
-                                model: CameraModelSpec::pinhole(
-                                    DistortionKind::BrownConrady5,
-                                    SensorKind::Identity,
-                                ),
-                                chain: ReprojChain::HandEyeRobotDelta {
-                                    base_se3_gripper: robot_se3_array,
-                                    mode: dataset.mode,
-                                },
-                                pw: [pw.x, pw.y, pw.z],
-                                uv: [uv.x, uv.y],
-                                w: obs.weight(pt_idx),
-                            },
-                            residual_dim: 2,
-                        }
-                    } else {
-                        ResidualBlock {
-                            params: vec![
-                                cam_ids[cam_idx],
-                                dist_ids[cam_idx],
-                                extr_ids[cam_idx],
-                                handeye_id,
-                                target_id,
-                            ],
-                            loss: opts.robust_loss,
-                            factor: FactorKind::ReprojPoint {
-                                model: CameraModelSpec::pinhole(
-                                    DistortionKind::BrownConrady5,
-                                    SensorKind::Identity,
-                                ),
-                                chain: ReprojChain::HandEye {
-                                    base_se3_gripper: robot_se3_array,
-                                    mode: dataset.mode,
-                                },
-                                pw: [pw.x, pw.y, pw.z],
-                                uv: [uv.x, uv.y],
-                                w: obs.weight(pt_idx),
-                            },
-                            residual_dim: 2,
-                        }
-                    };
-                    ir.add_residual_block(residual);
-                }
+            let Some(obs) = cam_obs else { continue };
+            let (chain_params, chain) = match robot_delta_id {
+                Some(robot_delta_id) => (
+                    camera_blocks[cam_idx].with(&[
+                        extr_ids[cam_idx],
+                        handeye_id,
+                        target_id,
+                        robot_delta_id,
+                    ]),
+                    ReprojChain::HandEyeRobotDelta {
+                        base_se3_gripper: robot_se3_array,
+                        mode: dataset.mode,
+                    },
+                ),
+                None => (
+                    camera_blocks[cam_idx].with(&[extr_ids[cam_idx], handeye_id, target_id]),
+                    ReprojChain::HandEye {
+                        base_se3_gripper: robot_se3_array,
+                        mode: dataset.mode,
+                    },
+                ),
+            };
+            for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
+                ir.add_residual_block(ResidualBlock {
+                    params: chain_params.clone(),
+                    loss: opts.robust_loss,
+                    factor: FactorKind::ReprojPoint {
+                        model: specs[cam_idx],
+                        chain,
+                        pw: [pw.x, pw.y, pw.z],
+                        uv: [uv.x, uv.y],
+                        w: obs.weight(pt_idx),
+                    },
+                    residual_dim: 2,
+                });
             }
         }
     }
@@ -729,8 +612,8 @@ mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCy, Pt2, Pt3, RigView, RigViewObs,
-        make_pinhole_camera,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, RigView, RigViewObs,
+        make_pinhole_camera, pinhole_camera_params,
     };
 
     fn make_test_camera() -> PinholeCamera {
@@ -806,13 +689,13 @@ mod tests {
 
         let dataset = HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
         let params = HandEyeParams {
-            cameras: vec![camera],
+            cameras: vec![pinhole_camera_params(&camera)],
             cam_to_rig: vec![Iso3::identity()],
             handeye,
             target_poses: vec![target_in_base],
         };
 
-        let (mean, per_cam) = compute_handeye_reproj_error(&dataset, &params, None);
+        let (mean, per_cam) = compute_handeye_reproj_error(&dataset, &params, None).unwrap();
         assert!(mean < 1e-9, "mean reproj err too large: {}", mean);
         assert!(
             per_cam[0] < 1e-9,

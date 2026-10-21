@@ -1,8 +1,7 @@
 //! Joint rig + hand-eye + laser-plane bundle adjustment.
 //!
-//! A single-cost optimization that jointly refines per-camera intrinsics,
-//! Brown-Conrady distortion, Scheimpflug sensor tilts, per-camera rig
-//! extrinsics, the hand-eye transform, a single fixed target reference pose,
+//! A single-cost optimization that jointly refines per-camera camera
+//! parameters (each camera in its own model), per-camera rig extrinsics, the hand-eye transform, a single fixed target reference pose,
 //! and per-camera laser planes (in camera frame), using **both** target
 //! corner reprojection residuals and laser-line residuals simultaneously.
 //!
@@ -20,26 +19,26 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
-    ProblemIR, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
+    FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
+    ResidualBlock, RobustLoss,
 };
-use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
-use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
+use crate::params::camera::{
+    CameraBlockInput, add_camera_blocks, camera_block_values, unpack_camera,
+};
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use crate::problems::handeye::RobotPoseMeta;
 use crate::problems::laserline_bundle::LaserlineResidualType;
 use crate::problems::laserline_rig_bundle::{RigLaserlineDataset, RigLaserlineView};
-use crate::problems::scheimpflug_intrinsics::ScheimpflugFixMask;
+use crate::problems::rig_extrinsics::{camera_models, resolve_camera_fix};
 use crate::uncertainty::{self, RigLabelling};
-use nalgebra::{DVector, DVectorView};
+use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 #[cfg(test)]
 use vision_calibration_core::UncertaintyUnavailable;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, FxFyCxCy, Iso3, Pinhole, PinholeCamera, Real,
-    ScheimpflugParams, Uncertainty, make_pinhole_camera,
+    CameraFix, CameraModelSpec, CameraParams, FixedParams, Iso3, Real, Uncertainty,
 };
 
 /// Combined rig + hand-eye + laser dataset.
@@ -147,10 +146,8 @@ impl RigHandeyeLaserlineDataset {
 /// Initial / refined parameters for joint rig + hand-eye + laser BA.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigHandeyeLaserlineParams {
-    /// Per-camera pinhole (intrinsics + distortion).
-    pub cameras: Vec<PinholeCamera>,
-    /// Per-camera Scheimpflug sensor.
-    pub sensors: Vec<ScheimpflugParams>,
+    /// Per-camera camera parameters, each in its own model.
+    pub cameras: Vec<CameraParams>,
     /// Per-camera `cam_to_rig` (T_rig_from_cam).
     pub cam_to_rig: Vec<Iso3>,
     /// Hand-eye transform.
@@ -180,12 +177,11 @@ pub struct RigHandeyeLaserlineSolveOptions {
     pub calib_weight: f64,
     /// Uniform weight for laser pixel residuals.
     pub laser_weight: f64,
-    /// Per-camera intrinsics mask (length must match `num_cameras`; empty =
-    /// all-free).
-    pub fix_intrinsics: Vec<CameraFixMask>,
-    /// Per-camera Scheimpflug mask (length must match `num_cameras`; empty =
-    /// all-free).
-    pub fix_scheimpflug: Vec<ScheimpflugFixMask>,
+    /// Camera parameters held fixed, one entry per camera, each resolved
+    /// against that camera's model. Empty holds every camera's model
+    /// defaults (`k3` for Brown-Conrady; everything but the low-order radial
+    /// terms under a Scheimpflug sensor).
+    pub fix: Vec<CameraFix>,
     /// Per-camera extrinsics fix flag. Length must match `num_cameras`. The
     /// reference camera should typically be fixed for gauge freedom.
     pub fix_extrinsics: Vec<bool>,
@@ -219,8 +215,7 @@ impl Default for RigHandeyeLaserlineSolveOptions {
             laser_loss: RobustLoss::None,
             calib_weight: 1.0,
             laser_weight: 1.0,
-            fix_intrinsics: Vec::new(),
-            fix_scheimpflug: Vec::new(),
+            fix: Vec::new(),
             fix_extrinsics: Vec::new(),
             fix_handeye: false,
             fix_target_ref: false,
@@ -284,39 +279,6 @@ pub struct RigHandeyeLaserlineEstimate {
     pub uncertainty: Uncertainty,
 }
 
-fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
-    DVector::from_row_slice(&[sensor.tilt_x, sensor.tilt_y])
-}
-
-fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
-    if values.len() != 2 {
-        return Err(Error::invalid_input(
-            "scheimpflug block must have 2 entries",
-        ));
-    }
-    Ok(ScheimpflugParams {
-        tilt_x: values[0],
-        tilt_y: values[1],
-    })
-}
-
-fn fix_scheimpflug_mask(mask: ScheimpflugFixMask) -> FixedMask {
-    let mut indices = Vec::with_capacity(2);
-    if mask.tilt_x {
-        indices.push(0);
-    }
-    if mask.tilt_y {
-        indices.push(1);
-    }
-    if indices.len() == 2 {
-        FixedMask::all_fixed(2)
-    } else if indices.is_empty() {
-        FixedMask::all_free()
-    } else {
-        FixedMask::fix_indices(&indices)
-    }
-}
-
 /// Jointly optimize rig intrinsics + extrinsics + hand-eye + per-camera laser
 /// planes against both target corner observations and laser pixel
 /// observations.
@@ -331,44 +293,21 @@ pub fn optimize_rig_handeye_laserline(
     opts: RigHandeyeLaserlineSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<RigHandeyeLaserlineEstimate, Error> {
-    let (ir, initial_map) = build_ir(&dataset, &initial, &opts)?;
+    let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
+    let (ir, initial_map) = build_ir(&dataset, &initial, &specs, &fixed, &opts)?;
     let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
     let labels = RigLabelling {
-        distortion: DistortionKind::BrownConrady5.param_names(),
+        cameras: &specs,
         multi_camera: dataset.num_cameras > 1,
         handeye_mode: Some(dataset.mode),
     }
     .labels(&ir, &solution);
 
     // Extract refined parameters.
-    let cameras = (0..dataset.num_cameras)
-        .map(|cam_idx| {
-            let intr = unpack_intrinsics(
-                solution
-                    .params
-                    .get(&format!("cam/{cam_idx}"))
-                    .unwrap()
-                    .as_view(),
-            )?;
-            let dist = unpack_distortion(
-                solution
-                    .params
-                    .get(&format!("dist/{cam_idx}"))
-                    .unwrap()
-                    .as_view(),
-            )?;
-            Ok(make_pinhole_camera(intr, dist))
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-    let sensors = (0..dataset.num_cameras)
-        .map(|cam_idx| {
-            let v = solution
-                .params
-                .get(&format!("sensor/{cam_idx}"))
-                .unwrap()
-                .as_view();
-            unpack_scheimpflug(v)
-        })
+    let cameras = specs
+        .iter()
+        .enumerate()
+        .map(|(i, spec)| unpack_camera(&solution.params, *spec, Some(i)))
         .collect::<Result<Vec<_>, Error>>()?;
     let cam_to_rig = (0..dataset.num_cameras)
         .map(|cam_idx| {
@@ -401,7 +340,6 @@ pub fn optimize_rig_handeye_laserline(
 
     let params = RigHandeyeLaserlineParams {
         cameras,
-        sensors,
         cam_to_rig,
         handeye,
         target_ref,
@@ -435,7 +373,7 @@ pub fn optimize_rig_handeye_laserline(
         .collect();
 
     let (mean_reproj_error_px, per_cam_stats) =
-        compute_stats(&dataset, &params, robot_deltas.as_deref());
+        compute_stats(&dataset, &params, robot_deltas.as_deref())?;
 
     Ok(RigHandeyeLaserlineEstimate {
         params,
@@ -454,11 +392,16 @@ pub fn optimize_rig_handeye_laserline(
 /// `robot_deltas`, when provided, must contain one tangent correction per
 /// view and uses the same left-multiply convention as the optimizer:
 /// `T_B_G_corr = exp(delta_i) * T_B_G_i`.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] when a camera has a general homography sensor,
+/// which no camera model describes.
 pub fn evaluate_rig_handeye_laserline(
     dataset: &RigHandeyeLaserlineDataset,
     params: &RigHandeyeLaserlineParams,
     robot_deltas: Option<&[[Real; 6]]>,
-) -> (f64, Vec<RigHandeyeLaserlinePerCamStats>) {
+) -> Result<(f64, Vec<RigHandeyeLaserlinePerCamStats>), Error> {
     compute_stats(dataset, params, robot_deltas)
 }
 
@@ -466,30 +409,21 @@ fn compute_stats(
     dataset: &RigHandeyeLaserlineDataset,
     params: &RigHandeyeLaserlineParams,
     robot_deltas: Option<&[[Real; 6]]>,
-) -> (f64, Vec<RigHandeyeLaserlinePerCamStats>) {
+) -> Result<(f64, Vec<RigHandeyeLaserlinePerCamStats>), Error> {
     use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
 
-    let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = params
+    let cam_models = camera_models(&params.cameras)?;
+    let specs = params
         .cameras
         .iter()
-        .zip(params.sensors.iter())
-        .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-        .collect();
+        .map(crate::params::camera::camera_spec)
+        .collect::<Result<Vec<_>, Error>>()?;
 
     let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
 
     // Pack params into DVectors (re-used across residual evals).
-    let intr_dvecs: Vec<DVector<f64>> = params
-        .cameras
-        .iter()
-        .map(|c| pack_intrinsics(&c.k))
-        .collect();
-    let dist_dvecs: Vec<DVector<f64>> = params
-        .cameras
-        .iter()
-        .map(|c| pack_distortion(&c.dist))
-        .collect();
-    let sensor_dvecs: Vec<DVector<f64>> = params.sensors.iter().map(pack_scheimpflug).collect();
+    let camera_dvecs: Vec<Vec<DVector<f64>>> =
+        params.cameras.iter().map(camera_block_values).collect();
     let extr_dvecs: Vec<DVector<f64>> = params.cam_to_rig.iter().map(iso3_to_se3_dvec).collect();
     let handeye_dv = iso3_to_se3_dvec(&params.handeye);
     let target_ref_dv = iso3_to_se3_dvec(&params.target_ref);
@@ -571,33 +505,25 @@ fn compute_stats(
                 base_se3_gripper: robot_arr,
                 mode: dataset.mode,
             };
-            let chain_params = [
-                intr_dvecs[cam_idx].clone(),
-                dist_dvecs[cam_idx].clone(),
-                sensor_dvecs[cam_idx].clone(),
+            let mut chain_params = camera_dvecs[cam_idx].clone();
+            chain_params.extend([
                 extr_dvecs[cam_idx].clone(),
                 handeye_dv.clone(),
                 target_ref_dv.clone(),
                 plane_n_dvecs[cam_idx].clone(),
                 plane_d_dvecs[cam_idx].clone(),
-            ];
+            ]);
             for px in pixels {
                 let laser_px = [px.x, px.y];
                 let r_m = laser_point_to_plane_residual(
-                    CameraModelSpec::pinhole(
-                        DistortionKind::BrownConrady5,
-                        SensorKind::Scheimpflug,
-                    ),
+                    specs[cam_idx],
                     &chain,
                     &chain_params,
                     laser_px,
                     1.0,
                 );
                 let r_px = laser_line_distance_residual(
-                    CameraModelSpec::pinhole(
-                        DistortionKind::BrownConrady5,
-                        SensorKind::Scheimpflug,
-                    ),
+                    specs[cam_idx],
                     &chain,
                     &chain_params,
                     laser_px,
@@ -659,7 +585,7 @@ fn compute_stats(
     } else {
         0.0
     };
-    (mean_reproj_error_px, per_cam_stats)
+    Ok((mean_reproj_error_px, per_cam_stats))
 }
 
 fn bucket_reproj_px(err: f64) -> usize {
@@ -708,34 +634,19 @@ fn corrected_robot_pose(robot_pose: Iso3, delta: [Real; 6]) -> Iso3 {
 fn build_ir(
     dataset: &RigHandeyeLaserlineDataset,
     initial: &RigHandeyeLaserlineParams,
+    specs: &[CameraModelSpec],
+    fixed: &[FixedParams],
     opts: &RigHandeyeLaserlineSolveOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
     let n = dataset.num_cameras;
     if initial.cameras.len() != n {
         return Err(Error::invalid_input("cameras count mismatch"));
     }
-    if initial.sensors.len() != n {
-        return Err(Error::invalid_input("sensors count mismatch"));
-    }
     if initial.cam_to_rig.len() != n {
         return Err(Error::invalid_input("cam_to_rig count mismatch"));
     }
     if initial.planes_cam.len() != n {
         return Err(Error::invalid_input("planes_cam count mismatch"));
-    }
-    if !opts.fix_intrinsics.is_empty() && opts.fix_intrinsics.len() != n {
-        return Err(Error::invalid_input(format!(
-            "fix_intrinsics length {} must be 0 or match num_cameras {}",
-            opts.fix_intrinsics.len(),
-            n
-        )));
-    }
-    if !opts.fix_scheimpflug.is_empty() && opts.fix_scheimpflug.len() != n {
-        return Err(Error::invalid_input(format!(
-            "fix_scheimpflug length {} must be 0 or match num_cameras {}",
-            opts.fix_scheimpflug.len(),
-            n
-        )));
     }
     if !opts.fix_extrinsics.is_empty() && opts.fix_extrinsics.len() != n {
         return Err(Error::invalid_input(format!(
@@ -770,52 +681,23 @@ fn build_ir(
     let mut ir = ProblemIR::new();
     let mut initial_map: HashMap<String, DVector<f64>> = HashMap::new();
 
-    let intr_mask = |cam_idx: usize| -> CameraFixMask {
-        opts.fix_intrinsics
-            .get(cam_idx)
-            .copied()
-            .unwrap_or_default()
-    };
-    let scheimpflug_mask = |cam_idx: usize| -> ScheimpflugFixMask {
-        opts.fix_scheimpflug
-            .get(cam_idx)
-            .copied()
-            .unwrap_or_default()
-    };
     let extr_fixed =
         |cam_idx: usize| -> bool { opts.fix_extrinsics.get(cam_idx).copied().unwrap_or(false) };
     let plane_fixed =
         |cam_idx: usize| -> bool { opts.fix_planes.get(cam_idx).copied().unwrap_or(false) };
 
-    // 1. Per-camera intrinsics.
-    let mut cam_ids = Vec::with_capacity(n);
-    for cam_idx in 0..n {
-        let cam_fix = intr_mask(cam_idx);
-        let fixed = FixedMask::fix_indices(&cam_fix.intrinsics.to_indices());
-        let key = format!("cam/{cam_idx}");
-        let id = ir.add_param_block(&key, INTRINSICS_DIM, ManifoldKind::Euclidean, fixed, None);
-        cam_ids.push(id);
-        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k));
-    }
-    // 2. Per-camera distortion.
-    let mut dist_ids = Vec::with_capacity(n);
-    for cam_idx in 0..n {
-        let cam_fix = intr_mask(cam_idx);
-        let fixed = FixedMask::fix_indices(&cam_fix.distortion.to_indices());
-        let key = format!("dist/{cam_idx}");
-        let id = ir.add_param_block(&key, DISTORTION_DIM, ManifoldKind::Euclidean, fixed, None);
-        dist_ids.push(id);
-        initial_map.insert(key, pack_distortion(&initial.cameras[cam_idx].dist));
-    }
-    // 3. Per-camera Scheimpflug sensor.
-    let mut sensor_ids = Vec::with_capacity(n);
-    for cam_idx in 0..n {
-        let mask = fix_scheimpflug_mask(scheimpflug_mask(cam_idx));
-        let key = format!("sensor/{cam_idx}");
-        let id = ir.add_param_block(&key, 2, ManifoldKind::Euclidean, mask, None);
-        sensor_ids.push(id);
-        initial_map.insert(key, pack_scheimpflug(&initial.sensors[cam_idx]));
-    }
+    // 1. Per-camera blocks, grouped by slot.
+    let inputs: Vec<CameraBlockInput<'_>> = initial
+        .cameras
+        .iter()
+        .zip(fixed)
+        .map(|(params, fixed)| CameraBlockInput {
+            params,
+            fixed,
+            bounds: None,
+        })
+        .collect();
+    let camera_blocks = add_camera_blocks(&mut ir, &mut initial_map, &inputs, true)?;
     // 4. Per-camera extrinsics.
     let mut extr_ids = Vec::with_capacity(n);
     for cam_idx in 0..n {
@@ -922,64 +804,41 @@ fn build_ir(
         };
 
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
-            if let Some(obs) = cam_obs {
-                for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
-                    let residual = if let Some(robot_delta_id) = robot_delta_id {
-                        ResidualBlock {
-                            params: vec![
-                                cam_ids[cam_idx],
-                                dist_ids[cam_idx],
-                                sensor_ids[cam_idx],
-                                extr_ids[cam_idx],
-                                handeye_id,
-                                target_ref_id,
-                                robot_delta_id,
-                            ],
-                            loss: opts.calib_loss,
-                            factor: FactorKind::ReprojPoint {
-                                model: CameraModelSpec::pinhole(
-                                    DistortionKind::BrownConrady5,
-                                    SensorKind::Scheimpflug,
-                                ),
-                                chain: ReprojChain::HandEyeRobotDelta {
-                                    base_se3_gripper: robot_arr,
-                                    mode: dataset.mode,
-                                },
-                                pw: [pw.x, pw.y, pw.z],
-                                uv: [uv.x, uv.y],
-                                w: obs.weight(pt_idx) * opts.calib_weight,
-                            },
-                            residual_dim: 2,
-                        }
-                    } else {
-                        ResidualBlock {
-                            params: vec![
-                                cam_ids[cam_idx],
-                                dist_ids[cam_idx],
-                                sensor_ids[cam_idx],
-                                extr_ids[cam_idx],
-                                handeye_id,
-                                target_ref_id,
-                            ],
-                            loss: opts.calib_loss,
-                            factor: FactorKind::ReprojPoint {
-                                model: CameraModelSpec::pinhole(
-                                    DistortionKind::BrownConrady5,
-                                    SensorKind::Scheimpflug,
-                                ),
-                                chain: ReprojChain::HandEye {
-                                    base_se3_gripper: robot_arr,
-                                    mode: dataset.mode,
-                                },
-                                pw: [pw.x, pw.y, pw.z],
-                                uv: [uv.x, uv.y],
-                                w: obs.weight(pt_idx) * opts.calib_weight,
-                            },
-                            residual_dim: 2,
-                        }
-                    };
-                    ir.add_residual_block(residual);
-                }
+            let Some(obs) = cam_obs else { continue };
+            let (params, chain) = match robot_delta_id {
+                Some(robot_delta_id) => (
+                    camera_blocks[cam_idx].with(&[
+                        extr_ids[cam_idx],
+                        handeye_id,
+                        target_ref_id,
+                        robot_delta_id,
+                    ]),
+                    ReprojChain::HandEyeRobotDelta {
+                        base_se3_gripper: robot_arr,
+                        mode: dataset.mode,
+                    },
+                ),
+                None => (
+                    camera_blocks[cam_idx].with(&[extr_ids[cam_idx], handeye_id, target_ref_id]),
+                    ReprojChain::HandEye {
+                        base_se3_gripper: robot_arr,
+                        mode: dataset.mode,
+                    },
+                ),
+            };
+            for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
+                ir.add_residual_block(ResidualBlock {
+                    params: params.clone(),
+                    loss: opts.calib_loss,
+                    factor: FactorKind::ReprojPoint {
+                        model: specs[cam_idx],
+                        chain,
+                        pw: [pw.x, pw.y, pw.z],
+                        uv: [uv.x, uv.y],
+                        w: obs.weight(pt_idx) * opts.calib_weight,
+                    },
+                    residual_dim: 2,
+                });
             }
         }
         for (cam_idx, pixels_slot) in view.obs.laser_pixels.iter().enumerate() {
@@ -999,20 +858,14 @@ fn build_ir(
                     };
                     let factor = match opts.laser_residual_type {
                         LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
-                            model: CameraModelSpec::pinhole(
-                                DistortionKind::BrownConrady5,
-                                SensorKind::Scheimpflug,
-                            ),
+                            model: specs[cam_idx],
                             chain,
                             laser_pixel: laser_px,
                             w: opts.laser_weight,
                         },
                         LaserlineResidualType::LineDistNormalized => {
                             FactorKind::LaserLineDistance {
-                                model: CameraModelSpec::pinhole(
-                                    DistortionKind::BrownConrady5,
-                                    SensorKind::Scheimpflug,
-                                ),
+                                model: specs[cam_idx],
                                 chain,
                                 laser_pixel: laser_px,
                                 w: opts.laser_weight,
@@ -1021,28 +874,22 @@ fn build_ir(
                     };
                     let residual = ResidualBlock {
                         params: if let Some(robot_delta_id) = robot_delta_id {
-                            vec![
-                                cam_ids[cam_idx],
-                                dist_ids[cam_idx],
-                                sensor_ids[cam_idx],
+                            camera_blocks[cam_idx].with(&[
                                 extr_ids[cam_idx],
                                 handeye_id,
                                 target_ref_id,
                                 plane_n_ids[cam_idx],
                                 plane_d_ids[cam_idx],
                                 robot_delta_id,
-                            ]
+                            ])
                         } else {
-                            vec![
-                                cam_ids[cam_idx],
-                                dist_ids[cam_idx],
-                                sensor_ids[cam_idx],
+                            camera_blocks[cam_idx].with(&[
                                 extr_ids[cam_idx],
                                 handeye_id,
                                 target_ref_id,
                                 plane_n_ids[cam_idx],
                                 plane_d_ids[cam_idx],
-                            ]
+                            ])
                         },
                         loss: opts.laser_loss,
                         factor,
@@ -1063,7 +910,8 @@ mod tests {
     use super::*;
     use nalgebra::{Isometry3, Translation3, Unit, UnitQuaternion, Vector3};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCy, Pt2, Pt3, make_pinhole_camera,
+        BrownConrady5, CorrespondenceView, DistortionParams, FxFyCxCy, ProjectionParams, Pt2, Pt3,
+        ScheimpflugParams, SensorParams,
     };
 
     fn target_points() -> Vec<Pt3> {
@@ -1109,7 +957,12 @@ mod tests {
             tilt_x: 0.05,
             tilt_y: 0.0,
         };
-        let cam_gt = make_pinhole_camera(intr_gt, dist_gt);
+        let cam_gt = CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 { params: dist_gt },
+            sensor: SensorParams::Scheimpflug { params: sensor_gt },
+            intrinsics: intr_gt,
+        };
 
         // cam_to_rig = T_R_C (forward takes cam→rig coordinates).
         let cam_to_rig_gt = vec![
@@ -1145,7 +998,6 @@ mod tests {
 
         let params_gt = RigHandeyeLaserlineParams {
             cameras: vec![cam_gt; 2],
-            sensors: vec![sensor_gt; 2],
             cam_to_rig: cam_to_rig_gt.clone(),
             handeye: handeye_gt,
             target_ref: target_ref_gt,
@@ -1155,13 +1007,7 @@ mod tests {
         // Synthesize observations using the ground-truth chain.
         let pts = target_points();
         let cam_se3_rig_gt: Vec<Iso3> = cam_to_rig_gt.iter().map(|t| t.inverse()).collect();
-        let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> =
-            params_gt
-                .cameras
-                .iter()
-                .zip(params_gt.sensors.iter())
-                .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-                .collect();
+        let cam_models = camera_models(&params_gt.cameras).unwrap();
 
         let mut dataset_views = Vec::new();
         for (view_idx, robot_pose) in views_gt.iter().enumerate() {
@@ -1278,13 +1124,21 @@ mod tests {
         // Perturb intrinsics +1%, cx,cy ±1px, tilt ±2°, extr translation +1mm,
         // handeye rotation +0.01 rad.
         for c in initial.cameras.iter_mut() {
-            c.k.fx *= 1.01;
-            c.k.fy *= 0.99;
-            c.k.cx += 1.0;
-            c.k.cy -= 1.0;
+            c.intrinsics.fx *= 1.01;
+            c.intrinsics.fy *= 0.99;
+            c.intrinsics.cx += 1.0;
+            c.intrinsics.cy -= 1.0;
         }
-        initial.sensors[0].tilt_x += 0.02;
-        initial.sensors[1].tilt_y += 0.01;
+        let tilt = |c: &mut CameraParams| match &mut c.sensor {
+            SensorParams::Scheimpflug { params } => *params,
+            _ => unreachable!("the test rig is tilted"),
+        };
+        let mut s0 = tilt(&mut initial.cameras[0]);
+        s0.tilt_x += 0.02;
+        initial.cameras[0].sensor = SensorParams::Scheimpflug { params: s0 };
+        let mut s1 = tilt(&mut initial.cameras[1]);
+        s1.tilt_y += 0.01;
+        initial.cameras[1].sensor = SensorParams::Scheimpflug { params: s1 };
         initial.cam_to_rig[1] = Isometry3::from_parts(
             initial.cam_to_rig[1].translation * Translation3::new(0.001, 0.001, 0.0),
             initial.cam_to_rig[1].rotation,
@@ -1350,13 +1204,11 @@ mod tests {
         // the solution is self-consistent. Tightening this threshold would
         // require more views / wider baseline motion.
         for (est_cam, gt_cam) in est.params.cameras.iter().zip(params_gt.cameras.iter()) {
-            let rel_err = (est_cam.k.fx - gt_cam.k.fx).abs() / gt_cam.k.fx;
+            let (est_fx, gt_fx) = (est_cam.intrinsics.fx, gt_cam.intrinsics.fx);
+            let rel_err = (est_fx - gt_fx).abs() / gt_fx;
             assert!(
                 rel_err < 0.05,
-                "fx rel error {:.3} > 5%: est {} gt {}",
-                rel_err,
-                est_cam.k.fx,
-                gt_cam.k.fx
+                "fx rel error {rel_err:.3} > 5%: est {est_fx} gt {gt_fx}"
             );
         }
     }

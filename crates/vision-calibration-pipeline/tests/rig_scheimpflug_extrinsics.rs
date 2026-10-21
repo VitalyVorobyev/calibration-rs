@@ -6,14 +6,18 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, NoMeta, Pinhole, Pt3, Real, RigDataset,
-    RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
+    BrownConrady5, Camera, CameraModelSpec, CorrespondenceView, DistortionKind, FxFyCxCy, NoMeta,
+    Pinhole, Pt3, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind,
+    SensorParams, make_pinhole_camera,
 };
 use vision_calibration_pipeline::common::CalibratedCameras;
+use vision_calibration_pipeline::common::config::{CameraConfig, CameraOverride};
 use vision_calibration_pipeline::rig_extrinsics::{
-    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem, SensorMode, run_calibration,
+    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem, run_calibration,
+    step_intrinsics_init_all,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
+use vision_calibration_pipeline::session::ProblemType;
 
 fn make_dataset() -> (
     RigDataset<NoMeta>,
@@ -117,14 +121,10 @@ fn scheimpflug_config() -> RigExtrinsicsConfig {
     // `RigExtrinsicsConfig` is `#[non_exhaustive]` — populate via Default + field
     // assignment from outside the crate.
     let mut cfg = RigExtrinsicsConfig::default();
-    cfg.sensor = SensorMode::Scheimpflug {
-        init_tilt_x: 0.0,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: Default::default(),
-        distortion_mask_in_percam_ba: vision_calibration_core::DistortionFixMask::radial_only(),
-        refine_scheimpflug_in_rig_ba: false,
-        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
-    };
+    cfg.camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
     cfg.solver.max_iters = 80;
     cfg
 }
@@ -149,15 +149,18 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
     let json = serde_json::to_string(&export).unwrap();
     let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();
     assert!(
-        restored.sensors.is_some(),
-        "Scheimpflug export must carry sensors"
+        restored
+            .cameras
+            .iter()
+            .all(|c| matches!(c.sensor, SensorParams::Scheimpflug { .. })),
+        "Scheimpflug export must carry each camera's tilt"
     );
 
     // Intrinsics convergence (~5% relative error).
     for (i, cam) in export.cameras.iter().enumerate() {
         let gt = intrinsics_gt[i];
-        let fx_err = (cam.k.fx - gt.fx).abs() / gt.fx;
-        let fy_err = (cam.k.fy - gt.fy).abs() / gt.fy;
+        let fx_err = (cam.intrinsics.fx - gt.fx).abs() / gt.fx;
+        let fy_err = (cam.intrinsics.fy - gt.fy).abs() / gt.fy;
         assert!(
             fx_err < 0.05,
             "cam{i} fx relative error {:.3}%",
@@ -170,9 +173,8 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
         );
     }
 
-    // Sensors carry per-camera tilt parameters.
-    let sensors = export.sensors.as_ref().expect("sensors populated");
-    assert_eq!(sensors.len(), 2);
+    // Each camera carries its model.
+    assert_eq!(export.cameras.len(), 2);
 
     // Camera-1 extrinsics recovery.
     let cam1_final = export.cam_se3_rig[1].inverse(); // cam_se3_rig is T_C_R; we need T_R_C
@@ -202,4 +204,77 @@ fn json_roundtrip_for_input() {
     let (dataset, _, _, _) = make_dataset();
     let json = serde_json::to_string(&dataset).unwrap();
     let _: vision_calibration_core::RigDataset<NoMeta> = serde_json::from_str(&json).unwrap();
+}
+
+/// A rig that mixes lenses: camera 0 untilted, camera 1 tilted through a
+/// per-camera override. Each camera keeps its own model end to end.
+#[test]
+fn pipeline_calibrates_a_mixed_lens_rig() {
+    let (dataset, intrinsics_gt, _, cam1_to_rig_gt) = make_dataset();
+    let mut cfg = RigExtrinsicsConfig::default();
+    cfg.camera_overrides = vec![CameraOverride::new(
+        1,
+        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug),
+    )];
+    cfg.solver.max_iters = 80;
+    assert_eq!(cfg.camera_for(0).model.sensor, SensorKind::Identity);
+    assert_eq!(cfg.camera_for(1).model.sensor, SensorKind::Scheimpflug);
+
+    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session.set_config(cfg).unwrap();
+    session.set_input(dataset).unwrap();
+    run_calibration(&mut session).unwrap();
+    let export = session.export().unwrap();
+
+    // Undistorted views of a plane fix the tilt only up to the board pose
+    // and focal length, so the check is the models and the fit, not the tilt.
+    assert!(matches!(export.cameras[0].sensor, SensorParams::Identity));
+    assert!(
+        matches!(export.cameras[1].sensor, SensorParams::Scheimpflug { .. }),
+        "camera 1 must keep its tilted sensor"
+    );
+    for (i, cam) in export.cameras.iter().enumerate() {
+        let fx_err = (cam.intrinsics.fx - intrinsics_gt[i].fx).abs() / intrinsics_gt[i].fx;
+        assert!(
+            fx_err < 0.05,
+            "cam{i} fx relative error {:.3}%",
+            fx_err * 100.0
+        );
+    }
+    let cam1_final = export.cam_se3_rig[1].inverse();
+    let dt = (cam1_final.translation.vector - cam1_to_rig_gt.translation.vector).norm();
+    assert!(dt < 0.02, "cam1 translation error {dt:.4}");
+    assert!(
+        export.mean_reproj_error < 1.0,
+        "{}",
+        export.mean_reproj_error
+    );
+}
+
+#[test]
+fn camera_overrides_are_validated_before_any_work() {
+    let (dataset, _, _, _) = make_dataset();
+    let tilted = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
+
+    let mut twice = RigExtrinsicsConfig::default();
+    twice.camera_overrides = vec![
+        CameraOverride::new(1, tilted),
+        CameraOverride::new(1, tilted),
+    ];
+    let err = RigExtrinsicsProblem::validate_config(&twice).unwrap_err();
+    assert!(err.to_string().contains("listed twice"), "{err}");
+
+    // The camera count comes with the input: the first step rejects an
+    // override past it before any work.
+    let mut out_of_range = RigExtrinsicsConfig::default();
+    out_of_range.camera_overrides = vec![CameraOverride::new(2, tilted)];
+    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session.set_input(dataset).unwrap();
+    session.set_config(out_of_range).unwrap();
+    let err = step_intrinsics_init_all(&mut session, None).unwrap_err();
+    assert!(err.to_string().contains("out of range"), "{err}");
+
+    let json = r#"{"camera": 1, "model": {"projection": "pinhole",
+        "distortion": "brown_conrady5", "sensor": "scheimpflug"}, "tilt": 0.1}"#;
+    assert!(serde_json::from_str::<CameraOverride>(json).is_err());
 }

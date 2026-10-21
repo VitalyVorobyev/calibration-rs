@@ -1,14 +1,14 @@
-//! Integration test for Scheimpflug hand-eye calibration.
+//! Integration test for hand-eye calibration of a camera with a Scheimpflug
+//! (tilted) sensor.
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, RigView, RigViewObs,
-    ScheimpflugParams, make_pinhole_camera,
+    BrownConrady5, Camera, CameraFix, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy,
+    Pinhole, ProjectionParams, Pt3, Real, RigView, RigViewObs, ScheimpflugParams, SensorParams,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeMode, HandEyeScheimpflugDataset, HandEyeScheimpflugParams,
-    HandEyeScheimpflugSolveOptions, RobotPoseMeta, ScheimpflugFixMask,
-    optimize_handeye_scheimpflug,
+    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
+    RobotPoseMeta, optimize_handeye,
 };
 
 #[test]
@@ -92,41 +92,50 @@ fn eye_in_hand_scheimpflug_converges() {
         });
     }
 
-    let dataset = HandEyeScheimpflugDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
+    let dataset = HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
 
-    let cameras_init = vec![make_pinhole_camera(
-        FxFyCxCy {
+    // The sensor tilt starts at zero.
+    let cameras_init = vec![CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 {
+            params: BrownConrady5 {
+                k1: -0.18,
+                k2: 0.03,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
+        },
+        sensor: SensorParams::Scheimpflug {
+            params: ScheimpflugParams::default(),
+        },
+        intrinsics: FxFyCxCy {
             fx: 810.0,
             fy: 790.0,
             cx: 645.0,
             cy: 365.0,
         },
-        BrownConrady5 {
-            k1: -0.18,
-            k2: 0.03,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 8,
-        },
-    )];
-    let sensors_init = vec![ScheimpflugParams::default()];
+    }];
     let handeye_init = Isometry3::from_parts(
         Translation3::new(0.048, 0.032, 0.148),
         Rotation3::from_euler_angles(0.098, -0.048, 0.148).into(),
     );
 
-    let initial = HandEyeScheimpflugParams {
+    let initial = HandEyeParams {
         cameras: cameras_init,
-        sensors: sensors_init,
         cam_to_rig: vec![cam_to_rig_gt],
         handeye: handeye_init,
         target_poses: vec![Isometry3::identity()],
     };
 
-    let opts = HandEyeScheimpflugSolveOptions {
+    // The tangential terms are solved (a tilted sensor's default fixes them).
+    let opts = HandEyeSolveOptions {
+        fix: vec![CameraFix {
+            distortion: Some(vec!["k3".into()]),
+            ..CameraFix::default()
+        }],
         fix_extrinsics: vec![true],
-        default_scheimpflug_fix: ScheimpflugFixMask::default(),
         ..Default::default()
     };
     let backend_opts = BackendSolveOptions {
@@ -138,23 +147,25 @@ fn eye_in_hand_scheimpflug_converges() {
         ..Default::default()
     };
 
-    let result = optimize_handeye_scheimpflug(dataset, initial, opts, backend_opts).unwrap();
+    let result = optimize_handeye(dataset, initial, opts, backend_opts).unwrap();
 
     // Intrinsics convergence
-    let cam = &result.params.cameras[0];
+    let cam = &result.params.cameras[0].intrinsics;
     assert!(
-        (cam.k.fx - intrinsics_gt.fx).abs() < 0.5,
+        (cam.fx - intrinsics_gt.fx).abs() < 0.5,
         "fx err={}",
-        (cam.k.fx - intrinsics_gt.fx).abs()
+        (cam.fx - intrinsics_gt.fx).abs()
     );
     assert!(
-        (cam.k.fy - intrinsics_gt.fy).abs() < 0.5,
+        (cam.fy - intrinsics_gt.fy).abs() < 0.5,
         "fy err={}",
-        (cam.k.fy - intrinsics_gt.fy).abs()
+        (cam.fy - intrinsics_gt.fy).abs()
     );
 
     // Scheimpflug recovery
-    let sensor = &result.params.sensors[0];
+    let SensorParams::Scheimpflug { params: sensor } = &result.params.cameras[0].sensor else {
+        panic!("the camera lost its tilted sensor");
+    };
     let tilt_x_err = (sensor.tilt_x - sensor_gt.tilt_x).abs();
     let tilt_y_err = (sensor.tilt_y - sensor_gt.tilt_y).abs();
     println!("Scheimpflug errors: tilt_x={tilt_x_err:.3e} tilt_y={tilt_y_err:.3e}");

@@ -89,7 +89,7 @@ The session framework providing production-ready workflows:
 - **Step functions** — free functions operating on `&mut CalibrationSession<P>` (e.g., `step_init`, `step_optimize`)
 - **Pipeline functions** — convenience wrappers chaining all steps
 - **JSON checkpointing** — full serialization for session persistence
-- Seven problem types: `PlanarIntrinsicsProblem`, `SingleCamHandeyeProblem`, `LaserlineDeviceProblem`, `RigExtrinsicsProblem`, `RigHandeyeProblem`, `RigLaserlineDeviceProblem`, `RigHandeyeLaserlineProblem`. Planar intrinsics takes the camera model as config (`camera.model`), so a tilted sensor is a value of its sensor slot; the two rig problems cover pinhole and Scheimpflug rigs via `SensorMode`.
+- Seven problem types: `PlanarIntrinsicsProblem`, `SingleCamHandeyeProblem`, `LaserlineDeviceProblem`, `RigExtrinsicsProblem`, `RigHandeyeProblem`, `RigLaserlineDeviceProblem`, `RigHandeyeLaserlineProblem`. Planar intrinsics takes the camera model as config (`camera.model`), so a tilted sensor is a value of its sensor slot; the rig problems take `camera` plus per-camera `camera_overrides`, so each rig camera can have its own distortion and sensor.
 
 ### vision-calibration
 

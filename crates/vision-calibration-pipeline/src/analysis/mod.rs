@@ -46,8 +46,8 @@ use serde::{Deserialize, Serialize};
 use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector6};
 
 use vision_calibration_core::{
-    Camera, CameraProject, FxFyCxCy, Iso3, Pinhole, PinholeCamera, Pt2, Pt3, RigDataset,
-    ScheimpflugParams, TargetFeatureResidual, View, compute_rig_target_residuals,
+    CameraParams, CameraProject, FxFyCxCy, Iso3, Pt2, Pt3, RigDataset, TargetFeatureResidual, View,
+    compute_rig_target_residuals,
 };
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
 use vision_calibration_linear::pnp::PnpSolver;
@@ -56,6 +56,7 @@ use vision_geometry::homography::dlt_homography;
 use crate::Error;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
+use crate::rig_family::rig_camera_models;
 use crate::rig_handeye::RigHandeyeExport;
 use crate::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeView};
 
@@ -339,15 +340,14 @@ pub fn rig_extrinsics_report<M>(
 ) -> Result<ReprojReport, Error> {
     let ncam = export.cameras.len();
     let num_views = dataset.views.len();
-    let intrinsic =
-        intrinsic_floor_rig_from_export(&export.cameras, export.sensors.as_deref(), dataset)?;
+    let intrinsic = intrinsic_floor_rig_from_export(&export.cameras, dataset)?;
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
     let rig_residuals = if !export.per_feature_residuals.target.is_empty() {
         export.per_feature_residuals.target.clone()
     } else {
-        rig_constrained_residuals(export, dataset)
+        rig_constrained_residuals(export, dataset)?
     };
     let rig_level = LevelReport::from_residuals(
         ReprojLevel::RigExtrinsic,
@@ -378,8 +378,7 @@ pub fn rig_handeye_report<M>(
     let ncam = export.cameras.len();
     let num_views = dataset.views.len();
 
-    let intrinsic =
-        intrinsic_floor_rig_from_export(&export.cameras, export.sensors.as_deref(), dataset)?;
+    let intrinsic = intrinsic_floor_rig_from_export(&export.cameras, dataset)?;
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
@@ -407,8 +406,7 @@ pub fn rig_handeye_report_with_rig_stage<M>(
     let ncam = export.cameras.len();
     let num_views = dataset.views.len();
 
-    let intrinsic =
-        intrinsic_floor_rig_from_export(&export.cameras, export.sensors.as_deref(), dataset)?;
+    let intrinsic = intrinsic_floor_rig_from_export(&export.cameras, dataset)?;
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
@@ -439,32 +437,15 @@ pub fn rig_handeye_report_with_rig_stage<M>(
 /// pose-only refinement, using each camera's final calibrated intrinsics. Shared
 /// by [`rig_extrinsics_report`] and [`rig_handeye_report`].
 fn intrinsic_floor_rig_from_export<M>(
-    cameras: &[PinholeCamera],
-    sensors: Option<&[ScheimpflugParams]>,
+    cameras: &[CameraParams],
     dataset: &RigDataset<M>,
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
-    let camera_ks: Vec<_> = cameras.iter().map(|camera| camera.k).collect();
-    if let Some(sensors) = sensors {
-        if sensors.len() != cameras.len() {
-            return Err(Error::invalid_input(format!(
-                "Scheimpflug sensor count {} != camera count {}",
-                sensors.len(),
-                cameras.len()
-            )));
-        }
-        let scheimpflug_cameras: Vec<_> = cameras
-            .iter()
-            .zip(sensors.iter())
-            .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-            .collect();
-        Ok(intrinsic_floor_rig(
-            &scheimpflug_cameras,
-            &camera_ks,
-            dataset,
-        ))
-    } else {
-        Ok(intrinsic_floor_rig(cameras, &camera_ks, dataset))
-    }
+    let camera_ks: Vec<_> = cameras.iter().map(|camera| camera.intrinsics).collect();
+    Ok(intrinsic_floor_rig(
+        &rig_camera_models(cameras)?,
+        &camera_ks,
+        dataset,
+    ))
 }
 
 fn intrinsic_floor_rig<C, M>(
@@ -736,13 +717,14 @@ fn push_view_residuals(
 fn rig_constrained_residuals<M>(
     export: &RigExtrinsicsExport,
     dataset: &RigDataset<M>,
-) -> Vec<TargetFeatureResidual> {
+) -> Result<Vec<TargetFeatureResidual>, Error> {
+    let models = rig_camera_models(&export.cameras)?;
     let mut out = Vec::new();
     for (view_idx, view) in dataset.views.iter().enumerate() {
         let Some(rig_se3_target) = export.rig_se3_target.get(view_idx) else {
             continue;
         };
-        for (cam_idx, camera) in export.cameras.iter().enumerate() {
+        for (cam_idx, camera) in models.iter().enumerate() {
             let Some(obs) = view.obs.cameras.get(cam_idx).and_then(|c| c.as_ref()) else {
                 continue;
             };
@@ -758,7 +740,7 @@ fn rig_constrained_residuals<M>(
             );
         }
     }
-    out
+    Ok(out)
 }
 
 fn rig_handeye_rig_stage_residuals<M>(
@@ -766,36 +748,13 @@ fn rig_handeye_rig_stage_residuals<M>(
     dataset: &RigDataset<M>,
     rig_stage: &RigStageReprojection,
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
-    if let Some(sensors) = &export.sensors {
-        if sensors.len() != export.cameras.len() {
-            return Err(Error::invalid_input(format!(
-                "Scheimpflug sensor count {} != camera count {}",
-                sensors.len(),
-                export.cameras.len()
-            )));
-        }
-        let scheimpflug_cameras: Vec<_> = export
-            .cameras
-            .iter()
-            .zip(sensors.iter())
-            .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-            .collect();
-        compute_rig_target_residuals(
-            &scheimpflug_cameras,
-            dataset,
-            &rig_stage.cam_se3_rig,
-            &rig_stage.rig_se3_target,
-        )
-        .map_err(Error::from)
-    } else {
-        compute_rig_target_residuals(
-            &export.cameras,
-            dataset,
-            &rig_stage.cam_se3_rig,
-            &rig_stage.rig_se3_target,
-        )
-        .map_err(Error::from)
-    }
+    compute_rig_target_residuals(
+        &rig_camera_models(&export.cameras)?,
+        dataset,
+        &rig_stage.cam_se3_rig,
+        &rig_stage.rig_se3_target,
+    )
+    .map_err(Error::from)
 }
 
 #[cfg(test)]

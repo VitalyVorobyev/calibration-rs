@@ -11,7 +11,7 @@
  * and the existing `Scene` renders them unchanged.
  *
  * Pure and side-effect free so it unit-tests without React/Tauri. */
-import type { AnyExport, Iso3Wire, PinholeCameraWire } from "../store/types";
+import type { AnyExport, Iso3Wire, CameraWire } from "../store/types";
 import type { LaserlineDeviceExport } from "../types/generated/diagnose-wire";
 
 const IDENTITY_ISO3: Iso3Wire = { rotation: [0, 0, 0, 1], translation: [0, 0, 0] };
@@ -32,7 +32,7 @@ function isRigShaped(data: AnyExport): boolean {
  * - A single-camera `laserline_device` export with a laser plane + poses
  *   is lifted into a one-camera rig at the origin (see module docs).
  * - Anything else is returned unchanged (the scene will show its empty
- *   state — e.g. planar / scheimpflug / single-cam hand-eye, which carry
+ *   state — e.g. planar / single-cam hand-eye, which carry
  *   no extrinsic to place a frustum). */
 export function adaptSceneExport(data: AnyExport): AnyExport {
   if (isRigShaped(data)) return data;
@@ -47,12 +47,11 @@ export function adaptSceneExport(data: AnyExport): AnyExport {
     return data;
   }
 
-  const camera: PinholeCameraWire = {
-    k: params.intrinsics,
-    dist: params.distortion,
-    proj: null,
-    sensor: null,
-    _phantom: null,
+  const camera: CameraWire = {
+    projection: { type: "pinhole" },
+    distortion: { type: "brown_conrady5", ...params.distortion },
+    sensor: { type: "identity" },
+    intrinsics: params.intrinsics,
   };
 
   return {

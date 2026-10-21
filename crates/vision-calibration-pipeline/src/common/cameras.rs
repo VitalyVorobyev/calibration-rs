@@ -4,8 +4,8 @@
 use serde::de::DeserializeOwned;
 
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, PinholeCamera, ProjectionParams,
-    ScheimpflugParams, SensorParams, Uncertainty, pinhole_camera_params,
+    BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, ProjectionParams, ScheimpflugParams,
+    SensorParams, Uncertainty, pinhole_camera_params,
 };
 use vision_calibration_optim::{
     Error as OptimError, ProjectionUncertainty, camera_parameters, projection_uncertainty,
@@ -112,36 +112,19 @@ pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn Calibrate
     }
 }
 
-/// A pinhole camera with Brown-Conrady distortion and an optional
+/// The laserline device's camera: Brown-Conrady distortion and a
 /// Scheimpflug sensor.
-fn brown_conrady_camera_params(
+fn laser_camera_params(
     intrinsics: FxFyCxCy<f64>,
     distortion: BrownConrady5<f64>,
-    sensor: Option<ScheimpflugParams>,
+    sensor: ScheimpflugParams,
 ) -> CameraParams {
     CameraParams {
         projection: ProjectionParams::Pinhole,
         distortion: DistortionParams::BrownConrady5 { params: distortion },
-        sensor: sensor.map_or(SensorParams::Identity, |params| SensorParams::Scheimpflug {
-            params,
-        }),
+        sensor: SensorParams::Scheimpflug { params: sensor },
         intrinsics,
     }
-}
-
-/// Rig cameras, each with its Scheimpflug sensor when the rig has them.
-fn rig_camera_params(
-    cameras: &[PinholeCamera],
-    sensors: Option<&[ScheimpflugParams]>,
-) -> Vec<CameraParams> {
-    cameras
-        .iter()
-        .enumerate()
-        .map(|(i, camera)| {
-            let sensor = sensors.and_then(|s| s.get(i)).copied();
-            brown_conrady_camera_params(camera.k, camera.dist, sensor)
-        })
-        .collect()
 }
 
 impl CalibratedCameras for PlanarIntrinsicsExport {
@@ -167,11 +150,7 @@ impl CalibratedCameras for SingleCamHandeyeExport {
 impl CalibratedCameras for LaserlineDeviceExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         let p = &self.estimate.params;
-        vec![brown_conrady_camera_params(
-            p.intrinsics,
-            p.distortion,
-            Some(p.sensor),
-        )]
+        vec![laser_camera_params(p.intrinsics, p.distortion, p.sensor)]
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
@@ -181,7 +160,7 @@ impl CalibratedCameras for LaserlineDeviceExport {
 
 impl CalibratedCameras for RigExtrinsicsExport {
     fn camera_params(&self) -> Vec<CameraParams> {
-        rig_camera_params(&self.cameras, self.sensors.as_deref())
+        self.cameras.clone()
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
@@ -191,7 +170,7 @@ impl CalibratedCameras for RigExtrinsicsExport {
 
 impl CalibratedCameras for RigHandeyeExport {
     fn camera_params(&self) -> Vec<CameraParams> {
-        rig_camera_params(&self.cameras, self.sensors.as_deref())
+        self.cameras.clone()
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
@@ -201,7 +180,7 @@ impl CalibratedCameras for RigHandeyeExport {
 
 impl CalibratedCameras for RigLaserlineDeviceExport {
     fn camera_params(&self) -> Vec<CameraParams> {
-        rig_camera_params(&self.cameras, self.sensors.as_deref())
+        self.cameras.clone()
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
@@ -211,7 +190,7 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
 
 impl CalibratedCameras for RigHandeyeLaserlineExport {
     fn camera_params(&self) -> Vec<CameraParams> {
-        rig_camera_params(&self.cameras, Some(&self.sensors))
+        self.cameras.clone()
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {

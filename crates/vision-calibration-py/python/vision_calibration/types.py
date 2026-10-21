@@ -310,28 +310,6 @@ class CameraFixMask(TypedDict, total=False):
     distortion: JsonObject
 
 
-class SensorModePinhole(TypedDict):
-    """Pinhole rig sensor mode — serde `SensorMode::Pinhole`."""
-
-    kind: Literal["Pinhole"]
-
-
-class SensorModeScheimpflug(TypedDict, total=False):
-    """Scheimpflug rig sensor mode — serde `SensorMode::Scheimpflug`."""
-
-    kind: Literal["Scheimpflug"]
-    init_tilt_x: float
-    init_tilt_y: float
-    fix_scheimpflug: ScheimpflugFixMask
-    distortion_mask_in_percam_ba: JsonObject
-    refine_scheimpflug_in_rig_ba: bool
-    distortion_model: DistortionModel
-
-
-# Internally-tagged (`kind`) rig sensor flavour selector.
-SensorMode: TypeAlias = SensorModePinhole | SensorModeScheimpflug
-
-
 ProjectionModel: TypeAlias = Literal["pinhole"]
 SensorModel: TypeAlias = Literal["identity", "scheimpflug"]
 
@@ -358,6 +336,17 @@ class CameraConfig(TypedDict, total=False):
     fix: CameraFix
 
 
+class _CameraOverrideRequired(TypedDict):
+    camera: int
+
+
+class CameraOverride(_CameraOverrideRequired, total=False):
+    """Replaces the rig-wide camera config for one rig camera."""
+
+    model: CameraModelSpec
+    fix: CameraFix
+
+
 class PlanarIntrinsicsConfig(TypedDict, total=False):
     init: IntrinsicsInitConfig
     solver: SolverConfig
@@ -377,11 +366,13 @@ class RigConfig(TypedDict, total=False):
 
     reference_camera_idx: int
     refine_intrinsics_in_rig_ba: bool
+    refine_sensor: bool
 
 
 class RigExtrinsicsConfig(TypedDict, total=False):
     intrinsics: IntrinsicsInitConfig
-    sensor: SensorMode
+    camera: CameraConfig
+    camera_overrides: list[CameraOverride]
     rig: RigConfig
     solver: SolverConfig
 
@@ -391,12 +382,13 @@ class HandeyeBaConfig(TypedDict, total=False):
 
     robot_poses: RobotPoseConfig
     refine_cam_se3_rig: bool
-    refine_scheimpflug: bool
+    refine_sensor: bool
 
 
 class RigHandeyeConfig(TypedDict, total=False):
     intrinsics: IntrinsicsInitConfig
-    sensor: SensorMode
+    camera: CameraConfig
+    camera_overrides: list[CameraOverride]
     rig: RigConfig
     handeye_init: HandeyeInitConfig
     solver: SolverConfig

@@ -189,6 +189,8 @@ pub fn compute_mean_reproj_error<C: CameraProject>(
 
 /// Compute reprojection error statistics for a multi-camera rig dataset.
 ///
+/// `cameras` may be any camera type implementing [`CameraProject`].
+///
 /// Uses the transform chain:
 /// - `cam_se3_target = cam_se3_rig[cam] * rig_se3_target[view]`
 /// - `p_cam = cam_se3_target * p_target`
@@ -204,8 +206,8 @@ pub fn compute_mean_reproj_error<C: CameraProject>(
 ///
 /// Returns [`Error::InvalidInput`] if array lengths don't match expected counts
 /// or if no points could be projected.
-pub fn compute_rig_reprojection_stats<Meta>(
-    cameras: &[PinholeCamera],
+pub fn compute_rig_reprojection_stats<C: CameraProject, Meta>(
+    cameras: &[C],
     dataset: &RigDataset<Meta>,
     cam_se3_rig: &[Iso3],
     rig_se3_target: &[Iso3],
@@ -247,7 +249,7 @@ pub fn compute_rig_reprojection_stats<Meta>(
 
             for (pw, uv) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
                 let p_cam = cam_se3_target * pw;
-                let Some(proj) = cam.project_point_c(&p_cam.coords) else {
+                let Some(proj) = cam.project_camera_point(&p_cam.coords) else {
                     continue;
                 };
                 let err = (proj - *uv).norm();
@@ -283,8 +285,8 @@ pub fn compute_rig_reprojection_stats<Meta>(
 ///
 /// Returns [`Error::InvalidInput`] if array lengths don't match expected counts
 /// or if any camera has no valid projections.
-pub fn compute_rig_reprojection_stats_per_camera<Meta>(
-    cameras: &[PinholeCamera],
+pub fn compute_rig_reprojection_stats_per_camera<C: CameraProject, Meta>(
+    cameras: &[C],
     dataset: &RigDataset<Meta>,
     cam_se3_rig: &[Iso3],
     rig_se3_target: &[Iso3],
@@ -326,7 +328,7 @@ pub fn compute_rig_reprojection_stats_per_camera<Meta>(
 
             for (pw, uv) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
                 let p_cam = cam_se3_target * pw;
-                let Some(proj) = cam.project_point_c(&p_cam.coords) else {
+                let Some(proj) = cam.project_camera_point(&p_cam.coords) else {
                     continue;
                 };
                 let err = (proj - *uv).norm();

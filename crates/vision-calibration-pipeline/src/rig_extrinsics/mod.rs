@@ -54,7 +54,10 @@
 //!   fix alone removes the rig's full 6-DOF gauge freedom (no rig-from-target
 //!   pose is additionally pinned)
 //! - Intrinsics: NOT re-refined in rig BA (set `rig.refine_intrinsics_in_rig_ba: true` to enable)
-//! - k3 distortion fixed by default
+//! - Every camera has the model of `camera` (pinhole, Brown-Conrady, untilted
+//!   sensor by default) unless `camera_overrides` names it; each keeps its
+//!   model's default fix lists (`k3` for Brown-Conrady) unless `fix` says
+//!   otherwise
 
 mod problem;
 mod state;
@@ -62,8 +65,7 @@ mod steps;
 
 // Re-export types
 pub use problem::{
-    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsOutput,
-    RigExtrinsicsProblem, SensorMode,
+    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
 };
 pub use steps::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigExtrinsicsManualInit, RigInitResult,
@@ -72,3 +74,5 @@ pub use steps::{
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init,
     step_rig_init_with_seed, step_rig_optimize,
 };
+/// The rig bundle adjustment's estimate, the problem's output.
+pub use vision_calibration_optim::{RigExtrinsicsEstimate, RigExtrinsicsParams};

@@ -4,10 +4,9 @@ use crate::Error;
 use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCy, ImageManifest, Iso3, NoMeta,
-    PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, RigView, RigViewObs,
-    ScheimpflugParams, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
-    make_pinhole_camera,
+    CameraParams, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals,
+    RigDataset, RigView, RigViewObs, Uncertainty, build_feature_histogram,
+    compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     LaserPlane, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
@@ -16,24 +15,23 @@ use vision_calibration_optim::{
 
 use crate::common::ExportKind;
 use crate::common::config::SolverConfig;
+use crate::rig_family::{check_laser_cameras, rig_camera_models};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
 
 /// Upstream rig calibration (frozen starting point).
 ///
-/// Mirrors a Scheimpflug hand-eye result's per-camera intrinsics + distortion +
-/// Scheimpflug sensors + cam→rig poses, plus the per-view rig→target poses the
-/// downstream laserline dataset spans.
+/// Mirrors a rig hand-eye result's per-camera parameters + cam→rig poses,
+/// plus the per-view rig→target poses the downstream laserline dataset
+/// spans. The laser residuals are evaluated in the Brown-Conrady model, so
+/// each camera has Brown-Conrady (or no) distortion and an identity or
+/// Scheimpflug sensor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigUpstreamCalibration {
-    /// Per-camera intrinsics.
-    pub intrinsics: Vec<FxFyCxCy<Real>>,
-    /// Per-camera distortion.
-    pub distortion: Vec<BrownConrady5<Real>>,
-    /// Per-camera Scheimpflug sensor parameters.
-    pub sensors: Vec<ScheimpflugParams>,
+    /// Per-camera parameters, each in its camera's model.
+    pub cameras: Vec<CameraParams>,
     /// Per-camera extrinsics `cam_se3_rig` (T_C_R).
     #[cfg_attr(
         feature = "schemars",
@@ -58,15 +56,10 @@ impl RigHandeyeExport {
     /// recorded in this export (`base_se3_target` for `EyeInHand`); pass
     /// `vec![target_pose; num_views]`.
     ///
-    /// Pinhole rigs (`self.sensors == None`) are supported: zero Scheimpflug
-    /// tilt is exactly the identity sensor mapping, and the rig laserline
-    /// bundle always freezes the sensor parameters, so each camera gets
-    /// `ScheimpflugParams::default()` (zero tilt).
-    ///
     /// # Errors
     ///
-    /// Returns [`Error::InvalidInput`] if a populated `sensors` field has a
-    /// different camera count than `cameras`.
+    /// Returns [`Error::InvalidInput`] if the export's camera and
+    /// `cam_se3_rig` counts differ.
     ///
     /// # Example
     ///
@@ -85,24 +78,15 @@ impl RigHandeyeExport {
         &self,
         rig_se3_target: Vec<Iso3>,
     ) -> Result<RigUpstreamCalibration, Error> {
-        let sensors = match &self.sensors {
-            Some(sensors) => {
-                if sensors.len() != self.cameras.len() {
-                    return Err(Error::invalid_input(format!(
-                        "sensor count {} != camera count {}",
-                        sensors.len(),
-                        self.cameras.len()
-                    )));
-                }
-                sensors.clone()
-            }
-            // Pinhole rig: zero tilt is exactly the identity sensor.
-            None => vec![ScheimpflugParams::default(); self.cameras.len()],
-        };
+        if self.cam_se3_rig.len() != self.cameras.len() {
+            return Err(Error::invalid_input(format!(
+                "cam_se3_rig count {} != camera count {}",
+                self.cam_se3_rig.len(),
+                self.cameras.len()
+            )));
+        }
         Ok(RigUpstreamCalibration {
-            intrinsics: self.cameras.iter().map(|c| c.k).collect(),
-            distortion: self.cameras.iter().map(|c| c.dist).collect(),
-            sensors,
+            cameras: self.cameras.clone(),
             cam_se3_rig: self.cam_se3_rig.clone(),
             rig_se3_target,
         })
@@ -168,16 +152,11 @@ pub struct RigLaserlineDeviceExport {
     /// Per-camera stats (reprojection + laser residuals).
     pub per_camera_stats: Vec<LaserlineStats>,
 
-    /// Frozen upstream cameras (pinhole part), echoed so the export is
-    /// self-contained for downstream viewers (3D rig scene, epipolar) —
-    /// same field names as `RigHandeyeExport`. Empty when absent
-    /// in the JSON (`serde(default)`).
+    /// Frozen upstream cameras, echoed so the export is self-contained for
+    /// downstream viewers (3D rig scene, epipolar) — same field name as
+    /// `RigHandeyeExport`. Empty when absent in the JSON (`serde(default)`).
     #[serde(default)]
-    pub cameras: Vec<PinholeCamera>,
-    /// Frozen upstream Scheimpflug sensor parameters (zero tilt for
-    /// pinhole rigs), aligned with `cameras`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sensors: Option<Vec<ScheimpflugParams>>,
+    pub cameras: Vec<CameraParams>,
     /// Frozen upstream per-camera extrinsics `T_C_R`.
     #[serde(default)]
     #[cfg_attr(
@@ -245,15 +224,12 @@ impl ProblemType for RigLaserlineDeviceProblem {
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
         let n = input.dataset.num_cameras;
-        if input.upstream.intrinsics.len() != n
-            || input.upstream.distortion.len() != n
-            || input.upstream.sensors.len() != n
-            || input.upstream.cam_se3_rig.len() != n
-        {
+        if input.upstream.cameras.len() != n || input.upstream.cam_se3_rig.len() != n {
             return Err(Error::invalid_input(format!(
                 "upstream per-camera lengths must equal num_cameras ({n})"
             )));
         }
+        check_laser_cameras(&input.upstream.cameras)?;
         if input.upstream.rig_se3_target.len() != input.dataset.num_views() {
             return Err(Error::invalid_input(format!(
                 "upstream rig_se3_target has {} entries, expected {}",
@@ -315,18 +291,8 @@ impl ProblemType for RigLaserlineDeviceProblem {
                 })
                 .collect(),
         };
-        let scheimpflug_cameras: Vec<_> = (0..n)
-            .map(|c| {
-                Camera::new(
-                    Pinhole,
-                    upstream.distortion[c],
-                    upstream.sensors[c].compile(),
-                    upstream.intrinsics[c],
-                )
-            })
-            .collect();
         let target = compute_rig_target_residuals(
-            &scheimpflug_cameras,
+            &rig_camera_models(&upstream.cameras)?,
             &target_dataset,
             &upstream.cam_se3_rig,
             &upstream.rig_se3_target,
@@ -344,9 +310,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
 
         let laser = compute_rig_laserline_feature_residuals(
             &input.dataset,
-            &upstream.intrinsics,
-            &upstream.distortion,
-            &upstream.sensors,
+            &upstream.cameras,
             &upstream.cam_se3_rig,
             &upstream.rig_se3_target,
             &output.laser_planes_cam,
@@ -386,10 +350,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),
             per_camera_stats: output.per_camera_stats.clone(),
-            cameras: (0..n)
-                .map(|c| make_pinhole_camera(upstream.intrinsics[c], upstream.distortion[c]))
-                .collect(),
-            sensors: Some(upstream.sensors.clone()),
+            cameras: upstream.cameras.clone(),
             cam_se3_rig: upstream.cam_se3_rig.clone(),
             rig_se3_target: upstream.rig_se3_target.clone(),
             mean_reproj_error,
@@ -417,7 +378,6 @@ mod tests {
             laser_planes_cam: Vec::new(),
             per_camera_stats: Vec::new(),
             cameras: Vec::new(),
-            sensors: None,
             cam_se3_rig: Vec::new(),
             rig_se3_target: Vec::new(),
             mean_reproj_error: 0.0,
