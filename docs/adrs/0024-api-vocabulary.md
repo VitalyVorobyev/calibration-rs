@@ -30,10 +30,10 @@ Each concept has one name and one shape across the workspace.
   `IntrinsicsInitConfig`, `SolverConfig` (`max_iters`, `verbosity`,
   `robust_loss`, `backend`), `RobotPoseConfig`, `HandeyeInitConfig`,
   `RigConfig`.
-- Parameter fixing uses one mask per parameter group: `CameraFixMask
-  { intrinsics, distortion }` for cameras (never plain booleans),
-  `ScheimpflugFixMask` as `fix_scheimpflug`, and `fix_poses: Vec<usize>` for
-  per-view poses.
+- A camera is configured by one `camera: CameraConfig { model, fix }`
+  group (ADR 0005). Its parameters are fixed by name, per slot
+  (`fix.distortion: ["k3"]`), validated against the chosen model. Per-view
+  poses are fixed with `fix_poses: Vec<usize>`.
 - A rig's gauge is removed by fixing the reference camera
   (`reference_camera_idx`) only; fixing a view pose as well is redundant.
 - Iteration counts and verbosity are plain values with concrete
@@ -41,8 +41,8 @@ Each concept has one name and one shape across the workspace.
 - Non-laser problems have one `robust_loss`. Laser stages keep separate
   target and laser losses and weights, because corners and laser stripes
   are different residual families; a loss scale is in its residual's unit.
-- `distortion_model` is a live choice only in the single-camera intrinsics
-  configs; rigs fix Brown–Conrady and reject other values at validation.
+- Every problem type accepts every camera model; rigs add per-camera
+  overrides of `camera`.
 
 ### Renames are hard
 
