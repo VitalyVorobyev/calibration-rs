@@ -62,11 +62,11 @@ pub mod tier_b {
         step_intrinsics_init, step_intrinsics_optimize,
     };
     use vision_calibration_core::{
-        BrownConrady5, Camera, CameraFix, CameraFixMask, CameraModelSpec, CameraParams,
-        DistortionFixMask, DistortionKind, DistortionParams, FeatureResidualHistogram, FxFyCxCy,
-        IntrinsicsFixMask, Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2,
-        ReprojectionStats, ScheimpflugParams, SensorKind, SensorParams, TargetFeatureResidual,
-        View, compute_planar_target_residuals,
+        BrownConrady5, Camera, CameraFix, CameraModelSpec, CameraParams, DistortionFixMask,
+        DistortionKind, DistortionParams, FeatureResidualHistogram, FxFyCxCy, IntrinsicsFixMask,
+        Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, ReprojectionStats,
+        ScheimpflugParams, SensorKind, SensorParams, TargetFeatureResidual, View,
+        compute_planar_target_residuals, make_pinhole_camera,
     };
     use vision_calibration_optim::{
         BackendSolveOptions, LaserlineResidualType, PlanarIntrinsicsEstimate,
@@ -3203,29 +3203,40 @@ pub mod tier_b {
                 .gripper_se3_target
                 .context("EyeToHand rig export missing gripper_se3_target")?,
         };
-        let sensors = rig_export
-            .sensors
-            .clone()
-            .unwrap_or_else(|| vec![ScheimpflugParams::default(); n_cam]);
         let joint_initial = RigHandeyeLaserlineParams {
             cameras: rig_export.cameras.clone(),
-            sensors,
             cam_to_rig: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
             handeye,
             target_ref,
             planes_cam: laser_export.laser_planes_cam.clone(),
         };
 
-        let cam_fix = CameraFixMask {
-            intrinsics: IntrinsicsFixMask::all_free(),
-            distortion: DistortionFixMask {
-                k1: false,
-                k2: false,
-                k3: true,
-                p1: true,
-                p2: true,
-            },
-        };
+        // Intrinsics and the low-order radial terms free; k3, the tangential
+        // terms and any sensor tilt held.
+        let fix = rig_export
+            .cameras
+            .iter()
+            .map(|camera| {
+                let model = camera
+                    .spec()
+                    .context("rig camera with a general homography sensor")?;
+                let held = |names: &[&str], held: &[&str]| -> Option<Vec<String>> {
+                    Some(
+                        names
+                            .iter()
+                            .filter(|n| held.contains(n))
+                            .map(|n| n.to_string())
+                            .collect(),
+                    )
+                };
+                Ok(CameraFix {
+                    intrinsics: Some(Vec::new()),
+                    projection: Some(Vec::new()),
+                    distortion: held(model.distortion.param_names(), &["k3", "p1", "p2"]),
+                    sensor: held(model.sensor.param_names(), &["tilt_x", "tilt_y"]),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         let joint_opts = RigHandeyeLaserlineSolveOptions {
             laser_residual_type: LaserlineResidualType::PointToPlane,
             laser_weight: 1.0e4,
@@ -3234,15 +3245,8 @@ pub mod tier_b {
             robot_rot_sigma,
             robot_trans_sigma,
             initial_robot_deltas,
-            fix_intrinsics: vec![cam_fix; n_cam],
+            fix,
             fix_extrinsics: (0..n_cam).map(|i| i == 0).collect(),
-            fix_scheimpflug: vec![
-                ScheimpflugFixMask {
-                    tilt_x: true,
-                    tilt_y: true,
-                };
-                n_cam
-            ],
             ..Default::default()
         };
         let backend_opts = BackendSolveOptions {
@@ -3736,7 +3740,7 @@ pub mod tier_b {
         let mut artifacts = CalibrationArtifacts {
             spatial_unit: "mm".to_string(),
             angle_unit: "deg".to_string(),
-            cameras: camera_artifacts(cameras, &export.cameras, export.sensors.as_deref()),
+            cameras: camera_artifacts(cameras, &export.cameras),
             transforms: Vec::new(),
         };
         for (cam_idx, pose) in export.cam_se3_rig.iter().enumerate() {
@@ -3766,7 +3770,7 @@ pub mod tier_b {
         let mut artifacts = CalibrationArtifacts {
             spatial_unit: "mm".to_string(),
             angle_unit: "deg".to_string(),
-            cameras: camera_artifacts(cameras, &export.cameras, export.sensors.as_deref()),
+            cameras: camera_artifacts(cameras, &export.cameras),
             transforms: Vec::new(),
         };
         for (cam_idx, pose) in export.cam_se3_rig.iter().enumerate() {
@@ -3812,20 +3816,34 @@ pub mod tier_b {
         artifacts
     }
 
-    fn camera_artifacts(
-        layouts: &[CameraLayout],
-        cameras: &[PinholeCamera],
-        sensors: Option<&[ScheimpflugParams]>,
-    ) -> Vec<CameraArtifact> {
+    /// Artifacts of rig cameras. The artifact format is Brown-Conrady: a
+    /// camera of another distortion model reports zero coefficients under
+    /// its own model name.
+    fn camera_artifacts(layouts: &[CameraLayout], cameras: &[CameraParams]) -> Vec<CameraArtifact> {
         cameras
             .iter()
             .enumerate()
             .map(|(idx, camera)| {
-                camera_artifact(
+                let dist = match &camera.distortion {
+                    DistortionParams::BrownConrady5 { params } => *params,
+                    _ => BrownConrady5::default(),
+                };
+                let sensor = match &camera.sensor {
+                    SensorParams::Scheimpflug { params } => Some(params),
+                    _ => None,
+                };
+                let mut artifact = camera_artifact(
                     camera_id(layouts, idx),
-                    camera,
-                    sensors.and_then(|s| s.get(idx)),
-                )
+                    &make_pinhole_camera(camera.intrinsics, dist),
+                    sensor,
+                );
+                if let Some(model) = camera.spec() {
+                    artifact.distortion_model = serde_json::to_value(model.distortion)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or(artifact.distortion_model);
+                }
+                artifact
             })
             .collect()
     }

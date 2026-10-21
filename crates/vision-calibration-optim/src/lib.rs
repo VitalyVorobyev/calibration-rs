@@ -174,8 +174,9 @@ pub use crate::params::laser_plane::LaserPlane;
 /// Projection uncertainty of a calibrated camera.
 pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};
 
+pub use crate::params::camera::CameraBounds;
 pub use crate::problems::planar_intrinsics::{
-    CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
     optimize_planar_intrinsics,
 };
 pub use crate::problems::scheimpflug_intrinsics::{
@@ -187,20 +188,9 @@ pub use crate::problems::handeye::{
     apply_robot_delta, handeye_observer_se3_target, optimize_handeye,
 };
 
-pub use crate::problems::handeye_scheimpflug::{
-    HandEyeScheimpflugDataset, HandEyeScheimpflugEstimate, HandEyeScheimpflugParams,
-    HandEyeScheimpflugSolveOptions, optimize_handeye_scheimpflug,
-};
-
 pub use crate::problems::rig_extrinsics::{
     RigExtrinsicsDataset, RigExtrinsicsEstimate, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
     optimize_rig_extrinsics,
-};
-
-pub use crate::problems::rig_extrinsics_scheimpflug::{
-    RigExtrinsicsScheimpflugDataset, RigExtrinsicsScheimpflugEstimate,
-    RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
-    optimize_rig_extrinsics_scheimpflug,
 };
 
 pub use crate::problems::laserline_rig_bundle::{

@@ -1428,18 +1428,18 @@ mod tests {
         let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
         handeye_config["intrinsics"]["fix_tangential"] = json!(true);
         handeye_config["manual_init"] = rtv3d_manual_intrinsics_init();
-        handeye_config["sensor"] = json!({
-            "kind": "Scheimpflug",
-            "fix_scheimpflug": {"tilt_x": false, "tilt_y": false},
-            "distortion_mask_in_percam_ba": {
-                "k1": false,
-                "k2": false,
-                "k3": true,
-                "p1": true,
-                "p2": true,
+        handeye_config["camera"] = json!({
+            "model": {
+                "projection": "pinhole",
+                "distortion": "brown_conrady5",
+                "sensor": "scheimpflug",
             },
-            "refine_scheimpflug_in_rig_ba": false,
+            "fix": {
+                "sensor": [],
+                "distortion": ["k3", "p1", "p2"],
+            },
         });
+        handeye_config["rig"]["refine_sensor"] = json!(false);
         handeye_config["rig"]["refine_intrinsics_in_rig_ba"] = json!(false);
         handeye_config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
         handeye_config["handeye_ba"]["robot_poses"]["refine"] = json!(true);

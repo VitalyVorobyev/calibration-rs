@@ -1509,7 +1509,7 @@
       "type": "object"
     },
     "RigExtrinsicsExport": {
-      "description": "Export format for rig extrinsics calibration.\n\nCommon to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole\nrigs and `Some(_)` for Scheimpflug rigs, matching the configured\n[`SensorMode`].",
+      "description": "Export format for rig extrinsics calibration.",
       "properties": {
         "cam_se3_rig": {
           "description": "Per-camera extrinsics: `cam_se3_rig` (T_C_R).\nTransform from rig frame to camera frame.",
@@ -1519,9 +1519,9 @@
           "type": "array"
         },
         "cameras": {
-          "description": "Per-camera calibrated intrinsics + distortion (pinhole core).",
+          "description": "Per-camera calibrated parameters, each in its camera's model.",
           "items": {
-            "$ref": "#/definitions/Camera"
+            "$ref": "#/definitions/CameraParams"
           },
           "type": "array"
         },
@@ -1573,17 +1573,6 @@
           },
           "type": "array"
         },
-        "sensors": {
-          "default": null,
-          "description": "Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;\n`Some(_)` for Scheimpflug rigs (one entry per camera).",
-          "items": {
-            "$ref": "#/definitions/ScheimpflugParams"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
         "uncertainty": {
           "allOf": [
             {
@@ -1610,7 +1599,7 @@
       "type": "object"
     },
     "RigHandeyeExport": {
-      "description": "Export format for rig hand-eye calibration.\n\nCommon to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole\nrigs and `Some(_)` for Scheimpflug rigs, matching the configured\n[`SensorMode`].",
+      "description": "Export format for rig hand-eye calibration.",
       "properties": {
         "base_se3_target": {
           "anyOf": [
@@ -1631,9 +1620,9 @@
           "type": "array"
         },
         "cameras": {
-          "description": "Per-camera calibrated intrinsics + distortion (pinhole core).",
+          "description": "Per-camera calibrated parameters, each in its camera's model.",
           "items": {
-            "$ref": "#/definitions/Camera"
+            "$ref": "#/definitions/CameraParams"
           },
           "type": "array"
         },
@@ -1743,17 +1732,6 @@
             "null"
           ]
         },
-        "sensors": {
-          "default": null,
-          "description": "Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;\n`Some(_)` for Scheimpflug rigs (one entry per camera).",
-          "items": {
-            "$ref": "#/definitions/ScheimpflugParams"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
         "uncertainty": {
           "allOf": [
             {
@@ -1801,9 +1779,9 @@
           "type": "array"
         },
         "cameras": {
-          "description": "Per-camera pinhole camera parameters.",
+          "description": "Per-camera parameters, each in its camera's model.",
           "items": {
-            "$ref": "#/definitions/Camera"
+            "$ref": "#/definitions/CameraParams"
           },
           "type": "array"
         },
@@ -1933,13 +1911,6 @@
             "null"
           ]
         },
-        "sensors": {
-          "description": "Per-camera Scheimpflug sensor parameters.",
-          "items": {
-            "$ref": "#/definitions/ScheimpflugParams"
-          },
-          "type": "array"
-        },
         "uncertainty": {
           "allOf": [
             {
@@ -1961,7 +1932,6 @@
         "laser_planes_cam",
         "per_camera_stats",
         "cameras",
-        "sensors",
         "cam_se3_rig",
         "rig_se3_target",
         "handeye_mode",
@@ -2065,9 +2035,9 @@
         },
         "cameras": {
           "default": [],
-          "description": "Frozen upstream cameras (pinhole part), echoed so the export is\nself-contained for downstream viewers (3D rig scene, epipolar) —\nsame field names as `RigHandeyeExport`. Empty when absent\nin the JSON (`serde(default)`).",
+          "description": "Frozen upstream cameras, echoed so the export is self-contained for\ndownstream viewers (3D rig scene, epipolar) — same field name as\n`RigHandeyeExport`. Empty when absent in the JSON (`serde(default)`).",
           "items": {
-            "$ref": "#/definitions/Camera"
+            "$ref": "#/definitions/CameraParams"
           },
           "type": "array"
         },
@@ -2133,16 +2103,6 @@
             "$ref": "#/definitions/Iso3Schema"
           },
           "type": "array"
-        },
-        "sensors": {
-          "description": "Frozen upstream Scheimpflug sensor parameters (zero tilt for\npinhole rigs), aligned with `cameras`.",
-          "items": {
-            "$ref": "#/definitions/ScheimpflugParams"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
         },
         "uncertainty": {
           "allOf": [

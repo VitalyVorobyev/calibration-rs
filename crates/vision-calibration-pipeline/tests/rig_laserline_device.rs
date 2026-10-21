@@ -141,10 +141,14 @@ fn make_dataset() -> (
     }
 
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();
+    let camera = vision_calibration_core::CameraParams {
+        projection: vision_calibration_core::ProjectionParams::Pinhole,
+        distortion: vision_calibration_core::DistortionParams::BrownConrady5 { params: distortion },
+        sensor: vision_calibration_core::SensorParams::Scheimpflug { params: sensor },
+        intrinsics,
+    };
     let upstream = RigUpstreamCalibration {
-        intrinsics: vec![intrinsics, intrinsics],
-        distortion: vec![distortion, distortion],
-        sensors: vec![sensor, sensor],
+        cameras: vec![camera.clone(), camera],
         cam_se3_rig: cam_to_rig.iter().map(|t| t.inverse()).collect(),
         rig_se3_target,
     };
@@ -225,7 +229,6 @@ fn pipeline_converges_rig_laserline() {
     // RigHandeyeExport.
     assert_eq!(export.cameras.len(), 2);
     assert_eq!(export.cam_se3_rig.len(), 2);
-    assert_eq!(export.sensors.as_ref().map(Vec::len), Some(2));
     assert_eq!(export.rig_se3_target.len(), 4, "one T_R_T per view");
     assert!(
         export.mean_reproj_error.is_finite() && export.mean_reproj_error < 1.0,
@@ -242,10 +245,10 @@ fn json_roundtrip_for_config() {
     let _: RigLaserlineDeviceConfig = serde_json::from_str(&json).unwrap();
 }
 
-/// A pinhole rig hand-eye export (`sensors == None`) converts to an upstream
-/// calibration with zero-tilt sensors, and the full rig laserline pipeline
-/// converges on it: zero Scheimpflug tilt is exactly the identity sensor and
-/// the laser bundle freezes sensor parameters.
+/// An untilted rig hand-eye export converts to an upstream calibration whose
+/// cameras keep their identity sensor, and the full rig laserline pipeline
+/// converges on it: the laser model evaluates an untilted camera as zero
+/// tilt, exactly the identity mapping.
 #[test]
 fn pinhole_upstream_converges_rig_laserline() {
     use vision_calibration_core::PerFeatureResiduals;
@@ -258,15 +261,16 @@ fn pinhole_upstream_converges_rig_laserline() {
     // The export type is #[non_exhaustive]; construct it through serde like a
     // downstream consumer loading a stored pinhole export would.
     let cameras: Vec<_> = upstream
-        .intrinsics
+        .cameras
         .iter()
-        .zip(&upstream.distortion)
-        .map(|(k, dist)| vision_calibration_core::make_pinhole_camera(*k, *dist))
+        .map(|c| vision_calibration_core::CameraParams {
+            sensor: vision_calibration_core::SensorParams::Identity,
+            ..c.clone()
+        })
         .collect();
     let export: RigHandeyeExport = serde_json::from_value(serde_json::json!({
         "kind": "rig_handeye",
         "cameras": cameras,
-        "sensors": null, // pinhole rig
         "cam_se3_rig": upstream.cam_se3_rig,
         "rig_se3_target": upstream.rig_se3_target,
         "handeye_mode": HandEyeMode::EyeInHand,
@@ -284,10 +288,12 @@ fn pinhole_upstream_converges_rig_laserline() {
     let converted = export
         .to_upstream_calibration(upstream.rig_se3_target.clone())
         .expect("pinhole export must convert");
-    assert_eq!(converted.sensors.len(), 2);
-    for sensor in &converted.sensors {
-        assert_eq!(sensor.tilt_x, 0.0);
-        assert_eq!(sensor.tilt_y, 0.0);
+    assert_eq!(converted.cameras.len(), 2);
+    for camera in &converted.cameras {
+        assert!(matches!(
+            camera.sensor,
+            vision_calibration_core::SensorParams::Identity
+        ));
     }
 
     let input = RigLaserlineDeviceInput {

@@ -61,11 +61,12 @@ Joint optimization of all parameters:
 pub struct RigHandeyeConfig {
     pub intrinsics: IntrinsicsInitConfig,   // per-camera linear init
     pub manual_init: Option<RigHandeyeIntrinsicsManualInit>, // optional per-camera seeds
-    pub sensor: SensorMode,                 // Pinhole (default) or Scheimpflug { .. }
-    pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics_in_rig_ba
+    pub camera: CameraConfig,               // camera model + fix lists shared by every camera
+    pub camera_overrides: Vec<CameraOverride>, // per-camera replacement of `camera`
+    pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics_in_rig_ba, refine_sensor
     pub handeye_init: HandeyeInitConfig,    // handeye_mode, min_motion_angle_deg
     pub solver: SolverConfig,               // max_iters, verbosity, robust_loss
-    pub handeye_ba: HandeyeBaConfig,        // robot_poses, refine_cam_se3_rig, refine_scheimpflug
+    pub handeye_ba: HandeyeBaConfig,        // robot_poses, refine_cam_se3_rig, refine_sensor
 }
 ```
 
@@ -77,7 +78,7 @@ session.update_config(|c| {
 })?;
 ```
 
-Set `sensor` to `SensorMode::Scheimpflug { .. }` for a rig of tilted-sensor cameras (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)).
+Set `camera.model.sensor` to `SensorKind::Scheimpflug` for a rig of tilted-sensor cameras, or name single cameras in `camera_overrides` to mix lenses (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` holds one `CameraParams` per camera.
 
 ## Complete Example
 

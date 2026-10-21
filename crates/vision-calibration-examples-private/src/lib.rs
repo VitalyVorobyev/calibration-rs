@@ -9,8 +9,8 @@ use image::{GrayImage, ImageReader, imageops::FilterType};
 use serde::Deserialize;
 use std::path::Path;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, HomographySensor, Iso3, Pinhole, Pt2,
-    Pt3, Real, ScheimpflugParams,
+    BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy,
+    HomographySensor, Iso3, Pinhole, Pt2, Pt3, Real, ScheimpflugParams, SensorParams,
 };
 
 use calib_targets::{
@@ -209,6 +209,50 @@ pub fn split_opencv_distortion(dist: &[f64]) -> Result<(BrownConrady5<Real>, Sch
         tilt_y: dist[6],
     };
     Ok((bc, tilt))
+}
+
+/// Split a calibrated rig camera into pinhole intrinsics, Brown-Conrady
+/// distortion and Scheimpflug tilt. An untilted sensor yields a zero tilt.
+///
+/// # Errors
+///
+/// When the camera uses a distortion model other than Brown-Conrady or a
+/// homography sensor.
+pub fn camera_parts(
+    camera: &CameraParams,
+) -> Result<(FxFyCxCy<Real>, BrownConrady5<Real>, ScheimpflugParams)> {
+    let dist = match &camera.distortion {
+        DistortionParams::BrownConrady5 { params } => *params,
+        other => return Err(anyhow!("expected Brown-Conrady distortion, got {other:?}")),
+    };
+    let tilt = match &camera.sensor {
+        SensorParams::Scheimpflug { params } => *params,
+        SensorParams::Identity => ScheimpflugParams::default(),
+        other => return Err(anyhow!("unsupported sensor {other:?}")),
+    };
+    Ok((camera.intrinsics, dist, tilt))
+}
+
+/// Print one calibrated camera's intrinsics, Brown-Conrady `k1`/`k2` and
+/// Scheimpflug tilt (`label` names the camera, `indent` prefixes each line).
+pub fn print_rig_camera(indent: &str, label: &str, camera: &CameraParams) {
+    let Ok((k, d, s)) = camera_parts(camera) else {
+        println!("{indent} {label}: unsupported camera model");
+        return;
+    };
+    println!(
+        "{indent} {label}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
+        k.fx, k.fy, k.cx, k.cy, d.k1, d.k2
+    );
+    if matches!(camera.sensor, SensorParams::Scheimpflug { .. }) {
+        println!(
+            "{indent} {label} tilt: tilt_x={:+.4} rad ({:+.3}°) tilt_y={:+.4} rad ({:+.3}°)",
+            s.tilt_x,
+            s.tilt_x.to_degrees(),
+            s.tilt_y,
+            s.tilt_y.to_degrees()
+        );
+    }
 }
 
 /// Build a frozen [`ScheimpflugCamera`] from a reference intrinsics block.

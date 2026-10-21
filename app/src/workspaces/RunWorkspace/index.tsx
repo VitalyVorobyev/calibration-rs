@@ -297,7 +297,7 @@ export function RunWorkspace() {
       // effect above only fires on topology *changes*, and switching
       // between same-topology presets must still reset), then apply
       // the preset's overrides — some datasets need non-default
-      // config (Scheimpflug sensors, EyeToHand).
+      // config (tilted sensors, EyeToHand).
       let defaults = await fetchDefaultConfig(topologyOf(manifestWithOverrides), inTauri);
       if (preset.configOverrides) {
         defaults = mergeConfig(defaults, preset.configOverrides);

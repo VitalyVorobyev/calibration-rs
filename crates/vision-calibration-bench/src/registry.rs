@@ -20,17 +20,15 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{DistortionFixMask, SensorKind};
+use vision_calibration_core::SensorKind;
 use vision_calibration_dataset::DatasetSpec;
 
 /// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
 /// need a direct `vision-calibration-dataset` dependency.
 pub use vision_calibration_dataset::{ChessCornersDetectorSpec, CornerStrategySpec};
-use vision_calibration_optim::{
-    DistortionKind, HandEyeMode, RobustLoss, ScheimpflugFixMask, SolverBackend,
-};
-use vision_calibration_pipeline::common::config::RobotPoseConfig;
-use vision_calibration_pipeline::rig_handeye::{RigHandeyeConfig, SensorMode};
+use vision_calibration_optim::{HandEyeMode, RobustLoss, SolverBackend};
+use vision_calibration_pipeline::common::config::{CameraConfig, CameraOverride, RobotPoseConfig};
+use vision_calibration_pipeline::rig_handeye::RigHandeyeConfig;
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
 
 /// Top-level benchmark registry: the full set of datasets the harness knows.
@@ -357,9 +355,10 @@ pub struct HandeyeBaOverride {
     /// Enable/disable rig-extrinsic refinement in final rig hand-eye BA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refine_cam_se3_rig_in_handeye_ba: Option<bool>,
-    /// Enable/disable Scheimpflug tilt refinement in final rig hand-eye BA.
+    /// Enable/disable sensor-tilt refinement of Scheimpflug cameras in the
+    /// final rig hand-eye BA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refine_scheimpflug_in_handeye_ba: Option<bool>,
+    pub refine_sensor_in_handeye_ba: Option<bool>,
     /// Robot rotation prior sigma in radians.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub robot_rot_sigma: Option<f64>,
@@ -388,9 +387,15 @@ pub struct SingleCamHandeyeOverride {
 /// Rig hand-eye config overrides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RigHandeyeOverride {
-    /// Sensor flavour.
+    /// Camera model and fix lists of every camera.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sensor: Option<BenchSensorMode>,
+    pub camera: Option<CameraConfig>,
+    /// Cameras whose model differs from `camera`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_overrides: Option<Vec<CameraOverride>>,
+    /// Re-refine the tilt of Scheimpflug cameras in rig BA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refine_sensor: Option<bool>,
     /// Hand-eye mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handeye_mode: Option<BenchHandEyeMode>,
@@ -464,102 +469,6 @@ impl From<BenchRobustLoss> for RobustLoss {
     }
 }
 
-/// Registry sensor mode.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum BenchSensorMode {
-    /// Pinhole + Brown-Conrady.
-    Pinhole,
-    /// Scheimpflug tilted sensor.
-    Scheimpflug {
-        /// Initial tilt around X in radians.
-        #[serde(default)]
-        init_tilt_x: f64,
-        /// Initial tilt around Y in radians.
-        #[serde(default)]
-        init_tilt_y: f64,
-        /// Scheimpflug fix mask during per-camera intrinsics.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        fix_scheimpflug: Option<BenchScheimpflugFixMask>,
-        /// Distortion mask during per-camera BA.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        distortion_mask_in_percam_ba: Option<BenchDistortionFixMask>,
-        /// Re-refine Scheimpflug parameters in rig BA.
-        #[serde(default)]
-        refine_scheimpflug_in_rig_ba: bool,
-    },
-}
-
-impl From<BenchSensorMode> for SensorMode {
-    fn from(value: BenchSensorMode) -> Self {
-        match value {
-            BenchSensorMode::Pinhole => SensorMode::Pinhole,
-            BenchSensorMode::Scheimpflug {
-                init_tilt_x,
-                init_tilt_y,
-                fix_scheimpflug,
-                distortion_mask_in_percam_ba,
-                refine_scheimpflug_in_rig_ba,
-            } => SensorMode::Scheimpflug {
-                init_tilt_x,
-                init_tilt_y,
-                fix_scheimpflug: fix_scheimpflug.map(Into::into).unwrap_or_default(),
-                distortion_mask_in_percam_ba: distortion_mask_in_percam_ba
-                    .map(Into::into)
-                    .unwrap_or_default(),
-                refine_scheimpflug_in_rig_ba,
-                // Rig Scheimpflug bundle adjustment is Brown-Conrady-typed.
-                distortion_model: DistortionKind::BrownConrady5,
-            },
-        }
-    }
-}
-
-/// Registry Scheimpflug fix mask.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct BenchScheimpflugFixMask {
-    /// Keep `tilt_x` fixed.
-    pub tilt_x: bool,
-    /// Keep `tilt_y` fixed.
-    pub tilt_y: bool,
-}
-
-impl From<BenchScheimpflugFixMask> for ScheimpflugFixMask {
-    fn from(value: BenchScheimpflugFixMask) -> Self {
-        Self {
-            tilt_x: value.tilt_x,
-            tilt_y: value.tilt_y,
-        }
-    }
-}
-
-/// Registry distortion fix mask.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct BenchDistortionFixMask {
-    /// Fix k1.
-    pub k1: bool,
-    /// Fix k2.
-    pub k2: bool,
-    /// Fix k3.
-    pub k3: bool,
-    /// Fix p1.
-    pub p1: bool,
-    /// Fix p2.
-    pub p2: bool,
-}
-
-impl From<BenchDistortionFixMask> for DistortionFixMask {
-    fn from(value: BenchDistortionFixMask) -> Self {
-        Self {
-            k1: value.k1,
-            k2: value.k2,
-            k3: value.k3,
-            p1: value.p1,
-            p2: value.p2,
-        }
-    }
-}
-
 impl SingleCamHandeyeOverride {
     /// Apply overrides to a default single-camera hand-eye config.
     pub fn apply_to(&self, config: &mut SingleCamHandeyeConfig) {
@@ -581,8 +490,14 @@ impl SingleCamHandeyeOverride {
 impl RigHandeyeOverride {
     /// Apply overrides to a default rig hand-eye config.
     pub fn apply_to(&self, config: &mut RigHandeyeConfig) {
-        if let Some(sensor) = self.sensor {
-            config.sensor = sensor.into();
+        if let Some(camera) = &self.camera {
+            config.camera = camera.clone();
+        }
+        if let Some(overrides) = &self.camera_overrides {
+            config.camera_overrides = overrides.clone();
+        }
+        if let Some(refine) = self.refine_sensor {
+            config.rig.refine_sensor = refine;
         }
         if let Some(mode) = self.handeye_mode {
             config.handeye_init.handeye_mode = mode.into();
@@ -632,8 +547,8 @@ fn apply_rig_ba(ba: &HandeyeBaOverride, config: &mut RigHandeyeConfig) {
     if let Some(refine) = ba.refine_cam_se3_rig_in_handeye_ba {
         config.handeye_ba.refine_cam_se3_rig = refine;
     }
-    if let Some(refine) = ba.refine_scheimpflug_in_handeye_ba {
-        config.handeye_ba.refine_scheimpflug = refine;
+    if let Some(refine) = ba.refine_sensor_in_handeye_ba {
+        config.handeye_ba.refine_sensor = refine;
     }
 }
 
@@ -679,6 +594,23 @@ impl Default for CrossvalCfg {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vision_calibration_core::{CameraFix, CameraModelSpec, DistortionKind, SensorKind};
+
+    /// A Brown-Conrady camera with a Scheimpflug sensor and the given fix
+    /// lists.
+    fn tilted_camera(distortion: &[&str], sensor: &[&str]) -> CameraConfig {
+        let names = |n: &[&str]| Some(n.iter().map(|s| s.to_string()).collect());
+        let mut camera = CameraConfig::new(CameraModelSpec::pinhole(
+            DistortionKind::BrownConrady5,
+            SensorKind::Scheimpflug,
+        ));
+        camera.fix = CameraFix {
+            distortion: names(distortion),
+            sensor: names(sensor),
+            ..CameraFix::default()
+        };
+        camera
+    }
     use vision_calibration_dataset::{CameraSource, ImagePattern, TargetSpec, Topology};
 
     /// Compile-time guard: every [`ProblemKind`] variant has a `Topology`
@@ -772,22 +704,9 @@ mod tests {
             planar_intrinsics: None,
             single_cam_handeye: None,
             rig_handeye: Some(RigHandeyeOverride {
-                sensor: Some(BenchSensorMode::Scheimpflug {
-                    init_tilt_x: 0.0,
-                    init_tilt_y: 0.0,
-                    fix_scheimpflug: Some(BenchScheimpflugFixMask {
-                        tilt_x: false,
-                        tilt_y: true,
-                    }),
-                    distortion_mask_in_percam_ba: Some(BenchDistortionFixMask {
-                        k1: false,
-                        k2: true,
-                        k3: true,
-                        p1: false,
-                        p2: false,
-                    }),
-                    refine_scheimpflug_in_rig_ba: false,
-                }),
+                camera: Some(tilted_camera(&["k2", "k3"], &["tilt_y"])),
+                camera_overrides: None,
+                refine_sensor: Some(false),
                 handeye_mode: Some(BenchHandEyeMode::EyeToHand),
                 max_iters: Some(200),
                 robust_loss: Some(BenchRobustLoss::Huber { scale: 1.0 }),
@@ -796,7 +715,7 @@ mod tests {
                 handeye_ba: Some(HandeyeBaOverride {
                     refine_robot_poses: Some(true),
                     refine_cam_se3_rig_in_handeye_ba: Some(false),
-                    refine_scheimpflug_in_handeye_ba: Some(false),
+                    refine_sensor_in_handeye_ba: Some(false),
                     robot_rot_sigma: None,
                     robot_trans_sigma: None,
                 }),
@@ -859,35 +778,32 @@ mod tests {
         let mut cfg = RigHandeyeConfig::default();
         override_cfg.apply_to(&mut cfg);
 
-        assert!(matches!(cfg.sensor, SensorMode::Scheimpflug { .. }));
+        assert_eq!(cfg.camera.model.sensor, SensorKind::Scheimpflug);
         assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
         assert_eq!(cfg.solver.max_iters, 200);
         assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
         assert!(cfg.handeye_ba.robot_poses.refine);
         assert!(!cfg.handeye_ba.refine_cam_se3_rig);
-        assert!(!cfg.handeye_ba.refine_scheimpflug);
+        assert!(!cfg.handeye_ba.refine_sensor);
     }
 
     #[test]
     fn charuco_3536_override_maps_physical_setup() {
         let json = r#"
         {
-          "sensor": {
-            "kind": "scheimpflug",
-            "init_tilt_x": 0.0,
-            "init_tilt_y": 0.0,
-            "fix_scheimpflug": { "tilt_x": false, "tilt_y": false },
-            "distortion_mask_in_percam_ba": {
-              "k1": false, "k2": false, "k3": false, "p1": true, "p2": true
+          "camera": {
+            "model": {
+              "projection": "pinhole", "distortion": "brown_conrady5", "sensor": "scheimpflug"
             },
-            "refine_scheimpflug_in_rig_ba": true
+            "fix": { "distortion": ["p1", "p2"], "sensor": [] }
           },
+          "refine_sensor": true,
           "handeye_mode": "eye_to_hand",
           "refine_intrinsics_in_rig_ba": true,
           "handeye_ba": {
             "refine_robot_poses": true,
             "refine_cam_se3_rig_in_handeye_ba": false,
-            "refine_scheimpflug_in_handeye_ba": false
+            "refine_sensor_in_handeye_ba": false
           }
         }
         "#;
@@ -898,20 +814,13 @@ mod tests {
         assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
         assert!(cfg.rig.refine_intrinsics_in_rig_ba);
         assert!(!cfg.handeye_ba.refine_cam_se3_rig);
-        assert!(!cfg.handeye_ba.refine_scheimpflug);
-        match cfg.sensor {
-            SensorMode::Scheimpflug {
-                distortion_mask_in_percam_ba,
-                refine_scheimpflug_in_rig_ba,
-                ..
-            } => {
-                assert!(distortion_mask_in_percam_ba.p1);
-                assert!(distortion_mask_in_percam_ba.p2);
-                assert!(refine_scheimpflug_in_rig_ba);
-            }
-            SensorMode::Pinhole => panic!("expected Scheimpflug sensor"),
-            _ => panic!("expected Scheimpflug sensor"),
-        }
+        assert!(!cfg.handeye_ba.refine_sensor);
+        assert_eq!(cfg.camera.model.sensor, SensorKind::Scheimpflug);
+        assert_eq!(
+            cfg.camera.fix.distortion,
+            Some(vec!["p1".to_string(), "p2".to_string()])
+        );
+        assert!(cfg.rig.refine_sensor);
     }
 
     #[test]

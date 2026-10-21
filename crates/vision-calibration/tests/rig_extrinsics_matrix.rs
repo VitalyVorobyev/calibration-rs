@@ -163,10 +163,10 @@ fn solve(input: RigExtrinsicsInput, reference_camera_idx: usize) -> RigExtrinsic
     let factrs = solve_on(input, reference_camera_idx, SolverBackend::Factrs);
     for (c, (a, b)) in tiny.cameras.iter().zip(&factrs.cameras).enumerate() {
         for (name, x, y) in [
-            ("fx", a.k.fx, b.k.fx),
-            ("fy", a.k.fy, b.k.fy),
-            ("cx", a.k.cx, b.k.cx),
-            ("cy", a.k.cy, b.k.cy),
+            ("fx", a.intrinsics.fx, b.intrinsics.fx),
+            ("fy", a.intrinsics.fy, b.intrinsics.fy),
+            ("cx", a.intrinsics.cx, b.intrinsics.cx),
+            ("cy", a.intrinsics.cy, b.intrinsics.cy),
         ] {
             assert!(
                 (x - y).abs() <= 1e-2,
@@ -240,8 +240,11 @@ fn rig_extrinsics_recovers_gt_across_grid_and_noise() {
 
             assert_eq!(export.cam_se3_rig.len(), 2, "{label}: camera count");
             assert!(
-                export.sensors.is_none(),
-                "{label}: pinhole rig has no sensors"
+                export
+                    .cameras
+                    .iter()
+                    .all(|c| matches!(c.sensor, vision_calibration::core::SensorParams::Identity)),
+                "{label}: an untilted rig keeps identity sensors"
             );
 
             // Reference camera pins the rig frame ⇒ its extrinsic is identity.

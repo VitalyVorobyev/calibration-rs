@@ -10,9 +10,10 @@ source of truth:
   (model + named fix lists) / ``fix_poses``; ``max_iters`` defaults to 120.
 * ``vision-calibration-optim`` ``DistortionKind`` — ``#[serde(rename_all =
   "snake_case")]``.
-* ``rig_family.rs`` ``SensorMode`` — ``#[serde(tag = "kind")]`` (internally
-  tagged ``Pinhole`` / ``Scheimpflug``); ``distortion_mask_in_percam_ba``
-  defaults to ``DistortionFixMask::radial_only()``.
+* ``RigExtrinsicsConfig`` / ``RigHandeyeConfig`` — ``camera`` (the planar
+  ``CameraConfig`` wrapper) plus ``camera_overrides`` (a list of
+  ``{camera, model, fix}``); ``rig.refine_sensor`` and
+  ``handeye_ba.refine_sensor``.
 * ``rig_handeye_laserline/problem.rs`` ``RigHandeyeLaserlineBaConfig`` defaults
   (``calib_weight = 1.0``, ``laser_weight = 1e4``, ``fix_scheimpflug`` tilt
   frozen, ``default_camera_fix.distortion`` = ``radial_only``).
@@ -85,72 +86,92 @@ class DistortionModelSchemaTest(unittest.TestCase):
             vc.PlanarCalibrationConfig.from_mapping({"distortion_model": "none"})
 
 
-class SensorModeSchemaTest(unittest.TestCase):
-    def test_pinhole_sensor_payload_is_internally_tagged(self) -> None:
-        self.assertEqual(vc.PinholeSensorMode().to_payload(), {"kind": "Pinhole"})
-
-    def test_scheimpflug_sensor_payload_matches_rust_defaults(self) -> None:
-        payload = vc.ScheimpflugSensorMode().to_payload()
-        self.assertEqual(payload["kind"], "Scheimpflug")
-        self.assertEqual(payload["init_tilt_x"], 0.0)
-        self.assertEqual(payload["init_tilt_y"], 0.0)
-        # `#[serde(default)]` ScheimpflugFixMask — both axes free.
-        self.assertEqual(payload["fix_scheimpflug"], {"tilt_x": False, "tilt_y": False})
-        # `distortion_mask_in_percam_ba` defaults to DistortionFixMask::radial_only().
-        self.assertEqual(payload["distortion_mask_in_percam_ba"], _RADIAL_ONLY)
-        self.assertFalse(payload["refine_scheimpflug_in_rig_ba"])
-        self.assertEqual(payload["distortion_model"], "brown_conrady5")
+class RigCameraConfigSchemaTest(unittest.TestCase):
+    def test_rig_extrinsics_camera_key_and_defaults(self) -> None:
+        payload = vc.RigExtrinsicsCalibrationConfig().to_payload()
+        # A mis-named key would silently fall back to the Rust default.
+        self.assertNotIn("sensor", payload)
         self.assertEqual(
-            set(payload),
+            payload["camera"],
             {
-                "kind",
-                "init_tilt_x",
-                "init_tilt_y",
-                "fix_scheimpflug",
-                "distortion_mask_in_percam_ba",
-                "refine_scheimpflug_in_rig_ba",
-                "distortion_model",
+                "model": {
+                    "projection": "pinhole",
+                    "distortion": "brown_conrady5",
+                    "sensor": "identity",
+                },
+                "fix": {},
+            },
+        )
+        self.assertEqual(payload["camera_overrides"], [])
+        self.assertFalse(payload["rig"]["refine_sensor"])
+
+    def test_rig_handeye_camera_key_and_defaults(self) -> None:
+        payload = vc.RigHandeyeCalibrationConfig().to_payload()
+        self.assertNotIn("sensor", payload)
+        self.assertIn("camera", payload)
+        self.assertEqual(payload["camera_overrides"], [])
+        self.assertEqual(
+            payload["handeye_ba"],
+            {
+                "robot_poses": payload["handeye_ba"]["robot_poses"],
+                "refine_cam_se3_rig": False,
+                "refine_sensor": False,
             },
         )
 
-    def test_rig_extrinsics_sensor_key_and_default(self) -> None:
-        payload = vc.RigExtrinsicsCalibrationConfig().to_payload()
-        # The Rust field is named `sensor` — a mis-name would silently default.
-        self.assertIn("sensor", payload)
-        self.assertEqual(payload["sensor"], {"kind": "Pinhole"})
-
-    def test_rig_handeye_sensor_key_and_default(self) -> None:
-        payload = vc.RigHandeyeCalibrationConfig().to_payload()
-        self.assertIn("sensor", payload)
-        self.assertEqual(payload["sensor"], {"kind": "Pinhole"})
-
-    def test_rig_extrinsics_sensor_roundtrip_preserves_variant(self) -> None:
-        for sensor, expected in (
-            (vc.PinholeSensorMode(), vc.PinholeSensorMode),
-            (vc.ScheimpflugSensorMode(init_tilt_x=0.02), vc.ScheimpflugSensorMode),
-        ):
-            cfg = vc.RigExtrinsicsCalibrationConfig(sensor=sensor)
-            restored = vc.RigExtrinsicsCalibrationConfig.from_mapping(cfg.to_payload())
-            self.assertIsInstance(restored.sensor, expected)
-            self.assertEqual(restored.sensor.to_payload(), sensor.to_payload())
-
-    def test_rig_handeye_sensor_roundtrip_preserves_variant(self) -> None:
-        cfg = vc.RigHandeyeCalibrationConfig(
-            sensor=vc.ScheimpflugSensorMode(init_tilt_y=-0.03)
+    def test_camera_override_payload_shape(self) -> None:
+        override = vc.CameraOverride(
+            camera=1,
+            model=vc.CameraModelSpec(sensor="scheimpflug"),
+            fix=vc.CameraFix(sensor=["tilt_y"]),
         )
+        self.assertEqual(
+            override.to_payload(),
+            {
+                "camera": 1,
+                "model": {
+                    "projection": "pinhole",
+                    "distortion": "brown_conrady5",
+                    "sensor": "scheimpflug",
+                },
+                "fix": {"sensor": ["tilt_y"]},
+            },
+        )
+
+    def test_rig_extrinsics_overrides_roundtrip(self) -> None:
+        cfg = vc.RigExtrinsicsCalibrationConfig(
+            camera=vc.CameraConfig(model=vc.CameraModelSpec(distortion="none")),
+            camera_overrides=[
+                vc.CameraOverride(1, model=vc.CameraModelSpec(sensor="scheimpflug"))
+            ],
+        )
+        cfg.rig.refine_sensor = True
+        restored = vc.RigExtrinsicsCalibrationConfig.from_mapping(cfg.to_payload())
+        self.assertEqual(restored.to_payload(), cfg.to_payload())
+        self.assertIsInstance(restored.camera_overrides[0], vc.CameraOverride)
+        self.assertEqual(restored.camera_overrides[0].model.sensor, "scheimpflug")
+        self.assertTrue(restored.rig.refine_sensor)
+
+    def test_rig_handeye_overrides_roundtrip(self) -> None:
+        cfg = vc.RigHandeyeCalibrationConfig(
+            camera_overrides=[vc.CameraOverride(0, fix=vc.CameraFix(distortion=["k1"]))]
+        )
+        cfg.handeye_ba.refine_sensor = True
         restored = vc.RigHandeyeCalibrationConfig.from_mapping(cfg.to_payload())
-        self.assertIsInstance(restored.sensor, vc.ScheimpflugSensorMode)
-        self.assertEqual(restored.sensor.init_tilt_y, -0.03)
+        self.assertEqual(restored.to_payload(), cfg.to_payload())
+        self.assertTrue(restored.handeye_ba.refine_sensor)
 
-    def test_scheimpflug_sensor_from_mapping_rejects_unknown_field(self) -> None:
+    def test_removed_sensor_field_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            vc.ScheimpflugSensorMode.from_mapping({"kind": "Scheimpflug", "bogus": 1})
+            vc.RigExtrinsicsCalibrationConfig.from_mapping({"sensor": {"kind": "Pinhole"}})
+        with self.assertRaises(ValueError):
+            vc.HandeyeBaConfig.from_mapping({"refine_scheimpflug": True})
 
-    def test_sensor_payload_missing_kind_is_rejected(self) -> None:
-        # Rust's internally-tagged SensorMode errors on a missing tag; the Python
-        # parser must not silently default to Pinhole and drop Scheimpflug fields.
+    def test_camera_override_rejects_unknown_and_missing_fields(self) -> None:
         with self.assertRaises(ValueError):
-            vc.RigExtrinsicsCalibrationConfig.from_mapping({"sensor": {"init_tilt_x": 0.02}})
+            vc.CameraOverride.from_payload({"camera": 0, "bogus": 1})
+        with self.assertRaises(ValueError):
+            vc.CameraOverride.from_payload({"model": {}})
 
 
 class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):

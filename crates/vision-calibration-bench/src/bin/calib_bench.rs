@@ -5,12 +5,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use vision_calibration::common::config::CameraConfig;
+use vision_calibration::core::{CameraFix, CameraModelSpec, DistortionKind, SensorKind};
 use vision_calibration::optim::SolverBackend;
 use vision_calibration_bench::record::BenchRecord;
 use vision_calibration_bench::registry::{
-    BenchDistortionFixMask, BenchEntry, BenchHandEyeMode, BenchScheimpflugFixMask, BenchSensorMode,
-    ChessCornersDetectorSpec, DetectorOverride, HandeyeBaOverride, ManualInitSeed, ProblemKind,
-    RigHandeyeOverride, SingleCamHandeyeOverride, load_registry,
+    BenchEntry, BenchHandEyeMode, ChessCornersDetectorSpec, DetectorOverride, HandeyeBaOverride,
+    ManualInitSeed, ProblemKind, RigHandeyeOverride, SingleCamHandeyeOverride, load_registry,
 };
 use vision_calibration_bench::solver::record::SolverBenchReport;
 use vision_calibration_bench::solver::scenes::{Preset, Problem};
@@ -1174,22 +1175,26 @@ fn set_rig_distortion_and_tilt_masks(
     let overrides = entry
         .rig_handeye
         .get_or_insert_with(RigHandeyeOverride::default);
-    overrides.sensor = Some(BenchSensorMode::Scheimpflug {
-        init_tilt_x: 0.0,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: Some(BenchScheimpflugFixMask {
-            tilt_x: fix_scheimpflug,
-            tilt_y: fix_scheimpflug,
+    let names = |n: &[&str]| Some(n.iter().map(|s| s.to_string()).collect());
+    let mut camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
+    camera.fix = CameraFix {
+        distortion: names(if fix_tangential {
+            &["k3", "p1", "p2"]
+        } else {
+            &["k3"]
         }),
-        distortion_mask_in_percam_ba: Some(BenchDistortionFixMask {
-            k1: false,
-            k2: false,
-            k3: true,
-            p1: fix_tangential,
-            p2: fix_tangential,
+        sensor: names(if fix_scheimpflug {
+            &["tilt_x", "tilt_y"]
+        } else {
+            &[]
         }),
-        refine_scheimpflug_in_rig_ba: false,
-    });
+        ..CameraFix::default()
+    };
+    overrides.camera = Some(camera);
+    overrides.refine_sensor = Some(false);
 }
 
 fn rtv3d_nominal_seed(entry: &BenchEntry) -> ManualInitSeed {
@@ -1237,7 +1242,7 @@ fn set_final_rig_refine(entry: &mut BenchEntry) -> bool {
         .get_or_insert_with(RigHandeyeOverride::default);
     let mut ba = overrides.handeye_ba.clone().unwrap_or_default();
     ba.refine_cam_se3_rig_in_handeye_ba = Some(true);
-    ba.refine_scheimpflug_in_handeye_ba = Some(true);
+    ba.refine_sensor_in_handeye_ba = Some(true);
     overrides.handeye_ba = Some(ba);
     true
 }
@@ -1293,7 +1298,7 @@ fn set_robot_ba(
     let ba = HandeyeBaOverride {
         refine_robot_poses,
         refine_cam_se3_rig_in_handeye_ba: None,
-        refine_scheimpflug_in_handeye_ba: None,
+        refine_sensor_in_handeye_ba: None,
         robot_rot_sigma,
         robot_trans_sigma,
     };

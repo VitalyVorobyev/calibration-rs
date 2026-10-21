@@ -28,7 +28,7 @@ export interface EnabledPreset {
   /**
    * Optional config patch deep-merged over the topology's
    * `default_config_cmd` defaults when the preset is applied — for
-   * datasets whose defaults are wrong (e.g. a rig of Scheimpflug
+   * datasets whose defaults are wrong (e.g. a rig of tilted-sensor
    * cameras observed EyeToHand). Keys mirror the Rust `*Config` JSON.
    */
   configOverrides?: Record<string, unknown>;

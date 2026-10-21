@@ -70,12 +70,12 @@ fn main() -> Result<()> {
     let intr_opt = step_intrinsics_optimize_all(&mut session, None)?;
 
     for (i, (cam, reproj)) in intr_opt
-        .per_cam_intrinsics
+        .cameras
         .iter()
         .zip(intr_opt.per_cam_reproj_errors.iter())
         .enumerate()
     {
-        let k = &cam.k;
+        let k = &cam.intrinsics;
         println!(
             "  Camera {}: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}, reproj_err={:.3}px",
             i, k.fx, k.fy, k.cx, k.cy, reproj
@@ -104,21 +104,22 @@ fn main() -> Result<()> {
 
     // Show final per-camera results from intrinsics optimization
     println!("--- Final Per-Camera Results ---");
-    for (i, cam) in intr_opt.per_cam_intrinsics.iter().enumerate() {
-        let k = &cam.k;
-        let d = &cam.dist;
+    for (i, cam) in intr_opt.cameras.iter().enumerate() {
+        let k = &cam.intrinsics;
         println!("  Camera {i}:");
         println!(
             "    Intrinsics: fx={:.2}, fy={:.2}, cx={:.2}, cy={:.2}",
             k.fx, k.fy, k.cx, k.cy
         );
-        println!(
-            "    Distortion: k1={:.6}, k2={:.6}, p1={:.6}, p2={:.6}",
-            d.k1, d.k2, d.p1, d.p2
-        );
+        println!("    Distortion: {:?}", cam.distortion);
     }
     let output = session.require_output()?;
-    let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
+    let cam_se3_rig: Vec<Iso3> = output
+        .params
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
     print_baseline("Rig baseline (after BA)", &cam_se3_rig);
     println!();
 

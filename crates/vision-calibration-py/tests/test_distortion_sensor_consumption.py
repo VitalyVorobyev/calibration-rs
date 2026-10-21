@@ -1,4 +1,4 @@
-"""Runtime proof that ``distortion_model`` and rig ``sensor`` reach the solver.
+"""Runtime proof that the camera model and rig camera overrides reach the solver.
 
 The config-schema tests pin the payload *shape*; these prove the two new knobs
 are actually *consumed* on the Rust side and surface correctly on the typed
@@ -11,12 +11,10 @@ result (not silently defaulted):
   :class:`Division1Distortion`, ``rational8`` → :class:`Rational8Distortion`,
   ``thin_prism9`` → :class:`ThinPrism9Distortion`). Selecting a model both
   changes the fitted coefficients *and* round-trips through the typed result.
-* rig ``sensor`` — a ``ScheimpflugSensorMode`` carrying a non-Brown-Conrady
-  ``distortion_model`` is rejected up front by the rig ``validate_config`` (ADR
-  0019). That rejection only fires when the internally-tagged ``sensor`` payload
-  (``kind: "Scheimpflug"``) *and* its nested ``distortion_model`` both
-  deserialize, so it is a fast, distinguishing consumption check. The pinhole
-  ``sensor`` path is exercised by ``test_rig_handeye_laserline``.
+* rig ``camera_overrides`` — an override naming a camera outside the rig, or
+  naming the same camera twice, is rejected up front by the rig config
+  validation. That rejection only fires when the override list deserializes
+  and reaches the solver, so it is a fast, distinguishing consumption check.
 """
 
 from __future__ import annotations
@@ -109,26 +107,28 @@ class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
 
 
-class RigSensorConsumptionTest(unittest.TestCase):
-    def test_rig_extrinsics_rejects_non_bc5_scheimpflug_distortion(self) -> None:
+class RigCameraOverrideConsumptionTest(unittest.TestCase):
+    def test_rig_extrinsics_rejects_out_of_range_override(self) -> None:
         cfg = vc.RigExtrinsicsCalibrationConfig(
-            sensor=vc.ScheimpflugSensorMode(distortion_model="rational8")
+            camera_overrides=[vc.CameraOverride(camera=9)]
         )
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaisesRegex(RuntimeError, "out of range"):
             vc.run_rig_extrinsics(_rig_extrinsics_dataset(), cfg)
-        # The message proves both sensor.kind and sensor.distortion_model were
-        # read: a silently-defaulted Pinhole sensor would never reach this arm.
-        self.assertIn("BrownConrady5", str(ctx.exception))
 
-    def test_rig_extrinsics_pinhole_sensor_does_not_reject(self) -> None:
-        # A pinhole sensor exposes no distortion_model, so validate_config must
-        # not raise the Scheimpflug-only rejection (the run may still fail later
-        # on ill-conditioned geometry — we only assert the message is absent).
-        cfg = vc.RigExtrinsicsCalibrationConfig(sensor=vc.PinholeSensorMode())
-        try:
+    def test_rig_extrinsics_rejects_duplicate_override(self) -> None:
+        cfg = vc.RigExtrinsicsCalibrationConfig(
+            camera_overrides=[vc.CameraOverride(0), vc.CameraOverride(0)]
+        )
+        with self.assertRaises(ValueError):
             vc.run_rig_extrinsics(_rig_extrinsics_dataset(), cfg)
-        except ValueError as exc:
-            self.assertNotIn("BrownConrady5", str(exc))
+
+    def test_rig_extrinsics_result_cameras_are_typed(self) -> None:
+        result = vc.run_rig_extrinsics(
+            _rig_extrinsics_dataset(), vc.RigExtrinsicsCalibrationConfig()
+        )
+        for cam in result.cameras:
+            self.assertIsInstance(cam, vc.PinholeCamera)
+            self.assertIsInstance(cam.distortion, vc.BrownConradyDistortion)
 
 
 if __name__ == "__main__":

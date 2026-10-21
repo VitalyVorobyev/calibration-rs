@@ -148,10 +148,11 @@ fn main() -> Result<()> {
     // Step 1: Per-camera intrinsics initialization
     println!("--- Step 1: Per-Camera Intrinsics Initialization ---");
     let intr_init = step_intrinsics_init_all(&mut session, None)?;
-    for (i, cam) in intr_init.per_cam_intrinsics.iter().enumerate() {
+    for (i, cam) in intr_init.cameras.iter().enumerate() {
+        let k = &cam.intrinsics;
         println!(
             "  Camera {}: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-            i, cam.k.fx, cam.k.fy, cam.k.cx, cam.k.cy
+            i, k.fx, k.fy, k.cx, k.cy
         );
     }
     println!();
@@ -159,11 +160,11 @@ fn main() -> Result<()> {
     // Step 2: Per-camera intrinsics optimization
     println!("--- Step 2: Per-Camera Intrinsics Optimization ---");
     let intr_opt = step_intrinsics_optimize_all(&mut session, None)?;
-    for (i, cam) in intr_opt.per_cam_intrinsics.iter().enumerate() {
+    for (i, cam) in intr_opt.cameras.iter().enumerate() {
         let reproj = intr_opt.per_cam_reproj_errors[i];
         println!(
             "  Camera {}: fx={:.1}, fy={:.1}, reproj_err={:.4}px",
-            i, cam.k.fx, cam.k.fy, reproj
+            i, cam.intrinsics.fx, cam.intrinsics.fy, reproj
         );
     }
     println!();
@@ -221,7 +222,7 @@ fn main() -> Result<()> {
     let export = session.export()?;
 
     println!("Camera 0:");
-    let k0 = &export.cameras[0].k;
+    let k0 = &export.cameras[0].intrinsics;
     println!(
         "  fx: {:.2} (GT: {:.2}, err: {:.2}%)",
         k0.fx,
@@ -236,7 +237,7 @@ fn main() -> Result<()> {
     );
 
     println!("Camera 1:");
-    let k1 = &export.cameras[1].k;
+    let k1 = &export.cameras[1].intrinsics;
     println!(
         "  fx: {:.2} (GT: {:.2}, err: {:.2}%)",
         k1.fx,

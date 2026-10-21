@@ -7,8 +7,8 @@
 //! 4. Hand-eye transform estimation
 
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, Real,
-    RigView, RigViewObs, make_pinhole_camera,
+    BrownConrady5, CameraFix, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy, Pt2,
+    Pt3, Real, RigView, RigViewObs, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
@@ -155,10 +155,10 @@ fn eye_in_hand_calibration_converges() {
 
     let target_poses_init = vec![Isometry3::identity()];
 
-    let cameras_init: Vec<PinholeCamera> = intrinsics_init
+    let cameras_init: Vec<CameraParams> = intrinsics_init
         .iter()
         .zip(distortion_init.iter())
-        .map(|(k, d)| make_pinhole_camera(*k, *d))
+        .map(|(k, d)| pinhole_camera_params(&make_pinhole_camera(*k, *d)))
         .collect();
 
     let initial = HandEyeParams {
@@ -188,7 +188,7 @@ fn eye_in_hand_calibration_converges() {
 
     // Verify per-camera intrinsics and distortion convergence
     for (cam_idx, camera) in result.params.cameras.iter().enumerate() {
-        let intr_final = camera.k;
+        let intr_final = camera.intrinsics;
         let fx_error = (intr_final.fx - intrinsics_gt.fx).abs();
         let fy_error = (intr_final.fy - intrinsics_gt.fy).abs();
         let cx_error = (intr_final.cx - intrinsics_gt.cx).abs();
@@ -225,7 +225,9 @@ fn eye_in_hand_calibration_converges() {
         );
 
         // Verify distortion convergence
-        let dist_final = camera.dist;
+        let DistortionParams::BrownConrady5 { params: dist_final } = camera.distortion else {
+            panic!("the camera lost its Brown-Conrady model");
+        };
         let k1_error = (dist_final.k1 - distortion_gt.k1).abs();
         let k2_error = (dist_final.k2 - distortion_gt.k2).abs();
         let p1_error = (dist_final.p1 - distortion_gt.p1).abs();
@@ -482,7 +484,10 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     let dataset = HandEyeDataset::new(views.clone(), 1, HandEyeMode::EyeInHand).unwrap();
     let num_views = dataset.num_views();
     let init = HandEyeParams {
-        cameras: vec![make_pinhole_camera(intrinsics_gt, distortion_gt)],
+        cameras: vec![pinhole_camera_params(&make_pinhole_camera(
+            intrinsics_gt,
+            distortion_gt,
+        ))],
         cam_to_rig: vec![cam_to_rig_gt],
         handeye: Isometry3::from_parts(
             Translation3::new(0.038, -0.021, 0.118),
@@ -492,7 +497,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     };
 
     let base_opts = HandEyeSolveOptions {
-        default_fix: CameraFixMask::all_fixed(),
+        fix: vec![CameraFix::all(init.cameras[0].spec().unwrap())],
         fix_extrinsics: vec![true],
         ..Default::default()
     };

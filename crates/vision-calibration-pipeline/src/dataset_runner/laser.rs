@@ -877,7 +877,7 @@ mod tests {
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use vision_calibration_core::{
-        BrownConrady5, FxFyCxCy, PerFeatureResiduals, make_pinhole_camera,
+        BrownConrady5, FxFyCxCy, PerFeatureResiduals, make_pinhole_camera, pinhole_camera_params,
     };
     use vision_calibration_dataset::{
         CameraSource, PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
@@ -1232,9 +1232,8 @@ mod tests {
         RigHandeyeExport {
             kind: ExportKind::RigHandeye,
             cameras: (0..num_cameras)
-                .map(|_| make_pinhole_camera(k, BrownConrady5::default()))
+                .map(|_| pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default())))
                 .collect(),
-            sensors: None,
             cam_se3_rig: vec![Iso3::identity(); num_cameras],
             rig_se3_target: vec![],
             handeye_mode: HandEyeMode::EyeInHand,
@@ -1352,10 +1351,13 @@ mod tests {
                 .len(),
             30
         );
-        assert_eq!(input.upstream.intrinsics.len(), 2);
+        assert_eq!(input.upstream.cameras.len(), 2);
         assert!(
-            input.upstream.sensors[0].tilt_x.abs() < 1e-12,
-            "pinhole upstream gets zero Scheimpflug tilt"
+            matches!(
+                input.upstream.cameras[0].sensor,
+                vision_calibration_core::SensorParams::Identity
+            ),
+            "an untilted upstream camera keeps its identity sensor"
         );
         // EyeInHand chain with identity T_G_R:
         //   T_R_T_i = T_B_G_i^-1 * T_B_T = (-tx_i, 0, 1).

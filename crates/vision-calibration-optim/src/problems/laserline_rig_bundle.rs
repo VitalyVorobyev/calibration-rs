@@ -32,13 +32,12 @@ use crate::params::laser_plane::LaserPlane;
 use crate::problems::laserline_bundle::{
     LaserCameraModel, LaserResidualRecords, LaserlineMeta, LaserlineParams, LaserlineResidualType,
     LaserlineSolveOptions, LaserlineStats, LaserlineView, compute_laserline_stats,
-    optimize_laserline,
+    laser_camera_parts, optimize_laserline,
 };
 use crate::uncertainty;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCy, Iso3, Pt2, Real, ScheimpflugParams,
-    Uncertainty, View,
+    CameraFixMask, CameraParams, CorrespondenceView, Iso3, Pt2, Uncertainty, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -138,15 +137,13 @@ impl RigLaserlineDataset {
 /// Upstream calibration consumed by the rig laserline solver.
 ///
 /// All of these parameters are held fixed during optimization (by design).
-/// They typically come from a Scheimpflug hand-eye calibration.
+/// They typically come from a rig hand-eye calibration. The laser residuals
+/// are evaluated in the Brown-Conrady model: each camera has Brown-Conrady
+/// (or no) distortion and an identity or Scheimpflug sensor.
 #[derive(Debug, Clone)]
 pub struct RigLaserlineUpstream {
-    /// Per-camera intrinsics.
-    pub intrinsics: Vec<FxFyCxCy<Real>>,
-    /// Per-camera distortion.
-    pub distortion: Vec<BrownConrady5<Real>>,
-    /// Per-camera Scheimpflug sensor parameters.
-    pub sensors: Vec<ScheimpflugParams>,
+    /// Per-camera camera parameters.
+    pub cameras: Vec<CameraParams>,
     /// Per-camera extrinsics (camera-to-rig, `T_R_C`).
     pub cam_to_rig: Vec<Iso3>,
     /// Per-view rig poses (`rig_se3_target`, `T_R_T`).
@@ -192,29 +189,22 @@ impl Default for RigLaserlineSolveOptions {
 ///
 /// `cam_se3_target_per_view_cam[v][c]` is the camera-frame target pose for
 /// view `v`, camera `c`, derived by composing `cam_se3_rig[c] *
-/// rig_se3_target[v]`. Cameras are reconstructed from `intrinsics`,
-/// `distortion`, and `sensors`.
+/// rig_se3_target[v]`.
 ///
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if the per-camera or per-view slice
-/// lengths are inconsistent with the dataset shape.
+/// lengths are inconsistent with the dataset shape, or a camera has a
+/// distortion model other than Brown-Conrady (or none).
 pub fn compute_rig_laserline_feature_residuals(
     dataset: &RigLaserlineDataset,
-    intrinsics: &[FxFyCxCy<Real>],
-    distortion: &[BrownConrady5<Real>],
-    sensors: &[ScheimpflugParams],
+    cameras: &[CameraParams],
     cam_se3_rig: &[Iso3],
     rig_se3_target: &[Iso3],
     laser_planes_cam: &[LaserPlane],
 ) -> Result<LaserResidualRecords, Error> {
     let n = dataset.num_cameras;
-    if intrinsics.len() != n
-        || distortion.len() != n
-        || sensors.len() != n
-        || cam_se3_rig.len() != n
-        || laser_planes_cam.len() != n
-    {
+    if cameras.len() != n || cam_se3_rig.len() != n || laser_planes_cam.len() != n {
         return Err(Error::invalid_input(format!(
             "per-camera slice length mismatch (expected {n})"
         )));
@@ -227,8 +217,13 @@ pub fn compute_rig_laserline_feature_residuals(
         )));
     }
 
-    let cameras = (0..n)
-        .map(|c| LaserCameraModel::new(&intrinsics[c], &distortion[c], &sensors[c]))
+    let cameras = cameras
+        .iter()
+        .enumerate()
+        .map(|(c, camera)| {
+            let (k, distortion, sensor) = laser_camera_parts(camera, c)?;
+            LaserCameraModel::new(&k, &distortion, &sensor)
+        })
         .collect::<Result<Vec<_>, Error>>()?;
 
     let mut out = LaserResidualRecords::default();
@@ -292,22 +287,24 @@ pub fn optimize_rig_laserline(
     backend_opts: &BackendSolveOptions,
 ) -> Result<RigLaserlineEstimate, Error> {
     let n = dataset.num_cameras;
-    if upstream.intrinsics.len() != n
-        || upstream.distortion.len() != n
-        || upstream.sensors.len() != n
+    if upstream.cameras.len() != n
         || upstream.cam_to_rig.len() != n
         || initial_planes_cam.len() != n
     {
         return Err(Error::invalid_input(format!(
             "upstream or initial_planes_cam length mismatch: cameras={n}, \
-            intrinsics={}, distortion={}, sensors={}, cam_to_rig={}, planes={}",
-            upstream.intrinsics.len(),
-            upstream.distortion.len(),
-            upstream.sensors.len(),
+            upstream cameras={}, cam_to_rig={}, planes={}",
+            upstream.cameras.len(),
             upstream.cam_to_rig.len(),
             initial_planes_cam.len(),
         )));
     }
+    let laser_cameras = upstream
+        .cameras
+        .iter()
+        .enumerate()
+        .map(|(c, camera)| laser_camera_parts(camera, c))
+        .collect::<Result<Vec<_>, Error>>()?;
     if upstream.rig_se3_target.len() != dataset.num_views() {
         return Err(Error::invalid_input(format!(
             "rig_se3_target has {} entries, expected {} (one per view)",
@@ -369,10 +366,11 @@ pub fn optimize_rig_laserline(
         let mut per_cam_opts = laser_opts.clone();
         per_cam_opts.fix_poses = (0..views.len()).collect();
 
+        let (intrinsics, distortion, sensor) = laser_cameras[cam_idx];
         let initial = LaserlineParams::new(
-            upstream.intrinsics[cam_idx],
-            upstream.distortion[cam_idx],
-            upstream.sensors[cam_idx],
+            intrinsics,
+            distortion,
+            sensor,
             poses_cam,
             initial_plane_cam.clone(),
         )?;
@@ -408,7 +406,9 @@ pub fn optimize_rig_laserline(
 mod tests {
     use super::*;
     use nalgebra::{Isometry3, Rotation3, Translation3, Unit, Vector3};
-    use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, Pinhole, Pt3};
+    use vision_calibration_core::{
+        BrownConrady5, Camera, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
+    };
 
     fn make_target_points() -> Vec<Pt3> {
         let mut pts = Vec::new();
@@ -544,10 +544,14 @@ mod tests {
         }
 
         let dataset = RigLaserlineDataset::new(views, 2).unwrap();
+        let camera = vision_calibration_core::CameraParams {
+            projection: vision_calibration_core::ProjectionParams::Pinhole,
+            distortion: vision_calibration_core::DistortionParams::BrownConrady5 { params: dist },
+            sensor: vision_calibration_core::SensorParams::Scheimpflug { params: sensor },
+            intrinsics: intr,
+        };
         let upstream = RigLaserlineUpstream {
-            intrinsics: vec![intr, intr],
-            distortion: vec![dist, dist],
-            sensors: vec![sensor, sensor],
+            cameras: vec![camera.clone(), camera],
             cam_to_rig: cam_to_rig.to_vec(),
             rig_se3_target,
         };

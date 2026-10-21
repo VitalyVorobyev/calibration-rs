@@ -53,11 +53,11 @@ Joint optimization of all parameters:
 
 **Parameter blocks**:
 - `"cam/k"` (4D): per-camera intrinsics
-- `"dist/k"` (5D): per-camera distortion
+- `"dist/k"` (5D for Brown-Conrady): per-camera distortion
 - `"extrinsics/k"` (7D, SE3): per-camera camera-to-rig transforms
 - `"rig_pose/v"` (7D, SE3): per-view rig-to-target poses
 
-**Residual blocks**: one `ReprojPoint { model: PINHOLE4_DIST5, chain: TwoSe3, .. }` per observation.
+**Residual blocks**: one `ReprojPoint { model: <camera's CameraModelSpec>, chain: TwoSe3, .. }` per observation. A tilted camera adds a `"sensor/k"` block (2D); `"dist/k"` has the size of the camera's distortion model.
 
 **Fixed parameters**: The reference camera's extrinsics are fixed at identity (gauge freedom).
 
@@ -71,16 +71,37 @@ pub struct RigExtrinsicsConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig, // { init_iterations, fix_k3, fix_tangential }
 
-    // Sensor flavour (pinhole or Scheimpflug); default `SensorMode::Pinhole`.
-    pub sensor: SensorMode,
+    // Camera model shared by every camera (projection, distortion, sensor)
+    // and its named fix lists; default Brown-Conrady, identity sensor.
+    pub camera: CameraConfig, // { model: CameraModelSpec, fix: CameraFix }
+
+    // Per-camera replacements of `camera`, for rigs that mix lenses or sensors.
+    pub camera_overrides: Vec<CameraOverride>, // { camera, model, fix }
 
     // Rig frame options.
-    pub rig: RigConfig, // { reference_camera_idx, refine_intrinsics_in_rig_ba }
+    pub rig: RigConfig, // { reference_camera_idx, refine_intrinsics_in_rig_ba, refine_sensor }
 
     // Non-linear solve stage settings.
     pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }
 }
 ```
+
+Every camera uses `camera` unless `camera_overrides` names it. An override replaces the model and the fix lists of one camera, so a rig can mix distortion kinds and sensors. A camera index out of range or listed twice is a validation error. A slot left out of `fix` keeps the model's default. With `rig.refine_intrinsics_in_rig_ba` set, each camera's fix lists are held during the rig bundle adjustment.
+
+```rust
+use vision_calibration::common::config::CameraOverride;
+use vision_calibration::core::{CameraModelSpec, DistortionKind, SensorKind};
+
+// Camera 1 has a tilted sensor and a rational lens; the others are straight Brown-Conrady.
+session.update_config(|c| {
+    c.camera_overrides = vec![CameraOverride::new(
+        1,
+        CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Scheimpflug),
+    )];
+})?;
+```
+
+A rig of tilted cameras sets `config.camera = CameraConfig::new(CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug))` instead. Tilt seeds go through `RigIntrinsicsManualInit::per_cam_sensors` and `step_intrinsics_init_all_with_seed`; zero tilts need no seed (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` is one `CameraParams` per camera, stating the calibrated distortion and sensor.
 
 The reference camera (`rig.reference_camera_idx`) is fixed at identity, which removes the rig's 6-DOF gauge freedom; no separate pose-gauge setting is needed.
 

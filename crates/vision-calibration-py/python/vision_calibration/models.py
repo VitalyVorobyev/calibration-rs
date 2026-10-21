@@ -41,11 +41,7 @@ _DEFAULT_SENSOR_INIT: dict[str, float] = {
     "tilt_x": 0.0,
     "tilt_y": 0.0,
 }
-_DEFAULT_SCHEIMPFLUG_FIX_MASK: dict[str, bool] = {
-    "tilt_x": False,
-    "tilt_y": False,
-}
-# `SensorMode::Scheimpflug` and the joint BA both freeze tilt by default.
+# The joint BA freezes tilt by default.
 _FIXED_SCHEIMPFLUG_MASK: dict[str, bool] = {
     "tilt_x": True,
     "tilt_y": True,
@@ -181,11 +177,15 @@ class RigConfig:
 
     reference_camera_idx: int = 0
     refine_intrinsics_in_rig_ba: bool = False
+    #: Also refine each tilted camera's sensor tilt in the rig bundle
+    #: adjustment (no effect for untilted cameras).
+    refine_sensor: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "reference_camera_idx": int(self.reference_camera_idx),
             "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
+            "refine_sensor": bool(self.refine_sensor),
         }
 
     @classmethod
@@ -323,93 +323,63 @@ class CameraConfig:
 
 
 @dataclass(slots=True)
-class PinholeSensorMode:
-    """Pinhole rig sensor mode — mirrors ``SensorMode::Pinhole``.
+class CameraOverride:
+    """Per-camera model and fix lists for one camera of a rig.
 
-    Standard pinhole + Brown-Conrady projection with no sensor tilt. This is
-    the default flavour for both rig workflows (``RigExtrinsics`` /
-    ``RigHandeye``).
+    ``camera`` is the rig camera index; ``model`` and ``fix`` replace the
+    rig-wide :class:`CameraConfig` for that camera. A camera index out of
+    range or listed twice is rejected by the solver before any work.
     """
 
-    def to_payload(self) -> dict[str, Any]:
-        return {"kind": "Pinhole"}
-
-
-@dataclass(slots=True)
-class ScheimpflugSensorMode:
-    """Scheimpflug rig sensor mode — mirrors ``SensorMode::Scheimpflug``.
-
-    Adds per-camera tilt parameters so a rig of Scheimpflug cameras can be
-    calibrated. ``distortion_model`` mirrors the Rust field but only
-    ``"brown_conrady5"`` (the default) is accepted by the Brown-Conrady-typed
-    rig bundle adjustment.
-    """
-
-    init_tilt_x: float = 0.0
-    init_tilt_y: float = 0.0
-    fix_scheimpflug: dict[str, bool] = field(
-        default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
-    )
-    distortion_mask_in_percam_ba: dict[str, bool] = field(
-        default_factory=lambda: dict(_RADIAL_ONLY_DISTORTION_FIX_MASK)
-    )
-    refine_scheimpflug_in_rig_ba: bool = False
-    distortion_model: DistortionModel = "brown_conrady5"
+    camera: int
+    model: CameraModelSpec = field(default_factory=CameraModelSpec)
+    fix: CameraFix = field(default_factory=CameraFix)
 
     def to_payload(self) -> dict[str, Any]:
-        fix_scheimpflug = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
-        fix_scheimpflug.update(self.fix_scheimpflug)
-        distortion_mask = dict(_RADIAL_ONLY_DISTORTION_FIX_MASK)
-        distortion_mask.update(self.distortion_mask_in_percam_ba)
         return {
-            "kind": "Scheimpflug",
-            "init_tilt_x": float(self.init_tilt_x),
-            "init_tilt_y": float(self.init_tilt_y),
-            "fix_scheimpflug": fix_scheimpflug,
-            "distortion_mask_in_percam_ba": distortion_mask,
-            "refine_scheimpflug_in_rig_ba": bool(self.refine_scheimpflug_in_rig_ba),
-            "distortion_model": self.distortion_model,
+            "camera": int(self.camera),
+            "model": self.model.to_payload(),
+            "fix": self.fix.to_payload(),
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "ScheimpflugSensorMode":
-        cfg = cls()
-        for key, value in mapping.items():
-            if key == "kind":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "CameraOverride":
+        if "camera" not in payload:
+            raise ValueError("CameraOverride payload missing required 'camera'")
+        cfg = cls(camera=int(payload["camera"]))
+        for key, value in payload.items():
+            if key == "camera":
                 continue
-            if key == "fix_scheimpflug":
-                cfg.fix_scheimpflug = dict(cast(Mapping[str, bool], value))
-            elif key == "distortion_mask_in_percam_ba":
-                cfg.distortion_mask_in_percam_ba = dict(cast(Mapping[str, bool], value))
-            elif not hasattr(cfg, key):
-                raise ValueError(f"unknown ScheimpflugSensorMode field: {key}")
+            if key == "model":
+                cfg.model = (
+                    value
+                    if isinstance(value, CameraModelSpec)
+                    else CameraModelSpec.from_payload(cast(Mapping[str, Any], value))
+                )
+            elif key == "fix":
+                cfg.fix = (
+                    value
+                    if isinstance(value, CameraFix)
+                    else CameraFix.from_payload(cast(Mapping[str, Any], value))
+                )
             else:
-                setattr(cfg, key, value)
+                raise ValueError(f"unknown CameraOverride field: {key}")
         return cfg
 
 
-# Rig sensor flavour selector (pinhole vs Scheimpflug), mirroring the Rust
-# ``SensorMode`` enum. Illegal states are unrepresentable: a ``PinholeSensorMode``
-# carries no tilt fields, and only ``ScheimpflugSensorMode`` carries them.
-SensorMode = PinholeSensorMode | ScheimpflugSensorMode
+def _camera_config_from_value(value: Any) -> CameraConfig:
+    return (
+        value
+        if isinstance(value, CameraConfig)
+        else CameraConfig.from_payload(cast(Mapping[str, Any], value))
+    )
 
 
-def _sensor_mode_from_mapping(value: Any) -> SensorMode:
-    """Build a :data:`SensorMode` from a model instance or a serde mapping."""
-    if isinstance(value, (PinholeSensorMode, ScheimpflugSensorMode)):
-        return value
-    mapping = cast(Mapping[str, Any], value)
-    # Rust's internally-tagged `SensorMode` errors on a missing tag rather than
-    # defaulting; match that so a malformed payload fails loudly instead of
-    # silently discarding Scheimpflug fields.
-    if "kind" not in mapping:
-        raise ValueError("SensorMode payload missing required 'kind' tag")
-    kind = mapping["kind"]
-    if kind == "Pinhole":
-        return PinholeSensorMode()
-    if kind == "Scheimpflug":
-        return ScheimpflugSensorMode.from_mapping(mapping)
-    raise ValueError(f"unknown SensorMode kind: {kind!r}")
+def _camera_overrides_from_value(value: Any) -> list[CameraOverride]:
+    return [
+        v if isinstance(v, CameraOverride) else CameraOverride.from_payload(cast(Mapping[str, Any], v))
+        for v in cast(list[Any], value)
+    ]
 
 
 def _as_floats(values: tuple[Any, ...] | list[Any], expected: int, name: str) -> tuple[float, ...]:
@@ -797,20 +767,23 @@ class SingleCamHandeyeCalibrationConfig:
 class RigExtrinsicsCalibrationConfig:
     """Configuration for rig extrinsics calibration.
 
-    Grouped configuration. ``sensor`` selects the rig sensor flavour
-    (:class:`PinholeSensorMode` default, or :class:`ScheimpflugSensorMode` for
-    a rig of Scheimpflug cameras).
+    Grouped configuration. ``camera`` is the camera model shared by every rig
+    camera (a tilted sensor is ``camera.model.sensor = "scheimpflug"``);
+    ``camera_overrides`` replaces it for individual cameras, so a rig can mix
+    models.
     """
 
     intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
-    sensor: SensorMode = field(default_factory=PinholeSensorMode)
+    camera: CameraConfig = field(default_factory=CameraConfig)
+    camera_overrides: list[CameraOverride] = field(default_factory=list)
     rig: RigConfig = field(default_factory=RigConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "intrinsics": self.intrinsics.to_payload(),
-            "sensor": self.sensor.to_payload(),
+            "camera": self.camera.to_payload(),
+            "camera_overrides": [o.to_payload() for o in self.camera_overrides],
             "rig": self.rig.to_payload(),
             "solver": self.solver.to_payload(),
         }
@@ -825,8 +798,10 @@ class RigExtrinsicsCalibrationConfig:
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
-            elif key == "sensor":
-                cfg.sensor = _sensor_mode_from_mapping(value)
+            elif key == "camera":
+                cfg.camera = _camera_config_from_value(value)
+            elif key == "camera_overrides":
+                cfg.camera_overrides = _camera_overrides_from_value(value)
             elif key == "rig":
                 cfg.rig = (
                     value
@@ -850,19 +825,19 @@ class HandeyeBaConfig:
 
     Renamed and reshaped from ``RigHandeyeBaConfig``: robot-pose refinement
     now lives in the shared ``RobotPoseConfig`` group, and
-    ``refine_cam_se3_rig_in_handeye_ba`` / ``refine_scheimpflug_in_handeye_ba``
-    shorten to ``refine_cam_se3_rig`` / ``refine_scheimpflug``.
+    ``refine_cam_se3_rig_in_handeye_ba`` shortens to ``refine_cam_se3_rig``;
+    ``refine_sensor`` also refines each tilted camera's sensor tilt.
     """
 
     robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
     refine_cam_se3_rig: bool = False
-    refine_scheimpflug: bool = False
+    refine_sensor: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "robot_poses": self.robot_poses.to_payload(),
             "refine_cam_se3_rig": bool(self.refine_cam_se3_rig),
-            "refine_scheimpflug": bool(self.refine_scheimpflug),
+            "refine_sensor": bool(self.refine_sensor),
         }
 
     @classmethod
@@ -875,7 +850,7 @@ class HandeyeBaConfig:
                     if isinstance(value, RobotPoseConfig)
                     else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
-            elif key in ("refine_cam_se3_rig", "refine_scheimpflug"):
+            elif key in ("refine_cam_se3_rig", "refine_sensor"):
                 setattr(cfg, key, bool(value))
             else:
                 raise ValueError(f"unknown HandeyeBaConfig field: {key}")
@@ -887,13 +862,15 @@ class RigHandeyeCalibrationConfig:
     """Configuration for rig hand-eye calibration.
 
     Grouped configuration, sharing sub-objects with the other rig/hand-eye
-    configs. ``sensor`` selects the rig sensor flavour
-    (:class:`PinholeSensorMode` default, or :class:`ScheimpflugSensorMode`).
-    (``manual_init`` is still Rust-only.)
+    configs. ``camera`` / ``camera_overrides`` select the camera model of
+    every rig camera and of individual cameras, as in
+    :class:`RigExtrinsicsCalibrationConfig`. (``manual_init`` is still
+    Rust-only.)
     """
 
     intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
-    sensor: SensorMode = field(default_factory=PinholeSensorMode)
+    camera: CameraConfig = field(default_factory=CameraConfig)
+    camera_overrides: list[CameraOverride] = field(default_factory=list)
     rig: RigConfig = field(default_factory=RigConfig)
     handeye_init: HandeyeInitConfig = field(default_factory=HandeyeInitConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
@@ -902,7 +879,8 @@ class RigHandeyeCalibrationConfig:
     def to_payload(self) -> dict[str, Any]:
         return {
             "intrinsics": self.intrinsics.to_payload(),
-            "sensor": self.sensor.to_payload(),
+            "camera": self.camera.to_payload(),
+            "camera_overrides": [o.to_payload() for o in self.camera_overrides],
             "rig": self.rig.to_payload(),
             "handeye_init": self.handeye_init.to_payload(),
             "solver": self.solver.to_payload(),
@@ -919,8 +897,10 @@ class RigHandeyeCalibrationConfig:
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
-            elif key == "sensor":
-                cfg.sensor = _sensor_mode_from_mapping(value)
+            elif key == "camera":
+                cfg.camera = _camera_config_from_value(value)
+            elif key == "camera_overrides":
+                cfg.camera_overrides = _camera_overrides_from_value(value)
             elif key == "rig":
                 cfg.rig = (
                     value
@@ -1354,9 +1334,8 @@ class PinholeBrownConradyCamera:
 class PinholeCamera:
     """Typed pinhole camera whose distortion may be any fitted model.
 
-    Used by ``PlanarCalibrationResult`` for an untilted (identity-sensor)
-    camera. The rig / hand-eye / laserline results keep
-    the strictly Brown-Conrady :class:`PinholeBrownConradyCamera`.
+    Used by the planar and rig results for an untilted (identity-sensor)
+    camera.
     """
 
     intrinsics: PinholeIntrinsics
@@ -1385,10 +1364,7 @@ class PinholeCamera:
 class PinholeScheimpflugCamera:
     """Typed pinhole + Scheimpflug camera whose distortion may be any fitted model.
 
-    Used by ``PlanarCalibrationResult`` when the camera has a Scheimpflug sensor.
-    Rig Scheimpflug results instead carry a strictly Brown-Conrady
-    :class:`PinholeBrownConradyCamera` alongside a separate
-    :class:`ScheimpflugSensor`.
+    Used by the planar and rig results when the camera has a Scheimpflug sensor.
     """
 
     intrinsics: PinholeIntrinsics
@@ -1711,13 +1687,22 @@ class ProjectionUncertainty:
         return [self.sigma[r * self.columns : (r + 1) * self.columns] for r in range(self.rows)]
 
 
-def _planar_camera_from_payload(
-    payload: Mapping[str, Any],
-) -> "PinholeCamera | PinholeScheimpflugCamera":
+#: One calibrated camera as reported by a result: untilted or tilted sensor.
+Camera = PinholeCamera | PinholeScheimpflugCamera
+
+
+def _camera_from_payload(payload: Mapping[str, Any]) -> Camera:
     sensor = cast(Mapping[str, Any], payload["sensor"])
     if sensor.get("type") == "scheimpflug":
         return PinholeScheimpflugCamera.from_payload(payload)
     return PinholeCamera.from_payload(payload)
+
+
+def _cameras_from_payload(payload: Mapping[str, Any]) -> list[Camera]:
+    return [
+        _camera_from_payload(cast(Mapping[str, Any], c))
+        for c in cast(list[Any], payload["cameras"])
+    ]
 
 
 @dataclass(slots=True)
@@ -1730,7 +1715,7 @@ class PlanarCalibrationResult:
     Scheimpflug sensor, otherwise a :class:`PinholeCamera`.
     """
 
-    camera: "PinholeCamera | PinholeScheimpflugCamera"
+    camera: Camera
     camera_se3_target: list[Pose]
     final_cost: float
     mean_reproj_error: float
@@ -1752,7 +1737,7 @@ class PlanarCalibrationResult:
         ]
         return cls(
             export=dict(payload),
-            camera=_planar_camera_from_payload(cast(Mapping[str, Any], params["camera"])),
+            camera=_camera_from_payload(cast(Mapping[str, Any], params["camera"])),
             camera_se3_target=poses,
             final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
@@ -1816,7 +1801,7 @@ class SingleCamHandeyeResult:
 class RigExtrinsicsResult:
     """Result from :func:`vision_calibration.run_rig_extrinsics`."""
 
-    cameras: list[PinholeBrownConradyCamera]
+    cameras: list[Camera]
     cam_se3_rig: list[Pose]
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
@@ -1831,10 +1816,7 @@ class RigExtrinsicsResult:
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigExtrinsicsResult":
         return cls(
             export=dict(payload),
-            cameras=[
-                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
-                for c in cast(list[Any], payload["cameras"])
-            ],
+            cameras=_cameras_from_payload(payload),
             cam_se3_rig=[Pose.from_payload(cast(Mapping[str, Any], p)) for p in cast(list[Any], payload["cam_se3_rig"])],
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
@@ -1848,12 +1830,11 @@ class RigExtrinsicsResult:
 class RigHandeyeResult:
     """Result from :func:`vision_calibration.run_rig_handeye`.
 
-    `sensors` is `None` for pinhole rigs and `Some(_)` for Scheimpflug rigs
-    (one entry per camera); matches the Rust ``RigHandeyeExport.sensors``
-    field.
+    Each entry of ``cameras`` is a :class:`PinholeCamera` or, for a tilted
+    sensor, a :class:`PinholeScheimpflugCamera`.
     """
 
-    cameras: list[PinholeBrownConradyCamera]
+    cameras: list[Camera]
     cam_se3_rig: list[Pose]
     handeye_mode: HandEyeMode
     gripper_se3_rig: Pose | None
@@ -1863,7 +1844,6 @@ class RigHandeyeResult:
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    sensors: list[ScheimpflugSensor] | None = None
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -1883,11 +1863,6 @@ class RigHandeyeResult:
 
         return {
             "cameras": [c.to_payload() for c in self.cameras],
-            "sensors": (
-                None
-                if self.sensors is None
-                else [s.to_payload() for s in self.sensors]
-            ),
             "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
             "handeye_mode": self.handeye_mode,
             "gripper_se3_rig": _pose(self.gripper_se3_rig),
@@ -1907,22 +1882,9 @@ class RigHandeyeResult:
                 return None
             return Pose.from_payload(cast(Mapping[str, Any], value))
 
-        sensors_raw = payload.get("sensors")
-        sensors: list[ScheimpflugSensor] | None = (
-            None
-            if sensors_raw is None
-            else [
-                ScheimpflugSensor.from_payload(cast(Mapping[str, Any], s))
-                for s in cast(list[Any], sensors_raw)
-            ]
-        )
-
         return cls(
             export=dict(payload),
-            cameras=[
-                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
-                for c in cast(list[Any], payload["cameras"])
-            ],
+            cameras=_cameras_from_payload(payload),
             cam_se3_rig=[
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["cam_se3_rig"])
@@ -1937,7 +1899,6 @@ class RigHandeyeResult:
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
-            sensors=sensors,
             uncertainty=ParameterUncertainty.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
@@ -1987,21 +1948,18 @@ class LaserlineDeviceResult:
 class RigLaserlineUpstreamCalibration:
     """Frozen upstream calibration for rig laserline device.
 
-    Typically derived from a :class:`RigHandeyeResult` export with
-    ``sensors`` populated (Scheimpflug rig).
+    Typically derived from a :class:`RigHandeyeResult` export; ``cameras``
+    are ``CameraParams`` payloads (projection, distortion, sensor,
+    intrinsics) as found in the export.
     """
 
-    intrinsics: list[dict[str, float]]
-    distortion: list[dict[str, Any]]
-    sensors: list[dict[str, float]]
+    cameras: list[dict[str, Any]]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "intrinsics": self.intrinsics,
-            "distortion": self.distortion,
-            "sensors": self.sensors,
+            "cameras": self.cameras,
             "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
             "rig_se3_target": [p.to_payload() for p in self.rig_se3_target],
         }
@@ -2009,9 +1967,7 @@ class RigLaserlineUpstreamCalibration:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineUpstreamCalibration":
         return cls(
-            intrinsics=cast(list[dict[str, float]], payload["intrinsics"]),
-            distortion=cast(list[dict[str, Any]], payload["distortion"]),
-            sensors=cast(list[dict[str, float]], payload["sensors"]),
+            cameras=cast(list[dict[str, Any]], payload["cameras"]),
             cam_se3_rig=[
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["cam_se3_rig"])
@@ -2393,8 +2349,7 @@ class RigHandeyeLaserlineResult:
     laser_planes_rig: list[LaserlinePlane]
     laser_planes_cam: list[LaserlinePlane]
     per_camera_stats: list[RigHandeyeLaserlinePerCamStats]
-    cameras: list[PinholeBrownConradyCamera]
-    sensors: list[ScheimpflugSensor]
+    cameras: list[Camera]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
     handeye_mode: HandEyeMode
@@ -2434,14 +2389,7 @@ class RigHandeyeLaserlineResult:
                 RigHandeyeLaserlinePerCamStats.from_payload(cast(Mapping[str, Any], s))
                 for s in cast(list[Any], payload["per_camera_stats"])
             ],
-            cameras=[
-                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
-                for c in cast(list[Any], payload["cameras"])
-            ],
-            sensors=[
-                ScheimpflugSensor.from_payload(cast(Mapping[str, Any], s))
-                for s in cast(list[Any], payload["sensors"])
-            ],
+            cameras=_cameras_from_payload(payload),
             cam_se3_rig=[
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["cam_se3_rig"])

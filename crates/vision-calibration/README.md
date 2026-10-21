@@ -104,7 +104,7 @@ println!("mean reprojection error: {:.4}", result.mean_reproj_error);
 | `PlanarIntrinsicsProblem` (straight or tilted sensor) | `step_init` → `step_optimize` |
 | `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 | `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
-| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
+| `RigExtrinsicsProblem` (any camera model per camera) | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 | `RigHandeyeProblem` | rig extrinsics steps → `step_handeye_init` → `step_handeye_optimize` |
 | `RigLaserlineDeviceProblem` | `step_init` → `step_optimize` (frozen rig hand-eye export as input) |
 | `RigHandeyeLaserlineProblem` | `run_calibration` (joint solve) |

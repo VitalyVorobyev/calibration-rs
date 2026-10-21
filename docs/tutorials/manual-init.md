@@ -81,12 +81,18 @@ both have all-`None` fields, so this is exactly the auto path — the same as
 ### 2. Capture the results
 
 ```rust
-let cameras_a = session_a.state.per_cam_intrinsics.clone().unwrap();
+let cameras_a = session_a.state.cameras.clone().unwrap(); // Vec<CameraParams>
 let cam_se3_rig_a = session_a.state.initial_cam_se3_rig.clone().unwrap();
 let rig_se3_target_a = session_a.state.initial_rig_se3_target.clone().unwrap();
 
-let per_cam_k = cameras_a.iter().map(|c| c.k).collect::<Vec<_>>();
-let per_cam_dist = cameras_a.iter().map(|c| c.dist).collect::<Vec<_>>();
+let per_cam_k = cameras_a.iter().map(|c| c.intrinsics).collect::<Vec<_>>();
+let per_cam_dist = cameras_a
+    .iter()
+    .map(|c| match &c.distortion {
+        DistortionParams::BrownConrady5 { params } => *params,
+        _ => BrownConrady5::default(),
+    })
+    .collect::<Vec<_>>();
 ```
 
 ### 3. Replay them on a fresh session
@@ -100,6 +106,7 @@ step_intrinsics_init_all_with_seed(
     RigIntrinsicsManualInit {
         per_cam_intrinsics: Some(per_cam_k),
         per_cam_distortion: Some(per_cam_dist),
+        ..Default::default()
     },
     None,
 )?;
@@ -150,13 +157,18 @@ step_intrinsics_init_all_with_seed(
     RigIntrinsicsManualInit {
         per_cam_intrinsics: Some(vec![datasheet_k; num_cameras]),
         per_cam_distortion: Some(vec![nominal_distortion; num_cameras]),
+        ..Default::default()
     },
     None,
 )?;
 ```
 
 This unblocks scenarios where Zhang's method fails on borderline data —
-e.g., strongly tilted Scheimpflug rigs.
+e.g., strongly tilted Scheimpflug rigs. For those, also set
+`per_cam_sensors` to the nominal mount tilts: a seeded tilt is used verbatim
+and skips the linear stage's tilt sweep. A non-zero tilt for a camera with an
+identity sensor is an error; a zero tilt is accepted. (`RigHandeyeConfig::manual_init`
+takes the same `per_cam_sensors`.)
 
 ### Coupling rule (rig stage)
 
@@ -166,7 +178,7 @@ a typed `Error::InvalidInput`.
 
 ### Hand-eye coupling
 
-`RigHandeye` (pinhole and Scheimpflug variants) has three init stages
+`RigHandeye` has three init stages
 (intrinsics, rig, hand-eye), each with its own `*ManualInit`. The hand-eye
 stage's `mode_target_pose` is mode-dependent:
 

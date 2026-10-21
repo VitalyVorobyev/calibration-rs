@@ -15,8 +15,7 @@ use vision_calibration_optim::{
 };
 
 use super::problem::{
-    RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem, joint_fix_extrinsics,
-    joint_fix_intrinsics, joint_fix_scheimpflug,
+    RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem, joint_fix, joint_fix_extrinsics,
 };
 
 /// Run the full joint rig hand-eye laserline pipeline.
@@ -65,8 +64,7 @@ pub fn run_calibration(
         laser_loss: config.joint_ba.laser_loss,
         calib_weight: config.joint_ba.calib_weight,
         laser_weight: config.joint_ba.laser_weight,
-        fix_intrinsics: joint_fix_intrinsics(&config.joint_ba, n),
-        fix_scheimpflug: joint_fix_scheimpflug(&config.joint_ba, n),
+        fix: joint_fix(&config.joint_ba, &joint_initial.cameras)?,
         fix_extrinsics: joint_fix_extrinsics(config.handeye.rig.reference_camera_idx, n),
         fix_handeye: config.joint_ba.fix_handeye,
         fix_target_ref: config.joint_ba.fix_target_ref,
@@ -119,12 +117,8 @@ fn joint_initial_from_exports(
             .gripper_se3_target
             .ok_or_else(|| Error::invalid_input("EyeToHand export missing gripper_se3_target"))?,
     };
-    let sensors = rig_export.sensors.clone().unwrap_or_else(|| {
-        vec![vision_calibration_core::ScheimpflugParams::default(); rig_export.cameras.len()]
-    });
     Ok(RigHandeyeLaserlineParams {
         cameras: rig_export.cameras.clone(),
-        sensors,
         cam_to_rig: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
         handeye,
         target_ref,

@@ -4,7 +4,7 @@ import { invertIso3, matrixFromIso3 } from "@vitavision/three";
 import { CameraFrustum as FrustumGizmo } from "@vitavision/three-react";
 import { useMemo } from "react";
 import type { Object3D } from "three";
-import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
+import type { Iso3Wire, CameraWire } from "../../store/types";
 import { useBorderRays } from "./useBorderRays";
 
 /** Opts the visual-only markers out of raycasting, so picks land on the
@@ -21,7 +21,7 @@ interface CameraFrustumProps {
   /** Index into the export's `cameras`; names the camera to the backend's
    * back-projection (see `useBorderRays`). */
   cameraIndex: number;
-  camera: PinholeCameraWire;
+  camera: CameraWire;
   /** `cam_se3_rig` (T_C_R, rig→camera). Inverted to place the frustum in
    * the rig frame. */
   camSe3Rig: Iso3Wire;
@@ -59,7 +59,12 @@ export function CameraFrustum({
   label,
 }: CameraFrustumProps) {
   const matrix = useMemo(() => matrixFromIso3(invertIso3(camSe3Rig)), [camSe3Rig]);
-  const borderRays = useBorderRays(cameraIndex, camera.k, imageWidth, imageHeight);
+  const borderRays = useBorderRays(
+    cameraIndex,
+    camera.intrinsics,
+    imageWidth,
+    imageHeight,
+  );
   const corners = useMemo(() => farCorners(borderRays, farDepth), [borderRays, farDepth]);
 
   return (

@@ -44,7 +44,7 @@
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2) during initialization.\n\n`None` (the default) takes the camera's default: `true` for a\nScheimpflug sensor in planar intrinsics — the tilt/tangential\ncoupling makes a free tangential term ill-posed during the linear\nstage — and `false` otherwise. The multi-camera workflows, which pick\ntheir sensor through `sensor`, resolve `None` to `false` for either\nsensor.",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\n`None` (the default) takes the camera's default: `true` for a\nScheimpflug sensor in planar intrinsics — the tilt/tangential\ncoupling makes a free tangential term ill-posed during the linear\nstage — and `false` otherwise. The multi-camera workflows resolve\n`None` to `false` for every camera, whatever its sensor: their\nper-camera linear stage has always kept the tangential terms free.",
           "type": [
             "boolean",
             "null"

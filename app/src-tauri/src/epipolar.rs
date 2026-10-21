@@ -13,10 +13,7 @@ use image::{DynamicImage, Rgba, RgbaImage};
 use nalgebra::{Point2, Point3, Vector3};
 use serde::Serialize;
 use std::{io::Cursor, path::Path};
-use vision_calibration::core::{
-    BrownConrady5, CameraModel, CameraParams, DistortionParams, FxFyCxCy, Iso3, PixelRect,
-    ProjectionParams, ScheimpflugParams, SensorParams,
-};
+use vision_calibration::core::{CameraModel, CameraParams, FxFyCxCy, Iso3, PixelRect};
 
 /// Number of depth samples along the ray. 256 keeps the rendered SVG
 /// smooth even when only a short subset of samples lands inside the
@@ -59,8 +56,8 @@ pub struct EpipolarOverlay {
 /// Compute the overlay for a click at `point_px` on cam-A.
 ///
 /// `export` is the most-recently-loaded calibration export JSON, expected
-/// to carry `cameras: Vec<PinholeCamera-shaped>`, optional
-/// `sensors: Vec<ScheimpflugParams>`, and `cam_se3_rig: Vec<Iso3>` — this
+/// to carry `cameras: Vec<CameraParams>` (each with its own sensor) and
+/// `cam_se3_rig: Vec<Iso3>` — this
 /// is true for `RigExtrinsicsExport`, `RigHandeyeExport`, and
 /// `RigLaserlineDeviceExport`.
 pub fn compute_overlay(
@@ -80,8 +77,6 @@ pub fn compute_overlay(
             .clone(),
     )
     .map_err(|e| format!("cam_se3_rig decode: {e}"))?;
-    let sensors = parse_sensors(export)?;
-
     let n = cameras.len();
     if cam_a >= n || cam_b >= n {
         return Err(format!(
@@ -95,10 +90,8 @@ pub fn compute_overlay(
         ));
     }
 
-    let sensor_for =
-        |idx: usize| -> Option<&ScheimpflugParams> { sensors.as_ref()?.get(idx)?.as_ref() };
-    let cam_a_model = build_camera(&cameras[cam_a], sensor_for(cam_a))?;
-    let cam_b_model = build_camera(&cameras[cam_b], sensor_for(cam_b))?;
+    let cam_a_model = build_camera(&cameras[cam_a])?;
+    let cam_b_model = build_camera(&cameras[cam_b])?;
 
     // Ray in cam-A frame from the clicked pixel. `Camera::backproject_pixel`
     // returns the point on the z = 1 plane, so scaling by `depth` gives a
@@ -297,13 +290,9 @@ fn log_depths() -> impl Iterator<Item = f64> {
     })
 }
 
-/// Build a runtime camera from one entry of the export's `cameras` array
-/// + optional Scheimpflug sensor params from the parallel `sensors` array.
-fn build_camera(
-    camera_json: &serde_json::Value,
-    sensor: Option<&ScheimpflugParams>,
-) -> Result<CameraModel, String> {
-    Ok(build_camera_geometry(camera_json, sensor)?.model)
+/// Build a runtime camera from one entry of the export's `cameras` array.
+fn build_camera(camera_json: &serde_json::Value) -> Result<CameraModel, String> {
+    Ok(build_camera_geometry(camera_json)?.model)
 }
 
 #[derive(Clone, Debug)]
@@ -323,76 +312,19 @@ fn camera_geometry(export: &serde_json::Value, camera: usize) -> Result<CameraGe
             "camera index out of range (camera={camera}, num_cameras={n})"
         ));
     }
-    let sensors = parse_sensors(export)?;
-    let sensor_for =
-        |idx: usize| -> Option<&ScheimpflugParams> { sensors.as_ref()?.get(idx)?.as_ref() };
-    build_camera_geometry(&cameras[camera], sensor_for(camera))
+    build_camera_geometry(&cameras[camera])
 }
 
-fn build_camera_geometry(
-    camera_json: &serde_json::Value,
-    sensor: Option<&ScheimpflugParams>,
-) -> Result<CameraGeometry, String> {
-    let k: FxFyCxCy<f64> = serde_json::from_value(
-        camera_json
-            .get("k")
-            .ok_or("camera entry has no `k` field")?
-            .clone(),
-    )
-    .map_err(|e| format!("camera.k decode: {e}"))?;
-    let dist: BrownConrady5<f64> = serde_json::from_value(
-        camera_json
-            .get("dist")
-            .ok_or("camera entry has no `dist` field")?
-            .clone(),
-    )
-    .map_err(|e| format!("camera.dist decode: {e}"))?;
-
-    let sensor_params = match sensor {
-        None => SensorParams::Identity,
-        Some(s) => SensorParams::Scheimpflug { params: *s },
-    };
-
-    let params = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: dist },
-        sensor: sensor_params,
-        intrinsics: k,
-    };
+fn build_camera_geometry(camera_json: &serde_json::Value) -> Result<CameraGeometry, String> {
+    let params: CameraParams =
+        serde_json::from_value(camera_json.clone()).map_err(|e| format!("camera decode: {e}"))?;
+    let k = params.intrinsics;
     Ok(CameraGeometry {
         model: params
             .build()
             .map_err(|e| format!("camera model is unusable: {e}"))?,
         k,
     })
-}
-
-/// Parse the optional `sensors` array. None when the export is a pinhole
-/// rig; Some(_) when Scheimpflug. Each entry is `null` for pinhole
-/// cameras inside a mixed rig (none today, but future-proof).
-fn parse_sensors(
-    export: &serde_json::Value,
-) -> Result<Option<Vec<Option<ScheimpflugParams>>>, String> {
-    let Some(arr) = export.get("sensors") else {
-        return Ok(None);
-    };
-    if arr.is_null() {
-        return Ok(None);
-    }
-    let arr = arr
-        .as_array()
-        .ok_or("`sensors` is neither null nor an array")?;
-    let mut out = Vec::with_capacity(arr.len());
-    for entry in arr {
-        if entry.is_null() {
-            out.push(None);
-        } else {
-            let s: ScheimpflugParams = serde_json::from_value(entry.clone())
-                .map_err(|e| format!("sensors[..] decode: {e}"))?;
-            out.push(Some(s));
-        }
-    }
-    Ok(Some(out))
 }
 
 fn raw_pixel_to_undistorted_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> [f64; 2] {
@@ -523,7 +455,20 @@ fn sample_bilinear(src: &RgbaImage, x: f64, y: f64) -> Rgba<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration::core::{BrownConrady5 as BC5, FxFyCxCy as K, make_pinhole_camera};
+    use vision_calibration::core::{
+        BrownConrady5 as BC5, DistortionParams, FxFyCxCy as K, ProjectionParams, SensorParams,
+    };
+
+    fn pinhole_params(k: K<f64>) -> CameraParams {
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 {
+                params: BC5::default(),
+            },
+            sensor: SensorParams::Identity,
+            intrinsics: k,
+        }
+    }
 
     /// Synthetic 2-camera pinhole rig: project a known 3D point through
     /// cam A, ask for the overlay, assert pane-B's projected_pixel of
@@ -537,8 +482,10 @@ mod tests {
             cx: 320.0,
             cy: 240.0,
         };
-        let cam_a = make_pinhole_camera(k, BC5::default());
-        let cam_b = make_pinhole_camera(k, BC5::default());
+        let params_a = pinhole_params(k);
+        let cam_a = params_a.build().unwrap();
+        let params_b = pinhole_params(k);
+        let cam_b = params_b.build().unwrap();
         // T_C_R: identity for cam A, +0.2 m baseline along X for cam B
         // (cam B is to the right of cam A in rig frame).
         let t_a_r = Iso3::identity();
@@ -555,7 +502,7 @@ mod tests {
 
         // Hand-build the export-shaped JSON the production code reads.
         let export = serde_json::json!({
-            "cameras": [serde_json::to_value(&cam_a).unwrap(), serde_json::to_value(&cam_b).unwrap()],
+            "cameras": [serde_json::to_value(&params_a).unwrap(), serde_json::to_value(&params_b).unwrap()],
             "cam_se3_rig": [t_a_r, t_b_r],
         });
 
@@ -586,7 +533,7 @@ mod tests {
             cx: 320.0,
             cy: 240.0,
         };
-        let cam = make_pinhole_camera(k, BC5::default());
+        let cam = pinhole_params(k);
         let export = serde_json::json!({
             "cameras": [serde_json::to_value(&cam).unwrap()],
             "cam_se3_rig": [Iso3::identity()],
@@ -625,7 +572,7 @@ mod tests {
             cx: 320.0,
             cy: 240.0,
         };
-        let cam = make_pinhole_camera(k, BC5::default());
+        let cam = pinhole_params(k);
         let t_a_r = Iso3::identity();
         // Translation only — rotation is identity so cam B's forward
         // axis aligns with cam A's. Translating (0, 0, -0.04) in
@@ -711,13 +658,15 @@ mod tests {
         serde_json::json!({
             "cameras": [
                 {
-                    "k": {
+                    "projection": {"type": "pinhole"},
+        "sensor": {"type": "identity"},
+        "intrinsics": {
                         "fx": 713.8456995546412,
                         "fy": 724.6690645729575,
                         "cx": 523.4129016186437,
                         "cy": 285.9522601918888
                     },
-                    "dist": {
+        "distortion": {"type": "brown_conrady5",
                         "k1": 0.015021094581498156,
                         "k2": -0.07151318797378012,
                         "k3": 0.0,
@@ -727,13 +676,15 @@ mod tests {
                     }
                 },
                 {
-                    "k": {
+                    "projection": {"type": "pinhole"},
+        "sensor": {"type": "identity"},
+        "intrinsics": {
                         "fx": 724.7966090646895,
                         "fy": 735.5984809398797,
                         "cx": 513.9329313241342,
                         "cy": 292.95508592356225
                     },
-                    "dist": {
+        "distortion": {"type": "brown_conrady5",
                         "k1": 0.00113846407979313,
                         "k2": -0.0525607289860634,
                         "k3": 0.0,

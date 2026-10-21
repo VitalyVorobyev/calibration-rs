@@ -6,24 +6,23 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCy, ImageManifest, Iso3,
-    PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, ScheimpflugParams, Uncertainty,
-    build_feature_histogram, compute_rig_target_residuals,
+    BrownConrady5, CameraParams, FeatureResidualHistogram, FxFyCxCy, ImageManifest, Iso3,
+    PerFeatureResiduals, Real, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
+    compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    DistortionKind, HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
-    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RobotPoseMeta,
-    handeye_observer_se3_target,
+    HandEyeEstimate, HandEyeMode, RobotPoseMeta, handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandEyeParams, RobustLoss, SolveReport};
 
-pub use crate::rig_family::SensorMode;
-
 use crate::common::ExportKind;
 use crate::common::config::{
-    HandeyeInitConfig, IntrinsicsInitConfig, RigConfig, RobotPoseConfig, SolverConfig,
+    CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig,
+    RobotPoseConfig, SolverConfig, rig_camera_for, validate_rig_camera_indices,
+    validate_rig_cameras,
 };
+use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeState;
@@ -44,8 +43,8 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 
 /// Configuration for multi-camera rig hand-eye calibration.
 ///
-/// Grouped by stage. Shared between pinhole and Scheimpflug rigs; the
-/// [`SensorMode`] field `sensor` selects the sensor flavour.
+/// Grouped by stage. Every camera has the model of `camera` unless
+/// `camera_overrides` names it, so one rig can mix lenses and sensors.
 ///
 /// The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge; an extra per-view pose constraint would be
@@ -56,14 +55,21 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigHandeyeConfig {
-    /// Per-camera linear-initialization stage settings.
+    /// Per-camera linear-initialization stage settings. An unset
+    /// `fix_tangential` keeps the tangential terms free for every camera.
     pub intrinsics: IntrinsicsInitConfig,
     /// Optional manual seeds for the per-camera intrinsics stage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual_init: Option<RigHandeyeIntrinsicsManualInit>,
-    /// Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`.
+    /// The camera model of every rig camera and the parameters its solves
+    /// hold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a
+    /// multi-start tilt sweep; seed its tilt through `manual_init`.
     #[serde(default)]
-    pub sensor: SensorMode,
+    pub camera: CameraConfig,
+    /// Cameras whose model differs from `camera`, at most one entry per
+    /// camera index.
+    #[serde(default)]
+    pub camera_overrides: Vec<CameraOverride>,
     /// Rig frame options (reference camera, rig-BA scope).
     pub rig: RigConfig,
     /// Hand-eye linear initialization options.
@@ -74,11 +80,19 @@ pub struct RigHandeyeConfig {
     pub handeye_ba: HandeyeBaConfig,
 }
 
+impl RigHandeyeConfig {
+    /// The configuration of camera `index`: its override, or `camera`.
+    pub fn camera_for(&self, index: usize) -> CameraConfig {
+        rig_camera_for(&self.camera, &self.camera_overrides, index)
+    }
+}
+
 /// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
 /// calibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.
 ///
-/// `per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is
-/// configured; for [`SensorMode::Pinhole`] it is ignored.
+/// `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor
+/// (a seeded tilt skips the tilt sweep); a camera with an untilted sensor
+/// takes only a zero tilt.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -87,7 +101,8 @@ pub struct RigHandeyeIntrinsicsManualInit {
     pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
     /// Per-camera distortion seeds.
     pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
-    /// Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).
+    /// Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
+    /// others).
     #[serde(default)]
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
@@ -104,110 +119,11 @@ pub struct HandeyeBaConfig {
     /// Refine cam_se3_rig in hand-eye BA (default: false).
     /// When true, rig extrinsics are further refined during hand-eye optimization.
     pub refine_cam_se3_rig: bool,
-    /// Refine Scheimpflug tilt parameters in hand-eye BA (default: false).
-    /// Only consulted when [`SensorMode::Scheimpflug`] is configured; ignored
-    /// for [`SensorMode::Pinhole`].
+    /// Refine the sensor tilt of each Scheimpflug camera in hand-eye BA,
+    /// holding its `fix.sensor` list (default: false). Cameras with an
+    /// untilted sensor have no tilt.
     #[serde(default)]
-    pub refine_scheimpflug: bool,
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Output (pinhole or Scheimpflug variant)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Output of the hand-eye BA stage. Pinhole and Scheimpflug rigs return
-/// structurally similar but type-distinct optim estimates; this enum
-/// preserves both as `Self::Output` for [`RigHandeyeProblem`].
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum RigHandeyeOutput {
-    /// Pinhole hand-eye BA estimate.
-    Pinhole(PinholeHandEyeEstimate),
-    /// Scheimpflug hand-eye BA estimate (per-camera sensors included).
-    Scheimpflug(ScheimpflugHandEyeEstimate),
-}
-
-impl RigHandeyeOutput {
-    /// Covariance of the estimated parameters at the solution.
-    pub fn uncertainty(&self) -> &Uncertainty {
-        match self {
-            Self::Pinhole(e) => &e.uncertainty,
-            Self::Scheimpflug(e) => &e.uncertainty,
-        }
-    }
-
-    /// Final solver cost after bundle adjustment converged.
-    pub fn final_cost(&self) -> f64 {
-        match self {
-            Self::Pinhole(e) => e.report.final_cost,
-            Self::Scheimpflug(e) => e.report.final_cost,
-        }
-    }
-
-    /// Mean reprojection error in pixels across all observations and cameras.
-    pub fn mean_reproj_error(&self) -> f64 {
-        match self {
-            Self::Pinhole(e) => e.mean_reproj_error,
-            Self::Scheimpflug(e) => e.mean_reproj_error,
-        }
-    }
-
-    /// Calibrated pinhole intrinsics for each rig camera.
-    pub fn cameras(&self) -> &[PinholeCamera] {
-        match self {
-            Self::Pinhole(e) => &e.params.cameras,
-            Self::Scheimpflug(e) => &e.params.cameras,
-        }
-    }
-
-    /// Per-camera extrinsics `T_C_R` (camera-from-rig SE(3) transforms).
-    pub fn cam_to_rig(&self) -> &[Iso3] {
-        match self {
-            Self::Pinhole(e) => &e.params.cam_to_rig,
-            Self::Scheimpflug(e) => &e.params.cam_to_rig,
-        }
-    }
-
-    /// Per-robot-pose target-from-rig transforms estimated during BA.
-    pub fn target_poses(&self) -> &[Iso3] {
-        match self {
-            Self::Pinhole(e) => &e.params.target_poses,
-            Self::Scheimpflug(e) => &e.params.target_poses,
-        }
-    }
-
-    /// Calibrated hand-eye transform `T_EEF_Rig` (end-effector-from-rig).
-    pub fn handeye(&self) -> &Iso3 {
-        match self {
-            Self::Pinhole(e) => &e.params.handeye,
-            Self::Scheimpflug(e) => &e.params.handeye,
-        }
-    }
-
-    /// Per-pose robot se(3) correction deltas `[rx, ry, rz, tx, ty, tz]`, or
-    /// `None` when robot-pose refinement was not enabled.
-    pub fn robot_deltas(&self) -> Option<&[[f64; 6]]> {
-        match self {
-            Self::Pinhole(e) => e.robot_deltas.as_deref(),
-            Self::Scheimpflug(e) => e.robot_deltas.as_deref(),
-        }
-    }
-
-    /// Per-camera Scheimpflug sensor tilt parameters, or `None` for pinhole rigs.
-    pub fn sensors(&self) -> Option<&[ScheimpflugParams]> {
-        match self {
-            Self::Pinhole(_) => None,
-            Self::Scheimpflug(e) => Some(&e.params.sensors),
-        }
-    }
-
-    /// Mean reprojection error in pixels for each individual camera.
-    pub fn per_cam_reproj_errors(&self) -> &[f64] {
-        match self {
-            Self::Pinhole(e) => &e.per_cam_reproj_errors,
-            Self::Scheimpflug(e) => &e.per_cam_reproj_errors,
-        }
-    }
+    pub refine_sensor: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,10 +131,6 @@ impl RigHandeyeOutput {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Export format for rig hand-eye calibration.
-///
-/// Common to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole
-/// rigs and `Some(_)` for Scheimpflug rigs, matching the configured
-/// [`SensorMode`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -226,13 +138,8 @@ pub struct RigHandeyeExport {
     /// Export-type discriminator — always [`ExportKind::RigHandeye`].
     pub kind: ExportKind,
 
-    /// Per-camera calibrated intrinsics + distortion (pinhole core).
-    pub cameras: Vec<PinholeCamera>,
-
-    /// Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;
-    /// `Some(_)` for Scheimpflug rigs (one entry per camera).
-    #[serde(default)]
-    pub sensors: Option<Vec<ScheimpflugParams>>,
+    /// Per-camera calibrated parameters, each in its camera's model.
+    pub cameras: Vec<CameraParams>,
 
     /// Per-camera extrinsics: `cam_se3_rig` (T_C_R).
     /// Transform from rig frame to camera frame.
@@ -380,7 +287,7 @@ impl ProblemState for RigHandeyeProblem {
 impl ProblemType for RigHandeyeProblem {
     type Config = RigHandeyeConfig;
     type Input = RigHandeyeInput;
-    type Output = RigHandeyeOutput;
+    type Output = HandEyeEstimate;
     type Export = RigHandeyeExport;
 
     fn name() -> &'static str {
@@ -445,19 +352,7 @@ impl ProblemType for RigHandeyeProblem {
             ));
         }
         config.handeye_ba.robot_poses.validate()?;
-        // The joint rig hand-eye bundle adjustment is Brown-Conrady-typed; reject
-        // other Scheimpflug distortion models up front rather than deep
-        // in the solver. Use the single-camera Scheimpflug problem type for
-        // extended distortion models.
-        if let Some(model) = config.sensor.scheimpflug_distortion_model()
-            && model != DistortionKind::BrownConrady5
-        {
-            return Err(Error::invalid_input(format!(
-                "rig Scheimpflug hand-eye calibration supports only the BrownConrady5 \
-                 distortion model, got {model:?}"
-            )));
-        }
-        Ok(())
+        validate_rig_cameras(&config.camera, &config.camera_overrides)
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
@@ -467,7 +362,7 @@ impl ProblemType for RigHandeyeProblem {
                 config.rig.reference_camera_idx, input.num_cameras
             )));
         }
-        Ok(())
+        validate_rig_camera_indices(&config.camera_overrides, input.num_cameras)
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -483,24 +378,24 @@ impl ProblemType for RigHandeyeProblem {
         output: &Self::Output,
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
+        let params = &output.params;
+        let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
 
-        let target_pose = output
-            .target_poses()
+        let target_pose = params
+            .target_poses
             .first()
             .copied()
             .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
         let mode = config.handeye_init.handeye_mode;
-        let handeye = *output.handeye();
+        let handeye = params.handeye;
         let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match mode {
             HandEyeMode::EyeInHand => (Some(handeye), None, Some(target_pose), None),
             HandEyeMode::EyeToHand => (None, Some(handeye), None, Some(target_pose)),
         };
 
         // Per-feature residuals: derive rig_se3_target per view from the
-        // handeye chain, then project. For Scheimpflug, splice tilted
-        // sensors into the projection chain.
+        // handeye chain, then project through each camera's model.
         let robot_poses: Vec<Iso3> = input
             .views
             .iter()
@@ -511,31 +406,14 @@ impl ProblemType for RigHandeyeProblem {
             &handeye,
             &target_pose,
             &robot_poses,
-            output.robot_deltas(),
+            output.robot_deltas.as_deref(),
         );
-        let target = match output {
-            RigHandeyeOutput::Pinhole(estimate) => compute_rig_target_residuals(
-                &estimate.params.cameras,
-                input,
-                &cam_se3_rig,
-                &rig_se3_target,
-            )?,
-            RigHandeyeOutput::Scheimpflug(estimate) => {
-                let scheimpflug_cameras: Vec<_> = estimate
-                    .params
-                    .cameras
-                    .iter()
-                    .zip(estimate.params.sensors.iter())
-                    .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-                    .collect();
-                compute_rig_target_residuals(
-                    &scheimpflug_cameras,
-                    input,
-                    &cam_se3_rig,
-                    &rig_se3_target,
-                )?
-            }
-        };
+        let target = compute_rig_target_residuals(
+            &rig_camera_models(&params.cameras)?,
+            input,
+            &cam_se3_rig,
+            &rig_se3_target,
+        )?;
         let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
             .map(|cam_idx| {
                 build_feature_histogram(
@@ -552,8 +430,7 @@ impl ProblemType for RigHandeyeProblem {
         per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
         Ok(RigHandeyeExport {
             kind: ExportKind::RigHandeye,
-            cameras: output.cameras().to_vec(),
-            sensors: output.sensors().map(|s| s.to_vec()),
+            cameras: params.cameras.clone(),
             cam_se3_rig,
             rig_se3_target: rig_se3_target.clone(),
             handeye_mode: mode,
@@ -561,15 +438,15 @@ impl ProblemType for RigHandeyeProblem {
             rig_se3_base,
             base_se3_target,
             gripper_se3_target,
-            robot_deltas: output.robot_deltas().map(|d| d.to_vec()),
-            mean_reproj_error: output.mean_reproj_error(),
-            per_cam_reproj_errors: output.per_cam_reproj_errors().to_vec(),
+            robot_deltas: output.robot_deltas.clone(),
+            mean_reproj_error: output.mean_reproj_error,
+            per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
             per_feature_residuals,
             // Manifest is populated by callers that also wrote images for
             // the dataset (e.g. a tiled-rig runner); the pipeline
             // itself never has image paths to fill in.
             image_manifest: None,
-            uncertainty: output.uncertainty().clone(),
+            uncertainty: output.uncertainty.clone(),
         })
     }
 }
@@ -678,6 +555,7 @@ mod tests {
             rig: RigConfig {
                 reference_camera_idx: 1,
                 refine_intrinsics_in_rig_ba: true,
+                refine_sensor: false,
             },
             handeye_init: HandeyeInitConfig {
                 handeye_mode: HandEyeMode::EyeToHand,
@@ -707,7 +585,8 @@ mod tests {
         let config = RigHandeyeConfig::default();
         assert!(!config.rig.refine_intrinsics_in_rig_ba);
         assert!(!config.handeye_ba.refine_cam_se3_rig);
-        assert!(!config.handeye_ba.refine_scheimpflug);
+        assert!(!config.handeye_ba.refine_sensor);
+        assert!(!config.rig.refine_sensor);
     }
 
     #[test]
@@ -716,7 +595,7 @@ mod tests {
         assert_eq!(RigHandeyeProblem::schema_version(), 1);
     }
 
-    fn make_dummy_output() -> RigHandeyeOutput {
+    fn make_dummy_output() -> HandEyeEstimate {
         let camera = vision_calibration_core::make_pinhole_camera(
             vision_calibration_core::FxFyCxCy {
                 fx: 800.0,
@@ -727,9 +606,9 @@ mod tests {
             vision_calibration_core::BrownConrady5::default(),
         );
 
-        RigHandeyeOutput::Pinhole(PinholeHandEyeEstimate {
+        HandEyeEstimate {
             params: HandEyeParams {
-                cameras: vec![camera],
+                cameras: vec![vision_calibration_core::pinhole_camera_params(&camera)],
                 cam_to_rig: vec![Iso3::identity()],
                 handeye: Iso3::identity(),
                 target_poses: vec![Iso3::identity()],
@@ -742,7 +621,7 @@ mod tests {
             robot_deltas: None,
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
-        })
+        }
     }
 
     #[test]

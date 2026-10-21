@@ -25,8 +25,8 @@ use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, FxFyCxCy, Iso3, Pinhole, Pt2, Real, ScheimpflugParams,
-    Uncertainty, View,
+    BrownConrady5, Camera, CameraFixMask, CameraParams, DistortionParams, FxFyCxCy, Iso3, Pinhole,
+    Pt2, Real, ScheimpflugParams, SensorParams, Uncertainty, View,
 };
 
 /// The laserline device camera: Brown-Conrady distortion and a
@@ -445,6 +445,42 @@ pub(crate) struct LaserCameraModel {
 /// Points sampled along a view's projected laser line.
 const LASER_LINE_SAMPLES: usize = 33;
 
+/// A camera in the laserline device model: its intrinsics, Brown-Conrady
+/// distortion and sensor tilt. No distortion is zero Brown-Conrady
+/// coefficients, and an untilted sensor zero tilt (exactly the identity
+/// mapping).
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming camera `index` for any other distortion
+/// model or a general homography sensor: the laser residuals are evaluated
+/// in the Brown-Conrady model.
+pub(crate) fn laser_camera_parts(
+    camera: &CameraParams,
+    index: usize,
+) -> Result<(FxFyCxCy<Real>, BrownConrady5<Real>, ScheimpflugParams), Error> {
+    let distortion = match &camera.distortion {
+        DistortionParams::BrownConrady5 { params } => *params,
+        DistortionParams::None => BrownConrady5::default(),
+        other => {
+            return Err(Error::invalid_input(format!(
+                "camera {index}: laser residuals need Brown-Conrady (or no) distortion, got \
+                 {other:?}"
+            )));
+        }
+    };
+    let sensor = match camera.sensor {
+        SensorParams::Identity => ScheimpflugParams::default(),
+        SensorParams::Scheimpflug { params } => params,
+        SensorParams::Homography { .. } => {
+            return Err(Error::invalid_input(format!(
+                "camera {index}: laser residuals need an identity or Scheimpflug sensor"
+            )));
+        }
+    };
+    Ok((camera.intrinsics, distortion, sensor))
+}
+
 impl LaserCameraModel {
     pub(crate) fn new(
         intrinsics: &FxFyCxCy<Real>,
@@ -671,9 +707,7 @@ fn extract_solution(
     let labels: Vec<_> = ir
         .params
         .iter()
-        .map(|block| {
-            uncertainty::planar_block_labels(block, DistortionKind::BrownConrady5.param_names())
-        })
+        .map(|block| uncertainty::planar_block_labels(block, LASER_CAMERA))
         .collect();
     Ok(LaserlineEstimate {
         params: LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?,

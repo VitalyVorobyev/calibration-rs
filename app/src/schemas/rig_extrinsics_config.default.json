@@ -1,14 +1,21 @@
 {
+  "camera": {
+    "fix": {},
+    "model": {
+      "distortion": "brown_conrady5",
+      "projection": "pinhole",
+      "sensor": "identity"
+    }
+  },
+  "camera_overrides": [],
   "intrinsics": {
     "fix_k3": true,
     "init_iterations": 2
   },
   "rig": {
     "reference_camera_idx": 0,
-    "refine_intrinsics_in_rig_ba": false
-  },
-  "sensor": {
-    "kind": "Pinhole"
+    "refine_intrinsics_in_rig_ba": false,
+    "refine_sensor": false
   },
   "solver": {
     "backend": "tiny_solver",

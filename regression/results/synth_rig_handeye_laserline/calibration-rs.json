@@ -45,42 +45,50 @@
     ],
     "cameras": [
       {
-        "_phantom": null,
-        "dist": {
+        "distortion": {
           "iters": 8,
           "k1": -0.05088859596258943,
           "k2": 0.0007912269105976212,
           "k3": 0.0,
           "p1": -0.00012030039249887955,
-          "p2": 0.00005190021992067559
+          "p2": 0.00005190021992067559,
+          "type": "brown_conrady5"
         },
-        "k": {
+        "intrinsics": {
           "cx": 640.2868239052729,
           "cy": 478.5074898954949,
           "fx": 849.9779748342348,
           "fy": 845.239429953708
         },
-        "proj": null,
-        "sensor": null
+        "projection": {
+          "type": "pinhole"
+        },
+        "sensor": {
+          "type": "identity"
+        }
       },
       {
-        "_phantom": null,
-        "dist": {
+        "distortion": {
           "iters": 8,
           "k1": -0.04056621388047518,
           "k2": 0.00035772447381416354,
           "k3": 0.0,
           "p1": 0.00031252469997204436,
-          "p2": -0.00017126809990176362
+          "p2": -0.00017126809990176362,
+          "type": "brown_conrady5"
         },
-        "k": {
+        "intrinsics": {
           "cx": 649.72012172769,
           "cy": 470.35247538022344,
           "fx": 820.0953659232105,
           "fy": 815.1898471349767
         },
-        "proj": null,
-        "sensor": null
+        "projection": {
+          "type": "pinhole"
+        },
+        "sensor": {
+          "type": "identity"
+        }
       }
     ],
     "gripper_se3_rig": {
@@ -692,16 +700,6 @@
         0.00009666970948512276,
         0.00005531373169016176
       ]
-    ],
-    "sensors": [
-      {
-        "tilt_x": 0.0,
-        "tilt_y": 0.0
-      },
-      {
-        "tilt_x": 0.0,
-        "tilt_y": 0.0
-      }
     ],
     "uncertainty": {
       "covariance": [
@@ -2234,10 +2232,6 @@
         "cam1.k3",
         "cam1.p1",
         "cam1.p2",
-        "cam0.tilt_x",
-        "cam0.tilt_y",
-        "cam1.tilt_x",
-        "cam1.tilt_y",
         "cam0.cam_se3_rig",
         "view0.robot_delta"
       ],

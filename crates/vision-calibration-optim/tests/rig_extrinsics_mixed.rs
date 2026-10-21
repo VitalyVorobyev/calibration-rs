@@ -1,17 +1,31 @@
-//! Integration test for Scheimpflug rig extrinsics optimization.
-//!
-//! Mirrors `rig_extrinsics.rs` but gives camera 1 a non-zero Scheimpflug tilt
-//! and verifies convergence of both the extrinsics and the tilt parameters.
+//! Integration test for a rig that mixes lenses: camera 0 has an untilted
+//! sensor, camera 1 a Scheimpflug-tilted one. Verifies convergence of the
+//! extrinsics and of camera 1's tilt.
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, NoMeta, Pinhole, Pt3, Real, RigDataset,
-    RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
+    BrownConrady5, CameraFix, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy, NoMeta,
+    ProjectionParams, Pt3, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
-    ScheimpflugFixMask, optimize_rig_extrinsics_scheimpflug,
+    BackendSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions, optimize_rig_extrinsics,
 };
+
+fn camera(k: FxFyCxCy<Real>, dist: BrownConrady5<Real>, sensor: SensorParams) -> CameraParams {
+    CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 { params: dist },
+        sensor,
+        intrinsics: k,
+    }
+}
+
+fn tilt(camera: &CameraParams) -> ScheimpflugParams {
+    match camera.sensor {
+        SensorParams::Scheimpflug { params } => params,
+        _ => ScheimpflugParams::default(),
+    }
+}
 
 #[test]
 fn stereo_scheimpflug_rig_extrinsics_converges() {
@@ -30,7 +44,7 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         iters: 5,
     };
 
-    // Camera 0 is pinhole-equivalent; camera 1 has a Scheimpflug tilt around X.
+    // Camera 0 has an untilted sensor; camera 1 a Scheimpflug tilt.
     let sensors_gt = [
         ScheimpflugParams::default(),
         ScheimpflugParams {
@@ -38,15 +52,17 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
             tilt_y: -0.05,
         },
     ];
-
-    let cam_gt: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = sensors_gt
-        .iter()
-        .map(|sensor| Camera::new(Pinhole, distortion_gt, sensor.compile(), intrinsics_gt))
-        .collect();
-    let pinhole_cameras_gt = [
-        make_pinhole_camera(intrinsics_gt, distortion_gt),
-        make_pinhole_camera(intrinsics_gt, distortion_gt),
+    let cameras_gt = [
+        camera(intrinsics_gt, distortion_gt, SensorParams::Identity),
+        camera(
+            intrinsics_gt,
+            distortion_gt,
+            SensorParams::Scheimpflug {
+                params: sensors_gt[1],
+            },
+        ),
     ];
+    let cam_gt: Vec<_> = cameras_gt.iter().map(|c| c.build().unwrap()).collect();
 
     // Ground truth extrinsics.
     let cam0_to_rig_gt = Isometry3::identity();
@@ -120,12 +136,17 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         p2: 0.0,
         iters: 8,
     };
+    // Start camera 1's tilt at zero (the optimizer must recover it).
     let cameras_init = vec![
-        make_pinhole_camera(intrinsics_init, distortion_init),
-        make_pinhole_camera(intrinsics_init, distortion_init),
+        camera(intrinsics_init, distortion_init, SensorParams::Identity),
+        camera(
+            intrinsics_init,
+            distortion_init,
+            SensorParams::Scheimpflug {
+                params: ScheimpflugParams::default(),
+            },
+        ),
     ];
-    // Start the sensor tilts at zero (the optimizer must recover them).
-    let sensors_init = vec![ScheimpflugParams::default(), ScheimpflugParams::default()];
 
     let cam1_to_rig_init = Isometry3::from_parts(
         Translation3::new(0.115, 0.003, -0.002),
@@ -141,25 +162,21 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         })
         .collect::<Vec<_>>();
 
-    let initial = RigExtrinsicsScheimpflugParams {
+    let initial = RigExtrinsicsParams {
         cameras: cameras_init,
-        sensors: sensors_init,
         cam_to_rig: vec![cam0_to_rig_gt, cam1_to_rig_init],
         rig_from_target: rig_from_target_init,
     };
 
-    // Break gauge: fix cam0 pose (as in pinhole test) AND fix cam0 Scheimpflug
-    // since its ground-truth tilt is zero and a free cam0 tilt admits a partial
-    // ambiguity with per-view rig poses.
-    let opts = RigExtrinsicsScheimpflugSolveOptions {
+    // Break gauge: fix cam0 pose. Both cameras keep k3 fixed and solve the
+    // tangential terms (the tilted camera's default would fix them).
+    let k3_only = CameraFix {
+        distortion: Some(vec!["k3".into()]),
+        ..CameraFix::default()
+    };
+    let opts = RigExtrinsicsSolveOptions {
+        fix: vec![k3_only.clone(), k3_only],
         fix_extrinsics: vec![true, false],
-        scheimpflug_overrides: vec![
-            Some(ScheimpflugFixMask {
-                tilt_x: true,
-                tilt_y: true,
-            }),
-            None,
-        ],
         ..Default::default()
     };
     let backend_opts = BackendSolveOptions {
@@ -171,25 +188,24 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         ..Default::default()
     };
 
-    let result = optimize_rig_extrinsics_scheimpflug(dataset, initial, opts, backend_opts).unwrap();
+    let result = optimize_rig_extrinsics(dataset, initial, opts, backend_opts).unwrap();
+    assert!(matches!(
+        result.params.cameras[0].sensor,
+        SensorParams::Identity
+    ));
 
     // Intrinsics/distortion convergence.
     for (cam_idx, cam) in result.params.cameras.iter().enumerate() {
-        let gt = &pinhole_cameras_gt[cam_idx];
-        assert!(
-            (cam.k.fx - gt.k.fx).abs() < 0.5,
-            "cam{cam_idx} fx err={}",
-            (cam.k.fx - gt.k.fx).abs()
-        );
-        assert!(
-            (cam.k.fy - gt.k.fy).abs() < 0.5,
-            "cam{cam_idx} fy err={}",
-            (cam.k.fy - gt.k.fy).abs()
-        );
+        let gt = &cameras_gt[cam_idx].intrinsics;
+        let err_fx = (cam.intrinsics.fx - gt.fx).abs();
+        let err_fy = (cam.intrinsics.fy - gt.fy).abs();
+        assert!(err_fx < 0.5, "cam{cam_idx} fx err={err_fx}");
+        assert!(err_fy < 0.5, "cam{cam_idx} fy err={err_fy}");
     }
 
     // Scheimpflug tilt recovery.
-    for (cam_idx, sensor) in result.params.sensors.iter().enumerate() {
+    for (cam_idx, cam) in result.params.cameras.iter().enumerate() {
+        let sensor = tilt(cam);
         let err_x = (sensor.tilt_x - sensors_gt[cam_idx].tilt_x).abs();
         let err_y = (sensor.tilt_y - sensors_gt[cam_idx].tilt_y).abs();
         println!("Camera {cam_idx} tilt errors: tilt_x={err_x:.3e} tilt_y={err_y:.3e}");

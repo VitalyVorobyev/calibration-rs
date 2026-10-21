@@ -235,14 +235,6 @@ export type SensorParams =
       type: "scheimpflug";
     };
 /**
- * Classic pinhole projection model.
- */
-export type Pinhole = null;
-/**
- * Identity sensor model.
- */
-export type IdentitySensor = null;
-/**
  * Hand-eye calibration mode.
  *
  * Specifies the transform chain used for hand-eye calibration.
@@ -259,6 +251,14 @@ export type HandEyeMode = "EyeInHand" | "EyeToHand";
  * pipeline API has none today (see the module docs).
  */
 export type RunStage = "detect" | "solve" | "export";
+/**
+ * Classic pinhole projection model.
+ */
+export type Pinhole = null;
+/**
+ * Identity sensor model.
+ */
+export type IdentitySensor = null;
 
 /**
  * Generated wire types for the diagnose app. Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.
@@ -1054,10 +1054,6 @@ export interface ProjectionUncertainty {
 }
 /**
  * Export format for rig extrinsics calibration.
- *
- * Common to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole
- * rigs and `Some(_)` for Scheimpflug rigs, matching the configured
- * [`SensorMode`].
  */
 export interface RigExtrinsicsExport {
   /**
@@ -1066,9 +1062,9 @@ export interface RigExtrinsicsExport {
    */
   cam_se3_rig: Iso3Schema[];
   /**
-   * Per-camera calibrated intrinsics + distortion (pinhole core).
+   * Per-camera calibrated parameters, each in its camera's model.
    */
-  cameras: Camera[];
+  cameras: CameraParams[];
   /**
    * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose UI) can locate the source
@@ -1102,44 +1098,13 @@ export interface RigExtrinsicsExport {
    */
   rig_se3_target: Iso3Schema[];
   /**
-   * Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;
-   * `Some(_)` for Scheimpflug rigs (one entry per camera).
-   */
-  sensors?: ScheimpflugParams[] | null;
-  /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.
    */
   uncertainty?: Uncertainty;
 }
 /**
- * A composable camera model: projection -> distortion -> sensor -> intrinsics.
- */
-export interface Camera {
-  _phantom: null;
-  /**
-   * Distortion model (e.g. Brown-Conrady).
-   */
-  dist: BrownConrady5;
-  /**
-   * Intrinsics model (K).
-   */
-  k: FxFyCxCy;
-  /**
-   * Projection model (e.g. pinhole).
-   */
-  proj: Pinhole;
-  /**
-   * Sensor model (e.g. identity or tilted homography).
-   */
-  sensor: IdentitySensor;
-}
-/**
  * Export format for rig hand-eye calibration.
- *
- * Common to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole
- * rigs and `Some(_)` for Scheimpflug rigs, matching the configured
- * [`SensorMode`].
  */
 export interface RigHandeyeExport {
   /**
@@ -1154,9 +1119,9 @@ export interface RigHandeyeExport {
    */
   cam_se3_rig: Iso3Schema[];
   /**
-   * Per-camera calibrated intrinsics + distortion (pinhole core).
+   * Per-camera calibrated parameters, each in its camera's model.
    */
-  cameras: Camera[];
+  cameras: CameraParams[];
   /**
    * Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
    *
@@ -1223,11 +1188,6 @@ export interface RigHandeyeExport {
    */
   robot_deltas?: [number, number, number, number, number, number][] | null;
   /**
-   * Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;
-   * `Some(_)` for Scheimpflug rigs (one entry per camera).
-   */
-  sensors?: ScheimpflugParams[] | null;
-  /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.
    */
@@ -1246,9 +1206,9 @@ export interface RigHandeyeLaserlineExport {
    */
   cam_se3_rig: Iso3Schema[];
   /**
-   * Per-camera pinhole camera parameters.
+   * Per-camera parameters, each in its camera's model.
    */
-  cameras: Camera[];
+  cameras: CameraParams[];
   /**
    * Eye-in-hand hand-eye transform `gripper_se3_rig`.
    */
@@ -1305,10 +1265,6 @@ export interface RigHandeyeLaserlineExport {
    * Optional optimized robot pose deltas.
    */
   robot_deltas?: [number, number, number, number, number, number][] | null;
-  /**
-   * Per-camera Scheimpflug sensor parameters.
-   */
-  sensors: ScheimpflugParams[];
   /**
    * Covariance of the jointly refined parameters, labelled as the export
    * fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
@@ -1377,12 +1333,11 @@ export interface RigLaserlineDeviceExport {
    */
   cam_se3_rig?: Iso3Schema[];
   /**
-   * Frozen upstream cameras (pinhole part), echoed so the export is
-   * self-contained for downstream viewers (3D rig scene, epipolar) —
-   * same field names as `RigHandeyeExport`. Empty when absent
-   * in the JSON (`serde(default)`).
+   * Frozen upstream cameras, echoed so the export is self-contained for
+   * downstream viewers (3D rig scene, epipolar) — same field name as
+   * `RigHandeyeExport`. Empty when absent in the JSON (`serde(default)`).
    */
-  cameras?: Camera[];
+  cameras?: CameraParams[];
   /**
    * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose / 3D / epipolar UIs)
@@ -1426,11 +1381,6 @@ export interface RigLaserlineDeviceExport {
    * Frozen upstream per-view rig poses `T_R_T`.
    */
   rig_se3_target?: Iso3Schema[];
-  /**
-   * Frozen upstream Scheimpflug sensor parameters (zero tilt for
-   * pinhole rigs), aligned with `cameras`.
-   */
-  sensors?: ScheimpflugParams[] | null;
   /**
    * Covariance of the laser planes in their camera frames
    * (`cam1.plane.nx`), conditional on the upstream calibration. Each
@@ -1522,4 +1472,26 @@ export interface SingleCamHandeyeExport {
    * the noise level the residuals imply.
    */
   uncertainty?: Uncertainty;
+}
+/**
+ * A composable camera model: projection -> distortion -> sensor -> intrinsics.
+ */
+export interface Camera {
+  _phantom: null;
+  /**
+   * Distortion model (e.g. Brown-Conrady).
+   */
+  dist: BrownConrady5;
+  /**
+   * Intrinsics model (K).
+   */
+  k: FxFyCxCy;
+  /**
+   * Projection model (e.g. pinhole).
+   */
+  proj: Pinhole;
+  /**
+   * Sensor model (e.g. identity or tilted homography).
+   */
+  sensor: IdentitySensor;
 }

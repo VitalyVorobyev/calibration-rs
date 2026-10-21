@@ -50,15 +50,29 @@ describe("mergeConfig", () => {
 
   it("applies a realistic two-level config override", () => {
     const defaults = {
-      sensor: { kind: "Pinhole", init_tilt_x: 0 },
+      camera: {
+        model: {
+          projection: "pinhole",
+          distortion: "brown_conrady5",
+          sensor: "identity",
+        },
+        fix: {},
+      },
       solver: { max_iters: 100 },
     };
     const overrides = {
-      sensor: { kind: "Scheimpflug" },
+      camera: { model: { sensor: "scheimpflug" } },
       handeye_init: { handeye_mode: "EyeToHand" },
     };
     expect(mergeConfig(defaults, overrides)).toEqual({
-      sensor: { kind: "Scheimpflug", init_tilt_x: 0 },
+      camera: {
+        model: {
+          projection: "pinhole",
+          distortion: "brown_conrady5",
+          sensor: "scheimpflug",
+        },
+        fix: {},
+      },
       solver: { max_iters: 100 },
       handeye_init: { handeye_mode: "EyeToHand" },
     });

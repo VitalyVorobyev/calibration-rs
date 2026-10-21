@@ -4,13 +4,12 @@
 //! computed during the calibration pipeline.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Iso3, PinholeCamera, ScheimpflugParams};
+use vision_calibration_core::{CameraParams, Iso3};
 
 /// Intermediate state for rig hand-eye calibration.
 ///
 /// Stores by-products of the calibration pipeline including:
-/// - Per-camera intrinsics (pinhole core)
-/// - Per-camera Scheimpflug sensor params (Scheimpflug mode only)
+/// - Per-camera parameters
 /// - Per-camera target poses
 /// - Rig extrinsics from linear and BA estimation
 /// - Hand-eye initialization
@@ -20,13 +19,8 @@ pub(crate) struct RigHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // Per-camera intrinsics
     // ─────────────────────────────────────────────────────────────────────────
-    /// Per-camera calibrated intrinsics + distortion (pinhole core).
-    pub per_cam_intrinsics: Option<Vec<PinholeCamera>>,
-
-    /// Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;
-    /// `Some(_)` after intrinsics init when [`super::SensorMode::Scheimpflug`] is configured.
-    #[serde(default)]
-    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
+    /// Per-camera parameters, each in its camera's model.
+    pub cameras: Option<Vec<CameraParams>>,
 
     /// Per-camera target poses: `[view][cam] -> Option<Iso3>`.
     /// `cam_se3_target` (T_C_T) for each camera in each view.
@@ -90,7 +84,7 @@ pub(crate) struct RigHandeyeState {
 impl RigHandeyeState {
     /// Check if per-camera intrinsics have been computed.
     pub fn has_per_cam_intrinsics(&self) -> bool {
-        self.per_cam_intrinsics.is_some()
+        self.cameras.is_some()
     }
 
     /// Check if rig initialization has been run.
@@ -129,10 +123,12 @@ impl RigHandeyeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
+    use vision_calibration_core::{
+        BrownConrady5, FxFyCxCy, make_pinhole_camera, pinhole_camera_params,
+    };
 
-    fn make_test_camera() -> PinholeCamera {
-        make_pinhole_camera(
+    fn make_test_camera() -> CameraParams {
+        pinhole_camera_params(&make_pinhole_camera(
             FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
@@ -140,7 +136,7 @@ mod tests {
                 cy: 240.0,
             },
             BrownConrady5::default(),
-        )
+        ))
     }
 
     #[test]
@@ -188,7 +184,7 @@ mod tests {
     #[test]
     fn clear_rig_keeps_intrinsics() {
         let mut state = RigHandeyeState {
-            per_cam_intrinsics: Some(vec![make_test_camera()]),
+            cameras: Some(vec![make_test_camera()]),
             initial_cam_se3_rig: Some(vec![Iso3::identity()]),
             initial_rig_se3_target: Some(vec![Iso3::identity()]),
             rig_ba_cam_se3_rig: Some(vec![Iso3::identity()]),
@@ -206,7 +202,7 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let state = RigHandeyeState {
-            per_cam_intrinsics: Some(vec![make_test_camera(), make_test_camera()]),
+            cameras: Some(vec![make_test_camera(), make_test_camera()]),
             per_cam_reproj_errors: Some(vec![0.5, 0.6]),
             initial_cam_se3_rig: Some(vec![Iso3::identity(), Iso3::identity()]),
             initial_rig_se3_target: Some(vec![Iso3::identity()]),
@@ -227,6 +223,6 @@ mod tests {
         assert!(restored.has_rig_optimized());
         assert!(restored.has_handeye_init());
         assert!(restored.has_final_optimized());
-        assert_eq!(restored.per_cam_intrinsics.unwrap().len(), 2);
+        assert_eq!(restored.cameras.unwrap().len(), 2);
     }
 }

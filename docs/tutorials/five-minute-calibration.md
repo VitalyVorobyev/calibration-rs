@@ -108,8 +108,8 @@ the same; only the input shape and the step list change.
 |---|---|---|
 | `PlanarIntrinsicsProblem` | `PlanarDataset` | `step_init` → `step_optimize`. Straight or tilted sensor — set `PlanarIntrinsicsConfig::camera.model.sensor` to `SensorKind::Identity` (default) or `SensorKind::Scheimpflug`. |
 | `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | 4 steps (intrinsics ×2, hand-eye ×2) |
-| `RigExtrinsicsProblem` | `RigDataset<NoMeta>` | 4 steps (this tutorial). Pinhole or Scheimpflug rig — set `RigExtrinsicsConfig::sensor` to `SensorMode::Pinhole` (default) or `SensorMode::Scheimpflug { … }`. |
-| `RigHandeyeProblem` | `RigDataset<RobotPoseMeta>` | 6 steps. Pinhole or Scheimpflug rig — set `RigHandeyeConfig::sensor` to `SensorMode::Pinhole` (default) or `SensorMode::Scheimpflug { … }`. |
+| `RigExtrinsicsProblem` | `RigDataset<NoMeta>` | 4 steps (this tutorial). Any lens per camera — set `RigExtrinsicsConfig::camera` (default Brown-Conrady, identity sensor) and, to mix lenses, `camera_overrides`. |
+| `RigHandeyeProblem` | `RigDataset<RobotPoseMeta>` | 6 steps. Any lens per camera — set `RigHandeyeConfig::camera` and, to mix lenses, `camera_overrides`. |
 | `LaserlineDeviceProblem` | `LaserlineDataset` | `step_init` → `step_optimize` |
 | `RigLaserlineDeviceProblem` | `RigLaserlineDeviceInput` | `step_init` → `step_optimize` |
 

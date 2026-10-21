@@ -45,36 +45,119 @@
       ],
       "type": "object"
     },
-    "DistortionFixMask": {
-      "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
+    "CameraConfig": {
+      "additionalProperties": false,
+      "description": "The camera model a workflow calibrates, and which of its parameters stay\nfixed.\n\nThe model names one kind per slot — projection, distortion and sensor —\nso a tilted (Scheimpflug) sensor is a value of `model.sensor`, not a\nseparate workflow. Behaviour that depends on the sensor (default fix\nlists, the linear stage's tangential terms, the tilt multi-start) follows\nfrom the model.",
       "properties": {
-        "k1": {
-          "description": "Fix first radial distortion coefficient.",
-          "type": "boolean"
+        "fix": {
+          "$ref": "#/$defs/CameraFix",
+          "default": {},
+          "description": "Parameters held fixed during the non-linear solve, named per slot\n(`{\"intrinsics\": [\"cx\", \"cy\"], \"distortion\": [\"k3\"], \"sensor\":\n[\"tilt_y\"]}`). A slot left out keeps the model's default: `k3` for\nBrown-Conrady, and everything but the low-order radial terms (`k1`,\n`k2`; the division model's `lambda`) under a Scheimpflug sensor,\nbecause tangential and higher-order terms trade off against the tilt.\nAn unknown name is a configuration error."
         },
-        "k2": {
-          "description": "Fix second radial distortion coefficient.",
-          "type": "boolean"
-        },
-        "k3": {
-          "description": "Fix third radial distortion coefficient (fixed by default).",
-          "type": "boolean"
-        },
-        "p1": {
-          "description": "Fix first tangential distortion coefficient.",
-          "type": "boolean"
-        },
-        "p2": {
-          "description": "Fix second tangential distortion coefficient.",
-          "type": "boolean"
+        "model": {
+          "$ref": "#/$defs/CameraModelSpec",
+          "description": "The camera model, one kind per slot. Default: pinhole projection,\nBrown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity\n(untilted) sensor — the model every workflow accepts."
         }
       },
       "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2"
+        "model"
+      ],
+      "type": "object"
+    },
+    "CameraFix": {
+      "additionalProperties": false,
+      "description": "Camera parameters held fixed during a solve, named per slot.\n\nEach list names parameters of the model in that slot (`fx`, `cy`, `k3`,\n`tilt_y`, …). `None` means the model's default\n([`CameraModelSpec::default_fix`]); an empty list fixes nothing in that\nslot. Names are checked against the model by [`CameraFix::resolve`], before\nany work.",
+      "properties": {
+        "distortion": {
+          "description": "Fixed distortion coefficients; default: `k3` for Brown-Conrady, and\neverything but the low-order radial terms under a Scheimpflug sensor.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "intrinsics": {
+          "description": "Fixed intrinsics (`fx`, `fy`, `cx`, `cy`); default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "projection": {
+          "description": "Fixed projection parameters; default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sensor": {
+          "description": "Fixed sensor parameters (`tilt_x`, `tilt_y`); default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "CameraModelSpec": {
+      "additionalProperties": false,
+      "description": "A camera model: the kind in each slot. The values live in\n[`CameraParams`](super::CameraParams); [`CameraParams::spec`](super::CameraParams::spec)\nrecovers the spec from them.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionKind",
+          "description": "Distortion slot."
+        },
+        "projection": {
+          "$ref": "#/$defs/ProjectionKind",
+          "description": "Projection slot."
+        },
+        "sensor": {
+          "$ref": "#/$defs/SensorKind",
+          "description": "Sensor slot."
+        }
+      },
+      "required": [
+        "projection",
+        "distortion",
+        "sensor"
+      ],
+      "type": "object"
+    },
+    "CameraOverride": {
+      "additionalProperties": false,
+      "description": "One camera of a rig whose model differs from the rig's `camera`, so a\nrig can mix lenses (a tilted laser camera beside a frontal one, a fisheye\nbeside a narrow lens).",
+      "properties": {
+        "camera": {
+          "description": "Index of the camera in the rig (`0..num_cameras`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fix": {
+          "$ref": "#/$defs/CameraFix",
+          "default": {},
+          "description": "Parameters held fixed during the non-linear solves, named per slot;\na slot left out keeps the model's default (see [`CameraConfig::fix`])."
+        },
+        "model": {
+          "$ref": "#/$defs/CameraModelSpec",
+          "description": "The camera's model, one kind per slot."
+        }
+      },
+      "required": [
+        "camera",
+        "model"
       ],
       "type": "object"
     },
@@ -163,9 +246,9 @@
           "description": "Refine cam_se3_rig in hand-eye BA (default: false).\nWhen true, rig extrinsics are further refined during hand-eye optimization.",
           "type": "boolean"
         },
-        "refine_scheimpflug": {
+        "refine_sensor": {
           "default": false,
-          "description": "Refine Scheimpflug tilt parameters in hand-eye BA (default: false).\nOnly consulted when [`SensorMode::Scheimpflug`] is configured; ignored\nfor [`SensorMode::Pinhole`].",
+          "description": "Refine the sensor tilt of each Scheimpflug camera in hand-eye BA,\nholding its `fix.sensor` list (default: false). Cameras with an\nuntilted sensor have no tilt.",
           "type": "boolean"
         },
         "robot_poses": {
@@ -208,7 +291,7 @@
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2) during initialization.\n\n`None` (the default) takes the camera's default: `true` for a\nScheimpflug sensor in planar intrinsics — the tilt/tangential\ncoupling makes a free tangential term ill-posed during the linear\nstage — and `false` otherwise. The multi-camera workflows, which pick\ntheir sensor through `sensor`, resolve `None` to `false` for either\nsensor.",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\n`None` (the default) takes the camera's default: `true` for a\nScheimpflug sensor in planar intrinsics — the tilt/tangential\ncoupling makes a free tangential term ill-posed during the linear\nstage — and `false` otherwise. The multi-camera workflows resolve\n`None` to `false` for every camera, whatever its sensor: their\nper-camera linear stage has always kept the tangential terms free.",
           "type": [
             "boolean",
             "null"
@@ -227,6 +310,16 @@
       ],
       "type": "object"
     },
+    "ProjectionKind": {
+      "description": "Which projection model a camera uses.",
+      "oneOf": [
+        {
+          "const": "pinhole",
+          "description": "Pinhole (perspective) projection; no parameters of its own.",
+          "type": "string"
+        }
+      ]
+    },
     "RigConfig": {
       "additionalProperties": false,
       "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
@@ -238,7 +331,12 @@
           "type": "integer"
         },
         "refine_intrinsics_in_rig_ba": {
-          "description": "Re-refine per-camera intrinsics jointly during rig bundle adjustment.",
+          "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
+          "type": "boolean"
+        },
+        "refine_sensor": {
+          "default": false,
+          "description": "Re-refine the sensor tilt of each Scheimpflug camera during rig\nbundle adjustment, holding its `fix.sensor` list. Default: `false` —\nthe tilt is fitted per camera and trades off against the extrinsics\nin the joint solve. Cameras with an untilted sensor have no tilt.",
           "type": "boolean"
         }
       },
@@ -249,7 +347,7 @@
       "type": "object"
     },
     "RigHandeyeIntrinsicsManualInit": {
-      "description": "Manual seeds for the **per-camera intrinsics stage** of rig hand-eye\ncalibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.\n\n`per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is\nconfigured; for [`SensorMode::Pinhole`] it is ignored.",
+      "description": "Manual seeds for the **per-camera intrinsics stage** of rig hand-eye\ncalibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor\n(a seeded tilt skips the tilt sweep); a camera with an untilted sensor\ntakes only a zero tilt.",
       "properties": {
         "per_cam_distortion": {
           "description": "Per-camera distortion seeds.",
@@ -273,7 +371,7 @@
         },
         "per_cam_sensors": {
           "default": null,
-          "description": "Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).",
+          "description": "Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the\nothers).",
           "items": {
             "$ref": "#/$defs/ScheimpflugParams"
           },
@@ -390,24 +488,6 @@
         }
       ]
     },
-    "ScheimpflugFixMask": {
-      "description": "Mask for Scheimpflug tilt parameters.",
-      "properties": {
-        "tilt_x": {
-          "description": "Keep `tilt_x` fixed during optimization.",
-          "type": "boolean"
-        },
-        "tilt_y": {
-          "description": "Keep `tilt_y` fixed during optimization.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
-      "type": "object"
-    },
     "ScheimpflugParams": {
       "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
       "properties": {
@@ -428,75 +508,18 @@
       ],
       "type": "object"
     },
-    "SensorMode": {
-      "description": "Sensor flavour for rig calibration workflows.\n\n`Pinhole` is the default and matches a standard multi-camera rig with\npure pinhole + Brown-Conrady distortion projection. `Scheimpflug` adds\nper-camera tilt parameters; per-camera intrinsics share the pinhole core\nbut include a tilted sensor plane in projection.\n\nThe `Scheimpflug` variant carries its own bootstrap defaults and BA-stage\nfix masks so the rest of the workflow config stays shared between flavours.\n\nRe-exported by [`crate::rig_extrinsics::SensorMode`] and\n[`crate::rig_handeye::SensorMode`] (single source of truth in `rig_family`).",
+    "SensorKind": {
+      "description": "Which sensor model a camera uses.",
       "oneOf": [
         {
-          "description": "Pinhole + Brown-Conrady projection (no sensor tilt).",
-          "properties": {
-            "kind": {
-              "const": "Pinhole",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
+          "const": "identity",
+          "description": "Sensor plane perpendicular to the optical axis; no parameters.",
+          "type": "string"
         },
         {
-          "description": "Pinhole + Brown-Conrady + Scheimpflug-tilted sensor.",
-          "properties": {
-            "distortion_mask_in_percam_ba": {
-              "$ref": "#/$defs/DistortionFixMask",
-              "default": {
-                "k1": false,
-                "k2": false,
-                "k3": true,
-                "p1": true,
-                "p2": true
-              },
-              "description": "Distortion mask applied during per-camera Scheimpflug intrinsics\nrefinement. Defaults to [`DistortionFixMask::radial_only`]\n(k1, k2 free; k3, p1, p2 fixed) — a safe choice for typical\nScheimpflug rigs where tangential distortion can absorb tilt-like\nsignal. Narrow-FOV rigs that overfit k2 may want\n`(k1, p1, p2) free, (k2, k3) fixed` instead."
-            },
-            "distortion_model": {
-              "$ref": "#/$defs/DistortionKind",
-              "default": "brown_conrady5",
-              "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config`\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
-            },
-            "fix_scheimpflug": {
-              "$ref": "#/$defs/ScheimpflugFixMask",
-              "default": {
-                "tilt_x": false,
-                "tilt_y": false
-              },
-              "description": "Mask for Scheimpflug parameters during per-camera intrinsics refinement."
-            },
-            "init_tilt_x": {
-              "default": 0.0,
-              "description": "Initial Scheimpflug tilt around X (radians) — used only when no\nper-camera sensor seed is supplied via the workflow's manual init.",
-              "format": "double",
-              "type": "number"
-            },
-            "init_tilt_y": {
-              "default": 0.0,
-              "description": "Initial Scheimpflug tilt around Y (radians) — same convention.",
-              "format": "double",
-              "type": "number"
-            },
-            "kind": {
-              "const": "Scheimpflug",
-              "type": "string"
-            },
-            "refine_scheimpflug_in_rig_ba": {
-              "default": false,
-              "description": "Re-refine Scheimpflug parameters in rig BA (default: false).",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
+          "const": "scheimpflug",
+          "description": "Scheimpflug tilted sensor `[tilt_x, tilt_y]` (radians).",
+          "type": "string"
         }
       ]
     },
@@ -551,8 +574,28 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
+  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Every camera has the model of `camera` unless\n`camera_overrides` names it, so one rig can mix lenses and sensors.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
   "properties": {
+    "camera": {
+      "$ref": "#/$defs/CameraConfig",
+      "default": {
+        "fix": {},
+        "model": {
+          "distortion": "brown_conrady5",
+          "projection": "pinhole",
+          "sensor": "identity"
+        }
+      },
+      "description": "The camera model of every rig camera and the parameters its solves\nhold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a\nmulti-start tilt sweep; seed its tilt through `manual_init`."
+    },
+    "camera_overrides": {
+      "default": [],
+      "description": "Cameras whose model differs from `camera`, at most one entry per\ncamera index.",
+      "items": {
+        "$ref": "#/$defs/CameraOverride"
+      },
+      "type": "array"
+    },
     "handeye_ba": {
       "$ref": "#/$defs/HandeyeBaConfig",
       "description": "Final hand-eye bundle-adjustment options."
@@ -563,7 +606,7 @@
     },
     "intrinsics": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
-      "description": "Per-camera linear-initialization stage settings."
+      "description": "Per-camera linear-initialization stage settings. An unset\n`fix_tangential` keeps the tangential terms free for every camera."
     },
     "manual_init": {
       "anyOf": [
@@ -579,13 +622,6 @@
     "rig": {
       "$ref": "#/$defs/RigConfig",
       "description": "Rig frame options (reference camera, rig-BA scope)."
-    },
-    "sensor": {
-      "$ref": "#/$defs/SensorMode",
-      "default": {
-        "kind": "Pinhole"
-      },
-      "description": "Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`."
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",

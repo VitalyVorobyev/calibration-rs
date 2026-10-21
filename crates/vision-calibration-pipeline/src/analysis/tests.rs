@@ -13,8 +13,9 @@ use super::*;
 use crate::common::ExportKind;
 use nalgebra::{SVector, Translation3, UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCy, NoMeta, PerFeatureResiduals, RigView, RigViewObs,
-    compute_rig_target_residuals, make_pinhole_camera,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, NoMeta, PerFeatureResiduals, Pinhole,
+    PinholeCamera, RigView, RigViewObs, ScheimpflugParams, compute_rig_target_residuals,
+    make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::HandEyeMode;
 
@@ -282,8 +283,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
     per_feature_residuals.target = target;
     let export = RigHandeyeExport {
         kind: ExportKind::RigHandeye,
-        cameras,
-        sensors: None,
+        cameras: cameras.iter().map(pinhole_camera_params).collect(),
         cam_se3_rig: cam_se3_rig.clone(),
         rig_se3_target: rig_se3_target.clone(),
         handeye_mode: HandEyeMode::EyeToHand,

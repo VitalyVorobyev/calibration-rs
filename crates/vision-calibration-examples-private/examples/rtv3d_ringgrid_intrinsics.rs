@@ -46,15 +46,14 @@ use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use vision_calibration::device_seed::{DEVICE_SPEC_FILENAME, DeviceSpec, scheimpflug_seed};
 use vision_calibration::core::SensorKind;
+use vision_calibration::device_seed::{DEVICE_SPEC_FILENAME, DeviceSpec, scheimpflug_seed};
 use vision_calibration::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration_core::{
-    BrownConrady5, FxFyCxCy, NoMeta, PlanarDataset, ScheimpflugParams,
-    SensorParams, View,
+    BrownConrady5, FxFyCxCy, NoMeta, PlanarDataset, ScheimpflugParams, SensorParams, View,
 };
 use vision_calibration_examples_private::{
     BoardRinggridSpec, detect_ringgrid, load_gray, load_poses, load_ref_artifacts,
@@ -202,7 +201,7 @@ fn main() -> Result<()> {
         step_optimize(&mut session, None).with_context(|| format!("camera {c}: optimize"))?;
 
         let out = session.output().expect("output after optimize");
-        let intr = &out.params.camera.intrinsics;
+        let intr = out.params.camera.intrinsics;
         let dist = match &out.params.camera.distortion {
             vision_calibration_core::DistortionParams::BrownConrady5 { params } => *params,
             other => {

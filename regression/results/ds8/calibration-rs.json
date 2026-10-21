@@ -58,61 +58,73 @@
     ],
     "cameras": [
       {
-        "_phantom": null,
-        "dist": {
+        "distortion": {
           "iters": 8,
           "k1": -0.20945619231977336,
           "k2": 0.11690505678979339,
           "k3": 0.0,
           "p1": 0.0000611284806243715,
-          "p2": -0.00022645708287561043
+          "p2": -0.00022645708287561043,
+          "type": "brown_conrady5"
         },
-        "k": {
+        "intrinsics": {
           "cx": 611.3608226826905,
           "cy": 516.4008950697644,
           "fx": 1186.399168581589,
           "fy": 1188.5818132962236
         },
-        "proj": null,
-        "sensor": null
+        "projection": {
+          "type": "pinhole"
+        },
+        "sensor": {
+          "type": "identity"
+        }
       },
       {
-        "_phantom": null,
-        "dist": {
+        "distortion": {
           "iters": 8,
           "k1": -0.20544468458776272,
           "k2": 0.10648582930125698,
           "k3": 0.0,
           "p1": 0.0018705504087365918,
-          "p2": -0.000489586649677849
+          "p2": -0.000489586649677849,
+          "type": "brown_conrady5"
         },
-        "k": {
+        "intrinsics": {
           "cx": 614.1908887578097,
           "cy": 520.1323091372822,
           "fx": 1175.8077354699465,
           "fy": 1177.5923613480325
         },
-        "proj": null,
-        "sensor": null
+        "projection": {
+          "type": "pinhole"
+        },
+        "sensor": {
+          "type": "identity"
+        }
       },
       {
-        "_phantom": null,
-        "dist": {
+        "distortion": {
           "iters": 8,
           "k1": 0.0183142020643756,
           "k2": -0.07862120517305622,
           "k3": 0.0,
           "p1": 0.00029967289005880104,
-          "p2": -0.002291662253165626
+          "p2": -0.002291662253165626,
+          "type": "brown_conrady5"
         },
-        "k": {
+        "intrinsics": {
           "cx": 298.67170729185096,
           "cy": 237.18063810071828,
           "fx": 589.8846577563698,
           "fy": 589.89329148922
         },
-        "proj": null,
-        "sensor": null
+        "projection": {
+          "type": "pinhole"
+        },
+        "sensor": {
+          "type": "identity"
+        }
       }
     ],
     "gripper_se3_rig": {
@@ -893,7 +905,6 @@
         -0.000043535379666965444
       ]
     ],
-    "sensors": null,
     "uncertainty": {
       "covariance": [
         [

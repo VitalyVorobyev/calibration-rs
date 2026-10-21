@@ -29,14 +29,6 @@ use vision_calibration_optim::{
 /// copy-pasted literal `8`.
 const DISTORTION_FIT_ITERS: u32 = 8;
 
-/// Shared `#[serde(default = ...)]` for the `distortion_model:
-/// DistortionKind` field of `rig_family::SensorMode::Scheimpflug`.
-/// Brown-Conrady5 is the only distortion model every downstream consumer
-/// (rig bundle adjustment, hand-eye, laserline) accepts.
-pub(crate) fn default_distortion_kind() -> DistortionKind {
-    DistortionKind::BrownConrady5
-}
-
 /// The camera model a workflow calibrates, and which of its parameters stay
 /// fixed.
 ///
@@ -52,7 +44,7 @@ pub(crate) fn default_distortion_kind() -> DistortionKind {
 pub struct CameraConfig {
     /// The camera model, one kind per slot. Default: pinhole projection,
     /// Brown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity
-    /// (untilted) sensor — the model every downstream workflow accepts.
+    /// (untilted) sensor — the model every workflow accepts.
     pub model: CameraModelSpec,
     /// Parameters held fixed during the non-linear solve, named per slot
     /// (`{"intrinsics": ["cx", "cy"], "distortion": ["k3"], "sensor":
@@ -96,6 +88,94 @@ impl CameraConfig {
     }
 }
 
+/// One camera of a rig whose model differs from the rig's `camera`, so a
+/// rig can mix lenses (a tilted laser camera beside a frontal one, a fisheye
+/// beside a narrow lens).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+#[serde(deny_unknown_fields)]
+pub struct CameraOverride {
+    /// Index of the camera in the rig (`0..num_cameras`).
+    pub camera: usize,
+    /// The camera's model, one kind per slot.
+    pub model: CameraModelSpec,
+    /// Parameters held fixed during the non-linear solves, named per slot;
+    /// a slot left out keeps the model's default (see [`CameraConfig::fix`]).
+    #[serde(default)]
+    pub fix: CameraFix,
+}
+
+impl CameraOverride {
+    /// Camera `camera` with `model` and the model's default fix lists.
+    pub fn new(camera: usize, model: CameraModelSpec) -> Self {
+        Self {
+            camera,
+            model,
+            fix: CameraFix::default(),
+        }
+    }
+}
+
+/// The configuration of rig camera `index`: its override if `overrides` has
+/// one, otherwise the rig's `camera`.
+pub(crate) fn rig_camera_for(
+    camera: &CameraConfig,
+    overrides: &[CameraOverride],
+    index: usize,
+) -> CameraConfig {
+    overrides.iter().find(|o| o.camera == index).map_or_else(
+        || camera.clone(),
+        |o| CameraConfig {
+            model: o.model,
+            fix: o.fix.clone(),
+        },
+    )
+}
+
+/// Check a rig's camera configuration: every fix list names parameters of
+/// its model, and no camera is overridden twice.
+///
+/// # Errors
+///
+/// [`crate::Error::InvalidInput`] naming the field.
+pub(crate) fn validate_rig_cameras(
+    camera: &CameraConfig,
+    overrides: &[CameraOverride],
+) -> Result<(), crate::Error> {
+    camera.validate()?;
+    for (i, o) in overrides.iter().enumerate() {
+        if overrides[..i].iter().any(|prev| prev.camera == o.camera) {
+            return Err(crate::Error::invalid_input(format!(
+                "camera_overrides: camera {} is listed twice",
+                o.camera
+            )));
+        }
+        o.fix
+            .resolve(o.model)
+            .map_err(|e| crate::Error::invalid_input(format!("camera_overrides[{i}].fix: {e}")))?;
+    }
+    Ok(())
+}
+
+/// Check every override names a camera of a rig of `num_cameras`.
+///
+/// # Errors
+///
+/// [`crate::Error::InvalidInput`] naming the out-of-range camera.
+pub(crate) fn validate_rig_camera_indices(
+    overrides: &[CameraOverride],
+    num_cameras: usize,
+) -> Result<(), crate::Error> {
+    match overrides.iter().find(|o| o.camera >= num_cameras) {
+        Some(o) => Err(crate::Error::invalid_input(format!(
+            "camera_overrides: camera {} is out of range (num_cameras = {num_cameras})",
+            o.camera
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Per-camera linear-initialization stage (Zhang's method + iterative
 /// Brown-Conrady distortion fit).
 ///
@@ -114,9 +194,9 @@ pub struct IntrinsicsInitConfig {
     /// `None` (the default) takes the camera's default: `true` for a
     /// Scheimpflug sensor in planar intrinsics — the tilt/tangential
     /// coupling makes a free tangential term ill-posed during the linear
-    /// stage — and `false` otherwise. The multi-camera workflows, which pick
-    /// their sensor through `sensor`, resolve `None` to `false` for either
-    /// sensor.
+    /// stage — and `false` otherwise. The multi-camera workflows resolve
+    /// `None` to `false` for every camera, whatever its sensor: their
+    /// per-camera linear stage has always kept the tangential terms free.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix_tangential: Option<bool>,
 }
@@ -312,8 +392,16 @@ impl Default for HandeyeInitConfig {
 pub struct RigConfig {
     /// Reference camera index for the rig frame (identity extrinsics).
     pub reference_camera_idx: usize,
-    /// Re-refine per-camera intrinsics jointly during rig bundle adjustment.
+    /// Re-refine per-camera intrinsics and distortion jointly during rig
+    /// bundle adjustment, holding the camera's `fix` lists. Default:
+    /// `false` — the per-camera solves have already fitted them.
     pub refine_intrinsics_in_rig_ba: bool,
+    /// Re-refine the sensor tilt of each Scheimpflug camera during rig
+    /// bundle adjustment, holding its `fix.sensor` list. Default: `false` —
+    /// the tilt is fitted per camera and trades off against the extrinsics
+    /// in the joint solve. Cameras with an untilted sensor have no tilt.
+    #[serde(default)]
+    pub refine_sensor: bool,
 }
 
 #[cfg(test)]
@@ -358,11 +446,42 @@ mod tests {
         let cfg = RigConfig::default();
         assert_eq!(cfg.reference_camera_idx, 0);
         assert!(!cfg.refine_intrinsics_in_rig_ba);
+        assert!(!cfg.refine_sensor);
     }
 
     #[test]
-    fn default_distortion_kind_is_brown_conrady5() {
-        assert_eq!(default_distortion_kind(), DistortionKind::BrownConrady5);
+    fn rig_camera_overrides_select_and_validate() {
+        let camera = CameraConfig::default();
+        let tilted =
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
+        let overrides = vec![CameraOverride::new(1, tilted)];
+        assert_eq!(rig_camera_for(&camera, &overrides, 0), camera);
+        assert_eq!(rig_camera_for(&camera, &overrides, 1).model, tilted);
+        assert!(validate_rig_cameras(&camera, &overrides).is_ok());
+        assert!(validate_rig_camera_indices(&overrides, 2).is_ok());
+
+        let err = validate_rig_camera_indices(&overrides, 1)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("out of range"), "{err}");
+        let twice = vec![overrides[0].clone(), overrides[0].clone()];
+        let err = validate_rig_cameras(&camera, &twice)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("listed twice"), "{err}");
+        let mut bad = overrides[0].clone();
+        bad.model = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+        bad.fix.sensor = Some(vec!["tilt_x".into()]);
+        let err = validate_rig_cameras(&camera, &[bad])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("tilt_x"), "{err}");
+
+        let json = r#"{"camera": 1, "model": {"projection": "pinhole",
+            "distortion": "division1", "sensor": "identity"}}"#;
+        let parsed: CameraOverride = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model.distortion, DistortionKind::Division1);
+        assert!(serde_json::from_str::<CameraOverride>(r#"{"camera": 0, "lens": 1}"#).is_err());
     }
 
     #[test]

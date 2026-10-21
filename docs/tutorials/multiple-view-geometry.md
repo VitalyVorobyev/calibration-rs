@@ -156,7 +156,7 @@ cargo run -p vision-calibration-bench --example dense_synth --features tier-b --
 - **A Scheimpflug rig** → pass `RectifyCamera::scheimpflug(k, tilt)` per camera;
   the tilt is absorbed into the rectifying homography automatically.
 - **Getting the inputs from a calibration** → from a `RigExtrinsicsExport`,
-  `cameras[i].k.k_matrix()` and `sensors[i]` build each `RectifyCamera`. The
+  `cameras[i]` (a `CameraParams`: intrinsics and, for a tilted camera, its sensor) builds each `RectifyCamera`. The
   relative pose is **composed** from the two cameras' extrinsics:
 
   ```rust

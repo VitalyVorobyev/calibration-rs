@@ -62,7 +62,7 @@ CHANGELOG with migration notes.
   Seven problem types: `PlanarIntrinsics`, `SingleCamHandeye`,
   `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, `RigLaserlineDevice`,
   `RigHandeyeLaserline`. Planar intrinsics takes its sensor from
-  `camera.model`; the rig types still choose it through `SensorMode`.
+  `camera.model`; the rig types take `camera` plus per-camera `camera_overrides`.
 - **Optimization IR** ([ADR 0008](../docs/adrs/0008-optimization-ir-and-backends.md)):
   problems are `ProblemIR` (parameter + residual blocks) compiled to a
   solver backend; factors are generic over `T: RealField` for autodiff

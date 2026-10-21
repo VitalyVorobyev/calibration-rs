@@ -6,19 +6,17 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals, Pinhole,
-    PinholeCamera, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
-    compute_rig_target_residuals,
+    CameraParams, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals,
+    RigDataset, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
 };
-use vision_calibration_optim::{
-    DistortionKind, RigExtrinsicsEstimate as PinholeRigExtrinsicsEstimate,
-    RigExtrinsicsScheimpflugEstimate as ScheimpflugRigExtrinsicsEstimate,
-};
-
-pub use crate::rig_family::SensorMode;
+use vision_calibration_optim::RigExtrinsicsEstimate;
 
 use crate::common::ExportKind;
-use crate::common::config::{IntrinsicsInitConfig, RigConfig, SolverConfig};
+use crate::common::config::{
+    CameraConfig, CameraOverride, IntrinsicsInitConfig, RigConfig, SolverConfig, rig_camera_for,
+    validate_rig_camera_indices, validate_rig_cameras,
+};
+use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigExtrinsicsState;
@@ -38,8 +36,8 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 
 /// Configuration for multi-camera rig extrinsics calibration.
 ///
-/// Grouped by stage. Shared between pinhole and Scheimpflug rigs; the
-/// [`SensorMode`] field `sensor` selects the sensor flavour.
+/// Grouped by stage. Every camera has the model of `camera` unless
+/// `camera_overrides` names it, so one rig can mix lenses and sensors.
 ///
 /// The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge; an extra per-view pose constraint would be
@@ -49,12 +47,20 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigExtrinsicsConfig {
-    /// Per-camera linear-initialization stage settings.
+    /// Per-camera linear-initialization stage settings. An unset
+    /// `fix_tangential` keeps the tangential terms free for every camera.
     pub intrinsics: IntrinsicsInitConfig,
 
-    /// Sensor flavour (pinhole or Scheimpflug).
+    /// The camera model of every rig camera and the parameters its solves
+    /// hold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a
+    /// multi-start tilt sweep.
     #[serde(default)]
-    pub sensor: SensorMode,
+    pub camera: CameraConfig,
+
+    /// Cameras whose model differs from `camera`, at most one entry per
+    /// camera index.
+    #[serde(default)]
+    pub camera_overrides: Vec<CameraOverride>,
 
     /// Rig frame options (reference camera, rig-BA scope).
     pub rig: RigConfig,
@@ -63,93 +69,18 @@ pub struct RigExtrinsicsConfig {
     pub solver: SolverConfig,
 }
 
+impl RigExtrinsicsConfig {
+    /// The configuration of camera `index`: its override, or `camera`.
+    pub fn camera_for(&self, index: usize) -> CameraConfig {
+        rig_camera_for(&self.camera, &self.camera_overrides, index)
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Export
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Output of the rig BA stage. Pinhole and Scheimpflug rigs return
-/// structurally similar but type-distinct optim estimates; this enum
-/// preserves both as `Self::Output` for [`RigExtrinsicsProblem`].
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum RigExtrinsicsOutput {
-    /// Pinhole rig BA estimate.
-    Pinhole(PinholeRigExtrinsicsEstimate),
-    /// Scheimpflug rig BA estimate (per-camera sensors included).
-    Scheimpflug(ScheimpflugRigExtrinsicsEstimate),
-}
-
-impl RigExtrinsicsOutput {
-    /// Final solver cost after bundle adjustment converged.
-    pub fn final_cost(&self) -> f64 {
-        match self {
-            Self::Pinhole(e) => e.report.final_cost,
-            Self::Scheimpflug(e) => e.report.final_cost,
-        }
-    }
-
-    /// Covariance of the estimated parameters at the solution.
-    pub fn uncertainty(&self) -> &Uncertainty {
-        match self {
-            Self::Pinhole(e) => &e.uncertainty,
-            Self::Scheimpflug(e) => &e.uncertainty,
-        }
-    }
-
-    /// Mean reprojection error in pixels across all observations and cameras.
-    pub fn mean_reproj_error(&self) -> f64 {
-        match self {
-            Self::Pinhole(e) => e.mean_reproj_error,
-            Self::Scheimpflug(e) => e.mean_reproj_error,
-        }
-    }
-
-    /// Calibrated pinhole intrinsics for each rig camera.
-    pub fn cameras(&self) -> &[PinholeCamera] {
-        match self {
-            Self::Pinhole(e) => &e.params.cameras,
-            Self::Scheimpflug(e) => &e.params.cameras,
-        }
-    }
-
-    /// Per-camera extrinsics `T_C_R` (camera-from-rig SE(3) transforms).
-    pub fn cam_to_rig(&self) -> &[Iso3] {
-        match self {
-            Self::Pinhole(e) => &e.params.cam_to_rig,
-            Self::Scheimpflug(e) => &e.params.cam_to_rig,
-        }
-    }
-
-    /// Per-pose rig-from-target transforms `T_R_Tgt` estimated during BA.
-    pub fn rig_from_target(&self) -> &[Iso3] {
-        match self {
-            Self::Pinhole(e) => &e.params.rig_from_target,
-            Self::Scheimpflug(e) => &e.params.rig_from_target,
-        }
-    }
-
-    /// Per-camera Scheimpflug sensor tilt parameters, or `None` for pinhole rigs.
-    pub fn sensors(&self) -> Option<&[ScheimpflugParams]> {
-        match self {
-            Self::Pinhole(_) => None,
-            Self::Scheimpflug(e) => Some(&e.params.sensors),
-        }
-    }
-
-    /// Mean reprojection error in pixels for each individual camera.
-    pub fn per_cam_reproj_errors(&self) -> &[f64] {
-        match self {
-            Self::Pinhole(e) => &e.per_cam_reproj_errors,
-            Self::Scheimpflug(e) => &e.per_cam_reproj_errors,
-        }
-    }
-}
-
 /// Export format for rig extrinsics calibration.
-///
-/// Common to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole
-/// rigs and `Some(_)` for Scheimpflug rigs, matching the configured
-/// [`SensorMode`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -157,13 +88,8 @@ pub struct RigExtrinsicsExport {
     /// Export-type discriminator — always [`ExportKind::RigExtrinsics`].
     pub kind: ExportKind,
 
-    /// Per-camera calibrated intrinsics + distortion (pinhole core).
-    pub cameras: Vec<PinholeCamera>,
-
-    /// Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;
-    /// `Some(_)` for Scheimpflug rigs (one entry per camera).
-    #[serde(default)]
-    pub sensors: Option<Vec<ScheimpflugParams>>,
+    /// Per-camera calibrated parameters, each in its camera's model.
+    pub cameras: Vec<CameraParams>,
 
     /// Per-camera extrinsics: `cam_se3_rig` (T_C_R).
     /// Transform from rig frame to camera frame.
@@ -214,7 +140,8 @@ pub struct RigExtrinsicsExport {
 /// Multi-camera rig extrinsics calibration problem.
 ///
 /// Calibrates a multi-camera rig, including:
-/// - Per-camera intrinsics and distortion
+/// - Per-camera intrinsics, distortion and sensor tilt, each camera in its
+///   own model
 /// - Per-camera extrinsics (camera-to-rig transforms)
 /// - Per-view rig poses (rig-to-target)
 ///
@@ -256,7 +183,7 @@ impl ProblemState for RigExtrinsicsProblem {
 impl ProblemType for RigExtrinsicsProblem {
     type Config = RigExtrinsicsConfig;
     type Input = RigExtrinsicsInput;
-    type Output = RigExtrinsicsOutput;
+    type Output = RigExtrinsicsEstimate;
     type Export = RigExtrinsicsExport;
 
     fn name() -> &'static str {
@@ -315,19 +242,7 @@ impl ProblemType for RigExtrinsicsProblem {
                 "intrinsics_init_iterations must be positive",
             ));
         }
-        // The joint rig bundle adjustment is Brown-Conrady-typed; reject other
-        // Scheimpflug distortion models up front rather than deep in
-        // the solver. Use the single-camera Scheimpflug problem type for
-        // extended distortion models.
-        if let Some(model) = config.sensor.scheimpflug_distortion_model()
-            && model != DistortionKind::BrownConrady5
-        {
-            return Err(Error::invalid_input(format!(
-                "rig Scheimpflug calibration supports only the BrownConrady5 distortion \
-                 model, got {model:?}"
-            )));
-        }
-        Ok(())
+        validate_rig_cameras(&config.camera, &config.camera_overrides)
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
@@ -337,7 +252,7 @@ impl ProblemType for RigExtrinsicsProblem {
                 config.rig.reference_camera_idx, input.num_cameras
             )));
         }
-        Ok(())
+        validate_rig_camera_indices(&config.camera_overrides, input.num_cameras)
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -353,37 +268,17 @@ impl ProblemType for RigExtrinsicsProblem {
         output: &Self::Output,
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
-        let rig_se3_target = output.rig_from_target().to_vec();
+        let params = &output.params;
+        let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
+        let rig_se3_target = params.rig_from_target.clone();
         let num_cameras = input.num_cameras;
 
-        // Build the projection-ready cameras. For Scheimpflug rigs we splice
-        // the per-camera sensor into the pinhole core so `compute_rig_target_residuals`
-        // sees the full tilted projection chain; pinhole rigs use the cameras
-        // verbatim (the trait works via the same `RigCameraProject`).
-        let target = match output {
-            RigExtrinsicsOutput::Pinhole(estimate) => compute_rig_target_residuals(
-                &estimate.params.cameras,
-                input,
-                &cam_se3_rig,
-                &rig_se3_target,
-            )?,
-            RigExtrinsicsOutput::Scheimpflug(estimate) => {
-                let scheimpflug_cameras: Vec<_> = estimate
-                    .params
-                    .cameras
-                    .iter()
-                    .zip(estimate.params.sensors.iter())
-                    .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-                    .collect();
-                compute_rig_target_residuals(
-                    &scheimpflug_cameras,
-                    input,
-                    &cam_se3_rig,
-                    &rig_se3_target,
-                )?
-            }
-        };
+        let target = compute_rig_target_residuals(
+            &rig_camera_models(&params.cameras)?,
+            input,
+            &cam_se3_rig,
+            &rig_se3_target,
+        )?;
 
         let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..num_cameras)
             .map(|cam_idx| {
@@ -401,22 +296,20 @@ impl ProblemType for RigExtrinsicsProblem {
         per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
         Ok(RigExtrinsicsExport {
             kind: ExportKind::RigExtrinsics,
-            cameras: output.cameras().to_vec(),
-            sensors: output.sensors().map(|s| s.to_vec()),
+            cameras: params.cameras.clone(),
             cam_se3_rig,
             rig_se3_target,
-            mean_reproj_error: output.mean_reproj_error(),
-            per_cam_reproj_errors: output.per_cam_reproj_errors().to_vec(),
+            mean_reproj_error: output.mean_reproj_error,
+            per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
             per_feature_residuals,
             // Manifest is populated by callers that also wrote images for
             // the dataset; the pipeline itself never has image paths to
             // fill in. Mirrors the rig_handeye precedent.
             image_manifest: None,
-            uncertainty: output.uncertainty().clone(),
+            uncertainty: output.uncertainty.clone(),
         })
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -517,6 +410,7 @@ mod tests {
             rig: RigConfig {
                 reference_camera_idx: 1,
                 refine_intrinsics_in_rig_ba: true,
+                refine_sensor: true,
             },
             ..Default::default()
         };
@@ -527,6 +421,7 @@ mod tests {
         assert_eq!(restored.solver.max_iters, 100);
         assert_eq!(restored.rig.reference_camera_idx, 1);
         assert!(restored.rig.refine_intrinsics_in_rig_ba);
+        assert!(restored.rig.refine_sensor);
     }
 
     #[test]
@@ -542,8 +437,9 @@ mod tests {
         // + target poses. The exported per_feature_residuals.target must
         // therefore have error_px ~ 0 for every record, and per-camera
         // histograms must place all counts in the <=1 px bucket.
+        use vision_calibration_core::pinhole_camera_params;
         use vision_calibration_core::{BrownConrady5, FxFyCxCy, View, make_pinhole_camera};
-        use vision_calibration_optim::{RigExtrinsicsParams, SolveReport};
+        use vision_calibration_optim::{RigExtrinsicsEstimate, RigExtrinsicsParams, SolveReport};
 
         let make_camera = || {
             make_pinhole_camera(
@@ -612,9 +508,9 @@ mod tests {
         let _ = View::<NoMeta>::without_meta; // silence unused import warning if any
         let dataset = RigDataset::new(views, 2).unwrap();
 
-        let output = RigExtrinsicsOutput::Pinhole(PinholeRigExtrinsicsEstimate {
+        let output = RigExtrinsicsEstimate {
             params: RigExtrinsicsParams {
-                cameras: vec![cam0, cam1],
+                cameras: vec![pinhole_camera_params(&cam0), pinhole_camera_params(&cam1)],
                 cam_to_rig,
                 rig_from_target,
             },
@@ -625,7 +521,7 @@ mod tests {
             },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
-        });
+        };
 
         let export =
             RigExtrinsicsProblem::export(&dataset, &output, &RigExtrinsicsConfig::default())
@@ -654,8 +550,9 @@ mod tests {
     #[test]
     fn export_per_feature_residuals_json_roundtrip() {
         // Round-trip the rig export through JSON.
+        use vision_calibration_core::pinhole_camera_params;
         use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
-        use vision_calibration_optim::{RigExtrinsicsParams, SolveReport};
+        use vision_calibration_optim::{RigExtrinsicsEstimate, RigExtrinsicsParams, SolveReport};
 
         let camera = make_pinhole_camera(
             FxFyCxCy {
@@ -698,9 +595,9 @@ mod tests {
         };
         let dataset = RigDataset::new(vec![view], 2).unwrap();
 
-        let output = RigExtrinsicsOutput::Pinhole(PinholeRigExtrinsicsEstimate {
+        let output = RigExtrinsicsEstimate {
             params: RigExtrinsicsParams {
-                cameras: vec![camera.clone(), camera],
+                cameras: vec![pinhole_camera_params(&camera); 2],
                 cam_to_rig,
                 rig_from_target,
             },
@@ -711,7 +608,7 @@ mod tests {
             },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
-        });
+        };
         let export =
             RigExtrinsicsProblem::export(&dataset, &output, &RigExtrinsicsConfig::default())
                 .expect("export");
@@ -733,8 +630,9 @@ mod tests {
         // with identical pinhole models and identity extrinsics. Used
         // by the manifest tests below; never round-tripped through the
         // calibration pipeline.
+        use vision_calibration_core::pinhole_camera_params;
         use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
-        use vision_calibration_optim::{RigExtrinsicsParams, SolveReport};
+        use vision_calibration_optim::{RigExtrinsicsEstimate, RigExtrinsicsParams, SolveReport};
 
         let camera = make_pinhole_camera(
             FxFyCxCy {
@@ -774,9 +672,9 @@ mod tests {
             },
         };
         let dataset = RigDataset::new(vec![view], 2).unwrap();
-        let output = RigExtrinsicsOutput::Pinhole(PinholeRigExtrinsicsEstimate {
+        let output = RigExtrinsicsEstimate {
             params: RigExtrinsicsParams {
-                cameras: vec![camera.clone(), camera],
+                cameras: vec![pinhole_camera_params(&camera); 2],
                 cam_to_rig,
                 rig_from_target,
             },
@@ -787,7 +685,7 @@ mod tests {
             },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
-        });
+        };
         RigExtrinsicsProblem::export(&dataset, &output, &RigExtrinsicsConfig::default())
             .expect("export")
     }

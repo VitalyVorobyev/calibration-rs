@@ -3,7 +3,6 @@
 use crate::Error;
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Camera, Pinhole};
 use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
@@ -12,6 +11,7 @@ use vision_calibration_optim::{
     optimize_rig_laserline,
 };
 
+use crate::rig_family::laser_camera;
 use crate::session::CalibrationSession;
 
 use super::problem::RigLaserlineDeviceProblem;
@@ -28,8 +28,8 @@ pub struct StepOptions {
 
 /// Manual seeds for rig laserline device calibration.
 ///
-/// The upstream rig calibration (intrinsics, distortion, sensors, cam_se3_rig,
-/// rig_se3_target) is part of `input.upstream` and is *not* a manual-init concern
+/// The upstream rig calibration (cameras, cam_se3_rig, rig_se3_target) is
+/// part of `input.upstream` and is *not* a manual-init concern
 /// — it's an input contract. Only the laser planes are seedable here.
 ///
 /// When `planes_cam` is `Some`, it overrides any `input.initial_planes_cam` and
@@ -109,12 +109,7 @@ fn linear_plane_init(
     cam_idx: usize,
 ) -> Option<LaserPlane> {
     let rig_to_cam = input.upstream.cam_se3_rig[cam_idx];
-    let camera = Camera::new(
-        Pinhole,
-        input.upstream.distortion[cam_idx],
-        input.upstream.sensors[cam_idx].compile(),
-        input.upstream.intrinsics[cam_idx],
-    );
+    let camera = laser_camera(&input.upstream.cameras[cam_idx], cam_idx).ok()?;
     let mut views = Vec::new();
     for (view_idx, view) in input.dataset.views.iter().enumerate() {
         let Some(laser_pixels) = view
@@ -162,9 +157,7 @@ pub fn step_optimize(
     let initial_planes = session.state.initial_planes_cam.clone().unwrap();
 
     let upstream = RigLaserlineUpstream {
-        intrinsics: input.upstream.intrinsics,
-        distortion: input.upstream.distortion,
-        sensors: input.upstream.sensors,
+        cameras: input.upstream.cameras,
         cam_to_rig: input
             .upstream
             .cam_se3_rig

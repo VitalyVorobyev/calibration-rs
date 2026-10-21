@@ -5,7 +5,7 @@ Four pieces extend the basic workflows to tilted-sensor cameras and laser-triang
 | Piece | Solves |
 |-------|--------|
 | `PlanarIntrinsicsProblem` with a Scheimpflug sensor | Single-camera intrinsics, distortion, and sensor tilt from planar views |
-| `SensorMode` | Selects a pinhole or Scheimpflug camera for the rig problems |
+| `camera` / `camera_overrides` | Select the lens and sensor of every rig camera, or of single cameras |
 | `RigLaserlineDeviceProblem` | One laser plane per camera of an already-calibrated rig |
 | `RigHandeyeLaserlineProblem` | Rig, hand-eye, and laser planes jointly |
 
@@ -44,28 +44,32 @@ let export = session.export()?;
 
 `run_calibration(&mut session)` runs the unseeded `step_init` and `step_optimize` in one call. The [Planar Intrinsics](planar_intrinsics.md#tilted-scheimpflug-sensor) chapter describes the seeded and cold-start solves.
 
-## SensorMode for Rigs
+## Camera Models for Rigs
 
-`RigExtrinsicsProblem` and `RigHandeyeProblem` cover both camera flavours through their config's `sensor` field:
+`RigExtrinsicsProblem` and `RigHandeyeProblem` take a `camera` (the model every camera uses) and `camera_overrides` (per-camera replacements). Any distortion kind combines with either sensor, per camera:
 
 ```rust
-use vision_calibration::core::DistortionFixMask;
-use vision_calibration::core::DistortionKind;
-use vision_calibration::rig_extrinsics::SensorMode;
+use vision_calibration::common::config::{CameraConfig, CameraOverride};
+use vision_calibration::core::{CameraModelSpec, DistortionKind, SensorKind};
 
 session.update_config(|c| {
-    c.sensor = SensorMode::Scheimpflug {
-        init_tilt_x: -0.087,
-        init_tilt_y: 0.0,
-        fix_scheimpflug: Default::default(),
-        distortion_mask_in_percam_ba: DistortionFixMask::radial_only(),
-        refine_scheimpflug_in_rig_ba: false,
-        distortion_model: DistortionKind::BrownConrady5,
-    };
+    // Every camera: tilted sensor, Brown-Conrady distortion.
+    c.camera = CameraConfig::new(CameraModelSpec::pinhole(
+        DistortionKind::BrownConrady5,
+        SensorKind::Scheimpflug,
+    ));
+    // Camera 1 is an untilted camera with a rational lens.
+    c.camera_overrides = vec![CameraOverride::new(
+        1,
+        CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
+    )];
+    c.rig.refine_sensor = false; // keep the tilts fixed in the rig bundle adjustment
 })?;
 ```
 
-`SensorMode::Pinhole` is the default. The initial tilt is used only when no per-camera sensor seed is supplied through the manual-init struct. Scheimpflug rigs support Brown-Conrady distortion only. With a Scheimpflug mode the exports carry per-camera `sensors`; for pinhole rigs `sensors` is `None`.
+The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics_in_rig_ba` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_ba.refine_sensor`) lets the tilts move there.
+
+Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `RigIntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
 
 ## RigLaserlineDevice
 
@@ -79,12 +83,12 @@ pub struct RigLaserlineDeviceConfig {
 
 pub struct RigLaserlineDeviceInput {
     pub dataset: RigLaserlineDataset,               // target corners + laser pixels per camera/view
-    pub upstream: RigUpstreamCalibration,           // intrinsics, distortion, sensors, cam_se3_rig, rig_se3_target
+    pub upstream: RigUpstreamCalibration,           // cameras (CameraParams), cam_se3_rig, rig_se3_target
     pub initial_planes_cam: Option<Vec<LaserPlane>>,
 }
 ```
 
-`RigUpstreamCalibration` accepts a pinhole or Scheimpflug rig. The usual source is a rig hand-eye export:
+`RigUpstreamCalibration` holds one `CameraParams` per camera, so it accepts untilted and Scheimpflug cameras alike. The laser residuals are evaluated in the Brown-Conrady laserline-device model, so the rig laser workflows accept Brown-Conrady or undistorted cameras only (any other distortion is a typed error). The usual source is a rig hand-eye export:
 
 ```rust
 use vision_calibration::rig_laserline_device::{

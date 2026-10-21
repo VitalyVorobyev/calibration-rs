@@ -210,7 +210,6 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
         self.assertIsInstance(result, vc.RigHandeyeLaserlineResult)
         # Two cameras, one laser plane each, one per-camera stats block each.
         self.assertEqual(len(result.cameras), 2)
-        self.assertEqual(len(result.sensors), 2)
         self.assertEqual(len(result.laser_planes_cam), 2)
         self.assertEqual(len(result.laser_planes_rig), 2)
         self.assertEqual(len(result.per_camera_stats), 2)

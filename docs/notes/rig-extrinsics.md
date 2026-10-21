@@ -26,10 +26,10 @@ pixel = K_i( sensor_i( distort_i( project( T_Ci_R · T_R_Tv · X_t ) ) ) )
   one SE(3) per view.
 - `project` / `distort` / `K`: the planar family's sub-models (see
   [planar-intrinsics.md](planar-intrinsics.md)).
-- `sensor_i`: `IdentitySensor` for `SensorMode::Pinhole`; the OpenCV-style
-  `HomographySensor(tilt_x, tilt_y)` for `SensorMode::Scheimpflug` (ADR
-  0013), one `ScheimpflugParams` per camera. Everything below holds for
-  both flavours; only the sensor stage and its `ScheimpflugFixMask` differ.
+- `sensor_i`: `IdentitySensor` for an untilted camera; the OpenCV-style
+  `HomographySensor(tilt_x, tilt_y)` for a Scheimpflug camera (ADR 0013),
+  chosen per camera by `camera` / `camera_overrides`. Everything below holds
+  for both; only the sensor stage and its named fix list differ.
 
 The per-observation chain is a product of two SE(3)s (`ReprojChain::TwoSe3`
 in the optim IR). `RigHandeye` replaces the free per-view `T_R_Tv` with a

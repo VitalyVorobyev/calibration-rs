@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    ImageManifest, Iso3, PerFeatureResiduals, PinholeCamera, Uncertainty, View,
-    build_feature_histogram, compute_planar_target_residuals_views,
+    DistortionParams, ImageManifest, Iso3, PerFeatureResiduals, PinholeCamera, Uncertainty, View,
+    build_feature_histogram, compute_planar_target_residuals_views, make_pinhole_camera,
 };
 use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, handeye_observer_se3_target};
 
@@ -295,13 +295,23 @@ impl ProblemType for SingleCamHandeyeProblem {
         output: &Self::Output,
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        // Extract the single camera (index 0 for single-cam setup)
+        // Extract the single camera (index 0 for single-cam setup); the
+        // hand-eye solve keeps its Brown-Conrady model.
         let camera = output
             .params
             .cameras
             .first()
-            .cloned()
             .ok_or_else(|| Error::invalid_input("no camera in output"))?;
+        let camera = match &camera.distortion {
+            DistortionParams::BrownConrady5 { params } => {
+                make_pinhole_camera(camera.intrinsics, *params)
+            }
+            other => {
+                return Err(Error::invalid_input(format!(
+                    "single-camera hand-eye exports a Brown-Conrady camera, got {other:?}"
+                )));
+            }
+        };
 
         // Target pose (single fixed target pose; interpretation depends on mode)
         let target_pose = output

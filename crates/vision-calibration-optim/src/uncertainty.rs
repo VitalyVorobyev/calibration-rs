@@ -11,7 +11,8 @@ use vision_calibration_core::{
 
 use crate::backend::BackendSolution;
 use crate::backend::covariance::{Coordinate, ParamUncertainty, UnavailableReason};
-use crate::ir::{HandEyeMode, ManifoldKind, ParamBlock, ProblemIR};
+use crate::ir::{CameraModelSpec, HandEyeMode, ManifoldKind, ParamBlock, ProblemIR};
+use crate::params::camera::camera_block_labels;
 use crate::params::pose_se3::se3_dvec_to_iso3;
 
 /// How one IR block's coordinates are named.
@@ -36,10 +37,18 @@ pub(crate) struct BlockLabels {
 impl BlockLabels {
     /// A shared block whose coordinates have the given labels.
     pub(crate) fn shared(name: &str, coordinates: &[&str]) -> Self {
+        Self::shared_owned(
+            name.to_string(),
+            coordinates.iter().map(|c| c.to_string()).collect(),
+        )
+    }
+
+    /// [`Self::shared`] from owned labels.
+    pub(crate) fn shared_owned(name: String, coordinates: Vec<String>) -> Self {
         Self {
             view: None,
-            name: name.to_string(),
-            coordinates: coordinates.iter().map(|c| c.to_string()).collect(),
+            name,
+            coordinates,
             inverse_of: None,
             internal: false,
         }
@@ -266,14 +275,14 @@ fn fixed_labels(ir: &ProblemIR, labels: &[BlockLabels]) -> Vec<String> {
     out
 }
 
-/// Labels for the blocks of a single-camera planar IR (`cam`, `dist`,
-/// `sensor`, `pose/<view>`, and a laserline's `plane_n`, `plane_d`), with
-/// distortion coefficients named by `distortion`.
-pub(crate) fn planar_block_labels(block: &ParamBlock, distortion: &[&str]) -> BlockLabels {
+/// Labels for the blocks of a single-camera planar IR (the camera blocks of
+/// a camera of model `camera`, `pose/<view>`, and a laserline's `plane_n`,
+/// `plane_d`).
+pub(crate) fn planar_block_labels(block: &ParamBlock, camera: CameraModelSpec) -> BlockLabels {
+    if let Some(labels) = camera_block_labels(&block.name, camera, str::to_string) {
+        return labels;
+    }
     match block.name.as_str() {
-        "cam" => BlockLabels::shared("intrinsics", &INTRINSICS_LABELS),
-        "dist" => BlockLabels::shared("distortion", distortion),
-        "sensor" => BlockLabels::shared("sensor", &SENSOR_LABELS),
         "plane_n" => BlockLabels::shared(PLANE_NORMAL, &PLANE_NORMAL_LABELS),
         "plane_d" => BlockLabels::shared(PLANE_DISTANCE, &[PLANE_DISTANCE]),
         name => {
@@ -376,8 +385,8 @@ const PLANE_DISTANCE: &str = "plane.d";
 
 /// The shape of a rig or hand-eye IR, for naming its blocks.
 pub(crate) struct RigLabelling<'a> {
-    /// Distortion coefficient names, the same for every camera.
-    pub distortion: &'a [&'a str],
+    /// Each camera's model, which names its blocks' coordinates.
+    pub cameras: &'a [CameraModelSpec],
     /// Whether labels carry a `cam<i>.` prefix. Single-camera problems have
     /// none: their camera is the rig, and its camera-to-rig pose is the
     /// identity.
@@ -395,8 +404,8 @@ impl RigLabelling<'_> {
             .collect()
     }
 
-    /// Labels for the blocks of the rig and hand-eye IRs: `cam/<i>`,
-    /// `dist/<i>`, `sensor/<i>`, `extr/<i>` (stored as `rig_se3_cam`,
+    /// Labels for the blocks of the rig and hand-eye IRs: the camera blocks
+    /// (`cam/<i>`, `proj/<i>`, `dist/<i>`, `sensor/<i>`), `extr/<i>` (stored as `rig_se3_cam`,
     /// reported as `cam_se3_rig`), `handeye`, `target` (`target_ref` in the
     /// laserline IR), `target/<view>`, `rig_pose/<view>`,
     /// `robot_delta/<view>`, and each camera's laser plane `plane_n/<i>`,
@@ -436,10 +445,19 @@ impl RigLabelling<'_> {
             Some(HandEyeMode::EyeToHand) => "gripper_se3_target",
             None => "rig_se3_target",
         };
+        if let Some(i) = index
+            && matches!(kind, "cam" | "proj" | "dist" | "sensor")
+            && let Some(labels) = camera_block_labels(kind, self.cameras[i], |s| {
+                if self.multi_camera {
+                    format!("cam{i}.{s}")
+                } else {
+                    s.to_string()
+                }
+            })
+        {
+            return labels;
+        }
         match (kind, index) {
-            ("cam", Some(_)) => camera("intrinsics", &INTRINSICS_LABELS),
-            ("dist", Some(_)) => camera("distortion", self.distortion),
-            ("sensor", Some(_)) => camera("sensor", &SENSOR_LABELS),
             ("extr", Some(_)) => {
                 let stored = se3_dvec_to_iso3(solution.params[&block.name].as_view())
                     .expect("an SE3 block holds a pose");
@@ -507,7 +525,15 @@ mod tests {
     fn labels(ir: &ProblemIR) -> Vec<BlockLabels> {
         ir.params
             .iter()
-            .map(|b| planar_block_labels(b, &["k1", "k2", "k3", "p1", "p2"]))
+            .map(|b| {
+                planar_block_labels(
+                    b,
+                    CameraModelSpec::pinhole(
+                        crate::ir::DistortionKind::BrownConrady5,
+                        crate::ir::SensorKind::Identity,
+                    ),
+                )
+            })
             .collect()
     }
 
@@ -667,7 +693,7 @@ mod tests {
             uncertainty: ParamUncertainty::Unavailable(UnavailableReason::NotConverged),
         };
         let labels = RigLabelling {
-            distortion: &[],
+            cameras: &[],
             multi_camera: true,
             handeye_mode: Some(HandEyeMode::EyeToHand),
         }

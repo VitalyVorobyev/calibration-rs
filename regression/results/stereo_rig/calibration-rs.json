@@ -32,42 +32,50 @@
     ],
     "cameras": [
       {
-        "_phantom": null,
-        "dist": {
+        "distortion": {
           "iters": 8,
           "k1": 0.015021094564979283,
           "k2": -0.07151318795521085,
           "k3": 0.0,
           "p1": 0.0006183511601076342,
-          "p2": 0.00025269166794805086
+          "p2": 0.00025269166794805086,
+          "type": "brown_conrady5"
         },
-        "k": {
+        "intrinsics": {
           "cx": 523.4129016143161,
           "cy": 285.95226018472914,
           "fx": 713.8456995607405,
           "fy": 724.6690645799221
         },
-        "proj": null,
-        "sensor": null
+        "projection": {
+          "type": "pinhole"
+        },
+        "sensor": {
+          "type": "identity"
+        }
       },
       {
-        "_phantom": null,
-        "dist": {
+        "distortion": {
           "iters": 8,
           "k1": 0.0011384640762661703,
           "k2": -0.052560728973115124,
           "k3": 0.0,
           "p1": -0.0014292429037778666,
-          "p2": 0.0014269862055328823
+          "p2": 0.0014269862055328823,
+          "type": "brown_conrady5"
         },
-        "k": {
+        "intrinsics": {
           "cx": 513.9329313282835,
           "cy": 292.9550859252496,
           "fx": 724.7966090667137,
           "fy": 735.5984809422397
         },
-        "proj": null,
-        "sensor": null
+        "projection": {
+          "type": "pinhole"
+        },
+        "sensor": {
+          "type": "identity"
+        }
       }
     ],
     "kind": "rig_extrinsics",
@@ -378,7 +386,6 @@
         ]
       }
     ],
-    "sensors": null,
     "uncertainty": {
       "covariance": [
         [

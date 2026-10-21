@@ -134,8 +134,8 @@ pub mod common {
     /// robot-pose refinement, hand-eye linear init, and rig frame options.
     pub mod config {
         pub use vision_calibration_pipeline::common::config::{
-            CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig, RobotPoseConfig,
-            SolverConfig,
+            CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig,
+            RobotPoseConfig, SolverConfig,
         };
     }
 }
@@ -365,12 +365,13 @@ pub mod rig_extrinsics {
         IntrinsicsOptimizeOptions,
         // Problem type and config
         RigExtrinsicsConfig,
+        // Output: the rig bundle adjustment's estimate
+        RigExtrinsicsEstimate,
         RigExtrinsicsExport,
         RigExtrinsicsInput,
         // Manual init seeds (ADR 0011)
         RigExtrinsicsManualInit,
-        // Output (pinhole or Scheimpflug variant)
-        RigExtrinsicsOutput,
+        RigExtrinsicsParams,
         RigExtrinsicsProblem,
         // Typed step results
         RigInitResult,
@@ -379,8 +380,6 @@ pub mod rig_extrinsics {
         RigIntrinsicsOptimizeAllResult,
         RigOptimizeOptions,
         RigOptimizeResult,
-        // Sensor flavour selector (pinhole vs Scheimpflug)
-        SensorMode,
         // Step functions
         run_calibration,
         step_intrinsics_init_all,
@@ -421,6 +420,9 @@ pub mod rig_extrinsics {
 /// ```
 pub mod rig_handeye {
     pub use vision_calibration_pipeline::rig_handeye::{
+        // Output: the hand-eye bundle adjustment's estimate
+        HandEyeEstimate,
+        HandEyeParams,
         // Problem type and config
         HandeyeBaConfig,
         // Step options
@@ -439,15 +441,11 @@ pub mod rig_handeye {
         RigHandeyeIntrinsicsInitAllResult,
         RigHandeyeIntrinsicsManualInit,
         RigHandeyeIntrinsicsOptimizeAllResult,
-        // Output (pinhole or Scheimpflug variant)
-        RigHandeyeOutput,
         RigHandeyeProblem,
         RigHandeyeRigInitResult,
         RigHandeyeRigManualInit,
         RigHandeyeRigOptimizeResult,
         RigOptimizeOptions,
-        // Sensor flavour selector (pinhole vs Scheimpflug)
-        SensorMode,
         // Step functions
         run_calibration,
         step_handeye_init,
@@ -464,9 +462,9 @@ pub mod rig_handeye {
 
 /// Rig-level laserline calibration.
 ///
-/// Given an upstream Scheimpflug rig hand-eye calibration ([`rig_handeye`] with
-/// `SensorMode::Scheimpflug`), fits one laser plane per camera and reports each
-/// plane in the rig frame.
+/// Given an upstream rig hand-eye calibration ([`rig_handeye`]; Brown-Conrady
+/// cameras with untilted or Scheimpflug sensors), fits one laser plane per
+/// camera and reports each plane in the rig frame.
 pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::{
         RigLaserlineDataset, RigLaserlineDeviceConfig, RigLaserlineDeviceExport,

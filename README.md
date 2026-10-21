@@ -49,7 +49,9 @@ a re-detection).
 **Camera model** — cameras compose as `pixel = K(sensor(distortion(projection(dir))))`,
 so a Scheimpflug (tilted-sensor) camera is the pinhole model with a non-identity
 sensor homography rather than a separate code path. A workflow takes the model
-as config (`camera.model`), so the tilted sensor is a value, not a workflow.
+as config (`camera.model`), so the tilted sensor is a value, not a workflow; rigs
+take a `camera` plus per-camera `camera_overrides`, so each camera can have its own
+distortion and sensor.
 
 **Uncertainty** — every result carries the covariance of what it estimates:
 `fx ± σ`, the correlations between parameters, the noise the residuals imply,
