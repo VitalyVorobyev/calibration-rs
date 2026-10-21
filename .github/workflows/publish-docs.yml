@@ -38,6 +38,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
+          # The cache key does not see Cargo profile changes; bump on one.
+          prefix-key: v1-rust
           cache-on-failure: true
 
       - name: Build documentation
