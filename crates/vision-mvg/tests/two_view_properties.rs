@@ -19,7 +19,7 @@
 #![allow(missing_docs)]
 
 use nalgebra::Rotation3;
-use vision_calibration_core::{FxFyCxCySkew, Mat3, Pt2, Pt3, Vec3};
+use vision_calibration_core::{FxFyCxCy, Mat3, Pt2, Pt3, Vec3};
 use vision_geometry::camera_matrix::Mat34;
 use vision_geometry::epipolar::{decompose_essential, fundamental_8point};
 use vision_mvg::triangulation::triangulate_nview;
@@ -116,12 +116,11 @@ fn essential_skew_t_r_is_consistent_and_decomposes() {
 /// matrix that satisfies the epipolar constraint on the GT correspondences.
 #[test]
 fn fundamental_8point_epipolar_residual_is_tight() {
-    let k = FxFyCxCySkew {
+    let k = FxFyCxCy {
         fx: 820.0,
         fy: 800.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     }
     .k_matrix();
     let world = scene();
@@ -169,12 +168,11 @@ fn fundamental_8point_epipolar_residual_is_tight() {
 /// the GT point.
 #[test]
 fn triangulate_reproject_roundtrip() {
-    let k = FxFyCxCySkew {
+    let k = FxFyCxCy {
         fx: 820.0,
         fy: 800.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     }
     .k_matrix();
     let world = scene();

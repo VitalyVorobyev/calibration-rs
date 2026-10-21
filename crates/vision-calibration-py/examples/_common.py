@@ -208,8 +208,7 @@ def project_point_pinhole(
     fy = float(intrinsics["fy"])
     cx = float(intrinsics["cx"])
     cy = float(intrinsics["cy"])
-    skew = float(intrinsics.get("skew", 0.0))
-    u = fx * xd + skew * yd + cx
+    u = fx * xd + cx
     v = fy * yd + cy
     return [u, v]
 

@@ -58,8 +58,7 @@ mod tests {
                     "distortion": {"type": "none"},
                     "sensor": {"type": "identity"},
                     "intrinsics": {
-                        "type": "fx_fy_cx_cy_skew",
-                        "fx": 800.0, "fy": 800.0, "cx": 320.0, "cy": 240.0, "skew": 0.0
+                        "fx": 800.0, "fy": 800.0, "cx": 320.0, "cy": 240.0
                     }
                 },
                 "camera_se3_target": [identity()]

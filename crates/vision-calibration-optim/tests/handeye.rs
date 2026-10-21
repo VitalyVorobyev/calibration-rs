@@ -7,7 +7,7 @@
 //! 4. Hand-eye transform estimation
 
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCySkew, PinholeCamera, Pt2, Pt3, Real,
+    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, Real,
     RigView, RigViewObs, make_pinhole_camera,
 };
 use vision_calibration_optim::{
@@ -20,12 +20,11 @@ use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, UnitQuaternion, Vect
 #[test]
 fn eye_in_hand_calibration_converges() {
     // Ground truth camera parameters (homogeneous rig with 2 cameras)
-    let intrinsics_gt = FxFyCxCySkew {
+    let intrinsics_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
 
     let distortion_gt = BrownConrady5 {
@@ -129,12 +128,11 @@ fn eye_in_hand_calibration_converges() {
 
     // Initial values (perturbed from ground truth)
     // Single camera initialization
-    let intrinsics_init = [FxFyCxCySkew {
+    let intrinsics_init = [FxFyCxCy {
         fx: 810.0, // Perturbed
         fy: 790.0,
         cx: 645.0,
         cy: 365.0,
-        skew: 0.0,
     }];
 
     let distortion_init = [BrownConrady5 {
@@ -337,7 +335,7 @@ fn lcg(seed: &mut u64) -> Real {
 
 fn mean_reproj_error_eye_in_hand(
     views: &[RigView<RobotPoseMeta>],
-    intrinsics: FxFyCxCySkew<Real>,
+    intrinsics: FxFyCxCy<Real>,
     distortion: BrownConrady5<Real>,
     cam_to_rig: &Isometry3<Real>,
     handeye: &Isometry3<Real>,
@@ -375,12 +373,11 @@ fn mean_reproj_error_eye_in_hand(
 /// holding the noisy measured robot poses fixed.
 #[test]
 fn eye_in_hand_robot_pose_refinement_improves_handeye() {
-    let intrinsics_gt = FxFyCxCySkew {
+    let intrinsics_gt = FxFyCxCy {
         fx: 820.0,
         fy: 810.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let distortion_gt = BrownConrady5 {
         k1: 0.0,

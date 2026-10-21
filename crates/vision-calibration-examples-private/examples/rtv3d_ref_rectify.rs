@@ -38,7 +38,7 @@ use anyhow::{Context, Result};
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 use std::path::PathBuf;
 
-use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCySkew, Iso3, Mat3, Pinhole, Pt2, Pt3};
+use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, Iso3, Mat3, Pinhole, Pt2, Pt3};
 use vision_calibration_examples_private::{
     RefIntrinsic, ScheimpflugCamera, load_ref_artifacts, split_opencv_distortion,
 };
@@ -162,12 +162,11 @@ fn rectify_camera(intr: &RefIntrinsic) -> Result<RectifyCamera> {
 /// rectification maps expect; lens distortion is intentionally omitted here.
 fn ideal_camera(intr: &RefIntrinsic) -> Result<ScheimpflugCamera> {
     let m = &intr.matrix;
-    let k = FxFyCxCySkew {
+    let k = FxFyCxCy {
         fx: m[0][0],
         fy: m[1][1],
         cx: m[0][2],
         cy: m[1][2],
-        skew: m[0][1],
     };
     let (_dist, tilt) = split_opencv_distortion(&intr.distortion)?;
     let no_distortion = BrownConrady5 {

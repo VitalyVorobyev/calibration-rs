@@ -146,7 +146,7 @@ per-corner reprojection records (see
 
 ```rust
 pub struct SingleCamHandeyeConfig {
-    pub intrinsics: IntrinsicsInitConfig,  // init_iterations, fix_k3, fix_tangential, zero_skew
+    pub intrinsics: IntrinsicsInitConfig,  // init_iterations, fix_k3, fix_tangential
     pub handeye_init: HandeyeInitConfig,   // handeye_mode, min_motion_angle_deg
     pub solver: SolverConfig,              // max_iters, verbosity, robust_loss
     pub robot_poses: RobotPoseConfig,      // refine, rot_sigma, trans_sigma
@@ -220,7 +220,7 @@ today:
   the existing `device_seed` helpers don't apply here. If you have a
   `spec.json` for a single-camera hand-eye rig, read its
   `focal_mm` / `pixel_pitch_um` / `resolution_px` fields yourself and
-  build an `FxFyCxCySkew` for `SingleCamIntrinsicsManualInit` — the same
+  build an `FxFyCxCy` for `SingleCamIntrinsicsManualInit` — the same
   formula `device_seed::scheimpflug_seed` uses internally
   (`f_px = focal_mm * 1000 / pixel_pitch_um`, principal point defaulting
   to the resolution center).

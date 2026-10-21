@@ -539,7 +539,7 @@ fn build_handeye_ir(
             None,
         );
         cam_ids.push(cam_id);
-        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k)?);
+        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k));
     }
 
     // 2. Per-camera distortion blocks
@@ -722,18 +722,17 @@ mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt2, Pt3, RigView, RigViewObs,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, Pt2, Pt3, RigView, RigViewObs,
         make_pinhole_camera,
     };
 
     fn make_test_camera() -> PinholeCamera {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 600.0,
                 fy: 590.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )

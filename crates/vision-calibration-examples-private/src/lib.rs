@@ -9,7 +9,7 @@ use image::{GrayImage, ImageReader, imageops::FilterType};
 use serde::Deserialize;
 use std::path::Path;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, HomographySensor, Iso3, Pinhole, Pt2,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, HomographySensor, Iso3, Pinhole, Pt2,
     Pt3, Real, ScheimpflugParams,
 };
 
@@ -97,12 +97,12 @@ pub fn load_poses(path: &Path) -> Result<Vec<PoseEntry>> {
 }
 
 /// Full Scheimpflug camera (pinhole projection, Brown-Conrady distortion,
-/// tilted-sensor homography, fx/fy/cx/cy/skew intrinsics). Unlike the
+/// tilted-sensor homography, fx/fy/cx/cy intrinsics). Unlike the
 /// workspace's `PinholeCamera` alias (which uses an identity sensor and carries
 /// the Scheimpflug tilt in a side channel), this folds the tilt into the
 /// projection chain so `project_point` reprojects with the tilt applied.
 pub type ScheimpflugCamera =
-    Camera<Real, Pinhole, BrownConrady5<Real>, HomographySensor<f64>, FxFyCxCySkew<Real>>;
+    Camera<Real, Pinhole, BrownConrady5<Real>, HomographySensor<f64>, FxFyCxCy<Real>>;
 
 /// One per-camera intrinsics block from a reference `artifacts.json`.
 #[derive(Debug, Clone, Deserialize)]
@@ -214,12 +214,11 @@ pub fn split_opencv_distortion(dist: &[f64]) -> Result<(BrownConrady5<Real>, Sch
 /// Build a frozen [`ScheimpflugCamera`] from a reference intrinsics block.
 pub fn intrinsic_to_camera(intr: &RefIntrinsic) -> Result<ScheimpflugCamera> {
     let m = &intr.matrix;
-    let k = FxFyCxCySkew {
+    let k = FxFyCxCy {
         fx: m[0][0],
         fy: m[1][1],
         cx: m[0][2],
         cy: m[1][2],
-        skew: m[0][1],
     };
     let (dist, tilt) = split_opencv_distortion(&intr.distortion)?;
     Ok(Camera::new(Pinhole, dist, tilt.compile(), k))

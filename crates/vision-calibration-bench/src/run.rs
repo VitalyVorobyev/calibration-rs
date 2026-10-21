@@ -69,9 +69,8 @@ pub mod tier_b {
     };
     use vision_calibration_core::{
         BrownConrady5, Camera, CameraFixMask, DistortionFixMask, FeatureResidualHistogram,
-        FxFyCxCySkew, IntrinsicsFixMask, Pinhole, PinholeCamera, PlanarDataset, Pt2,
-        ReprojectionStats, ScheimpflugParams, TargetFeatureResidual, View,
-        compute_planar_target_residuals,
+        FxFyCxCy, IntrinsicsFixMask, Pinhole, PinholeCamera, PlanarDataset, Pt2, ReprojectionStats,
+        ScheimpflugParams, TargetFeatureResidual, View, compute_planar_target_residuals,
     };
     use vision_calibration_optim::{
         BackendSolveOptions, LaserlineResidualType, RigHandeyeLaserlineDataset,
@@ -266,8 +265,6 @@ pub mod tier_b {
         pub cx: f64,
         /// Principal-point y-coordinate in pixels.
         pub cy: f64,
-        /// Pixel skew coefficient.
-        pub skew: f64,
         /// First radial distortion coefficient.
         pub k1: f64,
         /// Second radial distortion coefficient.
@@ -2170,12 +2167,11 @@ pub mod tier_b {
         dataset: &PlanarDataset,
         seed: IntrinsicsSeed,
     ) -> Result<ScheimpflugIntrinsicsParams> {
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: seed.focal_px,
             fy: seed.focal_px,
             cx: seed.cx,
             cy: seed.cy,
-            skew: 0.0,
         };
         let distortion = BrownConrady5 {
             k1: 0.0,
@@ -2194,10 +2190,7 @@ pub mod tier_b {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    fn initial_poses_for_dataset(
-        dataset: &PlanarDataset,
-        k: &FxFyCxCySkew<f64>,
-    ) -> Result<Vec<Iso3>> {
+    fn initial_poses_for_dataset(dataset: &PlanarDataset, k: &FxFyCxCy<f64>) -> Result<Vec<Iso3>> {
         let mut poses = Vec::with_capacity(dataset.views.len());
         for (view_idx, view) in dataset.views.iter().enumerate() {
             let obs_3d = &view.obs.points_3d;
@@ -2414,7 +2407,6 @@ pub mod tier_b {
             fy: estimate.params.intrinsics.fy,
             cx: estimate.params.intrinsics.cx,
             cy: estimate.params.intrinsics.cy,
-            skew: estimate.params.intrinsics.skew,
             k1: distortion.k1,
             k2: distortion.k2,
             k3: distortion.k3,
@@ -2812,12 +2804,11 @@ pub mod tier_b {
         let n = entry.cameras.len();
         let mut seed = RigHandeyeIntrinsicsManualInit::default();
         seed.per_cam_intrinsics = Some(vec![
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 2000.0,
                 fy: 2000.0,
                 cx,
                 cy,
-                skew: 0.0,
             };
             n
         ]);
@@ -3810,13 +3801,12 @@ pub mod tier_b {
         let d = camera.dist;
         CameraArtifact {
             camera_id: camera_id.to_string(),
-            camera_matrix_px: [[k.fx, k.skew, k.cx], [0.0, k.fy, k.cy], [0.0, 0.0, 1.0]],
+            camera_matrix_px: [[k.fx, 0.0, k.cx], [0.0, k.fy, k.cy], [0.0, 0.0, 1.0]],
             intrinsics_px: IntrinsicsArtifact {
                 fx: k.fx,
                 fy: k.fy,
                 cx: k.cx,
                 cy: k.cy,
-                skew: k.skew,
             },
             distortion_model: "brown_conrady5".to_string(),
             distortion: DistortionArtifact {
@@ -3964,7 +3954,6 @@ pub mod tier_b {
                             fy: 1990.0,
                             cx: 360.0,
                             cy: 270.0,
-                            skew: 0.0,
                             k1: -0.1,
                             k2: 0.2,
                             k3: 0.0,
@@ -4003,12 +3992,11 @@ pub mod tier_b {
 
         fn synthetic_scheimpflug_dataset() -> PlanarDataset {
             let points = synthetic_board(7, 9, 0.0052);
-            let k = FxFyCxCySkew {
+            let k = FxFyCxCy {
                 fx: 1950.0,
                 fy: 1900.0,
                 cx: 360.0,
                 cy: 270.0,
-                skew: 0.0,
             };
             let dist = BrownConrady5 {
                 k1: -0.14,

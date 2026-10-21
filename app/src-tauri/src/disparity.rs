@@ -16,7 +16,7 @@ use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use vision_calibration::core::{
-    BrownConrady5, FxFyCxCySkew, Iso3, Mat3, Pt2, Vec3, distort_to_pixel, pixel_to_normalized,
+    BrownConrady5, FxFyCxCy, Iso3, Mat3, Pt2, Vec3, distort_to_pixel, pixel_to_normalized,
 };
 use vision_calibration::mvg::dense::{BlockMatchOptions, DisparityMap, GrayImage, match_block};
 use vision_calibration::mvg::rectification::{RectifyCamera, RectifyOptions, rectify_stereo_pair};
@@ -227,9 +227,8 @@ fn parse_camera(
         .and_then(|v| v.as_array())
         .and_then(|a| a.get(idx))
         .ok_or("camera index out of range")?;
-    let k: FxFyCxCySkew<f64> =
-        serde_json::from_value(cam.get("k").ok_or("camera has no `k`")?.clone())
-            .map_err(|e| format!("camera.k decode: {e}"))?;
+    let k: FxFyCxCy<f64> = serde_json::from_value(cam.get("k").ok_or("camera has no `k`")?.clone())
+        .map_err(|e| format!("camera.k decode: {e}"))?;
     let dist: BrownConrady5<f64> =
         serde_json::from_value(cam.get("dist").ok_or("camera has no `dist`")?.clone())
             .map_err(|e| format!("camera.dist decode: {e}"))?;
@@ -237,7 +236,7 @@ fn parse_camera(
     // image downscale unchanged; only K scales.
     let mat = Matrix3::new(
         k.fx / scale,
-        k.skew / scale,
+        0.0,
         k.cx / scale,
         0.0,
         k.fy / scale,

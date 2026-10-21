@@ -521,11 +521,11 @@ pub mod rig_handeye_laserline {
 pub mod core {
     pub use vision_calibration_core::{
         BrownConrady5, Camera, CameraFixMask, CameraModel, CameraParams, CorrespondenceView,
-        DistortionFixMask, DistortionParams, Division, FrameKind, FrameRef, FxFyCxCySkew,
-        IdentitySensor, ImageManifest, IntrinsicsFixMask, IntrinsicsParams, Iso3, Mat3, NoMeta,
-        ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset, ProjectionParams,
-        Pt2, Pt3, RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
-        RigViewObs, ScheimpflugParams, SensorModel, SensorParams, ThinPrism, Uncertainty,
+        DistortionFixMask, DistortionParams, Division, FrameKind, FrameRef, FxFyCxCy,
+        IdentitySensor, ImageManifest, IntrinsicsFixMask, Iso3, Mat3, NoMeta, ParameterCovariance,
+        Pinhole, PinholeCamera, PixelRect, PlanarDataset, ProjectionParams, Pt2, Pt3,
+        RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs,
+        ScheimpflugParams, SensorModel, SensorParams, ThinPrism, Uncertainty,
         UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
         make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
     };
@@ -716,7 +716,7 @@ pub mod prelude {
 
     /// Core geometry and dataset types used in minimal planar workflows.
     pub use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCySkew, PlanarDataset, Pt2, Pt3, View,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, PlanarDataset, Pt2, Pt3, View,
         make_pinhole_camera,
     };
 }

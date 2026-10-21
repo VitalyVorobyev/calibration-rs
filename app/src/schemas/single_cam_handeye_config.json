@@ -52,17 +52,12 @@
           "format": "uint",
           "minimum": 0,
           "type": "integer"
-        },
-        "zero_skew": {
-          "description": "Enforce zero skew during initialization.",
-          "type": "boolean"
         }
       },
       "required": [
         "init_iterations",
         "fix_k3",
-        "fix_tangential",
-        "zero_skew"
+        "fix_tangential"
       ],
       "type": "object"
     },

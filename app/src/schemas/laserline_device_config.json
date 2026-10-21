@@ -52,7 +52,7 @@
       "type": "object"
     },
     "IntrinsicsFixMask": {
-      "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   skew  cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
+      "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   0     cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
       "properties": {
         "cx": {
           "description": "Fix principal point x component.",
@@ -96,17 +96,12 @@
           "format": "uint",
           "minimum": 0,
           "type": "integer"
-        },
-        "zero_skew": {
-          "description": "Enforce zero skew during initialization.",
-          "type": "boolean"
         }
       },
       "required": [
         "init_iterations",
         "fix_k3",
-        "fix_tangential",
-        "zero_skew"
+        "fix_tangential"
       ],
       "type": "object"
     },

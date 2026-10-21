@@ -37,8 +37,8 @@ use crate::problems::laserline_bundle::{
 use crate::uncertainty;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Real,
-    ScheimpflugParams, Uncertainty, View,
+    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCy, Iso3, Pt2, Real, ScheimpflugParams,
+    Uncertainty, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -142,7 +142,7 @@ impl RigLaserlineDataset {
 #[derive(Debug, Clone)]
 pub struct RigLaserlineUpstream {
     /// Per-camera intrinsics.
-    pub intrinsics: Vec<FxFyCxCySkew<Real>>,
+    pub intrinsics: Vec<FxFyCxCy<Real>>,
     /// Per-camera distortion.
     pub distortion: Vec<BrownConrady5<Real>>,
     /// Per-camera Scheimpflug sensor parameters.
@@ -198,11 +198,10 @@ impl Default for RigLaserlineSolveOptions {
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if the per-camera or per-view slice
-/// lengths are inconsistent with the dataset shape, or an intrinsics has
-/// skew.
+/// lengths are inconsistent with the dataset shape.
 pub fn compute_rig_laserline_feature_residuals(
     dataset: &RigLaserlineDataset,
-    intrinsics: &[FxFyCxCySkew<Real>],
+    intrinsics: &[FxFyCxCy<Real>],
     distortion: &[BrownConrady5<Real>],
     sensors: &[ScheimpflugParams],
     cam_se3_rig: &[Iso3],
@@ -409,7 +408,7 @@ pub fn optimize_rig_laserline(
 mod tests {
     use super::*;
     use nalgebra::{Isometry3, Rotation3, Translation3, Unit, Vector3};
-    use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt3};
+    use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, Pinhole, Pt3};
 
     fn make_target_points() -> Vec<Pt3> {
         let mut pts = Vec::new();
@@ -423,12 +422,11 @@ mod tests {
 
     #[test]
     fn rig_laserline_two_cameras_zero_tilt_recovers_planes() {
-        let intr = FxFyCxCySkew {
+        let intr = FxFyCxCy {
             fx: 600.0,
             fy: 600.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
         let dist = BrownConrady5 {
             k1: 0.0,
@@ -484,7 +482,7 @@ mod tests {
 
         // Generate synthetic views: target corners + laser pixels per camera per view.
         let mut views: Vec<RigLaserlineView> = Vec::new();
-        let cam_gt: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = (0..2)
+        let cam_gt: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = (0..2)
             .map(|_| Camera::new(Pinhole, dist, sensor.compile(), intr))
             .collect();
         let target_pts = make_target_points();

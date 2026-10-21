@@ -7,7 +7,7 @@
 use super::pose_utils::pose_from_points;
 use crate::Error;
 use nalgebra::{DMatrix, Vector3, linalg::SymmetricEigen};
-use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real, Vec3};
+use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real, Vec3};
 
 /// EPnP pose estimation for 4+ points.
 ///
@@ -20,7 +20,7 @@ use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real, Vec3};
 /// are given or `world.len() != image.len()`, or [`Error::Singular`] if
 /// the intrinsics `k` are non-invertible or the control-point system is
 /// degenerate.
-pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, Error> {
+pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Error> {
     let n = world.len();
     if n < 4 || image.len() != n {
         return Err(Error::InsufficientData { need: 4, got: n });
@@ -139,12 +139,11 @@ mod tests {
 
     #[test]
     fn epnp_recovers_pose_synthetic() {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
 

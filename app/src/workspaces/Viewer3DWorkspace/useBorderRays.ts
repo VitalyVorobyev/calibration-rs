@@ -7,7 +7,7 @@ import {
   raysFromUndistortedPixels,
 } from "../../lib/frustumRays";
 import { isTauriContext } from "../../lib/tauri";
-import type { FxFyCxCySkew } from "../../types/generated/diagnose-wire";
+import type { FxFyCxCy } from "../../types/generated/diagnose-wire";
 
 /** The image border's viewing rays for camera `cameraIndex` (flat
  * `[x, y, 1, …]` on the camera's `z = 1` plane), for `CameraFrustum`.
@@ -19,7 +19,7 @@ import type { FxFyCxCySkew } from "../../types/generated/diagnose-wire";
  * array such as a lifted `laserline_device`). See `lib/frustumRays.ts`. */
 export function useBorderRays(
   cameraIndex: number,
-  k: FxFyCxCySkew,
+  k: FxFyCxCy,
   width: number,
   height: number,
 ): Float64Array {

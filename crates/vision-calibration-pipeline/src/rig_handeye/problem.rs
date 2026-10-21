@@ -6,7 +6,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, ImageManifest, Iso3,
+    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCy, ImageManifest, Iso3,
     PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, ScheimpflugParams, Uncertainty,
     build_feature_histogram, compute_rig_target_residuals,
 };
@@ -84,7 +84,7 @@ pub struct RigHandeyeConfig {
 #[non_exhaustive]
 pub struct RigHandeyeIntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's method per camera.
-    pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
+    pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
     /// Per-camera distortion seeds.
     pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
     /// Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).
@@ -718,12 +718,11 @@ mod tests {
 
     fn make_dummy_output() -> RigHandeyeOutput {
         let camera = vision_calibration_core::make_pinhole_camera(
-            vision_calibration_core::FxFyCxCySkew {
+            vision_calibration_core::FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             vision_calibration_core::BrownConrady5::default(),
         );

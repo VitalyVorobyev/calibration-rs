@@ -15,7 +15,7 @@
  *
  * Pure and side-effect free so it unit-tests without React/Tauri. */
 import { imageBorderPixels } from "@vitavision/three";
-import type { FxFyCxCySkew } from "../types/generated/diagnose-wire";
+import type { FxFyCxCy } from "../types/generated/diagnose-wire";
 
 /** Samples per image edge. A pinhole border is straight, but a distorted
  * one is not, so the exact source needs more than the four corners. */
@@ -23,16 +23,16 @@ export const BORDER_SAMPLES_PER_EDGE = 8;
 
 /** `K⁻¹` of flat `[u0, v0, u1, v1, …]` undistorted pixels: flat
  * `[x0, y0, 1, x1, …]` points on the camera's `z = 1` plane. Mirrors
- * `undistorted_pixel_to_ray` in `src-tauri/src/epipolar.rs`, skew included. */
+ * `undistorted_pixel_to_ray` in `src-tauri/src/epipolar.rs`. */
 export function raysFromUndistortedPixels(
-  k: FxFyCxCySkew,
+  k: FxFyCxCy,
   pixels: ArrayLike<number>,
 ): Float64Array {
   const n = Math.floor(pixels.length / 2);
   const out = new Float64Array(3 * n);
   for (let i = 0; i < n; i++) {
     const y = (pixels[2 * i + 1]! - k.cy) / k.fy;
-    const x = (pixels[2 * i]! - k.cx - k.skew * y) / k.fx;
+    const x = (pixels[2 * i]! - k.cx) / k.fx;
     out[3 * i] = x;
     out[3 * i + 1] = y;
     out[3 * i + 2] = 1;
@@ -43,7 +43,7 @@ export function raysFromUndistortedPixels(
 /** Distortion-free border rays of `k` for a `width × height` image
  * (clockwise from the top-left corner, see `imageBorderPixels`). */
 export function pinholeBorderRays(
-  k: FxFyCxCySkew,
+  k: FxFyCxCy,
   width: number,
   height: number,
   perEdge = BORDER_SAMPLES_PER_EDGE,

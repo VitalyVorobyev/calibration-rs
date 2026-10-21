@@ -268,7 +268,7 @@ impl ProblemType for LaserlineDeviceProblem {
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Pt3, View,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, Pt2, Pt3, View,
     };
     use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineParams, SolveReport};
 
@@ -277,12 +277,11 @@ mod tests {
         // synthetic test: target plane at z=1 in camera frame, laser plane at
         // y=0.1 in camera frame. Pixels lie exactly on the projected line +
         // exactly on the projected target board.
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
         let distortion = BrownConrady5::default();
         let sensor = ScheimpflugParams::default();
@@ -394,12 +393,11 @@ mod tests {
         // (the bug), the resulting `error_px` values will be much larger than
         // 1e-6 px because the ground-truth pixels embed the tilt that the
         // bare pinhole projection ignores.
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
         let distortion = BrownConrady5::default();
         let sensor = ScheimpflugParams {

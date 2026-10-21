@@ -69,7 +69,7 @@ Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`, `
 ```rust
 pub struct RigExtrinsicsConfig {
     // Per-camera linear-initialization stage settings.
-    pub intrinsics: IntrinsicsInitConfig, // { init_iterations, fix_k3, fix_tangential, zero_skew }
+    pub intrinsics: IntrinsicsInitConfig, // { init_iterations, fix_k3, fix_tangential }
 
     // Sensor flavour (pinhole or Scheimpflug); default `SensorMode::Pinhole`.
     pub sensor: SensorMode,

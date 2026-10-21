@@ -13,7 +13,7 @@ use std::hint::black_box;
 use criterion::{Criterion, criterion_group, criterion_main};
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, PinholeCamera, PlanarDataset, Pt2, Pt3,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, PlanarDataset, Pt2, Pt3,
     Real, View, make_pinhole_camera,
 };
 use vision_calibration_optim::{
@@ -24,12 +24,11 @@ use vision_calibration_optim::{
 /// Build a synthetic planar-intrinsics problem: ground-truth dataset plus a
 /// noisy-but-plausible initial camera and the ground-truth poses to seed from.
 fn synthetic_problem() -> (PlanarDataset, PinholeCamera, Vec<Iso3>) {
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5 {
         k1: -0.2,
@@ -73,12 +72,11 @@ fn synthetic_problem() -> (PlanarDataset, PinholeCamera, Vec<Iso3>) {
 
     let dataset = PlanarDataset::new(views).unwrap();
     let cam_init = make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 780.0,
             fy: 760.0,
             cx: 630.0,
             cy: 350.0,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,

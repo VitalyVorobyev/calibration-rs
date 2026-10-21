@@ -75,7 +75,7 @@ pub fn pixel_to_gripper_point(
     // Undistort pixel to a normalized camera-frame direction by inverting the full
     // chain: pixel -> sensor (after Scheimpflug) -> normalized (after distortion) -> ray.
     let k_matrix = Mat3::new(
-        cam.k.fx, cam.k.skew, cam.k.cx, 0.0, cam.k.fy, cam.k.cy, 0.0, 0.0, 1.0,
+        cam.k.fx, 0.0, cam.k.cx, 0.0, cam.k.fy, cam.k.cy, 0.0, 0.0, 1.0,
     );
     let k_inv = k_matrix
         .try_inverse()

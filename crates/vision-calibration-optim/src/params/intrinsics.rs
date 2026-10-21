@@ -2,26 +2,14 @@
 
 use crate::Error;
 use nalgebra::{DVector, DVectorView};
-use vision_calibration_core::{FxFyCxCySkew, Real};
+use vision_calibration_core::{FxFyCxCy, Real};
 
 /// Dimension of the intrinsics parameter vector [fx, fy, cx, cy].
 pub const INTRINSICS_DIM: usize = 4;
 
 /// Pack intrinsics into a dense parameter vector `[fx, fy, cx, cy]`.
-///
-/// Skew is not optimized in the current problems and must be ~0.
-///
-/// # Errors
-///
-/// Returns [`Error::InvalidInput`] if `k.skew` is not ~0 (the 4-parameter
-/// packing cannot represent skew).
-pub fn pack_intrinsics(k: &FxFyCxCySkew<Real>) -> Result<DVector<f64>, Error> {
-    if k.skew.abs() > 1e-12 {
-        return Err(Error::invalid_input(
-            "intrinsics skew must be ~0 for 4-parameter packing",
-        ));
-    }
-    Ok(nalgebra::dvector![k.fx, k.fy, k.cx, k.cy])
+pub fn pack_intrinsics(k: &FxFyCxCy<Real>) -> DVector<f64> {
+    nalgebra::dvector![k.fx, k.fy, k.cx, k.cy]
 }
 
 /// Unpack intrinsics from a dense parameter vector `[fx, fy, cx, cy]`.
@@ -30,7 +18,7 @@ pub fn pack_intrinsics(k: &FxFyCxCySkew<Real>) -> Result<DVector<f64>, Error> {
 ///
 /// Returns [`Error::InvalidInput`] if the vector length does not equal
 /// [`INTRINSICS_DIM`].
-pub fn unpack_intrinsics(v: DVectorView<'_, f64>) -> Result<FxFyCxCySkew<Real>, Error> {
+pub fn unpack_intrinsics(v: DVectorView<'_, f64>) -> Result<FxFyCxCy<Real>, Error> {
     if v.len() != INTRINSICS_DIM {
         return Err(Error::invalid_input(format!(
             "expected intrinsics vector of length {}, got {}",
@@ -38,12 +26,11 @@ pub fn unpack_intrinsics(v: DVectorView<'_, f64>) -> Result<FxFyCxCySkew<Real>, 
             v.len()
         )));
     }
-    Ok(FxFyCxCySkew {
+    Ok(FxFyCxCy {
         fx: v[0],
         fy: v[1],
         cx: v[2],
         cy: v[3],
-        skew: 0.0,
     })
 }
 
@@ -53,19 +40,17 @@ mod tests {
 
     #[test]
     fn pack_unpack_roundtrip() {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
-        let v = pack_intrinsics(&k).unwrap();
+        let v = pack_intrinsics(&k);
         let restored = unpack_intrinsics(v.as_view()).unwrap();
         assert_eq!(restored.fx, k.fx);
         assert_eq!(restored.fy, k.fy);
         assert_eq!(restored.cx, k.cx);
         assert_eq!(restored.cy, k.cy);
-        assert_eq!(restored.skew, 0.0);
     }
 }

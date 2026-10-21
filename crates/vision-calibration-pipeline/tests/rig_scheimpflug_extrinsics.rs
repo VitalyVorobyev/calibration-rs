@@ -6,8 +6,8 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, NoMeta, Pinhole, Pt3, Real,
-    RigDataset, RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, NoMeta, Pinhole, Pt3, Real, RigDataset,
+    RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
 };
 use vision_calibration_pipeline::common::CalibratedCameras;
 use vision_calibration_pipeline::rig_extrinsics::{
@@ -17,16 +17,15 @@ use vision_calibration_pipeline::session::CalibrationSession;
 
 fn make_dataset() -> (
     RigDataset<NoMeta>,
-    [FxFyCxCySkew<Real>; 2],
+    [FxFyCxCy<Real>; 2],
     [ScheimpflugParams; 2],
     Isometry3<Real>,
 ) {
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let distortion = BrownConrady5 {
         k1: 0.0,
@@ -43,7 +42,7 @@ fn make_dataset() -> (
             tilt_y: -0.04,
         },
     ];
-    let cameras: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = sensors
+    let cameras: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = sensors
         .iter()
         .map(|s| Camera::new(Pinhole, distortion, s.compile(), intrinsics))
         .collect();

@@ -55,7 +55,7 @@ pub struct PlanarIntrinsicsConfig {
     // Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
     // { init_iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: bool = false, zero_skew: bool = true }
+    //   fix_tangential: bool = false }
 
     // Non-linear solve stage settings.
     pub solver: SolverConfig,
@@ -170,7 +170,7 @@ step_optimize(&mut session, None)?;
 
 ## Input Requirements
 
-- **Minimum 3 views** (for Zhang's method with skew)
+- **Minimum 3 views** (for Zhang's closed form)
 - **Minimum 4 points per view** (for homography estimation)
 - **View diversity**: Views should include rotation around both axes and vary in distance
 - **Board coverage**: Points should span the full image area for good distortion estimation

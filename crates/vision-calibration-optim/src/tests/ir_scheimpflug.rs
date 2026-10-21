@@ -16,7 +16,7 @@ use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt3, Real, ScheimpflugParams,
+    BrownConrady5, Camera, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
 };
 
 #[test]
@@ -31,12 +31,11 @@ fn scheimpflug_optimization_synthetic_factrs() {
 
 fn scheimpflug_case(engine: SolverBackend) {
     // Ground truth camera parameters
-    let intrinsics_gt = FxFyCxCySkew {
+    let intrinsics_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
 
     let distortion_gt = BrownConrady5 {
@@ -94,12 +93,11 @@ fn scheimpflug_case(engine: SolverBackend) {
     }
 
     // Initial values (perturbed from ground truth)
-    let intrinsics_init = FxFyCxCySkew {
+    let intrinsics_init = FxFyCxCy {
         fx: 810.0, // Perturbed
         fy: 790.0, // Perturbed
         cx: 645.0, // Perturbed
         cy: 365.0, // Perturbed
-        skew: 0.0,
     };
 
     let distortion_init = BrownConrady5 {
@@ -136,10 +134,7 @@ fn scheimpflug_case(engine: SolverBackend) {
         FixedMask::all_free(),
         None,
     );
-    initial_map.insert(
-        "cam".to_string(),
-        pack_intrinsics(&intrinsics_init).unwrap(),
-    );
+    initial_map.insert("cam".to_string(), pack_intrinsics(&intrinsics_init));
 
     let dist_id = ir.add_param_block(
         "dist",

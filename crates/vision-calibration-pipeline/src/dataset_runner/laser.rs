@@ -877,7 +877,7 @@ mod tests {
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use vision_calibration_core::{
-        BrownConrady5, FxFyCxCySkew, PerFeatureResiduals, make_pinhole_camera,
+        BrownConrady5, FxFyCxCy, PerFeatureResiduals, make_pinhole_camera,
     };
     use vision_calibration_dataset::{
         CameraSource, PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
@@ -1223,12 +1223,11 @@ mod tests {
     /// Minimal eye-in-hand rig hand-eye export with identity hand-eye
     /// transforms and a target 1 m up the base Z axis.
     fn upstream_export(num_cameras: usize) -> RigHandeyeExport {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
         RigHandeyeExport {
             kind: ExportKind::RigHandeye,

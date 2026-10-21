@@ -542,17 +542,16 @@ mod tests {
         // + target poses. The exported per_feature_residuals.target must
         // therefore have error_px ~ 0 for every record, and per-camera
         // histograms must place all counts in the <=1 px bucket.
-        use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, View, make_pinhole_camera};
+        use vision_calibration_core::{BrownConrady5, FxFyCxCy, View, make_pinhole_camera};
         use vision_calibration_optim::{RigExtrinsicsParams, SolveReport};
 
         let make_camera = || {
             make_pinhole_camera(
-                FxFyCxCySkew {
+                FxFyCxCy {
                     fx: 800.0,
                     fy: 800.0,
                     cx: 320.0,
                     cy: 240.0,
-                    skew: 0.0,
                 },
                 BrownConrady5::default(),
             )
@@ -655,16 +654,15 @@ mod tests {
     #[test]
     fn export_per_feature_residuals_json_roundtrip() {
         // Round-trip the rig export through JSON.
-        use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, make_pinhole_camera};
+        use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
         use vision_calibration_optim::{RigExtrinsicsParams, SolveReport};
 
         let camera = make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -735,16 +733,15 @@ mod tests {
         // with identical pinhole models and identity extrinsics. Used
         // by the manifest tests below; never round-tripped through the
         // calibration pipeline.
-        use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, make_pinhole_camera};
+        use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
         use vision_calibration_optim::{RigExtrinsicsParams, SolveReport};
 
         let camera = make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );

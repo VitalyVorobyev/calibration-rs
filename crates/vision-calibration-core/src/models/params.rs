@@ -2,7 +2,7 @@ use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BrownConrady5, Camera, Division, FxFyCxCySkew, HomographySensor, IdentitySensor, NoDistortion,
+    BrownConrady5, Camera, Division, FxFyCxCy, HomographySensor, IdentitySensor, NoDistortion,
     Pinhole, ProjectionModel, RationalPolynomial, ScheimpflugParams, SensorModel, ThinPrism,
 };
 use crate::{Error, Real};
@@ -68,19 +68,6 @@ pub enum SensorParams {
     },
 }
 
-/// Serializable intrinsics parameters.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum IntrinsicsParams {
-    /// Pinhole intrinsics with optional skew.
-    FxFyCxCySkew {
-        /// Flattened pinhole intrinsics coefficients.
-        #[serde(flatten)]
-        params: FxFyCxCySkew<Real>,
-    },
-}
-
 /// Serializable camera parameters for building a runtime model.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -91,12 +78,12 @@ pub struct CameraParams {
     pub distortion: DistortionParams,
     /// Sensor model parameters.
     pub sensor: SensorParams,
-    /// Intrinsics model parameters.
-    pub intrinsics: IntrinsicsParams,
+    /// Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
+    pub intrinsics: FxFyCxCy<Real>,
 }
 
 /// Concrete camera type built from parameters (f64).
-pub type CameraModel = Camera<Real, AnyProjection, AnyDistortion, AnySensor, AnyIntrinsics>;
+pub type CameraModel = Camera<Real, AnyProjection, AnyDistortion, AnySensor, FxFyCxCy<Real>>;
 
 impl CameraParams {
     /// Build a concrete camera model from this parameter set.
@@ -132,11 +119,7 @@ impl CameraParams {
             SensorParams::Scheimpflug { params } => AnySensor::Homography(params.compile()),
         };
 
-        let k = match self.intrinsics {
-            IntrinsicsParams::FxFyCxCySkew { params } => AnyIntrinsics::FxFyCxCySkew(params),
-        };
-
-        Ok(Camera::new(proj, dist, sensor, k))
+        Ok(Camera::new(proj, dist, sensor, self.intrinsics))
     }
 }
 
@@ -222,26 +205,6 @@ impl SensorModel<Real> for AnySensor {
     }
 }
 
-#[derive(Clone, Debug)]
-#[doc(hidden)]
-pub enum AnyIntrinsics {
-    FxFyCxCySkew(FxFyCxCySkew<Real>),
-}
-
-impl super::IntrinsicsModel<Real> for AnyIntrinsics {
-    fn sensor_to_pixel(&self, sensor: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
-        match self {
-            AnyIntrinsics::FxFyCxCySkew(m) => m.sensor_to_pixel(sensor),
-        }
-    }
-
-    fn pixel_to_sensor(&self, pixel: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
-        match self {
-            AnyIntrinsics::FxFyCxCySkew(m) => m.pixel_to_sensor(pixel),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,14 +215,11 @@ mod tests {
             projection: ProjectionParams::Pinhole,
             distortion: DistortionParams::None,
             sensor: SensorParams::Identity,
-            intrinsics: IntrinsicsParams::FxFyCxCySkew {
-                params: FxFyCxCySkew {
-                    fx: 800.0,
-                    fy: 810.0,
-                    cx: 640.0,
-                    cy: 360.0,
-                    skew: 0.0,
-                },
+            intrinsics: FxFyCxCy {
+                fx: 800.0,
+                fy: 810.0,
+                cx: 640.0,
+                cy: 360.0,
             },
         };
         let cam = params.build().unwrap();

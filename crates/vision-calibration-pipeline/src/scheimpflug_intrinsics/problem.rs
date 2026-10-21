@@ -237,8 +237,7 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        CorrespondenceView, DistortionParams, IntrinsicsParams, NoMeta, ProjectionParams,
-        SensorParams, View,
+        CorrespondenceView, DistortionParams, NoMeta, ProjectionParams, SensorParams, View,
     };
     use vision_calibration_optim::RobustLoss;
 
@@ -371,14 +370,11 @@ mod tests {
                     sensor: SensorParams::Scheimpflug {
                         params: vision_calibration_core::ScheimpflugParams::default(),
                     },
-                    intrinsics: IntrinsicsParams::FxFyCxCySkew {
-                        params: vision_calibration_core::FxFyCxCySkew {
-                            fx: 800.0,
-                            fy: 780.0,
-                            cx: 640.0,
-                            cy: 360.0,
-                            skew: 0.0,
-                        },
+                    intrinsics: vision_calibration_core::FxFyCxCy {
+                        fx: 800.0,
+                        fy: 780.0,
+                        cx: 640.0,
+                        cy: 360.0,
                     },
                 },
                 camera_se3_target: vec![Iso3::identity()],

@@ -14,9 +14,9 @@
 use nalgebra::{Translation3, UnitQuaternion};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraModel, CameraParams, CameraProject, CorrespondenceView,
-    DistortionFixMask, DistortionParams, Division, FxFyCxCySkew, IntrinsicsParams, Iso3, Pinhole,
-    PlanarDataset, ProjectionParams, Pt2, Pt3, RationalPolynomial, ScheimpflugParams, SensorParams,
-    ThinPrism, View,
+    DistortionFixMask, DistortionParams, Division, FxFyCxCy, Iso3, Pinhole, PlanarDataset,
+    ProjectionParams, Pt2, Pt3, RationalPolynomial, ScheimpflugParams, SensorParams, ThinPrism,
+    View,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
@@ -27,13 +27,12 @@ use vision_calibration_optim::{
 // Shared GT infrastructure
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn gt_intrinsics() -> FxFyCxCySkew<f64> {
-    FxFyCxCySkew {
+fn gt_intrinsics() -> FxFyCxCy<f64> {
+    FxFyCxCy {
         fx: 1150.0,
         fy: 1155.0,
         cx: 372.0,
         cy: 258.0,
-        skew: 0.0,
     }
 }
 
@@ -111,9 +110,7 @@ fn built_camera(params: &ScheimpflugIntrinsicsParams) -> CameraModel {
         sensor: SensorParams::Scheimpflug {
             params: params.sensor,
         },
-        intrinsics: IntrinsicsParams::FxFyCxCySkew {
-            params: params.intrinsics,
-        },
+        intrinsics: params.intrinsics,
     }
     .build()
     .expect("Scheimpflug sensor homography is always invertible")
@@ -140,14 +137,13 @@ fn reproj_rms<C: CameraProject>(camera: &C, dataset: &PlanarDataset, poses: &[Is
 }
 
 /// A slightly perturbed intrinsics seed (2% focal error, a few px on the pp).
-fn seed_intrinsics() -> FxFyCxCySkew<f64> {
+fn seed_intrinsics() -> FxFyCxCy<f64> {
     let k = gt_intrinsics();
-    FxFyCxCySkew {
+    FxFyCxCy {
         fx: k.fx * 1.02,
         fy: k.fy * 1.02,
         cx: k.cx + 4.0,
         cy: k.cy - 4.0,
-        skew: 0.0,
     }
 }
 

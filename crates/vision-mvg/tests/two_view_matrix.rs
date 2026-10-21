@@ -23,19 +23,18 @@
 
 use nalgebra::Rotation3;
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
-use vision_calibration_core::{FxFyCxCySkew, Mat3, Pt2, Pt3, Vec3, pixel_to_normalized};
+use vision_calibration_core::{FxFyCxCy, Mat3, Pt2, Pt3, Vec3, pixel_to_normalized};
 use vision_geometry::camera_matrix::Mat34;
 use vision_mvg::triangulation::triangulate_nview;
 use vision_mvg::{Correspondence2D, recover_relative_pose};
 
 /// Shared intrinsics for both views (a 1280×720-ish pinhole).
 fn intrinsics() -> Mat3 {
-    FxFyCxCySkew {
+    FxFyCxCy {
         fx: 800.0,
         fy: 790.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     }
     .k_matrix()
 }

@@ -6,7 +6,7 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Unit, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Pinhole, Pt3, Real, ScheimpflugParams,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
 };
 use vision_calibration_optim::{LaserPlane, RigLaserlineDataset, RigLaserlineView};
 use vision_calibration_pipeline::rig_laserline_device::{
@@ -31,12 +31,11 @@ fn make_dataset() -> (
     RigUpstreamCalibration,
     Vec<LaserPlane>, // ground-truth planes in rig frame
 ) {
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 600.0,
         fy: 600.0,
         cx: 320.0,
         cy: 240.0,
-        skew: 0.0,
     };
     let distortion = BrownConrady5 {
         k1: 0.0,

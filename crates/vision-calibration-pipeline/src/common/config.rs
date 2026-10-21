@@ -58,8 +58,6 @@ pub struct IntrinsicsInitConfig {
     /// coupling makes a free tangential term ill-posed during the linear
     /// stage).
     pub fix_tangential: bool,
-    /// Enforce zero skew during initialization.
-    pub zero_skew: bool,
 }
 
 impl Default for IntrinsicsInitConfig {
@@ -68,7 +66,6 @@ impl Default for IntrinsicsInitConfig {
             init_iterations: 2,
             fix_k3: true,
             fix_tangential: false,
-            zero_skew: true,
         }
     }
 }
@@ -87,7 +84,6 @@ impl IntrinsicsInitConfig {
         IterativeIntrinsicsOptions {
             iterations: iterations_override.unwrap_or(self.init_iterations),
             distortion_opts: self.distortion_fit_opts(),
-            zero_skew: self.zero_skew,
         }
     }
 
@@ -257,7 +253,6 @@ mod tests {
         assert_eq!(cfg.init_iterations, 2);
         assert!(cfg.fix_k3);
         assert!(!cfg.fix_tangential);
-        assert!(cfg.zero_skew);
     }
 
     #[test]
@@ -301,14 +296,12 @@ mod tests {
             init_iterations: 3,
             fix_k3: false,
             fix_tangential: true,
-            zero_skew: false,
         };
         let opts = cfg.iterative_opts(None);
         assert_eq!(opts.iterations, 3);
         assert!(!opts.distortion_opts.fix_k3);
         assert!(opts.distortion_opts.fix_tangential);
         assert_eq!(opts.distortion_opts.iters, 8);
-        assert!(!opts.zero_skew);
     }
 
     #[test]
@@ -324,7 +317,6 @@ mod tests {
             init_iterations: 2,
             fix_k3: true,
             fix_tangential: false,
-            zero_skew: true,
         };
         let dist_opts = cfg.distortion_fit_opts();
         assert!(dist_opts.fix_k3);
@@ -365,13 +357,11 @@ mod tests {
             init_iterations: 3,
             fix_k3: false,
             fix_tangential: true,
-            zero_skew: false,
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let restored: IntrinsicsInitConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.init_iterations, 3);
         assert!(!restored.fix_k3);
         assert!(restored.fix_tangential);
-        assert!(!restored.zero_skew);
     }
 }

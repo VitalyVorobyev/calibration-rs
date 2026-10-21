@@ -24,8 +24,8 @@ use image::{ImageBuffer, Luma};
 use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
 use std::path::{Path, PathBuf};
 use vision_calibration::core::{
-    BrownConrady5, CorrespondenceView, FrameRef, FxFyCxCySkew, ImageManifest, Iso3, PlanarDataset,
-    Pt2, Pt3, View, make_pinhole_camera,
+    BrownConrady5, CorrespondenceView, FrameRef, FxFyCxCy, ImageManifest, Iso3, PlanarDataset, Pt2,
+    Pt3, View, make_pinhole_camera,
 };
 use vision_calibration::planar_intrinsics::{PlanarIntrinsicsExport, step_init, step_optimize};
 use vision_calibration::prelude::{CalibrationSession, PlanarIntrinsicsProblem};
@@ -72,12 +72,11 @@ pub fn write_fixture(out_dir: &Path) -> Result<FixtureSummary> {
     let images_dir = out_dir.join("images");
     std::fs::create_dir_all(&images_dir)?;
 
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 600.0,
         fy: 600.0,
         cx: (IMAGE_W as f64) * 0.5,
         cy: (IMAGE_H as f64) * 0.5,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5::default();
     let cam_gt = make_pinhole_camera(k_gt, dist_gt);
@@ -205,8 +204,8 @@ fn view_poses() -> Vec<Iso3> {
     ]
 }
 
-fn intrinsics_matrix(k: &FxFyCxCySkew<f64>) -> Matrix3<f64> {
-    Matrix3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
+fn intrinsics_matrix(k: &FxFyCxCy<f64>) -> Matrix3<f64> {
+    Matrix3::new(k.fx, 0.0, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }
 
 /// Render a grayscale checkerboard image for one `cam_from_target` pose.

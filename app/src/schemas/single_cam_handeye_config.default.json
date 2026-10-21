@@ -6,8 +6,7 @@
   "intrinsics": {
     "fix_k3": true,
     "fix_tangential": false,
-    "init_iterations": 2,
-    "zero_skew": true
+    "init_iterations": 2
   },
   "robot_poses": {
     "refine": true,

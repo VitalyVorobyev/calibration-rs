@@ -18,7 +18,7 @@
 use anyhow::Result;
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration::core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Pt3, make_pinhole_camera,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, Pt2, Pt3, make_pinhole_camera,
 };
 use vision_calibration::prelude::*;
 use vision_calibration::single_cam_handeye::{
@@ -30,12 +30,11 @@ fn main() -> Result<()> {
     println!("=== Single-Camera Hand-Eye Calibration (Synthetic) ===\n");
 
     // Ground truth camera parameters
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     // Using zero distortion for cleaner synthetic data
     let dist_gt = BrownConrady5::default();

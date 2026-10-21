@@ -13,8 +13,7 @@ use std::hint::black_box;
 use criterion::{Criterion, criterion_group, criterion_main};
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real,
-    make_pinhole_camera,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real, make_pinhole_camera,
 };
 use vision_calibration_linear::distortion_fit::{
     DistortionFitOptions, DistortionView, MetaHomography, estimate_distortion_from_homographies,
@@ -43,7 +42,7 @@ fn dense_homography_corrs() -> (Vec<Pt2>, Vec<Pt2>) {
 /// `n_views` poses through a pinhole camera. Returns the 3×3 intrinsics, the
 /// board's 3D points, and the per-view projected pixels.
 fn planar_scene(
-    k: FxFyCxCySkew<Real>,
+    k: FxFyCxCy<Real>,
     dist: BrownConrady5<Real>,
     n_views: usize,
 ) -> (Mat3, Vec<Pt3>, Vec<Vec<Pt2>>) {
@@ -79,12 +78,11 @@ fn homography_dlt(c: &mut Criterion) {
 }
 
 fn zhang_intrinsics(c: &mut Criterion) {
-    let k = FxFyCxCySkew {
+    let k = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist = BrownConrady5 {
         k1: 0.0,
@@ -106,12 +104,11 @@ fn zhang_intrinsics(c: &mut Criterion) {
 }
 
 fn distortion_fit(c: &mut Criterion) {
-    let k = FxFyCxCySkew {
+    let k = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist = BrownConrady5 {
         k1: -0.2,

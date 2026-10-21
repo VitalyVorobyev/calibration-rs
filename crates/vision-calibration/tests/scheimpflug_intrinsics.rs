@@ -2,8 +2,8 @@
 
 use nalgebra::{Rotation3, Translation3};
 use vision_calibration::core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, Pinhole, PlanarDataset, Pt2,
-    Pt3, ScheimpflugParams, View,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, PlanarDataset, Pt2, Pt3,
+    ScheimpflugParams, View,
 };
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::scheimpflug_intrinsics::{
@@ -61,12 +61,11 @@ fn make_dataset(sensor: ScheimpflugParams) -> PlanarDataset {
             iters: 8,
         },
         sensor.compile(),
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         },
     );
 
@@ -101,12 +100,11 @@ fn make_noisy_dataset(sensor: ScheimpflugParams, noise_px: f64) -> PlanarDataset
             iters: 8,
         },
         sensor.compile(),
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         },
     );
 
@@ -184,16 +182,15 @@ fn rtv3d_like_poses() -> Vec<Iso3> {
 /// distortion / sensor for recovery checks.
 fn make_rtv3d_like_dataset() -> (
     PlanarDataset,
-    FxFyCxCySkew<f64>,
+    FxFyCxCy<f64>,
     BrownConrady5<f64>,
     ScheimpflugParams,
 ) {
-    let intr = FxFyCxCySkew {
+    let intr = FxFyCxCy {
         fx: 1153.0,
         fy: 1163.0,
         cx: 369.0,
         cy: 264.0,
-        skew: 0.0,
     };
     let dist = BrownConrady5 {
         k1: -0.43,
@@ -266,12 +263,11 @@ fn seeded_coarse_prior_converges_on_strong_tilt_distortion() {
     // image center) and the nominal mount tilt (≈−5°, a known mechanical spec).
     // distortion/poses stay None (auto). The seeded tilt is trusted directly.
     let mut seed = ScheimpflugManualInit::default();
-    seed.intrinsics = Some(FxFyCxCySkew {
+    seed.intrinsics = Some(FxFyCxCy {
         fx: 1050.0,
         fy: 1050.0,
         cx: 360.0,
         cy: 270.0,
-        skew: 0.0,
     });
     seed.sensor = Some(ScheimpflugParams {
         tilt_x: -0.087,
@@ -281,9 +277,7 @@ fn seeded_coarse_prior_converges_on_strong_tilt_distortion() {
     step_optimize(&mut session, None).expect("optimize");
 
     let result = session.output().expect("output");
-    let intrinsics = match &result.params.camera.intrinsics {
-        vision_calibration::core::IntrinsicsParams::FxFyCxCySkew { params } => *params,
-    };
+    let intrinsics = &result.params.camera.intrinsics;
     let sensor = match &result.params.camera.sensor {
         vision_calibration::core::SensorParams::Scheimpflug { params } => *params,
         other => panic!("unexpected sensor params: {other:?}"),
@@ -330,9 +324,7 @@ fn public_api_converges_on_synthetic_scheimpflug_dataset() {
     let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
     let camera = result.params.camera;
 
-    let intrinsics = match camera.intrinsics {
-        vision_calibration::core::IntrinsicsParams::FxFyCxCySkew { params } => params,
-    };
+    let intrinsics = camera.intrinsics;
     let sensor = match camera.sensor {
         vision_calibration::core::SensorParams::Scheimpflug { params } => params,
         other => panic!("unexpected sensor params: {other:?}"),

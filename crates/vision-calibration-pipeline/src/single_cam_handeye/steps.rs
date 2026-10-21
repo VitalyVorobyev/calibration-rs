@@ -30,7 +30,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, PinholeCamera,
+    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PinholeCamera,
     PlanarDataset, Real, RigView, RigViewObs, View, make_pinhole_camera,
 };
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
@@ -68,7 +68,7 @@ pub use crate::common::{
 #[non_exhaustive]
 pub struct SingleCamIntrinsicsManualInit {
     /// Manual intrinsics seed.
-    pub intrinsics: Option<FxFyCxCySkew<Real>>,
+    pub intrinsics: Option<FxFyCxCy<Real>>,
     /// Manual distortion seed.
     pub distortion: Option<BrownConrady5<Real>>,
     /// Manual per-view target poses (`camera_se3_target`).
@@ -274,7 +274,7 @@ pub fn step_intrinsics_init_with_seed(
             auto_fields.push("target_poses");
             let k_matrix = vision_calibration_core::Mat3::new(
                 camera.k.fx,
-                camera.k.skew,
+                0.0,
                 camera.k.cx,
                 0.0,
                 camera.k.fy,
@@ -755,17 +755,16 @@ pub fn run_calibration(
 mod tests {
     use super::*;
     use nalgebra::{Rotation3, Translation3};
-    use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Pt2, Pt3, make_pinhole_camera};
+    use vision_calibration_core::{BrownConrady5, FxFyCxCy, Pt2, Pt3, make_pinhole_camera};
     use vision_calibration_optim::HandEyeMode;
 
     fn make_test_camera() -> vision_calibration_core::PinholeCamera {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )

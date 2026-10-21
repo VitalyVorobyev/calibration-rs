@@ -226,7 +226,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FxFyCxCySkew, IdentitySensor, NoDistortion, Pinhole};
+    use crate::{FxFyCxCy, IdentitySensor, NoDistortion, Pinhole};
 
     #[test]
     fn grid_points_order_is_stable() {
@@ -239,12 +239,11 @@ mod tests {
 
     #[test]
     fn project_view_all_produces_matching_correspondences() {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
         let board = grid_points(3, 2, 0.05);

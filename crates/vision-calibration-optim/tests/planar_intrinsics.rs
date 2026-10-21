@@ -2,9 +2,9 @@
 
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams,
-    FxFyCxCySkew, IntrinsicsFixMask, IntrinsicsParams, Iso3, PinholeCamera, PlanarDataset,
-    ProjectionParams, Pt2, Pt3, Real, SensorParams, View, make_pinhole_camera,
+    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams, FxFyCxCy,
+    IntrinsicsFixMask, Iso3, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, Real,
+    SensorParams, View, make_pinhole_camera,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobustLoss,
@@ -19,12 +19,11 @@ struct SyntheticScenario {
 }
 
 fn build_synthetic_scenario(noise_amplitude: f64) -> SyntheticScenario {
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5 {
         k1: 0.0,
@@ -88,12 +87,11 @@ fn build_synthetic_scenario(noise_amplitude: f64) -> SyntheticScenario {
 
     let dataset = PlanarDataset::new(views).unwrap();
     let cam_init = make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 780.0,
             fy: 760.0,
             cx: 630.0,
             cy: 350.0,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,
@@ -138,12 +136,11 @@ fn synthetic_planar_intrinsics_refinement_converges() {
 
 #[test]
 fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5 {
         k1: 0.0,
@@ -200,12 +197,11 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
 
     let dataset = PlanarDataset::new(views).unwrap();
     let cam_init = make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 780.0,
             fy: 760.0,
             cx: 630.0,
             cy: 350.0,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,
@@ -229,7 +225,7 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
     let l2 = optimize_planar_intrinsics(&dataset, &init, l2_opts, solver.clone()).unwrap();
     let robust = optimize_planar_intrinsics(&dataset, &init, robust_opts, solver).unwrap();
 
-    let err_total = |k: vision_calibration_core::FxFyCxCySkew<Real>| -> Real {
+    let err_total = |k: vision_calibration_core::FxFyCxCy<Real>| -> Real {
         (k.fx - k_gt.fx).abs()
             + (k.fy - k_gt.fy).abs()
             + (k.cx - k_gt.cx).abs()
@@ -284,12 +280,11 @@ fn intrinsics_masking_keeps_fixed_params() {
 #[test]
 fn synthetic_planar_with_distortion_converges() {
     // Test that distortion optimization works with known ground truth
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5 {
         k1: -0.2, // Barrel distortion
@@ -341,12 +336,11 @@ fn synthetic_planar_with_distortion_converges() {
 
     // Initialize with noisy intrinsics and zero distortion
     let cam_init = make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 780.0, // -20 error
             fy: 760.0, // -20 error
             cx: 630.0, // -10 error
             cy: 350.0, // -10 error
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,
@@ -426,12 +420,11 @@ fn synthetic_planar_with_distortion_converges() {
 #[test]
 fn distortion_parameter_masking_works() {
     // Test selective fixing of distortion parameters
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5 {
         k1: -0.15,
@@ -479,12 +472,11 @@ fn distortion_parameter_masking_works() {
     let dataset = PlanarDataset::new(views).unwrap();
 
     let cam_init = make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 790.0,
             fy: 770.0,
             cx: 635.0,
             cy: 355.0,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,
@@ -574,14 +566,11 @@ fn rejects_non_identity_sensor() {
         sensor: SensorParams::Homography {
             h: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         },
-        intrinsics: IntrinsicsParams::FxFyCxCySkew {
-            params: FxFyCxCySkew {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-                skew: 0.0,
-            },
+        intrinsics: FxFyCxCy {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 320.0,
+            cy: 240.0,
         },
     };
     let init = PlanarIntrinsicsParams::new(bad_camera, poses_gt).unwrap();

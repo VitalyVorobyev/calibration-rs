@@ -1,19 +1,18 @@
 //! Export fixtures for the suite's unit tests.
 
 use serde_json::{Value, json};
-use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, make_pinhole_camera};
+use vision_calibration_core::{BrownConrady5, FxFyCxCy, Iso3, make_pinhole_camera};
 
 /// A two-camera rig hand-eye export whose covariance names camera 1's `fx`,
 /// its `cam_se3_rig` (`tx`, `rz`) and view 1's robot-pose correction `rx`.
 pub(super) fn rig_export(fx1: f64, cam1: &Iso3, delta_rx: f64) -> Value {
     let camera = |fx: f64| {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx,
                 fy: fx,
                 cx: 640.0,
                 cy: 480.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )

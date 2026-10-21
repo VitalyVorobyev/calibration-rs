@@ -1,7 +1,7 @@
 //! Example: single laserline device calibration (camera + laser plane).
 
 use vision_calibration::core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, Pinhole, Pt2, Pt3,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, Pt2, Pt3,
     ScheimpflugParams, SensorModel, View,
 };
 use vision_calibration::laserline_device::{
@@ -58,7 +58,7 @@ fn make_laser_plane(poses: &[Iso3]) -> LaserPlane {
 fn laser_pixels_for_view<Sm: SensorModel<f64>>(
     pose: &Iso3,
     plane: &LaserPlane,
-    camera: &Camera<f64, Pinhole, BrownConrady5<f64>, Sm, FxFyCxCySkew<f64>>,
+    camera: &Camera<f64, Pinhole, BrownConrady5<f64>, Sm, FxFyCxCy<f64>>,
 ) -> Vec<Pt2> {
     let n_c = plane.normal.as_ref();
     let n_t = pose.rotation.inverse_transform_vector(n_c);
@@ -102,12 +102,11 @@ fn laser_pixels_for_view<Sm: SensorModel<f64>>(
 
 fn main() -> anyhow::Result<()> {
     // Ground truth camera (pinhole + Brown-Conrady + identity sensor)
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let distortion = BrownConrady5 {
         k1: -0.2,

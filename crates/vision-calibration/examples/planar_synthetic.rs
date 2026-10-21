@@ -18,12 +18,11 @@ fn main() -> Result<()> {
     println!("=== Planar Intrinsics Calibration (Synthetic Data) ===\n");
 
     // Ground truth camera parameters
-    let k_gt = FxFyCxCySkew {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5 {
         k1: 0.05,

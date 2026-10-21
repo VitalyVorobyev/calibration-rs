@@ -9,7 +9,7 @@
 //! else:
 //!
 //! - `fx = fy = focal_mm · 1000 / pixel_pitch_um`, principal point
-//!   defaulting to the resolution center, `skew = 0`;
+//!   defaulting to the resolution center, no skew term;
 //! - mount tilt degrees → `ScheimpflugParams` radians;
 //! - `rig_se3_cam` mount poses → inverted into the `cam_se3_rig` (`T_C_R`)
 //!   the rig problems expect, translations mm → m.
@@ -17,7 +17,7 @@
 //! The derivations are per-camera-id, never positional: the caller states
 //! the camera order it needs and mismatches surface as typed errors.
 
-use vision_calibration_core::{FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
+use vision_calibration_core::{FxFyCxCy, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::HandEyeMode;
 
 use crate::rig_handeye::{
@@ -221,18 +221,17 @@ fn lookup<'a>(spec: &'a DeviceSpec, id: &str) -> Result<&'a CameraDeviceSpec, De
         .ok_or_else(|| DeviceSeedError::UnknownCameraId { id: id.to_string() })
 }
 
-fn intrinsics_from_camera(cam: &CameraDeviceSpec) -> FxFyCxCySkew<Real> {
+fn intrinsics_from_camera(cam: &CameraDeviceSpec) -> FxFyCxCy<Real> {
     let f_px = cam.focal_mm * 1000.0 / cam.pixel_pitch_um;
     let [cx, cy] = cam.principal_point_px.unwrap_or([
         f64::from(cam.resolution_px[0]) * 0.5,
         f64::from(cam.resolution_px[1]) * 0.5,
     ]);
-    FxFyCxCySkew {
+    FxFyCxCy {
         fx: f_px,
         fy: f_px,
         cx,
         cy,
-        skew: 0.0,
     }
 }
 
@@ -323,7 +322,6 @@ mod tests {
         assert!((k.fx - 16.0e-3 / 4.8e-6).abs() < 1e-9);
         assert!((k.fx - 3_333.333_333_333).abs() < 1e-6);
         assert_eq!(k.fx, k.fy);
-        assert_eq!(k.skew, 0.0);
 
         let k = intrinsics_from_camera(&camera("cam0"));
         assert!((k.fx - 8.0e-3 / 7.0e-6).abs() < 1e-9); // ≈ 1142.857

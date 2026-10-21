@@ -27,7 +27,7 @@
 use crate::Error;
 use nalgebra::{Point3, UnitVector3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, Iso3, Pinhole, Pt2, Pt3, Real, SensorModel,
+    BrownConrady5, Camera, FxFyCxCy, Iso3, Pinhole, Pt2, Pt3, Real, SensorModel,
 };
 
 /// Laser line observations for a single view.
@@ -184,7 +184,7 @@ impl LaserlinePlaneSolver {
     /// - Views must be at sufficiently different angles to break collinearity
     pub fn from_views<Sm>(
         views: &[LaserlineView],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCy<Real>>,
     ) -> Result<LinearPlaneEstimate, Error>
     where
         Sm: SensorModel<Real>,
@@ -224,7 +224,7 @@ impl LaserlinePlaneSolver {
     /// 4. Transform intersection point back to camera frame
     fn compute_3d_points<Sm>(
         laser_pixels: &[Pt2],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCy<Real>>,
         camera_se3_target: &Iso3,
     ) -> Result<Vec<Pt3>, Error>
     where
@@ -273,12 +273,11 @@ mod tests {
     use vision_calibration_core::{PinholeCamera, make_pinhole_camera};
 
     fn make_test_camera() -> PinholeCamera {
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 640.0,
             cy: 480.0,
-            skew: 0.0,
         };
         let distortion = BrownConrady5 {
             k1: 0.0,

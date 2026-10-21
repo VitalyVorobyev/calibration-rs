@@ -16,8 +16,8 @@ pixel = K( distort( project(X_c) ) ),   X_c = T_C_T · X_t
 - `distort`: Brown–Conrady 5 on normalized coordinates,
   `x_d = x(1 + k1 r² + k2 r⁴ + k3 r⁶) + 2 p1 x y + p2 (r² + 2x²)` (and
   symmetrically for `y`), `r² = x² + y²`.
-- `K`: `u = fx·x_d + skew·y_d + cx`, `v = fy·y_d + cy`; skew is held at 0
-  (the optimizer packs `[fx, fy, cx, cy]` only).
+- `K`: `u = fx·x_d + cx`, `v = fy·y_d + cy` (no skew term; the optimizer packs
+  `[fx, fy, cx, cy]`).
 - `T_C_T` (`camera_se3_target`, ADR 0009): one SE(3) pose per view; the
   target frame is the board plane `z = 0`.
 
@@ -29,8 +29,8 @@ Writing `H = K [r1 r2 t]`, the orthonormality of `r1, r2` gives two linear
 constraints per view on the image of the absolute conic `ω = K⁻ᵀK⁻¹`;
 stacking views gives `V b = 0`, whose null vector comes from the `VᵀV`
 symmetric eigendecomposition (`math::null_space`), and Zhang's closed forms
-recover `K` from `b` (`zhang_intrinsics`). Skew is then zeroed
-(`zero_skew: true`). Poses follow from `K⁻¹H` (`planar_pose`). Distortion
+recover `K` from `b` (`zhang_intrinsics`). The skew of the
+general solve is discarded. Poses follow from `K⁻¹H` (`planar_pose`). Distortion
 alternates with `K`: fit Brown–Conrady coefficients by linear least squares
 against the homography residuals (`distortion_fit`; `k1, k2, p1, p2` by
 default, `k3` fixed), undistort the pixels, re-estimate `K`.
@@ -51,9 +51,8 @@ autodiff-generic (ADR 0008).
 ## Identifiability and degeneracies
 
 - **View count**: each homography gives 2 constraints on `ω`. The linear
-  solve estimates all 5 DOF of `K` (skew included), so it needs ≥ 3 views;
-  with skew pinned, 2 would suffice in principle. The pipeline requires
-  ≥ 3 views.
+  solve estimates all 5 DOF of the general `K` (skew included, then
+  discarded), so it needs ≥ 3 views. The pipeline requires ≥ 3 views.
 - **Plane-orientation diversity**: constraints from views whose plane
   normals are (near-)parallel are (near-)dependent — a pose set that only
   translates, or only rotates about the optical axis, leaves `ω` rank

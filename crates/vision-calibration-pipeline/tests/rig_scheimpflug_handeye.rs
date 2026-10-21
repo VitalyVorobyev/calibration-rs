@@ -6,8 +6,8 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Pinhole, Pt3, Real, RigDataset,
-    RigView, RigViewObs, ScheimpflugParams,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, RigDataset, RigView,
+    RigViewObs, ScheimpflugParams,
 };
 use vision_calibration_optim::RobotPoseMeta;
 use vision_calibration_pipeline::rig_handeye::{
@@ -17,15 +17,14 @@ use vision_calibration_pipeline::session::CalibrationSession;
 
 fn make_dataset() -> (
     RigDataset<RobotPoseMeta>,
-    FxFyCxCySkew<Real>,
+    FxFyCxCy<Real>,
     Isometry3<Real>, // handeye_gt
 ) {
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let distortion = BrownConrady5 {
         k1: 0.0,
@@ -42,7 +41,7 @@ fn make_dataset() -> (
             tilt_y: -0.03,
         },
     ];
-    let cameras: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = sensors
+    let cameras: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = sensors
         .iter()
         .map(|s| Camera::new(Pinhole, distortion, s.compile(), intrinsics))
         .collect();

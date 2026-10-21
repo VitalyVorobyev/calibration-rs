@@ -4,7 +4,7 @@ use crate::Error;
 use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, ImageManifest, Iso3, NoMeta,
+    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCy, ImageManifest, Iso3, NoMeta,
     PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, RigView, RigViewObs,
     ScheimpflugParams, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
     make_pinhole_camera,
@@ -29,7 +29,7 @@ use super::state::RigLaserlineDeviceState;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigUpstreamCalibration {
     /// Per-camera intrinsics.
-    pub intrinsics: Vec<FxFyCxCySkew<Real>>,
+    pub intrinsics: Vec<FxFyCxCy<Real>>,
     /// Per-camera distortion.
     pub distortion: Vec<BrownConrady5<Real>>,
     /// Per-camera Scheimpflug sensor parameters.

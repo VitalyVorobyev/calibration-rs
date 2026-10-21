@@ -19,7 +19,7 @@ use std::f64::consts::PI;
 
 use nalgebra::{Rotation3, Translation3, Vector3};
 use vision_calibration::core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, PinholeCamera, Pt2, Pt3, Vec2, View,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, Pt2, Pt3, Vec2, View,
     make_pinhole_camera,
 };
 use vision_calibration::laserline_device::{
@@ -92,7 +92,7 @@ fn laser_pixels_for_view(
 /// for a given GT plane, intrinsics, and noise level.
 fn build_dataset(
     plane: &LaserPlane,
-    gt_intr: &FxFyCxCySkew<f64>,
+    gt_intr: &FxFyCxCy<f64>,
     board: &[Pt3],
     poses: &[Iso3],
     noise: &UniformPixelNoise,
@@ -165,12 +165,11 @@ fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
 
 #[test]
 fn laserline_device_recovers_plane_across_grid_and_noise() {
-    let gt_intr = FxFyCxCySkew {
+    let gt_intr = FxFyCxCy {
         fx: 900.0,
         fy: 900.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let board = board();
 

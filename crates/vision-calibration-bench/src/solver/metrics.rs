@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
-use vision_calibration::core::{BrownConrady5, FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
+use vision_calibration::core::{BrownConrady5, FxFyCxCy, Iso3, Real, ScheimpflugParams};
 use vision_calibration::optim::{LaserPlane, RobustLoss};
 use vision_calibration_core::PerFeatureResiduals;
 use vision_calibration_core::synthetic::poses::pose_error;
@@ -18,7 +18,7 @@ use super::scenes::OutlierRef;
 #[derive(Debug, Clone, Copy)]
 pub struct CameraParamsSet {
     /// Pinhole intrinsics.
-    pub k: FxFyCxCySkew<Real>,
+    pub k: FxFyCxCy<Real>,
     /// Brown-Conrady distortion.
     pub dist: BrownConrady5<Real>,
     /// Scheimpflug tilt, `None` for a plain pinhole sensor.
@@ -313,12 +313,11 @@ mod tests {
 
     fn cam(fx: f64) -> CameraParamsSet {
         CameraParamsSet {
-            k: FxFyCxCySkew {
+            k: FxFyCxCy {
                 fx,
                 fy: fx,
                 cx: 640.0,
                 cy: 480.0,
-                skew: 0.0,
             },
             dist: BrownConrady5::default(),
             sensor: None,

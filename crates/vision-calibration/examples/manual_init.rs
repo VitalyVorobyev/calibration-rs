@@ -25,7 +25,7 @@
 mod observations;
 
 use anyhow::{Result, ensure};
-use vision_calibration::core::{BrownConrady5, FxFyCxCySkew, Iso3, PinholeCamera};
+use vision_calibration::core::{BrownConrady5, FxFyCxCy, Iso3, PinholeCamera};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsInput, RigExtrinsicsManualInit, RigExtrinsicsProblem, RigIntrinsicsManualInit,
@@ -71,7 +71,7 @@ fn main() -> Result<()> {
     print_per_feature_residuals_summary(&mut session_a, "Run A")?;
     println!();
 
-    let per_cam_k: Vec<FxFyCxCySkew<f64>> = cameras_a.iter().map(|c| c.k).collect();
+    let per_cam_k: Vec<FxFyCxCy<f64>> = cameras_a.iter().map(|c| c.k).collect();
     let per_cam_dist: Vec<BrownConrady5<f64>> = cameras_a.iter().map(|c| c.dist).collect();
 
     // ─── Run B: replay Run A's intermediates as manual seeds ──────────────
@@ -101,17 +101,16 @@ fn main() -> Result<()> {
 
     // ─── Run C: rough perturbed seed (intrinsics only) ────────────────────
     println!("--- Run C: perturbed intrinsics seed (10% fx, 50px cx) ---");
-    let perturbed_k: Vec<FxFyCxCySkew<f64>> = per_cam_k
+    let perturbed_k: Vec<FxFyCxCy<f64>> = per_cam_k
         .iter()
         .enumerate()
         .map(|(i, k)| {
             let sign = if i.is_multiple_of(2) { 1.0 } else { -1.0 };
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: k.fx * (1.0 + sign * 0.10),
                 fy: k.fy * (1.0 + sign * 0.10),
                 cx: k.cx + sign * 50.0,
                 cy: k.cy - sign * 50.0,
-                skew: k.skew,
             }
         })
         .collect();

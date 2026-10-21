@@ -2,8 +2,8 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Pinhole, Pt3, Real, RigView,
-    RigViewObs, ScheimpflugParams, make_pinhole_camera,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, RigView, RigViewObs,
+    ScheimpflugParams, make_pinhole_camera,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeMode, HandEyeScheimpflugDataset, HandEyeScheimpflugParams,
@@ -13,12 +13,11 @@ use vision_calibration_optim::{
 
 #[test]
 fn eye_in_hand_scheimpflug_converges() {
-    let intrinsics_gt = FxFyCxCySkew {
+    let intrinsics_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let distortion_gt = BrownConrady5 {
         k1: -0.22,
@@ -96,12 +95,11 @@ fn eye_in_hand_scheimpflug_converges() {
     let dataset = HandEyeScheimpflugDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
 
     let cameras_init = vec![make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 810.0,
             fy: 790.0,
             cx: 645.0,
             cy: 365.0,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: -0.18,

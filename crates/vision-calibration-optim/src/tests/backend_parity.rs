@@ -11,7 +11,7 @@ use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real,
+    BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole, Pt3, Real,
 };
 
 const BACKENDS: [SolverBackend; 2] = [SolverBackend::TinySolver, SolverBackend::Factrs];
@@ -33,13 +33,12 @@ fn planar_problem(
     loss: RobustLoss,
     data: Data,
     bounded: bool,
-) -> (ProblemIR, HashMap<String, DVector<f64>>, FxFyCxCySkew<Real>) {
-    let k_gt = FxFyCxCySkew {
+) -> (ProblemIR, HashMap<String, DVector<f64>>, FxFyCxCy<Real>) {
+    let k_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let dist_gt = BrownConrady5 {
         k1: -0.2,
@@ -83,14 +82,12 @@ fn planar_problem(
     );
     initial.insert(
         "cam".to_string(),
-        pack_intrinsics(&FxFyCxCySkew {
+        pack_intrinsics(&FxFyCxCy {
             fx: 795.0,
             fy: 790.0,
             cx: 645.0,
             cy: 365.0,
-            skew: 0.0,
-        })
-        .unwrap(),
+        }),
     );
     let dist = ir.add_param_block(
         "dist",

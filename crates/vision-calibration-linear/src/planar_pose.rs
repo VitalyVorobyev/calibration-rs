@@ -104,17 +104,16 @@ fn build_iso(r_orth: Matrix3<Real>, t_vec: Vector3<Real>) -> Iso3 {
 mod tests {
     use super::*;
     use nalgebra::{Isometry3, Matrix3, Rotation3, Vector3};
-    use vision_calibration_core::FxFyCxCySkew;
+    use vision_calibration_core::FxFyCxCy;
 
     fn make_kmtx() -> Mat3 {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
-        Matrix3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
+        Matrix3::new(k.fx, 0.0, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
     }
 
     #[test]

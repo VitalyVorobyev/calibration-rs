@@ -12,7 +12,7 @@ use nalgebra::Vector3;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use vision_calibration::core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, PlanarDataset, Pt2, Pt3, Real,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Pt2, Pt3, Real,
     RigDataset, RigView, RigViewObs, ScheimpflugParams, View,
 };
 use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDeviceInput};
@@ -558,7 +558,7 @@ fn inject_outliers(
 // ─────────────────────────────────────────────────────────────────────────────
 
 type SynthCamera =
-    Camera<Real, Pinhole, BrownConrady5<Real>, HomographySensor<Real>, FxFyCxCySkew<Real>>;
+    Camera<Real, Pinhole, BrownConrady5<Real>, HomographySensor<Real>, FxFyCxCy<Real>>;
 
 fn synth_camera(c: &CameraParamsSet) -> SynthCamera {
     // A zero-tilt Scheimpflug sensor is the identity, so one camera type
@@ -568,13 +568,7 @@ fn synth_camera(c: &CameraParamsSet) -> SynthCamera {
 
 fn cam(fx: f64, fy: f64, cx: f64, cy: f64, k1: f64, k2: f64) -> CameraParamsSet {
     CameraParamsSet {
-        k: FxFyCxCySkew {
-            fx,
-            fy,
-            cx,
-            cy,
-            skew: 0.0,
-        },
+        k: FxFyCxCy { fx, fy, cx, cy },
         dist: BrownConrady5 {
             k1,
             k2,
@@ -853,12 +847,11 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
     // Coarse device-spec seed: focal ~8 % low, principal point at the image
     // centre, the nominal mount tilt, no distortion.
     let mut seed = ScheimpflugManualInit::default();
-    seed.intrinsics = Some(FxFyCxCySkew {
+    seed.intrinsics = Some(FxFyCxCy {
         fx: 920.0,
         fy: 920.0,
         cx: 640.0,
         cy: 480.0,
-        skew: 0.0,
     });
     seed.sensor = Some(ScheimpflugParams {
         tilt_x: -0.04,

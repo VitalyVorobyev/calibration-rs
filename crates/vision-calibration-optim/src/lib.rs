@@ -32,7 +32,7 @@
 //! ## Basic Planar Intrinsics Calibration
 //!
 //! ```rust,no_run
-//! use vision_calibration_core::{BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, PlanarDataset, Pt2, Pt3, View};
+//! use vision_calibration_core::{BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCy, Iso3, PlanarDataset, Pt2, Pt3, View};
 //! use vision_calibration_optim::{
 //!     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
 //!     PlanarIntrinsicsSolveOptions, RobustLoss,
@@ -58,12 +58,11 @@
 //!
 //! // 2. Initialize with linear method or prior calibration
 //! let init = PlanarIntrinsicsParams::new_from_components(
-//!     FxFyCxCySkew {
+//!     FxFyCxCy {
 //!         fx: 800.0,
 //!         fy: 800.0,
 //!         cx: 640.0,
 //!         cy: 360.0,
-//!         skew: 0.0,
 //!     },
 //!     BrownConrady5 {
 //!         k1: 0.0,

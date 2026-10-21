@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, DistortionModel, FxFyCxCySkew,
+    BrownConrady5, CorrespondenceView, DistortionFixMask, DistortionModel, FxFyCxCy,
     IntrinsicsFixMask, Mat3, NoMeta, PlanarDataset, Pt2, Pt3, Real, View,
     test_utils::{CalibrationView, pixel_from_normalized, undistort_pixel_normalized},
 };
@@ -94,7 +94,7 @@ fn board_point_3d(i: usize, j: usize, square: Real) -> Pt3 {
 /// Compute reprojection error for a set of observations.
 fn compute_reprojection_error(
     views: &[View<NoMeta>],
-    intrinsics: &FxFyCxCySkew<Real>,
+    intrinsics: &FxFyCxCy<Real>,
     distortion: &BrownConrady5<Real>,
     poses: &[Isometry3<Real>],
 ) -> (Real, Real) {
@@ -117,8 +117,7 @@ fn compute_reprojection_error(
             let distorted = distortion.distort(&Pt2::new(x_norm, y_norm));
 
             // Apply intrinsics
-            let u_proj =
-                intrinsics.fx * distorted.x + intrinsics.skew * distorted.y + intrinsics.cx;
+            let u_proj = intrinsics.fx * distorted.x + intrinsics.cx;
             let v_proj = intrinsics.fy * distorted.y + intrinsics.cy;
 
             // Compute pixel error
@@ -193,7 +192,7 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         // Step 3: Prepare dataset for non-linear optimization
         let k_init = Mat3::new(
             linear_init.fx,
-            linear_init.skew,
+            0.0,
             linear_init.cx,
             0.0,
             linear_init.fy,
@@ -236,12 +235,11 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         let dataset = PlanarDataset::new(nl_views.clone()).expect("planar dataset");
 
         let init = PlanarIntrinsicsParams::new_from_components(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: linear_init.fx,
                 fy: linear_init.fy,
                 cx: linear_init.cx,
                 cy: linear_init.cy,
-                skew: 0.0,
             },
             BrownConrady5 {
                 k1: 0.0,
@@ -385,7 +383,7 @@ fn planar_intrinsics_parameter_fixing_works() {
 
     let k_init = Mat3::new(
         linear_init.fx,
-        linear_init.skew,
+        0.0,
         linear_init.cx,
         0.0,
         linear_init.fy,
@@ -408,12 +406,11 @@ fn planar_intrinsics_parameter_fixing_works() {
     println!("\nTest 1: Fixing tangential distortion (p1, p2)");
 
     let init = PlanarIntrinsicsParams::new_from_components(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,
@@ -462,12 +459,11 @@ fn planar_intrinsics_parameter_fixing_works() {
     println!("\nTest 2: Fixing k3 (default)");
 
     let init2 = PlanarIntrinsicsParams::new_from_components(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,
@@ -495,12 +491,11 @@ fn planar_intrinsics_parameter_fixing_works() {
     println!("\nTest 3: Fixing intrinsics (fx, fy), optimizing distortion");
 
     let init3 = PlanarIntrinsicsParams::new_from_components(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: 0.0,
@@ -607,7 +602,6 @@ fn planar_intrinsics_with_iterative_linear_init() {
                 fix_tangential: false,
                 iters: 8,
             },
-            zero_skew: true,
         };
 
         let iter_result =
@@ -671,12 +665,11 @@ fn planar_intrinsics_with_iterative_linear_init() {
 
         // Initialize from iterative result
         let init = PlanarIntrinsicsParams::new_from_components(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: iter_result.k.fx,
                 fy: iter_result.k.fy,
                 cx: iter_result.k.cx,
                 cy: iter_result.k.cy,
-                skew: 0.0,
             },
             iter_result.dist,
             init_poses.clone(),

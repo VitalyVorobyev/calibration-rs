@@ -23,9 +23,9 @@ use crate::{
 use nalgebra::{DMatrix, SMatrix, SVector, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, DistortionModel, FxFyCxCySkew, IntrinsicsModel,
-    Iso3, Mat3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams,
-    SensorModel, View,
+    BrownConrady5, Camera, CorrespondenceView, DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3,
+    Mat3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams, SensorModel,
+    View,
 };
 use vision_geometry::homography::dlt_homography;
 
@@ -36,8 +36,6 @@ pub struct ScheimpflugIntrinsicsInitOptions {
     pub iterations: usize,
     /// Brown-Conrady coefficients estimated during the linear initialization.
     pub distortion_opts: DistortionFitOptions,
-    /// Force skew to zero after each candidate K estimate.
-    pub zero_skew: bool,
     /// Initial `tilt_x` candidates, in radians.
     pub tilt_x_seeds: Vec<Real>,
     /// Initial `tilt_y` candidates, in radians.
@@ -59,7 +57,6 @@ impl Default for ScheimpflugIntrinsicsInitOptions {
                 fix_k3: true,
                 iters: 8,
             },
-            zero_skew: true,
             // Covers roughly +/-9 degrees, including the common +/-5 degree
             // Scheimpflug region, without assuming the sign.
             tilt_x_seeds: vec![-0.16, -0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12, 0.16],
@@ -92,7 +89,7 @@ struct Candidate {
 
 #[derive(Debug, Clone, Copy)]
 struct CandidateSeed {
-    reference_k: FxFyCxCySkew<Real>,
+    reference_k: FxFyCxCy<Real>,
     sensor: ScheimpflugParams,
 }
 
@@ -115,7 +112,6 @@ pub fn estimate_scheimpflug_intrinsics_iterative(
     let pinhole_opts = IterativeIntrinsicsOptions {
         iterations: opts.iterations,
         distortion_opts: opts.distortion_opts,
-        zero_skew: opts.zero_skew,
     };
     let base = estimate_intrinsics_iterative(dataset, pinhole_opts)?;
     let observed_center = observed_pixel_center(dataset);
@@ -190,7 +186,7 @@ fn validate_options(
 
 fn initial_seed_grid(
     dataset: &PlanarDataset,
-    fallback_k: &FxFyCxCySkew<Real>,
+    fallback_k: &FxFyCxCy<Real>,
     opts: &ScheimpflugIntrinsicsInitOptions,
 ) -> Result<Vec<CandidateSeed>, Error> {
     let mut out = homography_decomposition_seeds(dataset, opts).unwrap_or_default();
@@ -211,7 +207,7 @@ fn seed_grid(opts: &ScheimpflugIntrinsicsInitOptions) -> Result<Vec<ScheimpflugP
 }
 
 fn local_seed_grid(
-    reference_k: FxFyCxCySkew<Real>,
+    reference_k: FxFyCxCy<Real>,
     center: ScheimpflugParams,
     step: Real,
     opts: &ScheimpflugIntrinsicsInitOptions,
@@ -231,7 +227,7 @@ fn local_seed_grid(
 
 fn push_candidate_seed(
     seeds: &mut Vec<CandidateSeed>,
-    reference_k: FxFyCxCySkew<Real>,
+    reference_k: FxFyCxCy<Real>,
     sensor: ScheimpflugParams,
 ) {
     if seeds.iter().any(|s| {
@@ -285,7 +281,7 @@ fn homography_decomposition_seeds(
             if tilt_x.abs() > opts.max_abs_tilt || tilt_y.abs() > opts.max_abs_tilt {
                 continue;
             }
-            if let Some(seed) = fit_zero_skew_k_and_tilt(
+            if let Some(seed) = fit_k_and_tilt(
                 &omega,
                 effective_k,
                 ScheimpflugParams { tilt_x, tilt_y },
@@ -364,9 +360,9 @@ fn estimate_absolute_conic(homographies: &[Mat3]) -> Result<Mat3, Error> {
         .ok_or_else(|| Error::numerical("Scheimpflug init absolute conic estimate is non-finite"))
 }
 
-fn fit_zero_skew_k_and_tilt(
+fn fit_k_and_tilt(
     target_omega: &Mat3,
-    effective_k: FxFyCxCySkew<Real>,
+    effective_k: FxFyCxCy<Real>,
     sensor_seed: ScheimpflugParams,
     max_abs_tilt: Real,
 ) -> Option<CandidateSeed> {
@@ -441,13 +437,7 @@ fn decode_params(p: &SVector<Real, 6>, f_scale: Real, max_abs_tilt: Real) -> Opt
         return None;
     }
     Some(CandidateSeed {
-        reference_k: FxFyCxCySkew {
-            fx,
-            fy,
-            cx,
-            cy,
-            skew: 0.0,
-        },
+        reference_k: FxFyCxCy { fx, fy, cx, cy },
         sensor,
     })
 }
@@ -465,10 +455,7 @@ fn conic_residual(seed: &CandidateSeed, target_omega: &Mat3) -> Option<SVector<R
     ))
 }
 
-fn conic_from_k_and_tilt(
-    intrinsics: &FxFyCxCySkew<Real>,
-    sensor: ScheimpflugParams,
-) -> Option<Mat3> {
+fn conic_from_k_and_tilt(intrinsics: &FxFyCxCy<Real>, sensor: ScheimpflugParams) -> Option<Mat3> {
     let effective = intrinsics.k_matrix() * sensor.compile().h;
     let inv = effective.try_inverse()?;
     normalize_symmetric_matrix(inv.transpose() * inv)
@@ -488,16 +475,13 @@ fn normalize_symmetric_matrix(m: Mat3) -> Option<Mat3> {
 
 fn evaluate_candidate(
     dataset: &PlanarDataset,
-    reference_k: &FxFyCxCySkew<Real>,
+    reference_k: &FxFyCxCy<Real>,
     sensor: ScheimpflugParams,
     pinhole_opts: IterativeIntrinsicsOptions,
     observed_center: Pt2,
 ) -> Result<Candidate, Error> {
     let untilted = untilt_dataset(dataset, reference_k, sensor)?;
     let mut camera = estimate_intrinsics_iterative(&untilted, pinhole_opts)?;
-    if pinhole_opts.zero_skew {
-        camera.k.skew = 0.0;
-    }
     camera.dist = damp_seed_distortion(camera.dist);
     validate_camera(&camera)?;
     let poses = recover_tilt_aware_poses(dataset, &camera.k, &camera.dist, sensor)?;
@@ -536,7 +520,7 @@ fn tilt_complexity(sensor: ScheimpflugParams) -> Real {
     TILT_PRIOR_WEIGHT * (sensor.tilt_x * sensor.tilt_x + sensor.tilt_y * sensor.tilt_y)
 }
 
-fn principal_point_complexity(intrinsics: &FxFyCxCySkew<Real>, center: Pt2) -> Real {
+fn principal_point_complexity(intrinsics: &FxFyCxCy<Real>, center: Pt2) -> Real {
     const PRINCIPAL_POINT_PRIOR_WEIGHT: Real = 0.0;
     let dx = (intrinsics.cx - center.x) / intrinsics.fx.max(1.0);
     let dy = (intrinsics.cy - center.y) / intrinsics.fy.max(1.0);
@@ -580,7 +564,7 @@ fn damp_seed_distortion(mut distortion: BrownConrady5<Real>) -> BrownConrady5<Re
 
 fn untilt_dataset(
     dataset: &PlanarDataset,
-    reference_k: &FxFyCxCySkew<Real>,
+    reference_k: &FxFyCxCy<Real>,
     sensor: ScheimpflugParams,
 ) -> Result<PlanarDataset, Error> {
     let sensor_model = sensor.compile();
@@ -606,7 +590,7 @@ fn untilt_dataset(
 
 fn recover_tilt_aware_poses(
     dataset: &PlanarDataset,
-    intrinsics: &FxFyCxCySkew<Real>,
+    intrinsics: &FxFyCxCy<Real>,
     distortion: &BrownConrady5<Real>,
     sensor: ScheimpflugParams,
 ) -> Result<Vec<Iso3>, Error> {
@@ -630,7 +614,7 @@ fn recover_tilt_aware_poses(
 
 fn ideal_dataset(
     dataset: &PlanarDataset,
-    intrinsics: &FxFyCxCySkew<Real>,
+    intrinsics: &FxFyCxCy<Real>,
     distortion: &BrownConrady5<Real>,
     sensor: ScheimpflugParams,
 ) -> Result<PlanarDataset, Error> {
@@ -671,7 +655,6 @@ fn validate_camera(camera: &PinholeCamera) -> Result<(), Error> {
         camera.k.fy,
         camera.k.cx,
         camera.k.cy,
-        camera.k.skew,
         camera.dist.k1,
         camera.dist.k2,
         camera.dist.k3,
@@ -764,7 +747,7 @@ mod tests {
     }
 
     fn dataset(
-        intrinsics: FxFyCxCySkew<Real>,
+        intrinsics: FxFyCxCy<Real>,
         distortion: BrownConrady5<Real>,
         sensor: ScheimpflugParams,
         cols: usize,
@@ -782,12 +765,11 @@ mod tests {
 
     #[test]
     fn init_recovers_small_tilt_without_distortion() {
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let sensor = ScheimpflugParams {
             tilt_x: 0.01,
@@ -817,12 +799,11 @@ mod tests {
 
     #[test]
     fn init_recovers_rtv3d_like_tilt_with_strong_radial_distortion() {
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 1155.0,
             fy: 1165.0,
             cx: 365.0,
             cy: 265.0,
-            skew: 0.0,
         };
         let distortion = BrownConrady5 {
             k1: -0.43,
@@ -860,12 +841,11 @@ mod tests {
 
     #[test]
     fn init_rejects_too_few_views() {
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let dataset = dataset(
             intrinsics,
@@ -886,12 +866,11 @@ mod tests {
 
     #[test]
     fn init_rejects_empty_seed_grid() {
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let dataset = dataset(
             intrinsics,

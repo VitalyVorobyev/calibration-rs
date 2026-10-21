@@ -3,7 +3,7 @@ import type { AnyExport } from "../store/types";
 import { adaptSceneExport } from "./sceneExport";
 
 const CAMERA = {
-  k: { fx: 1000, fy: 1000, cx: 320, cy: 240, skew: 0 },
+  k: { fx: 1000, fy: 1000, cx: 320, cy: 240 },
   dist: { k1: 0, k2: 0, k3: 0, p1: 0, p2: 0, iters: 5 },
   proj: null,
   sensor: null,

@@ -71,14 +71,12 @@ class IntrinsicsInitConfig:
     init_iterations: int = 2
     fix_k3: bool = True
     fix_tangential: bool = False
-    zero_skew: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "init_iterations": int(self.init_iterations),
             "fix_k3": bool(self.fix_k3),
             "fix_tangential": bool(self.fix_tangential),
-            "zero_skew": bool(self.zero_skew),
         }
 
     @classmethod
@@ -1029,7 +1027,6 @@ class PinholeIntrinsics:
     fy: float
     cx: float
     cy: float
-    skew: float
 
     def to_payload(self) -> dict[str, float]:
         """Convert to serde payload shape."""
@@ -1038,7 +1035,6 @@ class PinholeIntrinsics:
             "fy": float(self.fy),
             "cx": float(self.cx),
             "cy": float(self.cy),
-            "skew": float(self.skew),
         }
 
     @classmethod
@@ -1049,7 +1045,6 @@ class PinholeIntrinsics:
             fy=float(payload["fy"]),
             cx=float(payload["cx"]),
             cy=float(payload["cy"]),
-            skew=float(payload["skew"]),
         )
 
 
@@ -1310,12 +1305,6 @@ class PinholeBrownConradyCamera:
             intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
             distortion_payload = cast(Mapping[str, Any], payload["distortion"])
 
-            intrinsics_type = intrinsics_payload.get("type")
-            if intrinsics_type not in (None, "fx_fy_cx_cy_skew"):
-                raise ValueError(
-                    f"unsupported intrinsics payload type for pinhole camera: {intrinsics_type!r}"
-                )
-
             distortion_type = distortion_payload.get("type")
             if distortion_type not in (None, "brown_conrady5"):
                 raise ValueError(
@@ -1328,14 +1317,6 @@ class PinholeBrownConradyCamera:
             )
 
         raise ValueError("camera payload missing expected intrinsics/distortion fields")
-
-
-def _check_intrinsics_type(payload: Mapping[str, Any], where: str) -> None:
-    intrinsics_type = payload.get("type")
-    if intrinsics_type not in (None, "fx_fy_cx_cy_skew"):
-        raise ValueError(
-            f"unsupported intrinsics payload type for {where} camera: {intrinsics_type!r}"
-        )
 
 
 @dataclass(slots=True)
@@ -1356,14 +1337,13 @@ class PinholeCamera:
             "projection": {"type": "pinhole"},
             "distortion": _distortion_to_payload(self.distortion),
             "sensor": {"type": "identity"},
-            "intrinsics": {"type": "fx_fy_cx_cy_skew", **self.intrinsics.to_payload()},
+            "intrinsics": self.intrinsics.to_payload(),
         }
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeCamera":
         """Parse from the `CameraParams` serde payload shape."""
         intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
-        _check_intrinsics_type(intrinsics_payload, "pinhole")
         return cls(
             intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
             distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["distortion"])),
@@ -1390,7 +1370,7 @@ class PinholeScheimpflugCamera:
             "projection": {"type": "pinhole"},
             "distortion": _distortion_to_payload(self.distortion),
             "sensor": {"type": "scheimpflug", **self.sensor.to_payload()},
-            "intrinsics": {"type": "fx_fy_cx_cy_skew", **self.intrinsics.to_payload()},
+            "intrinsics": self.intrinsics.to_payload(),
         }
 
     @classmethod
@@ -1398,7 +1378,6 @@ class PinholeScheimpflugCamera:
         """Parse from `CameraParams` payload with Scheimpflug sensor."""
         intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
         sensor_payload = cast(Mapping[str, Any], payload["sensor"])
-        _check_intrinsics_type(intrinsics_payload, "Scheimpflug")
 
         sensor_type = sensor_payload.get("type")
         if sensor_type not in (None, "scheimpflug"):

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, FxFyCxCySkew, Iso3, Mat3, Real, make_pinhole_camera,
+    BrownConrady5, CameraParams, FxFyCxCy, Iso3, Mat3, Real, make_pinhole_camera,
 };
 use vision_calibration_optim::PlanarIntrinsicsParams;
 
@@ -28,8 +28,8 @@ pub(crate) struct PlanarState {
     // ─────────────────────────────────────────────────────────────────────────
     // From initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial intrinsics estimate (fx, fy, cx, cy, skew).
-    pub initial_intrinsics: Option<FxFyCxCySkew<Real>>,
+    /// Initial intrinsics estimate (fx, fy, cx, cy).
+    pub initial_intrinsics: Option<FxFyCxCy<Real>>,
 
     /// Initial distortion estimate.
     pub initial_distortion: Option<BrownConrady5<Real>>,
@@ -122,12 +122,11 @@ mod tests {
 
     #[test]
     fn is_initialized_requires_both() {
-        let intrinsics = FxFyCxCySkew {
+        let intrinsics = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
 
         let state = PlanarState {
@@ -165,12 +164,11 @@ mod tests {
     #[test]
     fn initial_params_with_default_distortion() {
         let state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCySkew {
+            initial_intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             }),
             initial_poses: Some(vec![Iso3::identity()]),
             ..Default::default()
@@ -185,12 +183,11 @@ mod tests {
     #[test]
     fn clear_optimization_keeps_init() {
         let mut state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCySkew {
+            initial_intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             }),
             initial_poses: Some(vec![Iso3::identity()]),
             final_cost: Some(0.001),
@@ -211,12 +208,11 @@ mod tests {
     #[test]
     fn clear_removes_everything() {
         let mut state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCySkew {
+            initial_intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             }),
             initial_poses: Some(vec![Iso3::identity()]),
             final_cost: Some(0.001),
@@ -232,12 +228,11 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCySkew {
+            initial_intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.1,
             }),
             initial_distortion: Some(BrownConrady5 {
                 k1: -0.1,

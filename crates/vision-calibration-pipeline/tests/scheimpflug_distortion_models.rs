@@ -13,7 +13,7 @@
 use nalgebra::{Translation3, UnitQuaternion};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraProject, CorrespondenceView, DistortionFixMask, DistortionParams,
-    Division, FxFyCxCySkew, Iso3, Pinhole, PlanarDataset, Pt2, Pt3, RationalPolynomial,
+    Division, FxFyCxCy, Iso3, Pinhole, PlanarDataset, Pt2, Pt3, RationalPolynomial,
     ScheimpflugParams, ThinPrism, View,
 };
 use vision_calibration_optim::DistortionKind;
@@ -27,13 +27,12 @@ use vision_calibration_pipeline::session::CalibrationSession;
 // Shared GT infrastructure
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn gt_intrinsics() -> FxFyCxCySkew<f64> {
-    FxFyCxCySkew {
+fn gt_intrinsics() -> FxFyCxCy<f64> {
+    FxFyCxCy {
         fx: 1150.0,
         fy: 1155.0,
         cx: 372.0,
         cy: 258.0,
-        skew: 0.0,
     }
 }
 
@@ -156,12 +155,11 @@ fn run_pipeline(
 
 fn near_gt_manual() -> ScheimpflugManualInit {
     let mut manual = ScheimpflugManualInit::default();
-    manual.intrinsics = Some(FxFyCxCySkew {
+    manual.intrinsics = Some(FxFyCxCy {
         fx: gt_intrinsics().fx * 1.01,
         fy: gt_intrinsics().fy * 1.01,
         cx: gt_intrinsics().cx + 3.0,
         cy: gt_intrinsics().cy - 3.0,
-        skew: 0.0,
     });
     manual.sensor = Some(ScheimpflugParams {
         tilt_x: 0.04,

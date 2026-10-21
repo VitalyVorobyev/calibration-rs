@@ -11,9 +11,9 @@ use nalgebra::{DMatrix, DVector, Matrix2, Translation3, UnitQuaternion, Vector2,
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
     BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionFixMask,
-    DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3, NoMeta, ParameterCovariance,
-    PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, RigDataset, RigView, RigViewObs,
-    ScheimpflugParams, SensorParams, Uncertainty, Vec2, View, make_pinhole_camera,
+    DistortionParams, FxFyCxCy, Iso3, NoMeta, ParameterCovariance, PinholeCamera, PlanarDataset,
+    ProjectionParams, Pt2, Pt3, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams,
+    Uncertainty, Vec2, View, make_pinhole_camera,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
@@ -185,12 +185,11 @@ fn board_poses() -> Vec<Iso3> {
 
 fn pinhole_truth(fx: f64, cx: f64) -> PinholeCamera {
     make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx,
             fy: fx + 5.0,
             cx,
             cy: 258.0,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: -0.08,
@@ -243,12 +242,11 @@ fn truth() -> ScheimpflugIntrinsicsParams {
         )
     });
     ScheimpflugIntrinsicsParams::new_with_distortion(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 1150.0,
             fy: 1155.0,
             cx: 372.0,
             cy: 258.0,
-            skew: 0.0,
         },
         DistortionParams::BrownConrady5 {
             params: BrownConrady5 {
@@ -277,9 +275,7 @@ fn scheimpflug_camera(params: &ScheimpflugIntrinsicsParams) -> CameraParams {
         sensor: SensorParams::Scheimpflug {
             params: params.sensor,
         },
-        intrinsics: IntrinsicsParams::FxFyCxCySkew {
-            params: params.intrinsics,
-        },
+        intrinsics: params.intrinsics,
     }
 }
 

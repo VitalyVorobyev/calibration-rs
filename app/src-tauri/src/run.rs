@@ -1069,7 +1069,7 @@ mod tests {
 
     fn rtv3d_manual_intrinsics_init() -> serde_json::Value {
         let intrinsics: Vec<_> = (0..6)
-            .map(|_| json!({"fx": 2000.0, "fy": 2000.0, "cx": 360.0, "cy": 270.0, "skew": 0.0}))
+            .map(|_| json!({"fx": 2000.0, "fy": 2000.0, "cx": 360.0, "cy": 270.0}))
             .collect();
         let distortion: Vec<_> = (0..6)
             .map(|_| json!({"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))

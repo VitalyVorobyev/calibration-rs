@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera,
-    Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
+    BrownConrady5, CameraFixMask, FxFyCxCy, IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera, Real,
+    ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_optim::{
@@ -53,7 +53,7 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 #[non_exhaustive]
 pub struct RigIntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
-    pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
+    pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
     /// Per-camera distortion seeds.
     pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
     /// Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).
@@ -803,18 +803,17 @@ mod tests {
     use super::*;
     use nalgebra::{Rotation3, Translation3};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCySkew, PinholeCamera, Pt2, Pt3, RigDataset,
-        RigView, RigViewObs, make_pinhole_camera,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, RigDataset, RigView,
+        RigViewObs, make_pinhole_camera,
     };
 
     fn make_test_camera(offset: f64) -> PinholeCamera {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0 + offset,
                 fy: 780.0 + offset,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )

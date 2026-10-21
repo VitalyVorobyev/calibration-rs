@@ -129,16 +129,15 @@ impl RigHandeyeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, make_pinhole_camera};
+    use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
 
     fn make_test_camera() -> PinholeCamera {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )

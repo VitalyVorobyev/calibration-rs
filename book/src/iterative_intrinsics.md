@@ -47,7 +47,7 @@ $$\boxed{\text{Iterative Intrinsics Estimation}}$$
 
    d. Re-estimate $K^{(i)}$ from $\{H_k^{(i)}\}$ via Zhang's method
 
-   e. (Optional) Enforce zero skew: $K^{(i)}_{12} = 0$
+   e. Drop the skew term of the estimate: $K^{(i)}_{12} = 0$
 
 4. **Return** $K^{(n_{\text{iter}})}, \mathbf{d}^{(n_{\text{iter}})}$
 
@@ -67,7 +67,6 @@ More iterations are safe but rarely improve the estimate significantly. The defa
 pub struct IterativeIntrinsicsOptions {
     pub iterations: usize,                    // 1-3 typical (default: 2)
     pub distortion_opts: DistortionFitOptions, // Controls fix_k3, fix_tangential, iters
-    pub zero_skew: bool,                      // Force skew = 0 (default: true)
 }
 ```
 
@@ -105,11 +104,10 @@ let opts = IterativeIntrinsicsOptions {
         fix_tangential: false,
         iters: 8,
     },
-    zero_skew: true,
 };
 
 let camera = estimate_intrinsics_iterative(&dataset, opts)?;
-// camera is PinholeCamera = Camera<f64, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCySkew>
-// camera.k: FxFyCxCySkew (intrinsics)
+// camera is PinholeCamera = Camera<f64, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCy>
+// camera.k: FxFyCxCy (intrinsics)
 // camera.dist: BrownConrady5 (distortion)
 ```

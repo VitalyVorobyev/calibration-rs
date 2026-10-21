@@ -8,7 +8,7 @@ use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::synthetic::planar::{grid_points, project_views_noisy};
 use vision_calibration_core::synthetic::poses::{centered_board_poses, seeded_board_pose_specs};
 use vision_calibration_core::{
-    BrownConrady5, FxFyCxCySkew, Iso3, PlanarDataset, View, make_pinhole_camera,
+    BrownConrady5, FxFyCxCy, Iso3, PlanarDataset, View, make_pinhole_camera,
 };
 
 use crate::backend::covariance::{
@@ -34,12 +34,11 @@ struct PlanarScene {
 
 fn planar_scene() -> PlanarScene {
     let camera = make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         },
         BrownConrady5 {
             k1: -0.12,

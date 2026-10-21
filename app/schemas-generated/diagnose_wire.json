@@ -63,7 +63,7 @@
         "k": {
           "allOf": [
             {
-              "$ref": "#/definitions/FxFyCxCySkew"
+              "$ref": "#/definitions/FxFyCxCy"
             }
           ],
           "description": "Intrinsics model (K)."
@@ -108,10 +108,10 @@
         "intrinsics": {
           "allOf": [
             {
-              "$ref": "#/definitions/IntrinsicsParams"
+              "$ref": "#/definitions/FxFyCxCy"
             }
           ],
-          "description": "Intrinsics model parameters."
+          "description": "Pinhole intrinsics (`fx, fy, cx, cy` in pixels)."
         },
         "projection": {
           "allOf": [
@@ -658,8 +658,8 @@
       ],
       "type": "object"
     },
-    "FxFyCxCySkew": {
-      "description": "Standard pinhole intrinsics with optional skew.",
+    "FxFyCxCy": {
+      "description": "Standard pinhole intrinsics: focal lengths and principal point in pixels.\n\nThe pixel grid is assumed orthogonal, so `K` carries no skew term.",
       "properties": {
         "cx": {
           "description": "Principal point X coordinate in pixels.",
@@ -680,19 +680,13 @@
           "description": "Focal length in pixels along Y.",
           "format": "double",
           "type": "number"
-        },
-        "skew": {
-          "description": "Skew term (typically 0).",
-          "format": "double",
-          "type": "number"
         }
       },
       "required": [
         "fx",
         "fy",
         "cx",
-        "cy",
-        "skew"
+        "cy"
       ],
       "type": "object"
     },
@@ -735,54 +729,6 @@
         "frames"
       ],
       "type": "object"
-    },
-    "IntrinsicsParams": {
-      "description": "Serializable intrinsics parameters.",
-      "oneOf": [
-        {
-          "description": "Pinhole intrinsics with optional skew.",
-          "properties": {
-            "cx": {
-              "description": "Principal point X coordinate in pixels.",
-              "format": "double",
-              "type": "number"
-            },
-            "cy": {
-              "description": "Principal point Y coordinate in pixels.",
-              "format": "double",
-              "type": "number"
-            },
-            "fx": {
-              "description": "Focal length in pixels along X.",
-              "format": "double",
-              "type": "number"
-            },
-            "fy": {
-              "description": "Focal length in pixels along Y.",
-              "format": "double",
-              "type": "number"
-            },
-            "skew": {
-              "description": "Skew term (typically 0).",
-              "format": "double",
-              "type": "number"
-            },
-            "type": {
-              "const": "fx_fy_cx_cy_skew",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type",
-            "fx",
-            "fy",
-            "cx",
-            "cy",
-            "skew"
-          ],
-          "type": "object"
-        }
-      ]
     },
     "Iso3Schema": {
       "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
@@ -1055,7 +1001,7 @@
         "intrinsics": {
           "allOf": [
             {
-              "$ref": "#/definitions/FxFyCxCySkew"
+              "$ref": "#/definitions/FxFyCxCy"
             }
           ],
           "description": "Camera intrinsics."

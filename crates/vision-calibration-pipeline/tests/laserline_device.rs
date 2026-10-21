@@ -2,7 +2,7 @@
 
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, Pinhole, Pt2, Pt3,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, Pt2, Pt3,
     ScheimpflugParams, SensorModel, View,
 };
 use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineView};
@@ -57,7 +57,7 @@ fn make_laser_plane(poses: &[Iso3]) -> LaserPlane {
 fn laser_pixels_for_view<Sm>(
     pose: &Iso3,
     plane: &LaserPlane,
-    camera: &Camera<f64, Pinhole, BrownConrady5<f64>, Sm, FxFyCxCySkew<f64>>,
+    camera: &Camera<f64, Pinhole, BrownConrady5<f64>, Sm, FxFyCxCy<f64>>,
 ) -> Vec<Pt2>
 where
     Sm: SensorModel<f64>,
@@ -102,13 +102,12 @@ where
     pixels
 }
 
-fn make_dataset(sensor: ScheimpflugParams) -> (Vec<LaserlineView>, FxFyCxCySkew<f64>, LaserPlane) {
-    let intrinsics = FxFyCxCySkew {
+fn make_dataset(sensor: ScheimpflugParams) -> (Vec<LaserlineView>, FxFyCxCy<f64>, LaserPlane) {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let distortion = BrownConrady5 {
         k1: 0.0,

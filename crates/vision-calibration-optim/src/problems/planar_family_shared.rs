@@ -2,7 +2,7 @@ use crate::Error;
 use nalgebra::DVector;
 use std::collections::{HashMap, HashSet};
 use vision_calibration_core::{
-    DistortionParams, FxFyCxCySkew, Iso3, PlanarDataset, Real, ScheimpflugParams,
+    DistortionParams, FxFyCxCy, Iso3, PlanarDataset, Real, ScheimpflugParams,
 };
 
 use crate::ir::{
@@ -48,7 +48,7 @@ impl PlanarSensorIrOptions {
 
 pub(crate) fn build_planar_reprojection_ir(
     dataset: &PlanarDataset,
-    intrinsics: &FxFyCxCySkew<Real>,
+    intrinsics: &FxFyCxCy<Real>,
     distortion: &DistortionParams,
     poses: &[Iso3],
     opts: &PlanarReprojectionIrOptions,
@@ -81,7 +81,7 @@ pub(crate) fn build_planar_reprojection_ir(
         FixedMask::fix_indices(&opts.fix_intrinsics_indices),
         opts.intrinsics_bounds.clone(),
     );
-    initial_map.insert("cam".to_string(), pack_intrinsics(intrinsics)?);
+    initial_map.insert("cam".to_string(), pack_intrinsics(intrinsics));
 
     // Variable-dimension distortion block selected by the camera model
     // descriptor. `dim == 0` (identity distortion) emits no block; otherwise the

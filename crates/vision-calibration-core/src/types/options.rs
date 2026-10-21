@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Each field corresponds to a component of the camera matrix K:
 /// ```text
-/// K = | fx   skew  cx |
+/// K = | fx   0     cx |
 ///     | 0    fy    cy |
 ///     | 0    0     1  |
 /// ```

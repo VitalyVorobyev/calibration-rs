@@ -22,7 +22,7 @@ export type { ExportKind } from "./exportKind";
 export type Iso3Wire = Iso3Schema;
 
 /** Serialized pinhole `Camera<f64, Pinhole, BrownConrady5, IdentitySensor,
- * FxFyCxCySkew>` — alias of the generated [`Camera`]. The 3D viewer only
+ * FxFyCxCy>` — alias of the generated [`Camera`]. The 3D viewer only
  * reads `k` and `dist`; `proj` / `sensor` / `_phantom` are inert for the
  * pinhole + identity-sensor composition. */
 export type PinholeCameraWire = Camera;
