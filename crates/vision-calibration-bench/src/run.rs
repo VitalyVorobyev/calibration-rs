@@ -2,10 +2,18 @@
 //! captured metrics.
 //!
 //! Tier-A would replay a frozen fixture through the math/serde path; that lands
-//! in a later phase. The Tier-B path here globs a camera's images, detects the
-//! board in each, builds the problem `Input`, runs the facade pipeline, and
-//! captures both bench-recomputed and self-reported reprojection metrics so any
-//! divergence between them is visible in the record.
+//! in a later phase. The Tier-B path here builds the problem `Input` from the
+//! entry's manifest with the pipeline's dataset runner (`crate::detect`),
+//! runs the problem's steps one by one (to time each stage), and captures both
+//! bench-recomputed and self-reported reprojection metrics so any divergence
+//! between them is visible in the record.
+//!
+//! What stays here, on top of the runner: the seeded official route (the
+//! device-spec seed of a Scheimpflug camera, a registry `seed`), registry
+//! config overrides, stage timing, the record, and the rig hand-eye entries'
+//! joint laserline stage — laser frames paired through the snap list,
+//! extracted with `vision-metrology`, and refined jointly with the rig
+//! hand-eye result.
 
 #[cfg(feature = "tier-b")]
 pub use tier_b::{
@@ -18,20 +26,16 @@ pub use tier_b::{
 pub mod tier_b {
     //! Tier-B entry points that require detection and image-loading capabilities.
 
-    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
     use std::time::Instant;
 
     use anyhow::{Context, Result};
-    use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
     use vision_calibration::analysis::{
         QualityReport, RigStageReprojection, assess, planar_intrinsics_report,
         rig_extrinsics_report, rig_handeye_report_with_rig_stage, single_cam_handeye_report,
     };
     use vision_calibration::common::CalibratedCameras;
-    use vision_calibration::core::{
-        CorrespondenceView, Iso3, NoMeta, RigDataset, RigView, RigViewObs,
-    };
+    use vision_calibration::core::{Iso3, RigDataset};
     use vision_calibration::optim::{HandeyeMode, RobotPoseMeta};
     use vision_calibration::planar_intrinsics::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init,
@@ -59,9 +63,8 @@ pub mod tier_b {
     use vision_calibration::planar_intrinsics::IntrinsicsManualInit;
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
-        HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
-        SingleCamHandeyeProblem, SingleCamHandeyeView, step_handeye_init, step_handeye_optimize,
-        step_intrinsics_init, step_intrinsics_optimize,
+        SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeProblem, step_handeye_init,
+        step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
     };
     use vision_calibration_core::{
         BrownConrady5, Camera, CameraFix, CameraModelSpec, CameraParams, DistortionKind,
@@ -82,22 +85,26 @@ pub mod tier_b {
         ColAccess, Edge1DConfig, ImageView, LaserExtractConfig, LaserExtractor, ScanAxis,
     };
 
-    use crate::detect::{
-        ChessFrontEnd, DetectorKind, charuco_params_for, detect_chessboard_view,
-        glob_sorted_images, load_image, puzzleboard_params_for,
+    use vision_calibration_dataset::{
+        CameraSource, ChessCornersDetectorSpec, DatasetSpec, DetectorSpec, TargetSpec,
     };
+    use vision_calibration_detect::DetectionCache;
+    use vision_calibration_pipeline::dataset_runner::{RunError, build_planar_input};
+
+    use crate::detect::{
+        RigViewPaths, TimingCache, board_feature_count, camera_spec, detect_planar,
+        detect_rig_extrinsics, detect_rig_handeye, detect_single_cam_handeye, detection_cache, ms,
+    };
+    use crate::manifest::{dataset_spec, resolve_against};
     #[cfg(feature = "laser")]
     use crate::record::LaserCamStat;
     use crate::record::{
         BENCH_SCHEMA_VERSION, BenchRecord, CalibrationArtifacts, CameraArtifact, Convergence,
-        Detection, DetectionStat, DistortionArtifact, Fit, Ident, IntrinsicsArtifact, LaserMetrics,
+        Detection, DistortionArtifact, Fit, Ident, IntrinsicsArtifact, LaserMetrics,
         ResidualSidecar, RobotCorrectionSummary, ScheimpflugArtifact, StageTiming, Timing,
         TransformArtifact, compact_reproj_report,
     };
-    use crate::registry::{
-        BenchEntry, BoardGeometry, CameraLayout, ChessCornersDetectorSpec, DetectorOverride,
-        ProblemKind,
-    };
+    use crate::registry::{BenchEntry, ProblemKind};
 
     /// Lightweight per-dataset stage profile for diagnosing detector/extractor
     /// cost before running a full calibration solve.
@@ -109,8 +116,6 @@ pub mod tier_b {
         pub problem: ProblemKind,
         /// Number of cameras in the registry entry.
         pub camera_count: usize,
-        /// Number of robot/target poses found when a pose source exists.
-        pub pose_count: Option<usize>,
         /// Maximum images profiled per camera.
         pub max_images_per_camera: Option<usize>,
         /// Target detector profile.
@@ -124,9 +129,10 @@ pub mod tier_b {
     /// Target detector timing/count profile.
     #[derive(Debug, Clone, serde::Serialize)]
     pub struct TargetDetectionProfile {
-        /// Board layout used to select the detector.
+        /// Target kind of the manifest (`chessboard`, `charuco`, …).
         pub detector: String,
-        /// Expected full-board feature count.
+        /// Expected full-board feature count of a registry board (zero for a
+        /// manifest target).
         pub expected_features_per_board: usize,
         /// Total wall-clock time in milliseconds.
         pub total_ms: u64,
@@ -160,8 +166,11 @@ pub mod tier_b {
         pub points_total: usize,
         /// Maximum features or laser pixels detected in one image.
         pub points_max: usize,
-        /// Total image load/decode/tile time in milliseconds.
-        pub load_ms: u64,
+        /// Total image load/decode/tile time in milliseconds, when measured
+        /// apart from the stage. Target detection decodes inside the dataset
+        /// runner, so its `stage_ms` includes decoding and this is absent.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub load_ms: Option<u64>,
         /// Total detector/extractor time in milliseconds.
         pub stage_ms: u64,
         /// Mean detector/extractor time per profiled image.
@@ -376,44 +385,6 @@ pub mod tier_b {
         laser_metrics: LaserMetrics,
     }
 
-    /// Each camera's image size, from the images its detections ran on (after
-    /// any tile crop).
-    struct ImageSizes(Vec<Option<[u32; 2]>>);
-
-    impl ImageSizes {
-        fn new(cameras: usize) -> Self {
-            Self(vec![None; cameras])
-        }
-
-        /// Record one image of `camera`; every image of a camera must have the
-        /// same size.
-        fn observe(&mut self, camera: usize, image: &image::DynamicImage) -> Result<()> {
-            let size = [image.width(), image.height()];
-            match self.0[camera] {
-                Some(previous) => anyhow::ensure!(
-                    previous == size,
-                    "camera {camera}: images differ in size ({}×{} and {}×{})",
-                    previous[0],
-                    previous[1],
-                    size[0],
-                    size[1]
-                ),
-                None => self.0[camera] = Some(size),
-            }
-            Ok(())
-        }
-
-        /// One size per camera, or none when a camera saw no image (its image
-        /// checks are then not applicable).
-        fn sizes(&self) -> Vec<[u32; 2]> {
-            self.0
-                .iter()
-                .copied()
-                .collect::<Option<_>>()
-                .unwrap_or_default()
-        }
-    }
-
     /// The library's quality report on `export`, under the entry's acceptance
     /// thresholds (the defaults when it sets none).
     fn quality_report<E: CalibratedCameras>(
@@ -439,140 +410,67 @@ pub mod tier_b {
     /// Run a single-camera planar-intrinsics calibration for `entry` and build a
     /// [`BenchRecord`].
     ///
-    /// Expects exactly one [`crate::registry::CameraLayout`] and a
-    /// [`BoardGeometry`] on the entry. Globs the camera folder under
-    /// `entry.data_root`, detects the chessboard in every image (skipping images
-    /// with no board), runs `step_init` → `step_optimize`, and assembles the
-    /// record. The returned record's `ident` carries placeholder provenance
-    /// (`git_sha` / `timestamp_rfc3339` / `features` are filled by the caller).
+    /// Detects the entry's manifest through the dataset runner (views with no
+    /// board are dropped), runs `step_init` → `step_optimize`, and assembles
+    /// the record. The returned record's `ident` carries placeholder
+    /// provenance (`git_sha` / `timestamp_rfc3339` / `features` are filled by
+    /// the caller).
     pub fn run_planar_intrinsics(entry: &BenchEntry) -> Result<BenchRecord> {
         anyhow::ensure!(
             entry.problem == ProblemKind::PlanarIntrinsics,
             "run_planar_intrinsics called for {:?}",
             entry.problem
         );
-        let board = entry
-            .board
-            .as_ref()
-            .context("planar_intrinsics entry needs a `board` geometry")?;
-        anyhow::ensure!(
-            entry.cameras.len() == 1,
-            "planar_intrinsics expects exactly one camera, got {}",
-            entry.cameras.len()
-        );
-        let cam = &entry.cameras[0];
-
-        let folder = entry.data_root.join(&cam.folder);
-        let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
-        anyhow::ensure!(
-            !paths.is_empty(),
-            "no images matched {}/{} under {}",
-            cam.folder,
-            cam.filename_glob,
-            entry.data_root.display()
-        );
+        let spec = dataset_spec(entry)?;
+        let camera_id = single_camera_id(&spec)?;
 
         // ── Detection ──────────────────────────────────────────────────────
-        progress(
-            entry,
-            format!("detecting {} images for {}", paths.len(), cam.id),
-        );
-        let detect_start = Instant::now();
-        let mut views = Vec::new();
-        let mut images_used = 0usize;
-        let mut features_detected = 0usize;
-        let mut max_corners_per_image = 0usize;
-        let front_end = ChessFrontEnd::from_override(entry.detector.as_ref());
-        let mut image_sizes = ImageSizes::new(1);
-        for (image_idx, path) in paths.iter().enumerate() {
-            progress_images(entry, "detect", &cam.id, image_idx, paths.len());
-            let img = load_image(path)?;
-            image_sizes.observe(0, &img)?;
-            match detect_chessboard_view(
-                &img,
-                board.rows,
-                board.cols,
-                board.cell_size_m,
-                board.strict_grid,
-                &front_end,
-            ) {
-                Ok(Some(view)) => {
-                    images_used += 1;
-                    features_detected += view.len();
-                    max_corners_per_image = max_corners_per_image.max(view.len());
-                    views.push(View::without_meta(view));
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    // A malformed image is a hard error; a board-not-found is the
-                    // Ok(None) arm above.
-                    return Err(e.context(format!("detection failed for {}", path.display())));
-                }
-            }
-        }
-        let detection_ms = detect_start.elapsed().as_millis() as u64;
+        progress(entry, format!("detecting views for {camera_id}"));
+        let detected = detect_planar(
+            &spec,
+            &entry.data_root,
+            entry.board.as_ref(),
+            &detection_cache(),
+        )
+        .with_context(|| format!("entry `{}`: detection failed", entry.id))?;
+        let detection_ms = detected.detection_ms;
         progress(
             entry,
             format!(
-                "detection finished: {images_used}/{} images, {features_detected} features, {detection_ms} ms",
-                paths.len()
+                "detection finished: {}/{} images, {} features, {detection_ms} ms",
+                detected.detection.per_camera[0].images_used,
+                detected.detection.per_camera[0].images_total,
+                detected.detection.total_detected,
             ),
         );
-
         anyhow::ensure!(
-            views.len() >= 3,
+            detected.input.num_views() >= 3,
             "need >= 3 detected views for planar intrinsics, got {}",
-            views.len()
+            detected.input.num_views()
         );
-
-        // Coverage denominator: the full-board corner count. For loose
-        // checkerboard datasets we take the max corners seen in any single
-        // image because old manifests can disagree with the auto-discovered
-        // grid. Strict-grid datasets use the declared board size because every
-        // accepted detection has already been validated against it.
-        let features_per_board = max_corners_per_image.max(board_feature_count(board));
-        let features_expected = images_used * features_per_board;
-        let coverage_pct = if features_expected > 0 {
-            100.0 * features_detected as f64 / features_expected as f64
-        } else {
-            0.0
-        };
-
-        let detection = Detection {
-            per_camera: vec![DetectionStat {
-                camera_id: cam.id.clone(),
-                images_total: paths.len(),
-                images_used,
-                features_detected,
-                features_expected,
-                coverage_pct,
-                detect_ms: detection_ms,
-            }],
-            total_detected: features_detected,
-            total_expected: features_expected,
-        };
 
         // ── Calibration ────────────────────────────────────────────────────
         // Keep a copy of the detected views for the multi-level reproj report
         // (the dataset is moved into the session below).
-        let views_for_report = views.clone();
-        let dataset = PlanarDataset::new(views).context("failed to build PlanarDataset")?;
+        let views_for_report = detected.input.views.clone();
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         let mut config = PlanarIntrinsicsConfig::default();
         config.solver.backend = entry.solver_backend();
         session.set_config(config).context("set_config failed")?;
-        session.set_input(dataset).context("set_input failed")?;
+        session
+            .set_input(detected.input)
+            .context("set_input failed")?;
 
         progress(entry, "initializing planar intrinsics");
         let init_start = Instant::now();
         let init_ok = step_init(&mut session, None).is_ok();
-        let init_ms = init_start.elapsed().as_millis() as u64;
+        let init_ms = ms_since(init_start);
         anyhow::ensure!(init_ok, "step_init failed for {}", entry.id);
 
         progress(entry, "optimizing planar intrinsics");
         let opt_start = Instant::now();
         let _ = step_optimize(&mut session, None).context("step_optimize failed")?;
-        let optimize_ms = opt_start.elapsed().as_millis() as u64;
+        let optimize_ms = ms_since(opt_start);
 
         let export = session.export().context("session.export failed")?;
 
@@ -639,28 +537,36 @@ pub mod tier_b {
             fit,
             generalization: None,
             stability: None,
-            detection: Some(detection),
+            detection: Some(detected.detection),
             laser: None,
             robot_corrections: None,
-            artifacts: Some(artifacts_from_planar(&cam.id, &export)),
+            artifacts: Some(artifacts_from_planar(camera_id, &export)),
             delta_to_prior: None,
             timing,
-            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
+            quality: Some(quality_report(entry, &export, &detected.image_sizes)?),
             reproj_report,
             residual_sidecar,
         })
+    }
+
+    /// The id of a single-camera manifest's camera.
+    fn single_camera_id(spec: &DatasetSpec) -> Result<&str> {
+        anyhow::ensure!(
+            spec.cameras.len() == 1,
+            "a single-camera problem needs exactly one camera, got {}",
+            spec.cameras.len()
+        );
+        Ok(&spec.cameras[0].id)
     }
 
     /// Detected views + device-spec-derived seed for a single-camera
     /// Scheimpflug intrinsics entry (ADR 0011) — the seed-independent
     /// half of [`run_scheimpflug_intrinsics`].
     ///
-    /// Manifest-driven: the entry's `spec` must be a single-camera
-    /// `PlanarIntrinsics` dataset manifest (inline or by path —
-    /// relative paths resolve against `data_root`) describing the image
-    /// glob, ROI tile, and target; the entry's `device_spec` (the ADR 0011
-    /// `spec.json` sidecar) provides the seed via
-    /// `device_seed::scheimpflug_seed`.
+    /// Manifest-driven: the entry's manifest (its `spec`, or the one its
+    /// registry fields describe) must be a single-camera `PlanarIntrinsics`
+    /// dataset; the entry's `device_spec` (the ADR 0011 `spec.json`
+    /// sidecar) provides the seed via `device_seed::scheimpflug_seed`.
     ///
     /// Detection is the expensive step. [`run_scheimpflug_intrinsics`] calls
     /// this once and immediately solves; the convergence-basin study
@@ -678,10 +584,9 @@ pub mod tier_b {
         pub seed: IntrinsicsManualInit,
         /// Detection stats for the `BenchRecord`.
         pub detection: Detection,
-        /// `[width, height]` of the camera's images: the manifest camera's
-        /// region; `None` for whole images, whose size the manifest does not
-        /// state.
-        pub image_size: Option<[u32; 2]>,
+        /// `[width, height]` of the camera's images (its region of
+        /// interest, when the manifest crops one).
+        pub image_size: [u32; 2],
         /// Wall-clock detection time in milliseconds.
         pub detection_ms: u64,
     }
@@ -692,22 +597,14 @@ pub mod tier_b {
         entry: &BenchEntry,
     ) -> Result<DetectedScheimpflugCamera> {
         use vision_calibration::device_seed::{DeviceSpec, scheimpflug_seed};
-        use vision_calibration_detect::FsDetectionCache;
-        use vision_calibration_pipeline::dataset_runner::build_planar_input;
 
         anyhow::ensure!(
             entry.is_scheimpflug_planar(),
             "detect_scheimpflug_seeded_input called for {:?} without a Scheimpflug sensor",
             entry.problem
         );
-        let spec = resolve_dataset_spec(entry)?;
-        anyhow::ensure!(
-            spec.cameras.len() == 1,
-            "Scheimpflug planar manifest must have exactly one camera, got {}",
-            spec.cameras.len()
-        );
-        let camera_id = spec.cameras[0].id.clone();
-        let image_size = spec.cameras[0].roi_xywh.map(|[_, _, w, h]| [w, h]);
+        let spec = dataset_spec(entry)?;
+        let camera_id = single_camera_id(&spec)?.to_string();
 
         let device_spec_rel = entry.device_spec.as_ref().with_context(|| {
             format!(
@@ -724,38 +621,21 @@ pub mod tier_b {
 
         // ── Detection (manifest-driven, cached) ────────────────────────────
         progress(entry, format!("detecting views for {camera_id} (manifest)"));
-        let cache = FsDetectionCache::new(entry.data_root.join(".detection-cache"));
-        let detect_start = Instant::now();
-        let planar = build_planar_input(&spec, &entry.data_root, &cache, false)
-            .with_context(|| format!("entry `{}`: manifest detection failed", entry.id))?;
-        let detection_ms = ms_since(detect_start);
-        let features_detected: usize = planar
-            .input
-            .views
-            .iter()
-            .map(|v| v.obs.points_2d.len())
-            .sum();
-        let detection = Detection {
-            per_camera: vec![DetectionStat {
-                camera_id: camera_id.clone(),
-                images_total: planar.total_views,
-                images_used: planar.usable_views,
-                features_detected,
-                features_expected: 0, // manifest targets have no fixed per-view count
-                coverage_pct: 0.0,
-                detect_ms: detection_ms,
-            }],
-            total_detected: features_detected,
-            total_expected: 0,
-        };
+        let detected = detect_planar(
+            &spec,
+            &entry.data_root,
+            entry.board.as_ref(),
+            &detection_cache(),
+        )
+        .with_context(|| format!("entry `{}`: manifest detection failed", entry.id))?;
 
         Ok(DetectedScheimpflugCamera {
             camera_id,
-            dataset: planar.input,
+            dataset: detected.input,
             seed,
-            detection,
-            image_size,
-            detection_ms,
+            detection: detected.detection,
+            image_size: detected.image_sizes[0],
+            detection_ms: detected.detection_ms,
         })
     }
 
@@ -829,7 +709,7 @@ pub mod tier_b {
             entry.problem
         );
         let detected = detect_scheimpflug_seeded_input(entry)?;
-        let image_sizes: Vec<[u32; 2]> = detected.image_size.into_iter().collect();
+        let image_sizes = [detected.image_size];
         let solve = solve_scheimpflug_seeded(
             detected.dataset,
             detected.seed,
@@ -900,205 +780,82 @@ pub mod tier_b {
         })
     }
 
-    /// Resolve the entry's [`SpecRef`] into a concrete `DatasetSpec`.
-    fn resolve_dataset_spec(entry: &BenchEntry) -> Result<vision_calibration_dataset::DatasetSpec> {
-        let spec_ref = entry
-            .spec
-            .as_ref()
-            .with_context(|| format!("entry `{}` needs a `spec` (dataset manifest)", entry.id))?;
-        match spec_ref {
-            crate::registry::SpecRef::Inline(spec) => Ok((**spec).clone()),
-            crate::registry::SpecRef::Path { path } => {
-                let path = resolve_against(&entry.data_root, path);
-                let raw = std::fs::read_to_string(&path)
-                    .with_context(|| format!("read dataset manifest {}", path.display()))?;
-                serde_json::from_str(&raw)
-                    .with_context(|| format!("parse dataset manifest {}", path.display()))
-            }
+    /// Every rig camera must see the target in at least three views.
+    fn ensure_three_views_per_camera<M>(spec: &DatasetSpec, input: &RigDataset<M>) -> Result<()> {
+        for (ci, camera) in spec.cameras.iter().enumerate() {
+            let usable = input
+                .views
+                .iter()
+                .filter(|v| v.obs.cameras[ci].is_some())
+                .count();
+            anyhow::ensure!(
+                usable >= 3,
+                "need >= 3 usable views for camera {ci} ({}), got {usable}",
+                camera.id
+            );
         }
-    }
-
-    /// Join `path` onto `base` unless it is already absolute.
-    fn resolve_against(base: &Path, path: &Path) -> PathBuf {
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            base.join(path)
-        }
+        Ok(())
     }
 
     /// Run a multi-camera rig-extrinsics calibration for `entry` and build a
     /// [`BenchRecord`].
     ///
-    /// Mirrors `crates/vision-calibration/examples/stereo_session.rs` (and its
-    /// ChArUco sibling) to the step: it globs each camera folder, detects the
-    /// board per image with the entry's detector (chessboard or ChArUco —
-    /// selected from [`BoardGeometry::layout`]), pairs views *by filename suffix*
-    /// (the shared portion after a per-camera prefix), and runs
+    /// Detects the entry's manifest through the dataset runner and runs
     /// `step_intrinsics_init_all` → `step_intrinsics_optimize_all` →
-    /// `step_rig_init` → `step_rig_optimize`. The bench-computed `Fit::overall`
-    /// is recomputed from the export's per-camera per-feature residuals; the
-    /// `reported_*` fields mirror the export so any divergence is visible.
+    /// `step_rig_init` → `step_rig_optimize`. The bench-computed
+    /// `Fit::overall` is recomputed from the export's per-camera per-feature
+    /// residuals; the `reported_*` fields mirror the export so any divergence
+    /// is visible.
     ///
-    /// Pairing matches the examples' semantics: a view is kept when *either*
-    /// camera detected the board (the missing camera contributes an empty
-    /// `CorrespondenceView`), and at least 3 usable views per camera are
-    /// required. Image filenames are paired on the longest common suffix after
-    /// stripping each camera's leading non-shared prefix, which reproduces the
-    /// examples' `Im_L_N`/`Im_R_N` and `Cam1_…`/`Cam2_…` pairing without
-    /// hard-coding those prefixes.
+    /// A view is kept when any camera detected the board (a camera that did
+    /// not contributes no observation), and every camera needs at least 3
+    /// usable views. A registry entry's images pair by filename token: the
+    /// name after the per-camera tag (`Im_L_2.png` ↔ `Im_R_2.png`,
+    /// `Cam1_<pose>.png` ↔ `Cam2_<pose>.png`).
     pub fn run_rig_extrinsics(entry: &BenchEntry) -> Result<BenchRecord> {
         anyhow::ensure!(
             entry.problem == ProblemKind::RigExtrinsics,
             "run_rig_extrinsics called for {:?}",
             entry.problem
         );
-        let board = entry
-            .board
-            .as_ref()
-            .context("rig_extrinsics entry needs a `board` geometry")?;
-        anyhow::ensure!(
-            entry.cameras.len() == 2,
-            "rig_extrinsics currently expects exactly two cameras, got {}",
-            entry.cameras.len()
-        );
-        let detector = detector_for(board, entry.detector.as_ref())?;
+        let spec = dataset_spec(entry)?;
 
-        // ── Detection (per camera, then pair by filename suffix) ────────────
+        // ── Detection ──────────────────────────────────────────────────────
         progress(
             entry,
-            format!("detecting target in {} cameras", entry.cameras.len()),
+            format!("detecting target in {} cameras", spec.cameras.len()),
         );
-        let detect_start = Instant::now();
-        let mut per_cam_views: Vec<Vec<(String, Option<CorrespondenceView>)>> = Vec::new();
-        let mut detect_stats: Vec<DetectionStat> = Vec::new();
-        let mut image_sizes = ImageSizes::new(entry.cameras.len());
-        let mut max_corners_per_image = 0usize;
-        for (camera_index, cam) in entry.cameras.iter().enumerate() {
-            let folder = entry.data_root.join(&cam.folder);
-            let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
-            anyhow::ensure!(
-                !paths.is_empty(),
-                "no images matched {}/{} under {}",
-                cam.folder,
-                cam.filename_glob,
-                entry.data_root.display()
-            );
-            let mut views: Vec<(String, Option<CorrespondenceView>)> = Vec::new();
-            let mut images_used = 0usize;
-            let mut features_detected = 0usize;
-            progress(
-                entry,
-                format!("detecting {} images for {}", paths.len(), cam.id),
-            );
-            for (image_idx, path) in paths.iter().enumerate() {
-                progress_images(entry, "detect", &cam.id, image_idx, paths.len());
-                let key = pairing_key(path);
-                let img = load_image(path)?;
-                image_sizes.observe(camera_index, &img)?;
-                match detector.detect(&img) {
-                    Ok(Some(view)) => {
-                        images_used += 1;
-                        features_detected += view.len();
-                        max_corners_per_image = max_corners_per_image.max(view.len());
-                        views.push((key, Some(view)));
-                    }
-                    Ok(None) => views.push((key, None)),
-                    Err(e) => {
-                        return Err(e.context(format!("detection failed for {}", path.display())));
-                    }
-                }
-            }
-            detect_stats.push(DetectionStat {
-                camera_id: cam.id.clone(),
-                images_total: paths.len(),
-                images_used,
-                features_detected,
-                // `features_expected` is filled once the full-board corner count
-                // is known (after all cameras are processed).
-                features_expected: 0,
-                coverage_pct: 0.0,
-                detect_ms: 0,
-            });
-            per_cam_views.push(views);
-        }
-        let detection_ms = detect_start.elapsed().as_millis() as u64;
+        let detected = detect_rig_extrinsics(
+            &spec,
+            &entry.data_root,
+            entry.board.as_ref(),
+            &detection_cache(),
+        )
+        .with_context(|| format!("entry `{}`: detection failed", entry.id))?;
+        let detection_ms = detected.detection_ms;
         progress(
             entry,
             format!("target detection finished in {detection_ms} ms"),
         );
-
-        // Pair views: collect the suffix keys present in *every* camera, in the
-        // first camera's order. (`stereo_session` pairs the index intersection;
-        // we generalise to the suffix intersection so charuco's descriptive
-        // filenames pair too.)
-        let mut common: BTreeSet<String> =
-            per_cam_views[0].iter().map(|(k, _)| k.clone()).collect();
-        for cam_views in &per_cam_views[1..] {
-            let here: BTreeSet<String> = cam_views.iter().map(|(k, _)| k.clone()).collect();
-            common = common.intersection(&here).cloned().collect();
-        }
-        anyhow::ensure!(
-            !common.is_empty(),
-            "no shared image keys across the {} cameras",
-            entry.cameras.len()
-        );
-
-        let mut rig_views: Vec<RigView<NoMeta>> = Vec::new();
-        let mut usable_per_cam = vec![0usize; entry.cameras.len()];
-        for key in &common {
-            // `RigViewObs::cameras` is `Vec<Option<CorrespondenceView>>`: a
-            // camera that did not detect the board in this view contributes
-            // `None` (matching the rig dataset's per-camera-optional shape).
-            let mut cams: Vec<Option<CorrespondenceView>> = Vec::with_capacity(entry.cameras.len());
-            let mut any = false;
-            for (ci, cam_views) in per_cam_views.iter().enumerate() {
-                let view = cam_views
-                    .iter()
-                    .find(|(k, _)| k == key)
-                    .and_then(|(_, v)| v.clone());
-                if view.is_some() {
-                    usable_per_cam[ci] += 1;
-                    any = true;
-                }
-                cams.push(view);
-            }
-            if any {
-                rig_views.push(RigView {
-                    meta: NoMeta,
-                    obs: RigViewObs { cameras: cams },
-                });
-            }
-        }
-        for (ci, &u) in usable_per_cam.iter().enumerate() {
-            anyhow::ensure!(
-                u >= 3,
-                "need >= 3 usable views for camera {} ({}), got {}",
-                ci,
-                entry.cameras[ci].id,
-                u
-            );
-        }
-
-        let features_per_board = max_corners_per_image.max(board_feature_count(board));
+        ensure_three_views_per_camera(&spec, &detected.input)?;
 
         // ── Calibration ────────────────────────────────────────────────────
-        let input = RigDataset::new(rig_views, entry.cameras.len())
-            .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
         // Keep a copy for the multi-level reproj report (the dataset is moved
         // into the session below).
-        let dataset_for_report = input.clone();
+        let dataset_for_report = detected.input.clone();
         let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         let mut config = RigExtrinsicsConfig::default();
         config.solver.backend = entry.solver_backend();
         session.set_config(config).context("set_config failed")?;
-        session.set_input(input).context("set_input failed")?;
+        session
+            .set_input(detected.input)
+            .context("set_input failed")?;
 
         progress(entry, "initializing per-camera intrinsics");
         let init_start = Instant::now();
         let init_ok = step_intrinsics_init_all(&mut session, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init_all failed for {}", entry.id);
-        let init_ms = init_start.elapsed().as_millis() as u64;
+        let init_ms = ms_since(init_start);
 
         progress(entry, "optimizing intrinsics and rig extrinsics");
         let s = Instant::now();
@@ -1131,23 +888,9 @@ pub mod tier_b {
         // `overall` (the spec's bench-computed aggregate). `reported_*` mirror
         // the export's own `mean_reproj_error` / `per_cam_reproj_errors` so any
         // divergence between bench-computed and self-reported numbers surfaces.
-        let n_cam = entry.cameras.len();
-        let mut per_cam_errs: Vec<Vec<f64>> = vec![Vec::new(); n_cam];
-        let mut all_errors: Vec<f64> = Vec::new();
-        for r in &export.per_feature_residuals.target {
-            if let Some(e) = r.error_px {
-                all_errors.push(e);
-                let ci = r.camera;
-                if ci < n_cam {
-                    per_cam_errs[ci].push(e);
-                }
-            }
-        }
-        let overall = ReprojectionStats::from_errors(&all_errors);
-        let per_camera: Vec<ReprojectionStats> = per_cam_errs
-            .iter()
-            .map(|errs| ReprojectionStats::from_errors(errs))
-            .collect();
+        let n_cam = spec.cameras.len();
+        let (overall, per_camera) =
+            split_target_residuals(&export.per_feature_residuals.target, n_cam);
         let per_camera_hist = export
             .per_feature_residuals
             .target_hist_per_camera
@@ -1160,27 +903,6 @@ pub mod tier_b {
             per_camera_hist,
             reported_mean_reproj_px: export.mean_reproj_error,
             reported_per_cam_px: export.per_cam_reproj_errors.clone(),
-        };
-
-        // Finalize detection coverage now that the full-board count is known.
-        let mut total_detected = 0usize;
-        let mut total_expected = 0usize;
-        for stat in &mut detect_stats {
-            let expected = stat.images_used * features_per_board;
-            stat.features_expected = expected;
-            stat.coverage_pct = if expected > 0 {
-                100.0 * stat.features_detected as f64 / expected as f64
-            } else {
-                0.0
-            };
-            stat.detect_ms = detection_ms;
-            total_detected += stat.features_detected;
-            total_expected += expected;
-        }
-        let detection = Detection {
-            per_camera: detect_stats,
-            total_detected,
-            total_expected,
         };
 
         let convergence = Convergence {
@@ -1212,204 +934,83 @@ pub mod tier_b {
             fit,
             generalization: None,
             stability: None,
-            detection: Some(detection),
+            detection: Some(detected.detection),
             laser: None,
             robot_corrections: None,
-            artifacts: Some(artifacts_from_rig_extrinsics(&entry.cameras, &export)),
+            artifacts: Some(artifacts_from_rig_extrinsics(&spec.cameras, &export)),
             delta_to_prior: None,
             timing,
-            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
+            quality: Some(quality_report(entry, &export, &detected.image_sizes)?),
             reproj_report,
             residual_sidecar,
         })
     }
 
+    /// Pool the finite per-feature errors of `residuals` (overall) and split
+    /// them by camera.
+    fn split_target_residuals(
+        residuals: &[TargetFeatureResidual],
+        n_cam: usize,
+    ) -> (ReprojectionStats, Vec<ReprojectionStats>) {
+        let mut per_cam_errs: Vec<Vec<f64>> = vec![Vec::new(); n_cam];
+        let mut all_errors: Vec<f64> = Vec::new();
+        for r in residuals {
+            if let Some(e) = r.error_px {
+                all_errors.push(e);
+                if r.camera < n_cam {
+                    per_cam_errs[r.camera].push(e);
+                }
+            }
+        }
+        (
+            ReprojectionStats::from_errors(&all_errors),
+            per_cam_errs
+                .iter()
+                .map(|errs| ReprojectionStats::from_errors(errs))
+                .collect(),
+        )
+    }
+
     /// Run a single-camera hand-eye calibration for `entry` and build a
     /// [`BenchRecord`].
     ///
-    /// Supports two pose-pairing modes, dispatched on
-    /// [`crate::registry::PoseSource::format`]:
-    ///
-    /// - **`"rowmajor4x4"`**: mirrors
-    ///   `crates/vision-calibration/examples/handeye_session.rs`. Loads the
-    ///   robot poses (row-major 4×4 per line) and pairs image `{i+1:02}.png`
-    ///   with pose row `i`. Board is detected with a chessboard detector.
-    ///
-    /// - **`"snap_list_json"`**: loads `poses.json` as a JSON list of snap
-    ///   objects (`{target_image, tcp2base, …}`), iterates in file order, and
-    ///   loads the named `target_image` from the camera folder. Board detector
-    ///   is chosen from `board.layout` (ChArUco or chessboard).
-    ///
-    /// In both modes, views with no board are skipped, runs
-    /// `step_intrinsics_init` → `step_intrinsics_optimize` →
-    /// `step_handeye_init` → `step_handeye_optimize`, then exports.
+    /// Detects the entry's manifest through the dataset runner (image `i`, in
+    /// natural filename order, pairs with pose row `i`; views with no board
+    /// are dropped), runs `step_intrinsics_init` → `step_intrinsics_optimize`
+    /// → `step_handeye_init` → `step_handeye_optimize`, then exports.
     pub fn run_single_cam_handeye(entry: &BenchEntry) -> Result<BenchRecord> {
         anyhow::ensure!(
             entry.problem == ProblemKind::SingleCamHandeye,
             "run_single_cam_handeye called for {:?}",
             entry.problem
         );
-        let board = entry
-            .board
-            .as_ref()
-            .context("single_cam_handeye entry needs a `board` geometry")?;
-        anyhow::ensure!(
-            entry.cameras.len() == 1,
-            "single_cam_handeye expects exactly one camera, got {}",
-            entry.cameras.len()
-        );
-        let cam = &entry.cameras[0];
-        let pose_src = entry
-            .robot_poses
-            .as_ref()
-            .context("single_cam_handeye entry needs `robot_poses`")?;
+        let spec = dataset_spec(entry)?;
+        let camera_id = single_camera_id(&spec)?;
 
-        let trans_scale = match pose_src.units.as_deref() {
-            Some("mm") => 1.0e-3,
-            Some("m") | None => 1.0,
-            Some(other) => anyhow::bail!("unsupported pose units '{other}' (use 'mm' or 'm')"),
-        };
-
-        // ── Detection (pairing mode depends on pose format) ─────────────────
-        let detect_start = Instant::now();
-        let mut views: Vec<SingleCamHandeyeView> = Vec::new();
-        let mut features_detected = 0usize;
-        let mut max_corners_per_image = 0usize;
-        let mut images_used = 0usize;
-        let mut image_sizes = ImageSizes::new(1);
-        let total_poses: usize;
-
-        if pose_src.format == "snap_list_json" {
-            // ── snap_list_json path: named image files ───────────────────────
-            let mut snap_pairs =
-                load_snap_list_json(&entry.data_root.join(&pose_src.path), trans_scale)?;
-            for (_target_image, robot_pose) in &mut snap_pairs {
-                normalize_robot_pose_convention(robot_pose, &pose_src.convention)?;
-            }
-            total_poses = snap_pairs.len();
-            let detector = detector_for(board, entry.detector.as_ref())?;
-            let cam_root = if cam.folder.is_empty() {
-                entry.data_root.clone()
-            } else {
-                entry.data_root.join(&cam.folder)
-            };
-            progress(
-                entry,
-                format!("detecting {} snap images for {}", snap_pairs.len(), cam.id),
-            );
-            for (image_idx, (target_image, robot_pose)) in snap_pairs.iter().enumerate() {
-                progress_images(entry, "detect", &cam.id, image_idx, snap_pairs.len());
-                let img_path = cam_root.join(target_image);
-                anyhow::ensure!(
-                    img_path.exists(),
-                    "missing image {} (from snap_list_json)",
-                    img_path.display()
-                );
-                let img = load_image(&img_path)?;
-                let img = apply_tile(&img, cam.tile);
-                image_sizes.observe(0, &img)?;
-                if let Some(view) = detector.detect(&img)? {
-                    images_used += 1;
-                    features_detected += view.len();
-                    max_corners_per_image = max_corners_per_image.max(view.len());
-                    views.push(SingleCamHandeyeView {
-                        obs: view,
-                        meta: HandeyeMeta {
-                            base_se3_gripper: *robot_pose,
-                        },
-                    });
-                }
-            }
-        } else {
-            // ── rowmajor4x4 path (kuka_1) ────────────────────────────
-            let robot_poses =
-                load_robot_poses_for(pose_src, &entry.data_root.join(&pose_src.path))?;
-            total_poses = robot_poses.len();
-            let square_size_m = board.cell_size_m;
-            let folder = entry.data_root.join(&cam.folder);
-            let front_end = ChessFrontEnd::from_override(entry.detector.as_ref());
-            progress(
-                entry,
-                format!("detecting {} pose images for {}", robot_poses.len(), cam.id),
-            );
-            for (idx, robot_pose) in robot_poses.iter().enumerate() {
-                progress_images(entry, "detect", &cam.id, idx, robot_poses.len());
-                let image_index = idx + 1;
-                let img_path = folder.join(format!("{image_index:02}.png"));
-                anyhow::ensure!(
-                    img_path.exists(),
-                    "missing image {} for pose row {}",
-                    img_path.display(),
-                    image_index
-                );
-                let img = load_image(&img_path)?;
-                image_sizes.observe(0, &img)?;
-                match detect_chessboard_view(
-                    &img,
-                    board.rows,
-                    board.cols,
-                    square_size_m,
-                    board.strict_grid,
-                    &front_end,
-                ) {
-                    Ok(Some(view)) => {
-                        images_used += 1;
-                        features_detected += view.len();
-                        max_corners_per_image = max_corners_per_image.max(view.len());
-                        views.push(SingleCamHandeyeView {
-                            obs: view,
-                            meta: HandeyeMeta {
-                                base_se3_gripper: *robot_pose,
-                            },
-                        });
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        return Err(
-                            e.context(format!("detection failed for {}", img_path.display()))
-                        );
-                    }
-                }
-            }
-        }
-        let detection_ms = detect_start.elapsed().as_millis() as u64;
+        // ── Detection ──────────────────────────────────────────────────────
+        progress(entry, format!("detecting pose images for {camera_id}"));
+        let detected = detect_single_cam_handeye(
+            &spec,
+            &entry.data_root,
+            entry.board.as_ref(),
+            &detection_cache(),
+        )
+        .with_context(|| format!("entry `{}`: detection failed", entry.id))?;
+        let detection_ms = detected.detection_ms;
         progress(
             entry,
             format!("target detection finished in {detection_ms} ms"),
         );
         anyhow::ensure!(
-            views.len() >= 3,
+            detected.input.views.len() >= 3,
             "need >= 3 detected views for single-cam hand-eye, got {}",
-            views.len()
+            detected.input.views.len()
         );
-
-        let features_per_board = max_corners_per_image.max(board_feature_count(board));
-        let features_expected = images_used * features_per_board;
-        let coverage_pct = if features_expected > 0 {
-            100.0 * features_detected as f64 / features_expected as f64
-        } else {
-            0.0
-        };
-        let detection = Detection {
-            per_camera: vec![DetectionStat {
-                camera_id: cam.id.clone(),
-                images_total: total_poses,
-                images_used,
-                features_detected,
-                features_expected,
-                coverage_pct,
-                detect_ms: detection_ms,
-            }],
-            total_detected: features_detected,
-            total_expected: features_expected,
-        };
 
         // ── Calibration ────────────────────────────────────────────────────
         // Keep a copy of the detected views for the multi-level reproj report
         // (the input is moved into the session below).
-        let views_for_report = views.clone();
-        let input =
-            SingleCamHandeyeInput::new(views).map_err(|e| anyhow::anyhow!("set_input: {e}"))?;
+        let views_for_report = detected.input.views.clone();
         let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         let mut config = SingleCamHandeyeConfig::default();
         if let Some(overrides) = &entry.single_cam_handeye {
@@ -1421,13 +1022,15 @@ pub mod tier_b {
         session
             .set_config(config)
             .context("set single_cam_handeye config failed")?;
-        session.set_input(input).context("set_input failed")?;
+        session
+            .set_input(detected.input)
+            .context("set_input failed")?;
 
         progress(entry, "initializing single-camera intrinsics");
         let init_start = Instant::now();
         let init_ok = step_intrinsics_init(&mut session, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init failed for {}", entry.id);
-        let init_ms = init_start.elapsed().as_millis() as u64;
+        let init_ms = ms_since(init_start);
 
         progress(entry, "optimizing intrinsics and hand-eye");
         let opt_start = Instant::now();
@@ -1436,15 +1039,9 @@ pub mod tier_b {
         let _ = step_handeye_init(&mut session, None).context("step_handeye_init failed")?;
         let _ =
             step_handeye_optimize(&mut session, None).context("step_handeye_optimize failed")?;
-        let optimize_ms = opt_start.elapsed().as_millis() as u64;
+        let optimize_ms = ms_since(opt_start);
 
         let export = session.export().context("session.export failed")?;
-        // Reference `HandeyeMode` so the import is load-bearing (the export
-        // carries the mode; the bench does not branch on it).
-        debug_assert!(matches!(
-            export.handeye_mode,
-            HandeyeMode::EyeInHand | HandeyeMode::EyeToHand
-        ));
 
         // Single camera: `overall == per_camera[0]`, pooled from the export's
         // per-feature `error_px` (the spec's bench-computed aggregate); the
@@ -1507,13 +1104,13 @@ pub mod tier_b {
             fit,
             generalization: None,
             stability: None,
-            detection: Some(detection),
+            detection: Some(detected.detection),
             laser: None,
             robot_corrections,
-            artifacts: Some(artifacts_from_single_cam(&cam.id, &export)),
+            artifacts: Some(artifacts_from_single_cam(camera_id, &export)),
             delta_to_prior: None,
             timing,
-            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
+            quality: Some(quality_report(entry, &export, &detected.image_sizes)?),
             reproj_report,
             residual_sidecar,
         })
@@ -1522,160 +1119,43 @@ pub mod tier_b {
     /// Run a multi-camera rig hand-eye calibration for `entry` and build a
     /// [`BenchRecord`].
     ///
-    /// Generalizes the rig path to N cameras mounted on a robot end-effector
-    /// (DS8: two JAI BB-500 + a Creative Senz3D, pinhole). Unlike
-    /// [`run_rig_extrinsics`], cameras are paired **by sorted image index**, not
-    /// filename suffix — DS8's cameras use incompatible naming
-    /// (`imageN.png` vs `colorFrame_0_NNNNN.png`) but are frame-synchronized, so
-    /// view `i` is `(cam0[i], cam1[i], …, pose i)`; a camera that did not detect
-    /// the board in that frame contributes `None`. Robot poses are loaded per the
-    /// entry's [`crate::registry::PoseSource`] (`format` + `units`). Runs the full
-    /// six-step rig hand-eye pipeline (intrinsics → rig → hand-eye) with default
-    /// options (so robot-pose refinement is on), then exports.
+    /// Generalizes the rig path to N cameras on a robot (DS8: two JAI BB-500
+    /// and a Creative Senz3D, pinhole). The registry fields pair image `i` of
+    /// every camera (natural filename order) with pose row `i`; a camera
+    /// that did not detect the board in a view contributes no observation.
+    /// Runs the full six-step rig hand-eye pipeline (intrinsics → rig →
+    /// hand-eye) with default options (so robot-pose refinement is on), then
+    /// exports. An entry with `laser` data adds the joint laserline stage.
     pub fn run_rig_handeye(entry: &BenchEntry) -> Result<BenchRecord> {
         anyhow::ensure!(
             entry.problem == ProblemKind::RigHandeye,
             "run_rig_handeye called for {:?}",
             entry.problem
         );
-        let board = entry
-            .board
-            .as_ref()
-            .context("rig_handeye entry needs a `board` geometry")?;
-        anyhow::ensure!(
-            entry.cameras.len() >= 2,
-            "rig_handeye expects >= 2 cameras, got {}",
-            entry.cameras.len()
-        );
-        let pose_src = entry
-            .robot_poses
-            .as_ref()
-            .context("rig_handeye entry needs `robot_poses`")?;
-        let detector = detector_for(board, entry.detector.as_ref())?;
-        let robot_poses = load_robot_poses_for(pose_src, &entry.data_root.join(&pose_src.path))?;
+        let spec = dataset_spec(entry)?;
 
-        // ── Detection (per camera, image-order) ─────────────────────────────
+        // ── Detection ──────────────────────────────────────────────────────
         progress(
             entry,
-            format!("detecting target in {} cameras", entry.cameras.len()),
+            format!("detecting target in {} cameras", spec.cameras.len()),
         );
-        let detect_start = Instant::now();
-        let mut per_cam_dets: Vec<Vec<Option<CorrespondenceView>>> = Vec::new();
-        let mut per_cam_paths: Vec<Vec<PathBuf>> = Vec::new();
-        let mut detect_stats: Vec<DetectionStat> = Vec::new();
-        let mut image_sizes = ImageSizes::new(entry.cameras.len());
-        let mut max_corners_per_image = 0usize;
-        for (camera_index, cam) in entry.cameras.iter().enumerate() {
-            let folder = entry.data_root.join(&cam.folder);
-            let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
-            anyhow::ensure!(
-                !paths.is_empty(),
-                "no images matched {}/{} under {}",
-                cam.folder,
-                cam.filename_glob,
-                entry.data_root.display()
-            );
-            let mut dets: Vec<Option<CorrespondenceView>> = Vec::with_capacity(paths.len());
-            let mut images_used = 0usize;
-            let mut features_detected = 0usize;
-            progress(
-                entry,
-                format!("detecting {} images for {}", paths.len(), cam.id),
-            );
-            for (image_idx, path) in paths.iter().enumerate() {
-                progress_images(entry, "detect", &cam.id, image_idx, paths.len());
-                let img = load_image(path)?;
-                // Tiled rigs (e.g. 6 cameras side-by-side in one frame) crop each
-                // camera's ROI from the shared image; `tile` is `None` for the
-                // one-file-per-camera rigs (DS8), leaving the image untouched.
-                let img = apply_tile(&img, cam.tile);
-                image_sizes.observe(camera_index, &img)?;
-                match detector.detect(&img) {
-                    Ok(Some(view)) => {
-                        images_used += 1;
-                        features_detected += view.len();
-                        max_corners_per_image = max_corners_per_image.max(view.len());
-                        dets.push(Some(view));
-                    }
-                    Ok(None) => dets.push(None),
-                    Err(e) => {
-                        return Err(e.context(format!("detection failed for {}", path.display())));
-                    }
-                }
-            }
-            detect_stats.push(DetectionStat {
-                camera_id: cam.id.clone(),
-                images_total: paths.len(),
-                images_used,
-                features_detected,
-                features_expected: 0, // filled once full-board count is known
-                coverage_pct: 0.0,
-                detect_ms: 0,
-            });
-            per_cam_dets.push(dets);
-            per_cam_paths.push(paths);
-        }
-        let detection_ms = detect_start.elapsed().as_millis() as u64;
+        let (detected, view_paths) = detect_rig_handeye(
+            &spec,
+            &entry.data_root,
+            entry.board.as_ref(),
+            &detection_cache(),
+        )
+        .with_context(|| format!("entry `{}`: detection failed", entry.id))?;
+        let detection_ms = detected.detection_ms;
         progress(
             entry,
             format!("target detection finished in {detection_ms} ms"),
         );
+        ensure_three_views_per_camera(&spec, &detected.input)?;
 
-        // Pair by index: view i = (cam0[i], …, camN[i], pose i), bounded by the
-        // shortest camera and the pose count.
-        let n_cam = entry.cameras.len();
-        let n_views = per_cam_dets
-            .iter()
-            .map(|d| d.len())
-            .min()
-            .unwrap_or(0)
-            .min(robot_poses.len());
-        anyhow::ensure!(
-            n_views >= 3,
-            "need >= 3 paired views (min over cameras/poses), got {n_views}"
-        );
-
-        let mut rig_views: Vec<RigView<RobotPoseMeta>> = Vec::with_capacity(n_views);
-        let mut usable_per_cam = vec![0usize; n_cam];
-        for v in 0..n_views {
-            let mut cams: Vec<Option<CorrespondenceView>> = Vec::with_capacity(n_cam);
-            let mut any = false;
-            for (ci, dets) in per_cam_dets.iter().enumerate() {
-                let view = dets[v].clone();
-                if view.is_some() {
-                    usable_per_cam[ci] += 1;
-                    any = true;
-                }
-                cams.push(view);
-            }
-            if any {
-                rig_views.push(RigView {
-                    meta: RobotPoseMeta {
-                        base_se3_gripper: robot_poses[v],
-                    },
-                    obs: RigViewObs { cameras: cams },
-                });
-            }
-        }
-        for (ci, &u) in usable_per_cam.iter().enumerate() {
-            anyhow::ensure!(
-                u >= 3,
-                "need >= 3 usable views for camera {} ({}), got {} \
-                 (low-res/color cameras may detect the board poorly)",
-                ci,
-                entry.cameras[ci].id,
-                u
-            );
-        }
-
-        let features_per_board = max_corners_per_image.max(board_feature_count(board));
-        let laser_observations = extract_laser_observations(
-            entry,
-            &per_cam_dets,
-            &per_cam_paths,
-            &robot_poses,
-            n_views,
-        )?;
+        let n_cam = spec.cameras.len();
+        let laser_observations =
+            extract_laser_observations(entry, &spec, &detected.input, &view_paths)?;
         let mut laser = laser_observations.as_ref().map(|obs| obs.metrics.clone());
 
         // ── Calibration ─────────────────────────────────────────────────────
@@ -1692,27 +1172,27 @@ pub mod tier_b {
             config.manual_init = Some(manual);
         }
         if config.manual_init.is_none() && entry.id == "rtv3d" {
-            config.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
+            config.manual_init = Some(rtv3d_manual_intrinsics_seed(&spec));
             config.intrinsics.fix_tangential = Some(true);
         }
         let robot_rot_sigma = config.handeye_optimize.robot_poses.rot_sigma;
         let robot_trans_sigma = config.handeye_optimize.robot_poses.trans_sigma;
         let manual_intrinsics = config.manual_init.clone().unwrap_or_default();
-        let input = RigDataset::new(rig_views, n_cam)
-            .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
-        let dataset_for_report = input.clone();
+        let dataset_for_report = detected.input.clone();
         let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session
             .set_config(config)
             .context("set rig_handeye config failed")?;
-        session.set_input(input).context("set_input failed")?;
+        session
+            .set_input(detected.input)
+            .context("set_input failed")?;
 
         progress(entry, "initializing per-camera intrinsics");
         let init_start = Instant::now();
         let init_ok =
             rh_intrinsics_init_all_with_seed(&mut session, manual_intrinsics, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init_all failed for {}", entry.id);
-        let init_ms = init_start.elapsed().as_millis() as u64;
+        let init_ms = ms_since(init_start);
 
         progress(entry, "optimizing intrinsics, rig, and hand-eye");
         let s = Instant::now();
@@ -1759,21 +1239,8 @@ pub mod tier_b {
         }
 
         // ── Fit metrics (per-camera split of the export's per-feature errors) ─
-        let mut per_cam_errs: Vec<Vec<f64>> = vec![Vec::new(); n_cam];
-        let mut all_errors: Vec<f64> = Vec::new();
-        for r in &export.per_feature_residuals.target {
-            if let Some(e) = r.error_px {
-                all_errors.push(e);
-                if r.camera < n_cam {
-                    per_cam_errs[r.camera].push(e);
-                }
-            }
-        }
-        let overall = ReprojectionStats::from_errors(&all_errors);
-        let per_camera: Vec<ReprojectionStats> = per_cam_errs
-            .iter()
-            .map(|errs| ReprojectionStats::from_errors(errs))
-            .collect();
+        let (overall, per_camera) =
+            split_target_residuals(&export.per_feature_residuals.target, n_cam);
         let per_camera_hist = export
             .per_feature_residuals
             .target_hist_per_camera
@@ -1800,27 +1267,6 @@ pub mod tier_b {
                 .map(|s| s.mean_reproj_error_px)
                 .collect();
         }
-
-        // Finalize detection coverage now that the full-board count is known.
-        let mut total_detected = 0usize;
-        let mut total_expected = 0usize;
-        for stat in &mut detect_stats {
-            let expected = stat.images_used * features_per_board;
-            stat.features_expected = expected;
-            stat.coverage_pct = if expected > 0 {
-                100.0 * stat.features_detected as f64 / expected as f64
-            } else {
-                0.0
-            };
-            stat.detect_ms = detection_ms;
-            total_detected += stat.features_detected;
-            total_expected += expected;
-        }
-        let detection = Detection {
-            per_camera: detect_stats,
-            total_detected,
-            total_expected,
-        };
 
         let convergence = Convergence {
             init_ok,
@@ -1869,13 +1315,13 @@ pub mod tier_b {
             fit,
             generalization: None,
             stability: None,
-            detection: Some(detection),
+            detection: Some(detected.detection),
             laser,
             robot_corrections,
-            artifacts: Some(artifacts_from_rig_handeye(&entry.cameras, &export)),
+            artifacts: Some(artifacts_from_rig_handeye(&spec.cameras, &export)),
             delta_to_prior: None,
             timing,
-            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
+            quality: Some(quality_report(entry, &export, &detected.image_sizes)?),
             reproj_report,
             residual_sidecar,
         })
@@ -1893,33 +1339,33 @@ pub mod tier_b {
     pub fn diagnose_intrinsics(entry: &BenchEntry) -> Result<IntrinsicsDiagnoseReport> {
         const GATE_PX: f64 = 0.4;
 
-        let board = entry
-            .board
-            .as_ref()
-            .context("diagnose intrinsics needs a `board` geometry")?;
+        let mut spec = dataset_spec(entry)?;
         anyhow::ensure!(
-            !entry.cameras.is_empty(),
+            !spec.cameras.is_empty(),
             "diagnose intrinsics needs at least one camera"
         );
-        let detector_override = intrinsics_detector_override(entry);
-        let detector = detector_for(board, Some(&detector_override))?;
+        let chess_corners = intrinsics_chess_corners(&mut spec);
 
         progress(
             entry,
             format!(
                 "diagnosing Scheimpflug intrinsics for {} cameras",
-                entry.cameras.len()
+                spec.cameras.len()
             ),
         );
 
-        let mut camera_reports = Vec::with_capacity(entry.cameras.len());
-        for cam in &entry.cameras {
-            progress(entry, format!("detecting intrinsic dataset for {}", cam.id));
-            let detected = detect_intrinsics_camera(entry, board, cam, &detector)?;
+        let cache = detection_cache();
+        let mut camera_reports = Vec::with_capacity(spec.cameras.len());
+        for camera in 0..spec.cameras.len() {
+            let camera_id = spec.cameras[camera].id.clone();
+            progress(
+                entry,
+                format!("detecting intrinsic dataset for {camera_id}"),
+            );
+            let detected = detect_intrinsics_camera(entry, &spec, camera, &cache)?;
             anyhow::ensure!(
                 detected.dataset.num_views() >= 3,
-                "need >= 3 detected views for {}, got {}",
-                cam.id,
+                "need >= 3 detected views for {camera_id}, got {}",
                 detected.dataset.num_views()
             );
             let center = (
@@ -1930,20 +1376,19 @@ pub mod tier_b {
             progress(
                 entry,
                 format!(
-                    "{}: solving {} centered Scheimpflug seeds",
-                    cam.id,
+                    "{camera_id}: solving {} centered Scheimpflug seeds",
                     seeds.len()
                 ),
             );
             let gate_solve = solve_centered_multistart(&detected.dataset, &seeds, GATE_PX)
-                .with_context(|| format!("centered multistart failed for {}", cam.id))?;
+                .with_context(|| format!("centered multistart failed for {camera_id}"))?;
             let mut diagnostic_cases = Vec::new();
             if !gate_solve.report.passed_gate {
                 progress(
                     entry,
                     format!(
-                        "{}: gate mean {:.4} px; running diagnostic model variants",
-                        cam.id, gate_solve.report.stats.mean
+                        "{camera_id}: gate mean {:.4} px; running diagnostic model variants",
+                        gate_solve.report.stats.mean
                     ),
                 );
                 diagnostic_cases = solve_intrinsics_diagnostic_variants(
@@ -1978,97 +1423,66 @@ pub mod tier_b {
         Ok(IntrinsicsDiagnoseReport {
             dataset_id: entry.id.clone(),
             gate_px: GATE_PX,
-            chess_threshold_abs: chess_threshold_abs(Some(&detector_override)),
+            chess_threshold_abs: chess_corners.threshold_value,
             cameras: camera_reports,
             pass,
         })
     }
 
-    fn intrinsics_detector_override(entry: &BenchEntry) -> DetectorOverride {
-        let mut detector = entry.detector.clone().unwrap_or_default();
-        let needs_default = detector
-            .chess_corners
-            .as_ref()
-            .is_none_or(|chess| chess.threshold_value.is_none());
-        if needs_default {
-            detector.chess_corners = Some(ChessCornersDetectorSpec {
-                threshold_value: Some(30.0),
-                ..ChessCornersDetectorSpec::default()
-            });
-        }
-        detector
+    /// The intrinsics diagnostic detects with a ChESS threshold of 30 unless
+    /// the manifest sets one; returns the corner options it detects with.
+    fn intrinsics_chess_corners(spec: &mut DatasetSpec) -> ChessCornersDetectorSpec {
+        let detector = spec.detector.get_or_insert_with(DetectorSpec::default);
+        let chess = detector.chess_corners.get_or_insert_with(Default::default);
+        chess.threshold_value.get_or_insert(30.0);
+        *chess
     }
 
     fn detect_intrinsics_camera(
         entry: &BenchEntry,
-        board: &BoardGeometry,
-        cam: &CameraLayout,
-        detector: &DetectorKind,
+        spec: &DatasetSpec,
+        camera: usize,
+        cache: &dyn DetectionCache,
     ) -> Result<DetectedIntrinsicsCamera> {
-        let folder = entry.data_root.join(&cam.folder);
-        let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
-        anyhow::ensure!(
-            !paths.is_empty(),
-            "no images matched {}/{} under {}",
-            cam.folder,
-            cam.filename_glob,
-            entry.data_root.display()
-        );
+        let camera_spec = camera_spec(spec, camera);
+        let camera_id = camera_spec.cameras[0].id.clone();
+        let built = build_planar_input(&camera_spec, &entry.data_root, cache, false)
+            .with_context(|| format!("detection failed for {camera_id}"))?;
+        let views = &built.input.views;
+        let features_detected = views.iter().map(|v| v.obs.len()).sum::<usize>();
 
-        let mut views = Vec::new();
-        let mut image_size = None;
-        let mut images_used = 0usize;
-        let mut features_detected = 0usize;
-        for (image_idx, path) in paths.iter().enumerate() {
-            progress_images(entry, "detect-intrinsics", &cam.id, image_idx, paths.len());
-            let img = load_image(path)?;
-            let img = apply_tile(&img, cam.tile);
-            let size = [img.width(), img.height()];
-            if let Some(prev) = image_size {
-                anyhow::ensure!(
-                    prev == size,
-                    "{} image size changed from {:?} to {:?}",
-                    cam.id,
-                    prev,
-                    size
-                );
-            }
-            image_size = Some(size);
-            match detector.detect(&img) {
-                Ok(Some(view)) => {
-                    images_used += 1;
-                    features_detected += view.len();
-                    views.push(View::without_meta(view));
+        let expected_size = entry
+            .cameras
+            .iter()
+            .find(|c| c.id == camera_id)
+            .and_then(|c| c.expected_size);
+        let image_size = match camera_spec.cameras[0].roi_xywh {
+            Some([_, _, w, h]) => [w, h],
+            None => match built.view_paths.first() {
+                Some(path) => {
+                    let (w, h) = image::image_dimensions(path)
+                        .with_context(|| format!("read the size of {}", path.display()))?;
+                    [w, h]
                 }
-                Ok(None) => {}
-                Err(e) => return Err(e.context(format!("detection failed for {}", path.display()))),
-            }
-        }
-
-        let image_size = image_size
-            .or_else(|| cam.tile.map(|[_x, _y, w, h]| [w, h]))
-            .or(cam.expected_size)
-            .context("could not determine image size")?;
-        let roi_local_coordinates = views_are_roi_local(&views, image_size);
-        let dataset = PlanarDataset::new(views).context("failed to build PlanarDataset")?;
-        let features_per_board = board_feature_count(board);
+                None => expected_size.context("could not determine image size")?,
+            },
+        };
+        let roi_local_coordinates = views_are_roi_local(views, image_size);
         progress(
             entry,
             format!(
-                "{} detections: {images_used}/{} images, {features_detected} features (full board {})",
-                cam.id,
-                paths.len(),
-                features_per_board
+                "{camera_id} detections: {}/{} images, {features_detected} features",
+                built.usable_views, built.total_views
             ),
         );
         Ok(DetectedIntrinsicsCamera {
-            camera_id: cam.id.clone(),
+            camera_id,
             image_size,
-            images_total: paths.len(),
-            images_used,
+            images_total: built.total_views,
+            images_used: built.usable_views,
             features_detected,
             roi_local_coordinates,
-            dataset,
+            dataset: built.input,
         })
     }
 
@@ -2593,98 +2007,78 @@ pub mod tier_b {
             .collect()
     }
 
-    /// The absolute ChESS threshold this run used, for the diagnose report.
-    /// Since `chess-corners` 1.0 the threshold is always absolute, so this is
-    /// a plain lookup.
-    fn chess_threshold_abs(detector: Option<&DetectorOverride>) -> Option<f32> {
-        detector?.chess_corners.as_ref()?.threshold_value
-    }
-
     /// Profile target detection and laser extraction without running a solver.
     ///
     /// This intentionally keeps the diagnostic scoped to I/O + detector stages:
     /// if a puzzle dataset is already slow here, the full calibration path will
     /// not reach initialization quickly enough to be a useful first diagnostic.
+    /// Each camera's images go through the dataset runner uncached, so every
+    /// image is detected.
     pub fn profile_dataset_stages(
         entry: &BenchEntry,
         max_images_per_camera: Option<usize>,
     ) -> Result<DatasetStageProfile> {
-        let board = entry
-            .board
-            .as_ref()
-            .context("stage profiling needs a `board` geometry")?;
-        let detector = detector_for(board, entry.detector.as_ref())?;
-        let detector_name = board
-            .layout
-            .as_deref()
-            .unwrap_or("checkerboard")
-            .to_string();
-        let profile_limit = max_images_per_camera.unwrap_or(usize::MAX);
+        let spec = dataset_spec(entry)?;
         let target_start = Instant::now();
-        let mut target_per_camera = Vec::with_capacity(entry.cameras.len());
+        let mut target_per_camera = Vec::with_capacity(spec.cameras.len());
 
-        for cam in &entry.cameras {
-            let folder = entry.data_root.join(&cam.folder);
-            let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
-            let selected: Vec<_> = paths.iter().take(profile_limit).collect();
-            let mut images_used = 0usize;
-            let mut points_total = 0usize;
-            let mut points_max = 0usize;
-            let mut load_ms = 0u64;
-            let mut stage_ms = 0u64;
-            let mut max_stage_ms = 0u64;
-
-            for path in &selected {
-                let load_start = Instant::now();
-                let img = load_image(path)?;
-                let img = apply_tile(&img, cam.tile);
-                load_ms = load_ms.saturating_add(load_start.elapsed().as_millis() as u64);
-
-                let stage_start = Instant::now();
-                let detection = detector.detect(&img)?;
-                let elapsed = stage_start.elapsed().as_millis() as u64;
-                stage_ms = stage_ms.saturating_add(elapsed);
-                max_stage_ms = max_stage_ms.max(elapsed);
-                if let Some(view) = detection {
-                    images_used += 1;
-                    points_total += view.len();
-                    points_max = points_max.max(view.len());
-                }
-            }
+        for camera in 0..spec.cameras.len() {
+            let camera_spec = camera_spec(&spec, camera);
+            let timing = TimingCache::new(max_images_per_camera);
+            let (views, images_total) =
+                match build_planar_input(&camera_spec, &entry.data_root, &timing, false) {
+                    Ok(built) => (built.input.views, built.total_views),
+                    // A camera that found no board is a profile, not a failure.
+                    Err(RunError::InsufficientUsableViews { total, .. }) => (Vec::new(), total),
+                    Err(e) => {
+                        return Err(anyhow::Error::new(e).context(format!(
+                            "profile detection for {}",
+                            camera_spec.cameras[0].id
+                        )));
+                    }
+                };
+            let durations: Vec<u64> = timing.durations().into_iter().map(ms).collect();
+            let stage_ms = durations.iter().sum::<u64>();
             target_per_camera.push(ProfileCameraStat {
-                camera_id: cam.id.clone(),
-                images_total: paths.len(),
-                images_profiled: selected.len(),
-                images_used,
-                points_total,
-                points_max,
-                load_ms,
+                camera_id: camera_spec.cameras[0].id.clone(),
+                images_total,
+                images_profiled: durations.len(),
+                images_used: views.len(),
+                points_total: views.iter().map(|v| v.obs.len()).sum(),
+                points_max: views.iter().map(|v| v.obs.len()).max().unwrap_or(0),
+                load_ms: None,
                 stage_ms,
-                mean_stage_ms: mean_ms(stage_ms, selected.len()),
-                max_stage_ms,
+                mean_stage_ms: mean_ms(stage_ms, durations.len()),
+                max_stage_ms: durations.iter().copied().max().unwrap_or(0),
             });
         }
 
-        let laser_extraction = profile_laser_extraction(entry, profile_limit)?;
-        let pose_count = entry
-            .robot_poses
-            .as_ref()
-            .and_then(|pose_src| count_robot_poses(entry, pose_src).ok());
+        let laser_extraction =
+            profile_laser_extraction(entry, &spec, max_images_per_camera.unwrap_or(usize::MAX))?;
 
         Ok(DatasetStageProfile {
             dataset_id: entry.id.clone(),
             problem: entry.problem,
-            camera_count: entry.cameras.len(),
-            pose_count,
+            camera_count: spec.cameras.len(),
             max_images_per_camera,
             target_detection: TargetDetectionProfile {
-                detector: detector_name,
-                expected_features_per_board: board_feature_count(board),
-                total_ms: target_start.elapsed().as_millis() as u64,
+                detector: target_kind(&spec.target).to_string(),
+                expected_features_per_board: entry.board.as_ref().map_or(0, board_feature_count),
+                total_ms: ms_since(target_start),
                 per_camera: target_per_camera,
             },
             laser_extraction,
         })
+    }
+
+    /// The manifest name of a target's kind.
+    fn target_kind(target: &TargetSpec) -> &'static str {
+        match target {
+            TargetSpec::Chessboard { .. } => "chessboard",
+            TargetSpec::Charuco { .. } => "charuco",
+            TargetSpec::Puzzleboard { .. } => "puzzleboard",
+            TargetSpec::Ringgrid { .. } => "ringgrid",
+        }
     }
 
     fn mean_ms(total_ms: u64, count: usize) -> f64 {
@@ -2722,21 +2116,10 @@ pub mod tier_b {
         }
     }
 
-    fn count_robot_poses(
-        entry: &BenchEntry,
-        pose_src: &crate::registry::PoseSource,
-    ) -> Result<usize> {
-        let path = entry.data_root.join(&pose_src.path);
-        match pose_src.format.as_str() {
-            "snap_list_json" => Ok(load_snap_list_json(&path, 1.0)?.len()),
-            "counted4x4" | "rowmajor4x4" => Ok(load_robot_poses_for(pose_src, &path)?.len()),
-            other => anyhow::bail!("unsupported robot-pose format '{other}'"),
-        }
-    }
-
     #[cfg(not(feature = "laser"))]
     fn profile_laser_extraction(
         entry: &BenchEntry,
+        _spec: &DatasetSpec,
         _profile_limit: usize,
     ) -> Result<Option<LaserExtractionProfile>> {
         if entry.laser.is_some() {
@@ -2752,17 +2135,17 @@ pub mod tier_b {
     #[cfg(feature = "laser")]
     fn profile_laser_extraction(
         entry: &BenchEntry,
+        spec: &DatasetSpec,
         profile_limit: usize,
     ) -> Result<Option<LaserExtractionProfile>> {
         if entry.laser.is_none() {
             return Ok(None);
         }
-
-        let paths = laser_image_paths(entry)?;
+        let paths: Vec<PathBuf> = laser_frames(entry)?.into_values().collect();
         let selected: Vec<_> = paths.iter().take(profile_limit).collect();
         let total_start = Instant::now();
-        let mut per_camera = Vec::with_capacity(entry.cameras.len());
-        for cam in &entry.cameras {
+        let mut per_camera = Vec::with_capacity(spec.cameras.len());
+        for camera in &spec.cameras {
             let mut images_used = 0usize;
             let mut points_total = 0usize;
             let mut points_max = 0usize;
@@ -2773,12 +2156,12 @@ pub mod tier_b {
             for path in &selected {
                 let load_start = Instant::now();
                 let img = load_image(path)?;
-                let img = apply_tile(&img, cam.tile);
-                load_ms = load_ms.saturating_add(load_start.elapsed().as_millis() as u64);
+                let img = crop_to_roi(&img, camera.roi_xywh);
+                load_ms = load_ms.saturating_add(ms_since(load_start));
 
                 let stage_start = Instant::now();
-                let point_count = extract_laser_points(&img);
-                let elapsed = stage_start.elapsed().as_millis() as u64;
+                let point_count = extract_laser_pixels(&img).len();
+                let elapsed = ms_since(stage_start);
                 stage_ms = stage_ms.saturating_add(elapsed);
                 max_stage_ms = max_stage_ms.max(elapsed);
                 if point_count > 0 {
@@ -2789,13 +2172,13 @@ pub mod tier_b {
             }
 
             per_camera.push(ProfileCameraStat {
-                camera_id: cam.id.clone(),
+                camera_id: camera.id.clone(),
                 images_total: paths.len(),
                 images_profiled: selected.len(),
                 images_used,
                 points_total,
                 points_max,
-                load_ms,
+                load_ms: Some(load_ms),
                 stage_ms,
                 mean_stage_ms: mean_ms(stage_ms, selected.len()),
                 max_stage_ms,
@@ -2804,7 +2187,7 @@ pub mod tier_b {
 
         Ok(Some(LaserExtractionProfile {
             enabled: true,
-            total_ms: total_start.elapsed().as_millis() as u64,
+            total_ms: ms_since(total_start),
             per_camera,
         }))
     }
@@ -2825,26 +2208,29 @@ pub mod tier_b {
         }
     }
 
-    /// Crop a loaded image to a tile ROI `[x, y, w, h]`, if specified.
-    ///
-    /// Used when a single image file contains multiple cameras side-by-side;
-    /// each camera's [`crate::registry::CameraLayout::tile`] selects its slice.
-    /// Returns the original image unmodified when `tile` is `None`.
-    fn apply_tile(img: &image::DynamicImage, tile: Option<[u32; 4]>) -> image::DynamicImage {
-        match tile {
+    /// Crop an image to a camera's region of interest `[x, y, w, h]` (a tiled
+    /// multi-camera frame holds every camera side by side), or keep it whole.
+    #[cfg(feature = "laser")]
+    fn crop_to_roi(img: &image::DynamicImage, roi: Option<[u32; 4]>) -> image::DynamicImage {
+        match roi {
             Some([x, y, w, h]) => img.crop_imm(x, y, w, h),
             None => img.clone(),
         }
     }
 
-    fn rtv3d_manual_intrinsics_seed(entry: &BenchEntry) -> RigIntrinsicsManualInit {
-        let (cx, cy) = entry
+    #[cfg(feature = "laser")]
+    fn load_image(path: &Path) -> Result<image::DynamicImage> {
+        image::open(path).with_context(|| format!("failed to load {}", path.display()))
+    }
+
+    fn rtv3d_manual_intrinsics_seed(spec: &DatasetSpec) -> RigIntrinsicsManualInit {
+        let (cx, cy) = spec
             .cameras
             .first()
-            .and_then(|cam| cam.tile)
+            .and_then(|camera| camera.roi_xywh)
             .map(|[_x, _y, w, h]| (w as f64 * 0.5, h as f64 * 0.5))
             .unwrap_or((360.0, 270.0));
-        let n = entry.cameras.len();
+        let n = spec.cameras.len();
         let mut seed = RigIntrinsicsManualInit::default();
         seed.per_cam_intrinsics = Some(vec![
             FxFyCxCy {
@@ -2879,10 +2265,9 @@ pub mod tier_b {
     #[cfg(not(feature = "laser"))]
     fn extract_laser_observations(
         entry: &BenchEntry,
-        _per_cam_dets: &[Vec<Option<CorrespondenceView>>],
-        _per_cam_paths: &[Vec<PathBuf>],
-        _robot_poses: &[Iso3],
-        _n_views: usize,
+        _spec: &DatasetSpec,
+        _input: &RigDataset<RobotPoseMeta>,
+        _view_paths: &RigViewPaths,
     ) -> Result<Option<LaserObservationSet>> {
         if entry.laser.is_some() {
             anyhow::bail!(
@@ -2893,32 +2278,27 @@ pub mod tier_b {
         Ok(None)
     }
 
+    /// Laser observations of the detected rig views: each view whose target
+    /// frame has a laser frame (paired through the snap list) contributes the
+    /// laser pixels every camera extracts from its region of that frame.
     #[cfg(feature = "laser")]
     fn extract_laser_observations(
         entry: &BenchEntry,
-        per_cam_dets: &[Vec<Option<CorrespondenceView>>],
-        per_cam_paths: &[Vec<PathBuf>],
-        robot_poses: &[Iso3],
-        n_views: usize,
+        spec: &DatasetSpec,
+        input: &RigDataset<RobotPoseMeta>,
+        view_paths: &RigViewPaths,
     ) -> Result<Option<LaserObservationSet>> {
         if entry.laser.is_none() {
             return Ok(None);
         }
-        let keyed_lasers = laser_image_paths_by_target(entry)?;
-        let indexed_lasers = if keyed_lasers.is_empty() {
-            laser_image_paths(entry)?
-        } else {
-            Vec::new()
-        };
-        if keyed_lasers.is_empty() && indexed_lasers.is_empty() {
-            return Ok(None);
-        }
+        let laser_frames = laser_frames(entry)?;
 
         progress(
             entry,
             "extracting laser observations for the joint bundle adjustment",
         );
-        let n_cam = entry.cameras.len();
+        let n_cam = spec.cameras.len();
+        let n_views = input.views.len();
         let mut per_cam_images_used = vec![0usize; n_cam];
         let mut per_cam_points = vec![0usize; n_cam];
         let mut per_cam_ms = vec![0u64; n_cam];
@@ -2930,17 +2310,16 @@ pub mod tier_b {
         let mut laser_robot_poses = Vec::new();
         let mut laser_view_indices = Vec::new();
 
-        for view_idx in 0..n_views {
-            let laser_path = if keyed_lasers.is_empty() {
-                indexed_lasers.get(view_idx)
-            } else {
-                let target_name = per_cam_paths[0][view_idx]
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or_default();
-                keyed_lasers.get(target_name)
-            };
-            let Some(laser_path) = laser_path else {
+        for (view_idx, (view, paths)) in input.views.iter().zip(view_paths).enumerate() {
+            // Every camera of a tiled rig reads the same target frame.
+            let target_name = paths
+                .iter()
+                .flatten()
+                .next()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
+            let Some(laser_path) = laser_frames.get(target_name) else {
                 continue;
             };
             candidate_views += 1;
@@ -2948,12 +2327,11 @@ pub mod tier_b {
             let img = load_image(laser_path)?;
             let mut laser_pixels = Vec::with_capacity(n_cam);
             let mut any_laser = false;
-            for (cam_idx, cam) in entry.cameras.iter().enumerate() {
+            for (cam_idx, camera) in spec.cameras.iter().enumerate() {
                 let cam_start = Instant::now();
-                let tile = apply_tile(&img, cam.tile);
+                let tile = crop_to_roi(&img, camera.roi_xywh);
                 let pixels = extract_laser_pixels(&tile);
-                per_cam_ms[cam_idx] =
-                    per_cam_ms[cam_idx].saturating_add(cam_start.elapsed().as_millis() as u64);
+                per_cam_ms[cam_idx] = per_cam_ms[cam_idx].saturating_add(ms_since(cam_start));
                 if pixels.is_empty() {
                     laser_pixels.push(None);
                 } else {
@@ -2967,13 +2345,10 @@ pub mod tier_b {
             if any_laser {
                 total_images_used += 1;
                 views.push(RigLaserlineView {
-                    cameras: per_cam_dets
-                        .iter()
-                        .map(|dets| dets[view_idx].clone())
-                        .collect(),
+                    cameras: view.obs.cameras.clone(),
                     laser_pixels,
                 });
-                laser_robot_poses.push(robot_poses[view_idx]);
+                laser_robot_poses.push(view.meta.base_se3_gripper);
                 laser_view_indices.push(view_idx);
             }
         }
@@ -2982,12 +2357,12 @@ pub mod tier_b {
             return Ok(None);
         }
 
-        let per_camera = entry
+        let per_camera = spec
             .cameras
             .iter()
             .enumerate()
-            .map(|(cam_idx, cam)| LaserCamStat {
-                camera_id: cam.id.clone(),
+            .map(|(cam_idx, camera)| LaserCamStat {
+                camera_id: camera.id.clone(),
                 images_total: candidate_views,
                 images_used: per_cam_images_used[cam_idx],
                 points_extracted: per_cam_points[cam_idx],
@@ -3006,14 +2381,9 @@ pub mod tier_b {
                 per_camera,
                 total_points,
                 total_images_used,
-                extract_ms: total_start.elapsed().as_millis() as u64,
+                extract_ms: ms_since(total_start),
             },
         }))
-    }
-
-    #[cfg(feature = "laser")]
-    fn extract_laser_points(img: &image::DynamicImage) -> usize {
-        extract_laser_pixels(img).len()
     }
 
     #[cfg(feature = "laser")]
@@ -3054,25 +2424,31 @@ pub mod tier_b {
         snap_type: Option<String>,
     }
 
+    /// The laser frame of each target frame, by target file name: the
+    /// `double_snap` entries of the entry's snap-list pose file, which name
+    /// both frames of a robot pose.
     #[cfg(feature = "laser")]
-    fn laser_image_paths_by_target(
-        entry: &BenchEntry,
-    ) -> Result<std::collections::BTreeMap<String, PathBuf>> {
-        let Some(pose_src) = &entry.robot_poses else {
-            return Ok(std::collections::BTreeMap::new());
-        };
-        if pose_src.format != "snap_list_json" {
-            return Ok(std::collections::BTreeMap::new());
-        }
+    fn laser_frames(entry: &BenchEntry) -> Result<std::collections::BTreeMap<String, PathBuf>> {
+        let pose_src = entry
+            .robot_poses
+            .as_ref()
+            .filter(|src| src.format == "snap_list_json")
+            .with_context(|| {
+                format!(
+                    "entry `{}` declares laser data, which pairs with target frames through \
+                     a snap_list_json pose file",
+                    entry.id
+                )
+            })?;
         let path = entry.data_root.join(&pose_src.path);
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read laser pose list {}", path.display()))?;
         let entries: Vec<LaserPoseEntry> = serde_json::from_str(&text)
             .with_context(|| format!("failed to parse laser pose list {}", path.display()))?;
-        Ok(entries
+        let frames: std::collections::BTreeMap<String, PathBuf> = entries
             .into_iter()
-            .filter(|entry| entry.snap_type.as_deref() == Some("double_snap"))
-            .filter_map(|entry| Some((entry.target_image?, entry.laser_image?)))
+            .filter(|snap| snap.snap_type.as_deref() == Some("double_snap"))
+            .filter_map(|snap| Some((snap.target_image?, snap.laser_image?)))
             .map(|(target, laser)| {
                 let target_name = Path::new(&target)
                     .file_name()
@@ -3081,30 +2457,14 @@ pub mod tier_b {
                     .to_string();
                 (target_name, entry.data_root.join(laser))
             })
-            .collect())
-    }
-
-    #[cfg(feature = "laser")]
-    fn laser_image_paths(entry: &BenchEntry) -> Result<Vec<PathBuf>> {
-        if let Some(pose_src) = &entry.robot_poses
-            && pose_src.format == "snap_list_json"
-        {
-            let path = entry.data_root.join(&pose_src.path);
-            let text = std::fs::read_to_string(&path)
-                .with_context(|| format!("failed to read laser pose list {}", path.display()))?;
-            let entries: Vec<LaserPoseEntry> = serde_json::from_str(&text)
-                .with_context(|| format!("failed to parse laser pose list {}", path.display()))?;
-            let paths: Vec<PathBuf> = entries
-                .into_iter()
-                .filter(|entry| entry.snap_type.as_deref() == Some("double_snap"))
-                .filter_map(|entry| entry.laser_image)
-                .map(|image| entry.data_root.join(image))
-                .collect();
-            if !paths.is_empty() {
-                return Ok(paths);
-            }
-        }
-        glob_sorted_images(&entry.data_root, "laser_*.png")
+            .collect();
+        anyhow::ensure!(
+            !frames.is_empty(),
+            "entry `{}`: pose list {} has no double_snap entry naming a laser frame",
+            entry.id,
+            path.display()
+        );
+        Ok(frames)
     }
 
     fn run_rig_handeye_laserline_v5(
@@ -3369,301 +2729,6 @@ pub mod tier_b {
         }
     }
 
-    /// Pairing key for a rig image: the filename after a leading per-camera
-    /// prefix has been stripped.
-    ///
-    /// The prefix is the longest leading run of ASCII alphanumerics (the camera
-    /// tag — `Im_L`, `Cam1`, …) followed by one separator (`_`/`-`). For
-    /// `Im_L_2.png` the run is `Im`, then `_`, leaving `L_2.png`; one more pass
-    /// strips `L` + `_` to `2.png`. For `Cam1_<suffix>.png` the run `Cam1` + `_`
-    /// is stripped in a single pass to `<suffix>.png`. Applying the same rule to
-    /// every camera makes the shared tail the pairing key, reproducing the
-    /// stereo examples' index/suffix pairing without hard-coding prefixes.
-    fn pairing_key(path: &Path) -> String {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-        let mut s = name;
-        // Peel up to two `<alphanumeric-run><sep>` segments. Two passes cover
-        // both `Im_L_` (two segments) and `Cam1_` (one segment); the loop stops
-        // early once the head is no longer a tag+separator.
-        for _ in 0..2 {
-            let after_run = s.trim_start_matches(|c: char| c.is_ascii_alphanumeric());
-            if after_run.len() == s.len() {
-                break; // no leading alphanumeric run — nothing to strip
-            }
-            match after_run.strip_prefix(['_', '-']) {
-                Some(rest) => s = rest,
-                None => break, // run not followed by a separator — keep as-is
-            }
-        }
-        s.to_string()
-    }
-
-    /// Resolve the per-image detector for a rig from its board geometry.
-    ///
-    /// `layout` selects the detector: `"charuco"` builds a ChArUco detector from
-    /// the board's rows/cols/cell-size/dictionary/marker_size_rel; anything else
-    /// (incl. the `"checkerboard"` default) uses the chessboard detector with the
-    /// board's metric cell size.
-    fn detector_for(
-        board: &BoardGeometry,
-        detector_override: Option<&DetectorOverride>,
-    ) -> Result<DetectorKind> {
-        let layout = board.layout.as_deref().unwrap_or("checkerboard");
-        let front_end = ChessFrontEnd::from_override(detector_override);
-        if layout.eq_ignore_ascii_case("charuco") {
-            let dict = board
-                .dictionary
-                .as_deref()
-                .context("charuco board needs a `dictionary`")?;
-            // Marker scale: from BoardGeometry if present, else the OpenCV
-            // OpenCV ChArUco default (0.75).
-            let marker_scale = board.marker_size_rel.unwrap_or(0.75);
-            let params = charuco_params_for(
-                board.rows as u32,
-                board.cols as u32,
-                board.cell_size_m,
-                marker_scale,
-                dict,
-                &front_end,
-            )?;
-            Ok(DetectorKind::Charuco {
-                params: Box::new(params),
-                chess_config: front_end.chess,
-            })
-        } else if layout.eq_ignore_ascii_case("puzzleboard") {
-            let params =
-                puzzleboard_params_for(board.rows as u32, board.cols as u32, board.cell_size_m)?;
-            Ok(DetectorKind::Puzzleboard(Box::new(params)))
-        } else {
-            Ok(DetectorKind::Chessboard {
-                rows: board.rows,
-                cols: board.cols,
-                require_known_grid: board.strict_grid,
-                square_size_m: board.cell_size_m,
-                front_end,
-            })
-        }
-    }
-
-    /// Expected full-board feature count in the same semantics as the selected
-    /// detector. PuzzleBoard registry dimensions are square counts, so the
-    /// actual inner-corner grid is `(rows - 1) * (cols - 1)`.
-    fn board_feature_count(board: &BoardGeometry) -> usize {
-        match board.layout.as_deref() {
-            Some(layout) if layout.eq_ignore_ascii_case("puzzleboard") => {
-                board.rows.saturating_sub(1) * board.cols.saturating_sub(1)
-            }
-            _ => board.rows * board.cols,
-        }
-    }
-
-    /// Build an [`Iso3`] from 16 row-major 4×4 values, scaling the translation.
-    ///
-    /// Rotation comes from the upper-left 3×3, translation from the 4th column
-    /// scaled by `trans_scale` (`1.0` for metres, `1e-3` for millimetre files).
-    /// The result is the `base_se3_gripper` (EyeInHand robot-pose prior).
-    fn build_pose_from_4x4(values: &[f64], trans_scale: f64) -> Result<Iso3> {
-        anyhow::ensure!(
-            values.len() == 16,
-            "expected 16 values for a 4x4 pose, got {}",
-            values.len()
-        );
-        let r = Matrix3::new(
-            values[0], values[1], values[2], values[4], values[5], values[6], values[8], values[9],
-            values[10],
-        );
-        let t = Vector3::new(
-            values[3] * trans_scale,
-            values[7] * trans_scale,
-            values[11] * trans_scale,
-        );
-        let rot = Rotation3::from_matrix_unchecked(r);
-        Ok(Iso3::from_parts(
-            Translation3::from(t),
-            UnitQuaternion::from_rotation_matrix(&rot),
-        ))
-    }
-
-    /// Parse one row-major 4×4 robot-pose line into an [`Iso3`] (translation in
-    /// the file's native metres).
-    ///
-    /// Port of `support/handeye_io.rs::parse_pose_line`.
-    fn parse_pose_line(line: &str, idx: usize) -> Result<Iso3> {
-        let values: Vec<f64> = line
-            .split_whitespace()
-            .map(|v| v.parse::<f64>())
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("invalid float in robot pose line {}", idx + 1))?;
-        build_pose_from_4x4(&values, 1.0).with_context(|| format!("robot pose line {}", idx + 1))
-    }
-
-    /// Load robot poses from a whitespace-delimited 4×4-per-line file
-    /// (`rowmajor4x4`, translation in metres). Used by the kuka single-cam path.
-    fn load_robot_poses(path: &PathBuf) -> Result<Vec<Iso3>> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read robot poses from {}", path.display()))?;
-        let mut poses = Vec::new();
-        for (idx, line) in text.lines().enumerate() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            poses.push(parse_pose_line(line, idx)?);
-        }
-        anyhow::ensure!(
-            !poses.is_empty(),
-            "robot pose file {} is empty",
-            path.display()
-        );
-        Ok(poses)
-    }
-
-    /// Load robot poses from a counted-block file: a leading integer count, then
-    /// that many row-major 4×4 matrices as whitespace-separated values (DS8's
-    /// `robot_cali.txt`). `trans_scale` converts translations to metres.
-    fn load_robot_poses_counted(path: &PathBuf, trans_scale: f64) -> Result<Vec<Iso3>> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read robot poses from {}", path.display()))?;
-        let mut tokens = text.split_whitespace();
-        let count: usize = tokens
-            .next()
-            .context("counted pose file is empty")?
-            .parse()
-            .context("first token of a counted pose file must be the pose count")?;
-        let vals: Vec<f64> = tokens
-            .map(|v| v.parse::<f64>())
-            .collect::<Result<Vec<_>, _>>()
-            .context("invalid float in counted pose file")?;
-        anyhow::ensure!(
-            vals.len() >= count * 16,
-            "counted pose file declares {} poses ({} values) but has {}",
-            count,
-            count * 16,
-            vals.len()
-        );
-        let mut poses = Vec::with_capacity(count);
-        for k in 0..count {
-            poses.push(build_pose_from_4x4(
-                &vals[k * 16..k * 16 + 16],
-                trans_scale,
-            )?);
-        }
-        Ok(poses)
-    }
-
-    /// Deserialise one entry from `poses.json` (snap_list_json format).
-    #[derive(serde::Deserialize)]
-    struct SnapEntry {
-        target_image: String,
-        /// Row-major 4×4 homogeneous matrix: tcp→base (= `base_se3_gripper`).
-        tcp2base: [[f64; 4]; 4],
-    }
-
-    /// Load robot poses from a JSON list of snap objects (`poses.json`).
-    ///
-    /// Returns `(target_image_filename, base_se3_gripper)` pairs in file order.
-    /// `trans_scale` converts the translation column to metres (`1e-3` for mm).
-    /// Rotation is taken from the upper-left 3×3 and re-normalised via
-    /// `UnitQuaternion::from_rotation_matrix` to guard against floating-point
-    /// near-orthogonality.
-    fn load_snap_list_json(path: &PathBuf, trans_scale: f64) -> Result<Vec<(String, Iso3)>> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read snap list from {}", path.display()))?;
-        let entries: Vec<SnapEntry> = serde_json::from_str(&text)
-            .with_context(|| format!("failed to parse snap list JSON {}", path.display()))?;
-        anyhow::ensure!(
-            !entries.is_empty(),
-            "snap list JSON {} is empty",
-            path.display()
-        );
-        let mut out = Vec::with_capacity(entries.len());
-        for e in &entries {
-            let m = &e.tcp2base;
-            // Upper-left 3×3 is the rotation.
-            let r = Matrix3::new(
-                m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2],
-            );
-            // 4th column (column-major index 3) is the translation.
-            let t = Vector3::new(
-                m[0][3] * trans_scale,
-                m[1][3] * trans_scale,
-                m[2][3] * trans_scale,
-            );
-            let rot = Rotation3::from_matrix_unchecked(r);
-            let iso = Iso3::from_parts(
-                Translation3::from(t),
-                UnitQuaternion::from_rotation_matrix(&rot),
-            );
-            out.push((e.target_image.clone(), iso));
-        }
-        Ok(out)
-    }
-
-    /// Load robot poses for an entry, dispatching on
-    /// [`crate::registry::PoseSource::format`] and scaling by `units`.
-    fn load_robot_poses_for(
-        pose_src: &crate::registry::PoseSource,
-        path: &PathBuf,
-    ) -> Result<Vec<Iso3>> {
-        let trans_scale = match pose_src.units.as_deref() {
-            Some("mm") => 1.0e-3,
-            Some("m") | None => 1.0,
-            Some(other) => anyhow::bail!("unsupported pose units '{other}' (use 'mm' or 'm')"),
-        };
-        let mut poses = match pose_src.format.as_str() {
-            "counted4x4" => load_robot_poses_counted(path, trans_scale),
-            "rowmajor4x4" => {
-                let mut poses = load_robot_poses(path)?;
-                if trans_scale != 1.0 {
-                    for p in &mut poses {
-                        p.translation.vector *= trans_scale;
-                    }
-                }
-                Ok(poses)
-            }
-            // Snap-list JSON pairs each pose with a `target_image`; for the rig
-            // path (index-pairing) we drop the names and return poses in file
-            // order. The registry's per-camera glob must natural-sort to the same
-            // order as this list (e.g. `target_*.png` ↔ `target_0..N`), exactly
-            // as the counted/rowmajor formats already assume pose `i` ↔ frame `i`.
-            "snap_list_json" => Ok(load_snap_list_json(path, trans_scale)?
-                .into_iter()
-                .map(|(_image, pose)| pose)
-                .collect()),
-            other => anyhow::bail!(
-                "unsupported robot-pose format '{other}' \
-                 (use 'rowmajor4x4', 'counted4x4', or 'snap_list_json')"
-            ),
-        }?;
-
-        apply_robot_pose_convention(&mut poses, &pose_src.convention)?;
-        Ok(poses)
-    }
-
-    fn apply_robot_pose_convention(poses: &mut [Iso3], convention: &str) -> Result<()> {
-        for pose in poses {
-            normalize_robot_pose_convention(pose, convention)?;
-        }
-        Ok(())
-    }
-
-    fn normalize_robot_pose_convention(pose: &mut Iso3, convention: &str) -> Result<()> {
-        match convention {
-            "base_se3_gripper" => {}
-            "gripper_se3_base" => {
-                *pose = pose.inverse();
-            }
-            other => anyhow::bail!(
-                "unsupported robot-pose convention '{other}' \
-                 (use 'base_se3_gripper' or 'gripper_se3_base')"
-            ),
-        }
-        Ok(())
-    }
-
     fn artifacts_from_planar(
         camera_id: &str,
         export: &PlanarIntrinsicsExport,
@@ -3725,7 +2790,7 @@ pub mod tier_b {
     }
 
     fn artifacts_from_rig_extrinsics(
-        cameras: &[CameraLayout],
+        cameras: &[CameraSource],
         export: &RigExtrinsicsExport,
     ) -> CalibrationArtifacts {
         let mut artifacts = CalibrationArtifacts {
@@ -3755,7 +2820,7 @@ pub mod tier_b {
     }
 
     fn artifacts_from_rig_handeye(
-        cameras: &[CameraLayout],
+        cameras: &[CameraSource],
         export: &RigHandeyeExport,
     ) -> CalibrationArtifacts {
         let mut artifacts = CalibrationArtifacts {
@@ -3810,11 +2875,11 @@ pub mod tier_b {
     /// Artifacts of rig cameras. The artifact format is Brown-Conrady: a
     /// camera of another distortion model reports zero coefficients under
     /// its own model name.
-    fn camera_artifacts(layouts: &[CameraLayout], cameras: &[CameraParams]) -> Vec<CameraArtifact> {
+    fn camera_artifacts(sources: &[CameraSource], cameras: &[CameraParams]) -> Vec<CameraArtifact> {
         cameras
             .iter()
             .enumerate()
-            .map(|(idx, camera)| params_artifact(camera_id(layouts, idx), camera))
+            .map(|(idx, camera)| params_artifact(camera_id(sources, idx), camera))
             .collect()
     }
 
@@ -3844,8 +2909,8 @@ pub mod tier_b {
         artifact
     }
 
-    fn camera_id(layouts: &[CameraLayout], index: usize) -> &str {
-        layouts
+    fn camera_id(sources: &[CameraSource], index: usize) -> &str {
+        sources
             .get(index)
             .map(|layout| layout.id.as_str())
             .unwrap_or("camera")
@@ -3923,29 +2988,8 @@ pub mod tier_b {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use vision_calibration_core::{CameraProject, Pt3};
-
-        #[test]
-        fn detector_for_puzzleboard_layout_dispatches() {
-            let board = BoardGeometry {
-                rows: 130,
-                cols: 130,
-                cell_size_m: 0.001014,
-                dictionary: None,
-                layout: Some("puzzleboard".to_string()),
-                marker_size_rel: None,
-                strict_grid: false,
-            };
-
-            let detector = detector_for(&board, None).expect("detector");
-            match detector {
-                DetectorKind::Puzzleboard(params) => {
-                    assert_eq!(params.board.rows, 130);
-                    assert_eq!(params.board.cols, 130);
-                }
-                _ => panic!("expected puzzleboard detector"),
-            }
-        }
+        use nalgebra::{Translation3, UnitQuaternion, Vector3};
+        use vision_calibration_core::{CameraProject, CorrespondenceView, Pt3};
 
         #[test]
         fn staged_multistart_recovers_synthetic_scheimpflug_intrinsics() {

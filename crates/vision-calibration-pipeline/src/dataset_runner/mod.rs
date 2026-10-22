@@ -484,8 +484,7 @@ fn expand_image_pattern(
 
 /// Natural (numeric-aware) string comparison: splits each string into
 /// runs of digits and non-digits, comparing digit runs by numeric
-/// value. Keeps `Im_2` < `Im_10`, matching the bench harness's
-/// ordering (`vision-calibration-bench/src/detect.rs`).
+/// value. Keeps `Im_2` < `Im_10`.
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let mut ai = a.chars().peekable();

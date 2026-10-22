@@ -3197,12 +3197,11 @@ name = "vision-calibration-bench"
 version = "0.9.0"
 dependencies = [
  "anyhow",
- "calib-targets",
  "clap",
- "glob",
  "image",
  "nalgebra 0.34.2",
  "rand 0.10.3",
+ "regex",
  "schemars",
  "serde",
  "serde_json",
