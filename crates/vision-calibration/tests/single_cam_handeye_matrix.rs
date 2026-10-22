@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use vision_calibration::core::{
-    BrownConrady5, FxFyCxCy, Iso3, PinholeCamera, Pt3, make_pinhole_camera,
+    BrownConrady5, FxFyCxCy, Iso3, PinholeCamera, Pt3, Uncertainty, make_pinhole_camera,
 };
 use vision_calibration::optim::{HandeyeMode, SolverBackend};
 use vision_calibration::session::CalibrationSession;
@@ -115,6 +115,13 @@ fn solve_with(
         SolverBackend::TinySolver,
     );
     let factrs = solve_on(input, mode, refine_robot_poses, SolverBackend::Factrs);
+    // In units of the result's own σ: each backend stops on its own path to
+    // the same minimum, and with refined robot poses the hand-eye is
+    // determined by their priors, to millimetres here.
+    let Uncertainty::Available(cov) = &tiny.uncertainty else {
+        panic!("no covariance: {:?}", tiny.uncertainty);
+    };
+    let sd = |label: &str| cov.std_dev(label).expect("estimated parameter");
     let (a, b) = (&tiny.camera.intrinsics, &factrs.camera.intrinsics);
     for (name, x, y) in [
         ("fx", a.fx, b.fx),
@@ -123,14 +130,23 @@ fn solve_with(
         ("cy", a.cy, b.cy),
     ] {
         assert!(
-            (x - y).abs() <= 1e-2,
-            "backends disagree on {name}: {x} vs {y}"
+            (x - y).abs() <= 0.05 * sd(name),
+            "backends disagree on {name}: {x} vs {y} (σ {})",
+            sd(name)
         );
     }
     if let (Some(a), Some(b)) = (tiny.gripper_se3_camera, factrs.gripper_se3_camera) {
-        let dt = (a.translation.vector - b.translation.vector).norm();
-        let dr = a.rotation.angle_to(&b.rotation);
-        assert!(dt <= 1e-5 && dr <= 1e-5, "hand-eye {dt} m / {dr} rad");
+        let (dt, dr) = pose_error(&a, &b);
+        let min_sd = |axes: [&str; 3]| {
+            axes.iter()
+                .map(|c| sd(&format!("gripper_se3_camera.{c}")))
+                .fold(f64::INFINITY, f64::min)
+        };
+        let (st, sr) = (min_sd(["tx", "ty", "tz"]), min_sd(["rx", "ry", "rz"]));
+        assert!(
+            dt <= 0.05 * st && dr <= 0.05 * sr,
+            "hand-eye {dt} m / {dr} rad apart (σ {st} m / {sr} rad)"
+        );
     }
     tiny
 }
@@ -237,12 +253,33 @@ fn single_cam_handeye_recovers_gt_across_grid_and_noise() {
             // Hand-eye translation recovery (metres). The translation DOF is
             // the most noise-sensitive part of the chain (see the math note,
             // §noise sensitivity): it is the ratio of pose residuals to the
-            // rank-deficient (R_A − I) blocks.
-            let trans_tol = if noise_px == 0.0 { 2.0e-3 } else { 8.0e-3 };
+            // rank-deficient (R_A − I) blocks. The robot poses here are
+            // exact, but the default priors (0.5°, 1 mm) trust them far less,
+            // so with noise the hand-eye is determined to about 3 mm per
+            // axis: each coordinate must also be within 4σ.
+            let trans_tol = if noise_px == 0.0 { 2.0e-3 } else { 1.2e-2 };
             assert!(
                 dt < trans_tol,
                 "{label}: hand-eye translation err {dt} m > {trans_tol}"
             );
+            let Uncertainty::Available(cov) = &export.uncertainty else {
+                panic!("{label}: no covariance");
+            };
+            let rel = cell.handeye.inverse() * x_est;
+            let w = rel.rotation.scaled_axis();
+            let v = rel.translation.vector;
+            for (axis, e) in ["rx", "ry", "rz", "tx", "ty", "tz"]
+                .iter()
+                .zip([w.x, w.y, w.z, v.x, v.y, v.z])
+            {
+                let sd = cov
+                    .std_dev(&format!("gripper_se3_camera.{axis}"))
+                    .expect("hand-eye σ");
+                assert!(
+                    e.abs() <= 4.0 * sd,
+                    "{label}: hand-eye {axis} err {e} > 4σ ({sd})"
+                );
+            }
 
             // Residual floor: uniform noise in [−a, a] per axis has expected
             // error-norm mean ≈ 0.765·a; near-zero on exact data.

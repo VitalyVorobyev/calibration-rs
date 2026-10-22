@@ -91,7 +91,15 @@ class SolverConfig:
 
 @dataclass(slots=True)
 class RobotPoseConfig:
-    """Shared robot-pose refinement settings for hand-eye BA."""
+    """Shared robot-pose refinement settings for hand-eye BA.
+
+    With ``refine``, every view's robot pose gets an se(3) correction under
+    a zero-mean prior: ``rot_sigma`` (radians) and ``trans_sigma`` (metres)
+    are the standard deviations of the robot's pose error per axis. The
+    prior is weighed against the corner residuals at their estimated pixel
+    noise, and the result's covariance takes these standard deviations as
+    the robot's true accuracy.
+    """
 
     refine: bool = True
     rot_sigma: float = 0.5 * 3.141592653589793 / 180.0

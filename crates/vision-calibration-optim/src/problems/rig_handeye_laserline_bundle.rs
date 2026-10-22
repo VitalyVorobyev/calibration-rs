@@ -27,10 +27,11 @@ use crate::params::camera::{
 };
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
-use crate::problems::handeye::RobotPoseMeta;
+use crate::problems::handeye::{RobotPoseMeta, apply_robot_delta};
 use crate::problems::laserline_bundle::LaserlineResidualType;
 use crate::problems::laserline_rig_bundle::{RigLaserlineDataset, RigLaserlineView};
 use crate::problems::rig_extrinsics::{camera_models, resolve_camera_fix};
+use crate::problems::robot_poses::{self, RobotPosePriors};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -194,12 +195,17 @@ pub struct RigHandeyeLaserlineSolveOptions {
     /// Refine per-view robot pose corrections in se(3).
     ///
     /// When enabled, each view gets a 6D tangent correction applied as
-    /// `exp(delta_i) * T_B_G_i`. `delta_0` is fixed to zero for gauge
-    /// consistency, and all deltas receive a zero-mean tangent prior.
+    /// `exp(delta_i) * T_B_G_i` under a zero-mean prior of
+    /// [`Self::robot_rot_sigma`] and [`Self::robot_trans_sigma`], weighed
+    /// against the reprojection residuals at their estimated pixel noise
+    /// (one solve at 1 px, then one from that solution at the noise its
+    /// residuals show).
     pub refine_robot_poses: bool,
-    /// Robot rotation prior sigma (radians).
+    /// Standard deviation of the robot's rotation error about each axis
+    /// (radians).
     pub robot_rot_sigma: f64,
-    /// Robot translation prior sigma (meters).
+    /// Standard deviation of the robot's translation error along each axis
+    /// (metres).
     pub robot_trans_sigma: f64,
     /// Optional initial per-view robot pose deltas
     /// `[rx, ry, rz, tx, ty, tz]`. Used only when
@@ -294,8 +300,14 @@ pub fn optimize_rig_handeye_laserline(
     backend_opts: BackendSolveOptions,
 ) -> Result<RigHandeyeLaserlineEstimate, Error> {
     let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
-    let (ir, initial_map) = build_ir(&dataset, &initial, &specs, &fixed, &opts)?;
-    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
+    let build = |pixel_sigma| build_ir(&dataset, &initial, &specs, &fixed, &opts, pixel_sigma);
+    let (ir, solution) = if opts.refine_robot_poses {
+        robot_poses::solve_weighted(build, &backend_opts)?
+    } else {
+        let (ir, initial_map) = build(1.0)?;
+        let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
+        (ir, solution)
+    };
     let labels = RigLabelling {
         cameras: &specs,
         multi_camera: dataset.num_cameras > 1,
@@ -346,24 +358,10 @@ pub fn optimize_rig_handeye_laserline(
         planes_cam,
     };
 
-    let robot_deltas = if opts.refine_robot_poses {
-        let mut deltas = Vec::with_capacity(dataset.num_views());
-        for view_idx in 0..dataset.num_views() {
-            let key = format!("robot_delta/{view_idx}");
-            let delta_vec = solution.params.get(&key).unwrap();
-            deltas.push([
-                delta_vec[0],
-                delta_vec[1],
-                delta_vec[2],
-                delta_vec[3],
-                delta_vec[4],
-                delta_vec[5],
-            ]);
-        }
-        Some(deltas)
-    } else {
-        None
-    };
+    let robot_deltas = opts
+        .refine_robot_poses
+        .then(|| robot_poses::solved_deltas(&solution.params, dataset.num_views()))
+        .transpose()?;
 
     let planes_rig: Vec<LaserPlane> = params
         .planes_cam
@@ -382,7 +380,7 @@ pub fn optimize_rig_handeye_laserline(
         mean_reproj_error_px,
         per_cam_stats,
         robot_deltas,
-        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
+        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
     })
 }
 
@@ -454,7 +452,7 @@ fn compute_stats(
 
     for (view_idx, view) in dataset.views.iter().enumerate() {
         let robot_pose = if let Some(deltas) = robot_deltas {
-            corrected_robot_pose(view.meta.base_se3_gripper, deltas[view_idx])
+            apply_robot_delta(&view.meta.base_se3_gripper, &deltas[view_idx])
         } else {
             view.meta.base_se3_gripper
         };
@@ -616,27 +614,13 @@ fn bucket_laser_m(err: f64) -> usize {
     }
 }
 
-fn corrected_robot_pose(robot_pose: Iso3, delta: [Real; 6]) -> Iso3 {
-    use nalgebra::{Translation3, Unit, UnitQuaternion, Vector3};
-
-    let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
-    let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
-    let angle = rot_vec.norm();
-    let delta_rot = if angle > 1e-12 {
-        UnitQuaternion::from_axis_angle(&Unit::new_normalize(rot_vec), angle)
-    } else {
-        UnitQuaternion::identity()
-    };
-    let delta_iso = Iso3::from_parts(Translation3::from(trans_vec), delta_rot);
-    delta_iso * robot_pose
-}
-
 fn build_ir(
     dataset: &RigHandeyeLaserlineDataset,
     initial: &RigHandeyeLaserlineParams,
     specs: &[CameraModelSpec],
     fixed: &[FixedParams],
     opts: &RigHandeyeLaserlineSolveOptions,
+    pixel_sigma: f64,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
     let n = dataset.num_cameras;
     if initial.cameras.len() != n {
@@ -662,12 +646,11 @@ fn build_ir(
             n
         )));
     }
-    if opts.robot_rot_sigma.is_nan() || opts.robot_rot_sigma <= 0.0 {
-        return Err(Error::invalid_input("robot_rot_sigma must be positive"));
-    }
-    if opts.robot_trans_sigma.is_nan() || opts.robot_trans_sigma <= 0.0 {
-        return Err(Error::invalid_input("robot_trans_sigma must be positive"));
-    }
+    let robot_priors = RobotPosePriors {
+        rot_sigma: opts.robot_rot_sigma,
+        trans_sigma: opts.robot_trans_sigma,
+    };
+    robot_priors.validate()?;
     if let Some(deltas) = &opts.initial_robot_deltas
         && deltas.len() != dataset.num_views()
     {
@@ -755,14 +738,6 @@ fn build_ir(
         initial_map.insert(key_d, initial.planes_cam[cam_idx].distance_to_dvec());
     }
 
-    let robot_prior_sqrt_info = if opts.refine_robot_poses {
-        let rot = 1.0 / opts.robot_rot_sigma;
-        let trans = 1.0 / opts.robot_trans_sigma;
-        [rot, rot, rot, trans, trans, trans]
-    } else {
-        [0.0; 6]
-    };
-
     // 8. Residuals per view.
     for (view_idx, view) in dataset.views.iter().enumerate() {
         let robot_se3 = iso3_to_se3_dvec(&view.meta.base_se3_gripper);
@@ -776,32 +751,15 @@ fn build_ir(
             robot_se3[6],
         ];
 
-        let robot_delta_id = if opts.refine_robot_poses {
-            let fixed = if view_idx == 0 {
-                FixedMask::all_fixed(6)
-            } else {
-                FixedMask::all_free()
-            };
-            let key = format!("robot_delta/{view_idx}");
-            let id = ir.add_param_block(&key, 6, ManifoldKind::Euclidean, fixed, None);
-            let initial_delta = opts
-                .initial_robot_deltas
-                .as_ref()
-                .map(|d| DVector::from_row_slice(&d[view_idx]))
-                .unwrap_or_else(|| DVector::from_element(6, 0.0));
-            initial_map.insert(key, initial_delta);
-            ir.add_residual_block(ResidualBlock {
-                params: vec![id],
-                loss: RobustLoss::None,
-                factor: FactorKind::Se3TangentPrior {
-                    sqrt_info: robot_prior_sqrt_info,
-                },
-                residual_dim: 6,
-            });
-            Some(id)
-        } else {
-            None
-        };
+        let robot_delta_id = opts.refine_robot_poses.then(|| {
+            robot_priors.add_view(
+                &mut ir,
+                &mut initial_map,
+                view_idx,
+                opts.initial_robot_deltas.as_ref().map(|d| &d[view_idx]),
+                pixel_sigma,
+            )
+        });
 
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
             let Some(obs) = cam_obs else { continue };

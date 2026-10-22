@@ -302,7 +302,7 @@ pub fn optimize_rig_extrinsics(
         handeye_mode: None,
     }
     .labels(&ir, &solution);
-    let uncertainty = uncertainty::labelled(&ir, &solution.uncertainty, &labels);
+    let uncertainty = uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels);
 
     Ok(RigExtrinsicsEstimate {
         params: RigExtrinsicsParams {

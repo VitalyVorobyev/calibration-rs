@@ -152,6 +152,7 @@ impl OptimBackend for TinySolverBackend {
             raw_from_engine(ir, &engine, &state)
         };
         Ok(BackendSolution {
+            noise: covariance::noise(ir, raw.as_ref()),
             uncertainty: covariance::estimate(ir, &params, raw, converged),
             params,
             solve_report: SolveReport {
@@ -384,7 +385,7 @@ type CompiledFactor = (
 fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor, Error> {
     let loss = compile_loss(residual.loss);
     match &residual.factor {
-        FactorKind::Se3TangentPrior { sqrt_info } => {
+        FactorKind::Se3TangentPrior { sqrt_info, .. } => {
             let factor = TinySe3TangentPriorFactor {
                 sqrt_info: *sqrt_info,
             };

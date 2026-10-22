@@ -322,6 +322,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PuzzleBoard target. Add an arm for the variant to exhaustive matches on
   `RunError`. `detector.min_features_per_view = rows × cols` is no longer
   needed to keep only complete boards and can be removed.
+- **Robot-pose priors are weighed against the corner noise, and every view's
+  robot pose is refined.** Hand-eye results with `robot_poses.refine` (the
+  default in `single_cam_handeye`, `rig_handeye` and
+  `rig_handeye_laserline`) change. The priors were weighed against the
+  corner residuals as if those had 1 px of noise, so with sub-pixel corners
+  they held the robot poses too tightly and the robot's error leaked into
+  the camera parameters; and view 0's correction was fixed, which took that
+  robot pose as exact. Now `rot_sigma` and `trans_sigma` are the standard
+  deviations of the robot's pose error, the solve estimates the corner noise
+  (one solve at 1 px, then one from that solution at the noise its
+  residuals show) and weighs the priors against it, and every view gets a
+  correction. On synthetic eye-in-hand scenes the hand-eye errors shrink by
+  up to 3× and the standard deviations become honest (normalized errors
+  with an RMS near 1, against 2.2–2.6 before). On `kuka_1`, σ(fx) is 0.31 px
+  instead of 0.95 (OpenCV, whose intrinsics have a free pose per view:
+  0.33), the hand-eye translation σ 0.59–0.74 mm instead of 0.79–1.09, and
+  the mean reprojection error 0.1346 px instead of 0.1359; on `ds8` (a rig
+  hand-eye with the intrinsics refined) 0.2574 px instead of 0.2900. The target pose
+  in the robot base frame gets the standard deviation the robot's rotation
+  error gives it at its distance from the base: 4.5 mm instead of 0.8–1.1 mm
+  on `kuka_1`, whose target is 2.8 m from the base. No config field
+  changes. Set `rot_sigma` and `trans_sigma` to your robot's accuracy: the
+  covariance takes them as true, and the defaults (0.5°, 1 mm) are loose;
+  `refine: false` takes the robot poses as exact, as before.
+  `HandeyeSolveOptions` and `RigHandeyeLaserlineSolveOptions` (optim) behave
+  the same way; their results' `robot_deltas` now have a non-zero first
+  entry, and their covariance a block for view 0's correction.
 
 ### Added
 
@@ -617,6 +644,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Robot-pose corrections get their rotation Jacobian from the first
+  iteration.** The SE(3) exponential behind the corrections returned the
+  identity for an exactly zero rotation, where every correction starts, so
+  the solver saw no rotation derivative until a translation step happened to
+  move it. With the priors weighed against sub-pixel corner noise this
+  stopped the solve after one iteration; it now uses the exponential's
+  series near zero, exact to working precision. `apply_robot_delta` applies
+  the same exponential as the solver (it had skipped the `V(ω)` factor of
+  the translation, a second-order difference).
 - **Rig hand-eye step result reports the mean reprojection error.**
   `rig_handeye::step_handeye_optimize` returned the square root of the final
   solver cost as `HandeyeOptimizeResult::mean_reproj_error` (and in the

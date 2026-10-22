@@ -69,19 +69,47 @@ Joint non-linear optimization of all parameters:
 
 **Residual blocks**: one `ReprojPoint { model, chain: Handeye { .. }, .. }` per observation, `model` being the camera's `CameraModelSpec`.
 
-The robot poses are **not optimized** — they are known constants from the robot kinematics (passed as per-residual data).
+Without robot-pose refinement the robot poses are **not optimized**: they are
+known constants from the robot kinematics (passed as per-residual data).
 
-### Optional: Robot Pose Refinement
+### Robot Pose Refinement
 
-If robot pose accuracy is suspect, the pipeline supports per-view SE(3) corrections:
+Robot poses carry errors of their own, usually larger than the corner noise
+once projected through the lever arm to the board: 0.05° at 1 m moves the
+camera's view by almost a millimetre. Taken as exact, these errors end up in
+the camera parameters. `robot_poses.refine` (on by default) gives every view
+an SE(3) correction of its measured pose:
 
-**Additional parameter blocks**: `"robot_delta/v"` (7D, SE3) per view
+**Additional parameter blocks**: `"robot_delta/v"` (6D, Euclidean se(3)
+tangent `[ω, v]`) per view, applied as `exp(δ) · base_se3_gripper`
 
-**Additional residuals**: `Se3TangentPrior` per view, with configurable rotation and translation sigmas:
+**Additional residuals**: a zero-mean `Se3TangentPrior` per view, with the
+robot's rotation and translation standard deviations `σ_r` (`rot_sigma`) and
+`σ_t` (`trans_sigma`), weighed against the corner residuals at their pixel
+noise `σ_px`:
 
-$$\mathbf{r}_{\text{prior}} = \begin{bmatrix} \boldsymbol{\omega} / \sigma_r \\ \mathbf{v} / \sigma_t \end{bmatrix}$$
+$$\mathbf{r}_{\text{prior}} = \sigma_{px} \begin{bmatrix} \boldsymbol{\omega} / \sigma_r \\ \mathbf{v} / \sigma_t \end{bmatrix}$$
 
-This penalizes deviations from the nominal robot poses, allowing small corrections while preventing the optimizer from absorbing all error into robot pose changes.
+The objective is then the maximum-likelihood one, in units of `σ_px²`: a
+correction costs as much as the corner evidence it explains away. `σ_px` is
+not known in advance, so the solve runs once at 1 px, takes `σ_px` from the
+corner residuals and runs again from that solution. Every view's correction
+is free; the priors are what tell the corrections apart from a change of the
+hand-eye or target pose that would move every view alike.
+
+The priors' standard deviations decide how far the result trusts the robot,
+and the covariance takes them as its true accuracy. Too loose, and the
+hand-eye and target standard deviations come out larger than the data
+warrants; too tight, and the robot's errors leak into the camera parameters
+while the standard deviations come out too small. The defaults (0.5°, 1 mm)
+are loose for an industrial arm; a result's `robot_deltas` show the size of
+the corrections the data asked for.
+
+The target pose in the robot base frame is known only as well as the
+robot's absolute rotation: a common rotation of every robot pose about the
+base origin looks exactly like a rotation of the target. Its translation's
+standard deviation is about `σ_r / √views` times the target's distance from
+the base.
 
 ## Configuration
 

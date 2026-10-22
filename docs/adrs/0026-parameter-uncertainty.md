@@ -25,6 +25,43 @@ identifiability analysis and the Monte-Carlo gates are in
 The weights are the solve's: `Σ` is the sandwich for the weights the solver
 used, not the inverse information of an optimally weighted solve.
 
+### Robot-pose priors
+
+Hand-eye problems that refine the robot poses give every view a correction
+`δᵢ ∈ se(3)` with a zero-mean prior of the configured `rot_sigma`,
+`trans_sigma`: the robot's pose error, in radians and metres. The
+reprojection residuals are in pixels with an unknown noise `σ_px`, so the
+prior is weighed in pixels: its residual is `σ_px · L δᵢ`
+(`L = diag(1/σ_rot, 1/σ_t)`) and the covariance counts it with standard
+deviation `σ_px` (`Se3TangentPrior::residual_sigma`, `G_p = σ_px² A_p`). The
+objective is then the maximum-likelihood one scaled by `σ_px²`, and the
+sandwich reduces to the inverse information. `σ_px` comes from the data:
+one solve at `σ_px = 1`, then one from that solution at the reprojection
+`σ̂` (floored at 0.01 px so noise-free data keeps its priors). A second
+re-solve moved nothing measurable.
+
+Every view's correction is free. The priors alone separate the corrections
+from a hand-eye or target change that moves every view alike (the 6 + 6
+directions the corrections share with those poses); fixing one view's
+correction instead takes that view's robot pose as exact, and the
+covariance then misses its error.
+
+Rejected:
+
+- **Pixels weighed at 1 px against the priors.** With sub-pixel corners the
+  priors are relatively too strong: robot error leaks into the camera
+  parameters, and with view 0 fixed the hand-eye σ were 2–2.6× too small on
+  synthetic scenes.
+- **Rescaling the reprojection family by `1/σ̂`.** The same estimate and
+  covariance (a unit test holds the two equal), but the residuals, their
+  reported `σ̂` and a robust loss's scale would no longer be in pixels.
+- **Exact robot poses.** The robot's error enters the corner residuals as an
+  error shared by every corner of a view, which the covariance counts as
+  independent noise: it is too small by about `√(corners per view)`.
+
+The configured standard deviations are taken as the robot's true accuracy;
+estimating them from the corrections is open.
+
 Each result also reports, per family, the robust noise level
 `σ̂_f = 1.4826 · median |r|` as a diagnostic.
 

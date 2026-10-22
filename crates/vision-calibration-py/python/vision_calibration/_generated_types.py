@@ -2383,16 +2383,37 @@ class RobotPoseConfig(TypedDict):
 
     Shared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint
     rig+hand-eye+laser BA config (`JointOptimizeConfig`).
+
+    With `refine`, every view's measured robot pose gets an se(3) correction
+    `exp(δ) · base_se3_gripper` under a zero-mean prior with the standard
+    deviations below: the robot's pose error, per axis of the robot base
+    frame (a rotation about the base origin, then a translation; a rotation
+    error also moves the gripper by its lever arm). The prior is weighed
+    against the corner residuals at their noise level, which the solve
+    estimates (one solve at 1 px, then one from that solution at the noise
+    its residuals show), so the result and its covariance are the
+    maximum-likelihood ones for a robot whose error has these standard
+    deviations. The covariance takes them as the robot's true accuracy:
+    state them, rather than leave a loose default, to get honest hand-eye
+    and target standard deviations. Without `refine` the robot poses are
+    taken as exact.
     """
 
     refine: bool
-    """Refine robot poses with per-view se(3) corrections."""
+    """Refine the robot poses with per-view se(3) corrections. On by
+    default: robot pose errors are rarely below the corner noise, and
+    taking them as exact pushes them into the camera parameters.
+    """
 
     rot_sigma: float
-    """Robot rotation prior sigma (radians)."""
+    """Standard deviation of the robot's rotation error about each axis
+    (radians, > 0). Default 0.5°, a loose bound for an industrial arm.
+    """
 
     trans_sigma: float
-    """Robot translation prior sigma (meters)."""
+    """Standard deviation of the robot's translation error along each axis
+    (metres, > 0). Default 1 mm, a loose bound for an industrial arm.
+    """
 
 
 RobotPoseFormat: TypeAlias = Literal[

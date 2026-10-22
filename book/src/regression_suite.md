@@ -224,14 +224,14 @@ our σ:
 
 | Entry | Library | Parameters | Largest difference | Median | σ ratio (ours / theirs) | Mean reprojection (ours / theirs) | Truth (ours / theirs) |
 |---|---|---|---|---|---|---|---|
-| `kuka_1` | opencv 4.12.0 | 20 | 4.44σ (`base_se3_target.rz`) | 1.77σ | 1.356–2.845 | 0.1359 / 2.2545 px | — |
+| `kuka_1` | opencv 4.12.0 | 20 | 4.34σ (`gripper_se3_camera.rx`) | 0.87σ | 0.923–0.996 | 0.1346 / 2.2545 px | — |
 | `stereo_left` | opencv 4.12.0 | 8 | 0.02σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2339 / 0.2339 px | — |
 | `stereo_right` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2442 / 0.2442 px | — |
 | `stereo_rig` | opencv 4.12.0 | 22 | 7.22σ (`cam1.cam_se3_rig.tz`) | 1.15σ | — | — | — |
-| `ds8` | opencv 4.12.0 | 36 | 18.27σ (`cam2.p2`) | 2.06σ | 0.395–1.801 | — | — |
+| `ds8` | opencv 4.12.0 | 36 | 19.38σ (`cam2.p2`) | 2.25σ | 0.327–1.278 | — | — |
 | `synth_planar` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.00σ | 1.000–1.000 | 0.6570 / 0.6570 px | 1.87σ / 1.86σ |
 | `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
-| `synth_handeye` | opencv 4.12.0 | 20 | 0.92σ (`k2`) | 0.17σ | 0.791–1.012 | 0.6593 / 0.7521 px | 0.87σ / 1.12σ |
+| `synth_handeye` | opencv 4.12.0 | 20 | 0.78σ (`k2`) | 0.19σ | 0.768–0.977 | 0.6589 / 0.7521 px | 0.96σ / 1.14σ |
 | `synth_rig` | opencv 4.12.0 | 22 | 0.09σ (`cam0.cy`) | 0.02σ | — | — | 2.07σ / 2.06σ |
 
 Reading it:
@@ -244,10 +244,12 @@ Reading it:
   wanders along that valley (its own σ of `cy` is 40 px).
 - Hand-eye results differ by design. Our hand-eye workflows refine the robot
   poses within their priors, so on `kuka_1` the reprojection error is the
-  corner noise (0.14 px) rather than the robot's pose error (2.3 px with the
-  measured poses), and the standard deviations include what the robot-pose
-  freedom costs. OpenCV takes the robot poses as exact. On the synthetic
-  hand-eye entry, whose robot poses are exact, both land near the truth.
+  corner noise (0.13 px) rather than the robot's pose error (2.3 px with the
+  measured poses). OpenCV takes the robot poses as exact for the hand-eye
+  pose, but calibrates the intrinsics with a free pose per view, as the
+  refined robot poses effectively are here: the intrinsics standard
+  deviations of the two agree within 8 %. On the synthetic hand-eye entry,
+  whose robot poses are exact, both land near the truth.
 - Rig results refine each camera's intrinsics jointly with the rig, from
   every view of every camera. On `stereo_rig` OpenCV's `stereoCalibrate`
   refines them too, but from the views both cameras see; the two estimates

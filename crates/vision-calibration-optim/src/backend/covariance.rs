@@ -9,8 +9,8 @@
 //! per residual family `f` (reprojection, laser plane, laser line):
 //!
 //! ```text
-//! Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + A_p
-//! A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ
+//! Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + B_p
+//! A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ,   B_p = Σ_priors σᵢ² JᵢᵀJᵢ
 //! κ_f = E_f[ψ′],   s_f = E_f[ψ²] · m / (m − n)
 //! ```
 //!
@@ -18,7 +18,9 @@
 //! its derivative, both averaged over the family's scalar residuals. `H` is
 //! the curvature of the objective the solver minimized and `G` the scatter
 //! of its gradient, so the sandwich holds for the weights the solve used,
-//! with priors as known information. With one family and no priors it is
+//! with priors as known information. `σᵢ` is a prior's residual standard
+//! deviation: 1 for a prior in its own unit, the pixel noise for a
+//! robot-pose prior weighed against the reprojection residuals. With one family and no priors it is
 //! `σ_f² A_f⁻¹`, `σ_f² = s_f / κ_f²`, and without a robust loss the classical
 //! `Σ‖r‖² / (m − n) · (JᵀJ)⁻¹`. With a loss, the outliers' bounded influence
 //! enters as it scatters the estimate: the IRLS form `σ̂² (JᵀWJ)⁻¹`
@@ -108,8 +110,6 @@ pub(crate) struct CovarianceEstimate {
     pub coordinates: Vec<Coordinate>,
     /// Their covariance.
     pub matrix: DMatrix<f64>,
-    /// Noise levels, one per family present, in family order.
-    pub families: Vec<FamilyNoise>,
     /// Scalar residuals, priors included.
     pub num_residuals: usize,
     /// Residuals minus free tangent coordinates.
@@ -169,7 +169,6 @@ pub(crate) fn estimate(
         return ParamUncertainty::Available(Box::new(CovarianceEstimate {
             coordinates: Vec::new(),
             matrix: DMatrix::zeros(0, 0),
-            families: Vec::new(),
             num_residuals: m,
             dof: m,
         }));
@@ -210,15 +209,19 @@ pub(crate) fn estimate(
     let mut normal = NormalEquations::new(raw.jacobian.symbolic())
         .expect("the solve planned a normal matrix of this pattern");
     let moments = family_moments(&blocks, dof_scale);
-    let mut h = weighted_normal(&mut normal, &raw.jacobian, &blocks, |f| moments.kappa(f));
-    // `G ∝ H` when every group has the same `s / κ` (one family, no priors):
-    // then `Σ = (s / κ) H⁻¹` and `G` need not be formed.
-    let ratios: Vec<f64> = moments.groups.iter().map(|g| g.s / g.kappa).collect();
+    let mut h = weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| moments.kappa(b));
+    // `G ∝ H` when every block has the same `s / κ` (one family and no
+    // priors, or priors whose residual variance is the family's): then
+    // `Σ = (s / κ) H⁻¹` and `G` need not be formed.
+    let ratios: Vec<f64> = blocks
+        .iter()
+        .map(|b| moments.s(b) / moments.kappa(b))
+        .collect();
     let proportional = ratios
         .iter()
         .all(|r| (r - ratios[0]).abs() <= 1e-12 * ratios[0].abs());
     let g = (!proportional)
-        .then(|| weighted_normal(&mut normal, &raw.jacobian, &blocks, |f| moments.s(f)));
+        .then(|| weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| moments.s(b)));
     let ncols = raw.jacobian.ncols();
     let mut is_free = vec![false; ncols];
     for &(_, c) in &free {
@@ -255,10 +258,16 @@ pub(crate) fn estimate(
     ParamUncertainty::Available(Box::new(CovarianceEstimate {
         coordinates,
         matrix,
-        families: family_noise(&blocks, &raw.residual),
         num_residuals: m,
         dof: m.saturating_sub(n),
     }))
+}
+
+/// The noise level of each residual family in `raw`'s residuals; empty
+/// without a linearization (every coordinate fixed).
+pub(crate) fn noise(ir: &ProblemIR, raw: Option<&RawLinearization>) -> Vec<FamilyNoise> {
+    raw.map(|raw| family_noise(&residual_blocks(ir, &raw.residual), &raw.residual))
+        .unwrap_or_default()
 }
 
 /// Free coordinates within [`BOUND_TOLERANCE`] of a bound.
@@ -295,6 +304,9 @@ struct BlockTerms {
     rows: std::ops::Range<usize>,
     /// `None` for a prior.
     family: Option<ResidualKind>,
+    /// A prior's residual variance, `residual_sigma²`; 1 for an
+    /// observation, whose variance its family's moments carry.
+    prior_variance: f64,
     /// `s = ‖rᵢ‖²`, and `ρ′`, `ρ″` there.
     s: f64,
     rho1: f64,
@@ -309,9 +321,14 @@ fn residual_blocks(ir: &ProblemIR, residual: &Mat<f64>) -> Vec<BlockTerms> {
         let rows = start..start + block.residual_dim;
         start = rows.end;
         let s: f64 = rows.clone().map(|r| residual[(r, 0)].powi(2)).sum();
+        let prior_variance = match block.factor {
+            FactorKind::Se3TangentPrior { residual_sigma, .. } => residual_sigma * residual_sigma,
+            _ => 1.0,
+        };
         out.push(BlockTerms {
             rows,
             family: residual_kind(&block.factor),
+            prior_variance,
             s,
             rho1: block.loss.rho_prime(s),
             rho2: block.loss.rho_second(s),
@@ -325,13 +342,12 @@ fn residual_blocks(ir: &ProblemIR, residual: &Mat<f64>) -> Vec<BlockTerms> {
     out
 }
 
-/// One group of residual blocks (a family, or the priors) and its pooled
-/// moments.
+/// One residual family and its pooled moments.
 struct Group {
-    family: Option<ResidualKind>,
-    /// `κ = E[ψ′]`; 1 for priors.
+    family: ResidualKind,
+    /// `κ = E[ψ′]`.
     kappa: f64,
-    /// `s = E[ψ²] · m / (m − n)`; 1 for priors.
+    /// `s = E[ψ²] · m / (m − n)`.
     s: f64,
 }
 
@@ -340,19 +356,24 @@ struct Moments {
 }
 
 impl Moments {
-    fn group(&self, family: Option<ResidualKind>) -> &Group {
+    fn group(&self, family: ResidualKind) -> &Group {
         self.groups
             .iter()
             .find(|g| g.family == family)
-            .expect("every block's family is grouped")
+            .expect("every family is grouped")
     }
 
-    fn kappa(&self, family: Option<ResidualKind>) -> f64 {
-        self.group(family).kappa
+    /// The block's weight in `H`: its family's `κ`, 1 for a prior.
+    fn kappa(&self, block: &BlockTerms) -> f64 {
+        block.family.map_or(1.0, |f| self.group(f).kappa)
     }
 
-    fn s(&self, family: Option<ResidualKind>) -> f64 {
-        self.group(family).s
+    /// The block's weight in `G`: its family's `s`, a prior's residual
+    /// variance.
+    fn s(&self, block: &BlockTerms) -> f64 {
+        block
+            .family
+            .map_or(block.prior_variance, |f| self.group(f).s)
     }
 }
 
@@ -362,12 +383,15 @@ impl Moments {
 /// absorbs.
 fn family_moments(blocks: &[BlockTerms], dof_scale: f64) -> Moments {
     // (family, Σψ², Σψ′, scalar residuals)
-    let mut sums: Vec<(Option<ResidualKind>, f64, f64, usize)> = Vec::new();
+    let mut sums: Vec<(ResidualKind, f64, f64, usize)> = Vec::new();
     for block in blocks {
-        let i = match sums.iter().position(|g| g.0 == block.family) {
+        let Some(family) = block.family else {
+            continue;
+        };
+        let i = match sums.iter().position(|g| g.0 == family) {
             Some(i) => i,
             None => {
-                sums.push((block.family, 0.0, 0.0, 0));
+                sums.push((family, 0.0, 0.0, 0));
                 sums.len() - 1
             }
         };
@@ -378,34 +402,27 @@ fn family_moments(blocks: &[BlockTerms], dof_scale: f64) -> Moments {
     }
     let groups = sums
         .into_iter()
-        .map(|(family, psi2, dpsi, count)| match family {
-            None => Group {
-                family,
-                kappa: 1.0,
-                s: 1.0,
-            },
-            Some(_) => Group {
-                family,
-                kappa: (dpsi / count as f64).max(f64::MIN_POSITIVE),
-                s: (dof_scale * psi2 / count as f64).max(f64::MIN_POSITIVE),
-            },
+        .map(|(family, psi2, dpsi, count)| Group {
+            family,
+            kappa: (dpsi / count as f64).max(f64::MIN_POSITIVE),
+            s: (dof_scale * psi2 / count as f64).max(f64::MIN_POSITIVE),
         })
         .collect();
     Moments { groups }
 }
 
 /// `Σ wᵢ JᵢᵀJᵢ` as a lower triangle on `normal`'s pattern, with the weight
-/// `w` of each block's group.
+/// `w` of each block.
 fn weighted_normal(
     normal: &mut NormalEquations,
     jac: &SparseColMat<usize, f64>,
     blocks: &[BlockTerms],
-    weight: impl Fn(Option<ResidualKind>) -> f64,
+    weight: impl Fn(&BlockTerms) -> f64,
 ) -> Vec<f64> {
     // `√w` per row, so the assembled `J̃ᵀJ̃` is `Σ wᵢ JᵢᵀJᵢ`.
     let mut row_scale = vec![0.0; jac.nrows()];
     for block in blocks {
-        row_scale[block.rows.clone()].fill(weight(block.family).sqrt());
+        row_scale[block.rows.clone()].fill(weight(block).sqrt());
     }
     let symbolic = jac.symbolic();
     let mut values = jac.val().to_vec();

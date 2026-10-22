@@ -14,8 +14,8 @@
 //!
 //! Residuals:
 //! - reprojection errors for observed target points using the robot pose chain
-//! - optional priors on delta_i (anisotropic rotation/translation sigmas)
-//! - when delta_i are enabled, delta_0 is fixed to zero to remove gauge freedom
+//! - optional priors on delta_i (anisotropic rotation/translation sigmas),
+//!   weighed against the reprojection residuals' estimated pixel noise
 //!
 //! Per-view target mode (`relax_target_poses`) relaxes the target pose per view,
 //! but that is discouraged for a physically fixed target because it weakens
@@ -23,6 +23,7 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::factors::reprojection_model::se3_exp;
 use crate::ir::{
     FactorKind, FixedMask, HandeyeMode, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
@@ -32,6 +33,7 @@ use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::rig_extrinsics::{
     ReprojectionSums, camera_models, resolve_camera_fix, solved_pose,
 };
+use crate::problems::robot_poses::{self, RobotPosePriors};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -141,13 +143,18 @@ pub struct HandeyeSolveOptions {
     pub fix_target_poses: Vec<usize>,
     /// Per-view target mode: relax per-view target poses instead of a fixed target.
     pub relax_target_poses: bool,
-    /// Refine robot poses with per-view se(3) corrections and strong priors.
+    /// Refine robot poses with per-view se(3) corrections under zero-mean
+    /// priors of [`Self::robot_rot_sigma`] and [`Self::robot_trans_sigma`].
     ///
-    /// When enabled, delta_0 is fixed to zero for gauge consistency.
+    /// The priors are weighed against the reprojection residuals at their
+    /// estimated pixel noise: the problem is solved once at 1 px, then again
+    /// from that solution at the noise its residuals show.
     pub refine_robot_poses: bool,
-    /// Robot rotation prior sigma (radians).
+    /// Standard deviation of the robot's rotation error about each axis
+    /// (radians).
     pub robot_rot_sigma: Real,
-    /// Robot translation prior sigma (meters).
+    /// Standard deviation of the robot's translation error along each axis
+    /// (metres).
     pub robot_trans_sigma: Real,
 }
 
@@ -186,26 +193,15 @@ pub struct HandeyeEstimate {
 }
 
 /// Apply a per-view se(3) robot pose correction `[rx, ry, rz, tx, ty, tz]` to
-/// a base-to-gripper pose, mirroring the convention the hand-eye optimizer
-/// uses internally:
+/// a base-to-gripper pose, exactly as the hand-eye optimizer does:
 ///
-/// `T_B_G_corr = exp(delta) * T_B_G`  (left-multiply; matches
-/// `crates/vision-calibration-optim/src/factors/reprojection_model.rs`).
+/// `T_B_G_corr = exp(delta) * T_B_G` (left-multiply, `exp` the SE(3)
+/// exponential).
 ///
 /// A delta of all zeros returns `base_se3_gripper` unchanged.
 pub fn apply_robot_delta(base_se3_gripper: &Iso3, delta: &[Real; 6]) -> Iso3 {
-    use nalgebra::{Translation3, Unit, UnitQuaternion, Vector3};
-
-    let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
-    let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
-    let angle = rot_vec.norm();
-    let delta_rot = if angle > 1e-12 {
-        UnitQuaternion::from_axis_angle(&Unit::new_normalize(rot_vec), angle)
-    } else {
-        UnitQuaternion::identity()
-    };
-    let delta_iso = Iso3::from_parts(Translation3::from(trans_vec), delta_rot);
-    delta_iso * base_se3_gripper
+    let (rotation, translation) = se3_exp(DVector::from_row_slice(delta).as_view());
+    Iso3::from_parts(translation.into(), rotation) * base_se3_gripper
 }
 
 /// Derive per-view "observer-to-target" poses from a hand-eye chain.
@@ -269,8 +265,15 @@ pub fn optimize_handeye(
     backend_opts: BackendSolveOptions,
 ) -> Result<HandeyeEstimate, Error> {
     let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
-    let (ir, initial_map) = build_handeye_ir(&dataset, &initial, &specs, &fixed, &opts)?;
-    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
+    let build =
+        |pixel_sigma| build_handeye_ir(&dataset, &initial, &specs, &fixed, &opts, pixel_sigma);
+    let (ir, solution) = if opts.refine_robot_poses {
+        robot_poses::solve_weighted(build, &backend_opts)?
+    } else {
+        let (ir, initial_map) = build(1.0)?;
+        let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
+        (ir, solution)
+    };
 
     let cameras = specs
         .iter()
@@ -290,27 +293,10 @@ pub fn optimize_handeye(
         vec![solved_pose(&solution.params, "target")?; dataset.num_views()]
     };
 
-    let robot_deltas = if opts.refine_robot_poses {
-        let mut deltas = Vec::with_capacity(dataset.num_views());
-        for i in 0..dataset.num_views() {
-            let key = format!("robot_delta/{i}");
-            let delta_vec = solution
-                .params
-                .get(&key)
-                .ok_or_else(|| Error::numerical(format!("missing {key} solution block")))?;
-            deltas.push([
-                delta_vec[0],
-                delta_vec[1],
-                delta_vec[2],
-                delta_vec[3],
-                delta_vec[4],
-                delta_vec[5],
-            ]);
-        }
-        Some(deltas)
-    } else {
-        None
-    };
+    let robot_deltas = opts
+        .refine_robot_poses
+        .then(|| robot_poses::solved_deltas(&solution.params, dataset.num_views()))
+        .transpose()?;
 
     let params = HandeyeParams {
         cameras,
@@ -329,7 +315,7 @@ pub fn optimize_handeye(
 
     Ok(HandeyeEstimate {
         params,
-        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
+        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
         report: solution.solve_report,
         robot_deltas,
         mean_reproj_error,
@@ -406,13 +392,15 @@ fn compute_handeye_reproj_error(
 ///
 /// Residuals:
 /// - per-point reprojection error using robot pose measurements
-/// - optional zero-mean priors on robot pose deltas
+/// - optional zero-mean priors on robot pose deltas, weighed against pixel
+///   noise `pixel_sigma`
 fn build_handeye_ir(
     dataset: &HandeyeDataset,
     initial: &HandeyeParams,
     specs: &[CameraModelSpec],
     fixed: &[FixedParams],
     opts: &HandeyeSolveOptions,
+    pixel_sigma: f64,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
     if initial.cameras.len() != dataset.data.num_cameras {
         return Err(Error::invalid_input(format!(
@@ -445,13 +433,12 @@ fn build_handeye_ir(
             "fix_target_poses is only supported when relax_target_poses is true",
         ));
     }
+    let robot_priors = RobotPosePriors {
+        rot_sigma: opts.robot_rot_sigma,
+        trans_sigma: opts.robot_trans_sigma,
+    };
     if opts.refine_robot_poses {
-        if opts.robot_rot_sigma.is_nan() || opts.robot_rot_sigma <= 0.0 {
-            return Err(Error::invalid_input("robot_rot_sigma must be positive"));
-        }
-        if opts.robot_trans_sigma.is_nan() || opts.robot_trans_sigma <= 0.0 {
-            return Err(Error::invalid_input("robot_trans_sigma must be positive"));
-        }
+        robot_priors.validate()?;
     }
 
     let mut ir = ProblemIR::new();
@@ -503,14 +490,6 @@ fn build_handeye_ir(
         Some(id)
     };
 
-    let robot_prior_sqrt_info = if opts.refine_robot_poses {
-        let rot = 1.0 / opts.robot_rot_sigma;
-        let trans = 1.0 / opts.robot_trans_sigma;
-        [rot, rot, rot, trans, trans, trans]
-    } else {
-        [0.0; 6]
-    };
-
     for (view_idx, view) in dataset.data.views.iter().enumerate() {
         let target_id = match target_id {
             Some(id) => id,
@@ -527,28 +506,9 @@ fn build_handeye_ir(
             }
         };
 
-        let robot_delta_id = if opts.refine_robot_poses {
-            let fixed = if view_idx == 0 {
-                FixedMask::all_fixed(6)
-            } else {
-                FixedMask::all_free()
-            };
-            let key = format!("robot_delta/{}", view_idx);
-            let id = ir.add_param_block(&key, 6, ManifoldKind::Euclidean, fixed, None);
-            initial_map.insert(key, DVector::from_element(6, 0.0));
-            let prior = ResidualBlock {
-                params: vec![id],
-                loss: RobustLoss::None,
-                factor: FactorKind::Se3TangentPrior {
-                    sqrt_info: robot_prior_sqrt_info,
-                },
-                residual_dim: 6,
-            };
-            ir.add_residual_block(prior);
-            Some(id)
-        } else {
-            None
-        };
+        let robot_delta_id = opts
+            .refine_robot_poses
+            .then(|| robot_priors.add_view(&mut ir, &mut initial_map, view_idx, None, pixel_sigma));
 
         // Convert robot pose to SE3 array for factor
         let robot_se3 = iso3_to_se3_dvec(&view.meta.base_se3_gripper);
@@ -702,5 +662,133 @@ mod tests {
             "per-cam reproj err too large: {}",
             per_cam[0]
         );
+    }
+
+    /// Weighing the robot-pose priors by the pixel noise `σ` (their residual
+    /// counted at standard deviation `σ`) is the maximum-likelihood objective
+    /// scaled by `σ²`: the same estimate and the same covariance as weighing
+    /// every pixel residual by `1/σ` with unit priors.
+    #[test]
+    fn priors_weighed_by_pixel_noise_match_pixels_weighed_by_its_inverse() {
+        use crate::backend::covariance::ParamUncertainty;
+        use vision_calibration_core::synthetic::noise::UniformPixelNoise;
+
+        let camera = make_test_camera();
+        let gripper_se3_camera = Iso3::from_parts(
+            Translation3::new(0.03, -0.02, 0.08),
+            UnitQuaternion::from_euler_angles(0.1, -0.05, 0.3),
+        );
+        let base_se3_target = Iso3::from_parts(
+            Translation3::new(0.6, -0.1, 0.02),
+            UnitQuaternion::from_euler_angles(0.0, 0.05, 1.2),
+        );
+        let board: Vec<Pt3> = (0..42)
+            .map(|i| {
+                Pt3::new(
+                    (i % 7) as f64 * 0.02 - 0.06,
+                    (i / 7) as f64 * 0.02 - 0.05,
+                    0.0,
+                )
+            })
+            .collect();
+        let pixel_noise = UniformPixelNoise {
+            seed: 11,
+            max_abs_px: 0.2,
+        };
+        let robot_noise = UniformPixelNoise {
+            seed: 12,
+            max_abs_px: 1.0,
+        };
+        let sigma = 0.1;
+        let dataset = |weight: f64| {
+            let views = [
+                (0.0, 0.0, 0.0, -0.01, -0.01, 0.45),
+                (0.25, 0.0, 0.1, -0.02, 0.0, 0.50),
+                (-0.2, 0.1, 0.0, 0.01, -0.02, 0.48),
+                (0.0, 0.25, -0.1, -0.01, 0.01, 0.52),
+                (0.1, -0.25, 0.0, 0.02, -0.01, 0.47),
+                (-0.15, -0.15, 0.2, 0.0, 0.02, 0.55),
+            ]
+            .iter()
+            .enumerate()
+            .map(|(v, &(rx, ry, rz, tx, ty, tz))| {
+                let camera_se3_target = Iso3::from_parts(
+                    Translation3::new(tx, ty, tz),
+                    UnitQuaternion::from_euler_angles(rx, ry, rz),
+                );
+                let base_se3_gripper =
+                    base_se3_target * camera_se3_target.inverse() * gripper_se3_camera.inverse();
+                let (u, w) = (robot_noise.sample(v, 0), robot_noise.sample(v, 1));
+                let t = robot_noise.sample(v, 2);
+                let eps = [
+                    u.x * 1e-3,
+                    u.y * 1e-3,
+                    w.x * 1e-3,
+                    w.y * 1e-3,
+                    t.x * 1e-3,
+                    t.y * 1e-3,
+                ];
+                let mut obs = project_view(&camera, &camera_se3_target, &board);
+                for (i, p) in obs.points_2d.iter_mut().enumerate() {
+                    *p += pixel_noise.sample(v, i);
+                }
+                let obs = CorrespondenceView::new_with_weights(
+                    obs.points_3d.clone(),
+                    obs.points_2d.clone(),
+                    vec![weight; board.len()],
+                )
+                .unwrap();
+                RigView {
+                    meta: RobotPoseMeta {
+                        base_se3_gripper: apply_robot_delta(&base_se3_gripper, &eps),
+                    },
+                    obs: RigViewObs {
+                        cameras: vec![Some(obs)],
+                    },
+                }
+            })
+            .collect();
+            HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap()
+        };
+        let initial = HandeyeParams {
+            cameras: vec![pinhole_camera_params(&camera)],
+            cam_to_rig: vec![Iso3::identity()],
+            handeye: gripper_se3_camera,
+            target_poses: vec![base_se3_target],
+        };
+        let opts = HandeyeSolveOptions {
+            fix_extrinsics: vec![true],
+            refine_robot_poses: true,
+            robot_rot_sigma: 1e-3,
+            robot_trans_sigma: 1e-3,
+            ..Default::default()
+        };
+        let backend_opts = BackendSolveOptions {
+            max_iters: 200,
+            min_abs_decrease: Some(0.0),
+            min_rel_decrease: Some(1e-15),
+            ..Default::default()
+        };
+        let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix).unwrap();
+        let solve = |data: &HandeyeDataset, pixel_sigma: f64| {
+            let (ir, init) =
+                build_handeye_ir(data, &initial, &specs, &fixed, &opts, pixel_sigma).unwrap();
+            backend::solve(&ir, &init, &backend_opts).unwrap()
+        };
+        let priors_weighed = solve(&dataset(1.0), sigma);
+        let pixels_weighed = solve(&dataset(1.0 / (sigma * sigma)), 1.0);
+
+        for (key, a) in &priors_weighed.params {
+            let b = &pixels_weighed.params[key];
+            let diff = (a - b).norm() / a.norm().max(1e-3);
+            assert!(diff < 1e-7, "{key}: {a} vs {b}");
+        }
+        let (ParamUncertainty::Available(a), ParamUncertainty::Available(b)) =
+            (&priors_weighed.uncertainty, &pixels_weighed.uncertainty)
+        else {
+            panic!("covariance unavailable");
+        };
+        let diff = (&a.matrix - &b.matrix).norm() / a.matrix.norm();
+        assert!(diff < 1e-6, "covariance differs by {diff:.2e}");
     }
 }

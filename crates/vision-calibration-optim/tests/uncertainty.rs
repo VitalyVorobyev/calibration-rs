@@ -642,16 +642,35 @@ fn handeye_covariance_matches_monte_carlo() {
     mc.assert_calibrated(0.10);
 }
 
-/// The same scene with robot poses perturbed as the robot-pose priors
-/// assume (view 0, the gauge, exact): refining them, the covariance counts
-/// the priors as known information, and the σ still match their scatter.
+/// The same scene with every robot pose perturbed as the robot-pose priors
+/// assume: refining them, with the priors weighed against the estimated
+/// pixel noise and counted as known information, the σ still match their
+/// scatter. The default priors (0.5°, 1 mm) at ±0.5 px.
 #[test]
 #[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn handeye_with_robot_pose_priors_matches_monte_carlo() {
+    let defaults = HandeyeSolveOptions::default();
+    robot_pose_priors_monte_carlo(0.5, defaults.robot_rot_sigma, defaults.robot_trans_sigma);
+}
+
+/// As above with sub-pixel corners (±0.17 px, σ 0.1 px) and an accurate
+/// robot (0.05°, 0.2 mm), where weighing the priors against 1 px rather than
+/// the pixel noise made them too strong for the data.
+#[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
+fn handeye_with_sub_pixel_corners_and_robot_pose_priors_matches_monte_carlo() {
+    robot_pose_priors_monte_carlo(0.17, 0.05f64.to_radians(), 2.0e-4);
+}
+
+/// The robot-pose prior gate: pixel noise uniform in `±max_abs_px`, robot
+/// poses perturbed with the priors' standard deviations.
+fn robot_pose_priors_monte_carlo(max_abs_px: f64, rot_sigma: f64, trans_sigma: f64) {
     let scene = EyeInHand::new();
     let opts = HandeyeSolveOptions {
         fix_extrinsics: vec![true],
         refine_robot_poses: true,
+        robot_rot_sigma: rot_sigma,
+        robot_trans_sigma: trans_sigma,
         ..Default::default()
     };
     // Uniform noise of the priors' standard deviation: half-width σ·√3.
@@ -674,18 +693,14 @@ fn handeye_with_robot_pose_priors_matches_monte_carlo() {
         let robot: Vec<Iso3> = scene
             .base_se3_gripper
             .iter()
-            .enumerate()
-            .map(|(v, b)| {
-                if v == 0 {
-                    return *b;
-                }
+            .map(|b| {
                 let eps: [f64; 6] = std::array::from_fn(|i| -half_width[i / 3] * uniform());
                 apply_robot_delta(b, &eps)
             })
             .collect();
         let noise = UniformPixelNoise {
             seed: 1700 + seed,
-            max_abs_px: 0.5,
+            max_abs_px,
         };
         let data = scene.dataset(&noise, &robot);
         let est = optimize_handeye(
@@ -698,9 +713,9 @@ fn handeye_with_robot_pose_priors_matches_monte_carlo() {
         let Uncertainty::Available(cov) = &est.uncertainty else {
             panic!("no covariance: {:?}", est.uncertainty);
         };
-        assert_eq!(cov.views.len(), scene.base_se3_gripper.len() - 1);
+        assert_eq!(cov.views.len(), scene.base_se3_gripper.len());
         assert_eq!(cov.views[0].labels[0], "robot_delta.rx");
-        assert!(cov.fixed.contains(&"view0.robot_delta".to_string()));
+        assert_eq!(cov.fixed, ["k3"]);
         mc.push(cov, |label| scene.error(&est, label));
     }
     mc.assert_calibrated(0.10);

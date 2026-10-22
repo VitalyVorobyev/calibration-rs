@@ -20,36 +20,50 @@ fn skew_matrix<T: RealField>(w: &Vector3<T>) -> Matrix3<T> {
     )
 }
 
+/// `exp` of an se(3) tangent `[ω, v]`: the rotation `Exp(ω)` and the
+/// translation `V(ω) v`.
+///
+/// Below [`SE3_EXP_SERIES_ANGLE`] the rotation and the `V` coefficients are
+/// their Taylor series, which are exact to working precision there and
+/// differentiable at zero. The closed forms are not: `UnitQuaternion::
+/// from_scaled_axis` returns the identity for a zero vector, so its
+/// derivative there is zero, and an optimizer starting from `xi = 0` (every
+/// robot-pose correction does) would see no rotation Jacobian.
 pub(crate) fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T>, Vector3<T>) {
     debug_assert!(xi.len() == 6, "se3 tangent must have 6 params");
     let w = Vector3::new(xi[0].clone(), xi[1].clone(), xi[2].clone());
     let v = Vector3::new(xi[3].clone(), xi[4].clone(), xi[5].clone());
 
-    let theta = w.norm();
-    let eps = T::from_f64(1e-9).unwrap();
+    let theta2 = w.norm_squared();
+    let series =
+        theta2.clone() <= T::from_f64(SE3_EXP_SERIES_ANGLE * SE3_EXP_SERIES_ANGLE).unwrap();
 
     let w_hat = skew_matrix(&w);
     let w_hat2 = w_hat.clone() * w_hat.clone();
 
-    let (b, c) = if theta.clone() <= eps {
-        let half = T::from_f64(0.5).unwrap();
-        let sixth = T::from_f64(1.0 / 6.0).unwrap();
-        (half, sixth)
+    let (b, c, rot) = if series {
+        // b = (1 − cos θ)/θ², c = (θ − sin θ)/θ³, q = (cos θ/2, w sin(θ/2)/θ),
+        // each to O(θ²); the next terms are below 1e-19 for θ ≤ 1e-4.
+        let f = |a: f64, k: f64| T::from_f64(a).unwrap() - theta2.clone() * T::from_f64(k).unwrap();
+        let b = f(0.5, 1.0 / 24.0);
+        let c = f(1.0 / 6.0, 1.0 / 120.0);
+        let q = Quaternion::from_parts(f(1.0, 1.0 / 8.0), w.clone() * f(0.5, 1.0 / 48.0));
+        (b, c, UnitQuaternion::new_normalize(q))
     } else {
-        let theta2 = theta.clone() * theta.clone();
+        let theta = theta2.clone().sqrt();
         let theta3 = theta2.clone() * theta.clone();
-        let sin_theta = theta.clone().sin();
-        let cos_theta = theta.clone().cos();
-        let b = (T::one() - cos_theta) / theta2;
-        let c = (theta - sin_theta) / theta3;
-        (b, c)
+        let b = (T::one() - theta.clone().cos()) / theta2;
+        let c = (theta.clone() - theta.sin()) / theta3;
+        (b, c, UnitQuaternion::from_scaled_axis(w))
     };
 
     let v_mat = Matrix3::identity() + w_hat * b + w_hat2 * c;
     let t = v_mat * v;
-    let rot = UnitQuaternion::from_scaled_axis(w);
     (rot, t)
 }
+
+/// Rotation angle (radians) below which [`se3_exp`] uses its series.
+const SE3_EXP_SERIES_ANGLE: f64 = 1e-4;
 
 /// Extract `(rotation, translation)` from an SE3 parameter block
 /// `[qx, qy, qz, qw, tx, ty, tz]`.
@@ -202,6 +216,37 @@ mod tests {
     use crate::ir::HandeyeMode;
     use crate::ir::{DistortionKind, SensorKind};
     use nalgebra::DVector;
+
+    /// At `xi = 0` (where every robot-pose correction starts) the rotation
+    /// has its exact Jacobian, `∂q_xyz/∂ω = I/2`, and across the series
+    /// threshold the two forms agree to working precision.
+    #[test]
+    fn se3_exp_is_differentiable_at_zero_and_continuous() {
+        use num_dual::Dual64;
+        for axis in 0..3 {
+            let mut xi = DVector::from_element(6, Dual64::from(0.0));
+            xi[axis] = Dual64::new(0.0, 1.0);
+            let (q, t) = se3_exp(xi.as_view());
+            let imag = q.as_ref().imag();
+            for k in 0..3 {
+                let expected = if k == axis { 0.5 } else { 0.0 };
+                assert!((imag[k].eps - expected).abs() < 1e-15, "∂q{k}/∂ω{axis}");
+                assert_eq!(t[k].eps, 0.0);
+            }
+        }
+        let axis = nalgebra::Vector3::new(0.3, -0.5, 0.8).normalize();
+        let at = |angle: f64| {
+            let w = axis * angle;
+            let xi = DVector::from_row_slice(&[w.x, w.y, w.z, 0.01, -0.02, 0.03]);
+            se3_exp(xi.as_view())
+        };
+        let (below, above) = (
+            at(SE3_EXP_SERIES_ANGLE * (1.0 - 1e-9)),
+            at(SE3_EXP_SERIES_ANGLE),
+        );
+        assert!(below.0.angle_to(&above.0) < 1e-12);
+        assert!((below.1 - above.1).norm() < 1e-15);
+    }
 
     fn fixture_blocks() -> (DVector<f64>, DVector<f64>, Vec<DVector<f64>>) {
         let intr = DVector::from_row_slice(&[812.3, 798.7, 645.2, 357.9]);

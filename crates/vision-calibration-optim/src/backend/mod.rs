@@ -96,6 +96,9 @@ pub struct BackendSolution {
     pub params: HashMap<String, DVector<f64>>,
     /// Final robustified cost if supported by the backend.
     pub solve_report: SolveReport,
+    /// Noise level of each residual family at the solution, whether or
+    /// not the covariance is available.
+    pub noise: Vec<covariance::FamilyNoise>,
     /// Covariance of the free parameters at the solution.
     pub uncertainty: covariance::ParamUncertainty,
 }

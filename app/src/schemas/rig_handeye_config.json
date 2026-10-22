@@ -390,19 +390,19 @@
     },
     "RobotPoseConfig": {
       "additionalProperties": false,
-      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nShared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint\nrig+hand-eye+laser BA config (`JointOptimizeConfig`).",
+      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nShared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint\nrig+hand-eye+laser BA config (`JointOptimizeConfig`).\n\nWith `refine`, every view's measured robot pose gets an se(3) correction\n`exp(δ) · base_se3_gripper` under a zero-mean prior with the standard\ndeviations below: the robot's pose error, per axis of the robot base\nframe (a rotation about the base origin, then a translation; a rotation\nerror also moves the gripper by its lever arm). The prior is weighed\nagainst the corner residuals at their noise level, which the solve\nestimates (one solve at 1 px, then one from that solution at the noise\nits residuals show), so the result and its covariance are the\nmaximum-likelihood ones for a robot whose error has these standard\ndeviations. The covariance takes them as the robot's true accuracy:\nstate them, rather than leave a loose default, to get honest hand-eye\nand target standard deviations. Without `refine` the robot poses are\ntaken as exact.",
       "properties": {
         "refine": {
-          "description": "Refine robot poses with per-view se(3) corrections.",
+          "description": "Refine the robot poses with per-view se(3) corrections. On by\ndefault: robot pose errors are rarely below the corner noise, and\ntaking them as exact pushes them into the camera parameters.",
           "type": "boolean"
         },
         "rot_sigma": {
-          "description": "Robot rotation prior sigma (radians).",
+          "description": "Standard deviation of the robot's rotation error about each axis\n(radians, > 0). Default 0.5°, a loose bound for an industrial arm.",
           "format": "double",
           "type": "number"
         },
         "trans_sigma": {
-          "description": "Robot translation prior sigma (meters).",
+          "description": "Standard deviation of the robot's translation error along each axis\n(metres, > 0). Default 1 mm, a loose bound for an industrial arm.",
           "format": "double",
           "type": "number"
         }
