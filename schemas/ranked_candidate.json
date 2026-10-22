@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One candidate view, scored by the uncertainty it would leave.",
+  "properties": {
+    "index": {
+      "description": "The candidate's position in the list given to [`rank_candidates`].",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "log_det_reduction": {
+      "description": "`ln det Σ − ln det Σ′`, the reduction of the log-volume of the whole\ncovariance (≥ 0, unit-free).",
+      "format": "double",
+      "type": "number"
+    },
+    "max_projection_sigma_px": {
+      "description": "The largest projection σ over the image with this view added, in\npixels.",
+      "format": "double",
+      "type": "number"
+    },
+    "projection_sigma_reduction_px": {
+      "description": "The current largest projection σ minus `max_projection_sigma_px`, in\npixels (≥ 0).",
+      "format": "double",
+      "type": "number"
+    },
+    "visible_points": {
+      "description": "Target points that land in the image. Fewer than four add no\ninformation.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "index",
+    "visible_points",
+    "max_projection_sigma_px",
+    "projection_sigma_reduction_px",
+    "log_det_reduction"
+  ],
+  "title": "RankedCandidate",
+  "type": "object"
+}

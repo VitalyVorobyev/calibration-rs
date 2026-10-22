@@ -64,11 +64,6 @@ need their measurement first and stay opt-in until it is in.
      note.
 
   Gate: a proof-pack note with both comparisons.
-- [ ] UQ-NBV-CORE - Predicted covariance after adding a candidate view
-  (rank-update of the information matrix), and a ranking of candidate
-  target poses by the reduction in maximum projection σ. Library only; the
-  app's Diagnose view and the book demo consume it. Gate:
-  prediction matches the re-solve on synthetic scenes.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.

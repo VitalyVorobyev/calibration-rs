@@ -1,4 +1,4 @@
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .models import (
     BrownConradyDistortion,
@@ -33,6 +33,9 @@ from .models import (
     QualityCheck,
     QualityReport,
     QualityThresholds,
+    CandidateGrid,
+    PredictedUncertainty,
+    RankedCandidate,
     PlanarIntrinsicsExport,
     PlanarIntrinsicsInput,
     PlanarView,
@@ -227,6 +230,30 @@ def assess(
     thresholds: QualityThresholds | None = None,
     image_sizes: list[tuple[int, int]] | None = None,
 ) -> QualityReport: ...
+
+
+def predict_with_views(
+    result: PlanarIntrinsicsExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Sequence[float]],
+    image_size: tuple[int, int],
+) -> PredictedUncertainty: ...
+
+
+def rank_candidates(
+    result: PlanarIntrinsicsExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Sequence[float]],
+    image_size: tuple[int, int],
+) -> list[RankedCandidate]: ...
+
+
+def candidate_poses(
+    camera: PinholeCamera | PinholeScheimpflugCamera | Mapping[str, Any],
+    target_points: Sequence[Sequence[float]],
+    image_size: tuple[int, int],
+    grid: CandidateGrid,
+) -> list[Pose]: ...
 
 
 __all__: list[str]

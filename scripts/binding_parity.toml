@@ -10,6 +10,7 @@
 
 [bound]
 "Error" = ["builtins.ValueError", "builtins.RuntimeError"]
+"analysis::CandidateGrid" = "CandidateGrid"
 "analysis::CheckKind" = "types.CheckKind"
 "analysis::CheckStatus" = "types.CheckStatus"
 "analysis::FeatureResidualHistogram" = "FeatureResidualHistogram"
@@ -17,13 +18,18 @@
 "analysis::LaserLineTrace" = "LaserLineTrace"
 "analysis::Measurement" = "Measurement"
 "analysis::PerFeatureResiduals" = "PerFeatureResiduals"
+"analysis::PredictedUncertainty" = "PredictedUncertainty"
 "analysis::QualityCheck" = "QualityCheck"
 "analysis::QualityReport" = "QualityReport"
 "analysis::QualityThresholds" = "QualityThresholds"
+"analysis::RankedCandidate" = "RankedCandidate"
 "analysis::TargetFeatureResidual" = "TargetFeatureResiduals"
 "analysis::Unit" = "types.Unit"
 "analysis::Verdict" = "types.Verdict"
 "analysis::assess" = "assess"
+"analysis::candidate_poses" = "candidate_poses"
+"analysis::predict_with_views" = "predict_with_views"
+"analysis::rank_candidates" = "rank_candidates"
 "common::ExportKind" = "types.ExportKind"
 "common::HandeyeInitOptions" = "HandeyeInitOptions"
 "common::HandeyeOptimizeOptions" = "HandeyeOptimizeOptions"

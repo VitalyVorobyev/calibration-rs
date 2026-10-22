@@ -62,6 +62,10 @@ pub type PlanarIntrinsicsInput = PlanarDataset;
 #[derive(Debug)]
 pub struct PlanarIntrinsicsProblem;
 
+/// The fewest target points a planar view needs: four determine its
+/// homography.
+pub(crate) const MIN_VIEW_POINTS: usize = 4;
+
 /// Default non-linear iteration cap of a planar solve, sized for a tilted
 /// sensor's tilt valley. The solver stops at convergence, so the cap only
 /// bounds runs that do not converge.
@@ -197,9 +201,9 @@ impl ProblemType for PlanarIntrinsicsProblem {
         }
 
         for (i, view) in input.views.iter().enumerate() {
-            if view.obs.len() < 4 {
+            if view.obs.len() < MIN_VIEW_POINTS {
                 return Err(Error::invalid_input(format!(
-                    "view {} has too few points (need >= 4 for homography, got {})",
+                    "view {} has too few points (need >= {MIN_VIEW_POINTS} for homography, got {})",
                     i,
                     view.obs.len()
                 )));

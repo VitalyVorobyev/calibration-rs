@@ -33,7 +33,9 @@ use vision_calibration_bench::suite::compare::ExternalResult;
 use vision_calibration_bench::suite::{ObservationSet, Truth};
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_optim::ProjectionUncertainty;
-use vision_calibration_pipeline::analysis::{QualityReport, QualityThresholds};
+use vision_calibration_pipeline::analysis::{
+    CandidateGrid, PredictedUncertainty, QualityReport, QualityThresholds, RankedCandidate,
+};
 use vision_calibration_pipeline::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
 };
@@ -186,6 +188,9 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         reads::<QualityThresholds>("quality_thresholds", "QualityThresholds", &[]),
         writes::<QualityReport>("quality_report", "QualityReport"),
         writes::<ProjectionUncertainty>("projection_uncertainty", "ProjectionUncertainty"),
+        reads::<CandidateGrid>("candidate_grid", "CandidateGrid", &[]),
+        writes::<PredictedUncertainty>("predicted_uncertainty", "PredictedUncertainty"),
+        writes::<RankedCandidate>("ranked_candidate", "RankedCandidate"),
     ];
     let suite = vec![
         plain("observation_set", schema_value::<ObservationSet>()),

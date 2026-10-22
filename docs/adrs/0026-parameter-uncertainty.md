@@ -107,6 +107,70 @@ problem type shares one implementation of each check.
   weakness shows (corner extrapolation on the stereo pair, outlier views on
   dataset 8 and some private entries).
 
+### Next-view planning
+
+`analysis::predict_with_views(export, candidates, target_points, image_size)`
+predicts the covariance a planar calibration would have with candidate
+views added, without a re-solve; `analysis::rank_candidates` scores
+candidates one at a time; `analysis::candidate_poses` generates a
+deterministic set (`CandidateGrid`: image regions × {fronto-parallel, ±tilt
+about x, ±tilt about y} at one distance). The core API takes caller-supplied
+poses; the generator is a convenience for the app.
+
+- **Prediction.** A candidate is a `camera_se3_target` pose. The target's
+  points are projected through the estimate; points behind the camera or
+  outside the image are dropped. Its information per unit pixel variance is
+  `JᵀJ` over the camera parameters and its own 6-DoF pose, the pose
+  marginalized by a Schur complement (`optim::view_information`; exact
+  forward-mode `J` through the solver's camera kernels; the left
+  perturbation spans the solver's right-perturbation tangent, and a Schur
+  complement does not depend on how the eliminated block is parametrized).
+  `Σ′ = (Σ⁻¹ + Σ_c S_c / σ²)⁻¹` over the parameters the result estimated. A
+  candidate with fewer than four visible points (the planar problem's
+  per-view minimum) or a pose its points do not determine adds nothing.
+- **Current information: `Σ⁻¹`, not a rebuild from the IR.** `Σ` is
+  conditional on exactly the result's fixed set, has every existing pose
+  marginalized, and accounts for per-point weights and fixed poses the
+  export does not carry; adding nothing returns `Σ` unchanged. Inverted in
+  its unit-diagonal form. The two routes agree: with the existing views'
+  information `S_A` rebuilt from the export's per-feature target points and
+  poses, `Σ S_A / σ² − I` is at most 4e-7–3e-6 over ten seeds, the precision
+  of the solve's own inversion.
+- **Scale: `σ² = tr(Σ S_A) / n`.** A planar result has one residual family
+  and no priors, so its covariance is `σ_eff² A⁻¹` with
+  `σ_eff² = s/κ²` the sandwich's scalar (robust loss included). The rebuild
+  above recovers that scalar from the export alone, and the prediction is on
+  the covariance's own scale. The reported median-based σ̂ is not: it was
+  0.93–1.01× `σ_eff` over ten seeds at 0.2 px, which would mis-weight a
+  candidate by up to 7 %. The value is reported as `effective_noise_px`.
+- **Ranking.** By the largest projection σ on the `projection_uncertainty`
+  grid (centre included) after adding the candidate, the figure the quality
+  check bounds; ties by candidate index. `ln det Σ − ln det Σ′` is reported
+  alongside as the whole-covariance measure: unit-free, where a trace adds
+  px² to squared distortion coefficients.
+- **Scope.** Planar intrinsics, one camera, any model the solver estimates
+  (any distortion; identity or Scheimpflug sensor). The information kernel
+  takes a camera, a pose and points, and `ViewPose::{Estimated, Fixed}`, so
+  rigs can follow with the per-camera covariance blocks and a shared rig
+  pose; not implemented.
+- **Evidence** (`analysis/next_view/tests.rs`, release gate): six tilted
+  views of a 9 × 7 board over the central part of a 1280 × 960 image,
+  0.1–0.3 px Gaussian noise, five seeds per model; for the best-, median-
+  and worst-ranked full-board candidates and the best three together, the
+  predicted σ of every parameter and the predicted maximum projection σ
+  against a re-solve with the noisy view added, the re-solve rescaled to the
+  current `σ_eff`. Mean absolute deviation of σ: Brown-Conrady 0.5 %,
+  division 0.1 %, Scheimpflug 2.1 % (worst single case 13.5 %); of the
+  maximum projection σ 0.5 %, 0.0 %, 1.2 %. The best candidate's real
+  reduction exceeds the worst one's in every scene (Brown-Conrady at 0.2 px:
+  1.85 against 0.35 px of 4.9 px).
+- **Limit: first order.** With six views bunched around the centre (corners
+  extrapolated to 60 px σ at 0.3 px noise) the deviation reached 20–33 %,
+  and one re-solve's distortion moved far enough that its projection map
+  folded over: the current estimate's Jacobians are no longer the
+  re-solve's. The prediction is for refining a calibration that already
+  determines the camera roughly.
+
 ## Consequences
 
 - Every export carries `uncertainty` (ADR 0012); Python exposes `std_dev`,

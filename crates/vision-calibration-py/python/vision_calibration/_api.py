@@ -9,10 +9,12 @@ that need direct serde payload control.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, TypeVar, cast
+from typing import Any, Mapping, Sequence, TypeVar, cast
 
 from . import _vision_calibration as _native
 from .models import (
+    Camera,
+    CandidateGrid,
     LaserlineDeviceInput,
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
@@ -21,8 +23,10 @@ from .models import (
     PlanarIntrinsicsExport,
     PlanarIntrinsicsInput,
     Pose,
+    PredictedUncertainty,
     ProjectionUncertainty,
     QualityReport,
+    RankedCandidate,
     QualityThresholds,
     RigExtrinsicsConfig,
     RigExtrinsicsInput,
@@ -448,3 +452,134 @@ def assess(
         ),
     )
     return QualityReport.from_payload(payload)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Next-view planning
+# ─────────────────────────────────────────────────────────────────────────────
+
+Point3 = tuple[float, float, float] | Sequence[float]
+
+
+def _planar_export(result: PlanarIntrinsicsExport | Mapping[str, Any]) -> dict[str, Any]:
+    export = result if isinstance(result, Mapping) else result.export
+    if not export:
+        raise ValueError("the result carries no export; it was not produced by this library")
+    return dict(export)
+
+
+def _poses_payload(poses: Sequence[Pose | Mapping[str, Any]]) -> list[Any]:
+    return [p.to_payload() if isinstance(p, Pose) else dict(p) for p in poses]
+
+
+def _points_payload(points: Sequence[Point3]) -> list[list[float]]:
+    return [[float(v) for v in p] for p in points]
+
+
+def predict_with_views(
+    result: PlanarIntrinsicsExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Point3],
+    image_size: tuple[int, int],
+) -> PredictedUncertainty:
+    """The covariance a planar calibration would have with more views of its
+    target, predicted without a re-solve.
+
+    Each candidate is a ``camera_se3_target`` pose. The target's points are
+    projected through the current estimate (those behind the camera or outside
+    the image are dropped); the view's information about the camera, with its
+    own pose marginalized, is added to the result's, on the pixel noise scale
+    the result's covariance implies.
+
+    Parameters
+    ----------
+    result:
+        A planar intrinsics result, or its export JSON loaded as a dict.
+    candidates:
+        Candidate target poses (``camera_se3_target``), all added together.
+    target_points:
+        The target's points in its own frame, metres.
+    image_size:
+        ``(width, height)`` of the camera's images, pixels.
+
+    Raises
+    ------
+    ValueError
+        If the result has no covariance, ``candidates`` or ``target_points`` is
+        empty, or the image is smaller than 2×2 pixels.
+    TypeError
+        If the result is not a planar intrinsics result.
+    """
+    payload = cast(
+        Mapping[str, Any],
+        _native.predict_with_views(
+            _planar_export(result),
+            _poses_payload(candidates),
+            _points_payload(target_points),
+            list(image_size),
+        ),
+    )
+    return PredictedUncertainty.from_payload(payload)
+
+
+def rank_candidates(
+    result: PlanarIntrinsicsExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Point3],
+    image_size: tuple[int, int],
+) -> list[RankedCandidate]:
+    """Candidate views of a planar calibration, each added alone, ranked from
+    the largest reduction of the maximum projection σ over the image to the
+    smallest; ties keep the candidates' order.
+
+    Parameters and errors as :func:`predict_with_views`.
+    """
+    payload = cast(
+        list[Any],
+        _native.rank_candidates(
+            _planar_export(result),
+            _poses_payload(candidates),
+            _points_payload(target_points),
+            list(image_size),
+        ),
+    )
+    return [RankedCandidate.from_payload(cast(Mapping[str, Any], r)) for r in payload]
+
+
+def candidate_poses(
+    camera: Camera | Mapping[str, Any],
+    target_points: Sequence[Point3],
+    image_size: tuple[int, int],
+    grid: CandidateGrid,
+) -> list[Pose]:
+    """A deterministic set of candidate target poses over the image (see
+    :class:`~vision_calibration.models.CandidateGrid`).
+
+    Parameters
+    ----------
+    camera:
+        The calibrated camera (``result.camera``) or its ``CameraParams`` payload.
+    target_points:
+        The target's points in its own frame, metres.
+    image_size:
+        ``(width, height)`` of the camera's images, pixels.
+    grid:
+        The regions, distance and tilt of the candidates.
+
+    Raises
+    ------
+    ValueError
+        If a grid setting is out of range, ``target_points`` is empty, or the
+        image is smaller than 2×2 pixels.
+    """
+    camera_payload = dict(camera) if isinstance(camera, Mapping) else camera.to_payload()
+    payload = cast(
+        list[Any],
+        _native.candidate_poses(
+            camera_payload,
+            _points_payload(target_points),
+            list(image_size),
+            grid.to_payload(),
+        ),
+    )
+    return [Pose.from_payload(cast(Mapping[str, Any], p)) for p in payload]

@@ -150,6 +150,7 @@
 mod backend;
 mod error;
 mod factors;
+mod information;
 mod ir;
 mod params;
 mod problems;
@@ -169,6 +170,8 @@ pub use crate::backend::{BackendSolveOptions, SolveReport, SolverBackend};
 
 pub use crate::ir::{DistortionKind, HandeyeMode, RobustLoss};
 
+/// The information a view carries about a camera's parameters.
+pub use crate::information::{ViewInformation, ViewPose, view_information};
 pub use crate::params::distortion::with_leading_radial;
 pub use crate::params::laser_plane::LaserPlane;
 /// Projection uncertainty of a calibrated camera.

@@ -1,6 +1,7 @@
 //! Typed error hierarchy for `vision-calibration-pipeline`.
 
 use vision_calibration_core::Error as CoreError;
+use vision_calibration_core::UncertaintyUnavailable;
 use vision_calibration_linear::Error as LinearError;
 use vision_calibration_optim::Error as OptimError;
 
@@ -29,6 +30,13 @@ pub enum Error {
     NotAvailable {
         /// Name of the session resource that was expected but not yet populated.
         resource: &'static str,
+    },
+
+    /// The result has no parameter covariance, which the analysis needs.
+    #[error("the result has no parameter covariance: {reason:?}")]
+    CovarianceUnavailable {
+        /// Why the result has none.
+        reason: UncertaintyUnavailable,
     },
 
     /// A numerical failure (singular matrix, divergence, etc.).

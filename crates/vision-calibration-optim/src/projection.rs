@@ -153,14 +153,14 @@ fn major_axis_sigma(c: &Matrix2<f64>) -> f64 {
 
 /// A camera's parameters as one vector `θ`, in the solver's block order:
 /// intrinsics, distortion, sensor.
-struct CameraVector {
-    model: CameraModelSpec,
-    theta: DVector<f64>,
-    labels: Vec<&'static str>,
+pub(crate) struct CameraVector {
+    pub(crate) model: CameraModelSpec,
+    pub(crate) theta: DVector<f64>,
+    pub(crate) labels: Vec<&'static str>,
 }
 
 impl CameraVector {
-    fn new(camera: &CameraParams) -> Result<Self, Error> {
+    pub(crate) fn new(camera: &CameraParams) -> Result<Self, Error> {
         let ProjectionParams::Pinhole = camera.projection;
         let k = camera.intrinsics;
         let (sensor, tilt) = match &camera.sensor {

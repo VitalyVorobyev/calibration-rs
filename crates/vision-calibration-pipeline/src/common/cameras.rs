@@ -51,11 +51,11 @@ pub trait CalibratedCameras {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidInput`] when `camera` is out of range, the result has
-    /// no covariance, its covariance holds none of the camera's parameters
-    /// (the final solve held them fixed), or the image or camera model is
-    /// one [`projection_uncertainty`] rejects; [`Error::Optim`] when no ray
-    /// reaches the image centre.
+    /// [`Error::CovarianceUnavailable`] when the result has no covariance;
+    /// [`Error::InvalidInput`] when `camera` is out of range, its covariance
+    /// holds none of the camera's parameters (the final solve held them
+    /// fixed), or the image or camera model is one [`projection_uncertainty`]
+    /// rejects; [`Error::Optim`] when no ray reaches the image centre.
     fn projection_uncertainty(
         &self,
         camera: usize,
@@ -71,9 +71,9 @@ pub trait CalibratedCameras {
         let covariance = match self.parameter_uncertainty() {
             Uncertainty::Available(covariance) => covariance,
             Uncertainty::Unavailable { reason } => {
-                return Err(Error::invalid_input(format!(
-                    "the result has no parameter covariance: {reason:?}"
-                )));
+                return Err(Error::CovarianceUnavailable {
+                    reason: reason.clone(),
+                });
             }
         };
         projection_uncertainty(params, covariance, camera, image_size).map_err(|err| match err {

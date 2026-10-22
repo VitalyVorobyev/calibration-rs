@@ -35,7 +35,8 @@ Reading the map:
 - **Where the views were.** σ is smallest where the board covered the
   image and grows toward corners the views did not reach, where the
   distortion is extrapolated. A large corner value is a reason to add views
-  with the board in that corner.
+  with the board in that corner; [Planning the Next View](uncertainty_next_view.md)
+  ranks candidate views by how much each would reduce it.
 - **Camera frame.** The ray is held fixed in the camera's own frame and only
   the camera's parameters vary: intrinsics, distortion, sensor tilt. A
   pinhole camera maps every point of a ray to one pixel, so the map does not

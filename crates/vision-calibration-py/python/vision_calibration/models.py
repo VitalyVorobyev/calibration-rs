@@ -1696,6 +1696,93 @@ class QualityReport:
         )
 
 
+@dataclass(slots=True)
+class CandidateGrid:
+    """A deterministic set of candidate target poses for
+    :func:`~vision_calibration.candidate_poses`.
+
+    For each of ``regions`` (``(columns, rows)``) of the image, row by row from
+    the top-left, the target's centroid is put on the ray through the region's
+    centre at ``distance_m`` metres, facing the camera; the poses are the
+    fronto-parallel one, then tilts of ``+tilt_rad`` and ``-tilt_rad`` about the
+    target's x axis and about its y axis (only the fronto-parallel one when
+    ``tilt_rad`` is 0).
+    """
+
+    #: Distance from the camera centre to the target's centroid, metres (> 0).
+    distance_m: float
+    #: Tilt out of the fronto-parallel pose, radians, in ``[0, π/2)``;
+    #: 0.3–0.6 is typical.
+    tilt_rad: float
+    #: Regions of the image grid, ``(columns, rows)``, each at least 1.
+    regions: tuple[int, int]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "distance_m": float(self.distance_m),
+            "tilt_rad": float(self.tilt_rad),
+            "regions": [int(self.regions[0]), int(self.regions[1])],
+        }
+
+
+@dataclass(slots=True)
+class PredictedUncertainty:
+    """The covariance a planar calibration is predicted to have with candidate
+    views added, from :func:`~vision_calibration.predict_with_views`.
+
+    ``covariance`` has the result's labels, fixed list and noise levels; it
+    predicts no per-view blocks. ``projection`` is the predicted projection
+    uncertainty over the image. ``visible_points`` gives, per candidate, the
+    target points that land in the image (fewer than four add nothing), and
+    ``effective_noise_px`` the pixel σ the result's covariance implies, which
+    scales the candidates' information.
+    """
+
+    covariance: ParameterUncertainty
+    projection: ProjectionUncertainty
+    visible_points: list[int]
+    effective_noise_px: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PredictedUncertainty":
+        covariance = dict(cast(Mapping[str, Any], payload["covariance"]))
+        covariance["status"] = "available"
+        return cls(
+            covariance=ParameterUncertainty.from_payload(covariance),
+            projection=ProjectionUncertainty.from_payload(
+                cast(Mapping[str, Any], payload["projection"])
+            ),
+            visible_points=[int(v) for v in cast(list[Any], payload["visible_points"])],
+            effective_noise_px=float(payload["effective_noise_px"]),
+        )
+
+
+@dataclass(slots=True)
+class RankedCandidate:
+    """One candidate view scored by :func:`~vision_calibration.rank_candidates`."""
+
+    #: The candidate's position in the list that was ranked.
+    index: int
+    #: Target points that land in the image; fewer than four add nothing.
+    visible_points: int
+    #: The largest projection σ over the image with this view added, pixels.
+    max_projection_sigma_px: float
+    #: The current largest projection σ minus ``max_projection_sigma_px``, pixels.
+    projection_sigma_reduction_px: float
+    #: ``ln det Σ − ln det Σ′``: the reduction of the covariance's log-volume.
+    log_det_reduction: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RankedCandidate":
+        return cls(
+            index=int(payload["index"]),
+            visible_points=int(payload["visible_points"]),
+            max_projection_sigma_px=float(payload["max_projection_sigma_px"]),
+            projection_sigma_reduction_px=float(payload["projection_sigma_reduction_px"]),
+            log_det_reduction=float(payload["log_det_reduction"]),
+        )
+
+
 #: One calibrated camera as reported by a result: untilted or tilted sensor.
 Camera = PinholeCamera | PinholeScheimpflugCamera
 
