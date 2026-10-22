@@ -79,6 +79,7 @@ jobs:
         run: |
           test -f crates/vision-calibration-py/python/vision_calibration/__init__.py
           test -f crates/vision-calibration-py/python/vision_calibration/__init__.pyi
+          test -f crates/vision-calibration-py/python/vision_calibration/_generated_types.py
           test -f crates/vision-calibration-py/python/vision_calibration/py.typed
           python -m compileall crates/vision-calibration-py/python/vision_calibration
 

@@ -418,6 +418,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Python payload types are generated from the Rust types.**
+  `vision_calibration.types` re-exports `TypedDict`s that
+  `cargo xtask emit-schemas` renders from the JSON Schemas of every config,
+  input and export, the quality report and thresholds, and the projection
+  uncertainty, under their Rust names; `emit-schemas --check`, which CI runs,
+  fails when they are stale. The input, export and quality schemas are now
+  written too, to `schemas/` (the config schemas stay in `app/src/schemas/`).
+  The dataclass API is unchanged. The hand-written types had drifted; the
+  shapes that change:
+  - a config `TypedDict` requires the keys the library requires — a partial
+    config was always rejected;
+  - the exports gain `kind`, `per_feature_residuals` and `image_manifest`, the
+    rig exports `rig_se3_target`;
+  - `LaserlineParams` carries `camera` (a `CameraParams`) in place of
+    `intrinsics`, `distortion` and `sensor`;
+  - `CameraFix`'s lists, `IntrinsicsInitConfig.fix_tangential`,
+    `ResidualNoise.camera` and `QualityCheck.camera`/`measurement` admit `None`;
+    `RigHandeyeConfig` gains `manual_init`;
+  - inputs, cameras (`CameraParams`), poses (`Iso3`) and laser planes are typed
+    instead of `dict[str, Any]`;
+  - an enum with data (`Uncertainty`, `DistortionParams`, `SensorParams`,
+    `RobustLoss`, …) is a union of one `TypedDict` per variant, named
+    `<Enum>_<Variant>`;
+  - a fixed-size array is `tuple[...] | list[...]`: the extension returns a
+    tuple and reads either.
+
+  The Python spellings `Transform`, `CameraModel`, `IntrinsicsPayload`,
+  `DistortionPayload`, `DistortionParamsPayload`, `ScheimpflugPayload`,
+  `LaserPlanePayload`, `DistortionModel`, `ProjectionModel`, `SensorModel`,
+  `DistortionBrownConrady5`, `DistortionDivision`, `DistortionRational`,
+  `DistortionThinPrism`, `RobustLossHuber`, `RobustLossCauchy`,
+  `RobustLossArctan` and `UncertaintyUnavailableReason` remain, as aliases of
+  `Iso3`, `CameraParams`, `FxFyCxCy`, `DistortionParams`, `ScheimpflugParams`,
+  `LaserPlane`, `DistortionKind`, `ProjectionKind`, `SensorKind`,
+  `DistortionParams_<Variant>`, `RobustLoss_<Variant>` and
+  `UncertaintyUnavailable`.
+
 - Breaking: the rig family is configured through the camera spec, and its
   outputs and exports carry `CameraParams` per camera; the pinhole and
   Scheimpflug rig builders of the optimizer are one. See Migration.

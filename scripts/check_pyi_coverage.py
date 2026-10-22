@@ -4,6 +4,11 @@
 The .pyi file is hand-maintained. Without this check it silently drifts when a
 new symbol is added to ``__all__`` or a new ``#[pyfunction]`` is registered.
 
+The payload ``TypedDict`` types are not hand-maintained: ``_generated_types.py``
+is rendered from the Rust types' JSON Schemas by ``cargo xtask emit-schemas``.
+The check also fails when another module of the package declares a
+``TypedDict``, which would be a second, drifting definition of a payload shape.
+
 Usage:
     python3 scripts/check_pyi_coverage.py           # show drift, warn only
     python3 scripts/check_pyi_coverage.py --check   # exit 1 on drift (CI mode)
@@ -63,6 +68,29 @@ def extract_rust_pyfunctions(lib_rs: Path) -> set[str]:
     return names
 
 
+GENERATED_TYPES = "_generated_types.py"
+
+
+def hand_written_typed_dicts(pkg: Path) -> list[str]:
+    """``TypedDict`` declarations outside the generated module, as ``file:line name``."""
+    found: list[str] = []
+    for path in sorted([*pkg.glob("*.py"), *pkg.glob("*.pyi")]):
+        if path.name == GENERATED_TYPES:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ClassDef) and any(
+                isinstance(base, ast.Name) and base.id == "TypedDict" for base in node.bases
+            ):
+                found.append(f"{path.name}:{node.lineno} {node.name}")
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "TypedDict"
+            ):
+                found.append(f"{path.name}:{node.lineno} TypedDict(...)")
+    return found
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="exit 1 on drift")
@@ -89,6 +117,15 @@ def main() -> int:
         print("Rust #[pyfunction] registered in #[pymodule] but missing from __init__.pyi:")
         for name in untyped_rust:
             print(f"  - {name}")
+    hand_written = hand_written_typed_dicts(PY_PKG)
+    if hand_written:
+        ok = False
+        print(
+            f"TypedDicts declared outside {GENERATED_TYPES} (payload shapes come from "
+            "the Rust types; run `cargo xtask emit-schemas`):"
+        )
+        for entry in hand_written:
+            print(f"  - {entry}")
     if ok:
         print(f"pyi coverage OK ({len(all_syms)} __all__ entries, {len(rust_syms)} pyfunctions)")
         return 0

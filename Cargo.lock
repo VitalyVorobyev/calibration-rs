@@ -3650,6 +3650,7 @@ dependencies = [
  "serde_json",
  "vision-calibration-bench",
  "vision-calibration-dataset",
+ "vision-calibration-optim",
  "vision-calibration-pipeline",
 ]
 

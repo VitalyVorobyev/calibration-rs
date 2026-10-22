@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The projection uncertainty of one camera over its image.\n\nGrid nodes are evenly spaced from pixel `(0, 0)` to\n`(width − 1, height − 1)`, corners included, and listed row by row from\nthe top-left. Each value is the major-axis standard deviation, in pixels,\nof where the ray through the node projects.",
+  "properties": {
+    "center": {
+      "description": "σ at the image centre, pixels.",
+      "format": "double",
+      "type": "number"
+    },
+    "columns": {
+      "description": "Nodes per grid row.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "corner": {
+      "description": "The largest σ of the four corners, pixels; `None` when no ray reaches\nany of them.",
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "image_size": {
+      "description": "`[width, height]` of the image, pixels.",
+      "items": {
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "max": {
+      "description": "The largest σ of the grid and the centre, pixels.",
+      "format": "double",
+      "type": "number"
+    },
+    "rows": {
+      "description": "Grid rows.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sigma": {
+      "description": "Major-axis σ at each node, pixels. `None` where no ray reaches the\nnode, as where a strong distortion folds the image over.",
+      "items": {
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "image_size",
+    "columns",
+    "rows",
+    "sigma",
+    "center",
+    "corner",
+    "max"
+  ],
+  "title": "ProjectionUncertainty",
+  "type": "object"
+}

@@ -1,9 +1,11 @@
 //! Workspace task runner.
 //!
-//! - `emit-schemas [--check]` writes JSON Schemas for every `*Config`,
-//!   `*Input`, and `DatasetSpec` type into `app/src/schemas/`; the Tauri app
-//!   reads them at build time to drive its schema-driven config forms. The
-//!   manifest's field reference in the book is rendered from the same schema.
+//! - `emit-schemas [--check]` writes the JSON Schemas of the workspace's
+//!   serialized types and the files generated from them: the config and
+//!   manifest schemas the Tauri app's forms are built from, the input, export
+//!   and quality schemas, the regression suite's file formats, the book's
+//!   manifest field reference and the Python package's `TypedDict`s (see
+//!   `emit_schemas`).
 //! - `check-docs` fails when user-facing docs cite internal material or pin
 //!   a stale version (see `check_docs`).
 
@@ -13,6 +15,7 @@ use std::path::{Path, PathBuf};
 mod check_docs;
 mod emit_schemas;
 mod manifest_doc;
+mod py_types;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);

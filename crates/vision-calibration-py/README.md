@@ -156,4 +156,9 @@ for f in crates/vision-calibration-py/examples/*.py; do python "$f"; done
 ```
 
 `vision_calibration.types` is an advanced-interop surface for raw serde payloads;
-prefer the typed dataclasses/models for new code.
+prefer the typed dataclasses/models for new code. Its `TypedDict`s are
+generated from the JSON Schemas of the Rust types (`cargo xtask emit-schemas`
+writes them, and CI fails when they are stale), so each carries its Rust name
+and shape: `PlanarIntrinsicsConfig`, `CameraParams`, `Iso3`, and one
+`<Enum>_<Variant>` type per variant of an enum with data, such as
+`RobustLoss_Huber`.

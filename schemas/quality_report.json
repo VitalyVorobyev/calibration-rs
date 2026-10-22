@@ -1,0 +1,215 @@
+{
+  "$defs": {
+    "CheckKind": {
+      "description": "What a check examines; [`assess`] describes each check.",
+      "oneOf": [
+        {
+          "const": "observability",
+          "description": "Whether the data determines every estimated parameter.",
+          "type": "string"
+        },
+        {
+          "const": "convergence",
+          "description": "Whether the final solve converged.",
+          "type": "string"
+        },
+        {
+          "const": "variance_factor",
+          "description": "Whether the reprojection noise matches the stated feature noise.",
+          "type": "string"
+        },
+        {
+          "const": "projection_sigma",
+          "description": "How precisely the camera places a ray, at worst, over its image.",
+          "type": "string"
+        },
+        {
+          "const": "feature_coverage",
+          "description": "How much of the image the observed features reached.",
+          "type": "string"
+        },
+        {
+          "const": "view_outliers",
+          "description": "Views whose residuals are far above the noise level.",
+          "type": "string"
+        },
+        {
+          "const": "parameter_correlation",
+          "description": "Camera parameters the data cannot tell apart.",
+          "type": "string"
+        }
+      ]
+    },
+    "CheckStatus": {
+      "description": "The outcome of one check.",
+      "oneOf": [
+        {
+          "const": "pass",
+          "description": "Assessed, and nothing found.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Assessed, with a weakness.",
+          "type": "string"
+        },
+        {
+          "const": "fail",
+          "description": "Assessed, and failed.",
+          "type": "string"
+        },
+        {
+          "const": "not_applicable",
+          "description": "Not assessed: the result lacks the check's inputs. The message says\nwhich.",
+          "type": "string"
+        }
+      ]
+    },
+    "Measurement": {
+      "description": "A check's measured value and the limit that decided its status.",
+      "properties": {
+        "threshold": {
+          "description": "The limit it was compared to: the one it crossed, or, for a pass, the\nnearest one.",
+          "format": "double",
+          "type": "number"
+        },
+        "unit": {
+          "$ref": "#/$defs/Unit",
+          "description": "The unit of both."
+        },
+        "value": {
+          "description": "The measured value; for a check over several items (views, parameter\npairs), the worst one.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "threshold",
+        "unit"
+      ],
+      "type": "object"
+    },
+    "QualityCheck": {
+      "description": "One check of a [`QualityReport`].",
+      "properties": {
+        "camera": {
+          "description": "The camera, for a check made per camera; `None` for one about the\nwhole result.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/CheckKind",
+          "description": "What the check examines."
+        },
+        "measurement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Measurement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured value; absent for a check not applicable, and for the\nobservability and convergence checks, which read a status."
+        },
+        "message": {
+          "description": "One sentence on the outcome, or on why the check was not applicable.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CheckStatus",
+          "description": "Its outcome."
+        },
+        "subjects": {
+          "description": "What the check names: unobservable or at-bound parameter labels,\ncorrelated parameter pairs (`fx/cx`), or outlier views (`view 3`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "status",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Unit": {
+      "description": "The unit of a measured value.",
+      "oneOf": [
+        {
+          "const": "pixel",
+          "description": "Pixels.",
+          "type": "string"
+        },
+        {
+          "const": "fraction",
+          "description": "A share in `[0, 1]`.",
+          "type": "string"
+        },
+        {
+          "const": "ratio",
+          "description": "A dimensionless ratio, such as σ̂²/σ₀².",
+          "type": "string"
+        },
+        {
+          "const": "sigma",
+          "description": "Multiples of the estimated noise level σ̂.",
+          "type": "string"
+        },
+        {
+          "const": "correlation",
+          "description": "An absolute correlation coefficient in `[0, 1]`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Verdict": {
+      "description": "The judgment of a result, or of one check.\n\nOrdered by severity: `Pass < Warn < Fail`.",
+      "oneOf": [
+        {
+          "const": "pass",
+          "description": "Nothing found that limits the result.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Usable, with a weakness worth knowing; the message says which.",
+          "type": "string"
+        },
+        {
+          "const": "fail",
+          "description": "The data does not support the result.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The verdict on a calibration result and the checks behind it.",
+  "properties": {
+    "checks": {
+      "description": "Every check, the result-wide ones first, then each camera's.",
+      "items": {
+        "$ref": "#/$defs/QualityCheck"
+      },
+      "type": "array"
+    },
+    "verdict": {
+      "$ref": "#/$defs/Verdict",
+      "description": "The worst verdict of the assessed checks; `warn` when no check could\nbe assessed, since then nothing vouches for the result."
+    }
+  },
+  "required": [
+    "verdict",
+    "checks"
+  ],
+  "title": "QualityReport",
+  "type": "object"
+}

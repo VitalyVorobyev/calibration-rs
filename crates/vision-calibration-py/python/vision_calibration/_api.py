@@ -43,7 +43,7 @@ from .models import (
     SingleCamHandeyeInput,
     SingleCamHandeyeExport,
 )
-from .types import RobustLoss
+from ._generated_types import RobustLoss
 
 _T = TypeVar("_T")
 

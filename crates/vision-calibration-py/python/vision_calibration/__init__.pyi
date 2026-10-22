@@ -69,7 +69,7 @@ from .models import (
     SingleCamHandeyeExport,
     SingleCamHandeyeView,
 )
-from .types import RobustLoss as _RobustLoss
+from ._generated_types import RobustLoss as _RobustLoss
 
 __version__: str
 
