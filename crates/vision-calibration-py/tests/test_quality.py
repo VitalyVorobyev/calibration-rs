@@ -104,7 +104,9 @@ class AssessTest(unittest.TestCase):
                 for view in payload["views"]
             ],
         )
-        report = vc.assess(vc.run_rig_extrinsics(dataset), image_sizes=[(1024, 576)] * 2)
+        config = vc.RigExtrinsicsConfig(rig=vc.RigConfig(refine_intrinsics=False))
+        result = vc.run_rig_extrinsics(dataset, config)
+        report = vc.assess(result, image_sizes=[(1024, 576)] * 2)
         for camera in (0, 1):
             check = next(
                 c for c in report.checks if c.kind == "projection_sigma" and c.camera == camera
