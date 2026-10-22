@@ -225,8 +225,26 @@ enum SuiteCommand {
         /// Detection cache directory.
         #[arg(long, default_value = "target/suite-detections")]
         cache: PathBuf,
+        /// Read each entry's images from its directory in this `suite
+        /// fetch` cache, after verifying them, instead of from its dataset
+        /// manifest's directory. Freezes the entries `suite fetch`
+        /// downloads (those of `--only`, which must all be such entries).
+        #[arg(long)]
+        images: Option<PathBuf>,
+    },
+    /// Download each image entry's files from their publisher into
+    /// `<images>/<id>/` and verify them against `fetch/<id>.sha256`
+    /// (needs `--features tier-b`). Files already there and verified are
+    /// kept; entries that need a manual download print their source.
+    Fetch {
+        /// Image cache directory.
+        #[arg(long, default_value = DEFAULT_SUITE_IMAGES)]
+        images: PathBuf,
     },
 }
+
+/// Where `suite fetch` puts the images, relative to the working directory.
+const DEFAULT_SUITE_IMAGES: &str = "target/suite-images";
 
 /// Arguments for diagnostic commands.
 #[derive(Parser)]
@@ -1414,7 +1432,16 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
     use vision_calibration_bench::suite::{self, Suite};
 
     let suite = Suite::load(&args.suite)?;
-    let entries = suite.select(&args.only)?;
+    let mut entries = suite.select(&args.only)?;
+    // Freezing from the fetch cache covers the entries `suite fetch`
+    // downloads; one named with `--only` that it cannot download fails.
+    if let SuiteCommand::Freeze {
+        images: Some(_), ..
+    } = &args.command
+        && args.only.is_empty()
+    {
+        entries.retain(|entry| entry.fetch.is_some());
+    }
     println!(
         "suite {} ({}): {} entr{}",
         suite.manifest.suite_version,
@@ -1480,12 +1507,13 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
                 println!("blessed {}", entry.id);
             }
         }
-        SuiteCommand::Freeze { cache } => {
+        SuiteCommand::Fetch { images } => fetch_images(&suite, &entries, images)?,
+        SuiteCommand::Freeze { cache, images } => {
             for entry in entries {
-                let set = if entry.synthetic.is_some() {
+                let set = if entry.synthetic.is_some() && images.is_none() {
                     suite::freeze_synthetic_entry(&suite, entry)
                 } else {
-                    freeze_from_images(&suite, &entry.id, cache)
+                    freeze_from_images(&suite, &entry.id, cache, images.as_deref())
                 }
                 .with_context(|| format!("freeze {}", entry.id))?;
                 println!(
@@ -1505,18 +1533,77 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
 fn freeze_from_images(
     suite: &vision_calibration_bench::suite::Suite,
     id: &str,
-    cache: &std::path::Path,
+    cache: &Path,
+    images: Option<&Path>,
 ) -> Result<vision_calibration_bench::suite::ObservationSet> {
-    vision_calibration_bench::suite::freeze::freeze_entry(suite, id, cache)
+    vision_calibration_bench::suite::freeze::freeze_entry(suite, id, cache, images)
 }
 
 #[cfg(not(feature = "tier-b"))]
 fn freeze_from_images(
     _suite: &vision_calibration_bench::suite::Suite,
     id: &str,
-    _cache: &std::path::Path,
+    _cache: &Path,
+    _images: Option<&Path>,
 ) -> Result<vision_calibration_bench::suite::ObservationSet> {
     anyhow::bail!("freezing {id:?} from its images needs `--features tier-b`")
+}
+
+/// `suite fetch`: download every selected entry that can be fetched; the
+/// others report why not. Fails after the last entry when any download did.
+#[cfg(feature = "tier-b")]
+fn fetch_images(
+    suite: &vision_calibration_bench::suite::Suite,
+    entries: &[&vision_calibration_bench::suite::SuiteEntry],
+    images: &Path,
+) -> Result<()> {
+    use vision_calibration_bench::suite::fetch::{self, FetchOutcome};
+
+    let mut failed = Vec::new();
+    for entry in entries {
+        let dir = fetch::entry_dir(images, &entry.id);
+        match fetch::fetch_entry(suite, entry, images) {
+            Ok(FetchOutcome::UpToDate { files }) => println!(
+                "up to date  {:<24} {files} files in {}",
+                entry.id,
+                dir.display()
+            ),
+            Ok(FetchOutcome::Fetched { files, downloaded }) => println!(
+                "fetched     {:<24} {downloaded} of {files} files into {}",
+                entry.id,
+                dir.display()
+            ),
+            Ok(FetchOutcome::Manual { source_url }) => println!(
+                "manual      {:<24} download by hand from {}",
+                entry.id,
+                source_url
+                    .as_deref()
+                    .unwrap_or("its publisher (no source_url)")
+            ),
+            Ok(FetchOutcome::NoImages) => println!("no images   {}", entry.id),
+            Err(err) => {
+                println!("FAIL        {:<24} {err:#}", entry.id);
+                failed.push(entry.id.as_str());
+            }
+        }
+    }
+    anyhow::ensure!(
+        failed.is_empty(),
+        "fetching {} entr{} failed: {}",
+        failed.len(),
+        if failed.len() == 1 { "y" } else { "ies" },
+        failed.join(", ")
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "tier-b"))]
+fn fetch_images(
+    _suite: &vision_calibration_bench::suite::Suite,
+    _entries: &[&vision_calibration_bench::suite::SuiteEntry],
+    _images: &Path,
+) -> Result<()> {
+    anyhow::bail!("`suite fetch` needs `--features tier-b`")
 }
 
 fn main() -> Result<()> {

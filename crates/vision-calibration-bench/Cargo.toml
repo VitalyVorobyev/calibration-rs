@@ -19,6 +19,8 @@ tier-a = []
 tier-b = [
     "dep:image",
     "dep:vision-calibration-detect",
+    "dep:ureq",
+    "dep:zip",
 ]
 laser = ["dep:vision-metrology"]
 # JSON Schemas of the suite's file formats (`cargo xtask emit-schemas`).
@@ -56,6 +58,11 @@ schemars = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 # The detection cache the dataset runner reads and writes.
 vision-calibration-detect = { workspace = true, optional = true }
+# `suite fetch`: downloads a regression entry's images from their publisher
+# over HTTPS (pure-Rust TLS, the same on every platform) and unpacks a
+# published ZIP archive (deflate only).
+ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0", optional = true }
 
 [dev-dependencies]

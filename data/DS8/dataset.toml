@@ -1,7 +1,10 @@
 # Rig hand-eye manifest for dataset 8 of "Data from: Solving the
 # Robot-World Hand-Eye(s) Calibration Problem with Iterative Methods"
 # (Tabb & Ahmad Yousef, USDA ARS, https://doi.org/10.15482/USDA.ADC/1340592;
-# U.S. public domain). Extract DS8.zip here.
+# U.S. public domain). Unzip DS8.zip in `data/` (its top folder is this one),
+# or download it into the suite image cache with `calib-bench suite fetch
+# --only ds8`. The images are read as published: RGB TIFF for the JAI
+# cameras, colour JPEG for the Senz3D.
 #
 # Three cameras on a Denso VS-6577GM-B arm, 42 poses: two JAI BB-500
 # (1228×1029) and the colour camera of a Creative Senz3D (640×480).
@@ -21,15 +24,15 @@ description = "DS8: 3-camera rig hand-eye, chessboard 10x14 52mm"
 
 [[cameras]]
 id = "camera0"
-images = { kind = "glob", pattern = "images/camera0/*.png" }
+images = { kind = "glob", pattern = "images/camera0/*.tiff" }
 
 [[cameras]]
 id = "camera1"
-images = { kind = "glob", pattern = "images/camera1/*.png" }
+images = { kind = "glob", pattern = "images/camera1/*.tiff" }
 
 [[cameras]]
 id = "camera2"
-images = { kind = "glob", pattern = "images/camera2/*.png" }
+images = { kind = "glob", pattern = "images/camera2/*.jpg" }
 
 [target]
 kind = "chessboard"

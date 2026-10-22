@@ -9,6 +9,8 @@
 //!   against them in units of its σ.
 //! - [`synthetic`] — a benchmark scene → [`ObservationSet`] + [`Truth`].
 //! - [`compare`] — other libraries' results against the references.
+//! - `fetch` (feature `tier-b`) — an image entry's files, downloaded from
+//!   their publisher into a local cache and checksum-verified.
 //! - `freeze` (feature `tier-b`) — dataset manifest + images →
 //!   [`ObservationSet`].
 //!
@@ -21,6 +23,8 @@
 //! reference; [`freeze_synthetic_entry`] writes a synthetic entry's data.
 
 pub mod compare;
+#[cfg(feature = "tier-b")]
+pub mod fetch;
 #[cfg(feature = "tier-b")]
 pub mod freeze;
 pub mod manifest;
@@ -38,7 +42,7 @@ use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 use vision_calibration_optim::SolverBackend;
 
-pub use manifest::{Suite, SuiteEntry, Tolerance};
+pub use manifest::{FetchSource, Suite, SuiteEntry, Tolerance};
 pub use observations::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput};
 pub use reference::{Drift, ReferenceResult, drifts};
 pub use significance::{ParameterChange, parameter_changes};

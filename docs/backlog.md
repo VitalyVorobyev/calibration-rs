@@ -73,17 +73,16 @@ public domain. Synthetic entries need no images. Comparison tools must run
 on Linux, macOS and Windows. `stereo_charuco` stays local-only, as do the
 private sets.
 
-- [ ] DATA-FETCH - `calib-bench suite fetch` downloads an entry's images
-  from its publisher into a cache and verifies a per-file SHA-256 list:
-  `kuka_1` from RWHE-Calib at commit `610a412` (raw files), DS8 from the Ag
-  Data Commons (`DS8.zip`). Kaggle needs an account, so `stereo` stays a
-  manual download. A scheduled CI job runs `suite freeze` from the fetched
-  images and checks the observations still match `SHA256SUMS`; then retire
-  `crates/vision-calibration-bench/registry/public.json` and the acceptance
-  job's image run. Ask the RWHE-Calib authors for a licence; without one
-  that allows redistribution, drop the `kuka_1` images from the repository
-  and LFS (the `planar_real`/`handeye_session` examples then name the fetch
-  command).
+- [ ] DATA-FETCH - `suite fetch` and the weekly `Suite images` workflow
+  (fetch → `suite freeze --images` → `SHA256SUMS` unchanged) are in. Left:
+  once that workflow has run green on `main`, retire
+  `crates/vision-calibration-bench/registry/public.json` (its `ds8` entry
+  still globs the old grayscale PNG conversion, as does
+  `tools/convert_ds8_to_gray_png.py`; both go with it) and the acceptance
+  job's image run. Ask the RWHE-Calib authors for a licence (maintainer
+  action); without one that allows redistribution, drop the `kuka_1`
+  images from the repository and LFS (the `planar_real`/`handeye_session`
+  examples and the LFS-image unit tests then name the fetch command).
 - [ ] DATA-MORE - More public entries, each after a licence check: the other
   RWHE-Calib sets (`kuka_2`, `kuka_3`), Tabb's DS1–DS7 (U.S. public domain,
   same record as DS8), OpenCV's sample stereo chessboards (Apache-2.0), and

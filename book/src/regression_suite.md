@@ -59,6 +59,7 @@ regression/
 ├── truth/<id>.json                     a synthetic entry's true parameters
 ├── results/<id>/calibration-rs.json    the entry's reference result
 ├── results/<id>/<tool>.json            another library's result, for comparison
+├── fetch/<id>.sha256                   the files `suite fetch` downloads, with checksums
 └── schema/                             JSON Schemas of the three file formats
 ```
 
@@ -100,7 +101,48 @@ Two more subcommands maintain the suite:
 - `suite freeze` re-extracts an entry's observations from the images its
   dataset manifest names (built with `--features tier-b`), or regenerates a
   synthetic entry's observations and truth from its scene, and rewrites
-  `SHA256SUMS`. Observations change only when the detector does.
+  `SHA256SUMS`. Observations change only when the detector does. The images
+  are read from the manifest's folder, or with `--images <dir>` from the
+  cache `suite fetch` fills (below).
+
+## Fetching the images
+
+The observations are all `suite check` needs. To re-extract them, or to run
+another tool on the images themselves, `suite fetch` downloads each entry's
+images from its publisher and checks every file against the entry's
+`fetch/<id>.sha256`:
+
+```bash
+cargo run --release -p vision-calibration-bench --features tier-b \
+    --bin calib-bench -- suite fetch
+cargo run --release -p vision-calibration-bench --features tier-b \
+    --bin calib-bench -- suite freeze --images target/suite-images
+```
+
+The files land in `target/suite-images/<id>/` (`--images <dir>` picks
+another folder), laid out as the dataset manifest expects. A file already
+there that matches its checksum is not downloaded again, so the command is
+cheap to repeat; a downloaded file that does not match fails the entry, as
+it means the publisher's files changed. `suite freeze --images <dir>`
+verifies the cached files again, freezes the entries `suite fetch`
+downloads (or those named with `--only`) and rewrites `SHA256SUMS`. On
+Apple-silicon macOS, where the observations are frozen, a clean checkout
+reproduces them byte for byte. Corner detection is not bit-identical across
+platforms: on x86-64 Linux the same images give corners up to about
+0.001 px apart, so the files differ there while every view and corner is
+the same.
+
+| Entry | Downloaded from |
+|-------|-----------------|
+| `kuka_1` | The 30 images and the robot poses of `Datasets/kuka_1` in the RWHE-Calib repository, at a pinned commit |
+| `ds8` | `DS8.zip` of the Ag Data Commons record; the images as published (RGB TIFF for the two JAI cameras, colour JPEG for the third) |
+| `stereo_left`, `stereo_right`, `stereo_rig` | Not fetched: Kaggle needs an account. `suite fetch` prints the dataset page; unpack the download into `data/stereo/` |
+
+`suite.toml` gives each fetchable entry a `fetch` source: `files`, each file
+downloaded from a `base_url` followed by its path, or `zip`, one archive
+whose `root` folder is the dataset's. A scheduled CI job fetches the images
+from the publishers every week, re-freezes these entries and fails when the
+observations no longer match `SHA256SUMS`.
 
 ## The observation format
 
@@ -228,7 +270,7 @@ our σ:
 | `stereo_left` | opencv 4.12.0 | 8 | 0.02σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2339 / 0.2339 px | — |
 | `stereo_right` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2442 / 0.2442 px | — |
 | `stereo_rig` | opencv 4.12.0 | 22 | 7.22σ (`cam1.cam_se3_rig.tz`) | 1.15σ | — | — | — |
-| `ds8` | opencv 4.12.0 | 36 | 19.38σ (`cam2.p2`) | 2.25σ | 0.327–1.278 | — | — |
+| `ds8` | opencv 4.12.0 | 36 | 19.55σ (`cam2.p2`) | 2.26σ | 0.329–1.258 | — | — |
 | `synth_planar` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.00σ | 1.000–1.000 | 0.6570 / 0.6570 px | 1.87σ / 1.86σ |
 | `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
 | `synth_handeye` | opencv 4.12.0 | 20 | 0.78σ (`k2`) | 0.19σ | 0.768–0.977 | 0.6589 / 0.7521 px | 0.96σ / 1.14σ |
@@ -291,3 +333,9 @@ with `SHA256SUMS`. For an entry with images:
    `[[entry]]` in `suite.toml` that points `manifest` at it.
 3. Run `suite freeze --only <id>`, then `suite bless --only <id>`, and commit
    the observation file, `SHA256SUMS` and the reference result.
+4. If the publisher serves the files without a login, give the entry a
+   `fetch` source and list every file the manifest reads, with its SHA-256,
+   in `fetch/<id>.sha256` (the `sha256sum` format, paths relative to the
+   manifest's folder). `suite fetch --only <id>` and `suite freeze --only
+   <id> --images target/suite-images` must then reproduce the observation
+   file.

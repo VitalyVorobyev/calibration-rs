@@ -1,5 +1,6 @@
 //! Freeze an entry: run detection on the images its dataset manifest names
-//! and write the resulting [`ObservationSet`].
+//! and write the resulting [`ObservationSet`]. The images are read from the
+//! manifest's directory, or from the cache `suite fetch` fills.
 
 use std::path::{Path, PathBuf};
 
@@ -11,17 +12,22 @@ use vision_calibration_pipeline::dataset_runner::{
     build_single_cam_handeye_input,
 };
 
-use super::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput, Suite};
+use super::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput, Suite, fetch};
 
 /// Build the observations of the dataset manifest at `manifest_path`
-/// (TOML), caching detections under `cache_dir`.
+/// (TOML), with the manifest's paths resolved against `data_root`, caching
+/// detections under `cache_dir`.
 ///
 /// # Errors
 ///
 /// Fails on an invalid manifest, a topology that needs a laser-line
 /// extractor, a manifest with an ROI (the observation format has no
 /// crop offset), detection errors, or a camera without a usable view.
-pub fn freeze_manifest(manifest_path: &Path, cache_dir: &Path) -> Result<ObservationSet> {
+pub fn freeze_manifest(
+    manifest_path: &Path,
+    data_root: &Path,
+    cache_dir: &Path,
+) -> Result<ObservationSet> {
     let text = std::fs::read_to_string(manifest_path)
         .with_context(|| format!("read {}", manifest_path.display()))?;
     let spec: DatasetSpec =
@@ -31,28 +37,27 @@ pub fn freeze_manifest(manifest_path: &Path, cache_dir: &Path) -> Result<Observa
         "{}: manifests with a camera ROI cannot be frozen",
         manifest_path.display()
     );
-    let base = manifest_path.parent().unwrap_or(Path::new("."));
     let cache = FsDetectionCache::new(cache_dir);
 
     // First accepted image per camera, for the camera's image size.
     let (input, first_paths): (ProblemInput, Vec<Option<PathBuf>>) = match spec.topology {
         Topology::PlanarIntrinsics => {
-            let run = build_planar_input(&spec, base, &cache, false)?;
+            let run = build_planar_input(&spec, data_root, &cache, false)?;
             let first = vec![run.view_paths.first().cloned()];
             (ProblemInput::PlanarIntrinsics(run.input), first)
         }
         Topology::SingleCamHandeye => {
-            let run = build_single_cam_handeye_input(&spec, base, &cache, false)?;
+            let run = build_single_cam_handeye_input(&spec, data_root, &cache, false)?;
             let first = vec![run.view_paths.first().cloned()];
             (ProblemInput::SingleCamHandeye(run.input), first)
         }
         Topology::RigExtrinsics => {
-            let run = build_rig_extrinsics_input(&spec, base, &cache, false)?;
+            let run = build_rig_extrinsics_input(&spec, data_root, &cache, false)?;
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
             (ProblemInput::RigExtrinsics(run.input), first)
         }
         Topology::RigHandeye => {
-            let run = build_rig_handeye_input(&spec, base, &cache, false)?;
+            let run = build_rig_handeye_input(&spec, data_root, &cache, false)?;
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
             (ProblemInput::RigHandeye(run.input), first)
         }
@@ -99,11 +104,21 @@ fn first_per_camera(view_paths: &[Vec<Option<PathBuf>>], cameras: usize) -> Vec<
 /// Freeze one suite entry: write `observations/<id>.json` (compact JSON)
 /// and refresh `SHA256SUMS`.
 ///
+/// The images are read from the dataset manifest's directory, or, with
+/// `images`, from the entry's directory in that `suite fetch` cache, after
+/// checking every file of its fetch list.
+///
 /// # Errors
 ///
-/// Fails when the entry has no dataset manifest, or see
-/// [`freeze_manifest`].
-pub fn freeze_entry(suite: &Suite, id: &str, cache_dir: &Path) -> Result<ObservationSet> {
+/// Fails when the entry has no dataset manifest, when `images` is given
+/// for an entry without a fetch source or its cached files are missing or
+/// changed, or see [`freeze_manifest`].
+pub fn freeze_entry(
+    suite: &Suite,
+    id: &str,
+    cache_dir: &Path,
+    images: Option<&Path>,
+) -> Result<ObservationSet> {
     let entry = suite
         .manifest
         .entries
@@ -114,7 +129,23 @@ pub fn freeze_entry(suite: &Suite, id: &str, cache_dir: &Path) -> Result<Observa
         .manifest
         .as_ref()
         .with_context(|| format!("entry {id:?} has no dataset manifest to freeze from"))?;
-    let set = freeze_manifest(&suite.root.join(manifest), cache_dir)?;
+    let manifest = suite.root.join(manifest);
+    let data_root = match images {
+        None => manifest.parent().unwrap_or(Path::new(".")).to_path_buf(),
+        Some(images) => {
+            ensure!(
+                entry.fetch.is_some(),
+                "entry {id:?} cannot be fetched, so its images are not in {}; \
+                 freeze it without --images",
+                images.display()
+            );
+            let dir = fetch::entry_dir(images, id);
+            fetch::verify(&dir, &fetch::read_fetch_list(suite, id)?)
+                .with_context(|| format!("run `suite fetch --only {id}` first"))?;
+            dir
+        }
+    };
+    let set = freeze_manifest(&manifest, &data_root, cache_dir)?;
     super::write_compact(&suite.observations_path(id), &set)?;
     suite.write_checksums()?;
     Ok(set)

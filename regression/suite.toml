@@ -15,6 +15,12 @@
 #
 # `licence` is an SPDX identifier; `NOASSERTION` marks data whose publisher
 # states no licence, used here with the attribution its authors ask for.
+#
+# `fetch` says where `suite fetch` downloads an image entry's files from:
+# `files` (each file from `base_url` + its path) or `zip` (one archive, whose
+# `root` directory is the dataset root). `fetch/<id>.sha256` lists the files
+# with their SHA-256. An image entry without `fetch` is downloaded by hand
+# from `source_url`.
 
 suite_version = "2026.1"
 
@@ -25,6 +31,7 @@ licence = "NOASSERTION"
 citation = "Ali, I., Suominen, O., Gotchev, A. and Ruiz Morales, E. (2019). Methods for Simultaneous Robot-World-Hand-Eye Calibration: A Comparative Study. Sensors 19(12), 2837. https://doi.org/10.3390/s19122837"
 source_url = "https://github.com/ihtishamaliktk/RWHE-Calib/tree/610a412fdfe32850cc619359f121a2b063563a3e/Datasets/kuka_1"
 manifest = "../data/kuka_1/dataset.toml"
+fetch = { kind = "files", base_url = "https://raw.githubusercontent.com/ihtishamaliktk/RWHE-Calib/610a412fdfe32850cc619359f121a2b063563a3e/Datasets/kuka_1/" }
 
 [[entry]]
 id = "stereo_left"
@@ -57,6 +64,7 @@ licence = "LicenseRef-US-Government-Public-Domain"
 citation = "Tabb, A. and Ahmad Yousef, K. M. (2017). Solving the robot-world hand-eye(s) calibration problem with iterative methods. Machine Vision and Applications 28, 569-590. Data: https://doi.org/10.15482/USDA.ADC/1340592"
 source_url = "https://doi.org/10.15482/USDA.ADC/1340592"
 manifest = "../data/DS8/dataset.toml"
+fetch = { kind = "zip", url = "https://ndownloader.figshare.com/files/44531219", root = "DS8" }
 
 # Synthetic entries: scenes of the solver benchmark (`calib-bench solver`),
 # frozen with their ground truth in `truth/<id>.json`. Each is also checked
