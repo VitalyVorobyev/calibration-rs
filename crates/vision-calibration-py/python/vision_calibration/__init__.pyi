@@ -21,6 +21,7 @@ from .models import (
     LaserlineView,
     NoDistortion,
     Observation,
+    PointCovariance,
     PinholeCamera,
     PinholeIntrinsics,
     PinholeScheimpflugCamera,

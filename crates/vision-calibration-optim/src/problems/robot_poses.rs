@@ -95,6 +95,10 @@ impl RobotPosePriors {
 /// `σ_px = 1`, then from that solution at the `σ̂` of its reprojection
 /// residuals (floored at [`MIN_PIXEL_SIGMA`]). Returns the IR and solution of
 /// the second solve.
+///
+/// With reprojection residuals whitened by stated covariances, that `σ̂` is
+/// the dimensionless `σ̂₀`, the whitened residuals' standard deviation, so the
+/// priors are weighed against them in the same way.
 pub(crate) fn solve_weighted<F>(
     build: F,
     backend_opts: &BackendSolveOptions,

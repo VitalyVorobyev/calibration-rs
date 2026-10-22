@@ -137,10 +137,11 @@ pub struct ViewCovariance {
 pub struct ResidualNoise {
     /// The kind of residual.
     pub kind: ResidualKind,
-    /// Gaussian-equivalent standard deviation of one scalar residual (one
-    /// pixel axis for reprojection), from the median absolute residual so
-    /// that outliers do not inflate it. In the residual's unit.
-    pub sigma: f64,
+    /// The noise level, in the residual kind's unit or, for residuals
+    /// whitened by stated per-point covariances, as the dimensionless
+    /// `σ̂₀`.
+    #[serde(flatten)]
+    pub level: NoiseLevel,
     /// Number of scalar residuals of this kind.
     pub count: usize,
     /// The camera, for a result that estimates each camera's noise apart
@@ -148,6 +149,42 @@ pub struct ResidualNoise {
     /// `None` for one level shared by every camera.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera: Option<usize>,
+}
+
+/// The estimated noise level of one kind of residual: the
+/// Gaussian-equivalent standard deviation of one scalar residual (one pixel
+/// axis for reprojection), from the median absolute residual so that
+/// outliers do not inflate it.
+///
+/// In JSON it is one key of the [`ResidualNoise`] entry: `sigma` or
+/// `sigma0`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum NoiseLevel {
+    /// `σ̂` in the residual kind's unit: pixels for reprojection and the
+    /// laser line, metres for the laser plane.
+    #[serde(rename = "sigma")]
+    Sigma(f64),
+    /// `σ̂₀` of residuals whitened by their stated per-point covariances:
+    /// dimensionless, the square root of the a-posteriori variance factor.
+    /// About 1 when the stated covariances describe the noise; 2 means the
+    /// actual noise is twice what they state.
+    #[serde(rename = "sigma0")]
+    Sigma0(f64),
+}
+
+impl NoiseLevel {
+    /// The value, in whichever unit the variant states.
+    pub fn value(&self) -> f64 {
+        match *self {
+            NoiseLevel::Sigma(v) | NoiseLevel::Sigma0(v) => v,
+        }
+    }
+
+    /// Whether the residuals were whitened by stated covariances.
+    pub fn is_whitened(&self) -> bool {
+        matches!(self, NoiseLevel::Sigma0(_))
+    }
 }
 
 /// A kind of residual, which sets its unit.
@@ -179,7 +216,7 @@ mod tests {
             fixed: vec!["k3".into()],
             noise: vec![ResidualNoise {
                 kind: ResidualKind::Reprojection,
-                sigma: 0.2,
+                level: NoiseLevel::Sigma(0.2),
                 count: 400,
                 camera: None,
             }],
@@ -216,6 +253,42 @@ mod tests {
             serde_json::from_value::<Uncertainty>(json).unwrap(),
             unavailable
         );
+    }
+
+    /// A pixel level keeps its `sigma` key; a whitened one is `sigma0`, so a
+    /// reader cannot take one for the other.
+    #[test]
+    fn noise_level_is_keyed_by_its_unit() {
+        let pixel = ResidualNoise {
+            kind: ResidualKind::Reprojection,
+            level: NoiseLevel::Sigma(0.25),
+            count: 10,
+            camera: None,
+        };
+        let json = serde_json::to_value(&pixel).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "reprojection", "sigma": 0.25, "count": 10})
+        );
+        assert_eq!(
+            serde_json::from_value::<ResidualNoise>(json).unwrap(),
+            pixel
+        );
+
+        let whitened = ResidualNoise {
+            level: NoiseLevel::Sigma0(1.04),
+            camera: Some(1),
+            ..pixel
+        };
+        let json = serde_json::to_value(&whitened).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "reprojection", "sigma0": 1.04, "count": 10, "camera": 1})
+        );
+        let back = serde_json::from_value::<ResidualNoise>(json).unwrap();
+        assert_eq!(back, whitened);
+        assert!(back.level.is_whitened());
+        assert_eq!(back.level.value(), 1.04);
     }
 
     #[test]

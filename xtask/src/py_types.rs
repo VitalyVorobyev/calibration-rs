@@ -13,6 +13,9 @@
 //! - `oneOf` / `anyOf` becomes a union: string constants merge into one
 //!   `Literal[...]`, an object variant becomes a `TypedDict` named
 //!   `<Enum>_<Variant>` after its tag, and `null` becomes `None`;
+//! - an object with a `oneOf` of objects beside its `properties` (a flattened
+//!   enum, one of whose keys is present) gains every variant's keys as
+//!   optional fields;
 //! - a nullable `type` (`["number", "null"]`) becomes `float | None`;
 //! - descriptions become docstrings (attribute docstrings for fields and
 //!   aliases).
@@ -216,6 +219,20 @@ impl Generator<'_> {
             }
         }
         fields.properties.extend(properties.clone());
+        // A flattened externally tagged enum: one of the variants' keys is
+        // present, so each is an optional field documented by its variant.
+        for variant in variants(schema) {
+            let Some(keys) = variant.get("properties").and_then(Value::as_object) else {
+                bail!("an object's `oneOf` variant has no properties");
+            };
+            for (key, property) in keys {
+                let mut property = property.clone();
+                if let (Some(map), Some(doc)) = (property.as_object_mut(), description(variant)) {
+                    map.entry("description").or_insert(Value::String(doc));
+                }
+                fields.properties.insert(key.clone(), property);
+            }
+        }
         if let Some(required) = schema.get("required").and_then(Value::as_array) {
             fields.required.extend(
                 required
@@ -920,6 +937,36 @@ __all__ = [
 ]
 "#;
         assert_eq!(render_one("Distortion", &schema), expected);
+    }
+
+    /// A flattened enum (`properties` beside a `oneOf` of single-key
+    /// objects) gives each variant's key as an optional field.
+    #[test]
+    fn flattened_enum_keys_are_optional_fields() {
+        let schema = json!({
+            "type": "object",
+            "description": "A noise level.",
+            "oneOf": [
+                { "description": "In pixels.", "type": "object", "properties": { "sigma": { "type": "number" } }, "required": ["sigma"] },
+                { "description": "Whitened.", "type": "object", "properties": { "sigma0": { "type": "number" } }, "required": ["sigma0"] }
+            ],
+            "properties": { "count": { "type": "integer" } },
+            "required": ["count"]
+        });
+        let out = render_one("Noise", &schema);
+        assert!(out.contains("class _NoiseRequired(TypedDict):"), "{out}");
+        assert!(
+            out.contains("    sigma: float\n    \"\"\"In pixels.\"\"\"\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("    sigma0: float\n    \"\"\"Whitened.\"\"\"\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("class Noise(_NoiseRequired, total=False):"),
+            "{out}"
+        );
     }
 
     #[test]

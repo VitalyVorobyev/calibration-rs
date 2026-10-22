@@ -301,26 +301,36 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
 
     - `points_3d`: 3D points in world/target coordinates
     - `points_2d`: Corresponding 2D pixel observations
-    - `weights`: Per-point weights for robust estimation.
-      An empty vec means "unweighted" (all weights default to 1.0).
+    - `cov_px`: optionally, the covariance of each image point
+      (`PointCovariance`, px²)
+
+    Within one calibration input either every view carries covariances or
+    none does.
 
     # Example
 
     ```
-    use vision_calibration_core::{CorrespondenceView, Pt3, Pt2};
+    use vision_calibration_core::{CorrespondenceView, PointCovariance, Pt2, Pt3};
 
-    // Create from vectors
     let points_3d = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.1, 0.0, 0.0)];
     let points_2d = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];
-    let view = CorrespondenceView::new(points_3d, points_2d).unwrap();
-
+    let view = CorrespondenceView::new(points_3d.clone(), points_2d.clone()).unwrap();
     assert_eq!(view.len(), 2);
-    assert_eq!(view.weight(0), 1.0); // default weight
+    assert!(view.covariances().is_none());
+
+    // With a stated covariance per point.
+    let cov = PointCovariance::new(0.04, 0.0, 0.04).unwrap();
+    let view =
+        CorrespondenceView::new_with_covariances(points_3d, points_2d, vec![cov; 2]).unwrap();
+    assert_eq!(view.covariance(1), Some(cov));
     ```
     """
 
-    weights: list[float]
-    """Per-point weights; empty for unweighted."""
+    cov_px: list[PointCovariance]
+    """The covariance of each image point, px², one per point; absent or
+    empty when not stated. Within one calibration input either every
+    view states them or none does.
+    """
 
 
 class _DatasetSpecRequired(TypedDict):
@@ -1426,6 +1436,41 @@ class PlanarView(TypedDict):
     """2D-3D correspondences observed in this view."""
 
 
+class PointCovariance(TypedDict):
+    """The covariance of one observed image point, px²: the symmetric matrix
+    `[[xx, xy], [xy, yy]]`.
+
+    It states the point's measurement noise. A calibration whose views carry
+    covariances weighs each reprojection residual by its inverse (it
+    *whitens* it): an uncertain point counts less, and an elongated one is
+    trusted more across its long axis than along it. A uniform weight `w` on
+    every point corresponds to the covariance `I / w`.
+
+    Constructed only through `PointCovariance::new` (or deserialization),
+    which checks that it is finite and positive definite.
+
+    # Example
+
+    ```
+    use vision_calibration_core::PointCovariance;
+
+    // σ = 0.3 px along u, 0.1 px along v, uncorrelated.
+    let cov = PointCovariance::new(0.09, 0.0, 0.01).unwrap();
+    assert_eq!(cov.yy(), 0.01);
+    assert!(PointCovariance::new(1.0, 2.0, 1.0).is_err()); // not positive definite
+    ```
+    """
+
+    xx: float
+    """Variance along the image `u` axis, px²."""
+
+    xy: float
+    """Covariance of `u` and `v`, px²."""
+
+    yy: float
+    """Variance along the image `v` axis, px²."""
+
+
 class _PoseColumnMapRequired(TypedDict):
     """The keys of `PoseColumnMap` that every payload has."""
 
@@ -1735,12 +1780,6 @@ class _ResidualNoiseRequired(TypedDict):
     kind: ResidualKind
     """The kind of residual."""
 
-    sigma: float
-    """Gaussian-equivalent standard deviation of one scalar residual (one
-    pixel axis for reprojection), from the median absolute residual so
-    that outliers do not inflate it. In the residual's unit.
-    """
-
 
 class ResidualNoise(_ResidualNoiseRequired, total=False):
     """The estimated noise level of one kind of residual."""
@@ -1749,6 +1788,18 @@ class ResidualNoise(_ResidualNoiseRequired, total=False):
     """The camera, for a result that estimates each camera's noise apart
     (the rig laserline, which solves each camera's plane on its own);
     `None` for one level shared by every camera.
+    """
+
+    sigma: float
+    """`σ̂` in the residual kind's unit: pixels for reprojection and the
+    laser line, metres for the laser plane.
+    """
+
+    sigma0: float
+    """`σ̂₀` of residuals whitened by their stated per-point covariances:
+    dimensionless, the square root of the a-posteriori variance factor.
+    About 1 when the stated covariances describe the noise; 2 means the
+    actual noise is twice what they state.
     """
 
 
@@ -2792,8 +2843,8 @@ class SolverConfig(_SolverConfigRequired, total=False):
     """
 
 
-class TargetFeatureResidual(TypedDict):
-    """Reprojection record for a single target feature in a single view."""
+class _TargetFeatureResidualRequired(TypedDict):
+    """The keys of `TargetFeatureResidual` that every payload has."""
 
     camera: int
     """Camera index. `0` for single-camera problem types."""
@@ -2819,6 +2870,17 @@ class TargetFeatureResidual(TypedDict):
 
     target_xyz_m: tuple[float, float, float] | list[float]
     """3D point in target / world frame (meters)."""
+
+
+class TargetFeatureResidual(_TargetFeatureResidualRequired, total=False):
+    """Reprojection record for a single target feature in a single view."""
+
+    error_whitened: float | None
+    """The error whitened by the feature's stated covariance,
+    `√(eᵀ Σ⁻¹ e)`: its size in units of the feature's standard deviation
+    along it. `None` when the input states no covariance or the
+    projection failed.
+    """
 
 
 class TargetSpec_Charuco(TypedDict):
@@ -3177,6 +3239,7 @@ __all__ = [
     "PlanarIntrinsicsInput",
     "PlanarIntrinsicsParams",
     "PlanarView",
+    "PointCovariance",
     "PoseColumnMap",
     "PoseConvention",
     "PosePairing",

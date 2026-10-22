@@ -5,6 +5,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     ImageManifest, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
     build_feature_histogram, compute_planar_target_residuals,
@@ -193,6 +194,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        stated_covariance(input.views.iter().map(|v| &v.obs))?;
         if input.num_views() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,
@@ -275,21 +277,21 @@ mod tests {
         // Create 3 views with 4 points each (minimum requirements)
         let make_view = || {
             View::new(
-                CorrespondenceView {
-                    points_3d: vec![
+                CorrespondenceView::new(
+                    vec![
                         Pt3::new(0.0, 0.0, 0.0),
                         Pt3::new(0.05, 0.0, 0.0),
                         Pt3::new(0.05, 0.05, 0.0),
                         Pt3::new(0.0, 0.05, 0.0),
                     ],
-                    points_2d: vec![
+                    vec![
                         Pt2::new(100.0, 100.0),
                         Pt2::new(200.0, 100.0),
                         Pt2::new(200.0, 200.0),
                         Pt2::new(100.0, 200.0),
                     ],
-                    weights: Vec::new(),
-                },
+                )
+                .unwrap(),
                 NoMeta {},
             )
         };
@@ -321,6 +323,44 @@ mod tests {
         let dataset = make_minimal_dataset();
         let result = PlanarIntrinsicsProblem::validate_input(&dataset);
         assert!(result.is_ok());
+    }
+
+    /// Views with stated covariances and views without are rejected
+    /// together, before any work; all with covariances is accepted.
+    #[test]
+    fn validate_input_rejects_mixed_point_covariances() {
+        use vision_calibration_core::PointCovariance;
+        let with_covariance = |view: &View<NoMeta>| {
+            let cov = PointCovariance::new(0.04, 0.0, 0.04).unwrap();
+            View::without_meta(
+                CorrespondenceView::new_with_covariances(
+                    view.obs.points_3d.clone(),
+                    view.obs.points_2d.clone(),
+                    vec![cov; view.obs.len()],
+                )
+                .unwrap(),
+            )
+        };
+        let plain = make_minimal_dataset();
+        let mut views = plain.views.clone();
+        views[1] = with_covariance(&views[1]);
+        let mixed = PlanarDataset::new(views).unwrap();
+        let err = PlanarIntrinsicsProblem::validate_input(&mixed).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Core(vision_calibration_core::Error::MixedCovariance {
+                    with: 1,
+                    without: 2
+                })
+            ),
+            "{err}"
+        );
+        let mut session = crate::session::CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        assert!(session.set_input(mixed).is_err());
+
+        let all = PlanarDataset::new(plain.views.iter().map(with_covariance).collect()).unwrap();
+        PlanarIntrinsicsProblem::validate_input(&all).unwrap();
     }
 
     #[test]

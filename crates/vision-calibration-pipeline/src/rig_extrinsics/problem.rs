@@ -5,6 +5,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraParams, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals,
     RigDataset, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
@@ -195,6 +196,12 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        stated_covariance(
+            input
+                .views
+                .iter()
+                .flat_map(|v| v.obs.cameras.iter().flatten()),
+        )?;
         if input.num_views() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,
@@ -344,6 +351,26 @@ mod tests {
             .collect();
 
         RigDataset::new(views, 2).unwrap()
+    }
+
+    /// All-or-none holds across the rig's cameras, not per camera.
+    #[test]
+    fn validate_input_rejects_point_covariances_on_one_camera_only() {
+        let mut input = make_minimal_input();
+        let obs = make_minimal_obs();
+        let cov = vision_calibration_core::PointCovariance::new(0.04, 0.01, 0.09).unwrap();
+        for view in &mut input.views {
+            view.obs.cameras[1] = Some(
+                CorrespondenceView::new_with_covariances(
+                    obs.points_3d.clone(),
+                    obs.points_2d.clone(),
+                    vec![cov; obs.len()],
+                )
+                .unwrap(),
+            );
+        }
+        let err = RigExtrinsicsProblem::validate_input(&input).unwrap_err();
+        assert!(err.to_string().contains("3 do, 3 do not"), "{err}");
     }
 
     #[test]

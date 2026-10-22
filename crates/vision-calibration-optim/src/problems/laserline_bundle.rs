@@ -15,6 +15,7 @@ use crate::factors::camera_blocks::CameraBlocks;
 use crate::factors::laserline::{
     laser_line_dist_core, laser_line_distance, laser_point_to_plane_core,
 };
+use crate::ir::ReprojSqrtInfo;
 use crate::ir::{
     FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
@@ -736,7 +737,8 @@ fn build_laserline_ir(
             .zip(&view.obs.points_2d)
             .enumerate()
         {
-            let w = view.obs.weight(pt_idx) * opts.calib_weight;
+            let sqrt_info =
+                ReprojSqrtInfo::for_point(&view.obs, pt_idx).weighted(opts.calib_weight);
             ir.add_residual_block(ResidualBlock {
                 params: camera_blocks.with(&[pose_id]),
                 loss: opts.calib_loss,
@@ -745,7 +747,7 @@ fn build_laserline_ir(
                     chain: ReprojChain::SinglePose,
                     pw: [pt_3d.x, pt_3d.y, pt_3d.z],
                     uv: [pt_2d.x, pt_2d.y],
-                    w,
+                    sqrt_info,
                 },
                 residual_dim: 2,
             });

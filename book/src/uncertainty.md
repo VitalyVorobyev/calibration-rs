@@ -18,7 +18,11 @@ and a strong `fx`–`cx` correlation. On the real images of `data/kuka_1`, the `
 The covariance is first order at the solution: it describes how the estimate
 would scatter if the calibration were repeated with new noise of the same
 kind, for the same views. The noise level is taken from the residuals
-themselves, so nothing has to be known in advance. Two consequences follow:
+themselves, so nothing has to be known in advance; when the observations
+state a covariance per point, the residuals are weighed by them and the
+level becomes a factor on what they state
+([Per-Point Pixel Covariance](uncertainty_point_covariance.md)). Two
+consequences follow:
 
 - `σ` measures the **noise-driven** error. A systematic error, such as a wrong
   board cell size, a board that is not flat, or the wrong distortion model,
@@ -44,6 +48,7 @@ Cauchy. The projection σ ([Projection Uncertainty](uncertainty_projection.md)) 
 ## In This Part
 
 - [Reading the Covariance](uncertainty_reading.md): the labels, the views, the fixed parameters and the noise estimate, from Rust, Python and JSON.
+- [Per-Point Pixel Covariance](uncertainty_point_covariance.md): stating each point's noise, and what it changes in the solve and the noise estimate.
 - [Projection Uncertainty](uncertainty_projection.md): what the parameter covariance implies for where a ray lands in the image.
 - [Limits and Unavailable Results](uncertainty_limits.md): when no covariance can be given, what it is conditional on, and what it does not cover.
 - [Judging a Result](quality.md): a pass, warn or fail verdict on a result, built from its covariance, coverage and residuals.

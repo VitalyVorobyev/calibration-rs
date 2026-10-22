@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraParams, ImageManifest, ParameterCovariance, ResidualKind, ResidualNoise,
+    CameraParams, ImageManifest, NoiseLevel, ParameterCovariance, ResidualKind, ResidualNoise,
     TargetFeatureResidual, Uncertainty, UncertaintyUnavailable,
 };
 use vision_calibration_optim::camera_parameters;
@@ -531,13 +531,14 @@ fn convergence(uncertainty: &Uncertainty) -> QualityCheck {
 
 fn variance_factor(uncertainty: &Uncertainty, thresholds: &QualityThresholds) -> Vec<QualityCheck> {
     let kind = CheckKind::VarianceFactor;
-    let Some(sigma0) = thresholds.expected_feature_noise_px else {
-        return vec![QualityCheck::not_applicable(
-            kind,
-            None,
-            "no expected feature noise was stated (expected_feature_noise_px)",
-        )];
-    };
+    let whitened = uncertainty.covariance().is_some_and(|c| {
+        c.noise
+            .iter()
+            .any(|n| n.kind == ResidualKind::Reprojection && n.level.is_whitened())
+    });
+    if !whitened && thresholds.expected_feature_noise_px.is_none() {
+        return vec![QualityCheck::not_applicable(kind, None, NO_EXPECTED_NOISE)];
+    }
     let Some(covariance) = uncertainty.covariance() else {
         return vec![QualityCheck::not_applicable(
             kind,
@@ -549,7 +550,14 @@ fn variance_factor(uncertainty: &Uncertainty, thresholds: &QualityThresholds) ->
         .noise
         .iter()
         .filter(|noise| noise.kind == ResidualKind::Reprojection)
-        .map(|noise| variance_test(noise, covariance, sigma0, thresholds.variance_test_alpha))
+        .map(|noise| {
+            variance_test(
+                noise,
+                covariance,
+                thresholds.expected_feature_noise_px,
+                thresholds.variance_test_alpha,
+            )
+        })
         .collect();
     if checks.is_empty() {
         return vec![QualityCheck::not_applicable(
@@ -561,17 +569,34 @@ fn variance_factor(uncertainty: &Uncertainty, thresholds: &QualityThresholds) ->
     checks
 }
 
-/// The χ² test of `σ̂²/σ₀²` for one family's noise, over its share of the
-/// residual degrees of freedom, scaled by the efficiency of the median-based
-/// σ̂.
+/// The χ² test of the variance factor for one family's noise, over its
+/// share of the residual degrees of freedom, scaled by the efficiency of the
+/// median-based σ̂: `σ̂²/σ₀²` against the stated `expected_px` for pixel
+/// residuals, `σ̂₀²` against 1 for residuals whitened by stated covariances.
 fn variance_test(
     noise: &ResidualNoise,
     covariance: &ParameterCovariance,
-    sigma0: f64,
+    expected_px: Option<f64>,
     alpha: f64,
 ) -> QualityCheck {
     let kind = CheckKind::VarianceFactor;
     let camera = noise.camera;
+    let (ratio, measured) = match (noise.level, expected_px) {
+        (NoiseLevel::Sigma0(s), _) => (
+            s * s,
+            format!(
+                "σ̂₀ = {s:.3} of the residuals whitened by the stated point covariances, \
+                 expected 1: σ̂₀²"
+            ),
+        ),
+        (NoiseLevel::Sigma(s), Some(sigma0)) => (
+            (s / sigma0).powi(2),
+            format!("σ̂ = {s:.3} px against the expected {sigma0:.3} px: σ̂²/σ₀²"),
+        ),
+        (NoiseLevel::Sigma(_), None) => {
+            return QualityCheck::not_applicable(kind, camera, NO_EXPECTED_NOISE);
+        }
+    };
     if covariance.num_residuals == 0 {
         return QualityCheck::not_applicable(kind, camera, "the final solve has no residuals");
     }
@@ -584,14 +609,10 @@ fn variance_test(
             "too few residual degrees of freedom to test the noise level",
         );
     }
-    let ratio = (noise.sigma / sigma0).powi(2);
     let lower = chi_square_quantile(alpha / 2.0, effective_dof) / effective_dof;
     let upper = chi_square_quantile(1.0 - alpha / 2.0, effective_dof) / effective_dof;
-    let summary = format!(
-        "σ̂ = {:.3} px against the expected {sigma0:.3} px: σ̂²/σ₀² = {ratio:.3}, \
-         accepted range [{lower:.3}, {upper:.3}] at α = {alpha}",
-        noise.sigma
-    );
+    let summary =
+        format!("{measured} = {ratio:.3}, accepted range [{lower:.3}, {upper:.3}] at α = {alpha}");
     let (status, threshold, message) = if ratio > upper {
         (
             CheckStatus::Fail,
@@ -734,13 +755,14 @@ fn view_outliers(
     let Some(covariance) = uncertainty.covariance() else {
         return QualityCheck::not_applicable(kind, Some(camera), no_covariance(uncertainty));
     };
-    let Some(sigma) = reprojection_sigma(covariance, camera) else {
+    let Some(level) = reprojection_sigma(covariance, camera) else {
         return QualityCheck::not_applicable(
             kind,
             Some(camera),
             "the result estimates no reprojection noise for this camera",
         );
     };
+    let sigma = level.value();
     if sigma <= 0.0 {
         return QualityCheck::not_applicable(
             kind,
@@ -748,9 +770,15 @@ fn view_outliers(
             "the reprojection noise is zero, so residuals cannot be normalized",
         );
     }
+    // A whitened noise level normalizes the whitened errors, a pixel one the
+    // pixel errors.
+    let (error_of, sigma_text): (fn(&TargetFeatureResidual) -> Option<f64>, String) = match level {
+        NoiseLevel::Sigma(_) => (|r| r.error_px, format!("σ̂ = {sigma:.3} px")),
+        NoiseLevel::Sigma0(_) => (|r| r.error_whitened, format!("σ̂₀ = {sigma:.3}, whitened")),
+    };
     let mut views: BTreeMap<usize, (f64, usize)> = BTreeMap::new();
     for residual in target.iter().filter(|r| r.camera == camera) {
-        if let Some(error) = residual.error_px.filter(|e| e.is_finite()) {
+        if let Some(error) = error_of(residual).filter(|e| e.is_finite()) {
             let entry = views.entry(residual.pose).or_default();
             entry.0 += error / sigma;
             entry.1 += 1;
@@ -781,7 +809,7 @@ fn view_outliers(
         (
             CheckStatus::Pass,
             format!(
-                "every view's mean residual is within {limit} σ̂ (worst {worst:.2} σ̂, σ̂ = {sigma:.3} px)"
+                "every view's mean residual is within {limit} σ̂ (worst {worst:.2} σ̂, {sigma_text})"
             ),
         )
     } else {
@@ -789,7 +817,7 @@ fn view_outliers(
             CheckStatus::Warn,
             format!(
                 "mean residual above {limit} σ̂ in {} of {} views (worst {worst:.2} σ̂, \
-                 σ̂ = {sigma:.3} px): {}",
+                 {sigma_text}): {}",
                 outliers.len(),
                 means.len(),
                 outliers.join(", ")
@@ -867,6 +895,8 @@ fn parameter_correlation(
 const NO_IMAGE_SIZE: &str =
     "the image size is unknown: the image manifest does not record it and none was given";
 
+const NO_EXPECTED_NOISE: &str = "no expected feature noise was stated (expected_feature_noise_px)";
+
 fn no_covariance(uncertainty: &Uncertainty) -> String {
     let reason = match uncertainty {
         Uncertainty::Available(_) => return "the result has a covariance".into(),
@@ -917,7 +947,7 @@ fn is_focal_pair(a: &str, b: &str) -> bool {
 
 /// The reprojection noise level of `camera`: its own when the result
 /// estimates each camera's apart, else the shared one.
-fn reprojection_sigma(covariance: &ParameterCovariance, camera: usize) -> Option<f64> {
+fn reprojection_sigma(covariance: &ParameterCovariance, camera: usize) -> Option<NoiseLevel> {
     let reprojection = || {
         covariance
             .noise
@@ -927,7 +957,7 @@ fn reprojection_sigma(covariance: &ParameterCovariance, camera: usize) -> Option
     reprojection()
         .find(|n| n.camera == Some(camera))
         .or_else(|| reprojection().find(|n| n.camera.is_none()))
-        .map(|n| n.sigma)
+        .map(|n| n.level)
 }
 
 /// The `p`-quantile of the χ² distribution with `k` degrees of freedom, by

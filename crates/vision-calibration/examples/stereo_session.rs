@@ -18,7 +18,7 @@
 mod observations;
 
 use anyhow::{Result, ensure};
-use vision_calibration::core::{Iso3, Uncertainty};
+use vision_calibration::core::{Iso3, NoiseLevel, Uncertainty};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsInput, RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all,
@@ -152,10 +152,15 @@ fn main() -> Result<()> {
                 sigma * 1000.0
             );
             for noise in &cov.noise {
-                println!(
-                    "  Corner noise σ ≈ {:.3} px ({} residuals)",
-                    noise.sigma, noise.count
-                );
+                match noise.level {
+                    NoiseLevel::Sigma(s) => {
+                        println!("  Corner noise σ ≈ {s:.3} px ({} residuals)", noise.count)
+                    }
+                    NoiseLevel::Sigma0(s) => println!(
+                        "  Corner noise σ̂₀ ≈ {s:.3} × the stated ({} residuals)",
+                        noise.count
+                    ),
+                }
             }
         }
         Uncertainty::Unavailable { reason } => println!("  No uncertainty: {reason:?}"),

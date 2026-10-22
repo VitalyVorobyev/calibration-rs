@@ -173,7 +173,7 @@ fn rational_case(engine: SolverBackend) {
                 chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
-                w: 1.0,
+                sqrt_info: crate::ir::ReprojSqrtInfo::IDENTITY,
             };
             ir.add_residual_block(ResidualBlock {
                 params: vec![cam_id, dist_id, pose_id],
@@ -306,7 +306,7 @@ fn division_case(engine: SolverBackend) {
                 chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
-                w: 1.0,
+                sqrt_info: crate::ir::ReprojSqrtInfo::IDENTITY,
             };
             ir.add_residual_block(ResidualBlock {
                 params: vec![cam_id, dist_id, pose_id],

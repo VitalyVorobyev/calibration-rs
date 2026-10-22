@@ -61,10 +61,12 @@
 "core::ImageManifest" = "types.ImageManifest"
 "core::Iso3" = ["Pose", "types.Iso3"]
 "core::NoMeta" = "types.NoMeta"
+"core::NoiseLevel" = "models.ResidualNoise.whitened"
 "core::ParameterCovariance" = ["ParameterUncertainty", "types.ParameterCovariance"]
 "core::PinholeCamera" = "CameraModel"
 "core::PixelRect" = "types.PixelRect"
 "core::PlanarDataset" = ["PlanarIntrinsicsInput", "types.PlanarIntrinsicsInput"]
+"core::PointCovariance" = ["PointCovariance", "types.PointCovariance"]
 "core::ProjectionKind" = "types.ProjectionKind"
 "core::ProjectionParams" = "types.ProjectionParams"
 "core::RationalPolynomial" = "Rational8Distortion"

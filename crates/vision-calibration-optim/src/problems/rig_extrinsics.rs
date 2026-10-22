@@ -7,6 +7,7 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::ir::ReprojSqrtInfo;
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock};
 use crate::ir::{ParamId, RobustLoss};
 use crate::params::camera::{CameraBlockInput, add_camera_blocks, camera_spec, unpack_camera};
@@ -238,7 +239,7 @@ fn build_rig_extrinsics_ir(
                         chain: ReprojChain::TwoSe3,
                         pw: [pw.x, pw.y, pw.z],
                         uv: [uv.x, uv.y],
-                        w: obs.weight(pt_idx),
+                        sqrt_info: ReprojSqrtInfo::for_point(obs, pt_idx),
                     },
                     residual_dim: 2,
                 });

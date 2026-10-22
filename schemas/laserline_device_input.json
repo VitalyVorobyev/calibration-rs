@@ -1,8 +1,16 @@
 {
   "$defs": {
     "CorrespondenceView": {
-      "description": "A single view containing 2D-3D point correspondences.\n\nThis is the canonical observation type used across planar intrinsics,\nrig extrinsics, hand-eye calibration, and other calibration problems.\n\n# Fields\n\n- `points_3d`: 3D points in world/target coordinates\n- `points_2d`: Corresponding 2D pixel observations\n- `weights`: Per-point weights for robust estimation.\n  An empty vec means \"unweighted\" (all weights default to 1.0).\n\n# Example\n\n```\nuse vision_calibration_core::{CorrespondenceView, Pt3, Pt2};\n\n// Create from vectors\nlet points_3d = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.1, 0.0, 0.0)];\nlet points_2d = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];\nlet view = CorrespondenceView::new(points_3d, points_2d).unwrap();\n\nassert_eq!(view.len(), 2);\nassert_eq!(view.weight(0), 1.0); // default weight\n```",
+      "description": "A single view containing 2D-3D point correspondences.\n\nThis is the canonical observation type used across planar intrinsics,\nrig extrinsics, hand-eye calibration, and other calibration problems.\n\n# Fields\n\n- `points_3d`: 3D points in world/target coordinates\n- `points_2d`: Corresponding 2D pixel observations\n- `cov_px`: optionally, the covariance of each image point\n  ([`PointCovariance`], px²)\n\nWithin one calibration input either every view carries covariances or\nnone does.\n\n# Example\n\n```\nuse vision_calibration_core::{CorrespondenceView, PointCovariance, Pt2, Pt3};\n\nlet points_3d = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.1, 0.0, 0.0)];\nlet points_2d = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];\nlet view = CorrespondenceView::new(points_3d.clone(), points_2d.clone()).unwrap();\nassert_eq!(view.len(), 2);\nassert!(view.covariances().is_none());\n\n// With a stated covariance per point.\nlet cov = PointCovariance::new(0.04, 0.0, 0.04).unwrap();\nlet view =\n    CorrespondenceView::new_with_covariances(points_3d, points_2d, vec![cov; 2]).unwrap();\nassert_eq!(view.covariance(1), Some(cov));\n```",
       "properties": {
+        "cov_px": {
+          "default": [],
+          "description": "The covariance of each image point, px², one per point; absent or\nempty when not stated. Within one calibration input either every\nview states them or none does.",
+          "items": {
+            "$ref": "#/$defs/PointCovariance"
+          },
+          "type": "array"
+        },
         "points_2d": {
           "description": "The matching image points `[u, v]`, pixels.",
           "items": {
@@ -26,15 +34,6 @@
             "maxItems": 3,
             "minItems": 3,
             "type": "array"
-          },
-          "type": "array"
-        },
-        "weights": {
-          "default": [],
-          "description": "Per-point weights; empty for unweighted.",
-          "items": {
-            "format": "double",
-            "type": "number"
           },
           "type": "array"
         }
@@ -72,6 +71,32 @@
       },
       "required": [
         "laser_pixels"
+      ],
+      "type": "object"
+    },
+    "PointCovariance": {
+      "description": "The covariance of one observed image point, px²: the symmetric matrix\n`[[xx, xy], [xy, yy]]`.\n\nIt states the point's measurement noise. A calibration whose views carry\ncovariances weighs each reprojection residual by its inverse (it\n*whitens* it): an uncertain point counts less, and an elongated one is\ntrusted more across its long axis than along it. A uniform weight `w` on\nevery point corresponds to the covariance `I / w`.\n\nConstructed only through [`PointCovariance::new`] (or deserialization),\nwhich checks that it is finite and positive definite.\n\n# Example\n\n```\nuse vision_calibration_core::PointCovariance;\n\n// σ = 0.3 px along u, 0.1 px along v, uncorrelated.\nlet cov = PointCovariance::new(0.09, 0.0, 0.01).unwrap();\nassert_eq!(cov.yy(), 0.01);\nassert!(PointCovariance::new(1.0, 2.0, 1.0).is_err()); // not positive definite\n```",
+      "properties": {
+        "xx": {
+          "description": "Variance along the image `u` axis, px².",
+          "format": "double",
+          "type": "number"
+        },
+        "xy": {
+          "description": "Covariance of `u` and `v`, px².",
+          "format": "double",
+          "type": "number"
+        },
+        "yy": {
+          "description": "Variance along the image `v` axis, px².",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "xx",
+        "xy",
+        "yy"
       ],
       "type": "object"
     },

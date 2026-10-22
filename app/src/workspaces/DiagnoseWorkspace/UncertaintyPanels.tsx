@@ -145,9 +145,11 @@ function ParametersPanel({ cov }: { cov: ParameterCovariance }) {
             className="font-mono text-[11px] text-fg-muted"
           >
             {n.kind.replace("_", " ")}
-            {n.camera != null ? ` · cam ${n.camera}` : ""} noise σ ≈{" "}
-            {formatSigma(n.sigma)}
-            {n.kind === "laser_plane" ? " m" : " px"} ({n.count})
+            {n.camera != null ? ` · cam ${n.camera}` : ""}
+            {"sigma0" in n
+              ? ` noise σ̂₀ ≈ ${formatSigma(n.sigma0)} × stated`
+              : ` noise σ ≈ ${formatSigma(n.sigma)}${n.kind === "laser_plane" ? " m" : " px"}`}{" "}
+            ({n.count})
           </p>
         ))}
       </section>

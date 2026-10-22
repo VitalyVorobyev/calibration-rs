@@ -640,12 +640,12 @@ fn ideal_dataset(
     PlanarDataset::new(views).map_err(Error::from)
 }
 
+/// `obs` with its image points remapped to `points_2d`. A stated point
+/// covariance describes the original pixels, not the remapped ones, and
+/// the linear solves weigh every point alike, so the remapped view states
+/// none.
 fn make_view_like(obs: &CorrespondenceView, points_2d: Vec<Pt2>) -> Result<View<NoMeta>, Error> {
-    let converted = if obs.weights.is_empty() {
-        CorrespondenceView::new(obs.points_3d.clone(), points_2d)?
-    } else {
-        CorrespondenceView::new_with_weights(obs.points_3d.clone(), points_2d, obs.weights.clone())?
-    };
+    let converted = CorrespondenceView::new(obs.points_3d.clone(), points_2d)?;
     Ok(View::without_meta(converted))
 }
 

@@ -24,7 +24,7 @@ use super::variables::{PlaneVar, se3_to_ir};
 use crate::Error;
 use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
 use crate::factors::reprojection_model::reproj_residual;
-use crate::ir::{CameraModelSpec, FactorKind, LaserChain, ReprojChain, RobustLoss};
+use crate::ir::{CameraModelSpec, FactorKind, LaserChain, ReprojChain, ReprojSqrtInfo, RobustLoss};
 
 /// Size of the fused camera variable of a camera model.
 fn camera_dim(model: CameraModelSpec) -> usize {
@@ -84,7 +84,7 @@ struct Reproj {
     chain: ReprojChain,
     pw: [f64; 3],
     uv: [f64; 2],
-    w: f64,
+    sqrt_info: ReprojSqrtInfo,
 }
 
 impl Reproj {
@@ -93,7 +93,14 @@ impl Reproj {
     }
 
     fn eval<T: RealField>(&self, params: &[DVector<T>]) -> VectorX<T> {
-        let r = reproj_residual(self.model, &self.chain, params, self.pw, self.uv, self.w);
+        let r = reproj_residual(
+            self.model,
+            &self.chain,
+            params,
+            self.pw,
+            self.uv,
+            &self.sqrt_info,
+        );
         DVector::from_column_slice(r.as_slice())
     }
 }
@@ -361,14 +368,14 @@ pub(super) fn build_factor(
             chain,
             pw,
             uv,
-            w,
+            sqrt_info,
         } => {
             let payload = Reproj {
                 model: *model,
                 chain: *chain,
                 pw: *pw,
                 uv: *uv,
-                w: *w,
+                sqrt_info: *sqrt_info,
             };
             macro_rules! mk {
                 ($n:literal) => {{

@@ -176,7 +176,7 @@ fn scheimpflug_case(engine: SolverBackend) {
                 chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
-                w: 1.0,
+                sqrt_info: crate::ir::ReprojSqrtInfo::IDENTITY,
             };
             let residual = ResidualBlock {
                 params: vec![cam_id, dist_id, sensor_id, pose_id],

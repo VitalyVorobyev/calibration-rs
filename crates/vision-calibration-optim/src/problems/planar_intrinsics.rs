@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::ir::ReprojSqrtInfo;
 use crate::ir::{
     FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock, RobustLoss,
     SensorKind,
@@ -238,7 +239,7 @@ pub(crate) fn build_planar_reprojection_ir(
                 chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
-                w: view.obs.weight(point_idx),
+                sqrt_info: ReprojSqrtInfo::for_point(&view.obs, point_idx),
             };
             ir.add_residual_block(ResidualBlock {
                 params: camera_blocks.with(&[pose_id]),
@@ -417,7 +418,7 @@ mod tests {
                 chain: crate::ir::ReprojChain::SinglePose,
                 pw: [0.0, 0.0, 0.0],
                 uv: [0.0, 0.0],
-                w: 1.0,
+                sqrt_info: ReprojSqrtInfo::IDENTITY,
             },
             residual_dim: 2,
         };

@@ -7,6 +7,7 @@ accept these models and convert them to the serde payloads expected by Rust.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Mapping, cast
 
@@ -395,6 +396,49 @@ class Pose:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PointCovariance:
+    """Covariance of one observed image point, px²: ``[[xx, xy], [xy, yy]]``.
+
+    It states the point's measurement noise. A calibration whose views carry
+    covariances weighs each reprojection residual by its inverse (whitens
+    it): an uncertain point counts less, and an elongated one is trusted more
+    across its long axis than along it. A uniform weight ``w`` on every point
+    corresponds to the covariance ``I / w``.
+
+    Raises :class:`ValueError` unless the entries are finite and the matrix
+    is positive definite.
+    """
+
+    xx: float
+    xy: float
+    yy: float
+
+    def __post_init__(self) -> None:
+        xx, xy, yy = float(self.xx), float(self.xy), float(self.yy)
+        finite = all(math.isfinite(v) for v in (xx, xy, yy))
+        if not (finite and xx > 0.0 and yy > 0.0 and xx * yy - xy * xy > 0.0):
+            raise ValueError(
+                "a point covariance must be finite and positive definite, "
+                f"got [[{xx}, {xy}], [{xy}, {yy}]] px²"
+            )
+        object.__setattr__(self, "xx", xx)
+        object.__setattr__(self, "xy", xy)
+        object.__setattr__(self, "yy", yy)
+
+    @classmethod
+    def isotropic(cls, sigma_px: float) -> "PointCovariance":
+        """The covariance ``σ² I`` of a point with ``sigma_px`` per axis."""
+        return cls(sigma_px * sigma_px, 0.0, sigma_px * sigma_px)
+
+    def to_payload(self) -> dict[str, float]:
+        return {"xx": self.xx, "xy": self.xy, "yy": self.yy}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PointCovariance":
+        return cls(float(payload["xx"]), float(payload["xy"]), float(payload["yy"]))
+
+
 @dataclass(slots=True)
 class Observation:
     """2D-3D correspondences for one camera view.
@@ -405,13 +449,15 @@ class Observation:
         Target points as `(x, y, z)` tuples.
     points_2d:
         Pixel points as `(u, v)` tuples.
-    weights:
-        Optional per-point non-negative weights.
+    cov_px:
+        Optional covariance of each pixel point (:class:`PointCovariance`,
+        px²), one per point. Within one calibration input either every view
+        states them or none does.
     """
 
     points_3d: list[Vec3]
     points_2d: list[Vec2]
-    weights: list[float] | None = None
+    cov_px: list[PointCovariance] | None = None
 
     def __post_init__(self) -> None:
         self.points_3d = [_as_vec3(list(p)) for p in self.points_3d]
@@ -421,13 +467,14 @@ class Observation:
                 "points_3d and points_2d must have identical length "
                 f"(got {len(self.points_3d)} vs {len(self.points_2d)})"
             )
-        if self.weights is not None:
-            if len(self.weights) != len(self.points_3d):
+        if self.cov_px is not None:
+            if len(self.cov_px) != len(self.points_3d):
                 raise ValueError(
-                    "weights must match point count "
-                    f"(got {len(self.weights)} vs {len(self.points_3d)})"
+                    "cov_px must match point count "
+                    f"(got {len(self.cov_px)} vs {len(self.points_3d)})"
                 )
-            self.weights = [float(w) for w in self.weights]
+            if not all(isinstance(c, PointCovariance) for c in self.cov_px):
+                raise TypeError("cov_px entries must be PointCovariance")
 
     def to_payload(self) -> dict[str, Any]:
         """Convert to Rust/serde shape."""
@@ -435,17 +482,18 @@ class Observation:
             "points_3d": [[x, y, z] for x, y, z in self.points_3d],
             "points_2d": [[u, v] for u, v in self.points_2d],
         }
-        if self.weights is not None:
-            payload["weights"] = list(self.weights)
+        if self.cov_px is not None:
+            payload["cov_px"] = [c.to_payload() for c in self.cov_px]
         return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "Observation":
         """Build observation from Rust/serde shape."""
+        cov = cast(list[Mapping[str, Any]], payload.get("cov_px") or [])
         return cls(
             points_3d=[cast(Vec3, tuple(p)) for p in payload["points_3d"]],
             points_2d=[cast(Vec2, tuple(p)) for p in payload["points_2d"]],
-            weights=cast(list[float] | None, payload.get("weights")),
+            cov_px=[PointCovariance.from_payload(c) for c in cov] or None,
         )
 
 
@@ -1415,8 +1463,12 @@ class ResidualNoise:
 
     ``sigma`` is the Gaussian-equivalent standard deviation of one scalar
     residual (one pixel axis for reprojection), from the median absolute
-    residual, so outliers do not inflate it. Unit: pixels for
-    ``"reprojection"`` and ``"laser_line"``, metres for ``"laser_plane"``.
+    residual, so outliers do not inflate it. Its unit depends on
+    :attr:`whitened`: when false, pixels for ``"reprojection"`` and
+    ``"laser_line"`` and metres for ``"laser_plane"``; when true (the input
+    stated per-point covariances), ``sigma`` is the dimensionless ``σ̂₀`` of
+    the whitened reprojection residuals, about 1 when the stated covariances
+    describe the noise.
     """
 
     kind: str
@@ -1425,15 +1477,21 @@ class ResidualNoise:
     camera: int | None = None
     """The camera, when the result estimates each camera's noise apart (the
     rig laserline); ``None`` for one level shared by every camera."""
+    whitened: bool = False
+    """Whether ``sigma`` is the dimensionless ``σ̂₀`` of residuals whitened
+    by stated per-point covariances (the payload's ``sigma0``) rather than a
+    level in the residual's unit (its ``sigma``)."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ResidualNoise":
         camera = payload.get("camera")
+        whitened = "sigma0" in payload
         return cls(
             kind=str(payload["kind"]),
-            sigma=float(payload["sigma"]),
+            sigma=float(payload["sigma0" if whitened else "sigma"]),
             count=int(payload["count"]),
             camera=None if camera is None else int(camera),
+            whitened=whitened,
         )
 
 

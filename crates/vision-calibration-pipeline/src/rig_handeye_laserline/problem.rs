@@ -7,6 +7,7 @@ use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraFix, CameraModelSpec, CameraParams, FeatureResidualHistogram, ImageManifest, Iso3,
     NoMeta, PerFeatureResiduals, Real, RigDataset, RigView, RigViewObs, Uncertainty,
@@ -279,6 +280,12 @@ impl ProblemType for RigHandeyeLaserlineProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        stated_covariance(
+            input
+                .views
+                .iter()
+                .flat_map(|v| v.obs.cameras.iter().flatten()),
+        )?;
         if input.views.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
         }

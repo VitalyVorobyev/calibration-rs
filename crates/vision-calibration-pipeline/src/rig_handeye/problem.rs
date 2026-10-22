@@ -5,6 +5,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     BrownConrady5, CameraParams, FeatureResidualHistogram, FxFyCxCy, ImageManifest, Iso3,
     PerFeatureResiduals, Real, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
@@ -315,6 +316,12 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        stated_covariance(
+            input
+                .views
+                .iter()
+                .flat_map(|v| v.obs.cameras.iter().flatten()),
+        )?;
         if input.num_views() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,

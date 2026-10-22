@@ -30,6 +30,11 @@
 //! Cholesky plan; a singular or near-singular `H` is diagnosed with a dense
 //! eigendecomposition and reported, not inverted.
 //!
+//! Reprojection residuals whitened by stated point covariances
+//! ([`crate::ir::ReprojSqrtInfo::Whitened`]) are one family with unit
+//! covariance up to a common factor: nothing above changes, and the family's
+//! `σ` is that factor, the dimensionless `σ̂₀` ([`FamilyNoise::whitened`]).
+//!
 //! Coordinates are those of the IR blocks: a Euclidean block's components,
 //! the right-perturbation tangent `[δθ, δt]` of an SE3 block, and the ambient
 //! components of an S² unit vector (its tangent covariance mapped through the
@@ -101,6 +106,9 @@ pub(crate) struct FamilyNoise {
     /// standard deviation of one scalar residual from the median absolute
     /// residual, so outliers do not inflate it.
     pub sigma: f64,
+    /// Whether the family's residuals are whitened by stated covariances,
+    /// which makes `sigma` the dimensionless `σ̂₀`.
+    pub whitened: bool,
 }
 
 /// The covariance of a solve's free coordinates.
@@ -266,7 +274,8 @@ pub(crate) fn estimate(
 /// The noise level of each residual family in `raw`'s residuals; empty
 /// without a linearization (every coordinate fixed).
 pub(crate) fn noise(ir: &ProblemIR, raw: Option<&RawLinearization>) -> Vec<FamilyNoise> {
-    raw.map(|raw| family_noise(&residual_blocks(ir, &raw.residual), &raw.residual))
+    let whitened = ir.reprojection_whitened();
+    raw.map(|raw| family_noise(&residual_blocks(ir, &raw.residual), &raw.residual, whitened))
         .unwrap_or_default()
 }
 
@@ -442,7 +451,7 @@ fn weighted_normal(
 
 /// `σ̂` per residual family present, from the median absolute scalar
 /// residual.
-fn family_noise(blocks: &[BlockTerms], residual: &Mat<f64>) -> Vec<FamilyNoise> {
+fn family_noise(blocks: &[BlockTerms], residual: &Mat<f64>, whitened: bool) -> Vec<FamilyNoise> {
     let mut by_family: Vec<(ResidualKind, Vec<f64>)> = Vec::new();
     for block in blocks {
         let Some(family) = block.family else {
@@ -473,6 +482,7 @@ fn family_noise(blocks: &[BlockTerms], residual: &Mat<f64>) -> Vec<FamilyNoise> 
                 family,
                 num_residuals: values.len(),
                 sigma: MAD_TO_SIGMA * median,
+                whitened: whitened && family == ResidualKind::Reprojection,
             }
         })
         .collect()

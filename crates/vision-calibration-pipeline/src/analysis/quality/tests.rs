@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use nalgebra::{Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, FrameRef, FxFyCxCy, Iso3, PinholeCamera, PixelRect, PlanarDataset, View,
-    ViewCovariance, make_pinhole_camera, synthetic::planar,
+    BrownConrady5, CorrespondenceView, FrameRef, FxFyCxCy, Iso3, PinholeCamera, PixelRect,
+    PlanarDataset, PointCovariance, View, ViewCovariance, make_pinhole_camera, synthetic::planar,
 };
 
 use super::*;
@@ -28,7 +28,7 @@ fn covariance(labels: &[&str], matrix: Vec<Vec<f64>>, sigma: f64) -> ParameterCo
         fixed: Vec::new(),
         noise: vec![ResidualNoise {
             kind: ResidualKind::Reprojection,
-            sigma,
+            level: NoiseLevel::Sigma(sigma),
             count: 2000,
             camera: None,
         }],
@@ -108,6 +108,11 @@ const NOISE_PX: f64 = 0.1;
 /// Calibrate a synthetic camera from board poses, with seeded Gaussian corner
 /// noise of `NOISE_PX` per axis.
 fn calibrate(poses: &[Iso3]) -> PlanarIntrinsicsExport {
+    calibrate_stating(poses, None)
+}
+
+/// [`calibrate`], every corner stating `cov` when given.
+fn calibrate_stating(poses: &[Iso3], cov: Option<PointCovariance>) -> PlanarIntrinsicsExport {
     let camera = camera_model();
     let board = planar::grid_points(9, 7, 0.03);
     let mut state = 0x9E37_79B9_7F4A_7C15_u64;
@@ -130,6 +135,15 @@ fn calibrate(poses: &[Iso3]) -> PlanarIntrinsicsExport {
                 p.x += noise();
                 p.y += noise();
             }
+            let view = match cov {
+                None => view,
+                Some(c) => CorrespondenceView::new_with_covariances(
+                    view.points_3d.clone(),
+                    view.points_2d.clone(),
+                    vec![c; view.len()],
+                )
+                .expect("one covariance per corner"),
+            };
             View::without_meta(view)
         })
         .collect();
@@ -424,6 +438,120 @@ fn variance_factor_needs_a_stated_noise_and_a_covariance() {
     assert_eq!(checks[0].status, CheckStatus::NotApplicable);
 }
 
+/// Stating the true isotropic covariance `σ² I` on every corner gives the
+/// unweighted solve's estimate and covariance, with the noise reported as
+/// `σ̂₀ ≈ 1` instead of `σ̂ ≈ σ` px, whitened per-feature errors `|e|/σ`
+/// beside the pixel ones, and pixel reprojection statistics; the variance
+/// factor is then tested without a stated pixel noise.
+#[test]
+fn a_stated_isotropic_covariance_reproduces_the_unweighted_solve() {
+    let poses = well_covered_poses();
+    let plain = calibrate(&poses);
+    let var = NOISE_PX * NOISE_PX;
+    let stated = calibrate_stating(&poses, Some(PointCovariance::new(var, 0.0, var).unwrap()));
+
+    let (a, b) = (
+        plain.params.camera.intrinsics,
+        stated.params.camera.intrinsics,
+    );
+    assert!(
+        (a.fx - b.fx).abs() < 1e-6 && (a.cx - b.cx).abs() < 1e-6,
+        "{a:?} vs {b:?}"
+    );
+    assert!((plain.mean_reproj_error - stated.mean_reproj_error).abs() < 1e-9);
+    let (Uncertainty::Available(cp), Uncertainty::Available(cs)) =
+        (&plain.uncertainty, &stated.uncertainty)
+    else {
+        panic!("both have a covariance");
+    };
+    let (sp, ss) = (cp.std_dev("fx").unwrap(), cs.std_dev("fx").unwrap());
+    assert!((sp - ss).abs() < 1e-6 * sp, "σ(fx) {sp} vs {ss}");
+    let NoiseLevel::Sigma(px) = cp.noise[0].level else {
+        panic!("pixel noise without stated covariances");
+    };
+    let NoiseLevel::Sigma0(s0) = cs.noise[0].level else {
+        panic!("whitened noise with stated covariances");
+    };
+    assert!((s0 - px / NOISE_PX).abs() < 1e-9, "σ̂₀ {s0} vs σ̂ {px} px");
+    assert!((s0 - 1.0).abs() < 0.1, "σ̂₀ = {s0}");
+
+    for (p, s) in plain
+        .per_feature_residuals
+        .target
+        .iter()
+        .zip(&stated.per_feature_residuals.target)
+    {
+        assert!((p.error_px.unwrap() - s.error_px.unwrap()).abs() < 1e-9);
+        assert_eq!(p.error_whitened, None);
+        let (e, w) = (s.error_px.unwrap(), s.error_whitened.unwrap());
+        assert!((w - e / NOISE_PX).abs() < 1e-9 * w.max(1.0));
+    }
+    let report = assess(&stated, &[IMAGE], &QualityThresholds::default()).unwrap();
+    assert_eq!(
+        check(&report, CheckKind::VarianceFactor).status,
+        CheckStatus::Pass
+    );
+    assert_eq!(
+        check(&report, CheckKind::ViewOutliers).status,
+        CheckStatus::Pass
+    );
+}
+
+/// Residuals whitened by stated covariances are tested against 1, with no
+/// stated pixel noise; a stated one does not apply to them.
+#[test]
+fn whitened_noise_is_tested_against_one() {
+    let mut cov = covariance(&["fx"], vec![vec![1.0]], 0.0);
+    cov.noise[0].level = NoiseLevel::Sigma0(1.02);
+    let whitened = Uncertainty::Available(cov.clone());
+    for expected in [None, Some(0.3)] {
+        let thresholds = QualityThresholds {
+            expected_feature_noise_px: expected,
+            ..QualityThresholds::default()
+        };
+        let checks = variance_factor(&whitened, &thresholds);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].status, CheckStatus::Pass, "{}", checks[0].message);
+        assert!((checks[0].measurement.unwrap().value - 1.02 * 1.02).abs() < 1e-12);
+        assert!(checks[0].message.contains("σ̂₀"), "{}", checks[0].message);
+    }
+    cov.noise[0].level = NoiseLevel::Sigma0(1.5);
+    let checks = variance_factor(&Uncertainty::Available(cov), &QualityThresholds::default());
+    assert_eq!(checks[0].status, CheckStatus::Fail);
+}
+
+/// With a whitened noise level the outlier check normalizes the whitened
+/// errors; residuals without one leave it nothing to assess.
+#[test]
+fn view_outliers_use_whitened_errors_with_a_whitened_noise() {
+    let mut cov = covariance(&["fx"], vec![vec![1.0]], 0.0);
+    cov.noise[0].level = NoiseLevel::Sigma0(1.0);
+    let uncertainty = Uncertainty::Available(cov);
+    let mut residuals = Vec::new();
+    for view in 0..5 {
+        // Pixel errors alike; the whitened ones single out view 2.
+        let whitened = if view == 2 { 4.0 } else { 1.0 };
+        for i in 0..10 {
+            let mut r = residual(view, 0, [i as f64, 0.0], 0.5);
+            r.error_whitened = Some(whitened);
+            residuals.push(r);
+        }
+    }
+    let thresholds = QualityThresholds::default();
+    let c = view_outliers(&residuals, &uncertainty, 0, &thresholds);
+    assert_eq!(c.status, CheckStatus::Warn);
+    assert_eq!(c.subjects, vec!["view 2"]);
+    assert!((c.measurement.unwrap().value - 4.0).abs() < 1e-12);
+
+    for r in &mut residuals {
+        r.error_whitened = None;
+    }
+    assert_eq!(
+        view_outliers(&residuals, &uncertainty, 0, &thresholds).status,
+        CheckStatus::NotApplicable
+    );
+}
+
 #[test]
 fn coverage_counts_grid_cells_with_a_feature() {
     let thresholds = QualityThresholds::default();
@@ -507,12 +635,12 @@ fn view_outliers_prefer_the_cameras_own_noise() {
     let mut cov = covariance(&["cam0.fx"], vec![vec![1.0]], 0.1);
     cov.noise.push(ResidualNoise {
         kind: ResidualKind::Reprojection,
-        sigma: 1.0,
+        level: NoiseLevel::Sigma(1.0),
         count: 100,
         camera: Some(1),
     });
-    assert_eq!(reprojection_sigma(&cov, 1), Some(1.0));
-    assert_eq!(reprojection_sigma(&cov, 0), Some(0.1));
+    assert_eq!(reprojection_sigma(&cov, 1), Some(NoiseLevel::Sigma(1.0)));
+    assert_eq!(reprojection_sigma(&cov, 0), Some(NoiseLevel::Sigma(0.1)));
     cov.noise.clear();
     assert_eq!(reprojection_sigma(&cov, 0), None);
 }

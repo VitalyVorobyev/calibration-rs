@@ -15,7 +15,7 @@ use nalgebra::{DVector, UnitQuaternion, Vector3};
 use crate::backend::{factrs_backend, tiny_solver_backend};
 use crate::ir::{
     CameraModelSpec, FactorKind, FixedMask, HandeyeMode, LaserChain, ProblemIR, ReprojChain,
-    ResidualBlock, RobustLoss,
+    ReprojSqrtInfo, ResidualBlock, RobustLoss,
 };
 
 const MODELS: [CameraModelSpec; 10] = [
@@ -127,13 +127,20 @@ fn all_factors() -> Vec<FactorKind> {
                 mode: HandeyeMode::EyeInHand,
             },
         ] {
-            out.push(FactorKind::ReprojPoint {
-                model,
-                chain,
-                pw: [0.113, -0.072, 0.004],
-                uv: [684.2, 341.7],
-                w: 1.7,
-            });
+            for sqrt_info in [
+                ReprojSqrtInfo::Isotropic { scale: 1.7 },
+                ReprojSqrtInfo::Whitened {
+                    upper: [1.3, -0.4, 0.9],
+                },
+            ] {
+                out.push(FactorKind::ReprojPoint {
+                    model,
+                    chain,
+                    pw: [0.113, -0.072, 0.004],
+                    uv: [684.2, 341.7],
+                    sqrt_info,
+                });
+            }
         }
         for chain in [
             LaserChain::SinglePose,
@@ -167,7 +174,7 @@ fn all_factors() -> Vec<FactorKind> {
 #[test]
 fn every_factor_linearizes_identically_in_both_backends() {
     let factors = all_factors();
-    assert_eq!(factors.len(), 1 + MODELS.len() * (4 + 3 * 2));
+    assert_eq!(factors.len(), 1 + MODELS.len() * (4 * 2 + 3 * 2));
     for factor in factors {
         let (ir, init) = one_residual_ir(factor.clone(), RobustLoss::None);
         let (rt, jt, ct) = tiny_solver_backend::linearize_at(&ir, &init);

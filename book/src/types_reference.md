@@ -43,7 +43,7 @@ All based on `nalgebra` with `f64` precision:
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `CorrespondenceView` | `points_3d, points_2d, weights` | 2D-3D correspondences (build with `CorrespondenceView::new(..)?`) |
+| `CorrespondenceView` | `points_3d, points_2d`, optional `cov_px` | 2D-3D correspondences (build with `CorrespondenceView::new(..)?`, or `new_with_covariances(..)?` with a `PointCovariance` per point) |
 | `View<Meta>` | `obs, meta` | Observation + metadata |
 | `PlanarDataset` | `views: Vec<View<NoMeta>>` | Planar calibration input |
 | `RigViewObs` | `cameras: Vec<Option<CorrespondenceView>>` | Per-camera observations of one rig frame |

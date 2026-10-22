@@ -339,7 +339,7 @@ mod tests {
             fixed: Vec::new(),
             noise: vec![ResidualNoise {
                 kind: ResidualKind::Reprojection,
-                sigma: 0.1,
+                level: vision_calibration_core::NoiseLevel::Sigma(0.1),
                 count: 100,
                 camera: None,
             }],
