@@ -571,6 +571,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rig hand-eye step result reports the mean reprojection error.**
+  `rig_handeye::step_handeye_optimize` returned the square root of the final
+  solver cost as `HandeyeOptimizeResult::mean_reproj_error` (and in the
+  session state), not the mean per-point error; on a scene with 0.43 px
+  mean error it reported 4.7 px. It now reports the same value as the
+  export.
+
 - **Laser residuals in pixels are the ones the solve minimizes.**
   `LaserFeatureResidual::residual_px`, the per-camera laser histograms and
   the Diagnose laser overlay measured the distance to a straight segment
