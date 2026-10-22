@@ -303,6 +303,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `vision_calibration::mvg::RansacOptions`: the facade re-exports the RANSAC
+  settings the robust two-view estimators take, so MVG users no longer
+  depend on `vision-calibration-core` for them.
+
 - Per-camera `camera_overrides` in the rig extrinsics and rig hand-eye
   configs (mixed lenses and sensors in one rig), and every distortion kind
   (`none`, `brown_conrady5`, `rational8`, `thin_prism9`, `division1`) with
