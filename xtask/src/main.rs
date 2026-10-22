@@ -2,7 +2,8 @@
 //!
 //! - `emit-schemas [--check]` writes JSON Schemas for every `*Config`,
 //!   `*Input`, and `DatasetSpec` type into `app/src/schemas/`; the Tauri app
-//!   reads them at build time to drive its schema-driven config forms.
+//!   reads them at build time to drive its schema-driven config forms. The
+//!   manifest's field reference in the book is rendered from the same schema.
 //! - `check-docs` fails when user-facing docs cite internal material or pin
 //!   a stale version (see `check_docs`).
 
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 mod check_docs;
 mod emit_schemas;
+mod manifest_doc;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);

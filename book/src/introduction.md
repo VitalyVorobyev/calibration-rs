@@ -22,6 +22,7 @@ The library covers the full calibration pipeline:
 1. **Linear initialization** — closed-form solvers (Zhang's method, DLT, PnP, Tsai-Lenz hand-eye, epipolar geometry) that produce approximate parameter estimates
 2. **Non-linear refinement** — Levenberg-Marquardt bundle adjustment that minimizes reprojection error to sub-pixel accuracy
 3. **Session framework** — a high-level API with step functions, configuration, and JSON checkpointing
+4. **Data handling and diagnostics** — target detectors with a detection cache, a dataset manifest, per-feature residuals and parameter uncertainty for every result
 
 ## Workspace Structure
 
@@ -57,14 +58,18 @@ calibration-rs differs from OpenCV in several ways: it is written in pure Rust, 
 
 ## Book Organization
 
-The book is structured in seven parts (plus appendices):
+The book is the one user guide for the library. It is organized by what you want to do first and by the mathematics behind it last:
 
-- **Part I: Camera Model** — the composable projection pipeline (pinhole, distortion, sensor tilt, intrinsics)
-- **Part II: Geometric Primitives** — rigid transforms, RANSAC, robust loss functions
-- **Part III: Linear Initialization** — all closed-form solvers with full mathematical derivations
-- **Part IV: Non-Linear Optimization** — Levenberg-Marquardt, manifold constraints, autodiff, the IR architecture
-- **Part V: Calibration Workflows** — end-to-end pipelines for each problem type, with both synthetic and real data examples
-- **Part VI: Session Framework** — the high-level `CalibrationSession` API
-- **Part VII: Extending the Library** — adding new problems, backends, and pipeline types
+- **Getting Started**: install the library and run a first calibration in Rust and Python, then a stereo rig on real data.
+- **Calibration Workflows**: one chapter per problem type (planar intrinsics, hand-eye, rigs, laser devices), plus choosing a distortion model, seeding the initialization with prior knowledge and reading per-feature residuals.
+- **The Session Framework**: the `CalibrationSession` API behind every workflow.
+- **Data and Detection**: calibration targets and their detectors, the dataset manifest that describes a folder of images, laser datasets and the generated manifest field reference.
+- **Uncertainty**: the covariance every result carries, how to read it, and the projection uncertainty of a camera.
+- **Multiple-View Geometry**: pose recovery, triangulation, bundle adjustment, rectification and dense stereo for calibrated cameras.
+- **The Desktop App**: running calibrations and inspecting the results without writing code.
+- **Theory**: the camera model, geometric primitives and robust estimation, the linear initialization algorithms and the non-linear optimization machinery, each with a formal problem statement and derivation.
+- **Reference and Development**: the regression suite, extending the library, synthetic data and a type reference.
 
-Each algorithm chapter includes a formal **problem statement**, **objective function**, **assumptions**, and a **full derivation** leading to the implementation.
+Each algorithm chapter in the theory parts includes a formal **problem statement**, **objective function**, **assumptions**, and a **full derivation** leading to the implementation.
+
+The library is usable from Rust (the `vision-calibration` crate) and from Python (the `vision-calibration` package on PyPI). The chapters show Rust unless a section says otherwise; [Getting Started](getting_started.md) puts the two side by side.

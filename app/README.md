@@ -3,7 +3,7 @@
 A desktop app for `calibration-rs`: run calibrations end-to-end and diagnose
 the results without leaving a GUI. It calls the same solvers as the
 `vision-calibration` crate. For a hands-on tour, see the
-[app walkthrough](../docs/tutorials/app-walkthrough.md).
+[app chapters of the book](https://vitalyvorobyev.github.io/calibration-rs/app.html).
 
 ## Workspaces
 

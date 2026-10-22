@@ -261,14 +261,6 @@ takes or returns a covariance. Open with an ADR on the BA layering:
 
 ## Book (alongside)
 
-- [ ] BOOK-STRUCTURE - One user guide:
-  - merge `docs/tutorials/` into the book;
-  - getting started with Rust and Python tabs;
-  - new chapters: detection and targets, the dataset manifest with a
-    reference generated from its JSON schema, an uncertainty part
-    (several chapters), an MVG part (pose recovery, BA, rectification,
-    dense stereo), and the desktop app;
-  - the Python README covers uncertainty.
 - [ ] BOOK-WASM - A `vision-calibration-wasm` crate (wasm-bindgen over the
   facade, `publish = false` at first), built by `publish-docs.yml` with a
   bun bundle loaded through mdBook `additional-js`. The app can use the same

@@ -8,6 +8,9 @@
 //! tests. The suite's observation, truth and external-result formats go to
 //! `regression/schema/<name>.json`, for authors of comparison harnesses.
 //!
+//! The dataset manifest's schema is also rendered as the book's field
+//! reference, `book/src/manifest_reference.md` (see `manifest_doc`).
+//!
 //! With `--check`, the command instead verifies that the on-disk schemas
 //! match what would be generated from current source. CI runs this to
 //! catch drift between source and committed schemas.
@@ -28,6 +31,8 @@ use vision_calibration_pipeline::rig_handeye::RigHandeyeConfig;
 use vision_calibration_pipeline::rig_handeye_laserline::RigHandeyeLaserlineConfig;
 use vision_calibration_pipeline::rig_laserline_device::RigLaserlineDeviceConfig;
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
+
+use crate::manifest_doc;
 
 pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
     let out_dir = workspace_root.join("app/src/schemas");
@@ -56,6 +61,16 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
 
     let mut drift = Vec::new();
     let mut files = 0;
+
+    // The manifest field reference in the book, rendered from the schema.
+    let manifest_schema = &entries[0].1;
+    write_text_or_check(
+        &workspace_root.join("book/src/manifest_reference.md"),
+        &manifest_doc::render(manifest_schema),
+        check,
+        &mut drift,
+    )?;
+    files += 1;
     for (name, schema) in &suite_entries {
         write_or_check(
             &suite_dir.join(format!("{name}.json")),
@@ -149,6 +164,14 @@ fn write_or_check(path: &Path, schema: &Value, check: bool, drift: &mut Vec<Drif
     let mut text =
         serde_json::to_string_pretty(schema).context("rendering schema as pretty JSON")?;
     text.push('\n');
+    write_text_or_check(path, &text, check, drift)
+}
+
+fn write_text_or_check(path: &Path, text: &str, check: bool, drift: &mut Vec<Drift>) -> Result<()> {
+    let mut text = text.to_string();
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
 
     if check {
         let on_disk = match std::fs::read_to_string(path) {

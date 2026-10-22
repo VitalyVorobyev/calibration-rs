@@ -1,12 +1,78 @@
 # Summary
 
 [Introduction](introduction.md)
-[Quickstart](quickstart.md)
 [Architecture Overview](architecture.md)
 
 ---
 
-# Camera Model
+# Getting Started
+
+- [Getting Started](getting_started.md)
+- [Stereo Rig with Real Data](stereo_real_data.md)
+
+---
+
+# Calibration Workflows
+
+- [Planar Intrinsics Calibration](planar_intrinsics.md)
+- [Planar Intrinsics with Real Data](planar_real_data.md)
+- [Choosing a Distortion Model](distortion_selection.md)
+- [Single-Camera Hand-Eye](handeye_workflow.md)
+- [Hand-Eye with KUKA Robot](handeye_real_data.md)
+- [Multi-Camera Rig Extrinsics](rig_extrinsics.md)
+- [Multi-Camera Rig Hand-Eye](rig_handeye.md)
+- [Laserline Device Calibration](laserline.md)
+- [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)
+- [Seeding with Prior Knowledge](manual_init.md)
+- [Per-Feature Residuals](per_feature_residuals.md)
+
+---
+
+# The Session Framework
+
+- [CalibrationSession](session.md)
+- [ProblemType Trait](problem_type.md)
+- [Step Functions vs Pipeline Functions](step_functions.md)
+
+---
+
+# Data and Detection
+
+- [Calibration Targets and Detection](detection.md)
+- [The Dataset Manifest](manifest.md)
+- [Laser Datasets](manifest_laser.md)
+- [Manifest Field Reference](manifest_reference.md)
+
+---
+
+# Uncertainty
+
+- [Parameter Uncertainty](uncertainty.md)
+- [Reading the Covariance](uncertainty_reading.md)
+- [Projection Uncertainty](uncertainty_projection.md)
+- [Limits and Unavailable Results](uncertainty_limits.md)
+
+---
+
+# Multiple-View Geometry
+
+- [Multiple-View Geometry](mvg.md)
+- [Pose Recovery and Triangulation](mvg_pose.md)
+- [Bundle Adjustment](mvg_bundle_adjust.md)
+- [Stereo Rectification](mvg_rectification.md)
+- [Dense Stereo](mvg_dense.md)
+
+---
+
+# The Desktop App
+
+- [The Desktop App](app.md)
+- [Running Calibrations](app_run.md)
+- [Inspecting Results](app_inspect.md)
+
+---
+
+# Theory: Camera Model
 
 - [Composable Camera Pipeline](camera_pipeline.md)
 - [Pinhole Projection](pinhole.md)
@@ -17,7 +83,7 @@
 
 ---
 
-# Geometric Primitives and Robust Estimation
+# Theory: Geometric Primitives and Robust Estimation
 
 - [Rigid Transformations and SE(3)](rigid_transforms.md)
 - [RANSAC](ransac.md)
@@ -25,7 +91,7 @@
 
 ---
 
-# Linear Initialization Algorithms
+# Theory: Linear Initialization
 
 - [Why Linear Initialization Matters](linear_overview.md)
 - [Hartley Normalization](hartley.md)
@@ -45,7 +111,7 @@
 
 ---
 
-# Non-Linear Optimization
+# Theory: Non-Linear Optimization
 
 - [Non-Linear Least Squares Overview](nlls_overview.md)
 - [Manifold Optimization](manifolds.md)
@@ -56,44 +122,11 @@
 
 ---
 
-# Calibration Workflows
+# Reference and Development
 
-- [Planar Intrinsics Calibration](planar_intrinsics.md)
-- [Planar Intrinsics with Real Data](planar_real_data.md)
-- [Single-Camera Hand-Eye](handeye_workflow.md)
-- [Hand-Eye with KUKA Robot](handeye_real_data.md)
-- [Multi-Camera Rig Extrinsics](rig_extrinsics.md)
-- [Stereo Rig with Real Data](stereo_real_data.md)
-- [Multi-Camera Rig Hand-Eye](rig_handeye.md)
-- [Laserline Device Calibration](laserline.md)
-- [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)
-
----
-
-# Session Framework
-
-- [CalibrationSession](session.md)
-- [ProblemType Trait](problem_type.md)
-- [Step Functions vs Pipeline Functions](step_functions.md)
-
----
-
-# Validation
-
-- [Parameter Uncertainty](uncertainty.md)
 - [Regression Suite](regression_suite.md)
-
----
-
-# Extending the Library
-
 - [Adding a New Optimization Problem](new_problem.md)
 - [Adding a New Pipeline Problem Type](new_pipeline.md)
-
----
-
-# Appendices
-
 - [Synthetic Data Generation](synthetic.md)
 - [Data Types Quick Reference](types_reference.md)
 - [References and Further Reading](references.md)

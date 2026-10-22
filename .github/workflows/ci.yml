@@ -51,7 +51,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo run -p xtask -- emit-schemas --check
 
-      # User-facing docs (READMEs, book, tutorials, CHANGELOG, published
+      # User-facing docs (READMEs, book, CHANGELOG, published
       # rustdoc, the Python package) must not cite internal material.
       - name: Check user-facing docs
         if: matrix.os == 'ubuntu-latest'

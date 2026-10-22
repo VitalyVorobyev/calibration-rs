@@ -28,8 +28,8 @@ pub struct DatasetSpec {
     pub version: u32,
 
     /// Per-camera image sources. Length must match the topology's
-    /// expected camera count (e.g. `Topology::Mono` requires exactly
-    /// one entry).
+    /// expected camera count (a single-camera topology requires exactly
+    /// one entry, a rig topology at least two).
     pub cameras: Vec<CameraSource>,
 
     /// Calibration-target specification. Tagged enum on `kind`.
@@ -65,8 +65,8 @@ pub struct DatasetSpec {
     pub topology: Topology,
 
     /// How per-camera images are paired across views (and optionally
-    /// with robot poses). `None` is permitted only for `Topology::Mono`
-    /// where pose-pairing is irrelevant.
+    /// with robot poses). `None` is permitted only where pairing is
+    /// irrelevant: a single camera without robot poses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pose_pairing: Option<PosePairing>,
 
@@ -227,11 +227,12 @@ pub enum TargetSpec {
         /// detector validates this against the supported set.
         dictionary: String,
     },
-    /// Puzzleboard target (calib-targets crate). Layout is fully
-    /// described by the named variant in calib-targets; the manifest
-    /// just carries the discriminator.
+    /// Puzzleboard target: a self-identifying chessboard. The layout name
+    /// carries the board's dimensions, so the manifest fully determines
+    /// detection.
     Puzzleboard {
-        /// Named layout (e.g. `"puzzle_130x130"`).
+        /// Board dimensions as `puzzle_<rows>x<cols>` (e.g.
+        /// `"puzzle_12x12"`; the `puzzle_` prefix is optional).
         layout: String,
         /// Edge length of one cell in metres.
         cell_size_m: f64,

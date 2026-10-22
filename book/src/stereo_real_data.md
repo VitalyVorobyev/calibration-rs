@@ -1,6 +1,79 @@
 # Stereo Rig with Real Data
 
-This chapter walks through the `stereo_session` example, which calibrates a stereo camera rig from synchronized left/right views with `RigExtrinsicsProblem`.
+This chapter walks through the `stereo_session` example, which calibrates a stereo camera rig from synchronized left/right views with `RigExtrinsicsProblem`. It is the quickest way to see a complete multi-camera calibration on real data: the corners are already detected and committed to the repository, so no images are needed.
+
+## Run It First
+
+```bash
+cargo run -p vision-calibration --example stereo_session --release
+```
+
+The program loads 20 views of a 7x11 chessboard (30 mm squares) seen by both cameras and prints, among other lines:
+
+```text
+--- Step 2: Per-Camera Intrinsics Optimization ---
+  Camera 0: fx=713.8, fy=724.7, cx=523.4, cy=286.0, reproj_err=0.234px
+  Camera 1: fx=724.8, fy=735.6, cx=513.9, cy=293.0, reproj_err=0.244px
+
+--- Step 4: Rig Bundle Adjustment ---
+  Rig BA mean reprojection error: 0.2496 px
+    Camera 0: 0.2448 px
+    Camera 1: 0.2544 px
+  Rig baseline (after BA): |c1 - c0| = 0.1895 m (189.45 mm)
+
+--- Uncertainty ---
+  Baseline: 189.45 ± 0.112 mm
+  Corner noise σ ≈ 0.189 px (6160 residuals)
+```
+
+The `±` comes from the export's `uncertainty`: the covariance of the estimated parameters, here of camera 1's `cam_se3_rig`. It is conditional on the intrinsics, which the rig solve holds fixed by default (see [Parameter Uncertainty](uncertainty.md)).
+
+## The Session in Five Calls
+
+A calibration is a session plus a sequence of step functions invoked in order. Each step reads what it needs from the session, writes its own output back, and returns a typed result, so you can inspect the state between any two steps:
+
+```text
+Session::new()
+  → set_input(observations)
+  → step_intrinsics_init_all      ← Zhang's method per camera
+  → step_intrinsics_optimize_all  ← per-camera refinement
+  → step_rig_init                 ← linear cam_se3_rig + rig_se3_target
+  → step_rig_optimize             ← joint bundle adjustment
+  → export()                      ← stable, JSON-serializable result
+```
+
+The interesting part of the example is ten lines:
+
+```rust
+let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+session.set_input(input)?;
+
+step_intrinsics_init_all(&mut session, None)?;
+step_intrinsics_optimize_all(&mut session, None)?;
+step_rig_init(&mut session, None)?;
+step_rig_optimize(&mut session, None)?;
+
+let export = session.export()?;
+let mean_reproj = export.mean_reproj_error;
+let centre = |i: usize| export.cam_se3_rig[i].inverse().translation.vector;
+let baseline = (centre(1) - centre(0)).norm();
+```
+
+`RigExtrinsicsProblem` is a marker type: through the `ProblemType` trait it fixes the input, configuration and export types, so the session is fully typed. Each `step_*` takes an `Option<*Options>` for per-call tweaks (`max_iters`, `verbosity`, ...); `None` uses the session's config. `export()` returns a `RigExtrinsicsExport`, the stable view of the result and the handoff to other tools.
+
+The same calibration from Python is one call (`crates/vision-calibration-py/examples/stereo_session.py` loads the same observation file):
+
+```python
+import vision_calibration as vc
+
+# `views`: one vc.RigExtrinsicsView per frame, with a vc.Observation (or None)
+# per camera; `dataset` wraps them.
+dataset = vc.RigExtrinsicsInput(num_cameras=2, views=views)
+result = vc.run_rig_extrinsics(dataset)
+print(result.mean_reproj_error, result.per_cam_reproj_errors)
+```
+
+Other camera setups use other problem types with the same pattern: only the input shape and the step list change. [Step Functions vs Pipeline Functions](step_functions.md) tabulates them, and each problem type's facade module (`vision_calibration::rig_extrinsics`, ...) re-exports its types and steps.
 
 ## Building the Rig Dataset
 
@@ -21,16 +94,15 @@ let input = RigDataset::new(views, 2)?; // 2 cameras
 
 Each `CorrespondenceView` is built from the detected corners with `CorrespondenceView::new(points_3d, points_2d)?`, exactly as in [Planar Intrinsics with Real Data](planar_real_data.md).
 
-## Running the 4-Step Pipeline
+## Reading the Step Results
+
+Each step returns its own result struct; keep them to report progress:
 
 ```rust
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
     step_rig_init, step_rig_optimize,
 };
-
-let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-session.set_input(input)?;
 
 step_intrinsics_init_all(&mut session, None)?;
 let intr_opt = step_intrinsics_optimize_all(&mut session, None)?;
@@ -43,7 +115,18 @@ for (i, err) in rig_opt.per_cam_reproj_errors.iter().enumerate() {
 }
 ```
 
-`run_calibration(&mut session)` runs the same four steps in one call.
+`run_calibration(&mut session)` (`vision_calibration::rig_extrinsics::run_calibration`) runs the same four steps with default options in one call.
+
+Every step also appends an entry to the session log, which records what the initialization produced and which values came from manual seeds (see [Seeding with Prior Knowledge](manual_init.md)):
+
+```rust
+for entry in session.log() {
+    println!("[{}] {:?} {}",
+        entry.operation, entry.success, entry.notes.as_deref().unwrap_or(""));
+}
+```
+
+`CalibrationSession` is JSON-serializable: persist it after `step_rig_init` (`session.to_json()`) and resume later with a fresh `step_rig_optimize` under different solver options (see [CalibrationSession](session.md)).
 
 ## The Example Dataset
 
@@ -80,10 +163,9 @@ for corner in detection.corners {
 }
 ```
 
-## Running
+## Command-Line Options
 
 ```bash
-cargo run -p vision-calibration --example stereo_session --release
 cargo run -p vision-calibration --example stereo_session --release -- --max-views=10
 ```
 

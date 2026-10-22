@@ -79,7 +79,7 @@ alongside both phases. Track names below match the backlog headings.
 
 | Track | Goal | Gate |
 |---|---|---|
-| Book | One user guide: tutorials merged in; Rust/Python tabs; chapters on detection, the manifest and its schema reference, uncertainty, MVG and the app; interactive demos running the library in the browser through a wasm build | `check-docs`; every demo runs in the published book |
+| Book | The one user guide, now covering getting started in Rust and Python, detection, the manifest and its schema reference, uncertainty, MVG and the app; next, interactive demos running the library in the browser through a wasm build | `check-docs`; every demo runs in the published book |
 | App | Rebuilt frontend on the `@vitavision/workbench` shell, organized as Project → Dataset → Detect → Calibrate → Diagnose → Use. Saved runs, reports, solver progress with cancel, installers that run without a source checkout | App gates (AGENTS.md §10) plus a frontend review with no high-severity findings |
 
 ## Ordering

@@ -1,0 +1,34 @@
+# Limits and Unavailable Results
+
+A covariance is an honest statement about noise, not about everything that can be wrong with a calibration. This chapter lists the cases where none can be given, and where one is given but answers a narrower question than it seems to.
+
+## When It Is Unavailable
+
+| `reason` | Meaning | What to do |
+|---|---|---|
+| `not_converged` | The solve stopped on its iteration budget | Raise `solver.max_iters` |
+| `rank_deficient` | The data does not determine the parameters listed in `unobservable` (alone or in combination) | Add views that differ in the way the listed parameters need, e.g. tilted boards for `fx`, `cx`; or fix one of them |
+| `at_bound` | A parameter ended on a bound (`labels`) | Widen or remove the bound, or fix the parameter |
+| `no_redundancy` | No more observations than parameters | Add views |
+| `not_computed` | The result was produced or stored without uncertainty | — |
+
+`rank_deficient` is a statement about the data, not a failure of the
+calibration: the solve still returns its best parameters. A Scheimpflug
+camera whose views do not separate the sensor tilt from a principal-point
+shift, for example, reports `tilt_y`, `cx` and the board translations as
+unobservable together.
+
+## Scope
+
+Every workflow reports the uncertainty of its final solve. Robot poses are taken
+as exact unless the hand-eye solve refines them. Then the priors'
+standard deviations (`robot_rot_sigma`, `robot_trans_sigma`) are taken as
+the robot's true pose accuracy, and the covariance is that of the estimate
+computed with those priors against the corner residuals.
+
+## What a Covariance Does Not Cover
+
+- **Systematic error.** The covariance measures the scatter caused by noise. A wrong board cell size, a board that is not flat or the wrong distortion model leaves it small and the estimate biased; watch the [per-feature residuals](per_feature_residuals.md) for structure (see [Parameter Uncertainty](uncertainty.md)).
+- **Fixed parameters.** It is conditional on the parameters the final solve held fixed (`fixed` in the [result](uncertainty_reading.md)). Fixing a parameter the data cannot pin down makes the others look better determined than they are, and the rig workflows hold each camera's intrinsics fixed by default.
+- **Robot poses.** They are taken as exact unless the hand-eye solve refines them, as described in the Scope section above.
+- **The camera's own pose.** The projection map varies only the camera's parameters ([Projection Uncertainty](uncertainty_projection.md)).

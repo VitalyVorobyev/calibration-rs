@@ -79,15 +79,7 @@ at convergence, so the cap only bounds runs that do not converge.
 `camera.model` names one kind per slot. The default is a pinhole projection,
 Brown-Conrady distortion and an identity (untilted) sensor.
 
-`camera.model.distortion` selects the lens model that is fitted:
-
-| Variant | Parameters | Model |
-|---------|-----------|-------|
-| `DistortionKind::None` | (none) | No distortion |
-| `DistortionKind::BrownConrady5` | `k1, k2, k3, p1, p2` | Brown-Conrady radial + tangential (default) |
-| `DistortionKind::Rational8` | `k1..k6, p1, p2` | OpenCV rational polynomial |
-| `DistortionKind::ThinPrism9` | `k1, k2, k3, p1, p2, s1..s4` | Brown-Conrady + thin prism |
-| `DistortionKind::Division1` | `lambda` | Fitzgibbon division model |
+`camera.model.distortion` selects the lens model that is fitted: Brown-Conrady (default), rational (`Rational8`), thin-prism (`ThinPrism9`), division (`Division1`) or none.
 
 ```rust
 use vision_calibration::core::DistortionKind;
@@ -95,34 +87,10 @@ use vision_calibration::core::DistortionKind;
 session.update_config(|c| c.camera.model.distortion = DistortionKind::Rational8)?;
 ```
 
-For the non-default models, `export.params.distortion()` returns `None`; read the coefficients from `export.params.camera.distortion` (`DistortionParams`, see [Serialization and Runtime-Dynamic Types](params.md)).
+`camera.fix` lists, per slot (`intrinsics`, `distortion`, `sensor`), the parameter names held fixed during the non-linear solve; a slot left `None` keeps the model's default (`k3` for Brown-Conrady). The models, their packed layouts, the defaults and when a richer model helps are in [Choosing a Distortion Model](distortion_selection.md).
 
 `camera.model.sensor = SensorKind::Scheimpflug` calibrates a tilted sensor
 as well; see [Tilted (Scheimpflug) Sensor](#tilted-scheimpflug-sensor) below.
-
-### Fixed Parameters
-
-`camera.fix` lists, per slot, the parameter names held fixed during the
-non-linear solve. A slot left `None` keeps the model's default: `k3` for
-Brown-Conrady, and everything but the low-order radial terms (`k1`, `k2`; the
-division model's `lambda`) under a Scheimpflug sensor. An explicit list
-replaces the default, and an unknown name is a configuration error raised
-before any work.
-
-```rust
-// Fix cx, cy but optimize fx, fy
-session.update_config(|c| {
-    c.camera.fix.intrinsics = Some(vec!["cx".into(), "cy".into()]);
-})?;
-
-// Fix k3 and tangential distortion
-session.update_config(|c| {
-    c.camera.fix.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
-})?;
-```
-
-In JSON the same config reads
-`"camera": {"model": {...}, "fix": {"intrinsics": ["cx", "cy"], "distortion": ["k3", "p1", "p2"]}}`.
 
 ## Tilted (Scheimpflug) Sensor
 

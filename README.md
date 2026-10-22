@@ -176,10 +176,11 @@ real-image ones need the optional extras
 
 ## Documentation
 
-- **[The book](https://vitalyvorobyev.github.io/calibration-rs/)** — the camera
-  model, every solver, and a walkthrough per workflow. Start here.
+- **[The book](https://vitalyvorobyev.github.io/calibration-rs/)** — the one
+  user guide: getting started in Rust and Python, a chapter per workflow,
+  target detection and the dataset manifest, parameter uncertainty, multiple-view
+  geometry, the desktop app, and the camera model and solver theory. Start here.
 - **[API reference](https://docs.rs/vision-calibration)** — docs.rs.
-- **[Tutorials](docs/tutorials/)** — hands-on onboarding.
 - **[CHANGELOG](CHANGELOG.md)** — what changed, and what to do about it.
 
 ## Project
