@@ -249,6 +249,12 @@ takes or returns a covariance. Open with an ADR on the BA layering:
   - H-versus-F model selection (GRIC);
   - LO-RANSAC/MSAC with an adaptive iteration count;
   - P3P/EPnP inside RANSAC.
+- [ ] MVG-RANSAC-THRESH - `RansacOptions::default()` sets `thresh: 2.0`, a
+  pixel-scale value, but the robust two-view estimators in `mvg::robust`
+  measure residuals in normalized coordinates, where 2.0 accepts nearly
+  everything (the tests use 0.001). Give each robust estimator a threshold
+  in its own unit (pixels, converted through the intrinsics) or a required
+  argument, so no default silently disables outlier rejection.
 - [ ] MVG-PNP-COV - Object pose from PnP with its covariance.
 - [ ] MVG-STEREO - Stereo from a calibration:
   - rectification straight from a rig export;

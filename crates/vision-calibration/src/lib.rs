@@ -597,6 +597,8 @@ pub mod geometry {
 /// With the `refine` feature, `vision_calibration::mvg::bundle_adjust` adds
 /// frozen-intrinsics bundle adjustment (tiny-solver).
 pub mod mvg {
+    /// RANSAC settings taken by the robust estimators in [`robust`].
+    pub use vision_calibration_core::RansacOptions;
     pub use vision_mvg::{
         MvgError, cheirality, degeneracy, dense, error, homography, pose_recovery, rectification,
         residuals, robust, triangulation, types,
