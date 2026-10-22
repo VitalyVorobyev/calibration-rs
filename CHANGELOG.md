@@ -580,6 +580,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emit-schemas`; the problem inputs (views, datasets, the hand-eye and laser
   metadata, the rig laserline input) derive `JsonSchema` under the
   `schemars` feature. See the book chapter "Regression Suite".
+- **`calib-bench suite fetch`** downloads the regression suite's public
+  images from their publishers (`kuka_1` from the RWHE-Calib repository at
+  a pinned commit, `ds8` as `DS8.zip` from the Ag Data Commons) into
+  `target/suite-images/<id>/` and verifies every file against the entry's
+  `regression/fetch/<id>.sha256`; files already there and verified are not
+  downloaded again. Entries whose publisher needs a login (the Kaggle
+  stereo set) print their download page instead. `suite freeze --images
+  <dir>` re-extracts those entries' observations from the fetched images,
+  so a checkout without the image files reproduces `SHA256SUMS` (byte for
+  byte on Apple-silicon macOS, where the observations are frozen; corners
+  detected on x86-64 Linux differ by up to about 0.001 px). A weekly CI
+  job on macOS does exactly that. The `ds8` manifest reads the images as
+  published (RGB TIFF and colour JPEG, no grayscale PNG conversion), and
+  its observations and reference result are frozen from them: its largest
+  parameter change is 0.59σ.
 - **`counted4x4` robot-pose format** for dataset manifests: the matrix
   count, then that many row-major 4×4 transforms on any line layout — the
   layout of the robot-world hand-eye datasets. The folder sniffer

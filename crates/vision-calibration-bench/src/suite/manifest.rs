@@ -8,6 +8,7 @@
 //! observations/<id>.json              the entry's ObservationSet
 //! truth/<id>.json                     a synthetic entry's true parameters
 //! results/<id>/calibration-rs.json    the entry's reference result
+//! fetch/<id>.sha256                   files `suite fetch` downloads, with checksums
 //! ```
 //!
 //! File locations follow from the entry id, so the manifest names none of
@@ -67,6 +68,12 @@ pub struct SuiteEntry {
     /// suite directory. `None` for entries that have no images.
     #[serde(default)]
     pub manifest: Option<PathBuf>,
+    /// Where `suite fetch` downloads the files the dataset manifest reads.
+    /// `None` when they must be downloaded by hand from `source_url`.
+    /// Needs `manifest`; the files and their checksums are listed in
+    /// `fetch/<id>.sha256`.
+    #[serde(default)]
+    pub fetch: Option<FetchSource>,
     /// For a synthetic entry, the benchmark scene its observations and
     /// truth are frozen from (`calib-bench solver` scene id). Excludes
     /// `manifest`.
@@ -78,6 +85,31 @@ pub struct SuiteEntry {
     /// Drift tolerance against the reference result.
     #[serde(default)]
     pub tolerance: Tolerance,
+}
+
+/// How the files of an image entry are downloaded from their publisher.
+///
+/// Every file named in the entry's `fetch/<id>.sha256` is placed at that
+/// path, relative to the dataset root the manifest's paths resolve
+/// against.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FetchSource {
+    /// Each file downloaded on its own, from `base_url` followed by its
+    /// path.
+    Files {
+        /// URL prefix, ending in `/`.
+        base_url: String,
+    },
+    /// One ZIP archive holding the files.
+    Zip {
+        /// URL of the archive.
+        url: String,
+        /// Directory of the archive that is the dataset root; `""` when
+        /// the files sit at the top of the archive.
+        #[serde(default)]
+        root: String,
+    },
 }
 
 /// Allowed difference between a number in a result and in its reference:
@@ -132,6 +164,18 @@ impl Suite {
                 "suite entry {:?} names both a dataset manifest and a synthetic scene",
                 entry.id
             );
+            ensure!(
+                entry.fetch.is_none() || entry.manifest.is_some(),
+                "suite entry {:?} has a fetch source but no dataset manifest",
+                entry.id
+            );
+            if let Some(FetchSource::Files { base_url }) = &entry.fetch {
+                ensure!(
+                    base_url.ends_with('/'),
+                    "suite entry {:?}: fetch base_url must end in `/`",
+                    entry.id
+                );
+            }
         }
         let root = path
             .parent()
@@ -178,6 +222,12 @@ impl Suite {
     /// Path of a synthetic entry's truth file.
     pub fn truth_path(&self, id: &str) -> PathBuf {
         self.root.join(Self::truth_rel(id))
+    }
+
+    /// Path of an image entry's fetch list: the files `suite fetch`
+    /// downloads and their SHA-256 digests, in `sha256sum` format.
+    pub fn fetch_list_path(&self, id: &str) -> PathBuf {
+        self.root.join("fetch").join(format!("{id}.sha256"))
     }
 
     /// Path of an entry's reference result.
@@ -271,7 +321,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 /// Parse `sha256sum` output: `<64 hex>  <path>` (text mode) or
 /// `<64 hex> *<path>` (binary mode) per line.
-fn parse_checksums(text: &str) -> Result<BTreeMap<String, String>> {
+pub(crate) fn parse_checksums(text: &str) -> Result<BTreeMap<String, String>> {
     let mut sums = BTreeMap::new();
     for (n, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
@@ -351,6 +401,67 @@ mod tests {
         assert_eq!(entry.config.as_ref().unwrap()["solver"]["max_iters"], 200);
         assert_eq!(entry.tolerance.rel, 1e-4);
         assert_eq!(entry.tolerance.abs, Tolerance::default().abs);
+    }
+
+    #[test]
+    fn fetch_sources_parse_and_need_a_manifest() {
+        let manifest: SuiteManifest = toml::from_str(
+            r#"
+            suite_version = "t"
+
+            [[entry]]
+            id = "a"
+            description = "d"
+            licence = "MIT"
+            manifest = "a/dataset.toml"
+            fetch = { kind = "zip", url = "https://example.org/a.zip", root = "A" }
+
+            [[entry]]
+            id = "b"
+            description = "d"
+            licence = "MIT"
+            manifest = "b/dataset.toml"
+            fetch = { kind = "files", base_url = "https://example.org/b/" }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            manifest.entries[0].fetch,
+            Some(FetchSource::Zip {
+                url: "https://example.org/a.zip".into(),
+                root: "A".into()
+            })
+        );
+        assert_eq!(
+            manifest.entries[1].fetch,
+            Some(FetchSource::Files {
+                base_url: "https://example.org/b/".into()
+            })
+        );
+
+        let dir =
+            std::env::temp_dir().join(format!("calib-suite-fetch-src-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let entry = "[[entry]]\nid = \"a\"\ndescription = \"d\"\nlicence = \"MIT\"\n";
+        for (extra, message) in [
+            (
+                "fetch = { kind = \"zip\", url = \"https://example.org/a.zip\" }\n",
+                "no dataset manifest",
+            ),
+            (
+                "manifest = \"a.toml\"\nfetch = { kind = \"files\", base_url = \"https://example.org/a\" }\n",
+                "must end in `/`",
+            ),
+        ] {
+            std::fs::write(
+                dir.join("suite.toml"),
+                format!("suite_version = \"t\"\n{entry}{extra}"),
+            )
+            .unwrap();
+            let err = Suite::load(&dir.join("suite.toml")).unwrap_err();
+            assert!(err.to_string().contains(message), "{err}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
