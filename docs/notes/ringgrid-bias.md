@@ -6,8 +6,8 @@ wrapping the external `ringgrid` crate; bench accept path
 `vision_calibration_bench::run::run_scheimpflug_intrinsics`).
 
 **Finding:** the six ring-grid cameras floor at ~0.46 px mean reprojection
-(committed baselines `rtv3d_ringgrid_cam*`: 0.42–0.51 px per camera), ~0.19 px
-above the puzzleboard sibling on the same rig (`rtv3d_ref_cam*`, ~0.27 px).
+(committed baselines `scheimpflug_rig_ringgrid_cam*`: 0.42–0.51 px per camera), ~0.19 px
+above the puzzleboard sibling on the same rig (`scheimpflug_rig_ref_cam*`, ~0.27 px).
 That floor is not the projected ellipse-center bias of the ring markers: the
 bias is ~0.09 px here and is removed inside the detector. The floor is
 small-marker localization noise, and the pipeline applies no correction.
@@ -110,7 +110,7 @@ Conclusion: the ring-grid floor is small-marker ellipse-fit / localization
 noise (markers a few pixels across, with the pencil amplifying edge-fit
 noise), not correctable projective ellipse-center bias.
 
-- **Gate:** `calib-bench accept` gates each `rtv3d_ringgrid_cam*` entry at
+- **Gate:** `calib-bench accept` gates each `scheimpflug_rig_ringgrid_cam*` entry at
   0.7 px (~1.4× the worst committed per-camera mean, 0.508 px).
 - **Diagnostic module + tests:** `ringgrid_bias.rs`
   (`conic_center_matches_sampled_ellipse_fit`,

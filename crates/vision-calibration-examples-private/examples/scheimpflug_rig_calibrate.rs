@@ -1,6 +1,6 @@
-//! End-to-end rig calibration on the rtv3d dataset.
+//! End-to-end rig calibration on the scheimpflug_rig dataset.
 //!
-//! The rtv3d sensor is six laser-plane-triangulation devices: each device is a
+//! The scheimpflug_rig sensor is six laser-plane-triangulation devices: each device is a
 //! Scheimpflug-optics camera plus a laser plane projector. A pose stores all
 //! six camera views as one 4320×540 horizontal strip (6 tiles of 720×540).
 //! The calibration target is a ChArUco 22×22 board (DICT_4X4_1000,
@@ -21,11 +21,11 @@
 //!    `artifacts.json` (camera 5 is degenerate there: fx=51, 127 px reproj).
 //!
 //! Environment:
-//! - `RTV3D_DATA_DIR`  — dataset directory (default `privatedata/rtv3d`).
+//! - `SCHEIMPFLUG_RIG_DATA_DIR`  — dataset directory (default `privatedata/scheimpflug_rig`).
 //! - `CELL_SIZE_MM`    — ChArUco cell pitch (default 5.2). The dataset ships
 //!   conflicting specs (4.8 vs 5.2); run both and let the extrinsic
 //!   translation norms / plane distances against the oracle discriminate.
-//! - `RTV3D_SEED`      — `spec` (default; intrinsics + rig extrinsics +
+//! - `SCHEIMPFLUG_RIG_SEED`      — `spec` (default; intrinsics + rig extrinsics +
 //!   hand-eye seeds derived from the dataset's `spec.json` device spec, ADR
 //!   0023), `generic` (bootstrap comparison path: fx=2000, centered pp, zero
 //!   tilt, unseeded rig/hand-eye init) or `oracle` (seed K/dist/tilt from
@@ -33,8 +33,8 @@
 //!   entry is degenerate).
 //!
 //! Run:
-//! `RTV3D_DATA_DIR=privatedata/rtv3d cargo run --manifest-path
-//! crates/vision-calibration-examples-private/Cargo.toml --example rtv3d_rig
+//! `SCHEIMPFLUG_RIG_DATA_DIR=privatedata/scheimpflug_rig cargo run --manifest-path
+//! crates/vision-calibration-examples-private/Cargo.toml --example scheimpflug_rig_calibrate
 //! --release`
 
 use anyhow::{Context, Result, anyhow};
@@ -74,7 +74,7 @@ const DICTIONARY: &str = "DICT_4X4_1000";
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("RTV3D_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig".to_string()),
     );
     let cell_size_mm: f64 = std::env::var("CELL_SIZE_MM")
         .ok()
@@ -82,17 +82,17 @@ fn main() -> Result<()> {
         .transpose()
         .context("CELL_SIZE_MM must be a number")?
         .unwrap_or(5.2);
-    let seed_mode = std::env::var("RTV3D_SEED").unwrap_or_else(|_| "spec".to_string());
+    let seed_mode = std::env::var("SCHEIMPFLUG_RIG_SEED").unwrap_or_else(|_| "spec".to_string());
     println!("data dir = {}", data_dir.display());
     println!("cell size = {cell_size_mm} mm, seed = {seed_mode}");
 
     // Device spec (ADR 0011) — required for the default `spec` seed mode;
-    // `RTV3D_SEED=generic|oracle` keeps the bootstrap comparison paths.
+    // `SCHEIMPFLUG_RIG_SEED=generic|oracle` keeps the bootstrap comparison paths.
     let spec: Option<DeviceSpec> = if seed_mode == "spec" {
         let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
         Some(DeviceSpec::from_path(&spec_path).with_context(|| {
             format!(
-                "load device spec {} (or set RTV3D_SEED=generic for the bootstrap path)",
+                "load device spec {} (or set SCHEIMPFLUG_RIG_SEED=generic for the bootstrap path)",
                 spec_path.display()
             )
         })?)
@@ -132,7 +132,7 @@ fn main() -> Result<()> {
 
     // ─── Stage 2: rig + scheimpflug + hand-eye ─────────────────────────────
     let handeye_dataset = RigDataset::new(detected.handeye_views.clone(), NUM_CAMERAS)?;
-    let mut rig_session = CalibrationSession::<RigHandeyeProblem>::with_description("rtv3d_rig");
+    let mut rig_session = CalibrationSession::<RigHandeyeProblem>::with_description("scheimpflug_rig_calibrate");
     rig_session.set_input(handeye_dataset)?;
 
     let manual_init = match &spec {
@@ -149,18 +149,18 @@ fn main() -> Result<()> {
     cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
     // EyeToHand: established by the empirical convention check (3× lower
     // rigid-robot hand-eye residual than EyeInHand, overruling the EyeInHand
-    // claim in `dataset.json`). `RTV3D_HANDEYE=eye_in_hand` re-runs that
+    // claim in `dataset.json`). `SCHEIMPFLUG_RIG_HANDEYE=eye_in_hand` re-runs that
     // comparison.
-    cfg.handeye_init.handeye_mode = match std::env::var("RTV3D_HANDEYE").as_deref() {
+    cfg.handeye_init.handeye_mode = match std::env::var("SCHEIMPFLUG_RIG_HANDEYE").as_deref() {
         Ok("eye_in_hand") => HandeyeMode::EyeInHand,
         _ => HandeyeMode::EyeToHand,
     };
-    // `RTV3D_REFINE_ROBOT=0` disables robot-pose deltas. With rigid robot
+    // `SCHEIMPFLUG_RIG_REFINE_ROBOT=0` disables robot-pose deltas. With rigid robot
     // poses the hand-eye residual is directly sensitive to the board scale,
     // which makes the cell-size A/B check sharp (robot translations anchor
     // absolute scale).
     cfg.handeye_optimize.robot_poses.refine =
-        std::env::var("RTV3D_REFINE_ROBOT").map_or(true, |v| v != "0");
+        std::env::var("SCHEIMPFLUG_RIG_REFINE_ROBOT").map_or(true, |v| v != "0");
     // Scheimpflug: both tilts free (the reference system also frees tau_x/tau_y;
     // oracle tilts reach 0.27 rad). Distortion: k1, k2 free; k3 + tangential
     // fixed, matching the reference config (`fix_k3: true, fix_tangent: true`).
@@ -242,7 +242,7 @@ fn main() -> Result<()> {
                     step_t.elapsed()
                 );
             }
-            // RTV3D_HANDEYE flipped the mode away from the spec's mount (the
+            // SCHEIMPFLUG_RIG_HANDEYE flipped the mode away from the spec's mount (the
             // convention comparison experiment) — fall back to the linear fit.
             // Any other derivation error means the spec is malformed: fail.
             Some(Err(e @ device_seed::DeviceSeedError::HandeyeModeMismatch { .. })) => {
@@ -348,7 +348,7 @@ fn main() -> Result<()> {
         };
 
         let mut laser_session =
-            CalibrationSession::<RigLaserlineDeviceProblem>::with_description("rtv3d_laser");
+            CalibrationSession::<RigLaserlineDeviceProblem>::with_description("scheimpflug_rig_laser");
         laser_session.set_input(laserline_input)?;
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
         laser_cfg.solver.max_iters = 200;
@@ -652,7 +652,7 @@ fn build_intrinsics_seed(
         "generic" => {}
         "oracle" => {
             let oracle =
-                oracle.ok_or_else(|| anyhow!("RTV3D_SEED=oracle requires artifacts.json"))?;
+                oracle.ok_or_else(|| anyhow!("SCHEIMPFLUG_RIG_SEED=oracle requires artifacts.json"))?;
             for (i, cam) in oracle.cameras.iter().enumerate().take(NUM_CAMERAS) {
                 // The oracle's cam 5 is degenerate (fx=51) — keep the generic
                 // seed there.
@@ -683,7 +683,7 @@ fn build_intrinsics_seed(
                 };
             }
         }
-        other => return Err(anyhow!("unknown RTV3D_SEED '{other}'")),
+        other => return Err(anyhow!("unknown SCHEIMPFLUG_RIG_SEED '{other}'")),
     }
 
     let mut manual_init = IntrinsicsManualInit::default();

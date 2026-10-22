@@ -134,7 +134,7 @@ stripes to **span the plane**:
 The intrinsics inherit the planar family's degeneracies.
 
 **Metric scale in the joint rig + hand-eye + laser BA.** On the six-camera
-`rtv3d` Scheimpflug rig, the camera-and-rig-only stage leaves a shallow
+`scheimpflug_rig` dataset, the camera-and-rig-only stage leaves a shallow
 direction trading overall rig scale against tilt, principal point and pose:
 its extrinsics come out ~10 % small (hexagon edges 88.9 ± 0.4 mm) with the
 shape intact. The joint BA, with the converged tilts frozen and the laser
@@ -170,7 +170,7 @@ Matrix test (6 views, `fx = fy = 900`, working distance 0.50–0.62 m):
 The reprojection column tracks `0.765·a` (0.115 / 0.230): the corners hit
 their noise floor and the plane is the only extra unknown.
 
-**Real-data anchor.** On the private `rtv3d` / `rtv3d_ref` Scheimpflug laser
+**Real-data anchor.** On the private `scheimpflug_rig` / `scheimpflug_rig_ref` Scheimpflug laser
 datasets the point-to-plane laser residual is **0.018–0.035 mm** at the
 working distance — plane consistency on real hardware (a fit-quality metric,
 not GT recovery).
@@ -191,7 +191,7 @@ not GT recovery).
   per-feature residuals zero on perfect data, residuals and the projected
   line under strong distortion, pose-count guard); the `factors::laserline`
   rig-chain tests above.
-- **Acceptance gate**: `calib-bench accept` on `rtv3d` (rig hand-eye, then
+- **Acceptance gate**: `calib-bench accept` on `scheimpflug_rig` (rig hand-eye, then
   the joint rig + hand-eye + laser solve when built with the `laser`
   feature); the gate is per-camera reprojection (≤ 2.5 px) — the laser
   residual is recorded, not gated.

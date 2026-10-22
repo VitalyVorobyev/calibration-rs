@@ -403,13 +403,13 @@ mod tests {
     /// `docs/notes/ringgrid-bias.md`.
     #[cfg(feature = "tier-b")]
     #[test]
-    #[ignore = "needs privatedata/rtv3d_ringgrid + tier-b"]
+    #[ignore = "needs privatedata/scheimpflug_rig_ringgrid + tier-b"]
     fn diagnose_private_ringgrid() {
         use crate::registry::load_registry;
         use crate::run::{detect_scheimpflug_seeded_input, solve_scheimpflug_seeded};
         use std::path::PathBuf;
 
-        // Board spec (privatedata/rtv3d_ringgrid/board_ringgrid.json).
+        // Board spec (privatedata/scheimpflug_rig_ringgrid/board_ringgrid.json).
         const R_OUTER_M: f64 = 0.0048;
         const R_INNER_M: f64 = 0.0032;
 
@@ -437,12 +437,12 @@ mod tests {
             "r(rad)"
         );
         for id in [
-            "rtv3d_ringgrid_cam0",
-            "rtv3d_ringgrid_cam1",
-            "rtv3d_ringgrid_cam2",
-            "rtv3d_ringgrid_cam3",
-            "rtv3d_ringgrid_cam4",
-            "rtv3d_ringgrid_cam5",
+            "scheimpflug_rig_ringgrid_cam0",
+            "scheimpflug_rig_ringgrid_cam1",
+            "scheimpflug_rig_ringgrid_cam2",
+            "scheimpflug_rig_ringgrid_cam3",
+            "scheimpflug_rig_ringgrid_cam4",
+            "scheimpflug_rig_ringgrid_cam5",
         ] {
             let mut entry = reg.find(id).expect("entry present").clone();
             if entry.data_root.is_relative() {

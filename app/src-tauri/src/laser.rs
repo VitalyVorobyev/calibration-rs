@@ -13,7 +13,7 @@ use vision_metrology::{
 
 /// Subpixel DoG-edge laser-line extractor wrapping
 /// `vision_metrology::LaserExtractor` — the implementation validated
-/// against the rtv3d oracle in the V-track.
+/// against the scheimpflug_rig oracle in the V-track.
 pub struct VmLaserExtractor;
 
 impl LaserPixelExtractor for VmLaserExtractor {

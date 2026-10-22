@@ -157,7 +157,7 @@ fn run_pipeline(
 /// angular diversity to make a ≈−5° sensor tilt observable. Translation centers
 /// the board on the optical axis (its origin is a corner, so shift by half its
 /// extent) at ~0.45–0.54 m.
-fn rtv3d_like_poses() -> Vec<Iso3> {
+fn scheimpflug_rig_like_poses() -> Vec<Iso3> {
     let (bx, by) = (-0.125, -0.10);
     let specs = [
         (0.0, 0.0, 0.45, 0.0, 0.0, 0.0),
@@ -184,12 +184,12 @@ fn rtv3d_like_poses() -> Vec<Iso3> {
         .collect()
 }
 
-/// rtv3d_ref-like synthetic dataset: strong radial distortion (k1 ≈ −0.43) plus
+/// scheimpflug_rig_ref-like synthetic dataset: strong radial distortion (k1 ≈ −0.43) plus
 /// a ≈−5° Scheimpflug tilt — the regime where Zhang-from-scratch underestimates
 /// the focal and the LM settles into a wrong tilt/focal basin (see ADR 0011).
 /// Returns the dataset and the ground-truth intrinsics /
 /// distortion / sensor for recovery checks.
-fn make_rtv3d_like_dataset() -> (
+fn make_scheimpflug_rig_like_dataset() -> (
     PlanarDataset,
     FxFyCxCy<f64>,
     BrownConrady5<f64>,
@@ -223,7 +223,7 @@ fn make_rtv3d_like_dataset() -> (
         }
     }
 
-    let views = rtv3d_like_poses()
+    let views = scheimpflug_rig_like_poses()
         .into_iter()
         .map(|pose| {
             let mut points_3d = Vec::new();
@@ -247,7 +247,7 @@ fn make_rtv3d_like_dataset() -> (
 }
 
 /// The **supported** Scheimpflug workflow (ADR 0011): a *coarse*
-/// user-provided focal seed, refined to the true optimum. On this rtv3d-like
+/// user-provided focal seed, refined to the true optimum. On this scheimpflug_rig-like
 /// strong-tilt + strong-distortion data, from-scratch Zhang lands in a wrong
 /// basin; a coarse focal seed (≈9 % low, principal point at image center, no
 /// distortion, no tilt) must converge well under the 0.5 px gate and recover the
@@ -255,7 +255,7 @@ fn make_rtv3d_like_dataset() -> (
 /// sweep finds the tilt.
 #[test]
 fn seeded_coarse_prior_converges_on_strong_tilt_distortion() {
-    let (dataset, gt_intr, _gt_dist, gt_sensor) = make_rtv3d_like_dataset();
+    let (dataset, gt_intr, _gt_dist, gt_sensor) = make_scheimpflug_rig_like_dataset();
 
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_input(dataset).expect("input");

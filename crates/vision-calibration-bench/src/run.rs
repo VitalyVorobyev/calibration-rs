@@ -179,7 +179,7 @@ pub mod tier_b {
         pub max_stage_ms: u64,
     }
 
-    /// Private rtv3d-focused per-camera intrinsics diagnostic report.
+    /// Private scheimpflug_rig-focused per-camera intrinsics diagnostic report.
     #[derive(Debug, Clone, serde::Serialize)]
     pub struct IntrinsicsDiagnoseReport {
         /// Dataset id.
@@ -1171,8 +1171,8 @@ pub mod tier_b {
                 })?;
             config.manual_init = Some(manual);
         }
-        if config.manual_init.is_none() && entry.id == "rtv3d" {
-            config.manual_init = Some(rtv3d_manual_intrinsics_seed(&spec));
+        if config.manual_init.is_none() && entry.id == "scheimpflug_rig" {
+            config.manual_init = Some(scheimpflug_rig_manual_intrinsics_seed(&spec));
             config.intrinsics.fix_tangential = Some(true);
         }
         let robot_rot_sigma = config.handeye_optimize.robot_poses.rot_sigma;
@@ -2223,7 +2223,7 @@ pub mod tier_b {
         image::open(path).with_context(|| format!("failed to load {}", path.display()))
     }
 
-    fn rtv3d_manual_intrinsics_seed(spec: &DatasetSpec) -> RigIntrinsicsManualInit {
+    fn scheimpflug_rig_manual_intrinsics_seed(spec: &DatasetSpec) -> RigIntrinsicsManualInit {
         let (cx, cy) = spec
             .cameras
             .first()

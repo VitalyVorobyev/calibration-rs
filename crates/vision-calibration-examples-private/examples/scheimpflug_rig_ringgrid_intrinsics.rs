@@ -1,15 +1,15 @@
 //! Per-camera Scheimpflug **intrinsics** calibration on the private
-//! `rtv3d_ringgrid` dataset (a 6-camera Scheimpflug rig captured against a
+//! `scheimpflug_rig_ringgrid` dataset (a 6-camera Scheimpflug rig captured against a
 //! coded **ring-grid** target) from a coarse, user-provided seed — the
 //! supported Scheimpflug workflow (ADR 0011).
 //!
 //! This is the fast per-camera debug loop for the ring-grid target: it detects
 //! the ring-grid in every camera tile, then runs a seeded per-camera intrinsics
-//! solve. Unlike the puzzleboard `rtv3d_ref_intrinsics` companion, the
-//! `rtv3d_ringgrid` dataset ships **no `artifacts.json` oracle** (it is a
+//! solve. Unlike the puzzleboard `scheimpflug_rig_ref_intrinsics` companion, the
+//! `scheimpflug_rig_ringgrid` dataset ships **no `artifacts.json` oracle** (it is a
 //! different physical rig), so there is nothing to seed from and no per-camera
 //! reference intrinsics to compare against. For quality context only, the
-//! puzzleboard `rtv3d_ref` oracle's per-camera reprojection error is loaded
+//! puzzleboard `scheimpflug_rig_ref` oracle's per-camera reprojection error is loaded
 //! read-only as a baseline column when available.
 //!
 //! Why seeded, not from scratch? On Scheimpflug data (strong radial distortion
@@ -23,19 +23,19 @@
 //! Run:
 //! `cargo run --release --manifest-path
 //! crates/vision-calibration-examples-private/Cargo.toml --example
-//! rtv3d_ringgrid_intrinsics`
+//! scheimpflug_rig_ringgrid_intrinsics`
 //!
 //! Env:
-//! - `RTV3D_RINGGRID_DATA_DIR` (default `privatedata/rtv3d_ringgrid`). Must
+//! - `SCHEIMPFLUG_RIG_RINGGRID_DATA_DIR` (default `privatedata/scheimpflug_rig_ringgrid`). Must
 //!   contain a `spec.json` device spec (gitignored, like the rest of
 //!   `privatedata/`).
-//! - `RTV3D_RINGGRID_RING_WIDTH_MM` — coded-band width override (default: board
+//! - `SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM` — coded-band width override (default: board
 //!   manifest value, else `1.152`). A decode-tuning knob.
-//! - `RTV3D_RINGGRID_MAXITERS` (default `120`).
-//! - `RTV3D_RINGGRID_DETECT_ONLY` — set to `1` to print per-camera detection
+//! - `SCHEIMPFLUG_RIG_RINGGRID_MAXITERS` (default `120`).
+//! - `SCHEIMPFLUG_RIG_RINGGRID_DETECT_ONLY` — set to `1` to print per-camera detection
 //!   density and exit before solving (fast detection probe).
-//! - `RTV3D_PUZZLE_REF_DIR` — puzzleboard oracle dir for the baseline column
-//!   (default `privatedata/rtv3d_ref`; skipped if absent).
+//! - `SCHEIMPFLUG_RIG_PUZZLE_REF_DIR` — puzzleboard oracle dir for the baseline column
+//!   (default `privatedata/scheimpflug_rig_ref`; skipped if absent).
 //! - `Q4_DISTORTION_SWEEP=1` — after the gated run, re-run the same seeded
 //!   route once per distortion model (BrownConrady5, Rational8, ThinPrism9,
 //!   Division1) and print a per-camera / per-model mean-reprojection table.
@@ -85,18 +85,18 @@ fn env_f64(key: &str, default: f64) -> f64 {
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("RTV3D_RINGGRID_DATA_DIR")
-            .unwrap_or_else(|_| "privatedata/rtv3d_ringgrid".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_RINGGRID_DATA_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig_ringgrid".to_string()),
     );
-    let max_iters: usize = std::env::var("RTV3D_RINGGRID_MAXITERS")
+    let max_iters: usize = std::env::var("SCHEIMPFLUG_RIG_RINGGRID_MAXITERS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(120);
-    let detect_only = std::env::var("RTV3D_RINGGRID_DETECT_ONLY").as_deref() == Ok("1");
+    let detect_only = std::env::var("SCHEIMPFLUG_RIG_RINGGRID_DETECT_ONLY").as_deref() == Ok("1");
 
     let board: BoardRinggridSpec = load_ringgrid_board(&data_dir.join("board_ringgrid.json"))
         .context("load ring-grid board manifest")?;
-    let ring_width_mm = env_f64("RTV3D_RINGGRID_RING_WIDTH_MM", board.ring_width_mm());
+    let ring_width_mm = env_f64("SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM", board.ring_width_mm());
 
     println!("data dir = {}", data_dir.display());
     println!(
@@ -135,7 +135,7 @@ fn main() -> Result<()> {
         println!("  {c:>3} | {v:>5} | {m:>7} | {per:>7.1}");
     }
     if detect_only {
-        println!("\nRTV3D_RINGGRID_DETECT_ONLY=1 → stopping after detection.");
+        println!("\nSCHEIMPFLUG_RIG_RINGGRID_DETECT_ONLY=1 → stopping after detection.");
         return Ok(());
     }
 
@@ -227,8 +227,8 @@ fn main() -> Result<()> {
 
     // Optional puzzleboard quality baseline (different rig — context only).
     let puzzle_ref_dir = PathBuf::from(
-        std::env::var("RTV3D_PUZZLE_REF_DIR")
-            .unwrap_or_else(|_| "privatedata/rtv3d_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_PUZZLE_REF_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
     let puzzle_reproj: Option<Vec<f64>> =
         load_ref_artifacts(&puzzle_ref_dir.join("artifacts.json"))
@@ -266,7 +266,7 @@ fn main() -> Result<()> {
     } else if solved == 0 {
         Err(anyhow!(
             "no camera produced enough ring-grid views to solve — tune detection \
-             (RTV3D_RINGGRID_RING_WIDTH_MM) or check the dataset"
+             (SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM) or check the dataset"
         ))
     } else {
         let list = failed
@@ -415,7 +415,7 @@ fn report(results: &[Option<CamResult>], puzzle_reproj: Option<&[f64]>) {
 
     println!("\n── Per-camera mean reprojection: ring-grid (this rig) vs puzzleboard baseline ──");
     println!(
-        "  (different rig — baseline is the rtv3d_ref puzzleboard oracle, quality context only)"
+        "  (different rig — baseline is the scheimpflug_rig_ref puzzleboard oracle, quality context only)"
     );
     println!("  cam | ringgrid_reproj | puzzle_ref_reproj | gate");
     for (i, r) in results.iter().enumerate() {

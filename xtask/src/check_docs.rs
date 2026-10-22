@@ -24,13 +24,37 @@ struct Rule {
     pattern: Regex,
     /// Whether the rule applies to the CHANGELOG too.
     in_changelog: bool,
+    /// FNV-1a hashes of lowercase words the rule also forbids, for names
+    /// that must not appear in the repository even as a pattern.
+    words: &'static [u64],
 }
+
+impl Rule {
+    fn is_match(&self, line: &str) -> bool {
+        self.pattern.is_match(line)
+            || (!self.words.is_empty()
+                && line
+                    .split(|c: char| !c.is_ascii_alphanumeric())
+                    .any(|w| self.words.contains(&fnv1a(&w.to_ascii_lowercase()))))
+    }
+}
+
+/// 64-bit FNV-1a.
+fn fnv1a(word: &str) -> u64 {
+    word.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// Private dataset names, hashed with [`fnv1a`].
+const PRIVATE_NAMES: &[u64] = &[0xa66f_2c75_ae39_41e0];
 
 fn rules() -> Vec<Rule> {
     let rule = |name, pattern: &str| Rule {
         name,
         pattern: Regex::new(pattern).expect("static regex"),
         in_changelog: true,
+        words: &[],
     };
     vec![
         rule("ADR reference", r"\bADRs?\b"),
@@ -38,10 +62,13 @@ fn rules() -> Vec<Rule> {
             "dev-docs path",
             r"(docs/|\.\./)(adrs|notes|internal)\b|\bbacklog\.md|\bROADMAP\.md",
         ),
-        rule(
-            "private dataset",
-            r"privatedata|rtv3d|examples-private|(?i:puzzle 130|130×130 rig)",
-        ),
+        Rule {
+            words: PRIVATE_NAMES,
+            ..rule(
+                "private dataset",
+                r"privatedata|examples-private|(?i:puzzle 130|130×130 rig)",
+            )
+        },
         rule(
             "backlog id",
             r"\b[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]+(-[A-Z0-9]+)*\b",
@@ -87,7 +114,7 @@ pub fn run(root: &Path) -> Result<()> {
             }
             let changelog = file.path.ends_with("CHANGELOG.md");
             for rule in &rules {
-                if (rule.in_changelog || !changelog) && rule.pattern.is_match(line) {
+                if (rule.in_changelog || !changelog) && rule.is_match(line) {
                     findings.push(format!(
                         "{}:{}: [{}] {}",
                         rel(root, &file.path),
@@ -263,7 +290,7 @@ mod tests {
     fn flagged_by(line: &str) -> Vec<&'static str> {
         rules()
             .into_iter()
-            .filter(|r| r.pattern.is_match(line))
+            .filter(|r| r.is_match(line))
             .map(|r| r.name)
             .collect()
     }
@@ -274,7 +301,7 @@ mod tests {
             ("See ADR 0012 for the schema.", "ADR reference"),
             ("[proof](../notes/rig-extrinsics.md)", "dev-docs path"),
             ("details in docs/internal/plan.md", "dev-docs path"),
-            ("measured on privatedata/rtv3d", "private dataset"),
+            ("measured on privatedata/rig", "private dataset"),
             ("tracked as P3-BACKEND-COST", "backlog id"),
             ("blocked by CHORE-DEPS", "backlog id"),
             ("see AGENTS.md for the workflow", "agent workflow"),
@@ -293,6 +320,19 @@ mod tests {
         for (line, rule) in cases {
             assert!(flagged_by(line).contains(&rule), "{rule} missed: {line}");
         }
+    }
+
+    #[test]
+    fn hashed_words_flag_whole_words_in_any_case() {
+        let words: &'static [u64] = Box::leak(Box::new([fnv1a("hidden")]));
+        let rule = Rule {
+            name: "private dataset",
+            pattern: Regex::new("^$").expect("static regex"),
+            in_changelog: true,
+            words,
+        };
+        assert!(rule.is_match("measured on the Hidden_ref set"));
+        assert!(!rule.is_match("a hiddenness of the set"));
     }
 
     #[test]

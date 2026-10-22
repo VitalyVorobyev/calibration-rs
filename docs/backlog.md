@@ -301,8 +301,8 @@ into the new structure. ADR 0014 is rewritten with APP-SHELL.
 
 - [ ] P2-BA-DENSITY - Corner budget for the joint rig + hand-eye BA
   (spatially distributed subsample, or per-stage decimation). Schedule only
-  if the acceptance run for the six-camera rtv3d rig exceeds ~5 min.
-- [~] V7-RTV3D-INTRINSICS-FLOOR - Drive the rtv3d from-scratch reprojection
+  if the acceptance run for the six-camera `scheimpflug_rig` dataset exceeds ~5 min.
+- [~] V7-SCHEIMPFLUG-RIG-INTRINSICS-FLOOR - Drive the scheimpflug_rig from-scratch reprojection
   floor below 0.4 px. The blocking term is in the detector/target/model,
   not the rig chain; seeded init is the official route. Parked by the
   maintainer; reopen only on their request.
