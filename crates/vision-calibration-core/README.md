@@ -73,11 +73,12 @@ Implement `Estimator` for your model, then fit robustly:
 use vision_calibration_core::{Estimator, RansacOptions, ransac_fit};
 
 # fn fit<E: Estimator>(data: &[E::Datum]) {
+// `thresh` is required and is in the estimator's residual unit; the
+// remaining fields default (fixed seed, so runs are deterministic).
 let opts = RansacOptions {
     max_iters: 1000,
-    thresh: 3.0,
     min_inliers: 10,
-    ..RansacOptions::default() // deterministic: fixed seed
+    ..RansacOptions::new(3.0)
 };
 let result = ransac_fit::<E>(data, &opts);
 if result.success {

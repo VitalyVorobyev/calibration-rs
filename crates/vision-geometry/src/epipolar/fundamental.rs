@@ -212,13 +212,27 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 
 /// Robust fundamental matrix estimation using the 8-point algorithm inside RANSAC.
 ///
-/// Returns the best model and the indices of inliers. The residual uses an
-/// approximate symmetric epipolar distance in pixels.
+/// Returns the best model and the indices of inliers.
+///
+/// **Threshold unit:** `opts.thresh` is compared with the (non-squared)
+/// Sampson distance of a correspondence to the model, in the unit of the input
+/// points: pixels for pixel coordinates, or the normalized image plane for
+/// normalized ones (a pixel threshold `t` is `t / f` there).
+///
+/// # Errors
+///
+/// [`GeometryError::InvalidInput`] if `opts.thresh` is not finite and
+/// positive, [`GeometryError::InsufficientData`] for fewer than 8
+/// correspondences, [`GeometryError::CountMismatch`] for unequal slices and
+/// [`GeometryError::NoConsensus`] if no model reaches `opts.min_inliers`.
 pub fn fundamental_8point_ransac(
     pts1: &[Pt2],
     pts2: &[Pt2],
     opts: &RansacOptions,
 ) -> Result<(Mat3, Vec<usize>)> {
+    opts.validate().map_err(|e| GeometryError::InvalidInput {
+        reason: e.to_string(),
+    })?;
     let n = pts1.len();
     if n < 8 {
         return Err(GeometryError::InsufficientData { need: 8, got: n });

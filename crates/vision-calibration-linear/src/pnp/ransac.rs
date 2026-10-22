@@ -12,14 +12,20 @@ use vision_calibration_core::{
 
 /// Robust PnP using DLT inside a RANSAC loop.
 ///
-/// Returns the best pose and inlier indices. The residual is pixel
-/// reprojection error using the provided intrinsics.
+/// Returns the best pose and inlier indices.
+///
+/// **Threshold unit:** `opts.thresh` is compared with the (non-squared) pixel
+/// reprojection error `|project(K, pose * X) - x|` under the provided
+/// intrinsics `k`.
 pub fn dlt_ransac(
     world: &[Pt3],
     image: &[Pt2],
     k: &FxFyCxCy<Real>,
     opts: &RansacOptions,
 ) -> Result<(Iso3, Vec<usize>), Error> {
+    opts.validate().map_err(|e| Error::InvalidInput {
+        reason: e.to_string(),
+    })?;
     let n = world.len();
     if n < 6 || image.len() != n {
         return Err(Error::InsufficientData { need: 6, got: n });

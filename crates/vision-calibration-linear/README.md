@@ -55,7 +55,7 @@ let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
 let pose = PnpSolver::dlt(&world, &image, &k)?;
 
 // DLT inside RANSAC for outlier rejection
-let (pose, inliers) = PnpSolver::dlt_ransac(&world, &image, &k, &RansacOptions::default())?;
+let (pose, inliers) = PnpSolver::dlt_ransac(&world, &image, &k, &RansacOptions::new(2.0))?; // threshold: pixels
 # Ok(())
 # }
 ```

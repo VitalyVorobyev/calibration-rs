@@ -171,13 +171,26 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
 
 /// Estimate a homography using DLT inside a RANSAC loop.
 ///
-/// Returns the best homography and the indices of inliers. The residual is
-/// Euclidean reprojection error.
+/// Returns the best homography and the indices of inliers.
+///
+/// **Threshold unit:** `opts.thresh` is compared with the (non-squared)
+/// forward transfer error `|H src - dst|`, the Euclidean distance in the unit
+/// of `dst` (pixels for image points).
+///
+/// # Errors
+///
+/// [`GeometryError::InvalidInput`] if `opts.thresh` is not finite and
+/// positive, [`GeometryError::InsufficientData`] for fewer than 4
+/// correspondences, [`GeometryError::CountMismatch`] for unequal slices and
+/// [`GeometryError::NoConsensus`] if no model reaches `opts.min_inliers`.
 pub fn dlt_homography_ransac(
     src: &[Pt2],
     dst: &[Pt2],
     opts: &RansacOptions,
 ) -> Result<(Mat3, Vec<usize>)> {
+    opts.validate().map_err(|e| GeometryError::InvalidInput {
+        reason: e.to_string(),
+    })?;
     let n = src.len();
     if n < 4 {
         return Err(GeometryError::InsufficientData { need: 4, got: n });

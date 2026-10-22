@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: `RansacOptions` has no `Default` and no default threshold. The
+  old `thresh: 2.0` was a pixel-scale value that silently disabled outlier
+  rejection for the estimators measuring on the normalized image plane.
+  Build options with `RansacOptions::new(thresh)`; the other fields keep their
+  values, so `RansacOptions { max_iters: 500, ..RansacOptions::new(t) }`
+  still works. A threshold that is not finite and positive is an
+  `InvalidInput` error from every estimator. `thresh` is a distance (never a
+  squared one) in each estimator's unit: `dlt_ransac` (PnP) and
+  `dlt_homography_ransac` pixels; `fundamental_8point_ransac` the Sampson
+  distance in the unit of the input points; `mvg::robust::estimate_essential`
+  and `recover_relative_pose_robust` the Sampson distance on the normalized
+  image plane (a pixel threshold `t` is `t / f` for a focal length `f` in
+  pixels); `mvg::robust::estimate_homography` the symmetric transfer error in
+  the unit of the points. Migration: replace `RansacOptions::default()` with
+  `RansacOptions::new(t)` using the unit above (`2.0` reproduces the old pixel
+  behaviour; use e.g. `1.0e-3` for the essential matrix).
+
 - Breaking: per-point weights are replaced by per-point covariances.
   `CorrespondenceView` loses `weights`, `new_with_weights`, `weight(idx)`
   and `iter_weighted`; a view states an optional covariance per point

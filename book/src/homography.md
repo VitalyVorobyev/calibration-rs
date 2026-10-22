@@ -82,9 +82,8 @@ let H = dlt_homography(&world_2d, &image_2d)?;
 // With RANSAC
 let opts = RansacOptions {
     max_iters: 1000,
-    thresh: 3.0,   // pixels
     confidence: 0.99,
-    ..Default::default()
+    ..RansacOptions::new(3.0)   // threshold in pixels (forward transfer error)
 };
 let (H, inliers) = dlt_homography_ransac(&world_2d, &image_2d, &opts)?;
 ```

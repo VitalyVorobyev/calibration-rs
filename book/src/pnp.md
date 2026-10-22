@@ -93,7 +93,7 @@ Both solvers have RANSAC variants for handling outliers:
 // DLT PnP + RANSAC
 let (pose, inliers) = dlt_ransac(
     &world_pts, &image_pts, &K,
-    &RansacOptions { thresh: 5.0, ..Default::default() }
+    &RansacOptions::new(5.0) // pixel reprojection error
 )?;
 ```
 
