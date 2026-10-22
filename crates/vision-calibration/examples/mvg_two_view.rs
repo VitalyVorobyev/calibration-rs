@@ -1,8 +1,7 @@
 //! Two-view multiple-view geometry through the facade `mvg` module.
 //!
-//! Companion runnable example for
-//! [`docs/tutorials/multiple-view-geometry.md`]. It walks the
-//! facade-exposed MVG surface end-to-end on a synthetic calibrated stereo pair
+//! Companion runnable example for the book's multiple-view geometry part. It
+//! walks the facade-exposed MVG surface end-to-end on a synthetic calibrated stereo pair
 //! with known ground truth:
 //!
 //! 1. relative pose recovery (5-point + cheirality) — `mvg::pose_recovery`

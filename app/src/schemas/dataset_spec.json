@@ -513,7 +513,7 @@
           "type": "object"
         },
         {
-          "description": "Puzzleboard target (calib-targets crate). Layout is fully\ndescribed by the named variant in calib-targets; the manifest\njust carries the discriminator.",
+          "description": "Puzzleboard target: a self-identifying chessboard. The layout name\ncarries the board's dimensions, so the manifest fully determines\ndetection.",
           "properties": {
             "cell_size_m": {
               "description": "Edge length of one cell in metres.",
@@ -525,7 +525,7 @@
               "type": "string"
             },
             "layout": {
-              "description": "Named layout (e.g. `\"puzzle_130x130\"`).",
+              "description": "Board dimensions as `puzzle_<rows>x<cols>` (e.g.\n`\"puzzle_12x12\"`; the `puzzle_` prefix is optional).",
               "type": "string"
             }
           },
@@ -682,7 +682,7 @@
       "type": "array"
     },
     "cameras": {
-      "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (e.g. `Topology::Mono` requires exactly\none entry).",
+      "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (a single-camera topology requires exactly\none entry, a rig topology at least two).",
       "items": {
         "$ref": "#/$defs/CameraSource"
       },
@@ -737,7 +737,7 @@
           "type": "null"
         }
       ],
-      "description": "How per-camera images are paired across views (and optionally\nwith robot poses). `None` is permitted only for `Topology::Mono`\nwhere pose-pairing is irrelevant."
+      "description": "How per-camera images are paired across views (and optionally\nwith robot poses). `None` is permitted only where pairing is\nirrelevant: a single camera without robot poses."
     },
     "robot_poses": {
       "anyOf": [

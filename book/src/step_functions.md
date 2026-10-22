@@ -66,7 +66,7 @@ step_optimize(&mut session, None)?;
 
 ## Manual Seeds
 
-Every problem with an initialization step also has a `*_with_seed` variant (for example `step_init_with_seed` taking an `IntrinsicsManualInit`) that accepts a coarse prior for some parameters and auto-estimates the rest. The plain `step_init` is the same call with an empty seed.
+Every problem with an initialization step also has a `*_with_seed` variant (for example `step_init_with_seed` taking an `IntrinsicsManualInit`) that accepts a coarse prior for some parameters and auto-estimates the rest. The plain `step_init` is the same call with an empty seed. [Seeding with Prior Knowledge](manual_init.md) walks through the seed types with a runnable example.
 
 ## Names
 

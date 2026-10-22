@@ -1,7 +1,7 @@
 //! `check-docs`: user-facing documentation carries no internal references.
 //!
 //! User-facing means the root README and CHANGELOG, the app README, the
-//! book, the tutorials, and — for every crate that is published — its
+//! book, and — for every crate that is published — its
 //! README, its rustdoc (`//!` and `///` lines) and, for the Python package,
 //! its Python sources. Dev-facing material (ADRs, proof notes, the roadmap,
 //! the backlog, agent files) may be cited only from dev-facing docs.
@@ -131,7 +131,7 @@ fn user_facing_files(root: &Path) -> Result<Vec<DocFile>> {
     for name in ["README.md", "CHANGELOG.md", "app/README.md"] {
         push_md(root.join(name));
     }
-    for dir in ["book/src", "docs/tutorials"] {
+    for dir in ["book/src"] {
         for path in walk(&root.join(dir), &["md"])? {
             push_md(path);
         }

@@ -194,7 +194,7 @@ that is deliberately Rust-only is recorded as such in the binding parity
 check, with the reason.
 
 **User-facing docs never cite internal material.** User-facing means the
-READMEs (root, crates, `app/README.md`), `book/src`, `docs/tutorials`, the
+READMEs (root, crates, `app/README.md`), `book/src`, the
 CHANGELOG, published crates' rustdoc, and the Python package. They must not
 mention ADRs, `docs/notes` / `docs/internal` / backlog / roadmap paths,
 backlog or track IDs, PR numbers, private datasets, or agent files, and they
@@ -238,8 +238,7 @@ paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
      it is empty).
   2. Add a user-visible change to `CHANGELOG.md` under `[Unreleased]`.
   3. Update the documentation next to the code: rustdoc, ADRs (`docs/adrs/`)
-     for design decisions, tutorials (`docs/tutorials/`) and the book
-     (`book/`) for user-facing features.
+     for design decisions, and the book (`book/`) for user-facing features.
 * The commit message and PR description carry the rest (what landed, why,
   tests run). Do not write per-task report files.
 * Documentation states the current design. Do not narrate history and do not

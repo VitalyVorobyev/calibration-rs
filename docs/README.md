@@ -2,7 +2,7 @@
 
 What the project is building next, why it is built the way it is, and how
 to release it. User documentation lives elsewhere: the book (`book/`), the
-crate READMEs, and the walkthroughs in [`tutorials/`](tutorials/README.md).
+and the crate READMEs. The book is the one user guide.
 
 | Path | Holds |
 |---|---|

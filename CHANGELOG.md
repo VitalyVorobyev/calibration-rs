@@ -457,6 +457,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   puzzleboard rig the new decoder recovers up to 11 % more corners per
   camera. The app moves to Tauri 2.12.1.
 
+- The book is the one user guide. The walkthroughs of `docs/tutorials/` are
+  merged into it (Seeding with Prior Knowledge, Per-Feature Residuals,
+  Choosing a Distortion Model, Laser Datasets and the multiple-view geometry
+  and desktop-app parts) and the directory is gone. New: Getting Started with
+  Rust and Python side by side, Calibration Targets and Detection, The
+  Dataset Manifest with a field reference generated from its JSON schema
+  (`cargo xtask emit-schemas` writes it, `--check` verifies it), the
+  Uncertainty part split into four chapters, and Multiple-View Geometry
+  chapters for pose recovery, bundle adjustment, rectification and dense
+  stereo. The Python README gains an uncertainty section.
+
 ### Fixed
 
 - **Laser residuals in pixels are the ones the solve minimizes.**

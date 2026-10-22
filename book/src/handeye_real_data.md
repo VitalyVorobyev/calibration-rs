@@ -76,13 +76,33 @@ The example reports:
 2. Per-step results (initialization, optimization)
 3. Final calibrated parameters (intrinsics, distortion, hand-eye transform, target pose)
 
+Output on `data/kuka_1/` (30 chessboard views, eye-in-hand, the default mode), abridged:
+
+```text
+--- Step 2: Intrinsics Optimization ---
+  Intrinsics: fx=2057.8, fy=2058.4, cx=962.1, cy=609.9
+  Reprojection error: 0.1346 px
+
+--- Step 3: Hand-Eye Initialization (Tsai-Lenz) ---
+  Hand-eye |t|: 0.2806m
+
+--- Step 4: Hand-Eye Optimization ---
+  Final reprojection error: 0.1359 px
+
+Robot pose refinements (30 views):
+  Max rotation delta: 0.0025 rad (0.14°)
+  Max translation delta: 0.0012m (1.22mm)
+```
+
+The joint hand-eye error stays close to the intrinsics-only error: every view is explained through one shared `gripper_se3_camera` and one shared `base_se3_target`, and the small per-view robot-pose corrections (about 0.14° and 1.2 mm at most) absorb the kinematic noise. A hand-eye error far above the intrinsics-only error points at robot-pose noise, mechanical play or a wrong pose convention.
+
 ## Interpreting Results
 
 Key outputs of the export (eye-in-hand):
 
 - **Hand-eye transform** (`gripper_se3_camera`): translation magnitude should match the physical camera-to-gripper distance. Rotation should reflect the mounting orientation.
 - **Target in base** (`base_se3_target`): the calibration board's position in the robot base frame. Verify against the known physical setup.
-- **Reprojection error** (`mean_reproj_error`): <1 px indicates a good calibration. >3 px suggests problems.
+- **Reprojection error** (`mean_reproj_error`): under 1 px indicates a good calibration; above 3 px suggests problems.
 
 ## Common Failure Modes
 
