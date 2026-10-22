@@ -604,7 +604,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detections it left out in `rejected` (`RejectedDetection`: camera, image,
   `RejectReason::{TooFewFeatures, PartialChessboard, TurnedChessboard}`),
   and a camera left with no whole-board view fails with
-  `RunError::NoWholeChessboardViews` before any solve. A board seen upside
+  `RunError::NoWholeChessboardViews` before any solve. In Python the run
+  results carry `rejected` as `dataset_runner.RejectedDetection` with the
+  reason in snake case, and the error is `RunError` with `kind`
+  `"no_whole_chessboard_views"`. A board seen upside
   down, or a square board seen turned by 90°, cannot be told from an
   upright one: capture the board the same way up in every view, or use a
   ChArUco or PuzzleBoard target for partial views.

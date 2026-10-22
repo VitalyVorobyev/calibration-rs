@@ -136,6 +136,18 @@ class ManifestRunTest(unittest.TestCase):
             self.assertAlmostEqual(k.fy, _images.FY, delta=0.03 * _images.FY)
             self.assertLess(result.mean_reproj_error, 0.5)
 
+    def test_left_out_views_carry_their_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spec = _images.write_planar_dataset(root, views=4)
+            _images.write_png(root / "view_99.png", np.full((480, 640), 128, dtype=np.uint8))
+            run = dataset_runner.build_planar_input(spec, base_dir=root)
+            self.assertEqual((run.usable_views, run.total_views), (4, 5))
+            self.assertEqual(len(run.rejected), 1)
+            left_out = run.rejected[0]
+            self.assertEqual((left_out.camera, left_out.path.name), (0, "view_99.png"))
+            self.assertEqual(left_out.reason, "too_few_features")
+
     def test_a_manifest_file_resolves_against_its_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

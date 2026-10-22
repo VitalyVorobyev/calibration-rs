@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -75,6 +75,8 @@ __all__ = [
     "LaserPixelExtractor",
     "LaserlineRunResult",
     "PlanarRunResult",
+    "RejectReason",
+    "RejectedDetection",
     "RigHandeyeLaserlineRunResult",
     "RigLaserlineRunResult",
     "RigRunResult",
@@ -93,7 +95,7 @@ __all__ = [
 RunError = _native.RunError
 """A manifest run failed; ``kind`` names the failure: ``"validation"``,
 ``"empty_image_match"``, ``"pose_count_mismatch"``, ``"detection"``,
-``"insufficient_usable_views"``, ...."""
+``"insufficient_usable_views"``, ``"no_whole_chessboard_views"``, ...."""
 
 AskUserError = _native.AskUserError
 """The manifest leaves a convention open and the runner will not guess.
@@ -159,6 +161,24 @@ class _LaserAdapter:
         return np.ascontiguousarray(points.reshape(-1, 2))
 
 
+RejectReason = Literal["too_few_features", "partial_chessboard", "turned_chessboard", "other"]
+"""Why the runner left a detection out: fewer features than the per-view
+floor, or (where views share one target frame) a plain chessboard that does
+not reach every edge of the board or is seen turned by 90°."""
+
+
+@dataclass(frozen=True, slots=True)
+class RejectedDetection:
+    """A target detection the runner left out of the calibration input."""
+
+    camera: int
+    """Index of the camera in the manifest's ``cameras``."""
+    path: Path
+    """The image the detection came from."""
+    reason: RejectReason
+    """Why it was left out."""
+
+
 @dataclass(frozen=True, slots=True)
 class PlanarRunResult:
     """A planar intrinsics input built from a manifest."""
@@ -171,6 +191,8 @@ class PlanarRunResult:
     """Images with enough features to keep."""
     total_views: int
     """Images tried."""
+    rejected: list[RejectedDetection] = field(default_factory=list)
+    """Detections left out, with the reason for each."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +203,8 @@ class HandeyeRunResult:
     view_paths: list[Path]
     usable_views: int
     total_views: int
+    rejected: list[RejectedDetection] = field(default_factory=list)
+    """Detections left out, with the reason for each."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +217,8 @@ class RigRunResult:
     observation."""
     usable_views: int
     total_views: int
+    rejected: list[RejectedDetection] = field(default_factory=list)
+    """Detections left out, with the reason for each."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +231,8 @@ class LaserlineRunResult:
     """The laser image of each kept view."""
     usable_views: int
     total_views: int
+    rejected: list[RejectedDetection] = field(default_factory=list)
+    """Detections left out, with the reason for each."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +244,8 @@ class RigLaserlineRunResult:
     laser_paths: list[list[Path | None]]
     usable_views: int
     total_views: int
+    rejected: list[RejectedDetection] = field(default_factory=list)
+    """Detections left out, with the reason for each."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +257,8 @@ class RigHandeyeLaserlineRunResult:
     laser_paths: list[list[Path | None]]
     usable_views: int
     total_views: int
+    rejected: list[RejectedDetection] = field(default_factory=list)
+    """Detections left out, with the reason for each."""
 
 
 def _manifest_arg(manifest: Manifest) -> Any:
@@ -245,6 +277,13 @@ def _cache_arg(cache: FsDetectionCache | None) -> Any:
 
 def _paths(values: Any) -> list[Path]:
     return [Path(p) for p in values]
+
+
+def _rejected(values: Any) -> list[RejectedDetection]:
+    return [
+        RejectedDetection(camera=int(r["camera"]), path=Path(r["path"]), reason=r["reason"])
+        for r in values
+    ]
 
 
 def _rig_paths(values: Any) -> list[list[Path | None]]:
@@ -273,6 +312,7 @@ def build_planar_input(
         view_paths=_paths(raw["view_paths"]),
         usable_views=int(raw["usable_views"]),
         total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
     )
 
 
@@ -293,6 +333,7 @@ def build_single_cam_handeye_input(
         view_paths=_paths(raw["view_paths"]),
         usable_views=int(raw["usable_views"]),
         total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
     )
 
 
@@ -313,6 +354,7 @@ def build_rig_extrinsics_input(
         view_paths=_rig_paths(raw["view_paths"]),
         usable_views=int(raw["usable_views"]),
         total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
     )
 
 
@@ -333,6 +375,7 @@ def build_rig_handeye_input(
         view_paths=_rig_paths(raw["view_paths"]),
         usable_views=int(raw["usable_views"]),
         total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
     )
 
 
@@ -360,6 +403,7 @@ def build_laserline_device_input(
         laser_paths=_paths(raw["laser_paths"]),
         usable_views=int(raw["usable_views"]),
         total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
     )
 
 
@@ -387,6 +431,7 @@ def build_rig_laserline_device_input(
         laser_paths=_rig_paths(raw["laser_paths"]),
         usable_views=int(raw["usable_views"]),
         total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
     )
 
 
@@ -414,6 +459,7 @@ def build_rig_handeye_laserline_input(
         laser_paths=_rig_paths(raw["laser_paths"]),
         usable_views=int(raw["usable_views"]),
         total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
     )
 
 

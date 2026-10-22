@@ -167,6 +167,38 @@ struct RunOutput<'a, I, P> {
     laser_paths: Option<&'a P>,
     usable_views: usize,
     total_views: usize,
+    rejected: Vec<RejectedOutput<'a>>,
+}
+
+/// A detection the runner left out, with its reason in snake case.
+#[derive(Serialize)]
+struct RejectedOutput<'a> {
+    camera: usize,
+    path: &'a Path,
+    reason: &'static str,
+}
+
+fn rejected_output(rejected: &[runner::RejectedDetection]) -> Vec<RejectedOutput<'_>> {
+    rejected
+        .iter()
+        .map(|r| RejectedOutput {
+            camera: r.camera,
+            path: &r.path,
+            reason: reject_reason_name(r.reason),
+        })
+        .collect()
+}
+
+/// The Python name of a `RejectReason`: its Rust variant in snake case.
+fn reject_reason_name(reason: runner::RejectReason) -> &'static str {
+    match reason {
+        runner::RejectReason::TooFewFeatures => "too_few_features",
+        runner::RejectReason::PartialChessboard => "partial_chessboard",
+        runner::RejectReason::TurnedChessboard => "turned_chessboard",
+        // `RejectReason` is `#[non_exhaustive]`; a reason added upstream
+        // shows as "other" until it is named here.
+        _ => "other",
+    }
 }
 
 /// Bind a converter whose run result carries `view_paths` and no laser
@@ -195,6 +227,7 @@ macro_rules! target_converter {
                     laser_paths: None,
                     usable_views: run.usable_views,
                     total_views: run.total_views,
+                    rejected: rejected_output(&run.rejected),
                 },
             )
         }
@@ -228,6 +261,7 @@ macro_rules! laser_converter {
                     laser_paths: Some(&run.laser_paths),
                     usable_views: run.usable_views,
                     total_views: run.total_views,
+                    rejected: rejected_output(&run.rejected),
                 },
             )
         }

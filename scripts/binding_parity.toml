@@ -96,6 +96,8 @@
 "dataset_runner::PlanarRunResult" = "dataset_runner.PlanarRunResult"
 "dataset_runner::RigHandeyeLaserlineRunResult" = "dataset_runner.RigHandeyeLaserlineRunResult"
 "dataset_runner::RigLaserlineRunResult" = "dataset_runner.RigLaserlineRunResult"
+"dataset_runner::RejectReason" = "dataset_runner.RejectReason"
+"dataset_runner::RejectedDetection" = "dataset_runner.RejectedDetection"
 "dataset_runner::RigRunResult" = "dataset_runner.RigRunResult"
 "dataset_runner::RunError" = ["RunError", "AskUserError"]
 "dataset_runner::build_laserline_device_input" = ["dataset_runner.build_laserline_device_input", "calibrate_dataset"]
