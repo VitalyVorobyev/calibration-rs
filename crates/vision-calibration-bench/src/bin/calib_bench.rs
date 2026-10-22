@@ -16,7 +16,7 @@ use vision_calibration_bench::registry::{
 };
 use vision_calibration_bench::solver::record::SolverBenchReport;
 use vision_calibration_bench::solver::scenes::{Preset, Problem};
-use vision_calibration_pipeline::analysis::ReprojLevel;
+use vision_calibration_pipeline::analysis::{CheckStatus, QualityCheck, ReprojLevel, Verdict};
 
 /// Calibration benchmarking harness.
 ///
@@ -453,7 +453,7 @@ fn cmd_accept(args: &AcceptArgs) -> Result<()> {
         println!("RUNNING      {} (seeded official route)", entry.id);
         let outcome = match run_dataset_record(entry) {
             Ok(record) => {
-                let mut outcome = evaluate_accept_gate(&record, gate);
+                let mut outcome = evaluate_accept_gate(&entry.id, &record, gate);
                 // Regression baselines: gate first, then drift.
                 if matches!(outcome, AcceptOutcome::Pass { .. }) {
                     outcome = apply_baseline_policy(args, &baselines_dir, entry, &record, outcome);
@@ -576,8 +576,11 @@ fn run_basin_study(_entries: &[BenchEntry]) -> Result<String> {
     anyhow::bail!("basin requires --features tier-b")
 }
 
-/// Evaluate the hard per-camera gate over a produced record.
+/// Evaluate the hard per-camera gate and the quality report over a produced
+/// record. Quality warnings are printed; a failing quality verdict fails the
+/// entry.
 fn evaluate_accept_gate(
+    id: &str,
     record: &BenchRecord,
     gate: vision_calibration_bench::registry::AcceptGate,
 ) -> AcceptOutcome {
@@ -597,6 +600,36 @@ fn evaluate_accept_gate(
             };
         }
         worst = worst.max(stats.mean);
+    }
+    let Some(quality) = &record.quality else {
+        return AcceptOutcome::Fail {
+            reason: "record has no quality report".into(),
+        };
+    };
+    let describe = |check: &QualityCheck| {
+        let camera = check
+            .camera
+            .map(|c| format!(" camera {c}"))
+            .unwrap_or_default();
+        format!("{:?}{camera}: {}", check.kind, check.message)
+    };
+    for check in quality
+        .checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Warn)
+    {
+        println!("WARN         {id} — {}", describe(check));
+    }
+    if quality.verdict == Verdict::Fail {
+        let failures: Vec<String> = quality
+            .checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Fail)
+            .map(describe)
+            .collect();
+        return AcceptOutcome::Fail {
+            reason: format!("quality report fails: {}", failures.join("; ")),
+        };
     }
     AcceptOutcome::Pass {
         worst_mean_px: worst,
@@ -1600,6 +1633,7 @@ mod tests {
                 detection_ms: 7,
                 stages: None,
             },
+            quality: None,
             reproj_report: Some(CompactReprojReport {
                 headline_px: 1.2,
                 levels: vec![

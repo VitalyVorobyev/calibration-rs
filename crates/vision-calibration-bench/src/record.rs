@@ -1,7 +1,8 @@
 //! The metric record a benchmark run produces.
 //!
 //! [`BenchRecord`] is pure, serde-serializable data: it captures *what a run
-//! produced*, never *how to judge it* (that lives in [`crate::baseline`]). It
+//! produced*, never *how to judge it* (that lives in [`crate::baseline`]),
+//! except for the library's own [`QualityReport`] on the result. It
 //! reuses existing workspace types verbatim -- [`ReprojectionStats`],
 //! [`FeatureResidualHistogram`], and [`SolveReport`] -- rather than redefining
 //! them.
@@ -21,7 +22,7 @@
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{FeatureResidualHistogram, ReprojectionStats, TargetFeatureResidual};
 use vision_calibration_optim::SolveReport;
-use vision_calibration_pipeline::analysis::{LevelStats, ReprojLevel, ReprojReport};
+use vision_calibration_pipeline::analysis::{LevelStats, QualityReport, ReprojLevel, ReprojReport};
 
 /// Schema version for [`BenchRecord`]. Bump on any breaking layout change so
 /// frozen records carry a version stamp ([`Ident::bench_schema_version`]).
@@ -62,6 +63,10 @@ pub struct BenchRecord {
     pub delta_to_prior: Option<DeltaToPrior>,
     /// Wall-clock timing breakdown.
     pub timing: Timing,
+    /// The library's quality report on the result, under the entry's
+    /// acceptance thresholds (the defaults when it sets none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<QualityReport>,
     /// Compact hierarchical multi-level reprojection report (intrinsic floor →
     /// rig-extrinsic → hand-eye), if computed. Full residual vectors live in
     /// [`Self::residual_sidecar`] during the process run and are not serialized
@@ -815,6 +820,7 @@ mod tests {
                 detection_ms: 1200,
                 stages: None,
             },
+            quality: None,
             reproj_report: None,
             residual_sidecar: None,
         }

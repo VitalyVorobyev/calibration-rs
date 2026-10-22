@@ -30,6 +30,7 @@ use vision_calibration_dataset::DatasetSpec;
 /// need a direct `vision-calibration-dataset` dependency.
 pub use vision_calibration_dataset::{ChessCornersDetectorSpec, CornerStrategySpec};
 use vision_calibration_optim::{HandeyeMode, RobustLoss, SolverBackend};
+use vision_calibration_pipeline::analysis::QualityThresholds;
 use vision_calibration_pipeline::common::config::{CameraConfig, CameraOverride, RobotPoseConfig};
 use vision_calibration_pipeline::rig_handeye::RigHandeyeConfig;
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
@@ -178,11 +179,18 @@ pub struct PlanarIntrinsicsOverride {
 /// always a failure. Thresholds are per-entry because they encode
 /// dataset-specific acceptance criteria (e.g. `0.5 px` for the Scheimpflug
 /// intrinsics gates), not a universal quality bar.
+///
+/// The library's quality report gates as well: a `fail` verdict fails the
+/// entry, a `warn` is printed.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AcceptGate {
     /// Maximum allowed per-camera mean reprojection error, pixels.
     pub max_per_cam_mean_px: f64,
+    /// Quality-report thresholds for this entry; absent means the library's
+    /// defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<QualityThresholds>,
 }
 
 /// Whether a dataset is publicly committed or private.
@@ -723,6 +731,7 @@ mod tests {
             device_spec: Some(PathBuf::from("spec.json")),
             accept: Some(AcceptGate {
                 max_per_cam_mean_px: 0.5,
+                quality: None,
             }),
             planar_intrinsics: None,
             single_cam_handeye: None,

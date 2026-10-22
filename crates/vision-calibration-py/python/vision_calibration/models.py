@@ -1570,6 +1570,131 @@ class ProjectionUncertainty:
         return [self.sigma[r * self.columns : (r + 1) * self.columns] for r in range(self.rows)]
 
 
+@dataclass(slots=True)
+class QualityThresholds:
+    """Limits of the quality checks run by :func:`~vision_calibration.assess`.
+
+    The defaults are limits a well-planned calibration of a perspective camera
+    clears. ``expected_feature_noise_px`` has none: it depends on the detector,
+    the target and the optics, and while it is ``None`` the variance-factor
+    check is not applicable.
+    """
+
+    #: Expected noise σ₀ of one feature coordinate, pixels per axis (> 0).
+    expected_feature_noise_px: float | None = None
+    #: Significance level α of the two-sided χ² test of σ̂²/σ₀², in (0, 1).
+    variance_test_alpha: float = 0.01
+    #: Projection σ anywhere in the image above which the check warns, pixels.
+    max_projection_sigma_px: float = 1.0
+    #: Share of the image's 8 × 6 coverage cells with a feature below which
+    #: the coverage check warns.
+    coverage_warn_below: float = 0.5
+    #: Share below which the coverage check fails; at most ``coverage_warn_below``.
+    coverage_fail_below: float = 0.3
+    #: Mean ``|r| / σ̂`` of one view above which it is named as an outlier.
+    max_view_residual: float = 3.0
+    #: Absolute correlation of two parameters of one camera above which the
+    #: pair is named (``fx``/``fy`` excepted).
+    max_parameter_correlation: float = 0.99
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "expected_feature_noise_px": (
+                None
+                if self.expected_feature_noise_px is None
+                else float(self.expected_feature_noise_px)
+            ),
+            "variance_test_alpha": float(self.variance_test_alpha),
+            "max_projection_sigma_px": float(self.max_projection_sigma_px),
+            "coverage_warn_below": float(self.coverage_warn_below),
+            "coverage_fail_below": float(self.coverage_fail_below),
+            "max_view_residual": float(self.max_view_residual),
+            "max_parameter_correlation": float(self.max_parameter_correlation),
+        }
+
+
+@dataclass(slots=True)
+class Measurement:
+    """A quality check's measured value and the limit that decided its status."""
+
+    #: The measured value; the worst one for a check over several items.
+    value: float
+    #: The limit it was compared to: the one it crossed, or for a pass the nearest.
+    threshold: float
+    #: ``"pixel"``, ``"fraction"``, ``"ratio"``, ``"sigma"`` or ``"correlation"``.
+    unit: str
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "Measurement":
+        return cls(
+            value=float(payload["value"]),
+            threshold=float(payload["threshold"]),
+            unit=str(payload["unit"]),
+        )
+
+
+@dataclass(slots=True)
+class QualityCheck:
+    """One check of a :class:`QualityReport`."""
+
+    #: What it examines: ``"observability"``, ``"convergence"``,
+    #: ``"variance_factor"``, ``"projection_sigma"``, ``"feature_coverage"``,
+    #: ``"view_outliers"`` or ``"parameter_correlation"``.
+    kind: str
+    #: ``"pass"``, ``"warn"``, ``"fail"`` or ``"not_applicable"``.
+    status: str
+    #: One sentence on the outcome, or on why the check was not applicable.
+    message: str
+    #: The camera, for a per-camera check; ``None`` for a result-wide one.
+    camera: int | None = None
+    #: The measured value; ``None`` when not applicable, and for the
+    #: observability and convergence checks.
+    measurement: Measurement | None = None
+    #: Named items: parameter labels, parameter pairs (``"fx/cx"``) or views
+    #: (``"view 3"``).
+    subjects: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "QualityCheck":
+        camera = payload.get("camera")
+        measurement = payload.get("measurement")
+        return cls(
+            kind=str(payload["kind"]),
+            status=str(payload["status"]),
+            message=str(payload["message"]),
+            camera=None if camera is None else int(camera),
+            measurement=(
+                None
+                if measurement is None
+                else Measurement.from_payload(cast(Mapping[str, Any], measurement))
+            ),
+            subjects=[str(s) for s in cast(list[Any], payload.get("subjects", []))],
+        )
+
+
+@dataclass(slots=True)
+class QualityReport:
+    """The verdict on a calibration result and the checks behind it.
+
+    ``verdict`` is the worst status of the assessed checks (``"pass"`` <
+    ``"warn"`` < ``"fail"``); a check that was not applicable does not count,
+    and a report where no check could be assessed is ``"warn"``.
+    """
+
+    verdict: str
+    checks: list[QualityCheck]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "QualityReport":
+        return cls(
+            verdict=str(payload["verdict"]),
+            checks=[
+                QualityCheck.from_payload(cast(Mapping[str, Any], c))
+                for c in cast(list[Any], payload["checks"])
+            ],
+        )
+
+
 #: One calibrated camera as reported by a result: untilted or tilted sensor.
 Camera = PinholeCamera | PinholeScheimpflugCamera
 

@@ -22,6 +22,8 @@ from .models import (
     PlanarIntrinsicsInput,
     Pose,
     ProjectionUncertainty,
+    QualityReport,
+    QualityThresholds,
     RigExtrinsicsConfig,
     RigExtrinsicsInput,
     RigExtrinsicsExport,
@@ -395,3 +397,54 @@ def projection_uncertainty(
     )
     return ProjectionUncertainty.from_payload(payload)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# assess
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def assess(
+    result: CalibrationResult | Mapping[str, Any],
+    thresholds: QualityThresholds | None = None,
+    image_sizes: list[tuple[int, int]] | None = None,
+) -> QualityReport:
+    """Judge a calibration result: a ``"pass"``, ``"warn"`` or ``"fail"`` verdict
+    and the checks behind it.
+
+    The checks: observability of the estimated parameters, convergence, the
+    noise level against a stated feature noise (the χ² variance-factor test),
+    the largest projection σ over each camera's image, the share of each image
+    the features reached, views with outlying residuals, and camera parameters
+    that correlate almost fully. A check whose inputs the result lacks (no
+    image size, no stated noise, intrinsics held fixed) is ``"not_applicable"``
+    and does not count toward the verdict.
+
+    Parameters
+    ----------
+    result:
+        A calibration result, or an export JSON loaded as a dict.
+    thresholds:
+        The checks' limits; ``None`` for the defaults.
+    image_sizes:
+        ``(width, height)`` of each camera's images, pixels, in camera order,
+        e.g. ``[(1280, 1024)]`` for one camera. Needed for the projection and
+        coverage checks unless the export's image manifest records the sizes.
+
+    Raises
+    ------
+    ValueError
+        If a threshold is out of range, ``image_sizes`` does not give one size
+        per camera, or it disagrees with the image manifest.
+    """
+    export = result if isinstance(result, Mapping) else result.export
+    if not export:
+        raise ValueError("the result carries no export; it was not produced by this library")
+    payload = cast(
+        Mapping[str, Any],
+        _native.assess(
+            dict(export),
+            None if thresholds is None else thresholds.to_payload(),
+            None if image_sizes is None else [list(size) for size in image_sizes],
+        ),
+    )
+    return QualityReport.from_payload(payload)

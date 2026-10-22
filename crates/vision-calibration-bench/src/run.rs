@@ -25,9 +25,10 @@ pub mod tier_b {
     use anyhow::{Context, Result};
     use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
     use vision_calibration::analysis::{
-        RigStageReprojection, planar_intrinsics_report, rig_extrinsics_report,
-        rig_handeye_report_with_rig_stage, single_cam_handeye_report,
+        QualityReport, RigStageReprojection, assess, planar_intrinsics_report,
+        rig_extrinsics_report, rig_handeye_report_with_rig_stage, single_cam_handeye_report,
     };
+    use vision_calibration::common::CalibratedCameras;
     use vision_calibration::core::{
         CorrespondenceView, Iso3, NoMeta, RigDataset, RigView, RigViewObs,
     };
@@ -375,6 +376,59 @@ pub mod tier_b {
         laser_metrics: LaserMetrics,
     }
 
+    /// Each camera's image size, from the images its detections ran on (after
+    /// any tile crop).
+    struct ImageSizes(Vec<Option<[u32; 2]>>);
+
+    impl ImageSizes {
+        fn new(cameras: usize) -> Self {
+            Self(vec![None; cameras])
+        }
+
+        /// Record one image of `camera`; every image of a camera must have the
+        /// same size.
+        fn observe(&mut self, camera: usize, image: &image::DynamicImage) -> Result<()> {
+            let size = [image.width(), image.height()];
+            match self.0[camera] {
+                Some(previous) => anyhow::ensure!(
+                    previous == size,
+                    "camera {camera}: images differ in size ({}×{} and {}×{})",
+                    previous[0],
+                    previous[1],
+                    size[0],
+                    size[1]
+                ),
+                None => self.0[camera] = Some(size),
+            }
+            Ok(())
+        }
+
+        /// One size per camera, or none when a camera saw no image (its image
+        /// checks are then not applicable).
+        fn sizes(&self) -> Vec<[u32; 2]> {
+            self.0
+                .iter()
+                .copied()
+                .collect::<Option<_>>()
+                .unwrap_or_default()
+        }
+    }
+
+    /// The library's quality report on `export`, under the entry's acceptance
+    /// thresholds (the defaults when it sets none).
+    fn quality_report<E: CalibratedCameras>(
+        entry: &BenchEntry,
+        export: &E,
+        image_sizes: &[[u32; 2]],
+    ) -> Result<QualityReport> {
+        let thresholds = entry
+            .accept
+            .and_then(|gate| gate.quality)
+            .unwrap_or_default();
+        assess(export, image_sizes, &thresholds)
+            .with_context(|| format!("entry `{}`: quality assessment failed", entry.id))
+    }
+
     /// Elapsed whole-milliseconds since `start` — DRYs the
     /// `start.elapsed().as_millis() as u64` idiom repeated across the runners and
     /// per-stage timers.
@@ -429,9 +483,11 @@ pub mod tier_b {
         let mut features_detected = 0usize;
         let mut max_corners_per_image = 0usize;
         let front_end = ChessFrontEnd::from_override(entry.detector.as_ref());
+        let mut image_sizes = ImageSizes::new(1);
         for (image_idx, path) in paths.iter().enumerate() {
             progress_images(entry, "detect", &cam.id, image_idx, paths.len());
             let img = load_image(path)?;
+            image_sizes.observe(0, &img)?;
             match detect_chessboard_view(
                 &img,
                 board.rows,
@@ -589,6 +645,7 @@ pub mod tier_b {
             artifacts: Some(artifacts_from_planar(&cam.id, &export)),
             delta_to_prior: None,
             timing,
+            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
             reproj_report,
             residual_sidecar,
         })
@@ -621,6 +678,10 @@ pub mod tier_b {
         pub seed: IntrinsicsManualInit,
         /// Detection stats for the `BenchRecord`.
         pub detection: Detection,
+        /// `[width, height]` of the camera's images: the manifest camera's
+        /// region; `None` for whole images, whose size the manifest does not
+        /// state.
+        pub image_size: Option<[u32; 2]>,
         /// Wall-clock detection time in milliseconds.
         pub detection_ms: u64,
     }
@@ -646,6 +707,7 @@ pub mod tier_b {
             spec.cameras.len()
         );
         let camera_id = spec.cameras[0].id.clone();
+        let image_size = spec.cameras[0].roi_xywh.map(|[_, _, w, h]| [w, h]);
 
         let device_spec_rel = entry.device_spec.as_ref().with_context(|| {
             format!(
@@ -692,6 +754,7 @@ pub mod tier_b {
             dataset: planar.input,
             seed,
             detection,
+            image_size,
             detection_ms,
         })
     }
@@ -766,6 +829,7 @@ pub mod tier_b {
             entry.problem
         );
         let detected = detect_scheimpflug_seeded_input(entry)?;
+        let image_sizes: Vec<[u32; 2]> = detected.image_size.into_iter().collect();
         let solve = solve_scheimpflug_seeded(
             detected.dataset,
             detected.seed,
@@ -830,6 +894,7 @@ pub mod tier_b {
             artifacts: None,
             delta_to_prior: None,
             timing,
+            quality: Some(quality_report(entry, &export, &image_sizes)?),
             reproj_report: None,
             residual_sidecar: None,
         })
@@ -907,8 +972,9 @@ pub mod tier_b {
         let detect_start = Instant::now();
         let mut per_cam_views: Vec<Vec<(String, Option<CorrespondenceView>)>> = Vec::new();
         let mut detect_stats: Vec<DetectionStat> = Vec::new();
+        let mut image_sizes = ImageSizes::new(entry.cameras.len());
         let mut max_corners_per_image = 0usize;
-        for cam in &entry.cameras {
+        for (camera_index, cam) in entry.cameras.iter().enumerate() {
             let folder = entry.data_root.join(&cam.folder);
             let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
             anyhow::ensure!(
@@ -929,6 +995,7 @@ pub mod tier_b {
                 progress_images(entry, "detect", &cam.id, image_idx, paths.len());
                 let key = pairing_key(path);
                 let img = load_image(path)?;
+                image_sizes.observe(camera_index, &img)?;
                 match detector.detect(&img) {
                     Ok(Some(view)) => {
                         images_used += 1;
@@ -1151,6 +1218,7 @@ pub mod tier_b {
             artifacts: Some(artifacts_from_rig_extrinsics(&entry.cameras, &export)),
             delta_to_prior: None,
             timing,
+            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
             reproj_report,
             residual_sidecar,
         })
@@ -1208,6 +1276,7 @@ pub mod tier_b {
         let mut features_detected = 0usize;
         let mut max_corners_per_image = 0usize;
         let mut images_used = 0usize;
+        let mut image_sizes = ImageSizes::new(1);
         let total_poses: usize;
 
         if pose_src.format == "snap_list_json" {
@@ -1238,6 +1307,7 @@ pub mod tier_b {
                 );
                 let img = load_image(&img_path)?;
                 let img = apply_tile(&img, cam.tile);
+                image_sizes.observe(0, &img)?;
                 if let Some(view) = detector.detect(&img)? {
                     images_used += 1;
                     features_detected += view.len();
@@ -1273,6 +1343,7 @@ pub mod tier_b {
                     image_index
                 );
                 let img = load_image(&img_path)?;
+                image_sizes.observe(0, &img)?;
                 match detect_chessboard_view(
                     &img,
                     board.rows,
@@ -1442,6 +1513,7 @@ pub mod tier_b {
             artifacts: Some(artifacts_from_single_cam(&cam.id, &export)),
             delta_to_prior: None,
             timing,
+            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
             reproj_report,
             residual_sidecar,
         })
@@ -1491,8 +1563,9 @@ pub mod tier_b {
         let mut per_cam_dets: Vec<Vec<Option<CorrespondenceView>>> = Vec::new();
         let mut per_cam_paths: Vec<Vec<PathBuf>> = Vec::new();
         let mut detect_stats: Vec<DetectionStat> = Vec::new();
+        let mut image_sizes = ImageSizes::new(entry.cameras.len());
         let mut max_corners_per_image = 0usize;
-        for cam in &entry.cameras {
+        for (camera_index, cam) in entry.cameras.iter().enumerate() {
             let folder = entry.data_root.join(&cam.folder);
             let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
             anyhow::ensure!(
@@ -1516,6 +1589,7 @@ pub mod tier_b {
                 // camera's ROI from the shared image; `tile` is `None` for the
                 // one-file-per-camera rigs (DS8), leaving the image untouched.
                 let img = apply_tile(&img, cam.tile);
+                image_sizes.observe(camera_index, &img)?;
                 match detector.detect(&img) {
                     Ok(Some(view)) => {
                         images_used += 1;
@@ -1801,6 +1875,7 @@ pub mod tier_b {
             artifacts: Some(artifacts_from_rig_handeye(&entry.cameras, &export)),
             delta_to_prior: None,
             timing,
+            quality: Some(quality_report(entry, &export, &image_sizes.sizes())?),
             reproj_report,
             residual_sidecar,
         })

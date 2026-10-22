@@ -29,6 +29,10 @@ from .models import (
     PlanarIntrinsicsConfig,
     ParameterUncertainty,
     ProjectionUncertainty,
+    Measurement,
+    QualityCheck,
+    QualityReport,
+    QualityThresholds,
     PlanarIntrinsicsExport,
     PlanarIntrinsicsInput,
     PlanarView,
@@ -143,6 +147,20 @@ def projection_uncertainty(
     image_size: tuple[int, int],
     camera: int = 0,
 ) -> ProjectionUncertainty: ...
+
+
+def assess(
+    result: PlanarIntrinsicsExport
+    | SingleCamHandeyeExport
+    | LaserlineDeviceExport
+    | RigExtrinsicsExport
+    | RigHandeyeExport
+    | RigLaserlineDeviceExport
+    | RigHandeyeLaserlineExport
+    | Mapping[str, Any],
+    thresholds: QualityThresholds | None = None,
+    image_sizes: list[tuple[int, int]] | None = None,
+) -> QualityReport: ...
 
 
 __all__: list[str]

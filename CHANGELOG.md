@@ -361,6 +361,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vision_calibration.projection_uncertainty(result, (width, height),
   camera=0)` returns a `ProjectionUncertainty`; every result keeps the
   export it was read from as `result.export`.
+- **Quality verdict.** `analysis::assess(&export, image_sizes,
+  &QualityThresholds)` judges any calibration export and returns a
+  `QualityReport`: a `pass` / `warn` / `fail` verdict and typed checks, each
+  with its status, measured value, unit, threshold and a message. The
+  checks: observability (fails on `rank_deficient` or no redundancy, naming
+  the parameters; warns on a parameter at a bound), convergence, a χ² test
+  of the reprojection noise against a stated feature noise
+  (`expected_feature_noise_px`, which has no default), the largest
+  projection σ over each camera's image, the share of each image the
+  features reached (8 × 6 cells), views whose mean residual exceeds 3 σ̂,
+  and camera parameters that correlate above 0.99. A check whose inputs the
+  result lacks — an image size, a stated noise, intrinsics the final solve
+  held fixed — is `not_applicable` and does not count. Thresholds are
+  JSON-serializable and reject unknown fields. `CalibratedCameras` also
+  gives an export's feature residuals and image manifest. Python:
+  `vision_calibration.assess(result, thresholds=None, image_sizes=None)`
+  returns a `QualityReport`. `calib-bench accept` fails an entry whose
+  report fails and prints its warnings; a registry entry can set
+  `accept.quality`. See "Judging a Result" in the book.
 - **Uncertainty in the desktop app.** Diagnose has an **Uncertainty** panel:
   each estimated parameter's value ± σ, the fixed parameters and residual
   noise, a correlation heatmap, and the shown camera's projection σ map.
