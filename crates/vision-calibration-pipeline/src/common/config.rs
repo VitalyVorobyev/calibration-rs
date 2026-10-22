@@ -212,12 +212,12 @@ pub struct IntrinsicsInitConfig {
     pub fix_k3: bool,
     /// Fix tangential distortion (p1, p2) during initialization.
     ///
-    /// `None` (the default) takes the camera's default: `true` for a
-    /// Scheimpflug sensor in planar intrinsics — the tilt/tangential
-    /// coupling makes a free tangential term ill-posed during the linear
-    /// stage — and `false` otherwise. The multi-camera workflows resolve
-    /// `None` to `false` for every camera, whatever its sensor: their
-    /// per-camera linear stage has always kept the tangential terms free.
+    /// `None` (the default) takes the camera's default, in every workflow
+    /// and for each camera of a rig: `true` for a Scheimpflug sensor and
+    /// `false` otherwise. A tangential term and a sensor tilt trade off, so
+    /// a linear stage that fits one on a tilted camera fits a spurious
+    /// value; the camera's default fix list then holds it in every
+    /// non-linear solve, where it displaces the tilt and principal point.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix_tangential: Option<bool>,
 }
@@ -243,16 +243,16 @@ impl IntrinsicsInitConfig {
     /// `None` uses the config's own `iterations` verbatim (the shape
     /// problems without a step-level override need).
     ///
-    /// `default_fix_tangential` is the camera's default for an unset
+    /// `model` is the camera's model, which sets the default of an unset
     /// [`Self::fix_tangential`].
     pub fn iterative_opts(
         &self,
         iterations_override: Option<usize>,
-        default_fix_tangential: bool,
+        model: CameraModelSpec,
     ) -> IterativeIntrinsicsOptions {
         IterativeIntrinsicsOptions {
             iterations: iterations_override.unwrap_or(self.iterations),
-            distortion_opts: self.distortion_fit_opts(default_fix_tangential),
+            distortion_opts: self.distortion_fit_opts(model),
         }
     }
 
@@ -261,12 +261,14 @@ impl IntrinsicsInitConfig {
     /// linear-init path (which builds a different top-level options struct
     /// and so cannot use [`Self::iterative_opts`] directly).
     ///
-    /// `default_fix_tangential` is the camera's default for an unset
-    /// [`Self::fix_tangential`].
-    pub fn distortion_fit_opts(&self, default_fix_tangential: bool) -> DistortionFitOptions {
+    /// `model` is the camera's model, which sets the default of an unset
+    /// [`Self::fix_tangential`]: held for a Scheimpflug sensor.
+    pub fn distortion_fit_opts(&self, model: CameraModelSpec) -> DistortionFitOptions {
         DistortionFitOptions {
             fix_k3: self.fix_k3,
-            fix_tangential: self.fix_tangential.unwrap_or(default_fix_tangential),
+            fix_tangential: self
+                .fix_tangential
+                .unwrap_or(model.sensor == SensorKind::Scheimpflug),
             iters: DISTORTION_FIT_ITERS,
         }
     }
@@ -468,8 +470,15 @@ mod tests {
         assert_eq!(cfg.iterations, 2);
         assert!(cfg.fix_k3);
         assert_eq!(cfg.fix_tangential, None);
-        assert!(!cfg.distortion_fit_opts(false).fix_tangential);
-        assert!(cfg.distortion_fit_opts(true).fix_tangential);
+        let model = |sensor| CameraModelSpec::pinhole(DistortionKind::BrownConrady5, sensor);
+        assert!(
+            !cfg.distortion_fit_opts(model(SensorKind::Identity))
+                .fix_tangential
+        );
+        assert!(
+            cfg.distortion_fit_opts(model(SensorKind::Scheimpflug))
+                .fix_tangential
+        );
     }
 
     #[test]
@@ -546,7 +555,7 @@ mod tests {
             fix_tangential: Some(true),
         };
         // An explicit value wins over the camera's default.
-        let opts = cfg.iterative_opts(None, false);
+        let opts = cfg.iterative_opts(None, CameraConfig::default().model);
         assert_eq!(opts.iterations, 3);
         assert!(!opts.distortion_opts.fix_k3);
         assert!(opts.distortion_opts.fix_tangential);
@@ -556,7 +565,7 @@ mod tests {
     #[test]
     fn iterative_opts_override_wins_over_config_iterations() {
         let cfg = IntrinsicsInitConfig::default();
-        let opts = cfg.iterative_opts(Some(9), false);
+        let opts = cfg.iterative_opts(Some(9), CameraConfig::default().model);
         assert_eq!(opts.iterations, 9);
     }
 
@@ -567,7 +576,10 @@ mod tests {
             fix_k3: true,
             fix_tangential: Some(false),
         };
-        let dist_opts = cfg.distortion_fit_opts(true);
+        // An explicit value wins over a tilted camera's default.
+        let tilted =
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
+        let dist_opts = cfg.distortion_fit_opts(tilted);
         assert!(dist_opts.fix_k3);
         assert!(!dist_opts.fix_tangential);
         assert_eq!(dist_opts.iters, 8);

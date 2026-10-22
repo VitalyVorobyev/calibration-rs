@@ -239,11 +239,7 @@ pub fn step_intrinsics_init_with_seed(
     }
     note("target_poses", manual.target_poses.is_some());
 
-    // An unset `fix_tangential` holds the tangential terms for a tilted
-    // sensor, whose tilt they trade off against.
-    let init_opts = config
-        .intrinsics
-        .iterative_opts(opts.iterations, model.sensor == SensorKind::Scheimpflug);
+    let init_opts = config.intrinsics.iterative_opts(opts.iterations, model);
     let planar_dataset = input_to_planar_dataset(input)?;
     let seed = CameraSeed {
         intrinsics: manual.intrinsics,

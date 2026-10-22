@@ -849,12 +849,12 @@ class IntrinsicsInitConfig(_IntrinsicsInitConfigRequired, total=False):
     fix_tangential: bool | None
     """Fix tangential distortion (p1, p2) during initialization.
 
-    `None` (the default) takes the camera's default: `true` for a
-    Scheimpflug sensor in planar intrinsics — the tilt/tangential
-    coupling makes a free tangential term ill-posed during the linear
-    stage — and `false` otherwise. The multi-camera workflows resolve
-    `None` to `false` for every camera, whatever its sensor: their
-    per-camera linear stage has always kept the tangential terms free.
+    `None` (the default) takes the camera's default, in every workflow
+    and for each camera of a rig: `true` for a Scheimpflug sensor and
+    `false` otherwise. A tangential term and a sensor tilt trade off, so
+    a linear stage that fits one on a tilted camera fits a spurious
+    value; the camera's default fix list then holds it in every
+    non-linear solve, where it displaces the tilt and principal point.
     """
 
 
@@ -1840,7 +1840,8 @@ class _RigExtrinsicsConfigRequired(TypedDict):
 
     intrinsics: IntrinsicsInitConfig
     """Per-camera linear-initialization stage settings. An unset
-    `fix_tangential` keeps the tangential terms free for every camera.
+    `fix_tangential` holds the tangential terms of each Scheimpflug camera
+    and keeps them free for every other camera.
     """
 
     rig: RigConfig
@@ -1953,7 +1954,8 @@ class _RigHandeyeConfigRequired(TypedDict):
 
     intrinsics: IntrinsicsInitConfig
     """Per-camera linear-initialization stage settings. An unset
-    `fix_tangential` keeps the tangential terms free for every camera.
+    `fix_tangential` holds the tangential terms of each Scheimpflug camera
+    and keeps them free for every other camera.
     """
 
     rig: RigConfig

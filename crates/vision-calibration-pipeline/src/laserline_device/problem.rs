@@ -114,11 +114,18 @@ impl LaserlineDeviceConfig {
 
     /// Convert to vision-calibration-linear initialization options. An unset
     /// `init.fix_tangential` holds the tangential terms when the tilt is
-    /// estimated, since they trade off against it.
+    /// estimated, since they trade off against it; a held tilt initializes
+    /// the camera as an untilted one.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        let estimates_tilt =
-            self.camera.model.sensor == SensorKind::Scheimpflug && !self.holds_tilt();
-        self.init.iterative_opts(None, estimates_tilt)
+        let model = if self.holds_tilt() {
+            CameraModelSpec {
+                sensor: SensorKind::Identity,
+                ..self.camera.model
+            }
+        } else {
+            self.camera.model
+        };
+        self.init.iterative_opts(None, model)
     }
 
     /// The fix lists the bundle adjustment applies. A held tilt (see

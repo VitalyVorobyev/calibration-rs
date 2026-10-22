@@ -53,7 +53,9 @@
 //! - Reference camera: index 0 (`rig.reference_camera_idx`); its extrinsic
 //!   fix alone removes the rig's full 6-DOF gauge freedom (no rig-from-target
 //!   pose is additionally pinned)
-//! - Intrinsics: NOT re-refined in rig BA (set `rig.refine_intrinsics: true` to enable)
+//! - Intrinsics: re-refined in rig BA with each camera's fix lists
+//!   (`rig.refine_intrinsics`); a Scheimpflug tilt is held there unless
+//!   `rig.refine_sensor` is set
 //! - Every camera has the model of `camera` (pinhole, Brown-Conrady, untilted
 //!   sensor by default) unless `camera_overrides` names it; each keeps its
 //!   model's default fix lists (`k3` for Brown-Conrady) unless `fix` says

@@ -90,6 +90,70 @@ tilt, against a realistic spec error of ±5 % and ±2°: two to three times
 the needed margin. A principal-point seed off by up to 100 px does not
 matter.
 
+## Rig cameras
+
+The rig workflows calibrate each tilted camera from its own views first
+(`planar_family::{bootstrap_camera, optimize_camera}`: the linear stage,
+then the staged tilt multi-start), and the rig bundle adjustment refines
+the intrinsics but holds the tilt unless `rig.refine_sensor` is set. So the
+per-camera stage has to land on the camera's own minimum; the rig solve
+cannot move the tilt off a wrong one, and the principal point and the
+camera's rotation in the rig absorb the error.
+
+Two rules make it land there, both shared with the single-camera
+workflows:
+
+- **The linear stage holds `p1`, `p2` at zero on a tilted camera**
+  (`IntrinsicsInitConfig::distortion_fit_opts`). The Scheimpflug linear
+  init zeroes the radial terms of its seed but keeps fitted tangential
+  ones, and the default fix list holds `p1`, `p2` in every later solve, so
+  a fitted value stays frozen. A tangential term is a decentering, nearly
+  a tilt plus a principal-point shift, so the frozen value moves the
+  solution along the tilt / principal-point valley.
+- **The camera's own solve frees every target pose**
+  (`planar_family::camera_solve_opts`). Planar intrinsics has no pose
+  gauge; a pose held at its linear-init value (recovered with the radial
+  terms at zero) holds the solve off the minimum.
+
+Evidence, on the two-camera synthetic rig of the solver benchmark
+(`rig_extrinsics/scheimpflug/*/clean`; camera 1 tilted by (0.06, −0.04)
+rad, `k1 = −0.04`, seeded with its mount tilt about 0.6° off; small scene,
+σ = 0.1 px), camera 1's own solve:
+
+| per-camera stage | principal point error | tilt error | objective | RMS |
+|---|---:|---:|---:|---:|
+| fitted `p1`, `p2` frozen, view 0 held | (−24.8, −8.7) px | (−0.52, +1.41)° | 22.41 | 0.298 px |
+| `p1`, `p2` zero, view 0 held | (−31.1, −26.9) px | (−1.60, +2.08)° | 12.56 | 0.223 px |
+| fitted `p1`, `p2` frozen, poses free | (+59.3, −10.9) px | (−0.76, −4.10)° | 4.980 | 0.141 px |
+| `p1`, `p2` zero, poses free | (−1.8, −0.9) px | (−0.07, +0.13)° | 4.983 | 0.141 px |
+| started at the truth, poses free | (−1.8, −0.9) px | (−0.07, +0.13)° | 4.983 | 0.141 px |
+
+The linear stage had fitted `p2 = −0.003`. With it frozen the free solve
+reaches the noise floor in a wrong basin, 60 px and 4° off: noise-free,
+that basin's objective is 0.045 (RMS 0.013 px), so at σ = 0.1 px on eight
+views the data barely tells it from the truth (4.980 against 4.983). On 36
+views it is 0.8 worse than the truth and still a local minimum. With the
+tangential terms at zero, the solve from the linear init and the solve
+from the truth reach the same minimum.
+
+The tilt is observable: at the minimum the covariance gives
+σ(cx) = 2.4 px, σ(cy) = 1.5 px, σ(tilt_x) = 0.09°, σ(tilt_y) = 0.16° on
+the small scene, with ρ(cy, tilt_x) = +0.995 and ρ(cx, tilt_y) = −0.997:
+the tilt and principal point are one valley that the radial terms close.
+Noise-free, the solve from the truth stays there (objective 0). On the
+large scene (36 views) the standard deviations are about three times
+smaller.
+
+After the fix every `rig_extrinsics/scheimpflug/*/clean` scene reaches
+the noise floor (RMS 0.141 px at σ = 0.1 px, 0.68–0.71 px at σ = 0.5 px)
+with every principal-point and tilt error within 1.5σ: 0.4–2.1 px and
+0.03–0.15° at σ = 0.1 px, 5.4–17.7 px and 0.35–1.19° at σ = 0.5 px. The
+contaminated scenes (5 % outliers, Huber or Cauchy) stay 20–45 px and
+2–3° off: the staged solve's last stage, which frees the principal point,
+solves without the robust loss and is accepted on the mean reprojection
+error, outliers included, so it is rejected and the principal point keeps
+its linear-init value.
+
 ## Evidence
 
 - Acceptance: `calib-bench accept` gates every `scheimpflug_rig_ref` and

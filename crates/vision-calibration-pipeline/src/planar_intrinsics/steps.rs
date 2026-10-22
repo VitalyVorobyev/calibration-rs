@@ -479,7 +479,10 @@ fn init_tilted(
             &dataset,
             LinearScheimpflugIntrinsicsInitOptions {
                 iterations: init_iterations,
-                distortion_opts: session.config.init.distortion_fit_opts(true),
+                distortion_opts: session
+                    .config
+                    .init
+                    .distortion_fit_opts(session.config.camera.model),
                 ..Default::default()
             },
         )

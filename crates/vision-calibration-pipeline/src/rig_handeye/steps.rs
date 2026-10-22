@@ -231,8 +231,8 @@ pub struct HandeyeOptimizeResult {
 ///
 /// Runs Zhang's method with iterative distortion estimation on each camera
 /// independently (the tilted variant for a Scheimpflug camera). An unset
-/// `intrinsics.fix_tangential` keeps the tangential terms free for every
-/// camera. See `rig_extrinsics::step_intrinsics_init_all_with_seed` for the
+/// `intrinsics.fix_tangential` holds the tangential terms of each
+/// Scheimpflug camera and keeps them free for every other camera. See `rig_extrinsics::step_intrinsics_init_all_with_seed` for the
 /// seed semantics.
 ///
 /// # Errors
@@ -254,9 +254,6 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    // Rigs keep the tangential terms free in the linear stage for every
-    // camera, whatever its sensor.
-    let init_opts = config.intrinsics.iterative_opts(opts.iterations, false);
     let models: Vec<CameraModelSpec> = (0..num_cameras)
         .map(|i| config.camera_for(i).model)
         .collect();
@@ -272,7 +269,8 @@ pub fn step_intrinsics_init_all_with_seed(
         num_views,
         |cam_idx| extract_camera_views(input, cam_idx),
         seeds,
-        init_opts,
+        &config.intrinsics,
+        opts.iterations,
     ) {
         Ok(b) => b,
         Err(e) => {
@@ -313,9 +311,9 @@ pub fn step_intrinsics_init_all(
 /// Optimize intrinsics for all cameras.
 ///
 /// Refines each camera independently in its own model, holding its `fix`
-/// lists. An untilted camera runs a plain planar solve with every pose free.
-/// A Scheimpflug camera runs the staged multi-start tilt solve with view 0's
-/// pose pinned; after a full auto-init it runs a wider multi-start over
+/// lists, with every pose free. An untilted camera runs a plain planar
+/// solve. A Scheimpflug camera runs the staged multi-start tilt solve;
+/// after a full auto-init it runs a wider multi-start over
 /// linear tilt seeds instead, and a Brown-Conrady tilted camera that still
 /// fits badly is re-solved from a nominal seed built from the well-fitted
 /// ones.

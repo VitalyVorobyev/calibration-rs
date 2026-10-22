@@ -33,8 +33,10 @@ The workflow is a module, and the camera model is a config value
   workflow:**
   - the default fix list (a Scheimpflug sensor holds everything but the
     low-order radial terms: `k3, p1, p2` for Brown-Conrady);
-  - zeroing tangential terms in the linear stage of a single-camera
-    workflow (the rig workflows keep them free for every camera);
+  - zeroing tangential terms in the linear stage, in every workflow and
+    for each rig camera: the default fix list holds them in every later
+    solve, so a value the linear stage fitted (a tilt-like decentering)
+    would stay frozen and move the tilt and principal point;
   - the cold-start tilt sweep, which runs when the sensor is Scheimpflug
     and no tilt seed is given: the linear tilt sweep, then the staged tilt
     multi-start on the camera's own views;
@@ -44,9 +46,12 @@ The workflow is a module, and the camera model is a config value
     principal-point shift.
 
   Each is defined once (`CameraModelSpec::default_fix`,
+  `IntrinsicsInitConfig::distortion_fit_opts`,
   `planar_family::{bootstrap_camera, optimize_camera}`,
   `CameraConfig::validate_single_camera`) and runs in every workflow that
-  meets the condition.
+  meets the condition. A camera's own planar solve frees every target pose
+  whatever its sensor: it has no pose gauge, and a held pose keeps the
+  error of its linear-init value.
 - **Each step's output is unambiguous**, because the result holds
   `CameraParams`, whose sensor slot states what was calibrated.
 

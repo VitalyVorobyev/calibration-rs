@@ -69,7 +69,9 @@ session.update_config(|c| {
 
 The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_optimize.refine_sensor`) lets the tilts move there.
 
-Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `rig_extrinsics::IntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
+Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `rig_extrinsics::IntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the linear stage's tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
+
+Each tilted camera is first calibrated from its own views, as in single-camera planar intrinsics: an unset `intrinsics.fix_tangential` holds `p1`, `p2` at zero in the linear stage (a tangential term and the tilt trade off, and the default fix list holds them in every later solve), and the camera's own solve frees every target pose. On clean synthetic data this solve reaches the reprojection noise floor, with the principal point and tilt at the truth within their standard deviations.
 
 ## RigLaserlineDevice
 
@@ -142,5 +144,5 @@ As in the single-camera laser problem, calibration and laser residuals use separ
 ## Examples
 
 - Rust: `cargo run -p vision-calibration --example laserline_device_session` (single-camera laser plane with a Scheimpflug-capable sensor) and `cargo run -p vision-calibration --example rig_handeye_synthetic` (the rig hand-eye stage that feeds the rig laser problems).
-- Rust tests showing seeded Scheimpflug calibration: `crates/vision-calibration/tests/planar_intrinsics_scheimpflug.rs`.
+- Rust tests showing seeded Scheimpflug calibration: `crates/vision-calibration/tests/planar_intrinsics_scheimpflug.rs` (one camera) and `crates/vision-calibration/tests/rig_extrinsics_scheimpflug.rs` (a rig).
 - Python: `crates/vision-calibration-py/examples/laserline_device_session.py` and `rig_handeye_synthetic.py`; a tilted single camera runs through `run_planar_intrinsics` with `camera.model.sensor = "scheimpflug"`, and the package also exposes `run_rig_laserline_device` and `run_rig_handeye_laserline`.
