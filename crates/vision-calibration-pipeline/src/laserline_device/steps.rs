@@ -25,7 +25,8 @@ use super::problem::{LaserlineDeviceEstimate, LaserlineDeviceProblem};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Options for the initialization step.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DeviceInitOptions {
     /// Override the number of iterations for iterative intrinsics estimation.
@@ -66,7 +67,8 @@ pub struct DeviceManualInit {
 }
 
 /// Options for the optimization step.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DeviceOptimizeOptions {
     /// Override the maximum number of iterations.
@@ -83,7 +85,7 @@ pub struct DeviceOptimizeOptions {
 ///
 /// Carries the seeded-or-fitted initial estimates. The same values are also
 /// written into `session.state`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct DeviceInitResult {
     /// Initial camera, in the configured model.
@@ -101,7 +103,7 @@ pub struct DeviceInitResult {
 ///
 /// Aggregates the optimization metrics of the laserline-device solve; the same
 /// values are also written into `session.state`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct DeviceOptimizeResult {
     /// Final cost reported by the non-linear solver.

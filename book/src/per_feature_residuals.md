@@ -138,17 +138,17 @@ assert_eq!(restored.per_feature_residuals, export.per_feature_residuals);
 
 Empty vectors and `None` histograms are skipped on the wire (`{}` for an empty container).
 
-In Python the typed result classes do not wrap the records; they stay in the raw export that every result keeps in `result.export` (a dict with the JSON layout above):
+In Python every result has `per_feature_residuals`, a `PerFeatureResiduals` whose record lists are numpy tables: `target` holds one row per `TargetFeatureResidual` and `laser` one per `LaserFeatureResidual`, a column per field (`pose`, `camera`, `feature`, `observed_px` as `(N, 2)`, ...). A value the record leaves unset, such as the projection of a point behind the camera, is NaN. `laser_lines` is a list of `LaserLineTrace`, the histograms lists of `FeatureResidualHistogram`.
 
 ```python
-pf = result.export["per_feature_residuals"]
-worst = sorted(
-    (r for r in pf["target"] if r["error_px"] is not None),
-    key=lambda r: -r["error_px"],
-)[:5]
-for r in worst:
-    print(r["pose"], r["camera"], r["feature"], f'{r["error_px"]:.3f}')
-print(pf["target_hist_per_camera"][0]["counts"])
+import numpy as np
+
+res = result.per_feature_residuals
+worst = np.argsort(-np.nan_to_num(res.target.error_px))[:5]
+for i in worst:
+    print(res.target.pose[i], res.target.camera[i], res.target.feature[i],
+          f"{res.target.error_px[i]:.3f}")
+print(res.target_hist_per_camera[0].counts)
 ```
 
 ## Where Else They Show Up

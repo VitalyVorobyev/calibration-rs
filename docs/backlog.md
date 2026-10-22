@@ -90,20 +90,6 @@ need their measurement first and stay opt-in until it is in.
 - [ ] UQ-TARGET-FLATNESS - (Phase 2) Target manufacturing and flatness error
   in the covariance.
 
-## Python (Phase 1)
-
-- [ ] PY-PARITY - Bring the Python package to the facade:
-  - the session and step API, including manual init (Rust-only today);
-  - manifest-driven runs (`dataset_runner`) and the detectors on numpy
-    images;
-  - camera objects with vectorized `project`, `unproject` and
-    `undistort`;
-  - typed per-feature residuals.
-
-  `scripts/check_binding_parity.py` becomes a per-item map of the facade
-  that CI enforces; today it only matches `run_*` functions. Gate: the
-  map lists no unmapped item.
-
 ## Regression suite (Phase 1)
 
 A versioned public suite for regression and for comparison with other

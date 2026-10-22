@@ -112,7 +112,7 @@ fn extract_camera_views(input: &RigExtrinsicsInput, cam_idx: usize) -> Vec<Optio
 /// The inner `Option<Iso3>` in `per_cam_target_poses` reflects real
 /// per-(view, camera) detection coverage — a camera may not have observed the
 /// target in a given view.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsInitResult {
     /// Per-camera initial parameters, each in its camera's model.
@@ -123,7 +123,7 @@ pub struct IntrinsicsInitResult {
 }
 
 /// Typed return value of [`step_intrinsics_optimize_all`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsOptimizeResult {
     /// Per-camera refined parameters, each in its camera's model.
@@ -133,7 +133,7 @@ pub struct IntrinsicsOptimizeResult {
 }
 
 /// Typed return value of [`step_rig_init`] / [`step_rig_init_with_seed`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigInitResult {
     /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
@@ -143,7 +143,7 @@ pub struct RigInitResult {
 }
 
 /// Typed return value of [`step_rig_optimize`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigOptimizeResult {
     /// Mean reprojection error in pixels across the whole rig.

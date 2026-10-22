@@ -19,14 +19,16 @@ use super::problem::RigLaserlineDeviceProblem;
 ///
 /// The plane fit has no per-call overrides yet; the struct keeps `step_init`
 /// in the same shape as every other step.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct PlaneInitOptions {}
 
 /// Options for the laser-plane optimization step.
 ///
 /// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct PlaneOptimizeOptions {
     /// Override the maximum number of iterations.

@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `HandeyeBaConfig`, `RigHandeyeLaserlineBaConfig`, `LaserlineDeviceOptimizeConfig` | `HandeyeOptimizeConfig`, `JointOptimizeConfig`, `DeviceOptimizeConfig` |
   | `RigLaserlineUpstreamCalibration`, `LaserlineEstimateParams`, `LaserlinePlane` | `RigUpstreamCalibration`, `LaserlineParams`, `LaserPlane` |
   | `types.HandEyeMode`, `types.PlanarInput` | `types.HandeyeMode`, `types.PlanarIntrinsicsInput` |
+  | `types.CameraModel` (an alias of the `CameraParams` payload) | `types.CameraParams`; `CameraModel` is the camera object, as in Rust |
   | fields `handeye_ba`, `joint_ba`, `refine_intrinsics_in_rig_ba`, `init_iterations` | `handeye_optimize`, `joint_optimize`, `refine_intrinsics`, `iterations` |
 
 - Breaking: single-camera hand-eye and the laserline device take the camera
@@ -302,6 +303,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`features`, `lines`) instead of the record list.
 
 ### Added
+
+- **Python reaches the facade.** The package now depends on `numpy`.
+  - Sessions: one class per problem type (`PlanarIntrinsicsSession`,
+    `RigHandeyeSession`, ...) with `set_input`, `set_config`, the problem's
+    `step_*` methods and their `*_with_seed` variants, `run_calibration`,
+    `export`, the operation log (`LogEntry`), `metadata` and JSON
+    checkpoints (`to_json` / `from_json`). Step options are dataclasses at
+    the package root (`IntrinsicsInitOptions`, `RigOptimizeOptions`, ...);
+    each problem's manual-init seeds and step results are dataclasses in the
+    problem's module, which mirrors the Rust module
+    (`vision_calibration.rig_extrinsics.RigManualInit`). Long steps release
+    the GIL.
+  - Manifest runs: `calibrate_dataset(manifest, config)` runs a TOML or JSON
+    manifest end to end; `vision_calibration.dataset_runner` has the
+    `build_*_input` converters and their run results; `sniff_folder` drafts
+    a manifest; `FsDetectionCache` and `CacheKey` bind the detection cache.
+    Runner failures raise `RunError` with the Rust variant as `kind`; the
+    ask-user ambiguity raises its subclass `AskUserError` with `field`,
+    `prompt` and `suggestions`. A Python object with `name` and
+    `extract(image, spec)` serves as the laser-line extractor of the laser
+    topologies.
+  - Detection: `detect_target(image, target, detector=None)` runs a
+    manifest target's detector on a `(H, W)` `uint8` numpy image and returns
+    `Features` (`image_xy`, `world_xyz` arrays); `reject_ambiguous_detection`.
+  - `CameraModel`: a camera built from a result's camera or a `CameraParams`
+    payload (any distortion, identity or Scheimpflug sensor) with vectorized
+    `project`, `unproject` (ray origins and directions) and `undistort` (to a
+    pinhole image with the same intrinsics) over numpy arrays.
+  - Every result's `per_feature_residuals`: `PerFeatureResiduals`, with the
+    target and laser records as numpy tables (`TargetFeatureResiduals`,
+    `LaserFeatureResiduals`; unset values are NaN), the projected laser
+    lines and the per-camera histograms.
+  - The manifest types (`DatasetSpec`, `TargetSpec`, `DetectorSpec`, ...) are
+    generated payload `TypedDict`s in `vision_calibration.types`.
+- `vision_calibration::dataset_runner::detect_target` detects a manifest's
+  target (and optional `detector` overrides) in one in-memory image, lowered
+  exactly as a manifest run lowers it; the facade re-exports
+  `dataset::DetectorSpec` for it.
+- The step options and step results of every problem type derive
+  `Serialize` and `Deserialize`.
 
 - `vision_calibration::mvg::RansacOptions`: the facade re-exports the RANSAC
   settings the robust two-view estimators take, so MVG users no longer

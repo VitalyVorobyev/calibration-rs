@@ -123,7 +123,7 @@ fn input_to_planar_dataset(input: &SingleCamHandeyeInput) -> Result<PlanarDatase
 ///
 /// Mirrors the values written into `session.state` so consumers can read them
 /// directly without unwrapping `Option` fields.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsInitResult {
     /// Initial camera estimate, in the configured model.
@@ -133,7 +133,7 @@ pub struct IntrinsicsInitResult {
 }
 
 /// Typed return value of [`step_intrinsics_optimize`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsOptimizeResult {
     /// Refined camera, in the configured model.
@@ -151,7 +151,7 @@ pub struct IntrinsicsOptimizeResult {
 ///   `EyeToHand` fields are `None`.
 /// - `EyeToHand` populates `camera_se3_base` and `gripper_se3_target`; the
 ///   `EyeInHand` fields are `None`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct HandeyeInitResult {
     /// (EyeInHand) Hand-eye transform `T_G_C` — gripper-from-camera.
@@ -165,7 +165,7 @@ pub struct HandeyeInitResult {
 }
 
 /// Typed return value of [`step_handeye_optimize`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct HandeyeOptimizeResult {
     /// Mean reprojection error in pixels after hand-eye BA.

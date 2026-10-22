@@ -520,8 +520,8 @@ pub mod core {
 /// and the diagnose app's "Sniff folder" command).
 pub mod dataset {
     pub use vision_calibration_dataset::{
-        CameraSource, DatasetSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis, PosePairing,
-        SniffError, TargetSpec, Topology, sniff_folder,
+        CameraSource, DatasetSpec, DetectorSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis,
+        PosePairing, SniffError, TargetSpec, Topology, sniff_folder,
     };
 }
 
@@ -539,7 +539,7 @@ pub mod dataset_runner {
         RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,
         build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
         build_rig_handeye_input, build_rig_handeye_laserline_input,
-        build_rig_laserline_device_input, build_single_cam_handeye_input,
+        build_rig_laserline_device_input, build_single_cam_handeye_input, detect_target,
     };
 }
 

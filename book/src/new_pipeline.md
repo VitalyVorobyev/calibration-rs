@@ -190,7 +190,9 @@ pub mod my_problem {
 }
 ```
 
-Do not add new workflows to the prelude by default; keep the prelude minimal for planar hello-world usage. Add a Python binding in `vision-calibration-py`.
+Do not add new workflows to the prelude by default; keep the prelude minimal for planar hello-world usage.
+
+Add the Python binding in `vision-calibration-py`: one `session_class!` invocation in `src/session.rs` (the problem type, its steps with their option and result types), a `python/vision_calibration/<module>.py` with the session class and the seed and result dataclasses, a `run_<module>` runner, and an entry per new facade item in `scripts/binding_parity.toml`. The parity check fails until every facade item is bound or marked Rust-only with a reason.
 
 ## Testing
 

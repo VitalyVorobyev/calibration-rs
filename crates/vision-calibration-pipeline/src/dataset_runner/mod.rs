@@ -28,8 +28,8 @@ use thiserror::Error;
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
 use vision_calibration_dataset::{
-    ChessCornersDetectorSpec, CornerStrategySpec, DatasetSpec, ImagePattern, TargetSpec, Topology,
-    ValidationError,
+    ChessCornersDetectorSpec, CornerStrategySpec, DatasetSpec, DetectorSpec, ImagePattern,
+    TargetSpec, Topology, ValidationError,
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
@@ -295,8 +295,48 @@ fn min_features_per_view(spec: &DatasetSpec) -> usize {
 }
 
 fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value), RunError> {
-    let (name, mut config) = detector_config_for_target(&spec.target)?;
-    if let Some(chess) = spec.detector.and_then(|d| d.chess_corners)
+    detector_config(&spec.target, spec.detector.as_ref())
+}
+
+/// Detect a manifest's calibration target in one in-memory image.
+///
+/// The single-image form of what the dataset converters do per image file:
+/// `target` and `detector` are the manifest's `target` and optional
+/// `detector` sections, lowered to the matching detector exactly as a
+/// manifest run lowers them. No cache is involved and no ROI is applied:
+/// the features are in `image`'s own pixel frame, with the target points in
+/// metres in the target frame. An image without a usable board yields an
+/// empty list, not an error.
+///
+/// # Errors
+///
+/// [`RunError::InvalidTargetConfig`] for an impossible target (an unknown
+/// ChArUco dictionary, a malformed PuzzleBoard layout), checked before
+/// detection; [`RunError::Detection`] when the detector rejects its config.
+pub fn detect_target(
+    image: &image::DynamicImage,
+    target: &TargetSpec,
+    detector: Option<&DetectorSpec>,
+) -> Result<Vec<Feature>, RunError> {
+    let (name, config) = detector_config(target, detector)?;
+    pick_detector(name)?
+        .detect_json(image, &config)
+        .map_err(|source| RunError::Detection {
+            detector: name.to_string(),
+            path: PathBuf::from("<in-memory image>"),
+            source,
+        })
+}
+
+/// The detector name and config JSON for `target`, with the manifest's
+/// detector override applied. The one place a manifest target is lowered to
+/// a detector config.
+fn detector_config(
+    target: &TargetSpec,
+    detector: Option<&DetectorSpec>,
+) -> Result<(&'static str, Value), RunError> {
+    let (name, mut config) = detector_config_for_target(target)?;
+    if let Some(chess) = detector.and_then(|d| d.chess_corners)
         && let Value::Object(map) = &mut config
     {
         let chess = lower_chess_corners(chess);
@@ -675,6 +715,76 @@ mod tests {
         // config struct — guards the field-name contract between the
         // manifest and the detect crate.
         pick_detector(name).unwrap();
+    }
+
+    /// A synthetic chessboard: `squares_x` × `squares_y` squares of `px`
+    /// pixels on a white margin of one square.
+    fn chessboard_image(squares_x: u32, squares_y: u32, px: u32) -> image::DynamicImage {
+        let (w, h) = ((squares_x + 2) * px, (squares_y + 2) * px);
+        let img = image::GrayImage::from_fn(w, h, |x, y| {
+            let (cx, cy) = (x / px, y / px);
+            let inside = (1..=squares_x).contains(&cx) && (1..=squares_y).contains(&cy);
+            image::Luma([if inside && (cx + cy) % 2 == 0 { 0 } else { 255 }])
+        });
+        image::DynamicImage::ImageLuma8(img)
+    }
+
+    #[test]
+    fn detect_target_finds_the_inner_corners_of_a_synthetic_board() {
+        // 8×6 squares have 7×5 inner corners.
+        let image = chessboard_image(8, 6, 40);
+        let target = TargetSpec::Chessboard {
+            rows: 5,
+            cols: 7,
+            square_size_m: 0.03,
+        };
+        let features = detect_target(&image, &target, None).unwrap();
+        assert_eq!(features.len(), 35);
+        for f in &features {
+            assert_eq!(f.world_xyz[2], 0.0);
+            // Board coordinates are multiples of the square size.
+            for v in &f.world_xyz[..2] {
+                let k = v / 0.03;
+                assert!((k - k.round()).abs() < 1e-9, "{v} is off the grid");
+            }
+            // Corners sit on the square lattice of the image.
+            for v in f.image_xy {
+                let k = v / 40.0;
+                assert!((k - k.round()).abs() < 0.05, "{v} is off the lattice");
+            }
+        }
+    }
+
+    #[test]
+    fn detect_target_on_a_blank_image_is_empty() {
+        let image = image::DynamicImage::ImageLuma8(image::GrayImage::from_pixel(
+            200,
+            150,
+            image::Luma([128]),
+        ));
+        let target = TargetSpec::Chessboard {
+            rows: 5,
+            cols: 7,
+            square_size_m: 0.03,
+        };
+        assert!(detect_target(&image, &target, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn detect_target_rejects_an_impossible_target_before_detection() {
+        let image = chessboard_image(8, 6, 40);
+        let target = TargetSpec::Charuco {
+            rows: 12,
+            cols: 12,
+            square_size_m: 0.020,
+            marker_size_m: 0.015,
+            dictionary: "DICT_TYPO_99".into(),
+        };
+        let err = detect_target(&image, &target, None).unwrap_err();
+        assert!(
+            matches!(err, RunError::InvalidTargetConfig { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]

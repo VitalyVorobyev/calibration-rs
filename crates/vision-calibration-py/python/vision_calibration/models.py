@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, cast
 
+from .residuals import PerFeatureResiduals
 from ._generated_types import (
     DistortionKind,
     ProjectionKind,
@@ -1699,6 +1700,21 @@ class QualityReport:
 Camera = PinholeCamera | PinholeScheimpflugCamera
 
 
+class _ExportResiduals:
+    """The typed per-feature residuals of a result's export JSON."""
+
+    __slots__ = ()
+    export: dict[str, Any]
+
+    @property
+    def per_feature_residuals(self) -> PerFeatureResiduals:
+        """Every target corner's and laser pixel's residual, as numpy tables
+        (see :class:`~vision_calibration.residuals.PerFeatureResiduals`)."""
+        return PerFeatureResiduals.from_payload(
+            cast(Mapping[str, Any] | None, self.export.get("per_feature_residuals"))
+        )
+
+
 def _camera_from_payload(payload: Mapping[str, Any]) -> Camera:
     sensor = cast(Mapping[str, Any], payload["sensor"])
     if sensor.get("type") == "scheimpflug":
@@ -1714,7 +1730,7 @@ def _cameras_from_payload(payload: Mapping[str, Any]) -> list[Camera]:
 
 
 @dataclass(slots=True)
-class PlanarIntrinsicsExport:
+class PlanarIntrinsicsExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_planar_intrinsics`.
 
     ``camera.distortion`` is one of the :data:`Distortion` variants, matching
@@ -1759,7 +1775,7 @@ class PlanarIntrinsicsExport:
 
 
 @dataclass(slots=True)
-class SingleCamHandeyeExport:
+class SingleCamHandeyeExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_single_cam_handeye`.
 
     ``camera`` is a :class:`PinholeCamera` or, for a tilted sensor, a
@@ -1808,7 +1824,7 @@ class SingleCamHandeyeExport:
 
 
 @dataclass(slots=True)
-class RigExtrinsicsExport:
+class RigExtrinsicsExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_rig_extrinsics`."""
 
     cameras: list[Camera]
@@ -1837,7 +1853,7 @@ class RigExtrinsicsExport:
 
 
 @dataclass(slots=True)
-class RigHandeyeExport:
+class RigHandeyeExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_rig_handeye`.
 
     Each entry of ``cameras`` is a :class:`PinholeCamera` or, for a tilted
@@ -1916,7 +1932,7 @@ class RigHandeyeExport:
 
 
 @dataclass(slots=True)
-class LaserlineDeviceExport:
+class LaserlineDeviceExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_laserline_device`."""
 
     estimate: LaserlineEstimate
@@ -2093,7 +2109,7 @@ class RigLaserlineDeviceConfig:
 
 
 @dataclass(slots=True)
-class RigLaserlineDeviceExport:
+class RigLaserlineDeviceExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_rig_laserline_device`."""
 
     laser_planes_rig: list[LaserPlane]
@@ -2342,7 +2358,7 @@ class RigHandeyeLaserlinePerCamStats:
 
 
 @dataclass(slots=True)
-class RigHandeyeLaserlineExport:
+class RigHandeyeLaserlineExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_rig_handeye_laserline`."""
 
     laser_planes_rig: list[LaserPlane]

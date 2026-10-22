@@ -123,6 +123,32 @@ The `*_with_seed` variants exist for `step_init` / `step_intrinsics_init` / `ste
 
 `step_filter` removes high-residual points from the session input, which invalidates the computed state; run `step_init` and `step_optimize` again afterwards. `run_calibration_with_filtering` does exactly that: solve, filter, solve.
 
+## In Python
+
+The steps are methods of the problem's session class, with the same names. Options are dataclasses whose `None` fields keep the session config; results are dataclasses. The shared option types are importable from the package root; each problem's seeds and results live in the problem's module, which mirrors the Rust module of the same name:
+
+```python
+import vision_calibration as vc
+from vision_calibration import rig_extrinsics
+
+session = vc.RigExtrinsicsSession()
+session.set_input(dataset)
+init = session.step_intrinsics_init_all()           # rig_extrinsics.IntrinsicsInitResult
+session.step_intrinsics_optimize_all(vc.IntrinsicsOptimizeOptions(max_iters=200))
+rig = session.step_rig_init()
+session.step_rig_optimize()
+
+# Re-run the rig stage from its own estimate
+session.step_rig_init_with_seed(
+    rig_extrinsics.RigManualInit(
+        cam_se3_rig=rig.initial_cam_se3_rig,
+        rig_se3_target=rig.initial_rig_se3_target,
+    )
+)
+```
+
+The one-shot `run_<problem>` functions (`run_planar_intrinsics`, `run_rig_extrinsics`, ...) are the pipeline functions: a session, `run_calibration` and `export` in one call.
+
 ## Recommendation
 
 **Use step functions** for production calibration where you need to:

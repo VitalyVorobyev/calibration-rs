@@ -2,7 +2,7 @@
 
 This chapter calibrates a camera end to end from synthetic data, once in Rust and once in Python. The two programs do the same thing: describe a planar board seen from several poses, run the two-step calibration (linear initialization, then non-linear refinement), and print the intrinsics and the reprojection error.
 
-Both interfaces drive the same solvers. They differ in how much of the workflow they expose: Rust gives the session and its step functions, Python gives one runner per workflow (`run_planar_intrinsics`, `run_rig_extrinsics`, ...).
+Both interfaces drive the same solvers and expose the same workflow: a session per problem type with its step functions, and a one-call runner per workflow (`run_calibration` in Rust; `run_planar_intrinsics`, `run_rig_extrinsics`, ... in Python). The Rust program below steps through a session; the Python program uses the runner, and [Step by Step in Python](#step-by-step-in-python) shows the session.
 
 ## Install
 
@@ -131,11 +131,27 @@ print(f"fx={k.fx:.1f}, fy={k.fy:.1f}, cx={k.cx:.1f}, cy={k.cy:.1f}")
 print(f"Mean reprojection error: {result.mean_reproj_error:.4f} px")
 ```
 
-Real data replaces step 2 in both languages: detect the board corners in each image and pair every corner with its position on the board. [Planar Intrinsics with Real Data](planar_real_data.md) shows the detection step by hand; [Calibration Targets and Detection](detection.md) covers the detectors the library ships.
+Real data replaces step 2 in both languages: detect the board corners in each image and pair every corner with its position on the board. [Planar Intrinsics with Real Data](planar_real_data.md) shows the detection step by hand; [Calibration Targets and Detection](detection.md) covers the detectors the library ships, and [The Dataset Manifest](manifest.md) runs a folder of images (`vc.calibrate_dataset` in Python).
+
+### Step by Step in Python
+
+The runner above is a session run in one call. The session gives the steps, their results and the init log:
+
+```python
+session = vc.PlanarIntrinsicsSession()
+session.set_input(dataset)
+init = session.step_init()                 # linear initialization
+print(f"init fx={init.intrinsics.fx:.1f}")
+session.step_optimize()                    # non-linear refinement
+result = session.export()                  # the same PlanarIntrinsicsExport
+
+cam = vc.CameraModel(result.camera)        # project with the calibrated camera
+print(cam.project([0.0, 0.0, 1.0]))        # the principal point
+```
 
 ## Configuring a Run
 
-Every workflow has a `*Config` type with the same grouped shape (`solver`, `camera`, `init`, ...). Rust updates it on the session; Python passes it to the runner.
+Every workflow has a `*Config` type with the same grouped shape (`solver`, `camera`, `init`, ...). Rust updates it on the session; Python passes it to the runner or to the session's `set_config`.
 
 ### Rust
 
@@ -163,7 +179,7 @@ result = vc.run_planar_intrinsics(dataset, config)
 
 ### Step 1: Linear Initialization
 
-`step_init` (inside `run_planar_intrinsics` in Python):
+`step_init` (`session.step_init()` in Python; `run_planar_intrinsics` runs it first):
 
 1. Computes a homography from each view's 2D-3D correspondences using DLT (direct linear transform)
 2. Estimates intrinsics $K$ from the homographies using Zhang's method

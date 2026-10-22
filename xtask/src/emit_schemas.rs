@@ -14,8 +14,9 @@
 //!   `regression/schema/<name>.json`, for authors of comparison harnesses.
 //! - The dataset manifest's schema is rendered as the book's field reference,
 //!   `book/src/manifest_reference.md` (see `manifest_doc`).
-//! - The config, input, export and quality schemas are rendered as the Python
-//!   package's `TypedDict`s, `_generated_types.py` (see `py_types`).
+//! - The manifest, config, input, export and quality schemas are rendered as
+//!   the Python package's `TypedDict`s, `_generated_types.py` (see
+//!   `py_types`).
 //!
 //! With `--check`, the command instead verifies that the files on disk match
 //! what would be generated from current source. CI runs this to catch drift
@@ -114,7 +115,10 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
             name: "dataset_spec",
             schema: schema_value::<DatasetSpec>(),
             default: None,
-            python: None,
+            python: Some(Python {
+                root: "DatasetSpec",
+                renames: &[],
+            }),
         },
         config::<PlanarIntrinsicsConfig>("planar_intrinsics_config", "PlanarIntrinsicsConfig"),
         config::<SingleCamHandeyeConfig>("single_cam_handeye_config", "SingleCamHandeyeConfig"),
@@ -225,8 +229,8 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         }
     }
 
-    // The Python payload types, rendered from the config, input, export and
-    // quality schemas.
+    // The Python payload types, rendered from the manifest, config, input,
+    // export and quality schemas.
     let python: Vec<PySchema<'_>> = app
         .iter()
         .chain(&api)

@@ -145,3 +145,37 @@ let output = session.require_output()?;
 // Session bookkeeping
 println!("{} ({} log entries)", session.metadata().problem_type, session.log().len());
 ```
+
+## In Python
+
+Each problem type has its session class, named after it:
+`PlanarIntrinsicsSession`, `SingleCamHandeyeSession`, `RigExtrinsicsSession`,
+`RigHandeyeSession`, `LaserlineDeviceSession`, `RigLaserlineDeviceSession`
+and `RigHandeyeLaserlineSession`. The step functions are its methods, with
+the Rust names; each takes the step's options and returns the step's result
+as a dataclass. Long steps release the GIL.
+
+```python
+import vision_calibration as vc
+
+session = vc.PlanarIntrinsicsSession("Lab camera calibration")
+session.set_input(dataset)  # a PlanarIntrinsicsInput, or its payload dict
+session.set_config(vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(max_iters=50)))
+
+init = session.step_init(vc.IntrinsicsInitOptions(iterations=3))
+print(f"Init fx={init.intrinsics.fx:.1f}")
+session.step_optimize()
+result = session.export(notes="first pass")  # a PlanarIntrinsicsExport
+
+for entry in session.log:  # the audit log, as LogEntry dataclasses
+    print(entry.operation, entry.success, entry.notes)
+
+# Checkpoint and resume
+restored = vc.PlanarIntrinsicsSession.from_json(session.to_json())
+```
+
+`input` and `output` return the serde payloads (dicts), `config` the config
+dataclass, `exports` the `ExportRecord`s and `metadata` the
+`SessionMetadata`. `run_calibration()` runs the problem's default steps. An
+input or config the problem rejects, a step out of order and a seed that does
+not fit raise `ValueError`; a numerical failure raises `RuntimeError`.
