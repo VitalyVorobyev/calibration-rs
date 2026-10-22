@@ -52,9 +52,13 @@ axis.
 
 `ReprojPoint` computes the weighted pixel residual
 
-$$\mathbf{r} = \sqrt{w} \cdot \left( \mathbf{p}_{\text{obs}} - \pi(\boldsymbol{\theta}, \mathbf{P}_c) \right) \in \mathbb{R}^2$$
+$$\mathbf{r} = L \left( \mathbf{p}_{\text{obs}} - \pi(\boldsymbol{\theta}, \mathbf{P}_c) \right) \in \mathbb{R}^2$$
 
-where $\pi$ is the camera model selected by the descriptor and
+where $L$ (`ReprojSqrtInfo`) is $\sqrt{w}\,I$ for a point without a stated
+covariance, or the upper-triangular square root of $\Sigma^{-1}$ ($L^\top L =
+\Sigma^{-1}$) for a point stating the covariance $\Sigma$, times $\sqrt{w}$ for a
+family weight $w$; one problem holds one kind or the other. $\pi$ is the camera
+model selected by the descriptor and
 $\mathbf{P}_c$ comes from the chain:
 
 ### `ReprojChain::SinglePose`

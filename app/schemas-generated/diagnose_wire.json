@@ -1352,6 +1352,34 @@
     },
     "ResidualNoise": {
       "description": "The estimated noise level of one kind of residual.",
+      "oneOf": [
+        {
+          "description": "`σ̂` in the residual kind's unit: pixels for reprojection and the\nlaser line, metres for the laser plane.",
+          "properties": {
+            "sigma": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "sigma"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`σ̂₀` of residuals whitened by their stated per-point covariances:\ndimensionless, the square root of the a-posteriori variance factor.\nAbout 1 when the stated covariances describe the noise; 2 means the\nactual noise is twice what they state.",
+          "properties": {
+            "sigma0": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "sigma0"
+          ],
+          "type": "object"
+        }
+      ],
       "properties": {
         "camera": {
           "description": "The camera, for a result that estimates each camera's noise apart\n(the rig laserline, which solves each camera's plane on its own);\n`None` for one level shared by every camera.",
@@ -1375,16 +1403,10 @@
             }
           ],
           "description": "The kind of residual."
-        },
-        "sigma": {
-          "description": "Gaussian-equivalent standard deviation of one scalar residual (one\npixel axis for reprojection), from the median absolute residual so\nthat outliers do not inflate it. In the residual's unit.",
-          "format": "double",
-          "type": "number"
         }
       },
       "required": [
         "kind",
-        "sigma",
         "count"
       ],
       "type": "object"
@@ -2293,6 +2315,14 @@
         },
         "error_px": {
           "description": "Euclidean pixel distance `|projected - observed|`.\n`None` iff `projected_px` is `None`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "error_whitened": {
+          "description": "The error whitened by the feature's stated covariance,\n`√(eᵀ Σ⁻¹ e)`: its size in units of the feature's standard deviation\nalong it. `None` when the input states no covariance or the\nprojection failed.",
           "format": "double",
           "type": [
             "number",

@@ -177,9 +177,35 @@ export type Uncertainty =
       status: "unavailable";
     };
 /**
+ * The estimated noise level of one kind of residual.
+ */
+export type ResidualNoise = {
+  /**
+   * The camera, for a result that estimates each camera's noise apart
+   * (the rig laserline, which solves each camera's plane on its own);
+   * `None` for one level shared by every camera.
+   */
+  camera?: number | null;
+  /**
+   * Number of scalar residuals of this kind.
+   */
+  count: number;
+  /**
+   * The kind of residual.
+   */
+  kind: ResidualKind;
+} & ResidualNoise1;
+/**
  * A kind of residual, which sets its unit.
  */
 export type ResidualKind = "reprojection" | "laser_plane" | "laser_line";
+export type ResidualNoise1 =
+  | {
+      sigma: number;
+    }
+  | {
+      sigma0: number;
+    };
 /**
  * Why a result has no covariance.
  */
@@ -592,31 +618,6 @@ export interface ParameterCovariance {
   views?: ViewCovariance[];
 }
 /**
- * The estimated noise level of one kind of residual.
- */
-export interface ResidualNoise {
-  /**
-   * The camera, for a result that estimates each camera's noise apart
-   * (the rig laserline, which solves each camera's plane on its own);
-   * `None` for one level shared by every camera.
-   */
-  camera?: number | null;
-  /**
-   * Number of scalar residuals of this kind.
-   */
-  count: number;
-  /**
-   * The kind of residual.
-   */
-  kind: ResidualKind;
-  /**
-   * Gaussian-equivalent standard deviation of one scalar residual (one
-   * pixel axis for reprojection), from the median absolute residual so
-   * that outliers do not inflate it. In the residual's unit.
-   */
-  sigma: number;
-}
-/**
  * The covariance of one view's own parameters.
  */
 export interface ViewCovariance {
@@ -843,6 +844,13 @@ export interface TargetFeatureResidual {
    * `None` iff `projected_px` is `None`.
    */
   error_px?: number | null;
+  /**
+   * The error whitened by the feature's stated covariance,
+   * `√(eᵀ Σ⁻¹ e)`: its size in units of the feature's standard deviation
+   * along it. `None` when the input states no covariance or the
+   * projection failed.
+   */
+  error_whitened?: number | null;
   /**
    * Feature index within the view's `points_3d`.
    */

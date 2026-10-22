@@ -1,9 +1,11 @@
 use crate::Error;
+use nalgebra::RealField;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 pub use vision_calibration_core::{
     CameraModelSpec, DistortionKind, INTRINSICS_PARAM_NAMES, ProjectionKind, SensorKind,
 };
+use vision_calibration_core::{CorrespondenceView, PointCovariance};
 
 /// Identifier for a parameter block in the IR.
 ///
@@ -420,6 +422,91 @@ impl LaserChain {
     }
 }
 
+/// The square-root information `L` of a [`FactorKind::ReprojPoint`]
+/// residual: upper triangular, the residual is `L e` for the pixel error
+/// `e = u_obs − u_proj`, and `LᵀL` is the information the objective gives
+/// the point.
+///
+/// Within one problem every reprojection factor is isotropic or every one
+/// is whitened ([`ProblemIR::validate`]): the two are different noise
+/// families, pixels and dimensionless.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReprojSqrtInfo {
+    /// No stated covariance: `L = scale · I`, a residual in pixels (times
+    /// `scale`).
+    Isotropic {
+        /// The scale of `L`, `√w` for an information weight `w`.
+        scale: f64,
+    },
+    /// `L` from the point's stated covariance, `LᵀL = Σ⁻¹`, times `√w` for
+    /// any family weight `w`: a whitened, dimensionless residual.
+    Whitened {
+        /// `[l₀₀, l₀₁, l₁₁]` of `L = [[l₀₀, l₀₁], [0, l₁₁]]`, px⁻¹.
+        upper: [f64; 3],
+    },
+}
+
+impl ReprojSqrtInfo {
+    /// `L = I`: an unweighted pixel residual.
+    pub const IDENTITY: Self = Self::Isotropic { scale: 1.0 };
+
+    /// The whitening `L` of a stated point covariance.
+    pub fn from_covariance(cov: &PointCovariance) -> Self {
+        Self::Whitened {
+            upper: cov.sqrt_information(),
+        }
+    }
+
+    /// Point `idx` of `obs`: whitened by its covariance when the view states
+    /// one, else [`IDENTITY`](Self::IDENTITY).
+    pub fn for_point(obs: &CorrespondenceView, idx: usize) -> Self {
+        obs.covariance(idx)
+            .map_or(Self::IDENTITY, |cov| Self::from_covariance(&cov))
+    }
+
+    /// The information multiplied by `w`: `L` scaled by `√w`.
+    pub fn weighted(self, w: f64) -> Self {
+        let s = w.sqrt();
+        match self {
+            Self::Isotropic { scale } => Self::Isotropic { scale: scale * s },
+            Self::Whitened { upper } => Self::Whitened {
+                upper: upper.map(|l| l * s),
+            },
+        }
+    }
+
+    /// Whether the residual is whitened by a stated covariance.
+    pub fn is_whitened(&self) -> bool {
+        matches!(self, Self::Whitened { .. })
+    }
+
+    /// `L e` for the pixel error `e = [e₀, e₁]`.
+    #[inline]
+    pub(crate) fn apply<T: RealField>(&self, e0: T, e1: T) -> [T; 2] {
+        match *self {
+            Self::Isotropic { scale } => {
+                let s = T::from_f64(scale).unwrap();
+                [e0 * s.clone(), e1 * s]
+            }
+            Self::Whitened {
+                upper: [l00, l01, l11],
+            } => {
+                let l00 = T::from_f64(l00).unwrap();
+                let l01 = T::from_f64(l01).unwrap();
+                let l11 = T::from_f64(l11).unwrap();
+                [e0 * l00 + e1.clone() * l01, e1 * l11]
+            }
+        }
+    }
+
+    fn is_finite(&self) -> bool {
+        match self {
+            Self::Isotropic { scale } => scale.is_finite() && *scale >= 0.0,
+            Self::Whitened { upper } => upper.iter().all(|l| l.is_finite()),
+        }
+    }
+}
+
 /// One expected parameter slot of a factor: dimension, manifold, and a
 /// diagnostic role name used in validation error messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -443,7 +530,8 @@ pub enum FactorKind {
     /// then distortion / sensor blocks if their dimensions are non-zero),
     /// followed by the chain blocks implied by `chain`.
     ///
-    /// Residual: 2D pixel error, scaled by `w`.
+    /// Residual: `L (u_obs − u_proj)`, the 2D pixel error weighed by
+    /// `sqrt_info`.
     ReprojPoint {
         /// Camera model descriptor (selects the projection kernel and the
         /// leading parameter blocks).
@@ -455,8 +543,8 @@ pub enum FactorKind {
         pw: [f64; 3],
         /// Observed pixel coordinates.
         uv: [f64; 2],
-        /// Residual weight.
-        w: f64,
+        /// Square-root information of the pixel error.
+        sqrt_info: ReprojSqrtInfo,
     },
     /// Point-to-plane laser residual generic over camera model and chain.
     ///
@@ -706,8 +794,22 @@ impl ProblemIR {
             }
         }
 
+        let (mut whitened, mut isotropic) = (0usize, 0usize);
         for (r_idx, residual) in self.residuals.iter().enumerate() {
             residual.loss.validate()?;
+            if let FactorKind::ReprojPoint { sqrt_info, .. } = &residual.factor {
+                if !sqrt_info.is_finite() {
+                    return Err(Error::invalid_input(format!(
+                        "residual {r_idx}: reprojection sqrt_info {sqrt_info:?} is not finite \
+                         (or has a negative scale)"
+                    )));
+                }
+                if sqrt_info.is_whitened() {
+                    whitened += 1;
+                } else {
+                    isotropic += 1;
+                }
+            }
             if residual.residual_dim != residual.factor.residual_dim() {
                 return Err(Error::invalid_input(format!(
                     "residual {} dim {} does not match factor expectation {}",
@@ -759,8 +861,25 @@ impl ProblemIR {
                 }
             }
         }
+        if whitened > 0 && isotropic > 0 {
+            return Err(Error::invalid_input(format!(
+                "reprojection residuals must all be whitened by stated covariances or none: \
+                 {whitened} are, {isotropic} are not"
+            )));
+        }
 
         Ok(())
+    }
+
+    /// Whether the reprojection residuals are whitened by stated
+    /// covariances (all or none of them are, by [`validate`](Self::validate)).
+    pub(crate) fn reprojection_whitened(&self) -> bool {
+        self.residuals.iter().any(|r| {
+            matches!(
+                r.factor,
+                FactorKind::ReprojPoint { sqrt_info, .. } if sqrt_info.is_whitened()
+            )
+        })
     }
 }
 
@@ -907,7 +1026,7 @@ mod tests {
                     chain,
                     pw: [0.0; 3],
                     uv: [0.0; 2],
-                    w: 1.0,
+                    sqrt_info: ReprojSqrtInfo::IDENTITY,
                 };
                 let layout = factor.param_layout();
                 let chain_blocks = match chain {
@@ -962,7 +1081,7 @@ mod tests {
                     chain,
                     pw: [0.1, 0.2, 0.0],
                     uv: [320.0, 240.0],
-                    w: 1.0,
+                    sqrt_info: ReprojSqrtInfo::IDENTITY,
                 };
                 let mut ir = ProblemIR::new();
                 let params = add_blocks_for_layout(&mut ir, &factor.param_layout());
@@ -1003,6 +1122,54 @@ mod tests {
         }
     }
 
+    /// Whitened and isotropic reprojection residuals are separate noise
+    /// families, so one IR may not mix them; a non-finite `L` is rejected.
+    #[test]
+    fn validate_rejects_mixed_or_non_finite_reprojection_weights() {
+        let ir_with = |infos: &[ReprojSqrtInfo]| {
+            let mut ir = ProblemIR::new();
+            for &sqrt_info in infos {
+                let factor = FactorKind::ReprojPoint {
+                    model: CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity),
+                    chain: ReprojChain::SinglePose,
+                    pw: [0.0; 3],
+                    uv: [0.0; 2],
+                    sqrt_info,
+                };
+                let params = add_blocks_for_layout(&mut ir, &factor.param_layout());
+                ir.add_residual_block(ResidualBlock {
+                    params,
+                    loss: RobustLoss::None,
+                    residual_dim: factor.residual_dim(),
+                    factor,
+                });
+            }
+            ir
+        };
+        let whitened = ReprojSqrtInfo::Whitened {
+            upper: [2.0, 0.5, 1.0],
+        };
+        let ok = ir_with(&[whitened, whitened.weighted(4.0)]);
+        ok.validate().unwrap();
+        assert!(ok.reprojection_whitened());
+        let ok = ir_with(&[ReprojSqrtInfo::IDENTITY, ReprojSqrtInfo::IDENTITY]);
+        ok.validate().unwrap();
+        assert!(!ok.reprojection_whitened());
+
+        let err = ir_with(&[whitened, ReprojSqrtInfo::IDENTITY])
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("1 are, 1 are not"), "{err}");
+        let err = ir_with(&[ReprojSqrtInfo::Whitened {
+            upper: [f64::NAN, 0.0, 1.0],
+        }])
+        .validate()
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("not finite"), "{err}");
+    }
+
     #[test]
     fn validate_rejects_wrong_block_count() {
         let factor = FactorKind::ReprojPoint {
@@ -1010,7 +1177,7 @@ mod tests {
             chain: ReprojChain::SinglePose,
             pw: [0.0; 3],
             uv: [0.0; 2],
-            w: 1.0,
+            sqrt_info: ReprojSqrtInfo::IDENTITY,
         };
         let mut ir = ProblemIR::new();
         let mut params = add_blocks_for_layout(&mut ir, &factor.param_layout());
@@ -1037,7 +1204,7 @@ mod tests {
             chain: ReprojChain::SinglePose,
             pw: [0.0; 3],
             uv: [0.0; 2],
-            w: 1.0,
+            sqrt_info: ReprojSqrtInfo::IDENTITY,
         };
         let mut ir = ProblemIR::new();
         let cam = ir.add_param_block("k", 4, ManifoldKind::Euclidean, FixedMask::all_free(), None);

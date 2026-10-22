@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: per-point weights are replaced by per-point covariances.
+  `CorrespondenceView` loses `weights`, `new_with_weights`, `weight(idx)`
+  and `iter_weighted`; a view states an optional covariance per point
+  instead (`new_with_covariances(points_3d, points_2d, cov_px)`,
+  `covariance(idx)`, `covariances()`; JSON `cov_px`, one
+  `{"xx", "xy", "yy"}` in px² per point). A weight `w` on every point of
+  the input is the covariance `I / w` (`PointCovariance::new(1.0 / w, 0.0,
+  1.0 / w)`); a weight of 1, or no weights, is no covariance. Every view of
+  an input states covariances or none does. The view's covariance field is
+  private: build views with `CorrespondenceView::new(..)` or
+  `new_with_covariances(..)` instead of a struct literal. In Python
+  `Observation(weights=...)` becomes `Observation(cov_px=[PointCovariance(xx,
+  xy, yy), ...])`.
+
+- Breaking: `ResidualNoise.sigma` becomes `ResidualNoise.level:
+  NoiseLevel`, `Sigma(σ̂)` in the residual's unit or `Sigma0(σ̂₀)` for
+  residuals whitened by stated point covariances. JSON keeps the `sigma`
+  key for the first and writes `sigma0` for the second, so results without
+  stated covariances serialize as before. Read `noise.level.value()` where
+  the unit is known, or match on the variant. Python keeps
+  `ResidualNoise.sigma` and adds `ResidualNoise.whitened`.
+
 - Rig results refine each camera's intrinsics jointly with the rig by
   default: `rig.refine_intrinsics` (rig extrinsics, rig hand-eye) and the new
   `handeye_optimize.refine_intrinsics` (rig hand-eye's final solve) default
@@ -351,6 +373,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry, and their covariance a block for view 0's correction.
 
 ### Added
+
+- **Per-point pixel covariance.** An observation may state the 2 × 2
+  covariance of each image point (`PointCovariance`, px²). The solve then
+  whitens each reprojection residual by it (`L e` with `LᵀL = Σ⁻¹`), in both
+  solver backends, so uncertain points count less and elongated ones are
+  trusted across their long axis. The reprojection noise is reported as
+  `σ̂₀` (JSON `sigma0`), the dimensionless a-posteriori standard deviation of
+  unit weight, about 1 when the stated covariances hold, and the parameter
+  covariance is scaled by it. The quality report's variance-factor check
+  tests `σ̂₀²` against 1 without `expected_feature_noise_px`, and its
+  view-outlier check reads each target feature's new `error_whitened`
+  (`√(eᵀ Σ⁻¹ e)`); reprojection errors stay in pixels. A robust loss's
+  scale applies to the whitened residual, in units of each point's σ. An
+  input that states covariances for some views and not others is rejected
+  (`Error::MixedCovariance`). Without stated covariances every result is
+  unchanged. On synthetic scenes with covariances of 0.1–1 px and up to 4:1
+  anisotropy, `σ̂₀` was 0.98 ± 0.03, the predicted σ matched the
+  Monte-Carlo scatter within 4 %, and the errors were 2.5–3 times smaller
+  than with every point weighed alike. Python: `PointCovariance`,
+  `Observation.cov_px`, `ResidualNoise.whitened`,
+  `TargetFeatureResiduals.error_whitened`.
 
 - **Planning the next view.** `analysis::predict_with_views(export,
   candidates, target_points, image_size)` predicts the covariance a planar

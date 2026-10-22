@@ -352,7 +352,7 @@ fn free_gauge_is_reported_rank_deficient() {
                     chain: ReprojChain::TwoSe3,
                     pw: [pw.x, pw.y, pw.z],
                     uv: [uv.x, uv.y],
-                    w: 1.0,
+                    sqrt_info: crate::ir::ReprojSqrtInfo::IDENTITY,
                 },
                 residual_dim: 2,
             });

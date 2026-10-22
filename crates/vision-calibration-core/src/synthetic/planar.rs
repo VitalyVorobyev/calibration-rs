@@ -157,11 +157,7 @@ where
         points_2d.push(uv);
     }
 
-    CorrespondenceView {
-        points_3d,
-        points_2d,
-        weights: Vec::new(),
-    }
+    CorrespondenceView::new(points_3d, points_2d).expect("one 2D point pushed per 3D point")
 }
 
 /// Project multiple views, requiring every point to be projectable in every view.

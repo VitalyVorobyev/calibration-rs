@@ -67,6 +67,12 @@ pub struct TargetFeatureResidual {
     /// Euclidean pixel distance `|projected - observed|`.
     /// `None` iff `projected_px` is `None`.
     pub error_px: Option<f64>,
+    /// The error whitened by the feature's stated covariance,
+    /// `√(eᵀ Σ⁻¹ e)`: its size in units of the feature's standard deviation
+    /// along it. `None` when the input states no covariance or the
+    /// projection failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_whitened: Option<f64>,
 }
 
 /// Reprojection record for a single laser pixel in a single view.
@@ -237,6 +243,7 @@ mod tests {
                 observed_px: [310.5, 245.0],
                 projected_px: Some([310.7, 244.6]),
                 error_px: Some(0.4472135954999579),
+                error_whitened: Some(1.25),
             }],
             laser: vec![LaserFeatureResidual {
                 pose: 5,
@@ -277,6 +284,7 @@ mod tests {
             observed_px: [320.0, 240.0],
             projected_px: None,
             error_px: None,
+            error_whitened: None,
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("\"projected_px\":null"));

@@ -5,7 +5,7 @@ The covariance is part of every result. This chapter shows how to read it and wh
 ### Rust
 
 ```rust
-use vision_calibration::core::Uncertainty;
+use vision_calibration::core::{NoiseLevel, Uncertainty};
 
 let export = session.export()?;
 match &export.uncertainty {
@@ -14,7 +14,10 @@ match &export.uncertainty {
         println!("fx = {fx:.1} ± {:.2} px", cov.std_dev("fx").unwrap());
         println!("corr(fx, cx) = {:.2}", cov.correlation("fx", "cx").unwrap());
         for noise in &cov.noise {
-            println!("{:?} noise σ ≈ {:.3}", noise.kind, noise.sigma);
+            match noise.level {
+                NoiseLevel::Sigma(s) => println!("{:?} noise σ ≈ {s:.3}", noise.kind),
+                NoiseLevel::Sigma0(s) => println!("{:?} noise σ̂₀ ≈ {s:.3}", noise.kind),
+            }
         }
     }
     Uncertainty::Unavailable { reason } => println!("no covariance: {reason:?}"),
@@ -80,7 +83,13 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   deviation of one scalar residual. For reprojection that is the corner noise
   per pixel axis; for the laser, the line distance in pixels or the
   point-to-plane distance in metres. It is estimated from the median absolute
-  residual, so a few outliers do not inflate it. The rig laserline solves
+  residual, so a few outliers do not inflate it. In JSON the level is
+  `sigma`, in the residual's unit, or, when the observations stated a
+  covariance per point, `sigma0`: the dimensionless `σ̂₀` of the whitened
+  residuals, about 1 when the stated covariances hold
+  ([Per-Point Pixel Covariance](uncertainty_point_covariance.md)). Rust
+  types the two as `NoiseLevel::Sigma` and `NoiseLevel::Sigma0`; Python's
+  `ResidualNoise.whitened` says which `sigma` holds. The rig laserline solves
   each camera's plane on its own, with the rig calibration held fixed, so it
   reports each camera's noise levels apart (`camera` names the camera) and
   planes of different cameras are uncorrelated.

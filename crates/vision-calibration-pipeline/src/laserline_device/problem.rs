@@ -2,6 +2,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
 use vision_calibration_core::{
     ImageManifest, PerFeatureResiduals, build_feature_histogram,
@@ -213,6 +214,7 @@ impl ProblemType for LaserlineDeviceProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        stated_covariance(input.iter().map(|v| &v.obs))?;
         if input.len() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,

@@ -49,6 +49,7 @@
 
 - [Parameter Uncertainty](uncertainty.md)
 - [Reading the Covariance](uncertainty_reading.md)
+- [Per-Point Pixel Covariance](uncertainty_point_covariance.md)
 - [Projection Uncertainty](uncertainty_projection.md)
 - [Planning the Next View](uncertainty_next_view.md)
 - [Limits and Unavailable Results](uncertainty_limits.md)

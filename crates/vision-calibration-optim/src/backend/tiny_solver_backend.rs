@@ -7,7 +7,7 @@ use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_pla
 use crate::factors::reprojection_model::reproj_residual;
 use crate::ir::{
     CameraModelSpec, FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR, ReprojChain,
-    RobustLoss,
+    ReprojSqrtInfo, RobustLoss,
 };
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
@@ -396,14 +396,14 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
             chain,
             pw,
             uv,
-            w,
+            sqrt_info,
         } => {
             let factor = TinyReprojFactor {
                 model: *model,
                 chain: *chain,
                 pw: *pw,
                 uv: *uv,
-                w: *w,
+                sqrt_info: *sqrt_info,
             };
             Ok((Box::new(factor), loss))
         }
@@ -446,12 +446,19 @@ struct TinyReprojFactor {
     chain: ReprojChain,
     pw: [f64; 3],
     uv: [f64; 2],
-    w: f64,
+    sqrt_info: ReprojSqrtInfo,
 }
 
 impl<T: nalgebra::RealField> Factor<T> for TinyReprojFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let r = reproj_residual(self.model, &self.chain, params, self.pw, self.uv, self.w);
+        let r = reproj_residual(
+            self.model,
+            &self.chain,
+            params,
+            self.pw,
+            self.uv,
+            &self.sqrt_info,
+        );
         DVector::from_row_slice(r.as_slice())
     }
 }
@@ -731,7 +738,7 @@ mod tests {
             chain,
             pw,
             uv,
-            w,
+            sqrt_info: ReprojSqrtInfo::IDENTITY.weighted(w),
         };
         let he = ReprojChain::Handeye {
             base_se3_gripper: robot_se3,

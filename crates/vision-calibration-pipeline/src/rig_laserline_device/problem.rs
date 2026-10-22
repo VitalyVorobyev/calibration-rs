@@ -3,6 +3,7 @@
 use crate::Error;
 use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraParams, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals,
     RigDataset, RigView, RigViewObs, Uncertainty, build_feature_histogram,
@@ -222,6 +223,13 @@ impl ProblemType for RigLaserlineDeviceProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        stated_covariance(
+            input
+                .dataset
+                .views
+                .iter()
+                .flat_map(|v| v.cameras.iter().flatten()),
+        )?;
         let n = input.dataset.num_cameras;
         if input.upstream.cameras.len() != n || input.upstream.cam_se3_rig.len() != n {
             return Err(Error::invalid_input(format!(

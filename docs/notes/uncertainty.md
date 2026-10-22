@@ -60,6 +60,42 @@ The result also reports `σ̂_f = 1.4826 · median |rᵢⱼ|`, the
 Gaussian-equivalent noise of one scalar residual, robust to outliers. It is
 a diagnostic only; the covariance uses `σ_f` above.
 
+## Per-point covariance (whitening)
+
+When the observations state `Σᵢ` per point, the reprojection residual is
+`rᵢ = Lᵢ eᵢ`, `LᵢᵀLᵢ = Σᵢ⁻¹` (upper Cholesky factor of the inverse, computed
+in closed form: `l₀₀ = √(yy/det)`, `l₀₁ = −xy/√(yy·det)`, `l₁₁ = 1/√yy`). If
+the stated covariances are right up to a common factor, `Σᵢ_true = σ₀² Σᵢ`,
+the whitened residuals are i.i.d. with variance `σ₀²`, which is exactly the
+model above with one family: the sandwich, the dof factor and the
+median-based diagnostic apply unchanged, and the diagnostic becomes `σ̂₀`
+(reported as `NoiseLevel::Sigma0`). An input is all whitened or all pixel
+(see ADR 0026): a pooled family needs one unit.
+
+`σ̂₀` reads below 1 even with exact covariances: the residuals at the
+optimum have variance `(m − n)/m` (the covariance's `m/(m − n)` corrects
+for it; the diagnostic does not). With `m = 1620`, `n = 68`, that is 0.979,
+against 0.976 measured.
+
+Study (`optim/tests/feature_covariance.rs`, `--ignored`): per-point
+covariances fixed across seeds, major-axis σ uniform in 0.1–1 px, minor axis
+1–4× smaller, orientation uniform; noise `R diag(σ₁, σ₂) z`, `z ~ N(0, I)`,
+SplitMix64-keyed Box–Muller per (seed, camera, view, point). Each seed
+solves the same pixels twice, whitened and with no covariances (uniform).
+1000 seeds per scene:
+
+| Scene | σ̂₀ (mean ± sd) | predicted σ / MC σ | normalized-error RMS | within 2σ | RMSE whitened / uniform |
+|---|---|---|---|---|---|
+| Planar, Brown-Conrady, 10 views of a 9×9 board (8 parameters) | 0.976 ± 0.029 | 0.964–1.041 | 0.961–1.038 | 95.4 % | 0.326–0.411 |
+| Rig extrinsics, 2 cameras, intrinsics free, cam0 fixed (22 parameters) | 0.986 ± 0.020 | 0.962–1.038 | 0.963–1.041 | 95.2 % | 0.313–0.398 |
+
+At 200 seeds the planar ratios spread 0.82–1.09 (`cy`, `p1` low): the
+Monte-Carlo σ alone has a 5 % standard error there, so the ±10 % gate runs
+at 500 seeds by default. The efficiency gain is large because the stated σ
+span a factor of 10 (variance 100): the uniform solve gives the 1 px points
+the weight of the 0.1 px ones. The always-on test is a 12-seed planar run
+with loose bounds.
+
 ## Coordinates
 
 - SE(3): right perturbation, `[δθ, δt]` in the source frame of `a_se3_b`.
@@ -126,7 +162,9 @@ and the σ tolerance.
 | Synthetic suite entries | six frozen scenes of the solver benchmark (0.5 px), one realization each, default configs | every parameter within 5σ of the truth (`suite check`) | planar 1.9σ, Scheimpflug 1.5σ, hand-eye 0.9σ, rig 2.1σ, laserline 2.2σ (Mahalanobis² 11.6 over rank 11; 17.8 with a nearly-L1 laser loss of 0.01 px), joint rig hand-eye laserline 4.5σ (`cam1.cam_se3_rig.rx`); hand-eye coordinates under robot-pose priors within 0.7σ |
 | Quality verdict | 20 views of a 9×7 board on a 1280 × 960 camera, 0.1 px Gaussian noise, spread over the image or bunched in its top-left quadrant (`analysis/quality/tests.rs`) | spread passes every check; bunched fails coverage | spread: coverage 100 %, projection σ ≤ 0.70 px, verdict pass; bunched: coverage 25 % (fail), projection σ 3.88 px (warn) |
 | Next-view prediction | 6 tilted views of a 9 × 7 board over the central part of a 1280 × 960 image, 0.1–0.3 px Gaussian noise, 5 seeds; Brown-Conrady, division, Scheimpflug; best-, median-, worst-ranked candidate and best three (`analysis/next_view/tests.rs`) | predicted σ per parameter and max projection σ against the re-solve at the current σ_eff, within 10 % on average; best candidate's real reduction above the worst one's | σ 0.5 %, 0.1 %, 2.1 % (worst case 13.5 %); max projection σ 0.5 %, 0.0 %, 1.2 %; best above worst in all 15 scenes |
+| Whitened reprojection | planar and 2-camera rig, per-point covariances 0.1–1 px, anisotropy up to 4:1, 1000 runs (see "Per-point covariance") | σ̂₀ within 5 % of 1; σ within ±10 %; normalized RMS within ±10 %; within-2σ 95.4 ± 2 %; RMSE below the uniform solve | σ̂₀ 0.976, 0.986; σ 0.96–1.04; RMSE 0.31–0.41 of uniform |
 | Backend parity | planar, with and without Huber | tiny-solver vs factrs `Σ` within 1e-6 relative | pass |
+| Backend parity, whitened factor | every camera model × chain, `L` upper triangular with an off-diagonal term (`backend/parity_tests.rs`) | residual, Jacobian and cost equal in both backends | pass |
 | Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
 | Rank deficiency | joint rig hand-eye laserline, eye-to-hand, robot rotating about z only | `RankDeficient` naming the hand-eye and target translations along z | pass (`rig_se3_base.tz`, `gripper_se3_target.tz`) |
 

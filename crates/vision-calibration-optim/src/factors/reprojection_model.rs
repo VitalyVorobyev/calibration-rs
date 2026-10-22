@@ -1,7 +1,7 @@
 //! Backend-independent reprojection residual models.
 
 use crate::factors::camera_blocks::CameraBlocks;
-use crate::ir::{CameraModelSpec, ReprojChain};
+use crate::ir::{CameraModelSpec, ReprojChain, ReprojSqrtInfo};
 use nalgebra::{
     DVector, DVectorView, Matrix3, Quaternion, RealField, SVector, UnitQuaternion, Vector3,
 };
@@ -195,19 +195,16 @@ pub(crate) fn reproj_residual<T: RealField>(
     params: &[DVector<T>],
     pw: [f64; 3],
     uv: [f64; 2],
-    w: f64,
+    sqrt_info: &ReprojSqrtInfo,
 ) -> SVector<T, 2> {
     let (camera, chain_blocks) = CameraBlocks::split(model, params);
     let p_camera = reproj_chain_transform(chain, chain_blocks, pw);
     let (u_proj, v_proj) = camera.project(&p_camera);
 
-    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
     let u_meas = T::from_f64(uv[0]).unwrap();
     let v_meas = T::from_f64(uv[1]).unwrap();
-    SVector::<T, 2>::new(
-        (u_meas - u_proj) * sqrt_w.clone(),
-        (v_meas - v_proj) * sqrt_w,
-    )
+    let [r0, r1] = sqrt_info.apply(u_meas - u_proj, v_meas - v_proj);
+    SVector::<T, 2>::new(r0, r1)
 }
 
 #[cfg(test)]
@@ -261,7 +258,7 @@ mod tests {
 
     const PW: [f64; 3] = [0.113, -0.072, 0.004];
     const UV: [f64; 2] = [684.2, 341.7];
-    const W: f64 = 1.7;
+    const W: ReprojSqrtInfo = ReprojSqrtInfo::Isotropic { scale: 1.7 };
 
     #[test]
     fn distortion_changes_projection() {
@@ -278,7 +275,7 @@ mod tests {
             &[intr.clone(), dist_zero, pose.clone()],
             pw,
             uv,
-            1.0,
+            &ReprojSqrtInfo::IDENTITY,
         );
         let r2 = reproj_residual(
             CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
@@ -286,7 +283,7 @@ mod tests {
             &[intr, dist_barrel, pose],
             pw,
             uv,
-            1.0,
+            &ReprojSqrtInfo::IDENTITY,
         );
 
         let diff = (r1[0] - r2[0]).abs();
@@ -308,7 +305,7 @@ mod tests {
             &[intr.clone(), pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         let r_zerodist = reproj_residual(
             CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
@@ -316,7 +313,7 @@ mod tests {
             &[intr, dist_zero, pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         assert_eq!(
             r_nodist, r_zerodist,
@@ -337,7 +334,7 @@ mod tests {
             &[intr.clone(), pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         let r_zerodist = reproj_residual(
             CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
@@ -345,7 +342,7 @@ mod tests {
             &[intr, dist_zero, pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         assert_eq!(
             r_nodist, r_zerodist,
@@ -366,7 +363,7 @@ mod tests {
             &[intr.clone(), pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         let r_zerodist = reproj_residual(
             CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Identity),
@@ -374,7 +371,7 @@ mod tests {
             &[intr, dist_zero, pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         assert_eq!(
             r_nodist, r_zerodist,
@@ -395,7 +392,7 @@ mod tests {
             &[intr.clone(), pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         let r_zerodist = reproj_residual(
             CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity),
@@ -403,7 +400,7 @@ mod tests {
             &[intr, dist_zero, pose.clone()],
             PW,
             UV,
-            W,
+            &W,
         );
         assert_eq!(
             r_nodist, r_zerodist,
@@ -460,7 +457,7 @@ mod tests {
                 &params_pin,
                 PW,
                 UV,
-                W,
+                &W,
             );
             let r_sch = reproj_residual(
                 CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug),
@@ -468,7 +465,7 @@ mod tests {
                 &params_sch,
                 PW,
                 UV,
-                W,
+                &W,
             );
             assert!(
                 (r_pin[0] - r_sch[0]).abs() < 1e-10 && (r_pin[1] - r_sch[1]).abs() < 1e-10,
@@ -501,7 +498,7 @@ mod tests {
                 ],
                 PW,
                 UV,
-                W,
+                &W,
             );
             let r_delta = reproj_residual(
                 CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
@@ -519,12 +516,101 @@ mod tests {
                 ],
                 PW,
                 UV,
-                W,
+                &W,
             );
             assert!(
                 (r_he[0] - r_delta[0]).abs() < 1e-12 && (r_he[1] - r_delta[1]).abs() < 1e-12,
                 "zero-delta mismatch {mode:?}: he={r_he:?} delta={r_delta:?}"
             );
+        }
+    }
+
+    /// The isotropic path is the plain pixel error `uv − proj` times its
+    /// scale, bit for bit: `IDENTITY` leaves it unchanged.
+    #[test]
+    fn isotropic_sqrt_info_is_the_scaled_pixel_error() {
+        let (intr, dist, poses) = fixture_blocks();
+        let spec = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+        let params = [intr, dist, poses[0].clone()];
+        let at = |uv, sqrt_info: &ReprojSqrtInfo| {
+            reproj_residual(spec, &ReprojChain::SinglePose, &params, PW, uv, sqrt_info)
+        };
+        // At uv = 0 the residual is −proj, so uv − proj is reconstructed
+        // exactly.
+        let neg_proj = at([0.0, 0.0], &ReprojSqrtInfo::IDENTITY);
+        let e = [UV[0] + neg_proj[0], UV[1] + neg_proj[1]];
+        let r = at(UV, &ReprojSqrtInfo::IDENTITY);
+        assert_eq!([r[0], r[1]], e);
+        let s = 1.7_f64.sqrt();
+        let r = at(UV, &ReprojSqrtInfo::IDENTITY.weighted(1.7));
+        assert_eq!([r[0], r[1]], [e[0] * s, e[1] * s]);
+    }
+
+    /// The whitened residual and its Jacobian are `L` times the pixel ones,
+    /// for `L` the upper Cholesky factor of a hand-computed `Σ⁻¹`; an
+    /// isotropic covariance `σ² I` whitens to the scale `1/σ`.
+    #[test]
+    fn whitened_residual_and_jacobian_are_l_times_the_pixel_ones() {
+        use num_dual::Dual64;
+        use vision_calibration_core::PointCovariance;
+
+        // Σ = [[0.5, 0.2], [0.2, 0.3]] px²: det = 0.11, Σ⁻¹ = [[0.3, −0.2],
+        // [−0.2, 0.5]] / 0.11, upper Cholesky factor
+        // L = [[√(0.3/0.11), −0.2/√(0.3·0.11)], [0, 1/√0.3]].
+        let cov = PointCovariance::new(0.5, 0.2, 0.3).unwrap();
+        let l = [
+            (0.3_f64 / 0.11).sqrt(),
+            -0.2 / (0.3_f64 * 0.11).sqrt(),
+            1.0 / 0.3_f64.sqrt(),
+        ];
+        let whitened = ReprojSqrtInfo::from_covariance(&cov);
+        let ReprojSqrtInfo::Whitened { upper } = whitened else {
+            panic!("a stated covariance whitens");
+        };
+        for (a, b) in upper.iter().zip(l) {
+            assert!((a - b).abs() < 1e-12, "{upper:?} vs {l:?}");
+        }
+
+        let (intr, dist, poses) = fixture_blocks();
+        let spec = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+        // Differentiate along fx and along the pose's tz together.
+        let dual = |v: &DVector<f64>, seed: Option<usize>| {
+            DVector::from_iterator(
+                v.len(),
+                v.iter()
+                    .enumerate()
+                    .map(|(i, &x)| Dual64::new(x, if Some(i) == seed { 1.0 } else { 0.0 })),
+            )
+        };
+        let params = [
+            dual(&intr, Some(0)),
+            dual(&dist, None),
+            dual(&poses[0], Some(6)),
+        ];
+        let at = |sqrt_info: &ReprojSqrtInfo| {
+            reproj_residual(spec, &ReprojChain::SinglePose, &params, PW, UV, sqrt_info)
+        };
+        let e = at(&ReprojSqrtInfo::IDENTITY);
+        let r = at(&whitened);
+        let expected = [
+            (
+                l[0] * e[0].re + l[1] * e[1].re,
+                l[0] * e[0].eps + l[1] * e[1].eps,
+            ),
+            (l[2] * e[1].re, l[2] * e[1].eps),
+        ];
+        for (k, (value, derivative)) in expected.into_iter().enumerate() {
+            assert!((r[k].re - value).abs() < 1e-9 * value.abs().max(1.0));
+            assert!((r[k].eps - derivative).abs() < 1e-9 * derivative.abs().max(1.0));
+        }
+        assert!(e[0].eps.abs() > 1e-3, "the Jacobian is not trivial");
+
+        let iso = ReprojSqrtInfo::from_covariance(&PointCovariance::new(0.04, 0.0, 0.04).unwrap());
+        let r_iso = at(&iso);
+        let r_scale = at(&ReprojSqrtInfo::Isotropic { scale: 5.0 });
+        for k in 0..2 {
+            assert!((r_iso[k].re - r_scale[k].re).abs() < 1e-9);
+            assert!((r_iso[k].eps - r_scale[k].eps).abs() < 1e-9);
         }
     }
 }

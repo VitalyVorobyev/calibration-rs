@@ -18,6 +18,7 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::ir::ReprojSqrtInfo;
 use crate::ir::{
     FactorKind, FixedMask, HandeyeMode, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
@@ -793,7 +794,8 @@ fn build_ir(
                         chain,
                         pw: [pw.x, pw.y, pw.z],
                         uv: [uv.x, uv.y],
-                        w: obs.weight(pt_idx) * opts.calib_weight,
+                        sqrt_info: ReprojSqrtInfo::for_point(obs, pt_idx)
+                            .weighted(opts.calib_weight),
                     },
                     residual_dim: 2,
                 });

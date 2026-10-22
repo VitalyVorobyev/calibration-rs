@@ -19,7 +19,7 @@ mod handeye_io;
 use anyhow::Result;
 use std::io::{self, Write};
 use std::path::Path;
-use vision_calibration::core::Uncertainty;
+use vision_calibration::core::{NoiseLevel, Uncertainty};
 use vision_calibration::planar_intrinsics::{
     IntrinsicsFilterOptions, run_calibration_with_filtering, step_init, step_optimize,
 };
@@ -112,10 +112,15 @@ fn main() -> Result<()> {
                 cov.correlation("fx", "cx").unwrap_or(f64::NAN)
             );
             for noise in &cov.noise {
-                println!(
-                    "    corner noise σ ≈ {:.3} px ({} residuals)",
-                    noise.sigma, noise.count
-                );
+                match noise.level {
+                    NoiseLevel::Sigma(s) => {
+                        println!("    corner noise σ ≈ {s:.3} px ({} residuals)", noise.count)
+                    }
+                    NoiseLevel::Sigma0(s) => println!(
+                        "    corner noise σ̂₀ ≈ {s:.3} × the stated ({} residuals)",
+                        noise.count
+                    ),
+                }
             }
         }
         Uncertainty::Unavailable { reason } => println!("  No uncertainty: {reason:?}"),

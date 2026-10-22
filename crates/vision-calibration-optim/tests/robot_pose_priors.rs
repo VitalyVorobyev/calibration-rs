@@ -213,7 +213,7 @@ impl Cell {
             add(2, &format!("base_se3_target.{c}"), target[i]);
         }
         add(3, "fx", fx);
-        self.sigma_px += cov.noise[0].sigma;
+        self.sigma_px += cov.noise[0].level.value();
         self.runs += 1.0;
     }
 

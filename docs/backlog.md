@@ -14,20 +14,22 @@ ADR 0026; evidence: `notes/uncertainty.md`. Items that change results
 need their measurement first and stay opt-in until it is in.
 
 - [ ] UQ-FEATURE-COV - Per-feature 2×2 covariance from the detector to the
-  covariance of the result. σ̂ today is one pooled, isotropic value per
-  residual family. Steps:
-  1. **chess-rs (cross-repo):** the saddle-point refine
-     (`chess-corners-core/src/refine/saddle_point.rs`) reports
-     Σ = s²H⁻¹ from its quadratic fit.
-  2. **calib-targets (cross-repo):** passes it through.
+  covariance of the result. The calibration side is in: observations state
+  `cov_px`, the reprojection residuals are whitened by it, the noise is
+  reported as σ̂₀ (`NoiseLevel::Sigma0`), and the synthetic Monte-Carlo
+  study is in `notes/uncertainty.md`. The detectors supply no covariances
+  yet, so the dataset runner never states any. Steps:
+  1. **chess-rs (cross-repo):** chess-corners 1.4.0 reports the
+     saddle-point covariance per unit noise variance (`H⁻¹` of the
+     quadratic fit) on `RefineResult` only. Still needed (1.5.0): a
+     per-image noise estimate `s²` to scale it, and the covariance on
+     `CornerDescriptor`.
+  2. **calib-targets (cross-repo):** passes the corner covariance through
+     to its detections.
   3. **ringgrid (cross-repo):** reports the ellipse-centre covariance.
-  4. **Here:**
-     - `Feature` gains an optional `cov_px`;
-     - reprojection factors whiten with a 2×2 square-root information
-       matrix in place of the scalar weight;
-     - σ̂ becomes the a-posteriori variance factor σ̂₀, ≈1 when the
-       detector's noise model holds;
-     - opt-in `weighting: Uniform | DetectorCovariance`.
+  4. **Here:** the dataset runner attaches the detector covariances to
+     `Feature`/`cov_px`, opt-in in the detector or manifest config (all
+     views of an input or none).
   5. **Evidence:** etendue and calib-synth renders with exact corners,
      across blur, noise and scale. The predicted corner scatter must
      match the empirical scatter, and the predicted parameter σ must

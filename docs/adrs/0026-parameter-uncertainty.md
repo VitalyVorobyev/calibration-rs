@@ -65,6 +65,60 @@ estimating them from the corrections is open.
 Each result also reports, per family, the robust noise level
 `σ̂_f = 1.4826 · median |r|` as a diagnostic.
 
+### Per-point pixel covariance
+
+An observation may state each image point's 2×2 covariance `Σ`
+(`PointCovariance`, px², validated finite and positive definite on
+construction and deserialization). It replaces the scalar per-point weight,
+which had no source and no meaning for the noise estimate; a weight `w` is
+the covariance `I/w` (the residual was scaled by `√w`).
+
+- **Whitening, not a weight.** `ReprojPoint` carries a square-root
+  information `ReprojSqrtInfo`: `Isotropic { scale }` (`L = scale·I`, the
+  identity without a stated covariance, bit-identical to the former `w = 1`
+  path) or `Whitened { upper }` (`L` upper triangular, `LᵀL = Σ⁻¹`). The
+  residual is `L (u_obs − u_proj)` in both backends, the same generic kernel;
+  a family weight (`calib_weight` in the laser bundles) multiplies the
+  information, so `L` by `√w`. The laser factors keep scalar weights.
+- **All or none per input.** Whitened residuals are dimensionless, pixel
+  residuals are not; one family pooling both would estimate a meaningless
+  `σ̂`. An input whose views (across every camera) partly state covariances
+  is rejected with `core::Error::MixedCovariance` by `stated_covariance`,
+  which every problem type's `validate_input` calls before any work;
+  `ProblemIR::validate` rejects an IR mixing the two variants, the backstop
+  for direct optim callers.
+- **No weighting knob.** The solve uses what the observations carry. A
+  `Uniform | DetectorCovariance` switch would add a second way to drop
+  covariances the caller already chose to state; dropping them is building
+  the views without.
+- **The variance factor.** With whitened residuals the family's `σ̂` is the
+  a-posteriori `σ̂₀` (≈1 when the stated covariances hold) and the sandwich
+  uses it exactly as it uses `σ̂` in pixels: the stated covariances are
+  trusted up to one common scale. The export types the unit:
+  `ResidualNoise.level: NoiseLevel = Sigma(σ̂) | Sigma0(σ̂₀)`, flattened to
+  the JSON key `sigma` or `sigma0`, so a result without stated covariances
+  serializes as before and a reader cannot take one for the other. The
+  robot-pose priors are weighed at `σ̂₀` the same way, since the whitened
+  family's residual standard deviation is `σ̂₀`.
+- **What stays in pixels.** Reprojection statistics (mean, per camera,
+  histograms, `error_px`) are raw pixel distances; each target feature adds
+  `error_whitened = √(eᵀ Σ⁻¹ e)`. A robust loss acts on the whitened
+  residual, so its scale is in units of each point's σ.
+- **Quality report.** With `Sigma0` the variance-factor check tests `σ̂₀²`
+  against 1 without `expected_feature_noise_px`; the view-outlier check
+  averages `error_whitened / σ̂₀`.
+- **Evidence** (`optim/tests/feature_covariance.rs`, `docs/notes/uncertainty.md`):
+  planar and two-camera rig scenes, covariances 0.1–1 px with anisotropy up
+  to 4:1 in any orientation, noise drawn from them, 1000 seeds: `σ̂₀`
+  0.976 ± 0.029 and 0.986 ± 0.020, predicted σ 0.96–1.04 of the
+  Monte-Carlo σ, 95 % of normalized errors within 2σ, and RMSE 0.31–0.41
+  of the uniformly weighted solve's on the same data.
+- **Next-view planning** is unchanged: its scale `σ² = tr(Σ S_A)/n`, with
+  `S_A` rebuilt from the export's points without their covariances, is then
+  an isotropic pixel variance averaged over the existing points' stated
+  ones, and candidates (which state none) are added at it. Untested on
+  whitened results.
+
 ### What a result carries
 
 - The full labelled covariance of the global parameters (every block that is
@@ -167,7 +221,7 @@ poses; the generator is a convenience for the app.
   per-view minimum) or a pose its points do not determine adds nothing.
 - **Current information: `Σ⁻¹`, not a rebuild from the IR.** `Σ` is
   conditional on exactly the result's fixed set, has every existing pose
-  marginalized, and accounts for per-point weights and fixed poses the
+  marginalized, and accounts for per-point covariances and fixed poses the
   export does not carry; adding nothing returns `Σ` unchanged. Inverted in
   its unit-diagonal form. The two routes agree: with the existing views'
   information `S_A` rebuilt from the export's per-feature target points and

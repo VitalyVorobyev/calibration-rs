@@ -75,6 +75,11 @@ class TargetFeatureResiduals:
     error_px: NDArray[np.float64]
     """``(N,)`` distance between the two, pixels; NaN where the point did
     not project."""
+    error_whitened: NDArray[np.float64]
+    """``(N,)`` the error whitened by the point's stated covariance,
+    ``sqrt(e^T Σ^-1 e)``: its size in units of the point's standard deviation
+    along it. NaN where the input stated no covariance or the point did not
+    project."""
 
     def __len__(self) -> int:
         return int(self.pose.shape[0])
@@ -89,6 +94,7 @@ class TargetFeatureResiduals:
             observed_px=_points(records, "observed_px", 2),
             projected_px=_points(records, "projected_px", 2),
             error_px=_floats(records, "error_px"),
+            error_whitened=_floats(records, "error_whitened"),
         )
 
 

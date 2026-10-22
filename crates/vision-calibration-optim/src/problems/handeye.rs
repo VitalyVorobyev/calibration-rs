@@ -24,6 +24,7 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::factors::reprojection_model::se3_exp;
+use crate::ir::ReprojSqrtInfo;
 use crate::ir::{
     FactorKind, FixedMask, HandeyeMode, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
@@ -555,7 +556,7 @@ fn build_handeye_ir(
                         chain,
                         pw: [pw.x, pw.y, pw.z],
                         uv: [uv.x, uv.y],
-                        w: obs.weight(pt_idx),
+                        sqrt_info: ReprojSqrtInfo::for_point(obs, pt_idx),
                     },
                     residual_dim: 2,
                 });
@@ -572,8 +573,8 @@ mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, RigView, RigViewObs,
-        make_pinhole_camera, pinhole_camera_params,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, PointCovariance, Pt2, Pt3,
+        RigView, RigViewObs, make_pinhole_camera, pinhole_camera_params,
     };
 
     fn make_test_camera() -> PinholeCamera {
@@ -700,7 +701,8 @@ mod tests {
             max_abs_px: 1.0,
         };
         let sigma = 0.1;
-        let dataset = |weight: f64| {
+        // `variance`: each point's stated isotropic covariance, px², if any.
+        let dataset = |variance: Option<f64>| {
             let views = [
                 (0.0, 0.0, 0.0, -0.01, -0.01, 0.45),
                 (0.25, 0.0, 0.1, -0.02, 0.0, 0.50),
@@ -732,12 +734,15 @@ mod tests {
                 for (i, p) in obs.points_2d.iter_mut().enumerate() {
                     *p += pixel_noise.sample(v, i);
                 }
-                let obs = CorrespondenceView::new_with_weights(
-                    obs.points_3d.clone(),
-                    obs.points_2d.clone(),
-                    vec![weight; board.len()],
-                )
-                .unwrap();
+                let obs = match variance {
+                    None => obs,
+                    Some(v) => CorrespondenceView::new_with_covariances(
+                        obs.points_3d.clone(),
+                        obs.points_2d.clone(),
+                        vec![PointCovariance::new(v, 0.0, v).unwrap(); board.len()],
+                    )
+                    .unwrap(),
+                };
                 RigView {
                     meta: RobotPoseMeta {
                         base_se3_gripper: apply_robot_delta(&base_se3_gripper, &eps),
@@ -775,8 +780,8 @@ mod tests {
                 build_handeye_ir(data, &initial, &specs, &fixed, &opts, pixel_sigma).unwrap();
             backend::solve(&ir, &init, &backend_opts).unwrap()
         };
-        let priors_weighed = solve(&dataset(1.0), sigma);
-        let pixels_weighed = solve(&dataset(1.0 / (sigma * sigma)), 1.0);
+        let priors_weighed = solve(&dataset(None), sigma);
+        let pixels_weighed = solve(&dataset(Some(sigma * sigma)), 1.0);
 
         for (key, a) in &priors_weighed.params {
             let b = &pixels_weighed.params[key];

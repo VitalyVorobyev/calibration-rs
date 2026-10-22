@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use nalgebra::{DMatrix, Matrix3};
 use vision_calibration_core::{
-    Iso3, ParameterCovariance, ResidualNoise, Uncertainty, UncertaintyUnavailable, ViewCovariance,
+    Iso3, NoiseLevel, ParameterCovariance, ResidualNoise, Uncertainty, UncertaintyUnavailable,
+    ViewCovariance,
 };
 
 use crate::backend::BackendSolution;
@@ -164,7 +165,11 @@ pub(crate) fn labelled(
             .iter()
             .map(|f| ResidualNoise {
                 kind: f.family,
-                sigma: f.sigma,
+                level: if f.whitened {
+                    NoiseLevel::Sigma0(f.sigma)
+                } else {
+                    NoiseLevel::Sigma(f.sigma)
+                },
                 count: f.num_residuals,
                 camera: None,
             })
@@ -542,6 +547,7 @@ mod tests {
             family: ResidualKind::Reprojection,
             num_residuals: 100,
             sigma: 0.25,
+            whitened: false,
         }]
     }
 
@@ -576,7 +582,7 @@ mod tests {
         assert_eq!(c.views[0].labels[5], "camera_se3_target.tz");
         assert_eq!(c.views[0].covariance[5][5], 14.0);
         assert_eq!(c.fixed, ["k3", "view0.camera_se3_target"]);
-        assert_eq!(c.noise[0].sigma, 0.25);
+        assert_eq!(c.noise[0].level, NoiseLevel::Sigma(0.25));
     }
 
     #[test]
@@ -734,7 +740,7 @@ mod tests {
                 fixed: vec!["fx".into(), "view0.camera_se3_target".into()],
                 noise: vec![ResidualNoise {
                     kind: ResidualKind::LaserLine,
-                    sigma,
+                    level: NoiseLevel::Sigma(sigma),
                     count: 50,
                     camera: None,
                 }],

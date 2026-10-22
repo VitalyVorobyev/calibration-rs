@@ -150,7 +150,7 @@ fn planar_problem(
                         chain: ReprojChain::SinglePose,
                         pw: [pw.x, pw.y, pw.z],
                         uv: [px.x, px.y],
-                        w: 1.0,
+                        sqrt_info: crate::ir::ReprojSqrtInfo::IDENTITY,
                     },
                     residual_dim: 2,
                 });

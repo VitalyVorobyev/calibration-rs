@@ -5,6 +5,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraParams, ImageManifest, Iso3, PerFeatureResiduals, Uncertainty, View,
     build_feature_histogram, compute_planar_target_residuals_views,
@@ -253,6 +254,7 @@ impl ProblemType for SingleCamHandeyeProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        stated_covariance(input.views.iter().map(|v| &v.obs))?;
         if input.num_views() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,

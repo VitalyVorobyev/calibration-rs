@@ -45,7 +45,7 @@ can be changed, and in JSON they reject unknown fields.
 |---|---|---|---|
 | `observability` | result | the data does not determine some parameters (`rank_deficient`), or there is no redundancy | a parameter ended on a bound |
 | `convergence` | result | the final solve stopped on its iteration budget | — |
-| `variance_factor` | noise level | σ̂²/σ₀² is above its χ² range | it is below the range |
+| `variance_factor` | noise level | σ̂²/σ₀² (σ̂₀² with stated point covariances) is above its χ² range | it is below the range |
 | `projection_sigma` | camera | — | σ somewhere in the image exceeds 1 px |
 | `feature_coverage` | camera | features reached under 30 % of the image | under 50 % |
 | `view_outliers` | camera | — | a view's mean residual exceeds 3 σ̂ |
@@ -72,6 +72,11 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   detections. Below it, σ₀ was overstated. Because σ̂ is a median-based
   estimate, which scatters more than a sample variance, the test uses 37 % of
   the degrees of freedom, the estimate's efficiency under Gaussian noise.
+  When the observations state a covariance per point, the residuals are
+  whitened and their level is σ̂₀, which is 1 when the stated covariances
+  hold: the check then tests σ̂₀² against 1 and needs no
+  `expected_feature_noise_px` ([Per-Point Pixel
+  Covariance](uncertainty_point_covariance.md)).
 - **Projection σ** is the largest value of the camera's
   [projection-uncertainty map](uncertainty_projection.md), over
   the grid and its corners. It exceeds a pixel where the views did not reach
@@ -81,7 +86,8 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   holding at least one observed feature. Views bunched in one part of the
   image leave the rest to extrapolation; add views with the board near the
   empty cells, corners first.
-- **View outliers** averages `|r| / σ̂` per view and camera. Over Gaussian
+- **View outliers** averages `|r| / σ̂` per view and camera (with stated
+  point covariances, each feature's whitened error over σ̂₀). Over Gaussian
   inliers that mean is about 1.25; a view above 3 has residuals well over
   twice the typical ones, as from a misdetection, motion blur or a wrong
   robot pose. Inspect or drop the named views.
@@ -97,7 +103,7 @@ A check whose inputs the result does not carry is `not_applicable`, with the
 reason in its message, and does not count toward the verdict:
 
 - no image size for the camera: the projection and coverage checks;
-- no stated σ₀: the variance factor;
+- no stated σ₀ and no stated point covariances: the variance factor;
 - no covariance (the uncertainty is unavailable): the checks that read it;
 - a camera whose parameters the final solve held fixed — the rig and rig
   hand-eye workflows by default — has no covariance to project or

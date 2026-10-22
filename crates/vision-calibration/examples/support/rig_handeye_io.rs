@@ -189,9 +189,5 @@ fn detection_to_view_data(
         "insufficient corners after grid filtering"
     );
 
-    Ok(CorrespondenceView {
-        points_3d,
-        points_2d,
-        weights: Vec::new(),
-    })
+    Ok(CorrespondenceView::new(points_3d, points_2d)?)
 }

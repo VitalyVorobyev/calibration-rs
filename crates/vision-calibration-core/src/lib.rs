@@ -99,9 +99,10 @@ pub use models::{
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
     CorrespondenceView, FeatureResidualHistogram, FrameKind, FrameRef, ImageManifest,
-    LaserFeatureResidual, LaserLineTrace, ParameterCovariance, PerFeatureResiduals, PixelRect,
-    REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, ResidualKind, ResidualNoise,
-    TargetFeatureResidual, Uncertainty, UncertaintyUnavailable, ViewCovariance,
+    LaserFeatureResidual, LaserLineTrace, NoiseLevel, ParameterCovariance, PerFeatureResiduals,
+    PixelRect, PointCovariance, REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, ResidualKind,
+    ResidualNoise, TargetFeatureResidual, Uncertainty, UncertaintyUnavailable, ViewCovariance,
+    stated_covariance,
 };
 pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 
@@ -420,25 +421,39 @@ pub fn compute_planar_target_residuals_views<C: CameraProject, Meta>(
             .enumerate()
         {
             let p_cam = pose * p3d;
-            let (projected_px, error_px) = match camera.project_camera_point(&p_cam.coords) {
-                Some(proj) => {
-                    let err = (proj - *p2d).norm();
-                    (Some([proj.x, proj.y]), Some(err))
-                }
-                None => (None, None),
-            };
-            out.push(TargetFeatureResidual {
-                pose: view_idx,
-                camera: 0,
-                feature: feature_idx,
-                target_xyz_m: [p3d.x, p3d.y, p3d.z],
-                observed_px: [p2d.x, p2d.y],
-                projected_px,
-                error_px,
-            });
+            out.push(target_feature_residual(
+                camera.project_camera_point(&p_cam.coords),
+                *p2d,
+                view.obs.covariance(feature_idx),
+                TargetFeatureResidual {
+                    pose: view_idx,
+                    camera: 0,
+                    feature: feature_idx,
+                    target_xyz_m: [p3d.x, p3d.y, p3d.z],
+                    ..TargetFeatureResidual::default()
+                },
+            ));
         }
     }
     Ok(out)
+}
+
+/// `record` with its observation, projection and errors filled in: the
+/// pixel error, and the whitened one when the feature states a covariance.
+fn target_feature_residual(
+    projected: Option<Pt2>,
+    observed: Pt2,
+    cov: Option<PointCovariance>,
+    record: TargetFeatureResidual,
+) -> TargetFeatureResidual {
+    let error = projected.map(|p| p - observed);
+    TargetFeatureResidual {
+        observed_px: [observed.x, observed.y],
+        projected_px: projected.map(|p| [p.x, p.y]),
+        error_px: error.map(|e| e.norm()),
+        error_whitened: error.zip(cov).map(|(e, c)| c.whitened_norm([e.x, e.y])),
+        ..record
+    }
 }
 
 /// Compute per-feature target reprojection residuals for a multi-camera rig
@@ -504,22 +519,18 @@ where
                 obs.points_3d.iter().zip(obs.points_2d.iter()).enumerate()
             {
                 let p_cam = cam_se3_target * p3d;
-                let (projected_px, error_px) = match cam.project_camera_point(&p_cam.coords) {
-                    Some(proj) => {
-                        let err = (proj - *p2d).norm();
-                        (Some([proj.x, proj.y]), Some(err))
-                    }
-                    None => (None, None),
-                };
-                out.push(TargetFeatureResidual {
-                    pose: view_idx,
-                    camera: cam_idx,
-                    feature: feature_idx,
-                    target_xyz_m: [p3d.x, p3d.y, p3d.z],
-                    observed_px: [p2d.x, p2d.y],
-                    projected_px,
-                    error_px,
-                });
+                out.push(target_feature_residual(
+                    cam.project_camera_point(&p_cam.coords),
+                    *p2d,
+                    obs.covariance(feature_idx),
+                    TargetFeatureResidual {
+                        pose: view_idx,
+                        camera: cam_idx,
+                        feature: feature_idx,
+                        target_xyz_m: [p3d.x, p3d.y, p3d.z],
+                        ..TargetFeatureResidual::default()
+                    },
+                ));
             }
         }
     }
