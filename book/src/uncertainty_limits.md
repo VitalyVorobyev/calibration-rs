@@ -20,11 +20,23 @@ unobservable together.
 
 ## Scope
 
-Every workflow reports the uncertainty of its final solve. Robot poses are taken
-as exact unless the hand-eye solve refines them. Then the priors'
-standard deviations (`robot_rot_sigma`, `robot_trans_sigma`) are taken as
-the robot's true pose accuracy, and the covariance is that of the estimate
-computed with those priors against the corner residuals.
+Every workflow reports the uncertainty of its final solve. When a hand-eye
+solve refines the robot poses (the default), the priors' standard deviations
+(`robot_poses.rot_sigma`, `robot_poses.trans_sigma`) are taken as the robot's
+true pose accuracy, weighed against the corner noise the residuals show. The
+estimate is then the maximum-likelihood one and its covariance holds: on
+synthetic eye-in-hand scenes with sub-pixel corners and priors that match
+the robot's error, the normalized errors had an RMS of 0.97–1.04. With loose
+priors the hand-eye and target standard deviations are pessimistic; with
+priors tighter than the robot's real error they are too small, and nothing
+in the residuals says so.
+
+Without refinement the robot poses are taken as exact. Their errors then
+show up in the corner residuals, but as an error shared by every corner of a
+view rather than independent noise, and the covariance treats it as
+independent: with 476 corners a view, it was 16–17 times too small on the
+same scenes. Refine the robot poses whenever their error is not well below
+the corner noise.
 
 ## What a Covariance Does Not Cover
 

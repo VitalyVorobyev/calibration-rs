@@ -348,7 +348,7 @@ pub(super) fn build_factor(
 ) -> Result<Factor, Error> {
     let robust = IrRobustCost(loss);
     match factor {
-        FactorKind::Se3TangentPrior { sqrt_info } => Ok(FactorBuilder::new1_unchecked(
+        FactorKind::Se3TangentPrior { sqrt_info, .. } => Ok(FactorBuilder::new1_unchecked(
             TangentPrior {
                 sqrt_info: *sqrt_info,
             },

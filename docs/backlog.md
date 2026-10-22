@@ -13,15 +13,6 @@ from measured feature noise, and a quality verdict built on it. Design:
 ADR 0026; evidence: `notes/uncertainty.md`. Items that change results
 need their measurement first and stay opt-in until it is in.
 
-- [ ] UQ-PRIOR-WEIGHTS - Robot-pose refinement weighs pixel residuals at
-  unit σ against the priors' `sqrt_info`, so with sub-pixel corners the
-  priors are far too weak: on `kuka_1` (σ̂ 0.11 px) the robot-pose deltas
-  absorb signal and σ(fx) is 0.95 px against 0.30 px with exact poses.
-  Rescale the reprojection family by its σ̂ (one re-solve) or the priors by
-  σ̂², and measure hand-eye accuracy against ground truth on synthetic
-  scenes; results change, so it needs a migration note. Today σ reflects
-  the priors, not the data: on `kuka_1` our intrinsics σ is 1.4–2.8×
-  OpenCV's, which takes the robot poses as exact.
 - [ ] UQ-FEATURE-COV - Per-feature 2×2 covariance from the detector to the
   covariance of the result. σ̂ today is one pooled, isotropic value per
   residual family. Steps:
@@ -48,7 +39,25 @@ need their measurement first and stay opt-in until it is in.
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.
 - [ ] UQ-ROBOT-NOISE - (Phase 2) Robot-pose noise in hand-eye as a measured
-  quantity rather than a fixed prior. Needs: UQ-PRIOR-WEIGHTS.
+  quantity rather than a fixed prior. The robot-pose priors are weighed
+  against the estimated corner noise, but their configured σ is taken as
+  the robot's true accuracy: on `kuka_1` the corrections are about ten
+  times smaller than the 0.5° default, so the hand-eye and target σ are
+  pessimistic, and priors tighter than the robot's error make them too
+  small. Estimate the prior family's variance factor from the corrections
+  (a variance component with its redundancy), and gate it on the
+  `robot_pose_priors` study's mismatched cells.
+- [ ] UQ-ROBOT-FRAME - Robot-pose corrections perturb the measured pose in
+  the base frame (`exp(δ) · base_se3_gripper`, a rotation about the base
+  origin), so `trans_sigma` is not the gripper's position error: a 0.5°
+  rotation prior lets a gripper 1.5 m from the base move 13 mm, and on
+  `kuka_1` the largest translation correction is 3.7 mm while the rotation
+  ones stay below 0.11°. Measure a gripper-frame correction
+  (`base_se3_gripper · exp(δ)`), whose σ are the tool's orientation and
+  position errors, on `kuka_1`, `ds8` and the `robot_pose_priors` study. It
+  changes what `robot_deltas` mean (`apply_robot_delta`, the app's
+  overlays, the laser upstream in `dataset_runner`). Pairs with
+  UQ-ROBOT-NOISE.
 - [ ] UQ-TARGET-FLATNESS - (Phase 2) Target manufacturing and flatness error
   in the covariance.
 

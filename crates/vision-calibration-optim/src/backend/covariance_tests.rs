@@ -248,11 +248,11 @@ fn covariance_agrees_across_backends() {
         let (ir, initial) = planar_ir(&scene, noise, loss);
         let tiny = solve(&ir, &initial, &tight(SolverBackend::TinySolver)).unwrap();
         let factrs = solve(&ir, &initial, &tight(SolverBackend::Factrs)).unwrap();
+        let (st, sf) = (tiny.noise[0].sigma, factrs.noise[0].sigma);
         let (tiny, factrs) = (available(tiny.uncertainty), available(factrs.uncertainty));
         assert_eq!(tiny.coordinates, factrs.coordinates, "{loss:?}");
         let diff = (&tiny.matrix - &factrs.matrix).norm() / tiny.matrix.norm();
         assert!(diff < 1e-6, "{loss:?}: relative difference {diff:.2e}");
-        let (st, sf) = (tiny.families[0].sigma, factrs.families[0].sigma);
         assert!((st / sf - 1.0).abs() < 1e-6, "{loss:?}: σ̂ {st} vs {sf}");
     }
 }
@@ -282,8 +282,8 @@ fn reprojection_sigma_estimates_the_pixel_noise() {
         add_outliers(&mut ir, outliers, 7);
         let solution = solve(&ir, &initial, &options(SolverBackend::TinySolver)).unwrap();
         let est = available(solution.uncertainty);
-        assert_eq!(est.families.len(), 1);
-        let family = &est.families[0];
+        assert_eq!(solution.noise.len(), 1);
+        let family = &solution.noise[0];
         assert_eq!(family.family, ResidualKind::Reprojection);
         assert_eq!(family.num_residuals, est.num_residuals);
         assert!(
@@ -434,38 +434,45 @@ fn iteration_budget_is_not_convergence() {
     ));
 }
 
-/// With priors only, `Σ` is their inverse information, unscaled.
+/// With priors only, `Σ` is their inverse information: `residual_sigma² /
+/// sqrt_info²`, unscaled by any residual family.
 #[test]
 fn prior_information_is_known() {
     let sqrt_info = [1.0, 2.0, 0.5, 4.0, 1.5, 0.25];
-    let mut ir = ProblemIR::new();
-    let delta = ir.add_param_block(
-        "robot_delta",
-        6,
-        ManifoldKind::Euclidean,
-        FixedMask::all_free(),
-        None,
-    );
-    ir.add_residual_block(ResidualBlock {
-        params: vec![delta],
-        loss: RobustLoss::None,
-        factor: FactorKind::Se3TangentPrior { sqrt_info },
-        residual_dim: 6,
-    });
-    let initial = HashMap::from([(
-        "robot_delta".to_string(),
-        DVector::from_row_slice(&[0.01, -0.02, 0.03, 0.001, 0.002, -0.003]),
-    )]);
-    for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
-        let est = available(solve(&ir, &initial, &options(backend)).unwrap().uncertainty);
-        assert!(est.families.is_empty());
-        for (i, s) in sqrt_info.iter().enumerate() {
-            let expected = 1.0 / (s * s);
-            assert!(
-                (est.matrix[(i, i)] / expected - 1.0).abs() < 1e-9,
-                "{backend:?} [{i}]: {} vs {expected}",
-                est.matrix[(i, i)]
-            );
+    for residual_sigma in [1.0, 0.3] {
+        let mut ir = ProblemIR::new();
+        let delta = ir.add_param_block(
+            "robot_delta",
+            6,
+            ManifoldKind::Euclidean,
+            FixedMask::all_free(),
+            None,
+        );
+        ir.add_residual_block(ResidualBlock {
+            params: vec![delta],
+            loss: RobustLoss::None,
+            factor: FactorKind::Se3TangentPrior {
+                sqrt_info,
+                residual_sigma,
+            },
+            residual_dim: 6,
+        });
+        let initial = HashMap::from([(
+            "robot_delta".to_string(),
+            DVector::from_row_slice(&[0.01, -0.02, 0.03, 0.001, 0.002, -0.003]),
+        )]);
+        for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
+            let solution = solve(&ir, &initial, &options(backend)).unwrap();
+            assert!(solution.noise.is_empty());
+            let est = available(solution.uncertainty);
+            for (i, s) in sqrt_info.iter().enumerate() {
+                let expected = (residual_sigma / s).powi(2);
+                assert!(
+                    (est.matrix[(i, i)] / expected - 1.0).abs() < 1e-9,
+                    "{backend:?} [{i}]: {} vs {expected}",
+                    est.matrix[(i, i)]
+                );
+            }
         }
     }
 }

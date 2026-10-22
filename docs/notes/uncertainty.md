@@ -11,15 +11,17 @@ The LM minimizes `½ Σᵢ ρᵢ(‖rᵢ(θ)‖²)` over the free tangent coordi
 Each residual block `rᵢ` belongs to one family `f` (reprojection, laser
 point-to-plane, laser line distance) or is a prior. Within a family the
 scalar residuals are modelled as i.i.d. with an unknown distribution, which
-may be heavy-tailed: outliers are part of the noise. Priors are `N(0, I)`
-after their `sqrt_info`.
+may be heavy-tailed: outliers are part of the noise. A prior's residual is
+`N(0, σᵢ² I)` after its `sqrt_info`, with `σᵢ = 1` unless the prior is
+weighed in another family's unit (the robot-pose priors, in pixels).
 
 ## Estimator
 
 At `θ̂`, with `Jᵢ = ∂rᵢ/∂θ` and `rᵢ` raw (loss-free) and `sᵢ = ‖rᵢ‖²`:
 
 ```
-Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + A_p,   A_f = Σ_{i∈f} JᵢᵀJᵢ
+Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + B_p
+A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ,   B_p = Σ_priors σᵢ² JᵢᵀJᵢ
 κ_f = Σ_{i∈f} (dᵢ ρ′ᵢ + 2ρ″ᵢ sᵢ) / m_f,   s_f = Σ_{i∈f} ρ′ᵢ² sᵢ / m_f · m / (m − n)
 ```
 
@@ -27,11 +29,14 @@ At `θ̂`, with `Jᵢ = ∂rᵢ/∂θ` and `rᵢ` raw (loss-free) and `sᵢ = �
 is Huber's asymptotic covariance of an M-estimator, `E[ψ²]/E[ψ′]² · (JᵀJ)⁻¹`,
 for i.i.d. residuals within a family. With priors or several families the
 moments stay pooled per family, inside the sandwich for the weights the
-solve used: the solver weighs pixel residuals at unit σ against the priors'
-`sqrt_info`, not at `1/σ̂²`, so the inverse information of an optimally
-weighted solve, `(Σ_f A_f/σ_f² + A_p)⁻¹`, is not this estimate's
-covariance. Monte-Carlo with robot-pose priors put it at 0.64× the scatter
-for some coordinates; the sandwich held 0.93–1.05. `ψ = ρ′ r` is the influence of a residual and `ψ′` its
+solve used, which need not be optimal (laser and corner families are each
+weighed in their own unit). The robot-pose priors are weighed in pixels at
+the reprojection `σ̂` (ADR 0026, "Robot-pose priors"), which makes the
+hand-eye objective the maximum-likelihood one: there the sandwich equals the
+inverse information `(A_f/σ_f² + A_p⁰)⁻¹`, `A_p⁰` the priors' information in
+their own units. When the pixels were weighed at 1 px instead, the inverse
+information put σ at 0.64× the scatter for some coordinates while the
+sandwich held 0.93–1.05. `ψ = ρ′ r` is the influence of a residual and `ψ′` its
 derivative, `ρ′ I + 2ρ″ r rᵀ` (trace per scalar). The factor `m/(m − n)`
 accounts for the degrees of freedom the fit absorbs. Without a loss it
 reduces to the classical `σ̂² (JᵀJ)⁻¹`.
@@ -81,8 +86,16 @@ gauge analysis is in the family's own note.
 - **Hand-eye**: all motions about one axis leave the hand-eye translation
   along that axis and the spin about it unobservable (`hand-eye.md`). This is
   the expected `RankDeficient` case.
-- **Robot-pose corrections**: view 0's correction is fixed (the common-mode
-  gauge). The others are prior-regularized, so they stay observable.
+- **Robot-pose corrections**: every view's correction is free. With the
+  camera pose of each view fixed by its corners, a change of the hand-eye
+  and target poses can be absorbed view by view by the corrections, so those
+  12 directions (6 + 6) are determined by the priors alone: the hand-eye and
+  target σ scale with the priors' σ, not with the corner noise. The target
+  in the base frame inherits the robot's absolute rotation error, a common
+  rotation of all corrections about the base origin: its translation σ is
+  about `σ_rot / √views` times the target's distance from the base.
+  Fixing view 0's correction (the earlier gauge choice) took that view's
+  robot pose as exact and dropped its error from the covariance.
 - **Laser**: a plane seen from a single board pose is underdetermined. The
   S² sign is a discrete gauge and does not affect the covariance.
 

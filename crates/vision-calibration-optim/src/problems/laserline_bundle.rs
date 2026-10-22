@@ -598,7 +598,7 @@ fn extract_solution(
         .collect();
     Ok(LaserlineEstimate {
         params: LaserlineParams::new(camera, poses, plane)?,
-        uncertainty: uncertainty::labelled(ir, &solution.uncertainty, &labels),
+        uncertainty: uncertainty::labelled(ir, &solution.uncertainty, &solution.noise, &labels),
         report: solution.solve_report,
     })
 }

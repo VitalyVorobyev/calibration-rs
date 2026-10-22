@@ -59,6 +59,7 @@ impl OptimBackend for FactrsBackend {
             raw_from_engine(ir, &engine, &compiled, &state)
         };
         Ok(BackendSolution {
+            noise: covariance::noise(ir, raw.as_ref()),
             uncertainty: covariance::estimate(ir, &params, raw, converged),
             params,
             solve_report: SolveReport {

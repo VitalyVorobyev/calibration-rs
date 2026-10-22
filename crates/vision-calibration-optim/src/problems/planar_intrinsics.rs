@@ -338,7 +338,7 @@ pub fn optimize_planar_intrinsics(
         params: PlanarIntrinsicsParams::new(camera, poses)?,
         report: solution.solve_report,
         mean_reproj_error,
-        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
+        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
     })
 }
 

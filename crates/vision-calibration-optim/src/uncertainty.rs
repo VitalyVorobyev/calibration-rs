@@ -10,7 +10,7 @@ use vision_calibration_core::{
 };
 
 use crate::backend::BackendSolution;
-use crate::backend::covariance::{Coordinate, ParamUncertainty, UnavailableReason};
+use crate::backend::covariance::{Coordinate, FamilyNoise, ParamUncertainty, UnavailableReason};
 use crate::ir::{CameraModelSpec, HandeyeMode, ManifoldKind, ParamBlock, ProblemIR};
 use crate::params::camera::camera_block_labels;
 use crate::params::pose_se3::se3_dvec_to_iso3;
@@ -97,11 +97,12 @@ pub(crate) fn pose_labels(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// The labelled uncertainty of a solve of `ir`; `labels` names each IR block
-/// (by id).
+/// The labelled uncertainty of a solve of `ir`, with the noise levels of
+/// its residual families; `labels` names each IR block (by id).
 pub(crate) fn labelled(
     ir: &ProblemIR,
     solve: &ParamUncertainty,
+    noise: &[FamilyNoise],
     labels: &[BlockLabels],
 ) -> Uncertainty {
     debug_assert_eq!(labels.len(), ir.params.len(), "one label set per IR block");
@@ -159,8 +160,7 @@ pub(crate) fn labelled(
             })
             .collect(),
         fixed: fixed_labels(ir, labels),
-        noise: estimate
-            .families
+        noise: noise
             .iter()
             .map(|f| ResidualNoise {
                 kind: f.family,
@@ -537,16 +537,19 @@ mod tests {
             .collect()
     }
 
+    fn noise() -> Vec<FamilyNoise> {
+        vec![FamilyNoise {
+            family: ResidualKind::Reprojection,
+            num_residuals: 100,
+            sigma: 0.25,
+        }]
+    }
+
     fn estimate(coordinates: Vec<Coordinate>, matrix: DMatrix<f64>) -> ParamUncertainty {
         let n = coordinates.len();
         ParamUncertainty::Available(Box::new(CovarianceEstimate {
             coordinates,
             matrix,
-            families: vec![FamilyNoise {
-                family: ResidualKind::Reprojection,
-                num_residuals: 100,
-                sigma: 0.25,
-            }],
             num_residuals: 100,
             dof: 100 - n,
         }))
@@ -561,7 +564,8 @@ mod tests {
         coordinates.extend((0..6).map(|index| Coordinate { block: 3, index }));
         let n = coordinates.len();
         let matrix = DMatrix::from_fn(n, n, |i, j| if i == j { (i + 1) as f64 } else { 0.0 });
-        let Uncertainty::Available(c) = labelled(&ir, &estimate(coordinates, matrix), &labels(&ir))
+        let Uncertainty::Available(c) =
+            labelled(&ir, &estimate(coordinates, matrix), &noise(), &labels(&ir))
         else {
             panic!("available");
         };
@@ -585,7 +589,7 @@ mod tests {
             ],
         });
         assert_eq!(
-            labelled(&ir, &solve, &labels(&ir)),
+            labelled(&ir, &solve, &noise(), &labels(&ir)),
             Uncertainty::Unavailable {
                 reason: UncertaintyUnavailable::RankDeficient {
                     unobservable: vec!["cx".into(), "view1.camera_se3_target.tz".into()],
@@ -611,9 +615,12 @@ mod tests {
         for k in 0..6 {
             let matrix = DMatrix::from_fn(6, 6, |i, j| if i == k && j == k { 1.0 } else { 0.0 });
             let labels = vec![BlockLabels::shared_pose("cam1.cam_se3_rig").inverted(stored)];
-            let Uncertainty::Available(c) =
-                labelled(&ir, &estimate(coordinates.clone(), matrix), &labels)
-            else {
+            let Uncertainty::Available(c) = labelled(
+                &ir,
+                &estimate(coordinates.clone(), matrix),
+                &noise(),
+                &labels,
+            ) else {
                 panic!("available");
             };
             // Finite-difference image of a small step along e_k.
@@ -665,7 +672,7 @@ mod tests {
             BlockLabels::shared_pose("cam_se3_rig").internal(),
             BlockLabels::shared_pose("gripper_se3_camera"),
         ];
-        let Uncertainty::Available(c) = labelled(&ir, &solve, &labels) else {
+        let Uncertainty::Available(c) = labelled(&ir, &solve, &noise(), &labels) else {
             panic!("available");
         };
         assert_eq!(c.fixed, ["gripper_se3_camera"]);
@@ -690,6 +697,7 @@ mod tests {
                 final_cost: 0.0,
                 num_iters: 0,
             },
+            noise: Vec::new(),
             uncertainty: ParamUncertainty::Unavailable(UnavailableReason::NotConverged),
         };
         let labels = RigLabelling {

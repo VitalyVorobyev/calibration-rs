@@ -497,12 +497,20 @@ pub enum FactorKind {
         /// Residual weight.
         w: f64,
     },
-    /// Zero-mean prior on a 6D se(3) tangent vector.
+    /// Zero-mean prior on a 6D se(3) tangent vector: the residual
+    /// `sqrt_info ⊙ δ`.
     ///
     /// Parameters: \[se3_delta\] (6D Euclidean).
     Se3TangentPrior {
-        /// Diagonal square-root information for `[rx, ry, rz, tx, ty, tz]`.
+        /// Diagonal square-root weight of `[rx, ry, rz, tx, ty, tz]` in the
+        /// objective.
         sqrt_info: [f64; 6],
+        /// Standard deviation of each residual component under the prior,
+        /// so the prior's own standard deviation is `residual_sigma /
+        /// sqrt_info`. `1` for a prior weighed in its own unit; a prior
+        /// weighed against pixel residuals carries their noise level, which
+        /// the covariance needs to count the prior's scatter.
+        residual_sigma: f64,
     },
 }
 
