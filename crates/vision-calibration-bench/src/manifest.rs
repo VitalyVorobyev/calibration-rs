@@ -161,12 +161,14 @@ fn target(board: &BoardGeometry) -> Result<TargetSpec> {
 }
 
 fn camera_source(camera: &CameraLayout) -> CameraSource {
+    // Manifest globs use `/` on every OS.
     let pattern = match camera.folder.as_str() {
         "" | "." => camera.filename_glob.clone(),
-        folder => Path::new(folder)
-            .join(&camera.filename_glob)
-            .to_string_lossy()
-            .into_owned(),
+        folder => format!(
+            "{}/{}",
+            folder.trim_end_matches(['/', '\\']),
+            camera.filename_glob
+        ),
     };
     CameraSource {
         id: camera.id.clone(),
