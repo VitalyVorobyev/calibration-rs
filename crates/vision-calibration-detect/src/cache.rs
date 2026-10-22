@@ -291,6 +291,38 @@ mod tests {
         assert_eq!(back.features[0].image_xy, [10.0, 20.0]);
     }
 
+    /// A cache hit must return exactly the features that were stored: a
+    /// detection read back from disk must calibrate to the same result as
+    /// the fresh one.
+    #[test]
+    fn fs_cache_roundtrip_is_bit_exact() {
+        let dir = tempdir().unwrap();
+        let cache = FsDetectionCache::new(dir.path());
+        let key = CacheKey::from_inputs(b"img", "chessboard", &json!({}));
+        // Sub-pixel positions as detectors produce them (`f32` widened), and
+        // metric target points (grid index × pitch).
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let features: Vec<Feature> = (0..20_000)
+            .map(|i| Feature {
+                image_xy: [f64::from((next() * 1440.0) as f32), next() * 1080.0],
+                world_xyz: [(i % 130) as f64 * 0.0052, (i / 130) as f64 * 0.001014, 0.0],
+            })
+            .collect();
+        let entry = CachedFeatures { features };
+        cache.put(&key, &entry).unwrap();
+        let back = cache.get(&key).unwrap().expect("cache hit expected");
+        let bits = |f: &Feature| (f.image_xy.map(f64::to_bits), f.world_xyz.map(f64::to_bits));
+        for (stored, read) in entry.features.iter().zip(&back.features) {
+            assert_eq!(bits(stored), bits(read), "{stored:?} read back as {read:?}");
+        }
+    }
+
     #[test]
     fn file_name_is_windows_safe_for_laser_namespace() {
         // `laser:<name>` namespaces (ADR 0016) must not leak the colon

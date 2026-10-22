@@ -24,7 +24,9 @@ schemars = ["dep:schemars"]
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
+# `float_roundtrip`: a detection read back from the cache must equal the one
+# stored, to the bit (the default parser can land one ulp off).
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror = { workspace = true }
 image = { workspace = true }
 schemars = { workspace = true, optional = true }
