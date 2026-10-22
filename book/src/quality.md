@@ -63,7 +63,7 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
 - **Convergence** fails a solve that ran out of iterations: its numbers are
   not a minimum. Raise `solver.max_iters`.
 - **Variance factor.** σ̂ is the noise level the residuals imply (see
-  [noise](uncertainty.md#what-is-reported)); σ₀ is the noise you expect from
+  [noise](uncertainty_reading.md#what-is-reported)); σ₀ is the noise you expect from
   the detector, `expected_feature_noise_px`. There is no universal value, so
   the check is not applicable until you state one. Then σ̂²/σ₀² is tested
   against the χ² distribution at the residuals' degrees of freedom, two-sided
@@ -73,7 +73,7 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   estimate, which scatters more than a sample variance, the test uses 37 % of
   the degrees of freedom, the estimate's efficiency under Gaussian noise.
 - **Projection σ** is the largest value of the camera's
-  [projection-uncertainty map](uncertainty.md#projection-uncertainty), over
+  [projection-uncertainty map](uncertainty_projection.md), over
   the grid and its corners. It exceeds a pixel where the views did not reach
   and the distortion is extrapolated. The map is conservative for uses that
   re-estimate the camera's pose, so this check only warns.
