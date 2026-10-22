@@ -1,0 +1,259 @@
+{
+  "$defs": {
+    "ParameterCovariance": {
+      "description": "The covariance of a result's estimated parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Covariance of the shared parameters: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "dof": {
+          "description": "Residuals minus estimated parameters.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fixed": {
+          "description": "Labels of the parameters held fixed. The covariance is conditional on\nthem.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the shared parameters, in the order of `covariance`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "noise": {
+          "description": "The noise level of each kind of residual, estimated from the\nresiduals at the solution.",
+          "items": {
+            "$ref": "#/$defs/ResidualNoise"
+          },
+          "type": "array"
+        },
+        "num_residuals": {
+          "description": "Number of scalar residuals, priors included.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "Per-view parameters, one block per view that has free ones.",
+          "items": {
+            "$ref": "#/$defs/ViewCovariance"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "labels",
+        "covariance",
+        "noise",
+        "num_residuals",
+        "dof"
+      ],
+      "type": "object"
+    },
+    "ProjectionUncertainty": {
+      "description": "The projection uncertainty of one camera over its image.\n\nGrid nodes are evenly spaced from pixel `(0, 0)` to\n`(width − 1, height − 1)`, corners included, and listed row by row from\nthe top-left. Each value is the major-axis standard deviation, in pixels,\nof where the ray through the node projects.",
+      "properties": {
+        "center": {
+          "description": "σ at the image centre, pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "columns": {
+          "description": "Nodes per grid row.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "corner": {
+          "description": "The largest σ of the four corners, pixels; `None` when no ray reaches\nany of them.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "image_size": {
+          "description": "`[width, height]` of the image, pixels.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "max": {
+          "description": "The largest σ of the grid and the centre, pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "rows": {
+          "description": "Grid rows.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sigma": {
+          "description": "Major-axis σ at each node, pixels. `None` where no ray reaches the\nnode, as where a strong distortion folds the image over.",
+          "items": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "image_size",
+        "columns",
+        "rows",
+        "sigma",
+        "center",
+        "corner",
+        "max"
+      ],
+      "type": "object"
+    },
+    "ResidualKind": {
+      "description": "A kind of residual, which sets its unit.",
+      "oneOf": [
+        {
+          "const": "reprojection",
+          "description": "Target reprojection error, pixels.",
+          "type": "string"
+        },
+        {
+          "const": "laser_plane",
+          "description": "Laser point-to-plane distance, metres.",
+          "type": "string"
+        },
+        {
+          "const": "laser_line",
+          "description": "Laser line distance in the image, pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResidualNoise": {
+      "description": "The estimated noise level of one kind of residual.",
+      "properties": {
+        "camera": {
+          "description": "The camera, for a result that estimates each camera's noise apart\n(the rig laserline, which solves each camera's plane on its own);\n`None` for one level shared by every camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "count": {
+          "description": "Number of scalar residuals of this kind.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/ResidualKind",
+          "description": "The kind of residual."
+        },
+        "sigma": {
+          "description": "Gaussian-equivalent standard deviation of one scalar residual (one\npixel axis for reprojection), from the median absolute residual so\nthat outliers do not inflate it. In the residual's unit.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "sigma",
+        "count"
+      ],
+      "type": "object"
+    },
+    "ViewCovariance": {
+      "description": "The covariance of one view's own parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Their covariance: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the view's parameters, e.g. `camera_se3_target.rx`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "view": {
+          "description": "View index, as in the result's per-view lists.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "labels",
+        "covariance"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The covariance a calibration is predicted to have with candidate views\nadded.",
+  "properties": {
+    "covariance": {
+      "$ref": "#/$defs/ParameterCovariance",
+      "description": "The predicted covariance of the parameters the result estimated, with\nthe result's labels, fixed list and noise levels. Per-view blocks are\nnot predicted (`views` is empty); `num_residuals` and `dof` count the\ncandidates' visible points and poses."
+    },
+    "effective_noise_px": {
+      "description": "The standard deviation of a pixel residual (per axis) the result's\ncovariance implies, which scales the candidates' information, in\npixels.",
+      "format": "double",
+      "type": "number"
+    },
+    "projection": {
+      "$ref": "#/$defs/ProjectionUncertainty",
+      "description": "The predicted projection uncertainty over the image."
+    },
+    "visible_points": {
+      "description": "Per candidate, in order, the target points that land in the image.\nA candidate with fewer than four adds no information.",
+      "items": {
+        "format": "uint",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "covariance",
+    "projection",
+    "visible_points",
+    "effective_noise_px"
+  ],
+  "title": "PredictedUncertainty",
+  "type": "object"
+}

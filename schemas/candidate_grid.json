@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A deterministic set of candidate target poses: the target's centroid on\nthe ray through the centre of each region of an image grid, at a given\ndistance, facing the camera and tilted about each of its axes.\n\nFor each region, row by row from the top-left, the poses are the\nfronto-parallel one, then tilts of `+tilt_rad` and `−tilt_rad` about the\ntarget's x axis and about its y axis (only the fronto-parallel one when\n`tilt_rad` is zero).",
+  "properties": {
+    "distance_m": {
+      "description": "Distance from the camera centre to the target's centroid, metres\n(> 0). No default: it depends on the target's size and the lens.",
+      "format": "double",
+      "type": "number"
+    },
+    "regions": {
+      "description": "Regions of the image grid, `[columns, rows]`, each at least 1.",
+      "items": {
+        "format": "uint",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "tilt_rad": {
+      "description": "Tilt out of the fronto-parallel pose, radians, in `[0, π/2)`. Tilted\nviews are what determine the focal length and the principal point;\n0.3–0.6 rad (about 15–35°) is typical.",
+      "format": "double",
+      "type": "number"
+    }
+  },
+  "required": [
+    "distance_m",
+    "tilt_rad",
+    "regions"
+  ],
+  "title": "CandidateGrid",
+  "type": "object"
+}

@@ -304,6 +304,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Planning the next view.** `analysis::predict_with_views(export,
+  candidates, target_points, image_size)` predicts the covariance a planar
+  intrinsics calibration would have with candidate target poses added,
+  without a re-solve: each view's information about the camera, its own
+  pose marginalized, is added to the result's on the pixel-noise scale the
+  result's covariance implies (`effective_noise_px`). It returns a
+  `PredictedUncertainty` (the predicted `ParameterCovariance`, its
+  projection uncertainty over the image, the points each candidate sees).
+  `analysis::rank_candidates` scores candidates one at a time by the largest
+  projection σ they would leave and the reduction of `ln det Σ`
+  (`RankedCandidate`, best first, ties in candidate order), and
+  `analysis::candidate_poses` generates a deterministic candidate set from a
+  `CandidateGrid` (image regions × tilts at one distance). Any camera model
+  the solver estimates. On synthetic scenes the prediction matches a
+  re-solve with the view added to within 0.1–2.1 % on average. Python:
+  `predict_with_views`, `rank_candidates`, `candidate_poses`,
+  `CandidateGrid`, `PredictedUncertainty`, `RankedCandidate`; schemas
+  `candidate_grid`, `predicted_uncertainty`, `ranked_candidate`. In optim,
+  `view_information` gives one view's information about a camera's
+  parameters.
 - **Python reaches the facade.** The package now depends on `numpy`.
   - Sessions: one class per problem type (`PlanarIntrinsicsSession`,
     `RigHandeyeSession`, ...) with `set_input`, `set_config`, the problem's
@@ -459,6 +479,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A result without a covariance is a typed
+  `Error::CovarianceUnavailable { reason }` from
+  `CalibratedCameras::projection_uncertainty` and the next-view functions,
+  in place of `Error::InvalidInput` with the reason in its message. Python
+  still raises `ValueError`.
 - **The Python payload types are generated from the Rust types.**
   `vision_calibration.types` re-exports `TypedDict`s that
   `cargo xtask emit-schemas` renders from the JSON Schemas of every config,

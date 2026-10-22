@@ -183,6 +183,32 @@ class CameraSource(_CameraSourceRequired, total=False):
     """
 
 
+class CandidateGrid(TypedDict):
+    """A deterministic set of candidate target poses: the target's centroid on
+    the ray through the centre of each region of an image grid, at a given
+    distance, facing the camera and tilted about each of its axes.
+
+    For each region, row by row from the top-left, the poses are the
+    fronto-parallel one, then tilts of `+tilt_rad` and `−tilt_rad` about the
+    target's x axis and about its y axis (only the fronto-parallel one when
+    `tilt_rad` is zero).
+    """
+
+    distance_m: float
+    """Distance from the camera centre to the target's centroid, metres
+    (> 0). No default: it depends on the target's size and the lens.
+    """
+
+    regions: tuple[int, int] | list[int]
+    """Regions of the image grid, `[columns, rows]`, each at least 1."""
+
+    tilt_rad: float
+    """Tilt out of the fronto-parallel pose, radians, in `[0, π/2)`. Tilted
+    views are what determine the focal length and the principal point;
+    0.3–0.6 rad (about 15–35°) is typical.
+    """
+
+
 CheckKind: TypeAlias = Literal[
     "observability",
     "convergence",
@@ -1467,6 +1493,33 @@ align with robot poses.
 """
 
 
+class PredictedUncertainty(TypedDict):
+    """The covariance a calibration is predicted to have with candidate views
+    added.
+    """
+
+    covariance: ParameterCovariance
+    """The predicted covariance of the parameters the result estimated, with
+    the result's labels, fixed list and noise levels. Per-view blocks are
+    not predicted (`views` is empty); `num_residuals` and `dof` count the
+    candidates' visible points and poses.
+    """
+
+    effective_noise_px: float
+    """The standard deviation of a pixel residual (per axis) the result's
+    covariance implies, which scales the candidates' information, in
+    pixels.
+    """
+
+    projection: ProjectionUncertainty
+    """The predicted projection uncertainty over the image."""
+
+    visible_points: list[int]
+    """Per candidate, in order, the target points that land in the image.
+    A candidate with fewer than four adds no information.
+    """
+
+
 ProjectionKind: TypeAlias = Literal["pinhole"]
 """Which projection model a camera uses.
 
@@ -1625,6 +1678,33 @@ class QualityThresholds(TypedDict, total=False):
     """Significance level α of the two-sided χ² variance-factor test, in
     `(0, 1)`. Default `0.01`: a result consistent with σ₀ fails the test
     once in a hundred calibrations.
+    """
+
+
+class RankedCandidate(TypedDict):
+    """One candidate view, scored by the uncertainty it would leave."""
+
+    index: int
+    """The candidate's position in the list given to `rank_candidates`."""
+
+    log_det_reduction: float
+    """`ln det Σ − ln det Σ′`, the reduction of the log-volume of the whole
+    covariance (≥ 0, unit-free).
+    """
+
+    max_projection_sigma_px: float
+    """The largest projection σ over the image with this view added, in
+    pixels.
+    """
+
+    projection_sigma_reduction_px: float
+    """The current largest projection σ minus `max_projection_sigma_px`, in
+    pixels (≥ 0).
+    """
+
+    visible_points: int
+    """Target points that land in the image. Fewer than four add no
+    information.
     """
 
 
@@ -2991,6 +3071,7 @@ __all__ = [
     "CameraOverride",
     "CameraParams",
     "CameraSource",
+    "CandidateGrid",
     "CheckKind",
     "CheckStatus",
     "ChessCornersDetectorSpec",
@@ -3052,6 +3133,7 @@ __all__ = [
     "PosePairing",
     "PosePairing_ByIndex",
     "PosePairing_SharedFilenameToken",
+    "PredictedUncertainty",
     "ProjectionKind",
     "ProjectionParams",
     "ProjectionParams_Pinhole",
@@ -3059,6 +3141,7 @@ __all__ = [
     "QualityCheck",
     "QualityReport",
     "QualityThresholds",
+    "RankedCandidate",
     "ResidualKind",
     "ResidualNoise",
     "RigConfig",

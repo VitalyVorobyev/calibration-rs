@@ -394,10 +394,7 @@ fn projection_uncertainty(
         .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))?;
     let map = export
         .projection_uncertainty(camera, image_size)
-        .map_err(|err| match &err {
-            vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
-            _ => runtime_err(err.to_string()),
-        })?;
+        .map_err(analysis_err)?;
     let output = pythonize(py, &map)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
     Ok(output.unbind())
@@ -455,6 +452,179 @@ fn assess(
     Ok(output.unbind())
 }
 
+/// A pipeline error as a Python exception: an input the caller can fix (a
+/// precondition, too little data, no covariance) is a `ValueError`; a
+/// numerical failure a `RuntimeError`.
+fn analysis_err(err: vision_calibration::Error) -> PyErr {
+    match &err {
+        vision_calibration::Error::InvalidInput { .. }
+        | vision_calibration::Error::InsufficientData { .. }
+        | vision_calibration::Error::CovarianceUnavailable { .. } => value_err(err.to_string()),
+        _ => runtime_err(err.to_string()),
+    }
+}
+
+/// The planar-intrinsics export a payload holds.
+fn planar_export(
+    export: &Bound<'_, PyAny>,
+) -> PyResult<vision_calibration::planar_intrinsics::PlanarIntrinsicsExport> {
+    let value: serde_json::Value = parse_payload(export, "export")?;
+    let kind = value.get("kind").and_then(serde_json::Value::as_str);
+    if kind != Some("planar_intrinsics") {
+        return Err(PyTypeError::new_err(format!(
+            "next-view planning needs a planar intrinsics export, not {}",
+            kind.unwrap_or("a payload without a kind")
+        )));
+    }
+    serde_json::from_value(value)
+        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))
+}
+
+/// Parse candidate poses, target points and the image size.
+fn next_view_inputs(
+    candidates: &Bound<'_, PyAny>,
+    target_points: &Bound<'_, PyAny>,
+    image_size: &Bound<'_, PyAny>,
+) -> PyResult<(
+    Vec<vision_calibration::core::Iso3>,
+    Vec<vision_calibration::core::Pt3>,
+    [u32; 2],
+)> {
+    reject_non_finite("candidates", candidates)?;
+    let candidates = parse_payload(candidates, "candidates")?;
+    let points = parse_target_points(target_points)?;
+    let image_size = parse_payload(image_size, "image_size")?;
+    Ok((candidates, points, image_size))
+}
+
+/// A target's points, ``[[x, y, z], ...]``.
+fn parse_target_points(
+    target_points: &Bound<'_, PyAny>,
+) -> PyResult<Vec<vision_calibration::core::Pt3>> {
+    reject_non_finite("target_points", target_points)?;
+    let points: Vec<[f64; 3]> = parse_payload(target_points, "target_points")?;
+    Ok(points
+        .into_iter()
+        .map(vision_calibration::core::Pt3::from)
+        .collect())
+}
+
+/// The covariance a planar calibration is predicted to have with candidate
+/// views added, without a re-solve.
+///
+/// Parameters
+/// ----------
+/// export:
+///     A planar intrinsics export.
+/// candidates:
+///     ``camera_se3_target`` poses, serde `Iso3` payloads.
+/// target_points:
+///     The target's points in its own frame, metres, ``[[x, y, z], ...]``.
+/// image_size:
+///     ``[width, height]`` of the camera's images, pixels.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `PredictedUncertainty`.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the export has no covariance, `candidates` or `target_points` is
+///     empty, or the image is smaller than 2×2 pixels.
+/// TypeError
+///     If `export` is not a planar intrinsics export or a payload has the
+///     wrong shape.
+#[pyfunction]
+fn predict_with_views(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    candidates: &Bound<'_, PyAny>,
+    target_points: &Bound<'_, PyAny>,
+    image_size: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let export = planar_export(export)?;
+    let (candidates, points, image_size) = next_view_inputs(candidates, target_points, image_size)?;
+    let predicted =
+        vision_calibration::analysis::predict_with_views(&export, &candidates, &points, image_size)
+            .map_err(analysis_err)?;
+    let output = pythonize(py, &predicted)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
+/// Candidate views of a planar calibration, each added alone, ranked by how
+/// much they reduce the largest projection σ.
+///
+/// Parameters and errors as `predict_with_views`.
+///
+/// Returns
+/// -------
+/// list[dict]
+///     Serde payloads of `RankedCandidate`, best first.
+#[pyfunction]
+fn rank_candidates(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    candidates: &Bound<'_, PyAny>,
+    target_points: &Bound<'_, PyAny>,
+    image_size: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let export = planar_export(export)?;
+    let (candidates, points, image_size) = next_view_inputs(candidates, target_points, image_size)?;
+    let ranked =
+        vision_calibration::analysis::rank_candidates(&export, &candidates, &points, image_size)
+            .map_err(analysis_err)?;
+    let output = pythonize(py, &ranked)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
+/// A deterministic set of candidate target poses over the image.
+///
+/// Parameters
+/// ----------
+/// camera:
+///     Serde payload of the camera's `CameraParams`.
+/// target_points:
+///     The target's points in its own frame, metres, ``[[x, y, z], ...]``.
+/// image_size:
+///     ``[width, height]`` of the camera's images, pixels.
+/// grid:
+///     Serde payload of `CandidateGrid`.
+///
+/// Returns
+/// -------
+/// list[dict]
+///     ``camera_se3_target`` poses, serde `Iso3` payloads.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If a grid setting is out of range, `target_points` is empty, or the
+///     image is smaller than 2×2 pixels.
+#[pyfunction]
+fn candidate_poses(
+    py: Python<'_>,
+    camera: &Bound<'_, PyAny>,
+    target_points: &Bound<'_, PyAny>,
+    image_size: &Bound<'_, PyAny>,
+    grid: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    reject_non_finite("camera", camera)?;
+    reject_non_finite("grid", grid)?;
+    let camera: vision_calibration::core::CameraParams = parse_payload(camera, "camera")?;
+    let grid: vision_calibration::analysis::CandidateGrid = parse_payload(grid, "grid")?;
+    let points = parse_target_points(target_points)?;
+    let image_size = parse_payload(image_size, "image_size")?;
+    let poses = vision_calibration::analysis::candidate_poses(&camera, &points, image_size, &grid)
+        .map_err(analysis_err)?;
+    let output = pythonize(py, &poses)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -473,6 +643,9 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
     m.add_function(wrap_pyfunction!(projection_uncertainty, m)?)?;
     m.add_function(wrap_pyfunction!(assess, m)?)?;
+    m.add_function(wrap_pyfunction!(predict_with_views, m)?)?;
+    m.add_function(wrap_pyfunction!(rank_candidates, m)?)?;
+    m.add_function(wrap_pyfunction!(candidate_poses, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;

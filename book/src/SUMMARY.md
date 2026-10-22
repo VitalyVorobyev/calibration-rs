@@ -50,6 +50,7 @@
 - [Parameter Uncertainty](uncertainty.md)
 - [Reading the Covariance](uncertainty_reading.md)
 - [Projection Uncertainty](uncertainty_projection.md)
+- [Planning the Next View](uncertainty_next_view.md)
 - [Limits and Unavailable Results](uncertainty_limits.md)
 - [Judging a Result](quality.md)
 

@@ -1,5 +1,5 @@
-//! Analysis of calibration results: a quality verdict and a hierarchical,
-//! multi-level reprojection-error report.
+//! Analysis of calibration results: a quality verdict, next-view planning
+//! and a hierarchical, multi-level reprojection-error report.
 //!
 //! # Quality verdict
 //!
@@ -8,6 +8,14 @@
 //! parameter correlations — and returns a [`QualityReport`] with a
 //! pass / warn / fail [`Verdict`]; see [`QualityThresholds`] for the limits
 //! and their defaults.
+//!
+//! # Next-view planning
+//!
+//! [`predict_with_views`] predicts the covariance a planar calibration would
+//! have with more views of its target, without a re-solve;
+//! [`rank_candidates`] orders candidate target poses by how much each would
+//! reduce the largest projection σ, and [`candidate_poses`] generates a
+//! deterministic set of them ([`CandidateGrid`]).
 //!
 //! # Reprojection report
 //!
@@ -64,6 +72,11 @@ use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
 use vision_calibration_linear::pnp::PnpSolver;
 use vision_geometry::homography::dlt_homography;
 
+mod next_view;
+pub use next_view::{
+    CandidateGrid, PredictedUncertainty, RankedCandidate, candidate_poses, predict_with_views,
+    rank_candidates,
+};
 mod quality;
 pub use quality::{
     CheckKind, CheckStatus, Measurement, QualityCheck, QualityReport, QualityThresholds, Unit,

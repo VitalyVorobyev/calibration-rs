@@ -167,8 +167,9 @@ jobs:
           cargo run --release --locked -p vision-calibration-bench
           --bin calib-bench -- suite compare
 
-  # The parameter-uncertainty Monte-Carlo gates: a few hundred solves each,
-  # so they are `#[ignore]`d in the debug test run and run here in release.
+  # The parameter-uncertainty Monte-Carlo gates (a few hundred solves each)
+  # and the next-view prediction gate (dozens of re-solves) are `#[ignore]`d
+  # in the debug test run and run here in release.
   uncertainty-gates:
     name: Uncertainty gates
     needs: build
@@ -189,6 +190,11 @@ jobs:
         run: >-
           cargo test --release --locked -p vision-calibration-optim
           --test uncertainty -- --ignored
+
+      - name: Next-view prediction gate
+        run: >-
+          cargo test --release --locked -p vision-calibration-pipeline
+          --lib analysis::next_view -- --ignored
 
   python-runtime:
     name: Python Runtime Tests
