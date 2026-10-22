@@ -192,6 +192,53 @@ class ProjectionUncertainty(TypedDict):
     max: float
 
 
+class QualityThresholds(TypedDict, total=False):
+    expected_feature_noise_px: float | None
+    variance_test_alpha: float
+    max_projection_sigma_px: float
+    coverage_warn_below: float
+    coverage_fail_below: float
+    max_view_residual: float
+    max_parameter_correlation: float
+
+
+Verdict = Literal["pass", "warn", "fail"]
+CheckStatus = Literal["pass", "warn", "fail", "not_applicable"]
+CheckKind = Literal[
+    "observability",
+    "convergence",
+    "variance_factor",
+    "projection_sigma",
+    "feature_coverage",
+    "view_outliers",
+    "parameter_correlation",
+]
+Unit = Literal["pixel", "fraction", "ratio", "sigma", "correlation"]
+
+
+class Measurement(TypedDict):
+    value: float
+    threshold: float
+    unit: Unit
+
+
+class _QualityCheckRequired(TypedDict):
+    kind: CheckKind
+    status: CheckStatus
+    message: str
+
+
+class QualityCheck(_QualityCheckRequired, total=False):
+    camera: int
+    measurement: Measurement
+    subjects: list[str]
+
+
+class QualityReport(TypedDict):
+    verdict: Verdict
+    checks: list[QualityCheck]
+
+
 class PlanarIntrinsicsParams(TypedDict):
     camera: CameraModel
     camera_se3_target: list[Transform]

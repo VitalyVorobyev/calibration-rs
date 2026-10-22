@@ -3,7 +3,7 @@
 
 use serde::de::DeserializeOwned;
 
-use vision_calibration_core::{CameraParams, Uncertainty};
+use vision_calibration_core::{CameraParams, ImageManifest, PerFeatureResiduals, Uncertainty};
 use vision_calibration_optim::{
     Error as OptimError, ProjectionUncertainty, camera_parameters, projection_uncertainty,
 };
@@ -18,7 +18,8 @@ use crate::rig_handeye_laserline::RigHandeyeLaserlineExport;
 use crate::rig_laserline_device::RigLaserlineDeviceExport;
 use crate::single_cam_handeye::SingleCamHandeyeExport;
 
-/// A calibration export's cameras and the uncertainty of its parameters.
+/// A calibration export's cameras, the uncertainty of its parameters and the
+/// observations behind them.
 pub trait CalibratedCameras {
     /// Each camera's model, in camera order.
     fn camera_params(&self) -> Vec<CameraParams>;
@@ -26,15 +27,17 @@ pub trait CalibratedCameras {
     /// The uncertainty of the estimated parameters.
     fn parameter_uncertainty(&self) -> &Uncertainty;
 
+    /// The residual of every observed feature at the solution.
+    fn feature_residuals(&self) -> &PerFeatureResiduals;
+
+    /// The images behind the observations, when the export records them.
+    fn images(&self) -> Option<&ImageManifest>;
+
     /// The value of the camera parameter a covariance label names (`fx`,
     /// `cam1.k1`, `tilt_x`); `None` for any other label (a pose, a plane) or
     /// a camera the export does not have.
     fn camera_parameter(&self, label: &str) -> Option<f64> {
-        let (camera, name) = label
-            .strip_prefix("cam")
-            .and_then(|rest| rest.split_once('.'))
-            .and_then(|(index, name)| Some((index.parse().ok()?, name)))
-            .unwrap_or((0, label));
+        let (camera, name) = split_camera_label(label);
         let params = self.camera_params().into_iter().nth(camera)?;
         camera_parameters(&params)
             .ok()?
@@ -80,6 +83,17 @@ pub trait CalibratedCameras {
     }
 }
 
+/// The camera a covariance label belongs to and the label without its
+/// camera prefix: `cam1.k1` is `(1, "k1")`. A label without a prefix belongs
+/// to camera 0, as in a single-camera result.
+pub(crate) fn split_camera_label(label: &str) -> (usize, &str) {
+    label
+        .strip_prefix("cam")
+        .and_then(|rest| rest.split_once('.'))
+        .and_then(|(index, name)| Some((index.parse().ok()?, name)))
+        .unwrap_or((0, label))
+}
+
 /// The export a JSON value holds, by its `kind` field, as its cameras.
 ///
 /// # Errors
@@ -117,6 +131,14 @@ impl CalibratedCameras for PlanarIntrinsicsExport {
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
+
+    fn feature_residuals(&self) -> &PerFeatureResiduals {
+        &self.per_feature_residuals
+    }
+
+    fn images(&self) -> Option<&ImageManifest> {
+        self.image_manifest.as_ref()
+    }
 }
 
 impl CalibratedCameras for SingleCamHandeyeExport {
@@ -126,6 +148,14 @@ impl CalibratedCameras for SingleCamHandeyeExport {
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
+    }
+
+    fn feature_residuals(&self) -> &PerFeatureResiduals {
+        &self.per_feature_residuals
+    }
+
+    fn images(&self) -> Option<&ImageManifest> {
+        self.image_manifest.as_ref()
     }
 }
 
@@ -137,6 +167,14 @@ impl CalibratedCameras for LaserlineDeviceExport {
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.estimate.uncertainty
     }
+
+    fn feature_residuals(&self) -> &PerFeatureResiduals {
+        &self.per_feature_residuals
+    }
+
+    fn images(&self) -> Option<&ImageManifest> {
+        self.image_manifest.as_ref()
+    }
 }
 
 impl CalibratedCameras for RigExtrinsicsExport {
@@ -146,6 +184,14 @@ impl CalibratedCameras for RigExtrinsicsExport {
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
+    }
+
+    fn feature_residuals(&self) -> &PerFeatureResiduals {
+        &self.per_feature_residuals
+    }
+
+    fn images(&self) -> Option<&ImageManifest> {
+        self.image_manifest.as_ref()
     }
 }
 
@@ -157,6 +203,14 @@ impl CalibratedCameras for RigHandeyeExport {
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
+
+    fn feature_residuals(&self) -> &PerFeatureResiduals {
+        &self.per_feature_residuals
+    }
+
+    fn images(&self) -> Option<&ImageManifest> {
+        self.image_manifest.as_ref()
+    }
 }
 
 impl CalibratedCameras for RigLaserlineDeviceExport {
@@ -167,6 +221,14 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
+
+    fn feature_residuals(&self) -> &PerFeatureResiduals {
+        &self.per_feature_residuals
+    }
+
+    fn images(&self) -> Option<&ImageManifest> {
+        self.image_manifest.as_ref()
+    }
 }
 
 impl CalibratedCameras for RigHandeyeLaserlineExport {
@@ -176,5 +238,13 @@ impl CalibratedCameras for RigHandeyeLaserlineExport {
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
+    }
+
+    fn feature_residuals(&self) -> &PerFeatureResiduals {
+        &self.per_feature_residuals
+    }
+
+    fn images(&self) -> Option<&ImageManifest> {
+        self.image_manifest.as_ref()
     }
 }

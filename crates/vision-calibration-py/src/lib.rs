@@ -395,6 +395,58 @@ fn projection_uncertainty(
     Ok(output.unbind())
 }
 
+/// Quality report of a calibration export: a pass / warn / fail verdict and
+/// the checks behind it.
+///
+/// Parameters
+/// ----------
+/// export:
+///     A calibration export (any problem type; its `kind` field selects it).
+/// thresholds:
+///     Serde payload of `QualityThresholds`; `None` for the defaults.
+/// image_sizes:
+///     ``[[width, height], ...]`` per camera, pixels; `None` when only the
+///     export's image manifest gives the sizes.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `QualityReport`.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If a threshold is out of range, `image_sizes` does not give one size
+///     per camera, or a camera's size is ambiguous.
+/// TypeError
+///     If `export` is not a calibration export or a payload has the wrong
+///     shape.
+#[pyfunction(signature = (export, thresholds=None, image_sizes=None))]
+fn assess(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    thresholds: Option<&Bound<'_, PyAny>>,
+    image_sizes: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::analysis::QualityThresholds;
+
+    let thresholds: QualityThresholds =
+        parse_optional_payload(thresholds, "thresholds")?.unwrap_or_default();
+    let image_sizes: Vec<[u32; 2]> =
+        parse_optional_payload(image_sizes, "image_sizes")?.unwrap_or_default();
+    let export: serde_json::Value = parse_payload(export, "export")?;
+    let export = vision_calibration::common::calibrated_cameras(export)
+        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))?;
+    let report = vision_calibration::analysis::assess(export.as_ref(), &image_sizes, &thresholds)
+        .map_err(|err| match &err {
+        vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
+        _ => runtime_err(err.to_string()),
+    })?;
+    let output = pythonize(py, &report)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -412,6 +464,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_rig_handeye_laserline, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
     m.add_function(wrap_pyfunction!(projection_uncertainty, m)?)?;
+    m.add_function(wrap_pyfunction!(assess, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     Ok(())
 }

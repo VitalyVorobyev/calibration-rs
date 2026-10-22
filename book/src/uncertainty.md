@@ -46,3 +46,4 @@ Cauchy. The projection σ ([Projection Uncertainty](uncertainty_projection.md)) 
 - [Reading the Covariance](uncertainty_reading.md): the labels, the views, the fixed parameters and the noise estimate, from Rust, Python and JSON.
 - [Projection Uncertainty](uncertainty_projection.md): what the parameter covariance implies for where a ray lands in the image.
 - [Limits and Unavailable Results](uncertainty_limits.md): when no covariance can be given, what it is conditional on, and what it does not cover.
+- [Judging a Result](quality.md): a pass, warn or fail verdict on a result, built from its covariance, coverage and residuals.

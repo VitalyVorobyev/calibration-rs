@@ -77,27 +77,11 @@ need their measurement first and stay opt-in until it is in.
      note.
 
   Gate: a proof-pack note with both comparisons.
-- [ ] UQ-QUALITY - A pure function,
-  `assess(&export, &QualityThresholds) -> QualityReport`, with
-  Pass/Warn/Fail and typed checks:
-  - observability (rank);
-  - the variance-factor χ² test;
-  - maximum projection σ over the image and at its corners;
-  - feature coverage of the image;
-  - per-view outliers (normalized residuals);
-  - parameter correlations above a threshold;
-  - convergence.
-
-  Each threshold is documented with its unit and reasoning.
-  `calib-bench accept` gates on it, alongside today's mean-pixel gate,
-  and Python exposes it. Gate: every acceptance entry passes, and a
-  synthetic scene with poor coverage fails the coverage check. Needs:
-  UQ-RIG-INTRINSICS (rig projection σ).
 - [ ] UQ-NBV-CORE - Predicted covariance after adding a candidate view
   (rank-update of the information matrix), and a ranking of candidate
   target poses by the reduction in maximum projection σ. Library only; the
   app's Diagnose view and the book demo consume it. Gate:
-  prediction matches the re-solve on synthetic scenes. Needs: UQ-QUALITY.
+  prediction matches the re-solve on synthetic scenes.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.
@@ -118,8 +102,7 @@ need their measurement first and stay opt-in until it is in.
     images;
   - camera objects with vectorized `project`, `unproject` and
     `undistort`;
-  - typed per-feature residuals;
-  - the quality report (UQ-QUALITY).
+  - typed per-feature residuals.
 
   `scripts/check_binding_parity.py` becomes a per-item map of the facade
   that CI enforces; today it only matches `run_*` functions. Gate: the

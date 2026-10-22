@@ -1,4 +1,15 @@
-//! Hierarchical, multi-level reprojection-error analysis.
+//! Analysis of calibration results: a quality verdict and a hierarchical,
+//! multi-level reprojection-error report.
+//!
+//! # Quality verdict
+//!
+//! [`assess`] judges any export — observability, convergence, the noise
+//! level, projection uncertainty, feature coverage, outlier views and
+//! parameter correlations — and returns a [`QualityReport`] with a
+//! pass / warn / fail [`Verdict`]; see [`QualityThresholds`] for the limits
+//! and their defaults.
+//!
+//! # Reprojection report
 //!
 //! A single reprojection number per calibration (e.g. "kuka_1 hand-eye =
 //! 1.19 px") does not tell us *where* the error comes from: feature detection,
@@ -52,6 +63,12 @@ use vision_calibration_core::{
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
 use vision_calibration_linear::pnp::PnpSolver;
 use vision_geometry::homography::dlt_homography;
+
+mod quality;
+pub use quality::{
+    CheckKind, CheckStatus, Measurement, QualityCheck, QualityReport, QualityThresholds, Unit,
+    Verdict, assess,
+};
 
 use crate::Error;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;

@@ -29,6 +29,7 @@ pub mod config;
 
 mod cameras;
 mod export_kind;
+pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use export_kind::ExportKind;
 

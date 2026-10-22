@@ -51,6 +51,7 @@
 - [Reading the Covariance](uncertainty_reading.md)
 - [Projection Uncertainty](uncertainty_projection.md)
 - [Limits and Unavailable Results](uncertainty_limits.md)
+- [Judging a Result](quality.md)
 
 ---
 

@@ -690,10 +690,16 @@ pub mod prelude {
     };
 }
 
-/// Reprojection-error diagnostics: per-feature residuals and multi-level
-/// analysis reports.
+/// Result analysis: a quality verdict, per-feature residuals and multi-level
+/// reprojection reports.
 ///
-/// Two families of items live here:
+/// Three families of items live here:
+/// - The quality verdict (re-exported from the pipeline):
+///   [`assess`](vision_calibration_pipeline::analysis::assess) judges any
+///   export against
+///   [`QualityThresholds`](vision_calibration_pipeline::analysis::QualityThresholds)
+///   and returns a
+///   [`QualityReport`](vision_calibration_pipeline::analysis::QualityReport).
 /// - Multi-level reprojection reports (re-exported from the pipeline):
 ///   [`ReprojLevel`](vision_calibration_pipeline::analysis::ReprojLevel),
 ///   [`ReprojReport`](vision_calibration_pipeline::analysis::ReprojReport),

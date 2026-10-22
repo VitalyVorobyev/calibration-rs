@@ -438,6 +438,7 @@ mod tier_b {
                 device_spec: None,
                 accept: Some(AcceptGate {
                     max_per_cam_mean_px: 0.5,
+                    quality: None,
                 }),
                 planar_intrinsics: Some(crate::registry::PlanarIntrinsicsOverride {
                     sensor: Some(vision_calibration_core::SensorKind::Scheimpflug),
