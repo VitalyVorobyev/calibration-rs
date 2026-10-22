@@ -6,9 +6,9 @@
 //! [`RobotPoseSource`](vision_calibration_dataset::RobotPoseSource)
 //! and attaches one `RobotPoseMeta` per kept view.
 //!
-//! A camera that sees fewer than 4 features in a view contributes a
-//! `None` slot (the rig IR supports per-camera gaps); a view where
-//! *no* camera reaches 4 features is dropped entirely.
+//! A camera whose detection in a view the view filter rejects
+//! contributes a `None` slot (the rig IR supports per-camera gaps); a view
+//! where *every* camera's detection is rejected is dropped entirely.
 
 use std::path::{Path, PathBuf};
 
@@ -20,8 +20,9 @@ use vision_calibration_optim::RobotPoseMeta;
 use super::pairing::pair_views;
 use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
 use super::{
-    RunError, augment_config_with_roi, detect_features, expand_camera_images, features_to_obs,
-    min_features_per_view, pattern_repr, pick_detector, target_to_detector_config,
+    RejectedDetection, RunError, augment_config_with_roi, detect_features, expand_camera_images,
+    features_to_obs, pattern_repr, pick_detector, target_to_detector_config,
+    view_filter::{ViewFilter, no_usable_views},
 };
 
 /// Result of a rig dataset conversion.
@@ -34,10 +35,12 @@ pub struct RigRunResult<Meta> {
     /// and camera, aligned with `dataset.views`; `None` where the
     /// camera contributed no usable observation.
     pub view_paths: Vec<Vec<Option<PathBuf>>>,
-    /// Number of kept views (≥1 camera with ≥4 features).
+    /// Number of kept views (≥1 camera with an accepted detection).
     pub usable_views: usize,
     /// Total number of paired views attempted.
     pub total_views: usize,
+    /// The detections left out, in view order, each with its reason.
+    pub rejected: Vec<RejectedDetection>,
 }
 
 /// Convert a multi-camera manifest + cache into a
@@ -53,13 +56,18 @@ pub fn build_rig_extrinsics_input(
             topology: spec.topology,
         });
     }
-    let core = build_rig_core(spec, base_dir, cache, force_redetect)?;
-    let views = core
-        .views
+    let RigCore {
+        views,
+        view_paths,
+        total_views,
+        rejected,
+        ..
+    } = build_rig_core(spec, base_dir, cache, force_redetect)?;
+    let views = views
         .into_iter()
         .map(|(obs, _token)| RigView { obs, meta: NoMeta })
         .collect();
-    finish(views, spec.cameras.len(), core.view_paths, core.total_views)
+    finish(views, spec.cameras.len(), view_paths, total_views, rejected)
 }
 
 /// Convert a multi-camera + robot-poses manifest + cache into a
@@ -75,7 +83,13 @@ pub fn build_rig_handeye_input(
             topology: spec.topology,
         });
     }
-    let core = build_rig_core(spec, base_dir, cache, force_redetect)?;
+    let RigCore {
+        views,
+        view_paths,
+        total_views,
+        rejected,
+        ..
+    } = build_rig_core(spec, base_dir, cache, force_redetect)?;
 
     // `validate` (called inside build_rig_core) guarantees both fields
     // are present for the RigHandeye topology.
@@ -89,8 +103,8 @@ pub fn build_rig_handeye_input(
         .expect("validate guarantees pose_convention for RigHandeye");
     let poses = load_robot_poses(source, convention, base_dir)?;
 
-    let views = pair_poses_to_views(core.views, &poses, spec, core.total_views)?;
-    finish(views, spec.cameras.len(), core.view_paths, core.total_views)
+    let views = pair_poses_to_views(views, &poses, spec, total_views)?;
+    finish(views, spec.cameras.len(), view_paths, total_views, rejected)
 }
 
 /// Kept views (observations + pairing token), pre-meta. Shared with
@@ -102,6 +116,8 @@ pub(super) struct RigCore {
     /// Tokens of *all* paired views, pre-drop, in view order.
     pub(super) all_tokens: Vec<String>,
     pub(super) total_views: usize,
+    /// Detections the view filter left out, in view order.
+    pub(super) rejected: Vec<RejectedDetection>,
 }
 
 pub(super) fn build_rig_core(
@@ -150,7 +166,8 @@ pub(super) fn build_rig_core(
         .map(|c| augment_config_with_roi(&detector_config, c.roi_xywh))
         .collect();
 
-    let min_features = min_features_per_view(spec);
+    let filter = ViewFilter::for_spec(spec);
+    let mut rejected: Vec<RejectedDetection> = Vec::new();
     let mut views: Vec<(RigViewObs, String)> = Vec::new();
     let mut view_paths: Vec<Vec<Option<PathBuf>>> = Vec::new();
     let mut per_camera_usable = vec![0usize; spec.cameras.len()];
@@ -173,7 +190,12 @@ pub(super) fn build_rig_core(
                 cache,
                 force_redetect,
             )?;
-            if features.len() < min_features {
+            if let Err(reason) = filter.check(&features) {
+                rejected.push(RejectedDetection {
+                    camera: cam_idx,
+                    path: path.clone(),
+                    reason,
+                });
                 cameras.push(None);
                 kept_paths.push(None);
                 continue;
@@ -195,11 +217,7 @@ pub(super) fn build_rig_core(
     // a camera with zero observations cannot be placed in the rig.
     for (cam_idx, usable) in per_camera_usable.iter().enumerate() {
         if *usable == 0 {
-            return Err(RunError::InsufficientUsableViews {
-                camera_id: spec.cameras[cam_idx].id.clone(),
-                usable: 0,
-                total: total_views,
-            });
+            return Err(no_usable_views(spec, cam_idx, &rejected, total_views));
         }
     }
 
@@ -208,6 +226,7 @@ pub(super) fn build_rig_core(
         view_paths,
         all_tokens: paired.tokens,
         total_views,
+        rejected,
     })
 }
 
@@ -236,6 +255,7 @@ fn finish<Meta>(
     num_cameras: usize,
     view_paths: Vec<Vec<Option<PathBuf>>>,
     total_views: usize,
+    rejected: Vec<RejectedDetection>,
 ) -> Result<RigRunResult<Meta>, RunError> {
     let usable_views = views.len();
     let dataset = RigDataset::new(views, num_cameras).expect(
@@ -247,12 +267,14 @@ fn finish<Meta>(
         view_paths,
         usable_views,
         total_views,
+        rejected,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dataset_runner::RejectReason;
     use serde_json::json;
     use std::io::Write;
     use vision_calibration_dataset::{
@@ -262,6 +284,7 @@ mod tests {
     };
     use vision_calibration_detect::{
         CacheKey, CachedFeatures, ChessboardDetector, Feature, FsDetectionCache,
+        PuzzleboardDetector,
     };
 
     /// Synthetic features on the chessboard lattice — enough (≥4) for
@@ -273,6 +296,24 @@ mod tests {
                 world_xyz: [0.025 * i as f64, 0.0, 0.0],
             })
             .collect()
+    }
+
+    /// Every corner of the 9-row × 6-column test board, `(u, v)` with
+    /// `u < cols` and `v < rows` minus any in `missing` — a detection that
+    /// spans the whole board as declared.
+    fn board_features_without(missing: &[(u32, u32)]) -> Vec<Feature> {
+        (0..9u32)
+            .flat_map(|v| (0..6u32).map(move |u| (u, v)))
+            .filter(|uv| !missing.contains(uv))
+            .map(|(u, v)| Feature {
+                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+            })
+            .collect()
+    }
+
+    fn board_features() -> Vec<Feature> {
+        board_features_without(&[])
     }
 
     fn detector_config() -> serde_json::Value {
@@ -339,7 +380,7 @@ mod tests {
                     tmp.path(),
                     &cache,
                     &format!("cam{cam}/img_{view}.png"),
-                    grid_features(6),
+                    board_features(),
                 );
             }
         }
@@ -365,9 +406,9 @@ mod tests {
     fn weak_view_becomes_none_slot() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        seed_image(tmp.path(), &cache, "cam0/a.png", grid_features(6));
-        seed_image(tmp.path(), &cache, "cam0/b.png", grid_features(6));
-        seed_image(tmp.path(), &cache, "cam1/a.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "cam0/a.png", board_features());
+        seed_image(tmp.path(), &cache, "cam0/b.png", board_features());
+        seed_image(tmp.path(), &cache, "cam1/a.png", board_features());
         // cam1's second view has too few features → None slot.
         seed_image(tmp.path(), &cache, "cam1/b.png", grid_features(3));
         let spec = rig_spec(&[
@@ -382,31 +423,153 @@ mod tests {
     }
 
     #[test]
-    fn manifest_feature_floor_drops_partial_boards() {
+    fn manifest_feature_floor_drops_sparse_views() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        seed_image(tmp.path(), &cache, "cam0/a.png", grid_features(6));
-        seed_image(tmp.path(), &cache, "cam0/b.png", grid_features(6));
-        seed_image(tmp.path(), &cache, "cam1/a.png", grid_features(6));
-        seed_image(tmp.path(), &cache, "cam1/b.png", grid_features(5));
+        seed_image(tmp.path(), &cache, "cam0/a.png", board_features());
+        seed_image(tmp.path(), &cache, "cam0/b.png", board_features());
+        seed_image(tmp.path(), &cache, "cam1/a.png", board_features());
+        // The whole board less one interior corner: 53 of 54.
+        seed_image(
+            tmp.path(),
+            &cache,
+            "cam1/b.png",
+            board_features_without(&[(2, 4)]),
+        );
         let mut spec = rig_spec(&[
             vec!["cam0/a.png", "cam0/b.png"],
             vec!["cam1/a.png", "cam1/b.png"],
         ]);
         spec.detector = Some(DetectorSpec {
-            min_features_per_view: Some(6),
+            min_features_per_view: Some(54),
             ..DetectorSpec::default()
         });
         let result = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap();
         assert!(result.input.views[0].obs.cameras[1].is_some());
         assert!(result.input.views[1].obs.cameras[1].is_none());
+        assert_eq!(result.rejected.len(), 1);
+        assert_eq!(result.rejected[0].reason, RejectReason::TooFewFeatures);
+    }
+
+    /// The test board with only its top `rows` rows in view.
+    fn top_rows(rows: u32) -> Vec<Feature> {
+        let missing: Vec<(u32, u32)> = (rows..9)
+            .flat_map(|v| (0..6).map(move |u| (u, v)))
+            .collect();
+        board_features_without(&missing)
+    }
+
+    /// The test board seen turned by 90°: 9 corners across, 6 down.
+    fn turned_board() -> Vec<Feature> {
+        (0..6u32)
+            .flat_map(|v| (0..9u32).map(move |u| (u, v)))
+            .map(|(u, v)| Feature {
+                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+            })
+            .collect()
+    }
+
+    #[test]
+    fn partial_and_turned_chessboards_are_dropped_and_counted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        for view in ["a", "b", "c"] {
+            seed_image(
+                tmp.path(),
+                &cache,
+                &format!("cam0/{view}.png"),
+                board_features(),
+            );
+        }
+        seed_image(tmp.path(), &cache, "cam1/a.png", board_features());
+        // Bottom two rows out of view: labelled from its own top-left
+        // corner, this would still be a 6 × 7 board in the frame.
+        seed_image(tmp.path(), &cache, "cam1/b.png", top_rows(7));
+        seed_image(tmp.path(), &cache, "cam1/c.png", turned_board());
+        let spec = rig_spec(&[
+            vec!["cam0/a.png", "cam0/b.png", "cam0/c.png"],
+            vec!["cam1/a.png", "cam1/b.png", "cam1/c.png"],
+        ]);
+        let result = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap();
+        // Every view keeps cam0; cam1 only in the first.
+        assert_eq!(result.input.num_views(), 3);
+        assert!(result.input.views[0].obs.cameras[1].is_some());
+        assert!(result.input.views[1].obs.cameras[1].is_none());
+        assert!(result.input.views[2].obs.cameras[1].is_none());
+        let rejected: Vec<_> = result
+            .rejected
+            .iter()
+            .map(|r| (r.camera, r.reason, r.path.ends_with("cam1/b.png")))
+            .collect();
+        assert_eq!(
+            rejected,
+            vec![
+                (1, RejectReason::PartialChessboard, true),
+                (1, RejectReason::TurnedChessboard, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_camera_with_only_partial_chessboards_is_a_typed_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_image(tmp.path(), &cache, "cam0/a.png", board_features());
+        seed_image(tmp.path(), &cache, "cam0/b.png", board_features());
+        seed_image(tmp.path(), &cache, "cam1/a.png", top_rows(8));
+        seed_image(tmp.path(), &cache, "cam1/b.png", grid_features(3));
+        let spec = rig_spec(&[
+            vec!["cam0/a.png", "cam0/b.png"],
+            vec!["cam1/a.png", "cam1/b.png"],
+        ]);
+        let err = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        match err {
+            RunError::NoWholeChessboardViews {
+                camera_id,
+                partial,
+                turned,
+                total,
+            } => assert_eq!(
+                (camera_id.as_str(), partial, turned, total),
+                ("cam1", 1, 0, 2)
+            ),
+            other => panic!("expected NoWholeChessboardViews, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn self_identifying_targets_keep_partial_views() {
+        // The same partial detection under a PuzzleBoard target: its
+        // labels are absolute, so the view is kept.
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        let puzzle_config = json!({"rows": 9, "cols": 6, "cell_size_m": 0.025});
+        for (rel, features) in [
+            ("cam0/a.png", board_features()),
+            ("cam1/a.png", top_rows(5)),
+        ] {
+            let path = tmp.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, rel.as_bytes()).unwrap();
+            let key = CacheKey::for_detector(rel.as_bytes(), &PuzzleboardDetector, &puzzle_config);
+            cache.put(&key, &CachedFeatures { features }).unwrap();
+        }
+        let mut spec = rig_spec(&[vec!["cam0/a.png"], vec!["cam1/a.png"]]);
+        spec.target = TargetSpec::Puzzleboard {
+            layout: "puzzle_9x6".into(),
+            cell_size_m: 0.025,
+        };
+        let result = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap();
+        assert!(result.input.views[0].obs.cameras[1].is_some());
+        assert!(result.rejected.is_empty());
     }
 
     #[test]
     fn camera_with_zero_usable_views_is_an_error() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        seed_image(tmp.path(), &cache, "cam0/a.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "cam0/a.png", board_features());
         seed_image(tmp.path(), &cache, "cam1/a.png", grid_features(2));
         let spec = rig_spec(&[vec!["cam0/a.png"], vec!["cam1/a.png"]]);
         let err = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap_err();
@@ -481,7 +644,7 @@ mod tests {
                     tmp.path(),
                     &cache,
                     &format!("cam{cam}/img_{view}.png"),
-                    grid_features(6),
+                    board_features(),
                 );
             }
         }
@@ -511,7 +674,7 @@ mod tests {
                     tmp.path(),
                     &cache,
                     &format!("cam{cam}/img_{view}.png"),
-                    grid_features(6),
+                    board_features(),
                 );
             }
         }
@@ -536,7 +699,7 @@ mod tests {
                     tmp.path(),
                     &cache,
                     &format!("cam{cam}/img_{view}.png"),
-                    grid_features(6),
+                    board_features(),
                 );
             }
         }
@@ -565,7 +728,7 @@ mod tests {
                     tmp.path(),
                     &cache,
                     &format!("cam{cam}/img_{view}.png"),
-                    grid_features(6),
+                    board_features(),
                 );
             }
         }
@@ -608,7 +771,7 @@ mod tests {
                     tmp.path(),
                     &cache,
                     &format!("cam{cam}/img_{view}.png"),
-                    grid_features(6),
+                    board_features(),
                 );
             }
         }

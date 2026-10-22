@@ -34,7 +34,13 @@ The target is chosen by the manifest's `[target]` table, `kind` being one of the
 
 `rows` and `cols` count **interior corners**: a 9x6 setting is a 10x7 grid of squares. `cols` corners run across the image and `rows` down; a board seen turned by 90 degrees is also accepted whole.
 
-The underlying detector labels each view on its own: grid index `(0, 0)` is the detection's top-left corner **in that image**. A fully visible board therefore gets consistent labels in every view, but a partial board is labelled from its own top-left corner and shifts the target frame between views. Rig and hand-eye views share one target frame, so for those topologies keep only complete boards by setting `detector.min_features_per_view` to `rows * cols` in the manifest. The corner positions are lifted to `(i * square_size_m, j * square_size_m, 0)`.
+The underlying detector labels each view on its own: grid index `(0, 0)` is the detection's top-left corner **in that image**, and the corner positions are lifted to `(i * square_size_m, j * square_size_m, 0)`. A board seen whole and the same way up gets the same labels in every view. A partial board is labelled from its own top-left corner, so its target frame is shifted by the rows and columns out of view; a board seen turned by 90 degrees gets labels rotated with it.
+
+That is harmless for single-camera intrinsics and the single-camera laserline device, which estimate one target pose per view: a shifted frame only changes that view's pose, and partial views near the image border are valuable for the distortion model. It is not harmless where views share one target frame: hand-eye (the target is fixed relative to the robot base or gripper) and every rig topology (the cameras of one view see one target pose). A shifted frame there contradicts the other views. On a three-camera hand-eye rig, keeping partial boards raises the worst camera's mean reprojection error from 0.29 px to 4.7 px.
+
+So in the shared-frame topologies the [dataset runner](manifest.md#running-a-manifest) keeps a chessboard detection only when it **spans the whole board as declared**: corners on all four edges, `cols` across and `rows` down. Interior corners the detector missed do not matter, since the edges still fix the labels. Every other view is dropped, and the result's `rejected` list records it with its reason (`PartialChessboard` or `TurnedChessboard`). A camera left with no whole-board view is an error (`NoWholeChessboardViews`) before any solve. There is no switch to turn this off, because a view that fails the check would give a wrong result.
+
+Two cases cannot be detected, because their labels look the same as an upright board's: a board seen upside down (turned by 180 degrees), and a square board (`rows == cols`) seen turned by 90 degrees. For a shared frame, capture the board the same way up in every image, and prefer a non-square board. To use partial views in a shared frame, use a ChArUco or PuzzleBoard target. Their corners are identified by codes printed on the board, so a partial view is labelled correctly.
 
 ### ChArUco
 
@@ -66,7 +72,7 @@ The chessboard and ChArUco detectors both start from a ChESS-family corner detec
 
 **Set `min_corner_strength = 0.0` on small or soft image tiles.** There the floor can remove a third of the board, and the resulting sparse, unevenly covered view conditions worse than the weak corners did; the loss shows up as a diverged camera, not as a slightly worse residual.
 
-`detector.min_features_per_view` (a manifest field, not a detector option) sets the minimum number of features for a view to be kept. It defaults to 4, the homography minimum. Raise it for detectors whose sparse detections are unreliable, such as ring-grid decodes with fewer than 8 markers.
+`detector.min_features_per_view` (a manifest field, not a detector option) sets the minimum number of features for a view to be kept. It defaults to 4, the homography minimum. Raise it for detectors whose sparse detections are unreliable, such as ring-grid decodes with fewer than 8 markers. A plain chessboard in a shared-frame topology needs no floor: the whole-board rule above already applies.
 
 ## Calling a Detector Directly
 

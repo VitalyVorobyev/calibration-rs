@@ -328,8 +328,10 @@ pub struct BoardGeometry {
     pub marker_size_rel: Option<f32>,
     /// Keep only complete checkerboard detections (`rows × cols` corners).
     ///
-    /// This is important for hand-eye datasets where partial, locally indexed
-    /// checkerboard detections move the target coordinate frame between views.
+    /// Shared-frame topologies already drop checkerboards that do not reach
+    /// every edge of the board; this also drops whole boards with a missed
+    /// interior corner, and keeps planar-intrinsics entries to complete
+    /// boards.
     #[serde(default, skip_serializing_if = "is_false")]
     pub strict_grid: bool,
 }

@@ -3,9 +3,9 @@
 //!
 //! Detection mirrors the planar converter (one camera, ROI-aware,
 //! cached); pose loading and pose-to-view matching are shared with the
-//! rig hand-eye converter (`poses.rs`). Views with fewer than 4
-//! features are dropped — `by_index` pose alignment is preserved
-//! because poses pair with the *pre-drop* image index.
+//! rig hand-eye converter (`poses.rs`). Views the view filter rejects
+//! are dropped — `by_index` pose alignment is preserved because poses pair
+//! with the *pre-drop* image index.
 
 use std::path::{Path, PathBuf};
 
@@ -18,8 +18,9 @@ use crate::single_cam_handeye::{HandeyeMeta, SingleCamHandeyeInput};
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
-    RunError, augment_config_with_roi, detect_features, expand_camera_images, features_to_obs,
-    min_features_per_view, pattern_repr, pick_detector, target_to_detector_config,
+    RejectedDetection, RunError, augment_config_with_roi, detect_features, expand_camera_images,
+    features_to_obs, pattern_repr, pick_detector, target_to_detector_config,
+    view_filter::{ViewFilter, no_usable_views},
 };
 
 /// Result of a single-camera hand-eye dataset conversion.
@@ -31,10 +32,12 @@ pub struct HandeyeRunResult {
     /// One source image path per accepted view, in the same order.
     /// Used to populate the export's `image_manifest` after the solve.
     pub view_paths: Vec<PathBuf>,
-    /// Number of views where detection produced ≥4 features.
+    /// Number of accepted views.
     pub usable_views: usize,
     /// Total number of images attempted.
     pub total_views: usize,
+    /// The detections left out, in view order, each with its reason.
+    pub rejected: Vec<RejectedDetection>,
 }
 
 /// Convert a single-camera + robot-poses manifest + cache into a
@@ -109,8 +112,9 @@ pub fn build_single_cam_handeye_input(
 
     let roi = camera.roi_xywh;
     let key_config = augment_config_with_roi(&detector_config, roi);
-    let min_features = min_features_per_view(spec);
+    let filter = ViewFilter::for_spec(spec);
 
+    let mut rejected: Vec<RejectedDetection> = Vec::new();
     let mut kept_obs = Vec::new();
     let mut kept_tokens: Vec<String> = Vec::new();
     let mut view_paths: Vec<PathBuf> = Vec::new();
@@ -127,10 +131,14 @@ pub fn build_single_cam_handeye_input(
             cache,
             force_redetect,
         )?;
-        if features.len() < min_features {
-            // Too few features (the homography minimum or the manifest's
-            // floor) — drop the view (still
-            // counted in total_views, keeping by_index pose alignment).
+        if let Err(reason) = filter.check(&features) {
+            // Drop the view (still counted in total_views, keeping
+            // by_index pose alignment).
+            rejected.push(RejectedDetection {
+                camera: 0,
+                path: path.clone(),
+                reason,
+            });
             continue;
         }
         kept_obs.push(features_to_obs(&features));
@@ -139,11 +147,7 @@ pub fn build_single_cam_handeye_input(
     }
 
     if kept_obs.is_empty() {
-        return Err(RunError::InsufficientUsableViews {
-            camera_id: camera.id.clone(),
-            usable: 0,
-            total: total_views,
-        });
+        return Err(no_usable_views(spec, 0, &rejected, total_views));
     }
 
     let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, total_views)?;
@@ -168,12 +172,14 @@ pub fn build_single_cam_handeye_input(
         view_paths,
         usable_views,
         total_views,
+        rejected,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dataset_runner::RejectReason;
     use serde_json::json;
     use std::io::Write;
     use vision_calibration_dataset::{
@@ -191,6 +197,24 @@ mod tests {
                 world_xyz: [0.025 * i as f64, 0.0, 0.0],
             })
             .collect()
+    }
+
+    /// Every corner of the 9-row × 6-column test board, `(u, v)` with
+    /// `u < cols` and `v < rows` minus any in `missing` — a detection that
+    /// spans the whole board as declared.
+    fn board_features_without(missing: &[(u32, u32)]) -> Vec<Feature> {
+        (0..9u32)
+            .flat_map(|v| (0..6u32).map(move |u| (u, v)))
+            .filter(|uv| !missing.contains(uv))
+            .map(|(u, v)| Feature {
+                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+            })
+            .collect()
+    }
+
+    fn board_features() -> Vec<Feature> {
+        board_features_without(&[])
     }
 
     fn detector_config() -> serde_json::Value {
@@ -267,7 +291,7 @@ mod tests {
                 tmp.path(),
                 &cache,
                 &format!("img_{view}.png"),
-                grid_features(6),
+                board_features(),
             );
         }
         let poses: String = (0..3)
@@ -291,10 +315,10 @@ mod tests {
     fn weak_view_dropped_but_pose_alignment_kept() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        seed_image(tmp.path(), &cache, "img_0.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "img_0.png", board_features());
         // Middle view: too few features → dropped.
         seed_image(tmp.path(), &cache, "img_1.png", grid_features(3));
-        seed_image(tmp.path(), &cache, "img_2.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "img_2.png", board_features());
         let poses: String = (0..3)
             .map(|i| identity_pose_line((i + 1) as f64 / 10.0))
             .collect();
@@ -312,11 +336,79 @@ mod tests {
     }
 
     #[test]
+    fn partial_chessboard_dropped_and_counted_with_pose_alignment_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_image(tmp.path(), &cache, "img_0.png", board_features());
+        // Middle view: the left-most column is out of view, so the
+        // detection's own top-left corner is the board's second column.
+        let left_column: Vec<(u32, u32)> = (0..9).map(|v| (0, v)).collect();
+        seed_image(
+            tmp.path(),
+            &cache,
+            "img_1.png",
+            board_features_without(&left_column),
+        );
+        // Last view: a few interior corners missed, every edge still seen.
+        seed_image(
+            tmp.path(),
+            &cache,
+            "img_2.png",
+            board_features_without(&[(2, 3), (3, 3)]),
+        );
+        let poses: String = (0..3)
+            .map(|i| identity_pose_line((i + 1) as f64 / 10.0))
+            .collect();
+        let spec = handeye_spec(tmp.path(), &["img_0.png", "img_1.png", "img_2.png"], &poses);
+        let result = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
+        assert_eq!((result.usable_views, result.total_views), (2, 3));
+        assert_eq!(result.rejected.len(), 1);
+        assert_eq!(result.rejected[0].reason, RejectReason::PartialChessboard);
+        assert!(result.rejected[0].path.ends_with("img_1.png"));
+        let xs: Vec<f64> = result
+            .input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper.translation.x)
+            .collect();
+        assert_eq!(xs, vec![0.1, 0.3]);
+    }
+
+    #[test]
+    fn only_partial_chessboards_is_a_typed_error_before_the_solve() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        let bottom_row: Vec<(u32, u32)> = (0..6).map(|u| (u, 8)).collect();
+        seed_image(
+            tmp.path(),
+            &cache,
+            "img_0.png",
+            board_features_without(&bottom_row),
+        );
+        seed_image(tmp.path(), &cache, "img_1.png", grid_features(3));
+        let poses: String = (0..2).map(|i| identity_pose_line(f64::from(i))).collect();
+        let spec = handeye_spec(tmp.path(), &["img_0.png", "img_1.png"], &poses);
+        let err = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        match err {
+            RunError::NoWholeChessboardViews {
+                camera_id,
+                partial,
+                turned,
+                total,
+            } => assert_eq!(
+                (camera_id.as_str(), partial, turned, total),
+                ("cam0", 1, 0, 2)
+            ),
+            other => panic!("expected NoWholeChessboardViews, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn pose_count_mismatch_is_actionable() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        seed_image(tmp.path(), &cache, "img_0.png", grid_features(6));
-        seed_image(tmp.path(), &cache, "img_1.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "img_0.png", board_features());
+        seed_image(tmp.path(), &cache, "img_1.png", board_features());
         let spec = handeye_spec(
             tmp.path(),
             &["img_0.png", "img_1.png"],
@@ -356,8 +448,8 @@ mod tests {
     fn token_pairing_matches_poses_by_id() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        seed_image(tmp.path(), &cache, "img_0.png", grid_features(6));
-        seed_image(tmp.path(), &cache, "img_1.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "img_0.png", board_features());
+        seed_image(tmp.path(), &cache, "img_1.png", board_features());
         // CSV with pose ids deliberately out of file order.
         let csv = "view,tx,ty,tz,qx,qy,qz,qw\n\
                    1,0.2,0,0,0,0,0,1\n\

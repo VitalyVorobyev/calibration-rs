@@ -175,7 +175,9 @@ session.set_input(run.input)?;
 run_calibration(&mut session)?;
 ```
 
-Each converter checks the topology and target, validates the manifest and resolves the pairing *before* it reads a single image, so a wrong manifest fails in milliseconds with a message that names the field. A view whose detection yields fewer features than `detector.min_features_per_view` (default 4) is dropped; a camera left with too few usable views is an error (`InsufficientUsableViews`) rather than a poor calibration. Each result also carries the source image path of every accepted view, which is how the app shows the right image under each residual.
+Each converter checks the topology and target, validates the manifest and resolves the pairing *before* it reads a single image, so a wrong manifest fails in milliseconds with a message that names the field. A view whose detection yields fewer features than `detector.min_features_per_view` (default 4) is dropped. With a plain chessboard, the topologies whose views share one target frame (`single_cam_handeye` and every rig topology) also drop a view unless its corners span the whole board as declared, `cols` across and `rows` down. A partial or turned chessboard is labelled from its own top-left corner and would move that frame; [Calibration Targets and Detection](detection.md#chessboard) explains why, and recommends ChArUco or PuzzleBoard targets when you need partial views. `planar_intrinsics` and `laserline_device` estimate one target pose per view and keep partial boards.
+
+Each result lists the detections it dropped in `rejected`, each with its camera, image and `RejectReason` (`TooFewFeatures`, `PartialChessboard` or `TurnedChessboard`). A camera left with no usable view is an error rather than a poor calibration: `NoWholeChessboardViews` when the whole-board rule dropped any of its views, `InsufficientUsableViews` otherwise. Each result also carries the source image path of every accepted view, which is how the app shows the right image under each residual.
 
 ## In Python
 

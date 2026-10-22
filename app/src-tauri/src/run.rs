@@ -960,6 +960,7 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::Cache(_) => "cache",
         RunError::AskUser { .. } => "ask_user",
         RunError::InsufficientUsableViews { .. } => "insufficient_views",
+        RunError::NoWholeChessboardViews { .. } => "insufficient_views",
         RunError::LaserPairing { .. } => "view_pairing",
         RunError::LaserExtraction { .. } => "detection",
         RunError::InsufficientLaserViews { .. } => "insufficient_views",
