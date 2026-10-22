@@ -756,6 +756,13 @@ class _HandeyeOptimizeConfigRequired(TypedDict):
     When true, rig extrinsics are further refined during hand-eye optimization.
     """
 
+    refine_intrinsics: bool
+    """Refine each camera's intrinsics and distortion in the hand-eye BA,
+    holding the camera's `fix` lists. Default: `true`, for the reason
+    given on `rig.refine_intrinsics`: the final solve's covariance then
+    includes the intrinsics.
+    """
+
     robot_poses: RobotPoseConfig
     """Robot-pose refinement settings for the final hand-eye BA."""
 
@@ -1752,9 +1759,14 @@ class _RigConfigRequired(TypedDict):
     """Reference camera index for the rig frame (identity extrinsics)."""
 
     refine_intrinsics: bool
-    """Re-refine per-camera intrinsics and distortion jointly during rig
-    bundle adjustment, holding the camera's `fix` lists. Default:
-    `false` — the per-camera solves have already fitted them.
+    """Refine per-camera intrinsics and distortion jointly with the rig in
+    its bundle adjustment, holding the camera's `fix` lists. Default:
+    `true`. Each camera's solve fits them from its own views only; the
+    joint solve is the estimate that uses every view, and its covariance
+    carries the intrinsics and their correlation with the extrinsics.
+    Held fixed, the extrinsics' standard deviations are conditional on
+    the intrinsics and understate the uncertainty (several-fold on real
+    stereo rigs).
     """
 
 
