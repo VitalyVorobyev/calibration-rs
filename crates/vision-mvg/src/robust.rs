@@ -156,10 +156,23 @@ impl Estimator for HomographyEstimator {
 /// Uses the 5-point algorithm as the minimal solver and Sampson distance
 /// as the residual metric. Input points must be in **normalized camera
 /// coordinates**.
+///
+/// **Threshold unit:** `opts.thresh` is compared with the (non-squared)
+/// Sampson distance on the normalized image plane, so it is unitless like the
+/// coordinates. A pixel threshold `t` corresponds to `t / f` for a focal
+/// length `f` in pixels (`1.0e-3` is about 0.8 px at `f = 800`). A pixel-scale
+/// value such as `2.0` accepts every match.
+///
+/// # Errors
+///
+/// [`MvgError::Core`] if `opts.thresh` is not finite and positive,
+/// [`MvgError::InsufficientData`] for fewer than 5 correspondences and
+/// [`MvgError::NoConsensus`] if no model reaches `opts.min_inliers`.
 pub fn estimate_essential(
     corrs: &[Correspondence2D],
     opts: &RansacOptions,
 ) -> Result<EssentialEstimate> {
+    opts.validate()?;
     if corrs.len() < 5 {
         return Err(MvgError::InsufficientData {
             need: 5,
@@ -183,10 +196,23 @@ pub fn estimate_essential(
 ///
 /// Uses the 4-point DLT as the minimal solver and symmetric transfer
 /// error as the residual metric.
+///
+/// **Threshold unit:** `opts.thresh` is compared with the (non-squared)
+/// symmetric transfer error `sqrt(|H x1 - x2|^2 + |H^-1 x2 - x1|^2)`, in the
+/// unit of the input points (pixels for pixel correspondences). The two
+/// transfer directions add in quadrature, so a point with an error `e` in each
+/// direction scores `sqrt(2) e`.
+///
+/// # Errors
+///
+/// [`MvgError::Core`] if `opts.thresh` is not finite and positive,
+/// [`MvgError::InsufficientData`] for fewer than 4 correspondences and
+/// [`MvgError::NoConsensus`] if no model reaches `opts.min_inliers`.
 pub fn estimate_homography(
     corrs: &[Correspondence2D],
     opts: &RansacOptions,
 ) -> Result<HomographyEstimate> {
+    opts.validate()?;
     if corrs.len() < 4 {
         return Err(MvgError::InsufficientData {
             need: 4,
@@ -210,6 +236,15 @@ pub fn estimate_homography(
 ///
 /// Combines essential matrix RANSAC with decomposition and cheirality
 /// selection. Input points must be in **normalized camera coordinates**.
+///
+/// **Threshold unit:** as for [`estimate_essential`], `opts.thresh` is the
+/// Sampson distance on the normalized image plane (`t / f` for a pixel
+/// threshold `t` and focal length `f` in pixels).
+///
+/// # Errors
+///
+/// The errors of [`estimate_essential`], plus the cheirality errors of the
+/// pose decomposition.
 pub fn recover_relative_pose_robust(
     corrs: &[Correspondence2D],
     opts: &RansacOptions,
@@ -327,6 +362,74 @@ mod tests {
             "translation direction error: cos = {}",
             cos_t
         );
+    }
+
+    /// The 15 noise-free inliers of the fixture plus 6 gross outliers (29 %);
+    /// the inliers keep indices `0..15`.
+    fn thirty_percent_outliers() -> (Vec<Correspondence2D>, usize) {
+        const N_IN: usize = 15;
+        let (mut corrs, _, _) = make_stereo_corrs_with_outliers();
+        corrs.truncate(N_IN);
+        // Deterministic LCG in [-1, 1).
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((state >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+        };
+        for _ in 0..6 {
+            let (a, b, c, d) = (next(), next(), next(), next());
+            corrs.push(Correspondence2D::new(Pt2::new(a, b), Pt2::new(c, d)));
+        }
+        (corrs, N_IN)
+    }
+
+    #[test]
+    fn essential_ransac_rejects_outliers_at_normalized_threshold() {
+        let (corrs, n_in) = thirty_percent_outliers();
+        let opts = RansacOptions {
+            max_iters: 2000,
+            min_inliers: 8,
+            seed: 7,
+            ..RansacOptions::new(1.0e-3)
+        };
+        let est = estimate_essential(&corrs, &opts).unwrap();
+        assert_eq!(est.inliers.len(), n_in, "inlier count");
+        assert!(est.inliers.iter().all(|&i| i < n_in), "an outlier survived");
+
+        // A pixel-scale threshold on the normalized plane accepts everything.
+        let loose = RansacOptions {
+            max_iters: 50,
+            min_inliers: 8,
+            seed: 7,
+            ..RansacOptions::new(2.0)
+        };
+        let est = estimate_essential(&corrs, &loose).unwrap();
+        assert_eq!(est.inliers.len(), corrs.len());
+    }
+
+    #[test]
+    fn ransac_threshold_must_be_finite_and_positive() {
+        let (corrs, _) = thirty_percent_outliers();
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let opts = RansacOptions::new(bad);
+            assert!(
+                matches!(estimate_essential(&corrs, &opts), Err(MvgError::Core(_))),
+                "essential accepted thresh {bad}"
+            );
+            assert!(
+                matches!(estimate_homography(&corrs, &opts), Err(MvgError::Core(_))),
+                "homography accepted thresh {bad}"
+            );
+            assert!(
+                matches!(
+                    recover_relative_pose_robust(&corrs, &opts),
+                    Err(MvgError::Core(_))
+                ),
+                "pose accepted thresh {bad}"
+            );
+        }
     }
 
     #[test]

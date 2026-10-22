@@ -41,15 +41,14 @@ use vision_calibration_core::RansacOptions;
 use vision_calibration::mvg::robust::{estimate_essential, recover_relative_pose_robust};
 
 let opts = RansacOptions {
-    thresh: 1.0e-3,      // Sampson distance, in normalized units
     min_inliers: 12,
-    ..RansacOptions::default()
+    ..RansacOptions::new(1.0e-3)   // Sampson distance, in normalized units
 };
 let robust = recover_relative_pose_robust(&corrs, &opts)?;
 // robust.r, robust.t, robust.essential, robust.inliers (indices), robust.inlier_rms
 ```
 
-**The threshold is in the units of the residual**, and the residual lives on the normalized image plane: `1.0e-3` is about 0.8 px for a focal length of 800 px. The default `thresh` of 2.0 is far too loose for residuals on this scale and would accept every match, so always set it. The run is deterministic for a given `seed` field.
+**The threshold is in the units of the residual**, and the residual lives on the normalized image plane: `1.0e-3` is about 0.8 px for a focal length of 800 px. A pixel-scale value such as 2.0 is far too loose for residuals on this scale and would accept every match. There is no default threshold: `RansacOptions::new(thresh)` requires one, and a threshold that is not finite and positive is an error. The run is deterministic for a given `seed` field.
 
 `RansacOptions` is defined in `vision-calibration-core`, which the facade does not re-export; add that crate to your dependencies to name it.
 

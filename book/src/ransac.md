@@ -73,7 +73,7 @@ pub struct RansacOptions {
 }
 ```
 
-**Choosing the threshold $\epsilon$**: The threshold should reflect the expected noise level. For pixel-space residuals, $\epsilon = 2\text{-}5$ pixels is typical. For normalized-coordinate residuals, scale accordingly by the focal length.
+**Choosing the threshold $\epsilon$**: There is no default threshold; construct the options with `RansacOptions::new(thresh)` (the other fields keep defaults, so `RansacOptions { max_iters: 500, ..RansacOptions::new(thresh) }` works). A threshold that is not finite and positive is an error. The threshold should reflect the expected noise level, in the unit of the estimator's residual (see the table below). For pixel-space residuals, $\epsilon = 2\text{-}5$ pixels is typical. For normalized-coordinate residuals a pixel threshold $t$ becomes $t / f$ for a focal length $f$ in pixels. The residual is always a distance, never a squared distance.
 
 ## Result
 
@@ -91,11 +91,13 @@ pub struct RansacResult<M> {
 
 RANSAC is used with several models in calibration-rs:
 
-| Model | `MIN_SAMPLES` | Residual | Usage |
+| Model | `MIN_SAMPLES` | Residual (unit of `thresh`) | Usage |
 |-------|--------------|----------|-------|
-| Homography | 4 | Reprojection error (pixels) | `dlt_homography_ransac` |
-| Fundamental matrix | 8 | Epipolar distance | `fundamental_8point_ransac` |
-| PnP (DLT) | 6 | Reprojection error (pixels) | `dlt_ransac` |
+| Homography | 4 | Forward transfer error, pixels | `dlt_homography_ransac` |
+| Homography (two-view) | 4 | Symmetric transfer error, unit of the points | `mvg::robust::estimate_homography` |
+| Fundamental matrix | 8 | Sampson distance, unit of the points | `fundamental_8point_ransac` |
+| Essential matrix | 5 | Sampson distance, normalized image plane | `mvg::robust::estimate_essential`, `recover_relative_pose_robust` |
+| PnP (DLT) | 6 | Reprojection error, pixels | `dlt_ransac` |
 
 ## Deterministic Seeding
 

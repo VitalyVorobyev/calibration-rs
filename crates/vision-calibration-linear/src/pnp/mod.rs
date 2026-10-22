@@ -74,12 +74,15 @@ impl PnpSolver {
 
     /// Robust PnP using DLT inside a RANSAC loop.
     ///
-    /// Returns the best pose and inlier indices. The residual is pixel
-    /// reprojection error using the provided intrinsics.
+    /// Returns the best pose and inlier indices.
+    ///
+    /// **Threshold unit:** `opts.thresh` is compared with the (non-squared)
+    /// pixel reprojection error under the provided intrinsics.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InsufficientData`] if fewer than 6 correspondences are given,
+    /// Returns [`Error::InvalidInput`] if `opts.thresh` is not finite and
+    /// positive, [`Error::InsufficientData`] if fewer than 6 correspondences are given,
     /// or [`Error::Numerical`] if RANSAC fails to find a consensus.
     pub fn dlt_ransac(
         world: &[Pt3],

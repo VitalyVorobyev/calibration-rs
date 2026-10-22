@@ -284,7 +284,7 @@ fn mvg_module_surface_compiles() {
     // Lock the key re-exported paths (multiple-view geometry pipelines).
     let _ = mvg::pose_recovery::recover_relative_pose;
     let _ = mvg::robust::recover_relative_pose_robust;
-    let _ = mvg::RansacOptions::default();
+    let _ = mvg::RansacOptions::new(1.0e-3);
     let _ = mvg::triangulation::triangulate_nview;
     let _ = mvg::rectification::rectify_stereo_pair;
     let _ = mvg::homography::decompose_homography;

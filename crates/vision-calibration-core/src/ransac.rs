@@ -7,6 +7,7 @@
 //! when consensus is not found, [`ransac_fit`] returns a [`RansacResult`] with
 //! `success == false` and `model == None`.
 
+use crate::Error;
 use rand::prelude::IndexedRandom;
 use rand::{SeedableRng, rngs::StdRng};
 
@@ -14,12 +15,31 @@ use rand::{SeedableRng, rngs::StdRng};
 ///
 /// Algorithm-internal scaffolding: this is the machinery the linear estimators
 /// use for robust fitting, not a curated part of the public calibration API.
+///
+/// There is deliberately no `Default`: the inlier threshold has no unit-free
+/// default. Build options with [`RansacOptions::new`] and override other
+/// fields with struct-update syntax:
+///
+/// ```
+/// use vision_calibration_core::RansacOptions;
+/// let opts = RansacOptions { max_iters: 500, ..RansacOptions::new(2.0) };
+/// assert_eq!(opts.thresh, 2.0);
+/// ```
 #[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct RansacOptions {
     /// Maximum number of RANSAC iterations.
     pub max_iters: usize,
-    /// Inlier residual threshold.
+    /// Inlier threshold: a datum is an inlier when its residual is `<= thresh`.
+    ///
+    /// The residual is a non-squared distance whose unit is fixed by the
+    /// estimator, not by this crate: pixels for the PnP and homography
+    /// estimators of `vision-calibration-linear` and `vision-geometry`, the
+    /// unit of the input points for the fundamental-matrix estimator, and the
+    /// normalized image plane for the essential-matrix estimators of
+    /// `vision-mvg`. A pixel threshold `t` becomes `t / f` on the normalized
+    /// plane for a focal length `f` in pixels. Each estimator's documentation
+    /// states its unit. Must be finite and positive.
     pub thresh: f64,
     /// Minimum number of inliers required to accept a model.
     pub min_inliers: usize,
@@ -31,15 +51,39 @@ pub struct RansacOptions {
     pub refit_on_inliers: bool,
 }
 
-impl Default for RansacOptions {
-    fn default() -> Self {
+impl RansacOptions {
+    /// Options with the given inlier threshold (in the estimator's residual
+    /// unit, see [`RansacOptions::thresh`]) and defaults for the rest:
+    /// `max_iters` 1000, `min_inliers` 12, `confidence` 0.99, a fixed `seed`
+    /// and `refit_on_inliers` `true`.
+    #[must_use]
+    pub fn new(thresh: f64) -> Self {
         Self {
             max_iters: 1000,
-            thresh: 2.0,
+            thresh,
             min_inliers: 12,
             confidence: 0.99,
             seed: 1_234_567,
             refit_on_inliers: true,
+        }
+    }
+
+    /// Check that the options are usable: `thresh` must be finite and
+    /// positive. The estimators call this before any work and return the
+    /// error instead of running with a threshold that rejects or accepts
+    /// everything.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] when `thresh` is NaN, infinite, zero or negative.
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.thresh.is_finite() && self.thresh > 0.0 {
+            Ok(())
+        } else {
+            Err(Error::invalid_input(format!(
+                "RANSAC inlier threshold must be finite and positive, got {}",
+                self.thresh
+            )))
         }
     }
 }
@@ -99,7 +143,8 @@ pub trait Estimator {
 
     /// Residual/error for one datum (e.g. reprojection error, distance).
     ///
-    /// This should be a **non-negative scalar** in the same units as `opts.thresh`.
+    /// This should be a **non-negative scalar** (a distance, not a squared
+    /// distance) in the same units as `opts.thresh`.
     fn residual(model: &Self::Model, datum: &Self::Datum) -> f64;
 
     /// Optional degeneracy check on the sample subset.
