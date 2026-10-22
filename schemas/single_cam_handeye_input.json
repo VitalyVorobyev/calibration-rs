@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "CorrespondenceView": {
+      "description": "A single view containing 2D-3D point correspondences.\n\nThis is the canonical observation type used across planar intrinsics,\nrig extrinsics, hand-eye calibration, and other calibration problems.\n\n# Fields\n\n- `points_3d`: 3D points in world/target coordinates\n- `points_2d`: Corresponding 2D pixel observations\n- `weights`: Per-point weights for robust estimation.\n  An empty vec means \"unweighted\" (all weights default to 1.0).\n\n# Example\n\n```\nuse vision_calibration_core::{CorrespondenceView, Pt3, Pt2};\n\n// Create from vectors\nlet points_3d = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.1, 0.0, 0.0)];\nlet points_2d = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];\nlet view = CorrespondenceView::new(points_3d, points_2d).unwrap();\n\nassert_eq!(view.len(), 2);\nassert_eq!(view.weight(0), 1.0); // default weight\n```",
+      "properties": {
+        "points_2d": {
+          "description": "The matching image points `[u, v]`, pixels.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "points_3d": {
+          "description": "3D points `[x, y, z]` in the target frame, metres.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "weights": {
+          "default": [],
+          "description": "Per-point weights; empty for unweighted.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "points_3d",
+        "points_2d"
+      ],
+      "type": "object"
+    },
+    "HandeyeMeta": {
+      "description": "Metadata for a single hand-eye view.\n\n`base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).",
+      "properties": {
+        "base_se3_gripper": {
+          "$ref": "#/$defs/Iso3Schema",
+          "description": "Gripper pose expressed in base frame (`T_B_G`) for this view."
+        }
+      },
+      "required": [
+        "base_se3_gripper"
+      ],
+      "type": "object"
+    },
+    "Iso3Schema": {
+      "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
+      "properties": {
+        "rotation": {
+          "description": "Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "translation": {
+          "description": "Translation `[tx, ty, tz]` in meters.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rotation",
+        "translation"
+      ],
+      "type": "object"
+    },
+    "View": {
+      "description": "Single-camera observation view with attached metadata.",
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/HandeyeMeta",
+          "description": "Arbitrary metadata payload associated with the view."
+        },
+        "obs": {
+          "$ref": "#/$defs/CorrespondenceView",
+          "description": "2D-3D correspondences observed in this view."
+        }
+      },
+      "required": [
+        "obs",
+        "meta"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Input for single-camera hand-eye calibration.",
+  "properties": {
+    "views": {
+      "description": "Per-view observations with robot poses.",
+      "items": {
+        "$ref": "#/$defs/View"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "views"
+  ],
+  "title": "SingleCamHandeyeInput",
+  "type": "object"
+}

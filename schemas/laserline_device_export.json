@@ -1,0 +1,1304 @@
+{
+  "$defs": {
+    "CameraParams": {
+      "description": "Serializable camera parameters for building a runtime model.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionParams",
+          "description": "Distortion model parameters."
+        },
+        "intrinsics": {
+          "$ref": "#/$defs/FxFyCxCy",
+          "description": "Pinhole intrinsics (`fx, fy, cx, cy` in pixels)."
+        },
+        "projection": {
+          "$ref": "#/$defs/ProjectionParams",
+          "description": "Projection model parameters."
+        },
+        "sensor": {
+          "$ref": "#/$defs/SensorParams",
+          "description": "Sensor model parameters."
+        }
+      },
+      "required": [
+        "projection",
+        "distortion",
+        "sensor",
+        "intrinsics"
+      ],
+      "type": "object"
+    },
+    "DistortionParams": {
+      "description": "Serializable distortion model parameters.",
+      "oneOf": [
+        {
+          "description": "No distortion.",
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady 5-parameter radial-tangential model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "brown_conrady5",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "OpenCV rational polynomial 8-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Numerator radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Numerator radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Numerator radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "k4": {
+              "description": "Denominator radial coefficient k4.",
+              "format": "double",
+              "type": "number"
+            },
+            "k5": {
+              "description": "Denominator radial coefficient k5.",
+              "format": "double",
+              "type": "number"
+            },
+            "k6": {
+              "description": "Denominator radial coefficient k6.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "rational",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "k4",
+            "k5",
+            "k6",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady + thin-prism 9-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "s1": {
+              "description": "Thin-prism coefficient s1 (x correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s2": {
+              "description": "Thin-prism coefficient s2 (x correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "s3": {
+              "description": "Thin-prism coefficient s3 (y correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s4": {
+              "description": "Thin-prism coefficient s4 (y correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "thin_prism",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fitzgibbon single-parameter division model.",
+          "properties": {
+            "lambda": {
+              "description": "Division distortion coefficient.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "division",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "lambda"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ExportKind": {
+      "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "[`PlanarIntrinsicsExport`](crate::planar_intrinsics::PlanarIntrinsicsExport).",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "[`SingleCamHandeyeExport`](crate::single_cam_handeye::SingleCamHandeyeExport).",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "[`LaserlineDeviceExport`](crate::laserline_device::LaserlineDeviceExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "[`RigExtrinsicsExport`](crate::rig_extrinsics::RigExtrinsicsExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "[`RigHandeyeExport`](crate::rig_handeye::RigHandeyeExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "[`RigLaserlineDeviceExport`](crate::rig_laserline_device::RigLaserlineDeviceExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye_laserline",
+          "description": "[`RigHandeyeLaserlineExport`](crate::rig_handeye_laserline::RigHandeyeLaserlineExport).",
+          "type": "string"
+        }
+      ]
+    },
+    "FeatureResidualHistogram": {
+      "description": "Aggregate residual histogram for a (set of) reprojection error samples.\n\nBuckets are fixed at `[<=1, <=2, <=5, <=10, >10]` pixels — see\n[`REPROJECTION_HISTOGRAM_EDGES_PX`].",
+      "properties": {
+        "bucket_edges_px": {
+          "description": "Bucket edges in pixels: `[1.0, 2.0, 5.0, 10.0]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "count": {
+          "description": "Total number of error samples included in the histogram.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "counts": {
+          "description": "Counts in each bucket: `[<=1, <=2, <=5, <=10, >10]`.\n`counts.iter().sum() == count`.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "type": "array"
+        },
+        "max": {
+          "description": "Maximum error (pixels). `0.0` when `count == 0`.",
+          "format": "double",
+          "type": "number"
+        },
+        "mean": {
+          "description": "Mean error (pixels). `0.0` when `count == 0`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "bucket_edges_px",
+        "counts",
+        "count",
+        "mean",
+        "max"
+      ],
+      "type": "object"
+    },
+    "FrameKind": {
+      "description": "What a frame depicts, distinguishing target images from laser-on images.\n\nLaser problem types capture two images per `(pose, camera)` slot: one of\nthe calibration target and one with the laser line on. Both can appear in\nthe same [`ImageManifest`], discriminated by [`FrameRef::kind`].\n\nSerialized in `snake_case`; absent in JSON means [`FrameKind::Target`],\nwhich keeps exports without laser frames byte-stable and forward-readable.",
+      "oneOf": [
+        {
+          "const": "target",
+          "description": "Image of the calibration target (chessboard / ChArUco / …).",
+          "type": "string"
+        },
+        {
+          "const": "laser",
+          "description": "Image with the laser line on; residuals of flavor\n`PerFeatureResiduals.laser` plot onto frames of this kind.",
+          "type": "string"
+        }
+      ]
+    },
+    "FrameRef": {
+      "description": "Reference to a single image (or sub-image) for one `(pose, camera)`.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/FrameKind",
+          "description": "What the frame depicts. Absent in JSON means [`FrameKind::Target`],\nso target-only exports deserialize unchanged."
+        },
+        "path": {
+          "description": "Image path relative to the enclosing [`ImageManifest::root`].",
+          "type": "string"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PixelRect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Sub-image rectangle in pixel coordinates. `None` means the entire\nimage is this `(pose, camera)`. Used for tiled multi-camera frames.\n\n**Coordinate convention:** see the module-level `# Coordinate\nconvention` block. ROI is a render-time crop hint only —\nper-feature residuals are already in the ROI-local pixel frame\n(i.e. the camera's own image frame, since intrinsics were\ncalibrated against the cropped tile), so a viewer must not\nsubtract `(x, y)` from `observed_px` / `projected_px` when\ndrawing."
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "path"
+      ],
+      "type": "object"
+    },
+    "FxFyCxCy": {
+      "description": "Standard pinhole intrinsics: focal lengths and principal point in pixels.\n\nThe pixel grid is assumed orthogonal, so `K` carries no skew term.",
+      "properties": {
+        "cx": {
+          "description": "Principal point X coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "cy": {
+          "description": "Principal point Y coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "fx": {
+          "description": "Focal length in pixels along X.",
+          "format": "double",
+          "type": "number"
+        },
+        "fy": {
+          "description": "Focal length in pixels along Y.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy"
+      ],
+      "type": "object"
+    },
+    "ImageManifest": {
+      "description": "Image manifest carried alongside a calibration export.\n\n`root` is interpreted relative to the directory of the `export.json` that\nembeds the manifest. Each [`FrameRef::path`] is interpreted relative to\n`root`. Both layers of indirection make exports portable across machines\nas long as the image directory is co-located with the export.",
+      "properties": {
+        "frames": {
+          "description": "One entry per `(pose, camera)` slot the viewer can render.\nPose-major; aligns with the indexing of `PerFeatureResiduals.target`.",
+          "items": {
+            "$ref": "#/$defs/FrameRef"
+          },
+          "type": "array"
+        },
+        "root": {
+          "description": "Image root directory, relative to the export file's directory.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "frames"
+      ],
+      "type": "object"
+    },
+    "Iso3Schema": {
+      "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
+      "properties": {
+        "rotation": {
+          "description": "Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "translation": {
+          "description": "Translation `[tx, ty, tz]` in meters.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rotation",
+        "translation"
+      ],
+      "type": "object"
+    },
+    "LaserFeatureResidual": {
+      "description": "Reprojection record for a single laser pixel in a single view.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "feature": {
+          "description": "Pixel index within the view's laser pixel list.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_px": {
+          "description": "Observed laser pixel coordinate.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_m": {
+          "description": "Point-to-plane distance in meters between the back-projected ray and\nthe calibrated laser plane. `None` if the ray does not intersect.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "residual_px": {
+          "description": "Distance from `observed_px` to the projected laser line, in pixels:\nthe line-distance residual the laser solve minimizes, measured on the\nundistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the\nlaser and target planes have no line in common.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "feature",
+        "observed_px",
+        "residual_m",
+        "residual_px"
+      ],
+      "type": "object"
+    },
+    "LaserLineTrace": {
+      "description": "The calibrated laser line in one view's image.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "points_px": {
+          "description": "Points of the line in pixels, in order along it, spanning the view's\nlaser pixels.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "points_px"
+      ],
+      "type": "object"
+    },
+    "LaserPlane": {
+      "description": "Laser plane in camera frame: unit normal + signed distance.\n\nThe plane equation is: n̂ · p + d = 0\nwhere p is a point in camera coordinates.",
+      "properties": {
+        "distance": {
+          "description": "Signed distance from camera origin",
+          "format": "double",
+          "type": "number"
+        },
+        "normal": {
+          "description": "Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "normal",
+        "distance"
+      ],
+      "type": "object"
+    },
+    "LaserlineEstimate": {
+      "description": "Result of laserline bundle adjustment.",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/LaserlineParams",
+          "description": "Refined bundle parameters."
+        },
+        "report": {
+          "$ref": "#/$defs/SolveReport",
+          "description": "Backend solve report."
+        },
+        "uncertainty": {
+          "$ref": "#/$defs/Uncertainty",
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the refined parameters: the camera's free parameters\n(intrinsics, distortion and, for a tilted sensor, the tilt) and the\nlaser plane (`plane.nx … plane.d`, in the camera frame), with each\nview's target pose as a per-view block."
+        }
+      },
+      "required": [
+        "params",
+        "report",
+        "uncertainty"
+      ],
+      "type": "object"
+    },
+    "LaserlineParams": {
+      "description": "Initial values for laserline bundle adjustment.",
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/CameraParams",
+          "description": "The camera, in its model: any distortion kind, and an identity or\nScheimpflug sensor."
+        },
+        "plane": {
+          "$ref": "#/$defs/LaserPlane",
+          "description": "Laser plane parameters in camera frame."
+        },
+        "poses": {
+          "description": "Per-view target poses (`camera_se3_target`).",
+          "items": {
+            "$ref": "#/$defs/Iso3Schema"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "camera",
+        "poses",
+        "plane"
+      ],
+      "type": "object"
+    },
+    "LaserlineStats": {
+      "description": "Summary statistics for a laserline calibration result.",
+      "properties": {
+        "mean_laser_error": {
+          "description": "Mean laser residual (units depend on residual type).",
+          "format": "double",
+          "type": "number"
+        },
+        "mean_reproj_error": {
+          "description": "Mean reprojection error for calibration points (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "per_view_laser_errors": {
+          "description": "Per-view mean laser residual (same units as `mean_laser_error`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_view_reproj_errors": {
+          "description": "Per-view mean reprojection error (pixels).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "mean_reproj_error",
+        "mean_laser_error",
+        "per_view_reproj_errors",
+        "per_view_laser_errors"
+      ],
+      "type": "object"
+    },
+    "ParameterCovariance": {
+      "description": "The covariance of a result's estimated parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Covariance of the shared parameters: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "dof": {
+          "description": "Residuals minus estimated parameters.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fixed": {
+          "description": "Labels of the parameters held fixed. The covariance is conditional on\nthem.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the shared parameters, in the order of `covariance`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "noise": {
+          "description": "The noise level of each kind of residual, estimated from the\nresiduals at the solution.",
+          "items": {
+            "$ref": "#/$defs/ResidualNoise"
+          },
+          "type": "array"
+        },
+        "num_residuals": {
+          "description": "Number of scalar residuals, priors included.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "Per-view parameters, one block per view that has free ones.",
+          "items": {
+            "$ref": "#/$defs/ViewCovariance"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "labels",
+        "covariance",
+        "noise",
+        "num_residuals",
+        "dof"
+      ],
+      "type": "object"
+    },
+    "PerFeatureResiduals": {
+      "description": "Container bundled into every `*Export` carrying the per-feature drill-down\ndata the diagnose UI consumes.\n\nEmpty `Vec`s mean \"this problem type does not produce observations of that\nflavor\" (e.g., `PlanarIntrinsicsExport.per_feature_residuals.laser` is\nalways empty). The histogram fields are `Option`: `None` means the problem\ntype chose not to produce a per-camera aggregate; `Some(vec)` length must\nmatch `num_cameras`.",
+      "properties": {
+        "laser": {
+          "description": "Per-laser-pixel residual records, pose-major.",
+          "items": {
+            "$ref": "#/$defs/LaserFeatureResidual"
+          },
+          "type": "array"
+        },
+        "laser_hist_per_camera": {
+          "description": "Per-camera laser pixel-distance histogram (length = `num_cameras`).",
+          "items": {
+            "$ref": "#/$defs/FeatureResidualHistogram"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "laser_lines": {
+          "description": "The projected laser line of each (view, camera) with laser pixels,\npose-major.",
+          "items": {
+            "$ref": "#/$defs/LaserLineTrace"
+          },
+          "type": "array"
+        },
+        "target": {
+          "description": "Per-target-corner reprojection records, pose-major.",
+          "items": {
+            "$ref": "#/$defs/TargetFeatureResidual"
+          },
+          "type": "array"
+        },
+        "target_hist_per_camera": {
+          "description": "Per-camera target reprojection histogram (length = `num_cameras`).",
+          "items": {
+            "$ref": "#/$defs/FeatureResidualHistogram"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PixelRect": {
+      "description": "Inclusive-exclusive pixel rectangle: `[x, x+w) × [y, y+h)`.",
+      "properties": {
+        "h": {
+          "description": "Height in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "w": {
+          "description": "Width in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "description": "Left edge in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "description": "Top edge in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "type": "object"
+    },
+    "ProjectionParams": {
+      "description": "Serializable projection model parameters.",
+      "oneOf": [
+        {
+          "description": "Classic pinhole model.",
+          "properties": {
+            "type": {
+              "const": "pinhole",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ResidualKind": {
+      "description": "A kind of residual, which sets its unit.",
+      "oneOf": [
+        {
+          "const": "reprojection",
+          "description": "Target reprojection error, pixels.",
+          "type": "string"
+        },
+        {
+          "const": "laser_plane",
+          "description": "Laser point-to-plane distance, metres.",
+          "type": "string"
+        },
+        {
+          "const": "laser_line",
+          "description": "Laser line distance in the image, pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResidualNoise": {
+      "description": "The estimated noise level of one kind of residual.",
+      "properties": {
+        "camera": {
+          "description": "The camera, for a result that estimates each camera's noise apart\n(the rig laserline, which solves each camera's plane on its own);\n`None` for one level shared by every camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "count": {
+          "description": "Number of scalar residuals of this kind.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/ResidualKind",
+          "description": "The kind of residual."
+        },
+        "sigma": {
+          "description": "Gaussian-equivalent standard deviation of one scalar residual (one\npixel axis for reprojection), from the median absolute residual so\nthat outliers do not inflate it. In the residual's unit.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "sigma",
+        "count"
+      ],
+      "type": "object"
+    },
+    "SensorParams": {
+      "description": "Serializable sensor model parameters.",
+      "oneOf": [
+        {
+          "description": "Identity sensor model.",
+          "properties": {
+            "type": {
+              "const": "identity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Homography applied in the sensor plane.",
+          "properties": {
+            "h": {
+              "description": "Row-major homography matrix mapping normalized to sensor coordinates.",
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "homography",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "h"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Scheimpflug/tilted sensor model.",
+          "properties": {
+            "tilt_x": {
+              "description": "Tilt around X axis in radians (alias: tau_x).",
+              "format": "double",
+              "type": "number"
+            },
+            "tilt_y": {
+              "description": "Tilt around Y axis in radians (alias: tau_y).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "scheimpflug",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "tilt_x",
+            "tilt_y"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SolveReport": {
+      "description": "Summary of backend solve outcome.",
+      "properties": {
+        "final_cost": {
+          "description": "The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual\nblocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without\none) — so `½‖r‖²` for a plain least-squares problem.",
+          "format": "double",
+          "type": "number"
+        },
+        "num_iters": {
+          "default": 0,
+          "description": "Number of outer solver iterations executed.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "final_cost",
+        "num_iters"
+      ],
+      "type": "object"
+    },
+    "TargetFeatureResidual": {
+      "description": "Reprojection record for a single target feature in a single view.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error_px": {
+          "description": "Euclidean pixel distance `|projected - observed|`.\n`None` iff `projected_px` is `None`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "feature": {
+          "description": "Feature index within the view's `points_3d`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_px": {
+          "description": "Observed pixel coordinate.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "projected_px": {
+          "description": "Projected pixel using the calibrated camera + recovered pose.\n`None` when projection diverges (point behind camera, distortion failure).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "target_xyz_m": {
+          "description": "3D point in target / world frame (meters).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "feature",
+        "target_xyz_m",
+        "observed_px",
+        "projected_px",
+        "error_px"
+      ],
+      "type": "object"
+    },
+    "Uncertainty": {
+      "description": "The uncertainty of a result's estimated parameters.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ParameterCovariance",
+          "description": "The covariance of the estimated parameters.",
+          "properties": {
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No covariance, for the reason given.",
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/UncertaintyUnavailable",
+              "description": "Why the covariance is not available."
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UncertaintyUnavailable": {
+      "description": "Why a result has no covariance.",
+      "oneOf": [
+        {
+          "description": "The solve stopped on its iteration budget, short of a minimum.",
+          "properties": {
+            "kind": {
+              "const": "not_converged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The data does not determine these parameters (or combinations of\nthem): too few or too similar views, or a free gauge.",
+          "properties": {
+            "kind": {
+              "const": "rank_deficient",
+              "type": "string"
+            },
+            "unobservable": {
+              "description": "Labels of the parameters involved.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "unobservable"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "These parameters ended on a bound, where a Gaussian covariance does\nnot describe them.",
+          "properties": {
+            "kind": {
+              "const": "at_bound",
+              "type": "string"
+            },
+            "labels": {
+              "description": "Labels of the parameters on a bound.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "labels"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No more observations than estimated parameters.",
+          "properties": {
+            "kind": {
+              "const": "no_redundancy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The result was produced or stored without uncertainty.",
+          "properties": {
+            "kind": {
+              "const": "not_computed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ViewCovariance": {
+      "description": "The covariance of one view's own parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Their covariance: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the view's parameters, e.g. `camera_se3_target.rx`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "view": {
+          "description": "View index, as in the result's per-view lists.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "labels",
+        "covariance"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Export type for laserline device calibration.",
+  "properties": {
+    "estimate": {
+      "$ref": "#/$defs/LaserlineEstimate",
+      "description": "Pipeline output including optimized parameters and summary statistics."
+    },
+    "image_manifest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImageManifest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional image manifest (viewer-side contract). Per\naccepted view (pose = kept-view index, camera = 0): one frame\nfor the *target* image plus one of kind `laser` for the laser\nimage. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+    },
+    "kind": {
+      "$ref": "#/$defs/ExportKind",
+      "description": "Export-type discriminator — always [`ExportKind::LaserlineDevice`]."
+    },
+    "mean_reproj_error": {
+      "description": "Mean reprojection error (pixels).",
+      "format": "double",
+      "type": "number"
+    },
+    "per_cam_reproj_errors": {
+      "description": "Per-camera reprojection errors (single element for single-camera workflows).",
+      "items": {
+        "format": "double",
+        "type": "number"
+      },
+      "type": "array"
+    },
+    "per_feature_residuals": {
+      "$ref": "#/$defs/PerFeatureResiduals",
+      "default": {},
+      "description": "Per-feature reprojection + laser residuals. Single-camera:\n`target_hist_per_camera` and `laser_hist_per_camera` each carry\n`Some(vec![one_entry])`."
+    },
+    "stats": {
+      "$ref": "#/$defs/LaserlineStats",
+      "description": "Laserline statistics payload."
+    }
+  },
+  "required": [
+    "kind",
+    "estimate",
+    "stats",
+    "mean_reproj_error",
+    "per_cam_reproj_errors",
+    "per_feature_residuals"
+  ],
+  "title": "LaserlineDeviceExport",
+  "type": "object"
+}

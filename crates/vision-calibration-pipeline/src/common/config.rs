@@ -326,8 +326,8 @@ impl SolverConfig {
 
 /// Robot-pose refinement options for hand-eye bundle adjustment.
 ///
-/// Shared by `SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint
-/// rig+hand-eye+laser BA config.
+/// Shared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint
+/// rig+hand-eye+laser BA config (`JointOptimizeConfig`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]

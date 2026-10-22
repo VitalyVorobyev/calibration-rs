@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, cast
 
-from .types import (
-    DistortionModel,
-    ProjectionModel,
-    SensorModel,
+from ._generated_types import (
+    DistortionKind,
+    ProjectionKind,
+    SensorKind,
     HandeyeMode,
     LaserlineResidualType,
     RobustLoss,
@@ -174,9 +174,9 @@ class CameraModelSpec:
     ``sensor`` is ``"identity"`` or ``"scheimpflug"`` (tilted sensor).
     """
 
-    projection: ProjectionModel = "pinhole"
-    distortion: DistortionModel = "brown_conrady5"
-    sensor: SensorModel = "identity"
+    projection: ProjectionKind = "pinhole"
+    distortion: DistortionKind = "brown_conrady5"
+    sensor: SensorKind = "identity"
 
     def to_payload(self) -> dict[str, Any]:
         return {

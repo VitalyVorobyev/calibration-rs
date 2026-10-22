@@ -92,10 +92,6 @@ need their measurement first and stay opt-in until it is in.
 
 ## Python (Phase 1)
 
-- [ ] PY-TYPES - Generate the Python `TypedDict`s and `__init__.pyi` stubs
-  from the JSON schemas `cargo xtask emit-schemas` already writes for the
-  app, and delete the hand-written duplicates in `types.py`. Gate: a schema
-  drift check in CI covers the generated Python.
 - [ ] PY-PARITY - Bring the Python package to the facade:
   - the session and step API, including manual init (Rust-only today);
   - manifest-driven runs (`dataset_runner`) and the detectors on numpy
