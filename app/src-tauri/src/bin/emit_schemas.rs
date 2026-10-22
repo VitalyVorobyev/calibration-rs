@@ -48,7 +48,8 @@ mod schema_export {
     use serde_json::{Value, json};
 
     use calibration_diagnose_lib::schema_types::{
-        DisparityResult, EpipolarOverlay, ProjectionUncertainty, RunProgress,
+        DisparityResult, EpipolarOverlay, ProjectError, ProjectInfo, ProjectionUncertainty,
+        RunProgress,
     };
 
     use vision_calibration::laserline_device::LaserlineDeviceExport;
@@ -164,6 +165,14 @@ mod schema_export {
             generator
                 .subschema_for::<ProjectionUncertainty>()
                 .to_value(),
+        );
+        props.insert(
+            "project_info".into(),
+            generator.subschema_for::<ProjectInfo>().to_value(),
+        );
+        props.insert(
+            "project_error".into(),
+            generator.subschema_for::<ProjectError>().to_value(),
         );
 
         let defs = generator.take_definitions(true);

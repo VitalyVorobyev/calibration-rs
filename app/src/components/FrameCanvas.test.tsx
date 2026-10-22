@@ -29,7 +29,7 @@ describe("FrameCanvas", () => {
     const { container } = render(
       <FrameCanvas frame={frame} residuals={[]} image={null} />,
     );
-    expect(container.querySelector('[role="application"]')).toBeTruthy();
+    expect(container.querySelector('[role="group"]')).toBeTruthy();
     expect(container.querySelector("[data-stage]")).toBeNull();
   });
 

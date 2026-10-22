@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 /** True iff the page is running inside a Tauri webview (i.e. the IPC
  * internals have been injected). When the user runs `bun run dev` and
@@ -33,15 +33,39 @@ function normalizeSeparators(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-/** Joins `dir` with `rest`, normalizing all segments to `/` first (see
- * `normalizeSeparators`). */
+/** True for an absolute path: POSIX `/…`, a Windows drive `C:/…` or a UNC
+ * `//server/…` (after `normalizeSeparators`). */
+function isAbsolute(path: string): boolean {
+  return path.startsWith("/") || /^[A-Za-z]:\//.test(path);
+}
+
+/** Joins `dir` with `rest` as the file system would: an absolute segment
+ * replaces what came before it (an export's image root may be absolute),
+ * and `.` / `..` segments are folded, so equal paths compare equal and the
+ * asset protocol sees a plain path. Separators are normalized to `/`
+ * first (see `normalizeSeparators`). */
 export function joinPath(dir: string, ...rest: string[]): string {
-  let out = normalizeSeparators(dir).replace(/\/+$/, "");
+  let out = normalizeSeparators(dir);
   for (const segment of rest) {
     if (!segment) continue;
-    out = `${out}/${normalizeSeparators(segment).replace(/^\/+/, "")}`;
+    const s = normalizeSeparators(segment);
+    out = isAbsolute(s) ? s : `${out.replace(/\/+$/, "")}/${s}`;
   }
-  return out;
+  return foldDots(out);
+}
+
+/** `path` with `.` segments dropped and `..` segments folded into their
+ * parent (lexically; never above the root). Trailing separators go. */
+function foldDots(path: string): string {
+  const lead = /^(\/\/|\/|[A-Za-z]:\/)?/.exec(path)?.[0] ?? "";
+  const parts: string[] = [];
+  for (const part of path.slice(lead.length).split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === ".." && parts.length > 0 && parts[parts.length - 1] !== "..")
+      parts.pop();
+    else if (part !== ".." || lead === "") parts.push(part);
+  }
+  return lead + parts.join("/");
 }
 
 /** Returns the parent directory of `path` (trailing separators ignored),
@@ -50,6 +74,14 @@ export function dirnamePath(path: string): string {
   const normalized = normalizeSeparators(path).replace(/\/+$/, "");
   const idx = normalized.lastIndexOf("/");
   return idx >= 0 ? normalized.slice(0, idx) : normalized;
+}
+
+/** The asset-protocol URL of an absolute file path: the webview loads the
+ * file straight from disk, with no bytes over IPC. The backend scopes the
+ * protocol to the folders the user opened (a project's dataset, an
+ * export's image root), so a path elsewhere fails to load. */
+export function assetUrl(path: string): string {
+  return convertFileSrc(normalizeSeparators(path));
 }
 
 let repoRootPromise: Promise<string | null> | null = null;

@@ -17,6 +17,8 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RunWorkspace } from "./index";
 import { useStore } from "../../store";
+import { resetRunSetup } from "../../store/runSetup";
+import { useProject } from "../../project/projectStore";
 
 const MANIFEST_TOML = `
 version = 1
@@ -81,6 +83,7 @@ afterEach(() => {
   clearMocks();
   cleanup();
   useStore.getState().resetExport();
+  resetRunSetup();
 });
 
 /** Finds the "KUKA handeye" preset card and returns its "Use preset" button. */
@@ -174,5 +177,58 @@ describe("RunWorkspace progress + cancellation", () => {
     await screen.findByText("Run cancelled", {}, { timeout: 2000 });
     // No export was committed to the store.
     expect(useStore.getState().data).toBeNull();
+  });
+});
+
+describe("RunWorkspace with a project open", () => {
+  afterEach(() => useProject.setState({ project: null, error: null }));
+
+  it("saves a successful run into the project and reopens it from disk", async () => {
+    const saved: { name: string; record: unknown }[] = [];
+    mockIPC((cmd, args) => {
+      const a = args as Record<string, unknown>;
+      switch (cmd) {
+        case "repo_root_cmd":
+          return "/fake/repo/root";
+        case "load_text_file":
+          return MANIFEST_TOML;
+        case "default_config_cmd":
+          return DEFAULT_CONFIG;
+        case "run_calibration_cmd":
+          return RUN_SUCCESS_RESPONSE;
+        case "save_project_run":
+          saved.push({ name: a.name as string, record: a.record });
+          return { name: a.name, diagnostics: null };
+        case "load_export":
+          return { export: RUN_SUCCESS_RESPONSE.export, export_dir: "/p/runs/run-001" };
+        default:
+          return null;
+      }
+    });
+    useProject.setState({
+      project: { dir: "/p", dataset_dir: "/p", manifest: {}, runs: [] },
+    });
+
+    render(
+      <MemoryRouter>
+        <TooltipProvider>
+          <RunWorkspace />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(presetUseButton());
+    await screen.findByText("KUKA handeye", {}, { timeout: 2000 });
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+
+    await screen.findByText(/saved as runs\/run-001/, {}, { timeout: 2000 });
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.record).toMatchObject({
+      export: RUN_SUCCESS_RESPONSE.export,
+      config: DEFAULT_CONFIG,
+      diagnostics: { topology: "planar_intrinsics", usable_views: 20, total_views: 20 },
+    });
+    // The viewers show the saved export, not an in-memory copy.
+    expect(useStore.getState().exportPath).toBe("/p/runs/run-001/export.json");
+    expect(useProject.getState().project?.runs.map((r) => r.name)).toEqual(["run-001"]);
   });
 });

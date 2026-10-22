@@ -1246,6 +1246,92 @@
       ],
       "type": "object"
     },
+    "ProjectError": {
+      "description": "Why a project command failed. `kind` is what the UI branches on;\n`message` is what it shows.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/ProjectErrorKind"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ProjectErrorKind": {
+      "description": "The kinds of [`ProjectError`].",
+      "oneOf": [
+        {
+          "const": "not_a_project",
+          "description": "The folder has no `calibration-project.json`.",
+          "type": "string"
+        },
+        {
+          "const": "project_exists",
+          "description": "The folder already holds a project; creating one would overwrite it.",
+          "type": "string"
+        },
+        {
+          "const": "unsupported_version",
+          "description": "The project file has a version this app does not read.",
+          "type": "string"
+        },
+        {
+          "const": "invalid_run_name",
+          "description": "A run name that is empty or not a plain folder name.",
+          "type": "string"
+        },
+        {
+          "const": "run_exists",
+          "description": "A run of that name is already saved; runs are never overwritten.",
+          "type": "string"
+        },
+        {
+          "const": "io",
+          "description": "A file or folder could not be read or written.",
+          "type": "string"
+        },
+        {
+          "const": "parse",
+          "description": "A project file did not parse.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProjectInfo": {
+      "description": "An opened project, as the UI shows it.",
+      "properties": {
+        "dataset_dir": {
+          "description": "The folder the manifest's relative paths resolve against (absolute).",
+          "type": "string"
+        },
+        "dir": {
+          "description": "The project folder (absolute).",
+          "type": "string"
+        },
+        "manifest": {
+          "description": "The dataset manifest (`dataset.json`), as stored."
+        },
+        "runs": {
+          "description": "The saved runs, sorted by name.",
+          "items": {
+            "$ref": "#/definitions/RunSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "dir",
+        "dataset_dir",
+        "manifest",
+        "runs"
+      ],
+      "type": "object"
+    },
     "ProjectionParams": {
       "description": "Serializable projection model parameters.",
       "oneOf": [
@@ -2030,6 +2116,45 @@
       ],
       "type": "object"
     },
+    "RunDiagnostics": {
+      "description": "`diagnostics.json`: how a run went.",
+      "properties": {
+        "cache_used": {
+          "description": "Whether detections were served from the detection cache.",
+          "type": "boolean"
+        },
+        "duration_ms": {
+          "description": "Detection and calibration time, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "topology": {
+          "description": "The manifest topology the run calibrated.",
+          "type": "string"
+        },
+        "total_views": {
+          "description": "Views attempted.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usable_views": {
+          "description": "Views with enough detected features to use.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "topology",
+        "usable_views",
+        "total_views",
+        "duration_ms",
+        "cache_used"
+      ],
+      "type": "object"
+    },
     "RunProgress": {
       "description": "A progress message streamed to the Run workspace over a\n[`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;\nterminal outcomes (success / failure / cancellation) are carried by\nthe command's `RunResponse` return value, not the channel.",
       "properties": {
@@ -2066,6 +2191,30 @@
           "type": "string"
         }
       ]
+    },
+    "RunSummary": {
+      "description": "One saved run: its folder name and diagnostics.",
+      "properties": {
+        "diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RunDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`diagnostics.json`, or `None` when it is missing or does not parse\n(the run is still listed, so its export can be opened)."
+        },
+        "name": {
+          "description": "The run's folder name under `runs/`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
     },
     "SensorParams": {
       "description": "Serializable sensor model parameters.",
@@ -2564,6 +2713,12 @@
     },
     "planar_intrinsics_export": {
       "$ref": "#/definitions/PlanarIntrinsicsExport"
+    },
+    "project_error": {
+      "$ref": "#/definitions/ProjectError"
+    },
+    "project_info": {
+      "$ref": "#/definitions/ProjectInfo"
     },
     "projection_uncertainty": {
       "$ref": "#/definitions/ProjectionUncertainty"

@@ -231,7 +231,9 @@ pub enum RunResponse {
 /// resolved against — usually the parent of the `dataset.toml` file the
 /// user picked. `on_progress` streams a [`RunProgress`] per stage.
 #[tauri::command]
-pub async fn run_calibration_cmd(
+#[allow(clippy::too_many_arguments)] // Tauri injects state and the app handle as arguments.
+pub async fn run_calibration_cmd<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     run_id: String,
     manifest_json: serde_json::Value,
     config_json: serde_json::Value,
@@ -242,6 +244,7 @@ pub async fn run_calibration_cmd(
 ) -> Result<RunResponse, String> {
     let cancel = registry.register(&run_id);
     let cancel_task = cancel.clone();
+    let images_dir = PathBuf::from(&manifest_dir);
 
     // Long-running solve: keep IPC responsive by running on a blocking
     // task. The State can't cross the spawn_blocking boundary directly,
@@ -264,6 +267,9 @@ pub async fn run_calibration_cmd(
     let response = result.map_err(|e| format!("runner task panicked: {e}"))?;
     if let RunResponse::Ok(success) = &response {
         cache.set(success.export.clone());
+        // The export's image manifest is relative to the dataset folder,
+        // whose images the webview now shows.
+        crate::assets::allow_dir(&app, &images_dir)?;
     }
     Ok(response)
 }

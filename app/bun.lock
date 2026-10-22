@@ -9,12 +9,14 @@
         "@react-three/fiber": "^9.8.1",
         "@tauri-apps/api": "^2.12.1",
         "@tauri-apps/plugin-dialog": "^2.8.1",
-        "@vitavision/charts": "^0.8.0",
-        "@vitavision/forms": "^0.7.0",
-        "@vitavision/stage2d": "^0.10.0",
-        "@vitavision/three": "^0.1.0",
-        "@vitavision/three-react": "^0.1.0",
-        "@vitavision/ui": "^0.11.0",
+        "@vitavision/charts": "^0.8.3",
+        "@vitavision/forms": "^0.8.3",
+        "@vitavision/stage2d": "^0.13.2",
+        "@vitavision/three": "^0.2.0",
+        "@vitavision/three-react": "^0.2.0",
+        "@vitavision/ui": "^0.14.0",
+        "@vitavision/workbench": "^0.3.2",
+        "lucide-react": "^1.48.0",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
         "react-router": "^8.4.0",
@@ -31,8 +33,8 @@
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
         "@types/three": "0.186.0",
-        "@vitavision/config-eslint": "^0.1.0",
-        "@vitavision/config-ts": "^0.1.0",
+        "@vitavision/config-eslint": "^0.1.1",
+        "@vitavision/config-ts": "^0.2.0",
         "@vitejs/plugin-react": "^6.1.1",
         "eslint": "^10.12.0",
         "eslint-plugin-react-hooks": "7.1.1",
@@ -412,21 +414,23 @@
 
     "@use-gesture/react": ["@use-gesture/react@10.3.1", "", { "dependencies": { "@use-gesture/core": "10.3.1" }, "peerDependencies": { "react": ">= 16.8.0" } }, "sha512-Yy19y6O2GJq8f7CHf7L0nxL8bf4PZCPaVOCgJrusOeFHY1LvHgYXnmnXg6N5iwAnbgbZCDjo60SiM6IPJi9C5g=="],
 
-    "@vitavision/charts": ["@vitavision/charts@0.8.0", "", { "dependencies": { "@vitavision/ui": "^0.11.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-epwwaA6pKCPOoUikNH9+Yzm38vrJwWpMUtQrK+bt6URP3Uy4j5WAlvGKT3jTZoXnHOg16O3yk5EvKwblmeOrhQ=="],
+    "@vitavision/charts": ["@vitavision/charts@0.8.3", "", { "dependencies": { "@vitavision/ui": "^0.14.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-zra/3hKcaXIDFg7Gwsv0Maw3c/x496ZxJEI11Zcl5HZkZX2zhBsnnFmfiwBDgwdz71aMSKoEmZe55WVbHR6F8g=="],
 
-    "@vitavision/config-eslint": ["@vitavision/config-eslint@0.1.0", "", { "dependencies": { "@eslint-react/eslint-plugin": "^5.20.8", "eslint-plugin-react-hooks": "^7.1.1", "eslint-plugin-storybook": "^10.6.0", "typescript-eslint": "^8.70.1" }, "peerDependencies": { "eslint": "^10.11.0", "typescript": "^6.0.3" } }, "sha512-pDoahF2AErSqt0JVbR8PhrS/93RLy//fEVZbJld0IUFXYmRkBsuRTXWcpp6/fa99hGJTCUPevv5Y2cWNaYFXuA=="],
+    "@vitavision/config-eslint": ["@vitavision/config-eslint@0.1.1", "", { "dependencies": { "@eslint-react/eslint-plugin": "^5.20.8", "eslint-plugin-react-hooks": "^7.1.1", "eslint-plugin-storybook": "^10.6.0", "typescript-eslint": "^8.70.1" }, "peerDependencies": { "eslint": "^10.11.0", "typescript": "^6.0.3" } }, "sha512-50b24ddWntG/vsS5eylH74wraowyRRtbpEO7VaUFwgUDuMG4vKcO7LX2Z9TExtbIdgcm82z5uuPXyR8IGIyKtw=="],
 
-    "@vitavision/config-ts": ["@vitavision/config-ts@0.1.0", "", { "peerDependencies": { "tsdown": "0.23.0", "typescript": "^6.0.3" }, "optionalPeers": ["tsdown"] }, "sha512-2I0BYpc0kt2co9ZGZVSqS3OnFM1jYufKLl5Ww4+KVT67PfohwCWt8Q37gatLgIAG4yKns5jKsXx9KUu99yZIzw=="],
+    "@vitavision/config-ts": ["@vitavision/config-ts@0.2.0", "", { "peerDependencies": { "tsdown": "0.23.0", "typescript": "^7.0.2" }, "optionalPeers": ["tsdown"] }, "sha512-Ykf3F3TkDBx/vwO4lczMeHSogzZ5Gphy3aCwedHXfafI457nOZNotH9fDbeWV2qElUgqmuJi+cttE/N5ViO29g=="],
 
-    "@vitavision/forms": ["@vitavision/forms@0.7.0", "", { "dependencies": { "@vitavision/ui": "^0.11.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-LC/5LKOPat9rWR6Q7F1UIDiAqBrgT6ppc8ExTVQw3Bt1ceN9B+6S/JNZXcQh5P09Iea94L3CC3/Egjn2QNSFvw=="],
+    "@vitavision/forms": ["@vitavision/forms@0.8.3", "", { "dependencies": { "@vitavision/ui": "^0.14.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-0w9ebkNadh8A6TKUFASUeB7gCMzZZv7RaHyfKSNNujIL4dKoUtjMx8qgdO6OsU98VQuQ1mVkFFRceq5qV6tfEw=="],
 
-    "@vitavision/stage2d": ["@vitavision/stage2d@0.10.0", "", { "dependencies": { "@vitavision/ui": "^0.11.0", "lucide-react": "^1.48.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-foA3NwbdfJfgWmYINEZ7dxtx5PRSaMWuBLpDn0wY6jJzW6oQkReaWIyEa0D0JIZYmnvtw1Fa3wZZ8Ey6Of35Tg=="],
+    "@vitavision/stage2d": ["@vitavision/stage2d@0.13.2", "", { "dependencies": { "@vitavision/ui": "^0.14.0", "lucide-react": "^1.48.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-2Er2Jdgq7AliEF0dQg3Y9CDi7yHwyuGwiP5q9/PjbieF4vACe1ETZ3UzBsEMKHFjr8AubIG8gXT/9zCQGy2bJg=="],
 
-    "@vitavision/three": ["@vitavision/three@0.1.0", "", { "peerDependencies": { "three": "^0.186.0" } }, "sha512-wSa0OuTRFdJFigUVcaEz+FXFtFvFZ08dIegyfFIGLDY2Ghm+30mBNMNrv6JvKiAxikssZ9dqSjISgKNkJIXtJA=="],
+    "@vitavision/three": ["@vitavision/three@0.2.0", "", { "peerDependencies": { "three": "^0.186.0" } }, "sha512-y0/Xmpb+SyMR/d0vWughT041Qm4c2BkLquZhiKQQ44tSfo6z9KkY2d+itre4SNk06LcN1c3ZSyV8CQ12GxRbgA=="],
 
-    "@vitavision/three-react": ["@vitavision/three-react@0.1.0", "", { "dependencies": { "@vitavision/three": "^0.1.0" }, "peerDependencies": { "@react-three/fiber": "^9.8.1", "react": "^19.2.0", "react-dom": "^19.2.0", "three": "^0.186.0" } }, "sha512-+V6lCSPKdr7GaxPwYTnb80efLVxQbyWlIM1/gWjcF/aAw8RIN2hbcs+/CzVG+vH2XD5zr8ITO32Guygdc7+4mg=="],
+    "@vitavision/three-react": ["@vitavision/three-react@0.2.0", "", { "dependencies": { "@vitavision/three": "^0.2.0" }, "peerDependencies": { "@react-three/fiber": "^9.8.1", "react": "^19.2.0", "react-dom": "^19.2.0", "three": "^0.186.0" } }, "sha512-23/LqTS/7aopYkIHVVFUCoH2OWynLE/CRxtNP9v+CM3marTk8uotbohCt2QLg4g8EdRvKt7VsqfjEGHB6Wll+Q=="],
 
-    "@vitavision/ui": ["@vitavision/ui@0.11.0", "", { "dependencies": { "@radix-ui/react-checkbox": "^1.3.11", "@radix-ui/react-dialog": "^1.1.23", "@radix-ui/react-dropdown-menu": "^2.1.24", "@radix-ui/react-popover": "^1.1.23", "@radix-ui/react-select": "^2.3.7", "@radix-ui/react-slider": "^1.4.7", "@radix-ui/react-slot": "^1.3.3", "@radix-ui/react-switch": "^1.3.7", "@radix-ui/react-tooltip": "^1.2.16", "clsx": "^2.1.1", "lucide-react": "^1.48.0", "tailwind-merge": "^3.6.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0", "tailwindcss": "^4.3.0" } }, "sha512-0MP5/NfAfxQ45GXg9XWErvqT3KLdbv1OVSV3lpWnlC55n56ErnZ6sSRDDM5H4ghO4a2JqXEMShOnUOsYiMYsAA=="],
+    "@vitavision/ui": ["@vitavision/ui@0.14.0", "", { "dependencies": { "@radix-ui/react-checkbox": "^1.3.11", "@radix-ui/react-dialog": "^1.1.23", "@radix-ui/react-dropdown-menu": "^2.1.24", "@radix-ui/react-popover": "^1.1.23", "@radix-ui/react-select": "^2.3.7", "@radix-ui/react-slider": "^1.4.7", "@radix-ui/react-slot": "^1.3.3", "@radix-ui/react-switch": "^1.3.7", "@radix-ui/react-tooltip": "^1.2.16", "clsx": "^2.1.1", "lucide-react": "^1.48.0", "tailwind-merge": "^3.6.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0", "tailwindcss": "^4.3.0" } }, "sha512-kPi5qRzpyhFxwg7ZyWcAMcc1nULG9o/a5mX3vmiOeeFmRFvsg118WAP+KfA/m1opdWpL1h0GLXnTqhYHPiKM1Q=="],
+
+    "@vitavision/workbench": ["@vitavision/workbench@0.3.2", "", { "dependencies": { "@vitavision/ui": "^0.14.0", "lucide-react": "^1.48.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-tejxbzpDGGAO1T3mwNQzBwyTYoNgB3pRGFKB3+9D+oYHOp67cRI19KvRUhb4Uyavdmmm2U9EYe4iEZZ5qW5vgQ=="],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@6.1.1", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.1" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "oxc-transform-react": "^0.145.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler", "oxc-transform-react"] }, "sha512-yxLaQV9gkhS8ezJqCM6+ndU7mDY6gqAg75NQ+0IjwEI8IYOmQCgkRwHKVSfWXW076DsqMo0Dk+0FK1U+M5RgFw=="],
 

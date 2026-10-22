@@ -1,29 +1,16 @@
-import {
-  DensityProvider,
-  Empty,
-  Panel,
-  Select,
-  ToggleChip,
-  Tooltip,
-} from "@vitavision/ui";
+import { DensityProvider, Empty, Select, ToggleChip, Tooltip } from "@vitavision/ui";
 import { useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
-import {
-  iso3DistanceM,
-  iso3EulerXYZDeg,
-  iso3RotationAngleDeg,
-  relativeCameraPose,
-  targetInCameraPose,
-} from "../../lib/se3";
 import { adaptSceneExport } from "../../lib/sceneExport";
 import { useStore } from "../../store";
 import { exportKindLabel } from "../../store/exportKind";
-import type { Iso3Wire, CameraWire } from "../../store/types";
 import type { FrameKey } from "../../types";
+import {
+  CameraIntrinsicsPanel,
+  RelativePosePanel,
+  TargetExtrinsicsPanel,
+} from "./InspectorPanels";
 import { Scene } from "./Scene";
-
-/** The quiet right-aligned caption in an info-rail panel's header. */
-const SUBTITLE = "font-mono text-[10px] text-fg-muted";
 
 /** 3D rig scene + side panel that breaks down the
  * selected camera's intrinsics, the camera→target extrinsic for the
@@ -195,197 +182,6 @@ export function Viewer3DWorkspace() {
       </div>
     </div>
   );
-}
-
-interface CameraIntrinsicsPanelProps {
-  cameraIndex: number;
-  camera: CameraWire | undefined;
-}
-
-function CameraIntrinsicsPanel({ cameraIndex, camera }: CameraIntrinsicsPanelProps) {
-  return (
-    <Panel
-      title="Selected camera"
-      actions={<span className={SUBTITLE}>{`cam ${cameraIndex}`}</span>}
-    >
-      {camera ? (
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
-          <div className="col-span-2 mt-1 text-[10px] uppercase tracking-wider text-fg-muted">
-            intrinsics
-          </div>
-          <span className="text-fg-muted">fx</span>
-          <span>{camera.intrinsics.fx.toFixed(2)} px</span>
-          <span className="text-fg-muted">fy</span>
-          <span>{camera.intrinsics.fy.toFixed(2)} px</span>
-          <span className="text-fg-muted">cx</span>
-          <span>{camera.intrinsics.cx.toFixed(2)} px</span>
-          <span className="text-fg-muted">cy</span>
-          <span>{camera.intrinsics.cy.toFixed(2)} px</span>
-          {camera.sensor.type === "scheimpflug" && (
-            <>
-              <div className="col-span-2 mt-2 text-[10px] uppercase tracking-wider text-fg-muted">
-                sensor tilt (Scheimpflug)
-              </div>
-              <span className="text-fg-muted">tilt x</span>
-              <span>{camera.sensor.tilt_x.toFixed(5)} rad</span>
-              <span className="text-fg-muted">tilt y</span>
-              <span>{camera.sensor.tilt_y.toFixed(5)} rad</span>
-            </>
-          )}
-          {camera.distortion.type === "brown_conrady5" && (
-            <>
-              <div className="col-span-2 mt-2 text-[10px] uppercase tracking-wider text-fg-muted">
-                distortion (Brown-Conrady)
-              </div>
-              <span className="text-fg-muted">k1</span>
-              <span>{camera.distortion.k1.toFixed(5)}</span>
-              <span className="text-fg-muted">k2</span>
-              <span>{camera.distortion.k2.toFixed(5)}</span>
-              <span className="text-fg-muted">p1</span>
-              <span>{camera.distortion.p1.toFixed(5)}</span>
-              <span className="text-fg-muted">p2</span>
-              <span>{camera.distortion.p2.toFixed(5)}</span>
-              <span className="text-fg-muted">k3</span>
-              <span>{camera.distortion.k3.toFixed(5)}</span>
-            </>
-          )}
-        </div>
-      ) : (
-        <p className="text-[11px] text-fg-muted">no camera at this index</p>
-      )}
-    </Panel>
-  );
-}
-
-interface TargetExtrinsicsPanelProps {
-  cameraIndex: number;
-  poseIndex: number;
-  camSe3Rig: Iso3Wire | undefined;
-  rigSe3Target: Iso3Wire | undefined;
-}
-
-function TargetExtrinsicsPanel({
-  cameraIndex,
-  poseIndex,
-  camSe3Rig,
-  rigSe3Target,
-}: TargetExtrinsicsPanelProps) {
-  if (!camSe3Rig || !rigSe3Target) {
-    return (
-      <Panel title="Target extrinsic" actions={<span className={SUBTITLE}>—</span>}>
-        <p className="text-[11px] text-fg-muted">no pose data</p>
-      </Panel>
-    );
-  }
-  const t = targetInCameraPose(camSe3Rig, rigSe3Target);
-  const dist = iso3DistanceM(t);
-  const euler = iso3EulerXYZDeg(t);
-  const angle = iso3RotationAngleDeg(t);
-  return (
-    <Panel
-      title="Target extrinsic"
-      actions={
-        <span className={SUBTITLE}>{`cam ${cameraIndex} → pose ${poseIndex}`}</span>
-      }
-    >
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
-        <span className="text-fg-muted">distance</span>
-        <span>
-          {(dist * 1000).toFixed(1)} mm
-          <span className="ml-1 text-fg-muted">({dist.toFixed(3)} m)</span>
-        </span>
-        <span className="text-fg-muted">euler X</span>
-        <span>{formatDeg(euler.x)}</span>
-        <span className="text-fg-muted">euler Y</span>
-        <span>{formatDeg(euler.y)}</span>
-        <span className="text-fg-muted">euler Z</span>
-        <span>{formatDeg(euler.z)}</span>
-        <span className="text-fg-muted">|rot|</span>
-        <span>{formatDeg(angle)}</span>
-      </div>
-    </Panel>
-  );
-}
-
-interface RelativePosePanelProps {
-  referenceCamera: number;
-  selectedCamera: number;
-  referenceCamSe3Rig: Iso3Wire | undefined;
-  selectedCamSe3Rig: Iso3Wire | undefined;
-}
-
-function RelativePosePanel({
-  referenceCamera,
-  selectedCamera,
-  referenceCamSe3Rig,
-  selectedCamSe3Rig,
-}: RelativePosePanelProps) {
-  if (!referenceCamSe3Rig || !selectedCamSe3Rig) {
-    return (
-      <Panel title="Relative pose" actions={<span className={SUBTITLE}>—</span>}>
-        <p className="text-[11px] text-fg-muted">no pose data</p>
-      </Panel>
-    );
-  }
-  if (referenceCamera === selectedCamera) {
-    return (
-      <Panel
-        title="Relative pose"
-        actions={
-          <span
-            className={SUBTITLE}
-          >{`cam ${referenceCamera} ↔ cam ${selectedCamera}`}</span>
-        }
-      >
-        <p className="text-[11px] text-fg-muted">
-          selected camera is the reference — pick a different camera (click a frustum) to
-          see a relative pose.
-        </p>
-      </Panel>
-    );
-  }
-  const rel = relativeCameraPose(referenceCamSe3Rig, selectedCamSe3Rig);
-  const dist = iso3DistanceM(rel);
-  const euler = iso3EulerXYZDeg(rel);
-  const angle = iso3RotationAngleDeg(rel);
-  return (
-    <Panel
-      title="Relative pose"
-      actions={
-        <span
-          className={SUBTITLE}
-        >{`cam ${referenceCamera} ⇒ cam ${selectedCamera}`}</span>
-      }
-    >
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
-        <span className="text-fg-muted">baseline</span>
-        <span>
-          {(dist * 1000).toFixed(1)} mm
-          <span className="ml-1 text-fg-muted">({dist.toFixed(4)} m)</span>
-        </span>
-        <span className="text-fg-muted">tx</span>
-        <span>{(rel.translation[0] * 1000).toFixed(1)} mm</span>
-        <span className="text-fg-muted">ty</span>
-        <span>{(rel.translation[1] * 1000).toFixed(1)} mm</span>
-        <span className="text-fg-muted">tz</span>
-        <span>{(rel.translation[2] * 1000).toFixed(1)} mm</span>
-        <span className="text-fg-muted">euler X</span>
-        <span>{formatDeg(euler.x)}</span>
-        <span className="text-fg-muted">euler Y</span>
-        <span>{formatDeg(euler.y)}</span>
-        <span className="text-fg-muted">euler Z</span>
-        <span>{formatDeg(euler.z)}</span>
-        <span className="text-fg-muted">|rot|</span>
-        <span>{formatDeg(angle)}</span>
-      </div>
-    </Panel>
-  );
-}
-
-function formatDeg(value: number): string {
-  // Tabular alignment helper: always sign + at least one decimal.
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}°`;
 }
 
 /** Build a per-camera (width, height) map from the manifest's ROI

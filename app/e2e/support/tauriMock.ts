@@ -18,24 +18,31 @@ import type { Page } from "@playwright/test";
  * `"plugin:dialog|open"`); every call to that command returns the same
  * canned value regardless of its arguments, which is enough for a smoke
  * test driving one fixed scenario per spec.
+ *
+ * `assetUrl` stands in for the asset protocol: every `convertFileSrc`
+ * (an image the webview loads from disk) resolves to it.
  */
 export async function installTauriMock(
   page: Page,
   responses: Record<string, unknown>,
+  assetUrl = "",
 ): Promise<void> {
-  await page.addInitScript((responsesArg) => {
-    (
-      window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }
-    ).__TAURI_INTERNALS__ = {
-      invoke: (cmd: string) => {
-        if (Object.prototype.hasOwnProperty.call(responsesArg, cmd)) {
-          return Promise.resolve((responsesArg as Record<string, unknown>)[cmd]);
-        }
-        return Promise.resolve(null);
-      },
-      transformCallback: () => 0,
-      unregisterCallback: () => {},
-      convertFileSrc: (p: string) => p,
-    };
-  }, responses);
+  await page.addInitScript(
+    ({ responsesArg, assetUrlArg }) => {
+      (
+        window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }
+      ).__TAURI_INTERNALS__ = {
+        invoke: (cmd: string) => {
+          if (Object.prototype.hasOwnProperty.call(responsesArg, cmd)) {
+            return Promise.resolve((responsesArg as Record<string, unknown>)[cmd]);
+          }
+          return Promise.resolve(null);
+        },
+        transformCallback: () => 0,
+        unregisterCallback: () => {},
+        convertFileSrc: (p: string) => assetUrlArg || p,
+      };
+    },
+    { responsesArg: responses, assetUrlArg: assetUrl },
+  );
 }

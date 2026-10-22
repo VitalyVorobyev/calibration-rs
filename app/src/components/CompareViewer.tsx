@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useImageData, getPixelLum } from "../hooks/useImageData";
+import { useImageData } from "../hooks/useImageData";
+import { getPixelLum } from "../lib/imagePixels";
 import type {
   CursorReadout,
   FrameKey,

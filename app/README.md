@@ -5,10 +5,31 @@ the results without leaving a GUI. It calls the same solvers as the
 `vision-calibration` crate. For a hands-on tour, see the
 [app chapters of the book](https://vitalyvorobyev.github.io/calibration-rs/app.html).
 
+## Projects
+
+A project keeps a dataset's manifest and its calibration runs together in
+one folder, so the work can be closed and reopened:
+
+```text
+my-project/
+  calibration-project.json   marks the folder as a project; names the dataset folder
+  dataset.json               the dataset manifest
+  runs/run-001/              manifest.json, config.json, export.json, diagnostics.json
+```
+
+The **Project** menu in the header creates one from the dataset the Run
+workspace has loaded (a preset, a sniffed folder or a manifest file), opens
+one, saves the edited manifest, and reopens recent projects. The images can
+stay where they are: the dataset folder may be the project folder or any
+other. While a project is open, every successful run is saved as the next
+`runs/run-NNN/` (never over an existing run) and the project's runs are
+listed on the left; choosing one loads its export. Opening a folder that is
+not a project is an error, not a guess.
+
 ## Workspaces
 
-Five workspaces, selectable from the left rail; they share the loaded export
-and the selected pose and camera.
+Five workspaces, selectable from the left rail (`⌘1` to `⌘5`); they share
+the loaded export and the selected pose and camera.
 
 - **Run** — configure and launch a calibration end-to-end: pick a dataset
   folder (the app sniffs its layout), fill in the manifest and calibration

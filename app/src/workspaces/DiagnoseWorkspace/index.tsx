@@ -1,29 +1,33 @@
-import { DensityProvider, ErrorBox, Panel, ToggleChip } from "@vitavision/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DensityProvider, ErrorBox, ToggleChip } from "@vitavision/ui";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { CompareViewer, type CompareViewerHandle } from "../../components/CompareViewer";
 import {
   FrameCanvas,
   type FrameCanvasHandle,
   type LaserOverlayData,
 } from "../../components/FrameCanvas";
-import { colorForError, colorForLaserError } from "../../lib/errorColors";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
 import { ZoomControls } from "../../components/ZoomControls";
-import { getPixelLum, rectHistogram, useImageData } from "../../hooks/useImageData";
+import { useImageData } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
-import { useStore } from "../../store";
-import { CameraResidualMatrix } from "./CameraResidualMatrix";
-import { PoseStatsTable } from "./PoseStatsTable";
-import { RoiHistogram } from "./RoiHistogram";
-import { UncertaintyPanels } from "./UncertaintyPanels";
+import {
+  useZoomShortcuts,
+  ZOOM_STEP,
+  type ZoomCommands,
+} from "../../hooks/useZoomShortcuts";
+import { getPixelLum, rectHistogram } from "../../lib/imagePixels";
 import { exportUncertainty } from "../../lib/uncertainty";
+import { useStore } from "../../store";
 import type {
   CursorReadout,
-  FeatureResidualHistogram,
   FrameKey,
   LaserFeatureResidual,
   TargetFeatureResidual,
 } from "../../types";
+import { ResidualStatsPanels } from "./ResidualStatsPanels";
+import { CursorChip, LaserResidualLegend, ResidualLegend } from "./ResidualLegends";
+import { RoiHistogram } from "./RoiHistogram";
+import { UncertaintyPanels } from "./UncertaintyPanels";
 
 const HISTOGRAM_BINS = 64;
 
@@ -181,63 +185,23 @@ export function DiagnoseWorkspace() {
     enabled: data != null,
   });
 
-  // Single-key shortcuts for zoom controls — bound at the window level
-  // so they work without canvas focus; ignored over editable elements.
-  useEffect(() => {
-    if (!data) return;
-    const handler = (e: KeyboardEvent) => {
-      const tgt = e.target as HTMLElement | null;
-      if (
-        tgt &&
-        (tgt.tagName === "INPUT" ||
-          tgt.tagName === "SELECT" ||
-          tgt.tagName === "TEXTAREA" ||
-          tgt.isContentEditable)
-      ) {
-        return;
-      }
-      const fit = () =>
-        compare ? compareHandleRef.current?.fitActive() : canvasHandleRef.current?.fit();
-      const oneToOne = () =>
-        compare
-          ? compareHandleRef.current?.reset1to1Active()
-          : canvasHandleRef.current?.reset1to1();
-      const zoom = (factor: number) =>
-        compare
-          ? compareHandleRef.current?.zoomActiveBy(factor)
-          : canvasHandleRef.current?.zoomBy(factor);
-      switch (e.key) {
-        case "f":
-        case "F":
-          fit();
-          e.preventDefault();
-          break;
-        case "1":
-          oneToOne();
-          e.preventDefault();
-          break;
-        case "+":
-        case "=":
-          zoom(1.25);
-          e.preventDefault();
-          break;
-        case "-":
-        case "_":
-          zoom(1 / 1.25);
-          e.preventDefault();
-          break;
-        case "l":
-        case "L":
-          if (compare) {
-            setLinked((v) => !v);
-            e.preventDefault();
-          }
-          break;
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [data, compare]);
+  // Zoom acts on the active compare pane, or on the single frame view.
+  const zoom: ZoomCommands = {
+    fit: () =>
+      compare ? compareHandleRef.current?.fitActive() : canvasHandleRef.current?.fit(),
+    oneToOne: () =>
+      compare
+        ? compareHandleRef.current?.reset1to1Active()
+        : canvasHandleRef.current?.reset1to1(),
+    zoomBy: (factor) =>
+      compare
+        ? compareHandleRef.current?.zoomActiveBy(factor)
+        : canvasHandleRef.current?.zoomBy(factor),
+  };
+  useZoomShortcuts(zoom, {
+    enabled: data != null,
+    onLink: compare ? () => setLinked((v) => !v) : undefined,
+  });
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -255,26 +219,10 @@ export function DiagnoseWorkspace() {
         {data && (
           <ZoomControls
             hints
-            onFit={() =>
-              compare
-                ? compareHandleRef.current?.fitActive()
-                : canvasHandleRef.current?.fit()
-            }
-            onOneToOne={() =>
-              compare
-                ? compareHandleRef.current?.reset1to1Active()
-                : canvasHandleRef.current?.reset1to1()
-            }
-            onZoomIn={() =>
-              compare
-                ? compareHandleRef.current?.zoomActiveBy(1.25)
-                : canvasHandleRef.current?.zoomBy(1.25)
-            }
-            onZoomOut={() =>
-              compare
-                ? compareHandleRef.current?.zoomActiveBy(1 / 1.25)
-                : canvasHandleRef.current?.zoomBy(1 / 1.25)
-            }
+            onFit={zoom.fit}
+            onOneToOne={zoom.oneToOne}
+            onZoomIn={() => zoom.zoomBy(ZOOM_STEP)}
+            onZoomOut={() => zoom.zoomBy(1 / ZOOM_STEP)}
           />
         )}
         {data && (
@@ -387,32 +335,16 @@ export function DiagnoseWorkspace() {
                 />
               )}
               {showStats && hasStats && (
-                <>
-                  <Panel
-                    title="Per-pose residuals"
-                    actions={
-                      <span className="font-mono text-[10px] text-fg-muted">
-                        click a row to jump
-                      </span>
-                    }
-                  >
-                    <PoseStatsTable
-                      residuals={targetResiduals}
-                      selectedPose={selectedPose}
-                      onSelectPose={(pose) => setSelectedPose(pose, "A")}
-                    />
-                  </Panel>
-                  {/* Renders nothing (not even its panel) for a single-camera export. */}
-                  <CameraResidualMatrix
-                    residuals={targetResiduals}
-                    selectedPose={selectedPose}
-                    selectedCamera={cameraA}
-                    onSelect={(pose, camera) => {
-                      setSelectedPose(pose, "A");
-                      setCamera(camera, "A");
-                    }}
-                  />
-                </>
+                <ResidualStatsPanels
+                  residuals={targetResiduals}
+                  selectedPose={selectedPose}
+                  selectedCamera={cameraA}
+                  onSelectPose={(pose) => setSelectedPose(pose, "A")}
+                  onSelectFrame={(pose, camera) => {
+                    setSelectedPose(pose, "A");
+                    setCamera(camera, "A");
+                  }}
+                />
               )}
             </aside>
           </DensityProvider>
@@ -453,101 +385,5 @@ export function DiagnoseWorkspace() {
         </div>
       )}
     </section>
-  );
-}
-
-function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
-  return (
-    <span className="inline-flex min-w-[12rem] items-center gap-2 rounded-control border border-line bg-surface px-2 py-1 font-mono text-[11px] text-fg-muted">
-      <span className="uppercase tracking-wider">cursor</span>
-      {cursor ? (
-        <span className="text-fg tabular-nums">
-          ({cursor.x.toFixed(0)}, {cursor.y.toFixed(0)})
-          {cursor.intensity != null ? ` · I=${cursor.intensity}` : ""}
-        </span>
-      ) : (
-        <span>—</span>
-      )}
-    </span>
-  );
-}
-
-function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
-  const errs = residuals
-    .map((r) => r.error_px)
-    .filter((e): e is number => typeof e === "number");
-  const mean = errs.length > 0 ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
-  const max = errs.length > 0 ? Math.max(...errs) : 0;
-  const diverged = residuals.length - errs.length;
-  return (
-    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-fg-muted">
-      <span>features {residuals.length}</span>
-      <span>diverged {diverged}</span>
-      <span>mean {mean.toFixed(3)} px</span>
-      <span>max {max.toFixed(3)} px</span>
-      <span className="flex items-center gap-2">
-        <Swatch err={0.5} label="<1" />
-        <Swatch err={1.5} label="<2" />
-        <Swatch err={3} label="<5" />
-        <Swatch err={7} label="<10" />
-        <Swatch err={20} label="≥10" />
-      </span>
-    </div>
-  );
-}
-
-function LaserResidualLegend({
-  residuals,
-  hist,
-}: {
-  residuals: LaserFeatureResidual[];
-  hist?: FeatureResidualHistogram | null | undefined;
-}) {
-  const mm = residuals
-    .map((r) => r.residual_m)
-    .filter((d): d is number => typeof d === "number")
-    .map((d) => Math.abs(d) * 1e3);
-  const mean = mm.length > 0 ? mm.reduce((a, b) => a + b, 0) / mm.length : 0;
-  const max = mm.length > 0 ? Math.max(...mm) : 0;
-  const missed = residuals.length - mm.length;
-  return (
-    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-fg-muted">
-      <span>laser pts {residuals.length}</span>
-      <span>no-intersect {missed}</span>
-      <span>mean {mean.toFixed(3)} mm</span>
-      <span>max {max.toFixed(3)} mm</span>
-      {hist && <span>cam px-mean {hist.mean.toFixed(3)}</span>}
-      <span className="flex items-center gap-2">
-        <LaserSwatch mm={0.1} label="<0.2" />
-        <LaserSwatch mm={0.3} label="<0.5" />
-        <LaserSwatch mm={0.7} label="<1" />
-        <LaserSwatch mm={1.5} label="<2" />
-        <LaserSwatch mm={3} label="≥2" />
-      </span>
-    </div>
-  );
-}
-
-function LaserSwatch({ mm, label }: { mm: number; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span
-        className="inline-block h-2 w-2 rounded-[2px]"
-        style={{ background: colorForLaserError(mm) }}
-      />
-      {label}
-    </span>
-  );
-}
-
-function Swatch({ err, label }: { err: number; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span
-        className="inline-block h-2 w-2 rounded-[2px]"
-        style={{ background: colorForError(err) }}
-      />
-      {label}
-    </span>
   );
 }

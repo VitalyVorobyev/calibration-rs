@@ -209,16 +209,10 @@ takes or returns a covariance. Open with an ADR on the BA layering:
 
 ## App (alongside)
 
-The frontend is rebuilt on the `@vitavision/workbench` shell. The Rust
-backend and the generated IPC types stay, and the existing views are ported
-into the new structure. ADR 0014 is rewritten with APP-SHELL.
+The app runs on the `@vitavision/workbench` shell with project folders and
+asset-protocol images (ADR 0014); the five workspaces are ported as they
+were. What is left reorganizes them around the project.
 
-- [ ] APP-SHELL - Workbench app shell and current `@vitavision/*` versions:
-  - a project-folder model (manifest plus `runs/<name>/`, saved and
-    reopened);
-  - images over Tauri's asset protocol instead of base64 over IPC;
-  - workspace modules split to a reviewable size (`RunWorkspace` is
-    1,265 lines today).
 - [ ] APP-IA - Organize the app as Project → Dataset → Detect → Calibrate →
   Diagnose → Use.
   - **Dataset:** a per-camera × pose image grid.
@@ -229,7 +223,7 @@ into the new structure. ADR 0014 is rewritten with APP-SHELL.
   - **Use:** undistort and rectify, epipolar, depth, and measurement
     with σ.
   - Also covers empty states and the fail-fast error surfaces. Gate: a
-    frontend review with no high-severity findings. Needs: APP-SHELL.
+    frontend review with no high-severity findings.
 - [ ] APP-SAVE-REPORT - Save the export and a self-contained HTML report
   (parameters, σ, quality verdicts, residual plots) from a run.
 - [ ] LIB-PROGRESS - An iteration observer and a cancellation token through
