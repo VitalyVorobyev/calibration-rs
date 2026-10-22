@@ -13,12 +13,6 @@ from measured feature noise, and a quality verdict built on it. Design:
 ADR 0026; evidence: `notes/uncertainty.md`. Items that change results
 need their measurement first and stay opt-in until it is in.
 
-- [ ] UQ-JOINT-LASER-TRUTH - `synth_rig_handeye_laserline`, the joint rig
-  hand-eye laserline solve (no robust loss), lands `cam1.cam_se3_rig.rx`
-  4.5σ from its truth, where the other synthetic entries stay within 2.2σ.
-  Find the cause (model mismatch between the line-distance residual and the
-  generator's pixel noise, family weighting, or a σ that misses a
-  correlation) before trusting the joint covariance.
 - [ ] UQ-PRIOR-WEIGHTS - Robot-pose refinement weighs pixel residuals at
   unit σ against the priors' `sqrt_info`, so with sub-pixel corners the
   priors are far too weak: on `kuka_1` (σ̂ 0.11 px) the robot-pose deltas
@@ -28,20 +22,6 @@ need their measurement first and stay opt-in until it is in.
   scenes; results change, so it needs a migration note. Today σ reflects
   the priors, not the data: on `kuka_1` our intrinsics σ is 1.4–2.8×
   OpenCV's, which takes the robot poses as exact.
-- [ ] UQ-RIG-INTRINSICS - Rig and rig hand-eye results hold the per-camera
-  intrinsics fixed in their final solve by default, so their covariance has
-  no intrinsics block and the extrinsics' σ is conditional on them. Decide:
-  refine intrinsics in the final solve by default (results change), or
-  report the per-camera intrinsics stage covariance alongside (loses the
-  intrinsics–extrinsics correlation, which MVG-TRI-COV needs). Measure both
-  on `stereo_rig` and `ds8`. How optimistic the conditional σ is: on
-  `stereo_rig` the backends' intrinsics differ by 0.006σ(fx), which moves
-  `cam1.cam_se3_rig.tz` by 0.4 of its conditional σ, so
-  `suite check --backend factrs --sigma 1` passes only by that margin; with
-  the intrinsics in the covariance it should tighten to about 0.05σ. Also
-  drop `fix_poses: vec![0]` from the per-camera Scheimpflug stage of
-  `rig_extrinsics/steps.rs` and `rig_handeye/steps.rs` (the single-camera
-  Scheimpflug default does not fix a view).
 - [ ] UQ-FEATURE-COV - Per-feature 2×2 covariance from the detector to the
   covariance of the result. σ̂ today is one pooled, isotropic value per
   residual family. Steps:
@@ -114,7 +94,7 @@ scenes are the gate) and the regression suite.
   on `small/n0.1/clean` (0.141 px, objective 33.4 → 10.1) but leaves the
   principal point 60 px and the tilt 4° off, so the pin is one cause and
   the tilt / principal-point trade-off the other.
-  Gate: `rig_extrinsics/scheimpflug/*/clean` at the noise floor.
+  Gate: `rig_extrinsics/scheimpflug/*/clean` at the noise floor, with no view held.
 
 ## Camera models (Phase 2)
 
@@ -168,7 +148,7 @@ takes or returns a covariance. Open with an ADR on the BA layering:
   Derived quantities (distances, angles, plane fits) propagate σ jointly
   and keep the cross-covariance the shared calibration induces between
   points. Gate: Monte-Carlo over pixel noise and calibration samples.
-  Needs: MVG-OBS, UQ-RIG-INTRINSICS.
+  Needs: MVG-OBS.
 - [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
   and the laser-plane covariance. Needs: MVG-TRI-COV.
 - [ ] MVG-BA - Bundle adjustment on the optimization IR:

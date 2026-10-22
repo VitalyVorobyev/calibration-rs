@@ -140,10 +140,10 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
 
     let export = session.export().unwrap();
 
-    // The rig solve holds each camera's intrinsics fixed, so the result has
-    // no covariance to project.
-    let err = export.projection_uncertainty(1, [640, 480]).unwrap_err();
-    assert!(err.to_string().contains("held them fixed"), "{err}");
+    // The rig solve refines each camera's intrinsics, so the result carries
+    // their covariance and projects it.
+    let map = export.projection_uncertainty(1, [640, 480]).unwrap();
+    assert!(map.max.is_finite() && map.max > 0.0, "{map:?}");
 
     // JSON round-trip.
     let json = serde_json::to_string(&export).unwrap();

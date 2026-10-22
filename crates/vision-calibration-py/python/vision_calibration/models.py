@@ -144,7 +144,9 @@ class RigConfig:
     """
 
     reference_camera_idx: int = 0
-    refine_intrinsics: bool = False
+    #: Refine each camera's intrinsics jointly with the rig (default), so the
+    #: result's covariance includes them.
+    refine_intrinsics: bool = True
     #: Also refine each tilted camera's sensor tilt in the rig bundle
     #: adjustment (no effect for untilted cameras).
     refine_sensor: bool = False
@@ -765,18 +767,20 @@ class HandeyeOptimizeConfig:
     """Final hand-eye optimization options (the ``handeye_optimize`` group of
     :class:`RigHandeyeConfig`).
 
-    ``robot_poses`` sets robot-pose refinement; ``refine_cam_se3_rig`` also
-    refines the rig extrinsics, and ``refine_sensor`` each tilted camera's
-    sensor tilt.
+    ``robot_poses`` sets robot-pose refinement; ``refine_intrinsics``
+    (default) refines each camera's intrinsics, ``refine_cam_se3_rig`` the rig
+    extrinsics, and ``refine_sensor`` each tilted camera's sensor tilt.
     """
 
     robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
+    refine_intrinsics: bool = True
     refine_cam_se3_rig: bool = False
     refine_sensor: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "robot_poses": self.robot_poses.to_payload(),
+            "refine_intrinsics": bool(self.refine_intrinsics),
             "refine_cam_se3_rig": bool(self.refine_cam_se3_rig),
             "refine_sensor": bool(self.refine_sensor),
         }
@@ -791,7 +795,7 @@ class HandeyeOptimizeConfig:
                     if isinstance(value, RobotPoseConfig)
                     else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
-            elif key in ("refine_cam_se3_rig", "refine_sensor"):
+            elif key in ("refine_intrinsics", "refine_cam_se3_rig", "refine_sensor"):
                 setattr(cfg, key, bool(value))
             else:
                 raise ValueError(f"unknown HandeyeOptimizeConfig field: {key}")

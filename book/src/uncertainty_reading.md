@@ -72,10 +72,10 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   defines the rig frame. A fixed pose is named once, without its six
   coordinates. The covariance is *conditional* on them: it does not include
   their uncertainty, so fixing a parameter that the data cannot pin down
-  makes the others look better determined than they are. The rig and rig
-  hand-eye workflows, for example, calibrate each camera's intrinsics first
-  and by default hold them fixed in the final solve, so their extrinsics'
-  σ leaves out the intrinsics' uncertainty.
+  makes the others look better determined than they are. Holding the
+  intrinsics in a rig's final solve (`rig.refine_intrinsics: false`), for
+  example, leaves their uncertainty out of the extrinsics' σ; by default the
+  rig workflows refine them there.
 - **`noise`**: for each kind of residual, the Gaussian-equivalent standard
   deviation of one scalar residual. For reprojection that is the corner noise
   per pixel axis; for the laser, the line distance in pixels or the

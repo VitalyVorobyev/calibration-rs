@@ -48,11 +48,13 @@ Reading the map:
   Scheimpflug camera shows this strongly: its sensor tilt and principal point
   trade off, so σ of `cx` and `cy`, and with them the whole map, can be
   several pixels while the corners still reproject to a fraction of one.
-- **Conditional.** Parameters the final solve held fixed count as exact. The
-  rig and rig hand-eye workflows hold each camera's intrinsics fixed in their
-  final solve by default, so their results have no covariance to project and
-  the call returns an error saying so; with `rig.refine_intrinsics`
-  set, the final solve estimates them and each camera has its map.
+- **Conditional.** Parameters the final solve held fixed count as exact.
+  The rig and rig hand-eye workflows refine each camera's intrinsics in
+  their final solve by default, so each camera has its map; with
+  `rig.refine_intrinsics` (or the rig hand-eye's
+  `handeye_optimize.refine_intrinsics`) set to `false` the intrinsics are
+  held, the result has no covariance to project and the call returns an
+  error saying so.
 - **The image size matters.** Pass the size of the images the camera was
   calibrated on. Nodes beyond the area the views covered are extrapolated
   through the distortion, and far outside the field of view σ grows without

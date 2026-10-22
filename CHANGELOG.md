@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Rig results refine each camera's intrinsics jointly with the rig by
+  default: `rig.refine_intrinsics` (rig extrinsics, rig hand-eye) and the new
+  `handeye_optimize.refine_intrinsics` (rig hand-eye's final solve) default
+  to `true`. The covariance of a rig result then includes the intrinsics and
+  their correlation with the extrinsics, and projection uncertainty works for
+  rigs. With the intrinsics held, the extrinsics' standard deviations were
+  conditional on them: on the synthetic rig the held estimate lay 31σ from the
+  truth in those units, the joint one lies within 2.1σ. Results change: on
+  the public stereo rig camera 0's focal length moves by 12 px (5σ) and the
+  baseline's depth component by 9 mm, and the mean reprojection error drops
+  from 0.2544 to 0.2509 px; `ds8` from 0.2961 to 0.2900 px. Set
+  `rig.refine_intrinsics` and `handeye_optimize.refine_intrinsics` to
+  `false` for the previous results.
+
 - Breaking: one naming scheme across the seven problem types, identical in
   Rust, Python, the JSON config schemas and the app. Each problem module
   exports `<Name>Problem`, `<Name>Input` (a type alias where the data is a

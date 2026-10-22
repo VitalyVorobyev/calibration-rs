@@ -257,7 +257,8 @@ def prefixed(i: int, values: dict[str, float]) -> dict[str, float]:
 def rig_extrinsics(entry: dict[str, Any], obs: dict[str, Any]) -> dict[str, Any]:
     views = obs["input"]["views"]
     cams = rig_cameras(obs)
-    refine = bool(entry.get("config", {}).get("rig", {}).get("refine_intrinsics"))
+    # The rig refines intrinsics jointly unless the entry's config says not to.
+    refine = entry.get("config", {}).get("rig", {}).get("refine_intrinsics", True) is not False
     parameters: dict[str, float] = {}
     sigma: dict[str, float] = {}
     poses = {"cam0.cam_se3_rig": to_pose(np.eye(4))}

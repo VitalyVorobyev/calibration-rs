@@ -195,7 +195,7 @@
           "type": "integer"
         },
         "refine_intrinsics": {
-          "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
+          "description": "Refine per-camera intrinsics and distortion jointly with the rig in\nits bundle adjustment, holding the camera's `fix` lists. Default:\n`true`. Each camera's solve fits them from its own views only; the\njoint solve is the estimate that uses every view, and its covariance\ncarries the intrinsics and their correlation with the extrinsics.\nHeld fixed, the extrinsics' standard deviations are conditional on\nthe intrinsics and understate the uncertainty (several-fold on real\nstereo rigs).",
           "type": "boolean"
         },
         "refine_sensor": {

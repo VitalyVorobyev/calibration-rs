@@ -140,9 +140,10 @@ class ResultUncertaintyTest(unittest.TestCase):
         result = vc.run_rig_extrinsics(dataset)
         u = result.uncertainty
         self.assertTrue(u.available, u.reason)
-        # The final rig solve holds the intrinsics fixed by default.
-        with self.assertRaisesRegex(ValueError, "held them fixed"):
-            vc.projection_uncertainty(result, (1024, 576), camera=1)
+        # The final rig solve refines the intrinsics by default, so each
+        # camera has a projection map.
+        projection = vc.projection_uncertainty(result, (1024, 576), camera=1)
+        self.assertGreater(projection.max, 0.0)
         self.assertIn("cam1.cam_se3_rig.tx", u.labels)
         self.assertIn("cam0.cam_se3_rig", u.fixed)
         self.assertLess(u.std_dev("cam1.cam_se3_rig.tx"), 1e-3)

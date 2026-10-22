@@ -266,6 +266,10 @@
           "description": "Refine cam_se3_rig in hand-eye BA (default: false).\nWhen true, rig extrinsics are further refined during hand-eye optimization.",
           "type": "boolean"
         },
+        "refine_intrinsics": {
+          "description": "Refine each camera's intrinsics and distortion in the hand-eye BA,\nholding the camera's `fix` lists. Default: `true`, for the reason\ngiven on `rig.refine_intrinsics`: the final solve's covariance then\nincludes the intrinsics.",
+          "type": "boolean"
+        },
         "refine_sensor": {
           "default": false,
           "description": "Refine the sensor tilt of each Scheimpflug camera in hand-eye BA,\nholding its `fix.sensor` list (default: false). Cameras with an\nuntilted sensor have no tilt.",
@@ -278,6 +282,7 @@
       },
       "required": [
         "robot_poses",
+        "refine_intrinsics",
         "refine_cam_se3_rig"
       ],
       "type": "object"
@@ -368,7 +373,7 @@
           "type": "integer"
         },
         "refine_intrinsics": {
-          "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
+          "description": "Refine per-camera intrinsics and distortion jointly with the rig in\nits bundle adjustment, holding the camera's `fix` lists. Default:\n`true`. Each camera's solve fits them from its own views only; the\njoint solve is the estimate that uses every view, and its covariance\ncarries the intrinsics and their correlation with the extrinsics.\nHeld fixed, the extrinsics' standard deviations are conditional on\nthe intrinsics and understate the uncertainty (several-fold on real\nstereo rigs).",
           "type": "boolean"
         },
         "refine_sensor": {

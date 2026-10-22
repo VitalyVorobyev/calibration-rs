@@ -1741,12 +1741,11 @@ pub fn step_handeye_optimize(
         .initial_mode_target_pose
         .ok_or_else(|| Error::not_available("initial mode target pose"))?;
 
-    // Don't refine intrinsics in final BA; a tilt is refined on request.
     let fix = (0..input.num_cameras)
         .map(|i| {
             rig_ba_fix(
                 &config.camera_for(i),
-                false,
+                config.handeye_optimize.refine_intrinsics,
                 config.handeye_optimize.refine_sensor,
             )
         })

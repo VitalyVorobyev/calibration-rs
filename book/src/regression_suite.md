@@ -227,8 +227,8 @@ our σ:
 | `kuka_1` | opencv 4.12.0 | 20 | 4.44σ (`base_se3_target.rz`) | 1.77σ | 1.356–2.845 | 0.1359 / 2.2545 px | — |
 | `stereo_left` | opencv 4.12.0 | 8 | 0.02σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2339 / 0.2339 px | — |
 | `stereo_right` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2442 / 0.2442 px | — |
-| `stereo_rig` | opencv 4.12.0 | 6 | 0.42σ (`cam1.cam_se3_rig.tz`) | 0.02σ | — | — | — |
-| `ds8` | opencv 4.12.0 | 12 | 6.80σ (`gripper_se3_rig.ry`) | 3.98σ | — | — | — |
+| `stereo_rig` | opencv 4.12.0 | 22 | 7.22σ (`cam1.cam_se3_rig.tz`) | 1.15σ | — | — | — |
+| `ds8` | opencv 4.12.0 | 36 | 18.27σ (`cam2.p2`) | 2.06σ | 0.395–1.801 | — | — |
 | `synth_planar` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.00σ | 1.000–1.000 | 0.6570 / 0.6570 px | 1.87σ / 1.86σ |
 | `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
 | `synth_handeye` | opencv 4.12.0 | 20 | 0.92σ (`k2`) | 0.17σ | 0.791–1.012 | 0.6593 / 0.7521 px | 0.87σ / 1.12σ |
@@ -248,8 +248,16 @@ Reading it:
   measured poses), and the standard deviations include what the robot-pose
   freedom costs. OpenCV takes the robot poses as exact. On the synthetic
   hand-eye entry, whose robot poses are exact, both land near the truth.
-- `ds8` is a three-camera rig; OpenCV calibrates camera 0's hand-eye alone,
-  so the difference includes what the other two cameras add.
+- Rig results refine each camera's intrinsics jointly with the rig, from
+  every view of every camera. On `stereo_rig` OpenCV's `stereoCalibrate`
+  refines them too, but from the views both cameras see; the two estimates
+  differ by up to 7σ, along the coupling between camera 0's focal length and
+  camera 1's depth offset. On the synthetic rig the joint estimate lands
+  within 2.1σ of the truth.
+- `ds8` is a three-camera rig; OpenCV calibrates each camera's intrinsics
+  alone and camera 0's hand-eye alone, while ours refines all three cameras
+  with the rig and the hand-eye, so the difference includes what the joint
+  solve moves.
 
 ## Drift tolerance
 
@@ -262,10 +270,7 @@ the result must match exactly.
 With `--sigma k`, a parameter passes when its change is within `k` of the
 reference's standard deviations. A pose's change is measured as the right
 perturbation `T_ref⁻¹ · T` in the coordinates of its covariance. The two
-solver backends agree within 0.02σ on the other entries; on
-`stereo_rig` the rig extrinsics differ by up to 0.5σ, because that σ is
-conditional on the per-camera intrinsics the rig solve holds fixed, and the
-backends' intrinsics differ by 0.006σ of their own.
+solver backends agree within 0.02σ on every entry.
 
 ## Adding an entry
 
