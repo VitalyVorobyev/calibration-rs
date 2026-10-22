@@ -116,6 +116,7 @@ class RigCameraConfigSchemaTest(unittest.TestCase):
             payload["handeye_optimize"],
             {
                 "robot_poses": payload["handeye_optimize"]["robot_poses"],
+                "refine_intrinsics": True,
                 "refine_cam_se3_rig": False,
                 "refine_sensor": False,
             },
