@@ -301,6 +301,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `compute_laserline_feature_residuals` /
   `compute_rig_laserline_feature_residuals` return `LaserResidualRecords`
   (`features`, `lines`) instead of the record list.
+- A `single_cam_handeye` or rig manifest with a plain chessboard target
+  whose views of one camera are all partial or turned by 90° now fails with
+  the new `RunError::NoWholeChessboardViews` instead of calibrating a moved
+  target frame; capture the whole board, or switch to a ChArUco or
+  PuzzleBoard target. Add an arm for the variant to exhaustive matches on
+  `RunError`. `detector.min_features_per_view = rows × cols` is no longer
+  needed to keep only complete boards and can be removed.
 
 ### Added
 
@@ -581,9 +588,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the view's laser pixels, which distortion bends.
 - **`detector.min_features_per_view` applies to every topology.** Rig,
   hand-eye and laser manifests drop views below the floor, as planar ones
-  do. Set it to a chessboard's corner count to keep only complete boards,
-  which rig and hand-eye problems need: a partial plain chessboard is
-  labelled from its own top-left corner and moves the target frame.
+  do.
+- **Hand-eye and rig manifests keep a plain chessboard view only when it
+  spans the whole board.** A plain chessboard has no markers, so each
+  detection is labelled from its own top-left corner. Where views share one
+  target frame (`single_cam_handeye` and every rig topology), a partial
+  board, or one seen turned by 90°, moved that frame: on a three-camera
+  hand-eye rig, keeping partial boards raised the worst camera's mean
+  reprojection error from 0.29 px to 4.7 px. The dataset runner now keeps such a view only when its
+  corners reach all four edges of the board, `cols` across and `rows` down;
+  interior corners the detector missed do not matter. `planar_intrinsics`
+  and `laserline_device` estimate one target pose per view and still keep
+  partial boards; ChArUco, PuzzleBoard and ring-grid targets are labelled
+  by their codes and are unaffected. Every `*RunResult` lists the
+  detections it left out in `rejected` (`RejectedDetection`: camera, image,
+  `RejectReason::{TooFewFeatures, PartialChessboard, TurnedChessboard}`),
+  and a camera left with no whole-board view fails with
+  `RunError::NoWholeChessboardViews` before any solve. In Python the run
+  results carry `rejected` as `dataset_runner.RejectedDetection` with the
+  reason in snake case, and the error is `RunError` with `kind`
+  `"no_whole_chessboard_views"`. A board seen upside
+  down, or a square board seen turned by 90°, cannot be told from an
+  upright one: capture the board the same way up in every view, or use a
+  ChArUco or PuzzleBoard target for partial views.
 - **Rotation updates exact at every step size.** The solver retracts SE(3)
   and quaternion parameters through tiny-solver's rotation exponential,
   which is now accurate to machine precision for small steps and keeps its

@@ -203,10 +203,22 @@ pub enum LaserScanAxis {
 pub enum TargetSpec {
     /// Standard checkerboard. Counts are interior corners
     /// (i.e. `9x6` ⇒ a 10×7 black-and-white square grid).
+    ///
+    /// A plain chessboard has no markers: each view is labelled from the
+    /// detection's own top-left corner. Where views share one target frame
+    /// (single-camera hand-eye and every rig topology) the runner therefore
+    /// keeps a view only when its corners reach every edge of the board,
+    /// `cols` across and `rows` down; partial or turned views are dropped.
+    /// The board must also appear the same way up in every image — a board
+    /// seen upside down, or a square board seen turned by 90°, labels
+    /// consistently and cannot be told apart. Use a ChArUco or PuzzleBoard
+    /// target to calibrate a shared frame from partial views.
     Chessboard {
-        /// Number of interior corners along the rows axis.
+        /// Number of interior corners down the board (the image's rows
+        /// axis when the board is seen as declared).
         rows: u32,
-        /// Number of interior corners along the cols axis.
+        /// Number of interior corners across the board (the image's
+        /// columns axis when the board is seen as declared).
         cols: u32,
         /// Edge length of one square in metres.
         square_size_m: f64,
@@ -276,10 +288,9 @@ pub struct DetectorSpec {
     /// view) to be kept, in every topology. `None` keeps the runner default
     /// (4, the homography minimum). Raise it for detectors whose sparse
     /// detections are unreliable — e.g. ring-grid decodes with < 8 markers
-    /// are noisy enough to poison a solve. Set it to a plain chessboard's
-    /// corner count (`rows × cols`) to keep only complete boards: rig and
-    /// hand-eye views share one target frame, and a partial chessboard is
-    /// labelled from its own top-left corner.
+    /// are noisy enough to poison a solve. A plain chessboard needs no
+    /// floor to stay consistent: where views share one target frame the
+    /// runner already keeps only views that span the whole board.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_features_per_view: Option<usize>,
 }

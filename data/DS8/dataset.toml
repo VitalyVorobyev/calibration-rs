@@ -9,10 +9,11 @@
 # robot base in the gripper frame, in millimetres. The board is 10×14
 # interior corners of 52 mm (`calibration_object.txt`).
 #
-# Only complete boards are kept (`min_features_per_view = 140`): a plain
-# chessboard detection labels its corners from the detection's own
-# top-left corner, so a partial board would shift the target frame
-# between views.
+# Only complete boards are kept (`min_features_per_view = 140`). The runner
+# already drops boards that do not reach every edge, as a plain chessboard
+# labels its corners from the detection's own top-left corner; the floor
+# also drops boards that reach every edge but miss a corner (two views each
+# of camera0 and camera2), the set the regression reference was frozen from.
 
 version = 1
 topology = "rig_handeye"

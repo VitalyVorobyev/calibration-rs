@@ -122,15 +122,6 @@ scenes are the gate) and the regression suite.
   keeps intrinsics fixed, so it cannot recover; the single-camera Scheimpflug
   problem reaches the floor on comparable data (principal point 1.4 px).
   Gate: `rig_extrinsics/scheimpflug/*/clean` at the noise floor.
-- [ ] Q-CHESS-SHARED-FRAME - A plain chessboard detection labels corners
-  from the detection's own top-left corner, and accepts a board seen turned
-  by 90° with its labels rotated. Where views share one target frame (rig
-  and hand-eye topologies) a partial or turned board therefore moves the
-  target frame between views or cameras: DS8 with partial boards kept
-  reprojects at 4.5 px instead of 0.26 px. Manifests can keep complete boards
-  only (`detector.min_features_per_view` = corner count); make the shared-
-  frame topologies reject inconsistent plain-chessboard labelings by default
-  (complete and in the declared orientation) and say so in the manifest docs.
 
 ## Camera models (Phase 2)
 

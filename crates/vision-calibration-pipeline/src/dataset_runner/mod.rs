@@ -17,6 +17,23 @@
 //!   *injected* via the open [`LaserPixelExtractor`] trait because the
 //!   reference implementation (`vision-metrology`) is not on crates.io.
 //!
+//! Every converter screens each target detection the same way, and lists
+//! the ones it leaves out in its result's `rejected` field, each with a
+//! [`RejectReason`]:
+//! - a detection with fewer features than the per-view floor (4, or the
+//!   manifest's `detector.min_features_per_view`) is left out;
+//! - in a topology whose views share one target frame (single-camera
+//!   hand-eye and every rig topology), a plain chessboard detection is kept
+//!   only when it spans the whole board as declared: corners on every edge,
+//!   `cols` across and `rows` down. The detector labels a view from its own
+//!   top-left corner, so a partial board, or a board seen turned by 90°,
+//!   would move the shared frame. Self-identifying targets (ChArUco,
+//!   PuzzleBoard, ring grid) label partial views absolutely and are kept.
+//!
+//! A camera left with no usable view is an error before any solve:
+//! [`RunError::NoWholeChessboardViews`] when the whole-board rule rejected
+//! any of its views, [`RunError::InsufficientUsableViews`] otherwise.
+//!
 //! Any ambiguity that cannot be auto-resolved at
 //! conversion time is surfaced as a [`RunError::AskUser`] event so
 //! the UI can prompt the user instead of silently guessing.
@@ -43,6 +60,7 @@ mod pairing;
 mod planar;
 mod poses;
 mod rig;
+mod view_filter;
 
 pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
 pub use laser::{
@@ -53,6 +71,7 @@ pub use laser::{
 pub use pairing::PairedViews;
 pub use planar::{PlanarRunResult, build_planar_input};
 pub use rig::{RigRunResult, build_rig_extrinsics_input, build_rig_handeye_input};
+pub use view_filter::{RejectReason, RejectedDetection};
 
 /// Errors produced by the dataset-driven runner.
 #[derive(Debug, Error)]
@@ -212,6 +231,33 @@ pub enum RunError {
         total: usize,
     },
 
+    /// Every view of a camera was rejected, at least one of them because a
+    /// plain chessboard was not seen whole in its declared orientation.
+    ///
+    /// The views of this topology share one target frame, and a plain
+    /// chessboard detection labels its corners from its own top-left
+    /// corner, so only a detection that reaches every edge of the board,
+    /// seen as declared (`cols` corners across, `rows` down), places that
+    /// frame. A target with coded corners (ChArUco, PuzzleBoard) is labelled
+    /// absolutely in partial views.
+    #[error(
+        "camera {camera_id:?}: no view shows the whole chessboard as declared \
+         ({partial} partial, {turned} turned by 90°, of {total}); views of this \
+         topology share one target frame, which a plain chessboard places only \
+         when every edge of it is detected — capture the whole board, or use a \
+         ChArUco or PuzzleBoard target for partial views"
+    )]
+    NoWholeChessboardViews {
+        /// Camera id.
+        camera_id: String,
+        /// Views rejected because the board was partly out of view.
+        partial: usize,
+        /// Views rejected because the board was seen turned by 90°.
+        turned: usize,
+        /// Total number of views attempted.
+        total: usize,
+    },
+
     /// Laser images could not be aligned with target views (count
     /// mismatch under `by_index`, or a laser filename token with no
     /// matching target view).
@@ -281,17 +327,6 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
         threshold_value,
         min_corner_strength,
     }
-}
-
-/// Per-view feature floor: the homography minimum (4), raised by the
-/// manifest's `detector.min_features_per_view` — for detectors whose sparse
-/// detections are unreliable, or to keep only complete boards.
-fn min_features_per_view(spec: &DatasetSpec) -> usize {
-    spec.detector
-        .as_ref()
-        .and_then(|d| d.min_features_per_view)
-        .unwrap_or(4)
-        .max(4)
 }
 
 fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value), RunError> {

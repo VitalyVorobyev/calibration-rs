@@ -8,8 +8,9 @@ use vision_calibration_dataset::{DatasetSpec, Topology, validate};
 use vision_calibration_detect::DetectionCache;
 
 use super::{
-    RunError, augment_config_with_roi, detect_features, expand_camera_images, features_to_view,
-    min_features_per_view, pattern_repr, pick_detector, target_to_detector_config,
+    RejectedDetection, RunError, augment_config_with_roi, detect_features, expand_camera_images,
+    features_to_view, pattern_repr, pick_detector, target_to_detector_config,
+    view_filter::{ViewFilter, no_usable_views},
 };
 
 /// Convert a single-camera planar manifest + cache into the existing
@@ -54,10 +55,11 @@ pub fn build_planar_input(
 
     let mut views: Vec<View<NoMeta>> = Vec::new();
     let mut view_paths: Vec<PathBuf> = Vec::new();
+    let mut rejected: Vec<RejectedDetection> = Vec::new();
     let mut usable = 0usize;
     let total = images.len();
 
-    let min_features = min_features_per_view(spec);
+    let filter = ViewFilter::for_spec(spec);
 
     // ROI is part of what determines detection output, so it has to be
     // part of the cache key. We splice it into the key-side config and
@@ -77,10 +79,14 @@ pub fn build_planar_input(
             force_redetect,
         )?;
 
-        if features.len() < min_features {
-            // Too few features (below the homography minimum or the
-            // manifest's floor) — drop the view but keep walking so we
-            // can surface a meaningful error if _everything_ failed.
+        if let Err(reason) = filter.check(&features) {
+            // Drop the view but keep walking, so an all-rejected camera
+            // surfaces a meaningful error.
+            rejected.push(RejectedDetection {
+                camera: 0,
+                path: image_path.clone(),
+                reason,
+            });
             continue;
         }
         usable += 1;
@@ -89,11 +95,7 @@ pub fn build_planar_input(
     }
 
     if views.is_empty() {
-        return Err(RunError::InsufficientUsableViews {
-            camera_id: camera.id.clone(),
-            usable,
-            total,
-        });
+        return Err(no_usable_views(spec, 0, &rejected, total));
     }
 
     let dataset = PlanarDataset::new(views).expect(
@@ -107,6 +109,7 @@ pub fn build_planar_input(
         view_paths,
         usable_views: usable,
         total_views: total,
+        rejected,
     })
 }
 
@@ -119,10 +122,12 @@ pub struct PlanarRunResult {
     /// One source image path per accepted view, in the same order.
     /// Used to populate the export's `image_manifest` after the solve.
     pub view_paths: Vec<PathBuf>,
-    /// Number of views where detection produced ≥4 features.
+    /// Number of accepted views.
     pub usable_views: usize,
     /// Total number of images attempted.
     pub total_views: usize,
+    /// The detections left out, in image order, each with its reason.
+    pub rejected: Vec<RejectedDetection>,
 }
 
 #[cfg(test)]
@@ -170,6 +175,37 @@ mod tests {
         let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
         let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
         assert!(matches!(err, RunError::UnsupportedTopology { .. }));
+    }
+
+    #[test]
+    fn planar_intrinsics_keeps_partial_chessboards() {
+        // Each planar view has its own target pose, so a board labelled
+        // from its own top-left corner is as good as a whole one.
+        use vision_calibration_detect::{CacheKey, CachedFeatures, ChessboardDetector, Feature};
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        let config = serde_json::json!({"rows": 9, "cols": 6, "square_size_m": 0.025});
+        // Views showing 9, 5 and 3 of the board's 9 rows.
+        let rel_paths = ["a.png", "b.png", "c.png"];
+        for (rel, rows) in rel_paths.iter().zip([9u32, 5, 3]) {
+            let features: Vec<Feature> = (0..rows)
+                .flat_map(|v| (0..6u32).map(move |u| (u, v)))
+                .map(|(u, v)| Feature {
+                    image_xy: [40.0 * f64::from(u), 40.0 * f64::from(v)],
+                    world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                })
+                .collect();
+            std::fs::write(tmp.path().join(rel), rel.as_bytes()).unwrap();
+            let key = CacheKey::for_detector(rel.as_bytes(), &ChessboardDetector, &config);
+            cache.put(&key, &CachedFeatures { features }).unwrap();
+        }
+        let mut spec = planar_spec_for_globless_test();
+        spec.cameras[0].images = ImagePattern::List {
+            paths: rel_paths.iter().map(PathBuf::from).collect(),
+        };
+        let result = build_planar_input(&spec, tmp.path(), &cache, false).unwrap();
+        assert_eq!((result.usable_views, result.total_views), (3, 3));
+        assert!(result.rejected.is_empty());
     }
 
     #[test]

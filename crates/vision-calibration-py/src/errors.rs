@@ -66,6 +66,7 @@ pub(crate) fn run_error_kind(err: &RustRunError) -> &'static str {
         RustRunError::Cache(_) => "cache",
         RustRunError::AskUser { .. } => "ask_user",
         RustRunError::InsufficientUsableViews { .. } => "insufficient_usable_views",
+        RustRunError::NoWholeChessboardViews { .. } => "no_whole_chessboard_views",
         RustRunError::LaserPairing { .. } => "laser_pairing",
         RustRunError::LaserExtraction { .. } => "laser_extraction",
         RustRunError::InsufficientLaserViews { .. } => "insufficient_laser_views",

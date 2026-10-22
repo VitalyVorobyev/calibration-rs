@@ -40,9 +40,9 @@ use crate::rig_laserline_device::RigLaserlineDeviceInput;
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
-    RunError, augment_config_with_roi, detect_features, expand_camera_images, expand_image_pattern,
-    features_to_obs, min_features_per_view, pattern_repr, pick_detector, rig::build_rig_core,
-    target_to_detector_config,
+    RejectedDetection, RunError, augment_config_with_roi, detect_features, expand_camera_images,
+    expand_image_pattern, features_to_obs, pattern_repr, pick_detector, rig::build_rig_core,
+    target_to_detector_config, view_filter::ViewFilter,
 };
 
 /// Injected laser-line extractor.
@@ -80,11 +80,14 @@ pub struct LaserlineRunResult {
     /// One *laser* image path per accepted view, aligned with
     /// `view_paths`. Not yet rendered anywhere.
     pub laser_paths: Vec<PathBuf>,
-    /// Number of views with ≥4 target features and ≥`min_points`
-    /// laser pixels.
+    /// Number of views with an accepted target detection and
+    /// ≥`min_points` laser pixels.
     pub usable_views: usize,
     /// Total number of paired views attempted.
     pub total_views: usize,
+    /// The target detections left out, in view order, each with its
+    /// reason. Views dropped for their laser frame are not listed.
+    pub rejected: Vec<RejectedDetection>,
 }
 
 /// Result of a rig laserline dataset conversion.
@@ -102,10 +105,13 @@ pub struct RigLaserlineRunResult {
     /// and camera, aligned with `view_paths`; `None` where the camera
     /// contributed no usable laser observation.
     pub laser_paths: Vec<Vec<Option<PathBuf>>>,
-    /// Number of kept views (≥1 camera with ≥4 target features).
+    /// Number of kept views (≥1 camera with an accepted target detection).
     pub usable_views: usize,
     /// Total number of paired views attempted.
     pub total_views: usize,
+    /// The target detections left out, in view order, each with its
+    /// reason. Laser frames below `min_points` are not listed.
+    pub rejected: Vec<RejectedDetection>,
 }
 
 /// Result of a joint rig hand-eye laserline dataset conversion.
@@ -118,10 +124,13 @@ pub struct RigHandeyeLaserlineRunResult {
     pub view_paths: Vec<Vec<Option<PathBuf>>>,
     /// `laser_paths[view][camera]` — laser image path per kept view.
     pub laser_paths: Vec<Vec<Option<PathBuf>>>,
-    /// Number of kept views (≥1 camera with ≥4 target features).
+    /// Number of kept views (≥1 camera with an accepted target detection).
     pub usable_views: usize,
     /// Total number of paired views attempted.
     pub total_views: usize,
+    /// The target detections left out, in view order, each with its
+    /// reason. Laser frames below `min_points` are not listed.
+    pub rejected: Vec<RejectedDetection>,
 }
 
 /// Convert a single-camera laserline manifest + cache into a
@@ -187,8 +196,9 @@ pub fn build_laserline_device_input(
     let roi = camera.roi_xywh;
     let key_config = augment_config_with_roi(&detector_config, roi);
     let laser_key_config = laser_key_config(&laser_spec, roi);
-    let min_features = min_features_per_view(spec);
+    let filter = ViewFilter::for_spec(spec);
 
+    let mut rejected: Vec<RejectedDetection> = Vec::new();
     let mut views: Vec<View<LaserlineMeta>> = Vec::new();
     let mut view_paths: Vec<PathBuf> = Vec::new();
     let mut laser_paths: Vec<PathBuf> = Vec::new();
@@ -205,8 +215,13 @@ pub fn build_laserline_device_input(
             cache,
             force_redetect,
         )?;
-        if features.len() < min_features {
-            continue; // below the per-view feature floor — drop the view
+        if let Err(reason) = filter.check(&features) {
+            rejected.push(RejectedDetection {
+                camera: 0,
+                path: path.clone(),
+                reason,
+            });
+            continue;
         }
         // The single-camera problem needs laser pixels in *every* view
         // (LaserlineMeta validates non-empty), so a view without a
@@ -254,6 +269,7 @@ pub fn build_laserline_device_input(
         laser_paths,
         usable_views,
         total_views,
+        rejected,
     })
 }
 
@@ -435,6 +451,7 @@ pub fn build_rig_laserline_device_input(
         laser_paths,
         usable_views,
         total_views: core.total_views,
+        rejected: core.rejected,
     })
 }
 
@@ -556,6 +573,7 @@ pub fn build_rig_handeye_laserline_input(
         laser_paths,
         usable_views,
         total_views: core.total_views,
+        rejected: core.rejected,
     })
 }
 
@@ -915,11 +933,14 @@ mod tests {
         }
     }
 
-    fn grid_features(n: usize) -> Vec<Feature> {
-        (0..n)
-            .map(|i| Feature {
-                image_xy: [100.0 + 10.0 * i as f64, 200.0 + 5.0 * i as f64],
-                world_xyz: [0.025 * i as f64, 0.0, 0.0],
+    /// Every corner of the 9-row × 6-column test board — a detection that
+    /// spans the whole board as declared.
+    fn board_features() -> Vec<Feature> {
+        (0..9u32)
+            .flat_map(|v| (0..6u32).map(move |u| (u, v)))
+            .map(|(u, v)| Feature {
+                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
             })
             .collect()
     }
@@ -1014,7 +1035,7 @@ mod tests {
                 tmp.path(),
                 &cache,
                 &format!("target_{view}.png"),
-                grid_features(6),
+                board_features(),
             );
             seed_laser(
                 tmp.path(),
@@ -1048,7 +1069,7 @@ mod tests {
                 tmp.path(),
                 &cache,
                 &format!("target_{view}.png"),
-                grid_features(6),
+                board_features(),
             );
             // View 1 has too few laser pixels (< default min_points 20).
             let n = if view == 1 { 5 } else { 30 };
@@ -1088,7 +1109,7 @@ mod tests {
                 tmp.path(),
                 &cache,
                 &format!("target_{view}.png"),
-                grid_features(6),
+                board_features(),
             );
         }
         seed_laser(tmp.path(), &cache, "laser_0.png", laser_features(30));
@@ -1119,7 +1140,7 @@ mod tests {
                 tmp.path(),
                 &cache,
                 &format!("target_{view}.png"),
-                grid_features(6),
+                board_features(),
             );
         }
         // Laser frames only for views 0, 2, 3 — view 1 is a gap.
@@ -1310,7 +1331,7 @@ mod tests {
                     dir,
                     cache,
                     &format!("cam{cam}/target_{view}.png"),
-                    grid_features(6),
+                    board_features(),
                 );
                 seed_laser(
                     dir,
