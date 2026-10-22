@@ -569,6 +569,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `vision-calibration-detect` release as well as the image, detector
   and config, so upgrading recomputes detections instead of serving those
   of the previous detector. Existing caches are recomputed once.
+- **A cached detection is the detection that was stored.** `FsDetectionCache`
+  read some coordinates back one unit in the last place off, so a run on a
+  warm cache could differ in the last digits from the run that filled it.
+  Cache files are now read with correctly rounded float parsing (serde_json's
+  `float_roundtrip`, which applies to every JSON read in a build that links
+  `vision-calibration-detect`), and a cache hit is bit-identical to the fresh
+  detection.
 
 ## [0.9.0] - 2026-09-29
 

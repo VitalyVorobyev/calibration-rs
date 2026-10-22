@@ -5,14 +5,12 @@
 //! view yields globally-consistent correspondences. The detector returns
 //! one [`Feature`] per decoded saddle that falls inside the printed board,
 //! with metric target coordinates in the board's own (top-left-origin)
-//! frame — the same origin convention as the chessboard/charuco detectors,
-//! not the centred frame used by the private bench examples.
+//! frame — the same origin convention as the chessboard/charuco detectors.
 //!
-//! Two fixed parts of the recipe mirror the proven bench/example path
-//! (`bench/src/detect.rs::detect_puzzleboard_view`): a 2× upscale before
-//! detection (PuzzleBoard decoding is sensitive to saddle sharpness on
-//! small tiles) and `FixedBoard` search (the board dimensions are known
-//! from the manifest, so we never search for an unknown sub-board).
+//! Two parts of the recipe are fixed: a 2× upscale before detection
+//! (PuzzleBoard decoding is sensitive to saddle sharpness on small tiles)
+//! and `FixedBoard` search (the board dimensions are known from the
+//! manifest, so we never search for an unknown sub-board).
 
 use calib_targets::detect;
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
@@ -26,8 +24,8 @@ use schemars::JsonSchema;
 use crate::{DetectError, Detector, Feature};
 
 /// Upscale factor applied before detection. PuzzleBoard saddle decoding
-/// degrades on small/blurred tiles; the bench and private examples both
-/// resize 2× first, then divide detected pixel coordinates back down.
+/// degrades on small/blurred tiles, so the image is resized 2× first and
+/// detected pixel coordinates are divided back down.
 const DETECT_UPSCALE: u32 = 2;
 
 /// PuzzleBoard detector configuration.
@@ -75,7 +73,7 @@ impl Detector for PuzzleboardDetector {
             })?;
 
         // The detector decodes saddles in millimetres; build the spec in
-        // mm to match the bench/example tolerances, and convert metric
+        // mm, the unit its tolerances are tuned in, and convert metric
         // outputs back to metres below.
         let cell_size_mm = (cfg.cell_size_m * 1000.0) as f32;
         let spec = PuzzleBoardSpec::new(cfg.rows, cfg.cols, cell_size_mm)

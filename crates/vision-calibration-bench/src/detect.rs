@@ -1,526 +1,397 @@
-//! Tier-B detection adapters: wrap `calib-targets` for use in the bench harness.
+//! Target detection for Tier-B runs.
 //!
-//! This is a thin port of the detection logic in
-//! `crates/vision-calibration/examples/planar_real.rs` and its `support`
-//! modules. It deliberately reuses the same `calib_targets::detect::detect_chessboard`
-//! call and the same 2D↔3D correspondence construction so that bench numbers
-//! reproduce the example's reprojection error. Do not introduce a new detector
-//! here.
+//! Detection and input building are the pipeline's: an entry's manifest
+//! ([`crate::manifest::dataset_spec`]) goes through
+//! `vision_calibration_pipeline::dataset_runner`, which runs the
+//! `vision-calibration-detect` detectors through the detection cache. This
+//! module adds only what the bench records about that step: per-camera
+//! detection statistics, each camera's image size, and the wall-clock time.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use calib_targets::aruco::builtins;
-use calib_targets::charuco::{CharucoBoardSpec, CharucoDetector, CharucoParams, MarkerLayout};
-use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
-use calib_targets::core::DetectorConfig;
-use calib_targets::detect::{self, default_chess_config};
-use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
-use image::imageops::FilterType;
-use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
+use vision_calibration_core::{CorrespondenceView, NoMeta, PlanarDataset, RigDataset};
+use vision_calibration_dataset::{DatasetSpec, Topology};
+use vision_calibration_detect::{
+    CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
+};
+use vision_calibration_optim::RobotPoseMeta;
+use vision_calibration_pipeline::dataset_runner::{
+    build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
+    build_single_cam_handeye_input,
+};
+use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeInput;
 
-use crate::registry::{CornerStrategySpec, DetectorOverride};
+use crate::record::{Detection, DetectionStat};
+use crate::registry::BoardGeometry;
 
-/// Which detector a rig camera uses to find target features in an image.
+/// The detection cache of bench runs: `target/calib-bench-detection-cache`
+/// in the workspace, shared by every entry (entries are keyed by image
+/// content).
 ///
-/// Chosen per registry entry from the [`crate::registry::BoardGeometry::layout`]
-/// string so the multi-camera rig runner ([`crate::run::run_rig_extrinsics`])
-/// can dispatch chessboard vs ChArUco without duplicating the per-view loop.
-/// Both arms return the same [`CorrespondenceView`] shape.
-#[derive(Clone)]
-pub enum DetectorKind {
-    /// `calib-targets` chessboard detector. `square_size_m` is the metric cell
-    /// pitch; the detector auto-discovers the interior-corner grid, and
-    /// `require_known_grid` can reject detections that do not match the
-    /// registry dimensions exactly.
-    Chessboard {
-        /// Expected interior-corner rows.
-        rows: usize,
-        /// Expected interior-corner columns.
-        cols: usize,
-        /// Reject detections that do not match the known grid exactly.
-        require_known_grid: bool,
-        /// Metric square (cell) size in metres.
-        square_size_m: f64,
-        /// Resolved corner-stage thresholds.
-        front_end: ChessFrontEnd,
-    },
-    /// `calib-targets` ChArUco detector, parameterised by a board spec
-    /// (dictionary, marker scale, `OpenCvCharuco` layout).
-    Charuco {
-        /// ChArUco detector parameters.
-        params: Box<CharucoParams>,
-        /// ChESS corner detector configuration.
-        chess_config: DetectorConfig,
-    },
-    /// `calib-targets` PuzzleBoard detector in known-board mode. `rows`/`cols`
-    /// are square counts; output 3D points are centred in the printed board
-    /// frame and expressed in metres.
-    Puzzleboard(Box<PuzzleBoardParams>),
-}
-
-impl DetectorKind {
-    /// Detect target features in one decoded image, returning `Ok(None)` when
-    /// no usable board is found (so the caller counts a skipped image).
-    pub fn detect(&self, img: &image::DynamicImage) -> Result<Option<CorrespondenceView>> {
-        match self {
-            DetectorKind::Chessboard {
-                rows,
-                cols,
-                require_known_grid,
-                square_size_m,
-                front_end,
-            } => detect_chessboard_view(
-                img,
-                *rows,
-                *cols,
-                *square_size_m,
-                *require_known_grid,
-                front_end,
-            ),
-            DetectorKind::Charuco {
-                params,
-                chess_config,
-            } => detect_charuco_view(img, params, chess_config),
-            DetectorKind::Puzzleboard(params) => detect_puzzleboard_view(img, params),
-        }
-    }
-}
-
-/// The corner detector and the two corner-stage thresholds a registry entry
-/// can override, resolved once per dataset.
-///
-/// Mirrors `vision_calibration_detect::ChessCornersConfig`, which lowers the
-/// same registry/manifest fields for the app path. The two lowerings are
-/// deliberately separate: this one produces `calib-targets` types that
-/// `vision-calibration-detect` keeps out of its published API.
-#[derive(Clone, Debug)]
-pub struct ChessFrontEnd {
-    /// Corner-detector config (which response peaks become corners).
-    pub chess: DetectorConfig,
-    /// Board params carrying the grid-builder corner-strength floor.
-    pub board: ChessboardParams,
-}
-
-impl ChessFrontEnd {
-    /// Resolve both thresholds from a benchmark detector override, falling
-    /// back to the `calib-targets` defaults for anything unset.
-    pub fn from_override(detector: Option<&DetectorOverride>) -> Self {
-        let chess_corners = detector.and_then(|d| d.chess_corners.as_ref());
-
-        let mut chess = match chess_corners.and_then(|c| c.strategy) {
-            None | Some(CornerStrategySpec::Chess) => default_chess_config(),
-            Some(CornerStrategySpec::Radon) => DetectorConfig::radon(),
-        };
-        if let Some(threshold) = chess_corners.and_then(|c| c.threshold_value) {
-            chess = chess.with_threshold(threshold);
-        }
-
-        // `calib-targets` 0.12 collapsed the two grid builders into one, so
-        // the former `GraphBuildAlgorithm::Topological` opt-in is the default.
-        let mut board = ChessboardParams::default();
-        if let Some(strength) = chess_corners.and_then(|c| c.min_corner_strength) {
-            board.min_corner_strength = strength;
-        }
-
-        Self { chess, board }
-    }
-}
-
-/// Build ChArUco detector parameters for a board.
-///
-/// `rows`/`cols` are the board square counts, `cell_size_m` the metric cell
-/// pitch (metres), `marker_size_rel` the marker-to-cell scale, and `dictionary`
-/// the ArUco dictionary name (only `DICT_4X4_1000` is wired, matching the
-/// example). Returns an error for an unknown dictionary so a registry typo
-/// surfaces loudly rather than silently mis-detecting.
-pub fn charuco_params_for(
-    rows: u32,
-    cols: u32,
-    cell_size_m: f64,
-    marker_size_rel: f32,
-    dictionary: &str,
-    front_end: &ChessFrontEnd,
-) -> Result<CharucoParams> {
-    let dict = match dictionary {
-        "DICT_4X4_1000" => builtins::DICT_4X4_1000,
-        other => anyhow::bail!("unsupported ChArUco dictionary '{other}' (only DICT_4X4_1000)"),
-    };
-    let board = CharucoBoardSpec::new(rows, cols, cell_size_m as f32, marker_size_rel, dict)
-        .with_marker_layout(MarkerLayout::OpenCvCharuco);
-    let mut params = CharucoParams::for_board(board);
-    // ChArUco reaches the grid-builder floor through `CharucoParams::chessboard`.
-    params.chessboard.min_corner_strength = front_end.board.min_corner_strength;
-    Ok(params)
-}
-
-/// Build PuzzleBoard detector parameters for a known printed board.
-///
-/// `rows`/`cols` are square counts, and `cell_size_m` is converted to the
-/// millimetre unit expected by `calib-targets-puzzleboard`.
-pub fn puzzleboard_params_for(rows: u32, cols: u32, cell_size_m: f64) -> Result<PuzzleBoardParams> {
-    let cell_size_mm = (cell_size_m * 1000.0) as f32;
-    let spec = PuzzleBoardSpec::with_origin(rows, cols, cell_size_mm, 0, 0)
-        .map_err(|e| anyhow::anyhow!("puzzleboard spec: {e}"))?;
-    let mut params = PuzzleBoardParams::for_board(spec);
-    params.decode.search_all_components = false;
-    params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
-    Ok(params)
-}
-
-/// Detect ChArUco corners in one decoded image and build a [`CorrespondenceView`].
-///
-/// Converts to luma8, runs `detect_charuco`, then maps each corner's metric
-/// `target_position` (`x`, `y`, `z=0`) to its pixel position. The ChArUco
-/// detector returns *sparse* correspondences (not every cell is seen), so the
-/// resulting view has a variable length; `< 4` corners is treated as a skip
-/// (`Ok(None)`).
-pub fn detect_charuco_view(
-    img: &image::DynamicImage,
-    params: &CharucoParams,
-    chess_config: &DetectorConfig,
-) -> Result<Option<CorrespondenceView>> {
-    let luma = img.to_luma8();
-    let corners = detect::detect_corners(&luma, chess_config);
-    let detector = CharucoDetector::new(params.clone())?;
-    let detection = match detector.detect_with_corners(&detect::gray_view(&luma), &corners) {
-        Ok(detection) => detection,
-        Err(_) => return Ok(None),
-    };
-
-    // One pixel cannot be several points on a planar target, and a view
-    // carrying such a pair has no consistent pose — the few residuals it
-    // yields are ~10^3 px and swamp the camera's mean. Route through the same
-    // guard the app-facing detectors use.
-    let features = vision_calibration_detect::reject_ambiguous_detection(
-        detection
-            .corners
-            .iter()
-            .map(|corner| vision_calibration_detect::Feature {
-                image_xy: [corner.position.x as f64, corner.position.y as f64],
-                world_xyz: [
-                    corner.target_position.x as f64,
-                    corner.target_position.y as f64,
-                    0.0,
-                ],
-            })
-            .collect(),
-    );
-
-    let mut points_3d = Vec::with_capacity(features.len());
-    let mut points_2d = Vec::with_capacity(features.len());
-    for f in features {
-        points_3d.push(Pt3::new(f.world_xyz[0], f.world_xyz[1], f.world_xyz[2]));
-        points_2d.push(Pt2::new(f.image_xy[0], f.image_xy[1]));
-    }
-
-    if points_3d.len() < 4 {
-        return Ok(None);
-    }
-
-    Ok(Some(
-        CorrespondenceView::new(points_3d, points_2d).map_err(|e| anyhow::anyhow!("{e}"))?,
-    ))
-}
-
-/// Detect a PuzzleBoard in one decoded image and build a [`CorrespondenceView`].
-///
-/// Mirrors the private 130x130 example's known-board path: resize 2x before
-/// detection, force `FixedBoard` via [`puzzleboard_params_for`], drop decoded
-/// corners outside the declared printed board, and convert target coordinates
-/// from millimetres to centred metres.
-pub fn detect_puzzleboard_view(
-    img: &image::DynamicImage,
-    params: &PuzzleBoardParams,
-) -> Result<Option<CorrespondenceView>> {
-    const UPSCALE: u32 = 2;
-    let luma = img.to_luma8();
-    let detection_image = image::imageops::resize(
-        &luma,
-        luma.width() * UPSCALE,
-        luma.height() * UPSCALE,
-        FilterType::Triangle,
-    );
-    let result = match detect::detect_puzzleboard(&detection_image, params) {
-        Ok(result) => result,
-        Err(_) => return Ok(None),
-    };
-
-    let rows = params.board.rows;
-    let cols = params.board.cols;
-    let cell_size_mm = params.board.cell_size as f64;
-    let origin_x_mm = 0.5 * (cols.saturating_sub(1) as f64) * cell_size_mm;
-    let origin_y_mm = 0.5 * (rows.saturating_sub(1) as f64) * cell_size_mm;
-    let max_x_mm = cols.saturating_sub(1) as f64 * cell_size_mm;
-    let max_y_mm = rows.saturating_sub(1) as f64 * cell_size_mm;
-
-    let mut points_3d = Vec::with_capacity(result.corners.len());
-    let mut points_2d = Vec::with_capacity(result.corners.len());
-    for corner in &result.corners {
-        let x_mm = corner.target_position.x as f64;
-        let y_mm = corner.target_position.y as f64;
-        if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
-            continue;
-        }
-        points_3d.push(Pt3::new(
-            (x_mm - origin_x_mm) * 1.0e-3,
-            (y_mm - origin_y_mm) * 1.0e-3,
-            0.0,
-        ));
-        points_2d.push(Pt2::new(
-            corner.position.x as f64 / UPSCALE as f64,
-            corner.position.y as f64 / UPSCALE as f64,
-        ));
-    }
-
-    if points_3d.len() < 8 {
-        return Ok(None);
-    }
-
-    Ok(Some(
-        CorrespondenceView::new(points_3d, points_2d).map_err(|e| anyhow::anyhow!("{e}"))?,
-    ))
-}
-
-/// Detect a chessboard in one decoded image and build a [`CorrespondenceView`].
-///
-/// Mirrors `planar_real.rs::detect_chessboard` + `detection_to_view`:
-/// converts to luma8, runs `detect_chessboard` with the default chess config and
-/// default [`ChessboardParams`], then maps each detected corner's grid index
-/// to a metric `(i*square, j*square, 0)` target point and its pixel position.
-///
-/// Returns `Ok(None)` when no board is found (so the caller can count it as a
-/// skipped image), `Ok(Some(view))` on success. When `require_known_grid` is
-/// true, detections must contain exactly `rows * cols` corners spanning the
-/// declared grid. This prevents partial, locally indexed chessboard detections
-/// from moving the target frame between hand-eye views.
-pub fn detect_chessboard_view(
-    img: &image::DynamicImage,
-    rows: usize,
-    cols: usize,
-    square_size_m: f64,
-    require_known_grid: bool,
-    front_end: &ChessFrontEnd,
-) -> Result<Option<CorrespondenceView>> {
-    let luma = img.to_luma8();
-    let detection = match detect::detect_chessboard(&luma, &front_end.chess, &front_end.board) {
-        Ok(detection) => detection,
-        Err(detect::DetectError::NoDetection { .. }) => return Ok(None),
-        Err(err) => return Err(anyhow::anyhow!("chessboard detection failed: {err}")),
-    };
-    if require_known_grid && !detection_matches_known_grid(&detection, rows, cols) {
-        return Ok(None);
-    }
-    Ok(Some(detection_to_view(detection, square_size_m)?))
-}
-
-fn detection_matches_known_grid(detection: &ChessboardDetection, rows: usize, cols: usize) -> bool {
-    if detection.corners.len() != rows * cols {
-        return false;
-    }
-    let max_i = detection.corners.iter().map(|c| c.grid.u).max();
-    let max_j = detection.corners.iter().map(|c| c.grid.v).max();
-    matches!(
-        (max_i, max_j),
-        (Some(i), Some(j)) if i >= 0
-            && j >= 0
-            && (i as usize) + 1 == cols
-            && (j as usize) + 1 == rows
+/// The key covers the image, the detector config and the
+/// `vision-calibration-detect` release, not the versions of the detector
+/// crates it wraps: after updating one of those between releases, delete
+/// this directory so the next run detects afresh.
+pub fn detection_cache() -> FsDetectionCache {
+    FsDetectionCache::new(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/calib-bench-detection-cache"),
     )
 }
 
-/// Map a [`ChessboardDetection`] to a [`CorrespondenceView`] using the board's
-/// metric square size. Identical convention to the example
-/// (`grid.u * square`, `grid.v * square`, `z = 0`).
-fn detection_to_view(
-    detection: ChessboardDetection,
-    square_size_m: f64,
-) -> Result<CorrespondenceView> {
-    let mut points_3d = Vec::with_capacity(detection.corners.len());
-    let mut points_2d = Vec::with_capacity(detection.corners.len());
-    for corner in detection.corners {
-        let grid = corner.grid;
-        points_3d.push(Pt3::new(
-            grid.u as f64 * square_size_m,
-            grid.v as f64 * square_size_m,
-            0.0,
-        ));
-        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
-    }
-
-    anyhow::ensure!(
-        points_3d.len() >= 4,
-        "insufficient corners after grid filtering"
-    );
-
-    CorrespondenceView::new(points_3d, points_2d).map_err(|e| anyhow::anyhow!("{e}"))
+/// A dataset after detection: the problem input the dataset runner built, and
+/// what the bench records about the detection step.
+#[derive(Debug, Clone)]
+pub struct Detected<I> {
+    /// The problem input.
+    pub input: I,
+    /// Per-camera detection statistics.
+    pub detection: Detection,
+    /// Each camera's image size `[width, height]` (its region of interest,
+    /// when the manifest crops one), in manifest camera order.
+    pub image_sizes: Vec<[u32; 2]>,
+    /// Wall-clock detection time in milliseconds (cache reads included).
+    pub detection_ms: u64,
 }
 
-/// Glob a folder for image files matching `pattern` and return absolute paths
-/// sorted in natural (numeric-aware) order.
-///
-/// `folder` is the directory to search; `pattern` is a filename glob such as
-/// `*.png` (joined onto `folder`). Sorting is numeric-aware so `Im_L_2.png`
-/// precedes `Im_L_10.png`, matching the index-sorted order the example uses.
-pub fn glob_sorted_images(folder: &Path, pattern: &str) -> Result<Vec<PathBuf>> {
-    let glob_pat = folder.join(pattern);
-    let glob_pat = glob_pat
-        .to_str()
-        .with_context(|| format!("non-UTF-8 glob path: {}", glob_pat.display()))?;
-    let mut paths: Vec<PathBuf> = glob::glob(glob_pat)
-        .with_context(|| format!("invalid glob pattern: {glob_pat}"))?
-        .filter_map(|e| e.ok())
-        .filter(|p| p.is_file())
+/// Source image paths of a rig dataset's views, `[view][camera]`, `None` where
+/// the camera contributed no observation.
+pub type RigViewPaths = Vec<Vec<Option<PathBuf>>>;
+
+/// Detect a single-camera planar dataset.
+pub fn detect_planar(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    board: Option<&BoardGeometry>,
+    cache: &dyn DetectionCache,
+) -> Result<Detected<PlanarDataset>> {
+    let start = Instant::now();
+    let built = build_planar_input(spec, base_dir, cache, false)?;
+    let detection_ms = ms(start.elapsed());
+    let counts = [built
+        .input
+        .views
+        .iter()
+        .map(|v| v.obs.len())
+        .collect::<Vec<_>>()];
+    Ok(Detected {
+        detection: detection_stats(spec, board, &counts, built.total_views, detection_ms),
+        image_sizes: image_sizes(spec, &[built.view_paths.iter().collect()])?,
+        input: built.input,
+        detection_ms,
+    })
+}
+
+/// Detect a single-camera hand-eye dataset.
+pub fn detect_single_cam_handeye(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    board: Option<&BoardGeometry>,
+    cache: &dyn DetectionCache,
+) -> Result<Detected<SingleCamHandeyeInput>> {
+    let start = Instant::now();
+    let built = build_single_cam_handeye_input(spec, base_dir, cache, false)?;
+    let detection_ms = ms(start.elapsed());
+    let counts = [built
+        .input
+        .views
+        .iter()
+        .map(|v| v.obs.len())
+        .collect::<Vec<_>>()];
+    Ok(Detected {
+        detection: detection_stats(spec, board, &counts, built.total_views, detection_ms),
+        image_sizes: image_sizes(spec, &[built.view_paths.iter().collect()])?,
+        input: built.input,
+        detection_ms,
+    })
+}
+
+/// Detect a rig-extrinsics dataset.
+pub fn detect_rig_extrinsics(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    board: Option<&BoardGeometry>,
+    cache: &dyn DetectionCache,
+) -> Result<Detected<RigDataset<NoMeta>>> {
+    let start = Instant::now();
+    let built = build_rig_extrinsics_input(spec, base_dir, cache, false)?;
+    let detection_ms = ms(start.elapsed());
+    rig_detected(
+        spec,
+        board,
+        built.input,
+        &built.view_paths,
+        built.total_views,
+        detection_ms,
+    )
+}
+
+/// Detect a rig hand-eye dataset; returns the source paths of its views too.
+pub fn detect_rig_handeye(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    board: Option<&BoardGeometry>,
+    cache: &dyn DetectionCache,
+) -> Result<(Detected<RigDataset<RobotPoseMeta>>, RigViewPaths)> {
+    let start = Instant::now();
+    let built = build_rig_handeye_input(spec, base_dir, cache, false)?;
+    let detection_ms = ms(start.elapsed());
+    let detected = rig_detected(
+        spec,
+        board,
+        built.input,
+        &built.view_paths,
+        built.total_views,
+        detection_ms,
+    )?;
+    Ok((detected, built.view_paths))
+}
+
+fn rig_detected<M>(
+    spec: &DatasetSpec,
+    board: Option<&BoardGeometry>,
+    input: RigDataset<M>,
+    view_paths: &RigViewPaths,
+    total_views: usize,
+    detection_ms: u64,
+) -> Result<Detected<RigDataset<M>>> {
+    let n_cam = input.num_cameras;
+    let counts: Vec<Vec<usize>> = (0..n_cam)
+        .map(|camera| {
+            input
+                .views
+                .iter()
+                .filter_map(|v| v.obs.cameras[camera].as_ref().map(CorrespondenceView::len))
+                .collect()
+        })
         .collect();
-    paths.sort_by(|a, b| natural_cmp(&a.to_string_lossy(), &b.to_string_lossy()));
-    Ok(paths)
+    let paths: Vec<Vec<&PathBuf>> = (0..n_cam)
+        .map(|camera| {
+            view_paths
+                .iter()
+                .filter_map(|v| v[camera].as_ref())
+                .collect()
+        })
+        .collect();
+    Ok(Detected {
+        detection: detection_stats(spec, board, &counts, total_views, detection_ms),
+        image_sizes: image_sizes(spec, &paths)?,
+        input,
+        detection_ms,
+    })
 }
 
-/// Load and decode one image from disk.
-pub fn load_image(path: &Path) -> Result<image::DynamicImage> {
-    image::ImageReader::open(path)
-        .with_context(|| format!("failed to open {}", path.display()))?
-        .decode()
-        .with_context(|| format!("failed to decode {}", path.display()))
-}
-
-/// Natural (numeric-aware) string comparison: splits each string into runs of
-/// digits and non-digits, comparing digit runs by numeric value. Keeps
-/// `Im_L_2` < `Im_L_10` so globbed image order matches the example's
-/// index-sorted order.
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let mut ai = a.chars().peekable();
-    let mut bi = b.chars().peekable();
-    loop {
-        match (ai.peek().copied(), bi.peek().copied()) {
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some(ca), Some(cb)) => {
-                if ca.is_ascii_digit() && cb.is_ascii_digit() {
-                    let na: String = take_digits(&mut ai);
-                    let nb: String = take_digits(&mut bi);
-                    // Compare by numeric value; fall back to string length then
-                    // lexically for runs too long to fit in u128.
-                    let cmp = match (na.parse::<u128>(), nb.parse::<u128>()) {
-                        (Ok(x), Ok(y)) => x.cmp(&y),
-                        _ => na.len().cmp(&nb.len()).then_with(|| na.cmp(&nb)),
-                    };
-                    if cmp != Ordering::Equal {
-                        return cmp;
-                    }
+/// The bench's detection record from the feature count of every kept
+/// observation, per camera.
+///
+/// A registry `board` sets the expected count per view: its full-board count,
+/// or more when a detection found more. A manifest target has no fixed count,
+/// so its expected count and coverage are zero.
+fn detection_stats(
+    spec: &DatasetSpec,
+    board: Option<&BoardGeometry>,
+    counts: &[Vec<usize>],
+    images_total: usize,
+    detection_ms: u64,
+) -> Detection {
+    let max_per_view = counts.iter().flatten().copied().max().unwrap_or(0);
+    let per_view = board.map(|board| board_feature_count(board).max(max_per_view));
+    let per_camera: Vec<DetectionStat> = spec
+        .cameras
+        .iter()
+        .zip(counts)
+        .map(|(camera, counts)| {
+            let images_used = counts.len();
+            let features_detected: usize = counts.iter().sum();
+            let features_expected = per_view.map_or(0, |n| images_used * n);
+            DetectionStat {
+                camera_id: camera.id.clone(),
+                images_total,
+                images_used,
+                features_detected,
+                features_expected,
+                coverage_pct: if features_expected > 0 {
+                    100.0 * features_detected as f64 / features_expected as f64
                 } else {
-                    let cmp = ca.cmp(&cb);
-                    if cmp != Ordering::Equal {
-                        return cmp;
-                    }
-                    ai.next();
-                    bi.next();
+                    0.0
+                },
+                detect_ms: detection_ms,
+            }
+        })
+        .collect();
+    Detection {
+        total_detected: per_camera.iter().map(|s| s.features_detected).sum(),
+        total_expected: per_camera.iter().map(|s| s.features_expected).sum(),
+        per_camera,
+    }
+}
+
+/// Full-board feature count of a registry board: `rows × cols`, or the
+/// `(rows − 1) × (cols − 1)` inner corners of a PuzzleBoard, whose registry
+/// dimensions count squares.
+pub fn board_feature_count(board: &BoardGeometry) -> usize {
+    match board.layout.as_deref() {
+        Some(layout) if layout.eq_ignore_ascii_case("puzzleboard") => {
+            board.rows.saturating_sub(1) * board.cols.saturating_sub(1)
+        }
+        _ => board.rows * board.cols,
+    }
+}
+
+/// Each camera's image size: its region of interest when the manifest crops
+/// one, otherwise the size of the images its observations came from, which
+/// must agree.
+fn image_sizes(spec: &DatasetSpec, paths: &[Vec<&PathBuf>]) -> Result<Vec<[u32; 2]>> {
+    spec.cameras
+        .iter()
+        .zip(paths)
+        .map(|(camera, paths)| {
+            if let Some([_, _, w, h]) = camera.roi_xywh {
+                return Ok([w, h]);
+            }
+            let mut size = None;
+            for path in paths {
+                let (w, h) = image::image_dimensions(path)
+                    .with_context(|| format!("read the size of {}", path.display()))?;
+                match size {
+                    None => size = Some([w, h]),
+                    Some(previous) => anyhow::ensure!(
+                        previous == [w, h],
+                        "camera {}: images differ in size ({}×{} and {w}×{h})",
+                        camera.id,
+                        previous[0],
+                        previous[1]
+                    ),
                 }
             }
-        }
+            size.with_context(|| format!("camera {}: no image to size", camera.id))
+        })
+        .collect()
+}
+
+/// The single-camera planar manifest of `spec`'s camera `camera`: the same
+/// images, region and target, without the other cameras or robot poses.
+pub fn camera_spec(spec: &DatasetSpec, camera: usize) -> DatasetSpec {
+    DatasetSpec {
+        cameras: vec![spec.cameras[camera].clone()],
+        topology: Topology::PlanarIntrinsics,
+        robot_poses: None,
+        pose_pairing: None,
+        pose_convention: None,
+        laser: None,
+        upstream_calibration: None,
+        ..spec.clone()
     }
 }
 
-fn take_digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
-    let mut s = String::new();
-    while let Some(&c) = it.peek() {
-        if c.is_ascii_digit() {
-            s.push(c);
-            it.next();
-        } else {
-            break;
+/// A detection cache that never hits and records how long each detection
+/// takes: the time from the lookup that missed to the store of its result,
+/// which covers decoding, cropping and detecting one image.
+///
+/// After `limit` detections it answers every further lookup with an empty
+/// detection, so the runner skips the remaining images (they count as views
+/// without a board). Profiling runs the dataset runner through it, one camera
+/// at a time.
+#[derive(Debug, Default)]
+pub struct TimingCache {
+    limit: Option<usize>,
+    state: Mutex<TimingState>,
+}
+
+#[derive(Debug, Default)]
+struct TimingState {
+    pending: Option<Instant>,
+    durations: Vec<Duration>,
+}
+
+impl TimingCache {
+    /// A cache that detects at most `limit` images (all when `None`).
+    pub fn new(limit: Option<usize>) -> Self {
+        Self {
+            limit,
+            state: Mutex::default(),
         }
     }
-    s
+
+    /// Per-image detection times, in detection order.
+    pub fn durations(&self) -> Vec<Duration> {
+        self.lock().durations.clone()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, TimingState> {
+        // A poisoned lock only means a timing was lost; keep the rest.
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl DetectionCache for TimingCache {
+    fn get(&self, _key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
+        let mut state = self.lock();
+        if self
+            .limit
+            .is_some_and(|limit| state.durations.len() >= limit)
+        {
+            return Ok(Some(CachedFeatures {
+                features: Vec::new(),
+            }));
+        }
+        state.pending = Some(Instant::now());
+        Ok(None)
+    }
+
+    fn put(&self, _key: &CacheKey, _value: &CachedFeatures) -> Result<(), CacheError> {
+        let mut state = self.lock();
+        if let Some(start) = state.pending.take() {
+            state.durations.push(start.elapsed());
+        }
+        Ok(())
+    }
+}
+
+/// Whole milliseconds of `duration`.
+pub fn ms(duration: Duration) -> u64 {
+    duration.as_millis() as u64
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::ChessCornersDetectorSpec;
 
-    #[test]
-    fn natural_cmp_orders_numeric_suffixes() {
-        let mut v = vec![
-            "Im_L_10.png".to_string(),
-            "Im_L_2.png".to_string(),
-            "Im_L_1.png".to_string(),
-        ];
-        v.sort_by(|a, b| natural_cmp(a, b));
-        assert_eq!(v, vec!["Im_L_1.png", "Im_L_2.png", "Im_L_10.png"]);
-    }
-
-    #[test]
-    fn chess_corner_override_applies_both_thresholds() {
-        let detector = DetectorOverride {
-            chess_corners: Some(ChessCornersDetectorSpec {
-                threshold_value: Some(30.0),
-                min_corner_strength: Some(0.0),
-                ..ChessCornersDetectorSpec::default()
-            }),
-            extra: Default::default(),
-        };
-
-        let front_end = ChessFrontEnd::from_override(Some(&detector));
-        assert!((front_end.chess.threshold - 30.0).abs() < f32::EPSILON);
-        assert_eq!(front_end.board.min_corner_strength, 0.0);
-    }
-
-    #[test]
-    fn absent_chess_corner_override_keeps_detector_defaults() {
-        let defaults = ChessboardParams::default();
-        for detector in [None, Some(&DetectorOverride::default())] {
-            let front_end = ChessFrontEnd::from_override(detector);
-            assert_eq!(front_end.chess.threshold, default_chess_config().threshold);
-            assert_eq!(
-                front_end.board.min_corner_strength,
-                defaults.min_corner_strength
-            );
+    fn board(layout: &str) -> BoardGeometry {
+        BoardGeometry {
+            rows: 130,
+            cols: 130,
+            cell_size_m: 0.001,
+            dictionary: None,
+            layout: Some(layout.into()),
+            marker_size_rel: None,
+            strict_grid: false,
         }
     }
 
-    /// The registry override and the app-path override must lower to the
-    /// same numbers — they are the same two user-facing knobs.
     #[test]
-    fn front_end_matches_the_detect_crate_lowering() {
-        let spec = ChessCornersDetectorSpec {
-            strategy: Some(CornerStrategySpec::Radon),
-            threshold_value: Some(0.21),
-            min_corner_strength: Some(7.0),
-        };
-        let front_end = ChessFrontEnd::from_override(Some(&DetectorOverride {
-            chess_corners: Some(spec),
-            extra: Default::default(),
-        }));
-        // Same fields, same JSON shape, so the detect crate's
-        // `ChessCornersConfig` deserializes straight from this spec.
-        let via_detect: vision_calibration_detect::ChessCornersConfig =
-            serde_json::from_value(serde_json::to_value(spec).unwrap()).unwrap();
-        assert_eq!(
-            via_detect.strategy,
-            Some(vision_calibration_detect::CornerStrategy::Radon)
-        );
-        assert_eq!(via_detect.threshold_value, Some(0.21));
-        assert_eq!(via_detect.min_corner_strength, Some(7.0));
-        assert_eq!(
-            front_end.chess,
-            DetectorConfig::radon().with_threshold(0.21)
-        );
-        assert_eq!(front_end.board.min_corner_strength, 7.0);
+    fn puzzleboard_counts_inner_corners() {
+        assert_eq!(board_feature_count(&board("puzzleboard")), 129 * 129);
+        assert_eq!(board_feature_count(&board("charuco")), 130 * 130);
     }
 
     #[test]
-    fn puzzleboard_params_use_fixed_known_board_mode() {
-        let params = puzzleboard_params_for(130, 130, 0.001014).expect("params");
-        assert_eq!(params.board.rows, 130);
-        assert_eq!(params.board.cols, 130);
-        assert!((params.board.cell_size - 1.014).abs() < 1.0e-6);
-        assert!(!params.decode.search_all_components);
-        assert!(matches!(
-            params.decode.search_mode,
-            PuzzleBoardSearchMode::FixedBoard
-        ));
+    fn timing_cache_times_each_miss_until_its_store() {
+        let cache = TimingCache::new(Some(2));
+        let key = CacheKey::from_inputs(b"img", "chessboard", &serde_json::json!({}));
+        for _ in 0..2 {
+            assert!(cache.get(&key).unwrap().is_none());
+            cache
+                .put(&key, &CachedFeatures { features: vec![] })
+                .unwrap();
+        }
+        // Past the limit every lookup is an empty hit.
+        let skipped = cache.get(&key).unwrap().expect("hit");
+        assert!(skipped.features.is_empty());
+        assert_eq!(cache.durations().len(), 2);
     }
 }

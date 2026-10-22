@@ -17,9 +17,7 @@ workspace = true
 default = ["tier-a"]
 tier-a = []
 tier-b = [
-    "dep:calib-targets",
     "dep:image",
-    "dep:glob",
     "dep:vision-calibration-detect",
 ]
 laser = ["dep:vision-metrology"]
@@ -46,18 +44,20 @@ serde_json = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 rand = { workspace = true, features = ["thread_rng"] }
-# Robot-pose parsing for the Tier-B hand-eye runner (row-major 4x4 -> Iso3).
-# Math-only; already a transitive dep, pulled in directly here.
+# Math for the solver and suite studies; already a transitive dep.
 nalgebra = { workspace = true }
 # Regression suite: `suite.toml` and the observation-file checksums.
 toml = "1"
 sha2 = "0.10"
 schemars = { workspace = true, optional = true }
 
-# Tier-B (full pipeline: detector + image I/O) — gated behind `tier-b`.
-calib-targets = { workspace = true, optional = true }
+# Tier-B (detection through the pipeline's dataset runner, image I/O) — gated
+# behind `tier-b`.
 image = { workspace = true, optional = true }
-glob = { workspace = true, optional = true }
-# Detection cache for the manifest-driven acceptance run path.
+# The detection cache the dataset runner reads and writes.
 vision-calibration-detect = { workspace = true, optional = true }
 vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0", optional = true }
+
+[dev-dependencies]
+# Checks the registry's rig pairing token as the dataset runner applies it.
+regex = { workspace = true }

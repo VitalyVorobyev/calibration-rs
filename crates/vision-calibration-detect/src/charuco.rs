@@ -4,11 +4,6 @@
 //! identification succeeded. ChArUco correspondences are *sparse* — occluded
 //! or unidentified cells simply produce no feature — so the per-view feature
 //! count varies; the runner decides whether a view is usable.
-//!
-//! This is the canonical ChArUco detector: the one that speaks [`Feature`]
-//! and goes through the detection cache. Offline benchmark tooling carries
-//! its own `calib-targets` glue because it emits a different type
-//! (`CorrespondenceView`) for the batch solvers.
 
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{

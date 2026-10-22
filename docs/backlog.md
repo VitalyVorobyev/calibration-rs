@@ -6,19 +6,6 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 match the ROADMAP; each says its phase. Dependencies are named as
 `Needs: <ID>`.
 
-## API (Phase 1)
-
-One camera-model spec and one vocabulary across every problem type. The
-breaking changes of the program happen here, before v1.0.
-
-- [ ] API-DEDUP - One implementation per concept:
-  - route `vision-calibration-bench`'s Tier-B detect adapters
-    (`src/detect.rs`) through `vision-calibration-detect`;
-  - run the bench's per-problem runners (`src/run.rs`) through
-    `pipeline::dataset_runner`.
-
-  Gate: bench baselines unchanged.
-
 ## Parameter uncertainty (Phase 1, then Phase 2)
 
 Every result carries the covariance of its estimated parameters, computed

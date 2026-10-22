@@ -7,6 +7,7 @@ pub mod basin;
 pub mod dense;
 #[cfg(feature = "tier-b")]
 pub mod detect;
+pub mod manifest;
 pub mod record;
 pub mod registry;
 pub mod ringgrid_bias;

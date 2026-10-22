@@ -83,7 +83,9 @@ pub struct BenchEntry {
     pub problem: ProblemKind,
     /// Filesystem root for the dataset's images / artifacts.
     pub data_root: PathBuf,
-    /// The dataset specification (inline or referenced by path).
+    /// The dataset specification (inline or referenced by path). Without it,
+    /// `board`, `cameras`, `robot_poses` and `detector` describe the dataset
+    /// (see [`crate::manifest::dataset_spec`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spec: Option<SpecRef>,
     /// Detector configuration override, if any.
@@ -324,7 +326,7 @@ pub struct BoardGeometry {
     /// Defaults to `0.75` when absent (the OpenCV ChArUco default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marker_size_rel: Option<f32>,
-    /// Require checkerboard detections to match the declared rows/cols exactly.
+    /// Keep only complete checkerboard detections (`rows × cols` corners).
     ///
     /// This is important for hand-eye datasets where partial, locally indexed
     /// checkerboard detections move the target coordinate frame between views.
@@ -346,8 +348,14 @@ pub struct PoseSource {
     /// - `"rowmajor4x4"` — one row-major 4×4 matrix per line (16 values).
     /// - `"counted4x4"` — a leading integer count, then that many 4×4 matrices
     ///   as whitespace-separated values (4 lines × 4 values each).
+    /// - `"snap_list_json"` — a JSON list of snaps, each with its row-major
+    ///   4×4 `tcp2base` matrix; a `double_snap` also names the laser frame
+    ///   of its `target_image`.
+    ///
+    /// Pose `i` pairs with image `i` of every camera, in natural filename
+    /// order.
     pub format: String,
-    /// Pose convention (e.g. `"base_se3_gripper"`).
+    /// Pose convention: `"base_se3_gripper"` or `"gripper_se3_base"`.
     pub convention: String,
     /// Translation units in the file. `"mm"` scales translations by `1e-3` to
     /// metres; `"m"` or omitted leaves them unscaled. Rotation is unaffected.
