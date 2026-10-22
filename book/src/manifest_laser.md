@@ -85,6 +85,36 @@ let run = build_rig_laserline_device_input(&spec, base_dir, &cache, &MyExtractor
 
 The runner owns the caching (keyed `laser:<name>` plus a hash of the extraction spec), the ROI cropping and the coordinate lifting; the extractor only extracts. Unlike the target detectors, whose trait is sealed, this one is open. `name()` is part of the cache key, so switching implementations re-extracts instead of serving another extractor's pixels.
 
+### In Python
+
+Any object with a `name` and an `extract(image, spec)` method is an extractor (the `LaserPixelExtractor` protocol of `vision_calibration.dataset_runner`). `extract` receives the cropped laser image as a `(H, W)` `uint8` grayscale array and the manifest's `[laser]` section as a dict, and returns the line's points as an `(N, 2)` array of `(x, y)` pixels:
+
+```python
+import numpy as np
+import vision_calibration as vc
+
+
+class ColumnPeak:
+    name = "column-peak-v1"
+
+    def extract(self, image, spec):
+        """Per column, the row centroid of the pixels above half the peak."""
+        values = image.astype(float)
+        points = []
+        for col in range(image.shape[1]):
+            column = values[:, col]
+            if column.max() < 50:
+                continue
+            weights = np.where(column > column.max() / 2, column, 0.0)
+            points.append((col, weights @ np.arange(len(column)) / weights.sum()))
+        return np.array(points).reshape(-1, 2)
+
+
+result = vc.calibrate_dataset("data/my_laser_rig/dataset.toml", laser_extractor=ColumnPeak())
+```
+
+An exception the extractor raises fails the run with a `RunError` of `kind == "laser_extraction"`.
+
 ## Variations
 
 - **Sparse laser coverage (rig)**: cameras may miss the laser in some views (`None` slots), but every camera needs at least one usable laser view; otherwise its plane is unconstrained and the runner fails fast.

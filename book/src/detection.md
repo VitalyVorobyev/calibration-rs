@@ -90,6 +90,37 @@ println!("{} corners", features.len());
 
 To get features into a calibration without a manifest, build the problem input from `Feature` values yourself: `world_xyz` and `image_xy` are exactly the `points_3d` and `points_2d` of a `CorrespondenceView`.
 
+The facade's `dataset_runner::detect_target` runs a detector from a manifest's `target` (and optional `detector`) section instead of a detector config, lowered exactly as a manifest run lowers it:
+
+```rust
+use vision_calibration::dataset::TargetSpec;
+use vision_calibration::dataset_runner::detect_target;
+
+let target = TargetSpec::Chessboard { rows: 17, cols: 28, square_size_m: 0.02 };
+let features = detect_target(&image::open("data/kuka_1/01.png")?, &target, None)?;
+```
+
+### In Python
+
+`detect_target` takes a `(H, W)` `uint8` grayscale numpy image and the target as its manifest payload, and returns a `Features` table: `image_xy` `(N, 2)` and `world_xyz` `(N, 3)` arrays. An impossible target (an unknown ChArUco dictionary) raises `RunError` with `kind == "invalid_target_config"`; an image without a usable board gives an empty table.
+
+```python
+import numpy as np
+from PIL import Image
+import vision_calibration as vc
+
+target = {"kind": "chessboard", "rows": 17, "cols": 28, "square_size_m": 0.02}
+views = []
+for path in ["data/kuka_1/01.png", "data/kuka_1/02.png", "data/kuka_1/03.png"]:
+    gray = np.asarray(Image.open(path).convert("L"))
+    features = vc.detect_target(gray, target)
+    print(path, len(features), "corners")
+    views.append(vc.PlanarView(observation=features.to_observation()))
+result = vc.run_planar_intrinsics(vc.PlanarIntrinsicsInput(views=views))
+```
+
+`vc.reject_ambiguous_detection(features)` returns the detection, or an empty one when two features share an image point.
+
 ## The Detection Cache
 
 Detection dominates the cost of iterating on a calibration: the solvers take milliseconds to seconds, the detectors seconds per image. The `DetectionCache` trait stores detections so a rerun with the same images and the same detector parameters reads files instead of detecting again.
@@ -119,6 +150,8 @@ let features = match cache.get(&key)? {
 ```
 
 `FsDetectionCache` writes one JSON file per entry under its root, named `<image>-<detector>-<config>.json` with a portable file-name encoding that is valid on Linux, macOS and Windows. Entries are written atomically, so the cache is safe under concurrent readers and writers. The dataset runner takes any `&dyn DetectionCache`, so an application can supply its own store; every `build_*_input` converter also has a `force_redetect` flag that bypasses lookups.
+
+In Python, `vc.FsDetectionCache(root)` is the filesystem cache, passed as `cache=` to `calibrate_dataset` and the `build_*_input` functions (without one, every image is detected). Its `get(key)` and `put(key, features)` take a `CacheKey`; `CacheKey.from_inputs(image_bytes, detector, config)` keys entries you manage yourself.
 
 ## Choosing a Target
 

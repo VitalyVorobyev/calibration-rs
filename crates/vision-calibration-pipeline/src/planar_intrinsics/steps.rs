@@ -108,7 +108,8 @@ pub struct IntrinsicsManualInit {
 }
 
 /// Options for filtering observations based on reprojection error.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct IntrinsicsFilterOptions {
     /// Maximum reprojection error threshold (pixels).
@@ -140,7 +141,7 @@ impl Default for IntrinsicsFilterOptions {
 ///
 /// Carries the seeded-or-fitted initial estimates. The same values are also
 /// written into `session.state`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsInitResult {
     /// Initial pinhole intrinsics (fx, fy, cx, cy).
@@ -158,7 +159,7 @@ pub struct IntrinsicsInitResult {
 ///
 /// Aggregates the optimization metrics of the planar-intrinsics solve; the same
 /// values are also written into `session.state`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsOptimizeResult {
     /// Final cost reported by the non-linear solver.

@@ -8,14 +8,19 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use vision_calibration::session::{CalibrationSession, ProblemType};
 
+mod camera;
+mod dataset;
+mod detect;
+mod errors;
+mod session;
 mod validation;
 use validation::{reject_non_finite, value_err};
 
-fn runtime_err(message: impl std::fmt::Display) -> PyErr {
+pub(crate) fn runtime_err(message: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(message.to_string())
 }
 
-fn parse_payload<T>(payload: &Bound<'_, PyAny>, name: &str) -> PyResult<T>
+pub(crate) fn parse_payload<T>(payload: &Bound<'_, PyAny>, name: &str) -> PyResult<T>
 where
     T: DeserializeOwned,
 {
@@ -23,7 +28,10 @@ where
         .map_err(|err| PyTypeError::new_err(format!("invalid {name} payload: {err}")))
 }
 
-fn parse_optional_payload<T>(payload: Option<&Bound<'_, PyAny>>, name: &str) -> PyResult<Option<T>>
+pub(crate) fn parse_optional_payload<T>(
+    payload: Option<&Bound<'_, PyAny>>,
+    name: &str,
+) -> PyResult<Option<T>>
 where
     T: DeserializeOwned,
 {
@@ -466,5 +474,12 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(projection_uncertainty, m)?)?;
     m.add_function(wrap_pyfunction!(assess, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
+    m.add("RunError", m.py().get_type::<errors::RunError>())?;
+    m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;
+    m.add("SniffError", m.py().get_type::<errors::SniffError>())?;
+    m.add_class::<camera::PyCameraModel>()?;
+    session::register(m)?;
+    dataset::register(m)?;
+    detect::register(m)?;
     Ok(())
 }

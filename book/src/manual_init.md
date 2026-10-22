@@ -152,6 +152,24 @@ The `device_seed` module derives these seeds from a device description (focal le
 
 If you seed `handeye` but not `mode_target_pose`, the latter is derived from the chain.
 
+## In Python
+
+The seeds are dataclasses in the problem's module, with the Rust names and fields; a field left `None` is estimated. The datasheet seed above:
+
+```python
+import vision_calibration as vc
+from vision_calibration import rig_extrinsics
+
+seed = rig_extrinsics.IntrinsicsManualInit(
+    per_cam_intrinsics=[vc.PinholeIntrinsics(fx=1800.0, fy=1800.0, cx=360.0, cy=270.0)] * 2,
+    per_cam_distortion=[vc.BrownConradyDistortion(k1=-0.1, k2=0.0, k3=0.0, p1=0.0, p2=0.0, iters=8)] * 2,
+)
+init = session.step_intrinsics_init_all_with_seed(seed)
+print(session.log[-1].notes)  # the init log names the manual and the estimated parts
+```
+
+A seed that does not fit the camera model (a tilt for an untilted camera, one rig pose without the other) raises `ValueError`.
+
 ## See Also
 
 - [Step Functions vs Pipeline Functions](step_functions.md): the full list of `*_with_seed` variants.

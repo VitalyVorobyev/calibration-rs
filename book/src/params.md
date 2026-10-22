@@ -47,6 +47,22 @@ let camera = params.build()?;
 
 This is used internally by the session framework to reconstruct cameras from JSON-checkpointed state.
 
+### In Python
+
+`vc.CameraModel` is the built model, made from a result's camera (`PinholeCamera` or `PinholeScheimpflugCamera`) or a `CameraParams` payload, with any distortion model and an identity or Scheimpflug sensor. Its methods are vectorized over numpy arrays and release the GIL for large ones:
+
+```python
+import numpy as np
+import vision_calibration as vc
+
+cam = vc.CameraModel(result.camera)
+pixels = cam.project(points_cam)                # (N, 3) camera-frame points -> (N, 2)
+origins, directions = cam.unproject(pixels)     # (N, 3) rays; pinhole directions have z = 1
+ideal = cam.undistort(pixels)                   # (N, 2) in a distortion-free pinhole image, same K
+```
+
+`undistort` removes the distortion and the sensor tilt, so the output is where each pixel lands in an ideal pinhole image with the same intrinsics. A point behind the camera projects to NaN.
+
 ## Convenience Accessors
 
 The calibrated planar-intrinsics parameters (`PlanarIntrinsicsParams`, `export.params`) wrap a `CameraParams` in their `camera` field and provide typed accessors:

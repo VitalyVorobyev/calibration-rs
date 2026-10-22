@@ -177,6 +177,33 @@ run_calibration(&mut session)?;
 
 Each converter checks the topology and target, validates the manifest and resolves the pairing *before* it reads a single image, so a wrong manifest fails in milliseconds with a message that names the field. A view whose detection yields fewer features than `detector.min_features_per_view` (default 4) is dropped; a camera left with too few usable views is an error (`InsufficientUsableViews`) rather than a poor calibration. Each result also carries the source image path of every accepted view, which is how the app shows the right image under each residual.
 
+## In Python
+
+`calibrate_dataset` runs a manifest end to end: it reads the file (TOML or JSON), picks the converter and the session by the manifest's topology, calibrates with the given config and returns the result. The manifest's relative paths resolve against its directory.
+
+```python
+import vision_calibration as vc
+
+cache = vc.FsDetectionCache("cache/kuka_1")
+result = vc.calibrate_dataset("data/kuka_1/dataset.toml", vc.SingleCamHandeyeConfig(), cache=cache)
+print(result.handeye_mode, f"{result.mean_reproj_error:.3f} px")
+```
+
+The converters are `vision_calibration.dataset_runner.build_*_input`, with the Rust names, for a run you drive step by step; each returns the run result (`input` as a payload, `view_paths`, `usable_views`, `total_views`). A manifest can also be a `DatasetSpec` payload, with `base_dir=` naming the directory its paths resolve against. `vc.sniff_folder(path)` returns the drafted manifest as a payload.
+
+The runner's errors keep their types. `RunError` carries the Rust variant as `kind` (`"validation"`, `"empty_image_match"`, `"pose_count_mismatch"`, ...); the ask-user ambiguity is its subclass `AskUserError`, with the `field`, `prompt` and `suggestions`:
+
+```python
+from vision_calibration.dataset_runner import build_single_cam_handeye_input
+
+try:
+    run = build_single_cam_handeye_input(spec, base_dir="data/kuka_1")
+except vc.AskUserError as err:
+    print(f"set {err.field}: {err.prompt} (e.g. {err.suggestions})")
+session = vc.SingleCamHandeyeSession()
+session.set_input(run.input)
+```
+
 ## Device Specifications
 
 A second, optional file describes the *hardware* rather than the data: `spec.json` next to the manifest (`DEVICE_SPEC_FILENAME`), parsed as `DeviceSpec`. It holds datasheet values: per camera the focal length in millimetres, the pixel pitch in micrometres, the image resolution, an optional principal point and an optional Scheimpflug mount tilt in degrees; for rigs the nominal camera mounts, the hand-eye mounting and laser-plane nominals.

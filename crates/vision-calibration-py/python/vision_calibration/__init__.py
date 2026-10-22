@@ -4,11 +4,31 @@ High-level workflow functions accept Python-native dataclasses from
 ``vision_calibration.models`` and return result dataclasses with docstrings.
 Raw serde payload access is available only via low-level helpers in
 ``vision_calibration._api``.
+
+Each problem type's module (:mod:`~vision_calibration.planar_intrinsics`,
+:mod:`~vision_calibration.rig_handeye`, ...) holds its session class, the
+manual-init seeds and the step results; :mod:`~vision_calibration.dataset_runner`
+runs dataset manifests; :class:`CameraModel` projects with a calibrated camera.
 """
 
 from __future__ import annotations
 
 from . import _vision_calibration as _native
+from . import (
+    common,
+    dataset,
+    dataset_runner,
+    detect,
+    laserline_device,
+    planar_intrinsics,
+    residuals,
+    rig_extrinsics,
+    rig_handeye,
+    rig_handeye_laserline,
+    rig_laserline_device,
+    session,
+    single_cam_handeye,
+)
 from ._api import (
     pixel_to_gripper_point,
     projection_uncertainty,
@@ -94,6 +114,38 @@ from .models import (
     SingleCamHandeyeExport,
     SingleCamHandeyeView,
 )
+from .camera import CameraModel
+from .common import (
+    HandeyeInitOptions,
+    HandeyeOptimizeOptions,
+    IntrinsicsInitOptions,
+    IntrinsicsOptimizeOptions,
+    RigInitOptions,
+    RigOptimizeOptions,
+)
+from .dataset import SniffError, sniff_folder
+from .dataset_runner import AskUserError, RunError, calibrate_dataset, detect_target
+from .detect import CacheKey, Features, FsDetectionCache, reject_ambiguous_detection
+from .laserline_device import DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceSession
+from .planar_intrinsics import IntrinsicsFilterOptions, PlanarIntrinsicsSession
+from .residuals import (
+    FeatureResidualHistogram,
+    LaserFeatureResiduals,
+    LaserLineTrace,
+    PerFeatureResiduals,
+    TargetFeatureResiduals,
+)
+from .rig_extrinsics import RigExtrinsicsSession
+from .rig_handeye import RigHandeyeSession
+from .rig_handeye_laserline import RigHandeyeLaserlineSession
+from .rig_laserline_device import (
+    PlaneInitOptions,
+    PlaneOptimizeOptions,
+    RigLaserlineDeviceSession,
+)
+from .session import CalibrationSession, ExportRecord, LogEntry, SessionMetadata
+from .single_cam_handeye import SingleCamHandeyeSession
+
 __version__ = _native.library_version()
 
 __all__ = [
@@ -179,4 +231,47 @@ __all__ = [
     "pixel_to_gripper_point",
     "projection_uncertainty",
     "assess",
+    # Sessions
+    "CalibrationSession",
+    "ExportRecord",
+    "LogEntry",
+    "SessionMetadata",
+    "PlanarIntrinsicsSession",
+    "SingleCamHandeyeSession",
+    "RigExtrinsicsSession",
+    "RigHandeyeSession",
+    "LaserlineDeviceSession",
+    "RigLaserlineDeviceSession",
+    "RigHandeyeLaserlineSession",
+    # Step options
+    "IntrinsicsInitOptions",
+    "IntrinsicsOptimizeOptions",
+    "IntrinsicsFilterOptions",
+    "HandeyeInitOptions",
+    "HandeyeOptimizeOptions",
+    "RigInitOptions",
+    "RigOptimizeOptions",
+    "DeviceInitOptions",
+    "DeviceOptimizeOptions",
+    "PlaneInitOptions",
+    "PlaneOptimizeOptions",
+    # Cameras
+    "CameraModel",
+    # Manifest-driven runs and detection
+    "calibrate_dataset",
+    "sniff_folder",
+    "detect_target",
+    "RunError",
+    "AskUserError",
+    "SniffError",
+    "Features",
+    "FsDetectionCache",
+    "CacheKey",
+    "reject_ambiguous_detection",
+    # Per-feature residuals
+    "PerFeatureResiduals",
+    "TargetFeatureResiduals",
+    "LaserFeatureResiduals",
+    "LaserLineTrace",
+    "FeatureResidualHistogram",
 ]

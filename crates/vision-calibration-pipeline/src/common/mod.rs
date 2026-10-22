@@ -33,10 +33,13 @@ pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use export_kind::ExportKind;
 
+use serde::{Deserialize, Serialize};
+
 /// Options for an intrinsics initialization step.
 ///
 /// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct IntrinsicsInitOptions {
     /// Override the number of iterations for iterative estimation.
@@ -46,7 +49,8 @@ pub struct IntrinsicsInitOptions {
 /// Options for an intrinsics optimization step.
 ///
 /// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
@@ -58,7 +62,8 @@ pub struct IntrinsicsOptimizeOptions {
 /// Options for a hand-eye initialization step.
 ///
 /// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct HandeyeInitOptions {
     /// Override minimum motion angle (degrees).
@@ -68,7 +73,8 @@ pub struct HandeyeInitOptions {
 /// Options for a hand-eye optimization step.
 ///
 /// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct HandeyeOptimizeOptions {
     /// Override the maximum number of iterations.
@@ -81,14 +87,16 @@ pub struct HandeyeOptimizeOptions {
 ///
 /// The linear rig fit has no per-call overrides yet; the struct keeps
 /// `step_rig_init` in the same shape as every other step.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct RigInitOptions {}
 
 /// Options for a rig optimization step.
 ///
 /// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct RigOptimizeOptions {
     /// Override the maximum number of iterations.

@@ -152,6 +152,37 @@ class CameraParams(TypedDict):
     """Sensor model parameters."""
 
 
+class _CameraSourceRequired(TypedDict):
+    """The keys of `CameraSource` that every payload has."""
+
+    id: str
+    """Stable camera identifier (e.g. `"cam0"`). Used as a key in
+    pose pairings and downstream exports.
+    """
+
+    images: ImagePattern
+    """Glob pattern (e.g. `"cam0/*.png"`) or explicit list of image
+    paths, relative to the manifest's directory unless absolute.
+    """
+
+
+class CameraSource(_CameraSourceRequired, total=False):
+    """Per-camera image source."""
+
+    laser_images: ImagePattern | None
+    """Laser-frame image source for the laser topologies.
+    One laser image per view, captured by the same sensor with the
+    line projector on; `roi_xywh` applies to laser frames too.
+    Laser images pair with target views through `pose_pairing`.
+    """
+
+    roi_xywh: tuple[int, int, int, int] | list[int] | None
+    """Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.
+    When set, only the cropped region is fed to the detector and
+    stored in the export's image manifest.
+    """
+
+
 CheckKind: TypeAlias = Literal[
     "observability",
     "convergence",
@@ -181,6 +212,46 @@ CheckStatus: TypeAlias = Literal["pass", "warn", "fail", "not_applicable"]
 - ``"fail"``: Assessed, and failed.
 - ``"not_applicable"``: Not assessed: the result lacks the check's inputs. The message says
   which.
+"""
+
+
+class ChessCornersDetectorSpec(TypedDict, total=False):
+    """ChESS corner extractor overrides."""
+
+    min_corner_strength: float | None
+    """Minimum corner strength for a detected corner to enter the grid
+    builder. `None` keeps the detector default (`33.0`). The floor is on
+    the strategy's response scale; under Radon the default never binds.
+
+    The default drops weakly-firing corners, which is the right trade
+    whenever corners are plentiful. Set `0.0` to disable it on small or
+    soft image tiles, where the floor can remove a third of the board and
+    the resulting sparse view conditions worse than the weak corners did.
+    """
+
+    strategy: CornerStrategySpec | None
+    """Corner detector. `None` keeps ChESS."""
+
+    threshold_value: float | None
+    """Acceptance threshold on the corner response. `None` keeps the
+    strategy's default.
+
+    Under ChESS it is an absolute floor on the raw response: a corner is
+    kept when its response exceeds it. Under Radon it is a fraction in
+    `(0, 1]` of the frame's maximum response.
+
+    A sibling `threshold_mode` key is rejected by `deny_unknown_fields`:
+    the corner detector has no threshold mode.
+    """
+
+
+CornerStrategySpec: TypeAlias = Literal["chess", "radon"]
+"""The corner detector a chessboard-like detector runs.
+
+- ``"chess"``: The ChESS response. Fast; the default.
+- ``"radon"``: The whole-image Radon response. Several times slower than ChESS, and
+  less biased at a corner's sub-pixel position on sharp, finely sampled
+  boards (e.g. rendered ones).
 """
 
 
@@ -224,6 +295,102 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
 
     weights: list[float]
     """Per-point weights; empty for unweighted."""
+
+
+class _DatasetSpecRequired(TypedDict):
+    """The keys of `DatasetSpec` that every payload has."""
+
+    cameras: list[CameraSource]
+    """Per-camera image sources. Length must match the topology's
+    expected camera count (a single-camera topology requires exactly
+    one entry, a rig topology at least two).
+    """
+
+    target: TargetSpec
+    """Calibration-target specification. Tagged enum on `kind`."""
+
+    topology: Topology
+    """Calibration topology — selects which problem type the runner
+    will dispatch to.
+    """
+
+
+class DatasetSpec(_DatasetSpecRequired, total=False):
+    """Top-level dataset manifest. Authoritative description of where
+    the user's calibration data lives and how to interpret it.
+    """
+
+    _unresolved: list[str]
+    """Field paths the manifest generator could not determine.
+    Validated to be empty before the runner accepts the manifest.
+    Populated as e.g. `["pose_convention.transform"]`.
+    """
+
+    description: str | None
+    """Free-form human-readable description."""
+
+    detector: DetectorSpec | None
+    """Detector-stage overrides shared by target families. Defaults
+    preserve the detector's built-in behavior.
+    """
+
+    laser: LaserExtractionSpec | None
+    """Laser-line extraction parameters for the laser topologies.
+    `None` means defaults — extraction tuning has safe
+    defaults and is not a fail-fast ambiguity. Rejected on
+    non-laser topologies.
+    """
+
+    pose_convention: PoseConvention | None
+    """Frame conventions for robot poses. **No defaults** — every
+    component is required when `robot_poses` is set.
+    """
+
+    pose_pairing: PosePairing | None
+    """How per-camera images are paired across views (and optionally
+    with robot poses). `None` is permitted only where pairing is
+    irrelevant: a single camera without robot poses.
+    """
+
+    robot_poses: RobotPoseSource | None
+    """Robot-pose source for hand-eye topologies. `None` for
+    pure-intrinsics calibrations.
+    """
+
+    upstream_calibration: str | None
+    """Path to a frozen upstream `RigHandeyeExport` JSON, relative to
+    the manifest directory unless absolute. Required for
+    `Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
+    laserline calibration computes its own hand-eye warm start and does not
+    use this field.
+    """
+
+    version: int
+    """Format-version sentinel. Always `1` for now; bumped on
+    breaking schema revisions.
+    """
+
+
+class DetectorSpec(TypedDict, total=False):
+    """Target-detector overrides. These options affect feature detection
+    only; they are hashed into the detection-cache key by the runner.
+    """
+
+    chess_corners: ChessCornersDetectorSpec | None
+    """ChESS corner extractor options shared by chessboard-like
+    detectors (plain chessboard and ChArUco).
+    """
+
+    min_features_per_view: int | None
+    """Minimum detected features for a view (or a camera's slot in a rig
+    view) to be kept, in every topology. `None` keeps the runner default
+    (4, the homography minimum). Raise it for detectors whose sparse
+    detections are unreliable — e.g. ring-grid decodes with < 8 markers
+    are noisy enough to poison a solve. Set it to a plain chessboard's
+    corner count (`rows × cols`) to keep only complete boards: rig and
+    hand-eye views share one target frame, and a partial chessboard is
+    labelled from its own top-left corner.
+    """
 
 
 class DeviceOptimizeConfig(TypedDict):
@@ -595,6 +762,28 @@ class ImageManifest(TypedDict):
     """Image root directory, relative to the export file's directory."""
 
 
+class ImagePattern_Glob(TypedDict):
+    """Single shell-glob pattern, evaluated relative to the manifest
+    directory. Example: `"cam0/*.png"`.
+    """
+
+    kind: Literal["glob"]
+    pattern: str
+    """The glob pattern."""
+
+
+class ImagePattern_List(TypedDict):
+    """Explicit ordered list of paths."""
+
+    kind: Literal["list"]
+    paths: list[str]
+    """Paths relative to the manifest directory unless absolute."""
+
+
+ImagePattern: TypeAlias = ImagePattern_Glob | ImagePattern_List
+"""How image paths for a camera are listed."""
+
+
 class _IntrinsicsInitConfigRequired(TypedDict):
     """The keys of `IntrinsicsInitConfig` that every payload has."""
 
@@ -726,6 +915,36 @@ class JointOptimizeConfig(_JointOptimizeConfigRequired, total=False):
     """
 
 
+class LaserExtractionSpec(TypedDict, total=False):
+    """Laser-line extraction parameters. Consumed by the
+    runner's injected `LaserPixelExtractor`; hashed (canonical JSON)
+    into the detection-cache key so edits re-extract.
+    """
+
+    min_points: int
+    """Minimum extracted points for a usable laser view. Views below
+    the bar are dropped (single camera) or become gap slots (rig).
+    Must be at least 2 (a line needs two points); 0/1 would let an
+    empty extraction pass as usable and leave the plane
+    unconstrained.
+    """
+
+    neg_thresh: float
+    """Negative-edge response threshold."""
+
+    pos_thresh: float
+    """Positive-edge response threshold."""
+
+    scan_axis: LaserScanAxis
+    """Scan direction. `cols` walks image columns (one point per
+    column; for laser lines running mostly left-to-right), `rows`
+    walks image rows.
+    """
+
+    sigma: float
+    """Gaussian derivative sigma in pixels for the edge detector."""
+
+
 class LaserFeatureResidual(TypedDict):
     """Reprojection record for a single laser pixel in a single view."""
 
@@ -781,6 +1000,14 @@ class LaserPlane(TypedDict):
 
     normal: tuple[float, float, float] | list[float]
     """Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`."""
+
+
+LaserScanAxis: TypeAlias = Literal["cols", "rows"]
+"""Laser scan direction.
+
+- ``"cols"``: One detection per image column.
+- ``"rows"``: One detection per image row.
+"""
 
 
 class _LaserlineDeviceConfigRequired(TypedDict):
@@ -1162,6 +1389,82 @@ class PlanarView(TypedDict):
 
     obs: CorrespondenceView
     """2D-3D correspondences observed in this view."""
+
+
+class _PoseColumnMapRequired(TypedDict):
+    """The keys of `PoseColumnMap` that every payload has."""
+
+    rotation: list[str]
+    """Rotation columns. Length and meaning depend on the
+    `pose_convention.rotation_format`.
+    """
+
+    tx: str
+    """Translation x column."""
+
+    ty: str
+    """Translation y column."""
+
+    tz: str
+    """Translation z column."""
+
+
+class PoseColumnMap(_PoseColumnMapRequired, total=False):
+    """Mapping from user-defined column / field names to the canonical
+    pose fields. All seven of `tx, ty, tz, qx, qy, qz, qw` are required
+    when `rotation_format` is a quaternion; the runner rejects partial
+    mappings as a fail-fast event.
+    """
+
+    pose_id: str | None
+    """Optional view-id column (string or integer). When absent, the
+    pose row index is used as the implicit pose id.
+    """
+
+
+class PoseConvention(TypedDict):
+    """Frame conventions for the robot pose stream.
+
+    All three components are required (no defaults). Each is a closed
+    enum so the runtime supports a finite, validated set of conventions.
+    """
+
+    rotation_format: RotationFormat
+    """How rotation is parameterised in the file."""
+
+    transform: TransformConvention
+    """Which transform the pose row encodes."""
+
+    translation_units: TranslationUnits
+    """Translation units in the file."""
+
+
+class PosePairing_ByIndex(TypedDict):
+    """All cameras have the same number of images, paired by index
+    (`image[i]` from cam0 ↔ `image[i]` from cam1 ↔ `pose[i]`).
+    """
+
+    kind: Literal["by_index"]
+
+
+class PosePairing_SharedFilenameToken(TypedDict):
+    """A regex applied to filenames extracts a shared "view token"
+    (e.g. timestamp or pose id). All cameras and the pose file
+    must produce the same set of tokens.
+    """
+
+    group: str
+    """Name of the capture group whose value identifies the view."""
+
+    kind: Literal["shared_filename_token"]
+    regex: str
+    """Regex with at least one named capture group."""
+
+
+PosePairing: TypeAlias = PosePairing_ByIndex | PosePairing_SharedFilenameToken
+"""How per-camera image lists align across views and (optionally)
+align with robot poses.
+"""
 
 
 ProjectionKind: TypeAlias = Literal["pinhole"]
@@ -1998,11 +2301,67 @@ class RobotPoseConfig(TypedDict):
     """Robot translation prior sigma (meters)."""
 
 
+RobotPoseFormat: TypeAlias = Literal[
+    "csv",
+    "json",
+    "jsonl",
+    "rowmajor4x4",
+    "counted4x4",
+]
+"""Robot-pose file format.
+
+- ``"csv"``: Comma-separated values with a header row.
+- ``"json"``: JSON array of objects.
+- ``"jsonl"``: JSONL (one JSON object per line).
+- ``"rowmajor4x4"``: Headerless text: each non-empty line is 16 whitespace-separated
+  floats forming a row-major 4×4 homogeneous transform (KUKA-style
+  exports). Requires `pose_convention.rotation_format =
+  "matrix4x4_row_major"` and no `columns` mapping.
+- ``"counted4x4"``: Headerless text: the matrix count, then that many row-major 4×4
+  homogeneous transforms as whitespace-separated floats on any number
+  of lines (the layout of the robot-world hand-eye datasets of Tabb
+  and Ahmad Yousef). Same requirements as `rowmajor4x4`.
+"""
+
+
 class RobotPoseMeta(TypedDict):
     """Per-view robot metadata required by hand-eye calibration."""
 
     base_se3_gripper: Iso3
     """Gripper pose expressed in the robot base frame (T_B_G)."""
+
+
+class _RobotPoseSourceRequired(TypedDict):
+    """The keys of `RobotPoseSource` that every payload has."""
+
+    format: RobotPoseFormat
+    """File-format selector."""
+
+    path: str
+    """Path to the pose file, relative to the manifest directory
+    unless absolute.
+    """
+
+
+class RobotPoseSource(_RobotPoseSourceRequired, total=False):
+    """Where and how robot poses are stored on disk."""
+
+    columns: PoseColumnMap | None
+    """Column / field mapping from the user's file to the canonical
+    fields the converter consumes. Required for the tabular formats
+    (`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be
+    absent for `rowmajor4x4` and `counted4x4`, whose matrix layout is
+    fixed.
+    """
+
+    matrix_field: str | None
+    """For `json` / `jsonl` files whose rows store the whole pose as a
+    single nested 4×4 (or flat-16) array field, names that field
+    (e.g. `"tcp2base"`). Mutually exclusive with `columns`; requires
+    `pose_convention.rotation_format = matrix4x4_row_major`.
+    Translation comes from the matrix's fourth column, scaled by
+    `translation_units`. No `pose_id` ⇒ `by_index` pairing only.
+    """
 
 
 class RobustLoss_Arctan(TypedDict):
@@ -2057,6 +2416,29 @@ class RobustLoss_Huber_Huber(TypedDict):
     """Transition residual norm, in residual units (pixels for
     reprojection).
     """
+
+
+RotationFormat: TypeAlias = Literal[
+    "quat_xyzw",
+    "quat_wxyz",
+    "euler_xyz_deg",
+    "euler_xyz_rad",
+    "euler_zyx_deg",
+    "euler_zyx_rad",
+    "axis_angle_rad",
+    "matrix4x4_row_major",
+]
+"""Rotation parameterisation in the file.
+
+- ``"quat_xyzw"``: Hamilton quaternion as `[qx, qy, qz, qw]`.
+- ``"quat_wxyz"``: Hamilton quaternion as `[qw, qx, qy, qz]`.
+- ``"euler_xyz_deg"``: Intrinsic XYZ Euler angles in degrees.
+- ``"euler_xyz_rad"``: Intrinsic XYZ Euler angles in radians.
+- ``"euler_zyx_deg"``: Intrinsic ZYX Euler angles in degrees.
+- ``"euler_zyx_rad"``: Intrinsic ZYX Euler angles in radians.
+- ``"axis_angle_rad"``: Axis-angle vector (length encodes magnitude, radians).
+- ``"matrix4x4_row_major"``: Row-major 4×4 homogeneous matrix flattened across 16 columns.
+"""
 
 
 class ScheimpflugParams(TypedDict):
@@ -2324,6 +2706,152 @@ class TargetFeatureResidual(TypedDict):
     """3D point in target / world frame (meters)."""
 
 
+class TargetSpec_Charuco(TypedDict):
+    """ChArUco board. Marker IDs and dictionary live here so detection
+    is fully deterministic from the manifest.
+    """
+
+    cols: int
+    """Number of squares along the cols axis."""
+
+    dictionary: str
+    """ArUco dictionary identifier (e.g. `"DICT_4X4_50"`). The
+    detector validates this against the supported set.
+    """
+
+    kind: Literal["charuco"]
+    marker_size_m: float
+    """Edge length of an embedded marker in metres."""
+
+    rows: int
+    """Number of squares along the rows axis (full grid, not
+    interior corners).
+    """
+
+    square_size_m: float
+    """Edge length of one square in metres."""
+
+
+class TargetSpec_Chessboard(TypedDict):
+    """Standard checkerboard. Counts are interior corners
+    (i.e. `9x6` ⇒ a 10×7 black-and-white square grid).
+    """
+
+    cols: int
+    """Number of interior corners along the cols axis."""
+
+    kind: Literal["chessboard"]
+    rows: int
+    """Number of interior corners along the rows axis."""
+
+    square_size_m: float
+    """Edge length of one square in metres."""
+
+
+class TargetSpec_Puzzleboard(TypedDict):
+    """Puzzleboard target: a self-identifying chessboard. The layout name
+    carries the board's dimensions, so the manifest fully determines
+    detection.
+    """
+
+    cell_size_m: float
+    """Edge length of one cell in metres."""
+
+    kind: Literal["puzzleboard"]
+    layout: str
+    """Board dimensions as `puzzle_<rows>x<cols>` (e.g.
+    `"puzzle_12x12"`; the `puzzle_` prefix is optional).
+    """
+
+
+class TargetSpec_Ringgrid(TypedDict):
+    """Coded ring-grid target (the `ringgrid` crate). The board is a
+    hex-lattice of self-identifying ring markers; its geometry mirrors
+    `ringgrid::BoardLayout` so the manifest fully determines detection.
+    """
+
+    kind: Literal["ringgrid"]
+    long_row_cols: int
+    """Number of columns in the longest (even-indexed) row. Shorter
+    rows are derived by the hex-lattice layout.
+    """
+
+    marker_inner_radius_m: float
+    """Inner ring radius in metres."""
+
+    marker_outer_radius_m: float
+    """Outer ring radius in metres."""
+
+    marker_ring_width_m: float
+    """Width of each ring band in metres."""
+
+    pitch_m: float
+    """Center-to-center spacing between adjacent markers in metres."""
+
+    rows: int
+    """Number of marker rows."""
+
+
+TargetSpec: TypeAlias = (
+    TargetSpec_Chessboard
+    | TargetSpec_Charuco
+    | TargetSpec_Puzzleboard
+    | TargetSpec_Ringgrid
+)
+"""Calibration-target metadata. Tagged on `kind`."""
+
+
+Topology: TypeAlias = Literal[
+    "planar_intrinsics",
+    "single_cam_handeye",
+    "laserline_device",
+    "rig_extrinsics",
+    "rig_handeye",
+    "rig_handeye_laserline",
+    "rig_laserline_device",
+]
+"""Calibration topology — selects the problem-type dispatch.
+
+A topology describes the data (how many cameras, robot poses, laser
+images), not the camera model: a tilted (Scheimpflug) single camera is a
+`planar_intrinsics` dataset whose calibration config names the sensor.
+
+- ``"planar_intrinsics"``: Single camera, planar target — `PlanarIntrinsicsProblem` (any camera
+  model, including a tilted sensor).
+- ``"single_cam_handeye"``: Single camera mounted on a robot — `SingleCamHandeyeProblem`.
+- ``"laserline_device"``: Camera + laser plane — `LaserlineDeviceProblem`.
+- ``"rig_extrinsics"``: Multi-camera rig, target only — `RigExtrinsicsProblem`.
+- ``"rig_handeye"``: Multi-camera rig + robot — `RigHandeyeProblem`.
+- ``"rig_handeye_laserline"``: Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.
+- ``"rig_laserline_device"``: Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.
+"""
+
+
+TransformConvention: TypeAlias = Literal[
+    "t_base_tcp",
+    "t_tcp_base",
+    "t_world_tcp",
+    "t_tcp_world",
+]
+"""Which transform a pose row encodes.
+
+- ``"t_base_tcp"``: `T_base_tcp` — gripper pose in the robot base frame (KUKA, UR
+  default).
+- ``"t_tcp_base"``: `T_tcp_base` — base pose in the gripper frame (some ABB exports).
+- ``"t_world_tcp"``: `T_world_tcp` — gripper pose in a fixed world frame (less
+  common; some lab-frame setups).
+- ``"t_tcp_world"``: `T_tcp_world` — world pose in the gripper frame.
+"""
+
+
+TranslationUnits: TypeAlias = Literal["m", "mm"]
+"""Translation units in the file.
+
+- ``"m"``: Metres (SI, preferred).
+- ``"mm"``: Millimetres (some ABB / Fanuc exports).
+"""
+
+
 class _Uncertainty_AvailableRequired(TypedDict):
     """The keys of `Uncertainty_Available` that every payload has."""
 
@@ -2462,9 +2990,14 @@ __all__ = [
     "CameraModelSpec",
     "CameraOverride",
     "CameraParams",
+    "CameraSource",
     "CheckKind",
     "CheckStatus",
+    "ChessCornersDetectorSpec",
+    "CornerStrategySpec",
     "CorrespondenceView",
+    "DatasetSpec",
+    "DetectorSpec",
     "DeviceOptimizeConfig",
     "DistortionKind",
     "DistortionParams",
@@ -2483,13 +3016,18 @@ __all__ = [
     "HandeyeMode",
     "HandeyeOptimizeConfig",
     "ImageManifest",
+    "ImagePattern",
+    "ImagePattern_Glob",
+    "ImagePattern_List",
     "IntrinsicsInitConfig",
     "IntrinsicsManualInit",
     "Iso3",
     "JointOptimizeConfig",
+    "LaserExtractionSpec",
     "LaserFeatureResidual",
     "LaserLineTrace",
     "LaserPlane",
+    "LaserScanAxis",
     "LaserlineDeviceConfig",
     "LaserlineDeviceExport",
     "LaserlineDeviceInput",
@@ -2509,6 +3047,11 @@ __all__ = [
     "PlanarIntrinsicsInput",
     "PlanarIntrinsicsParams",
     "PlanarView",
+    "PoseColumnMap",
+    "PoseConvention",
+    "PosePairing",
+    "PosePairing_ByIndex",
+    "PosePairing_SharedFilenameToken",
     "ProjectionKind",
     "ProjectionParams",
     "ProjectionParams_Pinhole",
@@ -2540,7 +3083,9 @@ __all__ = [
     "RigUpstreamCalibration",
     "RigViewObs",
     "RobotPoseConfig",
+    "RobotPoseFormat",
     "RobotPoseMeta",
+    "RobotPoseSource",
     "RobustLoss",
     "RobustLoss_Arctan",
     "RobustLoss_Arctan_Arctan",
@@ -2548,6 +3093,7 @@ __all__ = [
     "RobustLoss_Cauchy_Cauchy",
     "RobustLoss_Huber",
     "RobustLoss_Huber_Huber",
+    "RotationFormat",
     "ScheimpflugParams",
     "SensorKind",
     "SensorParams",
@@ -2562,6 +3108,14 @@ __all__ = [
     "SolverBackend",
     "SolverConfig",
     "TargetFeatureResidual",
+    "TargetSpec",
+    "TargetSpec_Charuco",
+    "TargetSpec_Chessboard",
+    "TargetSpec_Puzzleboard",
+    "TargetSpec_Ringgrid",
+    "Topology",
+    "TransformConvention",
+    "TranslationUnits",
     "Uncertainty",
     "UncertaintyUnavailable",
     "UncertaintyUnavailable_AtBound",

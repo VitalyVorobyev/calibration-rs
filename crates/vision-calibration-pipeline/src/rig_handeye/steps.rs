@@ -139,7 +139,7 @@ struct GoodRigContext {
 ///
 /// Structurally similar to [`crate::rig_extrinsics::IntrinsicsInitResult`]
 /// but lives in this module so the two problem types can evolve independently.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsInitResult {
     /// Per-camera initial parameters, each in its camera's model.
@@ -151,7 +151,7 @@ pub struct IntrinsicsInitResult {
 
 /// Typed return value of [`step_intrinsics_optimize_all`] for rig hand-eye
 /// calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsOptimizeResult {
     /// Per-camera refined parameters, each in its camera's model.
@@ -168,7 +168,7 @@ pub struct IntrinsicsOptimizeResult {
 
 /// Typed return value of [`step_rig_init`] / [`step_rig_init_with_seed`] for rig
 /// hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigInitResult {
     /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
@@ -178,7 +178,7 @@ pub struct RigInitResult {
 }
 
 /// Typed return value of [`step_rig_optimize`] for rig hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigOptimizeResult {
     /// Mean reprojection error in pixels across the whole rig after rig BA.
@@ -195,7 +195,7 @@ pub struct RigOptimizeResult {
 ///
 /// The interpretation of both fields is mode-dependent — see
 /// [`HandeyeManualInit`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct HandeyeInitResult {
     /// Mode-dependent initial hand-eye transform.
@@ -213,7 +213,7 @@ pub struct HandeyeInitResult {
 }
 
 /// Typed return value of [`step_handeye_optimize`] for rig hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct HandeyeOptimizeResult {
     /// Mean reprojection error in pixels after the final hand-eye BA.

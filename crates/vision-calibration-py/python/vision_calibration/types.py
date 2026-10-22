@@ -54,7 +54,6 @@ Se3Delta: TypeAlias = tuple[float, float, float, float, float, float] | list[flo
 # Python spellings of generated types. Each names the same type as its
 # right-hand side; new code uses the Rust name.
 Transform: TypeAlias = Iso3
-CameraModel: TypeAlias = CameraParams
 IntrinsicsPayload: TypeAlias = FxFyCxCy
 DistortionPayload: TypeAlias = DistortionParams
 DistortionParamsPayload: TypeAlias = DistortionParams
@@ -77,7 +76,6 @@ __all__ = [
     "JsonArray",
     "Se3Delta",
     "Transform",
-    "CameraModel",
     "IntrinsicsPayload",
     "DistortionPayload",
     "DistortionParamsPayload",

@@ -2,18 +2,20 @@
 
 Python bindings for `calibration-rs`.
 
-This crate exposes the high-level calibration workflows from `vision-calibration`
-as typed Python runners:
+This crate exposes the calibration workflows of `vision-calibration` to
+Python, with the Rust names: a one-call runner and a step-by-step session per
+workflow, manifest-driven runs from a folder of images, the target detectors
+on numpy images, and calibrated cameras that project numpy arrays.
 
-| Runner | Workflow |
-|---|---|
-| `run_planar_intrinsics` | Planar intrinsics (pinhole or tilted Scheimpflug sensor) |
-| `run_single_cam_handeye` | Single-camera hand-eye |
-| `run_laserline_device` | Camera + laser plane |
-| `run_rig_extrinsics` | Multi-camera rig extrinsics |
-| `run_rig_handeye` | Rig + hand-eye |
-| `run_rig_laserline_device` | Rig laser plane (frozen rig hand-eye input) |
-| `run_rig_handeye_laserline` | Joint rig + hand-eye + laser plane |
+| Runner | Session | Workflow |
+|---|---|---|
+| `run_planar_intrinsics` | `PlanarIntrinsicsSession` | Planar intrinsics (pinhole or tilted Scheimpflug sensor) |
+| `run_single_cam_handeye` | `SingleCamHandeyeSession` | Single-camera hand-eye |
+| `run_laserline_device` | `LaserlineDeviceSession` | Camera + laser plane |
+| `run_rig_extrinsics` | `RigExtrinsicsSession` | Multi-camera rig extrinsics |
+| `run_rig_handeye` | `RigHandeyeSession` | Rig + hand-eye |
+| `run_rig_laserline_device` | `RigLaserlineDeviceSession` | Rig laser plane (frozen rig hand-eye input) |
+| `run_rig_handeye_laserline` | `RigHandeyeLaserlineSession` | Joint rig + hand-eye + laser plane |
 
 ## Install
 
@@ -76,6 +78,70 @@ to give individual cameras their own model and fix lists
 (`vc.CameraOverride(camera=1, model=vc.CameraModelSpec(sensor="scheimpflug"))`).
 Results report each camera as a `PinholeCamera` or, for a tilted sensor, a
 `PinholeScheimpflugCamera`, whose `distortion` is the configured model's.
+
+## Sessions and steps
+
+A session runs a workflow step by step, with the Rust step names. Each step
+takes its options (a dataclass; `None` fields keep the config) and returns its
+result as a dataclass; the `*_with_seed` steps take manual-init seeds. The
+problem's seeds and results live in its module (`vision_calibration.rig_extrinsics`,
+...).
+
+```python
+import vision_calibration as vc
+from vision_calibration import planar_intrinsics
+
+session = vc.PlanarIntrinsicsSession()
+session.set_input(dataset)
+init = session.step_init_with_seed(
+    planar_intrinsics.IntrinsicsManualInit(
+        intrinsics=vc.PinholeIntrinsics(fx=800.0, fy=800.0, cx=640.0, cy=360.0)
+    )
+)
+session.step_optimize(vc.IntrinsicsOptimizeOptions(max_iters=100))
+result = session.export()
+for entry in session.log:  # the init log and the solve notes
+    print(entry.operation, entry.notes)
+saved = session.to_json()  # resume later with PlanarIntrinsicsSession.from_json
+```
+
+## Manifests and detection
+
+`calibrate_dataset` runs a dataset manifest (TOML or JSON) end to end:
+detection, the problem's input, calibration and export. `sniff_folder` drafts
+a manifest from a folder; `FsDetectionCache` keeps detections between runs.
+A manifest that leaves a convention open raises `AskUserError` (a `RunError`)
+naming the field to set; other runner failures raise `RunError` with a `kind`.
+
+```python
+cache = vc.FsDetectionCache("cache/kuka_1")
+result = vc.calibrate_dataset("data/kuka_1/dataset.toml", cache=cache)
+```
+
+The laser topologies take a `laser_extractor`: any object with a `name` and an
+`extract(image, spec)` method returning the laser line's `(N, 2)` pixels.
+`detect_target` runs a manifest's target detector on one `(H, W)` `uint8`
+image and returns `Features` (`image_xy` and `world_xyz` arrays):
+
+```python
+features = vc.detect_target(gray, {"kind": "chessboard", "rows": 17, "cols": 28, "square_size_m": 0.02})
+view = vc.PlanarView(observation=features.to_observation())
+```
+
+## Cameras and residuals
+
+`CameraModel` builds a calibrated camera (any distortion model, identity or
+Scheimpflug sensor) and projects numpy arrays: `project` `(N, 3) -> (N, 2)`,
+`unproject` to ray origins and directions, and `undistort` to an ideal pinhole
+image with the same intrinsics. Every result's `per_feature_residuals` holds
+the per-corner and per-laser-pixel residuals as numpy tables.
+
+```python
+cam = vc.CameraModel(result.camera)
+pixels = cam.project(points_cam)
+res = result.per_feature_residuals
+print(res.target.error_px.max(), res.target.observed_px.shape)
+```
 
 ## Uncertainty
 
