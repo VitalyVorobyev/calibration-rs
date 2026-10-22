@@ -8,7 +8,7 @@ use vision_calibration_bench::solver::metrics::GtErrors;
 use vision_calibration_bench::solver::record::{RunStatus, SolverRunRecord};
 use vision_calibration_bench::solver::run_scene;
 use vision_calibration_bench::solver::scenes::{
-    OUTLIER_FRACTION, OutlierSpec, Problem, Scale, SceneSpec, SensorKind,
+    OUTLIER_FRACTION, OUTLIER_LOSS_SCALE, OutlierSpec, Problem, Scale, SceneSpec, SensorKind,
 };
 
 fn small(problem: Problem, sensor: SensorKind) -> SceneSpec {
@@ -22,8 +22,9 @@ fn small(problem: Problem, sensor: SensorKind) -> SceneSpec {
     }
 }
 
-/// Run twice; assert the quality bar and bit-exact reproducibility.
-fn check(spec: SceneSpec, bounds: impl Fn(&GtErrors)) {
+/// Run twice; assert the quality bar and bit-exact reproducibility. Returns
+/// the tiny-solver record.
+fn check(spec: SceneSpec, bounds: impl Fn(&GtErrors)) -> SolverRunRecord {
     let tiny = check_on(&spec, &bounds, SolverBackend::TinySolver);
     let factrs = check_on(&spec, &bounds, SolverBackend::Factrs);
     // Both backends reach the same minimum of the same objective.
@@ -38,6 +39,7 @@ fn check(spec: SceneSpec, bounds: impl Fn(&GtErrors)) {
             spec.id()
         );
     }
+    tiny
 }
 
 /// One backend: the quality bar, then a second run that must reproduce the
@@ -56,7 +58,12 @@ fn check_on(
         m.inlier_rms_px.is_finite() && m.inlier_rms_px < 0.3,
         "{ctx}"
     );
-    assert_eq!(m.num_outliers, 0);
+    assert_eq!(
+        m.num_outliers == 0,
+        spec.outliers == OutlierSpec::None,
+        "{ctx}: {} outliers scored",
+        m.num_outliers
+    );
     if let Some(f) = m.gt.focal_rel {
         assert!(f < 0.015, "{ctx}: focal error {f}");
     }
@@ -104,6 +111,41 @@ fn laserline_device() {
         assert!(gt.laser_normal_deg.unwrap() < 1.0);
         assert!(gt.laser_distance_mm.unwrap() < 10.0);
     });
+}
+
+/// 5 % of the corners displaced 10–30 px, under either robust loss: the
+/// joint solve reaches the clean scene's noise floor (inlier RMS 0.14 px at
+/// σ 0.1 px). No view's pose is held at its linear-init value, which the
+/// outliers corrupt.
+#[test]
+fn laserline_device_with_outliers() {
+    for loss in [
+        RobustLoss::Huber {
+            scale: OUTLIER_LOSS_SCALE,
+        },
+        RobustLoss::Cauchy {
+            scale: OUTLIER_LOSS_SCALE,
+        },
+    ] {
+        let spec = SceneSpec {
+            outliers: OutlierSpec::Injected {
+                fraction: OUTLIER_FRACTION,
+            },
+            loss,
+            ..small(Problem::LaserlineDevice, SensorKind::Pinhole)
+        };
+        let id = spec.id();
+        let rec = check(spec, |gt| {
+            assert!(gt.focal_rel.unwrap() < 0.003, "focal {:?}", gt.focal_rel);
+            assert!(gt.laser_normal_deg.unwrap() < 0.1);
+            assert!(gt.laser_distance_mm.unwrap() < 1.0);
+        });
+        let rms = rec.metrics.expect("metrics").inlier_rms_px;
+        assert!(
+            rms < 0.16,
+            "{id}: inlier RMS {rms} px above the noise floor"
+        );
+    }
 }
 
 #[test]

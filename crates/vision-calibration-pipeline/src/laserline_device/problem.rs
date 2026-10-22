@@ -76,7 +76,10 @@ pub struct DeviceOptimizeConfig {
     /// Global weight for laser residuals.
     pub laser_weight: f64,
     /// Indices of target poses to hold fixed. None by default: each view's
-    /// pose is measured by its own corners, so there is no gauge to fix.
+    /// pose is measured by its own corners, so there is no gauge to fix. A
+    /// held pose keeps its initial value, and the linear init is not robust
+    /// to outlying corners: holding one keeps the solve off the minimum when
+    /// some corners are outliers.
     pub fix_poses: Vec<usize>,
     /// Fix laser plane parameters during optimization.
     pub fix_plane: bool,

@@ -108,7 +108,7 @@
           "type": "boolean"
         },
         "fix_poses": {
-          "description": "Indices of target poses to hold fixed. None by default: each view's\npose is measured by its own corners, so there is no gauge to fix.",
+          "description": "Indices of target poses to hold fixed. None by default: each view's\npose is measured by its own corners, so there is no gauge to fix. A\nheld pose keeps its initial value, and the linear init is not robust\nto outlying corners: holding one keeps the solve off the minimum when\nsome corners are outliers.",
           "items": {
             "format": "uint",
             "minimum": 0,
