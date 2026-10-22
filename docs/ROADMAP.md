@@ -95,6 +95,27 @@ MVG surfaces. Then:
 
 Phase 2 tracks are independent of each other and are picked by need.
 
+## Landscape
+
+Rust calibration crates on crates.io, as of 2026-10-21. No other crate
+combines several calibration problems with parameter covariance; hand-eye,
+laser-plane and Scheimpflug calibration exist nowhere else in Rust.
+
+| Crate | Licence | Scope | Relation to us |
+|---|---|---|---|
+| `camera-intrinsic-calibration` | GPL-3.0 | Intrinsics and multi-camera extrinsics; EUCM, UCM, KB4, F-theta; a CLI with Rerun | Closest in scope, about 30× our downloads. No covariance, no hand-eye. GPL, so a comparison baseline only (BENCH-COMPARE), never a code source |
+| `camera-intrinsic-model` | Apache-2.0 | Camera models, undistort and remap, stereo rectification | Models only. Reading its formats would fall under the interchange-format item in [Out of scope](#out-of-scope) |
+| `apex-solver`, `apex-camera-models` | Apache-2.0 | Least squares, bundle adjustment refining intrinsics, 9 camera models | New and fast-moving; no calibration pipelines, no covariance. The one to watch |
+| `opencv` | MIT | Bindings to all of OpenCV | Needs a native OpenCV build; covariance limited to standard deviations |
+| `mrcal` | — | Bindings to the C mrcal, which has uncertainty | Needs a native build, Linux-only, practically unused |
+| `sophus`, `rust-cv`, `kornia-rs`, `cam-geom`, `sqpnp`, `factrs` | permissive | Lie groups, camera geometry, PnP, solvers | No calibration; `rust-cv` inactive since 2020; `factrs` is one of our backends |
+
+The gap to the closest rival is adoption, not capability. Within the
+current scope the levers are a published comparison against OpenCV
+(BOOK-RESULTS) and fisheye coverage with a comparison against
+`camera-intrinsic-calibration` (CAM-KB, CAM-EUCM-DS, BENCH-COMPARE).
+Revisit the table when a crate adds calibration pipelines or covariance.
+
 ## Standing decisions
 
 The binding design decisions are the [ADRs](adrs/README.md). Policies that
