@@ -39,7 +39,7 @@ path = "src/bin/emit_schemas.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -54,6 +54,9 @@ vision-calibration = { path = "../../crates/vision-calibration" }
 # implementation. Same pin as vision-calibration-bench.
 vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0" }
 dirs = "5"
+# Canonical paths without the Windows `\\?\` prefix, so the asset scope and
+# the webview's `convertFileSrc` URLs name a file the same way.
+dunce = "1"
 # Optional: only pulled in by the `schema-export` feature for the
 # `emit_schemas` binary. schemars 1.x, matching the workspace pin.
 schemars = { version = "1", features = ["derive"], optional = true }

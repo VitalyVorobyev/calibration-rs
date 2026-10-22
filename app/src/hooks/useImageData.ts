@@ -1,19 +1,10 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { decodeImage, type ImageData } from "../lib/imagePixels";
+import { assetUrl } from "../lib/tauri";
 import type { FrameKey } from "../types";
 
-export interface ImageData {
-  /** The decoded HTMLImageElement, ready for `ctx.drawImage`. */
-  image: HTMLImageElement;
-  /** Width / height of the original PNG in pixels. */
-  naturalWidth: number;
-  naturalHeight: number;
-  /** Per-pixel luminance for the full image, row-major
-   * (`y * naturalWidth + x`). 8-bit. We store luminance only — that's
-   * what the histogram + cursor readout need, and one byte per pixel
-   * keeps memory at reasonable bounds (8 MB for a 4320×540 strip). */
-  luminance: Uint8Array;
-}
+export type { ImageData } from "../lib/imagePixels";
 
 /** Decoded pixels tagged with the request key they were loaded for, so a
  * hook can drop them as soon as its inputs move on to a different key. */
@@ -22,34 +13,28 @@ interface Loaded {
   data: ImageData;
 }
 
-/** Loads a frame's PNG via the Tauri `load_image` command and decodes
- * its luminance buffer once, so both `FrameCanvas` (drawing) and
- * `DiagnoseWorkspace` (cursor readout + histogram) can share the same
- * decode without the IPC roundtrip happening twice. */
+/** Loads a frame's source image from disk through the asset protocol and
+ * decodes its luminance once, so both `FrameCanvas` (drawing) and
+ * `DiagnoseWorkspace` (cursor readout + histogram) share one decode. */
 export function useImageData(
   frame: FrameKey | null,
   onError?: (msg: string) => void,
 ): ImageData | null {
   // Depend on the path only, not `frame` itself: the caller may hand us a
   // fresh `FrameKey` object each render even when the path is unchanged,
-  // and re-fetching on every render would defeat the point of this hook.
+  // and re-loading on every render would defeat the point of this hook.
   const path = frame?.abs_path ?? null;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
     if (path === null) return;
     let cancelled = false;
-    invoke<string>("load_image", { path })
-      .then((dataUrl) =>
-        decodeImageDataUrl(
-          dataUrl,
-          () => cancelled,
-          (data) => setLoaded({ key: path, data }),
-          onError,
-        ),
-      )
-      .catch((e) => {
-        if (!cancelled) onError?.(`Could not load image: ${e}`);
+    decodeImage(assetUrl(path))
+      .then((data) => {
+        if (!cancelled) setLoaded({ key: path, data });
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) onError?.(`Could not load image ${path}: ${errorText(e)}`);
       });
     return () => {
       cancelled = true;
@@ -60,9 +45,11 @@ export function useImageData(
 }
 
 /** Loads a frame through the backend's canonical camera model into the
- * undistorted pixel frame. The returned image is already ROI-local when
- * `frame.roi` is set, so callers should render it without applying the
- * ROI crop a second time. */
+ * undistorted pixel frame. The backend answers with PNG bytes, shown
+ * through a blob URL that lives as long as the image is current. The
+ * returned image is already
+ * ROI-local when `frame.roi` is set, so callers should render it without
+ * applying the ROI crop a second time. */
 export function useUndistortedImageData(
   frame: FrameKey | null,
   camera: number,
@@ -85,118 +72,30 @@ export function useUndistortedImageData(
         ? null
         : { x: roiX, y: roiY, w: roiW, h: roiH };
     let cancelled = false;
-    invoke<string>("load_undistorted_image", { path, camera, roi })
-      .then((dataUrl) =>
-        decodeImageDataUrl(
-          dataUrl,
-          () => cancelled,
-          (data) => setLoaded({ key, data }),
-          onError,
-        ),
-      )
-      .catch((e) => {
-        if (!cancelled) onError?.(`Could not load undistorted image: ${e}`);
+    let url: string | null = null;
+    invoke<ArrayBuffer>("load_undistorted_image", { path, camera, roi })
+      .then((bytes) => {
+        if (cancelled) return null;
+        url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        return decodeImage(url);
+      })
+      .then((data) => {
+        if (!cancelled && data) setLoaded({ key, data });
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) onError?.(`Could not load undistorted image: ${errorText(e)}`);
       });
     return () => {
       cancelled = true;
+      // The frame viewer displays the image by its URL, so the URL lives
+      // until this key's image is no longer returned.
+      if (url) URL.revokeObjectURL(url);
     };
   }, [path, roiX, roiY, roiW, roiH, camera, key, onError]);
 
   return path !== null && loaded?.key === key ? loaded.data : null;
 }
 
-function decodeImageDataUrl(
-  dataUrl: string,
-  isCancelled: () => boolean,
-  setData: (data: ImageData) => void,
-  onError?: (msg: string) => void,
-) {
-  if (isCancelled()) return;
-  const img = new Image();
-  img.onload = () => {
-    if (isCancelled()) return;
-    try {
-      const luminance = decodeLuminance(img);
-      setData({
-        image: img,
-        naturalWidth: img.naturalWidth,
-        naturalHeight: img.naturalHeight,
-        luminance,
-      });
-    } catch (e) {
-      onError?.(`Pixel decode failed: ${String(e)}`);
-    }
-  };
-  img.onerror = () => {
-    if (!isCancelled()) onError?.("Image failed to decode.");
-  };
-  img.src = dataUrl;
-}
-
-/** Pull luminance out of an HTMLImageElement by drawing it into an
- * OffscreenCanvas (or a hidden 2D canvas for older runtimes) and
- * extracting RGBA. We compute Rec. 601 luma and discard the rest. */
-type Canvas2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-
-function decodeLuminance(img: HTMLImageElement): Uint8Array {
-  const w = img.naturalWidth;
-  const h = img.naturalHeight;
-  const ctx = acquireContext(w, h);
-  if (!ctx) throw new Error("could not acquire 2D context");
-  ctx.drawImage(img, 0, 0);
-  const rgba = ctx.getImageData(0, 0, w, h).data;
-  const lum = new Uint8Array(w * h);
-  for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
-    // Rec. 601 luma — close enough for diagnostic readout.
-    lum[j] = (0.299 * rgba[i]! + 0.587 * rgba[i + 1]! + 0.114 * rgba[i + 2]!) | 0;
-  }
-  return lum;
-}
-
-function acquireContext(w: number, h: number): Canvas2D | null {
-  if (typeof OffscreenCanvas !== "undefined") {
-    return new OffscreenCanvas(w, h).getContext("2d");
-  }
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  return c.getContext("2d");
-}
-
-/** Read the luminance at integer image coords, or null if out of bounds. */
-export function getPixelLum(data: ImageData, x: number, y: number): number | null {
-  const xi = x | 0;
-  const yi = y | 0;
-  if (xi < 0 || yi < 0 || xi >= data.naturalWidth || yi >= data.naturalHeight) {
-    return null;
-  }
-  return data.luminance[yi * data.naturalWidth + xi]!;
-}
-
-/** Compute a fixed-bin histogram over a sub-rectangle of the image. */
-export function rectHistogram(
-  data: ImageData,
-  rect: { x: number; y: number; w: number; h: number },
-  binCount: number,
-): number[] {
-  const bins = new Array<number>(binCount).fill(0);
-  const w = data.naturalWidth;
-  const h = data.naturalHeight;
-  const x0 = Math.max(0, Math.floor(rect.x));
-  const y0 = Math.max(0, Math.floor(rect.y));
-  const x1 = Math.min(w, Math.ceil(rect.x + rect.w));
-  const y1 = Math.min(h, Math.ceil(rect.y + rect.h));
-  if (x1 <= x0 || y1 <= y0) return bins;
-  const scale = binCount / 256;
-  const lum = data.luminance;
-  for (let y = y0; y < y1; y++) {
-    const row = y * w;
-    for (let x = x0; x < x1; x++) {
-      const v = lum[row + x]!;
-      let bin = (v * scale) | 0;
-      if (bin >= binCount) bin = binCount - 1;
-      bins[bin]!++;
-    }
-  }
-  return bins;
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }

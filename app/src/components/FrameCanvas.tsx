@@ -221,7 +221,7 @@ export function FrameCanvas({
   if (!image || width === 0 || height === 0) {
     return (
       <div
-        role="application"
+        role="group"
         aria-label={LABEL}
         className={`h-full w-full rounded-control border border-line bg-raised ${ringClass}`}
       />

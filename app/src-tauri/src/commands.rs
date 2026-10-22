@@ -6,10 +6,10 @@
 //! it actually consumes (residuals + manifest + mean error). Trade-off
 //! recorded in ADR 0014.
 
-use base64::Engine;
 use serde::Serialize;
-use std::path::PathBuf;
-use tauri::State;
+use std::path::{Path, PathBuf};
+use tauri::ipc::Response;
+use tauri::{AppHandle, Runtime, State};
 use vision_calibration::core::PixelRect;
 
 use crate::epipolar::{self, EpipolarOverlay};
@@ -25,8 +25,8 @@ pub struct LoadExportResult {
     pub export: serde_json::Value,
     /// Absolute path to the directory containing `export.json`. The
     /// frontend joins this with the manifest's `root` and per-frame
-    /// `path` to obtain absolute image filenames it can hand back to
-    /// [`load_image`].
+    /// `path` to obtain absolute image filenames, which it loads through
+    /// the asset protocol.
     pub export_dir: String,
 }
 
@@ -35,9 +35,13 @@ pub struct LoadExportResult {
 /// `image_manifest`) before the user can interact with it, and a
 /// rejected export must not displace the cache the previous session is
 /// still using. The frontend calls [`set_active_export`] explicitly
-/// once it accepts the file.
+/// once it accepts the file. The export's image root becomes loadable
+/// through the asset protocol.
 #[tauri::command]
-pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
+pub async fn load_export<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<LoadExportResult, String> {
     let p = PathBuf::from(&path);
     let parent = p
         .parent()
@@ -46,13 +50,23 @@ pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
     let bytes = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     let export: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", p.display()))?;
-    let export_dir = parent
-        .canonicalize()
-        .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?
-        .to_string_lossy()
-        .into_owned();
+    let export_dir = dunce::canonicalize(&parent)
+        .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?;
+    if let Some(images) = image_root(&export, &export_dir) {
+        crate::assets::allow_dir(&app, &images)?;
+    }
 
-    Ok(LoadExportResult { export, export_dir })
+    Ok(LoadExportResult {
+        export,
+        export_dir: export_dir.to_string_lossy().replace('\\', "/"),
+    })
+}
+
+/// The folder an export's image manifest resolves against: its `root`
+/// joined onto the export's own folder. `None` without a manifest.
+fn image_root(export: &serde_json::Value, export_dir: &Path) -> Option<PathBuf> {
+    let root = export.get("image_manifest")?.get("root")?.as_str()?;
+    Some(export_dir.join(root))
 }
 
 /// Commit the export the frontend has accepted as the active dataset.
@@ -127,33 +141,22 @@ pub async fn sniff_folder(folder: String) -> Result<serde_json::Value, String> {
     serde_json::to_value(&spec).map_err(|e| format!("serialize manifest: {e}"))
 }
 
-/// Read an image file and return it as a `data:` URL the webview can use
-/// directly. PNG is the only format the v0 fixture writes; the MIME type
-/// is inferred from the extension.
-#[tauri::command]
-pub async fn load_image(path: String) -> Result<String, String> {
-    let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
-    let mime = mime_for(&path);
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok(format!("data:{mime};base64,{b64}"))
-}
-
 /// Read an image file and render it into a camera's undistorted pixel
-/// frame. This is only used by the Epipolar workspace; Diagnose keeps
-/// showing the raw source image.
+/// frame, returned as PNG bytes (a binary IPC response, not text). Only
+/// the Epipolar workspace uses it; the source images themselves are loaded
+/// by the webview through the asset protocol.
 #[tauri::command]
 pub async fn load_undistorted_image(
     path: String,
     camera: usize,
     roi: Option<PixelRect>,
     cache: State<'_, ExportCache>,
-) -> Result<String, String> {
+) -> Result<Response, String> {
     let path_buf = PathBuf::from(&path);
     let bytes = cache
         .read(|cached| epipolar::undistort_image_png(&cached.value, &path_buf, camera, roi))
         .ok_or_else(|| "no export loaded yet".to_string())??;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok(format!("data:image/png;base64,{b64}"))
+    Ok(Response::new(bytes))
 }
 
 /// Map raw/distorted camera pixels into the undistorted pixel frame
@@ -243,31 +246,18 @@ pub async fn projection_uncertainty(
         .ok_or_else(|| "no export loaded yet".to_string())?
 }
 
-fn mime_for(path: &str) -> &'static str {
-    let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".png") {
-        "image/png"
-    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if lower.ends_with(".webp") {
-        "image/webp"
-    } else {
-        // Default to octet-stream so the browser refuses to render
-        // something we don't recognise rather than mis-decode it.
-        "application/octet-stream"
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn mime_detection() {
-        assert_eq!(mime_for("foo.png"), "image/png");
-        assert_eq!(mime_for("FOO.PNG"), "image/png");
-        assert_eq!(mime_for("foo.jpg"), "image/jpeg");
-        assert_eq!(mime_for("foo.jpeg"), "image/jpeg");
-        assert_eq!(mime_for("foo.bin"), "application/octet-stream");
+    fn image_root_joins_the_manifest_root_onto_the_export_folder() {
+        let export = json!({ "image_manifest": { "root": "../..", "frames": [] } });
+        assert_eq!(
+            image_root(&export, Path::new("/p/runs/a")),
+            Some(PathBuf::from("/p/runs/a/../.."))
+        );
+        assert_eq!(image_root(&json!({}), Path::new("/p")), None);
     }
 }

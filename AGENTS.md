@@ -250,16 +250,20 @@ paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
 
 ## 10) Desktop app (`app/`)
 
-* Tauri 2 + React 19 + TypeScript; frontend in `app/src/` (five workspaces
-  under `app/src/workspaces/`: Run, Diagnose, 3D, Epipolar, Depth), Rust Tauri
-  backend in `app/src-tauri/src/`.
+* Tauri 2 + React 19 + TypeScript; frontend in `app/src/` (the
+  `@vitavision/workbench` shell in `shell/`, the project model in
+  `project/`, five workspaces under `workspaces/`: Run, Diagnose, 3D,
+  Epipolar, Depth), Rust Tauri backend in `app/src-tauri/src/`. No `app/src`
+  module over ~400 lines (generated files excepted).
+* Source images load over Tauri's asset protocol, scoped to folders the user
+  opened (`assets.rs`); never send image bytes over IPC as text.
 * **Always `bun`**, never `npm`/`pnpm`/`yarn`; the lockfile is `bun.lock`, and
   `tauri.conf.json`'s `beforeDevCommand`/`beforeBuildCommand` call `bun run …`.
   `bun run tauri dev` launches the app (`bun run dev` alone is Vite-only, with
   no Tauri IPC).
-* UI comes from `@vitavision/ui` (components, tokens, fonts) and the 3D viewer
-  from `@vitavision/three` / `@vitavision/three-react`; no app-local component
-  kit. ESLint's `tokensOnly` rule keeps colour in `app/src` on the design
+* UI comes from `@vitavision/ui` (components, tokens, fonts), the frame from
+  `@vitavision/workbench` and the 3D viewer from `@vitavision/three` /
+  `@vitavision/three-react`; no app-local component kit. ESLint's `tokensOnly` rule keeps colour in `app/src` on the design
   tokens.
 * Gates (from `app/`): `bun run lint`, `bun run format:check`,
   `bun run typecheck`, `bun run test`, `bun run build`; and from
@@ -270,6 +274,6 @@ paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
   `cargo build|test --workspace` does **not** cover it.
 * Developer guide: `app/DEVELOPING.md`; design rationale:
   `docs/adrs/0014-desktop-app.md`.
-* The frontend is being rebuilt on the `@vitavision/workbench` shell
-  (backlog, App track). New views go into that structure rather than into
-  the current workspaces.
+* The workspaces are being reorganized around the project as Project →
+  Dataset → Detect → Calibrate → Diagnose → Use (backlog, App track). New
+  views go into that structure rather than into the current workspaces.

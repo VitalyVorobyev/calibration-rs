@@ -413,6 +413,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **App: project folders.** A project keeps a dataset's manifest and its
+  runs in one folder (`calibration-project.json`, `dataset.json`,
+  `runs/run-NNN/` with the run's manifest, config, export and diagnostics).
+  The header's **Project** menu creates one from the loaded dataset, opens
+  one, saves the edited manifest and reopens recent projects; the dataset's
+  images may live in the project folder or anywhere else. While a project is
+  open, each successful run is saved as the next `run-NNN` (never over an
+  existing one) and reopened from disk, and a navigator on the left lists
+  the runs. A folder without `calibration-project.json` is reported as not a
+  project rather than guessed at.
 - **Per-point pixel covariance.** An observation may state the 2 × 2
   covariance of each image point (`PointCovariance`, px²). The solve then
   whitens each reprojection residual by it (`L e` with `LᵀL = Σ⁻¹`), in both
@@ -624,6 +634,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **App: the workbench shell.** The app's frame is the shared
+  `@vitavision/workbench` studio shell (workspace rail with `⌘1`…`⌘5`,
+  resizable project navigator, status line, notifications), on current
+  `@vitavision/*` packages (ui 0.14, workbench 0.3, three and three-react
+  0.2, stage2d 0.13, forms and charts 0.8). Source images load straight from
+  disk through Tauri's asset protocol instead of as base64 text over IPC,
+  and only from folders you opened (a project's dataset, an export's
+  images); the app now runs under a Content Security Policy. An export whose
+  image root is an absolute path shows its images. The Run workspace keeps
+  its setup when you switch workspaces.
 - A result without a covariance is a typed
   `Error::CovarianceUnavailable { reason }` from
   `CalibratedCameras::projection_uncertainty` and the next-view functions,

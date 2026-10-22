@@ -1,24 +1,25 @@
-//! Tauri 2 backend for the calibration-rs diagnose viewer.
+//! Tauri 2 backend for the calibration-rs desktop app.
 //!
-//! Commands exposed to the React frontend:
+//! Commands exposed to the React frontend, by module:
 //!
-//! - [`commands::load_export`] — read + parse an `export.json` produced
-//!   by the calibration library, return its parsed contents and the
-//!   absolute directory it lives in (so the frontend can resolve the
-//!   image manifest's relative paths). Also caches the parsed JSON for
-//!   downstream math commands.
-//! - [`commands::load_image`] — read an image file from disk, return a
-//!   `data:` URL the webview can drop into a `<canvas>` via `Image()`.
-//! - [`commands::compute_epipolar_overlay`] — server-side epipolar line
-//!   computation through the canonical camera models in
-//!   `vision_calibration::core`. See ADR 0014 for the architecture
-//!   rationale (no TS-side projection).
+//! - [`project`] — project folders: create, open, save the manifest, save
+//!   a run (`runs/<name>/`). See ADR 0014.
+//! - [`commands`] — exports (load, set active), text files, folder
+//!   sniffing, undistorted images, epipolar overlays, uncertainty.
+//! - [`run`] — the calibration runner, with stage progress and
+//!   cancellation.
+//! - [`disparity`] — dense stereo for the Depth workspace.
+//!
+//! Source images are not sent over IPC: the webview loads them through the
+//! asset protocol, scoped to the folders the user opened ([`assets`]).
 
+mod assets;
 mod commands;
 mod disparity;
 mod epipolar;
 mod export_cache;
 mod laser;
+mod project;
 mod run;
 mod uncertainty;
 
@@ -36,21 +37,25 @@ use run::RunRegistry;
 pub mod schema_types {
     pub use crate::disparity::DisparityResult;
     pub use crate::epipolar::EpipolarOverlay;
+    pub use crate::project::{ProjectError, ProjectInfo};
     pub use crate::run::RunProgress;
     pub use vision_calibration::optim::ProjectionUncertainty;
 }
 
 /// Entry point invoked from `main.rs`. Wires up the dialog plugin, the
-/// shared export cache, and the viewer + math + runner commands.
+/// shared export cache, and the project + viewer + math + runner commands.
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(ExportCache::new())
         .manage(RunRegistry::new())
         .invoke_handler(tauri::generate_handler![
+            project::create_project,
+            project::open_project,
+            project::save_project_manifest,
+            project::save_project_run,
             commands::load_export,
             commands::set_active_export,
-            commands::load_image,
             commands::load_undistorted_image,
             commands::load_text_file,
             commands::repo_root_cmd,

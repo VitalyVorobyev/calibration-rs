@@ -27,7 +27,7 @@ Editing the form clears the preset selection, so nothing silently reverts your e
 
 While the solve runs, a **stage checklist** (detecting features, solving, exporting) with a live elapsed clock replaces a plain spinner. A **Cancel** button stops the run at the next stage boundary; the stage in flight always finishes, since there is no solver interrupt. A cancelled run shows a distinct "Run cancelled" banner, not an error.
 
-On success the app flashes a status banner and navigates to Diagnose after a short delay, with the fresh export loaded. Detection goes through the [detection cache](detection.md#the-detection-cache), so a second run on the same images skips it.
+On success the app flashes a status banner and navigates to Diagnose after a short delay, with the fresh export loaded. With a [project](app.md#projects) open, the run is first saved as the project's next `runs/run-NNN/` and the export is loaded from there; the banner names the run. Detection goes through the [detection cache](detection.md#the-detection-cache), so a second run on the same images skips it.
 
 When the runner meets an ambiguity it refuses to guess (a hand-eye dataset with no `pose_pairing`, for example), a modal dialog asks you to pick one of the suggested options instead of continuing. Validation failures and other errors appear inline.
 

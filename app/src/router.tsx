@@ -1,5 +1,5 @@
 import { createHashRouter, Navigate } from "react-router";
-import { AppShell } from "./layouts/AppShell";
+import { Shell } from "./shell/Shell";
 import { DepthWorkspace } from "./workspaces/DepthWorkspace";
 import { DiagnoseWorkspace } from "./workspaces/DiagnoseWorkspace";
 import { EpipolarWorkspace } from "./workspaces/EpipolarWorkspace";
@@ -12,7 +12,7 @@ import { LazyViewer3DWorkspace } from "./workspaces/Viewer3DWorkspace/LazyViewer
 export const router = createHashRouter([
   {
     path: "/",
-    element: <AppShell />,
+    element: <Shell />,
     children: [
       { index: true, element: <Navigate to="/diagnose" replace /> },
       { path: "diagnose", element: <DiagnoseWorkspace /> },

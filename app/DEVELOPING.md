@@ -34,13 +34,65 @@ detects this and shows a banner.
   workspace (`exclude = ["app"]` in `/Cargo.toml`) because Tauri's build-time
   dependency tree is heavy. It pins its own `Cargo.lock` and is built from
   inside `app/`; `cargo test --workspace` at the repo root does not cover it.
-- Frontend (`app/src/`): `workspaces/`, `components/`, `hooks/`, `layouts/`,
-  `lib/`, `schemas/` (JSON Schemas for the Run config forms, plus each config's
-  `<name>.default.json`; both emitted by `cargo xtask emit-schemas`),
-  `types/generated/` (generated wire types), `store/`.
-- Backend (`app/src-tauri/src/`): `commands.rs` (export/image loading,
-  undistortion, epipolar overlay), `run.rs` (calibration runner, folder
-  sniffing), `disparity.rs` (dense stereo).
+- Frontend (`app/src/`): `shell/` (the workbench frame: header, project
+  menu, workspace rail, project navigator, status line), `project/` (the
+  project model: typed commands, store, run names and recent projects),
+  `workspaces/` (one folder per workspace), `components/`, `hooks/`, `lib/`,
+  `store/` (the loaded export and selection, `index.ts`; the Run setup,
+  `runSetup.ts`), `schemas/` (JSON Schemas for the Run config forms, plus
+  each config's `<name>.default.json`; both emitted by `cargo xtask
+  emit-schemas`), `types/generated/` (generated wire types).
+- Backend (`app/src-tauri/src/`): `project.rs` (project folders),
+  `assets.rs` (the asset-protocol scope), `commands.rs` (export loading,
+  undistortion, epipolar overlay, uncertainty), `run.rs` (calibration
+  runner), `disparity.rs` (dense stereo).
+- Module size: no `app/src` module over ~400 lines (generated files
+  excepted). Split by responsibility: pure logic in a `.ts` module with its
+  own unit test, views in `.tsx`, effects in a `use…` hook.
+
+## Shell and projects
+
+`shell/Shell.tsx` is `@vitavision/workbench`'s `AppShell`: `ShellHeader`
+(project menu, Open Export…, theme), `WorkspaceRail` (a `NavRail` of router
+links; `⌘1`…`⌘5` from `shell/workspaces.ts`), `ProjectPanel` in the left
+slot while a project is open (its runs as a `TreeView`), the routed
+workspace, and a `StatusBar`. The workbench has no router; the rail items
+render react-router `Link`s through `asChild`.
+
+A project folder holds `calibration-project.json` (`{"version": 1,
+"dataset": "<dir>"}`), `dataset.json` and `runs/<name>/`
+(`manifest.json`, `config.json`, `export.json`, `diagnostics.json`). The
+backend commands are `create_project`, `open_project`,
+`save_project_manifest` and `save_project_run`; each rejects with a
+`ProjectError { kind, message }` (generated type). `project/projectStore.ts`
+drives them: opening a project loads its manifest and dataset folder into
+the Run setup (`store/runSetup.ts`), a successful run with a project open is
+saved as the next `run-NNN` and reopened from its `export.json`, and a
+failure is shown by the shell until dismissed. Rust tests for the project
+rules are in `project.rs` (temporary folders); the store is tested against
+`mockIPC` in `project/projectStore.test.tsx`.
+
+## Images and the asset protocol
+
+Source frames load straight from disk through Tauri's asset protocol:
+`lib/tauri.ts`'s `assetUrl(path)` wraps `convertFileSrc`, and
+`hooks/useImageData.ts` decodes the image (with `crossOrigin` set, so the
+canvas the luminance is read from stays untainted). `tauri.conf.json`
+enables the protocol with an empty scope; `assets.rs`'s `allow_dir` adds a
+folder when the user opens it (`open_project`/`create_project`: the dataset
+folder; `load_export`: the export's image root; `run_calibration_cmd`: the
+dataset folder of the run). An image outside every opened folder fails to
+load. The CSP allows images from `asset:`/`http://asset.localhost`, `blob:`
+and `data:`, and IPC; it applies to the built app only (in `tauri dev` the
+webview loads the Vite server directly, without it).
+`dangerousDisableAssetCspModification` keeps Tauri from
+adding nonces to `style-src`, which would disable the `'unsafe-inline'` that
+React's `style` attributes need. `load_undistorted_image` returns PNG bytes
+as a binary IPC response (`tauri::ipc::Response`), shown through a blob URL.
+
+`lib/tauri.ts`'s `joinPath` resolves paths as the file system does: an
+absolute segment (an absolute image root) replaces the base, and `.`/`..`
+are folded, so the asset scope sees plain paths.
 
 ## 3D scene primitives
 
@@ -83,7 +135,12 @@ no app-local component kit.
   a second app needs it, not into `src/components/`. Charts come from
   [`@vitavision/charts`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/charts)
   (Diagnose's ROI luminance histogram is its `Histogram`; `src/index.css`
-  imports `@vitavision/charts/styles.css`).
+  imports `@vitavision/charts/styles.css`). The frame — `AppShell`,
+  `NavRail`, `TreeView`, `StatusBar` — comes from
+  [`@vitavision/workbench`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/workbench)
+  (its stylesheet is imported after ui's), and toasts from `@vitavision/ui`'s
+  `toast()` with one `<Toaster />` in the shell. Icons are `lucide-react`,
+  the icon set the packages use.
 - **Tokens.** `src/index.css` imports `tailwindcss`, `@vitavision/ui/fonts.css`
   and `@vitavision/ui/styles.css` and adds only the root sizing. Colour comes
   from the semantic tokens: elevation `ground` / `surface` / `raised` /
@@ -137,7 +194,7 @@ datasets a fresh checkout can run (`data/kuka_1`, and `data/DS8` once its public
 archive is extracted there). Presets for local-only data go in an untracked
 `presets.local.ts` next to it, exporting `LOCAL_PRESETS: Preset[]`; `PRESETS`
 appends them when the file exists.
-`handleUsePreset` resolves the root through `lib/tauri.ts`'s `repoRoot()`, which
+`setupActions.ts`'s `applyPreset` resolves the root through `lib/tauri.ts`'s `repoRoot()`, which
 calls `repo_root_cmd` (`env!("CARGO_MANIFEST_DIR")` two levels up) and joins it
 with `joinPath`. Because the app is always compiled from a local checkout, this
 is the developer's own checkout path. Bundling public datasets in a release
@@ -148,14 +205,18 @@ installer would use Tauri's `resource_dir` instead.
 - **Vitest (`bun run test`)** — `src/**/*.test.ts` are pure-logic unit tests
   (Node); `src/**/*.test.tsx` are jsdom component tests (opt in with
   `// @vitest-environment jsdom`). Component tests mock IPC with
-  `@tauri-apps/api/mocks`' `mockIPC`; `src/test/setupTests.ts` stubs
-  `ResizeObserver`.
+  `@tauri-apps/api/mocks`' `mockIPC` (and `mockConvertFileSrc` where a
+  frame image is loaded); `src/test/setupTests.ts` stubs `ResizeObserver`.
 - **Playwright (`bun run test:e2e`)** — `e2e/` smoke tests against the plain
   Vite dev server (no Tauri/Rust toolchain). `app.spec.ts` checks every
   workspace mounts with no console errors and no Tauri mock;
   `diagnose.spec.ts` injects a `window.__TAURI_INTERNALS__` shim
-  (`e2e/support/tauriMock.ts`) via `page.addInitScript`. Real desktop behavior is
-  only exercised manually via `bun run tauri dev`. Install the browser once with
+  (`e2e/support/tauriMock.ts`) via `page.addInitScript`; its `assetUrl`
+  argument stands in for the asset protocol. Real desktop behavior is only
+  exercised manually: `bun run tauri dev` loads the Vite server directly, so
+  the CSP and the bundled `tauri://` origin are only in effect in a built app
+  (`bun run tauri build --debug --no-bundle`, then run
+  `src-tauri/target/debug/calibration-diagnose`). Install the browser once with
   `bunx playwright install chromium --with-deps`.
 - **Screenshots (`bun run test:screens`)** — `e2e/screens.spec.ts`
   (`playwright.screens.config.ts`, port 1421) captures every workspace; the

@@ -14,10 +14,10 @@
  * Fixtures are shared with the Playwright e2e specs via
  * `src/test/exportFixtures.ts` (see that module's header). The Tauri
  * IPC layer is mocked at the `invoke` seam via `@tauri-apps/api/mocks`
- * (`mockIPC`) so `useImageData`'s `load_image` call resolves instead of
+ * (`mockIPC`, `mockConvertFileSrc`) so `useImageData`'s asset URL resolves instead of
  * throwing outside a real Tauri runtime.
  */
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks, mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DiagnoseWorkspace } from "./index";
@@ -45,13 +45,12 @@ const LASER_MANIFEST_EXPORT = {
 };
 
 beforeEach(() => {
-  // The only IPC call DiagnoseWorkspace's subtree makes on mount is
-  // `useImageData`'s `load_image`; every fixture's manifest points at a
-  // fake path that no real Tauri backend is behind. jsdom never
-  // actually decodes the data URL (no <img> network stack), so the
-  // exact payload doesn't matter — it just needs to resolve rather
-  // than reject (see `isTauriContext`'s guard note in lib/tauri.ts).
-  mockIPC(() => "data:image/png;base64,AAAA");
+  // `useImageData` loads each frame through the asset protocol
+  // (`convertFileSrc`); jsdom never fetches the URL, so any mapping
+  // will do. No IPC call is expected on mount, but the mock keeps
+  // `isTauriContext` true as in the app.
+  mockIPC(() => null);
+  mockConvertFileSrc("macos");
 });
 
 afterEach(() => {
@@ -76,7 +75,7 @@ describe("DiagnoseWorkspace", () => {
 
     const { container } = render(<DiagnoseWorkspace />);
     expect(
-      container.querySelector('[role="application"][aria-label="Frame viewer"]'),
+      container.querySelector('[role="group"][aria-label="Frame viewer"]'),
     ).toBeTruthy();
   });
 
@@ -88,7 +87,7 @@ describe("DiagnoseWorkspace", () => {
 
     const { container } = render(<DiagnoseWorkspace />);
     expect(
-      container.querySelector('[role="application"][aria-label="Frame viewer"]'),
+      container.querySelector('[role="group"][aria-label="Frame viewer"]'),
     ).toBeTruthy();
   });
 });

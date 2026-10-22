@@ -261,6 +261,17 @@ export type ExportKind =
   | "rig_laserline_device"
   | "rig_handeye_laserline";
 /**
+ * The kinds of [`ProjectError`].
+ */
+export type ProjectErrorKind =
+  | "not_a_project"
+  | "project_exists"
+  | "unsupported_version"
+  | "invalid_run_name"
+  | "run_exists"
+  | "io"
+  | "parse";
+/**
  * Hand-eye calibration mode.
  *
  * Specifies the transform chain used for hand-eye calibration.
@@ -286,6 +297,8 @@ export interface DiagnoseWireTypes {
   epipolar_overlay?: EpipolarOverlay;
   laserline_device_export?: LaserlineDeviceExport;
   planar_intrinsics_export?: PlanarIntrinsicsExport;
+  project_error?: ProjectError;
+  project_info?: ProjectInfo;
   projection_uncertainty?: ProjectionUncertainty;
   rig_extrinsics_export?: RigExtrinsicsExport;
   rig_handeye_export?: RigHandeyeExport;
@@ -960,6 +973,76 @@ export interface PlanarIntrinsicsParams {
    * Refined target-to-camera poses.
    */
   camera_se3_target: Iso3Schema[];
+}
+/**
+ * Why a project command failed. `kind` is what the UI branches on;
+ * `message` is what it shows.
+ */
+export interface ProjectError {
+  kind: ProjectErrorKind;
+  message: string;
+}
+/**
+ * An opened project, as the UI shows it.
+ */
+export interface ProjectInfo {
+  /**
+   * The folder the manifest's relative paths resolve against (absolute).
+   */
+  dataset_dir: string;
+  /**
+   * The project folder (absolute).
+   */
+  dir: string;
+  /**
+   * The dataset manifest (`dataset.json`), as stored.
+   */
+  manifest: {
+    [k: string]: unknown;
+  };
+  /**
+   * The saved runs, sorted by name.
+   */
+  runs: RunSummary[];
+}
+/**
+ * One saved run: its folder name and diagnostics.
+ */
+export interface RunSummary {
+  /**
+   * `diagnostics.json`, or `None` when it is missing or does not parse
+   * (the run is still listed, so its export can be opened).
+   */
+  diagnostics?: RunDiagnostics | null;
+  /**
+   * The run's folder name under `runs/`.
+   */
+  name: string;
+}
+/**
+ * `diagnostics.json`: how a run went.
+ */
+export interface RunDiagnostics {
+  /**
+   * Whether detections were served from the detection cache.
+   */
+  cache_used: boolean;
+  /**
+   * Detection and calibration time, in milliseconds.
+   */
+  duration_ms: number;
+  /**
+   * The manifest topology the run calibrated.
+   */
+  topology: string;
+  /**
+   * Views attempted.
+   */
+  total_views: number;
+  /**
+   * Views with enough detected features to use.
+   */
+  usable_views: number;
 }
 /**
  * The projection uncertainty of one camera over its image.
