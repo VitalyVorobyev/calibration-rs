@@ -1797,7 +1797,7 @@ pub fn step_handeye_optimize(
     };
 
     let final_cost = output.report.final_cost;
-    let mean_reproj_error = final_cost.sqrt();
+    let mean_reproj_error = output.mean_reproj_error;
     session.state.final_cost = Some(final_cost);
     session.state.final_reproj_error = Some(mean_reproj_error);
 
@@ -1863,6 +1863,12 @@ mod tests {
     }
 
     fn make_test_input() -> RigHandeyeInput {
+        make_noisy_test_input(0.0)
+    }
+
+    /// The test scene with each pixel moved by `±noise_px` in a fixed
+    /// pattern, so the solve keeps a nonzero residual.
+    fn make_noisy_test_input(noise_px: f64) -> RigHandeyeInput {
         // Ground truth cameras and rig
         let cam0 = make_test_camera(0.0);
         let cam1 = make_test_camera(10.0);
@@ -1899,9 +1905,12 @@ mod tests {
                 let project_points = |cam: &PinholeCamera, pose: &Iso3| -> Vec<Pt2> {
                     board_pts
                         .iter()
-                        .map(|p| {
+                        .enumerate()
+                        .map(|(k, p)| {
                             let p_cam = pose.transform_point(p);
-                            cam.project_point_c(&p_cam.coords).unwrap()
+                            let px = cam.project_point_c(&p_cam.coords).unwrap();
+                            let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+                            Pt2::new(px.x + sign * noise_px, px.y - sign * noise_px)
                         })
                         .collect()
                 };
@@ -1985,6 +1994,29 @@ mod tests {
         let result = step_handeye_optimize(&mut session, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("hand-eye"));
+    }
+
+    #[test]
+    fn step_handeye_optimize_reports_the_mean_reprojection_error() {
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+        session.set_input(make_noisy_test_input(0.3)).unwrap();
+        let manual = session.config.manual_init.clone().unwrap_or_default();
+        step_intrinsics_init_all_with_seed(&mut session, manual, None).unwrap();
+        step_intrinsics_optimize_all(&mut session, None).unwrap();
+        step_rig_init(&mut session, None).unwrap();
+        step_rig_optimize(&mut session, None).unwrap();
+        step_handeye_init(&mut session, None).unwrap();
+        let result = step_handeye_optimize(&mut session, None).unwrap();
+
+        let export = session.export().unwrap();
+        assert!(
+            (result.mean_reproj_error - export.mean_reproj_error).abs() < 1e-12,
+            "step reports {} px, export {} px",
+            result.mean_reproj_error,
+            export.mean_reproj_error
+        );
+        // The pattern moves every pixel by 0.3 px per axis, about 0.42 px.
+        assert!(result.mean_reproj_error > 0.05 && result.mean_reproj_error < 1.0);
     }
 
     #[test]
