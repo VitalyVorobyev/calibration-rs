@@ -1,7 +1,7 @@
-//! Scheimpflug-aware stereo rectification validated against the `rtv3d_ref`
+//! Scheimpflug-aware stereo rectification validated against the `scheimpflug_rig_ref`
 //! reference oracle.
 //!
-//! The `rtv3d_ref` `artifacts.json` (the customer's "QUICK" oracle) calibrates a
+//! The `scheimpflug_rig_ref` `artifacts.json` (the customer's "QUICK" oracle) calibrates a
 //! 6-camera Scheimpflug rig to sub-pixel reprojection error. Each camera carries
 //! a genuine tilted sensor (`τx ≈ -5°`, small `τy`) and the cameras sit on a ring
 //! converging on a central puzzle_board — a real, asymmetric multi-view geometry.
@@ -15,7 +15,7 @@
 //!    pinhole + Scheimpflug-tilt model at the oracle's K and tilt, with lens
 //!    distortion omitted — the rectification contract takes *undistorted*
 //!    pixels (the Brown-Conrady model itself is validated separately by
-//!    `rtv3d_ref_reproj`).
+//!    `scheimpflug_rig_ref_reproj`).
 //! 4. Applies the rectifying maps and measures how far apart the rectified rows
 //!    of corresponding points are (`|Δv|`, pixels).
 //!
@@ -30,9 +30,9 @@
 //! Run:
 //! `cargo run --manifest-path
 //! crates/vision-calibration-examples-private/Cargo.toml --example
-//! rtv3d_ref_rectify --release`
+//! scheimpflug_rig_ref_rectify --release`
 //!
-//! Env: `RTV3D_REF_DATA_DIR` (default `privatedata/rtv3d_ref`).
+//! Env: `SCHEIMPFLUG_RIG_REF_DATA_DIR` (default `privatedata/scheimpflug_rig_ref`).
 
 use anyhow::{Context, Result};
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
@@ -55,15 +55,15 @@ const ROW_TOL_PX: f64 = 1e-3;
 const MIN_POINTS: usize = 8;
 
 fn main() -> Result<()> {
-    let dir = std::env::var("RTV3D_REF_DATA_DIR")
+    let dir = std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("privatedata/rtv3d_ref"));
+        .unwrap_or_else(|_| PathBuf::from("privatedata/scheimpflug_rig_ref"));
     let art_path = dir.join("artifacts.json");
     let art = load_ref_artifacts(&art_path)
         .with_context(|| format!("load oracle {}", art_path.display()))?;
 
     println!(
-        "rtv3d_ref Scheimpflug rectification check — {} cameras\n",
+        "scheimpflug_rig_ref Scheimpflug rectification check — {} cameras\n",
         art.num_cameras
     );
     println!(
@@ -141,7 +141,7 @@ fn main() -> Result<()> {
         std::process::exit(1);
     }
     println!(
-        "\nVERDICT: Scheimpflug stereo rectification VALIDATED on rtv3d_ref \
+        "\nVERDICT: Scheimpflug stereo rectification VALIDATED on scheimpflug_rig_ref \
          (worst row disagreement {worst:.2e} px over all pairs)."
     );
     Ok(())

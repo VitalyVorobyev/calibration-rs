@@ -629,7 +629,7 @@ mod tests {
     fn matrix4x4_rotation_roundtrips_exact_180_degree() {
         // A 180° rotation about the y-axis is an exact, valid rotation that the
         // iterative `Rotation3::from_matrix` (identity-seeded) mis-converges on.
-        // Robot poses with such orientations are common (e.g. the rtv3d rigs),
+        // Robot poses with such orientations are common (e.g. the private Scheimpflug rigs),
         // so the loader must recover them exactly.
         let m = [
             -1.0, 0.0, 0.0, 0.0, //
@@ -1062,7 +1062,7 @@ mod tests {
 
     #[test]
     fn matrix_field_nested_4x4_mm_roundtrip() {
-        // rtv3d shape: nested 4×4 array, translation in millimetres,
+        // scheimpflug_rig shape: nested 4×4 array, translation in millimetres,
         // tcp2base = T_B_G directly (TBaseTcp).
         let json = r#"[
             {"tcp2base": [[1,0,0,290.0],[0,1,0,15.0],[0,0,1,110.0],[0,0,0,1]],

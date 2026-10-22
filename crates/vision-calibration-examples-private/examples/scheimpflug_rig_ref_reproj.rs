@@ -1,6 +1,6 @@
-//! Reprojection-error parity check against the `rtv3d_ref` reference dataset.
+//! Reprojection-error parity check against the `scheimpflug_rig_ref` reference dataset.
 //!
-//! The `rtv3d_ref` dataset ships a credible external oracle (`artifacts.json`,
+//! The `scheimpflug_rig_ref` dataset ships a credible external oracle (`artifacts.json`,
 //! from the customer's "QUICK" system): a 6-camera Scheimpflug
 //! laser-triangulation rig calibrated to sub-pixel reprojection error
 //! (0.22–0.30 px per camera) against a static puzzle_board (130×130, 5 mm
@@ -29,9 +29,9 @@
 //! Run:
 //! `cargo run --manifest-path
 //! crates/vision-calibration-examples-private/Cargo.toml --example
-//! rtv3d_ref_reproj --release`
+//! scheimpflug_rig_ref_reproj --release`
 //!
-//! Env: `RTV3D_REF_DATA_DIR` (default `privatedata/rtv3d_ref`).
+//! Env: `SCHEIMPFLUG_RIG_REF_DATA_DIR` (default `privatedata/scheimpflug_rig_ref`).
 
 use anyhow::{Context, Result, anyhow};
 use nalgebra::{DMatrix, DVector, Vector3};
@@ -105,7 +105,7 @@ impl CamAccum {
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("RTV3D_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
     println!("data dir = {}", data_dir.display());
 

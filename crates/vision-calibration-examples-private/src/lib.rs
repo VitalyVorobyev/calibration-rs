@@ -75,7 +75,7 @@ impl PoseEntry {
             m[(2, 3)] * MM_TO_M,
         );
         // `UnitQuaternion::from_matrix` is iterative and mis-converges on exact
-        // 180° rotations (the rtv3d_ringgrid robot poses are 180° about y),
+        // 180° rotations (the scheimpflug_rig_ringgrid robot poses are 180° about y),
         // silently returning the wrong axis and breaking the hand-eye stage.
         // The robot matrices are orthonormal, so convert exactly via `Rotation3`.
         let quat = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(rot));
@@ -353,7 +353,7 @@ pub fn detect_target(
 ///
 /// Thin port of `vision-calibration-bench/src/detect.rs::detect_charuco_view`
 /// (same dictionary handling, `OpenCvCharuco` marker layout, ChESS corner
-/// pre-detection) so rtv3d numbers reproduce against the bench harness.
+/// pre-detection) so scheimpflug_rig numbers reproduce against the bench harness.
 /// ChArUco detections are sparse — only decoded cells contribute corners.
 pub fn detect_charuco(
     tile: &GrayImage,
@@ -401,7 +401,7 @@ pub fn detect_charuco(
 }
 
 /// A coded ring-grid board manifest (`ringgrid.target.v3`, as shipped with the
-/// `rtv3d_ringgrid` dataset). Geometry is in millimetres. `marker_ring_width_mm`
+/// `scheimpflug_rig_ringgrid` dataset). Geometry is in millimetres. `marker_ring_width_mm`
 /// is optional because the v3 schema omits it; [`detect_ringgrid`] falls back to
 /// [`DEFAULT_RING_WIDTH_MM`].
 #[derive(Debug, Clone, Deserialize)]
@@ -501,7 +501,7 @@ pub fn detect_ringgrid_all(
     ring_width_mm: f64,
     cache_path: Option<&Path>,
 ) -> Result<Vec<Vec<Option<CorrespondenceView>>>> {
-    let num_cameras = 6; // rtv3d horizontal strip = six 720×540 tiles
+    let num_cameras = 6; // scheimpflug_rig horizontal strip = six 720×540 tiles
 
     if let Some(p) = cache_path
         && p.exists()
@@ -583,7 +583,7 @@ pub fn handeye_consistency_probe(poses: &[PoseEntry], rig_se3_target: &[Iso3]) {
     );
     println!("    (≈0° ⇒ rig poses trace the robot, hand-eye solvable; large ⇒ inconsistent)");
 
-    if std::env::var("RTV3D_RINGGRID_DIAG").as_deref() == Ok("1") {
+    if std::env::var("SCHEIMPFLUG_RIG_RINGGRID_DIAG").as_deref() == Ok("1") {
         println!("    per-view rel-to-view0 rotation angle (robot vs rig):");
         for i in 0..n {
             let r = (poses[0].base_se3_gripper().rotation.inverse()
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn from_matrix_iterative_mangles_180deg_about_y() {
         use nalgebra::{Matrix3, Rotation3, UnitQuaternion};
-        // Exact 180° rotation about the y-axis (a real rtv3d_ringgrid robot pose).
+        // Exact 180° rotation about the y-axis (a real scheimpflug_rig_ringgrid robot pose).
         let r = Matrix3::new(-1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0);
         let q_iter = UnitQuaternion::from_matrix(&r);
         let q_exact = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r));
@@ -647,7 +647,7 @@ mod tests {
 
     #[test]
     fn base_se3_gripper_roundtrips_180deg_pose() {
-        // tcp2base = 180° about y, translation (320,0,155) mm — rtv3d_ringgrid pose 0.
+        // tcp2base = 180° about y, translation (320,0,155) mm — scheimpflug_rig_ringgrid pose 0.
         let pose = PoseEntry {
             laser_image: String::new(),
             target_image: String::new(),

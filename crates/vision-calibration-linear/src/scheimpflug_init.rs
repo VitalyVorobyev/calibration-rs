@@ -798,7 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn init_recovers_rtv3d_like_tilt_with_strong_radial_distortion() {
+    fn init_recovers_scheimpflug_rig_like_tilt_with_strong_radial_distortion() {
         let intrinsics = FxFyCxCy {
             fx: 1155.0,
             fy: 1165.0,

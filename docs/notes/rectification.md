@@ -52,8 +52,8 @@ invariant to its choice as long as both cameras share it.
   model (`scheimpflug_pair_rows_align`); the zero-tilt path equals pinhole
   rectification (`zero_tilt_matches_standard_rectification`); baseline
   recovery, explicit `K_rect`, zero-baseline and extreme-tilt rejection.
-- **Real-data gate**: the `rtv3d_ref_rectify` example (examples-private)
-  rectifies all oracle camera pairs of the `rtv3d_ref` Scheimpflug rig (real
+- **Real-data gate**: the `scheimpflug_rig_ref_rectify` example (examples-private)
+  rectifies all oracle camera pairs of the `scheimpflug_rig_ref` Scheimpflug rig (real
   `K`, asymmetric per-camera ~−5° tilts, rig extrinsics) — worst rectified
   row disagreement **3.4e-13 px**.
 - **Downstream integration**: the app's Depth workspace rectifies then

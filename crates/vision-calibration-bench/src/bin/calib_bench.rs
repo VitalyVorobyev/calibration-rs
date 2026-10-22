@@ -1136,7 +1136,7 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
         cases.push(("manual_seed_off", unseeded));
 
         let mut seeded = entry.clone();
-        seeded.seed = Some(rtv3d_nominal_seed(entry));
+        seeded.seed = Some(scheimpflug_rig_nominal_seed(entry));
         set_rig_fix_tangential(&mut seeded, true);
         cases.push(("manual_seed_fx2000_centered", seeded));
 
@@ -1231,7 +1231,7 @@ fn set_rig_distortion_and_tilt_masks(
     overrides.refine_sensor = Some(false);
 }
 
-fn rtv3d_nominal_seed(entry: &BenchEntry) -> ManualInitSeed {
+fn scheimpflug_rig_nominal_seed(entry: &BenchEntry) -> ManualInitSeed {
     let (cx, cy) = entry
         .cameras
         .first()

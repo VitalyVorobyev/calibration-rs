@@ -1,8 +1,8 @@
-//! Per-camera Scheimpflug **intrinsics** calibration on the `rtv3d_ref`
+//! Per-camera Scheimpflug **intrinsics** calibration on the `scheimpflug_rig_ref`
 //! reference dataset from a *coarse, user-provided* seed — the supported
 //! workflow (ADR 0011).
 //!
-//! Companion to `rtv3d_ref_rig` (full from-scratch rig) and `rtv3d_ref_reproj`
+//! Companion to `scheimpflug_rig_ref_rig` (full from-scratch rig) and `scheimpflug_rig_ref_reproj`
 //! (frozen-intrinsics parity). This harness exercises the recommended path for
 //! Scheimpflug intrinsics: the coarse prior comes from the dataset's device
 //! spec (`spec.json`, ADR 0011) — lens focal + pixel pitch → `fx = fy`, and
@@ -22,12 +22,12 @@
 //! Run:
 //! `cargo run --release --manifest-path
 //! crates/vision-calibration-examples-private/Cargo.toml --example
-//! rtv3d_ref_intrinsics`
+//! scheimpflug_rig_ref_intrinsics`
 //!
 //! Env:
-//! - `RTV3D_REF_DATA_DIR` (default `privatedata/rtv3d_ref`). Must contain a
+//! - `SCHEIMPFLUG_RIG_REF_DATA_DIR` (default `privatedata/scheimpflug_rig_ref`). Must contain a
 //!   `spec.json` device spec (gitignored, like the rest of `privatedata/`).
-//! - `RTV3D_REF_MAXITERS` (default `120`).
+//! - `SCHEIMPFLUG_RIG_REF_MAXITERS` (default `120`).
 //! - `Q4_DISTORTION_SWEEP=1` — after the gated run, re-run the same seeded
 //!   route once per distortion model (BrownConrady5, Rational8, ThinPrism9,
 //!   Division1) and print a per-camera / per-model mean-reprojection table.
@@ -71,9 +71,9 @@ struct CamResult {
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("RTV3D_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
-    let max_iters: usize = std::env::var("RTV3D_REF_MAXITERS")
+    let max_iters: usize = std::env::var("SCHEIMPFLUG_RIG_REF_MAXITERS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(120);

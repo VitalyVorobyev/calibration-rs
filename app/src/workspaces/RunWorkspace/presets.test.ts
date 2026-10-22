@@ -33,7 +33,7 @@ describe("mergeConfig", () => {
   });
 
   it("treats a null patch value as an explicit override (not a deep merge)", () => {
-    // Mirrors RTV3D_JOINT_LASER_MANIFEST_OVERRIDES.upstream_calibration: null.
+    // Mirrors SCHEIMPFLUG_RIG_JOINT_LASER_MANIFEST_OVERRIDES.upstream_calibration: null.
     expect(mergeConfig({ upstream: { id: 1 } }, { upstream: null })).toEqual({
       upstream: null,
     });

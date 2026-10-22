@@ -1,16 +1,16 @@
-"""UI smoke test: drive the frontend against the real rtv3d exports.
+"""UI smoke test: drive the frontend against the real scheimpflug_rig exports.
 
 Catches viewer-contract crashes (uncaught exceptions / the router's
 error boundary) that Rust-side tests can't see — e.g. an export kind
 missing a field the TS code dereferences, like the
 `data.mean_reproj_error.toFixed` crash on the laser export. Local-only:
-needs the gitignored privatedata/rtv3d exports (produced by the
-`rtv3d_laser_end_to_end` ignored test) and `pip install playwright`.
+needs the gitignored privatedata/scheimpflug_rig exports (produced by the
+`scheimpflug_rig_laser_end_to_end` ignored test) and `pip install playwright`.
 
 Run from `app/`:
 
     bun run dev &           # Vite at :1420
-    python3 scripts/ui_smoke_rtv3d.py
+    python3 scripts/ui_smoke_scheimpflug_rig.py
 
 The Vite dev server has no Tauri runtime, so image loading fails with a
 handled error banner — expected and filtered.
@@ -23,11 +23,11 @@ import sys
 from playwright.sync_api import sync_playwright
 
 ROOT = str(pathlib.Path(__file__).resolve().parents[2])
-LASER_EXPORT = f"{ROOT}/privatedata/rtv3d/rig_laserline_export.json"
-HANDEYE_EXPORT = f"{ROOT}/privatedata/rtv3d/rig_handeye_export.json"
+LASER_EXPORT = f"{ROOT}/privatedata/scheimpflug_rig/rig_laserline_export.json"
+HANDEYE_EXPORT = f"{ROOT}/privatedata/scheimpflug_rig/rig_handeye_export.json"
 
 if not pathlib.Path(LASER_EXPORT).exists():
-    print(f"skipping: {LASER_EXPORT} not present (run rtv3d_laser_end_to_end first)")
+    print(f"skipping: {LASER_EXPORT} not present (run scheimpflug_rig_laser_end_to_end first)")
     sys.exit(0)
 
 INJECT = """async (payload) => {
@@ -55,7 +55,7 @@ def run_workspace_suite(page, label, export_path, expect_kind, expect_laser):
     data = json.load(open(export_path))
     page.goto("http://localhost:1420/#/diagnose")
     page.wait_for_load_state("networkidle")
-    kind = page.evaluate(INJECT, {"data": data, "dir": f"{ROOT}/privatedata/rtv3d"})
+    kind = page.evaluate(INJECT, {"data": data, "dir": f"{ROOT}/privatedata/scheimpflug_rig"})
     check(f"{label}: store kind", kind == expect_kind, f"got {kind}")
     page.wait_for_timeout(800)
 

@@ -1,5 +1,5 @@
 {
-  "dataset_id": "rtv3d_ref_cam3",
+  "dataset_id": "scheimpflug_rig_ref_cam3",
   "git_sha": "5a667c9497aae5dbd07bf1a52f0ab0033780bf3c",
   "frozen_at": "1791136498",
   "overall": {

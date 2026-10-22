@@ -1046,7 +1046,7 @@ mod tests {
         (response, seen)
     }
 
-    fn rtv3d_detector_override() -> serde_json::Value {
+    fn scheimpflug_rig_detector_override() -> serde_json::Value {
         json!({
             "chess_corners": {
                 "threshold_value": 30.0,
@@ -1054,7 +1054,7 @@ mod tests {
         })
     }
 
-    fn rtv3d_manual_intrinsics_init() -> serde_json::Value {
+    fn scheimpflug_rig_manual_intrinsics_init() -> serde_json::Value {
         let intrinsics: Vec<_> = (0..6)
             .map(|_| json!({"fx": 2000.0, "fy": 2000.0, "cx": 360.0, "cy": 270.0}))
             .collect();
@@ -1399,17 +1399,17 @@ mod tests {
         }
     }
 
-    /// Frozen-upstream laser diagnostic over the local rtv3d dataset
+    /// Frozen-upstream laser diagnostic over the local scheimpflug_rig dataset
     /// (6-camera Scheimpflug rig, tiled strips, ChArUco + laser
     /// frames): rig hand-eye first, then `RigLaserlineDevice` with the
     /// stage-1 export as the frozen upstream — exactly the user
     /// diagnostic path the laser slice ships (ADR 0016). Skips when
-    /// `privatedata/rtv3d` is absent (gitignored, local-only).
+    /// `privatedata/scheimpflug_rig` is absent (gitignored, local-only).
     #[test]
-    #[ignore = "needs the local privatedata/rtv3d dataset; 6-cam detection + two solves"]
-    fn rtv3d_laser_end_to_end() {
+    #[ignore = "needs the local privatedata/scheimpflug_rig dataset; 6-cam detection + two solves"]
+    fn scheimpflug_rig_laser_end_to_end() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let data_dir = repo_root.join("privatedata/rtv3d");
+        let data_dir = repo_root.join("privatedata/scheimpflug_rig");
         if !data_dir.exists() {
             eprintln!("skipping: {} not present", data_dir.display());
             return;
@@ -1418,17 +1418,17 @@ mod tests {
             let raw = std::fs::read_to_string(data_dir.join(name)).unwrap();
             let mut manifest: serde_json::Value =
                 serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
-            manifest["detector"] = rtv3d_detector_override();
+            manifest["detector"] = scheimpflug_rig_detector_override();
             manifest
         };
         let dir = data_dir.to_string_lossy().to_string();
 
         // ── Stage 1: rig hand-eye (Scheimpflug, EyeToHand) ────────────────
-        // Same overrides the rtv3d_rig example settled on; every one is
+        // Same overrides the scheimpflug_rig_calibrate example settled on; every one is
         // plain config JSON, i.e. reachable from the app's config form.
         let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
         handeye_config["intrinsics"]["fix_tangential"] = json!(true);
-        handeye_config["manual_init"] = rtv3d_manual_intrinsics_init();
+        handeye_config["manual_init"] = scheimpflug_rig_manual_intrinsics_init();
         handeye_config["camera"] = json!({
             "model": {
                 "projection": "pinhole",
@@ -1459,7 +1459,7 @@ mod tests {
             "rig handeye: {} usable views",
             handeye.usable_views
         );
-        // The hand-eye stage lands at ~1.5-2 px on rtv3d (the example's
+        // The hand-eye stage lands at ~1.5-2 px on scheimpflug_rig (the example's
         // own hand-eye stage shows 1.6-2.1 px per camera; sub-pixel
         // needs the downstream joint BA). The oracle is ~2.2 px.
         let mean_px = handeye.export["mean_reproj_error"].as_f64().unwrap();
@@ -1540,7 +1540,7 @@ mod tests {
         );
         eprintln!("manifest: {n_target} target + {n_laser} laser frames");
         eprintln!(
-            "rtv3d laser E2E: handeye {mean_px:.3} px over {} views; laser stage {} views in {} ms",
+            "scheimpflug_rig laser E2E: handeye {mean_px:.3} px over {} views; laser stage {} views in {} ms",
             handeye.usable_views, laser.usable_views, laser.duration_ms
         );
 
@@ -1595,7 +1595,7 @@ mod tests {
             );
         }
         eprintln!(
-            "rtv3d joint E2E: reproj {joint_mean_px:.3} px over {} views in {} ms",
+            "scheimpflug_rig joint E2E: reproj {joint_mean_px:.3} px over {} views in {} ms",
             joint.usable_views, joint.duration_ms
         );
     }

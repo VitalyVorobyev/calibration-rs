@@ -1,6 +1,6 @@
-//! From-scratch rig calibration on the `rtv3d_ref` reference dataset.
+//! From-scratch rig calibration on the `scheimpflug_rig_ref` reference dataset.
 //!
-//! Companion to `rtv3d_ref_reproj`. That harness *froze* the reference
+//! Companion to `scheimpflug_rig_ref_reproj`. That harness *froze* the reference
 //! intrinsics and asked whether our reprojection reproduces the oracle. This
 //! one asks the harder question: **starting only from the images and the robot
 //! poses — no reference values seeded — does our pipeline recover the same
@@ -21,11 +21,11 @@
 //! Run:
 //! `cargo run --release --manifest-path
 //! crates/vision-calibration-examples-private/Cargo.toml --example
-//! rtv3d_ref_rig`
+//! scheimpflug_rig_ref_rig`
 //!
 //! Env:
-//! - `RTV3D_REF_DATA_DIR` (default `privatedata/rtv3d_ref`).
-//! - `RTV3D_REF_HANDEYE` = `eye_in_hand` (default) | `eye_to_hand`.
+//! - `SCHEIMPFLUG_RIG_REF_DATA_DIR` (default `privatedata/scheimpflug_rig_ref`).
+//! - `SCHEIMPFLUG_RIG_REF_HANDEYE` = `eye_in_hand` (default) | `eye_to_hand`.
 
 use anyhow::{Context, Result};
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
@@ -54,9 +54,9 @@ const CELL_SIZE_MM: f64 = 5.0;
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("RTV3D_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
-    let handeye_mode = match std::env::var("RTV3D_REF_HANDEYE").as_deref() {
+    let handeye_mode = match std::env::var("SCHEIMPFLUG_RIG_REF_HANDEYE").as_deref() {
         Ok("eye_to_hand") => HandeyeMode::EyeToHand,
         _ => HandeyeMode::EyeInHand,
     };
@@ -114,11 +114,11 @@ fn main() -> Result<()> {
 
     // ── From-scratch RigHandeye(Scheimpflug) calibration ─────────────────────
     let dataset = RigDataset::new(views, NUM_CAMERAS)?;
-    let mut session = CalibrationSession::<RigHandeyeProblem>::with_description("rtv3d_ref_rig");
+    let mut session = CalibrationSession::<RigHandeyeProblem>::with_description("scheimpflug_rig_ref_rig");
     session.set_input(dataset)?;
 
     let mut cfg = RigHandeyeConfig::default();
-    cfg.solver.max_iters = std::env::var("RTV3D_REF_MAXITERS")
+    cfg.solver.max_iters = std::env::var("SCHEIMPFLUG_RIG_REF_MAXITERS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(60);

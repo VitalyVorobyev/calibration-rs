@@ -74,7 +74,7 @@ Run with `cargo run --release -p vision-calibration-bench --bin calib-bench
 
 Cameras passing their gate, per cell (6 cameras each):
 
-| cell | `rtv3d_ref` | `rtv3d_ringgrid` |
+| cell | `scheimpflug_rig_ref` | `scheimpflug_rig_ringgrid` |
 |---|---:|---:|
 | unperturbed seed | 6 | 6 |
 | focal ×0.50 | 0 | 0 |
@@ -92,8 +92,8 @@ matter.
 
 ## Evidence
 
-- Acceptance: `calib-bench accept` gates every `rtv3d_ref` and
-  `rtv3d_ringgrid` camera on the device-spec seed.
+- Acceptance: `calib-bench accept` gates every `scheimpflug_rig_ref` and
+  `scheimpflug_rig_ringgrid` camera on the device-spec seed.
 - Basin: the table above.
 - Synthetic guard:
   `seeded_coarse_prior_converges_on_strong_tilt_distortion`

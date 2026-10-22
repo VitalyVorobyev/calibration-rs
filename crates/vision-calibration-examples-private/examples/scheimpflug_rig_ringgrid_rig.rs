@@ -1,8 +1,8 @@
-//! Full rig + hand-eye calibration on the private `rtv3d_ringgrid` dataset (a
+//! Full rig + hand-eye calibration on the private `scheimpflug_rig_ringgrid` dataset (a
 //! 6-camera Scheimpflug rig captured against a coded **ring-grid** target).
 //!
-//! Companion to `rtv3d_ringgrid_intrinsics` (per-camera intrinsics debug loop)
-//! and to the puzzleboard `rtv3d_ref_rig`. Starting only from the images and the
+//! Companion to `scheimpflug_rig_ringgrid_intrinsics` (per-camera intrinsics debug loop)
+//! and to the puzzleboard `scheimpflug_rig_ref_rig`. Starting only from the images and the
 //! robot `tcp2base` poses, it recovers per-camera intrinsics, the rig extrinsics
 //! (`cam_se3_rig`), and the hand-eye transform.
 //!
@@ -12,30 +12,30 @@
 //!
 //! Intrinsics init is **seeded** by default (coarse focal + nominal mount tilt,
 //! the ADR 0011 supported path): Zhang-from-scratch is fragile on Scheimpflug
-//! optics. Set `RTV3D_RINGGRID_FROM_SCRATCH=1` to use Zhang's method instead.
+//! optics. Set `SCHEIMPFLUG_RIG_RINGGRID_FROM_SCRATCH=1` to use Zhang's method instead.
 //!
-//! The `rtv3d_ringgrid` dataset ships **no laser images and no oracle** — it is a
-//! different physical rig from the puzzleboard `rtv3d`/`rtv3d_ref`. So there is
+//! The `scheimpflug_rig_ringgrid` dataset ships **no laser images and no oracle** — it is a
+//! different physical rig from the puzzleboard `scheimpflug_rig`/`scheimpflug_rig_ref`. So there is
 //! no per-parameter ground truth to compare against; the final block reports a
-//! **calibration-quality comparison** of ring-grid vs the puzzleboard `rtv3d_ref`
+//! **calibration-quality comparison** of ring-grid vs the puzzleboard `scheimpflug_rig_ref`
 //! oracle reprojection error (loaded read-only, quality context only — the
 //! recovered intrinsics/extrinsics are *not* expected to agree across rigs).
 //!
 //! Run:
 //! `cargo run --release --manifest-path
 //! crates/vision-calibration-examples-private/Cargo.toml --example
-//! rtv3d_ringgrid_rig`
+//! scheimpflug_rig_ringgrid_rig`
 //!
 //! Env:
-//! - `RTV3D_RINGGRID_DATA_DIR` (default `privatedata/rtv3d_ringgrid`).
-//! - `RTV3D_RINGGRID_HANDEYE` = `eye_in_hand` (default) | `eye_to_hand`.
-//! - `RTV3D_RINGGRID_FOCAL` — coarse focal seed in px (default `1150`).
-//! - `RTV3D_RINGGRID_TILT_X` — nominal mount-tilt seed in rad (default `-0.087`).
-//! - `RTV3D_RINGGRID_RING_WIDTH_MM` — decode band-width override.
-//! - `RTV3D_RINGGRID_MAXITERS` (default `60`).
-//! - `RTV3D_RINGGRID_FROM_SCRATCH` — set `1` to use Zhang init instead of seeded.
-//! - `RTV3D_PUZZLE_REF_DIR` — puzzleboard oracle dir for the baseline (default
-//!   `privatedata/rtv3d_ref`; skipped if absent).
+//! - `SCHEIMPFLUG_RIG_RINGGRID_DATA_DIR` (default `privatedata/scheimpflug_rig_ringgrid`).
+//! - `SCHEIMPFLUG_RIG_RINGGRID_HANDEYE` = `eye_in_hand` (default) | `eye_to_hand`.
+//! - `SCHEIMPFLUG_RIG_RINGGRID_FOCAL` — coarse focal seed in px (default `1150`).
+//! - `SCHEIMPFLUG_RIG_RINGGRID_TILT_X` — nominal mount-tilt seed in rad (default `-0.087`).
+//! - `SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM` — decode band-width override.
+//! - `SCHEIMPFLUG_RIG_RINGGRID_MAXITERS` (default `60`).
+//! - `SCHEIMPFLUG_RIG_RINGGRID_FROM_SCRATCH` — set `1` to use Zhang init instead of seeded.
+//! - `SCHEIMPFLUG_RIG_PUZZLE_REF_DIR` — puzzleboard oracle dir for the baseline (default
+//!   `privatedata/scheimpflug_rig_ref`; skipped if absent).
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
@@ -70,20 +70,20 @@ fn env_f64(key: &str, default: f64) -> f64 {
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("RTV3D_RINGGRID_DATA_DIR")
-            .unwrap_or_else(|_| "privatedata/rtv3d_ringgrid".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_RINGGRID_DATA_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig_ringgrid".to_string()),
     );
-    let handeye_mode = match std::env::var("RTV3D_RINGGRID_HANDEYE").as_deref() {
+    let handeye_mode = match std::env::var("SCHEIMPFLUG_RIG_RINGGRID_HANDEYE").as_deref() {
         Ok("eye_to_hand") => HandeyeMode::EyeToHand,
         _ => HandeyeMode::EyeInHand,
     };
-    let focal_seed = env_f64("RTV3D_RINGGRID_FOCAL", 1150.0);
-    let tilt_x_seed = env_f64("RTV3D_RINGGRID_TILT_X", DEFAULT_TILT_X);
-    let from_scratch = std::env::var("RTV3D_RINGGRID_FROM_SCRATCH").as_deref() == Ok("1");
+    let focal_seed = env_f64("SCHEIMPFLUG_RIG_RINGGRID_FOCAL", 1150.0);
+    let tilt_x_seed = env_f64("SCHEIMPFLUG_RIG_RINGGRID_TILT_X", DEFAULT_TILT_X);
+    let from_scratch = std::env::var("SCHEIMPFLUG_RIG_RINGGRID_FROM_SCRATCH").as_deref() == Ok("1");
 
     let board: BoardRinggridSpec = load_ringgrid_board(&data_dir.join("board_ringgrid.json"))
         .context("load ring-grid board manifest")?;
-    let ring_width_mm = env_f64("RTV3D_RINGGRID_RING_WIDTH_MM", board.ring_width_mm());
+    let ring_width_mm = env_f64("SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM", board.ring_width_mm());
 
     println!("data dir = {}", data_dir.display());
     println!("hand-eye mode = {handeye_mode:?}");
@@ -104,9 +104,9 @@ fn main() -> Result<()> {
     println!("loaded {} poses", poses.len());
 
     // ── Detect the ring-grid in every camera tile of every pose ──────────────
-    // Detection is the slow stage; `RTV3D_RINGGRID_CACHE=<path>` memoizes it so
+    // Detection is the slow stage; `SCHEIMPFLUG_RIG_RINGGRID_CACHE=<path>` memoizes it so
     // solve-only iterations are fast.
-    let cache_path = std::env::var("RTV3D_RINGGRID_CACHE")
+    let cache_path = std::env::var("SCHEIMPFLUG_RIG_RINGGRID_CACHE")
         .ok()
         .map(PathBuf::from);
     let t_det = Instant::now();
@@ -146,11 +146,11 @@ fn main() -> Result<()> {
     // ── RigHandeye(Scheimpflug) calibration ──────────────────────────────────
     let dataset = RigDataset::new(views, NUM_CAMERAS)?;
     let mut session =
-        CalibrationSession::<RigHandeyeProblem>::with_description("rtv3d_ringgrid_rig");
+        CalibrationSession::<RigHandeyeProblem>::with_description("scheimpflug_rig_ringgrid_rig");
     session.set_input(dataset)?;
 
     let mut cfg = RigHandeyeConfig::default();
-    cfg.solver.max_iters = std::env::var("RTV3D_RINGGRID_MAXITERS")
+    cfg.solver.max_iters = std::env::var("SCHEIMPFLUG_RIG_RINGGRID_MAXITERS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(60);
@@ -172,15 +172,15 @@ fn main() -> Result<()> {
     };
     cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics = false;
-    // Robot-pose refinement on by default; `RTV3D_RINGGRID_REFINE_ROBOT=0` holds
+    // Robot-pose refinement on by default; `SCHEIMPFLUG_RIG_RINGGRID_REFINE_ROBOT=0` holds
     // the measured poses fixed (a divergence-isolation knob).
-    let refine_robot = std::env::var("RTV3D_RINGGRID_REFINE_ROBOT").as_deref() != Ok("0");
+    let refine_robot = std::env::var("SCHEIMPFLUG_RIG_RINGGRID_REFINE_ROBOT").as_deref() != Ok("0");
     cfg.handeye_optimize.robot_poses.refine = refine_robot;
     // Optionally let the final hand-eye BA also refine rig extrinsics / tilts.
-    if std::env::var("RTV3D_RINGGRID_REFINE_EXTRINSICS").as_deref() == Ok("1") {
+    if std::env::var("SCHEIMPFLUG_RIG_RINGGRID_REFINE_EXTRINSICS").as_deref() == Ok("1") {
         cfg.handeye_optimize.refine_cam_se3_rig = true;
     }
-    if std::env::var("RTV3D_RINGGRID_REFINE_TILT").as_deref() == Ok("1") {
+    if std::env::var("SCHEIMPFLUG_RIG_RINGGRID_REFINE_TILT").as_deref() == Ok("1") {
         cfg.handeye_optimize.refine_sensor = true;
     }
     println!("refine robot poses = {refine_robot}");
@@ -303,15 +303,15 @@ fn report(
         None => println!("  no hand-eye of the expected topology in the export"),
     }
 
-    // ── Quality comparison vs puzzleboard rtv3d_ref (different rig) ───────────
+    // ── Quality comparison vs puzzleboard scheimpflug_rig_ref (different rig) ───────────
     let puzzle_ref_dir = PathBuf::from(
-        std::env::var("RTV3D_PUZZLE_REF_DIR")
-            .unwrap_or_else(|_| "privatedata/rtv3d_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_PUZZLE_REF_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
     let puzzle = load_ref_artifacts(&puzzle_ref_dir.join("artifacts.json")).ok();
     let _ = data_dir; // ring-grid dir has no oracle; baseline comes from puzzle_ref_dir
 
-    println!("\n── Calibration quality: ring-grid (this rig) vs puzzleboard rtv3d_ref ──");
+    println!("\n── Calibration quality: ring-grid (this rig) vs puzzleboard scheimpflug_rig_ref ──");
     println!(
         "  (DIFFERENT rigs — compares how well each target calibrates, not parameter agreement)"
     );

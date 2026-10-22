@@ -15,8 +15,8 @@
 //! 3. records whether the cell clears the entry's `accept` gate.
 //!
 //! Entries are grouped into dataset **families** by their shared
-//! `data_root` (the 6 `rtv3d_ref_cam*` entries are one family, the 6
-//! `rtv3d_ringgrid_cam*` entries are another); the report is one
+//! `data_root` (the 6 `scheimpflug_rig_ref_cam*` entries are one family, the 6
+//! `scheimpflug_rig_ringgrid_cam*` entries are another); the report is one
 //! pass-rate table per family plus the widest all-camera-pass interval
 //! per perturbation axis. This subcommand is never wired into CI — it is
 //! a standing diagnostic, run on demand against the private datasets.
