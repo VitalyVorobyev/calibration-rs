@@ -584,7 +584,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session state), not the mean per-point error; on a scene with 0.43 px
   mean error it reported 4.7 px. It now reports the same value as the
   export.
-
+- **The laserline device reaches the noise floor when some target corners
+  are outliers.** The device solve used to hold view 0's pose at its linear
+  initial value, which outlying corners corrupt, so a robust calibration
+  loss could not discount them. It now holds no pose fixed (see the
+  Migration note on `fix_poses`). With 5 % of the corners displaced
+  10–30 px and Huber or Cauchy at 1 px, at 0.1 px noise: inlier RMS
+  0.17–0.32 px → 0.135–0.147 px (0.138–0.141 px without outliers), focal
+  error 0.4–1.8 % → 0.009–0.08 %, laser plane up to 0.26° / 7.6 mm off →
+  within 0.012° / 0.26 mm.
 - **Laser residuals in pixels are the ones the solve minimizes.**
   `LaserFeatureResidual::residual_px`, the per-camera laser histograms and
   the Diagnose laser overlay measured the distance to a straight segment

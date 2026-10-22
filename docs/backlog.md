@@ -108,19 +108,17 @@ private sets.
 Found by `calib-bench solver` (well-conditioned synthetic scenes; the named
 scenes are the gate) and the regression suite.
 
-- [ ] Q-LASERLINE-OUTLIERS - With 5 % of target corners displaced 10–30 px,
-  `laserline_device` under Huber or Cauchy (scale 1 px) settles off the
-  minimum: inlier RMS 0.16–0.30 px at σ 0.1 px (floor 0.14), focal error
-  0.4–1.8 %, laser plane up to 0.29° / 7.6 mm. The other problems (the
-  Scheimpflug rig aside, below) reach the floor on the same contamination,
-  and the robust-cost LM does not change it, so the init is the suspect. Gate:
-  `laserline_device/pinhole/*/n0.1/{huber,cauchy}` at the noise floor.
 - [ ] Q-SCHEIMPFLUG-RIG-PERCAM - The Scheimpflug rig's per-camera stage
   (staged init, radial-only BA) lands off the minimum on clean data, even
   seeded with each camera's nominal tilt: inlier RMS 0.21–0.26 px at
   σ 0.1 px, principal point 26–44 px and tilt about 2.5° off. The rig BA
   keeps intrinsics fixed, so it cannot recover; the single-camera Scheimpflug
   problem reaches the floor on comparable data (principal point 1.4 px).
+  Lead: `planar_family::camera_solve_opts` holds view 0's pose at its
+  linear-init value for a tilted camera. Freeing it reaches the floor RMS
+  on `small/n0.1/clean` (0.141 px, objective 33.4 → 10.1) but leaves the
+  principal point 60 px and the tilt 4° off, so the pin is one cause and
+  the tilt / principal-point trade-off the other.
   Gate: `rig_extrinsics/scheimpflug/*/clean` at the noise floor.
 
 ## Camera models (Phase 2)
