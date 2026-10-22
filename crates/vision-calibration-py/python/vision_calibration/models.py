@@ -36,10 +36,10 @@ class IntrinsicsInitConfig:
 
     iterations: int = 2
     fix_k3: bool = True
-    #: ``None`` (default) defers to the camera's default: in the single-camera
-    #: workflows the tangential terms are fixed under a Scheimpflug sensor and
-    #: free otherwise; the multi-camera workflows keep them free for every
-    #: camera.
+    #: ``None`` (default) defers to the camera's default, in every workflow
+    #: and for each camera of a rig: the tangential terms are fixed under a
+    #: Scheimpflug sensor (they trade off against the tilt, and its default
+    #: fix list holds them in every later solve) and free otherwise.
     fix_tangential: bool | None = None
 
     def to_payload(self) -> dict[str, Any]:

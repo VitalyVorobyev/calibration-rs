@@ -18,14 +18,13 @@
 //! bootstrap helpers).
 
 use crate::Error;
-use crate::common::config::CameraConfig;
+use crate::common::config::{CameraConfig, IntrinsicsInitConfig};
 use crate::planar_family::{CameraSeed, bootstrap_camera, check_sensor_seed};
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModel, CameraModelSpec, CameraParams, DistortionParams,
     FxFyCxCy, Iso3, NoMeta, PlanarDataset, ProjectionParams, Real, ScheimpflugParams, SensorKind,
     SensorParams, View,
 };
-use vision_calibration_linear::prelude::IterativeIntrinsicsOptions;
 use vision_calibration_optim::PlanarIntrinsicsParams;
 
 /// Manual seeds for the per-camera rig intrinsics bootstrap.
@@ -64,7 +63,9 @@ pub(crate) struct RigIntrinsicsBootstrap {
 /// (Zhang's method; for a Scheimpflug sensor, the tilted variant that also
 /// estimates the tilt). The linear stage fits Brown-Conrady coefficients,
 /// embedded into each camera's distortion model (extra coefficients start
-/// at zero). Per-camera target poses are recovered from per-camera
+/// at zero), with `init`'s options resolved for each camera's model
+/// ([`IntrinsicsInitConfig::iterative_opts`]; `iterations` overrides
+/// `init.iterations`). Per-camera target poses are recovered from per-camera
 /// homographies using whichever intrinsics were chosen.
 ///
 /// # Errors
@@ -79,7 +80,8 @@ pub(crate) fn bootstrap_rig_intrinsics<F>(
     num_views: usize,
     extract_views: F,
     seeds: RigIntrinsicsSeeds,
-    init_opts: IterativeIntrinsicsOptions,
+    init: &IntrinsicsInitConfig,
+    iterations: Option<usize>,
 ) -> Result<RigIntrinsicsBootstrap, Error>
 where
     F: Fn(usize) -> Vec<Option<View<NoMeta>>>,
@@ -102,6 +104,7 @@ where
             distortion: seeds.per_cam_distortion.as_ref().map(|s| s[cam_idx]),
             sensor: seeds.per_cam_sensors.as_ref().map(|s| s[cam_idx]),
         };
+        let init_opts = init.iterative_opts(iterations, *model);
         let camera_bootstrap =
             bootstrap_camera(cam_idx, *model, &planar_dataset, &seed, init_opts)?;
 
@@ -361,21 +364,9 @@ mod tests {
         BrownConrady5, Camera, DistortionKind, FxFyCxCy, Pinhole, ScheimpflugParams, View,
         make_pinhole_camera, synthetic::planar,
     };
-    use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 
     /// `[cam][view] -> Option<View<NoMeta>>`.
     type PerCamViews = Vec<Vec<Option<View<NoMeta>>>>;
-
-    fn default_init_opts() -> IterativeIntrinsicsOptions {
-        IterativeIntrinsicsOptions {
-            iterations: 2,
-            distortion_opts: DistortionFitOptions {
-                fix_k3: true,
-                fix_tangential: false,
-                iters: 8,
-            },
-        }
-    }
 
     fn pinhole_two_camera_views() -> (PerCamViews, FxFyCxCy<Real>, usize) {
         let cam_gt = make_pinhole_camera(
@@ -452,7 +443,8 @@ mod tests {
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect("bootstrap");
 
@@ -483,7 +475,8 @@ mod tests {
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect("bootstrap");
 
@@ -515,6 +508,49 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_holds_a_tilted_cameras_tangential_terms_by_default() {
+        let sensor = ScheimpflugParams {
+            tilt_x: 0.05,
+            tilt_y: -0.03,
+        };
+        let (per_cam_views, _, num_views) = scheimpflug_two_camera_views(sensor);
+        let tangential = |init: &IntrinsicsInitConfig| -> Vec<(Real, Real)> {
+            bootstrap_rig_intrinsics(
+                &[tilted(), tilted()],
+                num_views,
+                |cam_idx| per_cam_views[cam_idx].clone(),
+                RigIntrinsicsSeeds {
+                    per_cam_sensors: Some(vec![sensor, sensor]),
+                    ..Default::default()
+                },
+                init,
+                None,
+            )
+            .expect("bootstrap")
+            .cameras
+            .iter()
+            .map(|c| match c.distortion {
+                DistortionParams::BrownConrady5 { params } => (params.p1, params.p2),
+                _ => unreachable!("Brown-Conrady camera"),
+            })
+            .collect()
+        };
+        // Held at zero: the camera's default fix list keeps them there in
+        // every later solve, so a fitted value would stay frozen.
+        assert!(
+            tangential(&IntrinsicsInitConfig::default())
+                .iter()
+                .all(|&p| p == (0.0, 0.0))
+        );
+        // An explicit setting wins.
+        let free = IntrinsicsInitConfig {
+            fix_tangential: Some(false),
+            ..IntrinsicsInitConfig::default()
+        };
+        assert!(tangential(&free).iter().any(|&p| p != (0.0, 0.0)));
+    }
+
+    #[test]
     fn bootstrap_with_intrinsics_seed_skips_autofit() {
         let (per_cam_views, k_gt, num_views) = pinhole_two_camera_views();
         let seeds = RigIntrinsicsSeeds {
@@ -526,7 +562,8 @@ mod tests {
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             seeds,
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect("bootstrap");
 
@@ -554,7 +591,8 @@ mod tests {
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             seeds,
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect("bootstrap");
 
@@ -577,7 +615,8 @@ mod tests {
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             seeds,
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect_err("seed length mismatch should error");
         let msg = err.to_string();
@@ -597,7 +636,8 @@ mod tests {
             num_views,
             |cam_idx| truncated[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect_err("insufficient views should error");
         let msg = err.to_string();
@@ -613,7 +653,8 @@ mod tests {
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect("bootstrap");
         assert_eq!(result.cameras[0].spec(), Some(untilted()));
@@ -635,7 +676,8 @@ mod tests {
                 num_views,
                 |cam_idx| per_cam_views[cam_idx].clone(),
                 zero,
-                default_init_opts(),
+                &IntrinsicsInitConfig::default(),
+                None,
             )
             .is_ok()
         );
@@ -654,7 +696,8 @@ mod tests {
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             tilted_seed,
-            default_init_opts(),
+            &IntrinsicsInitConfig::default(),
+            None,
         )
         .expect_err("a tilt seed for an untilted camera is rejected");
         assert!(err.to_string().contains("per_cam_sensors[1]"), "{err}");

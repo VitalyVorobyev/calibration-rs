@@ -127,7 +127,7 @@ impl PlanarIntrinsicsConfig {
 
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        self.init.iterative_opts(None, self.is_scheimpflug())
+        self.init.iterative_opts(None, self.camera.model)
     }
 
     /// Convert to vision-calibration-optim solve options.

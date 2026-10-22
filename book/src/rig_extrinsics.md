@@ -70,6 +70,7 @@ Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`, `
 pub struct RigExtrinsicsConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig, // { iterations, fix_k3, fix_tangential }
+    // (fix_tangential: None holds p1, p2 for a Scheimpflug camera)
 
     // Camera model shared by every camera (projection, distortion, sensor)
     // and its named fix lists; default Brown-Conrady, identity sensor.

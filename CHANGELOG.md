@@ -202,7 +202,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `fix_camera.intrinsics` (`IntrinsicsFixMask`) | `camera.fix.intrinsics`, e.g. `["cx", "cy"]` |
   | `fix_camera.distortion` (`DistortionFixMask`) | `camera.fix.distortion`, e.g. `["k3", "p1", "p2"]`; under a Scheimpflug sensor `k4`–`k6` and `s1`–`s4` are named directly instead of following the `k3` / `p1`+`p2` bits |
   | `fix_scheimpflug: { tilt_x, tilt_y }` | `camera.fix.sensor`, e.g. `["tilt_y"]` |
-  | `init.fix_tangential: bool` (every config) | `init.fix_tangential: Option<bool>`; unset is the camera's default — `true` for a Scheimpflug camera, `false` otherwise (the rig workflows resolve it to `false` for every camera) |
+  | `init.fix_tangential: bool` (every config) | `init.fix_tangential: Option<bool>`; unset is the camera's default — `true` for a Scheimpflug camera, `false` otherwise, for each rig camera too |
   | planar `solver.max_iters` default 50 | 120 (sized for the tilt valley; the solver stops at convergence, and every planar regression and benchmark result is unchanged) |
   | `ScheimpflugManualInit` | `PlanarManualInit`, which gains `sensor: Option<ScheimpflugParams>` (a typed error for an untilted camera); its `distortion` seed stays Brown-Conrady and is embedded into the configured model |
   | `ScheimpflugIntrinsicsResult` / `ScheimpflugIntrinsicsExport` / `ScheimpflugIntrinsicsParams` / `…InitResult` / `…OptimizeResult` | `PlanarIntrinsicsEstimate` / `PlanarIntrinsicsExport` / `PlanarIntrinsicsParams` / `PlanarInitResult` (gains `sensor`) / `PlanarOptimizeResult` |
@@ -263,8 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Behaviour notes. `rig.refine_intrinsics_in_rig_ba` holds each camera's fix
   lists in the rig bundle adjustment (it held only `k3` of every camera;
   identical for the default Brown-Conrady camera). A non-zero tilt seed for
-  an untilted camera is an `InvalidInput` error (it was ignored). An unset
-  `init.fix_tangential` still resolves to `false` for every rig camera. The
+  an untilted camera is an `InvalidInput` error (it was ignored). The
   joint rig laser bundle uses each camera's own model: an untilted
   camera has no sensor block, so the fixed zero-tilt labels of its
   covariance (`cam*.tilt_*`) are gone. The regression suite and solver
@@ -388,6 +387,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HandeyeSolveOptions` and `RigHandeyeLaserlineSolveOptions` (optim) behave
   the same way; their results' `robot_deltas` now have a non-zero first
   entry, and their covariance a block for view 0's correction.
+- **A tilted (Scheimpflug) camera's own solve reaches its minimum in every
+  workflow.** Results change for Scheimpflug cameras in `rig_extrinsics`
+  and `rig_handeye`, and for the per-camera tilt solve of
+  `single_cam_handeye` and of an unseeded `laserline_device`. Two
+  defaults held that solve off the minimum. The rig workflows' linear stage
+  fitted the tangential terms `p1`, `p2` of every camera, while a
+  Scheimpflug camera's default fix list holds them in every later solve:
+  the fitted value, a decentering that mimics a tilt, stayed frozen and
+  moved the tilt and principal point. And the camera's own solve held view
+  0's target pose at its linear-init value. An unset
+  `intrinsics.fix_tangential` now holds the tangential terms of a
+  Scheimpflug camera in every workflow and for each rig camera (it was
+  `false` for every rig camera), and the camera's own solve frees every
+  pose. On the synthetic two-camera Scheimpflug rig of `calib-bench
+  solver` at 0.1 px noise, the reprojection RMS falls from 0.17–0.19 px to
+  the noise floor (0.141 px), the principal-point error from 28–44 px to
+  0.4–2.1 px, the tilt error from 1.5–2.5° to 0.03–0.15° and the rig
+  rotation error from 2–3° to 0.06–0.15°; at 0.5 px noise every error is
+  within 1.5 standard deviations. Set `intrinsics.fix_tangential: false`
+  to fit the tangential terms in the linear stage as before (free them in
+  `camera.fix` too, or the fitted value stays frozen).
+  `IntrinsicsInitConfig::iterative_opts` and `distortion_fit_opts` take
+  the camera's `CameraModelSpec` instead of a `bool` default.
 
 ### Added
 

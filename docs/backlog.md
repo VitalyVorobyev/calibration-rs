@@ -94,18 +94,18 @@ private sets.
 Found by `calib-bench solver` (well-conditioned synthetic scenes; the named
 scenes are the gate) and the regression suite.
 
-- [ ] Q-SCHEIMPFLUG-RIG-PERCAM - The Scheimpflug rig's per-camera stage
-  (staged init, radial-only BA) lands off the minimum on clean data, even
-  seeded with each camera's nominal tilt: inlier RMS 0.21–0.26 px at
-  σ 0.1 px, principal point 26–44 px and tilt about 2.5° off. The rig BA
-  keeps intrinsics fixed, so it cannot recover; the single-camera Scheimpflug
-  problem reaches the floor on comparable data (principal point 1.4 px).
-  Lead: `planar_family::camera_solve_opts` holds view 0's pose at its
-  linear-init value for a tilted camera. Freeing it reaches the floor RMS
-  on `small/n0.1/clean` (0.141 px, objective 33.4 → 10.1) but leaves the
-  principal point 60 px and the tilt 4° off, so the pin is one cause and
-  the tilt / principal-point trade-off the other.
-  Gate: `rig_extrinsics/scheimpflug/*/clean` at the noise floor, with no view held.
+- [ ] Q-SCHEIMPFLUG-STAGED-ROBUST - The staged Scheimpflug solve
+  (`optimize_scheimpflug_intrinsics_staged`, the cold-start and rig
+  per-camera route) fails on contaminated data: its last stage, which frees
+  the principal point, solves without the caller's robust loss and is
+  accepted only if the mean reprojection error, outliers included, does not
+  grow. With 5 % outliers it is rejected and the principal point keeps its
+  linear-init value: `rig_extrinsics/scheimpflug/*/{huber,cauchy}` stay
+  20–45 px and 2–3° off. Solving that stage under the caller's loss and
+  accepting it on the objective brings `small/n0.1/{huber,cauchy}` to
+  ≤ 4.7 px and ≤ 0.3° (about 1σ). It changes every robust-loss cold-start
+  and rig Scheimpflug result, so check the acceptance runs.
+  Gate: `rig_extrinsics/scheimpflug/*/{huber,cauchy}` within 3σ of the truth.
 
 ## Camera models (Phase 2)
 

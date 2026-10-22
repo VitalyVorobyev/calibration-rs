@@ -283,10 +283,10 @@ fn estimate_camera_poses(
     Ok(poses)
 }
 
-/// The planar solve options of a camera.
-///
-/// An untilted camera frees every pose; a tilted one pins view 0's, the
-/// gauge its staged tilt solve has always used.
+/// The planar solve options of a camera: its fix lists, and every pose
+/// free. A camera calibrated from its own planar views has no pose gauge to
+/// remove, and a held pose would keep the error of its linear-init value
+/// (fitted to distorted points) in the solve.
 pub(crate) fn camera_solve_opts(
     camera: &CameraConfig,
     solver: &SolverConfig,
@@ -294,10 +294,7 @@ pub(crate) fn camera_solve_opts(
     PlanarIntrinsicsSolveOptions {
         robust_loss: solver.robust_loss,
         fix: camera.fix.clone(),
-        fix_poses: match camera.model.sensor {
-            SensorKind::Identity => Vec::new(),
-            SensorKind::Scheimpflug => vec![0],
-        },
+        fix_poses: Vec::new(),
         bounds: None,
     }
 }
@@ -402,6 +399,18 @@ mod tests {
         let poses = planar::poses_yaw_y_z(4, 0.0, 0.1, 0.6, 0.1);
         let views = planar::project_views_all(&cam_gt, &board_points, &poses).expect("views");
         PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).expect("dataset")
+    }
+
+    #[test]
+    fn camera_solve_opts_frees_every_pose() {
+        for sensor in [SensorKind::Identity, SensorKind::Scheimpflug] {
+            let camera = CameraConfig::new(CameraModelSpec::pinhole(
+                DistortionKind::BrownConrady5,
+                sensor,
+            ));
+            let opts = camera_solve_opts(&camera, &SolverConfig::default());
+            assert!(opts.fix_poses.is_empty(), "{sensor:?}");
+        }
     }
 
     #[test]

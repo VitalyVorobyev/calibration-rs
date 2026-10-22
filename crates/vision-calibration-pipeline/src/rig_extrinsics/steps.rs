@@ -168,8 +168,8 @@ pub struct RigOptimizeResult {
 /// poses are *always* recovered from per-camera homographies — using the seeded
 /// intrinsics if provided, otherwise the auto-fit intrinsics. Each camera is
 /// initialized in its own model (`config.camera_for(i)`); an unset
-/// `intrinsics.fix_tangential` keeps the tangential terms free for every
-/// camera.
+/// `intrinsics.fix_tangential` holds the tangential terms of each
+/// Scheimpflug camera and keeps them free for every other camera.
 ///
 /// # Errors
 ///
@@ -191,9 +191,6 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    // Rigs keep the tangential terms free in the linear stage for every
-    // camera, whatever its sensor.
-    let init_opts = config.intrinsics.iterative_opts(opts.iterations, false);
     let models: Vec<CameraModelSpec> = (0..num_cameras)
         .map(|i| config.camera_for(i).model)
         .collect();
@@ -209,7 +206,8 @@ pub fn step_intrinsics_init_all_with_seed(
         num_views,
         |cam_idx| extract_camera_views(input, cam_idx),
         seeds,
-        init_opts,
+        &config.intrinsics,
+        opts.iterations,
     ) {
         Ok(b) => b,
         Err(e) => {
@@ -250,9 +248,8 @@ pub fn step_intrinsics_init_all(
 /// Optimize intrinsics for all cameras.
 ///
 /// Refines each camera independently in its own model, holding its `fix`
-/// lists. A camera with a Scheimpflug sensor runs the staged multi-start
-/// tilt solve with view 0's pose pinned; an untilted camera a plain planar
-/// solve with every pose free.
+/// lists, with every pose free. A camera with a Scheimpflug sensor runs the
+/// staged multi-start tilt solve; an untilted camera a plain planar solve.
 ///
 /// Requires [`step_intrinsics_init_all`] to be run first.
 ///
