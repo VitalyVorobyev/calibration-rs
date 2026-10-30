@@ -54,7 +54,11 @@ pub struct PuzzleboardConfig {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PuzzleboardDetector;
 
-impl crate::sealed::Sealed for PuzzleboardDetector {}
+impl crate::sealed::Sealed for PuzzleboardDetector {
+    fn backend(&self) -> &'static str {
+        crate::backend::CALIB_TARGETS
+    }
+}
 
 impl Detector for PuzzleboardDetector {
     fn name(&self) -> &'static str {
