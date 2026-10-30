@@ -68,7 +68,13 @@ backend commands are `create_project`, `open_project`,
 drives them: opening a project loads its manifest and dataset folder into
 the Run setup (`store/runSetup.ts`), a successful run with a project open is
 saved as the next `run-NNN` and reopened from its `export.json`, and a
-failure is shown by the shell until dismissed. Rust tests for the project
+failure is shown by the shell until dismissed. A run name that exists is a
+`run_exists` error (runs are never overwritten), and the saved export's
+image root is rebased onto the run folder so it also opens on its own
+through Open Export…. Recent projects are a per-viewer list in
+`localStorage`; a folder that no longer opens drops off it. The dataset path
+in `calibration-project.json` is relative to the project when the dataset
+is inside it (`"."` beside the project file), absolute otherwise. Rust tests for the project
 rules are in `project.rs` (temporary folders); the store is tested against
 `mockIPC` in `project/projectStore.test.tsx`.
 

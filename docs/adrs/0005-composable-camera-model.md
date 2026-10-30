@@ -186,11 +186,4 @@ covariance reports them as fixed rather than unobservable.
   model, such as epipolar geometry with a non-central camera, rejects it
   with a typed error.
 - **Numerical tests:** each model ships a math note and a synthetic matrix
-  test across every problem type (`optim/tests/camera_model_matrix.rs` and
-  the rig extrinsics matrix in `optim/tests/rig_extrinsics.rs`).
-- **Breaking changes:**
-  - removing skew;
-  - the `camera` config group;
-  - per-camera `CameraParams` in exports.
-
-  All three land before v1.0 with migration notes.
+  test across every problem type.

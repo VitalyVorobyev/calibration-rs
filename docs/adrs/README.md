@@ -10,6 +10,13 @@ Every ADR listed here is in force. When a decision changes, edit its ADR to
 state the new decision; do not append history. Numbers are stable
 identifiers and are not reused, so the sequence has gaps.
 
+Shape: **Context** (the forces, briefly), **Decision** (what holds, stated
+as rules), **Consequences**, **Alternatives rejected** (each with its
+reason). Aim for about 120 lines or fewer. Measurements behind a choice go to
+`docs/notes/`; type and function names only where the decision is about
+them; layouts, commands and component wiring go to rustdoc or
+`app/DEVELOPING.md`.
+
 ## Structure
 
 - [0006 — Layered crate architecture](0006-layered-crate-architecture.md)
