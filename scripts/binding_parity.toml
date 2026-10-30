@@ -98,6 +98,7 @@
 "dataset::TargetSpec" = "types.TargetSpec"
 "dataset::Topology" = "types.Topology"
 "dataset::sniff_folder" = "sniff_folder"
+"dataset_runner::CovarianceFault" = "RunError"
 "dataset_runner::HandeyeRunResult" = "dataset_runner.HandeyeRunResult"
 "dataset_runner::LaserPixelExtractor" = "dataset_runner.LaserPixelExtractor"
 "dataset_runner::LaserlineRunResult" = "dataset_runner.LaserlineRunResult"
