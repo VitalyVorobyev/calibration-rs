@@ -31,10 +31,10 @@ pub use device_spec::{
 };
 pub use sniff::{SniffError, sniff_folder};
 pub use spec::{
-    CameraSource, ChessCornersDetectorSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
-    ImagePattern, LaserExtractionSpec, LaserScanAxis, PoseColumnMap, PoseConvention, PosePairing,
-    RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
-    TranslationUnits,
+    CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec,
+    DetectorSpec, ImageNoiseSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis, PoseColumnMap,
+    PoseConvention, PosePairing, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
+    Topology, TransformConvention, TranslationUnits,
 };
 pub use validator::{ValidationError, validate};
 

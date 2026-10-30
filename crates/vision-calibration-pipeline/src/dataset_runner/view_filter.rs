@@ -204,6 +204,7 @@ mod tests {
             .flat_map(|v| (0..width).map(move |u| (u, v)))
             .filter(|uv| !missing.contains(uv))
             .map(|(u, v)| Feature {
+                cov_px: None,
                 image_xy: [10.0 * u as f64, 10.0 * v as f64],
                 world_xyz: [u as f64 * SQUARE, v as f64 * SQUARE, 0.0],
             })

@@ -120,6 +120,7 @@ impl Detector for PuzzleboardDetector {
                     corner.position.y as f64 / DETECT_UPSCALE as f64,
                 ],
                 world_xyz: [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0],
+                cov_px: None,
             });
         }
         Ok(crate::reject_ambiguous_detection(features))

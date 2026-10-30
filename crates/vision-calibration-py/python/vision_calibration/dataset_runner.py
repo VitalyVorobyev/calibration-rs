@@ -592,9 +592,9 @@ def detect_target(
             "image must be a 2-D uint8 grayscale array, got "
             f"{array.ndim}-D {array.dtype}; convert colour images first"
         )
-    image_xy, world_xyz = _native.detect_target(
+    image_xy, world_xyz, cov_px = _native.detect_target(
         np.ascontiguousarray(array),
         dict(target),
         None if detector is None else dict(detector),
     )
-    return Features(image_xy=image_xy, world_xyz=world_xyz)
+    return Features(image_xy=image_xy, world_xyz=world_xyz, cov_px=cov_px)

@@ -46,7 +46,7 @@ pub use feature::{Feature, reject_ambiguous_detection};
 #[cfg(feature = "charuco")]
 pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};
 #[cfg(any(feature = "charuco", feature = "chessboard"))]
-pub use chess_options::{ChessCornersConfig, CornerStrategy};
+pub use chess_options::{ChessCornersConfig, CornerCovariance, CornerStrategy, ImageNoise};
 #[cfg(feature = "chessboard")]
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
 #[cfg(feature = "puzzleboard")]

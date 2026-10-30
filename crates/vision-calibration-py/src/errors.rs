@@ -63,6 +63,8 @@ pub(crate) fn run_error_kind(err: &RustRunError) -> &'static str {
         RustRunError::Io(_) => "io",
         RustRunError::Decode { .. } => "decode",
         RustRunError::Detection { .. } => "detection",
+        RustRunError::CornerCovariance { .. } => "corner_covariance",
+        RustRunError::CovarianceUnsupported { .. } => "covariance_unsupported",
         RustRunError::Cache(_) => "cache",
         RustRunError::AskUser { .. } => "ask_user",
         RustRunError::InsufficientUsableViews { .. } => "insufficient_usable_views",

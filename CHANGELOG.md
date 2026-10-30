@@ -413,6 +413,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Corner covariance from the chessboard and ChArUco detectors.** Setting
+  `[detector.chess_corners.covariance]` in a manifest (`image_noise =
+  "estimate"`, the default, or `{ known = σ }` in gray levels) makes the
+  detector report each corner's position covariance, which the dataset
+  runner attaches to the observations: residuals are whitened and the
+  report gives σ̂₀ instead of σ̂ in pixels. Off by default. `Feature` gains
+  `cov_px` (`[xx, xy, yy]`, px²; `Features.cov_px` in Python, carried by
+  `to_observation()` and the detection cache), `ChessCornersConfig` gains
+  `covariance`, and the runner fails with `RunError::CornerCovariance` when
+  a requested covariance is missing or unusable on an image (typically JPEG
+  input with the estimated noise: give `known`), and with
+  `RunError::CovarianceUnsupported` for other targets.
 - **App: project folders.** A project keeps a dataset's manifest and its
   runs in one folder (`calibration-project.json`, `dataset.json`,
   `runs/run-NNN/` with the run's manifest, config, export and diagnostics).

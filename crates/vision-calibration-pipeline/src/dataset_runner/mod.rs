@@ -43,15 +43,15 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
+use vision_calibration_core::{CorrespondenceView, NoMeta, PointCovariance, Pt2, Pt3, View};
 use vision_calibration_dataset::{
-    ChessCornersDetectorSpec, CornerStrategySpec, DatasetSpec, DetectorSpec, ImagePattern,
-    TargetSpec, Topology, ValidationError,
+    ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
+    ImageNoiseSpec, ImagePattern, TargetSpec, Topology, ValidationError,
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
-    CornerStrategy, DetectionCache, Detector, Feature, PuzzleboardDetector, RinggridDetector,
-    validate_charuco_layout,
+    CornerCovariance, CornerStrategy, DetectionCache, Detector, Feature, ImageNoise,
+    PuzzleboardDetector, RinggridDetector, validate_charuco_layout,
 };
 
 mod handeye;
@@ -201,6 +201,29 @@ pub enum RunError {
         source: vision_calibration_detect::DetectError,
     },
 
+    /// Corner covariance was requested (`detector.chess_corners.covariance`)
+    /// but the detector's output for this image does not carry a usable one.
+    #[error("detector {detector} on {path}: {fault}")]
+    CornerCovariance {
+        /// Detector name.
+        detector: String,
+        /// Offending image.
+        path: PathBuf,
+        /// What is wrong with the reported covariance.
+        fault: CovarianceFault,
+    },
+
+    /// The manifest asks for corner covariance on a target whose detector
+    /// reports none.
+    #[error(
+        "detector.chess_corners.covariance is supported for chessboard and charuco \
+         targets only, not {target}"
+    )]
+    CovarianceUnsupported {
+        /// The manifest's target kind (e.g. `"puzzleboard"`).
+        target: &'static str,
+    },
+
     /// Cache backend reported an error.
     #[error("cache error: {0}")]
     Cache(#[from] vision_calibration_detect::CacheError),
@@ -300,6 +323,31 @@ pub enum RunError {
     },
 }
 
+/// Why a requested corner covariance is unusable; see
+/// [`RunError::CornerCovariance`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum CovarianceFault {
+    /// `missing` of the image's `total` corners carry no covariance.
+    #[error(
+        "the detector reported no covariance for {missing} of {total} corners in this \
+         image; on JPEG or demosaiced input the per-image noise estimate declines — \
+         set `image_noise = {{ known = σ }}` (gray levels) instead"
+    )]
+    Missing {
+        /// Corners without a covariance.
+        missing: usize,
+        /// Corners in the image.
+        total: usize,
+    },
+    /// A corner's covariance is not finite and positive definite.
+    #[error("a reported corner covariance is not finite and positive definite: {message}")]
+    NotPositiveDefinite {
+        /// The offending matrix, as reported by the core check.
+        message: String,
+    },
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -318,6 +366,7 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
         strategy,
         threshold_value,
         min_corner_strength,
+        covariance,
     } = spec;
     ChessCornersConfig {
         strategy: strategy.map(|s| match s {
@@ -326,6 +375,12 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
         }),
         threshold_value,
         min_corner_strength,
+        covariance: covariance.map(|CornerCovarianceSpec { image_noise }| CornerCovariance {
+            image_noise: match image_noise {
+                ImageNoiseSpec::Estimate => ImageNoise::Estimate,
+                ImageNoiseSpec::Known(sigma) => ImageNoise::Known(sigma),
+            },
+        }),
     }
 }
 
@@ -371,6 +426,12 @@ fn detector_config(
     detector: Option<&DetectorSpec>,
 ) -> Result<(&'static str, Value), RunError> {
     let (name, mut config) = detector_config_for_target(target)?;
+    if let Some(chess) = detector.and_then(|d| d.chess_corners)
+        && chess.covariance.is_some()
+        && !matches!(name, "chessboard" | "charuco")
+    {
+        return Err(RunError::CovarianceUnsupported { target: name });
+    }
     if let Some(chess) = detector.and_then(|d| d.chess_corners)
         && let Value::Object(map) = &mut config
     {
@@ -635,9 +696,75 @@ fn pattern_repr(p: &ImagePattern) -> String {
 /// converter: read bytes → cache lookup → on miss, decode, crop to
 /// ROI, detect in the camera pixel frame, store.
 ///
-/// Returns the features plus whether they came from the cache.
+/// Returns the features plus whether they came from the cache. When the
+/// detector config requests corner covariance, cached and fresh features
+/// alike are checked by [`check_corner_covariances`].
 #[allow(clippy::too_many_arguments)]
 fn detect_features(
+    detector: &dyn Detector,
+    detector_config: &Value,
+    key_config: &Value,
+    roi: Option<[u32; 4]>,
+    image_path: &Path,
+    cache: &dyn DetectionCache,
+    force_redetect: bool,
+) -> Result<(Vec<Feature>, bool), RunError> {
+    let (features, cache_hit) = cached_or_detected(
+        detector,
+        detector_config,
+        key_config,
+        roi,
+        image_path,
+        cache,
+        force_redetect,
+    )?;
+    if covariance_requested(detector_config) {
+        check_corner_covariances(&features, detector.name(), image_path)?;
+    }
+    Ok((features, cache_hit))
+}
+
+/// Whether the lowered detector config asks for per-corner covariance.
+fn covariance_requested(detector_config: &Value) -> bool {
+    detector_config
+        .get("chess_corners")
+        .and_then(|c| c.get("covariance"))
+        .is_some()
+}
+
+/// Every corner of an image must carry a covariance that the calibration can
+/// whiten with (finite, positive definite). No corner is dropped to make a
+/// view pass: one corner without a covariance would otherwise force the whole
+/// input back to unweighted, or be silently unweighted among weighted ones.
+fn check_corner_covariances(
+    features: &[Feature],
+    detector: &str,
+    image_path: &Path,
+) -> Result<(), RunError> {
+    let fault = |fault| RunError::CornerCovariance {
+        detector: detector.to_string(),
+        path: image_path.to_path_buf(),
+        fault,
+    };
+    let missing = features.iter().filter(|f| f.cov_px.is_none()).count();
+    if missing > 0 {
+        return Err(fault(CovarianceFault::Missing {
+            missing,
+            total: features.len(),
+        }));
+    }
+    for [xx, xy, yy] in features.iter().filter_map(|f| f.cov_px) {
+        PointCovariance::new(xx, xy, yy).map_err(|e| {
+            fault(CovarianceFault::NotPositiveDefinite {
+                message: e.to_string(),
+            })
+        })?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cached_or_detected(
     detector: &dyn Detector,
     detector_config: &Value,
     key_config: &Value,
@@ -687,6 +814,12 @@ fn features_to_view(features: &[Feature]) -> Result<View<NoMeta>, RunError> {
     Ok(View::without_meta(features_to_obs(features)))
 }
 
+/// The 2D-3D correspondences of one view, with each point's covariance when
+/// the features carry them.
+///
+/// Covariances are all-or-none per view: [`detect_features`] rejects an image
+/// where a requested covariance is missing or unusable, so the features here
+/// either all carry a valid one or (the default) none does.
 fn features_to_obs(features: &[Feature]) -> CorrespondenceView {
     let mut points_3d = Vec::with_capacity(features.len());
     let mut points_2d = Vec::with_capacity(features.len());
@@ -694,7 +827,23 @@ fn features_to_obs(features: &[Feature]) -> CorrespondenceView {
         points_3d.push(Pt3::new(f.world_xyz[0], f.world_xyz[1], f.world_xyz[2]));
         points_2d.push(Pt2::new(f.image_xy[0], f.image_xy[1]));
     }
-    CorrespondenceView::new(points_3d, points_2d).expect(
+    let covariances: Option<Vec<PointCovariance>> = features
+        .iter()
+        .map(|f| {
+            f.cov_px.map(|[xx, xy, yy]| {
+                PointCovariance::new(xx, xy, yy).expect(
+                    "covariances are validated by check_corner_covariances in detect_features",
+                )
+            })
+        })
+        .collect();
+    let view = match covariances {
+        Some(cov) if !cov.is_empty() => {
+            CorrespondenceView::new_with_covariances(points_3d, points_2d, cov)
+        }
+        _ => CorrespondenceView::new(points_3d, points_2d),
+    };
+    view.expect(
         "Feature vectors are non-empty and equal-length by construction; \
          CorrespondenceView::new only fails on mismatched lengths.",
     )
@@ -878,12 +1027,19 @@ mod tests {
             chess_corners: Some(ChessCornersDetectorSpec {
                 strategy: Some(CornerStrategySpec::Radon),
                 threshold_value: Some(0.2),
+                covariance: Some(CornerCovarianceSpec {
+                    image_noise: ImageNoiseSpec::Known(2.0),
+                }),
                 ..ChessCornersDetectorSpec::default()
             }),
             min_features_per_view: None,
         });
         let (_name, config) = target_to_detector_config(&spec).unwrap();
         assert_eq!(config["chess_corners"]["strategy"], "radon");
+        assert_eq!(
+            config["chess_corners"]["covariance"]["image_noise"]["known"],
+            2.0
+        );
         assert_eq!(config["chess_corners"]["threshold_value"], 0.2f32 as f64);
 
         // `lower_chess_corners` destructures the manifest struct exhaustively,
@@ -894,6 +1050,22 @@ mod tests {
             serde_json::from_value(config["chess_corners"].clone()).unwrap();
         assert_eq!(lowered.strategy, Some(CornerStrategy::Radon));
         assert_eq!(lowered.threshold_value, Some(0.2));
+        assert_eq!(
+            lowered.covariance,
+            Some(CornerCovariance {
+                image_noise: ImageNoise::Known(2.0)
+            })
+        );
+        assert_eq!(
+            lower_chess_corners(ChessCornersDetectorSpec {
+                covariance: Some(CornerCovarianceSpec::default()),
+                ..ChessCornersDetectorSpec::default()
+            })
+            .covariance,
+            Some(CornerCovariance {
+                image_noise: ImageNoise::Estimate
+            })
+        );
         assert_eq!(
             lowered,
             lower_chess_corners(spec.detector.unwrap().chess_corners.unwrap())

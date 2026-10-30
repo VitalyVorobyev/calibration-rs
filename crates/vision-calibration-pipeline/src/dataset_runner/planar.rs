@@ -191,6 +191,7 @@ mod tests {
             let features: Vec<Feature> = (0..rows)
                 .flat_map(|v| (0..6u32).map(move |u| (u, v)))
                 .map(|(u, v)| Feature {
+                    cov_px: None,
                     image_xy: [40.0 * f64::from(u), 40.0 * f64::from(v)],
                     world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
                 })
@@ -220,6 +221,104 @@ mod tests {
         match err {
             RunError::EmptyImageMatch { camera_id, .. } => assert_eq!(camera_id, "cam0"),
             other => panic!("expected EmptyImageMatch, got {other:?}"),
+        }
+    }
+
+    /// A planar manifest over a chessboard with covariance requested, plus a
+    /// detection cache primed with `features` for one image.
+    fn covariance_run(
+        features: Vec<vision_calibration_detect::Feature>,
+    ) -> Result<PlanarRunResult, RunError> {
+        use vision_calibration_dataset::{
+            ChessCornersDetectorSpec, CornerCovarianceSpec, DetectorSpec,
+        };
+        use vision_calibration_detect::{CacheKey, CachedFeatures, ChessboardDetector};
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        let mut spec = planar_spec_for_globless_test();
+        spec.detector = Some(DetectorSpec {
+            chess_corners: Some(ChessCornersDetectorSpec {
+                covariance: Some(CornerCovarianceSpec::default()),
+                ..ChessCornersDetectorSpec::default()
+            }),
+            min_features_per_view: None,
+        });
+        spec.cameras[0].images = ImagePattern::List {
+            paths: vec![PathBuf::from("a.png")],
+        };
+        std::fs::write(tmp.path().join("a.png"), b"a.png").unwrap();
+        let (_, config) = target_to_detector_config(&spec).unwrap();
+        let key = CacheKey::for_detector(b"a.png", &ChessboardDetector, &config);
+        cache.put(&key, &CachedFeatures { features }).unwrap();
+        build_planar_input(&spec, tmp.path(), &cache, false)
+    }
+
+    fn feature(i: u32, cov: Option<[f64; 3]>) -> vision_calibration_detect::Feature {
+        vision_calibration_detect::Feature {
+            image_xy: [10.0 * f64::from(i), 7.0 * f64::from(i % 3)],
+            world_xyz: [0.025 * f64::from(i), 0.025 * f64::from(i % 3), 0.0],
+            cov_px: cov,
+        }
+    }
+
+    #[test]
+    fn requested_covariance_reaches_the_observations() {
+        let features = (0..6)
+            .map(|i| feature(i, Some([0.04, 0.0, 0.09])))
+            .collect();
+        let result = covariance_run(features).unwrap();
+        let obs = &result.input.views[0].obs;
+        let cov = obs.covariance(2).expect("covariances attached");
+        assert_eq!((cov.xx(), cov.xy(), cov.yy()), (0.04, 0.0, 0.09));
+    }
+
+    #[test]
+    fn requested_covariance_missing_on_a_corner_is_a_typed_error() {
+        // Cached features are checked too, and no corner is dropped.
+        let features = (0..6)
+            .map(|i| feature(i, (i != 3).then_some([0.04, 0.0, 0.09])))
+            .collect();
+        match covariance_run(features).unwrap_err() {
+            RunError::CornerCovariance {
+                detector,
+                path,
+                fault,
+            } => {
+                assert_eq!(detector, "chessboard");
+                assert!(path.ends_with("a.png"));
+                assert_eq!(
+                    fault,
+                    crate::dataset_runner::CovarianceFault::Missing {
+                        missing: 1,
+                        total: 6
+                    }
+                );
+                assert!(fault.to_string().contains("known"), "{fault}");
+            }
+            other => panic!("expected CornerCovariance, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn requested_covariance_that_is_not_positive_definite_is_a_typed_error() {
+        let features = (0..6)
+            .map(|i| {
+                feature(
+                    i,
+                    Some(if i == 2 {
+                        [1.0, 2.0, 1.0]
+                    } else {
+                        [0.04, 0.0, 0.09]
+                    }),
+                )
+            })
+            .collect();
+        match covariance_run(features).unwrap_err() {
+            RunError::CornerCovariance { fault, .. } => assert!(matches!(
+                fault,
+                crate::dataset_runner::CovarianceFault::NotPositiveDefinite { .. }
+            )),
+            other => panic!("expected CornerCovariance, got {other:?}"),
         }
     }
 }

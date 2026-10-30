@@ -73,6 +73,23 @@ class DetectTargetTest(unittest.TestCase):
         result = vc.run_planar_intrinsics(vc.PlanarIntrinsicsInput(views=views))
         self.assertAlmostEqual(result.camera.intrinsics.fx, _images.FX, delta=0.03 * _images.FX)
 
+    def test_corner_covariance_is_opt_in(self) -> None:
+        r, t = _images.board_poses(1)[0]
+        image = _images.render_board(r, t)
+        plain = vc.detect_target(image, _images.TARGET)
+        self.assertIsNone(plain.cov_px)
+        detector = {"chess_corners": {"covariance": {"image_noise": {"known": 2.0}}}}
+        features = vc.detect_target(image, _images.TARGET, detector)
+        assert features.cov_px is not None
+        self.assertEqual(features.cov_px.shape, (len(features), 3))
+        np.testing.assert_array_equal(features.image_xy, plain.image_xy)
+        obs = features.to_observation()
+        assert obs.cov_px is not None
+        self.assertEqual(len(obs.cov_px), len(features))
+        self.assertIsNone(plain.to_observation().cov_px)
+        with self.assertRaises(ValueError):
+            vc.Features(image_xy=np.zeros((2, 2)), world_xyz=np.zeros((2, 3)), cov_px=np.zeros((3, 3)))
+
     def test_ambiguous_detections_are_dropped(self) -> None:
         features = vc.Features(
             image_xy=np.array([[1.0, 2.0], [3.0, 4.0]]),
@@ -106,6 +123,22 @@ class DetectionCacheTest(unittest.TestCase):
             assert cached is not None
             np.testing.assert_array_equal(cached.image_xy, features.image_xy)
             np.testing.assert_array_equal(cached.world_xyz, features.world_xyz)
+            self.assertIsNone(cached.cov_px)
+
+    def test_entries_keep_corner_covariances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = vc.FsDetectionCache(tmp)
+            key = vc.CacheKey.from_inputs(b"image bytes", "chessboard", {})
+            features = vc.Features(
+                image_xy=np.array([[10.5, 20.25]]),
+                world_xyz=np.array([[0.0, 0.03, 0.0]]),
+                cov_px=np.array([[0.04, 0.001, 0.09]]),
+            )
+            cache.put(key, features)
+            cached = cache.get(key)
+            assert cached is not None
+            np.testing.assert_array_equal(cached.cov_px, features.cov_px)
+            self.assertEqual(len(vc.reject_ambiguous_detection(features).cov_px), 1)
 
 
 class SniffFolderTest(unittest.TestCase):

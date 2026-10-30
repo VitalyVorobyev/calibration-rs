@@ -1,7 +1,8 @@
 //! Target detection on numpy images and the filesystem detection cache.
 //!
-//! Features cross as two arrays: `image_xy` `(N, 2)` pixels and `world_xyz`
-//! `(N, 3)` target points in metres.
+//! Features cross as arrays: `image_xy` `(N, 2)` pixels, `world_xyz` `(N, 3)`
+//! target points in metres and, when the detector reported them, `cov_px`
+//! `(N, 3)` corner covariances `[xx, xy, yy]` in px² (`None` otherwise).
 
 use std::path::PathBuf;
 
@@ -18,23 +19,40 @@ use crate::errors::run_err;
 use crate::session::{parse_checked, parse_optional_checked, to_py};
 use crate::validation::value_err;
 
-type FeatureArrays<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>);
+type FeatureArrays<'py> = (
+    Bound<'py, PyArray2<f64>>,
+    Bound<'py, PyArray2<f64>>,
+    Option<Bound<'py, PyArray2<f64>>>,
+);
 
-/// Features as `(image_xy, world_xyz)` arrays.
+/// Features as `(image_xy, world_xyz, cov_px)` arrays. `cov_px` is present
+/// only when every feature carries a covariance.
 fn to_arrays<'py>(py: Python<'py>, features: &[Feature]) -> PyResult<FeatureArrays<'py>> {
     let n = features.len();
     let image_xy: Vec<f64> = features.iter().flat_map(|f| f.image_xy).collect();
     let world_xyz: Vec<f64> = features.iter().flat_map(|f| f.world_xyz).collect();
+    let cov_px = if n > 0 && features.iter().all(|f| f.cov_px.is_some()) {
+        let cov: Vec<f64> = features
+            .iter()
+            .flat_map(|f| f.cov_px.unwrap_or_default())
+            .collect();
+        Some(PyArray1::from_vec(py, cov).reshape([n, 3])?)
+    } else {
+        None
+    };
     Ok((
         PyArray1::from_vec(py, image_xy).reshape([n, 2])?,
         PyArray1::from_vec(py, world_xyz).reshape([n, 3])?,
+        cov_px,
     ))
 }
 
-/// Features from `(N, 2)` pixel and `(N, 3)` target-point arrays.
+/// Features from `(N, 2)` pixel, `(N, 3)` target-point and optional `(N, 3)`
+/// covariance arrays.
 fn from_arrays(
     image_xy: &PyReadonlyArray2<'_, f64>,
     world_xyz: &PyReadonlyArray2<'_, f64>,
+    cov_px: Option<&PyReadonlyArray2<'_, f64>>,
 ) -> PyResult<Vec<Feature>> {
     let (a, b) = (image_xy.shape(), world_xyz.shape());
     if a[1] != 2 || b[1] != 3 || a[0] != b[0] {
@@ -42,15 +60,34 @@ fn from_arrays(
             "features need image_xy (N, 2) and world_xyz (N, 3), got {a:?} and {b:?}"
         )));
     }
+    let covariances: Vec<Option<[f64; 3]>> = match cov_px {
+        None => vec![None; a[0]],
+        Some(cov) => {
+            let c = cov.shape();
+            if c[1] != 3 || c[0] != a[0] {
+                return Err(value_err(format!(
+                    "features need cov_px (N, 3) matching image_xy {a:?}, got {c:?}"
+                )));
+            }
+            cov.as_slice()?
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|&c| Some(c))
+                .collect()
+        }
+    };
     Ok(image_xy
         .as_slice()?
         .as_chunks::<2>()
         .0
         .iter()
         .zip(world_xyz.as_slice()?.as_chunks::<3>().0)
-        .map(|(&image_xy, &world_xyz)| Feature {
+        .zip(covariances)
+        .map(|((&image_xy, &world_xyz), cov_px)| Feature {
             image_xy,
             world_xyz,
+            cov_px,
         })
         .collect())
 }
@@ -90,12 +127,14 @@ pub(crate) fn detect_target<'py>(
 
 /// Drop a detection whose image points are not distinct (all or nothing).
 #[pyfunction]
+#[pyo3(signature = (image_xy, world_xyz, cov_px=None))]
 pub(crate) fn reject_ambiguous_detection<'py>(
     py: Python<'py>,
     image_xy: PyReadonlyArray2<'py, f64>,
     world_xyz: PyReadonlyArray2<'py, f64>,
+    cov_px: Option<PyReadonlyArray2<'py, f64>>,
 ) -> PyResult<FeatureArrays<'py>> {
-    let features = from_arrays(&image_xy, &world_xyz)?;
+    let features = from_arrays(&image_xy, &world_xyz, cov_px.as_ref())?;
     to_arrays(py, &rust_reject(features))
 }
 
@@ -163,14 +202,16 @@ impl PyFsDetectionCache {
     }
 
     /// Store features under `key`.
+    #[pyo3(signature = (key, image_xy, world_xyz, cov_px=None))]
     fn put(
         &self,
         key: &Bound<'_, PyAny>,
         image_xy: PyReadonlyArray2<'_, f64>,
         world_xyz: PyReadonlyArray2<'_, f64>,
+        cov_px: Option<PyReadonlyArray2<'_, f64>>,
     ) -> PyResult<()> {
         let key: CacheKey = parse_checked(key, "key")?;
-        let features = from_arrays(&image_xy, &world_xyz)?;
+        let features = from_arrays(&image_xy, &world_xyz, cov_px.as_ref())?;
         self.inner
             .put(&key, &CachedFeatures { features })
             .map_err(cache_err)

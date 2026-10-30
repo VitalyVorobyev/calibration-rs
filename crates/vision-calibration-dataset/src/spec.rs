@@ -340,6 +340,53 @@ pub struct ChessCornersDetectorSpec {
     /// the resulting sparse view conditions worse than the weak corners did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_corner_strength: Option<f32>,
+
+    /// Attach the detector's per-corner position covariance to every
+    /// observation. Absent (the default) = off.
+    ///
+    /// The covariance is the image noise propagated through the corner
+    /// localizer, plus the localizer's systematic-error model. When present,
+    /// a calibration weights each corner by it (whitened residuals) and its
+    /// report gives the unit-weight scale factor σ̂₀ instead of an RMS in
+    /// pixels.
+    ///
+    /// Off by default because weighting a calibration by it has not been
+    /// shown to help on real data yet (a study is planned). Supported by the
+    /// `chessboard` and `charuco` targets only: the PuzzleBoard detector runs
+    /// on an upscaled image, for which no covariance is reported, and ring
+    /// grids have none. A manifest that sets it for another target is an
+    /// error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covariance: Option<CornerCovarianceSpec>,
+}
+
+/// Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct CornerCovarianceSpec {
+    /// The image noise that the propagated covariance is expressed in.
+    /// Defaults to `estimate`: the noise is estimated from each image, which
+    /// is unreliable on JPEG or demosaiced images; give `known` for those.
+    #[serde(default)]
+    pub image_noise: ImageNoiseSpec,
+}
+
+/// The pixel-noise level behind a corner covariance.
+///
+/// In JSON / TOML: `"estimate"` or `{ known = 2.0 }`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ImageNoiseSpec {
+    /// Estimate the noise from each image. Unreliable on JPEG or demosaiced
+    /// images, where a corner then reports no covariance and the run fails.
+    #[default]
+    Estimate,
+    /// The standard deviation of the image's pixel noise, in gray levels of
+    /// the 8-bit image (finite and `>= 0`), e.g. the standard deviation of
+    /// the difference of two frames of a static scene divided by `√2`.
+    Known(f32),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

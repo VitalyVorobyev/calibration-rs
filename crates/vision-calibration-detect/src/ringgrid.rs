@@ -125,6 +125,7 @@ impl Detector for RinggridDetector {
                     marker.board_xy_mm.map(|xy_mm| Feature {
                         image_xy: marker.center,
                         world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
+                        cov_px: None,
                     })
                 })
                 .collect(),

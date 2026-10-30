@@ -17,7 +17,9 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::chess_options::{ChessCornersConfig, apply_board_override, chess_config_for_override};
+use crate::chess_options::{
+    ChessCornersConfig, apply_board_override, chess_config_for_override, cov_px,
+};
 use crate::{DetectError, Detector, Feature};
 
 /// ChArUco detector configuration. Mirrors the shape of the charuco
@@ -141,7 +143,7 @@ impl Detector for CharucoDetector {
         let luma = image.to_luma8();
 
         // ChESS corner pre-detection feeds the ChArUco identifier.
-        let chess_cfg = chess_config_for_override(cfg.chess_corners);
+        let chess_cfg = chess_config_for_override(cfg.chess_corners)?;
         let corners = detect::detect_corners(&luma, &chess_cfg);
         let detector = CtCharucoDetector::new(params)
             .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))?;
@@ -166,6 +168,7 @@ impl Detector for CharucoDetector {
                         corner.target_position.y as f64,
                         0.0,
                     ],
+                    cov_px: corner.position_covariance.map(cov_px),
                 })
                 .collect(),
         ))
@@ -280,5 +283,39 @@ mod tests {
         let img = image::DynamicImage::new_luma8(64, 64);
         let features = CharucoDetector.detect_json(&img, &board_config()).unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
+    }
+
+    #[test]
+    fn covariance_is_opt_in_and_leaves_positions_unchanged() {
+        let img = synthetic_board_image();
+        let plain = CharucoDetector.detect_json(&img, &board_config()).unwrap();
+        assert!(plain.len() >= 4);
+        assert!(plain.iter().all(|f| f.cov_px.is_none()));
+
+        let mut cfg = board_config();
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": 2.0 } } });
+        let with = CharucoDetector.detect_json(&img, &cfg).unwrap();
+        assert_eq!(with.len(), plain.len());
+        for (a, b) in with.iter().zip(&plain) {
+            assert_eq!(a.image_xy, b.image_xy);
+            assert_eq!(a.world_xyz, b.world_xyz);
+            let [xx, xy, yy] = a.cov_px.expect("covariance requested");
+            assert!(
+                xx > 0.0 && yy > 0.0 && xx * yy - xy * xy > 0.0,
+                "{:?}",
+                a.cov_px
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_known_noise_is_rejected() {
+        let img = image::DynamicImage::new_luma8(8, 8);
+        let mut cfg = board_config();
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": null } } });
+        assert!(CharucoDetector.detect_json(&img, &cfg).is_err());
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": -1.0 } } });
+        let err = CharucoDetector.detect_json(&img, &cfg).unwrap_err();
+        assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
     }
 }

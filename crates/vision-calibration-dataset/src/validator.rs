@@ -2,8 +2,8 @@
 //! otherwise surface as a fail-fast `AskUser` event downstream.
 
 use crate::spec::{
-    CornerStrategySpec, DatasetSpec, ImagePattern, RobotPoseFormat, RobotPoseSource,
-    RotationFormat, Topology,
+    CornerStrategySpec, DatasetSpec, ImageNoiseSpec, ImagePattern, RobotPoseFormat,
+    RobotPoseSource, RotationFormat, Topology,
 };
 use thiserror::Error;
 
@@ -197,6 +197,16 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
     let Some(detector) = &spec.detector else {
         return Ok(());
     };
+    if let Some(chess) = &detector.chess_corners
+        && let Some(cov) = &chess.covariance
+        && let ImageNoiseSpec::Known(sigma) = cov.image_noise
+        && !(sigma.is_finite() && sigma >= 0.0)
+    {
+        return Err(ValidationError::BadDetectorOverride(format!(
+            "chess_corners.covariance.image_noise.known must be finite and >= 0 \
+             (gray levels), got {sigma}"
+        )));
+    }
     if let Some(chess) = &detector.chess_corners
         && let Some(value) = chess.threshold_value
     {
@@ -432,9 +442,10 @@ fn expected_rotation_columns(format: RotationFormat) -> usize {
 mod tests {
     use super::*;
     use crate::spec::{
-        CameraSource, ChessCornersDetectorSpec, DatasetSpec, DetectorSpec, ImagePattern,
-        PoseColumnMap, PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat,
-        TargetSpec, Topology, TransformConvention, TranslationUnits,
+        CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, DatasetSpec, DetectorSpec,
+        ImageNoiseSpec, ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat,
+        RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
+        TranslationUnits,
     };
 
     fn planar_chessboard_minimal() -> DatasetSpec {
@@ -720,6 +731,70 @@ mod tests {
             err.to_string().contains("threshold_mode"),
             "expected the stale key to be named, got: {err}"
         );
+    }
+
+    #[test]
+    fn detector_covariance_roundtrips_in_json_and_toml() {
+        let json = r#"{"covariance":{"image_noise":{"known":2.0}}}"#;
+        let spec: ChessCornersDetectorSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            spec.covariance,
+            Some(CornerCovarianceSpec {
+                image_noise: ImageNoiseSpec::Known(2.0)
+            })
+        );
+        assert_eq!(serde_json::to_string(&spec).unwrap(), json);
+
+        // `image_noise` defaults to `estimate`; an absent section is off.
+        let est: ChessCornersDetectorSpec = serde_json::from_str(r#"{"covariance":{}}"#).unwrap();
+        assert_eq!(
+            est.covariance.unwrap().image_noise,
+            ImageNoiseSpec::Estimate
+        );
+        let est2: ChessCornersDetectorSpec =
+            serde_json::from_str(r#"{"covariance":{"image_noise":"estimate"}}"#).unwrap();
+        assert_eq!(est2, est);
+        assert_eq!(
+            serde_json::from_str::<ChessCornersDetectorSpec>("{}")
+                .unwrap()
+                .covariance,
+            None
+        );
+        assert_eq!(
+            serde_json::to_string(&ChessCornersDetectorSpec::default()).unwrap(),
+            "{}"
+        );
+
+        let toml_spec: ChessCornersDetectorSpec =
+            toml::from_str("[covariance]\nimage_noise = { known = 2.0 }\n").unwrap();
+        assert_eq!(toml_spec.covariance, spec.covariance);
+    }
+
+    #[test]
+    fn detector_covariance_rejects_unknown_keys_and_bad_sigma() {
+        assert!(
+            serde_json::from_str::<ChessCornersDetectorSpec>(
+                r#"{"covariance":{"image_noise":"estimate","sigma":1.0}}"#
+            )
+            .is_err()
+        );
+        let with = |noise: ImageNoiseSpec| {
+            let mut spec = planar_chessboard_minimal();
+            spec.detector = Some(DetectorSpec {
+                chess_corners: Some(ChessCornersDetectorSpec {
+                    covariance: Some(CornerCovarianceSpec { image_noise: noise }),
+                    ..ChessCornersDetectorSpec::default()
+                }),
+                min_features_per_view: None,
+            });
+            spec
+        };
+        validate(&with(ImageNoiseSpec::Known(0.0))).unwrap();
+        validate(&with(ImageNoiseSpec::Estimate)).unwrap();
+        for bad in [-1.0, f32::NAN, f32::INFINITY] {
+            let err = validate(&with(ImageNoiseSpec::Known(bad))).unwrap_err();
+            assert!(matches!(err, ValidationError::BadDetectorOverride(_)));
+        }
     }
 
     #[test]

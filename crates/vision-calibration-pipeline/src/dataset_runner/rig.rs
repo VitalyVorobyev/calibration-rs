@@ -292,6 +292,7 @@ mod tests {
     fn grid_features(n: usize) -> Vec<Feature> {
         (0..n)
             .map(|i| Feature {
+                cov_px: None,
                 image_xy: [100.0 + 10.0 * i as f64, 200.0 + 5.0 * i as f64],
                 world_xyz: [0.025 * i as f64, 0.0, 0.0],
             })
@@ -306,6 +307,7 @@ mod tests {
             .flat_map(|v| (0..6u32).map(move |u| (u, v)))
             .filter(|uv| !missing.contains(uv))
             .map(|(u, v)| Feature {
+                cov_px: None,
                 image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
                 world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
             })
@@ -464,6 +466,7 @@ mod tests {
         (0..6u32)
             .flat_map(|v| (0..9u32).map(move |u| (u, v)))
             .map(|(u, v)| Feature {
+                cov_px: None,
                 image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
                 world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
             })

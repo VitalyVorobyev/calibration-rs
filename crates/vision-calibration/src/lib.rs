@@ -536,11 +536,12 @@ pub mod dataset {
 /// [`RunError::AskUser`](dataset_runner::RunError::AskUser) implements.
 pub mod dataset_runner {
     pub use vision_calibration_pipeline::dataset_runner::{
-        HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult, PairedViews, PlanarRunResult,
-        RejectReason, RejectedDetection, RigHandeyeLaserlineRunResult, RigLaserlineRunResult,
-        RigRunResult, RunError, build_laserline_device_input, build_planar_input,
-        build_rig_extrinsics_input, build_rig_handeye_input, build_rig_handeye_laserline_input,
-        build_rig_laserline_device_input, build_single_cam_handeye_input, detect_target,
+        CovarianceFault, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult, PairedViews,
+        PlanarRunResult, RejectReason, RejectedDetection, RigHandeyeLaserlineRunResult,
+        RigLaserlineRunResult, RigRunResult, RunError, build_laserline_device_input,
+        build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
+        build_rig_handeye_laserline_input, build_rig_laserline_device_input,
+        build_single_cam_handeye_input, detect_target,
     };
 }
 
