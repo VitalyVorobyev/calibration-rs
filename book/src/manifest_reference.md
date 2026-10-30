@@ -135,9 +135,38 @@ ChESS corner extractor overrides.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `covariance` | [CornerCovarianceSpec](#cornercovariancespec) | no | Attach the detector's per-corner position covariance to every observation. Absent (the default) = off.<br><br>The covariance is the image noise propagated through the corner localizer, plus the localizer's systematic-error model. When present, a calibration weights each corner by it (whitened residuals) and its report gives the unit-weight scale factor σ̂₀ instead of an RMS in pixels.<br><br>Off by default because weighting a calibration by it has not been shown to help on real data yet (a study is planned). Supported by the `chessboard` and `charuco` targets only: the PuzzleBoard detector runs on an upscaled image, for which no covariance is reported, and ring grids have none. A manifest that sets it for another target is an error. |
 | `min_corner_strength` | number | no | Minimum corner strength for a detected corner to enter the grid builder. `None` keeps the detector default (`33.0`). The floor is on the strategy's response scale; under Radon the default never binds.<br><br>The default drops weakly-firing corners, which is the right trade whenever corners are plentiful. Set `0.0` to disable it on small or soft image tiles, where the floor can remove a third of the board and the resulting sparse view conditions worse than the weak corners did. |
 | `strategy` | [CornerStrategySpec](#cornerstrategyspec) | no | Corner detector. `None` keeps ChESS. |
 | `threshold_value` | number | no | Acceptance threshold on the corner response. `None` keeps the strategy's default.<br><br>Under ChESS it is an absolute floor on the raw response: a corner is kept when its response exceeds it. Under Radon it is a fraction in `(0, 1]` of the frame's maximum response.<br><br>A sibling `threshold_mode` key is rejected by `deny_unknown_fields`: the corner detector has no threshold mode. |
+
+Unknown fields are rejected.
+
+## CornerCovarianceSpec
+
+Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image_noise` | [ImageNoiseSpec](#imagenoisespec) | no | `"estimate"` | The image noise that the propagated covariance is expressed in. Defaults to `estimate`: the noise is estimated from each image, which is unreliable on JPEG or demosaiced images; give `known` for those. |
+
+Unknown fields are rejected.
+
+## ImageNoiseSpec
+
+The pixel-noise level behind a corner covariance.
+
+In JSON / TOML: `"estimate"` or `{ known = 2.0 }`.
+
+Tagged on `kind`; the fields depend on the variant.
+
+**`kind = ""`**: Estimate the noise from each image. Unreliable on JPEG or demosaiced images, where a corner then reports no covariance and the run fails.
+
+**`kind = ""`**: The standard deviation of the image's pixel noise, in gray levels of the 8-bit image (finite and `>= 0`), e.g. the standard deviation of the difference of two frames of a static scene divided by `√2`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `known` | number | yes |  |
 
 Unknown fields are rejected.
 

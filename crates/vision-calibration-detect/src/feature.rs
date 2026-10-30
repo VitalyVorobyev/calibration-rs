@@ -19,6 +19,11 @@ pub struct Feature {
     pub image_xy: [f64; 2],
     /// World coordinates `[x, y, z]` in metres in the target frame.
     pub world_xyz: [f64; 3],
+    /// Covariance of `image_xy` as `[xx, xy, yy]` in px², in the image
+    /// frame of `image_xy`. Present only when the detector was asked for it
+    /// (`ChessCornersConfig::covariance`) and measured one; `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cov_px: Option<[f64; 3]>,
 }
 
 /// Reject a detection whose image points are not distinct.
@@ -79,7 +84,26 @@ mod tests {
         Feature {
             image_xy: [x, y],
             world_xyz: [wx, 0.0, 0.0],
+            cov_px: None,
         }
+    }
+
+    #[test]
+    fn cov_px_json_roundtrip_and_old_json_reads() {
+        let with = Feature {
+            cov_px: Some([0.01, 0.002, 0.02]),
+            ..feat(1.0, 2.0, 0.0)
+        };
+        let json = serde_json::to_string(&with).unwrap();
+        assert_eq!(serde_json::from_str::<Feature>(&json).unwrap(), with);
+
+        let without = feat(1.0, 2.0, 0.0);
+        let json = serde_json::to_string(&without).unwrap();
+        assert!(!json.contains("cov_px"), "{json}");
+        assert_eq!(serde_json::from_str::<Feature>(&json).unwrap(), without);
+
+        let old = r#"{"image_xy":[1.0,2.0],"world_xyz":[0.0,0.0,0.0]}"#;
+        assert_eq!(serde_json::from_str::<Feature>(old).unwrap().cov_px, None);
     }
 
     #[test]

@@ -19,7 +19,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from . import _vision_calibration as _native
-from .models import Observation
+from .models import Observation, PointCovariance
 
 __all__ = [
     "CacheKey",
@@ -35,12 +35,17 @@ class Features:
 
     ``image_xy`` holds pixels ``(x, y)`` = (column, row); ``world_xyz`` the
     matching target points in metres, on the target's ``z = 0`` plane.
+    ``cov_px`` holds each corner's position covariance ``(xx, xy, yy)`` in px²
+    when the detector was asked for it (the manifest's
+    ``detector.chess_corners.covariance``), else it is ``None``.
     """
 
     image_xy: NDArray[np.float64]
     """``(N, 2)`` pixels."""
     world_xyz: NDArray[np.float64]
     """``(N, 3)`` target points, metres."""
+    cov_px: NDArray[np.float64] | None = None
+    """``(N, 3)`` corner covariances ``(xx, xy, yy)``, px², or ``None``."""
 
     def __post_init__(self) -> None:
         image_xy = np.ascontiguousarray(np.asarray(self.image_xy, dtype=np.float64).reshape(-1, 2))
@@ -50,6 +55,13 @@ class Features:
                 f"image_xy and world_xyz need the same length, got {image_xy.shape[0]} "
                 f"and {world_xyz.shape[0]}"
             )
+        if self.cov_px is not None:
+            cov_px = np.ascontiguousarray(np.asarray(self.cov_px, dtype=np.float64).reshape(-1, 3))
+            if cov_px.shape[0] != image_xy.shape[0]:
+                raise ValueError(
+                    f"cov_px needs one row per feature, got {cov_px.shape[0]} and {image_xy.shape[0]}"
+                )
+            object.__setattr__(self, "cov_px", cov_px)
         object.__setattr__(self, "image_xy", image_xy)
         object.__setattr__(self, "world_xyz", world_xyz)
 
@@ -58,16 +70,24 @@ class Features:
 
     def to_observation(self) -> Observation:
         """The features as one view's 2D-3D correspondences, for a session's
-        input."""
+        input, with their corner covariances when ``cov_px`` is set."""
+        cov_px = (
+            None
+            if self.cov_px is None
+            else [PointCovariance(float(xx), float(xy), float(yy)) for xx, xy, yy in self.cov_px]
+        )
         return Observation(
             points_3d=[(float(x), float(y), float(z)) for x, y, z in self.world_xyz],
             points_2d=[(float(u), float(v)) for u, v in self.image_xy],
+            cov_px=cov_px,
         )
 
 
 def _features(arrays: Any) -> Features:
-    image_xy, world_xyz = cast(tuple[NDArray[np.float64], NDArray[np.float64]], arrays)
-    return Features(image_xy=image_xy, world_xyz=world_xyz)
+    image_xy, world_xyz, cov_px = cast(
+        tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64] | None], arrays
+    )
+    return Features(image_xy=image_xy, world_xyz=world_xyz, cov_px=cov_px)
 
 
 def reject_ambiguous_detection(features: Features) -> Features:
@@ -77,7 +97,7 @@ def reject_ambiguous_detection(features: Features) -> Features:
     means the detector lost track of its grid; none of the detection's labels
     are then trusted.
     """
-    return _features(_native.reject_ambiguous_detection(features.image_xy, features.world_xyz))
+    return _features(_native.reject_ambiguous_detection(features.image_xy, features.world_xyz, features.cov_px))
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +166,7 @@ class FsDetectionCache:
 
     def put(self, key: CacheKey, features: Features) -> None:
         """Store ``features`` under ``key``."""
-        self._native.put(key.to_payload(), features.image_xy, features.world_xyz)
+        self._native.put(key.to_payload(), features.image_xy, features.world_xyz, features.cov_px)
 
     def __repr__(self) -> str:
         return f"FsDetectionCache({str(self.root)!r})"

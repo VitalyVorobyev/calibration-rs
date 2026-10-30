@@ -29,6 +29,7 @@ toml = { version = "1", optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+toml = "1"
 
 [[bin]]
 name = "generate-manifest"

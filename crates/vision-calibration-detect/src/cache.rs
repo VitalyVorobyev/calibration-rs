@@ -342,6 +342,7 @@ mod tests {
             features: vec![Feature {
                 image_xy: [10.0, 20.0],
                 world_xyz: [0.0, 0.0, 0.0],
+                cov_px: None,
             }],
         };
         cache.put(&key, &entry).unwrap();
@@ -371,6 +372,7 @@ mod tests {
             .map(|i| Feature {
                 image_xy: [f64::from((next() * 1440.0) as f32), next() * 1080.0],
                 world_xyz: [(i % 130) as f64 * 0.0052, (i / 130) as f64 * 0.001014, 0.0],
+                cov_px: None,
             })
             .collect();
         let entry = CachedFeatures { features };
@@ -404,6 +406,7 @@ mod tests {
             features: vec![Feature {
                 image_xy: [1.0, 2.0],
                 world_xyz: [0.0, 0.0, 0.0],
+                cov_px: None,
             }],
         };
         cache.put(&key, &entry).unwrap();

@@ -244,6 +244,24 @@ CheckStatus: TypeAlias = Literal["pass", "warn", "fail", "not_applicable"]
 class ChessCornersDetectorSpec(TypedDict, total=False):
     """ChESS corner extractor overrides."""
 
+    covariance: CornerCovarianceSpec | None
+    """Attach the detector's per-corner position covariance to every
+    observation. Absent (the default) = off.
+
+    The covariance is the image noise propagated through the corner
+    localizer, plus the localizer's systematic-error model. When present,
+    a calibration weights each corner by it (whitened residuals) and its
+    report gives the unit-weight scale factor σ̂₀ instead of an RMS in
+    pixels.
+
+    Off by default because weighting a calibration by it has not been
+    shown to help on real data yet (a study is planned). Supported by the
+    `chessboard` and `charuco` targets only: the PuzzleBoard detector runs
+    on an upscaled image, for which no covariance is reported, and ring
+    grids have none. A manifest that sets it for another target is an
+    error.
+    """
+
     min_corner_strength: float | None
     """Minimum corner strength for a detected corner to enter the grid
     builder. `None` keeps the detector default (`33.0`). The floor is on
@@ -268,6 +286,16 @@ class ChessCornersDetectorSpec(TypedDict, total=False):
 
     A sibling `threshold_mode` key is rejected by `deny_unknown_fields`:
     the corner detector has no threshold mode.
+    """
+
+
+class CornerCovarianceSpec(TypedDict, total=False):
+    """Per-corner covariance options; see `ChessCornersDetectorSpec::covariance`."""
+
+    image_noise: ImageNoiseSpec
+    """The image noise that the propagated covariance is expressed in.
+    Defaults to `estimate`: the noise is estimated from each image, which
+    is unreliable on JPEG or demosaiced images; give `known` for those.
     """
 
 
@@ -805,6 +833,25 @@ class ImageManifest(TypedDict):
 
     root: str
     """Image root directory, relative to the export file's directory."""
+
+
+class ImageNoiseSpec_Known(TypedDict):
+    """The standard deviation of the image's pixel noise, in gray levels of
+    the 8-bit image (finite and `>= 0`), e.g. the standard deviation of
+    the difference of two frames of a static scene divided by `√2`.
+    """
+
+    known: float
+
+
+ImageNoiseSpec: TypeAlias = Literal["estimate"] | ImageNoiseSpec_Known
+"""The pixel-noise level behind a corner covariance.
+
+In JSON / TOML: `"estimate"` or `{ known = 2.0 }`.
+
+- ``"estimate"``: Estimate the noise from each image. Unreliable on JPEG or demosaiced
+  images, where a corner then reports no covariance and the run fails.
+"""
 
 
 class ImagePattern_Glob(TypedDict):
@@ -3188,6 +3235,7 @@ __all__ = [
     "CheckKind",
     "CheckStatus",
     "ChessCornersDetectorSpec",
+    "CornerCovarianceSpec",
     "CornerStrategySpec",
     "CorrespondenceView",
     "DatasetSpec",
@@ -3210,6 +3258,8 @@ __all__ = [
     "HandeyeMode",
     "HandeyeOptimizeConfig",
     "ImageManifest",
+    "ImageNoiseSpec",
+    "ImageNoiseSpec_Known",
     "ImagePattern",
     "ImagePattern_Glob",
     "ImagePattern_List",

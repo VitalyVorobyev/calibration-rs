@@ -62,15 +62,35 @@ The detector fits a flat shape: a hexagonal lattice of coded rings. Rectangular 
 
 ## Corner Detector Overrides
 
-The chessboard and ChArUco detectors both start from a ChESS-family corner detector. Three optional overrides live in the manifest's `[detector.chess_corners]` table (and in each detector's `chess_corners` field). They are hashed into the detection-cache key, so changing any of them re-runs detection.
+The chessboard and ChArUco detectors both start from a ChESS-family corner detector. Four optional overrides live in the manifest's `[detector.chess_corners]` table (and in each detector's `chess_corners` field). They are hashed into the detection-cache key, so changing any of them re-runs detection.
 
 | Field | Meaning |
 |---|---|
 | `strategy` | `"chess"` (the default) or `"radon"`. Radon is several times slower and less biased at a corner's sub-pixel position on sharp, finely sampled boards such as rendered ones. |
 | `threshold_value` | Floor on the corner response, gating which response peaks become corners at all. Absolute under ChESS; under Radon a fraction in `(0, 1]` of the frame's maximum response. |
 | `min_corner_strength` | Floor on corner strength for entering the grid builder, gating which corners are trusted as lattice nodes. Defaults to `33.0`, which drops weak, defocused corners. |
+| `covariance` | Report each corner's position covariance; see [below](#corner-covariance-from-the-detector). Off by default. |
 
 **Set `min_corner_strength = 0.0` on small or soft image tiles.** There the floor can remove a third of the board, and the resulting sparse, unevenly covered view conditions worse than the weak corners did; the loss shows up as a diverged camera, not as a slightly worse residual.
+
+### Corner covariance from the detector
+
+The chessboard and ChArUco detectors can report, for every corner, the covariance of its position: the image noise propagated through the corner localizer, plus the localizer's systematic-error model. Ask for it in the manifest:
+
+```toml
+[detector.chess_corners.covariance]
+image_noise = { known = 2.0 }
+```
+
+`image_noise` is `"estimate"` (the default when the section is present) or `{ known = σ }`, the standard deviation of the image's pixel noise in gray levels of the 8-bit image (finite and at least 0), for example the standard deviation of the difference of two frames of a static scene divided by √2.
+
+With the section present, every observation carries the covariances in `cov_px` (px², `[xx, xy, yy]` in `Feature::cov_px`), the residuals are whitened by them, and the report gives the unit-weight scale factor σ̂₀ instead of an RMS in pixels; see [Per-Point Covariance](uncertainty_point_covariance.md). Positions are identical with and without it.
+
+- **JPEG and demosaiced images.** The per-image noise estimate is unreliable there, and the detector may then report no covariance. The run stops with an error naming the image and suggesting `image_noise = { known = σ }`. No corner is dropped to get past this.
+- **Supported targets.** `chessboard` and `charuco`. The PuzzleBoard detector runs on an upscaled image, for which no covariance is reported, and ring grids have none; a manifest that sets `covariance` for another target is an error, raised before any detection.
+- **Opt-in.** Weighting a calibration by the detector's covariance has not been shown to help on real data yet, so nothing changes unless you ask for it. The setting is part of the detection-cache key.
+
+In Python, `Features.cov_px` is the `(N, 3)` array of covariances (`None` when not requested), and `Features.to_observation()` carries it into the observation.
 
 `detector.min_features_per_view` (a manifest field, not a detector option) sets the minimum number of features for a view to be kept. It defaults to 4, the homography minimum. Raise it for detectors whose sparse detections are unreliable, such as ring-grid decodes with fewer than 8 markers. A plain chessboard in a shared-frame topology needs no floor: the whole-board rule above already applies.
 

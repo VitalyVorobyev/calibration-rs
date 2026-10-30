@@ -13,7 +13,9 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::chess_options::{ChessCornersConfig, apply_board_override, chess_config_for_override};
+use crate::chess_options::{
+    ChessCornersConfig, apply_board_override, chess_config_for_override, cov_px,
+};
 use crate::{DetectError, Detector, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
@@ -74,7 +76,7 @@ impl Detector for ChessboardDetector {
         // used only for output validation, not as input parameters.
         let mut board_params = ChessboardParams::default();
         apply_board_override(cfg.chess_corners, &mut board_params);
-        let chess_cfg = chess_config_for_override(cfg.chess_corners);
+        let chess_cfg = chess_config_for_override(cfg.chess_corners)?;
 
         // No board in frame is "no features", not an error. Every other
         // `DetectError` variant is a genuine backend failure and propagates.
@@ -109,6 +111,7 @@ impl Detector for ChessboardDetector {
                     grid.v as f64 * cfg.square_size_m,
                     0.0,
                 ],
+                cov_px: corner.position_covariance.map(cov_px),
             });
         }
         Ok(crate::reject_ambiguous_detection(features))
@@ -221,5 +224,51 @@ mod tests {
         let cfg = json!({ "rows": 9, "cols": 6, "square_size_m": 0.025 });
         let features = det.detect_json(&img, &cfg).unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
+    }
+
+    /// A frontal rendered board of 6 rows x 8 cols of inner corners.
+    fn synthetic_board_image() -> image::DynamicImage {
+        let document = calib_targets::generate::chessboard_document(6, 8, 20.0);
+        let bundle =
+            calib_targets::printable::render_target_bundle(&document).expect("render bundle");
+        image::load_from_memory(&bundle.png_bytes).expect("decode rendered PNG")
+    }
+
+    fn board_config() -> Value {
+        json!({ "rows": 6, "cols": 8, "square_size_m": 0.020 })
+    }
+
+    #[test]
+    fn covariance_is_opt_in_and_leaves_positions_unchanged() {
+        let img = synthetic_board_image();
+        let plain = ChessboardDetector
+            .detect_json(&img, &board_config())
+            .unwrap();
+        assert!(plain.len() >= 4, "got {} corners", plain.len());
+        assert!(plain.iter().all(|f| f.cov_px.is_none()));
+
+        let mut cfg = board_config();
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": 2.0 } } });
+        let with = ChessboardDetector.detect_json(&img, &cfg).unwrap();
+        assert_eq!(with.len(), plain.len());
+        for (a, b) in with.iter().zip(&plain) {
+            assert_eq!(a.image_xy, b.image_xy);
+            assert_eq!(a.world_xyz, b.world_xyz);
+            let [xx, xy, yy] = a.cov_px.expect("covariance requested");
+            assert!(
+                xx > 0.0 && yy > 0.0 && xx * yy - xy * xy > 0.0,
+                "{:?}",
+                a.cov_px
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_known_noise_is_rejected_before_detection() {
+        let img = image::DynamicImage::new_luma8(8, 8);
+        let mut cfg = board_config();
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": -1.0 } } });
+        let err = ChessboardDetector.detect_json(&img, &cfg).unwrap_err();
+        assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
     }
 }

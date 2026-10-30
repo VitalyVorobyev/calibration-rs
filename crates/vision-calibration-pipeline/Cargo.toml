@@ -41,3 +41,5 @@ schemars = { workspace = true, optional = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"
+# Renders the synthetic board images of the corner-covariance end-to-end test.
+calib-targets = { workspace = true }

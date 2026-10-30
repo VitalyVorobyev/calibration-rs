@@ -17,26 +17,19 @@ need their measurement first and stay opt-in until it is in.
   covariance of the result. The calibration side is in: observations state
   `cov_px`, the reprojection residuals are whitened by it, the noise is
   reported as σ̂₀ (`NoiseLevel::Sigma0`), and the synthetic Monte-Carlo
-  study is in `notes/uncertainty.md`. The detectors supply no covariances
-  yet, so the dataset runner never states any. Steps:
-  1. **chess-rs (cross-repo):** chess-corners 1.4.0 reports the
-     saddle-point covariance per unit noise variance (`H⁻¹` of the
-     quadratic fit) on `RefineResult` only. Still needed (1.5.0): a
-     per-image noise estimate `s²` to scale it, and the covariance on
-     `CornerDescriptor`.
-  2. **calib-targets (cross-repo):** passes the corner covariance through
-     to its detections.
+  study is in `notes/uncertainty.md`. chess-corners and calib-targets report
+  the corner covariance, and the dataset runner attaches it to
+  `Feature`/`cov_px` for chessboard and ChArUco targets, opt-in through
+  `detector.chess_corners.covariance` (all views of an input or none).
+  Still open:
   3. **ringgrid (cross-repo):** reports the ellipse-centre covariance.
-  4. **Here:** the dataset runner attaches the detector covariances to
-     `Feature`/`cov_px`, opt-in in the detector or manifest config (all
-     views of an input or none).
-  5. **Evidence:** etendue and calib-synth renders with exact corners,
-     across blur, noise and scale. The predicted corner scatter must
-     match the empirical scatter, and the predicted parameter σ must
-     match the Monte-Carlo σ. Then flip the default, with a migration
-     note.
+  5. **Evidence:** a pre-registered real-data study (held-out reprojection,
+     split-half projection consistency, and the predicted σ against real
+     scatter) decides whether to flip the default; synthetic renders only
+     check the plumbing. Then apply its decision: flip the default
+     (with a migration note), keep it opt-in, or advise against it.
 
-  Gate: a proof-pack note with both comparisons.
+  Gate: a proof-pack note with the study's comparisons.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.

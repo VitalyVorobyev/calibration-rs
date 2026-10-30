@@ -952,7 +952,9 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::Validation(_) => "validation",
         RunError::UnsupportedTopology { .. } => "unsupported_topology",
         RunError::UnsupportedTarget { .. } => "unsupported_target",
-        RunError::InvalidTargetConfig { .. } => "invalid_target_config",
+        RunError::InvalidTargetConfig { .. } | RunError::CovarianceUnsupported { .. } => {
+            "invalid_target_config"
+        }
         RunError::EmptyImageMatch { .. } => "empty_image_match",
         RunError::BadGlob { .. } => "bad_glob",
         RunError::ViewCountMismatch { .. } => "view_pairing",
@@ -962,7 +964,7 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::PairingTokenMismatch { .. } => "view_pairing",
         RunError::Io(_) => "io",
         RunError::Decode { .. } => "decode",
-        RunError::Detection { .. } => "detection",
+        RunError::Detection { .. } | RunError::CornerCovariance { .. } => "detection",
         RunError::Cache(_) => "cache",
         RunError::AskUser { .. } => "ask_user",
         RunError::InsufficientUsableViews { .. } => "insufficient_views",
