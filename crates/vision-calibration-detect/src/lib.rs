@@ -61,7 +61,26 @@ use serde_json::Value;
 mod sealed {
     /// Private supertrait of [`Detector`](super::Detector). Only types in
     /// this crate can name it, so only this crate can implement `Detector`.
-    pub trait Sealed {}
+    pub trait Sealed {
+        /// The detection crate this detector wraps, with its version
+        /// (one of the `crate::backend` constants). The cache key carries
+        /// it, so upgrading that crate recomputes cached detections.
+        fn backend(&self) -> &'static str;
+    }
+}
+
+/// The wrapped detection crates, as `"<crate> <version>"` pairs joined by
+/// `" / "`. Each must name the version the workspace lockfile resolves (a
+/// test checks it), since even a patch release of a detection crate can move
+/// corners. `calib-targets` stands for its whole family: the test also checks
+/// that every `calib-targets-*` crate resolves to the same version, because
+/// the detection logic lives in those sub-crates and updating the facade
+/// alone does not move them.
+pub(crate) mod backend {
+    #[cfg(any(feature = "chessboard", feature = "charuco", feature = "puzzleboard"))]
+    pub const CALIB_TARGETS: &str = "calib-targets 0.16.1 / chess-corners 2.1.0";
+    #[cfg(feature = "ringgrid")]
+    pub const RINGGRID: &str = "ringgrid 0.13.2";
 }
 
 /// Minimal detector interface used by the runner. Configs are passed
@@ -86,9 +105,10 @@ pub trait Detector: sealed::Sealed + Send + Sync {
 
     /// Revision of this detector's output, folded into its cache key by
     /// [`CacheKey::for_detector`]. The key already carries this crate's
-    /// release; bump the revision when the features returned for the same
-    /// image and config change between releases, so stale cache entries are
-    /// not served. `None` (the default) adds nothing.
+    /// release and the wrapped detection crate's version; bump the revision
+    /// when this crate changes the features returned for the same image and
+    /// config between releases, so stale cache entries are not served.
+    /// `None` (the default) adds nothing.
     fn output_revision(&self) -> Option<u32> {
         None
     }

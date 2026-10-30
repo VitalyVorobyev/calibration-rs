@@ -116,7 +116,11 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CharucoDetector;
 
-impl crate::sealed::Sealed for CharucoDetector {}
+impl crate::sealed::Sealed for CharucoDetector {
+    fn backend(&self) -> &'static str {
+        crate::backend::CALIB_TARGETS
+    }
+}
 
 impl Detector for CharucoDetector {
     fn name(&self) -> &'static str {

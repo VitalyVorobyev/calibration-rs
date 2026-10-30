@@ -89,8 +89,8 @@ criterion = "0.8"
 # `detect` helpers. The detector crates may use a newer nalgebra than the
 # solver stack: `vision-calibration-detect` converts to plain arrays at its
 # boundary.
-calib-targets = { version = "0.15.4", default-features = false, features = ["image"] }
-ringgrid = "0.13.1"
+calib-targets = { version = "0.16.1", default-features = false, features = ["image"] }
+ringgrid = "0.13.2"
 
 [workspace.lints.rust]
 missing_docs = "warn"

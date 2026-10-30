@@ -634,6 +634,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Detectors run on `calib-targets` 0.16.1 (`chess-corners` 2.1) and
+  `ringgrid` 0.13.2.** On the public regression suite every corner is
+  unchanged. ChArUco detection finds more corners and views on small,
+  high-resolution boards: a corner re-detected near its marker must agree with
+  the board instead of being dropped when its saddle fit fails, and frames
+  whose board placement was ambiguous are now resolved. Use 0.16.1 rather than
+  0.16.0, which could label a dark, low-contrast ChArUco frame with the whole
+  board shifted by whole squares; after upgrading, run `cargo update` on the
+  whole `calib-targets` family, since updating the `calib-targets` crate alone
+  leaves its detector sub-crates at their old version. Cached detections are
+  keyed on the detection crates' versions as well as this crate's, so
+  upgrading them recomputes them.
 - **App: the workbench shell.** The app's frame is the shared
   `@vitavision/workbench` studio shell (workspace rail with `⌘1`…`⌘5`,
   resizable project navigator, status line, notifications), on current

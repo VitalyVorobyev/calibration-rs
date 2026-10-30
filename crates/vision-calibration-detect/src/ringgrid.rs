@@ -73,7 +73,11 @@ impl RinggridConfig {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct RinggridDetector;
 
-impl crate::sealed::Sealed for RinggridDetector {}
+impl crate::sealed::Sealed for RinggridDetector {
+    fn backend(&self) -> &'static str {
+        crate::backend::RINGGRID
+    }
+}
 
 impl Detector for RinggridDetector {
     fn name(&self) -> &'static str {

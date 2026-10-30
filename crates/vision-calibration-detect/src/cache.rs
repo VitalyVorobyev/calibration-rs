@@ -63,11 +63,12 @@ impl CacheKey {
     }
 
     /// Build the key of one detection by `detector`: [`Self::from_inputs`]
-    /// on its name and `config`, together with this crate's release and the
-    /// detector's [`output_revision`](Detector::output_revision), when set.
+    /// on its name and `config`, together with this crate's release, the
+    /// version of the detection crate it wraps, and the detector's
+    /// [`output_revision`](Detector::output_revision), when set.
     ///
-    /// Keying on the release means an upgrade of the detector stack — this
-    /// crate or the target-detection crates it wraps — recomputes cached
+    /// Keying on both versions means an upgrade of the detector stack — this
+    /// crate or the target-detection crate it wraps — recomputes cached
     /// detections instead of serving the previous detector's output.
     pub fn for_detector(image_bytes: &[u8], detector: &dyn Detector, config: &Value) -> Self {
         let mut keyed = serde_json::Map::new();
@@ -76,6 +77,7 @@ impl CacheKey {
             "release".to_string(),
             Value::from(env!("CARGO_PKG_VERSION")),
         );
+        keyed.insert("backend".to_string(), Value::from(detector.backend()));
         if let Some(revision) = detector.output_revision() {
             keyed.insert("revision".to_string(), Value::from(revision));
         }
@@ -231,7 +233,12 @@ mod tests {
             CacheKey::from_inputs(
                 b"img",
                 "chessboard",
-                &json!({ "config": config, "release": release, "revision": 2 })
+                &json!({
+                    "config": config,
+                    "release": release,
+                    "backend": crate::backend::CALIB_TARGETS,
+                    "revision": 2,
+                })
             )
         );
         // A detector without a revision is keyed on the release alone.
@@ -240,9 +247,61 @@ mod tests {
             CacheKey::from_inputs(
                 b"img",
                 "puzzleboard",
-                &json!({ "config": config, "release": release })
+                &json!({
+                    "config": config,
+                    "release": release,
+                    "backend": crate::backend::CALIB_TARGETS,
+                })
             )
         );
+    }
+
+    /// The backend versions in the cache key are the ones the workspace
+    /// lockfile resolves, and every `calib-targets-*` crate resolves to the
+    /// facade's version. Skipped outside the repository (a published package
+    /// has no workspace lockfile).
+    #[test]
+    #[cfg(all(feature = "chessboard", feature = "ringgrid"))]
+    fn backend_versions_match_the_lockfile() {
+        let lock = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock");
+        let Ok(lock) = std::fs::read_to_string(lock) else {
+            return;
+        };
+        let locked: Vec<(&str, &str)> = lock
+            .split("[[package]]")
+            .filter_map(|entry| {
+                let field = |key: &str| {
+                    entry.lines().find_map(|l| {
+                        l.strip_prefix(key)?
+                            .strip_prefix(" = \"")?
+                            .strip_suffix('"')
+                    })
+                };
+                Some((field("name")?, field("version")?))
+            })
+            .collect();
+        let backends = [crate::backend::CALIB_TARGETS, crate::backend::RINGGRID];
+        for pair in backends.iter().flat_map(|b| b.split(" / ")) {
+            let (name, version) = pair.split_once(' ').expect("\"<crate> <version>\"");
+            assert!(
+                locked.contains(&(name, version)),
+                "Cargo.lock does not resolve {pair}; update `crate::backend`"
+            );
+        }
+        let facade = locked
+            .iter()
+            .find(|(name, _)| *name == "calib-targets")
+            .expect("calib-targets is locked")
+            .1;
+        for (name, version) in locked
+            .iter()
+            .filter(|(n, _)| n.starts_with("calib-targets-"))
+        {
+            assert_eq!(
+                *version, facade,
+                "{name} {version} differs from calib-targets {facade}; run `cargo update` on the family"
+            );
+        }
     }
 
     #[test]
