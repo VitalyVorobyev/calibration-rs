@@ -74,3 +74,6 @@ evidence behind ADR 0011.
   floor is small-marker localization noise.
 - [Parameter uncertainty](uncertainty.md) — the covariance every
   calibration result carries, across all families.
+- [Detector feature covariance on real data](feature-covariance-study.md) —
+  pre-registered study: does weighting by the detector's corner covariance
+  improve held-out geometry or the honesty of the stated σ?
