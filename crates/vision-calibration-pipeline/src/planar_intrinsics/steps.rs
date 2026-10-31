@@ -611,7 +611,7 @@ pub fn step_init(
 ///   `{0, -0.20, -0.40}`, each start first adapting the poses (A0) and then
 ///   freeing the low-order radial terms (A1) with intrinsics and tilt held;
 ///   the best start feeds a joint solve bounded around the seed (focals
-///   `[0.75, 1.5]×`, principal point `±0.15·f`, tilt `±0.10` rad);
+///   `[0.75, 1.5]×`, principal point `±0.15·f`, tilt `±0.35` rad);
 /// - otherwise (**cold start**): the staged multi-start tilt sweep of
 ///   `optimize_scheimpflug_intrinsics_staged`.
 ///
@@ -772,12 +772,11 @@ fn optimize_tilted(
     // small. This is a genuine local minimum — more iterations do not escape it.
     //
     // Solution: sweep k1 starting points over a coarse negative grid
-    // {0, -0.20, -0.40}. Tilt is FIXED throughout Phase A, so the degenerate
-    // high-tilt basin (which requires tilt to move to ≈-13°) is inaccessible.
-    // The Phase A cost (with fixed tilt+intrinsics) cleanly distinguishes the
-    // correct k1 basin (low reproj) from the k1≈0 local minimum (high reproj).
-    // The winner feeds Phase B (bounded tilt ±0.10 rad) for the final joint
-    // refine.
+    // {0, -0.20, -0.40}. Tilt is held throughout Phase A, so the sweep is not
+    // confounded with it; the Phase A cost (with fixed tilt+intrinsics)
+    // cleanly distinguishes the correct k1 basin (low reproj) from the k1≈0
+    // local minimum (high reproj). The winner feeds Phase B for the final
+    // joint refine.
     let model = config.camera.model;
     let k1_seeds = [0.0_f64, -0.20, -0.40];
     // A0: everything but the poses held.
@@ -850,8 +849,11 @@ fn optimize_tilted(
         .ok_or_else(|| Error::numerical("all k1 Phase-A seeds failed to converge".to_string()))?;
 
     // Phase B: full bounded joint solve from the best Phase A starting point.
-    // Tilt bounds ±0.10 rad around the seed keep the optimizer in the correct
-    // tilt basin while letting focal, pp, tilt, k1, and poses refine jointly.
+    // The bounds only keep the solve from wandering off on weakly
+    // conditioned data: a mount's nominal tilt can be off by well over 0.10
+    // rad (a spec that says untilted for a sensor tilted 16°), and a solve
+    // that ends on its bound has a wrong tilt and no covariance, so the tilt
+    // may move ±0.35 rad (20°) from the seed.
     let k_seed = initial.camera.intrinsics;
     let s_seed = match initial.camera.sensor {
         SensorParams::Scheimpflug { params } => params,
@@ -860,7 +862,7 @@ fn optimize_tilted(
         }
     };
     let (pp_x, pp_y) = (0.15 * k_seed.fx, 0.15 * k_seed.fy);
-    let tilt_margin = 0.10_f64;
+    let tilt_margin = 0.35_f64;
     let joint_bounds = CameraBounds {
         fx: Some((0.75 * k_seed.fx, 1.5 * k_seed.fx)),
         fy: Some((0.75 * k_seed.fy, 1.5 * k_seed.fy)),
@@ -1493,6 +1495,52 @@ mod tests {
             output.mean_reproj_error < 1.0,
             "got {:.4}",
             output.mean_reproj_error
+        );
+    }
+
+    /// A seed whose tilt is off by 16° (the mount spec says untilted, the
+    /// sensor is tilted): the bounded joint solve still reaches the true
+    /// tilt, inside its bounds.
+    #[test]
+    fn scheimpflug_seed_off_by_the_mount_tilt_converges_inside_its_bounds() {
+        let sensor_gt = ScheimpflugParams {
+            tilt_x: -0.28,
+            tilt_y: 0.0,
+        };
+        let mut session = tilted_session(sensor_gt);
+        let manual = IntrinsicsManualInit {
+            intrinsics: Some(FxFyCxCy {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 640.0,
+                cy: 360.0,
+            }),
+            distortion: Some(BrownConrady5::default()),
+            sensor: Some(ScheimpflugParams::default()),
+            poses: None,
+        };
+        step_init_with_seed(&mut session, manual, None).expect("seeded init");
+        step_optimize(&mut session, None).expect("step_optimize");
+        let output = session.output().expect("output");
+        let SensorParams::Scheimpflug { params } = output.params.camera.sensor else {
+            panic!("a tilted camera");
+        };
+        assert!(
+            (params.tilt_x - sensor_gt.tilt_x).abs() < 0.01,
+            "tilt_x {:.4}",
+            params.tilt_x
+        );
+        // This five-view scene leaves the principal point to the poses, so
+        // only the bound is checked: the tilt ends inside it.
+        assert!(
+            !matches!(
+                output.uncertainty,
+                vision_calibration_core::Uncertainty::Unavailable {
+                    reason: vision_calibration_core::UncertaintyUnavailable::AtBound { .. }
+                }
+            ),
+            "{:?}",
+            output.uncertainty
         );
     }
 

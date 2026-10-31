@@ -60,20 +60,6 @@ private sets.
   same record as DS8), OpenCV's sample stereo chessboards (Apache-2.0), and
   a fisheye set for CAM-KB.
 
-## Calibration quality (Phase 1)
-
-Found by `calib-bench solver` (well-conditioned synthetic scenes; the named
-scenes are the gate) and the regression suite.
-
-- [ ] Q-SCHEIMPFLUG-TILE-BOUND - On every `scheimpflug_rig` tile, the
-  single-camera seeded planar solve ends with `tilt_x` at its ±0.10 rad
-  bound around the seed (`step_optimize`'s seeded path), so the covariance
-  is unavailable (`at_bound`). The feature-covariance study found this on
-  all six tiles, for every arm. Check whether the rig route's per-camera
-  stage does the same. Then establish whether the seed is off or the tilt
-  is not determined by one tile's views, and fix the seed or the bound.
-  Gate: each tile's own solve ends inside its bounds, with a covariance.
-
 ## Camera models (Phase 2)
 
 Each model ships with:

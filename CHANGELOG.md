@@ -859,6 +859,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The seeded Scheimpflug route (`step_init_with_seed` with a sensor, then
+  `step_optimize`) lets the tilt move ±0.35 rad from the seed; it was ±0.10.
+  A seed off by more, such as a mount specification that says untilted for a
+  sensor tilted 16°, held the tilt on its bound. The result then had a worse
+  fit and no covariance. On real cameras seeded that way, each camera's
+  tilt ended on that bound; now each ends 0.21–0.26 rad from its seed,
+  inside the bound, with a covariance, and views left out of the fit are
+  reprojected better on five cameras of six.
+  Seeds within 0.1 rad of the truth give the same results as before.
+
 - A tilted (Scheimpflug) camera calibrated from a cold start, alone or as
   a rig camera, now reaches its principal point under a robust loss. The
   last stage of the staged solve, which frees the principal point, solved
