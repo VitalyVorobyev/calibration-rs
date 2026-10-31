@@ -19,7 +19,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use serde_json::Value;
 
 use vision_calibration_core::{Iso3, Pt2, View};
@@ -29,7 +28,7 @@ use vision_calibration_dataset::{
 use vision_calibration_detect::{CacheKey, CachedFeatures, DetectionCache, Feature};
 use vision_calibration_optim::{
     HandeyeMode, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
-    RobotPoseMeta,
+    RobotPoseMeta, apply_robot_delta,
 };
 
 use crate::laserline_device::LaserlineDeviceInput;
@@ -789,10 +788,11 @@ fn rig_se3_target_from_upstream(
         });
     }
 
-    let base_se3_gripper = corrected_robot_pose(
-        *base_se3_gripper,
-        robot_delta_for_view(export, token, kept_idx, kept_views, total_views, path)?,
-    );
+    let base_se3_gripper =
+        match robot_delta_for_view(export, token, kept_idx, kept_views, total_views, path)? {
+            Some(delta) => apply_robot_delta(base_se3_gripper, &delta),
+            None => *base_se3_gripper,
+        };
     rig_se3_target_from_chain(export, &base_se3_gripper, path)
 }
 
@@ -841,22 +841,6 @@ fn robot_delta_for_view(
             deltas.len()
         ),
     })
-}
-
-fn corrected_robot_pose(robot_pose: Iso3, delta: Option<[f64; 6]>) -> Iso3 {
-    let Some(delta) = delta else {
-        return robot_pose;
-    };
-    let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
-    let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
-    let angle = rot_vec.norm();
-    let delta_rot = if angle > 1e-12 {
-        UnitQuaternion::from_axis_angle(&nalgebra::Unit::new_normalize(rot_vec), angle)
-    } else {
-        UnitQuaternion::identity()
-    };
-    let delta_iso = Iso3::from_parts(Translation3::from(trans_vec), delta_rot);
-    delta_iso * robot_pose
 }
 
 fn rig_se3_target_from_chain(

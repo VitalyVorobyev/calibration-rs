@@ -100,9 +100,9 @@ robot-mounted target).
 **Chain blocks**: `[extrinsics(7), handeye(7), target(7), robot_delta(6)]`
 
 Same as `Handeye`, but with a per-view se(3) tangent correction applied to
-the robot pose:
+the robot pose in the gripper frame:
 
-$$T_{B,G}' = \exp(\boldsymbol{\xi}_{\text{delta}}) \cdot T_{B,G}$$
+$$T_{B,G}' = T_{B,G} \cdot \exp(\boldsymbol{\xi}_{\text{delta}})$$
 
 The correction is regularized by an `Se3TangentPrior` factor.
 

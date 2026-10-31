@@ -8,7 +8,9 @@
 //! `cargo test --release -p vision-calibration-optim --test robot_pose_priors -- --ignored --nocapture`
 //!
 //! `STUDY_RUNS` (default 30) sets the seeds per cell, `STUDY_PX` the pixel
-//! noise levels (comma-separated, default `0.1,0.3,1.0`).
+//! noise levels (comma-separated, default `0.1,0.3,1.0`), and
+//! `STUDY_NOISE_FRAME` the frame of the simulated robot error: `gripper`
+//! (default; the tool's orientation and position error) or `base`.
 
 #![allow(missing_docs)]
 
@@ -130,8 +132,10 @@ impl Scene {
     }
 
     /// Gaussian pixel noise `px` and robot poses perturbed on every view by
-    /// Gaussian `(rotation rad, translation m)` noise.
-    fn dataset(&self, seed: u64, px: f64, robot: (f64, f64)) -> HandeyeDataset {
+    /// Gaussian `(rotation rad, translation m)` noise in the gripper frame
+    /// (`T_B_G · exp(ε)`), or with `base_frame` in the base frame
+    /// (`exp(ε) · T_B_G`).
+    fn dataset(&self, seed: u64, px: f64, robot: (f64, f64), base_frame: bool) -> HandeyeDataset {
         let mut rng = Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0xABCD);
         let views = self
             .camera_se3_target
@@ -151,9 +155,10 @@ impl Scene {
                     .unzip();
                 let eps: [f64; 6] =
                     std::array::from_fn(|i| if i < 3 { robot.0 } else { robot.1 } * rng.gauss());
+                let error = apply_robot_delta(&Iso3::identity(), &eps);
                 RigView {
                     meta: RobotPoseMeta {
-                        base_se3_gripper: apply_robot_delta(b, &eps),
+                        base_se3_gripper: if base_frame { error * b } else { b * error },
                     },
                     obs: RigViewObs {
                         cameras: vec![Some(CorrespondenceView::new(p3, p2).unwrap())],
@@ -245,6 +250,11 @@ fn robot_pose_prior_study() {
     let pixel_levels: Vec<f64> = env("STUDY_PX").map_or(vec![0.1, 0.3, 1.0], |v| {
         v.split(',').map(|x| x.parse().unwrap()).collect()
     });
+    let base_frame = match env("STUDY_NOISE_FRAME").as_deref() {
+        None | Some("gripper") => false,
+        Some("base") => true,
+        Some(other) => panic!("STUDY_NOISE_FRAME must be `gripper` or `base`, not {other:?}"),
+    };
     let deg = std::f64::consts::PI / 180.0;
     // (label, the robot's pose noise, the priors' σ)
     let robot_cases = [
@@ -294,7 +304,7 @@ fn robot_pose_prior_study() {
             for seed in 0..runs {
                 for ((_, cell), opts) in cells.iter_mut().zip([&refine, &exact]) {
                     let est = optimize_handeye(
-                        scene.dataset(seed, px, *robot),
+                        scene.dataset(seed, px, *robot, base_frame),
                         scene.initial(),
                         opts.clone(),
                         BackendSolveOptions::default(),

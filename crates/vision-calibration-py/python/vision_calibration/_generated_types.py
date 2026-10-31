@@ -2481,10 +2481,10 @@ class RobotPoseConfig(TypedDict):
     rig+hand-eye+laser BA config (`JointOptimizeConfig`).
 
     With `refine`, every view's measured robot pose gets an se(3) correction
-    `exp(δ) · base_se3_gripper` under a zero-mean prior with the standard
-    deviations below: the robot's pose error, per axis of the robot base
-    frame (a rotation about the base origin, then a translation; a rotation
-    error also moves the gripper by its lever arm). The prior is weighed
+    in the gripper frame, `base_se3_gripper · exp(δ)`, under a zero-mean
+    prior with the standard deviations below: the tool's orientation error
+    about each gripper axis and its position error along each, the figures
+    a robot's accuracy is stated in. The prior is weighed
     against the corner residuals at their noise level, which the solve
     estimates (one solve at 1 px, then one from that solution at the noise
     its residuals show), so the result and its covariance are the
@@ -2502,13 +2502,15 @@ class RobotPoseConfig(TypedDict):
     """
 
     rot_sigma: float
-    """Standard deviation of the robot's rotation error about each axis
-    (radians, > 0). Default 0.5°, a loose bound for an industrial arm.
+    """Standard deviation of the tool's orientation error about each gripper
+    axis (radians, > 0). Default 0.5°, a loose bound for an industrial
+    arm.
     """
 
     trans_sigma: float
-    """Standard deviation of the robot's translation error along each axis
-    (metres, > 0). Default 1 mm, a loose bound for an industrial arm.
+    """Standard deviation of the tool's position error along each gripper
+    axis (metres, > 0). Default 1 mm, a loose bound for an industrial
+    arm.
     """
 
 

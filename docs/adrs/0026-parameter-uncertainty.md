@@ -25,13 +25,21 @@ Derivation, identifiability and the Monte-Carlo gates are in
 `docs/notes/uncertainty.md`.
 
 **Robot-pose priors are weighed against the measured pixel noise.**
-- Every hand-eye view gets a free pose correction `δᵢ` with a zero-mean prior
-  at the configured `rot_sigma`, `trans_sigma`.
+- Every hand-eye view gets a free pose correction `δᵢ` in the gripper frame,
+  `T_B_G · exp(δᵢ)`, with a zero-mean prior at the configured `rot_sigma`,
+  `trans_sigma`: the tool's orientation and position error. A base-frame
+  correction (`exp(δᵢ) · T_B_G`) was rejected: its rotation turns the
+  gripper about the base origin, so the translation prior also bounded the
+  rotation's lever arm and `trans_sigma` was not the tool's position error.
+  On `kuka_1` the gripper frame halves the translation corrections and
+  makes the hand-eye from disjoint halves of the views agree 39 % better in
+  translation.
 - The prior's residual is scaled by the reprojection σ̂, estimated by one
   re-solve. The objective is then the maximum-likelihood one, and the
   sandwich reduces to the inverse information.
 - No correction is pinned; the priors alone separate the corrections from a
-  common hand-eye or target change.
+  common change of the transform the gripper carries (the hand-eye, or the
+  target in eye-to-hand).
 - The configured σ are taken as the robot's true accuracy.
 
 **Observations may state a per-point 2×2 covariance, and the solve whitens

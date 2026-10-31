@@ -2,9 +2,10 @@
 //! weighed against the reprojection residuals.
 //!
 //! Each view's measured base-to-gripper pose is corrected by a tangent
-//! `δᵢ ∈ se(3)`, `T_B_G,i = exp(δᵢ) · T_B_G,i^meas`, with the zero-mean prior
-//! `δᵢ ~ N(0, diag(σ_rot², σ_rot², σ_rot², σ_t², σ_t², σ_t²))`: the robot's
-//! pose error. Every view's correction is free; the priors remove the gauge
+//! `δᵢ ∈ se(3)` in the gripper frame, `T_B_G,i = T_B_G,i^meas · exp(δᵢ)`,
+//! with the zero-mean prior
+//! `δᵢ ~ N(0, diag(σ_rot², σ_rot², σ_rot², σ_t², σ_t², σ_t²))`: the tool's
+//! orientation and position error. Every view's correction is free; the priors remove the gauge
 //! the corrections would otherwise share with the hand-eye and target poses.
 //!
 //! The reprojection residuals are in pixels and their noise `σ_px` is not

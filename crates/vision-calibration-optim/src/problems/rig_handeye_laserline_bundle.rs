@@ -195,8 +195,8 @@ pub struct RigHandeyeLaserlineSolveOptions {
     pub fix_planes: Vec<bool>,
     /// Refine per-view robot pose corrections in se(3).
     ///
-    /// When enabled, each view gets a 6D tangent correction applied as
-    /// `exp(delta_i) * T_B_G_i` under a zero-mean prior of
+    /// When enabled, each view gets a 6D tangent correction applied in the
+    /// gripper frame as `T_B_G_i * exp(delta_i)` under a zero-mean prior of
     /// [`Self::robot_rot_sigma`] and [`Self::robot_trans_sigma`], weighed
     /// against the reprojection residuals at their estimated pixel noise
     /// (one solve at 1 px, then one from that solution at the noise its

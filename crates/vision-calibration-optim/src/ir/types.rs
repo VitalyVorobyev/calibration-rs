@@ -304,7 +304,7 @@ pub enum ReprojChain {
     /// per-view robot pose correction).
     ///
     /// `robot_delta` is a 6D se(3) tangent correction applied as
-    /// `exp(delta) * T_B_G`.
+    /// `T_B_G * exp(delta)` (in the gripper frame).
     HandeyeRobotDelta {
         /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_se3_gripper: [f64; 7],
@@ -367,7 +367,7 @@ pub enum LaserChain {
     /// plane_distance, robot_delta]`.
     ///
     /// `robot_delta` is a 6D se(3) tangent correction applied as
-    /// `exp(delta) * T_B_G`.
+    /// `T_B_G * exp(delta)` (in the gripper frame).
     RigHandeyeRobotDelta {
         /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_se3_gripper: [f64; 7],

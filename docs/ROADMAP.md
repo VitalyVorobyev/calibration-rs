@@ -99,8 +99,9 @@ order:
 1. The real-data honesty gap (UQ-REAL-SCALE): the predicted projection σ is
    2–5 times smaller than the real split-half scatter on every real camera,
    which criterion 3 does not allow.
-2. The breaking quality fix UQ-ROBOT-FRAME, which changes what robot deltas
-   mean.
+2. UQ-ROBOT-NOISE: estimate the robot's pose error from the corrections.
+   With corrections in the gripper frame, the default 0.5° prior makes the
+   hand-eye rotation's σ pessimistic on real arms.
 3. Cut 0.10.0, so the breaking changes ship and the "unchanged across two
    minor releases" clock of criterion 5 starts.
 4. A v1.0 API audit and the public-dependency decision (criterion 9).

@@ -90,11 +90,11 @@ Output on `data/kuka_1/` (30 chessboard views, eye-in-hand, the default mode), a
   Final reprojection error: 0.1346 px
 
 Robot pose refinements (30 views):
-  Max rotation delta: 0.0019 rad (0.11°)
-  Max translation delta: 0.0037m (3.74mm)
+  Max rotation delta: 0.0030 rad (0.17°)
+  Max translation delta: 0.0015m (1.53mm)
 ```
 
-The joint hand-eye error matches the intrinsics-only error: every view is explained through one shared `gripper_se3_camera` and one shared `base_se3_target`, and the small per-view robot-pose corrections (0.11° at most) absorb the kinematic noise. A correction rotates the measured pose about the robot base origin and then translates it in the base frame, so with the gripper 1.1–1.9 m from the base its translation part also carries the rotation's lever arm. A hand-eye error far above the intrinsics-only error points at robot-pose noise, mechanical play or a wrong pose convention.
+The joint hand-eye error matches the intrinsics-only error: every view is explained through one shared `gripper_se3_camera` and one shared `base_se3_target`, and the small per-view robot-pose corrections (0.17° and 1.5 mm at most) absorb the kinematic noise. A correction acts in the gripper frame, so its rotation and translation are the tool's orientation and position errors. A hand-eye error far above the intrinsics-only error points at robot-pose noise, mechanical play or a wrong pose convention.
 
 ## Interpreting Results
 

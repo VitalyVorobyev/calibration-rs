@@ -35,7 +35,7 @@ need their measurement first and stay opt-in until it is in.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.
-- [ ] UQ-ROBOT-NOISE - (Phase 2) Robot-pose noise in hand-eye as a measured
+- [ ] UQ-ROBOT-NOISE - (Phase 1) Robot-pose noise in hand-eye as a measured
   quantity rather than a fixed prior. The robot-pose priors are weighed
   against the estimated corner noise, but their configured σ is taken as
   the robot's true accuracy: on `kuka_1` the corrections are about ten
@@ -44,18 +44,6 @@ need their measurement first and stay opt-in until it is in.
   small. Estimate the prior family's variance factor from the corrections
   (a variance component with its redundancy), and gate it on the
   `robot_pose_priors` study's mismatched cells.
-- [ ] UQ-ROBOT-FRAME - (Phase 1: it changes what `robot_deltas` mean, a
-  breaking change.) Robot-pose corrections perturb the measured pose in
-  the base frame (`exp(δ) · base_se3_gripper`, a rotation about the base
-  origin), so `trans_sigma` is not the gripper's position error: a 0.5°
-  rotation prior lets a gripper 1.5 m from the base move 13 mm, and on
-  `kuka_1` the largest translation correction is 3.7 mm while the rotation
-  ones stay below 0.11°. Measure a gripper-frame correction
-  (`base_se3_gripper · exp(δ)`), whose σ are the tool's orientation and
-  position errors, on `kuka_1`, `ds8` and the `robot_pose_priors` study. It
-  changes what `robot_deltas` mean (`apply_robot_delta`, the app's
-  overlays, the laser upstream in `dataset_runner`). Pairs with
-  UQ-ROBOT-NOISE.
 - [ ] UQ-TARGET-FLATNESS - (Phase 2) Target manufacturing and flatness error
   in the covariance.
 

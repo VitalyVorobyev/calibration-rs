@@ -151,11 +151,11 @@ pub struct HandeyeSolveOptions {
     /// estimated pixel noise: the problem is solved once at 1 px, then again
     /// from that solution at the noise its residuals show.
     pub refine_robot_poses: bool,
-    /// Standard deviation of the robot's rotation error about each axis
-    /// (radians).
+    /// Standard deviation of the tool's orientation error about each
+    /// gripper axis (radians).
     pub robot_rot_sigma: Real,
-    /// Standard deviation of the robot's translation error along each axis
-    /// (metres).
+    /// Standard deviation of the tool's position error along each gripper
+    /// axis (metres).
     pub robot_trans_sigma: Real,
 }
 
@@ -196,13 +196,15 @@ pub struct HandeyeEstimate {
 /// Apply a per-view se(3) robot pose correction `[rx, ry, rz, tx, ty, tz]` to
 /// a base-to-gripper pose, exactly as the hand-eye optimizer does:
 ///
-/// `T_B_G_corr = exp(delta) * T_B_G` (left-multiply, `exp` the SE(3)
-/// exponential).
+/// `T_B_G_corr = T_B_G * exp(delta)` (right-multiply, `exp` the SE(3)
+/// exponential): the correction is in the gripper frame, a rotation about
+/// the gripper origin and a translation of it, so its rotation and
+/// translation are the tool's orientation and position errors.
 ///
 /// A delta of all zeros returns `base_se3_gripper` unchanged.
 pub fn apply_robot_delta(base_se3_gripper: &Iso3, delta: &[Real; 6]) -> Iso3 {
     let (rotation, translation) = se3_exp(DVector::from_row_slice(delta).as_view());
-    Iso3::from_parts(translation.into(), rotation) * base_se3_gripper
+    base_se3_gripper * Iso3::from_parts(translation.into(), rotation)
 }
 
 /// Derive per-view "observer-to-target" poses from a hand-eye chain.
@@ -576,6 +578,29 @@ mod tests {
         BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, PointCovariance, Pt2, Pt3,
         RigView, RigViewObs, make_pinhole_camera, pinhole_camera_params,
     };
+
+    /// A correction acts in the gripper frame: its translation moves the
+    /// gripper along the gripper's own axes, and its rotation turns the
+    /// gripper about its own origin, which stays put.
+    #[test]
+    fn robot_delta_is_a_gripper_frame_correction() {
+        let base_se3_gripper = Iso3::from_parts(
+            Translation3::new(1.2, -0.4, 0.8),
+            UnitQuaternion::from_euler_angles(0.3, -0.7, 1.1),
+        );
+        let shifted = apply_robot_delta(&base_se3_gripper, &[0.0, 0.0, 0.0, 0.01, 0.0, 0.0]);
+        let along_gripper_x = base_se3_gripper.rotation * nalgebra::Vector3::new(0.01, 0.0, 0.0);
+        assert!(
+            (shifted.translation.vector - base_se3_gripper.translation.vector - along_gripper_x)
+                .norm()
+                < 1e-12
+        );
+        let turned = apply_robot_delta(&base_se3_gripper, &[0.0, 0.0, 0.002, 0.0, 0.0, 0.0]);
+        assert!((turned.translation.vector - base_se3_gripper.translation.vector).norm() < 1e-12);
+        let expected =
+            base_se3_gripper.rotation * UnitQuaternion::from_euler_angles(0.0, 0.0, 0.002);
+        assert!(turned.rotation.angle_to(&expected) < 1e-12);
+    }
 
     fn make_test_camera() -> PinholeCamera {
         make_pinhole_camera(

@@ -127,7 +127,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
             cam_se3_rig: "T_C_R".to_string(),
             cam_to_rig: "T_R_C".to_string(),
             eye_to_hand_chain: "T_C_T = T_C_R * T_R_B * T_B_G * T_G_T".to_string(),
-            robot_delta: "T_B_G_corr = exp(delta) * T_B_G".to_string(),
+            robot_delta: "T_B_G_corr = T_B_G * exp(delta)".to_string(),
         },
         poses: input
             .poses
@@ -628,7 +628,7 @@ mod tests {
                 cam_se3_rig: "T_C_R".to_string(),
                 cam_to_rig: "T_R_C".to_string(),
                 eye_to_hand_chain: "T_C_T = T_C_R * T_R_B * T_B_G * T_G_T".to_string(),
-                robot_delta: "T_B_G_corr = exp(delta) * T_B_G".to_string(),
+                robot_delta: "T_B_G_corr = T_B_G * exp(delta)".to_string(),
             },
             poses: Vec::new(),
             cameras: Vec::new(),
