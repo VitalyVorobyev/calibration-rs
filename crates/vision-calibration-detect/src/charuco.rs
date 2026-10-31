@@ -110,6 +110,11 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
     )
     .with_marker_layout(MarkerLayout::OpenCvCharuco);
     let mut params = CharucoParams::for_board(board);
+    // One corner config for the whole detection: the front-end pass below
+    // and the detector's own corner re-detection both read `params.chess`.
+    // Re-detection left at the default would drop the override (a threshold,
+    // the Radon strategy, the covariance) for the corners it replaces.
+    params.chess = chess_config_for_override(cfg.chess_corners)?;
     apply_board_override(cfg.chess_corners, &mut params.chessboard);
     Ok(params)
 }
@@ -129,6 +134,12 @@ impl Detector for CharucoDetector {
         "charuco"
     }
 
+    /// Revision 1: corner re-detection runs with the `chess_corners`
+    /// override, like the front-end pass.
+    fn output_revision(&self) -> Option<u32> {
+        Some(1)
+    }
+
     fn detect_json(
         &self,
         image: &image::DynamicImage,
@@ -142,9 +153,9 @@ impl Detector for CharucoDetector {
         let params = params_for(&cfg)?;
         let luma = image.to_luma8();
 
-        // ChESS corner pre-detection feeds the ChArUco identifier.
-        let chess_cfg = chess_config_for_override(cfg.chess_corners)?;
-        let corners = detect::detect_corners(&luma, &chess_cfg);
+        // ChESS corner pre-detection feeds the ChArUco identifier, with the
+        // same config the detector re-detects corners with.
+        let corners = detect::detect_corners(&luma, &params.chess);
         let detector = CtCharucoDetector::new(params)
             .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))?;
         // A failed board identification (too few markers, no board in
@@ -306,6 +317,27 @@ mod tests {
                 a.cov_px
             );
         }
+    }
+
+    #[test]
+    fn re_detection_runs_with_the_corner_override() {
+        let mut cfg: CharucoConfig = serde_json::from_value(board_config()).unwrap();
+        assert_eq!(
+            params_for(&cfg).unwrap().chess,
+            calib_targets::detect::default_chess_config(),
+            "no override keeps the detector's default"
+        );
+        cfg.chess_corners = Some(ChessCornersConfig {
+            threshold_value: Some(30.0),
+            covariance: Some(crate::CornerCovariance {
+                image_noise: crate::ImageNoise::Known(2.0),
+            }),
+            ..ChessCornersConfig::default()
+        });
+        assert_eq!(
+            params_for(&cfg).unwrap().chess,
+            chess_config_for_override(cfg.chess_corners).unwrap()
+        );
     }
 
     #[test]
