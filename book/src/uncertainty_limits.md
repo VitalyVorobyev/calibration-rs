@@ -40,7 +40,7 @@ the corner noise.
 
 ## What a Covariance Does Not Cover
 
-- **Systematic error.** The covariance measures the scatter caused by noise. A wrong board cell size, a board that is not flat or the wrong distortion model leaves it small and the estimate biased; watch the [per-feature residuals](per_feature_residuals.md) for structure (see [Parameter Uncertainty](uncertainty.md)).
+- **Systematic error.** The covariance measures the scatter caused by noise. A wrong board cell size, a board that is not flat or the wrong distortion model leaves it small and the estimate biased; watch the [per-feature residuals](per_feature_residuals.md) for structure (see [Parameter Uncertainty](uncertainty.md)). On real images this dominates: calibrating `stereo`, `kuka_1` and `ds8` from two disjoint halves of their views, the two projections differed by 2 to 5 times their predicted σ, with or without the detector's per-corner covariance. Read the projection σ as a lower bound.
 - **Fixed parameters.** It is conditional on the parameters the final solve held fixed (`fixed` in the [result](uncertainty_reading.md)). Fixing a parameter the data cannot pin down makes the others look better determined than they are: a rig with `rig.refine_intrinsics: false` holds each camera's intrinsics, and its extrinsics' σ leaves their uncertainty out.
 - **Robot poses.** They are taken as exact unless the hand-eye solve refines them, as described in the Scope section above.
 - **The shape of stated point covariances.** [Per-point covariances](uncertainty_point_covariance.md) are trusted up to one common factor, which `σ̂₀` estimates. Covariances that are right for some points and wrong for others (one image overstated, say) are not detected by `σ̂₀` and weigh the points wrongly.

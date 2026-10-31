@@ -653,6 +653,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The detector's per-corner covariance (`detector.chess_corners.covariance`)
+  is not recommended for calibration. On real chessboard and ChArUco images,
+  weighting by it did not improve held-out accuracy, made it slightly worse
+  on some cameras, and left the stated uncertainty as far from the real
+  scatter as before. It stays off by default. The book's uncertainty limits
+  now state how much larger than the predicted σ the real split-half
+  scatter is.
+
 - **Detectors run on `calib-targets` 0.16.1 (`chess-corners` 2.1) and
   `ringgrid` 0.13.2.** On the public regression suite every corner is
   unchanged. ChArUco detection finds more corners and views on small,

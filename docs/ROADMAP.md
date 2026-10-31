@@ -34,7 +34,7 @@ alongside both phases. Track names below match the backlog headings.
 | Track | Goal | Gate |
 |---|---|---|
 | API | One configuration vocabulary. Every problem type takes the same camera-model spec (projection, distortion, sensor), and factors and bundles are generic over it. One naming scheme for inputs, outputs and step functions, identical in Rust and Python. | Every problem accepts every distortion and sensor model; the facade compile-surface test and the binding parity check pass |
-| UQ | Uncertainty as a product: per-feature covariance from the detectors, a variance-factor test of the noise model, joint covariance for rigs, and a quality report with verdicts | Predicted scatter matches Monte-Carlo and rendered-image scatter (proof pack); `calib-bench accept` gates on the quality report |
+| UQ | Uncertainty as a product: per-feature covariance from the detectors, a variance-factor test of the noise model, joint covariance for rigs, and a quality report with verdicts | Predicted scatter matches Monte-Carlo scatter (proof pack) and real split-half scatter; `calib-bench accept` gates on the quality report |
 | PY | Python parity: sessions and steps, manifest-driven runs, detectors, camera models with vectorized projection, quality report; types generated from the same JSON schemas as the app | The parity map in CI lists no unmapped facade item |
 | Data | The public regression suite fetches its images from their publishers | `calib-bench suite fetch` plus a scheduled freeze check |
 
@@ -48,9 +48,10 @@ alongside both phases. Track names below match the backlog headings.
 3. **Uncertainty** — every result carries its parameter covariance,
    projection uncertainty and quality report. Rig results include the
    intrinsics. The estimator is validated by Monte-Carlo, and its predicted
-   σ against real-image scatter (split-half consistency). Whether the
-   detector's per-corner covariance weights results by default follows the
-   pre-registered real-data study (`notes/feature-covariance-study.md`).
+   σ against real-image scatter (split-half consistency). The detector's
+   per-corner covariance does not weight results by default: the
+   pre-registered real-data study (`notes/feature-covariance-study.md`)
+   advised against it.
 4. **Soundness** — every shipped algorithm family has a proof pack
    ([`notes/`](notes/README.md)): math note, synthetic-GT matrix test,
    property tests where an invariant exists, and a committed regression
@@ -95,7 +96,9 @@ Phase 1 is mostly in: the camera-model spec, the result-changing UQ fixes,
 the quality report, Python parity and the suite fetch. What is left, in
 order:
 
-1. The per-feature covariance decision (the pre-registered real-data study).
+1. The real-data honesty gap (UQ-REAL-SCALE): the predicted projection σ is
+   2–5 times smaller than the real split-half scatter on every real camera,
+   which criterion 3 does not allow.
 2. The breaking quality fixes: Q-TANGENTIAL-ONE-SOURCE, then UQ-ROBOT-FRAME,
    which changes what robot deltas mean.
 3. Q-SCHEIMPFLUG-STAGED-ROBUST and retiring the old public registry

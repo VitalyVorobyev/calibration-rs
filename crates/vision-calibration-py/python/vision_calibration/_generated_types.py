@@ -254,12 +254,15 @@ class ChessCornersDetectorSpec(TypedDict, total=False):
     report gives the unit-weight scale factor σ̂₀ instead of an RMS in
     pixels.
 
-    Off by default because weighting a calibration by it has not been
-    shown to help on real data yet (a study is planned). Supported by the
-    `chessboard` and `charuco` targets only: the PuzzleBoard detector runs
-    on an upscaled image, for which no covariance is reported, and ring
-    grids have none. A manifest that sets it for another target is an
-    error.
+    Off by default, and not recommended for calibration. On real
+    chessboard and ChArUco images, weighting by it did not improve the
+    accuracy on held-out views and made it slightly worse on some
+    cameras; its stated uncertainty was no closer to the real scatter.
+
+    Supported by the `chessboard` and `charuco` targets only: the
+    PuzzleBoard detector runs on an upscaled image, for which no
+    covariance is reported, and ring grids have none. A manifest that
+    sets it for another target is an error.
     """
 
     min_corner_strength: float | None
