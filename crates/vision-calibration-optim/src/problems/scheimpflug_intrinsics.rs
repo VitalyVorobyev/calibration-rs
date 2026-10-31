@@ -8,7 +8,7 @@
 
 use crate::Error;
 use crate::backend::BackendSolveOptions;
-use crate::ir::{RobustLoss, SensorKind};
+use crate::ir::SensorKind;
 use crate::problems::planar_intrinsics::{
     CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
     optimize_planar_intrinsics,
@@ -60,9 +60,10 @@ fn bounds_around(k: &FxFyCxCy<Real>, opts: &ScheimpflugStagedInitOptions) -> Cam
 ///    without paying full-convergence cost on the dense target;
 /// 2. keeping the lowest-reprojection seed; and
 /// 3. refining the winning basin on the **full** data: first with the principal
-///    point still frozen (L2, full budget), then a final **bounded** joint
-///    refine that frees the principal point, with box bounds forbidding the
-///    `fx → 0 / cx → -1e19` runaway.
+///    point still frozen (full budget), then a final **bounded** joint refine
+///    that frees the principal point, with box bounds forbidding the
+///    `fx → 0 / cx → -1e19` runaway. Both refines use the caller's robust
+///    loss, and the last is kept unless it raises that objective.
 ///
 /// This is the library form of the multi-start staging recipe also used by the
 /// `vision-calibration-bench` staging path; the cheap-sweep split keeps the cost near a single full solve even with a dense target and 5 seeds.
@@ -123,6 +124,11 @@ impl Default for ScheimpflugStagedInitOptions {
 }
 
 /// Run one staged sub-solve at a chosen iteration budget.
+/// Relative slack when Stage 3 is accepted on the objective: it starts at
+/// Stage 2's solution, so it can only lower the objective up to the
+/// backend's floating-point noise.
+const OBJECTIVE_REL_TOL: f64 = 1e-12;
+
 fn solve_stage(
     dataset: &PlanarDataset,
     params: &PlanarIntrinsicsParams,
@@ -298,16 +304,21 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     // from the wrong focal and its bounds would exclude the true focal.
     // Anchoring to init_bounds keeps the correct focal range reachable whatever
     // Stage 2 did, letting Stage 3 (with the pp free) find the true optimum.
+    //
+    // It solves under the caller's robust loss, as Stage 2 did, and is
+    // accepted on that objective: both stages minimize it over the same
+    // residuals, so it is the one measure that compares them. The mean
+    // reprojection error would count outliers at full weight and reject a
+    // solve that explains the inliers better.
     let refine_opts = PlanarIntrinsicsSolveOptions {
-        robust_loss: RobustLoss::None,
         bounds: Some(init_bounds),
         ..final_opts
     };
     match solve_stage(dataset, &r1.params, refine_opts, &backend_opts, max_iters) {
-        // Accept only if freeing the principal point did not regress the fit.
         Ok(refined)
-            if refined.mean_reproj_error.is_finite()
-                && refined.mean_reproj_error <= r1.mean_reproj_error + 1e-9 =>
+            if refined.report.final_cost.is_finite()
+                && refined.report.final_cost
+                    <= r1.report.final_cost * (1.0 + OBJECTIVE_REL_TOL) =>
         {
             Ok(refined)
         }
@@ -406,6 +417,114 @@ mod tests {
             views.push(View::without_meta(CorrespondenceView::new(p3, p2).unwrap()));
         }
         PlanarDataset::new(views).unwrap()
+    }
+
+    /// The cold start of `staged_init_recovers_large_tilt_from_cold_start`.
+    fn cold_start(poses: &[Iso3]) -> PlanarIntrinsicsParams {
+        PlanarIntrinsicsParams::new(
+            CameraParams {
+                projection: ProjectionParams::Pinhole,
+                distortion: DistortionParams::BrownConrady5 {
+                    params: BrownConrady5::default(),
+                },
+                sensor: SensorParams::Scheimpflug {
+                    params: ScheimpflugParams::default(),
+                },
+                intrinsics: FxFyCxCy {
+                    fx: 1150.0 * 1.05,
+                    fy: 1155.0 * 1.05,
+                    cx: 360.0,
+                    cy: 270.0,
+                },
+            },
+            poses.to_vec(),
+        )
+        .unwrap()
+    }
+
+    /// Under a robust loss with outliers, the last stage, which frees the
+    /// principal point, is kept: the principal point and tilt end within 3σ
+    /// of the truth. Judged on the mean reprojection error, outliers at full
+    /// weight, that stage was rejected and the principal point stayed at its
+    /// seed, about 17 px off.
+    #[test]
+    fn staged_init_frees_the_principal_point_under_a_robust_loss() {
+        use crate::ir::RobustLoss;
+        use vision_calibration_core::synthetic::noise::UniformPixelNoise;
+
+        let (gt_k, gt_dist, gt_sensor) = gt_camera();
+        let poses = gt_poses();
+        let clean = build_dataset(gt_k, gt_dist, gt_sensor, &poses);
+        // σ ≈ 0.1 px of noise, and every 20th corner displaced by 10–30 px.
+        let noise = UniformPixelNoise {
+            seed: 7,
+            max_abs_px: 0.17,
+        };
+        let views = clean
+            .views
+            .iter()
+            .enumerate()
+            .map(|(v, view)| {
+                let p2 = view
+                    .obs
+                    .points_2d
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let mut q = Pt2::from(noise.apply(v, i, p.coords));
+                        if (v * 81 + i) % 20 == 0 {
+                            let d = 10.0 + ((v + i) % 5) as f64 * 5.0;
+                            q += nalgebra::Vector2::new(d, -0.5 * d);
+                        }
+                        q
+                    })
+                    .collect();
+                View::without_meta(CorrespondenceView::new(view.obs.points_3d.clone(), p2).unwrap())
+            })
+            .collect();
+        let dataset = PlanarDataset::new(views).unwrap();
+
+        for loss in [
+            RobustLoss::Huber { scale: 1.0 },
+            RobustLoss::Cauchy { scale: 1.0 },
+        ] {
+            let est = optimize_scheimpflug_intrinsics_staged(
+                &dataset,
+                &cold_start(&poses),
+                PlanarIntrinsicsSolveOptions {
+                    robust_loss: loss,
+                    ..Default::default()
+                },
+                &ScheimpflugStagedInitOptions::default(),
+                BackendSolveOptions {
+                    max_iters: 80,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let cov = est
+                .uncertainty
+                .covariance()
+                .unwrap_or_else(|| panic!("{loss:?}: a covariance"));
+            let r = &est.params.camera;
+            let SensorParams::Scheimpflug { params: tilt } = r.sensor else {
+                panic!("Scheimpflug sensor expected");
+            };
+            for (label, error) in [
+                ("cx", r.intrinsics.cx - gt_k.cx),
+                ("cy", r.intrinsics.cy - gt_k.cy),
+                ("tilt_x", tilt.tilt_x - gt_sensor.tilt_x),
+                ("tilt_y", tilt.tilt_y - gt_sensor.tilt_y),
+            ] {
+                let sigma = cov
+                    .std_dev(label)
+                    .unwrap_or_else(|| panic!("{loss:?}: {label} was not estimated"));
+                assert!(
+                    error.abs() <= 3.0 * sigma,
+                    "{loss:?} {label}: error {error:.3e}, σ {sigma:.3e}"
+                );
+            }
+        }
     }
 
     #[test]

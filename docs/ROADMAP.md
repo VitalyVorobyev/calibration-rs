@@ -101,8 +101,7 @@ order:
    which criterion 3 does not allow.
 2. The breaking quality fix UQ-ROBOT-FRAME, which changes what robot deltas
    mean.
-3. Q-SCHEIMPFLUG-STAGED-ROBUST and retiring the old public registry
-   (DATA-FETCH).
+3. Retiring the old public registry (DATA-FETCH).
 4. Cut 0.10.0, so the breaking changes ship and the "unchanged across two
    minor releases" clock of criterion 5 starts.
 5. A v1.0 API audit and the public-dependency decision (criterion 9).
