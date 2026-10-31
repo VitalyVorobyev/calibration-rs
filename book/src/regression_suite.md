@@ -271,11 +271,11 @@ our σ:
 
 | Entry | Library | Parameters | Largest difference | Median | σ ratio (ours / theirs) | Mean reprojection (ours / theirs) | Truth (ours / theirs) |
 |---|---|---|---|---|---|---|---|
-| `kuka_1` | opencv 4.12.0 | 20 | 13.77σ (`base_se3_target.rz`) | 2.43σ | 1.327–1.718 | 0.1349 / 2.2545 px | — |
+| `kuka_1` | opencv 4.12.0 | 20 | 8.08σ (`base_se3_target.rz`) | 1.49σ | 1.327–1.500 | 0.1347 / 2.2545 px | — |
 | `stereo_left` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.01σ | 1.818–1.818 | 0.2339 / 0.2339 px | — |
 | `stereo_right` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.00σ | 1.886–1.886 | 0.2442 / 0.2442 px | — |
 | `stereo_rig` | opencv 4.12.0 | 22 | 4.14σ (`cam1.cam_se3_rig.tz`) | 0.66σ | — | — | — |
-| `ds8` | opencv 4.12.0 | 36 | 4.08σ (`cam2.p2`) | 0.54σ | 1.570–6.047 | — | — |
+| `ds8` | opencv 4.12.0 | 36 | 3.99σ (`cam2.p2`) | 0.42σ | 1.615–6.226 | — | — |
 | `synth_planar` | opencv 4.12.0 | 8 | 0.00σ (`cx`) | 0.00σ | 1.222–1.222 | 0.6570 / 0.6570 px | 1.53σ / 1.53σ |
 | `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
 | `synth_handeye` | opencv 4.12.0 | 20 | 10.09σ (`base_se3_target.tx`) | 1.82σ | 0.303–0.631 | 0.6645 / 0.7521 px | 1.20σ / 10.46σ |
@@ -298,7 +298,7 @@ Reading it:
   measured poses). OpenCV takes the robot poses as exact for the hand-eye
   pose, but calibrates the intrinsics with a free pose per view, as the
   refined robot poses effectively are here: our intrinsics standard
-  deviations are 1.3–1.7 times OpenCV's, the view scatter's scale. The synthetic hand-eye entry's
+  deviations are 1.3–1.5 times OpenCV's, the view scatter's scale. The synthetic hand-eye entry's
   robot poses are exact, and our solve estimates a robot error near zero
   from the corrections: it lands 1.2σ from the truth with standard
   deviations a third to two thirds of OpenCV's, whose hand-eye, from the
