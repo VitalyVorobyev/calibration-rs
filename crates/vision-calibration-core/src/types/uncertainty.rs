@@ -97,6 +97,16 @@ pub struct ParameterCovariance {
     pub num_residuals: usize,
     /// Residuals minus estimated parameters.
     pub dof: usize,
+    /// How many times the variance of the shared parameters across views
+    /// exceeds what the residual noise predicts, from the scatter of the
+    /// views' contributions to the fit. The residual noise model takes every
+    /// corner's error as independent; errors shared by a view's corners (a
+    /// lens model or target that does not fit exactly, a detector bias) are
+    /// not in it, and on real images make the estimate vary between view
+    /// sets several times more than predicted. When above 1, `covariance`
+    /// and `views` are already scaled by it. `None` below six views.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_scatter: Option<f64>,
 }
 
 impl ParameterCovariance {
@@ -222,6 +232,7 @@ mod tests {
             }],
             num_residuals: 400,
             dof: 380,
+            view_scatter: Some(3.5),
         }
     }
 

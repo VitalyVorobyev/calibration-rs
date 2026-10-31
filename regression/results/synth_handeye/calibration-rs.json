@@ -725,6 +725,7 @@
       ],
       "num_residuals": 4800,
       "status": "available",
+      "view_scatter": 0.731836771443637,
       "views": [
         {
           "covariance": [

@@ -34,6 +34,7 @@ fn covariance(labels: &[&str], matrix: Vec<Vec<f64>>, sigma: f64) -> ParameterCo
         }],
         num_residuals: 2000,
         dof: 1900,
+        view_scatter: None,
     }
 }
 

@@ -665,6 +665,20 @@ pub struct ParamBlock {
     pub bounds: Option<Vec<Bound>>,
 }
 
+impl ParamBlock {
+    /// The view this block belongs to: `<view>` of a per-view block
+    /// (`pose/<view>`, `target/<view>`, `rig_pose/<view>`,
+    /// `robot_delta/<view>`); `None` for a block shared across views.
+    pub fn view(&self) -> Option<usize> {
+        let (kind, index) = self.name.split_once('/')?;
+        if matches!(kind, "pose" | "target" | "rig_pose" | "robot_delta") {
+            index.parse().ok()
+        } else {
+            None
+        }
+    }
+}
+
 /// Residual block definition in the IR.
 ///
 /// The order of `params` must match the factor's expected parameter order.

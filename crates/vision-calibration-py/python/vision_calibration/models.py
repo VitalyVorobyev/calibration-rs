@@ -1547,6 +1547,11 @@ class ParameterUncertainty:
     (metres). The covariance is first order, at the solution, and conditional
     on the parameters listed in :attr:`fixed`.
 
+    :attr:`view_scatter` is how many times the shared parameters' variance
+    across views exceeds what the residual noise predicts (errors shared by
+    a view's corners: lens model, target, detector bias); when above 1 the
+    covariance is already scaled by it. ``None`` below six views.
+
     When :attr:`available` is false, :attr:`reason` says why
     (``"not_converged"``, ``"rank_deficient"``, ``"at_bound"``,
     ``"no_redundancy"`` or ``"not_computed"``) and :attr:`reason_labels` names
@@ -1561,6 +1566,7 @@ class ParameterUncertainty:
     noise: list[ResidualNoise] = field(default_factory=list)
     num_residuals: int = 0
     dof: int = 0
+    view_scatter: float | None = None
     reason: str | None = None
     reason_labels: list[str] = field(default_factory=list)
 
@@ -1594,6 +1600,11 @@ class ParameterUncertainty:
             ],
             num_residuals=int(payload["num_residuals"]),
             dof=int(payload["dof"]),
+            view_scatter=(
+                None
+                if payload.get("view_scatter") is None
+                else float(payload["view_scatter"])
+            ),
         )
 
     def _index(self, label: str) -> int:
