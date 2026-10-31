@@ -5,52 +5,17 @@ the results without leaving a GUI. It calls the same solvers as the
 `vision-calibration` crate. For a hands-on tour, see the
 [app chapters of the book](https://vitalyvorobyev.github.io/calibration-rs/app.html).
 
-## Projects
+## What it does
 
-A project keeps a dataset's manifest and its calibration runs together in
-one folder, so the work can be closed and reopened:
-
-```text
-my-project/
-  calibration-project.json   marks the folder as a project; names the dataset folder
-  dataset.json               the dataset manifest
-  runs/run-001/              manifest.json, config.json, export.json, diagnostics.json
-```
-
-The **Project** menu in the header creates one from the dataset the Run
-workspace has loaded (a preset, a sniffed folder or a manifest file), opens
-one, saves the edited manifest, and reopens recent projects. The images can
-stay where they are: the dataset folder may be the project folder or any
-other. While a project is open, every successful run is saved as the next
-`runs/run-NNN/` (never over an existing run) and the project's runs are
-listed on the left; choosing one loads its export. Opening a folder that is
-not a project is an error, not a guess.
-
-## Workspaces
-
-Five workspaces, selectable from the left rail (`⌘1` to `⌘5`); they share
-the loaded export and the selected pose and camera.
-
-- **Run** — configure and launch a calibration end-to-end: pick a dataset
-  folder (the app sniffs its layout), fill in the manifest and calibration
-  config from schema-driven forms or a built-in preset for any of the eight
-  problem types, and run it. Anything the folder sniffer cannot decide on its
-  own is asked in a blocking dialog.
-- **Diagnose** — load a calibration export and overlay the per-image
-  reprojection residuals (and laser-feature residuals) on the source frames,
-  with pose and camera steppers and error histograms. A **Stats** panel adds a
-  sortable per-pose residual table and, for multi-camera exports, a cameras ×
-  poses residual matrix. An **Uncertainty** panel lists each estimated
-  parameter's value ± σ, their correlations, and the shown camera's
-  projection σ across its image.
-- **3D** — camera frustums, target board poses and laser planes for rig,
-  hand-eye and laserline exports, with a panel of intrinsics and relative
-  camera poses. A single-camera laserline export is shown as a one-camera rig.
-- **Epipolar** — click-to-sample epipolar geometry between two camera views of
-  a rig export, raw and undistorted.
-- **Depth** — rectify a camera pair, compute disparity (block matching or
-  SGM), and render disparity and depth overlays and a reprojected 3D point
-  cloud.
+Five workspaces (left rail, `⌘1` to `⌘5`) share the loaded export and the
+selected pose and camera: **Run** (configure and launch any of the seven
+problem types from a dataset folder or preset), **Diagnose** (residual
+overlays, per-pose statistics, parameter uncertainty), **3D** (rig frustums,
+target poses, laser planes), **Epipolar** and **Depth**. A **project** folder
+keeps a dataset's manifest and every run calibrated from it, so the work can be
+closed and reopened. The
+[app chapters of the book](https://vitalyvorobyev.github.io/calibration-rs/app.html)
+describe each workspace and the project layout.
 
 ## Running it
 

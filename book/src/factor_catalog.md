@@ -4,49 +4,47 @@ This chapter is a complete reference for the factor kinds (residual
 computations) supported by the optimization IR. A factor is described along
 three independent axes carried **as data**, not baked into variant names:
 
-1. **Camera model** (`CameraModelDesc`) — which projection / distortion /
-   sensor kernels apply and which leading parameter blocks exist.
+1. **Camera model** (`CameraModelSpec`) — which projection / distortion /
+   sensor kinds apply and which leading parameter blocks exist.
 2. **Pose chain** (`ReprojChain` / `LaserChain`) — how a target-frame point
    reaches the camera frame and which trailing parameter blocks exist.
 3. **Residual family** (the `FactorKind` variant) — what is measured.
 
 ```rust,ignore
 pub enum FactorKind {
-    ReprojPoint       { model: CameraModelDesc, chain: ReprojChain, pw: [f64; 3], uv: [f64; 2], w: f64 },
-    LaserPointToPlane { model: CameraModelDesc, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
-    LaserLineDistance { model: CameraModelDesc, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
-    Se3TangentPrior   { sqrt_info: [f64; 6] },
+    ReprojPoint       { model: CameraModelSpec, chain: ReprojChain, pw: [f64; 3], uv: [f64; 2], sqrt_info: ReprojSqrtInfo },
+    LaserPointToPlane { model: CameraModelSpec, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
+    LaserLineDistance { model: CameraModelSpec, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
+    Se3TangentPrior   { sqrt_info: [f64; 6], residual_sigma: f64 },
 }
 ```
 
-## Camera-Model Descriptor
+## Camera-Model Spec
 
 ```rust,ignore
-pub struct CameraModelDesc {
-    pub projection: ProjectionKind, // Pinhole               → intrinsics block (dim 4)
-    pub distortion: DistortionKind, // None | BrownConrady5  → distortion block (dim 0 | 5)
-    pub sensor: SensorKind,         // None | Scheimpflug2   → sensor block (dim 0 | 2)
+pub struct CameraModelSpec {
+    pub projection: ProjectionKind, // Pinhole
+    pub distortion: DistortionKind, // None | BrownConrady5 | Rational8 | ThinPrism9 | Division1
+    pub sensor: SensorKind,         // Identity | Scheimpflug
 }
 ```
 
-A slot with dimension 0 contributes **no parameter block**. The expected
-layout of every factor is therefore derived, never hand-listed:
+A slot whose kind has no parameters contributes **no parameter block**. The
+expected layout of every factor is therefore derived, never hand-listed:
 
 ```text
-[intrinsics, distortion?, sensor?, <chain blocks…>]
+[intrinsics, projection?, distortion?, sensor?, <chain blocks…>]
 ```
 
 `FactorKind::param_layout()` returns this layout as
 `Vec<ParamSlotSpec { dim, manifold, role }>`, and `ProblemIR::validate`
-checks each referenced block against it. Common descriptors are available as
-constants: `CameraModelDesc::PINHOLE4`, `::PINHOLE4_DIST5`,
-`::PINHOLE4_DIST5_SCHEIMPFLUG2`.
+checks each referenced block against it.
 
-Each descriptor maps to zero-sized **kernel types** (one per slot) whose
-static methods are generic over the autodiff scalar `T: RealField`. The
-backend matches the descriptor once per factor and monomorphizes the residual
-over the kernels — there is no per-evaluation dispatch on the camera-model
-axis.
+Evaluation dispatches per slot through the kind's own methods in
+`vision-calibration-core` (`ProjectionKind::project`,
+`DistortionKind::distort`, `SensorKind::to_sensor`, generic over the autodiff
+scalar `T: RealField`), so the optimizer holds no camera math: a new camera
+model is a new kind variant in core, not a new factor.
 
 ## Reprojection Chains
 
@@ -58,7 +56,7 @@ where $L$ (`ReprojSqrtInfo`) is $\sqrt{w}\,I$ for a point without a stated
 covariance, or the upper-triangular square root of $\Sigma^{-1}$ ($L^\top L =
 \Sigma^{-1}$) for a point stating the covariance $\Sigma$, times $\sqrt{w}$ for a
 family weight $w$; one problem holds one kind or the other. $\pi$ is the camera
-model selected by the descriptor and
+model selected by the spec and
 $\mathbf{P}_c$ comes from the chain:
 
 ### `ReprojChain::SinglePose`
@@ -84,7 +82,7 @@ where `extrinsics` maps camera → rig and `pose` maps target → rig.
 
 **Chain blocks**: `[extrinsics(7), handeye(7), target(7)]`
 
-**Chain data**: the measured robot pose $T_{B,G}$ and the [`HandeyeMode`].
+**Chain data**: the measured robot pose $T_{B,G}$ and the `HandeyeMode`.
 
 Eye-in-hand:
 $$T_{C,T} = T_{\text{extr}}^{-1} \cdot T_{\text{handeye}}^{-1} \cdot T_{B,G}^{-1} \cdot T_{\text{target}}$$
@@ -175,7 +173,7 @@ $$\mathbf{r} = \operatorname{diag}(\mathbf{s}) \cdot \boldsymbol{\xi} \in \mathb
 | `LaserLineDistance` | camera blocks + 3–6 chain blocks | 1 | pixels |
 | `Se3TangentPrior` | 1 | 6 | normalized |
 
-Camera blocks = 1 (intrinsics) + 1 if the descriptor has distortion + 1 if it
-has a sensor. For example, `ReprojPoint` with `PINHOLE4_DIST5_SCHEIMPFLUG2`
-and `HandeyeRobotDelta` connects 7 blocks:
+Camera blocks = 1 (intrinsics) + 1 for each of projection, distortion and
+sensor whose kind has parameters. For example, `ReprojPoint` with a pinhole,
+Brown-Conrady, Scheimpflug camera and `HandeyeRobotDelta` connects 7 blocks:
 `[intrinsics, distortion, sensor, extrinsics, handeye, target, robot_delta]`.

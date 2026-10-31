@@ -1,6 +1,6 @@
 # Running Calibrations
 
-The **Run calibration** workspace (`⌘5`) drives a calibration end to end without leaving the app: choose a dataset, review the manifest and the configuration, click **Run**. It runs any of the eight problem types and all four target detectors; the manifest it edits is the [dataset manifest](manifest.md).
+The **Run calibration** workspace (`⌘5`) drives a calibration end to end without leaving the app: choose a dataset, review the manifest and the configuration, click **Run**. It runs any of the seven problem types and all four target detectors; the manifest it edits is the [dataset manifest](manifest.md).
 
 ## Choosing a Dataset
 

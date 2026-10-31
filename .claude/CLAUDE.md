@@ -26,7 +26,7 @@ Hold every change to a high design bar, and keep the workspace from
 drifting into undisciplined, copy-paste code:
 
 - **SOLID** — one responsibility per type/module; extend behavior through
-  traits (`Detector`, `ProblemType`, the camera-model kernels, the solver
+  traits (`Detector`, `ProblemType`, the camera-model kinds, the solver
   backends), not by editing parallel match arms; depend on abstractions,
   not concretions.
 - **DRY / single source of truth** — one canonical definition per concept.

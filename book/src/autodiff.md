@@ -20,7 +20,7 @@ For multi-variable functions, **hyper-dual numbers** or **multi-dual numbers** g
 
 All residual functions in calibration-rs are written **generic over the scalar type**:
 
-A simplified pinhole + Brown-Conrady reprojection residual looks like this (the shipped kernels, such as `reproj_residual_model_generic`, additionally take the camera-model chain as data):
+A simplified pinhole + Brown-Conrady reprojection residual looks like this (the shipped residuals additionally take the camera model and pose chain as data):
 
 ```rust
 fn reproj_residual_generic<T: RealField>(
@@ -33,7 +33,7 @@ fn reproj_residual_generic<T: RealField>(
 ) -> SVector<T, 2>
 ```
 
-When called with `T = f64`, this computes the residual value. When called with `T = DualNumber`, it simultaneously computes the residual and its derivatives with respect to all parameters.
+When called with `T = f64`, this computes the residual value. When called with a dual-number type `T`, it simultaneously computes the residual and its derivatives with respect to all parameters.
 
 ### Design Rules for Autodiff-Compatible Code
 
@@ -99,15 +99,12 @@ Every arithmetic operation on `T` values propagates derivatives automatically th
 
 ## Backend Integration
 
-Each backend wraps the generic residual function in its own residual type, choosing the kernel types from the factor's camera descriptor through one shared dispatch table:
+Each backend wraps the same generic residual function in its own residual type. The factor carries its camera model as data, and the residual evaluates it per slot through the core camera-model kinds:
 
 ```
-FactorKind::ReprojPoint { model: PINHOLE4_DIST5, chain: SinglePose, pw, uv, w }
-    ↓ (compile step — kernel types selected from the descriptor)
-residual(params) =
-    reproj_residual_model_generic::<PinholeKernel, BrownConrady5Kernel, IdentitySensorKernel, T>(
-        chain, params, pw, uv, w,
-    )
+FactorKind::ReprojPoint { model: pinhole + Brown-Conrady, chain: SinglePose, pw, uv, sqrt_info }
+    ↓ (compile step)
+residual(params) = reproj_residual(model, chain, params, pw, uv, sqrt_info)
 ```
 
 Both evaluate it with dual numbers to get residuals and Jacobians in one pass. tiny-solver's duals have a dynamic size; factrs' are sized at compile time to the factor's tangent dimension (for example 15 for a Brown-Conrady camera and one SE(3) pose), so they live on the stack.

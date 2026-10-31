@@ -2,17 +2,17 @@
 
 Multiple-view geometry tools for calibrated cameras.
 
-This crate builds on `vision-geometry` and adds higher-level multi-view
-operations: calibrated relative pose recovery, cheirality checks, robust
-estimation wrappers, and triangulation helpers with diagnostics.
+This crate builds on `vision-geometry` and adds the multi-view pipelines over
+already-calibrated cameras.
 
 ## Capabilities
 
-- Relative pose recovery from calibrated 2D correspondences
-- Cheirality-based essential matrix disambiguation
-- Robust essential and homography estimation helpers
-- Triangulation helpers and geometric residual utilities
-- Convenience re-exports of low-level solvers from `vision-geometry`
+- Relative pose recovery with cheirality disambiguation, and robust essential
+  and homography estimation
+- N-view triangulation with diagnostics
+- Bundle adjustment (behind the `refine` feature)
+- Scheimpflug-aware stereo rectification
+- Dense stereo: block matching and semi-global matching
 
 ## Coordinate Conventions
 
@@ -49,3 +49,4 @@ println!("translation direction = {:?}", pose.t);
 - `vision-geometry` for low-level deterministic solvers
 - `vision-calibration-linear` for calibration-specific initialization
 - `vision-calibration` for the high-level facade API
+- [Book: Multiple-View Geometry](https://vitalyvorobyev.github.io/calibration-rs/mvg.html)

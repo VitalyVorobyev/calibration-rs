@@ -555,7 +555,7 @@ pub enum FactorKind {
     /// Parameters: the camera blocks implied by `model`, then the chain
     /// blocks implied by `chain` (which include the laser-plane blocks).
     ///
-    /// Residual: 1D signed distance in meters, scaled by `w`.
+    /// Residual: 1D signed distance in meters, scaled by `√w`.
     LaserPointToPlane {
         /// Camera model descriptor.
         model: CameraModelSpec,
@@ -574,7 +574,7 @@ pub enum FactorKind {
     ///
     /// Parameters: identical layout to [`FactorKind::LaserPointToPlane`].
     ///
-    /// Residual: 1D distance in pixels, scaled by `w`.
+    /// Residual: 1D distance in pixels, scaled by `√w`.
     LaserLineDistance {
         /// Camera model descriptor.
         model: CameraModelSpec,

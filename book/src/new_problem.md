@@ -6,7 +6,7 @@ This chapter walks through adding a new optimization problem to `vision-calibrat
 
 Most new problems compose the **existing** factor families (`ReprojPoint`,
 `LaserPointToPlane`, `LaserLineDistance`, `Se3TangentPrior`) with a
-`CameraModelDesc` and a chain — in that case skip straight to Step 3 and emit
+`CameraModelSpec` and a chain — in that case skip straight to Step 3 and emit
 the existing factors from your builder. The steps below cover the rarer case
 of a genuinely **new residual family**:
 
@@ -16,8 +16,9 @@ of a genuinely **new residual family**:
 4. Integrate with both backends (`backend/tiny_solver_backend.rs` and `backend/factrs_backend/`)
 5. Write tests with synthetic ground truth
 
-(Adding a new **camera model** is a different, smaller recipe: one descriptor
-enum variant + one kernel type + one dispatch-table row; see the
+(Adding a new **camera model** is a different, smaller recipe: a variant of
+the relevant kind enum in `vision-calibration-core` with its parameter names
+and its evaluation method; no optimizer change. See the
 [Factor Catalog](factor_catalog.md).)
 
 ## Step 1: Generic Residual Function
@@ -169,9 +170,9 @@ FactorKind::MyNewFactor { constant_data, w } => Ok((
 )),
 ```
 
-If the new family is camera-model-aware, make the struct generic over the
-kernel types and construct it through the `dispatch_camera_model!` table the
-way `TinyReprojFactor<P, D, S>` is.
+If the new family is camera-model-aware, carry a `CameraModelSpec` in the
+factor and evaluate the camera through `CameraBlocks`, the way
+`TinyReprojFactor` does.
 
 In `backend/factrs_backend/residuals.rs`, add the factrs residual: a struct
 implementing factrs' `Residual` and the `ResidualN` trait for its variable
