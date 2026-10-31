@@ -36,10 +36,12 @@ The defaults:
 
 ### Scheimpflug-Specific Defaults
 
-A Scheimpflug sensor (`camera.model.sensor = SensorKind::Scheimpflug`) changes two defaults, both because the sensor tilt couples with distortion:
+A Scheimpflug sensor (`camera.model.sensor = SensorKind::Scheimpflug`) changes two things, both because the sensor tilt couples with distortion:
 
-- `init.fix_tangential` resolves to `true` (it is `false` for an untilted camera): a free tangential term is ill-posed in the linear stage on a tilted sensor.
 - The default distortion fix list keeps only `k1`, `k2` (or `lambda`) free: the tilt can absorb tangential-distortion-like signal, so leaving `p1` and `p2` free overfits.
+- The linear stage holds `p1` and `p2` at zero while the tilt is estimated, even when the fix list frees them: a free tangential term is ill-posed next to the tilt in the linear fit. The non-linear solve, which separates them, then moves them.
+
+In every workflow the linear stage fits only the distortion terms the camera's solves estimate: a term the fix list holds stays at zero from the start, rather than at a linear fit the later solves would keep.
 
 The tilt itself is the `sensor` slot of the same fix list (`camera.fix.sensor = Some(vec!["tilt_y".into()])` holds `tilt_y`), since the tilt is a sensor parameter, not a distortion one.
 

@@ -879,33 +879,27 @@ ImagePattern: TypeAlias = ImagePattern_Glob | ImagePattern_List
 """How image paths for a camera are listed."""
 
 
-class _IntrinsicsInitConfigRequired(TypedDict):
-    """The keys of `IntrinsicsInitConfig` that every payload has."""
-
-    fix_k3: bool
-    """Fix k3 during initialization (recommended for typical lenses)."""
-
-    iterations: int
-    """Number of iterations for iterative intrinsics estimation."""
-
-
-class IntrinsicsInitConfig(_IntrinsicsInitConfigRequired, total=False):
+class IntrinsicsInitConfig(TypedDict):
     """Per-camera linear-initialization stage (Zhang's method + iterative
     Brown-Conrady distortion fit).
 
     Shared by every intrinsics-bearing problem's `init` config group.
     """
 
-    fix_tangential: bool | None
-    """Fix tangential distortion (p1, p2) during initialization.
+    fix_k3: bool
+    """Hold `k3` at zero in the linear stage even where the camera's
+    non-linear solves estimate it (default `true`: a sixth-order term
+    fitted linearly overfits typical data, and the solve that frees it
+    starts it from zero).
 
-    `None` (the default) takes the camera's default, in every workflow
-    and for each camera of a rig: `true` for a Scheimpflug sensor and
-    `false` otherwise. A tangential term and a sensor tilt trade off, so
-    a linear stage that fits one on a tilted camera fits a spurious
-    value; the camera's default fix list then holds it in every
-    non-linear solve, where it displaces the tilt and principal point.
+    Which terms the linear stage fits otherwise follows the camera
+    (`Self::distortion_fit_opts`): a term the camera holds fixed, or its
+    model lacks, stays at zero, and so do the tangential terms of a
+    camera whose tilt is estimated.
     """
+
+    iterations: int
+    """Number of iterations for iterative intrinsics estimation."""
 
 
 class IntrinsicsManualInit(TypedDict, total=False):
@@ -1109,8 +1103,9 @@ class _LaserlineDeviceConfigRequired(TypedDict):
     """The keys of `LaserlineDeviceConfig` that every payload has."""
 
     init: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. `init.fix_tangential`
-    defaults to `true` for a Scheimpflug sensor and `false` otherwise.
+    """Per-camera linear-initialization stage settings. The linear stage
+    fits only the distortion terms the bundle adjustment estimates
+    (`Self::effective_fix`).
     """
 
     optimize: DeviceOptimizeConfig
@@ -1384,8 +1379,8 @@ class _PlanarIntrinsicsConfigRequired(TypedDict):
     """
 
     init: IntrinsicsInitConfig
-    """Linear-initialization stage settings. `init.fix_tangential` defaults
-    to `true` for a Scheimpflug sensor and `false` otherwise.
+    """Linear-initialization stage settings. The linear stage fits only the
+    distortion terms the camera's solves estimate.
     """
 
     solver: SolverConfig
@@ -1889,9 +1884,8 @@ class _RigExtrinsicsConfigRequired(TypedDict):
     """The keys of `RigExtrinsicsConfig` that every payload has."""
 
     intrinsics: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. An unset
-    `fix_tangential` holds the tangential terms of each Scheimpflug camera
-    and keeps them free for every other camera.
+    """Per-camera linear-initialization stage settings. The linear stage
+    fits only the distortion terms each camera's solves estimate.
     """
 
     rig: RigConfig
@@ -2003,9 +1997,8 @@ class _RigHandeyeConfigRequired(TypedDict):
     """Final hand-eye bundle-adjustment options."""
 
     intrinsics: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. An unset
-    `fix_tangential` holds the tangential terms of each Scheimpflug camera
-    and keeps them free for every other camera.
+    """Per-camera linear-initialization stage settings. The linear stage
+    fits only the distortion terms each camera's solves estimate.
     """
 
     rig: RigConfig
@@ -2719,8 +2712,8 @@ class _SingleCamHandeyeConfigRequired(TypedDict):
     """Hand-eye linear-initialization stage settings (Tsai-Lenz DLT)."""
 
     intrinsics: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. `fix_tangential`
-    defaults to `true` for a Scheimpflug sensor and `false` otherwise.
+    """Per-camera linear-initialization stage settings. The linear stage
+    fits only the distortion terms the camera's solves estimate.
     """
 
     robot_poses: RobotPoseConfig

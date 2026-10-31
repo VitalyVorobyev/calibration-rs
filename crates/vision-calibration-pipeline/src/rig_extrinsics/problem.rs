@@ -48,9 +48,8 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigExtrinsicsConfig {
-    /// Per-camera linear-initialization stage settings. An unset
-    /// `fix_tangential` holds the tangential terms of each Scheimpflug camera
-    /// and keeps them free for every other camera.
+    /// Per-camera linear-initialization stage settings. The linear stage
+    /// fits only the distortion terms each camera's solves estimate.
     pub intrinsics: IntrinsicsInitConfig,
 
     /// The camera model of every rig camera and the parameters its solves

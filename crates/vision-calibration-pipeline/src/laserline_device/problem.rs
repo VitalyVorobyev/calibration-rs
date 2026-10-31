@@ -36,8 +36,9 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct LaserlineDeviceConfig {
-    /// Per-camera linear-initialization stage settings. `init.fix_tangential`
-    /// defaults to `true` for a Scheimpflug sensor and `false` otherwise.
+    /// Per-camera linear-initialization stage settings. The linear stage
+    /// fits only the distortion terms the bundle adjustment estimates
+    /// ([`Self::effective_fix`]).
     pub init: IntrinsicsInitConfig,
     /// The camera model and the parameters the bundle adjustment holds
     /// fixed. Any distortion kind, and an identity or Scheimpflug sensor;
@@ -112,20 +113,17 @@ impl LaserlineDeviceConfig {
         self.camera.model.sensor == SensorKind::Scheimpflug && self.camera.fix.sensor.is_none()
     }
 
-    /// Convert to vision-calibration-linear initialization options. An unset
-    /// `init.fix_tangential` holds the tangential terms when the tilt is
-    /// estimated, since they trade off against it; a held tilt initializes
-    /// the camera as an untilted one.
+    /// Convert to vision-calibration-linear initialization options. The
+    /// linear stage fits only the distortion terms the bundle adjustment
+    /// estimates ([`Self::effective_fix`]): with the tilt estimated, the
+    /// default list holds the tangential terms, which trade off against it;
+    /// with the tilt held, they are free.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        let model = if self.holds_tilt() {
-            CameraModelSpec {
-                sensor: SensorKind::Identity,
-                ..self.camera.model
-            }
-        } else {
-            self.camera.model
+        let camera = CameraConfig {
+            model: self.camera.model,
+            fix: self.effective_fix(),
         };
-        self.init.iterative_opts(None, model)
+        self.init.iterative_opts(None, &camera)
     }
 
     /// The fix lists the bundle adjustment applies. A held tilt (see
@@ -553,6 +551,30 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("tilt_x"), "{err}");
+    }
+
+    #[test]
+    fn the_linear_stage_fits_only_what_the_bundle_adjustment_estimates() {
+        use vision_calibration_core::DistortionKind;
+        let tangential_held =
+            |config: &LaserlineDeviceConfig| config.init_opts().distortion_opts.fix_tangential;
+        // A frontal camera: free by default, held when its fix list holds them.
+        let mut config = LaserlineDeviceConfig::default();
+        assert!(!tangential_held(&config));
+        config.camera.fix.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
+        assert!(tangential_held(&config));
+        // A tilted device holds its tilt by default, so the tangential terms
+        // follow the untilted default list; estimating the tilt holds them.
+        let mut config = LaserlineDeviceConfig {
+            camera: CameraConfig::new(CameraModelSpec::pinhole(
+                DistortionKind::BrownConrady5,
+                SensorKind::Scheimpflug,
+            )),
+            ..LaserlineDeviceConfig::default()
+        };
+        assert!(!tangential_held(&config));
+        config.camera.fix.sensor = Some(Vec::new());
+        assert!(tangential_held(&config));
     }
 
     #[test]

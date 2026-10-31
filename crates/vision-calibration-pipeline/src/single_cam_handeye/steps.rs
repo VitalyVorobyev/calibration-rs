@@ -239,7 +239,9 @@ pub fn step_intrinsics_init_with_seed(
     }
     note("target_poses", manual.target_poses.is_some());
 
-    let init_opts = config.intrinsics.iterative_opts(opts.iterations, model);
+    let init_opts = config
+        .intrinsics
+        .iterative_opts(opts.iterations, &config.camera);
     let planar_dataset = input_to_planar_dataset(input)?;
     let seed = CameraSeed {
         intrinsics: manual.intrinsics,

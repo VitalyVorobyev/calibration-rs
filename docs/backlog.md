@@ -101,15 +101,6 @@ scenes are the gate) and the regression suite.
   ≤ 4.7 px and ≤ 0.3° (about 1σ). It changes every robust-loss cold-start
   and rig Scheimpflug result, so check the acceptance runs.
   Gate: `rig_extrinsics/scheimpflug/*/{huber,cauchy}` within 3σ of the truth.
-- [ ] Q-TANGENTIAL-ONE-SOURCE - Whether the tangential terms are estimated
-  has two settings: `camera.fix.distortion` (the non-linear solves) and
-  `intrinsics.fix_tangential` / `init.fix_tangential` (the linear stage).
-  A camera whose `camera.fix` holds `p1`, `p2` while `fix_tangential` is
-  unset gets them fitted in the linear stage and then frozen at that value,
-  the fault that held tilted rig cameras off their minimum. Derive the
-  linear stage's choice from the camera's fix list and drop
-  `fix_tangential` (breaking, with a migration note). Gate: a camera holding
-  `p1`, `p2` keeps them at zero through every stage, in every workflow.
 
 - [ ] Q-SCHEIMPFLUG-TILE-BOUND - On every `scheimpflug_rig` tile, the
   single-camera seeded planar solve ends with `tilt_x` at its ±0.10 rad

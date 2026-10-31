@@ -102,9 +102,8 @@ and `optimize` groups the laser-specific bundle-adjustment settings:
 pub struct LaserlineDeviceConfig {
     // Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
-    // { iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug
-    //   sensor, false otherwise)
+    // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
+    //   distortion terms the bundle adjustment estimates
 
     // The camera model (any distortion kind, an identity or Scheimpflug
     // sensor) and the parameters the bundle adjustment holds fixed, named per

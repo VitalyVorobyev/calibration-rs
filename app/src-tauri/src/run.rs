@@ -1435,7 +1435,6 @@ mod tests {
         // Same overrides the scheimpflug_rig_calibrate example settled on; every one is
         // plain config JSON, i.e. reachable from the app's config form.
         let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
-        handeye_config["intrinsics"]["fix_tangential"] = json!(true);
         handeye_config["manual_init"] = scheimpflug_rig_manual_intrinsics_init();
         handeye_config["camera"] = json!({
             "model": {

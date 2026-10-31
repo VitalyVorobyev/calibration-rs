@@ -63,20 +63,20 @@ pub(crate) struct RigIntrinsicsBootstrap {
 /// (Zhang's method; for a Scheimpflug sensor, the tilted variant that also
 /// estimates the tilt). The linear stage fits Brown-Conrady coefficients,
 /// embedded into each camera's distortion model (extra coefficients start
-/// at zero), with `init`'s options resolved for each camera's model
-/// ([`IntrinsicsInitConfig::iterative_opts`]; `iterations` overrides
-/// `init.iterations`). Per-camera target poses are recovered from per-camera
+/// at zero), with `init`'s options resolved for each camera
+/// ([`IntrinsicsInitConfig::iterative_opts`]: only the terms the camera's
+/// solves estimate are fitted; `iterations` overrides `init.iterations`). Per-camera target poses are recovered from per-camera
 /// homographies using whichever intrinsics were chosen.
 ///
 /// # Errors
 ///
-/// - `models` or any per-camera seed disagrees with the camera count, or a
+/// - Any per-camera seed disagrees with the camera count, or a
 ///   non-zero tilt seed is given for an untilted camera.
 /// - A camera has fewer than 3 valid views.
 /// - DLT homography or pose recovery fails on any view.
 /// - Iterative intrinsics estimation fails (auto-fit only).
 pub(crate) fn bootstrap_rig_intrinsics<F>(
-    models: &[CameraModelSpec],
+    camera_configs: &[CameraConfig],
     num_views: usize,
     extract_views: F,
     seeds: RigIntrinsicsSeeds,
@@ -86,9 +86,10 @@ pub(crate) fn bootstrap_rig_intrinsics<F>(
 where
     F: Fn(usize) -> Vec<Option<View<NoMeta>>>,
 {
+    let models: Vec<CameraModelSpec> = camera_configs.iter().map(|c| c.model).collect();
     let num_cameras = models.len();
-    validate_seeds(&seeds, models)?;
-    let (manual_fields, auto_fields) = classify_seed_provenance(&seeds, models);
+    validate_seeds(&seeds, &models)?;
+    let (manual_fields, auto_fields) = classify_seed_provenance(&seeds, &models);
 
     let mut cameras = Vec::with_capacity(num_cameras);
     let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
@@ -104,7 +105,7 @@ where
             distortion: seeds.per_cam_distortion.as_ref().map(|s| s[cam_idx]),
             sensor: seeds.per_cam_sensors.as_ref().map(|s| s[cam_idx]),
         };
-        let init_opts = init.iterative_opts(iterations, *model);
+        let init_opts = init.iterative_opts(iterations, &camera_configs[cam_idx]);
         let camera_bootstrap =
             bootstrap_camera(cam_idx, *model, &planar_dataset, &seed, init_opts)?;
 
@@ -427,12 +428,18 @@ mod tests {
         (per_cam_views, base.k, num_views)
     }
 
-    fn untilted() -> CameraModelSpec {
-        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity)
+    fn untilted() -> CameraConfig {
+        CameraConfig::new(CameraModelSpec::pinhole(
+            DistortionKind::BrownConrady5,
+            SensorKind::Identity,
+        ))
     }
 
-    fn tilted() -> CameraModelSpec {
-        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug)
+    fn tilted() -> CameraConfig {
+        CameraConfig::new(CameraModelSpec::pinhole(
+            DistortionKind::BrownConrady5,
+            SensorKind::Scheimpflug,
+        ))
     }
 
     #[test]
@@ -449,7 +456,12 @@ mod tests {
         .expect("bootstrap");
 
         assert_eq!(result.cameras.len(), 2);
-        assert!(result.cameras.iter().all(|c| c.spec() == Some(untilted())));
+        assert!(
+            result
+                .cameras
+                .iter()
+                .all(|c| c.spec() == Some(untilted().model))
+        );
         assert_eq!(result.per_cam_target_poses.len(), num_views);
         for cam in &result.cameras {
             let k = cam.intrinsics;
@@ -482,7 +494,12 @@ mod tests {
 
         assert_eq!(result.cameras.len(), 2);
         let sensors: Vec<ScheimpflugParams> = result.cameras.iter().map(rig_tilt).collect();
-        assert!(result.cameras.iter().all(|c| c.spec() == Some(tilted())));
+        assert!(
+            result
+                .cameras
+                .iter()
+                .all(|c| c.spec() == Some(tilted().model))
+        );
         // Auto-fitted sensors are estimated from the Scheimpflug-aware bootstrap.
         for s in &sensors {
             assert!(s.tilt_x.is_finite());
@@ -514,16 +531,16 @@ mod tests {
             tilt_y: -0.03,
         };
         let (per_cam_views, _, num_views) = scheimpflug_two_camera_views(sensor);
-        let tangential = |init: &IntrinsicsInitConfig| -> Vec<(Real, Real)> {
+        let tangential = |camera: CameraConfig| -> Vec<(Real, Real)> {
             bootstrap_rig_intrinsics(
-                &[tilted(), tilted()],
+                &[camera.clone(), camera],
                 num_views,
                 |cam_idx| per_cam_views[cam_idx].clone(),
                 RigIntrinsicsSeeds {
                     per_cam_sensors: Some(vec![sensor, sensor]),
                     ..Default::default()
                 },
-                init,
+                &IntrinsicsInitConfig::default(),
                 None,
             )
             .expect("bootstrap")
@@ -537,17 +554,13 @@ mod tests {
         };
         // Held at zero: the camera's default fix list keeps them there in
         // every later solve, so a fitted value would stay frozen.
-        assert!(
-            tangential(&IntrinsicsInitConfig::default())
-                .iter()
-                .all(|&p| p == (0.0, 0.0))
-        );
-        // An explicit setting wins.
-        let free = IntrinsicsInitConfig {
-            fix_tangential: Some(false),
-            ..IntrinsicsInitConfig::default()
-        };
-        assert!(tangential(&free).iter().any(|&p| p != (0.0, 0.0)));
+        assert!(tangential(tilted()).iter().all(|&p| p == (0.0, 0.0)));
+        // Once the tilt is held (here at its seed), a camera whose solves
+        // estimate them gets them fitted.
+        let mut free = tilted();
+        free.fix.distortion = Some(Vec::new());
+        free.fix.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);
+        assert!(tangential(free).iter().any(|&p| p != (0.0, 0.0)));
     }
 
     #[test]
@@ -647,9 +660,12 @@ mod tests {
     #[test]
     fn bootstrap_mixes_lenses_per_camera() {
         let (per_cam_views, _, num_views) = pinhole_two_camera_views();
-        let division = CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity);
+        let division = CameraConfig::new(CameraModelSpec::pinhole(
+            DistortionKind::Division1,
+            SensorKind::Identity,
+        ));
         let result = bootstrap_rig_intrinsics(
-            &[untilted(), division],
+            &[untilted(), division.clone()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
             RigIntrinsicsSeeds::default(),
@@ -657,8 +673,8 @@ mod tests {
             None,
         )
         .expect("bootstrap");
-        assert_eq!(result.cameras[0].spec(), Some(untilted()));
-        assert_eq!(result.cameras[1].spec(), Some(division));
+        assert_eq!(result.cameras[0].spec(), Some(untilted().model));
+        assert_eq!(result.cameras[1].spec(), Some(division.model));
         // Only a Scheimpflug camera reports a tilt seed.
         assert!(!result.auto_fields.contains(&"per_cam_sensors"));
     }
@@ -705,12 +721,14 @@ mod tests {
 
     #[test]
     fn rig_ba_fix_follows_the_stage_flags() {
-        let camera = CameraConfig::new(tilted());
+        let camera = tilted();
         let held = rig_ba_fix(&camera, false, false);
-        let resolved = held.resolve(tilted()).unwrap();
+        let resolved = held.resolve(camera.model).unwrap();
         assert_eq!(resolved.intrinsics, vec![0, 1, 2, 3]);
         assert_eq!(resolved.sensor, vec![0, 1]);
-        let refined = rig_ba_fix(&camera, true, true).resolve(tilted()).unwrap();
+        let refined = rig_ba_fix(&camera, true, true)
+            .resolve(camera.model)
+            .unwrap();
         assert!(refined.intrinsics.is_empty());
         assert_eq!(refined.distortion, vec![2, 3, 4]);
         assert!(refined.sensor.is_empty());

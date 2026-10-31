@@ -1195,7 +1195,6 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
 
         let mut seeded = entry.clone();
         seeded.seed = Some(scheimpflug_rig_nominal_seed(entry));
-        set_rig_fix_tangential(&mut seeded, true);
         cases.push(("manual_seed_fx2000_centered", seeded));
 
         for threshold in [20.0_f32, 30.0, 40.0] {
@@ -1251,19 +1250,11 @@ fn set_chess_threshold(entry: &mut BenchEntry, threshold: f32) {
     });
 }
 
-fn set_rig_fix_tangential(entry: &mut BenchEntry, fix_tangential: bool) {
-    let overrides = entry
-        .rig_handeye
-        .get_or_insert_with(RigHandeyeOverride::default);
-    overrides.fix_tangential = Some(fix_tangential);
-}
-
 fn set_rig_distortion_and_tilt_masks(
     entry: &mut BenchEntry,
     fix_tangential: bool,
     fix_scheimpflug: bool,
 ) {
-    set_rig_fix_tangential(entry, fix_tangential);
     let overrides = entry
         .rig_handeye
         .get_or_insert_with(RigHandeyeOverride::default);

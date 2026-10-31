@@ -57,10 +57,13 @@ class DistortionModelSchemaTest(unittest.TestCase):
         # Planar solves default to 120 iterations (the tilt valley needs headroom).
         self.assertEqual(payload["solver"]["max_iters"], 120)
 
-    def test_init_omits_unset_fix_tangential(self) -> None:
-        self.assertNotIn("fix_tangential", vc.IntrinsicsInitConfig().to_payload())
-        explicit = vc.IntrinsicsInitConfig(fix_tangential=False).to_payload()
-        self.assertIs(explicit["fix_tangential"], False)
+    def test_init_has_no_tangential_setting(self) -> None:
+        # The camera's fix lists decide the linear stage's tangential terms.
+        self.assertEqual(
+            vc.IntrinsicsInitConfig().to_payload(), {"iterations": 2, "fix_k3": True}
+        )
+        with self.assertRaises(ValueError):
+            vc.IntrinsicsInitConfig.from_mapping({"fix_tangential": True})
 
     def test_planar_distortion_roundtrips_each_model(self) -> None:
         for model in ("none", "brown_conrady5", "rational8", "thin_prism9", "division1"):

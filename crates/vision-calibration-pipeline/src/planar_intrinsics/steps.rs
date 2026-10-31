@@ -482,7 +482,7 @@ fn init_tilted(
                 distortion_opts: session
                     .config
                     .init
-                    .distortion_fit_opts(session.config.camera.model),
+                    .distortion_fit_opts(&session.config.camera),
                 ..Default::default()
             },
         )

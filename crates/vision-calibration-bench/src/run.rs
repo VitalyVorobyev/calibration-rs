@@ -458,7 +458,6 @@ pub mod tier_b {
         }
         if config.manual_init.is_none() && entry.id == "scheimpflug_rig" {
             config.manual_init = Some(scheimpflug_rig_manual_intrinsics_seed(spec));
-            config.intrinsics.fix_tangential = Some(true);
         }
         Ok(config)
     }

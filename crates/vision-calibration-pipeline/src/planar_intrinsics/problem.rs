@@ -82,8 +82,8 @@ const DEFAULT_MAX_ITERS: usize = 120;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct PlanarIntrinsicsConfig {
-    /// Linear-initialization stage settings. `init.fix_tangential` defaults
-    /// to `true` for a Scheimpflug sensor and `false` otherwise.
+    /// Linear-initialization stage settings. The linear stage fits only the
+    /// distortion terms the camera's solves estimate.
     pub init: IntrinsicsInitConfig,
 
     /// Non-linear solve stage settings. `solver.max_iters` defaults to 120,
@@ -127,7 +127,7 @@ impl PlanarIntrinsicsConfig {
 
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        self.init.iterative_opts(None, self.camera.model)
+        self.init.iterative_opts(None, &self.camera)
     }
 
     /// Convert to vision-calibration-optim solve options.
@@ -436,7 +436,6 @@ mod tests {
             init: IntrinsicsInitConfig {
                 iterations: 5,
                 fix_k3: true,
-                fix_tangential: Some(true),
             },
             ..Default::default()
         };
@@ -444,7 +443,7 @@ mod tests {
         let opts = config.init_opts();
         assert_eq!(opts.iterations, 5);
         assert!(opts.distortion_opts.fix_k3);
-        assert!(opts.distortion_opts.fix_tangential);
+        assert!(!opts.distortion_opts.fix_tangential);
     }
 
     #[test]
@@ -771,12 +770,16 @@ mod tests {
     }
 
     #[test]
-    fn scheimpflug_sensor_defaults_fix_tangential_in_the_linear_stage() {
+    fn the_linear_stage_holds_the_tangential_terms_the_camera_holds() {
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.camera.fix.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
+        assert!(config.init_opts().distortion_opts.fix_tangential);
+        // A tilted camera holds them while its tilt is estimated.
         let mut config = PlanarIntrinsicsConfig::default();
         config.camera.model.sensor = SensorKind::Scheimpflug;
         assert!(config.init_opts().distortion_opts.fix_tangential);
-        config.init.fix_tangential = Some(false);
-        assert!(!config.init_opts().distortion_opts.fix_tangential);
+        config.camera.fix.distortion = Some(vec!["k3".into()]);
+        assert!(config.init_opts().distortion_opts.fix_tangential);
     }
 
     #[test]
