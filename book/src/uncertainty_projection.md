@@ -30,6 +30,14 @@ heatmap = p.grid()  # 12 rows of 16 values, top row first
 `camera` is the camera index (0 for a single camera). A node no ray reaches,
 as where a strong distortion folds the image over, has no value.
 
+For the whole ellipse at pixels of your choice, `projection_covariance`
+returns `J Σ Jᵀ` itself, in px², one entry per pixel (`None` where no ray
+reaches it). It is Rust only:
+
+```rust
+let ellipses = export.projection_covariance(0, &[[640.0, 512.0], [10.0, 10.0]])?;
+```
+
 Reading the map:
 
 - **Where the views were.** σ is smallest where the board covered the

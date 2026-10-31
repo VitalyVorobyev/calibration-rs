@@ -425,6 +425,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a requested covariance is missing or unusable on an image (typically JPEG
   input with the estimated noise: give `known`), and with
   `RunError::CovarianceUnsupported` for other targets.
+- **Projection covariance at given pixels.**
+  `CalibratedCameras::projection_covariance(camera, pixels)` (implemented by
+  every `*Export`) and `vision_calibration_optim::projection_covariance_at`
+  return the full 2 × 2 covariance, in px², of where the camera-frame ray
+  through each pixel lands, or `None` where no ray reaches the pixel. Its
+  major-axis σ is what `projection_uncertainty` reports, which now computes
+  through it, so its values are unchanged. Rust only.
 - **App: project folders.** A project keeps a dataset's manifest and its
   runs in one folder (`calibration-project.json`, `dataset.json`,
   `runs/run-NNN/` with the run's manifest, config, export and diagnostics).

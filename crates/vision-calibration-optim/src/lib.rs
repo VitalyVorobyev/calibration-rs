@@ -175,7 +175,9 @@ pub use crate::information::{ViewInformation, ViewPose, view_information};
 pub use crate::params::distortion::with_leading_radial;
 pub use crate::params::laser_plane::LaserPlane;
 /// Projection uncertainty of a calibrated camera.
-pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};
+pub use crate::projection::{
+    ProjectionUncertainty, camera_parameters, projection_covariance_at, projection_uncertainty,
+};
 
 pub use crate::params::camera::CameraBounds;
 pub use crate::problems::planar_intrinsics::{

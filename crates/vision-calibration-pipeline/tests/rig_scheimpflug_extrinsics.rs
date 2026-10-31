@@ -144,6 +144,15 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
     // their covariance and projects it.
     let map = export.projection_uncertainty(1, [640, 480]).unwrap();
     assert!(map.max.is_finite() && map.max > 0.0, "{map:?}");
+    // The full 2×2 covariance at the image centre has that σ as its major axis.
+    let centre = export.projection_covariance(1, &[[319.5, 239.5]]).unwrap()[0].unwrap();
+    let major = centre.symmetric_eigenvalues().max().sqrt();
+    assert!(
+        (major - map.center).abs() < 1e-9 * map.center,
+        "{major} vs {}",
+        map.center
+    );
+    assert!(export.projection_covariance(2, &[[0.0, 0.0]]).is_err());
 
     // JSON round-trip.
     let json = serde_json::to_string(&export).unwrap();

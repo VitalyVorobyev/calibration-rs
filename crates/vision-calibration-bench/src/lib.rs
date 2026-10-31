@@ -7,6 +7,8 @@ pub mod basin;
 pub mod dense;
 #[cfg(feature = "tier-b")]
 pub mod detect;
+#[cfg(feature = "tier-b")]
+pub mod feature_cov;
 pub mod manifest;
 pub mod record;
 pub mod registry;

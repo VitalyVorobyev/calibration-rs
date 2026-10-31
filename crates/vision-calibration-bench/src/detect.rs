@@ -54,6 +54,9 @@ pub struct Detected<I> {
     pub image_sizes: Vec<[u32; 2]>,
     /// Wall-clock detection time in milliseconds (cache reads included).
     pub detection_ms: u64,
+    /// Each camera's source images behind its kept observations, in
+    /// manifest camera order.
+    pub image_paths: Vec<Vec<PathBuf>>,
 }
 
 /// Source image paths of a rig dataset's views, `[view][camera]`, `None` where
@@ -81,6 +84,7 @@ pub fn detect_planar(
         image_sizes: image_sizes(spec, &[built.view_paths.iter().collect()])?,
         input: built.input,
         detection_ms,
+        image_paths: vec![built.view_paths],
     })
 }
 
@@ -105,6 +109,7 @@ pub fn detect_single_cam_handeye(
         image_sizes: image_sizes(spec, &[built.view_paths.iter().collect()])?,
         input: built.input,
         detection_ms,
+        image_paths: vec![built.view_paths],
     })
 }
 
@@ -178,6 +183,10 @@ fn rig_detected<M>(
     Ok(Detected {
         detection: detection_stats(spec, board, &counts, total_views, detection_ms),
         image_sizes: image_sizes(spec, &paths)?,
+        image_paths: paths
+            .iter()
+            .map(|p| p.iter().map(|&p| p.clone()).collect())
+            .collect(),
         input,
         detection_ms,
     })
