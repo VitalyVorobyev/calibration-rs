@@ -12,7 +12,7 @@ use vision_calibration_core::{
     compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    HandeyeEstimate, HandeyeMode, RobotPoseMeta, handeye_observer_se3_target,
+    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandeyeParams, RobustLoss, SolveReport};
@@ -221,6 +221,13 @@ pub struct RigHandeyeExport {
     /// Per-view robot pose corrections (if refinement enabled).
     /// Each element is [rx, ry, rz, tx, ty, tz] in se(3).
     pub robot_deltas: Option<Vec<[f64; 6]>>,
+
+    /// The robot's pose error the corrections were weighed with: the
+    /// configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+    /// with `robot_poses.estimate_sigma`. Only present if robot refinement
+    /// was enabled.
+    #[serde(default)]
+    pub robot_pose_sigma: Option<RobotPoseSigma>,
 
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
@@ -462,6 +469,7 @@ impl ProblemType for RigHandeyeProblem {
             base_se3_target,
             gripper_se3_target,
             robot_deltas: output.robot_deltas.clone(),
+            robot_pose_sigma: output.robot_pose_sigma,
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
             per_feature_residuals,
@@ -643,6 +651,7 @@ mod tests {
                 num_iters: 0,
             },
             robot_deltas: None,
+            robot_pose_sigma: None,
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
         }

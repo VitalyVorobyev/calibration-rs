@@ -15,7 +15,8 @@ use vision_calibration_core::{
 use vision_calibration_optim::{
     HandeyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
     RigHandeyeLaserlineEstimate, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView,
-    RigLaserlineDataset, RobustLoss, apply_robot_delta, compute_rig_laserline_feature_residuals,
+    RigLaserlineDataset, RobotPoseSigma, RobustLoss, apply_robot_delta,
+    compute_rig_laserline_feature_residuals,
 };
 
 use crate::rig_family::rig_camera_models;
@@ -243,6 +244,13 @@ pub struct RigHandeyeLaserlineExport {
     pub gripper_se3_target: Option<Iso3>,
     /// Optional optimized robot pose deltas.
     pub robot_deltas: Option<Vec<[Real; 6]>>,
+
+    /// The robot's pose error the corrections were weighed with: the
+    /// configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+    /// with `robot_poses.estimate_sigma`. Only present if robot refinement
+    /// was enabled.
+    #[serde(default)]
+    pub robot_pose_sigma: Option<RobotPoseSigma>,
     /// Mean target reprojection error (pixels).
     pub mean_reproj_error: f64,
     /// Per-camera target reprojection errors (pixels).
@@ -424,6 +432,7 @@ pub(crate) fn export_joint(
         base_se3_target,
         gripper_se3_target,
         robot_deltas: estimate.robot_deltas.clone(),
+        robot_pose_sigma: estimate.robot_pose_sigma,
         mean_reproj_error: estimate.mean_reproj_error_px,
         per_cam_reproj_errors: estimate
             .per_cam_stats

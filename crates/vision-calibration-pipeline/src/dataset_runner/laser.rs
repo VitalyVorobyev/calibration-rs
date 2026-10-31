@@ -1250,6 +1250,7 @@ mod tests {
             base_se3_target: Some(Iso3::translation(0.0, 0.0, 1.0)),
             gripper_se3_target: None,
             robot_deltas: None,
+            robot_pose_sigma: None,
             mean_reproj_error: 0.5,
             per_cam_reproj_errors: vec![0.5; num_cameras],
             per_feature_residuals: PerFeatureResiduals::default(),

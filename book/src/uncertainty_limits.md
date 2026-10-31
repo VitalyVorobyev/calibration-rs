@@ -21,15 +21,17 @@ unobservable together.
 ## Scope
 
 Every workflow reports the uncertainty of its final solve. When a hand-eye
-solve refines the robot poses (the default), the priors' standard deviations
-(`robot_poses.rot_sigma`, `robot_poses.trans_sigma`) are taken as the tool's
-true orientation and position accuracy, weighed against the corner noise the residuals show. The
+solve refines the robot poses (the default), it also estimates the robot's
+orientation and position error from the corrections, weighed against the
+corner noise the residuals show (`robot_poses.estimate_sigma`). The
 estimate is then the maximum-likelihood one and its covariance holds: on
-synthetic eye-in-hand scenes with sub-pixel corners and priors that match
-the robot's error, the normalized errors had an RMS of 0.97–1.04. With loose
-priors the hand-eye and target standard deviations are pessimistic; with
-priors tighter than the robot's real error they are too small, and nothing
-in the residuals says so.
+synthetic eye-in-hand scenes the normalized errors had an RMS of 1.02–1.13,
+from priors that matched the robot's error and from priors ten times too
+tight or too loose. With the estimate off, the configured
+`robot_poses.rot_sigma` and `trans_sigma` are taken as the robot's true
+accuracy: too loose, and the hand-eye and target standard deviations are
+pessimistic; too tight, and they are too small, with nothing in the
+residuals to say so.
 
 Without refinement the robot poses are taken as exact. Their errors then
 show up in the corner residuals, but as an error shared by every corner of a

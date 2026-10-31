@@ -838,6 +838,26 @@
       ],
       "type": "object"
     },
+    "RobotPoseSigma": {
+      "description": "A robot's pose error: the standard deviations of the tool's orientation\nerror about each gripper axis and of its position error along each.",
+      "properties": {
+        "rot_sigma": {
+          "description": "Orientation error, radians.",
+          "format": "double",
+          "type": "number"
+        },
+        "trans_sigma": {
+          "description": "Position error, metres.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rot_sigma",
+        "trans_sigma"
+      ],
+      "type": "object"
+    },
     "SensorParams": {
       "description": "Serializable sensor model parameters.",
       "oneOf": [
@@ -1273,6 +1293,18 @@
         "null"
       ]
     },
+    "robot_pose_sigma": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RobotPoseSigma"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The robot's pose error the corrections were weighed with: the\nconfigured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate\nwith `robot_poses.estimate_sigma`. Only present if robot refinement\nwas enabled."
+    },
     "uncertainty": {
       "$ref": "#/$defs/Uncertainty",
       "default": {
@@ -1295,6 +1327,7 @@
     "base_se3_target",
     "gripper_se3_target",
     "robot_deltas",
+    "robot_pose_sigma",
     "mean_reproj_error",
     "per_cam_reproj_errors",
     "per_feature_residuals",

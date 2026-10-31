@@ -43,6 +43,7 @@ from .models import (
     Pose,
     RigConfig,
     RobotPoseConfig,
+    RobotPoseSigma,
     ScheimpflugSensor,
     SolverConfig,
     RigExtrinsicsConfig,

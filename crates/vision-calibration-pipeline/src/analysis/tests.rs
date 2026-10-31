@@ -292,6 +292,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
         base_se3_target: None,
         gripper_se3_target: Some(Iso3::identity()),
         robot_deltas: None,
+        robot_pose_sigma: None,
         mean_reproj_error: 0.0,
         per_cam_reproj_errors: vec![0.0, 0.0],
         per_feature_residuals,

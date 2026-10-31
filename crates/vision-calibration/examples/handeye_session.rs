@@ -237,6 +237,13 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
             max_trans * 1000.0
         );
     }
+    if let Some(sigma) = &export.robot_pose_sigma {
+        println!(
+            "Estimated robot error: {:.3}° / {:.2}mm per axis",
+            sigma.rot_sigma.to_degrees(),
+            sigma.trans_sigma * 1000.0
+        );
+    }
 }
 
 fn print_dataset_summary(summary: &DatasetSummary) {

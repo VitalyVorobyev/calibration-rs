@@ -691,6 +691,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Hand-eye solves estimate the robot's pose error. With robot-pose
+  refinement, `robot_poses.estimate_sigma` (new, on by default) treats
+  `rot_sigma` and `trans_sigma` as starting values: each prior's variance
+  factor is estimated from the corrections and their redundancy, and the
+  solve repeats until it settles. Exports carry the result as
+  `robot_pose_sigma` (`RobotPoseSigma`: `rot_sigma` in radians,
+  `trans_sigma` in metres), in Rust and Python. On synthetic scenes it
+  recovers the simulated robot error from a prior ten times too tight or too
+  loose. With the default prior the hand-eye standard deviations were about
+  2.5 times too large; from a too-tight prior they were about 8 times too
+  small, and the hand-eye translation error halves. Turn it off to take the
+  configured standard deviations as the robot's true accuracy.
+
 - The public datasets of `calib-bench run`, `diagnose` and `feature-cov` are
   the regression suite's image entries, read through their dataset
   manifests; `--images <dir>` reads the fetchable ones from the `suite

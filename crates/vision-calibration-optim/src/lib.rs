@@ -188,6 +188,7 @@ pub use crate::problems::scheimpflug_intrinsics::{
     ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
 };
 
+pub use crate::problems::RobotPoseSigma;
 pub use crate::problems::handeye::{
     HandeyeDataset, HandeyeEstimate, HandeyeParams, HandeyeSolveOptions, RobotPoseMeta,
     apply_robot_delta, handeye_observer_se3_target, optimize_handeye,

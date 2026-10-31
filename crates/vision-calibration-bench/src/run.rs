@@ -1142,10 +1142,13 @@ pub mod tier_b {
             single_cam_handeye_report(&export, &views_for_report).ok(),
         );
         let robot_corrections = export.robot_deltas.as_deref().and_then(|deltas| {
+            // The robot error the corrections were weighed with: the
+            // estimate when the solve made one, else the configured prior.
+            let sigma = export.robot_pose_sigma;
             RobotCorrectionSummary::from_deltas_with_priors(
                 deltas,
-                Some(robot_rot_sigma),
-                Some(robot_trans_sigma),
+                Some(sigma.map_or(robot_rot_sigma, |s| s.rot_sigma)),
+                Some(sigma.map_or(robot_trans_sigma, |s| s.trans_sigma)),
             )
         });
 
@@ -1338,10 +1341,13 @@ pub mod tier_b {
             rig_handeye_report_with_rig_stage(&export, &dataset_for_report, &rig_stage).ok(),
         );
         let robot_corrections = export.robot_deltas.as_deref().and_then(|deltas| {
+            // The robot error the corrections were weighed with: the
+            // estimate when the solve made one, else the configured prior.
+            let sigma = export.robot_pose_sigma;
             RobotCorrectionSummary::from_deltas_with_priors(
                 deltas,
-                Some(robot_rot_sigma),
-                Some(robot_trans_sigma),
+                Some(sigma.map_or(robot_rot_sigma, |s| s.rot_sigma)),
+                Some(sigma.map_or(robot_trans_sigma, |s| s.trans_sigma)),
             )
         });
 

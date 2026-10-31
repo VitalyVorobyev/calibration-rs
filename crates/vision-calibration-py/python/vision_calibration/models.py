@@ -91,23 +91,28 @@ class SolverConfig:
 class RobotPoseConfig:
     """Shared robot-pose refinement settings for hand-eye BA.
 
-    With ``refine``, every view's robot pose gets an se(3) correction under
-    a zero-mean prior: ``rot_sigma`` (radians) and ``trans_sigma`` (metres)
-    are the standard deviations of the robot's pose error per axis. The
-    prior is weighed against the corner residuals at their estimated pixel
-    noise, and the result's covariance takes these standard deviations as
-    the robot's true accuracy.
+    With ``refine``, every view's robot pose gets an se(3) correction in
+    the gripper frame under a zero-mean prior: ``rot_sigma`` (radians) and
+    ``trans_sigma`` (metres) are the standard deviations of the tool's
+    orientation and position error per gripper axis. The prior is weighed
+    against the corner residuals at their estimated pixel noise. With
+    ``estimate_sigma`` (the default) they are starting values: the solve
+    estimates the robot's error from the corrections and reports it as the
+    export's ``robot_pose_sigma``. Without it the result's covariance takes
+    them as the robot's true accuracy.
     """
 
     refine: bool = True
     rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
     trans_sigma: float = 0.001
+    estimate_sigma: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "refine": bool(self.refine),
             "rot_sigma": float(self.rot_sigma),
             "trans_sigma": float(self.trans_sigma),
+            "estimate_sigma": bool(self.estimate_sigma),
         }
 
     @classmethod
@@ -118,6 +123,27 @@ class RobotPoseConfig:
                 raise ValueError(f"unknown RobotPoseConfig field: {key}")
             setattr(cfg, key, value)
         return cfg
+
+
+@dataclass(slots=True)
+class RobotPoseSigma:
+    """A robot's pose error: standard deviations of the tool's orientation
+    error about each gripper axis (``rot_sigma``, radians) and of its
+    position error along each (``trans_sigma``, metres)."""
+
+    rot_sigma: float
+    trans_sigma: float
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"rot_sigma": float(self.rot_sigma), "trans_sigma": float(self.trans_sigma)}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> "RobotPoseSigma | None":
+        if payload is None:
+            return None
+        return cls(
+            rot_sigma=float(payload["rot_sigma"]), trans_sigma=float(payload["trans_sigma"])
+        )
 
 
 @dataclass(slots=True)
@@ -1945,6 +1971,9 @@ class SingleCamHandeyeExport(_ExportResiduals):
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    robot_pose_sigma: RobotPoseSigma | None = None
+    """The robot's pose error the corrections were weighed with (estimated
+    with ``robot_poses.estimate_sigma``); ``None`` without refinement."""
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -1969,6 +1998,9 @@ class SingleCamHandeyeExport(_ExportResiduals):
             base_se3_target=_pose("base_se3_target"),
             gripper_se3_target=_pose("gripper_se3_target"),
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
+            robot_pose_sigma=RobotPoseSigma.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
+            ),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
             uncertainty=ParameterUncertainty.from_payload(
@@ -2024,6 +2056,9 @@ class RigHandeyeExport(_ExportResiduals):
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    robot_pose_sigma: RobotPoseSigma | None = None
+    """The robot's pose error the corrections were weighed with (estimated
+    with ``robot_poses.estimate_sigma``); ``None`` without refinement."""
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -2050,6 +2085,9 @@ class RigHandeyeExport(_ExportResiduals):
             "base_se3_target": _pose(self.base_se3_target),
             "gripper_se3_target": _pose(self.gripper_se3_target),
             "robot_deltas": self.robot_deltas,
+            "robot_pose_sigma": (
+                None if self.robot_pose_sigma is None else self.robot_pose_sigma.to_payload()
+            ),
             "mean_reproj_error": float(self.mean_reproj_error),
             "per_cam_reproj_errors": [float(v) for v in self.per_cam_reproj_errors],
         }
@@ -2075,6 +2113,9 @@ class RigHandeyeExport(_ExportResiduals):
             base_se3_target=_pose("base_se3_target"),
             gripper_se3_target=_pose("gripper_se3_target"),
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
+            robot_pose_sigma=RobotPoseSigma.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
+            ),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
@@ -2529,6 +2570,9 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    robot_pose_sigma: RobotPoseSigma | None = None
+    """The robot's pose error the corrections were weighed with (estimated
+    with ``robot_poses.estimate_sigma``); ``None`` without refinement."""
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -2573,6 +2617,9 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
             base_se3_target=_pose("base_se3_target"),
             gripper_se3_target=_pose("gripper_se3_target"),
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
+            robot_pose_sigma=RobotPoseSigma.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
+            ),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])

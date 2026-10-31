@@ -17,6 +17,7 @@
     "refine_intrinsics": true,
     "refine_sensor": false,
     "robot_poses": {
+      "estimate_sigma": true,
       "refine": true,
       "rot_sigma": 0.008726646259971648,
       "trans_sigma": 0.001

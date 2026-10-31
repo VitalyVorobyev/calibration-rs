@@ -653,6 +653,7 @@ pub fn step_handeye_optimize(
         refine_robot_poses: config.robot_poses.refine,
         robot_rot_sigma: config.robot_poses.rot_sigma,
         robot_trans_sigma: config.robot_poses.trans_sigma,
+        estimate_robot_sigma: config.robot_poses.estimate_sigma,
     };
 
     let backend_opts = BackendSolveOptions {

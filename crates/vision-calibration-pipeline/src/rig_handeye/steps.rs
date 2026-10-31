@@ -1776,6 +1776,7 @@ pub fn step_handeye_optimize(
         refine_robot_poses: config.handeye_optimize.robot_poses.refine,
         robot_rot_sigma: config.handeye_optimize.robot_poses.rot_sigma,
         robot_trans_sigma: config.handeye_optimize.robot_poses.trans_sigma,
+        estimate_robot_sigma: config.handeye_optimize.robot_poses.estimate_sigma,
     };
     let handeye_dataset = HandeyeDataset::new(
         input.views.clone(),

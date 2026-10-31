@@ -35,15 +35,6 @@ need their measurement first and stay opt-in until it is in.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.
-- [ ] UQ-ROBOT-NOISE - (Phase 1) Robot-pose noise in hand-eye as a measured
-  quantity rather than a fixed prior. The robot-pose priors are weighed
-  against the estimated corner noise, but their configured σ is taken as
-  the robot's true accuracy: on `kuka_1` the corrections are about ten
-  times smaller than the 0.5° default, so the hand-eye and target σ are
-  pessimistic, and priors tighter than the robot's error make them too
-  small. Estimate the prior family's variance factor from the corrections
-  (a variance component with its redundancy), and gate it on the
-  `robot_pose_priors` study's mismatched cells.
 - [ ] UQ-TARGET-FLATNESS - (Phase 2) Target manufacturing and flatness error
   in the covariance.
 

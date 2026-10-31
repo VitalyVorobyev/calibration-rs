@@ -431,6 +431,7 @@ fn main() -> Result<()> {
         joint_opts.refine_robot_poses = true;
         joint_opts.robot_rot_sigma = robot_rot_sigma;
         joint_opts.robot_trans_sigma = robot_trans_sigma;
+        joint_opts.estimate_robot_sigma = cfg.handeye_optimize.robot_poses.estimate_sigma;
         joint_opts.initial_robot_deltas = initial_robot_deltas;
 
         let backend_opts = BackendSolveOptions {
