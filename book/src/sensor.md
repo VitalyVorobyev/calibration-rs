@@ -74,8 +74,8 @@ This is used as the runtime representation compiled from `ScheimpflugParams`.
 - **Laser triangulation profilers**: The laser plane is at an angle to the camera axis. Tilting the sensor brings the entire laser line into focus.
 - **Machine vision with tilted object planes**: When the depth of field is insufficient to keep the entire object in focus.
 
-For standard cameras (no tilt), use `IdentitySensor` (the default).
+For standard cameras (no tilt), use `SensorKind::Identity` (the default).
 
 ## Optimization of Tilt Parameters
 
-In the non-linear optimization stage, Scheimpflug parameters $(\tau_x, \tau_y)$ are treated as additional optimization variables. The `tilt_projection_matrix_generic<T>()` function in the factor module computes the tilt homography using dual numbers for automatic differentiation, enabling joint optimization of tilt with intrinsics, distortion, and poses.
+In the non-linear optimization stage, Scheimpflug parameters $(\tau_x, \tau_y)$ are treated as additional optimization variables. The tilt homography is generic over the scalar type, so it is differentiated by automatic differentiation, enabling joint optimization of tilt with intrinsics, distortion, and poses.

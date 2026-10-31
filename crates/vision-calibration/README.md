@@ -39,64 +39,6 @@ let result = session.export()?;
 # }
 ```
 
-### Single-Camera Hand-Eye Calibration
-
-```rust,no_run
-use vision_calibration::session::CalibrationSession;
-use vision_calibration::single_cam_handeye::{
-    SingleCamHandeyeProblem,
-    step_intrinsics_init, step_intrinsics_optimize,
-    step_handeye_init, step_handeye_optimize,
-};
-
-# fn main() -> anyhow::Result<()> {
-let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
-# let input = unimplemented!();
-session.set_input(input)?;
-
-step_intrinsics_init(&mut session, None)?;
-step_intrinsics_optimize(&mut session, None)?;
-step_handeye_init(&mut session, None)?;
-step_handeye_optimize(&mut session, None)?;
-
-let result = session.export()?;
-# Ok(())
-# }
-```
-
-### Tilted (Scheimpflug) Sensor
-
-A tilted sensor is a camera-model choice of planar intrinsics, not a separate
-workflow. Seeding the nominal mount tilt makes the solve trust that tilt basin:
-
-```rust,no_run
-use vision_calibration::core::{FxFyCxCy, PlanarDataset, ScheimpflugParams, SensorKind};
-use vision_calibration::session::CalibrationSession;
-use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, IntrinsicsManualInit, step_init_with_seed,
-    step_optimize,
-};
-
-# fn main() -> anyhow::Result<()> {
-# let dataset: PlanarDataset = unimplemented!();
-let mut config = PlanarIntrinsicsConfig::default();
-config.camera.model.sensor = SensorKind::Scheimpflug;
-
-let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-session.set_config(config)?;
-session.set_input(dataset)?;
-
-let mut seed = IntrinsicsManualInit::default();
-seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 640.0, cy: 480.0 });
-seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 });
-step_init_with_seed(&mut session, seed, None)?;
-step_optimize(&mut session, None)?;
-let result = session.export()?;
-println!("mean reprojection error: {:.4}", result.mean_reproj_error);
-# Ok(())
-# }
-```
-
 ## Problem Types
 
 | Problem Type | Steps |
@@ -131,23 +73,8 @@ options.
 
 ## Examples
 
-Run from a repository checkout with `cargo run --release -p vision-calibration --example <name>`.
-Examples on real data read files committed to the repository: the `data/kuka_1`
-images (stored with Git LFS; run `git lfs pull` if they are pointer files), or
-the detected corners in `regression/observations/`, which need no images.
-
-| Example | Workflow | Data |
-|---------|---|---|
-| `planar_synthetic` | Planar intrinsics | Synthetic |
-| `planar_synthetic_with_images` | Planar intrinsics + image manifest | Synthetic |
-| `planar_real` | Planar intrinsics, with parameter uncertainty | `data/kuka_1` images |
-| `stereo_session` | Rig extrinsics | `regression/observations/stereo_rig.json` |
-| `manual_init` | Rig extrinsics, manual init | `regression/observations/stereo_rig.json` |
-| `handeye_synthetic` | Single-camera hand-eye | Synthetic |
-| `handeye_session` | Single-camera hand-eye | `data/kuka_1` images |
-| `rig_handeye_synthetic` | Rig hand-eye | Synthetic |
-| `laserline_device_session` | Laserline device | Synthetic |
-| `mvg_two_view` | Two-view MVG | Synthetic |
+Runnable examples (`cargo run --release -p vision-calibration --example <name>`)
+live in [`examples/`](examples/); the book's workflow chapters walk through them.
 
 ## See Also
 

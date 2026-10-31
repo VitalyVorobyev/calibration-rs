@@ -46,13 +46,10 @@ detector interface with a content-addressed detection cache (re-running with
 unchanged images and unchanged detector parameters costs a filesystem read, not
 a re-detection).
 
-**Camera model** — cameras compose as `pixel = K(sensor(distortion(projection(dir))))`,
-so a Scheimpflug (tilted-sensor) camera is the pinhole model with a non-identity
-sensor homography rather than a separate code path. A workflow takes the model
-as config (`camera.model`), so the tilted sensor is a value, not a workflow; every
-workflow — planar, hand-eye, laser — takes any distortion with either sensor, and
-rigs take a `camera` plus per-camera `camera_overrides`, so each camera can have
-its own distortion and sensor.
+**Camera model** — cameras compose as `pixel = K(sensor(distortion(projection(dir))))`.
+A tilted (Scheimpflug) sensor is a value of the model, not a separate workflow:
+every workflow takes the model as config (`camera.model`) with any distortion
+and either sensor, and rigs add per-camera `camera_overrides`.
 
 **Uncertainty** — every result carries the covariance of what it estimates:
 `fx ± σ`, the correlations between parameters, the noise the residuals imply,

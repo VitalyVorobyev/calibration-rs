@@ -102,24 +102,24 @@ are **data** carried by the factor, not separate enum variants:
 pub enum FactorKind {
     /// 2D pixel reprojection residual.
     ReprojPoint {
-        model: CameraModelDesc,
+        model: CameraModelSpec,
         chain: ReprojChain,
-        pw: [f64; 3], uv: [f64; 2], w: f64,
+        pw: [f64; 3], uv: [f64; 2], sqrt_info: ReprojSqrtInfo,
     },
     /// 1D point-to-plane laser residual (meters).
     LaserPointToPlane {
-        model: CameraModelDesc,
+        model: CameraModelSpec,
         chain: LaserChain,
         laser_pixel: [f64; 2], w: f64,
     },
     /// 1D line-distance laser residual (pixels).
     LaserLineDistance {
-        model: CameraModelDesc,
+        model: CameraModelSpec,
         chain: LaserChain,
         laser_pixel: [f64; 2], w: f64,
     },
     /// Zero-mean prior on a 6D se(3) tangent block.
-    Se3TangentPrior { sqrt_info: [f64; 6] },
+    Se3TangentPrior { sqrt_info: [f64; 6], residual_sigma: f64 },
 }
 ```
 
@@ -130,19 +130,18 @@ optimizable parameters.
 ### Camera model as data
 
 ```rust
-pub struct CameraModelDesc {
-    pub projection: ProjectionKind, // Pinhole               → intrinsics (dim 4)
-    pub distortion: DistortionKind, // None | BrownConrady5  → dim 0 | 5
-    pub sensor: SensorKind,         // None | Scheimpflug2   → dim 0 | 2
+pub struct CameraModelSpec {
+    pub projection: ProjectionKind, // Pinhole
+    pub distortion: DistortionKind, // None | BrownConrady5 | Rational8 | ThinPrism9 | Division1
+    pub sensor: SensorKind,         // Identity | Scheimpflug
 }
 ```
 
-A slot with dimension 0 contributes no parameter block. The backend maps the
-descriptor to zero-sized kernel types and monomorphizes the residual over
-them once per factor — autodiff stays generic over the scalar type with no
-per-evaluation model dispatch. Adding a camera model later (rational
-distortion, thin-prism, division, fisheye projection) adds a descriptor
-variant + kernel + one dispatch row; no new factor kinds.
+A kind with no parameters contributes no parameter block; the layout is
+`[intrinsics, projection?, distortion?, sensor?]`. Evaluation dispatches per
+slot through the kinds' methods in `vision-calibration-core`, generic over the
+autodiff scalar type, so adding a camera model (a distortion, a projection)
+extends a core enum and adds no factor kind.
 
 ### Chains as data
 

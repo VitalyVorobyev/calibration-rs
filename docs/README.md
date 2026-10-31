@@ -2,7 +2,7 @@
 
 What the project is building next, why it is built the way it is, and how
 to release it. User documentation lives elsewhere: the book (`book/`), the
-and the crate READMEs. The book is the one user guide.
+READMEs and the CHANGELOG. The book is the one user guide.
 
 | Path | Holds |
 |---|---|
@@ -11,6 +11,7 @@ and the crate READMEs. The book is the one user guide.
 | [`adrs/`](adrs/README.md) | the binding design decisions and their reasons |
 | [`notes/`](notes/README.md) | proof packs: the math, identifiability and evidence for each algorithm family |
 | [`RELEASE-RUNBOOK.md`](RELEASE-RUNBOOK.md) | how to cut a release |
+| [`changelog/`](changelog/) | release notes older than the active `CHANGELOG.md` window, one file per release, verbatim |
 
 Working rules (code layering, quality gates, conventions, the backlog
 workflow) are in `AGENTS.md`. These documents state the current design;

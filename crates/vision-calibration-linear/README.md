@@ -38,9 +38,7 @@ Thresholds are intentionally loose for stable initialization.
 - **Poses**: `T_C_W` (transform from world/board into camera frame)
 - **PnP solvers**: Accept pixel coordinates + intrinsics (normalize internally)
 
-## Usage Examples
-
-### PnP (Perspective-n-Point)
+## Usage
 
 ```rust,no_run
 use vision_calibration_core::{FxFyCxCy, Pt2, Pt3, RansacOptions};
@@ -56,61 +54,6 @@ let pose = PnpSolver::dlt(&world, &image, &k)?;
 
 // DLT inside RANSAC for outlier rejection
 let (pose, inliers) = PnpSolver::dlt_ransac(&world, &image, &k, &RansacOptions::new(2.0))?; // threshold: pixels
-# Ok(())
-# }
-```
-
-### Iterative Intrinsics (with Distortion)
-
-```rust,no_run
-use vision_calibration_core::PlanarDataset;
-use vision_calibration_linear::prelude::*;
-
-# fn main() -> Result<(), vision_calibration_linear::Error> {
-# let dataset: PlanarDataset = unimplemented!();
-let camera = estimate_intrinsics_iterative(&dataset, IterativeIntrinsicsOptions::default())?;
-println!("intrinsics: {:?}", camera.k);
-# Ok(())
-# }
-```
-
-### Hand-Eye Calibration
-
-```rust,no_run
-use vision_calibration_core::Iso3;
-use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
-
-# fn main() -> Result<(), vision_calibration_linear::Error> {
-let base_se3_gripper: Vec<Iso3> = vec![/* T_B_G from the robot controller */];
-let min_angle_deg = 5.0;
-
-// Eye-in-hand: gripper -> camera from target -> camera poses.
-let target_se3_camera: Vec<Iso3> = vec![/* inverted PnP poses */];
-let gripper_se3_camera =
-    estimate_handeye_dlt(&base_se3_gripper, &target_se3_camera, min_angle_deg)?;
-
-// Eye-to-hand: gripper -> target from camera -> target poses.
-let camera_se3_target: Vec<Iso3> = vec![/* PnP / planar poses */];
-let gripper_se3_target =
-    estimate_gripper_se3_target_dlt(&base_se3_gripper, &camera_se3_target, min_angle_deg)?;
-# Ok(())
-# }
-```
-
-### Laserline Plane Fitting
-
-```rust,no_run
-use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole};
-use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LaserlineView};
-
-# fn main() -> Result<(), vision_calibration_linear::Error> {
-let views: Vec<LaserlineView> = vec![/* views with laser pixels */];
-# let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
-# let camera = Camera::new(Pinhole, BrownConrady5::default(), IdentitySensor, k);
-
-// Multiple views at different poses break single-view collinearity.
-let estimate = LaserlinePlaneSolver::from_views(&views, &camera)?;
-println!("plane normal: {:?}", estimate.normal);
 # Ok(())
 # }
 ```
@@ -134,4 +77,4 @@ println!("plane normal: {:?}", estimate.normal);
 - [vision-calibration-core](https://crates.io/crates/vision-calibration-core): Math types, camera models, RANSAC engine
 - [vision-calibration-optim](https://crates.io/crates/vision-calibration-optim): Non-linear refinement
 - [vision-calibration-pipeline](https://crates.io/crates/vision-calibration-pipeline): High-level calibration pipelines
-- [Book: Linear Calibration](https://vitalyvorobyev.github.io/calibration-rs/linear_overview.html)
+- [Book: Linear Initialization](https://vitalyvorobyev.github.io/calibration-rs/linear_overview.html), with a chapter per solver

@@ -91,71 +91,9 @@ println!("Calibrated camera: {:?}", result.params.camera);
 # }
 ```
 
-### Other Built-In Problems
-
-Each lives in `vision_calibration_optim::problems::<name>` (see the feature list
-above); the integration tests listed under [Examples](#examples) show end-to-end use.
-
-## Parameter Fixing
-
-Name the parameters to hold fixed, per camera slot. A slot left `None` keeps
-the camera model's default (`k3` for Brown-Conrady; everything but `k1`, `k2`
-under a Scheimpflug sensor); an explicit list replaces it, and an unknown name
-is an error before any work:
-
-```rust
-use vision_calibration_core::CameraFix;
-use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
-
-let names = |n: &[&str]| Some(n.iter().map(|s| s.to_string()).collect());
-let opts = PlanarIntrinsicsSolveOptions {
-    fix: CameraFix {
-        // Fix intrinsics, optimize only distortion
-        intrinsics: names(&["fx", "fy", "cx", "cy"]),
-        // Fix k3 and tangential distortion
-        distortion: names(&["k3", "p1", "p2"]),
-        ..CameraFix::default()
-    },
-    ..Default::default()
-};
-```
-
-## Robust Loss Functions
-
-Handle outliers with M-estimators:
-
-```rust
-use vision_calibration_optim::RobustLoss;
-use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
-
-// Huber loss: L2 near zero, L1 for outliers
-let opts = PlanarIntrinsicsSolveOptions {
-    robust_loss: RobustLoss::Huber { scale: 2.0 },
-    ..Default::default()
-};
-
-// Cauchy loss: gradual outlier suppression
-let opts = PlanarIntrinsicsSolveOptions {
-    robust_loss: RobustLoss::Cauchy { scale: 2.0 },
-    ..Default::default()
-};
-```
-
-## Performance Tips
-
-- **Always initialize with linear methods** (vision-calibration-linear crate) for faster convergence
-- **Use Huber loss** with `scale ≈ 2.0` for real data with corner detection noise
-- **Fix k3 by default** unless calibrating wide-angle lenses (prevents overfitting)
-- **Diverse viewpoints** improve conditioning and reduce correlations between parameters
-
-## Numerical Stability
-
-The implementation uses several techniques for robustness:
-
-- Safe division with epsilon thresholds in projection (prevents division by zero)
-- Hartley normalization in linear initialization (via vision-calibration-linear)
-- Manifold-aware parameter updates for rotations (proper SE(3)/SO(3) handling)
-- Sparse linear solvers for large problems (efficient memory usage)
+Other built-in problems live in `vision_calibration_optim::problems::<name>`
+(see the feature list above). Parameter fixing, robust losses and the
+backends are covered in the book.
 
 ## Examples
 
@@ -170,4 +108,4 @@ Integration tests with full end-to-end use (run with `cargo test -p vision-calib
 - [vision-calibration-core](https://crates.io/crates/vision-calibration-core): Math types, camera models, RANSAC framework
 - [vision-calibration-linear](https://crates.io/crates/vision-calibration-linear): Closed-form initialization solvers
 - [vision-calibration-pipeline](https://crates.io/crates/vision-calibration-pipeline): High-level end-to-end calibration pipelines
-- [Book: Non-linear Optimization](https://vitalyvorobyev.github.io/calibration-rs/nlls_overview.html)
+- [Book: Non-linear Optimization](https://vitalyvorobyev.github.io/calibration-rs/nlls_overview.html), [robust losses](https://vitalyvorobyev.github.io/calibration-rs/robust_loss.html), [solver backends](https://vitalyvorobyev.github.io/calibration-rs/solver_backends.html)

@@ -36,8 +36,11 @@ alone in a library release. Its `vision-calibration` path dep carries no
 
 ### 1.2 Update the CHANGELOG
 
-Rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, open a fresh empty
-`[Unreleased]` above it, and update the compare links at the bottom.
+Rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and open a fresh empty
+`[Unreleased]` above it. Releases older than the previous minor family live
+verbatim in `docs/changelog/<version>.md`, one file per release, indexed under
+"Older releases" at the bottom of `CHANGELOG.md`; archive a family there when
+it leaves the active window.
 
 ### 1.3 Run the checks locally
 

@@ -8,7 +8,7 @@ This crate provides the foundational building blocks used by all other crates in
 
 - **Linear algebra types**: `Real`, `Vec2`, `Vec3`, `Pt2`, `Pt3`, `Mat3`, `Iso3` (via nalgebra)
 - **Composable camera models**: projection + distortion + sensor + intrinsics pipeline
-- **Distortion models**: Brown-Conrady (k1, k2, k3, p1, p2) with iterative undistortion
+- **Distortion models**: none, Brown-Conrady, rational, thin-prism and division, with iterative undistortion
 - **Sensor models**: Identity and Scheimpflug/tilt (OpenCV-compatible)
 - **Deterministic RANSAC**: model-agnostic robust estimation engine
 - **Synthetic data**: helpers for generating test/benchmark data
@@ -47,46 +47,6 @@ if let Some(pixel) = camera.project_point(&p_cam) {
 }
 ```
 
-### Synthetic Data Generation
-
-```rust
-use vision_calibration_core::synthetic::planar;
-# use vision_calibration_core::{Camera, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCy};
-# let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
-# let camera = Camera::new(Pinhole, BrownConrady5::default(), IdentitySensor, k);
-
-// Generate a 6x5 chessboard with 40mm squares
-let board_points = planar::grid_points(6, 5, 0.04);
-
-// Generate 5 camera poses looking at the board
-let poses = planar::poses_yaw_y_z(5, -0.3, 0.15, 0.5, 0.1);
-
-// Project all views (requires a camera)
-let views = planar::project_views_all(&camera, &board_points, &poses).unwrap();
-```
-
-### RANSAC
-
-Implement `Estimator` for your model, then fit robustly:
-
-```rust,no_run
-use vision_calibration_core::{Estimator, RansacOptions, ransac_fit};
-
-# fn fit<E: Estimator>(data: &[E::Datum]) {
-// `thresh` is required and is in the estimator's residual unit; the
-// remaining fields default (fixed seed, so runs are deterministic).
-let opts = RansacOptions {
-    max_iters: 1000,
-    min_inliers: 10,
-    ..RansacOptions::new(3.0)
-};
-let result = ransac_fit::<E>(data, &opts);
-if result.success {
-    let _model = result.model;
-}
-# }
-```
-
 ## Modules
 
 | Module | Description |
@@ -101,4 +61,4 @@ if result.success {
 
 - [vision-calibration-linear](https://crates.io/crates/vision-calibration-linear): Linear solvers using these primitives
 - [vision-calibration-optim](https://crates.io/crates/vision-calibration-optim): Non-linear refinement
-- [Book: Introduction](https://vitalyvorobyev.github.io/calibration-rs/introduction.html)
+- [Book: camera model](https://vitalyvorobyev.github.io/calibration-rs/camera_pipeline.html), [RANSAC](https://vitalyvorobyev.github.io/calibration-rs/ransac.html), [synthetic data](https://vitalyvorobyev.github.io/calibration-rs/synthetic.html)

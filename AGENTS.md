@@ -73,17 +73,15 @@ the facade and the JSON schemas.
 
 ### Adding a problem type
 
-1. Module `vision-calibration-pipeline/src/<name>/` with `mod.rs`,
-   `problem.rs`, `state.rs`, `steps.rs`.
-2. Implement `ProblemType` (Config, Input, State, Output, Export).
-   A camera it calibrates comes from `camera: CameraConfig` (a rig adds
-   `camera_overrides`) and is exported as `CameraParams`; the optimizer
-   builder packs it through optim's `params::camera` helper and evaluates
-   it through `CameraBlocks`, so every camera model works without
-   model-specific code.
-3. Step functions plus a `run_calibration` wrapper.
-4. Re-export from the facade (`vision-calibration/src/lib.rs`).
-5. Python binding in `vision-calibration-py`.
+The design is [ADR 0007](docs/adrs/0007-session-framework.md); the walk-through
+is the book's "Adding a New Pipeline Problem Type" chapter. In short: a module
+`vision-calibration-pipeline/src/<name>/` (`mod.rs`, `problem.rs`, `state.rs`,
+`steps.rs`) implementing `ProblemType`, step functions plus a `run_calibration`
+wrapper, a facade re-export, and a Python binding. A camera it calibrates
+comes from `camera: CameraConfig` (a rig adds `camera_overrides`), is packed
+through optim's `params::camera` helper, evaluated through `CameraBlocks`, and
+exported as `CameraParams`, so every camera model works without model-specific
+code.
 
 ---
 
@@ -111,6 +109,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo xtask check-docs                    # user-facing docs (§7)
 cargo xtask emit-schemas --check          # when config, input, export or suite-file types change
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration
+python3 scripts/check_pyi_coverage.py --check      # when the Python surface changes
+python3 scripts/check_binding_parity.py --check    # when a public capability changes
 ```
 
 Also check minimal builds where relevant (`cargo test -p vision-calibration-core`,
@@ -126,9 +126,9 @@ own gates (§10). No new warnings; `#[allow(...)]` only with a stated reason.
   results); no wall-clock or `Instant` values in results or exports (they
   break golden comparisons).
 * **Naming** — problem types `<Name>Problem` with `<Name>Config` /
-  `<Name>Export`; step functions `step_<action>`; step options
-  `<Stage><Action>Options`, with `Init`, never `Initialize` (ADR 0024);
-  poses `<frame>_se3_<frame>`.
+  `<Name>Export`; steps, options, results and poses follow
+  [ADR 0024](docs/adrs/0024-api-vocabulary.md) (`step_<action>`,
+  `<Stage><Action>Options`, `Init` never `Initialize`, `<frame>_se3_<frame>`).
 * **Public types** — `Config` and `Export` types are `#[non_exhaustive]`;
   config-field rustdoc gives units, valid range and why the default is what
   it is.
