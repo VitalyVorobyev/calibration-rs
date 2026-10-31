@@ -76,4 +76,6 @@ evidence behind ADR 0011.
   calibration result carries, across all families.
 - [Detector feature covariance on real data](feature-covariance-study.md) —
   pre-registered study: does weighting by the detector's corner covariance
-  improve held-out geometry or the honesty of the stated σ?
+  improve held-out geometry or the honesty of the stated σ? No; it advises
+  against it, and finds the stated projection σ 2–5 times short of the real
+  split-half scatter for every arm.

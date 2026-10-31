@@ -47,9 +47,12 @@ by it.**
 - There is no weighting switch: the solve uses what the observations carry.
 - Reprojection statistics stay in raw pixels; a robust loss acts on the
   whitened residual.
-- Whether the corner detector's covariance should be stated by default is
-  decided on real images (`docs/notes/feature-covariance-study.md`); until
-  then the dataset runner states it only on request.
+- The corner detector's covariance is stated only on request, and weighting
+  a calibration by it is advised against. On real chessboard and ChArUco
+  images it did not improve held-out accuracy, and on some cameras it made
+  it worse (`docs/notes/feature-covariance-study.md`, decided by its
+  pre-registered rule). Per-point covariances remain the way to state
+  noise that is known.
 
 **What a result carries.**
 - The full labelled covariance of the global parameters, plus 6×6 marginals

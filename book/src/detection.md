@@ -88,7 +88,7 @@ With the section present, every observation carries the covariances in `cov_px` 
 
 - **JPEG and demosaiced images.** The per-image noise estimate is unreliable there, and the detector may then report no covariance. The run stops with an error naming the image and suggesting `image_noise = { known = σ }`. No corner is dropped to get past this.
 - **Supported targets.** `chessboard` and `charuco`. The PuzzleBoard detector runs on an upscaled image, for which no covariance is reported, and ring grids have none; a manifest that sets `covariance` for another target is an error, raised before any detection.
-- **Opt-in.** Weighting a calibration by the detector's covariance has not been shown to help on real data yet, so nothing changes unless you ask for it. The setting is part of the detection-cache key.
+- **Not recommended for calibration.** On real chessboard and ChArUco images, weighting a calibration by the detector's covariance did not improve its accuracy on held-out views, and on some cameras it made it slightly worse; its stated uncertainty was no closer to the real scatter either. It stays off unless you ask for it. The setting is part of the detection-cache key.
 
 In Python, `Features.cov_px` is the `(N, 3)` array of covariances (`None` when not requested), and `Features.to_observation()` carries it into the observation.
 

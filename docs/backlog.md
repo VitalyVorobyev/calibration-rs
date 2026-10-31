@@ -13,23 +13,25 @@ from measured feature noise, and a quality verdict built on it. Design:
 ADR 0026; evidence: `notes/uncertainty.md`. Items that change results
 need their measurement first and stay opt-in until it is in.
 
-- [ ] UQ-FEATURE-COV - Per-feature 2×2 covariance from the detector to the
-  covariance of the result. The calibration side is in: observations state
-  `cov_px`, the reprojection residuals are whitened by it, the noise is
-  reported as σ̂₀ (`NoiseLevel::Sigma0`), and the synthetic Monte-Carlo
-  study is in `notes/uncertainty.md`. chess-corners and calib-targets report
-  the corner covariance, and the dataset runner attaches it to
-  `Feature`/`cov_px` for chessboard and ChArUco targets, opt-in through
-  `detector.chess_corners.covariance` (all views of an input or none).
-  Still open:
-  3. **ringgrid (cross-repo):** reports the ellipse-centre covariance.
-  5. **Evidence:** a pre-registered real-data study (held-out reprojection,
-     split-half projection consistency, and the predicted σ against real
-     scatter) decides whether to flip the default; synthetic renders only
-     check the plumbing. Then apply its decision: flip the default
-     (with a migration note), keep it opt-in, or advise against it.
-
-  Gate: a proof-pack note with the study's comparisons.
+- [ ] UQ-REAL-SCALE - The stated projection σ is 2–5 times smaller than
+  the real scatter on every real camera. In the feature-covariance study
+  (`notes/feature-covariance-study.md`, E3), two calibrations from disjoint
+  halves of the views differ by `r` = 4.9–26 times the predicted `z²/2` on
+  the public cameras (pooled 7.8). Only 16 % of grid nodes fall inside the
+  68 % contour. The detector's per-corner covariance does not change this.
+  The missing error is systematic: the lens model, the target (see
+  UQ-TARGET-FLATNESS) or detector bias. First measure which one dominates
+  on `kuka_1`, `ds8` and `stereo` (residual structure, a richer distortion
+  model, a flatness term). Then either model it, or state the real-data
+  scale beside the covariance. Exit criterion 3 asks for the real-data
+  check. Gate: split-half `r` within 0.85–1.15 on the public cameras, or a
+  documented, measured inflation.
+- [~] UQ-RINGGRID-COV - The ring-grid detector reports the ellipse-centre
+  covariance (cross-repo, ringgrid). Parked: the real-data study advises
+  against weighting a calibration by the chessboard and ChArUco
+  covariance, so a ring-grid one would only be a report. Reopen if a
+  ring-grid weighting study is wanted, or if UQ-REAL-SCALE needs the
+  detector's term.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.
@@ -108,6 +110,15 @@ scenes are the gate) and the regression suite.
   linear stage's choice from the camera's fix list and drop
   `fix_tangential` (breaking, with a migration note). Gate: a camera holding
   `p1`, `p2` keeps them at zero through every stage, in every workflow.
+
+- [ ] Q-SCHEIMPFLUG-TILE-BOUND - On every `scheimpflug_rig` tile, the
+  single-camera seeded planar solve ends with `tilt_x` at its ±0.10 rad
+  bound around the seed (`step_optimize`'s seeded path), so the covariance
+  is unavailable (`at_bound`). The feature-covariance study found this on
+  all six tiles, for every arm. Check whether the rig route's per-camera
+  stage does the same. Then establish whether the seed is off or the tilt
+  is not determined by one tile's views, and fix the seed or the bound.
+  Gate: each tile's own solve ends inside its bounds, with a covariance.
 
 ## Camera models (Phase 2)
 
