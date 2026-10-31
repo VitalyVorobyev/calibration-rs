@@ -1320,6 +1320,17 @@ class ParameterCovariance(_ParameterCovarianceRequired, total=False):
     them.
     """
 
+    view_scatter: float | None
+    """How many times the variance of the shared parameters across views
+    exceeds what the residual noise predicts, from the scatter of the
+    views' contributions to the fit. The residual noise model takes every
+    corner's error as independent; errors shared by a view's corners (a
+    lens model or target that does not fit exactly, a detector bias) are
+    not in it, and on real images make the estimate vary between view
+    sets several times more than predicted. When above 1, `covariance`
+    and `views` are already scaled by it. `None` below six views.
+    """
+
     views: list[ViewCovariance]
     """Per-view parameters, one block per view that has free ones."""
 
@@ -3164,6 +3175,17 @@ class Uncertainty_Available(_Uncertainty_AvailableRequired, total=False):
     fixed: list[str]
     """Labels of the parameters held fixed. The covariance is conditional on
     them.
+    """
+
+    view_scatter: float | None
+    """How many times the variance of the shared parameters across views
+    exceeds what the residual noise predicts, from the scatter of the
+    views' contributions to the fit. The residual noise model takes every
+    corner's error as independent; errors shared by a view's corners (a
+    lens model or target that does not fit exactly, a detector bias) are
+    not in it, and on real images make the estimate vary between view
+    sets several times more than predicted. When above 1, `covariance`
+    and `views` are already scaled by it. `None` below six views.
     """
 
     views: list[ViewCovariance]

@@ -61,6 +61,9 @@ const NULL_VECTOR_SHARE: f64 = 0.1;
 /// `σ̂ = MAD_TO_SIGMA · median |rᵢⱼ|`: the median absolute residual of a
 /// zero-mean Gaussian is `0.6745 σ`.
 const MAD_TO_SIGMA: f64 = 1.482_602_218_505_602;
+/// Fewest views [`view_scatter`] is estimated from: below it the scatter of
+/// per-view scores is too noisy to rescale a covariance by.
+pub(crate) const MIN_VIEWS: usize = 6;
 /// Bound tolerance relative to `max(1, |bound|)`.
 const BOUND_TOLERANCE: f64 = 1e-10;
 
@@ -122,6 +125,10 @@ pub(crate) struct CovarianceEstimate {
     pub num_residuals: usize,
     /// Residuals minus free tangent coordinates.
     pub dof: usize,
+    /// How much more the shared parameters scatter across views than the
+    /// residual noise predicts (see [`view_scatter`]); `matrix` is scaled
+    /// by it when it exceeds 1. `None` with fewer than [`MIN_VIEWS`] views.
+    pub view_scatter: Option<f64>,
 }
 
 /// Why a solve has no covariance.
@@ -179,6 +186,7 @@ pub(crate) fn estimate(
             matrix: DMatrix::zeros(0, 0),
             num_residuals: m,
             dof: m,
+            view_scatter: None,
         }));
     };
 
@@ -254,20 +262,23 @@ pub(crate) fn estimate(
         }
     };
     let sigma = match g {
-        None => h_inverse * ratios[0],
+        None => &h_inverse * ratios[0],
         Some(g) => {
             let g = dense_symmetric(&normal, &g, ncols);
             &h_inverse * g * &h_inverse
         }
     };
+    let view_scatter = view_scatter(ir, &raw, &blocks, &h_inverse, &sigma, &free);
+    let scale = view_scatter.filter(|k| *k > 1.0).unwrap_or(1.0);
     let tangent_coords: Vec<Coordinate> = free.iter().map(|&(c, _)| c).collect();
-    let sigma_tangent = DMatrix::from_fn(n, n, |a, b| sigma[(free[a].1, free[b].1)]);
+    let sigma_tangent = DMatrix::from_fn(n, n, |a, b| scale * sigma[(free[a].1, free[b].1)]);
     let (coordinates, matrix) = to_ambient(ir, params, &tangent_coords, &sigma_tangent);
     ParamUncertainty::Available(Box::new(CovarianceEstimate {
         coordinates,
         matrix,
         num_residuals: m,
         dof: m.saturating_sub(n),
+        view_scatter,
     }))
 }
 
@@ -639,4 +650,86 @@ fn to_ambient(
             .sum()
     });
     (coords, matrix)
+}
+
+/// How much more the shared parameters scatter across views than the
+/// residual noise predicts: `k = tr(Σ⁻¹ Σ_v) / n` over the `n` free
+/// coordinates of blocks shared across views, with `Σ` the covariance from
+/// the residual noise and `Σ_v` the view-clustered sandwich
+/// `V/(V−1) · H⁻¹ (Σ_v g_v g_vᵀ) H⁻¹`, `g_v = Σ ρ′ Jᵢᵀ rᵢ` over view `v`'s
+/// residuals (priors on its blocks included).
+///
+/// `Σ` treats every residual as independent noise; `Σ_v` is the scatter of
+/// the estimate under a change of views, whatever correlates the residuals
+/// within a view (a lens model or target that does not fit exactly, a
+/// detector bias). On real images it is several times `Σ`; on data that
+/// match the noise model it is 1 up to sampling noise.
+///
+/// `None` when fewer than [`MIN_VIEWS`] views carry residuals, no free
+/// coordinate is shared, or `Σ` restricted to the shared ones is singular.
+fn view_scatter(
+    ir: &ProblemIR,
+    raw: &RawLinearization,
+    blocks: &[BlockTerms],
+    h_inverse: &DMatrix<f64>,
+    sigma: &DMatrix<f64>,
+    free: &[(Coordinate, usize)],
+) -> Option<f64> {
+    let block_view: Vec<Option<usize>> = ir.params.iter().map(|p| p.view()).collect();
+    // The view of each residual row (that of the first per-view block its
+    // residual reads) and its weight in the gradient, `ρ′`.
+    let mut row_view = vec![None; raw.residual.nrows()];
+    let mut row_weight = vec![0.0; raw.residual.nrows()];
+    let mut views: Vec<usize> = Vec::new();
+    for (terms, block) in blocks.iter().zip(&ir.residuals) {
+        let Some(view) = block.params.iter().find_map(|p| block_view[p.0]) else {
+            continue;
+        };
+        let slot = match views.iter().position(|&v| v == view) {
+            Some(slot) => slot,
+            None => {
+                views.push(view);
+                views.len() - 1
+            }
+        };
+        for row in terms.rows.clone() {
+            row_view[row] = Some(slot);
+            row_weight[row] = terms.rho1;
+        }
+    }
+    if views.len() < MIN_VIEWS {
+        return None;
+    }
+    let shared: Vec<usize> = free
+        .iter()
+        .filter(|(c, _)| block_view[c.block].is_none())
+        .map(|&(_, col)| col)
+        .collect();
+    if shared.is_empty() {
+        return None;
+    }
+
+    // One column of scores per view: `g_v`.
+    let mut scores = DMatrix::<f64>::zeros(h_inverse.nrows(), views.len());
+    let symbolic = raw.jacobian.symbolic();
+    let values = raw.jacobian.val();
+    for col in 0..raw.jacobian.ncols() {
+        for (pos, &row) in symbolic
+            .col_range(col)
+            .zip(symbolic.row_idx_of_col_raw(col))
+        {
+            if let Some(slot) = row_view[row] {
+                scores[(col, slot)] += row_weight[row] * values[pos] * raw.residual[(row, 0)];
+            }
+        }
+    }
+    let v = views.len() as f64;
+    let spread = h_inverse * scores;
+    let clustered = &spread * spread.transpose() * (v / (v - 1.0));
+
+    let s = shared.len();
+    let model = DMatrix::from_fn(s, s, |a, b| sigma[(shared[a], shared[b])]);
+    let scatter = DMatrix::from_fn(s, s, |a, b| clustered[(shared[a], shared[b])]);
+    let k = model.cholesky()?.solve(&scatter).trace() / s as f64;
+    k.is_finite().then_some(k)
 }

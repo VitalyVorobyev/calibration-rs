@@ -176,6 +176,7 @@ pub(crate) fn labelled(
             .collect(),
         num_residuals: estimate.num_residuals,
         dof: estimate.dof,
+        view_scatter: estimate.view_scatter,
     })
 }
 
@@ -374,6 +375,10 @@ pub(crate) fn per_camera(parts: &[Uncertainty], rig_fixed: Vec<String>) -> Uncer
         noise,
         num_residuals: available.iter().map(|c| c.num_residuals).sum(),
         dof: available.iter().map(|c| c.dof).sum(),
+        view_scatter: available
+            .iter()
+            .filter_map(|c| c.view_scatter)
+            .reduce(f64::max),
     })
 }
 
@@ -558,6 +563,7 @@ mod tests {
             matrix,
             num_residuals: 100,
             dof: 100 - n,
+            view_scatter: None,
         }))
     }
 
@@ -746,6 +752,7 @@ mod tests {
                 }],
                 num_residuals: 50,
                 dof: 49,
+                view_scatter: None,
             })
         };
         let Uncertainty::Available(c) =

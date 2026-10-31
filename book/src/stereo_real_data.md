@@ -16,17 +16,17 @@ The program loads 20 views of a 7x11 chessboard (30 mm squares) seen by both cam
   Camera 1: fx=724.8, fy=735.6, cx=513.9, cy=293.0, reproj_err=0.244px
 
 --- Step 4: Rig Bundle Adjustment ---
-  Rig BA mean reprojection error: 0.2496 px
-    Camera 0: 0.2448 px
-    Camera 1: 0.2544 px
-  Rig baseline (after BA): |c1 - c0| = 0.1895 m (189.45 mm)
+  Rig BA mean reprojection error: 0.2461 px
+    Camera 0: 0.2413 px
+    Camera 1: 0.2509 px
+  Rig baseline (after BA): |c1 - c0| = 0.1898 m (189.84 mm)
 
 --- Uncertainty ---
-  Baseline: 189.45 ± 0.112 mm
-  Corner noise σ ≈ 0.189 px (6160 residuals)
+  Baseline: 189.84 ± 0.442 mm
+  Corner noise σ ≈ 0.188 px (6160 residuals)
 ```
 
-The `±` comes from the export's `uncertainty`: the covariance of the estimated parameters, here of camera 1's `cam_se3_rig`. It is conditional on the intrinsics, which the rig solve holds fixed by default (see [Parameter Uncertainty](uncertainty.md)).
+The `±` comes from the export's `uncertainty`: the covariance of the estimated parameters, here of camera 1's `cam_se3_rig`. The rig solve refines both cameras' intrinsics with the rig, so it includes their uncertainty, and it is scaled by the view scatter, about 3 here: the error the views do not share with each other (see [Parameter Uncertainty](uncertainty.md)).
 
 ## The Session in Five Calls
 

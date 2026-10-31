@@ -746,6 +746,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "view_scatter": {
+          "description": "How many times the variance of the shared parameters across views\nexceeds what the residual noise predicts, from the scatter of the\nviews' contributions to the fit. The residual noise model takes every\ncorner's error as independent; errors shared by a view's corners (a\nlens model or target that does not fit exactly, a detector bias) are\nnot in it, and on real images make the estimate vary between view\nsets several times more than predicted. When above 1, `covariance`\nand `views` are already scaled by it. `None` below six views.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "views": {
           "description": "Per-view parameters, one block per view that has free ones.",
           "items": {
