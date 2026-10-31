@@ -110,7 +110,11 @@ defaults and both steps:
 mount angle, plus a coarse focal — `step_optimize` trusts that basin: it sweeps
 the leading radial coefficient over `{0, -0.20, -0.40}` with intrinsics and
 tilt held, then runs a joint solve bounded around the seed (focals
-`[0.75, 1.5]×`, principal point `±0.15·f`, tilt `±0.10` rad). Without a tilt
+`[0.75, 1.5]×`, principal point `±0.15·f`, tilt `±0.35` rad: a mount's
+nominal tilt can be off by more than 0.1 rad). A single camera's views
+often pin the tilt poorly, as it trades with the principal point; the
+result's covariance shows it, and a rig's joint solve (`refine_sensor`)
+determines it far better. Without a tilt
 seed (**cold start**, experimental) it runs a staged multi-start: a cheap
 tilt sweep with the principal point frozen, a refine of the winning basin,
 and a bounded joint refine. The init log warns when the intrinsics are not
