@@ -193,15 +193,16 @@ runs favoured.
      least 5 points closer to nominal than uniform's.
    - *Reported regardless.* That no arm is honest, if the full run shows it:
      the stated uncertainty's real-data scale is a finding in itself.
-5. **The covariance arm is not available everywhere.**
-   - *Observed.* On two of the six Scheimpflug tiles, the detector reported no
-     covariance for some corners even with `known = 1.0`.
-   - *Replacement.* A covariance arm the detector cannot supply on a camera is
-     absent there, and its fault kind is reported. Flipping the default
-     needs the arm on every decisive camera: a default the detector cannot
-     honour everywhere is not a default.
-   - *Follow-up.* The missing covariances are filed as a detector issue,
-     upstream.
+5. **The covariance arm was not available everywhere.**
+   - *Observed.* On two of the six Scheimpflug tiles, some corners carried no
+     covariance even with `known = 1.0`.
+   - *Cause, fixed before the full run.* The ChArUco wrapper did not pass
+     the `chess_corners` override to the detector's own corner re-detection,
+     so re-detected corners lost the covariance.
+   - *Rule kept.* A covariance arm the detector cannot supply on a camera is
+     still absent there, with its fault kind reported, and flipping the
+     default needs the arm on every decisive camera: a default the detector
+     cannot honour everywhere is not a default.
 6. **Pooling.**
    - The pooling unit is the camera. A rig dataset contributes each of its
      cameras.
