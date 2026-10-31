@@ -139,6 +139,85 @@ the dataset runner. It writes to `target/feature-cov/`, which is git-ignored.
 The public part is reproducible from a clean checkout after
 `calib-bench suite fetch`; the private part needs the local registry.
 
+## Amendment 1 — before the full run
+
+This amendment was written after the harness's smoke runs and before the full
+run. Everything above still holds except where this section replaces it.
+
+**What had been run.**
+- Smoke runs at 2 random splits, 500 bootstrap resamples and 3 timing images
+  per camera, on the public and private datasets. These settings cannot
+  decide anything, and their outcome counts for nothing.
+- The harness's synthetic ground-truth test.
+
+**Why the amendment.** Every change below fixes a measurement that does not
+measure what the rule assumes. No change is motivated by which arm the smoke
+runs favoured.
+
+1. **E3 was biased on truth.**
+   - *Observed.* On a synthetic scene with exactly true covariances, the median
+     over splits of the per-split mean `z²/2` was 0.64 (interval
+     0.34–0.80), not 1. Each split's mean is dominated by a few parameter
+     directions, so its distribution is skewed, and the median of skewed
+     means sits below their mean.
+   - *Replacement: the pooled ratio.*
+     `r = Σ_splits Σ_grid z² / (2 · number of (split, node) pairs)`, and
+     coverage is the pooled fraction of `(split, node)` pairs below 2.30 and
+     below 6.18.
+   - *Gate.* The full run proceeds only if, on the synthetic truth test,
+     `r` lies within 0.85–1.15 and both coverages within ±5 points of
+     nominal. Otherwise the harness is fixed first and the run waits.
+2. **E2 and E3 measured extrapolation.**
+   - *Observed.* The 16 × 12 grid reaches image corners that no training view
+     covers, where the projection is extrapolated, and those nodes dominated
+     the split RMS (1–11 px).
+   - *Replacement.* The decisive grid is the nodes inside the convex hull of
+     all the dataset's detected corners in that camera. The full-grid
+     figures are still reported.
+3. **"Interval excludes 0" fired on effects too small to matter.**
+   - *Observed.* E1 intervals excluded 0 on effects of about 1e-4 px.
+   - *Replacement.* An effect counts as **better** or **worse** only if its
+     interval excludes 0 *and* its size reaches the practical margin. Smaller
+     effects are **neutral**, whatever their interval.
+
+     | Metric | Practical margin |
+     |---|---|
+     | E1, both measures | `max(0.005 px, 1 % of uniform's held-out RMS)` |
+     | E2 | 2 % of uniform's split RMS |
+4. **"Materially more honest" was on the wrong scale.**
+   - *Observed.* Real-data `r` was 2–17 for every arm alike, so a 0.2
+     absolute gap is noise, and coverage within ±5 points of nominal is out
+     of reach for every arm.
+   - *Replacement.* An arm is materially more honest when its pooled `|r − 1|`
+     is at most 0.8 × uniform's, *and* each of its two pooled coverages is at
+     least 5 points closer to nominal than uniform's.
+   - *Reported regardless.* That no arm is honest, if the full run shows it:
+     the stated uncertainty's real-data scale is a finding in itself.
+5. **The covariance arm was not available everywhere.**
+   - *Observed.* On two of the six Scheimpflug tiles, some corners carried no
+     covariance even with `known = 1.0`.
+   - *Cause, fixed before the full run.* The ChArUco wrapper did not pass
+     the `chess_corners` override to the detector's own corner re-detection,
+     so re-detected corners lost the covariance.
+   - *Rule kept.* A covariance arm the detector cannot supply on a camera is
+     still absent there, with its fault kind reported, and flipping the
+     default needs the arm on every decisive camera: a default the detector
+     cannot honour everywhere is not a default.
+6. **Pooling.**
+   - The pooling unit is the camera. A rig dataset contributes each of its
+     cameras.
+   - Rig cameras enter E1–E3 as planar calibrations with the rig route's
+     camera configuration, not through the rig's joint solve. E4 covers the
+     joint solves.
+   - E2 and E3 intervals are a bootstrap over splits.
+   - `uniform_noise` perturbs training and held-out pixels alike.
+
+The decision rule's structure is unchanged. The flip is ruled out if any
+effect is **worse**. It needs one **better** E1 or a materially more honest
+E3, with E2 not worse and the cost at most 15 %. The rule keeps the option
+opt-in if every effect is neutral, and advises against it if any weighting
+arm is **worse** on a decisive camera.
+
 ## Result
 
 (Appended after the run.)
