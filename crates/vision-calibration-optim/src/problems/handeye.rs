@@ -34,7 +34,7 @@ use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::rig_extrinsics::{
     ReprojectionSums, camera_models, resolve_camera_fix, solved_pose,
 };
-use crate::problems::robot_poses::{self, RobotPosePriors};
+use crate::problems::robot_poses::{self, RobotPoseSigma, Weighting};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -157,6 +157,12 @@ pub struct HandeyeSolveOptions {
     /// Standard deviation of the tool's position error along each gripper
     /// axis (metres).
     pub robot_trans_sigma: Real,
+    /// Estimate the robot's error from the corrections, starting from
+    /// [`Self::robot_rot_sigma`] and [`Self::robot_trans_sigma`]
+    /// (variance-component estimation; the solve repeats until the
+    /// estimate settles). Without it they are taken as the robot's true
+    /// accuracy.
+    pub estimate_robot_sigma: bool,
 }
 
 impl Default for HandeyeSolveOptions {
@@ -171,6 +177,7 @@ impl Default for HandeyeSolveOptions {
             refine_robot_poses: false,
             robot_rot_sigma: std::f64::consts::PI / 360.0, // 0.5 deg
             robot_trans_sigma: 1.0e-3,                     // 1 mm
+            estimate_robot_sigma: false,
         }
     }
 }
@@ -187,6 +194,12 @@ pub struct HandeyeEstimate {
     pub report: SolveReport,
     /// Optional per-view robot pose deltas (se(3) tangent, `[rx, ry, rz, tx, ty, tz]`).
     pub robot_deltas: Option<Vec<[Real; 6]>>,
+    /// The robot's pose error the corrections were weighed with: the
+    /// configured one, or the estimate with
+    /// [`HandeyeSolveOptions::estimate_robot_sigma`]. `None` without
+    /// robot-pose refinement.
+    #[serde(default)]
+    pub robot_pose_sigma: Option<RobotPoseSigma>,
     /// Mean reprojection error in pixels (computed post-optimization).
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors in pixels.
@@ -268,14 +281,24 @@ pub fn optimize_handeye(
     backend_opts: BackendSolveOptions,
 ) -> Result<HandeyeEstimate, Error> {
     let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
-    let build =
-        |pixel_sigma| build_handeye_ir(&dataset, &initial, &specs, &fixed, &opts, pixel_sigma);
-    let (ir, solution) = if opts.refine_robot_poses {
-        robot_poses::solve_weighted(build, &backend_opts)?
+    let build = |weighting| build_handeye_ir(&dataset, &initial, &specs, &fixed, &opts, weighting);
+    let priors = RobotPoseSigma {
+        rot_sigma: opts.robot_rot_sigma,
+        trans_sigma: opts.robot_trans_sigma,
+    };
+    let (ir, solution, robot_pose_sigma) = if opts.refine_robot_poses {
+        let (ir, solution, priors) = robot_poses::solve_weighted(
+            build,
+            priors,
+            opts.estimate_robot_sigma,
+            dataset.num_views(),
+            &backend_opts,
+        )?;
+        (ir, solution, Some(priors))
     } else {
-        let (ir, initial_map) = build(1.0)?;
+        let (ir, initial_map) = build(Weighting::initial(priors))?;
         let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
-        (ir, solution)
+        (ir, solution, None)
     };
 
     let cameras = specs
@@ -321,6 +344,7 @@ pub fn optimize_handeye(
         uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
         report: solution.solve_report,
         robot_deltas,
+        robot_pose_sigma,
         mean_reproj_error,
         per_cam_reproj_errors,
     })
@@ -396,14 +420,14 @@ fn compute_handeye_reproj_error(
 /// Residuals:
 /// - per-point reprojection error using robot pose measurements
 /// - optional zero-mean priors on robot pose deltas, weighed against pixel
-///   noise `pixel_sigma`
+///   noise and robot error `weighting`
 fn build_handeye_ir(
     dataset: &HandeyeDataset,
     initial: &HandeyeParams,
     specs: &[CameraModelSpec],
     fixed: &[FixedParams],
     opts: &HandeyeSolveOptions,
-    pixel_sigma: f64,
+    weighting: Weighting,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
     if initial.cameras.len() != dataset.data.num_cameras {
         return Err(Error::invalid_input(format!(
@@ -435,13 +459,6 @@ fn build_handeye_ir(
         return Err(Error::invalid_input(
             "fix_target_poses is only supported when relax_target_poses is true",
         ));
-    }
-    let robot_priors = RobotPosePriors {
-        rot_sigma: opts.robot_rot_sigma,
-        trans_sigma: opts.robot_trans_sigma,
-    };
-    if opts.refine_robot_poses {
-        robot_priors.validate()?;
     }
 
     let mut ir = ProblemIR::new();
@@ -511,7 +528,7 @@ fn build_handeye_ir(
 
         let robot_delta_id = opts
             .refine_robot_poses
-            .then(|| robot_priors.add_view(&mut ir, &mut initial_map, view_idx, None, pixel_sigma));
+            .then(|| weighting.add_view(&mut ir, &mut initial_map, view_idx, None));
 
         // Convert robot pose to SE3 array for factor
         let robot_se3 = iso3_to_se3_dvec(&view.meta.base_se3_gripper);
@@ -801,8 +818,15 @@ mod tests {
         };
         let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix).unwrap();
         let solve = |data: &HandeyeDataset, pixel_sigma: f64| {
+            let weighting = Weighting {
+                pixel_sigma,
+                priors: RobotPoseSigma {
+                    rot_sigma: opts.robot_rot_sigma,
+                    trans_sigma: opts.robot_trans_sigma,
+                },
+            };
             let (ir, init) =
-                build_handeye_ir(data, &initial, &specs, &fixed, &opts, pixel_sigma).unwrap();
+                build_handeye_ir(data, &initial, &specs, &fixed, &opts, weighting).unwrap();
             backend::solve(&ir, &init, &backend_opts).unwrap()
         };
         let priors_weighed = solve(&dataset(None), sigma);

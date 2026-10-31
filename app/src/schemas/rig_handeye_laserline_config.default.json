@@ -18,6 +18,7 @@
       "refine_intrinsics": true,
       "refine_sensor": false,
       "robot_poses": {
+        "estimate_sigma": true,
         "refine": true,
         "rot_sigma": 0.008726646259971648,
         "trans_sigma": 0.001
@@ -49,6 +50,7 @@
     "laser_residual_type": "PointToPlane",
     "laser_weight": 10000.0,
     "robot_poses": {
+      "estimate_sigma": true,
       "refine": true,
       "rot_sigma": 0.008726646259971648,
       "trans_sigma": 0.001

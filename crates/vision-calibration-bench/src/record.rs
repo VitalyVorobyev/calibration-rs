@@ -164,10 +164,12 @@ pub struct RobotCorrectionSummary {
     pub mean_trans_mm: f64,
     /// Maximum translation correction magnitude in millimetres.
     pub max_trans_mm: f64,
-    /// Rotation prior sigma in degrees, when known.
+    /// Rotation prior sigma in degrees the corrections were weighed with
+    /// (the solve's estimate, or the configured one), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prior_rot_deg: Option<f64>,
-    /// Translation prior sigma in millimetres, when known.
+    /// Translation prior sigma in millimetres the corrections were weighed
+    /// with, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prior_trans_mm: Option<f64>,
     /// Maximum rotation correction divided by the prior sigma.
@@ -176,7 +178,7 @@ pub struct RobotCorrectionSummary {
     /// Maximum translation correction divided by the prior sigma.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_trans_prior_ratio: Option<f64>,
-    /// Whether any maximum correction exceeds its configured prior sigma.
+    /// Whether any maximum correction exceeds its prior sigma.
     #[serde(default)]
     pub exceeds_prior: bool,
 }

@@ -99,13 +99,22 @@ corner residuals and runs again from that solution. Every view's correction
 is free; the priors are what tell the corrections apart from a change of the
 hand-eye or target pose that would move every view alike.
 
-The priors' standard deviations decide how far the result trusts the robot,
-and the covariance takes them as its true accuracy. Too loose, and the
-hand-eye and target standard deviations come out larger than the data
-warrants; too tight, and the robot's errors leak into the camera parameters
-while the standard deviations come out too small. The defaults (0.5°, 1 mm)
-are loose for an industrial arm; a result's `robot_deltas` show the size of
-the corrections the data asked for.
+The priors' standard deviations decide how far the result trusts the robot.
+Too loose, and the hand-eye and target standard deviations come out larger
+than the data warrants; too tight, and the robot's errors leak into the
+camera parameters while the standard deviations come out too small. So by
+default (`robot_poses.estimate_sigma`) the solve estimates them: `rot_sigma`
+and `trans_sigma` (0.5°, 1 mm) are only its starting values. Each prior's
+variance factor is the sum of its squared normalized corrections over its
+redundancy, `ŝ² = Σ (δₖ/σ)² / Σ (1 − Var(δₖ)/σ²)`, the share of each
+correction the corner data do not already determine. `σ` is scaled by `ŝ`
+and the solve repeats until both factors are 1. The export reports the
+estimate as `robot_pose_sigma`, the robot's orientation and position error
+in this calibration. On synthetic scenes it recovers the simulated error
+from a prior ten times too tight or too loose, and the normalized errors of
+the hand-eye and target come out with an RMS of 1.02–1.13. With
+`estimate_sigma` off, the configured values are taken as the robot's true
+accuracy.
 
 A correction common to every view looks exactly like a change of the
 transform carried by the gripper: the hand-eye in eye-in-hand, the target's

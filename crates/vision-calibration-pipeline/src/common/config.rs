@@ -383,6 +383,16 @@ pub struct RobotPoseConfig {
     /// axis (metres, > 0). Default 1 mm, a loose bound for an industrial
     /// arm.
     pub trans_sigma: f64,
+    /// Estimate the robot's error from the corrections, starting from
+    /// `rot_sigma` and `trans_sigma`: each prior's variance factor is
+    /// estimated from the corrections and their redundancy, and the solve
+    /// repeats until it settles. The export reports the estimate
+    /// (`robot_pose_sigma`). On by default: the stated accuracy of an arm is
+    /// rarely its error in one calibration, and a prior that is too loose
+    /// or too tight misstates the hand-eye and target standard deviations.
+    /// Off, `rot_sigma` and `trans_sigma` are taken as the robot's true
+    /// accuracy.
+    pub estimate_sigma: bool,
 }
 
 impl Default for RobotPoseConfig {
@@ -391,6 +401,7 @@ impl Default for RobotPoseConfig {
             refine: true,
             rot_sigma: 0.5_f64.to_radians(),
             trans_sigma: 1.0e-3,
+            estimate_sigma: true,
         }
     }
 }

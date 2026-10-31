@@ -3,8 +3,8 @@
 //! whether the reported σ is honest (normalized errors `|err|/σ` with an RMS
 //! near 1 and about 95 % of them within 2σ).
 //!
-//! A study, not a gate (it prints a table; the Monte-Carlo gates are in
-//! `uncertainty.rs`):
+//! The study prints a table (the Monte-Carlo gates are in `uncertainty.rs`);
+//! `estimated_robot_sigma_recovers_the_robot_error` is a gate:
 //! `cargo test --release -p vision-calibration-optim --test robot_pose_priors -- --ignored --nocapture`
 //!
 //! `STUDY_RUNS` (default 30) sets the seeds per cell, `STUDY_PX` the pixel
@@ -192,6 +192,9 @@ struct Cell {
     z2: f64,
     within_2: f64,
     sigma_px: f64,
+    /// Σ of the robot error the corrections were weighed with
+    /// (rotation rad, translation m).
+    robot_sigma: [f64; 2],
 }
 
 impl Cell {
@@ -219,6 +222,10 @@ impl Cell {
         }
         add(3, "fx", fx);
         self.sigma_px += cov.noise[0].level.value();
+        if let Some(robot) = est.robot_pose_sigma {
+            self.robot_sigma[0] += robot.rot_sigma;
+            self.robot_sigma[1] += robot.trans_sigma;
+        }
         self.runs += 1.0;
     }
 
@@ -226,7 +233,7 @@ impl Cell {
         let rms = |g: usize| (self.err2[g] / self.runs).sqrt();
         let sd = |g: usize| (self.var[g] / self.runs).sqrt();
         format!(
-            "| {label} | {:.4} / {:.4} | {:.3} / {:.3} | {:.2} / {:.2} | {:.3} / {:.3} | {:.2} | {:.0} % | {:.3} |",
+            "| {label} | {:.4} / {:.4} | {:.3} / {:.3} | {:.2} / {:.2} | {:.3} / {:.3} | {:.2} | {:.0} % | {:.3} | {:.3}° / {:.2} mm |",
             rms(0).to_degrees(),
             sd(0).to_degrees(),
             rms(1) * 1e3,
@@ -238,6 +245,8 @@ impl Cell {
             (self.z2 / (10.0 * self.runs)).sqrt(),
             100.0 * self.within_2 / (10.0 * self.runs),
             self.sigma_px / self.runs,
+            (self.robot_sigma[0] / self.runs).to_degrees(),
+            self.robot_sigma[1] / self.runs * 1e3,
         )
     }
 }
@@ -281,9 +290,9 @@ fn robot_pose_prior_study() {
     ];
     let scene = Scene::new();
     println!(
-        "| σ_px | robot | scheme | hand-eye rot err / σ (°) | hand-eye trans err / σ (mm) | target trans err / σ (mm) | fx err / σ (px) | z RMS | within 2σ | σ̂ (px) |"
+        "| σ_px | robot | scheme | hand-eye rot err / σ (°) | hand-eye trans err / σ (mm) | target trans err / σ (mm) | fx err / σ (px) | z RMS | within 2σ | σ̂ (px) | robot σ used |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|");
     for &px in &pixel_levels {
         for (label, robot, prior) in &robot_cases {
             let refine = HandeyeSolveOptions {
@@ -297,12 +306,17 @@ fn robot_pose_prior_study() {
                 refine_robot_poses: false,
                 ..refine.clone()
             };
+            let estimated = HandeyeSolveOptions {
+                estimate_robot_sigma: true,
+                ..refine.clone()
+            };
             let mut cells = [
                 ("refined", Cell::default()),
+                ("estimated", Cell::default()),
                 ("exact poses", Cell::default()),
             ];
             for seed in 0..runs {
-                for ((_, cell), opts) in cells.iter_mut().zip([&refine, &exact]) {
+                for ((_, cell), opts) in cells.iter_mut().zip([&refine, &estimated, &exact]) {
                     let est = optimize_handeye(
                         scene.dataset(seed, px, *robot, base_frame),
                         scene.initial(),
@@ -318,4 +332,61 @@ fn robot_pose_prior_study() {
             }
         }
     }
+}
+
+/// From a prior ten times too tight or too loose, the estimated robot error
+/// lands near the simulated one (0.1°, 1 mm in the gripper frame), and the
+/// hand-eye beats the fixed tight prior's. A gate, run in release by CI's
+/// uncertainty job.
+#[test]
+#[ignore = "gate; run in release with --ignored"]
+fn estimated_robot_sigma_recovers_the_robot_error() {
+    let deg = std::f64::consts::PI / 180.0;
+    let robot = (0.1 * deg, 1e-3);
+    let scene = Scene::new();
+    let solve = |seed: u64, prior: (f64, f64), estimate: bool| {
+        optimize_handeye(
+            scene.dataset(seed, 0.3, robot, false),
+            scene.initial(),
+            HandeyeSolveOptions {
+                fix_extrinsics: vec![true],
+                refine_robot_poses: true,
+                robot_rot_sigma: prior.0,
+                robot_trans_sigma: prior.1,
+                estimate_robot_sigma: estimate,
+                ..Default::default()
+            },
+            BackendSolveOptions::default(),
+        )
+        .unwrap()
+    };
+    let handeye_trans_err = |est: &HandeyeEstimate| {
+        (est.params.handeye.translation.vector - scene.gripper_se3_camera.translation.vector).norm()
+    };
+    let seeds = 0..4;
+    for start in [(0.01 * deg, 1e-4), (1.0 * deg, 1e-2)] {
+        let (mut rot, mut trans) = (0.0, 0.0);
+        for seed in seeds.clone() {
+            let sigma = solve(seed, start, true).robot_pose_sigma.unwrap();
+            rot += sigma.rot_sigma / 4.0;
+            trans += sigma.trans_sigma / 4.0;
+        }
+        assert!(
+            (rot / robot.0 - 1.0).abs() < 0.2,
+            "rotation σ {rot} from {start:?}"
+        );
+        assert!(
+            (trans / robot.1 - 1.0).abs() < 0.2,
+            "translation σ {trans} from {start:?}"
+        );
+    }
+    let (mut estimated, mut fixed) = (0.0, 0.0);
+    for seed in seeds {
+        estimated += handeye_trans_err(&solve(seed, (0.01 * deg, 1e-4), true));
+        fixed += handeye_trans_err(&solve(seed, (0.01 * deg, 1e-4), false));
+    }
+    assert!(
+        estimated < 0.7 * fixed,
+        "hand-eye error {estimated} vs {fixed}"
+    );
 }

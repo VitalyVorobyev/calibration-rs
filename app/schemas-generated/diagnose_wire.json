@@ -1721,6 +1721,18 @@
             "null"
           ]
         },
+        "robot_pose_sigma": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RobotPoseSigma"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The robot's pose error the corrections were weighed with: the\nconfigured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate\nwith `robot_poses.estimate_sigma`. Only present if robot refinement\nwas enabled."
+        },
         "uncertainty": {
           "allOf": [
             {
@@ -1899,6 +1911,18 @@
             "array",
             "null"
           ]
+        },
+        "robot_pose_sigma": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RobotPoseSigma"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The robot's pose error the corrections were weighed with: the\nconfigured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate\nwith `robot_poses.estimate_sigma`. Only present if robot refinement\nwas enabled."
         },
         "uncertainty": {
           "allOf": [
@@ -2113,6 +2137,26 @@
         "laser_planes_rig",
         "laser_planes_cam",
         "per_camera_stats"
+      ],
+      "type": "object"
+    },
+    "RobotPoseSigma": {
+      "description": "A robot's pose error: the standard deviations of the tool's orientation\nerror about each gripper axis and of its position error along each.",
+      "properties": {
+        "rot_sigma": {
+          "description": "Orientation error, radians.",
+          "format": "double",
+          "type": "number"
+        },
+        "trans_sigma": {
+          "description": "Position error, metres.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rot_sigma",
+        "trans_sigma"
       ],
       "type": "object"
     },
@@ -2407,6 +2451,18 @@
             "array",
             "null"
           ]
+        },
+        "robot_pose_sigma": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RobotPoseSigma"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The robot's pose error the corrections were weighed with: the\nconfigured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate\nwith `robot_poses.estimate_sigma`. Only present if robot refinement\nwas enabled."
         },
         "uncertainty": {
           "allOf": [

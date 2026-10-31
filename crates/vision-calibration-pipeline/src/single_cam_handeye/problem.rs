@@ -10,7 +10,9 @@ use vision_calibration_core::{
     CameraParams, ImageManifest, Iso3, PerFeatureResiduals, Uncertainty, View,
     build_feature_histogram, compute_planar_target_residuals_views,
 };
-use vision_calibration_optim::{HandeyeEstimate, HandeyeMode, handeye_observer_se3_target};
+use vision_calibration_optim::{
+    HandeyeEstimate, HandeyeMode, RobotPoseSigma, handeye_observer_se3_target,
+};
 
 use crate::common::ExportKind;
 use crate::common::config::{
@@ -173,6 +175,13 @@ pub struct SingleCamHandeyeExport {
     /// Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).
     /// Only present if robot refinement was enabled.
     pub robot_deltas: Option<Vec<[f64; 6]>>,
+
+    /// The robot's pose error the corrections were weighed with: the
+    /// configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+    /// with `robot_poses.estimate_sigma`. Only present if robot refinement
+    /// was enabled.
+    #[serde(default)]
+    pub robot_pose_sigma: Option<RobotPoseSigma>,
 
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
@@ -366,6 +375,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             base_se3_target,
             gripper_se3_target,
             robot_deltas: output.robot_deltas.clone(),
+            robot_pose_sigma: output.robot_pose_sigma,
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
             per_feature_residuals,

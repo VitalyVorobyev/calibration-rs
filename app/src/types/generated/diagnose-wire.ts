@@ -1223,10 +1223,31 @@ export interface RigHandeyeExport {
    */
   robot_deltas?: [number, number, number, number, number, number][] | null;
   /**
+   * The robot's pose error the corrections were weighed with: the
+   * configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+   * with `robot_poses.estimate_sigma`. Only present if robot refinement
+   * was enabled.
+   */
+  robot_pose_sigma?: RobotPoseSigma | null;
+  /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.
    */
   uncertainty?: Uncertainty;
+}
+/**
+ * A robot's pose error: the standard deviations of the tool's orientation
+ * error about each gripper axis and of its position error along each.
+ */
+export interface RobotPoseSigma {
+  /**
+   * Orientation error, radians.
+   */
+  rot_sigma: number;
+  /**
+   * Position error, metres.
+   */
+  trans_sigma: number;
 }
 /**
  * Export format for joint rig hand-eye laserline calibration.
@@ -1300,6 +1321,13 @@ export interface RigHandeyeLaserlineExport {
    * Optional optimized robot pose deltas.
    */
   robot_deltas?: [number, number, number, number, number, number][] | null;
+  /**
+   * The robot's pose error the corrections were weighed with: the
+   * configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+   * with `robot_poses.estimate_sigma`. Only present if robot refinement
+   * was enabled.
+   */
+  robot_pose_sigma?: RobotPoseSigma | null;
   /**
    * Covariance of the jointly refined parameters, labelled as the export
    * fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
@@ -1502,6 +1530,13 @@ export interface SingleCamHandeyeExport {
    * Only present if robot refinement was enabled.
    */
   robot_deltas?: [number, number, number, number, number, number][] | null;
+  /**
+   * The robot's pose error the corrections were weighed with: the
+   * configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+   * with `robot_poses.estimate_sigma`. Only present if robot refinement
+   * was enabled.
+   */
+  robot_pose_sigma?: RobotPoseSigma | null;
   /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.

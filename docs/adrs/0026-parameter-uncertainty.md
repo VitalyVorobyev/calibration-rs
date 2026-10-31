@@ -40,7 +40,14 @@ Derivation, identifiability and the Monte-Carlo gates are in
 - No correction is pinned; the priors alone separate the corrections from a
   common change of the transform the gripper carries (the hand-eye, or the
   target in eye-to-hand).
-- The configured σ are taken as the robot's true accuracy.
+- By default the robot's σ are estimated, not taken as configured: each
+  prior group's variance factor `ŝ² = Σ (δ̂ₖ/σ)² / Σ rₖ`, with the
+  redundancy `rₖ = 1 − Var(δ̂ₖ)/σ²` of each prior row (Förstner's variance
+  component estimate), rescales `σ` until it settles. The configured σ are
+  starting values, or the robot's true accuracy with `estimate_sigma` off.
+  A fixed prior was rejected as the default: on real arms the corrections
+  are several times smaller than any safe default, so the hand-eye σ was
+  pessimistic, and a tight prior made it too small.
 
 **Observations may state a per-point 2×2 covariance, and the solve whitens
 by it.**

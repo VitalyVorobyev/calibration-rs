@@ -7,4 +7,5 @@ pub mod planar_intrinsics;
 pub mod rig_extrinsics;
 pub mod rig_handeye_laserline_bundle;
 mod robot_poses;
+pub use robot_poses::RobotPoseSigma;
 pub mod scheimpflug_intrinsics;

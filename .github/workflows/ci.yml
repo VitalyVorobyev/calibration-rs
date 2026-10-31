@@ -184,6 +184,11 @@ jobs:
           cargo test --release --locked -p vision-calibration-optim
           --test uncertainty -- --ignored
 
+      - name: Robot-error estimate gate
+        run: >-
+          cargo test --release --locked -p vision-calibration-optim
+          --test robot_pose_priors estimated_robot_sigma -- --ignored
+
       - name: Next-view prediction gate
         run: >-
           cargo test --release --locked -p vision-calibration-pipeline

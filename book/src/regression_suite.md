@@ -271,14 +271,14 @@ our σ:
 
 | Entry | Library | Parameters | Largest difference | Median | σ ratio (ours / theirs) | Mean reprojection (ours / theirs) | Truth (ours / theirs) |
 |---|---|---|---|---|---|---|---|
-| `kuka_1` | opencv 4.12.0 | 20 | 6.26σ (`base_se3_target.rz`) | 0.84σ | 0.967–0.999 | 0.1346 / 2.2545 px | — |
+| `kuka_1` | opencv 4.12.0 | 20 | 12.21σ (`base_se3_target.rz`) | 2.25σ | 0.878–0.993 | 0.1347 / 2.2545 px | — |
 | `stereo_left` | opencv 4.12.0 | 8 | 0.02σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2339 / 0.2339 px | — |
 | `stereo_right` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2442 / 0.2442 px | — |
 | `stereo_rig` | opencv 4.12.0 | 22 | 7.22σ (`cam1.cam_se3_rig.tz`) | 1.15σ | — | — | — |
-| `ds8` | opencv 4.12.0 | 36 | 19.22σ (`cam2.p2`) | 2.32σ | 0.346–1.290 | — | — |
+| `ds8` | opencv 4.12.0 | 36 | 18.72σ (`cam2.p2`) | 1.98σ | 0.344–1.327 | — | — |
 | `synth_planar` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.00σ | 1.000–1.000 | 0.6570 / 0.6570 px | 1.87σ / 1.86σ |
 | `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
-| `synth_handeye` | opencv 4.12.0 | 20 | 0.79σ (`k2`) | 0.21σ | 0.770–0.976 | 0.6589 / 0.7521 px | 0.91σ / 1.14σ |
+| `synth_handeye` | opencv 4.12.0 | 20 | 10.09σ (`base_se3_target.tx`) | 1.82σ | 0.303–0.631 | 0.6645 / 0.7521 px | 1.20σ / 10.46σ |
 | `synth_rig` | opencv 4.12.0 | 22 | 0.09σ (`cam0.cy`) | 0.02σ | — | — | 2.07σ / 2.06σ |
 
 Reading it:
@@ -295,8 +295,11 @@ Reading it:
   measured poses). OpenCV takes the robot poses as exact for the hand-eye
   pose, but calibrates the intrinsics with a free pose per view, as the
   refined robot poses effectively are here: the intrinsics standard
-  deviations of the two agree within 4 %. On the synthetic hand-eye entry,
-  whose robot poses are exact, both land near the truth.
+  deviations of the two agree within 12 %. The synthetic hand-eye entry's
+  robot poses are exact, and our solve estimates a robot error near zero
+  from the corrections: it lands 1.2σ from the truth with standard
+  deviations a third to two thirds of OpenCV's, whose hand-eye, from the
+  same poses, is 10σ from the truth in our units.
 - Rig results refine each camera's intrinsics jointly with the rig, from
   every view of every camera. On `stereo_rig` OpenCV's `stereoCalibrate`
   refines them too, but from the views both cameras see; the two estimates

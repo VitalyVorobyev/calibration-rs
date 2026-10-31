@@ -32,7 +32,7 @@ use crate::problems::handeye::{RobotPoseMeta, apply_robot_delta};
 use crate::problems::laserline_bundle::LaserlineResidualType;
 use crate::problems::laserline_rig_bundle::{RigLaserlineDataset, RigLaserlineView};
 use crate::problems::rig_extrinsics::{camera_models, resolve_camera_fix};
-use crate::problems::robot_poses::{self, RobotPosePriors};
+use crate::problems::robot_poses::{self, RobotPoseSigma, Weighting};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -208,6 +208,10 @@ pub struct RigHandeyeLaserlineSolveOptions {
     /// Standard deviation of the robot's translation error along each axis
     /// (metres).
     pub robot_trans_sigma: f64,
+    /// Estimate the robot's error from the corrections, starting from
+    /// [`Self::robot_rot_sigma`] and [`Self::robot_trans_sigma`]; see
+    /// [`crate::HandeyeSolveOptions::estimate_robot_sigma`].
+    pub estimate_robot_sigma: bool,
     /// Optional initial per-view robot pose deltas
     /// `[rx, ry, rz, tx, ty, tz]`. Used only when
     /// [`Self::refine_robot_poses`] is enabled.
@@ -230,6 +234,7 @@ impl Default for RigHandeyeLaserlineSolveOptions {
             refine_robot_poses: false,
             robot_rot_sigma: std::f64::consts::PI / 360.0,
             robot_trans_sigma: 1.0e-3,
+            estimate_robot_sigma: false,
             initial_robot_deltas: None,
         }
     }
@@ -279,6 +284,12 @@ pub struct RigHandeyeLaserlineEstimate {
     /// Optional optimized per-view robot pose deltas
     /// `[rx, ry, rz, tx, ty, tz]`.
     pub robot_deltas: Option<Vec<[Real; 6]>>,
+    /// The robot's pose error the corrections were weighed with: the
+    /// configured one, or the estimate with
+    /// [`RigHandeyeLaserlineSolveOptions::estimate_robot_sigma`]. `None`
+    /// without robot-pose refinement.
+    #[serde(default)]
+    pub robot_pose_sigma: Option<RobotPoseSigma>,
     /// Covariance of the refined parameters, labelled as the rig hand-eye
     /// result's, plus each camera's laser plane in its camera frame
     /// (`cam<i>.plane.nx … cam<i>.plane.d`).
@@ -301,13 +312,24 @@ pub fn optimize_rig_handeye_laserline(
     backend_opts: BackendSolveOptions,
 ) -> Result<RigHandeyeLaserlineEstimate, Error> {
     let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
-    let build = |pixel_sigma| build_ir(&dataset, &initial, &specs, &fixed, &opts, pixel_sigma);
-    let (ir, solution) = if opts.refine_robot_poses {
-        robot_poses::solve_weighted(build, &backend_opts)?
+    let build = |weighting| build_ir(&dataset, &initial, &specs, &fixed, &opts, weighting);
+    let priors = RobotPoseSigma {
+        rot_sigma: opts.robot_rot_sigma,
+        trans_sigma: opts.robot_trans_sigma,
+    };
+    let (ir, solution, robot_pose_sigma) = if opts.refine_robot_poses {
+        let (ir, solution, priors) = robot_poses::solve_weighted(
+            build,
+            priors,
+            opts.estimate_robot_sigma,
+            dataset.num_views(),
+            &backend_opts,
+        )?;
+        (ir, solution, Some(priors))
     } else {
-        let (ir, initial_map) = build(1.0)?;
+        let (ir, initial_map) = build(Weighting::initial(priors))?;
         let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
-        (ir, solution)
+        (ir, solution, None)
     };
     let labels = RigLabelling {
         cameras: &specs,
@@ -381,6 +403,7 @@ pub fn optimize_rig_handeye_laserline(
         mean_reproj_error_px,
         per_cam_stats,
         robot_deltas,
+        robot_pose_sigma,
         uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
     })
 }
@@ -621,7 +644,7 @@ fn build_ir(
     specs: &[CameraModelSpec],
     fixed: &[FixedParams],
     opts: &RigHandeyeLaserlineSolveOptions,
-    pixel_sigma: f64,
+    weighting: Weighting,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
     let n = dataset.num_cameras;
     if initial.cameras.len() != n {
@@ -647,11 +670,7 @@ fn build_ir(
             n
         )));
     }
-    let robot_priors = RobotPosePriors {
-        rot_sigma: opts.robot_rot_sigma,
-        trans_sigma: opts.robot_trans_sigma,
-    };
-    robot_priors.validate()?;
+    weighting.priors.validate()?;
     if let Some(deltas) = &opts.initial_robot_deltas
         && deltas.len() != dataset.num_views()
     {
@@ -753,12 +772,11 @@ fn build_ir(
         ];
 
         let robot_delta_id = opts.refine_robot_poses.then(|| {
-            robot_priors.add_view(
+            weighting.add_view(
                 &mut ir,
                 &mut initial_map,
                 view_idx,
                 opts.initial_robot_deltas.as_ref().map(|d| &d[view_idx]),
-                pixel_sigma,
             )
         });
 

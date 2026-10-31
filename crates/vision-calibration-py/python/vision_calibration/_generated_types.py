@@ -2103,6 +2103,13 @@ class _RigHandeyeExportRequired(TypedDict):
     Each element is [rx, ry, rz, tx, ty, tz] in se(3).
     """
 
+    robot_pose_sigma: RobotPoseSigma | None
+    """The robot's pose error the corrections were weighed with: the
+    configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+    with `robot_poses.estimate_sigma`. Only present if robot refinement
+    was enabled.
+    """
+
     uncertainty: Uncertainty
     """Covariance of the calibrated parameters: `fx ± σ`, correlations, and
     the noise level the residuals imply.
@@ -2196,6 +2203,13 @@ class _RigHandeyeLaserlineExportRequired(TypedDict):
 
     robot_deltas: list[tuple[float, float, float, float, float, float] | list[float]] | None
     """Optional optimized robot pose deltas."""
+
+    robot_pose_sigma: RobotPoseSigma | None
+    """The robot's pose error the corrections were weighed with: the
+    configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+    with `robot_poses.estimate_sigma`. Only present if robot refinement
+    was enabled.
+    """
 
     uncertainty: Uncertainty
     """Covariance of the jointly refined parameters, labelled as the export
@@ -2495,6 +2509,18 @@ class RobotPoseConfig(TypedDict):
     taken as exact.
     """
 
+    estimate_sigma: bool
+    """Estimate the robot's error from the corrections, starting from
+    `rot_sigma` and `trans_sigma`: each prior's variance factor is
+    estimated from the corrections and their redundancy, and the solve
+    repeats until it settles. The export reports the estimate
+    (`robot_pose_sigma`). On by default: the stated accuracy of an arm is
+    rarely its error in one calibration, and a prior that is too loose
+    or too tight misstates the hand-eye and target standard deviations.
+    Off, `rot_sigma` and `trans_sigma` are taken as the robot's true
+    accuracy.
+    """
+
     refine: bool
     """Refine the robot poses with per-view se(3) corrections. On by
     default: robot pose errors are rarely below the corner noise, and
@@ -2542,6 +2568,18 @@ class RobotPoseMeta(TypedDict):
 
     base_se3_gripper: Iso3
     """Gripper pose expressed in the robot base frame (T_B_G)."""
+
+
+class RobotPoseSigma(TypedDict):
+    """A robot's pose error: the standard deviations of the tool's orientation
+    error about each gripper axis and of its position error along each.
+    """
+
+    rot_sigma: float
+    """Orientation error, radians."""
+
+    trans_sigma: float
+    """Position error, metres."""
 
 
 class _RobotPoseSourceRequired(TypedDict):
@@ -2795,6 +2833,13 @@ class _SingleCamHandeyeExportRequired(TypedDict):
     robot_deltas: list[tuple[float, float, float, float, float, float] | list[float]] | None
     """Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).
     Only present if robot refinement was enabled.
+    """
+
+    robot_pose_sigma: RobotPoseSigma | None
+    """The robot's pose error the corrections were weighed with: the
+    configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
+    with `robot_poses.estimate_sigma`. Only present if robot refinement
+    was enabled.
     """
 
     uncertainty: Uncertainty
@@ -3330,6 +3375,7 @@ __all__ = [
     "RobotPoseConfig",
     "RobotPoseFormat",
     "RobotPoseMeta",
+    "RobotPoseSigma",
     "RobotPoseSource",
     "RobustLoss",
     "RobustLoss_Arctan",

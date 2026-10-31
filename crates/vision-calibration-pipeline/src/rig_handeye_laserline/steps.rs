@@ -74,6 +74,7 @@ pub fn run_calibration(
         refine_robot_poses: config.joint_optimize.robot_poses.refine,
         robot_rot_sigma: config.joint_optimize.robot_poses.rot_sigma,
         robot_trans_sigma: config.joint_optimize.robot_poses.trans_sigma,
+        estimate_robot_sigma: config.joint_optimize.robot_poses.estimate_sigma,
         initial_robot_deltas,
     };
     let backend_opts = BackendSolveOptions {
