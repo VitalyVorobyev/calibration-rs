@@ -168,6 +168,51 @@ and the σ tolerance.
 | Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
 | Rank deficiency | joint rig hand-eye laserline, eye-to-hand, robot rotating about z only | `RankDeficient` naming the hand-eye and target translations along z | pass (`rig_se3_base.tz`, `gripper_se3_target.tz`) |
 
+## Design measurements
+
+The numbers behind design choices that ADR 0026 states without them.
+
+### Robot-pose priors
+
+- Weighing pixels at 1 px against the priors makes the priors relatively too
+  strong with sub-pixel corners: robot error leaks into the camera
+  parameters, and with view 0 fixed the hand-eye σ came out 2–2.6× too small
+  on synthetic scenes. Weighing at the data's σ̂ fixes both.
+- Exact robot poses put the robot's error into every corner of a view as a
+  shared error, which the covariance counts as independent noise: σ is too
+  small by about `√(corners per view)`.
+- `σ_px` is taken from one re-solve at the first solve's σ̂ (floored at
+  0.01 px so noise-free data keeps its priors); a second re-solve moved
+  nothing measurable.
+
+### Quality-report calibration
+
+- The variance-factor test gives each family its share of the residual
+  degrees of freedom, scaled by 0.3675, the Gaussian efficiency of the
+  median-based σ̂, so the χ² range matches the scatter of the estimator it
+  tests.
+- Computing the covariance costs one extra linearization, assembly and
+  factorization: about 1.2–1.6× the solve time.
+
+### Next-view prediction
+
+- **Current information.** Using `Σ⁻¹` instead of rebuilding the existing
+  views' information `S_A` from the export: the two agree to
+  `‖Σ S_A / σ² − I‖` of 4e-7–3e-6 over ten seeds, the precision of the
+  solve's own inversion.
+- **Scale.** `σ² = tr(Σ S_A) / n` recovers the sandwich's effective noise
+  `σ_eff` from the export alone. The reported median-based σ̂ was
+  0.93–1.01× `σ_eff` over ten seeds at 0.2 px, which would mis-weight a
+  candidate by up to 7 %.
+- **Ranking.** The best candidate's real reduction of the maximum projection
+  σ exceeds the worst one's in every scene (Brown-Conrady at 0.2 px: 1.85
+  against 0.35 px of 4.9 px).
+- **Limit.** With six views bunched around the centre (corners extrapolated
+  to 60 px σ at 0.3 px noise) the predicted σ deviated 20–33 % from the
+  re-solve, and one re-solve's distortion moved far enough that its
+  projection map folded over. The prediction is first order: for refining a
+  calibration that already determines the camera roughly.
+
 ## Limitations
 
 - **Conditional covariance**: staged problems whose final stage holds earlier

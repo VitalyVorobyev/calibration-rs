@@ -49,12 +49,18 @@ signatures); it fills what it can determine and lists the rest.
 
 ### Detection is cached by content
 
-Detections are cached under the key (image-content hash, detector name,
-hash of the detector config serialized with sorted keys), in one JSON file
-per entry under a per-dataset root, written by atomic rename. The hash is
-of the bytes, so moving or touching an image keeps its entry. The cache is
-disposable: no versions or migrations — a format change re-detects. A
-`force_redetect` switch bypasses reads after a detector code change. The
+Each detection is cached in one JSON file per entry under a per-dataset
+root, written by atomic rename. Its key has three parts:
+- the image-content hash;
+- the detector name;
+- a hash of the detector config serialized with sorted keys, together with
+  the detect crate's release, the versions of the detection crates it wraps,
+  and the detector's output revision.
+
+The hash is of the bytes, so moving or touching an image keeps its entry,
+and upgrading the detector stack recomputes. The cache is disposable: no
+versions or migrations, so a format change re-detects. A `force_redetect`
+switch bypasses reads, for local detector edits that change no version. The
 cache is a trait (`DetectionCache`) with a filesystem default.
 
 ### Laser extraction is injected

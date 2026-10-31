@@ -84,10 +84,8 @@ an `input` field.
 
 `handeye` is one word: modules (`single_cam_handeye`), JSON kinds
 (`rig_handeye`), config groups (`handeye_init`) and fields (`handeye_mode`)
-all spell it so, and it was already the majority CamelCase spelling, so
-CamelCase is `Handeye` everywhere (`HandeyeMode`, `HandeyeEstimate`,
-`ReprojLevel::Handeye`). This keeps every serde tag and export kind
-unchanged; only `ReprojLevel`'s snake_case value follows (`handeye`).
+all spell it so, and CamelCase is `Handeye` everywhere (`HandeyeMode`,
+`HandeyeEstimate`, `ReprojLevel::Handeye`).
 
 ### Python
 
