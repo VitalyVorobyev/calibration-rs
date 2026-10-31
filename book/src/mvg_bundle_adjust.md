@@ -6,7 +6,7 @@ It lives behind the `refine` feature, which pulls in the `tiny-solver` Levenberg
 
 ```toml
 [dependencies]
-vision-calibration = { version = "0.9", features = ["refine"] }
+vision-calibration = { version = "0.10", features = ["refine"] }
 ```
 
 ## Usage

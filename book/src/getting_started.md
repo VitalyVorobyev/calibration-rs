@@ -10,7 +10,7 @@ Both interfaces drive the same solvers and expose the same workflow: a session p
 
 ```toml
 [dependencies]
-vision-calibration = "0.9"
+vision-calibration = "0.10"
 anyhow = "1"
 ```
 
