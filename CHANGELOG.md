@@ -817,6 +817,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A tilted (Scheimpflug) camera calibrated from a cold start, alone or as
+  a rig camera, now reaches its principal point under a robust loss. The
+  last stage of the staged solve, which frees the principal point, solved
+  without the robust loss and was kept only if the mean reprojection error
+  did not grow. That error counts outliers at full weight, so with
+  outliers the stage was rejected and the principal point kept its seed.
+  It now solves under the caller's loss and is kept unless it raises that
+  objective. On synthetic rigs with 5 % outliers under Huber or Cauchy,
+  principal-point errors drop from 27–45 px to 1.4–13 px, and tilt errors
+  from 1.7–2.9° to 0.08–0.8°, about what clean data at the same noise
+  gives. Results change for every robust-loss cold-start and rig
+  Scheimpflug calibration; without a robust loss they are unchanged.
+
 - **Robot-pose corrections get their rotation Jacobian from the first
   iteration.** The SE(3) exponential behind the corrections returned the
   identity for an exactly zero rotation, where every correction starts, so

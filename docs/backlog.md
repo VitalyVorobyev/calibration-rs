@@ -89,19 +89,6 @@ private sets.
 Found by `calib-bench solver` (well-conditioned synthetic scenes; the named
 scenes are the gate) and the regression suite.
 
-- [ ] Q-SCHEIMPFLUG-STAGED-ROBUST - The staged Scheimpflug solve
-  (`optimize_scheimpflug_intrinsics_staged`, the cold-start and rig
-  per-camera route) fails on contaminated data: its last stage, which frees
-  the principal point, solves without the caller's robust loss and is
-  accepted only if the mean reprojection error, outliers included, does not
-  grow. With 5 % outliers it is rejected and the principal point keeps its
-  linear-init value: `rig_extrinsics/scheimpflug/*/{huber,cauchy}` stay
-  20–45 px and 2–3° off. Solving that stage under the caller's loss and
-  accepting it on the objective brings `small/n0.1/{huber,cauchy}` to
-  ≤ 4.7 px and ≤ 0.3° (about 1σ). It changes every robust-loss cold-start
-  and rig Scheimpflug result, so check the acceptance runs.
-  Gate: `rig_extrinsics/scheimpflug/*/{huber,cauchy}` within 3σ of the truth.
-
 - [ ] Q-SCHEIMPFLUG-TILE-BOUND - On every `scheimpflug_rig` tile, the
   single-camera seeded planar solve ends with `tilt_x` at its ±0.10 rad
   bound around the seed (`step_optimize`'s seeded path), so the covariance
