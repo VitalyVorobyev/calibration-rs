@@ -691,6 +691,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Every covariance is scaled by its view scatter. The residual noise model
+  takes each corner's error as independent; on real images much of the error
+  is shared by a view's corners (lens model, target, detector bias), and the
+  estimate varies between view sets several times more than predicted.
+  `ParameterCovariance::view_scatter` (Python
+  `ParameterUncertainty.view_scatter`) reports that factor, measured from
+  the scatter of the views' contributions to the fit. The covariance is
+  scaled by it when it is above 1 (from six views). On the public cameras it
+  is 4–11. Calibrations from disjoint halves of the views now differ by
+  1.1–1.8 times their stated σ, where they differed by 2.3–5 times. On data
+  whose corner errors are independent it stays near 1.
+
 - Hand-eye solves estimate the robot's pose error. With robot-pose
   refinement, `robot_poses.estimate_sigma` (new, on by default) treats
   `rot_sigma` and `trans_sigma` as starting values: each prior's variance

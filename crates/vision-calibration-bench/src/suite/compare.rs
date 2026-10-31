@@ -256,6 +256,7 @@ mod tests {
             noise: Vec::new(),
             num_residuals: 10,
             dof: 5,
+            view_scatter: None,
         }
     }
 

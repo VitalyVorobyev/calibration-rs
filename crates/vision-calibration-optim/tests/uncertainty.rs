@@ -829,3 +829,66 @@ fn laserline_covariance_matches_monte_carlo() {
     );
     mc.assert_calibrated(0.10);
 }
+
+/// The view scatter is about 1 when the corners' errors are independent, and
+/// large when each view carries an error of its own that no shared parameter
+/// absorbs (here a radial warp whose strength changes from view to view, as
+/// a target that bends differently in each view would). The covariance is
+/// then scaled by it.
+#[test]
+fn view_scatter_flags_errors_shared_within_a_view() {
+    let gt = truth();
+    let noise = UniformPixelNoise {
+        seed: 11,
+        max_abs_px: 0.5,
+    };
+    let solve = |data: &PlanarDataset| {
+        let est = optimize_planar_intrinsics(
+            data,
+            &gt,
+            PlanarIntrinsicsSolveOptions::default(),
+            BackendSolveOptions::default(),
+        )
+        .unwrap();
+        let Uncertainty::Available(cov) = est.uncertainty else {
+            panic!("no covariance: {:?}", est.uncertainty);
+        };
+        cov
+    };
+    let independent = solve(&dataset(&gt, noise));
+    let k = independent.view_scatter.expect("ten views");
+    assert!(k < 2.5, "independent noise: view scatter {k}");
+
+    let k_true = gt.camera.intrinsics;
+    let warped = PlanarDataset::new(
+        dataset(&gt, noise)
+            .views
+            .iter()
+            .enumerate()
+            .map(|(v, view)| {
+                let kappa = if v % 2 == 0 { 6e-8 } else { -6e-8 } * (1.0 + 0.2 * v as f64);
+                let p2 = view
+                    .obs
+                    .points_2d
+                    .iter()
+                    .map(|p| {
+                        let d = Vec2::new(p.x - k_true.cx, p.y - k_true.cy);
+                        let d = d * (1.0 + kappa * d.norm_squared());
+                        Pt2::new(k_true.cx + d.x, k_true.cy + d.y)
+                    })
+                    .collect();
+                View::without_meta(CorrespondenceView::new(view.obs.points_3d.clone(), p2).unwrap())
+            })
+            .collect(),
+    )
+    .unwrap();
+    let shared = solve(&warped);
+    let k_shared = shared.view_scatter.expect("ten views");
+    assert!(k_shared > 4.0, "per-view warp: view scatter {k_shared}");
+    let unscaled_fx_var = independent.std_dev("fx").unwrap().powi(2);
+    let scaled_fx_var = shared.std_dev("fx").unwrap().powi(2);
+    assert!(
+        scaled_fx_var > 2.0 * unscaled_fx_var,
+        "σ(fx)² {scaled_fx_var} against {unscaled_fx_var}"
+    );
+}

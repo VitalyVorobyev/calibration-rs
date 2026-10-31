@@ -24,6 +24,24 @@ covariance is the M-estimator sandwich `Σ = H⁻¹ G H⁻¹`.
 Derivation, identifiability and the Monte-Carlo gates are in
 `docs/notes/uncertainty.md`.
 
+**The covariance is scaled by the view scatter.**
+- The residual noise model takes every scalar residual as independent. On
+  real images much of the error is shared by a view's corners (lens model,
+  target, detector bias), and the estimate varies between view sets 5–24
+  times (in variance) more than predicted.
+- The view-clustered sandwich `V/(V−1) · H⁻¹ (Σ_v g_v g_vᵀ) H⁻¹`, with
+  `g_v = Σ ρ′ Jᵀ r` over view `v`'s residuals, measures that scatter. Its
+  pooled ratio to the model covariance over the shared coordinates,
+  `k = tr(Σ⁻¹ Σ_v) / n`, is reported as `view_scatter`. When `k > 1` the
+  whole covariance is scaled by `k`, keeping the model's shape.
+- A view is a residual's per-view parameter block (`pose/`, `target/`,
+  `rig_pose/`, `robot_delta/<view>`). From six views up; below that the
+  scatter is too noisy to scale by.
+- Rejected: the clustered sandwich in place of the model covariance. It
+  is rank-deficient in the per-view coordinates and noisy, so it can supply
+  a scale but not a shape. Also rejected: a fixed documented inflation,
+  because the factor ranges from 4 to 11 between cameras.
+
 **Robot-pose priors are weighed against the measured pixel noise.**
 - Every hand-eye view gets a free pose correction `δᵢ` in the gripper frame,
   `T_B_G · exp(δᵢ)`, with a zero-mean prior at the configured `rot_sigma`,

@@ -96,9 +96,9 @@ Phase 1 is mostly in: the camera-model spec, the result-changing UQ fixes,
 the quality report, Python parity and the suite fetch. What is left, in
 order:
 
-1. The real-data honesty gap (UQ-REAL-SCALE): the predicted projection σ is
-   2–5 times smaller than the real split-half scatter on every real camera,
-   which criterion 3 does not allow.
+1. The rest of the real-data honesty gap (UQ-REAL-SCALE): with the view
+   scatter, the split-half `r` is 1.3–3.3 on the public cameras (it was
+   5–24); criterion 3 asks for about 1.
 2. Cut 0.10.0, so the breaking changes ship and the "unchanged across two
    minor releases" clock of criterion 5 starts.
 3. A v1.0 API audit and the public-dependency decision (criterion 9).

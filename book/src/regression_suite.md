@@ -271,12 +271,12 @@ our σ:
 
 | Entry | Library | Parameters | Largest difference | Median | σ ratio (ours / theirs) | Mean reprojection (ours / theirs) | Truth (ours / theirs) |
 |---|---|---|---|---|---|---|---|
-| `kuka_1` | opencv 4.12.0 | 20 | 12.21σ (`base_se3_target.rz`) | 2.25σ | 0.878–0.993 | 0.1347 / 2.2545 px | — |
-| `stereo_left` | opencv 4.12.0 | 8 | 0.02σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2339 / 0.2339 px | — |
-| `stereo_right` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.01σ | 1.000–1.000 | 0.2442 / 0.2442 px | — |
-| `stereo_rig` | opencv 4.12.0 | 22 | 7.22σ (`cam1.cam_se3_rig.tz`) | 1.15σ | — | — | — |
-| `ds8` | opencv 4.12.0 | 36 | 18.72σ (`cam2.p2`) | 1.98σ | 0.344–1.327 | — | — |
-| `synth_planar` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.00σ | 1.000–1.000 | 0.6570 / 0.6570 px | 1.87σ / 1.86σ |
+| `kuka_1` | opencv 4.12.0 | 20 | 8.08σ (`base_se3_target.rz`) | 1.49σ | 1.327–1.500 | 0.1347 / 2.2545 px | — |
+| `stereo_left` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.01σ | 1.818–1.818 | 0.2339 / 0.2339 px | — |
+| `stereo_right` | opencv 4.12.0 | 8 | 0.01σ (`cy`) | 0.00σ | 1.886–1.886 | 0.2442 / 0.2442 px | — |
+| `stereo_rig` | opencv 4.12.0 | 22 | 4.14σ (`cam1.cam_se3_rig.tz`) | 0.66σ | — | — | — |
+| `ds8` | opencv 4.12.0 | 36 | 3.99σ (`cam2.p2`) | 0.42σ | 1.615–6.226 | — | — |
+| `synth_planar` | opencv 4.12.0 | 8 | 0.00σ (`cx`) | 0.00σ | 1.222–1.222 | 0.6570 / 0.6570 px | 1.53σ / 1.53σ |
 | `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
 | `synth_handeye` | opencv 4.12.0 | 20 | 10.09σ (`base_se3_target.tx`) | 1.82σ | 0.303–0.631 | 0.6645 / 0.7521 px | 1.20σ / 10.46σ |
 | `synth_rig` | opencv 4.12.0 | 22 | 0.09σ (`cam0.cy`) | 0.02σ | — | — | 2.07σ / 2.06σ |
@@ -284,8 +284,11 @@ our σ:
 Reading it:
 
 - On plain and Scheimpflug intrinsics the two libraries agree within
-  0.02σ, and OpenCV's standard deviations match ours to 0.1 %: both report
-  the classical covariance for these fits. The Scheimpflug fit needs the same
+  0.02σ. Both start from the classical covariance; ours is scaled by its
+  view scatter when that is above 1, so on the real `stereo` cameras our
+  standard deviations are 1.8–1.9 times OpenCV's, and 1.2 times on
+  `synth_planar`, where the scatter happens to come out at 1.5. The
+  Scheimpflug fit needs the same
   parameter set on both sides: with the tangential terms `p1`, `p2` free, a
   tilt and a decentring distortion explain the same images, and OpenCV's fit
   wanders along that valley (its own σ of `cy` is 40 px).
@@ -294,8 +297,8 @@ Reading it:
   corner noise (0.13 px) rather than the robot's pose error (2.3 px with the
   measured poses). OpenCV takes the robot poses as exact for the hand-eye
   pose, but calibrates the intrinsics with a free pose per view, as the
-  refined robot poses effectively are here: the intrinsics standard
-  deviations of the two agree within 12 %. The synthetic hand-eye entry's
+  refined robot poses effectively are here: our intrinsics standard
+  deviations are 1.3–1.5 times OpenCV's, the view scatter's scale. The synthetic hand-eye entry's
   robot poses are exact, and our solve estimates a robot error near zero
   from the corrections: it lands 1.2σ from the truth with standard
   deviations a third to two thirds of OpenCV's, whose hand-eye, from the
@@ -303,7 +306,7 @@ Reading it:
 - Rig results refine each camera's intrinsics jointly with the rig, from
   every view of every camera. On `stereo_rig` OpenCV's `stereoCalibrate`
   refines them too, but from the views both cameras see; the two estimates
-  differ by up to 7σ, along the coupling between camera 0's focal length and
+  differ by up to 4σ, along the coupling between camera 0's focal length and
   camera 1's depth offset. On the synthetic rig the joint estimate lands
   within 2.1σ of the truth.
 - `ds8` is a three-camera rig; OpenCV calibrates each camera's intrinsics

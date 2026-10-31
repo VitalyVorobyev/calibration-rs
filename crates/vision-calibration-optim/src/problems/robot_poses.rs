@@ -212,6 +212,8 @@ fn estimated_priors(
     let ParamUncertainty::Available(cov) = &solution.uncertainty else {
         return priors;
     };
+    // The redundancy is the noise model's: undo the view-scatter scaling.
+    let model_scale = cov.view_scatter.filter(|k| *k > 1.0).unwrap_or(1.0);
     let row: HashMap<Coordinate, usize> = cov
         .coordinates
         .iter()
@@ -243,7 +245,7 @@ fn estimated_priors(
                 (1, priors.trans_sigma)
             };
             sums[group][0] += (delta[k] / sigma).powi(2);
-            sums[group][1] += 1.0 - cov.matrix[(i, i)] / (sigma * sigma);
+            sums[group][1] += 1.0 - cov.matrix[(i, i)] / model_scale / (sigma * sigma);
         }
     }
     let scaled = |sigma: f64, [num, redundancy]: [f64; 2], floor: f64| {

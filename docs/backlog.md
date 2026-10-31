@@ -13,19 +13,14 @@ from measured feature noise, and a quality verdict built on it. Design:
 ADR 0026; evidence: `notes/uncertainty.md`. Items that change results
 need their measurement first and stay opt-in until it is in.
 
-- [ ] UQ-REAL-SCALE - The stated projection σ is 2–5 times smaller than
-  the real scatter on every real camera. In the feature-covariance study
-  (`notes/feature-covariance-study.md`, E3), two calibrations from disjoint
-  halves of the views differ by `r` = 4.9–26 times the predicted `z²/2` on
-  the public cameras (pooled 7.8). Only 16 % of grid nodes fall inside the
-  68 % contour. The detector's per-corner covariance does not change this.
-  The missing error is systematic: the lens model, the target (see
-  UQ-TARGET-FLATNESS) or detector bias. First measure which one dominates
-  on `kuka_1`, `ds8` and `stereo` (residual structure, a richer distortion
-  model, a flatness term). Then either model it, or state the real-data
-  scale beside the covariance. Exit criterion 3 asks for the real-data
-  check. Gate: split-half `r` within 0.85–1.15 on the public cameras, or a
-  documented, measured inflation.
+- [ ] UQ-REAL-SCALE - The covariance is scaled by the view scatter (a
+  view-clustered sandwich, `ParameterCovariance::view_scatter`), which took
+  the public cameras' split-half `r` from 5.1–24.5 to 1.3–3.3 (`kuka_1`,
+  `ds8` cameras; feature-cov E3, 21 splits). Left: the clustered estimate
+  is biased low with few views (CR1 scaling only). Try a small-sample
+  correction (a delete-one-view jackknife or the CR3 leverage form) and
+  re-measure with `stereo` too. Gate: split-half `r` within 0.85–1.15 on the
+  public cameras, or the remaining factor documented.
 - [~] UQ-RINGGRID-COV - The ring-grid detector reports the ellipse-centre
   covariance (cross-repo, ringgrid). Parked: the real-data study advises
   against weighting a calibration by the chessboard and ChArUco
