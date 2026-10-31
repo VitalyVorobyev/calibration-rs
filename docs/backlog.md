@@ -42,7 +42,8 @@ need their measurement first and stay opt-in until it is in.
   small. Estimate the prior family's variance factor from the corrections
   (a variance component with its redundancy), and gate it on the
   `robot_pose_priors` study's mismatched cells.
-- [ ] UQ-ROBOT-FRAME - Robot-pose corrections perturb the measured pose in
+- [ ] UQ-ROBOT-FRAME - (Phase 1: it changes what `robot_deltas` mean, a
+  breaking change.) Robot-pose corrections perturb the measured pose in
   the base frame (`exp(δ) · base_se3_gripper`, a rotation about the base
   origin), so `trans_sigma` is not the gripper's position error: a 0.5°
   rotation prior lets a gripper 1.5 m from the base move 13 mm, and on
@@ -67,8 +68,8 @@ on Linux, macOS and Windows. `stereo_charuco` stays local-only, as do the
 private sets.
 
 - [ ] DATA-FETCH - `suite fetch` and the weekly `Suite images` workflow
-  (fetch → `suite freeze --images` → `SHA256SUMS` unchanged) are in. Left:
-  once that workflow has run green on `main`, retire
+  (fetch → `suite freeze --images` → `SHA256SUMS` unchanged) are in, and the
+  workflow has run green on `main`. Left: retire
   `crates/vision-calibration-bench/registry/public.json` (its `ds8` entry
   still globs the old grayscale PNG conversion, as does
   `tools/convert_ds8_to_gray_png.py`; both go with it) and the acceptance
@@ -189,11 +190,14 @@ takes or returns a covariance. Open with an ADR on the BA layering:
 
 ## Book (alongside)
 
-- [ ] BOOK-WASM - A `vision-calibration-wasm` crate (wasm-bindgen over the
+- [~] BOOK-WASM - Parked until after v1.0: large, and not the adoption lever
+  (BOOK-RESULTS and CAM-KB are). Reopen after D4-RELEASE. A
+  `vision-calibration-wasm` crate (wasm-bindgen over the
   facade, `publish = false` at first), built by `publish-docs.yml` with a
   bun bundle loaded through mdBook `additional-js`. The app can use the same
   build for per-frame math.
-- [ ] BOOK-DEMOS - Interactive pages running the library in the browser:
+- [~] BOOK-DEMOS - Parked with BOOK-WASM. Interactive pages running the
+  library in the browser:
   - a distortion and camera-model explorer;
   - planar calibration on synthetic views, with a noise slider,
     covariance ellipses and the projection-σ map;
@@ -283,7 +287,9 @@ were. What is left reorganizes them around the project.
 ## v1.0
 
 - [ ] D4-RELEASE - Cut v1.0 once the ROADMAP exit criteria hold.
-- [ ] D4-NALGEBRA-035 - Move to `nalgebra` 0.35 / `faer` 0.24 /
+- [ ] D4-NALGEBRA-035 - **Decide before D4-RELEASE** (ROADMAP criterion 9):
+  ship 1.0 on `nalgebra` 0.34 and bump in 2.0, or wait for the backends.
+  Move to `nalgebra` 0.35 / `faer` 0.24 /
   `faer-ext` 0.8. **Blocked on both backends**, built against 0.34 / 0.23 /
   0.7: `vision-calibration-optim` passes nalgebra and faer types across the
   tiny-solver boundary (`Factor<T: nalgebra::RealField>`,

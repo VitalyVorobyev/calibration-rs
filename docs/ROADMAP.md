@@ -47,8 +47,10 @@ alongside both phases. Track names below match the backlog headings.
    checksum) gates every PR, with reference results compared against OpenCV.
 3. **Uncertainty** — every result carries its parameter covariance,
    projection uncertainty and quality report. Rig results include the
-   intrinsics. Covariance is computed from per-feature detector noise and
-   validated against Monte-Carlo and rendered-image scatter.
+   intrinsics. The estimator is validated by Monte-Carlo, and its predicted
+   σ against real-image scatter (split-half consistency). Whether the
+   detector's per-corner covariance weights results by default follows the
+   pre-registered real-data study (`notes/feature-covariance-study.md`).
 4. **Soundness** — every shipped algorithm family has a proof pack
    ([`notes/`](notes/README.md)): math note, synthetic-GT matrix test,
    property tests where an invariant exists, and a committed regression
@@ -65,6 +67,11 @@ alongside both phases. Track names below match the backlog headings.
 8. **Docs current** — README, crate READMEs, the book, ADRs and this file
    describe the code as it is, and user-facing docs carry no internal
    references (`cargo xtask check-docs`).
+9. **Public dependencies** — the external crates whose types the facade
+   exposes (`nalgebra`) are at versions the 1.x line can keep, or the policy
+   for bumping them is recorded. Today `nalgebra` 0.34 is held by both solver
+   backends (D4-NALGEBRA-035), so 1.0 would freeze it: a maintainer decision
+   before D4-RELEASE.
 
 ### Phase 2 — Growth in 1.x
 
@@ -84,16 +91,23 @@ alongside both phases. Track names below match the backlog headings.
 
 ## Ordering
 
-Phase 1 starts with the camera-model spec. It is the one design every
-later track depends on: new models, rig covariance, and the Python and
-MVG surfaces. Then:
+Phase 1 is mostly in: the camera-model spec, the result-changing UQ fixes,
+the quality report, Python parity and the suite fetch. What is left, in
+order:
 
-1. The result-changing UQ fixes.
-2. Per-feature covariance.
-3. The quality report.
-4. Python parity.
+1. The per-feature covariance decision (the pre-registered real-data study).
+2. The breaking quality fixes: Q-TANGENTIAL-ONE-SOURCE, then UQ-ROBOT-FRAME,
+   which changes what robot deltas mean.
+3. Q-SCHEIMPFLUG-STAGED-ROBUST and retiring the old public registry
+   (DATA-FETCH).
+4. Cut 0.10.0, so the breaking changes ship and the "unchanged across two
+   minor releases" clock of criterion 5 starts.
+5. A v1.0 API audit and the public-dependency decision (criterion 9).
 
-Phase 2 tracks are independent of each other and are picked by need.
+Phase 2 tracks are independent of each other and are picked by need. The
+Landscape says the gap to other libraries is adoption, so the published
+OpenCV comparison (BOOK-RESULTS) and fisheye (CAM-KB with a public fisheye
+set) come first. The in-browser book demos wait until after 1.0.
 
 ## Landscape
 
