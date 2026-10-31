@@ -99,9 +99,7 @@ order:
 1. The rest of the real-data honesty gap (UQ-REAL-SCALE): with the view
    scatter, the split-half `r` is 1.3–3.3 on the public cameras (it was
    5–24); criterion 3 asks for about 1.
-2. Cut 0.10.0, so the breaking changes ship and the "unchanged across two
-   minor releases" clock of criterion 5 starts.
-3. A v1.0 API audit and the public-dependency decision (criterion 9).
+2. A v1.0 API audit and the public-dependency decision (criterion 9).
 
 Phase 2 tracks are independent of each other and are picked by need. The
 Landscape says the gap to other libraries is adoption, so the published
