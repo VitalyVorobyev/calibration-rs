@@ -18,8 +18,10 @@
 #[cfg(feature = "tier-b")]
 pub use tier_b::{
     DetectedScheimpflugCamera, ScheimpflugSeededSolve, detect_scheimpflug_seeded_input,
-    diagnose_intrinsics, progress_label, run_planar_intrinsics, run_rig_extrinsics,
-    run_rig_handeye, run_scheimpflug_intrinsics, run_single_cam_handeye, solve_scheimpflug_seeded,
+    diagnose_intrinsics, planar_intrinsics_config, progress_label, rig_extrinsics_config,
+    rig_handeye_config, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
+    run_scheimpflug_intrinsics, run_single_cam_handeye, single_cam_handeye_config,
+    solve_scheimpflug_seeded,
 };
 
 #[cfg(feature = "tier-b")]
@@ -407,6 +409,60 @@ pub mod tier_b {
         start.elapsed().as_millis() as u64
     }
 
+    /// The planar-intrinsics configuration `entry` runs with: the defaults on
+    /// the entry's solver backend.
+    pub fn planar_intrinsics_config(entry: &BenchEntry) -> PlanarIntrinsicsConfig {
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.solver.backend = entry.solver_backend();
+        config
+    }
+
+    /// The rig-extrinsics configuration `entry` runs with: the defaults on
+    /// the entry's solver backend.
+    pub fn rig_extrinsics_config(entry: &BenchEntry) -> RigExtrinsicsConfig {
+        let mut config = RigExtrinsicsConfig::default();
+        config.solver.backend = entry.solver_backend();
+        config
+    }
+
+    /// The single-camera hand-eye configuration `entry` runs with: the
+    /// defaults with the entry's overrides, on its solver backend.
+    pub fn single_cam_handeye_config(entry: &BenchEntry) -> SingleCamHandeyeConfig {
+        let mut config = SingleCamHandeyeConfig::default();
+        if let Some(overrides) = &entry.single_cam_handeye {
+            overrides.apply_to(&mut config);
+        }
+        config.solver.backend = entry.solver_backend();
+        config
+    }
+
+    /// The rig hand-eye configuration `entry` runs with: the defaults with
+    /// the entry's overrides, on its solver backend, seeded from the entry's
+    /// `seed` (or the `scheimpflug_rig` nominal seed when it has none).
+    ///
+    /// # Errors
+    ///
+    /// An entry `seed` that does not parse as a rig intrinsics seed.
+    pub fn rig_handeye_config(entry: &BenchEntry, spec: &DatasetSpec) -> Result<RigHandeyeConfig> {
+        let mut config = RigHandeyeConfig::default();
+        if let Some(overrides) = &entry.rig_handeye {
+            overrides.apply_to(&mut config);
+        }
+        config.solver.backend = entry.solver_backend();
+        if let Some(seed) = &entry.seed {
+            let manual: RigIntrinsicsManualInit = serde_json::from_value(seed.0.clone())
+                .with_context(|| {
+                    format!("failed to parse rig hand-eye manual seed for {}", entry.id)
+                })?;
+            config.manual_init = Some(manual);
+        }
+        if config.manual_init.is_none() && entry.id == "scheimpflug_rig" {
+            config.manual_init = Some(scheimpflug_rig_manual_intrinsics_seed(spec));
+            config.intrinsics.fix_tangential = Some(true);
+        }
+        Ok(config)
+    }
+
     /// Run a single-camera planar-intrinsics calibration for `entry` and build a
     /// [`BenchRecord`].
     ///
@@ -454,9 +510,9 @@ pub mod tier_b {
         // (the dataset is moved into the session below).
         let views_for_report = detected.input.views.clone();
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-        let mut config = PlanarIntrinsicsConfig::default();
-        config.solver.backend = entry.solver_backend();
-        session.set_config(config).context("set_config failed")?;
+        session
+            .set_config(planar_intrinsics_config(entry))
+            .context("set_config failed")?;
         session
             .set_input(detected.input)
             .context("set_input failed")?;
@@ -844,9 +900,9 @@ pub mod tier_b {
         // into the session below).
         let dataset_for_report = detected.input.clone();
         let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-        let mut config = RigExtrinsicsConfig::default();
-        config.solver.backend = entry.solver_backend();
-        session.set_config(config).context("set_config failed")?;
+        session
+            .set_config(rig_extrinsics_config(entry))
+            .context("set_config failed")?;
         session
             .set_input(detected.input)
             .context("set_input failed")?;
@@ -1012,11 +1068,7 @@ pub mod tier_b {
         // (the input is moved into the session below).
         let views_for_report = detected.input.views.clone();
         let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
-        let mut config = SingleCamHandeyeConfig::default();
-        if let Some(overrides) = &entry.single_cam_handeye {
-            overrides.apply_to(&mut config);
-        }
-        config.solver.backend = entry.solver_backend();
+        let config = single_cam_handeye_config(entry);
         let robot_rot_sigma = config.robot_poses.rot_sigma;
         let robot_trans_sigma = config.robot_poses.trans_sigma;
         session
@@ -1159,22 +1211,7 @@ pub mod tier_b {
         let mut laser = laser_observations.as_ref().map(|obs| obs.metrics.clone());
 
         // ── Calibration ─────────────────────────────────────────────────────
-        let mut config = RigHandeyeConfig::default();
-        if let Some(overrides) = &entry.rig_handeye {
-            overrides.apply_to(&mut config);
-        }
-        config.solver.backend = entry.solver_backend();
-        if let Some(seed) = &entry.seed {
-            let manual: RigIntrinsicsManualInit = serde_json::from_value(seed.0.clone())
-                .with_context(|| {
-                    format!("failed to parse rig hand-eye manual seed for {}", entry.id)
-                })?;
-            config.manual_init = Some(manual);
-        }
-        if config.manual_init.is_none() && entry.id == "scheimpflug_rig" {
-            config.manual_init = Some(scheimpflug_rig_manual_intrinsics_seed(&spec));
-            config.intrinsics.fix_tangential = Some(true);
-        }
+        let config = rig_handeye_config(entry, &spec)?;
         let robot_rot_sigma = config.handeye_optimize.robot_poses.rot_sigma;
         let robot_trans_sigma = config.handeye_optimize.robot_poses.trans_sigma;
         let manual_intrinsics = config.manual_init.clone().unwrap_or_default();

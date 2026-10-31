@@ -3,9 +3,13 @@
 
 use serde::de::DeserializeOwned;
 
-use vision_calibration_core::{CameraParams, ImageManifest, PerFeatureResiduals, Uncertainty};
+use nalgebra::Matrix2;
+use vision_calibration_core::{
+    CameraParams, ImageManifest, ParameterCovariance, PerFeatureResiduals, Uncertainty,
+};
 use vision_calibration_optim::{
-    Error as OptimError, ProjectionUncertainty, camera_parameters, projection_uncertainty,
+    Error as OptimError, ProjectionUncertainty, camera_parameters, projection_covariance_at,
+    projection_uncertainty,
 };
 
 use crate::Error;
@@ -61,25 +65,57 @@ pub trait CalibratedCameras {
         camera: usize,
         image_size: [u32; 2],
     ) -> Result<ProjectionUncertainty, Error> {
-        let cameras = self.camera_params();
-        let params = cameras.get(camera).ok_or_else(|| {
-            Error::invalid_input(format!(
-                "camera {camera} out of range: the result has {} cameras",
-                cameras.len()
-            ))
-        })?;
-        let covariance = match self.parameter_uncertainty() {
-            Uncertainty::Available(covariance) => covariance,
-            Uncertainty::Unavailable { reason } => {
-                return Err(Error::CovarianceUnavailable {
-                    reason: reason.clone(),
-                });
-            }
-        };
-        projection_uncertainty(params, covariance, camera, image_size).map_err(|err| match err {
-            OptimError::InvalidInput { reason } => Error::InvalidInput { reason },
-            err => err.into(),
-        })
+        let (params, covariance) = camera_with_covariance(self, camera)?;
+        projection_uncertainty(&params, covariance, camera, image_size).map_err(optim_error)
+    }
+
+    /// The 2×2 covariance, in px², of where the camera-frame ray through each
+    /// of `pixels` lands in camera `camera`, from the uncertainty of its
+    /// parameters; `None` where no ray reaches a pixel (see
+    /// [`projection_covariance_at`]). Its major-axis σ is what
+    /// [`projection_uncertainty`](Self::projection_uncertainty) reports.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::CovarianceUnavailable`] when the result has no covariance;
+    /// [`Error::InvalidInput`] when `camera` is out of range, its covariance
+    /// holds none of the camera's parameters, or the camera model is one
+    /// [`projection_covariance_at`] rejects.
+    fn projection_covariance(
+        &self,
+        camera: usize,
+        pixels: &[[f64; 2]],
+    ) -> Result<Vec<Option<Matrix2<f64>>>, Error> {
+        let (params, covariance) = camera_with_covariance(self, camera)?;
+        projection_covariance_at(&params, covariance, camera, pixels).map_err(optim_error)
+    }
+}
+
+/// Camera `camera`'s model and the result's parameter covariance.
+fn camera_with_covariance<E: CalibratedCameras + ?Sized>(
+    export: &E,
+    camera: usize,
+) -> Result<(CameraParams, &ParameterCovariance), Error> {
+    let cameras = export.camera_params();
+    let count = cameras.len();
+    let params = cameras.into_iter().nth(camera).ok_or_else(|| {
+        Error::invalid_input(format!(
+            "camera {camera} out of range: the result has {count} cameras"
+        ))
+    })?;
+    match export.parameter_uncertainty() {
+        Uncertainty::Available(covariance) => Ok((params, covariance)),
+        Uncertainty::Unavailable { reason } => Err(Error::CovarianceUnavailable {
+            reason: reason.clone(),
+        }),
+    }
+}
+
+/// An input the projection functions reject is the caller's invalid input.
+fn optim_error(err: OptimError) -> Error {
+    match err {
+        OptimError::InvalidInput { reason } => Error::InvalidInput { reason },
+        err => err.into(),
     }
 }
 

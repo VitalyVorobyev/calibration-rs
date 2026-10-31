@@ -90,27 +90,22 @@ pub fn projection_uncertainty(
             "image size {width}×{height} is smaller than 2×2 pixels"
         )));
     }
-    let model = CameraVector::new(camera)?;
-    let theta_covariance = model.covariance(covariance, camera_index)?;
-    let start = camera.build()?;
-    let sigma_at = |pixel: [f64; 2]| -> Option<f64> {
-        let guess = start
-            .backproject_pixel(&Pt2::new(pixel[0], pixel[1]))
-            .point_at_unit_depth()?;
-        let j = model.jacobian(
-            Vector2::new(pixel[0], pixel[1]),
-            Vector2::new(guess.x, guess.y),
-        )?;
-        Some(major_axis_sigma(&(&j * &theta_covariance * j.transpose())))
-    };
-
     let [columns, rows] = GRID;
     let node = |i: usize, n: usize, size: u32| i as f64 * f64::from(size - 1) / (n - 1) as f64;
-    let sigma: Vec<Option<f64>> = (0..rows)
+    // The grid nodes row by row, then the image centre.
+    let pixels: Vec<[f64; 2]> = (0..rows)
         .flat_map(|r| (0..columns).map(move |c| (c, r)))
-        .map(|(c, r)| sigma_at([node(c, columns, width), node(r, rows, height)]))
+        .map(|(c, r)| [node(c, columns, width), node(r, rows, height)])
+        .chain([[f64::from(width - 1) / 2.0, f64::from(height - 1) / 2.0]])
         .collect();
-    let center = sigma_at([f64::from(width - 1) / 2.0, f64::from(height - 1) / 2.0])
+    let mut sigma: Vec<Option<f64>> =
+        projection_covariance_at(camera, covariance, camera_index, &pixels)?
+            .iter()
+            .map(|c| c.as_ref().map(major_axis_sigma))
+            .collect();
+    let center = sigma
+        .pop()
+        .flatten()
         .ok_or_else(|| Error::numerical("no ray reaches the image centre"))?;
     let corners = [0, columns - 1, (rows - 1) * columns, rows * columns - 1];
     let corner = corners.iter().filter_map(|&i| sigma[i]).reduce(f64::max);
@@ -124,6 +119,43 @@ pub fn projection_uncertainty(
         corner,
         max,
     })
+}
+
+/// The 2×2 covariance, in px², of where the camera-frame ray through each
+/// of `pixels` projects, from the covariance of `camera`'s estimated
+/// parameters: `J Σ_θθ Jᵀ` with `J = ∂q/∂θ` at that ray (see the module
+/// docs).
+///
+/// `camera_index` and the parameters the covariance does not list are as in
+/// [`projection_uncertainty`], whose major-axis σ is the square root of the
+/// larger eigenvalue of this matrix. Entries follow `pixels`; an entry is
+/// `None` where no ray reaches the pixel, as where a strong distortion folds
+/// the image over.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] when the camera model has a general sensor
+/// homography or the covariance lists none of the camera's parameters (they
+/// were all held fixed).
+pub fn projection_covariance_at(
+    camera: &CameraParams,
+    covariance: &ParameterCovariance,
+    camera_index: usize,
+    pixels: &[[f64; 2]],
+) -> Result<Vec<Option<Matrix2<f64>>>, Error> {
+    let model = CameraVector::new(camera)?;
+    let theta_covariance = model.covariance(covariance, camera_index)?;
+    let start = camera.build()?;
+    Ok(pixels
+        .iter()
+        .map(|&[u, v]| {
+            let guess = start
+                .backproject_pixel(&Pt2::new(u, v))
+                .point_at_unit_depth()?;
+            let j = model.jacobian(Vector2::new(u, v), Vector2::new(guess.x, guess.y))?;
+            Some(&j * &theta_covariance * j.transpose())
+        })
+        .collect())
 }
 
 /// A camera's parameters by their covariance label (`fx` … `cy`, the
@@ -499,6 +531,40 @@ mod tests {
         let zero = projection_uncertainty(&params, &cov, 0, [640, 480]).unwrap();
         assert!((zero.center - 0.1).abs() < 1e-9);
         assert!(projection_uncertainty(&params, &cov, 2, [640, 480]).is_err());
+    }
+
+    #[test]
+    fn covariance_major_axis_is_the_projection_sigma() {
+        let params = camera(SensorParams::Scheimpflug {
+            params: ScheimpflugParams {
+                tilt_x: 0.03,
+                tilt_y: -0.02,
+            },
+        });
+        let labels = [
+            "fx", "fy", "cx", "cy", "k1", "k2", "p1", "p2", "tilt_x", "tilt_y",
+        ];
+        let variances = [4.0, 3.0, 0.25, 0.16, 1e-4, 1e-5, 1e-7, 2e-7, 1e-6, 2e-6];
+        let mut cov = covariance(&labels, &variances);
+        // A correlated pair, so the ellipse is not axis-aligned.
+        cov.covariance[0][2] = 0.5;
+        cov.covariance[2][0] = 0.5;
+        let map = projection_uncertainty(&params, &cov, 0, [640, 480]).unwrap();
+        let node = |i: usize, n: usize, size: f64| i as f64 * (size - 1.0) / (n - 1) as f64;
+        let pixels: Vec<[f64; 2]> = (0..map.rows)
+            .flat_map(|r| (0..map.columns).map(move |c| (c, r)))
+            .map(|(c, r)| [node(c, 16, 640.0), node(r, 12, 480.0)])
+            .collect();
+        let full = projection_covariance_at(&params, &cov, 0, &pixels).unwrap();
+        assert_eq!(full.len(), map.sigma.len());
+        for (c, s) in full.iter().zip(&map.sigma) {
+            let c = c.unwrap();
+            assert!((c[(0, 1)] - c[(1, 0)]).abs() < 1e-12 * c[(0, 0)]);
+            assert!(c[(0, 0)] > 0.0 && c.determinant() > 0.0, "{c}");
+            assert_eq!(Some(major_axis_sigma(&c)), *s);
+            let largest = c.symmetric_eigenvalues().max();
+            assert!((largest.sqrt() - s.unwrap()).abs() < 1e-9 * s.unwrap());
+        }
     }
 
     #[test]
