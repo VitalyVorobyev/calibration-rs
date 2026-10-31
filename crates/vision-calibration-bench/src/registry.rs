@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::SensorKind;
-use vision_calibration_dataset::DatasetSpec;
+use vision_calibration_dataset::{DatasetSpec, Topology};
 
 /// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
 /// need a direct `vision-calibration-dataset` dependency.
@@ -217,8 +217,8 @@ pub enum Tier {
 
 /// Problem kind a dataset targets.
 ///
-/// Mirrors [`vision_calibration_dataset::Topology`] one-for-one; the
-/// `problem_kind_mirrors_topology` test is a compile-time guard against drift.
+/// Mirrors [`Topology`] one-for-one; the exhaustive `From<Topology>`
+/// conversion keeps the two in step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProblemKind {
@@ -237,6 +237,20 @@ pub enum ProblemKind {
     LaserlineDevice,
     /// Multi-camera rig laserline device.
     RigLaserlineDevice,
+}
+
+impl From<Topology> for ProblemKind {
+    fn from(topology: Topology) -> Self {
+        match topology {
+            Topology::PlanarIntrinsics => Self::PlanarIntrinsics,
+            Topology::SingleCamHandeye => Self::SingleCamHandeye,
+            Topology::RigExtrinsics => Self::RigExtrinsics,
+            Topology::RigHandeye => Self::RigHandeye,
+            Topology::RigHandeyeLaserline => Self::RigHandeyeLaserline,
+            Topology::LaserlineDevice => Self::LaserlineDevice,
+            Topology::RigLaserlineDevice => Self::RigLaserlineDevice,
+        }
+    }
 }
 
 /// Reference to a dataset specification: inline or by path.
@@ -648,23 +662,6 @@ mod tests {
     }
     use vision_calibration_dataset::{CameraSource, ImagePattern, TargetSpec, Topology};
 
-    /// Compile-time guard: every [`ProblemKind`] variant has a `Topology`
-    /// counterpart with the same name, and vice versa. If this `match` stops
-    /// compiling (a variant added/removed on either side), the two enums have
-    /// drifted — re-sync them.
-    #[allow(dead_code)]
-    fn problem_kind_mirrors_topology(t: Topology) -> ProblemKind {
-        match t {
-            Topology::PlanarIntrinsics => ProblemKind::PlanarIntrinsics,
-            Topology::SingleCamHandeye => ProblemKind::SingleCamHandeye,
-            Topology::RigExtrinsics => ProblemKind::RigExtrinsics,
-            Topology::RigHandeye => ProblemKind::RigHandeye,
-            Topology::RigHandeyeLaserline => ProblemKind::RigHandeyeLaserline,
-            Topology::LaserlineDevice => ProblemKind::LaserlineDevice,
-            Topology::RigLaserlineDevice => ProblemKind::RigLaserlineDevice,
-        }
-    }
-
     fn sample_spec() -> DatasetSpec {
         DatasetSpec {
             version: 1,
@@ -856,29 +853,5 @@ mod tests {
             Some(vec!["p1".to_string(), "p2".to_string()])
         );
         assert!(cfg.rig.refine_sensor);
-    }
-
-    #[test]
-    fn ds8_registry_uses_known_grid_eye_in_hand_and_gripper_from_base() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry/public.json");
-        let registry = load_registry(&path).expect("public registry");
-        let ds8 = registry
-            .datasets
-            .iter()
-            .find(|entry| entry.id == "ds8")
-            .expect("ds8 entry");
-        let board = ds8.board.as_ref().expect("ds8 board");
-        assert_eq!(board.rows, 10);
-        assert_eq!(board.cols, 14);
-        assert!((board.cell_size_m - 0.052).abs() < 1.0e-12);
-        assert!(board.strict_grid);
-        assert_eq!(
-            ds8.rig_handeye.as_ref().and_then(|cfg| cfg.handeye_mode),
-            None
-        );
-        assert_eq!(
-            ds8.robot_poses.as_ref().map(|src| src.convention.as_str()),
-            Some("gripper_se3_base")
-        );
     }
 }

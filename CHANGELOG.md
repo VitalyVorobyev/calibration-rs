@@ -670,6 +670,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The public datasets of `calib-bench run`, `diagnose` and `feature-cov` are
+  the regression suite's image entries, read through their dataset
+  manifests; `--images <dir>` reads the fetchable ones from the `suite
+  fetch` cache. `calib-bench accept` and `basin` read only the `--registry`
+  files they are given: the public datasets are checked by `suite check`.
+  Run records now count the expected corners of a chessboard or ChArUco
+  manifest target, so their detection coverage is no longer zero.
+
 - The detector's per-corner covariance (`detector.chess_corners.covariance`)
   is not recommended for calibration. On real chessboard and ChArUco images,
   weighting by it did not improve held-out accuracy, made it slightly worse

@@ -5,14 +5,15 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
-use vision_calibration_dataset::{DatasetSpec, Topology};
+use vision_calibration_dataset::Topology;
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
     build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
     build_single_cam_handeye_input,
 };
 
-use super::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput, Suite, fetch};
+use super::datasets::{image_source, read_dataset_manifest};
+use super::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput, Suite};
 
 /// Build the observations of the dataset manifest at `manifest_path`
 /// (TOML), with the manifest's paths resolved against `data_root`, caching
@@ -28,10 +29,7 @@ pub fn freeze_manifest(
     data_root: &Path,
     cache_dir: &Path,
 ) -> Result<ObservationSet> {
-    let text = std::fs::read_to_string(manifest_path)
-        .with_context(|| format!("read {}", manifest_path.display()))?;
-    let spec: DatasetSpec =
-        toml::from_str(&text).with_context(|| format!("parse {}", manifest_path.display()))?;
+    let spec = read_dataset_manifest(manifest_path)?;
     ensure!(
         spec.cameras.iter().all(|c| c.roi_xywh.is_none()),
         "{}: manifests with a camera ROI cannot be frozen",
@@ -125,26 +123,7 @@ pub fn freeze_entry(
         .iter()
         .find(|e| e.id == id)
         .with_context(|| format!("no suite entry {id:?}"))?;
-    let manifest = entry
-        .manifest
-        .as_ref()
-        .with_context(|| format!("entry {id:?} has no dataset manifest to freeze from"))?;
-    let manifest = suite.root.join(manifest);
-    let data_root = match images {
-        None => manifest.parent().unwrap_or(Path::new(".")).to_path_buf(),
-        Some(images) => {
-            ensure!(
-                entry.fetch.is_some(),
-                "entry {id:?} cannot be fetched, so its images are not in {}; \
-                 freeze it without --images",
-                images.display()
-            );
-            let dir = fetch::entry_dir(images, id);
-            fetch::verify(&dir, &fetch::read_fetch_list(suite, id)?)
-                .with_context(|| format!("run `suite fetch --only {id}` first"))?;
-            dir
-        }
-    };
+    let (manifest, data_root) = image_source(suite, entry, images)?;
     let set = freeze_manifest(&manifest, &data_root, cache_dir)?;
     super::write_compact(&suite.observations_path(id), &set)?;
     suite.write_checksums()?;
