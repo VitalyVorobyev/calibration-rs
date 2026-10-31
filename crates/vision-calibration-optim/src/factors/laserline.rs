@@ -327,7 +327,7 @@ pub(crate) fn laser_line_distance<T: RealField>(
 /// Build `cam_se3_target` from the hand-eye chain for a rig-level laser factor.
 ///
 /// Inputs are the SE3 param blocks, the per-view robot pose, and an optional
-/// 6D se(3) robot-pose correction (applied as `exp(delta) * T_B_G`); output
+/// 6D se(3) robot-pose correction (applied as `T_B_G * exp(delta)`); output
 /// is the composed `(rotation, translation)` that maps points in the target
 /// frame into the camera frame, identical to the pose the single-camera laser
 /// cores consume directly.
@@ -396,10 +396,11 @@ fn compose_cam_se3_target_with_delta_generic<T: RealField>(
         T::from_f64(robot_se3[6]).unwrap(),
     );
     let (robot_q, robot_t) = if let Some(delta) = robot_delta {
+        // Gripper-frame correction: T_B_G · exp(δ).
         let (delta_q, delta_t) = se3_exp(delta);
         (
-            delta_q.clone() * robot_q,
-            delta_q.transform_vector(&robot_t) + delta_t,
+            robot_q.clone() * delta_q,
+            robot_q.transform_vector(&delta_t) + robot_t,
         )
     } else {
         (robot_q, robot_t)
@@ -955,7 +956,7 @@ mod tests {
     }
 
     /// The robot-delta chain must equal the no-delta chain evaluated at the
-    /// explicitly corrected robot pose (`exp(delta) * T_B_G`).
+    /// explicitly corrected robot pose (`T_B_G * exp(delta)`).
     #[test]
     fn rig_handeye_robot_delta_laser_residual_matches_corrected_robot_pose() {
         let intr = DVector::from_vec(vec![900.0, 880.0, 640.0, 360.0]);
@@ -988,12 +989,8 @@ mod tests {
         let delta = DVector::from_vec(vec![0.003, -0.002, 0.004, 0.0005, -0.0004, 0.0003]);
 
         let (delta_q, delta_t) = se3_exp(delta.as_view());
-        let corrected_robot = Isometry3::from_parts(
-            Translation3::from(
-                delta_q.transform_vector(&base_se3_gripper.translation.vector) + delta_t,
-            ),
-            delta_q * base_se3_gripper.rotation,
-        );
+        let corrected_robot =
+            base_se3_gripper * Isometry3::from_parts(Translation3::from(delta_t), delta_q);
 
         let mode = HandeyeMode::EyeToHand;
         let chain_delta = LaserChain::RigHandeyeRobotDelta {

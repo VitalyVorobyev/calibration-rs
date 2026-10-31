@@ -602,7 +602,7 @@ fn print_frame_table() {
     println!("    cam_se3_rig = T_C_R (exported by stage 2)");
     println!("    cam_to_rig  = T_R_C (joint optimizer parameter)");
     println!("    EyeToHand   = T_C_T = T_C_R * T_R_B * T_B_G * T_G_T");
-    println!("    robot delta = T_B_G_corr = exp(delta) * T_B_G");
+    println!("    robot delta = T_B_G_corr = T_B_G * exp(delta)");
 }
 
 fn print_joint_stats(label: &str, stats: &[RigHandeyeLaserlinePerCamStats]) {

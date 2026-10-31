@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: robot-pose corrections act in the gripper frame. A view's
+  correction is now `base_se3_gripper · exp(δ)` (it was
+  `exp(δ) · base_se3_gripper`), so `robot_poses.rot_sigma` and
+  `trans_sigma` are the tool's orientation and position errors, and each
+  exported `robot_deltas` entry is a correction in the gripper frame. Before,
+  a correction turned the gripper about the robot base origin: its
+  translation carried the rotation's lever arm, and `trans_sigma` also bounded
+  the rotation. Every hand-eye result that refines the robot poses changes. On
+  `kuka_1` the largest translation correction drops from 3.7 to 1.5 mm, and
+  hand-eye results from disjoint halves of the views agree 39 % better in
+  translation (1.8 against 2.9 mm) and 10 % better in rotation; on `ds8`, 8 %
+  and 11 % better. On synthetic scenes with the robot's error in its tool
+  frame, the hand-eye translation error halves and the stated σ is honest
+  when the priors match the robot. With the default 0.5° prior the hand-eye
+  rotation's σ follows that prior and is pessimistic. Migration: re-run the
+  calibrations. Code that applies `robot_deltas` itself should call
+  `apply_robot_delta`, which now multiplies on the right. The rig laserline
+  workflows apply an upstream rig's corrections with that function, so with
+  the same SE(3) exponential as the solve (before, a rotation then a separate
+  translation).
+
 - Breaking: `IntrinsicsInitConfig` loses `fix_tangential`. The linear
   stage now fits only the distortion terms the camera's solves estimate: a
   term the camera's fix list holds (`camera.fix.distortion`, or the model's

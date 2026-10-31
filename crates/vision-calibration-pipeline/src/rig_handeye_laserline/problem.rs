@@ -5,7 +5,6 @@ use crate::common::ExportKind;
 use crate::common::config::{RobotPoseConfig, SolverConfig};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
-use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
@@ -16,7 +15,7 @@ use vision_calibration_core::{
 use vision_calibration_optim::{
     HandeyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
     RigHandeyeLaserlineEstimate, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView,
-    RigLaserlineDataset, RobustLoss, compute_rig_laserline_feature_residuals,
+    RigLaserlineDataset, RobustLoss, apply_robot_delta, compute_rig_laserline_feature_residuals,
 };
 
 use crate::rig_family::rig_camera_models;
@@ -449,7 +448,7 @@ pub(crate) fn materialize_rig_se3_target(
         .enumerate()
         .map(|(view_idx, view)| {
             let robot_pose = if let Some(deltas) = robot_deltas {
-                corrected_robot_pose(view.meta.base_se3_gripper, deltas[view_idx])
+                apply_robot_delta(&view.meta.base_se3_gripper, &deltas[view_idx])
             } else {
                 view.meta.base_se3_gripper
             };
@@ -461,19 +460,6 @@ pub(crate) fn materialize_rig_se3_target(
             }
         })
         .collect()
-}
-
-fn corrected_robot_pose(robot_pose: Iso3, delta: [Real; 6]) -> Iso3 {
-    let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
-    let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
-    let angle = rot_vec.norm();
-    let delta_rot = if angle > 1e-12 {
-        UnitQuaternion::from_axis_angle(&nalgebra::Unit::new_normalize(rot_vec), angle)
-    } else {
-        UnitQuaternion::identity()
-    };
-    let delta_iso = Iso3::from_parts(Translation3::from(trans_vec), delta_rot);
-    delta_iso * robot_pose
 }
 
 /// The joint stage's fixed parameters of each camera of `models`: its entry

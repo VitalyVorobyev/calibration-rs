@@ -143,9 +143,10 @@ pub(crate) fn reproj_chain_transform<T: RealField>(
                 "HandeyeRobotDelta chain expects 4 blocks"
             );
             let (robot_q, robot_t) = se3_from_f64_array::<T>(base_se3_gripper);
+            // Gripper-frame correction: T_B_G · exp(δ).
             let (delta_q, delta_t) = se3_exp(blocks[3].as_view());
-            let robot_q = delta_q.clone() * robot_q;
-            let robot_t = delta_q.transform_vector(&robot_t) + delta_t;
+            let robot_t = robot_q.transform_vector(&delta_t) + robot_t;
+            let robot_q = robot_q * delta_q;
             handeye_chain_transform(
                 &blocks[0], &blocks[1], &blocks[2], robot_q, robot_t, *mode, &pw_t,
             )

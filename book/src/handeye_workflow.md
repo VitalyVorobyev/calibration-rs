@@ -81,7 +81,9 @@ the camera parameters. `robot_poses.refine` (on by default) gives every view
 an SE(3) correction of its measured pose:
 
 **Additional parameter blocks**: `"robot_delta/v"` (6D, Euclidean se(3)
-tangent `[ω, v]`) per view, applied as `exp(δ) · base_se3_gripper`
+tangent `[ω, v]`) per view, applied in the gripper frame as
+`base_se3_gripper · exp(δ)`: `ω` is the tool's orientation error and `v` its
+position error
 
 **Additional residuals**: a zero-mean `Se3TangentPrior` per view, with the
 robot's rotation and translation standard deviations `σ_r` (`rot_sigma`) and
@@ -105,11 +107,11 @@ while the standard deviations come out too small. The defaults (0.5°, 1 mm)
 are loose for an industrial arm; a result's `robot_deltas` show the size of
 the corrections the data asked for.
 
-The target pose in the robot base frame is known only as well as the
-robot's absolute rotation: a common rotation of every robot pose about the
-base origin looks exactly like a rotation of the target. Its translation's
-standard deviation is about `σ_r / √views` times the target's distance from
-the base.
+A correction common to every view looks exactly like a change of the
+transform carried by the gripper: the hand-eye in eye-in-hand, the target's
+pose in the gripper in eye-to-hand. That transform is therefore known only
+as well as the robot's mean error over the views: its rotation's standard
+deviation is at least about `σ_r / √views`, its translation's `σ_t / √views`.
 
 ## Configuration
 

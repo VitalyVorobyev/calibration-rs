@@ -800,18 +800,18 @@ mod tests {
             ),
             (
                 reproj(d5, hed),
-                vec![-413.2385726371392, -198.46310627517104],
+                vec![-414.0226723312016, -197.9186695815422],
             ),
             (
                 reproj(d5s2, hed),
-                vec![-417.62274375554296, -200.28853535202757],
+                vec![-418.41360965271605, -199.73884917208755],
             ),
             (p2p(LaserChain::SinglePose), vec![0.721897348979456]),
             (line(LaserChain::SinglePose), vec![2841.74611718797]),
             (p2p(laser_he), vec![1.9389626687488233]),
             (line(laser_he), vec![4657.542541258955]),
-            (p2p(laser_hed), vec![1.9424589859523902]),
-            (line(laser_hed), vec![4652.567259031746]),
+            (p2p(laser_hed), vec![1.9416558566988162]),
+            (line(laser_hed), vec![4651.171929495054]),
         ];
 
         for (factor, expected) in cases {

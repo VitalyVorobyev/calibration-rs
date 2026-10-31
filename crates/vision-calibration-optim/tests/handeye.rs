@@ -350,7 +350,7 @@ fn mean_reproj_error_eye_in_hand(
 
     for (view_idx, view) in views.iter().enumerate() {
         let robot_pose = if let Some(deltas) = robot_deltas {
-            deltas[view_idx] * view.meta.base_se3_gripper
+            view.meta.base_se3_gripper * deltas[view_idx]
         } else {
             view.meta.base_se3_gripper
         };
@@ -436,8 +436,9 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
             (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
             (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
         );
+        // The robot's error in its tool frame, as the priors model it.
         let bias = se3_exp_isometry([rot.x, rot.y, rot.z, trans.x, trans.y, trans.z]);
-        robot_poses_meas.push(bias * *pose);
+        robot_poses_meas.push(*pose * bias);
     }
 
     let nx = 6;
