@@ -420,18 +420,19 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_names_registered_public_datasets() {
-        let registry = crate::registry::load_registry(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("registry/public.json"),
+    fn the_plan_names_the_suite_image_entries() {
+        let suite = crate::suite::manifest::Suite::load(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../regression/suite.toml"),
         )
         .unwrap();
+        let entries = crate::suite::datasets::bench_entries(&suite, None, &[]).unwrap();
         for id in ["stereo_left", "stereo_right", "kuka_1", "ds8", "stereo_rig"] {
             assert!(
-                registry.find(id).is_some(),
-                "{id} is not in the public registry"
+                entries.iter().any(|e| e.id == id),
+                "{id} is not a suite image entry"
             );
             assert!(PLAN.iter().any(|p| p.id == id));
         }
-        assert!(select(&registry.datasets, &["nope".to_string()]).is_err());
+        assert!(select(&entries, &["nope".to_string()]).is_err());
     }
 }

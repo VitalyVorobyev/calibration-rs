@@ -62,14 +62,10 @@ python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
 python3 scripts/check_pyi_coverage.py --check
 python3 scripts/check_binding_parity.py --check
 
-# Full acceptance, public and private registries. The laser datasets
-# hard-fail without the `laser` feature; CI runs only the public kuka_1 subset.
+# Acceptance on the private registry (CI checks the public datasets through
+# the regression suite). The laser datasets hard-fail without `laser`.
 cargo run --release -p vision-calibration-bench --features "tier-b laser" \
-  --bin calib-bench -- accept \
-  --registry crates/vision-calibration-bench/registry/public.json
-cargo run --release -p vision-calibration-bench --features "tier-b laser" \
-  --bin calib-bench -- accept \
-  --registry crates/vision-calibration-bench/registry/private.json
+  --bin calib-bench -- accept
 
 # Publish dry-run in the §2 order. Read §3 for how to interpret it.
 for c in vision-calibration-core vision-geometry vision-calibration-dataset \

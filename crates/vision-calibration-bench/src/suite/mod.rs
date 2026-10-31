@@ -24,6 +24,8 @@
 
 pub mod compare;
 #[cfg(feature = "tier-b")]
+pub mod datasets;
+#[cfg(feature = "tier-b")]
 pub mod fetch;
 #[cfg(feature = "tier-b")]
 pub mod freeze;

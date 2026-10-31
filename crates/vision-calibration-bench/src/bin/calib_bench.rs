@@ -62,10 +62,9 @@ enum Command {
 /// Arguments for the `feature-cov` subcommand.
 #[derive(Parser)]
 struct FeatureCovArgs {
-    /// Registry JSON path(s). May be repeated. Defaults to the crate's
-    /// `registry/public.json` plus `registry/private.json` when present.
-    #[arg(long)]
-    registry: Vec<PathBuf>,
+    /// Where the datasets come from.
+    #[command(flatten)]
+    datasets: DatasetSources,
     /// Only these study datasets (repeat or comma-separate).
     #[arg(long, value_delimiter = ',')]
     only: Vec<String>,
@@ -152,13 +151,12 @@ struct SolverCompareArgs {
 /// Arguments for the `run` subcommand.
 #[derive(Parser)]
 struct RunArgs {
-    /// Dataset id to run (matches a registry entry `id`).
+    /// Dataset id to run.
     #[arg(long)]
     dataset: String,
-    /// Path to the bench registry JSON. Defaults to the crate's
-    /// `registry/public.json`.
-    #[arg(long)]
-    registry: Option<PathBuf>,
+    /// Where the datasets come from.
+    #[command(flatten)]
+    datasets: DatasetSources,
     /// Optional path to write full per-feature residuals. The default record
     /// printed to stdout stays compact.
     #[arg(long)]
@@ -173,7 +171,8 @@ struct RunArgs {
 #[derive(Parser)]
 struct AcceptArgs {
     /// Registry JSON path(s). May be repeated. Defaults to the crate's
-    /// `registry/public.json` plus `registry/private.json` when present.
+    /// `registry/private.json`. The public datasets are gated by
+    /// `suite check` instead.
     #[arg(long)]
     registry: Vec<PathBuf>,
     /// Only evaluate these dataset ids (repeat or comma-separate).
@@ -201,7 +200,7 @@ struct AcceptArgs {
 #[derive(Parser)]
 struct BasinArgs {
     /// Registry JSON path(s). May be repeated. Defaults to the crate's
-    /// `registry/public.json` plus `registry/private.json` when present.
+    /// `registry/private.json`.
     #[arg(long)]
     registry: Vec<PathBuf>,
     /// Only sweep these Scheimpflug planar dataset ids (repeat or
@@ -310,9 +309,9 @@ struct DiagnoseHandeyeArgs {
     /// Dataset id to diagnose.
     #[arg(long)]
     dataset: String,
-    /// Path to the bench registry JSON.
-    #[arg(long)]
-    registry: Option<PathBuf>,
+    /// Where the datasets come from.
+    #[command(flatten)]
+    datasets: DatasetSources,
 }
 
 /// Arguments for `diagnose intrinsics`.
@@ -321,9 +320,9 @@ struct DiagnoseIntrinsicsArgs {
     /// Dataset id to diagnose.
     #[arg(long)]
     dataset: String,
-    /// Path to the bench registry JSON.
-    #[arg(long)]
-    registry: Option<PathBuf>,
+    /// Where the datasets come from.
+    #[command(flatten)]
+    datasets: DatasetSources,
     /// Optional path to write the full JSON report.
     #[arg(long)]
     json_out: Option<PathBuf>,
@@ -335,17 +334,93 @@ struct DiagnoseStagesArgs {
     /// Dataset id to diagnose.
     #[arg(long)]
     dataset: String,
-    /// Path to the bench registry JSON.
-    #[arg(long)]
-    registry: Option<PathBuf>,
+    /// Where the datasets come from.
+    #[command(flatten)]
+    datasets: DatasetSources,
     /// Limit profiled images per camera.
     #[arg(long)]
     max_images: Option<usize>,
 }
 
-/// Default registry path: `<crate>/registry/public.json`.
-fn default_registry_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry/public.json")
+/// The datasets of `run`, `diagnose` and `feature-cov`: the regression
+/// suite's image entries (public) and the registries' entries (private).
+#[derive(clap::Args)]
+struct DatasetSources {
+    /// Registry JSON path(s) of the private datasets. May be repeated.
+    /// Defaults to the crate's `registry/private.json` when present.
+    #[arg(long)]
+    registry: Vec<PathBuf>,
+    /// Read the suite entries that `suite fetch` downloads from this cache
+    /// (e.g. `target/suite-images`) instead of their manifest's directory.
+    #[arg(long)]
+    images: Option<PathBuf>,
+}
+
+impl DatasetSources {
+    /// The registries to read: the given ones, or the default private one.
+    #[cfg(feature = "tier-b")]
+    fn registries(&self) -> Vec<PathBuf> {
+        if self.registry.is_empty() {
+            default_registries()
+        } else {
+            self.registry.clone()
+        }
+    }
+
+    /// Every dataset, data roots resolved: the suite's image entries named
+    /// in `only` (all of them when it is empty), then the registries'
+    /// entries. The caller reports ids that match nothing.
+    ///
+    /// # Errors
+    ///
+    /// Fails on an unreadable suite or registry and on an id defined twice.
+    #[cfg(feature = "tier-b")]
+    fn load(&self, only: &[String]) -> Result<Vec<BenchEntry>> {
+        let suite =
+            vision_calibration_bench::suite::manifest::Suite::load(&workspace_suite_path())?;
+        let mut entries = vision_calibration_bench::suite::datasets::bench_entries(
+            &suite,
+            self.images.as_deref(),
+            only,
+        )?;
+        for path in self.registries() {
+            let registry = load_registry(&path)
+                .with_context(|| format!("load registry {}", path.display()))?;
+            entries.extend(registry.datasets.into_iter().map(resolve_entry_data_root));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for entry in &entries {
+            anyhow::ensure!(
+                seen.insert(entry.id.as_str()),
+                "dataset `{}` is defined twice",
+                entry.id
+            );
+        }
+        Ok(entries)
+    }
+
+    /// The dataset `id`.
+    #[cfg(feature = "tier-b")]
+    fn find(&self, id: &str) -> Result<BenchEntry> {
+        self.load(&[id.to_owned()])?
+            .into_iter()
+            .find(|e| e.id == id)
+            .with_context(|| {
+                format!("dataset `{id}` is neither a suite image entry nor in the registries")
+            })
+    }
+
+    /// Reading datasets needs the detector and image stack.
+    #[cfg(not(feature = "tier-b"))]
+    fn find(&self, _id: &str) -> Result<BenchEntry> {
+        anyhow::bail!("reading a dataset needs --features tier-b")
+    }
+}
+
+/// The workspace's regression suite manifest.
+#[cfg(feature = "tier-b")]
+fn workspace_suite_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../regression/suite.toml")
 }
 
 /// Cargo features active for this build (best-effort).
@@ -364,17 +439,15 @@ fn active_features() -> Vec<String> {
     f
 }
 
-/// Registries the acceptance suite reads when `--registry` is not given:
-/// the committed public registry plus the local (gitignored) private one
-/// when it exists.
-fn default_accept_registries() -> Vec<PathBuf> {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry");
-    let mut regs = vec![base.join("public.json")];
-    let private = base.join("private.json");
+/// Registries read when `--registry` is not given: the local (gitignored)
+/// private one, when it exists.
+fn default_registries() -> Vec<PathBuf> {
+    let private = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry/private.json");
     if private.is_file() {
-        regs.push(private);
+        vec![private]
+    } else {
+        Vec::new()
     }
-    regs
 }
 
 /// Outcome of one acceptance entry, for the summary table.
@@ -452,10 +525,14 @@ fn apply_baseline_policy(
 fn cmd_accept(args: &AcceptArgs) -> Result<()> {
     let baselines_dir = args.baselines.clone().unwrap_or_else(default_baselines_dir);
     let registries = if args.registry.is_empty() {
-        default_accept_registries()
+        default_registries()
     } else {
         args.registry.clone()
     };
+    anyhow::ensure!(
+        !registries.is_empty(),
+        "no registry: pass --registry (the public datasets are checked by `calib-bench suite check`)"
+    );
 
     let mut entries: Vec<BenchEntry> = Vec::new();
     for path in &registries {
@@ -566,10 +643,14 @@ fn cmd_accept(args: &AcceptArgs) -> Result<()> {
 /// loading + `--only` handling.
 fn load_basin_entries(args: &BasinArgs) -> Result<Vec<BenchEntry>> {
     let registries = if args.registry.is_empty() {
-        default_accept_registries()
+        default_registries()
     } else {
         args.registry.clone()
     };
+    anyhow::ensure!(
+        !registries.is_empty(),
+        "no registry: pass --registry (the public datasets are checked by `calib-bench suite check`)"
+    );
 
     let mut entries: Vec<BenchEntry> = Vec::new();
     for path in &registries {
@@ -695,7 +776,7 @@ fn evaluate_accept_gate(
 }
 
 fn cmd_run(args: &RunArgs) -> Result<()> {
-    let mut entry = load_entry(&args.dataset, args.registry.as_deref())?;
+    let mut entry = args.datasets.find(&args.dataset)?;
     if args.backend.is_some() {
         entry.solver_backend = args.backend;
     }
@@ -716,20 +797,6 @@ fn cmd_run(args: &RunArgs) -> Result<()> {
 
     println!("{}", serde_json::to_string_pretty(&record)?);
     Ok(())
-}
-
-fn load_entry(dataset: &str, registry_path: Option<&Path>) -> Result<BenchEntry> {
-    let registry_path = registry_path
-        .map(PathBuf::from)
-        .unwrap_or_else(default_registry_path);
-    let registry = load_registry(&registry_path)?;
-    registry.find(dataset).cloned().with_context(|| {
-        format!(
-            "dataset '{}' not found in {}",
-            dataset,
-            registry_path.display()
-        )
-    })
 }
 
 fn resolve_entry_data_root(mut entry: BenchEntry) -> BenchEntry {
@@ -930,7 +997,7 @@ fn cmd_diagnose(args: &DiagnoseArgs) -> Result<()> {
 }
 
 fn cmd_diagnose_intrinsics(args: &DiagnoseIntrinsicsArgs) -> Result<()> {
-    let entry = resolve_entry_data_root(load_entry(&args.dataset, args.registry.as_deref())?);
+    let entry = args.datasets.find(&args.dataset)?;
     let report = diagnose_intrinsics(&entry)?;
     if let Some(path) = &args.json_out {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -1081,7 +1148,7 @@ fn render_intrinsics_diagnose_report(report: &serde_json::Value) -> String {
 }
 
 fn cmd_diagnose_stages(args: &DiagnoseStagesArgs) -> Result<()> {
-    let entry = resolve_entry_data_root(load_entry(&args.dataset, args.registry.as_deref())?);
+    let entry = args.datasets.find(&args.dataset)?;
     let profile = profile_dataset_stages(&entry, args.max_images)?;
     println!("{}", serde_json::to_string_pretty(&profile)?);
     Ok(())
@@ -1104,7 +1171,7 @@ fn profile_dataset_stages(
 }
 
 fn cmd_diagnose_handeye(args: &DiagnoseHandeyeArgs) -> Result<()> {
-    let entry = load_entry(&args.dataset, args.registry.as_deref())?;
+    let entry = args.datasets.find(&args.dataset)?;
     anyhow::ensure!(
         matches!(
             entry.problem,
@@ -1641,17 +1708,7 @@ fn fetch_images(
 fn cmd_feature_cov(args: &FeatureCovArgs) -> Result<()> {
     use vision_calibration_bench::feature_cov::{self, Options, timing};
 
-    let registries = if args.registry.is_empty() {
-        default_accept_registries()
-    } else {
-        args.registry.clone()
-    };
-    let mut entries = Vec::new();
-    for path in &registries {
-        let registry =
-            load_registry(path).with_context(|| format!("load registry {}", path.display()))?;
-        entries.extend(registry.datasets.into_iter().map(resolve_entry_data_root));
-    }
+    let entries = args.datasets.load(&args.only)?;
     let defaults = Options::default();
     let options = Options {
         out: args.out.clone().unwrap_or(defaults.out),
@@ -1683,8 +1740,11 @@ fn cmd_feature_cov(args: &FeatureCovArgs) -> Result<()> {
             .args(["feature-cov", "--timing-only", "--out"])
             .arg(&options.out)
             .env("RAYON_NUM_THREADS", "1");
-        for path in &registries {
+        for path in args.datasets.registries() {
             child.arg("--registry").arg(path);
+        }
+        if let Some(images) = &args.datasets.images {
+            child.arg("--images").arg(images);
         }
         if !args.only.is_empty() {
             child.arg("--only").arg(args.only.join(","));

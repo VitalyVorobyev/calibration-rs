@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use vision_calibration_core::{CorrespondenceView, NoMeta, PlanarDataset, RigDataset};
-use vision_calibration_dataset::{DatasetSpec, Topology};
+use vision_calibration_dataset::{DatasetSpec, TargetSpec, Topology};
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
 };
@@ -195,9 +195,10 @@ fn rig_detected<M>(
 /// The bench's detection record from the feature count of every kept
 /// observation, per camera.
 ///
-/// A registry `board` sets the expected count per view: its full-board count,
-/// or more when a detection found more. A manifest target has no fixed count,
-/// so its expected count and coverage are zero.
+/// A registry `board`, else a chessboard or ChArUco manifest target, sets the
+/// expected count per view: its full-board count, or more when a detection
+/// found more. Other targets have no fixed count, so their expected count and
+/// coverage are zero.
 fn detection_stats(
     spec: &DatasetSpec,
     board: Option<&BoardGeometry>,
@@ -206,7 +207,10 @@ fn detection_stats(
     detection_ms: u64,
 ) -> Detection {
     let max_per_view = counts.iter().flatten().copied().max().unwrap_or(0);
-    let per_view = board.map(|board| board_feature_count(board).max(max_per_view));
+    let per_view = board
+        .map(board_feature_count)
+        .or_else(|| target_feature_count(&spec.target))
+        .map(|n| n.max(max_per_view));
     let per_camera: Vec<DetectionStat> = spec
         .cameras
         .iter()
@@ -234,6 +238,18 @@ fn detection_stats(
         total_detected: per_camera.iter().map(|s| s.features_detected).sum(),
         total_expected: per_camera.iter().map(|s| s.features_expected).sum(),
         per_camera,
+    }
+}
+
+/// Full-board corner count of a chessboard (interior corners) or ChArUco
+/// (inner corners of its squares) manifest target.
+fn target_feature_count(target: &TargetSpec) -> Option<usize> {
+    match *target {
+        TargetSpec::Chessboard { rows, cols, .. } => Some(rows as usize * cols as usize),
+        TargetSpec::Charuco { rows, cols, .. } => {
+            Some(rows.saturating_sub(1) as usize * cols.saturating_sub(1) as usize)
+        }
+        _ => None,
     }
 }
 
@@ -386,6 +402,24 @@ mod tests {
     fn puzzleboard_counts_inner_corners() {
         assert_eq!(board_feature_count(&board("puzzleboard")), 129 * 129);
         assert_eq!(board_feature_count(&board("charuco")), 130 * 130);
+    }
+
+    #[test]
+    fn manifest_targets_with_a_fixed_corner_count() {
+        let chessboard = TargetSpec::Chessboard {
+            rows: 17,
+            cols: 28,
+            square_size_m: 0.02,
+        };
+        assert_eq!(target_feature_count(&chessboard), Some(17 * 28));
+        let charuco = TargetSpec::Charuco {
+            rows: 22,
+            cols: 22,
+            square_size_m: 0.0045,
+            marker_size_m: 0.0034,
+            dictionary: "DICT_4X4_1000".into(),
+        };
+        assert_eq!(target_feature_count(&charuco), Some(21 * 21));
     }
 
     #[test]
