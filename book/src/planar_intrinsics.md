@@ -55,8 +55,8 @@ problem type; `camera` names the camera model and its fixed parameters:
 pub struct PlanarIntrinsicsConfig {
     // Linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
-    // { iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug sensor)
+    // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
+    //   distortion terms the camera's solves estimate
 
     // Non-linear solve stage settings.
     pub solver: SolverConfig,
@@ -100,8 +100,8 @@ against the principal point and radial distortion, so the sensor changes three
 defaults and both steps:
 
 - The default fix list leaves only the low-order radial terms free.
-- `init.fix_tangential` defaults to `true`: a free tangential term is
-  ill-posed next to the tilt in the linear stage.
+- The linear stage holds the tangential terms while the tilt is
+  estimated: a free tangential term is ill-posed next to the tilt there.
 - A Scheimpflug sensor needs a distortion model (`DistortionKind::None` is a
   configuration error).
 

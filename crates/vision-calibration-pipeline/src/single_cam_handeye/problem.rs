@@ -94,8 +94,8 @@ impl SingleCamHandeyeInput {
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct SingleCamHandeyeConfig {
-    /// Per-camera linear-initialization stage settings. `fix_tangential`
-    /// defaults to `true` for a Scheimpflug sensor and `false` otherwise.
+    /// Per-camera linear-initialization stage settings. The linear stage
+    /// fits only the distortion terms the camera's solves estimate.
     pub intrinsics: IntrinsicsInitConfig,
 
     /// The camera model and the parameters its solves (the intrinsics stage

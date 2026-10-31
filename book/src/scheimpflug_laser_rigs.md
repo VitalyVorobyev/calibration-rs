@@ -71,7 +71,7 @@ The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and 
 
 Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `rig_extrinsics::IntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the linear stage's tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
 
-Each tilted camera is first calibrated from its own views, as in single-camera planar intrinsics: an unset `intrinsics.fix_tangential` holds `p1`, `p2` at zero in the linear stage (a tangential term and the tilt trade off, and the default fix list holds them in every later solve), and the camera's own solve frees every target pose. On clean synthetic data this solve reaches the reprojection noise floor, with the principal point and tilt at the truth within their standard deviations.
+Each tilted camera is first calibrated from its own views, as in single-camera planar intrinsics: the linear stage holds `p1`, `p2` at zero (a tangential term and the tilt trade off, and the default fix list holds them in every later solve), and the camera's own solve frees every target pose. On clean synthetic data this solve reaches the reprojection noise floor, with the principal point and tilt at the truth within their standard deviations.
 
 ## RigLaserlineDevice
 

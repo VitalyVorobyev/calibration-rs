@@ -65,9 +65,12 @@ kind-dependent defaults of the merged workflow.
 - **Fewer types and modules:** the planar-intrinsics module serves both
   sensors; one workflow, its config, export and Python binding go away;
   the per-sensor optimizer builders collapse into one per task.
-- **Defaults depend on the sensor:** a config field whose default depends
-  on the sensor, such as `init.fix_tangential`, is an `Option`; `None`
-  means the spec's default, documented on the field. The solve budget
+- **Defaults depend on the sensor:** a behaviour that depends on the
+  sensor follows from the camera spec, not from a second setting: the
+  linear stage fits only the distortion terms the camera's fix lists leave
+  free, and holds the tangential terms while a tilt is estimated. Where a
+  config field's default does depend on the sensor, it is an `Option`;
+  `None` means the spec's default, documented on the field. The solve budget
   has one default for both sensors, sized for the Scheimpflug tilt valley:
   the solver stops at convergence, so the cap only bounds runs that do not
   converge.

@@ -208,18 +208,16 @@ pub(crate) fn validate_rig_camera_indices(
 pub struct IntrinsicsInitConfig {
     /// Number of iterations for iterative intrinsics estimation.
     pub iterations: usize,
-    /// Fix k3 during initialization (recommended for typical lenses).
-    pub fix_k3: bool,
-    /// Fix tangential distortion (p1, p2) during initialization.
+    /// Hold `k3` at zero in the linear stage even where the camera's
+    /// non-linear solves estimate it (default `true`: a sixth-order term
+    /// fitted linearly overfits typical data, and the solve that frees it
+    /// starts it from zero).
     ///
-    /// `None` (the default) takes the camera's default, in every workflow
-    /// and for each camera of a rig: `true` for a Scheimpflug sensor and
-    /// `false` otherwise. A tangential term and a sensor tilt trade off, so
-    /// a linear stage that fits one on a tilted camera fits a spurious
-    /// value; the camera's default fix list then holds it in every
-    /// non-linear solve, where it displaces the tilt and principal point.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fix_tangential: Option<bool>,
+    /// Which terms the linear stage fits otherwise follows the camera
+    /// ([`Self::distortion_fit_opts`]): a term the camera holds fixed, or its
+    /// model lacks, stays at zero, and so do the tangential terms of a
+    /// camera whose tilt is estimated.
+    pub fix_k3: bool,
 }
 
 impl Default for IntrinsicsInitConfig {
@@ -227,7 +225,6 @@ impl Default for IntrinsicsInitConfig {
         Self {
             iterations: 2,
             fix_k3: true,
-            fix_tangential: None,
         }
     }
 }
@@ -243,32 +240,57 @@ impl IntrinsicsInitConfig {
     /// `None` uses the config's own `iterations` verbatim (the shape
     /// problems without a step-level override need).
     ///
-    /// `model` is the camera's model, which sets the default of an unset
-    /// [`Self::fix_tangential`].
+    /// `camera` is the camera being initialized, with the fix lists its
+    /// non-linear solves apply; it sets which distortion terms the linear
+    /// stage fits ([`Self::distortion_fit_opts`]).
     pub fn iterative_opts(
         &self,
         iterations_override: Option<usize>,
-        model: CameraModelSpec,
+        camera: &CameraConfig,
     ) -> IterativeIntrinsicsOptions {
         IterativeIntrinsicsOptions {
             iterations: iterations_override.unwrap_or(self.iterations),
-            distortion_opts: self.distortion_fit_opts(model),
+            distortion_opts: self.distortion_fit_opts(camera),
         }
     }
 
-    /// The `{fix_k3, fix_tangential, iters}` sub-literal shared by every
-    /// intrinsics-bootstrap options struct, including the Scheimpflug
-    /// linear-init path (which builds a different top-level options struct
-    /// and so cannot use [`Self::iterative_opts`] directly).
+    /// The linear stage's distortion-fit options for `camera`, shared by
+    /// every intrinsics bootstrap, including the Scheimpflug linear-init
+    /// path (which builds a different top-level options struct and so
+    /// cannot use [`Self::iterative_opts`] directly).
     ///
-    /// `model` is the camera's model, which sets the default of an unset
-    /// [`Self::fix_tangential`]: held for a Scheimpflug sensor.
-    pub fn distortion_fit_opts(&self, model: CameraModelSpec) -> DistortionFitOptions {
+    /// The linear stage fits a Brown-Conrady term only if the camera's
+    /// model has it and its distortion fix list (the model's default when
+    /// unset) does not hold it. A term the non-linear solves hold keeps its
+    /// initial value, so a linearly fitted one would stay at that fit
+    /// rather than at zero. On top of that:
+    /// - `k3` is held under [`Self::fix_k3`];
+    /// - the tangential pair is held while the solves estimate a sensor
+    ///   tilt: the two trade off in the linear fit, so the pair starts at
+    ///   zero and the non-linear solve, which separates them, moves it when
+    ///   the camera frees it;
+    /// - the pair is fitted only when both terms are free, since the linear
+    ///   fit has no single-term option.
+    pub fn distortion_fit_opts(&self, camera: &CameraConfig) -> DistortionFitOptions {
+        let default = camera.model.default_fix();
+        let held = |list: &Option<Vec<String>>, default: Option<Vec<String>>, name: &str| {
+            list.clone()
+                .or(default)
+                .is_some_and(|l| l.iter().any(|h| h == name))
+        };
+        let distortion = camera.model.distortion.param_names();
+        let free = |n: &str| {
+            distortion.contains(&n) && !held(&camera.fix.distortion, default.distortion.clone(), n)
+        };
+        let estimates_tilt = camera
+            .model
+            .sensor
+            .param_names()
+            .iter()
+            .any(|n| !held(&camera.fix.sensor, default.sensor.clone(), n));
         DistortionFitOptions {
-            fix_k3: self.fix_k3,
-            fix_tangential: self
-                .fix_tangential
-                .unwrap_or(model.sensor == SensorKind::Scheimpflug),
+            fix_k3: self.fix_k3 || !free("k3"),
+            fix_tangential: estimates_tilt || !(free("p1") && free("p2")),
             iters: DISTORTION_FIT_ITERS,
         }
     }
@@ -469,16 +491,51 @@ mod tests {
         let cfg = IntrinsicsInitConfig::default();
         assert_eq!(cfg.iterations, 2);
         assert!(cfg.fix_k3);
-        assert_eq!(cfg.fix_tangential, None);
-        let model = |sensor| CameraModelSpec::pinhole(DistortionKind::BrownConrady5, sensor);
-        assert!(
-            !cfg.distortion_fit_opts(model(SensorKind::Identity))
-                .fix_tangential
-        );
-        assert!(
-            cfg.distortion_fit_opts(model(SensorKind::Scheimpflug))
-                .fix_tangential
-        );
+    }
+
+    fn camera(distortion: DistortionKind, sensor: SensorKind) -> CameraConfig {
+        CameraConfig::new(CameraModelSpec::pinhole(distortion, sensor))
+    }
+
+    #[test]
+    fn the_linear_stage_fits_only_what_the_camera_estimates() {
+        let cfg = IntrinsicsInitConfig::default();
+        let opts = |c: &CameraConfig| {
+            let o = cfg.distortion_fit_opts(c);
+            (o.fix_k3, o.fix_tangential)
+        };
+        // Default fix lists: an untilted camera fits p1, p2; a tilted one,
+        // whose default list holds them, does not.
+        let frontal = camera(DistortionKind::BrownConrady5, SensorKind::Identity);
+        assert_eq!(opts(&frontal), (true, false));
+        let tilted = camera(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
+        assert_eq!(opts(&tilted), (true, true));
+        // A camera holding p1, p2 keeps them at zero in the linear stage.
+        let mut held = frontal.clone();
+        held.fix.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
+        assert_eq!(opts(&held), (true, true));
+        // One held term is enough: the linear fit has no single-term option.
+        held.fix.distortion = Some(vec!["p2".into()]);
+        assert_eq!(opts(&held), (true, true));
+        // A tilted camera that frees them still starts them at zero while
+        // its tilt is estimated, and fits them once the tilt is held.
+        let mut freed = tilted.clone();
+        freed.fix.distortion = Some(Vec::new());
+        assert_eq!(opts(&freed), (true, true));
+        freed.fix.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);
+        assert_eq!(opts(&freed), (true, false));
+        // A model without the terms never fits them.
+        let division = camera(DistortionKind::Division1, SensorKind::Identity);
+        assert_eq!(opts(&division), (true, true));
+        // `fix_k3: false` fits k3 only where the camera estimates it.
+        let free_k3 = IntrinsicsInitConfig {
+            fix_k3: false,
+            ..IntrinsicsInitConfig::default()
+        };
+        assert!(free_k3.distortion_fit_opts(&frontal).fix_k3);
+        assert!(!free_k3.distortion_fit_opts(&freed).fix_k3);
+        let rational = camera(DistortionKind::Rational8, SensorKind::Identity);
+        assert!(!free_k3.distortion_fit_opts(&rational).fix_k3);
     }
 
     #[test]
@@ -552,37 +609,17 @@ mod tests {
         let cfg = IntrinsicsInitConfig {
             iterations: 3,
             fix_k3: false,
-            fix_tangential: Some(true),
         };
-        // An explicit value wins over the camera's default.
-        let opts = cfg.iterative_opts(None, CameraConfig::default().model);
+        let opts = cfg.iterative_opts(None, &CameraConfig::default());
         assert_eq!(opts.iterations, 3);
-        assert!(!opts.distortion_opts.fix_k3);
-        assert!(opts.distortion_opts.fix_tangential);
         assert_eq!(opts.distortion_opts.iters, 8);
     }
 
     #[test]
     fn iterative_opts_override_wins_over_config_iterations() {
         let cfg = IntrinsicsInitConfig::default();
-        let opts = cfg.iterative_opts(Some(9), CameraConfig::default().model);
+        let opts = cfg.iterative_opts(Some(9), &CameraConfig::default());
         assert_eq!(opts.iterations, 9);
-    }
-
-    #[test]
-    fn distortion_fit_opts_mirrors_init_fields() {
-        let cfg = IntrinsicsInitConfig {
-            iterations: 2,
-            fix_k3: true,
-            fix_tangential: Some(false),
-        };
-        // An explicit value wins over a tilted camera's default.
-        let tilted =
-            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
-        let dist_opts = cfg.distortion_fit_opts(tilted);
-        assert!(dist_opts.fix_k3);
-        assert!(!dist_opts.fix_tangential);
-        assert_eq!(dist_opts.iters, 8);
     }
 
     #[test]
@@ -617,16 +654,14 @@ mod tests {
         let cfg = IntrinsicsInitConfig {
             iterations: 3,
             fix_k3: false,
-            fix_tangential: Some(true),
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let restored: IntrinsicsInitConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.iterations, 3);
         assert!(!restored.fix_k3);
-        assert_eq!(restored.fix_tangential, Some(true));
-        // An unset value is omitted and reads back as `None`.
-        let json = serde_json::to_string(&IntrinsicsInitConfig::default()).unwrap();
-        assert!(!json.contains("fix_tangential"), "{json}");
+        // The removed field is an unknown field, not silently ignored.
+        let old = r#"{"iterations": 2, "fix_k3": true, "fix_tangential": true}"#;
+        assert!(serde_json::from_str::<IntrinsicsInitConfig>(old).is_err());
     }
 
     #[test]

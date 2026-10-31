@@ -32,24 +32,21 @@ class IntrinsicsInitConfig:
 
     Zhang's method plus an iterative Brown-Conrady distortion fit. Shared by
     every intrinsics-bearing problem's ``init``/``intrinsics`` config group.
+    The fit estimates only the distortion terms the camera's solves estimate
+    (its ``camera.fix`` lists), and holds the tangential terms while a sensor
+    tilt is estimated.
     """
 
     iterations: int = 2
+    #: Hold ``k3`` at zero in the linear stage even where the camera's solves
+    #: estimate it.
     fix_k3: bool = True
-    #: ``None`` (default) defers to the camera's default, in every workflow
-    #: and for each camera of a rig: the tangential terms are fixed under a
-    #: Scheimpflug sensor (they trade off against the tilt, and its default
-    #: fix list holds them in every later solve) and free otherwise.
-    fix_tangential: bool | None = None
 
     def to_payload(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+        return {
             "iterations": int(self.iterations),
             "fix_k3": bool(self.fix_k3),
         }
-        if self.fix_tangential is not None:
-            payload["fix_tangential"] = bool(self.fix_tangential)
-        return payload
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "IntrinsicsInitConfig":

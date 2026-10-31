@@ -99,8 +99,8 @@ order:
 1. The real-data honesty gap (UQ-REAL-SCALE): the predicted projection σ is
    2–5 times smaller than the real split-half scatter on every real camera,
    which criterion 3 does not allow.
-2. The breaking quality fixes: Q-TANGENTIAL-ONE-SOURCE, then UQ-ROBOT-FRAME,
-   which changes what robot deltas mean.
+2. The breaking quality fix UQ-ROBOT-FRAME, which changes what robot deltas
+   mean.
 3. Q-SCHEIMPFLUG-STAGED-ROBUST and retiring the old public registry
    (DATA-FETCH).
 4. Cut 0.10.0, so the breaking changes ship and the "unchanged across two

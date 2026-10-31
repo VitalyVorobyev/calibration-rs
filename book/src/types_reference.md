@@ -57,7 +57,7 @@ Every problem's `*Config` embeds the same small structs by stage:
 
 | Type | Fields | Purpose |
 |------|--------|---------|
-| `IntrinsicsInitConfig` | `iterations, fix_k3, fix_tangential` | Per-camera linear initialization |
+| `IntrinsicsInitConfig` | `iterations, fix_k3` | Per-camera linear initialization; fits only the distortion terms the camera's solves estimate |
 | `SolverConfig` | `max_iters, verbosity, robust_loss` | Non-linear solve |
 | `RobotPoseConfig` | `refine, rot_sigma, trans_sigma` | Robot-pose refinement in hand-eye bundle adjustment |
 | `HandeyeInitConfig` | `handeye_mode, min_motion_angle_deg` | Hand-eye linear initialization |

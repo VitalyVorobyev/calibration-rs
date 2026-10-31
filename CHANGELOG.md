@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: `IntrinsicsInitConfig` loses `fix_tangential`. The linear
+  stage now fits only the distortion terms the camera's solves estimate: a
+  term the camera's fix list holds (`camera.fix.distortion`, or the model's
+  default list) stays at zero from the start, and so do the tangential terms
+  while a sensor tilt is estimated. Before, a camera holding `p1`, `p2` with
+  `fix_tangential` unset got them fitted in the linear stage and then frozen
+  at that value by every later solve; the same held for a camera holding
+  `k3` under `fix_k3: false`. Results change only for such configurations,
+  and for cameras whose model has no tangential terms (`division1`, `none`),
+  whose linear stage no longer fits terms it then drops. Migration: remove
+  `fix_tangential` from `init` / `intrinsics` (an unknown field is now a
+  configuration error); to hold `p1`, `p2`, list them in
+  `camera.fix.distortion`, which now holds them in every stage. `fix_k3`
+  stays: it holds `k3` in the linear stage even where the solves estimate
+  it. In Python, `IntrinsicsInitConfig(fix_tangential=...)` is removed the
+  same way.
+
 - Breaking: `RansacOptions` has no `Default` and no default threshold. The
   old `thresh: 2.0` was a pixel-scale value that silently disabled outlier
   rejection for the estimators measuring on the normalized image plane.

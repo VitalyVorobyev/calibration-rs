@@ -121,9 +121,8 @@ reused across every hand-eye problem type:
 pub struct SingleCamHandeyeConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,
-    // { iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug
-    //   sensor, false otherwise)
+    // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
+    //   distortion terms the camera's solves estimate
 
     // The camera model (any distortion kind, an identity or Scheimpflug
     // sensor) and the parameters its solves hold fixed, named per slot.

@@ -23,6 +23,7 @@ use vision_calibration_optim::{
     optimize_rig_extrinsics, optimize_scheimpflug_intrinsics_staged,
 };
 
+use crate::common::config::CameraConfig;
 use crate::planar_family::{camera_solve_opts, embed_distortion, optimize_camera};
 use crate::rig_family::{
     RigIntrinsicsSeeds, bootstrap_rig_intrinsics, check_camera_models, format_init_source,
@@ -230,10 +231,11 @@ pub struct HandeyeOptimizeResult {
 /// and auto-estimation, each camera in its own model (`config.camera_for(i)`).
 ///
 /// Runs Zhang's method with iterative distortion estimation on each camera
-/// independently (the tilted variant for a Scheimpflug camera). An unset
-/// `intrinsics.fix_tangential` holds the tangential terms of each
-/// Scheimpflug camera and keeps them free for every other camera. See `rig_extrinsics::step_intrinsics_init_all_with_seed` for the
-/// seed semantics.
+/// independently (the tilted variant for a Scheimpflug camera). The linear
+/// stage fits only the distortion terms each camera's solves estimate
+/// ([`IntrinsicsInitConfig::distortion_fit_opts`](crate::common::config::IntrinsicsInitConfig::distortion_fit_opts)). See
+/// `rig_extrinsics::step_intrinsics_init_all_with_seed` for the seed
+/// semantics.
 ///
 /// # Errors
 ///
@@ -254,9 +256,8 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    let models: Vec<CameraModelSpec> = (0..num_cameras)
-        .map(|i| config.camera_for(i).model)
-        .collect();
+    let camera_configs: Vec<CameraConfig> =
+        (0..num_cameras).map(|i| config.camera_for(i)).collect();
 
     let seeds = RigIntrinsicsSeeds {
         per_cam_intrinsics: manual.per_cam_intrinsics,
@@ -265,7 +266,7 @@ pub fn step_intrinsics_init_all_with_seed(
     };
 
     let bootstrap = match bootstrap_rig_intrinsics(
-        &models,
+        &camera_configs,
         num_views,
         |cam_idx| extract_camera_views(input, cam_idx),
         seeds,
@@ -402,7 +403,7 @@ pub fn step_intrinsics_optimize_all(
                 solve_opts,
                 backend_opts.clone(),
                 config.intrinsics.iterations,
-                config.intrinsics.fix_k3,
+                config.intrinsics.distortion_fit_opts(&camera_config),
             )?
         } else {
             optimize_camera(
@@ -464,7 +465,7 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
     mut solve_opts: PlanarIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
     init_iterations: usize,
-    fix_k3_in_init: bool,
+    distortion_opts: DistortionFitOptions,
 ) -> Result<PlanarIntrinsicsEstimate, Error> {
     solve_opts.fix_poses.clear();
     let distortion_kind = initial
@@ -481,11 +482,7 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
             dataset,
             ScheimpflugIntrinsicsInitOptions {
                 iterations: init_iterations,
-                distortion_opts: DistortionFitOptions {
-                    fix_tangential: true,
-                    fix_k3: fix_k3_in_init,
-                    iters: 8,
-                },
+                distortion_opts,
                 tilt_x_seeds: vec![tilt_x],
                 tilt_y_seeds: vec![0.0],
                 refine_rounds: 1,

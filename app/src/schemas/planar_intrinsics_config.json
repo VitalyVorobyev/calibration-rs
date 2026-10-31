@@ -125,15 +125,8 @@
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
-          "description": "Fix k3 during initialization (recommended for typical lenses).",
+          "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera\n([`Self::distortion_fit_opts`]): a term the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
           "type": "boolean"
-        },
-        "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2) during initialization.\n\n`None` (the default) takes the camera's default, in every workflow\nand for each camera of a rig: `true` for a Scheimpflug sensor and\n`false` otherwise. A tangential term and a sensor tilt trade off, so\na linear stage that fits one on a tilted camera fits a spurious\nvalue; the camera's default fix list then holds it in every\nnon-linear solve, where it displaces the tilt and principal point.",
-          "type": [
-            "boolean",
-            "null"
-          ]
         },
         "iterations": {
           "description": "Number of iterations for iterative intrinsics estimation.",
@@ -328,7 +321,7 @@
     },
     "init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
-      "description": "Linear-initialization stage settings. `init.fix_tangential` defaults\nto `true` for a Scheimpflug sensor and `false` otherwise."
+      "description": "Linear-initialization stage settings. The linear stage fits only the\ndistortion terms the camera's solves estimate."
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
