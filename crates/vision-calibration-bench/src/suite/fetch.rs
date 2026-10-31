@@ -105,7 +105,15 @@ pub fn read_fetch_list(suite: &Suite, id: &str) -> Result<BTreeMap<String, Strin
 pub fn sha256_file(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher).with_context(|| format!("read {}", path.display()))?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = io::Read::read(&mut file, &mut buf)
+            .with_context(|| format!("read {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     Ok(hasher
         .finalize()
         .iter()
