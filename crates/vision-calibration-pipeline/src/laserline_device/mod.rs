@@ -18,3 +18,5 @@ pub use steps::{
     DeviceInitOptions, DeviceInitResult, DeviceManualInit, DeviceOptimizeOptions,
     DeviceOptimizeResult, run_calibration, step_init, step_init_with_seed, step_optimize,
 };
+// The input's per-view types.
+pub use vision_calibration_optim::{LaserlineMeta, LaserlineView};

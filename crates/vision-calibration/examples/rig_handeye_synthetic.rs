@@ -14,11 +14,12 @@
 
 use anyhow::Result;
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
+use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, Pt3, RigDataset, RigView,
     RigViewObs, make_pinhole_camera,
 };
-use vision_calibration::optim::{HandeyeMode, RobotPoseMeta};
+use vision_calibration::optim::HandeyeMode;
 use vision_calibration::prelude::*;
 use vision_calibration::rig_handeye::{
     RigHandeyeInput, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,

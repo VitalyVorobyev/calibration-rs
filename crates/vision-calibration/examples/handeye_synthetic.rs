@@ -17,13 +17,14 @@
 
 use anyhow::Result;
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
+use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, Pt2, Pt3, make_pinhole_camera,
 };
 use vision_calibration::prelude::*;
 use vision_calibration::single_cam_handeye::{
-    HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
-    step_handeye_init, step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
+    SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView, step_handeye_init,
+    step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
 };
 
 fn main() -> Result<()> {
@@ -100,7 +101,7 @@ fn main() -> Result<()> {
 
             SingleCamHandeyeView {
                 obs: CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
-                meta: HandeyeMeta {
+                meta: RobotPoseMeta {
                     base_se3_gripper: *robot_pose,
                 },
             }

@@ -43,7 +43,7 @@ const TILTED_BROWN_CONRADY: CameraModelSpec =
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub use crate::common::{
+use crate::common::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
     RigInitOptions, RigOptimizeOptions,
 };

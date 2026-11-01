@@ -10,12 +10,13 @@ use vision_calibration_core::{
     DistortionParams, FxFyCxCy, Iso3, ProjectionParams, Pt3, Real, ScheimpflugParams, SensorKind,
     SensorParams,
 };
+use vision_calibration_pipeline::common::RobotPoseMeta;
 use vision_calibration_pipeline::common::config::CameraConfig;
 use vision_calibration_pipeline::session::CalibrationSession;
 use vision_calibration_pipeline::single_cam_handeye::{
-    HandeyeMeta, IntrinsicsManualInit, SingleCamHandeyeConfig, SingleCamHandeyeInput,
-    SingleCamHandeyeProblem, SingleCamHandeyeView, run_calibration, step_handeye_init,
-    step_handeye_optimize, step_intrinsics_init_with_seed, step_intrinsics_optimize,
+    IntrinsicsManualInit, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeProblem,
+    SingleCamHandeyeView, run_calibration, step_handeye_init, step_handeye_optimize,
+    step_intrinsics_init_with_seed, step_intrinsics_optimize,
 };
 
 fn gripper_se3_camera() -> Iso3 {
@@ -74,7 +75,7 @@ fn input(camera: &CameraParams) -> SingleCamHandeyeInput {
             }
             SingleCamHandeyeView::new(
                 CorrespondenceView::new(p3, p2).unwrap(),
-                HandeyeMeta {
+                RobotPoseMeta {
                     base_se3_gripper: base_se3_target
                         * cam_se3_target.inverse()
                         * gripper_se3_camera().inverse(),

@@ -79,12 +79,9 @@ pub use problem::{
     RigHandeyeInput, RigHandeyeProblem,
 };
 pub use steps::{
-    HandeyeInitOptions, HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeOptions,
-    HandeyeOptimizeResult, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsOptimizeOptions,
-    IntrinsicsOptimizeResult, RigInitOptions, RigInitResult, RigManualInit, RigOptimizeOptions,
-    RigOptimizeResult, run_calibration, step_handeye_init, step_handeye_init_with_seed,
-    step_handeye_optimize, step_intrinsics_init_all, step_intrinsics_init_all_with_seed,
-    step_intrinsics_optimize_all, step_rig_init, step_rig_init_with_seed, step_rig_optimize,
+    HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
+    IntrinsicsOptimizeResult, RigInitResult, RigManualInit, RigOptimizeResult, run_calibration,
+    step_handeye_init, step_handeye_init_with_seed, step_handeye_optimize,
+    step_intrinsics_init_all, step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
+    step_rig_init, step_rig_init_with_seed, step_rig_optimize,
 };
-/// The hand-eye bundle adjustment's estimate, the problem's output.
-pub use vision_calibration_optim::{HandeyeEstimate, HandeyeParams};

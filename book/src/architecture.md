@@ -47,7 +47,7 @@ Deterministic two-view solvers, all free functions in per-topic modules:
 | `triangulation` | `triangulate_point_linear`, `triangulate_point` |
 | `camera_matrix` | `dlt_camera_matrix` |
 
-Through the facade they are reached as `vision_calibration::geometry::homography::dlt_homography`, and so on.
+The facade re-exports the main solvers at the root of its `mvg` module (`vision_calibration::mvg::dlt_homography`, …); the full set is in the `vision-geometry` crate.
 
 ### vision-mvg
 
@@ -99,8 +99,7 @@ Unified facade crate that re-exports everything through a clean module hierarchy
 use vision_calibration::prelude::*;            // Minimal planar hello-world imports
 use vision_calibration::planar_intrinsics::*;  // Planar workflow
 use vision_calibration::core::*;               // Math types
-use vision_calibration::linear::pnp;           // Linear solvers (per-module paths)
-use vision_calibration::geometry::homography;  // Two-view solvers
+use vision_calibration::mvg::dlt_homography;   // Two-view solvers
 use vision_calibration::mvg::rectification;    // N-view geometry
 use vision_calibration::optim::RobustLoss;     // Optimization vocabulary (hand-picked)
 ```

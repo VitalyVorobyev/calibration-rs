@@ -31,15 +31,16 @@ let pose = Iso3::from_parts(Translation3::from(t), UnitQuaternion::from_rotation
 The detected views become the calibration input:
 
 ```rust
+use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::single_cam_handeye::{
-    HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
+    SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
 };
 
 let views: Vec<SingleCamHandeyeView> = samples
     .into_iter()
     .map(|s| SingleCamHandeyeView {
         obs: s.view,                                          // CorrespondenceView
-        meta: HandeyeMeta { base_se3_gripper: s.robot_pose }, // T_B_G
+        meta: RobotPoseMeta { base_se3_gripper: s.robot_pose }, // T_B_G
     })
     .collect();
 

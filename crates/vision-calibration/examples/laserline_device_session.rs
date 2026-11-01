@@ -7,7 +7,8 @@ use vision_calibration::core::{
 use vision_calibration::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceProblem, run_calibration,
 };
-use vision_calibration::optim::{LaserPlane, LaserlineMeta, LaserlineView};
+use vision_calibration::laserline_device::{LaserlineMeta, LaserlineView};
+use vision_calibration::optim::LaserPlane;
 use vision_calibration::prelude::*;
 
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};

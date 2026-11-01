@@ -28,7 +28,7 @@ use super::problem::{RigExtrinsicsInput, RigExtrinsicsProblem};
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub use crate::common::{
+use crate::common::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
 };
 

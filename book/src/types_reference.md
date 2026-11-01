@@ -89,5 +89,4 @@ Inside the crate, `BackendSolution` carries the optimized `params` and a `solve_
 | Type | Description |
 |------|-------------|
 | `HandeyeMode` | EyeInHand or EyeToHand |
-| `HandeyeMeta` | `base_se3_gripper: Iso3` |
-| `RobotPoseMeta` | `base_se3_gripper: Iso3` |
+| `RobotPoseMeta` | `base_se3_gripper: Iso3`, a view's robot pose (every hand-eye workflow) |

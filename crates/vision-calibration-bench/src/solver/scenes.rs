@@ -11,27 +11,27 @@ use anyhow::{Result, bail};
 use nalgebra::Vector3;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
+use vision_calibration::common::{RigLaserlineView, RobotPoseMeta};
 use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Pt2, Pt3, Real,
     RigDataset, RigView, RigViewObs, ScheimpflugParams, View,
 };
+use vision_calibration::laserline_device::LaserlineMeta;
 use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDeviceInput};
-use vision_calibration::optim::{
-    HandeyeMode, LaserPlane, LaserlineMeta, RobotPoseMeta, RobustLoss, SolverBackend,
-};
+use vision_calibration::optim::{HandeyeMode, LaserPlane, RobustLoss, SolverBackend};
 use vision_calibration::planar_intrinsics::{IntrinsicsManualInit, PlanarIntrinsicsConfig};
 use vision_calibration::rig_extrinsics::{
     IntrinsicsManualInit as RigIntrinsicsManualInit, RigExtrinsicsConfig, RigExtrinsicsInput,
 };
 use vision_calibration::rig_handeye::{RigHandeyeConfig, RigHandeyeInput};
 use vision_calibration::rig_handeye_laserline::{
-    RigHandeyeLaserlineConfig, RigHandeyeLaserlineInput, RigHandeyeLaserlineView, RigLaserlineView,
+    RigHandeyeLaserlineConfig, RigHandeyeLaserlineInput, RigHandeyeLaserlineView,
 };
 use vision_calibration::rig_laserline_device::{
     RigLaserlineDataset, RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigUpstreamCalibration,
 };
 use vision_calibration::single_cam_handeye::{
-    HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeView,
+    SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeView,
 };
 use vision_calibration::synthetic::laser::{BoardExtent, laser_stripe_pixels};
 use vision_calibration::synthetic::noise::UniformPixelNoise;
@@ -910,7 +910,7 @@ fn single_handeye_scene(b: &Builder) -> Result<Scene> {
         .map(|(mut v, t_bg)| {
             View::new(
                 v.remove(0),
-                HandeyeMeta {
+                RobotPoseMeta {
                     base_se3_gripper: *t_bg,
                 },
             )

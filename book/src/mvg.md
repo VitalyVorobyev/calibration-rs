@@ -26,7 +26,7 @@ mvg::dense           match_block            ← block matching and semi-global m
 mvg::robust          *_robust               ← RANSAC wrappers for outlier-laden data
 ```
 
-Further modules: `mvg::degeneracy` (pure rotation, planar scene and poor baseline detection), `mvg::homography` (homography decomposition and transfer) and `mvg::residuals` (Sampson, epipolar and symmetric transfer errors). The low-level solvers underneath (8-point and 5-point essential matrix, DLT homography, camera-matrix decomposition, linear triangulation) are in `vision_calibration::geometry`.
+Further modules: `mvg::degeneracy` (pure rotation, planar scene and poor baseline detection), `mvg::homography` (homography decomposition and transfer) and `mvg::residuals` (Sampson, epipolar and symmetric transfer errors). The low-level solvers underneath (8-point and 5-point essential matrix, DLT homography, camera-matrix decomposition, linear triangulation) are at the root of `vision_calibration::mvg`.
 
 The chapters of this part follow the pipeline:
 

@@ -59,7 +59,7 @@ let robust = recover_relative_pose_robust(&corrs, &opts)?;
 `mvg::triangulation::triangulate_nview` takes one 3x4 camera matrix per view and the matching normalized point in each, and returns a `TriangulatedPoint` with the same diagnostics (the reprojection error and the all-views cheirality included):
 
 ```rust
-use vision_calibration::geometry::camera_matrix::Mat34;
+use vision_calibration::mvg::Mat34;
 use vision_calibration::mvg::triangulation::triangulate_nview;
 use vision_calibration::core::Pt2;
 

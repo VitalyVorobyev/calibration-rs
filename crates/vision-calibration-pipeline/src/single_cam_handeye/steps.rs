@@ -49,7 +49,7 @@ use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem};
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub use crate::common::{
+use crate::common::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
 };
 
@@ -786,7 +786,7 @@ mod tests {
 
                 super::super::problem::SingleCamHandeyeView {
                     obs: CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
-                    meta: super::super::problem::HandeyeMeta {
+                    meta: crate::common::RobotPoseMeta {
                         base_se3_gripper: *robot_pose,
                     },
                 }

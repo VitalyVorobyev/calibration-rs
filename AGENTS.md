@@ -49,7 +49,7 @@ the facade and the JSON schemas.
 * `vision-calibration-py` **may depend on** `vision-calibration` (preferred) and Python binding tooling crates.
 * `vision-calibration-bench` / `vision-calibration-examples-private`
   (unpublished) consume the facade + pipeline for dataset runs. `bench` also
-  reaches core/optim/dataset directly; that is deliberate and confined to it.
+  reaches core/optim/dataset/linear directly; that is deliberate and confined to it.
 
 ### Where code goes
 

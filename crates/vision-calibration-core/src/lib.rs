@@ -85,8 +85,8 @@ pub use error::Error;
 #[cfg(feature = "schemars")]
 pub use math::Iso3Schema;
 pub use math::{
-    Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3, coordinate_utils, distort_to_pixel,
-    from_homogeneous, normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,
+    Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3, distort_to_pixel, from_homogeneous,
+    normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,
 };
 pub use models::{
     AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraFix, CameraModel,

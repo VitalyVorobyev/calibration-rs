@@ -11,15 +11,16 @@
 
 #![allow(missing_docs)]
 
+use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::core::{
     BrownConrady5, FxFyCxCy, Iso3, PinholeCamera, Pt3, Uncertainty, make_pinhole_camera,
 };
 use vision_calibration::optim::{HandeyeMode, SolverBackend};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
-    HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
-    SingleCamHandeyeProblem, SingleCamHandeyeView, step_handeye_init, step_handeye_optimize,
-    step_intrinsics_init, step_intrinsics_optimize,
+    SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem,
+    SingleCamHandeyeView, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
+    step_intrinsics_optimize,
 };
 use vision_calibration::synthetic::poses::make_iso;
 use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
@@ -89,7 +90,7 @@ fn eye_in_hand_views(
         .zip(robot_poses.iter())
         .map(|(obs, tbg)| SingleCamHandeyeView {
             obs,
-            meta: HandeyeMeta {
+            meta: RobotPoseMeta {
                 base_se3_gripper: *tbg,
             },
         })
@@ -325,7 +326,7 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
             .zip(robot_poses.iter())
             .map(|(obs, tbg)| SingleCamHandeyeView {
                 obs,
-                meta: HandeyeMeta {
+                meta: RobotPoseMeta {
                     base_se3_gripper: *tbg,
                 },
             })
