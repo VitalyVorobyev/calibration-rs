@@ -27,8 +27,8 @@ under fixed names:
 - **Config** is `<Name>Config`; **Export** is `<Name>Export`.
 - **Output** (`ProblemType::Output`) is an *estimate*: the final solve's
   `<Solve>Estimate` from `vision-calibration-optim`, re-exported by the
-  module (`PlanarIntrinsicsEstimate`, `HandeyeEstimate` for both hand-eye
-  problems, `RigLaserlineEstimate`). Only when the export needs more than
+  module (`PlanarIntrinsicsEstimate`, `RigLaserlineEstimate`; the
+  `HandeyeEstimate` both hand-eye problems share is in `common`). Only when the export needs more than
   the solve returns does the problem wrap it in its own `<Name>Estimate`
   (`LaserlineDeviceEstimate` adds the residual statistics). Anything the
   config determines is read from the config at export time, not copied into
@@ -59,7 +59,9 @@ an `input` field.
   keeps the session config, and returns `Result<<Stage><Action>Result,
   Error>` when it reports values. Its seeded variant
   `step_<stage>_<action>_with_seed(session, manual: <Stage>ManualInit,
-  opts)` takes the seed before the options.
+  opts)` takes the seed before the options. The pair stays: the shared
+  option types cannot hold per-problem seeds, and `step_<…>` is literally
+  the seeded variant with the default seed.
 - The stage is mandatory in every type name and the action is a full word:
   `IntrinsicsInitOptions`, `RigOptimizeResult`, never a bare `InitOptions`,
   never `Optim` or `Ba`. Single-stage problems name theirs: `Intrinsics`
@@ -68,9 +70,11 @@ an `input` field.
 - Every step takes options, even when none exist yet: the type is an empty
   `#[non_exhaustive]` struct (`RigInitOptions`, `PlaneInitOptions`), so a
   later override is not a breaking signature change.
-- Option types that several problems share are defined once in
-  `vision_calibration_pipeline::common` and re-exported by each module
-  (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …).
+- **One path per type.** A type several problems share — step options
+  (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …),
+  input parts (`RobotPoseMeta`, `RigLaserlineView`) and the hand-eye
+  estimate — is defined once and reached only through `common`; a problem
+  module exports only its own types. Two names for one shape are merged.
   Results and seeds are per problem: same name, distinct type in each module
   (`rig_handeye::IntrinsicsInitResult` is not
   `planar_intrinsics::IntrinsicsInitResult`); the facade is module-first, so

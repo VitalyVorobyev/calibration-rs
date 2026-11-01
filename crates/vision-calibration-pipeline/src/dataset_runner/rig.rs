@@ -19,8 +19,8 @@ use vision_calibration_optim::RobotPoseMeta;
 use super::pairing::pair_views;
 use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
 use super::{
-    Detection, RejectedDetection, RunError, augment_config_with_roi, detect_features,
-    expand_camera_images, features_to_obs, pattern_repr, pick_detector, target_to_detector_config,
+    Detection, RejectedDetection, RunError, detect_features, expand_camera_images, features_to_obs,
+    pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -124,8 +124,7 @@ pub(super) fn build_rig_core(
 ) -> Result<RigCore, RunError> {
     // Same gate ordering as the planar converter: target + validation
     // + pairing config before any filesystem access.
-    let (detector_name, detector_config) = target_to_detector_config(spec)?;
-    let detector = pick_detector(detector_name)?;
+    let detector_config = target_to_detector_config(spec)?;
     validate(spec)?;
 
     let Some(pairing) = &spec.pose_pairing else {
@@ -155,13 +154,6 @@ pub(super) fn build_rig_core(
     let paired = pair_views(&images, &camera_ids, pairing)?;
     let total_views = paired.paths.len();
 
-    // Per-camera key configs (ROI differs per camera).
-    let key_configs: Vec<_> = spec
-        .cameras
-        .iter()
-        .map(|c| augment_config_with_roi(&detector_config, c.roi_xywh))
-        .collect();
-
     let filter = ViewFilter::for_spec(spec);
     let mut rejected: Vec<RejectedDetection> = Vec::new();
     let mut views: Vec<(RigViewObs, String)> = Vec::new();
@@ -178,9 +170,7 @@ pub(super) fn build_rig_core(
                 continue;
             };
             let (features, _cache_hit) = detect_features(
-                detector.as_ref(),
                 &detector_config,
-                &key_configs[cam_idx],
                 spec.cameras[cam_idx].roi_xywh,
                 path,
                 detection,
@@ -270,7 +260,6 @@ fn finish<Meta>(
 mod tests {
     use super::*;
     use crate::dataset_runner::RejectReason;
-    use serde_json::json;
     use std::io::Write;
     use vision_calibration_dataset::{
         CameraSource, DetectorSpec, ImagePattern, PoseColumnMap, PoseConvention, PosePairing,
@@ -278,10 +267,7 @@ mod tests {
         TranslationUnits,
     };
     use vision_calibration_detect::DetectionCache;
-    use vision_calibration_detect::{
-        CacheKey, CachedFeatures, ChessboardDetector, Feature, FsDetectionCache,
-        PuzzleboardDetector,
-    };
+    use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, FsDetectionCache};
 
     /// Synthetic features on the chessboard lattice — enough (≥4) for
     /// the runner to accept the view.
@@ -314,8 +300,15 @@ mod tests {
         board_features_without(&[])
     }
 
-    fn detector_config() -> serde_json::Value {
-        json!({"rows": 9, "cols": 6, "square_size_m": 0.025})
+    fn detector_config() -> vision_calibration_detect::DetectorConfig {
+        vision_calibration_detect::DetectorConfig::Chessboard(
+            vision_calibration_detect::ChessboardConfig {
+                rows: 9,
+                cols: 6,
+                square_size_m: 0.025,
+                chess_corners: None,
+            },
+        )
     }
 
     /// Write a dummy "image" file and pre-seed the cache for it, so the
@@ -331,7 +324,7 @@ mod tests {
         let bytes = rel_path.as_bytes(); // content only needs to be unique
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
-        let key = CacheKey::for_detector(bytes, &ChessboardDetector, &detector_config());
+        let key = CacheKey::for_detection(bytes, &detector_config(), None);
         cache.put(&key, &CachedFeatures { features }).unwrap();
         path
     }
@@ -548,7 +541,13 @@ mod tests {
         // labels are absolute, so the view is kept.
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        let puzzle_config = json!({"rows": 9, "cols": 6, "cell_size_m": 0.025});
+        let puzzle_config = vision_calibration_detect::DetectorConfig::Puzzleboard(
+            vision_calibration_detect::PuzzleboardConfig {
+                rows: 9,
+                cols: 6,
+                cell_size_m: 0.025,
+            },
+        );
         for (rel, features) in [
             ("cam0/a.png", board_features()),
             ("cam1/a.png", top_rows(5)),
@@ -556,7 +555,7 @@ mod tests {
             let path = tmp.path().join(rel);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, rel.as_bytes()).unwrap();
-            let key = CacheKey::for_detector(rel.as_bytes(), &PuzzleboardDetector, &puzzle_config);
+            let key = CacheKey::for_detection(rel.as_bytes(), &puzzle_config, None);
             cache.put(&key, &CachedFeatures { features }).unwrap();
         }
         let mut spec = rig_spec(&[vec!["cam0/a.png"], vec!["cam1/a.png"]]);

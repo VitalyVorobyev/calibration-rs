@@ -12,12 +12,11 @@
 
 use ringgrid::{Detector as RinggridDetectorImpl, TargetLayout};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::{DetectError, Detector, Feature};
+use crate::{DetectError, Feature};
 
 /// Coded ring-grid detector configuration. Mirrors the geometry of the
 /// ringgrid variant in `vision_calibration_dataset::TargetSpec` so the
@@ -69,73 +68,58 @@ impl RinggridConfig {
     }
 }
 
-/// Stateless coded ring-grid detector instance.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct RinggridDetector;
+/// Detect the ring grid `cfg` describes in `luma`.
+pub(crate) fn detect(
+    cfg: &RinggridConfig,
+    luma: &image::GrayImage,
+) -> Result<Vec<Feature>, DetectError> {
+    let board = cfg.board_layout()?;
+    let detector = RinggridDetectorImpl::new(board);
 
-impl crate::sealed::Sealed for RinggridDetector {
-    fn backend(&self) -> &'static str {
-        crate::backend::RINGGRID
-    }
-}
+    // Neither `ringgrid::DetectError` variant means "no board in this
+    // frame" — an empty frame yields `Ok` with zero markers.
+    // `UnsupportedTarget` is a configuration bug and `IncompleteBoard`
+    // can only fire under `require_complete_board`, which this wrapper
+    // never sets. Both are real failures and must not be flattened into
+    // an empty feature list, which would surface much later as an
+    // unexplained initialisation failure.
+    let result = detector
+        .detect_adaptive(luma)
+        .map_err(|e| DetectError::Backend {
+            detector: "ringgrid",
+            message: e.to_string(),
+        })?;
 
-impl Detector for RinggridDetector {
-    fn name(&self) -> &'static str {
-        "ringgrid"
-    }
-
-    fn detect_json(
-        &self,
-        image: &image::DynamicImage,
-        config: &Value,
-    ) -> Result<Vec<Feature>, DetectError> {
-        let cfg: RinggridConfig =
-            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
-                detector: "ringgrid",
-                source: e,
-            })?;
-        let board = cfg.board_layout()?;
-        let detector = RinggridDetectorImpl::new(board);
-
-        let luma = image.to_luma8();
-
-        // Neither `ringgrid::DetectError` variant means "no board in this
-        // frame" — an empty frame yields `Ok` with zero markers.
-        // `UnsupportedTarget` is a configuration bug and `IncompleteBoard`
-        // can only fire under `require_complete_board`, which this wrapper
-        // never sets. Both are real failures and must not be flattened into
-        // an empty feature list, which would surface much later as an
-        // unexplained initialisation failure.
-        let result = detector
-            .detect_adaptive(&luma)
-            .map_err(|e| DetectError::Backend {
-                detector: "ringgrid",
-                message: e.to_string(),
-            })?;
-
-        // A decoded marker contributes a correspondence only when its id
-        // maps to a known board position (`board_xy_mm`); undecoded or
-        // off-board detections are dropped. `center` is always raw image
-        // pixels. `board_xy_mm` is in millimetres → convert to metres.
-        Ok(crate::reject_ambiguous_detection(
-            result
-                .detected_markers
-                .into_iter()
-                .filter_map(|marker| {
-                    marker.board_xy_mm.map(|xy_mm| Feature {
-                        image_xy: marker.center,
-                        world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
-                        cov_px: None,
-                    })
+    // A decoded marker contributes a correspondence only when its id
+    // maps to a known board position (`board_xy_mm`); undecoded or
+    // off-board detections are dropped. `center` is always raw image
+    // pixels. `board_xy_mm` is in millimetres → convert to metres.
+    Ok(crate::reject_ambiguous_detection(
+        result
+            .detected_markers
+            .into_iter()
+            .filter_map(|marker| {
+                marker.board_xy_mm.map(|xy_mm| Feature {
+                    image_xy: marker.center,
+                    world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
+                    cov_px: None,
                 })
-                .collect(),
-        ))
-    }
+            })
+            .collect(),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+
+    /// Detect with a JSON config, as a manifest would spell it.
+    fn run(image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>, DetectError> {
+        let cfg: RinggridConfig = serde_json::from_value(config.clone())
+            .map_err(|e| DetectError::InvalidConfig(e.to_string()))?;
+        detect(&cfg, &image.to_luma8())
+    }
     use ringgrid::TargetRenderOptions;
     use serde_json::json;
 
@@ -224,7 +208,7 @@ mod tests {
     #[test]
     fn detects_synthetic_board() {
         let img = synthetic_board_image();
-        let features = RinggridDetector.detect_json(&img, &board_config()).unwrap();
+        let features = run(&img, &board_config()).unwrap();
         // A conservative floor: a 5×5 hex board carries ~23 markers, but
         // adaptive-scale detection on a small synthetic render is not
         // guaranteed to decode every one; ≥4 is enough to confirm the
@@ -248,23 +232,13 @@ mod tests {
     }
 
     #[test]
-    fn invalid_config_rejected() {
-        let img = image::DynamicImage::new_luma8(8, 8);
-        let err = RinggridDetector
-            .detect_json(&img, &json!({"rows": 5})) // missing the rest
-            .unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("invalid ringgrid config"), "got: {msg}");
-    }
-
-    #[test]
     fn invalid_board_geometry_rejected() {
         // Inner radius >= outer radius is an impossible board; the wrapped
         // `TargetLayout::new` must reject it before any detection.
         let mut cfg = board_config();
         cfg["marker_inner_radius_m"] = json!(OUTER_M);
         let img = image::DynamicImage::new_luma8(64, 64);
-        let err = RinggridDetector.detect_json(&img, &cfg).unwrap_err();
+        let err = run(&img, &cfg).unwrap_err();
         assert!(
             format!("{err}").contains("invalid ringgrid board"),
             "got: {err}"
@@ -274,7 +248,7 @@ mod tests {
     #[test]
     fn blank_image_returns_no_features() {
         let img = image::DynamicImage::new_luma8(64, 64);
-        let features = RinggridDetector.detect_json(&img, &board_config()).unwrap();
+        let features = run(&img, &board_config()).unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
     }
 

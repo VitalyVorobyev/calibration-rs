@@ -39,10 +39,22 @@ vision-calibration (facade: re-exports only)       vision-calibration-py
   adjustment (behind `refine`), rectification and dense stereo. `linear`
   uses `vision-geometry` instead of keeping parallel copies.
 - **`detect` exchanges plain arrays**, so detector crates may use a
-  different nalgebra than the solver stack.
+  different nalgebra than the solver stack. Its boundary is typed: a closed
+  `DetectorConfig` enum (one variant per detector) reading an 8-bit
+  `GrayImageView`, so neither `image` nor `serde_json` is in its API.
 - **The facade is the compatibility boundary.** It re-exports and holds no
   logic. The pipeline does not depend on `vision-mvg`; the facade
   re-exports it directly. Python binds the facade.
+  - It re-exports chosen items, never a lower crate wholesale: the
+    two-view solvers sit at the root of `mvg`, and `linear` and `geometry`
+    are used directly.
+  - `nalgebra` is the one public dependency, re-exported as
+    `vision_calibration::nalgebra`; its major version moves only with a
+    breaking release of ours.
+  - What the workspace's own crates need from each other but users do not
+    (optim's `optimize_*` and their options, core's parameter masks) is
+    `#[doc(hidden)]`: callable, undocumented, outside the semver promise.
+    Test-data generators sit behind the `synthetic` feature.
 
 ### Scope ceiling of `vision-mvg`
 
@@ -54,5 +66,6 @@ depends on C++ (OpenCV).
 ## Consequences
 
 - A consumer can depend on `core` or `linear` alone without the optimizer.
-- Lower crates may evolve faster than the facade.
+- Lower crates may evolve faster than the facade; their hidden items may
+  change in any release.
 - A new solver backend touches `optim` only.

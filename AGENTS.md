@@ -15,7 +15,7 @@ own `[workspace]`) and path-pins the published crates:
 * **`vision-geometry`** — deterministic two-view solvers (epipolar, homography, triangulation, camera matrix).
 * **`vision-mvg`** — MVG pipelines: robust pose recovery, N-view triangulation, bundle adjustment (`refine` feature), Scheimpflug-aware rectification, dense stereo.
 * **`vision-calibration-dataset`** — `DatasetSpec` manifest, validator, folder sniffer.
-* **`vision-calibration-detect`** — target detectors (chessboard / ChArUco / puzzleboard / ring-grid) behind the sealed `Detector` trait + detection cache.
+* **`vision-calibration-detect`** — target detectors (chessboard / ChArUco / puzzleboard / ring-grid) selected by the closed `DetectorConfig` enum, plus the detection cache.
 * **`vision-calibration-pipeline`** — session framework, the seven problem types, `dataset_runner`.
 * **`vision-calibration`** — facade re-exporting the above; the compatibility boundary.
 * **`vision-calibration-py`** — PyO3/maturin Python package (PyPI).

@@ -20,7 +20,7 @@ use calib_targets::{
     puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec},
 };
 
-use vision_calibration_detect::{Detector, RinggridDetector};
+use vision_calibration_detect::{DetectorConfig, GrayImageView, RinggridConfig};
 use vision_metrology::{ColAccess, Edge1DConfig, LaserExtractConfig, LaserExtractor, ScanAxis};
 use vm_primitives::core::ImageView;
 
@@ -440,7 +440,7 @@ pub fn load_ringgrid_board(path: &Path) -> Result<BoardRinggridSpec> {
 /// Detect a coded ring-grid in a tile and build a [`CorrespondenceView`] with
 /// 3D points in metres (Z=0) in the board's own frame.
 ///
-/// Wraps [`RinggridDetector`] (the `vision-calibration-detect` adaptive-scale
+/// Wraps the `vision-calibration-detect` ring-grid detector (the adaptive-scale
 /// wrapper around the `ringgrid` crate). Ring markers are self-identifying, so
 /// each decoded marker maps to a globally-consistent board position — the
 /// returned coordinates are in the board's **native** frame and are *not*
@@ -452,17 +452,18 @@ pub fn detect_ringgrid(
     spec: &BoardRinggridSpec,
     ring_width_mm: f64,
 ) -> Result<CorrespondenceView> {
-    let config = serde_json::json!({
-        "pitch_m": spec.pitch_mm / 1000.0,
-        "rows": spec.rows,
-        "long_row_cols": spec.long_row_cols,
-        "marker_outer_radius_m": spec.marker_outer_radius_mm / 1000.0,
-        "marker_inner_radius_m": spec.marker_inner_radius_mm / 1000.0,
-        "marker_ring_width_m": ring_width_mm / 1000.0,
+    let config = DetectorConfig::Ringgrid(RinggridConfig {
+        pitch_m: spec.pitch_mm / 1000.0,
+        rows: spec.rows,
+        long_row_cols: spec.long_row_cols,
+        marker_outer_radius_m: spec.marker_outer_radius_mm / 1000.0,
+        marker_inner_radius_m: spec.marker_inner_radius_mm / 1000.0,
+        marker_ring_width_m: ring_width_mm / 1000.0,
     });
-    let dynimg = image::DynamicImage::ImageLuma8(tile.clone());
-    let features = RinggridDetector
-        .detect_json(&dynimg, &config)
+    let view = GrayImageView::new(tile.width(), tile.height(), tile.as_raw())
+        .map_err(|e| anyhow!("ringgrid image: {e}"))?;
+    let features = config
+        .detect(view)
         .map_err(|e| anyhow!("ringgrid detect: {e}"))?;
 
     let mut pts_3d: Vec<Pt3> = Vec::with_capacity(features.len());

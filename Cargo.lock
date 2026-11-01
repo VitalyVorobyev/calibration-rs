@@ -3535,7 +3535,6 @@ name = "vision-calibration-py"
 version = "0.10.0"
 dependencies = [
  "anyhow",
- "image",
  "numpy",
  "pyo3",
  "pyo3-build-config",

@@ -23,7 +23,9 @@ laser-extraction table and, for laser rigs, the frozen upstream
 calibration.
 
 The problem types' `*Input` structs are internal IR, built from a manifest
-by per-problem converters in `dataset_runner`; they may change freely.
+by per-problem converters in `dataset_runner` (`build_<problem>_input`, one
+per topology, each returning its own typed run result); they may change
+freely. `DatasetSpec::from_path` reads a TOML or JSON manifest.
 
 ### Ambiguity fails fast
 
@@ -59,9 +61,10 @@ root, written by atomic rename. Its key has three parts:
 
 The hash is of the bytes, so moving or touching an image keeps its entry,
 and upgrading the detector stack recomputes. The cache is disposable: no
-versions or migrations, so a format change re-detects. A `force_redetect`
-switch bypasses reads, for local detector edits that change no version. The
-cache is a trait (`DetectionCache`) with a filesystem default.
+versions or migrations, so a format change re-detects. The converters take
+a `Detection` mode: `Cached`, `Refresh` (bypass reads, for local detector
+edits that change no version) or `Uncached`. The cache is a trait
+(`DetectionCache`) with a filesystem default.
 
 ### Laser extraction is injected
 
@@ -94,3 +97,7 @@ match the upstream calibration's views.
 - **Defaulting the pose convention** — wrong on roughly half of real
   datasets, silently.
 - **A git dependency on the extractor** — breaks `cargo publish`.
+- **One generic `build_input::<P>`** — the converters return different
+  typed results and three need a laser extractor; a generic entry point
+  needs a trait with associated types and a runtime error for a missing
+  extractor.

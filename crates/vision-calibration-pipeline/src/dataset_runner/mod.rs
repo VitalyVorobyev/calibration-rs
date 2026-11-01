@@ -40,7 +40,6 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
 use thiserror::Error;
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, PointCovariance, Pt2, Pt3, View};
@@ -49,9 +48,9 @@ use vision_calibration_dataset::{
     ImageNoiseSpec, ImagePattern, TargetSpec, Topology, ValidationError,
 };
 use vision_calibration_detect::{
-    CacheError, CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
-    CornerCovariance, CornerStrategy, DetectionCache, Detector, Feature, ImageNoise,
-    PuzzleboardDetector, RinggridDetector, validate_charuco_layout,
+    CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
+    CornerCovariance, CornerStrategy, DetectionCache, DetectorConfig, Feature, GrayImageView,
+    ImageNoise, PuzzleboardConfig, RinggridConfig, validate_charuco_layout,
 };
 
 mod handeye;
@@ -384,7 +383,7 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
     }
 }
 
-fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value), RunError> {
+fn target_to_detector_config(spec: &DatasetSpec) -> Result<DetectorConfig, RunError> {
     detector_config(&spec.target, spec.detector.as_ref())
 }
 
@@ -402,65 +401,56 @@ fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value)
 ///
 /// [`RunError::InvalidTargetConfig`] for an impossible target (an unknown
 /// ChArUco dictionary, a malformed PuzzleBoard layout), checked before
-/// detection; [`RunError::Detection`] when the detector rejects its config.
+/// detection; [`RunError::Detection`] when the detector fails.
 pub fn detect_target(
-    image: &image::DynamicImage,
+    image: GrayImageView<'_>,
     target: &TargetSpec,
     detector: Option<&DetectorSpec>,
 ) -> Result<Vec<Feature>, RunError> {
-    let (name, config) = detector_config(target, detector)?;
-    pick_detector(name)?
-        .detect_json(image, &config)
-        .map_err(|source| RunError::Detection {
-            detector: name.to_string(),
-            path: PathBuf::from("<in-memory image>"),
-            source,
-        })
+    let config = detector_config(target, detector)?;
+    config.detect(image).map_err(|source| RunError::Detection {
+        detector: config.name().to_string(),
+        path: PathBuf::from("<in-memory image>"),
+        source,
+    })
 }
 
-/// The detector name and config JSON for `target`, with the manifest's
-/// detector override applied. The one place a manifest target is lowered to
-/// a detector config.
+/// The detector config for `target`, with the manifest's detector override
+/// applied. The one place a manifest target is lowered to a detector.
 fn detector_config(
     target: &TargetSpec,
     detector: Option<&DetectorSpec>,
-) -> Result<(&'static str, Value), RunError> {
-    let (name, mut config) = detector_config_for_target(target)?;
-    if let Some(chess) = detector.and_then(|d| d.chess_corners)
-        && chess.covariance.is_some()
-        && !matches!(name, "chessboard" | "charuco")
-    {
-        return Err(RunError::CovarianceUnsupported { target: name });
-    }
-    if let Some(chess) = detector.and_then(|d| d.chess_corners)
-        && let Value::Object(map) = &mut config
-    {
-        let chess = lower_chess_corners(chess);
-        // `skip_serializing_if` drops unset knobs, so an all-default override
-        // serializes to `{}`; attaching it would only bloat the cache key.
-        let chess_json = serde_json::to_value(chess)
-            .expect("ChessCornersConfig is a plain record of options; cannot fail");
-        if chess_json.as_object().is_some_and(|o| !o.is_empty()) {
-            map.insert("chess_corners".to_string(), chess_json);
+) -> Result<DetectorConfig, RunError> {
+    // An all-default override changes nothing; leaving it out keeps the
+    // cache key of a run without one.
+    let chess_corners = detector
+        .and_then(|d| d.chess_corners)
+        .map(lower_chess_corners)
+        .filter(|c| *c != ChessCornersConfig::default());
+    let refuse_chess_override = |name: &'static str| -> Result<(), RunError> {
+        match chess_corners {
+            Some(c) if c.covariance.is_some() => {
+                Err(RunError::CovarianceUnsupported { target: name })
+            }
+            Some(_) => Err(RunError::InvalidTargetConfig {
+                message: format!(
+                    "detector.chess_corners applies to chessboard and charuco targets, not {name}"
+                ),
+            }),
+            None => Ok(()),
         }
-    }
-    Ok((name, config))
-}
-
-fn detector_config_for_target(target: &TargetSpec) -> Result<(&'static str, Value), RunError> {
+    };
     match target {
         TargetSpec::Chessboard {
             rows,
             cols,
             square_size_m,
-        } => Ok((
-            "chessboard",
-            json!({
-                "rows": *rows,
-                "cols": *cols,
-                "square_size_m": *square_size_m,
-            }),
-        )),
+        } => Ok(DetectorConfig::Chessboard(ChessboardConfig {
+            rows: *rows,
+            cols: *cols,
+            square_size_m: *square_size_m,
+            chess_corners,
+        })),
         TargetSpec::Charuco {
             rows,
             cols,
@@ -476,34 +466,30 @@ fn detector_config_for_target(target: &TargetSpec) -> Result<(&'static str, Valu
                     message: e.to_string(),
                 }
             })?;
-            Ok((
-                "charuco",
-                json!({
-                    "rows": *rows,
-                    "cols": *cols,
-                    "square_size_m": *square_size_m,
-                    "marker_size_m": *marker_size_m,
-                    "dictionary": dictionary,
-                }),
-            ))
+            Ok(DetectorConfig::Charuco(CharucoConfig {
+                rows: *rows,
+                cols: *cols,
+                square_size_m: *square_size_m,
+                marker_size_m: *marker_size_m,
+                dictionary: dictionary.clone(),
+                chess_corners,
+            }))
         }
         TargetSpec::Puzzleboard {
             layout,
             cell_size_m,
         } => {
+            refuse_chess_override("puzzleboard")?;
             // The manifest names a layout (`"puzzle_130x130"`); the
             // detector needs explicit dimensions. Resolve here so a typo
-            // fails before any image I/O (ADR 0016).
+            // fails before any image I/O.
             let (rows, cols) = parse_puzzleboard_layout(layout)
                 .map_err(|message| RunError::InvalidTargetConfig { message })?;
-            Ok((
-                "puzzleboard",
-                json!({
-                    "rows": rows,
-                    "cols": cols,
-                    "cell_size_m": *cell_size_m,
-                }),
-            ))
+            Ok(DetectorConfig::Puzzleboard(PuzzleboardConfig {
+                rows,
+                cols,
+                cell_size_m: *cell_size_m,
+            }))
         }
         TargetSpec::Ringgrid {
             pitch_m,
@@ -512,29 +498,17 @@ fn detector_config_for_target(target: &TargetSpec) -> Result<(&'static str, Valu
             marker_outer_radius_m,
             marker_inner_radius_m,
             marker_ring_width_m,
-        } => Ok((
-            "ringgrid",
-            json!({
-                "pitch_m": *pitch_m,
-                "rows": *rows,
-                "long_row_cols": *long_row_cols,
-                "marker_outer_radius_m": *marker_outer_radius_m,
-                "marker_inner_radius_m": *marker_inner_radius_m,
-                "marker_ring_width_m": *marker_ring_width_m,
-            }),
-        )),
-    }
-}
-
-fn pick_detector(name: &str) -> Result<Box<dyn Detector>, RunError> {
-    match name {
-        "chessboard" => Ok(Box::new(ChessboardDetector)),
-        "charuco" => Ok(Box::new(CharucoDetector)),
-        "puzzleboard" => Ok(Box::new(PuzzleboardDetector)),
-        "ringgrid" => Ok(Box::new(RinggridDetector)),
-        other => Err(RunError::UnsupportedTarget {
-            kind: other.to_string(),
-        }),
+        } => {
+            refuse_chess_override("ringgrid")?;
+            Ok(DetectorConfig::Ringgrid(RinggridConfig {
+                pitch_m: *pitch_m,
+                rows: *rows,
+                long_row_cols: *long_row_cols,
+                marker_outer_radius_m: *marker_outer_radius_m,
+                marker_inner_radius_m: *marker_inner_radius_m,
+                marker_ring_width_m: *marker_ring_width_m,
+            }))
+        }
     }
 }
 
@@ -669,22 +643,6 @@ fn take_digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
     s
 }
 
-/// Splice ROI-only metadata into the detector's canonical config JSON
-/// so the cache key changes whenever the user edits the ROI or the
-/// ROI-local coordinate contract changes. The detector itself never
-/// sees these fields — the runner crops the image upstream.
-fn augment_config_with_roi(detector_config: &Value, roi: Option<[u32; 4]>) -> Value {
-    let Some(roi) = roi else {
-        return detector_config.clone();
-    };
-    let mut copy = detector_config.clone();
-    if let Value::Object(map) = &mut copy {
-        map.insert("_roi".to_string(), json!([roi[0], roi[1], roi[2], roi[3]]));
-        map.insert("_coord_frame".to_string(), json!("roi_local_v2"));
-    }
-    copy
-}
-
 fn pattern_repr(p: &ImagePattern) -> String {
     match p {
         ImagePattern::Glob { pattern } => pattern.clone(),
@@ -699,35 +657,17 @@ fn pattern_repr(p: &ImagePattern) -> String {
 /// Returns the features plus whether they came from the cache. When the
 /// detector config requests corner covariance, cached and fresh features
 /// alike are checked by [`check_corner_covariances`].
-#[allow(clippy::too_many_arguments)]
 fn detect_features(
-    detector: &dyn Detector,
-    detector_config: &Value,
-    key_config: &Value,
+    config: &DetectorConfig,
     roi: Option<[u32; 4]>,
     image_path: &Path,
     detection: Detection<'_>,
 ) -> Result<(Vec<Feature>, bool), RunError> {
-    let (features, cache_hit) = cached_or_detected(
-        detector,
-        detector_config,
-        key_config,
-        roi,
-        image_path,
-        detection,
-    )?;
-    if covariance_requested(detector_config) {
-        check_corner_covariances(&features, detector.name(), image_path)?;
+    let (features, cache_hit) = cached_or_detected(config, roi, image_path, detection)?;
+    if config.requests_covariance() {
+        check_corner_covariances(&features, config.name(), image_path)?;
     }
     Ok((features, cache_hit))
-}
-
-/// Whether the lowered detector config asks for per-corner covariance.
-fn covariance_requested(detector_config: &Value) -> bool {
-    detector_config
-        .get("chess_corners")
-        .and_then(|c| c.get("covariance"))
-        .is_some()
 }
 
 /// Every corner of an image must carry a covariance that the calibration can
@@ -802,39 +742,28 @@ impl std::fmt::Debug for Detection<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn cached_or_detected(
-    detector: &dyn Detector,
-    detector_config: &Value,
-    key_config: &Value,
+    config: &DetectorConfig,
     roi: Option<[u32; 4]>,
     image_path: &Path,
     detection: Detection<'_>,
 ) -> Result<(Vec<Feature>, bool), RunError> {
     let bytes = std::fs::read(image_path)?;
-    let key = CacheKey::for_detector(&bytes, detector, key_config);
+    let key = CacheKey::for_detection(&bytes, config, roi);
 
     let cached: Option<CachedFeatures> = detection.lookup(&key)?;
     if let Some(entry) = cached {
         return Ok((entry.features, true));
     }
 
-    let img = image::load_from_memory(&bytes).map_err(|e| RunError::Decode {
+    let gray = decode_gray(&bytes, image_path, roi)?;
+    let view = GrayImageView::new(gray.width(), gray.height(), gray.as_raw())
+        .expect("an image buffer holds width × height bytes");
+    let detected = config.detect(view).map_err(|e| RunError::Detection {
+        detector: config.name().to_string(),
         path: image_path.to_path_buf(),
         source: e,
     })?;
-    let img_for_detect = if let Some([x, y, w, h]) = roi {
-        img.crop_imm(x, y, w, h)
-    } else {
-        img
-    };
-    let detected = detector
-        .detect_json(&img_for_detect, detector_config)
-        .map_err(|e| RunError::Detection {
-            detector: detector.name().to_string(),
-            path: image_path.to_path_buf(),
-            source: e,
-        })?;
     detection.store(
         &key,
         &CachedFeatures {
@@ -842,6 +771,25 @@ fn cached_or_detected(
         },
     )?;
     Ok((detected, false))
+}
+
+/// Decode an image file's bytes to 8-bit grayscale, cropped to `roi`
+/// (`[x, y, width, height]`) when given: the frame detectors and laser
+/// extractors read, whose pixel coordinates are ROI-local.
+pub(crate) fn decode_gray(
+    bytes: &[u8],
+    image_path: &Path,
+    roi: Option<[u32; 4]>,
+) -> Result<image::GrayImage, RunError> {
+    let img = image::load_from_memory(bytes).map_err(|e| RunError::Decode {
+        path: image_path.to_path_buf(),
+        source: e,
+    })?;
+    let img = match roi {
+        Some([x, y, w, h]) => img.crop_imm(x, y, w, h),
+        None => img,
+    };
+    Ok(img.to_luma8())
 }
 
 fn features_to_view(features: &[Feature]) -> Result<View<NoMeta>, RunError> {
@@ -924,26 +872,26 @@ mod tests {
             dictionary: "DICT_4X4_100".into(),
         };
         let spec = spec_for_target(target);
-        let (name, config) = target_to_detector_config(&spec).unwrap();
-        assert_eq!(name, "charuco");
-        assert_eq!(config["dictionary"], "DICT_4X4_100");
-        assert_eq!(config["marker_size_m"], 0.015);
-        // The mapped config must deserialize into the detector's own
-        // config struct — guards the field-name contract between the
-        // manifest and the detect crate.
-        pick_detector(name).unwrap();
+        let DetectorConfig::Charuco(config) = target_to_detector_config(&spec).unwrap() else {
+            panic!("a charuco target lowers to the charuco detector");
+        };
+        assert_eq!(config.dictionary, "DICT_4X4_100");
+        assert_eq!(config.marker_size_m, 0.015);
     }
 
     /// A synthetic chessboard: `squares_x` × `squares_y` squares of `px`
     /// pixels on a white margin of one square.
-    fn chessboard_image(squares_x: u32, squares_y: u32, px: u32) -> image::DynamicImage {
+    fn chessboard_image(squares_x: u32, squares_y: u32, px: u32) -> image::GrayImage {
         let (w, h) = ((squares_x + 2) * px, (squares_y + 2) * px);
-        let img = image::GrayImage::from_fn(w, h, |x, y| {
+        image::GrayImage::from_fn(w, h, |x, y| {
             let (cx, cy) = (x / px, y / px);
             let inside = (1..=squares_x).contains(&cx) && (1..=squares_y).contains(&cy);
             image::Luma([if inside && (cx + cy) % 2 == 0 { 0 } else { 255 }])
-        });
-        image::DynamicImage::ImageLuma8(img)
+        })
+    }
+
+    fn view(image: &image::GrayImage) -> GrayImageView<'_> {
+        GrayImageView::new(image.width(), image.height(), image.as_raw()).unwrap()
     }
 
     #[test]
@@ -955,7 +903,7 @@ mod tests {
             cols: 7,
             square_size_m: 0.03,
         };
-        let features = detect_target(&image, &target, None).unwrap();
+        let features = detect_target(view(&image), &target, None).unwrap();
         assert_eq!(features.len(), 35);
         for f in &features {
             assert_eq!(f.world_xyz[2], 0.0);
@@ -974,17 +922,17 @@ mod tests {
 
     #[test]
     fn detect_target_on_a_blank_image_is_empty() {
-        let image = image::DynamicImage::ImageLuma8(image::GrayImage::from_pixel(
-            200,
-            150,
-            image::Luma([128]),
-        ));
+        let image = image::GrayImage::from_pixel(200, 150, image::Luma([128]));
         let target = TargetSpec::Chessboard {
             rows: 5,
             cols: 7,
             square_size_m: 0.03,
         };
-        assert!(detect_target(&image, &target, None).unwrap().is_empty());
+        assert!(
+            detect_target(view(&image), &target, None)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -997,7 +945,7 @@ mod tests {
             marker_size_m: 0.015,
             dictionary: "DICT_TYPO_99".into(),
         };
-        let err = detect_target(&image, &target, None).unwrap_err();
+        let err = detect_target(view(&image), &target, None).unwrap_err();
         assert!(
             matches!(err, RunError::InvalidTargetConfig { .. }),
             "{err:?}"
@@ -1068,20 +1016,12 @@ mod tests {
             }),
             min_features_per_view: None,
         });
-        let (_name, config) = target_to_detector_config(&spec).unwrap();
-        assert_eq!(config["chess_corners"]["strategy"], "radon");
-        assert_eq!(
-            config["chess_corners"]["covariance"]["image_noise"]["known"],
-            2.0
-        );
-        assert_eq!(config["chess_corners"]["threshold_value"], 0.2f32 as f64);
-
+        let DetectorConfig::Charuco(config) = target_to_detector_config(&spec).unwrap() else {
+            panic!("a charuco target lowers to the charuco detector");
+        };
         // `lower_chess_corners` destructures the manifest struct exhaustively,
         // so a new manifest knob that is not wired through fails to compile.
-        // This checks the other direction: that what we emit still round-trips
-        // into the detector's own `deny_unknown_fields` config.
-        let lowered: ChessCornersConfig =
-            serde_json::from_value(config["chess_corners"].clone()).unwrap();
+        let lowered = config.chess_corners.expect("the override is attached");
         assert_eq!(lowered.strategy, Some(CornerStrategy::Radon));
         assert_eq!(lowered.threshold_value, Some(0.2));
         assert_eq!(
@@ -1117,8 +1057,10 @@ mod tests {
             square_size_m: 0.025,
         });
         spec.detector = Some(DetectorSpec::default());
-        let (_name, config) = target_to_detector_config(&spec).unwrap();
-        assert!(config.get("chess_corners").is_none());
+        let DetectorConfig::Chessboard(config) = target_to_detector_config(&spec).unwrap() else {
+            panic!("a chessboard target lowers to the chessboard detector");
+        };
+        assert!(config.chess_corners.is_none());
     }
 
     #[test]
@@ -1128,17 +1070,15 @@ mod tests {
             cell_size_m: 0.0052,
         };
         let spec = spec_for_target(target);
-        let (name, config) = target_to_detector_config(&spec).unwrap();
-        assert_eq!(name, "puzzleboard");
-        assert_eq!(config["rows"], 130);
-        assert_eq!(config["cols"], 130);
-        assert_eq!(config["cell_size_m"], 0.0052);
-        // The mapped config must deserialize into the detector's own
-        // config struct — guards the field-name contract between the
-        // manifest dispatcher and the detect crate.
-        let _cfg: vision_calibration_detect::PuzzleboardConfig =
-            serde_json::from_value(config).unwrap();
-        pick_detector(name).unwrap();
+        let config = target_to_detector_config(&spec).unwrap();
+        assert_eq!(
+            config,
+            DetectorConfig::Puzzleboard(PuzzleboardConfig {
+                rows: 130,
+                cols: 130,
+                cell_size_m: 0.0052,
+            })
+        );
     }
 
     #[test]
@@ -1168,14 +1108,11 @@ mod tests {
             marker_ring_width_m: 0.001,
         };
         let spec = spec_for_target(target);
-        let (name, config) = target_to_detector_config(&spec).unwrap();
-        assert_eq!(name, "ringgrid");
-        assert_eq!(config["long_row_cols"], 5);
-        assert_eq!(config["marker_outer_radius_m"], 0.006);
-        // Field-name contract guard between the dispatcher and the detect crate.
-        let _cfg: vision_calibration_detect::RinggridConfig =
-            serde_json::from_value(config).unwrap();
-        pick_detector(name).unwrap();
+        let DetectorConfig::Ringgrid(config) = target_to_detector_config(&spec).unwrap() else {
+            panic!("a ringgrid target lowers to the ringgrid detector");
+        };
+        assert_eq!(config.long_row_cols, 5);
+        assert_eq!(config.marker_outer_radius_m, 0.006);
     }
 
     #[test]
@@ -1203,42 +1140,21 @@ mod tests {
     }
 
     #[test]
-    fn augment_config_with_roi_changes_cache_key() {
+    fn the_roi_is_part_of_the_cache_key() {
         // Two ROIs over the same image with the same detector config
         // must hash to different cache keys; otherwise a user editing
         // an ROI would silently re-use stale detections.
-        let detector_config = json!({"rows": 9, "cols": 6, "square_size_m": 0.025});
-        let key_no_roi = CacheKey::from_inputs(
-            b"img",
-            "chessboard",
-            &augment_config_with_roi(&detector_config, None),
-        );
-        let key_roi_a = CacheKey::from_inputs(
-            b"img",
-            "chessboard",
-            &augment_config_with_roi(&detector_config, Some([10, 20, 100, 100])),
-        );
-        let key_roi_b = CacheKey::from_inputs(
-            b"img",
-            "chessboard",
-            &augment_config_with_roi(&detector_config, Some([10, 20, 200, 100])),
-        );
+        let config = DetectorConfig::Chessboard(ChessboardConfig {
+            rows: 9,
+            cols: 6,
+            square_size_m: 0.025,
+            chess_corners: None,
+        });
+        let key_no_roi = CacheKey::for_detection(b"img", &config, None);
+        let key_roi_a = CacheKey::for_detection(b"img", &config, Some([10, 20, 100, 100]));
+        let key_roi_b = CacheKey::for_detection(b"img", &config, Some([10, 20, 200, 100]));
         assert_ne!(key_no_roi, key_roi_a);
         assert_ne!(key_roi_a, key_roi_b);
         assert_ne!(key_no_roi, key_roi_b);
-    }
-
-    #[test]
-    fn detector_config_unchanged_by_roi_augmentation() {
-        // Splicing _roi into the *cache-key* config must not pollute
-        // the *detector-side* config — the detector is ROI-agnostic
-        // and would reject unknown fields with `deny_unknown_fields`.
-        let detector_config = json!({"rows": 9, "cols": 6, "square_size_m": 0.025});
-        let augmented = augment_config_with_roi(&detector_config, Some([0, 0, 64, 64]));
-        assert_ne!(detector_config, augmented);
-        assert!(augmented.get("_roi").is_some());
-        assert_eq!(augmented["_coord_frame"], "roi_local_v2");
-        assert!(detector_config.get("_roi").is_none());
-        assert!(detector_config.get("_coord_frame").is_none());
     }
 }

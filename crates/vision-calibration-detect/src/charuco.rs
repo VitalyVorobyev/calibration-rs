@@ -12,7 +12,6 @@ use calib_targets::charuco::{
 };
 use calib_targets::detect;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
@@ -20,7 +19,7 @@ use schemars::JsonSchema;
 use crate::chess_options::{
     ChessCornersConfig, apply_board_override, chess_config_for_override, cov_px,
 };
-use crate::{DetectError, Detector, Feature};
+use crate::{DetectError, Feature};
 
 /// ChArUco detector configuration. Mirrors the shape of the charuco
 /// variant in `vision_calibration_dataset::TargetSpec` so the
@@ -119,76 +118,56 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
     Ok(params)
 }
 
-/// Stateless ChArUco detector instance.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct CharucoDetector;
+/// Detect the ChArUco board `cfg` describes in `luma`.
+pub(crate) fn detect(
+    cfg: &CharucoConfig,
+    luma: &image::GrayImage,
+) -> Result<Vec<Feature>, DetectError> {
+    let params = params_for(cfg)?;
 
-impl crate::sealed::Sealed for CharucoDetector {
-    fn backend(&self) -> &'static str {
-        crate::backend::CALIB_TARGETS
-    }
-}
+    // ChESS corner pre-detection feeds the ChArUco identifier, with the
+    // same config the detector re-detects corners with.
+    let corners = detect::detect_corners(luma, &params.chess);
+    let detector = CtCharucoDetector::new(params)
+        .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))?;
+    // A failed board identification (too few markers, no board in
+    // frame) is "no features", not an error — same semantics as
+    // the chessboard detector on a blank image.
+    let detection = match detector.detect_with_corners(&detect::gray_view(luma), &corners) {
+        Ok(detection) => detection,
+        Err(_) => return Ok(Vec::new()),
+    };
 
-impl Detector for CharucoDetector {
-    fn name(&self) -> &'static str {
-        "charuco"
-    }
-
-    /// Revision 1: corner re-detection runs with the `chess_corners`
-    /// override, like the front-end pass.
-    fn output_revision(&self) -> Option<u32> {
-        Some(1)
-    }
-
-    fn detect_json(
-        &self,
-        image: &image::DynamicImage,
-        config: &Value,
-    ) -> Result<Vec<Feature>, DetectError> {
-        let cfg: CharucoConfig =
-            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
-                detector: "charuco",
-                source: e,
-            })?;
-        let params = params_for(&cfg)?;
-        let luma = image.to_luma8();
-
-        // ChESS corner pre-detection feeds the ChArUco identifier, with the
-        // same config the detector re-detects corners with.
-        let corners = detect::detect_corners(&luma, &params.chess);
-        let detector = CtCharucoDetector::new(params)
-            .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))?;
-        // A failed board identification (too few markers, no board in
-        // frame) is "no features", not an error — same semantics as
-        // the chessboard detector on a blank image.
-        let detection = match detector.detect_with_corners(&detect::gray_view(&luma), &corners) {
-            Ok(detection) => detection,
-            Err(_) => return Ok(Vec::new()),
-        };
-
-        // `target_position` is metric because the board spec's
-        // `cell_size` was given in metres.
-        Ok(crate::reject_ambiguous_detection(
-            detection
-                .corners
-                .into_iter()
-                .map(|corner| Feature {
-                    image_xy: [corner.position.x as f64, corner.position.y as f64],
-                    world_xyz: [
-                        corner.target_position.x as f64,
-                        corner.target_position.y as f64,
-                        0.0,
-                    ],
-                    cov_px: corner.position_covariance.map(cov_px),
-                })
-                .collect(),
-        ))
-    }
+    // `target_position` is metric because the board spec's
+    // `cell_size` was given in metres.
+    Ok(crate::reject_ambiguous_detection(
+        detection
+            .corners
+            .into_iter()
+            .map(|corner| Feature {
+                image_xy: [corner.position.x as f64, corner.position.y as f64],
+                world_xyz: [
+                    corner.target_position.x as f64,
+                    corner.target_position.y as f64,
+                    0.0,
+                ],
+                cov_px: corner.position_covariance.map(cov_px),
+            })
+            .collect(),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+
+    /// Detect with a JSON config, as a manifest would spell it.
+    fn run(image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>, DetectError> {
+        let cfg: CharucoConfig = serde_json::from_value(config.clone())
+            .map_err(|e| DetectError::InvalidConfig(e.to_string()))?;
+        detect(&cfg, &image.to_luma8())
+    }
     use serde_json::json;
 
     // 8x8 squares => 32 markers in the OpenCV layout, which fits the
@@ -216,7 +195,7 @@ mod tests {
     #[test]
     fn detects_synthetic_board() {
         let img = synthetic_board_image();
-        let features = CharucoDetector.detect_json(&img, &board_config()).unwrap();
+        let features = run(&img, &board_config()).unwrap();
         assert!(
             features.len() >= 4,
             "expected >= 4 corners on a clean frontal board, got {}",
@@ -237,21 +216,11 @@ mod tests {
     }
 
     #[test]
-    fn invalid_config_rejected() {
-        let img = image::DynamicImage::new_luma8(8, 8);
-        let err = CharucoDetector
-            .detect_json(&img, &json!({"rows": 12})) // missing the rest
-            .unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("invalid charuco config"), "got: {msg}");
-    }
-
-    #[test]
     fn unknown_dictionary_rejected() {
         let img = image::DynamicImage::new_luma8(8, 8);
         let mut cfg = board_config();
         cfg["dictionary"] = json!("DICT_9X9_1");
-        let err = CharucoDetector.detect_json(&img, &cfg).unwrap_err();
+        let err = run(&img, &cfg).unwrap_err();
         let msg = format!("{err}");
         assert!(
             msg.contains("unknown ArUco dictionary") && msg.contains("DICT_4X4_50"),
@@ -276,7 +245,7 @@ mod tests {
         let mut cfg = board_config();
         cfg["rows"] = json!(12);
         cfg["cols"] = json!(12);
-        let err = CharucoDetector.detect_json(&img, &cfg).unwrap_err();
+        let err = run(&img, &cfg).unwrap_err();
         assert!(format!("{err}").contains("charuco board"));
     }
 
@@ -285,27 +254,27 @@ mod tests {
         let img = image::DynamicImage::new_luma8(8, 8);
         let mut cfg = board_config();
         cfg["marker_size_m"] = json!(0.021);
-        let err = CharucoDetector.detect_json(&img, &cfg).unwrap_err();
+        let err = run(&img, &cfg).unwrap_err();
         assert!(format!("{err}").contains("marker_size_m"));
     }
 
     #[test]
     fn blank_image_returns_no_features() {
         let img = image::DynamicImage::new_luma8(64, 64);
-        let features = CharucoDetector.detect_json(&img, &board_config()).unwrap();
+        let features = run(&img, &board_config()).unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
     }
 
     #[test]
     fn covariance_is_opt_in_and_leaves_positions_unchanged() {
         let img = synthetic_board_image();
-        let plain = CharucoDetector.detect_json(&img, &board_config()).unwrap();
+        let plain = run(&img, &board_config()).unwrap();
         assert!(plain.len() >= 4);
         assert!(plain.iter().all(|f| f.cov_px.is_none()));
 
         let mut cfg = board_config();
         cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": 2.0 } } });
-        let with = CharucoDetector.detect_json(&img, &cfg).unwrap();
+        let with = run(&img, &cfg).unwrap();
         assert_eq!(with.len(), plain.len());
         for (a, b) in with.iter().zip(&plain) {
             assert_eq!(a.image_xy, b.image_xy);
@@ -345,9 +314,9 @@ mod tests {
         let img = image::DynamicImage::new_luma8(8, 8);
         let mut cfg = board_config();
         cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": null } } });
-        assert!(CharucoDetector.detect_json(&img, &cfg).is_err());
+        assert!(run(&img, &cfg).is_err());
         cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": -1.0 } } });
-        let err = CharucoDetector.detect_json(&img, &cfg).unwrap_err();
+        let err = run(&img, &cfg).unwrap_err();
         assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
     }
 }

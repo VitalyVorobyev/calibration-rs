@@ -25,7 +25,7 @@ use vision_calibration_core::{Iso3, Pt2, View};
 use vision_calibration_dataset::{
     DatasetSpec, ImagePattern, LaserExtractionSpec, PosePairing, Topology, validate,
 };
-use vision_calibration_detect::{CacheKey, CachedFeatures, Feature};
+use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, GrayImageView};
 use vision_calibration_optim::{
     HandeyeMode, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
     RobotPoseMeta, apply_robot_delta,
@@ -39,17 +39,17 @@ use crate::rig_laserline_device::RigLaserlineDeviceInput;
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
-    Detection, RejectedDetection, RunError, augment_config_with_roi, detect_features,
-    expand_camera_images, expand_image_pattern, features_to_obs, pattern_repr, pick_detector,
-    rig::build_rig_core, target_to_detector_config, view_filter::ViewFilter,
+    Detection, RejectedDetection, RunError, decode_gray, detect_features, expand_camera_images,
+    expand_image_pattern, features_to_obs, pattern_repr, rig::build_rig_core,
+    target_to_detector_config, view_filter::ViewFilter,
 };
 
 /// Injected laser-line extractor.
 ///
-/// Unlike the sealed [`Detector`](vision_calibration_detect::Detector)
-/// trait this one is **open**: the reference implementation lives in
-/// the (unpublished) Tauri app and wraps `vision-metrology`, which is
-/// not on crates.io. Implementations only extract; caching, ROI
+/// Unlike the target detectors, a closed
+/// [`DetectorConfig`](vision_calibration_detect::DetectorConfig) set, this
+/// trait is **open**: an application supplies the extractor (the desktop
+/// app wraps `vision-metrology`, which is not on crates.io). Implementations only extract; caching, ROI
 /// cropping, and coordinate lifting are handled by the runner.
 pub trait LaserPixelExtractor: Send + Sync {
     /// Stable implementation id. Part of the cache key
@@ -57,12 +57,12 @@ pub trait LaserPixelExtractor: Send + Sync {
     /// instead of serving another extractor's pixels.
     fn name(&self) -> &str;
 
-    /// Extract subpixel laser-line points `[x, y]` from `image`
-    /// (already ROI-cropped by the runner; coordinates are in the
-    /// cropped frame).
+    /// Extract subpixel laser-line points `[x, y]` from `image`, the
+    /// laser image in 8-bit grayscale (already ROI-cropped by the runner;
+    /// coordinates are in the cropped frame).
     fn extract(
         &self,
-        image: &image::DynamicImage,
+        image: GrayImageView<'_>,
         spec: &LaserExtractionSpec,
     ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>>;
 }
@@ -147,8 +147,7 @@ pub fn build_laserline_device_input(
             topology: spec.topology,
         });
     }
-    let (detector_name, detector_config) = target_to_detector_config(spec)?;
-    let detector = pick_detector(detector_name)?;
+    let detector_config = target_to_detector_config(spec)?;
     validate(spec)?;
 
     let Some(pairing) = &spec.pose_pairing else {
@@ -192,7 +191,6 @@ pub fn build_laserline_device_input(
 
     let laser_spec = spec.laser.unwrap_or_default();
     let roi = camera.roi_xywh;
-    let key_config = augment_config_with_roi(&detector_config, roi);
     let laser_key_config = laser_key_config(&laser_spec, roi);
     let filter = ViewFilter::for_spec(spec);
 
@@ -204,14 +202,7 @@ pub fn build_laserline_device_input(
         let path = paths[0]
             .as_ref()
             .expect("single-camera pairing never produces gap slots");
-        let (features, _cache_hit) = detect_features(
-            detector.as_ref(),
-            &detector_config,
-            &key_config,
-            roi,
-            path,
-            detection,
-        )?;
+        let (features, _cache_hit) = detect_features(&detector_config, roi, path, detection)?;
         if let Err(reason) = filter.check(&features) {
             rejected.push(RejectedDetection {
                 camera: 0,
@@ -574,12 +565,18 @@ pub fn build_rig_handeye_laserline_input(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Cache-key config for laser extraction: the canonical
-/// `LaserExtractionSpec` JSON plus the `_roi` splice (same scheme as
-/// target detection).
+/// `LaserExtractionSpec` JSON plus the crop the pixels were extracted in.
 fn laser_key_config(laser_spec: &LaserExtractionSpec, roi: Option<[u32; 4]>) -> Value {
-    let config =
+    let mut config =
         serde_json::to_value(laser_spec).expect("LaserExtractionSpec serializes to a JSON object");
-    augment_config_with_roi(&config, roi)
+    if let (Some(roi), Value::Object(map)) = (roi, &mut config) {
+        map.insert("_roi".to_string(), serde_json::json!(roi));
+        map.insert(
+            "_coord_frame".to_string(),
+            serde_json::json!("roi_local_v2"),
+        );
+    }
+    config
 }
 
 /// Map each view token to the camera's laser image path, using the
@@ -687,17 +684,11 @@ fn extract_laser_pixels(
             .collect());
     }
 
-    let img = image::load_from_memory(&bytes).map_err(|e| RunError::Decode {
-        path: image_path.to_path_buf(),
-        source: e,
-    })?;
-    let img_for_extract = if let Some([x, y, w, h]) = roi {
-        img.crop_imm(x, y, w, h)
-    } else {
-        img
-    };
+    let gray = decode_gray(&bytes, image_path, roi)?;
+    let view = GrayImageView::new(gray.width(), gray.height(), gray.as_raw())
+        .expect("an image buffer holds width × height bytes");
     let points = extractor
-        .extract(&img_for_extract, laser_spec)
+        .extract(view, laser_spec)
         .map_err(|e| RunError::LaserExtraction {
             path: image_path.to_path_buf(),
             source: e,
@@ -864,7 +855,6 @@ fn rig_se3_target_from_chain(
 mod tests {
     use super::*;
     use crate::common::ExportKind;
-    use serde_json::json;
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use vision_calibration_core::{
@@ -875,7 +865,7 @@ mod tests {
         TransformConvention, TranslationUnits,
     };
     use vision_calibration_detect::DetectionCache;
-    use vision_calibration_detect::{ChessboardDetector, FsDetectionCache};
+    use vision_calibration_detect::FsDetectionCache;
 
     /// Deterministic extractor: `n` points along a horizontal line.
     /// Counts calls so tests can assert the cache-hit path.
@@ -899,7 +889,7 @@ mod tests {
         }
         fn extract(
             &self,
-            _image: &image::DynamicImage,
+            _image: GrayImageView<'_>,
             _spec: &LaserExtractionSpec,
         ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
             self.calls.fetch_add(1, Ordering::SeqCst);
@@ -920,8 +910,15 @@ mod tests {
             .collect()
     }
 
-    fn detector_config() -> Value {
-        json!({"rows": 9, "cols": 6, "square_size_m": 0.025})
+    fn detector_config() -> vision_calibration_detect::DetectorConfig {
+        vision_calibration_detect::DetectorConfig::Chessboard(
+            vision_calibration_detect::ChessboardConfig {
+                rows: 9,
+                cols: 6,
+                square_size_m: 0.025,
+                chess_corners: None,
+            },
+        )
     }
 
     fn laser_features(n: usize) -> Vec<Feature> {
@@ -948,7 +945,7 @@ mod tests {
         let bytes = rel_path.as_bytes();
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
-        let key = CacheKey::for_detector(bytes, &ChessboardDetector, &detector_config());
+        let key = CacheKey::for_detection(bytes, &detector_config(), None);
         cache.put(&key, &CachedFeatures { features }).unwrap();
         path
     }

@@ -18,8 +18,8 @@ use crate::single_cam_handeye::SingleCamHandeyeInput;
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
-    Detection, RejectedDetection, RunError, augment_config_with_roi, detect_features,
-    expand_camera_images, features_to_obs, pattern_repr, pick_detector, target_to_detector_config,
+    Detection, RejectedDetection, RunError, detect_features, expand_camera_images, features_to_obs,
+    pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -54,8 +54,7 @@ pub fn build_single_cam_handeye_input(
             topology: spec.topology,
         });
     }
-    let (detector_name, detector_config) = target_to_detector_config(spec)?;
-    let detector = pick_detector(detector_name)?;
+    let detector_config = target_to_detector_config(spec)?;
     validate(spec)?;
 
     if spec.pose_pairing.is_none() {
@@ -110,7 +109,6 @@ pub fn build_single_cam_handeye_input(
     let poses = load_robot_poses(source, convention, base_dir)?;
 
     let roi = camera.roi_xywh;
-    let key_config = augment_config_with_roi(&detector_config, roi);
     let filter = ViewFilter::for_spec(spec);
 
     let mut rejected: Vec<RejectedDetection> = Vec::new();
@@ -121,14 +119,7 @@ pub fn build_single_cam_handeye_input(
         let path = paths[0]
             .as_ref()
             .expect("single-camera pairing never produces gap slots");
-        let (features, _cache_hit) = detect_features(
-            detector.as_ref(),
-            &detector_config,
-            &key_config,
-            roi,
-            path,
-            detection,
-        )?;
+        let (features, _cache_hit) = detect_features(&detector_config, roi, path, detection)?;
         if let Err(reason) = filter.check(&features) {
             // Drop the view (still counted in total_views, keeping
             // by_index pose alignment).
@@ -178,16 +169,13 @@ pub fn build_single_cam_handeye_input(
 mod tests {
     use super::*;
     use crate::dataset_runner::RejectReason;
-    use serde_json::json;
     use std::io::Write;
     use vision_calibration_dataset::{
         CameraSource, ImagePattern, PoseColumnMap, PoseConvention, PosePairing, RobotPoseFormat,
         RobotPoseSource, RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
     };
     use vision_calibration_detect::DetectionCache;
-    use vision_calibration_detect::{
-        CacheKey, CachedFeatures, ChessboardDetector, Feature, FsDetectionCache,
-    };
+    use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, FsDetectionCache};
 
     fn grid_features(n: usize) -> Vec<Feature> {
         (0..n)
@@ -218,8 +206,15 @@ mod tests {
         board_features_without(&[])
     }
 
-    fn detector_config() -> serde_json::Value {
-        json!({"rows": 9, "cols": 6, "square_size_m": 0.025})
+    fn detector_config() -> vision_calibration_detect::DetectorConfig {
+        vision_calibration_detect::DetectorConfig::Chessboard(
+            vision_calibration_detect::ChessboardConfig {
+                rows: 9,
+                cols: 6,
+                square_size_m: 0.025,
+                chess_corners: None,
+            },
+        )
     }
 
     /// Write a dummy "image" file and pre-seed the cache for it, so the
@@ -235,7 +230,7 @@ mod tests {
         let bytes = rel_path.as_bytes();
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
-        let key = CacheKey::for_detector(bytes, &ChessboardDetector, &detector_config());
+        let key = CacheKey::for_detection(bytes, &detector_config(), None);
         cache.put(&key, &CachedFeatures { features }).unwrap();
         path
     }

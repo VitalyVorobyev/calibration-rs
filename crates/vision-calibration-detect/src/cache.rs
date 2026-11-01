@@ -7,12 +7,11 @@
 //!   the raw image bytes. We deliberately avoid file mtime — moving an
 //!   image around shouldn't invalidate the cached detection of its
 //!   contents.
-//! * `detector_name` is the `Detector::name()` string (e.g.
-//!   `"chessboard"`).
+//! * `detector_name` is the detector's name (e.g. `"chessboard"`).
 //! * `canonical_config_hash` is the hash of the detector config
 //!   serialized to JSON with sorted keys, so semantically equal
 //!   configs produce identical keys regardless of struct field order.
-//!   [`CacheKey::for_detector`] hashes the config together with this
+//!   [`CacheKey::for_detection`] hashes the config together with this
 //!   crate's release and the detector's output revision, so upgrading the
 //!   detector stack recomputes cached detections.
 //!
@@ -25,7 +24,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-use crate::{Detector, Feature};
+use crate::{DetectorConfig, Feature};
 
 /// Errors raised by [`DetectionCache`] implementations.
 #[derive(Debug, Error)]
@@ -33,9 +32,9 @@ pub enum CacheError {
     /// I/O failure inside the cache backend.
     #[error("cache I/O error: {0}")]
     Io(#[from] std::io::Error),
-    /// Serde failure (de)serializing a cache entry.
+    /// A cache entry could not be (de)serialized; the message names why.
     #[error("cache serde error: {0}")]
-    Serde(#[from] serde_json::Error),
+    Serde(String),
 }
 
 /// Composite cache key. Cheap to compute, hex-encoded for filesystem
@@ -51,37 +50,53 @@ pub struct CacheKey {
 }
 
 impl CacheKey {
-    /// Build a key from raw image bytes + detector name + config JSON.
-    /// Uses canonical (sorted-key) serialization for the config so
-    /// `{"a": 1, "b": 2}` and `{"b": 2, "a": 1}` collide as intended.
-    pub fn from_inputs(image_bytes: &[u8], detector: &str, config: &Value) -> Self {
+    /// Build a key from raw image bytes, a detector name and the config
+    /// that produced the features. The config is hashed as canonical
+    /// (sorted-key) JSON, so field order does not matter. A custom
+    /// extractor (a laser-line one, say) keys its results this way.
+    pub fn from_inputs(image_bytes: &[u8], detector: &str, config: &impl Serialize) -> Self {
+        let config = serde_json::to_value(config)
+            .expect("a detector config is a plain record of options; it serializes");
         Self {
             image_hash: hash_image_bytes(image_bytes),
             detector: detector.to_string(),
-            config_hash: hash_canonical_json(config),
+            config_hash: hash_canonical_json(&config),
         }
     }
 
-    /// Build the key of one detection by `detector`: [`Self::from_inputs`]
-    /// on its name and `config`, together with this crate's release, the
-    /// version of the detection crate it wraps, and the detector's
-    /// [`output_revision`](Detector::output_revision), when set.
+    /// Build the key of one detection of `config` in an image whose file
+    /// holds `image_bytes`, cropped to `roi` (`[x, y, width, height]`) when
+    /// given: [`Self::from_inputs`] on the config, the crop, this crate's
+    /// release, the version of the detection crate it wraps, and the
+    /// detector's output revision.
     ///
     /// Keying on both versions means an upgrade of the detector stack — this
     /// crate or the target-detection crate it wraps — recomputes cached
     /// detections instead of serving the previous detector's output.
-    pub fn for_detector(image_bytes: &[u8], detector: &dyn Detector, config: &Value) -> Self {
-        let mut keyed = serde_json::Map::new();
-        keyed.insert("config".to_string(), config.clone());
-        keyed.insert(
-            "release".to_string(),
-            Value::from(env!("CARGO_PKG_VERSION")),
-        );
-        keyed.insert("backend".to_string(), Value::from(detector.backend()));
-        if let Some(revision) = detector.output_revision() {
-            keyed.insert("revision".to_string(), Value::from(revision));
+    pub fn for_detection(
+        image_bytes: &[u8],
+        config: &DetectorConfig,
+        roi: Option<[u32; 4]>,
+    ) -> Self {
+        #[derive(Serialize)]
+        struct Keyed<'a> {
+            config: &'a DetectorConfig,
+            release: &'static str,
+            backend: &'static str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            revision: Option<u32>,
+            /// The crop; features are in its pixel frame.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            roi: Option<[u32; 4]>,
         }
-        Self::from_inputs(image_bytes, detector.name(), &Value::Object(keyed))
+        let keyed = Keyed {
+            config,
+            release: env!("CARGO_PKG_VERSION"),
+            backend: config.backend(),
+            revision: config.output_revision(),
+            roi,
+        };
+        Self::from_inputs(image_bytes, config.name(), &keyed)
     }
 
     /// Filename-safe encoding (`<image>-<detector>-<config>.json`).
@@ -200,7 +215,9 @@ impl DetectionCache for FsDetectionCache {
     fn get(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
         let path = self.root.join(key.file_name());
         match std::fs::read(&path) {
-            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Ok(bytes) => Ok(Some(
+                serde_json::from_slice(&bytes).map_err(|e| CacheError::Serde(e.to_string()))?,
+            )),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
@@ -210,7 +227,8 @@ impl DetectionCache for FsDetectionCache {
         std::fs::create_dir_all(&self.root)?;
         let final_path = self.root.join(key.file_name());
         let tmp_path = self.root.join(format!("{}.tmp", key.file_name()));
-        let bytes = serde_json::to_vec_pretty(value)?;
+        let bytes =
+            serde_json::to_vec_pretty(value).map_err(|e| CacheError::Serde(e.to_string()))?;
         std::fs::write(&tmp_path, bytes)?;
         std::fs::rename(tmp_path, final_path)?;
         Ok(())
@@ -226,33 +244,49 @@ mod tests {
     #[test]
     #[cfg(all(feature = "chessboard", feature = "puzzleboard"))]
     fn detector_keys_carry_the_release_and_output_revision() {
-        let config = json!({ "rows": 17, "cols": 28, "square_size_m": 0.02 });
+        let chessboard = DetectorConfig::Chessboard(crate::ChessboardConfig {
+            rows: 17,
+            cols: 28,
+            square_size_m: 0.02,
+            chess_corners: None,
+        });
         let release = env!("CARGO_PKG_VERSION");
         assert_eq!(
-            CacheKey::for_detector(b"img", &crate::ChessboardDetector, &config),
+            CacheKey::for_detection(b"img", &chessboard, None),
             CacheKey::from_inputs(
                 b"img",
                 "chessboard",
                 &json!({
-                    "config": config,
+                    "config": { "detector": "chessboard", "rows": 17, "cols": 28, "square_size_m": 0.02 },
                     "release": release,
                     "backend": crate::backend::CALIB_TARGETS,
                     "revision": 2,
                 })
             )
         );
-        // A detector without a revision is keyed on the release alone.
+        // A detector without a revision is keyed on the release alone, and a
+        // crop is part of the key.
+        let puzzle = DetectorConfig::Puzzleboard(crate::PuzzleboardConfig {
+            rows: 10,
+            cols: 10,
+            cell_size_m: 0.01,
+        });
         assert_eq!(
-            CacheKey::for_detector(b"img", &crate::PuzzleboardDetector, &config),
+            CacheKey::for_detection(b"img", &puzzle, Some([1, 2, 3, 4])),
             CacheKey::from_inputs(
                 b"img",
                 "puzzleboard",
                 &json!({
-                    "config": config,
+                    "config": { "detector": "puzzleboard", "rows": 10, "cols": 10, "cell_size_m": 0.01 },
                     "release": release,
                     "backend": crate::backend::CALIB_TARGETS,
+                    "roi": [1, 2, 3, 4],
                 })
             )
+        );
+        assert_ne!(
+            CacheKey::for_detection(b"img", &puzzle, None),
+            CacheKey::for_detection(b"img", &puzzle, Some([1, 2, 3, 4])),
         );
     }
 
