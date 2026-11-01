@@ -1,6 +1,6 @@
 {
   "suite_version": "2026.1",
-  "producer": "calibration-rs 0.10.0",
+  "producer": "calibration-rs 0.11.0",
   "export": {
     "cam_se3_rig": [
       {
@@ -958,7 +958,6 @@
       ],
       "num_residuals": 9360,
       "status": "available",
-      "view_scatter": 0.8695229742425602,
       "views": [
         {
           "covariance": [

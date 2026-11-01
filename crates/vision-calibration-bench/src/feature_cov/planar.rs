@@ -578,6 +578,14 @@ mod tests {
     /// A synthetic camera seen in 15 views with N(0, 0.1²) px corner noise;
     /// `known1` states the true isotropic covariance.
     fn synthetic_unit(seed: u64) -> Unit {
+        synthetic_unit_with(seed, 15, 0.0)
+    }
+
+    /// [`synthetic_unit`] with `views` views, each also warped radially
+    /// about the principal point by its own `κ ~ N(0, view_warp²)`
+    /// (px⁻²): an error every corner of a view shares, as a target that
+    /// bends differently in each view would make.
+    fn synthetic_unit_with(seed: u64, views: usize, view_warp: f64) -> Unit {
         use vision_calibration_core::synthetic::{planar as synth, poses};
         use vision_calibration_core::{
             BrownConrady5, CorrespondenceView, FxFyCxCy, PointCovariance, make_pinhole_camera,
@@ -599,7 +607,7 @@ mod tests {
             },
         );
         let board = synth::grid_points(8, 6, 0.03);
-        let specs = poses::seeded_board_pose_specs(15, 0.5, 11 + seed);
+        let specs = poses::seeded_board_pose_specs(views, 0.5, 11 + seed);
         let poses = poses::centered_board_poses(&specs, (0.105, 0.075), 0.5);
         let mut rng = Rng::new(5 + seed);
         let sigma = 0.1;
@@ -607,13 +615,20 @@ mod tests {
         let mut known = Vec::new();
         for pose in &poses {
             let view = synth::project_view_all(&camera, pose, &board).unwrap();
+            let kappa = if view_warp == 0.0 {
+                0.0
+            } else {
+                view_warp * rng.normal()
+            };
             let px: Vec<_> = view
                 .points_2d
                 .iter()
                 .map(|p| {
+                    let (dx, dy) = (p.x - 320.0, p.y - 240.0);
+                    let warp = 1.0 + kappa * (dx * dx + dy * dy);
                     vision_calibration_core::Pt2::new(
-                        p.x + sigma * rng.normal(),
-                        p.y + sigma * rng.normal(),
+                        320.0 + dx * warp + sigma * rng.normal(),
+                        240.0 + dy * warp + sigma * rng.normal(),
                     )
                 })
                 .collect();
@@ -699,14 +714,16 @@ mod tests {
         assert!(!decision.arms[&Arm::Known1].flips, "no timing: never flips");
     }
 
-    /// The synthetic truth gate (Amendment 1): with exactly true noise,
-    /// pooled over independent scenes, every split and every decisive node,
-    /// `r` lies in 0.85–1.15 and both coverages within ±5 points of nominal.
-    /// Pooling over many scenes matters: one scene's splits share its data,
-    /// so their `z²` move together.
-    #[test]
-    fn synthetic_truth_gate() {
-        const SCENES: u64 = 24;
+    /// `arms`' split-half honesty pooled over `scenes` independent scenes,
+    /// every split and every decisive node. Pooling over many scenes
+    /// matters: one scene's splits share its data, so their `z²` move
+    /// together, and one scene's `r` spans about 0.5–1.5 (5–95 %) even when
+    /// the stated uncertainty is exact.
+    fn pooled_honesty(
+        scenes: u64,
+        unit: impl Fn(u64) -> Unit,
+        arms: &[Arm],
+    ) -> BTreeMap<Arm, ZSums> {
         let options = Options {
             random_splits: 20,
             resamples: 10,
@@ -714,28 +731,56 @@ mod tests {
             ..Options::default()
         };
         let mut sums: BTreeMap<Arm, Vec<ZSums>> = BTreeMap::new();
-        for seed in 0..SCENES {
-            let mut unit = synthetic_unit(seed);
-            unit.arms.remove(&Arm::UniformNoise);
+        for seed in 0..scenes {
+            let mut unit = unit(seed);
+            unit.arms.retain(|arm, _| arms.contains(arm));
             let raw = measure(&unit, &options).unwrap();
             assert!(raw.failures.is_empty(), "{:?}", raw.failures);
-            for arm in [Arm::Uniform, Arm::Known1] {
+            for &arm in arms {
                 sums.entry(arm).or_default().extend(split_z(&raw, arm));
             }
         }
-        for (arm, s) in &sums {
-            let total = ZSums::total(s);
-            let (r, c68, c95) = (total.ratio(), total.coverage_68(), total.coverage_95());
-            eprintln!(
-                "synthetic truth gate {arm}: r {r:.3}, ≤2.30 {:.1} %, ≤6.18 {:.1} %, {} pairs",
-                100.0 * c68,
-                100.0 * c95,
-                total.pairs
-            );
-            assert!((0.85..=1.15).contains(&r), "{arm}: r = {r}");
-            assert!((c68 - 0.683).abs() <= 0.05, "{arm}: coverage 68 = {c68}");
-            assert!((c95 - 0.954).abs() <= 0.05, "{arm}: coverage 95 = {c95}");
+        sums.into_iter()
+            .map(|(arm, s)| (arm, ZSums::total(&s)))
+            .collect()
+    }
+
+    /// `r` within 0.85–1.15 and both coverages within ±5 points of nominal.
+    fn assert_honest(label: &str, total: &ZSums) {
+        let (r, c68, c95) = (total.ratio(), total.coverage_68(), total.coverage_95());
+        eprintln!(
+            "{label}: r {r:.3}, ≤2.30 {:.1} %, ≤6.18 {:.1} %, {} pairs",
+            100.0 * c68,
+            100.0 * c95,
+            total.pairs
+        );
+        assert!((0.85..=1.15).contains(&r), "{label}: r = {r}");
+        assert!((c68 - 0.683).abs() <= 0.05, "{label}: coverage 68 = {c68}");
+        assert!((c95 - 0.954).abs() <= 0.05, "{label}: coverage 95 = {c95}");
+    }
+
+    /// The synthetic truth gate (Amendment 1): with exactly true noise the
+    /// stated uncertainty is honest.
+    #[test]
+    fn synthetic_truth_gate() {
+        let totals = pooled_honesty(24, synthetic_unit, &[Arm::Uniform, Arm::Known1]);
+        for (arm, total) in &totals {
+            assert_honest(&format!("synthetic truth gate {arm}"), total);
         }
+    }
+
+    /// With an error each view's corners share (a per-view radial warp of
+    /// about 0.2 px at the image corners, besides the 0.1 px noise), the
+    /// view scatter keeps the stated uncertainty honest. Without it `r` is
+    /// several times 1.
+    #[test]
+    fn synthetic_truth_gate_with_view_errors() {
+        let totals = pooled_honesty(
+            12,
+            |seed| synthetic_unit_with(seed, 24, 1.5e-8),
+            &[Arm::Uniform],
+        );
+        assert_honest("view-error truth gate", &totals[&Arm::Uniform]);
     }
 
     #[test]

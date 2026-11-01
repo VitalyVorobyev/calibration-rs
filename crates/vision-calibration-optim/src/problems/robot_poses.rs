@@ -213,7 +213,7 @@ fn estimated_priors(
         return priors;
     };
     // The redundancy is the noise model's: undo the view-scatter scaling.
-    let model_scale = cov.view_scatter.filter(|k| *k > 1.0).unwrap_or(1.0);
+    let model_scale = cov.view_scatter.unwrap_or(1.0);
     let row: HashMap<Coordinate, usize> = cov
         .coordinates
         .iter()

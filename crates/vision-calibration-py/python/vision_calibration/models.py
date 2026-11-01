@@ -1525,8 +1525,10 @@ class ParameterUncertainty:
 
     :attr:`view_scatter` is how many times the shared parameters' variance
     across views exceeds what the residual noise predicts (errors shared by
-    a view's corners: lens model, target, detector bias); when above 1 the
-    covariance is already scaled by it. ``None`` below six views.
+    a view's corners: lens model, target, detector bias), measured by
+    leaving out one view at a time; the covariance is already scaled by it.
+    ``None`` when the views scatter no more than the noise predicts, and
+    below six views.
 
     When :attr:`available` is false, :attr:`reason` says why
     (``"not_converged"``, ``"rank_deficient"``, ``"at_bound"``,

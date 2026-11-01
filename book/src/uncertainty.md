@@ -11,7 +11,7 @@ Reprojection error alone does not answer this. A camera calibrated from a
 handful of similar views can reproject its own corners to 0.1 px and still have
 a focal length that is off by a percent, with the principal point
 traded off against it. The covariance shows that directly: a large `σ` of `fx`,
-and a strong `fx`–`cx` correlation. On the real images of `data/kuka_1`, the `planar_real` example reports `fx = 2057.8 ± 0.7 px`.
+and a strong `fx`–`cx` correlation. On the real images of `data/kuka_1`, the `planar_real` example reports `fx = 2057.8 ± 0.8 px`.
 
 ## What a σ means
 
@@ -28,11 +28,13 @@ consequences follow:
   from view to view. The residual noise model takes every corner's error as
   independent, but on real images much of the error is shared by a view's
   corners: the lens model, the target or the detector does not fit exactly,
-  differently in each view. The covariance measures this from the scatter of
-  the views' contributions to the fit: `view_scatter` says how many times the
-  shared parameters vary more across views than the noise model predicts, and
-  the covariance is scaled by it when it is above 1 (from six views). On the
-  public real-image cameras it is about 4 to 11. An error common to every
+  differently in each view. The covariance measures this by leaving out one
+  view at a time: `view_scatter` says how many times the shared parameters
+  vary more across views than the noise model predicts, and the covariance is
+  scaled by it. It is set only when the excess is larger than its own
+  sampling noise (from six views), so data that fit the noise model keep the
+  plain covariance. On the public real-image entries it is 2.8 to 4.9, and
+  25 for the joint three-camera `ds8` rig. An error common to every
   view, such as a wrong board cell size, still leaves `σ` small and the
   estimate biased. Watch the per-feature residuals for structure.
 - `σ` shrinks with more data roughly as `1/√views` and grows quickly when the

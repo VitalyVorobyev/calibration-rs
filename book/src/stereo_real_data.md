@@ -22,11 +22,11 @@ The program loads 20 views of a 7x11 chessboard (30 mm squares) seen by both cam
   Rig baseline (after BA): |c1 - c0| = 0.1898 m (189.84 mm)
 
 --- Uncertainty ---
-  Baseline: 189.84 ± 0.442 mm
+  Baseline: 189.84 ± 0.489 mm
   Corner noise σ ≈ 0.188 px (6160 residuals)
 ```
 
-The `±` comes from the export's `uncertainty`: the covariance of the estimated parameters, here of camera 1's `cam_se3_rig`. The rig solve refines both cameras' intrinsics with the rig, so it includes their uncertainty, and it is scaled by the view scatter, about 3 here: the error the views do not share with each other (see [Parameter Uncertainty](uncertainty.md)).
+The `±` comes from the export's `uncertainty`: the covariance of the estimated parameters, here of camera 1's `cam_se3_rig`. The rig solve refines both cameras' intrinsics with the rig, so it includes their uncertainty, and it is scaled by the view scatter, about 4 here: the error the views do not share with each other (see [Parameter Uncertainty](uncertainty.md)).
 
 ## The Session in Five Calls
 

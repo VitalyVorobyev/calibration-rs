@@ -24,6 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values (intrinsics, projection, distortion, sensor). `ProjectionKind::ALL`,
   `DistortionKind::ALL` and `SensorKind::ALL` list the supported models.
 
+### Changed
+
+- **`view_scatter` is measured by leaving out one view at a time, and set
+  only when it is significant.** Estimates are unchanged; reported
+  uncertainties change.
+  - The old measure was biased low when a few views carry most of the
+    information. On the public real-image cameras, calibrations from
+    disjoint halves of the views still differed by 1.4–3.4 times the
+    stated variance; now they differ by 0.7–1.5 times, 1.0 on average.
+  - On real images `view_scatter`, and with it the covariance, grows by
+    about 10–40 %.
+  - On data that fit the noise model, `view_scatter` is now `None` and the
+    covariance unscaled. Before, it was scaled whenever the noisy measure
+    exceeded 1. It is `None` whenever the excess is within the measure's
+    own sampling noise.
+
 ## [0.11.0] - 2026-11-01
 
 Minor release: the public API is cut down to what a calibration needs before

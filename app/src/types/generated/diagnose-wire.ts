@@ -880,13 +880,15 @@ export interface ParameterCovariance {
   num_residuals: number;
   /**
    * How many times the variance of the shared parameters across views
-   * exceeds what the residual noise predicts, from the scatter of the
-   * views' contributions to the fit. The residual noise model takes every
-   * corner's error as independent; errors shared by a view's corners (a
-   * lens model or target that does not fit exactly, a detector bias) are
-   * not in it, and on real images make the estimate vary between view
-   * sets several times more than predicted. When above 1, `covariance`
-   * and `views` are already scaled by it. `None` below six views.
+   * exceeds what the residual noise predicts, measured by leaving out one
+   * view at a time. The residual noise model takes every corner's error
+   * as independent; errors shared by a view's corners (a lens model or
+   * target that does not fit exactly, a detector bias) are not in it, and
+   * on real images make the estimate vary between view sets several
+   * times more than predicted. `covariance` and `views` are already
+   * scaled by it. `None` when the views scatter no more than the noise
+   * predicts (within the scatter's own sampling noise, at 97.5 %), and
+   * below six views.
    */
   view_scatter?: number | null;
   /**

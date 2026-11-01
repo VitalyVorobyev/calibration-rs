@@ -27,20 +27,38 @@ Derivation, identifiability and the Monte-Carlo gates are in
 **The covariance is scaled by the view scatter.**
 - The residual noise model takes every scalar residual as independent. On
   real images much of the error is shared by a view's corners (lens model,
-  target, detector bias), and the estimate varies between view sets 5–24
+  target, detector bias), and the estimate varies between view sets 5–26
   times (in variance) more than predicted.
-- The view-clustered sandwich `V/(V−1) · H⁻¹ (Σ_v g_v g_vᵀ) H⁻¹`, with
-  `g_v = Σ ρ′ Jᵀ r` over view `v`'s residuals, measures that scatter. Its
-  pooled ratio to the model covariance over the shared coordinates,
-  `k = tr(Σ⁻¹ Σ_v) / n`, is reported as `view_scatter`. When `k > 1` the
-  whole covariance is scaled by `k`, keeping the model's shape.
+- A delete-one-view jackknife measures that scatter: one Gauss–Newton step
+  per left-out view on the shared coordinates, each view's own coordinates
+  profiled out. Its excess over its own expectation under the noise model
+  (known from the views' leverages), pooled over the shared coordinates,
+  gives `k`, which has mean 1 when the noise model holds. When `k` is above
+  its null distribution's 97.5 % point (a scaled χ² with the exact mean and
+  variance, the views' steps correlated), the whole covariance is scaled by
+  `k`, keeping the model's shape, and `k` is reported as `view_scatter`.
+  Derivation: `docs/notes/uncertainty.md`.
 - A view is a residual's per-view parameter block (`pose/`, `target/`,
-  `rig_pose/`, `robot_delta/<view>`). From six views up; below that the
-  scatter is too noisy to scale by.
-- Rejected: the clustered sandwich in place of the model covariance. It
-  is rank-deficient in the per-view coordinates and noisy, so it can supply
-  a scale but not a shape. Also rejected: a fixed documented inflation,
-  because the factor ranges from 4 to 11 between cameras.
+  `rig_pose/`, `robot_delta/<view>`). From six views up.
+- Measured on the six public real cameras (stereo left and right, `kuka_1`,
+  three `ds8`; 21 split halves each): split-half `r` (mean `z²/2`, 1 when
+  honest) 0.66–1.53, geometric mean 1.03. One camera's `r` spans 0.5–1.5
+  (5–95 %) even with an exact σ, so the gate is the pooled value. Synthetic
+  truth: `r` 0.88 with independent noise and 0.93 with per-view errors;
+  the Monte-Carlo gates hold within 10 %.
+- Rejected: the view-clustered sandwich `V/(V−1) · H⁻¹ (Σ_v g_v g_vᵀ) H⁻¹`
+  (the jackknife without leverage terms). Biased low where a few views
+  carry most of the information: `r` 1.4–3.4 on the public cameras. The
+  CR2 form (leverage at half power, unbiased under the noise model): 1.05–2.4.
+  The raw jackknife: honest on real data, but 15–35 % high on data that fit
+  the noise model, which fails the Monte-Carlo gates. Scaling by every
+  `k > 1`: `k` has a standard deviation of about 0.6 with eight views, so
+  the clamp inflates clean covariances by 10 %. Scaling per direction
+  (eigenvalues of `Σ⁻¹ Σ_J` floored at 1): no closer on real data and more
+  conservative on synthetic data. The jackknife in place of the model
+  covariance: rank-deficient and noisy, so it supplies a scale but not a
+  shape. A fixed documented inflation: the factor ranges from 3 to 25
+  between datasets.
 
 **Robot-pose priors are weighed against the measured pixel noise.**
 - Every hand-eye view gets a free pose correction `δᵢ` in the gripper frame,
