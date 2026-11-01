@@ -202,7 +202,7 @@ pub fn step_init_with_seed(
     let opts = opts.unwrap_or_default();
     let mut init_opts = session.config.init_opts();
     if let Some(iters) = opts.iterations {
-        init_opts.iterations = iters;
+        init_opts.pinhole.iterations = iters;
     }
 
     if let Some(sensor) = &manual.sensor

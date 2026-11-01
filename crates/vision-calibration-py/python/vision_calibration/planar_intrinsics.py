@@ -1,8 +1,8 @@
 """Planar intrinsics: one camera from views of a planar target.
 
 :class:`PlanarIntrinsicsSession` runs the calibration step by step:
-``step_init`` (or ``step_init_with_seed``) fits the intrinsics, distortion,
-sensor tilt and per-view poses linearly; ``step_optimize`` refines them;
+``step_init`` (or ``step_init_with_seed``) fits the camera and per-view
+poses linearly; ``step_optimize`` refines them;
 ``step_filter`` drops outlying features. ``run_calibration`` is
 ``step_init`` + ``step_optimize``.
 """
@@ -11,12 +11,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from . import _vision_calibration as _native
 from .common import IntrinsicsInitOptions, IntrinsicsOptimizeOptions, _StepOptions
 from .models import (
     BrownConradyDistortion,
+    Camera,
     PinholeIntrinsics,
     PlanarIntrinsicsConfig,
     PlanarIntrinsicsExport,
@@ -24,7 +25,7 @@ from .models import (
     Pose,
     ScheimpflugSensor,
 )
-from .session import CalibrationSession, _payload, _poses, _seed_payload
+from .session import CalibrationSession, _camera, _payload, _poses, _seed_payload
 
 __all__ = [
     "IntrinsicsFilterOptions",
@@ -83,26 +84,14 @@ class IntrinsicsManualInit:
 class IntrinsicsInitResult:
     """The initial estimate of ``step_init`` / ``step_init_with_seed``."""
 
-    intrinsics: PinholeIntrinsics
-    distortion: BrownConradyDistortion
-    sensor: ScheimpflugSensor | None
-    """``None`` exactly when the camera has no Scheimpflug sensor."""
+    camera: Camera
+    """The initial camera, in the configured model."""
     poses: list[Pose]
     """Per-view ``camera_se3_target``."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsInitResult:
-        sensor = payload.get("sensor")
-        return cls(
-            intrinsics=PinholeIntrinsics.from_payload(cast(Mapping[str, Any], payload["intrinsics"])),
-            distortion=BrownConradyDistortion.from_payload(
-                cast(Mapping[str, Any], payload["distortion"])
-            ),
-            sensor=None
-            if sensor is None
-            else ScheimpflugSensor.from_payload(cast(Mapping[str, Any], sensor)),
-            poses=_poses(payload["poses"]),
-        )
+        return cls(camera=_camera(payload["camera"]), poses=_poses(payload["poses"]))
 
 
 @dataclass(frozen=True, slots=True)

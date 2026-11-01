@@ -73,7 +73,7 @@ pub mod zhang_intrinsics;
 pub mod prelude {
     pub use crate::distortion_fit::DistortionFitOptions;
     pub use crate::equidistant_init::{
-        EquidistantIntrinsicsLinearInit, estimate_equidistant_intrinsics,
+        EquidistantInitOptions, EquidistantIntrinsicsLinearInit, estimate_equidistant_intrinsics,
     };
     pub use crate::iterative_intrinsics::{
         IterativeIntrinsicsOptions, estimate_intrinsics_iterative,

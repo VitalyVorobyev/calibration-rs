@@ -28,7 +28,7 @@ from vision_calibration._api import (
     _run_single_cam_handeye_raw,
 )
 
-from _fixtures import planar_calibration_dataset
+from _fixtures import fisheye_calibration_dataset, planar_calibration_dataset
 
 OBSERVATIONS = Path(__file__).resolve().parents[3] / "regression/observations"
 
@@ -60,8 +60,8 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         init = session.step_init()
         self.assertIsInstance(init, planar_intrinsics.IntrinsicsInitResult)
         self.assertEqual(len(init.poses), 10)
-        self.assertIsNone(init.sensor)
-        self.assertAlmostEqual(init.intrinsics.fx, 800.0, delta=8.0)
+        self.assertIsInstance(init.camera.sensor, vc.IdentitySensor)
+        self.assertAlmostEqual(init.camera.intrinsics.fx, 800.0, delta=8.0)
         optimized = session.step_optimize()
         self.assertLess(optimized.mean_reproj_error, 1e-6)
         result = session.export()
@@ -69,6 +69,27 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         self.assertEqual(result.camera, reference.camera)
         self.assertEqual([e.operation for e in session.log], ["init", "optimize"])
         self.assertTrue(all(e.success for e in session.log))
+
+    def test_a_fisheye_camera_calibrates_from_scratch(self) -> None:
+        session = vc.PlanarIntrinsicsSession()
+        session.set_input(fisheye_calibration_dataset())
+        session.set_config(
+            vc.PlanarIntrinsicsConfig(
+                camera=vc.CameraConfig(
+                    model=vc.CameraModelSpec(
+                        projection="equidistant", distortion="kannala_brandt4"
+                    )
+                )
+            )
+        )
+        init = session.step_init()
+        self.assertIsInstance(init.camera.projection, vc.EquidistantProjection)
+        self.assertIsInstance(init.camera.distortion, vc.KannalaBrandt4Distortion)
+        self.assertAlmostEqual(init.camera.intrinsics.fx, 300.0, delta=3.0)
+        session.step_optimize()
+        camera = session.export().camera
+        self.assertAlmostEqual(camera.intrinsics.fx, 300.0, delta=1e-3)
+        self.assertAlmostEqual(camera.intrinsics.cy, 400.0, delta=1e-3)
 
     def test_step_options_override_the_config(self) -> None:
         session = vc.PlanarIntrinsicsSession()
@@ -84,7 +105,9 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
             intrinsics=vc.PinholeIntrinsics(fx=790.0, fy=770.0, cx=630.0, cy=350.0)
         )
         init = session.step_init_with_seed(seed)
-        self.assertEqual(init.intrinsics, vc.PinholeIntrinsics(fx=790.0, fy=770.0, cx=630.0, cy=350.0))
+        self.assertEqual(
+            init.camera.intrinsics, vc.PinholeIntrinsics(fx=790.0, fy=770.0, cx=630.0, cy=350.0)
+        )
         notes = session.log[-1].notes or ""
         self.assertIn("manual", notes)
         session.step_optimize()

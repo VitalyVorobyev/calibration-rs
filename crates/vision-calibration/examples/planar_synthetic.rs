@@ -72,16 +72,20 @@ fn main() -> Result<()> {
     println!("--- Step 1: Initialization ---");
     let init = step_init(&mut session, None)?;
 
-    let init_k = &init.intrinsics;
-    let init_dist = &init.distortion;
+    let init_k = &init.camera.intrinsics;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
     );
-    println!(
-        "  Distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
-        init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2
-    );
+    let distortion = &init.camera.distortion;
+    let coefficients: Vec<String> = distortion
+        .kind()
+        .param_names()
+        .iter()
+        .zip(distortion.values())
+        .map(|(name, value)| format!("{name}={value:.4}"))
+        .collect();
+    println!("  Distortion: {}", coefficients.join(", "));
     println!(
         "  Error vs GT: fx={:.1}%, fy={:.1}%",
         100.0 * (init_k.fx - k_gt.fx).abs() / k_gt.fx,

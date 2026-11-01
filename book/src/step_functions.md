@@ -28,9 +28,9 @@ Each step:
 let init = step_init(&mut session, None)?;
 
 // Inspect initialization quality before committing to optimization
-if (init.intrinsics.fx - expected_fx).abs() / expected_fx > 0.5 {
+if (init.camera.intrinsics.fx - expected_fx).abs() / expected_fx > 0.5 {
     eprintln!("Warning: init fx={:.0} is far from expected {:.0}",
-              init.intrinsics.fx, expected_fx);
+              init.camera.intrinsics.fx, expected_fx);
 }
 
 let opt = step_optimize(&mut session, None)?;

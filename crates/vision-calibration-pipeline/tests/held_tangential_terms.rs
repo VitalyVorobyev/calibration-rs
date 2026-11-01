@@ -151,7 +151,7 @@ fn planar_intrinsics() {
     config.camera = held();
     session.set_config(config).unwrap();
     let init = step_init(&mut session, None).unwrap();
-    assert_eq!((init.distortion.p1, init.distortion.p2), (0.0, 0.0), "init");
+    assert_held(&init.camera, "init");
     step_optimize(&mut session, None).unwrap();
     assert_held(&session.export().unwrap().params.camera, "optimize");
 }

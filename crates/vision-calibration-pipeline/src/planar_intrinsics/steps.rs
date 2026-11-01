@@ -41,7 +41,8 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraParams, CameraProject, CorrespondenceView, DistortionKind,
-    FxFyCxCy, Iso3, PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
+    DistortionParams, FxFyCxCy, Iso3, Mat3, PlanarDataset, ProjectionKind, ProjectionParams, Real,
+    ScheimpflugParams, SensorKind, SensorParams, View,
 };
 use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
@@ -54,8 +55,8 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{
-    bootstrap_planar_intrinsics, estimate_view_homographies,
-    recover_planar_poses_from_homographies, unsupported_sensor,
+    CameraSeed, bootstrap_camera, bootstrap_planar_intrinsics, estimate_view_homographies,
+    recover_planar_poses_from_homographies, unsupported_projection, unsupported_sensor,
 };
 use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
@@ -145,13 +146,8 @@ impl Default for IntrinsicsFilterOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsInitResult {
-    /// Initial pinhole intrinsics (fx, fy, cx, cy).
-    pub intrinsics: FxFyCxCy<Real>,
-    /// Initial Brown–Conrady distortion coefficients.
-    pub distortion: BrownConrady5<Real>,
-    /// Initial sensor tilt; `Some` exactly when the camera has a Scheimpflug
-    /// sensor.
-    pub sensor: Option<ScheimpflugParams>,
+    /// Initial camera, in the configured model.
+    pub camera: CameraParams,
     /// Initial per-view target poses (`camera_se3_target`).
     pub poses: Vec<Iso3>,
 }
@@ -185,14 +181,15 @@ pub struct IntrinsicsOptimizeResult {
 ///
 /// - `intrinsics`: `Some` skips the auto-fit and uses the seed; `None` runs the
 ///   iterative auto-fit (Zhang's method; for a Scheimpflug sensor, the tilted
-///   variant that also estimates the tilt).
+///   variant that also estimates the tilt; for an equidistant camera, the
+///   bearing-based fisheye initializer).
 /// - `distortion`: `Some` overrides the bootstrap's fitted distortion; `None` keeps
 ///   the bootstrap value (or `BrownConrady5::default()` when intrinsics are seeded
-///   and the bootstrap doesn't run).
+///   and the bootstrap doesn't run). Pinhole cameras only.
 /// - `sensor`: Scheimpflug sensor only — see [`IntrinsicsManualInit::sensor`].
 /// - `poses`: `Some` uses the seed verbatim (count must match view count); `None`
-///   recovers poses from homographies using the in-effect intrinsics — manual when
-///   seeded, auto otherwise.
+///   recovers poses from homographies (bearings for an equidistant camera) using
+///   the in-effect intrinsics — manual when seeded, auto otherwise.
 ///
 /// For a Scheimpflug sensor, an unseeded `intrinsics` (from-scratch auto-init) is
 /// **experimental**: under the tilt↔focal↔distortion degeneracy it can settle in a
@@ -206,6 +203,7 @@ pub struct IntrinsicsOptimizeResult {
 ///
 /// - Input not set, or fewer than 3 views.
 /// - `manual.sensor` is `Some` but the camera's sensor is not Scheimpflug.
+/// - `manual.distortion` is `Some` for an equidistant camera.
 /// - `init.iterations == 0` when running the bootstrap auto-fit.
 /// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
@@ -232,12 +230,106 @@ pub fn step_init_with_seed(
         } else {
             ""
         };
-    let result = match model.sensor {
-        SensorKind::Identity => init_untilted(session, manual, opts, distortion_note)?,
-        SensorKind::Scheimpflug => init_tilted(session, manual, opts, distortion_note)?,
-        other => return Err(unsupported_sensor(other)),
+    match (model.projection, model.sensor) {
+        (ProjectionKind::Pinhole, SensorKind::Identity) => {
+            init_untilted(session, manual, opts, distortion_note)
+        }
+        (ProjectionKind::Pinhole, SensorKind::Scheimpflug) => {
+            init_tilted(session, manual, opts, distortion_note)
+        }
+        (ProjectionKind::Equidistant, _) => init_fisheye(session, manual),
+        (ProjectionKind::Pinhole, other) => Err(unsupported_sensor(other)),
+        (other, _) => Err(unsupported_projection(other)),
+    }
+}
+
+/// Equidistant (fisheye) camera: the bearing-based initializer, or the
+/// seeds, through the per-camera bootstrap every workflow shares.
+fn init_fisheye(
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
+    manual: IntrinsicsManualInit,
+) -> Result<IntrinsicsInitResult, Error> {
+    let dataset = session.require_input()?.clone();
+    let model = session.config.camera.model;
+    if let Some(p) = &manual.poses
+        && p.len() != dataset.num_views()
+    {
+        let msg = format!(
+            "manual poses count ({}) does not match view count ({})",
+            p.len(),
+            dataset.num_views()
+        );
+        session.log_failure("init", msg.clone());
+        return Err(Error::invalid_input(msg));
+    }
+    let seed = CameraSeed {
+        intrinsics: manual.intrinsics,
+        distortion: manual.distortion,
+        sensor: None,
     };
-    Ok(result)
+    let bootstrap = match bootstrap_camera(0, model, &dataset, &seed, session.config.init_opts()) {
+        Ok(b) => b,
+        Err(e) => {
+            session.log_failure("init", e.to_string());
+            return Err(e);
+        }
+    };
+    let (mut manual_fields, mut auto_fields) = (Vec::new(), Vec::new());
+    for (name, seeded) in [
+        ("intrinsics", seed.intrinsics.is_some()),
+        ("poses", manual.poses.is_some()),
+    ] {
+        if seeded {
+            manual_fields.push(name);
+        } else {
+            auto_fields.push(name);
+        }
+    }
+    let poses = manual.poses.unwrap_or(bootstrap.poses);
+    let k = bootstrap.camera.intrinsics;
+    record_init(session, bootstrap.camera, poses, false, None);
+    session.log_success_with_notes(
+        "init",
+        format!(
+            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
+            k.fx,
+            k.fy,
+            k.cx,
+            k.cy,
+            format_init_source(&manual_fields, &auto_fields)
+        ),
+    );
+    init_result(session)
+}
+
+/// Store an initialization in the session state, clearing any previous
+/// optimization.
+fn record_init(
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
+    camera: CameraParams,
+    poses: Vec<Iso3>,
+    sensor_manual: bool,
+    homographies: Option<Vec<Mat3>>,
+) {
+    session.state.homographies = homographies;
+    session.state.initial_camera = Some(camera);
+    session.state.initial_sensor_manual = sensor_manual;
+    session.state.initial_poses = Some(poses);
+    session.state.clear_optimization();
+}
+
+/// The initialization just recorded, in the configured model.
+fn init_result(
+    session: &CalibrationSession<PlanarIntrinsicsProblem>,
+) -> Result<IntrinsicsInitResult, Error> {
+    let params = session
+        .state
+        .initial_params(session.config.camera.model)
+        .ok_or_else(|| Error::numerical("the initial camera does not fit its poses"))?;
+    Ok(IntrinsicsInitResult {
+        camera: params.camera,
+        poses: params.camera_se3_target,
+    })
 }
 
 /// Untilted camera: Zhang's method with iterative distortion.
@@ -250,7 +342,7 @@ fn init_untilted(
     let input = session.require_input()?;
 
     let opts = opts.unwrap_or_default();
-    let mut init_opts = session.config.init_opts();
+    let mut init_opts = session.config.init_opts().pinhole;
     if let Some(iters) = opts.iterations {
         init_opts.iterations = iters;
     }
@@ -352,13 +444,13 @@ fn init_untilted(
         (bootstrap.camera.k, dist, bootstrap.homographies, poses)
     };
 
-    session.state.homographies = Some(homographies);
-    session.state.initial_intrinsics = Some(intrinsics);
-    session.state.initial_distortion = Some(distortion);
-    session.state.initial_sensor = None;
-    session.state.initial_sensor_manual = false;
-    session.state.initial_poses = Some(poses.clone());
-    session.state.clear_optimization();
+    let camera = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 { params: distortion },
+        sensor: SensorParams::Identity,
+        intrinsics,
+    };
+    record_init(session, camera, poses, false, Some(homographies));
 
     let source = format_init_source(&manual_fields, &auto_fields);
     session.log_success_with_notes(
@@ -369,12 +461,7 @@ fn init_untilted(
         ),
     );
 
-    Ok(IntrinsicsInitResult {
-        intrinsics,
-        distortion,
-        sensor: None,
-        poses,
-    })
+    init_result(session)
 }
 
 /// Tilted (Scheimpflug) camera: the tilted linear bootstrap, or the seeds.
@@ -537,13 +624,13 @@ fn init_tilted(
         (bootstrap.camera.k, dist, sensor, poses)
     };
 
-    session.state.homographies = None;
-    session.state.initial_intrinsics = Some(intrinsics);
-    session.state.initial_distortion = Some(distortion);
-    session.state.initial_sensor = Some(sensor);
-    session.state.initial_sensor_manual = sensor_manual;
-    session.state.initial_poses = Some(poses.clone());
-    session.state.clear_optimization();
+    let camera = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 { params: distortion },
+        sensor: SensorParams::Scheimpflug { params: sensor },
+        intrinsics,
+    };
+    record_init(session, camera, poses, sensor_manual, None);
 
     let source = format_init_source(&manual_fields, &auto_fields);
     let experimental = if intrinsics_seeded {
@@ -566,12 +653,7 @@ fn init_tilted(
         ),
     );
 
-    Ok(IntrinsicsInitResult {
-        intrinsics,
-        distortion,
-        sensor: Some(sensor),
-        poses,
-    })
+    init_result(session)
 }
 
 /// Initialize intrinsics and poses from observations using full auto-init.
@@ -630,8 +712,8 @@ pub fn step_init(
 /// # Errors
 ///
 /// - Input not set
-/// - Initialization not run (state.initial_intrinsics is None)
-/// - The camera's sensor changed since initialization
+/// - Initialization not run
+/// - The camera's projection or sensor changed since initialization
 /// - Optimization fails
 pub fn step_optimize(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
@@ -646,10 +728,11 @@ pub fn step_optimize(
         .state
         .initial_params(config.camera.model)
         .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
-    if config.is_scheimpflug() != session.state.initial_sensor.is_some() {
+    if !session.state.initialized_for(config.camera.model) {
         let msg = format!(
-            "the camera sensor ({:?}) changed since step_init; run step_init again",
-            config.camera.model.sensor
+            "the camera projection ({:?}) or sensor ({:?}) changed since step_init; run \
+             step_init again",
+            config.camera.model.projection, config.camera.model.sensor
         );
         session.log_failure("optimize", msg.clone());
         return Err(Error::invalid_input(msg));
@@ -1098,7 +1181,7 @@ mod tests {
         assert_eq!(session.state.initial_poses.as_ref().unwrap().len(), 4);
 
         // Check intrinsics are reasonable
-        let k = session.state.initial_intrinsics.unwrap();
+        let k = session.state.initial_camera.as_ref().unwrap().intrinsics;
         assert!((k.fx - 800.0).abs() < 100.0); // Within 12.5%
         assert!((k.fy - 780.0).abs() < 100.0);
     }
@@ -1245,8 +1328,8 @@ mod tests {
 
         // Both paths should produce identical state — step_init delegates to
         // step_init_with_seed with default fields.
-        let k_a = session_a.state.initial_intrinsics.unwrap();
-        let k_b = session_b.state.initial_intrinsics.unwrap();
+        let k_a = session_a.state.initial_camera.as_ref().unwrap().intrinsics;
+        let k_b = session_b.state.initial_camera.as_ref().unwrap().intrinsics;
         assert!((k_a.fx - k_b.fx).abs() < 1e-9);
         assert!((k_a.fy - k_b.fy).abs() < 1e-9);
         assert!((k_a.cx - k_b.cx).abs() < 1e-9);
@@ -1406,7 +1489,10 @@ mod tests {
     fn scheimpflug_auto_init_logs_experimental_warning() {
         let mut session = tilted_session(ScheimpflugParams::default());
         let init = step_init(&mut session, None).expect("step_init");
-        assert!(init.sensor.is_some());
+        assert!(matches!(
+            init.camera.sensor,
+            SensorParams::Scheimpflug { .. }
+        ));
         assert!(session.state.homographies.is_none());
         assert!(
             log_has_experimental_warning(&session),

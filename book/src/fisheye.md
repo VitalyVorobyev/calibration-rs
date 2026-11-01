@@ -59,7 +59,32 @@ back-projects it.
 
 ## In the workflows
 
-The calibration workflows initialize a camera from homographies of the
-target, which assumes a pinhole projection; they reject an equidistant
-camera with a configuration error. `KannalaBrandt4` distortion on a pinhole
-camera calibrates in every workflow.
+Every workflow that calibrates a camera accepts an equidistant one: set
+`camera.model.projection` to `Equidistant` (a rig can do so per camera).
+Its linear stage is the
+[bearing-based fisheye initializer](fisheye_init.md) in place of Zhang's
+method, so no focal length or image size is needed; the initializer fits
+`k1`, `k2` unless the camera holds them, and the refinement frees the
+rest.
+
+```rust
+use vision_calibration::core::{CameraModelSpec, DistortionKind, ProjectionKind, SensorKind};
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
+
+let mut config = PlanarIntrinsicsConfig::default();
+config.camera.model = CameraModelSpec::new(
+    ProjectionKind::Equidistant,
+    DistortionKind::KannalaBrandt4,
+    SensorKind::Identity,
+);
+```
+
+Some combinations have no initializer and are configuration errors:
+
+- an equidistant camera with a Scheimpflug sensor;
+- the line-distance laser residual (`LineDistNormalized`), which needs the
+  laser line's image to be straight: a fisheye laser workflow uses
+  `PointToPlane`;
+- a distortion seed, which holds a pinhole camera's Brown-Conrady
+  coefficients (seeded intrinsics are fine).
+
