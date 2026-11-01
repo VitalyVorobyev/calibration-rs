@@ -8,7 +8,6 @@
 use calib_targets::chessboard::ChessboardParams;
 use calib_targets::detect;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
@@ -16,7 +15,7 @@ use schemars::JsonSchema;
 use crate::chess_options::{
     ChessCornersConfig, apply_board_override, chess_config_for_override, cov_px,
 };
-use crate::{DetectError, Detector, Feature};
+use crate::{DetectError, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
 /// chessboard variant in
@@ -39,83 +38,56 @@ pub struct ChessboardConfig {
     pub chess_corners: Option<ChessCornersConfig>,
 }
 
-/// Stateless chessboard detector instance.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ChessboardDetector;
+/// Detect the chessboard `cfg` describes in `luma`: one [`Feature`] per
+/// interior corner whose grid index falls inside the board.
+pub(crate) fn detect(
+    cfg: &ChessboardConfig,
+    luma: &image::GrayImage,
+) -> Result<Vec<Feature>, DetectError> {
+    // The underlying detector auto-labels corners from
+    // intersection clustering — `rows`/`cols` from our config are
+    // used only for output validation, not as input parameters.
+    let mut board_params = ChessboardParams::default();
+    apply_board_override(cfg.chess_corners, &mut board_params);
+    let chess_cfg = chess_config_for_override(cfg.chess_corners)?;
 
-impl crate::sealed::Sealed for ChessboardDetector {
-    fn backend(&self) -> &'static str {
-        crate::backend::CALIB_TARGETS
-    }
-}
-
-impl Detector for ChessboardDetector {
-    fn name(&self) -> &'static str {
-        "chessboard"
-    }
-
-    /// Revision 2: labels are bounded by `cols` across and `rows` down.
-    fn output_revision(&self) -> Option<u32> {
-        Some(2)
-    }
-
-    fn detect_json(
-        &self,
-        image: &image::DynamicImage,
-        config: &Value,
-    ) -> Result<Vec<Feature>, DetectError> {
-        let cfg: ChessboardConfig =
-            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
+    // No board in frame is "no features", not an error. Every other
+    // `DetectError` variant is a genuine backend failure and propagates.
+    let detection = match detect::detect_chessboard(luma, &chess_cfg, &board_params) {
+        Ok(detection) => detection,
+        Err(detect::DetectError::NoDetection { .. }) => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(DetectError::Backend {
                 detector: "chessboard",
-                source: e,
-            })?;
-        let luma = image.to_luma8();
-
-        // The underlying detector auto-labels corners from
-        // intersection clustering — `rows`/`cols` from our config are
-        // used only for output validation, not as input parameters.
-        let mut board_params = ChessboardParams::default();
-        apply_board_override(cfg.chess_corners, &mut board_params);
-        let chess_cfg = chess_config_for_override(cfg.chess_corners)?;
-
-        // No board in frame is "no features", not an error. Every other
-        // `DetectError` variant is a genuine backend failure and propagates.
-        let detection = match detect::detect_chessboard(&luma, &chess_cfg, &board_params) {
-            Ok(detection) => detection,
-            Err(detect::DetectError::NoDetection { .. }) => return Ok(Vec::new()),
-            Err(err) => {
-                return Err(DetectError::Backend {
-                    detector: "chessboard",
-                    message: err.to_string(),
-                });
-            }
-        };
-
-        // Filter to corners whose grid index falls inside the board, then
-        // lift to 3D using the supplied square size.
-        let (max_u, max_v) = label_bounds(
-            detection.corners.iter().map(|c| (c.grid.u, c.grid.v)),
-            cfg.rows,
-            cfg.cols,
-        );
-        let mut features = Vec::new();
-        for corner in detection.corners {
-            let grid = corner.grid;
-            if grid.u < 0 || grid.v < 0 || grid.u >= max_u || grid.v >= max_v {
-                continue;
-            }
-            features.push(Feature {
-                image_xy: [corner.position.x as f64, corner.position.y as f64],
-                world_xyz: [
-                    grid.u as f64 * cfg.square_size_m,
-                    grid.v as f64 * cfg.square_size_m,
-                    0.0,
-                ],
-                cov_px: corner.position_covariance.map(cov_px),
+                message: err.to_string(),
             });
         }
-        Ok(crate::reject_ambiguous_detection(features))
+    };
+
+    // Filter to corners whose grid index falls inside the board, then
+    // lift to 3D using the supplied square size.
+    let (max_u, max_v) = label_bounds(
+        detection.corners.iter().map(|c| (c.grid.u, c.grid.v)),
+        cfg.rows,
+        cfg.cols,
+    );
+    let mut features = Vec::new();
+    for corner in detection.corners {
+        let grid = corner.grid;
+        if grid.u < 0 || grid.v < 0 || grid.u >= max_u || grid.v >= max_v {
+            continue;
+        }
+        features.push(Feature {
+            image_xy: [corner.position.x as f64, corner.position.y as f64],
+            world_xyz: [
+                grid.u as f64 * cfg.square_size_m,
+                grid.v as f64 * cfg.square_size_m,
+                0.0,
+            ],
+            cov_px: corner.position_covariance.map(cov_px),
+        });
     }
+    Ok(crate::reject_ambiguous_detection(features))
 }
 
 /// The exclusive `(u, v)` label bounds of a `rows × cols` board, for one
@@ -145,6 +117,14 @@ fn label_bounds(labels: impl Iterator<Item = (i32, i32)>, rows: u32, cols: u32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+
+    /// Detect with a JSON config, as a manifest would spell it.
+    fn run(image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>, DetectError> {
+        let cfg: ChessboardConfig = serde_json::from_value(config.clone())
+            .map_err(|e| DetectError::InvalidConfig(e.to_string()))?;
+        detect(&cfg, &image.to_luma8())
+    }
     use serde_json::json;
 
     fn grid(w: i32, h: i32) -> impl Iterator<Item = (i32, i32)> {
@@ -186,7 +166,7 @@ mod tests {
     #[ignore = "needs git-lfs data/kuka_1; run with --ignored"]
     fn keeps_every_corner_of_a_landscape_board() {
         let cfg = json!({ "rows": 17, "cols": 28, "square_size_m": 0.02 });
-        let features = ChessboardDetector.detect_json(&kuka_view(), &cfg).unwrap();
+        let features = run(&kuka_view(), &cfg).unwrap();
         assert_eq!(features.len(), 17 * 28);
         let [x, y] = extent(&features);
         assert!((x - 27.0 * 0.02).abs() < 1e-12 && (y - 16.0 * 0.02).abs() < 1e-12);
@@ -201,28 +181,16 @@ mod tests {
             "square_size_m": 0.02,
             "chess_corners": { "strategy": "radon" },
         });
-        let features = ChessboardDetector.detect_json(&kuka_view(), &cfg).unwrap();
+        let features = run(&kuka_view(), &cfg).unwrap();
         // Radon misses a few of the 476 corners at the edge of this view.
         assert!(features.len() >= 470, "{} features", features.len());
     }
 
     #[test]
-    fn invalid_config_rejected() {
-        let img = image::DynamicImage::new_luma8(8, 8);
-        let det = ChessboardDetector;
-        let err = det
-            .detect_json(&img, &json!({"rows": 9})) // missing cols, square_size_m
-            .unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("invalid chessboard config"), "got: {msg}");
-    }
-
-    #[test]
     fn empty_image_returns_no_features() {
         let img = image::DynamicImage::new_luma8(64, 64);
-        let det = ChessboardDetector;
         let cfg = json!({ "rows": 9, "cols": 6, "square_size_m": 0.025 });
-        let features = det.detect_json(&img, &cfg).unwrap();
+        let features = run(&img, &cfg).unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
     }
 
@@ -241,15 +209,13 @@ mod tests {
     #[test]
     fn covariance_is_opt_in_and_leaves_positions_unchanged() {
         let img = synthetic_board_image();
-        let plain = ChessboardDetector
-            .detect_json(&img, &board_config())
-            .unwrap();
+        let plain = run(&img, &board_config()).unwrap();
         assert!(plain.len() >= 4, "got {} corners", plain.len());
         assert!(plain.iter().all(|f| f.cov_px.is_none()));
 
         let mut cfg = board_config();
         cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": 2.0 } } });
-        let with = ChessboardDetector.detect_json(&img, &cfg).unwrap();
+        let with = run(&img, &cfg).unwrap();
         assert_eq!(with.len(), plain.len());
         for (a, b) in with.iter().zip(&plain) {
             assert_eq!(a.image_xy, b.image_xy);
@@ -268,7 +234,7 @@ mod tests {
         let img = image::DynamicImage::new_luma8(8, 8);
         let mut cfg = board_config();
         cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": -1.0 } } });
-        let err = ChessboardDetector.detect_json(&img, &cfg).unwrap_err();
+        let err = run(&img, &cfg).unwrap_err();
         assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
     }
 }

@@ -10,12 +10,15 @@ each would identify the export's problem type by probing fields.
 
 ## Decision
 
-Every pipeline `*Export` is self-describing and carries its diagnostics.
+Every pipeline `*Export` is self-describing and carries its diagnostics,
+grouped apart from the result: the result fields (camera parameters,
+poses, uncertainty, reprojection error) are the stable contract, and
+`diagnostics` (`ExportDiagnostics`) holds the evidence for viewers.
 
 - **`kind`** — a required discriminator, the shared `ExportKind` enum
   (snake_case), serialized as the first field. Consumers branch on it;
   deserialization without it fails.
-- **`per_feature_residuals`** — per-(view, camera, feature) records:
+- **`diagnostics.per_feature_residuals`** — per-(view, camera, feature) records:
   target reprojection residuals, laser residuals in metres and in the
   solver's pixel line distance, the projected laser line per (view, camera)
   as a polyline (distortion bends it), and optional per-camera histograms
@@ -27,11 +30,13 @@ Every pipeline `*Export` is self-describing and carries its diagnostics.
     problem type has no observations of that kind.
   - Diagnostics are computed by the same kernels as the cost, so they agree
     with what the solver minimized.
-- **`image_manifest`** (optional) — the frames behind each (view, camera)
+- **`diagnostics.image_manifest`** (optional) — the frames behind each (view, camera)
   slot, with an optional ROI for tiled multi-camera images and a
   `FrameKind` (`target` | `laser`). It is written by the runner, never read
   by the pipeline, and indexed like the residuals.
 - **`uncertainty`** — the parameter covariance (ADR 0026).
+- Solver statistics (`SolveReport`) stay on the session output, not the
+  export.
 
 `ProblemType::export` receives the input, since the observed pixels are
 needed for the records. Residual helpers live where their math lives:

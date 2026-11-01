@@ -7,8 +7,8 @@ use vision_calibration_core::{NoMeta, PlanarDataset, View};
 use vision_calibration_dataset::{DatasetSpec, Topology, validate};
 
 use super::{
-    Detection, RejectedDetection, RunError, augment_config_with_roi, detect_features,
-    expand_camera_images, features_to_view, pattern_repr, pick_detector, target_to_detector_config,
+    Detection, RejectedDetection, RunError, detect_features, expand_camera_images,
+    features_to_view, pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -31,8 +31,7 @@ pub fn build_planar_input(
             topology: spec.topology,
         });
     }
-    let (detector_name, detector_config) = target_to_detector_config(spec)?;
-    let detector = pick_detector(detector_name)?;
+    let detector_config = target_to_detector_config(spec)?;
     validate(spec)?;
 
     // Single-camera topologies have the validator-enforced invariant
@@ -59,22 +58,12 @@ pub fn build_planar_input(
 
     let filter = ViewFilter::for_spec(spec);
 
-    // ROI is part of what determines detection output, so it has to be
-    // part of the cache key. We splice it into the key-side config and
-    // leave the actual `detector_config` untouched (the detector itself
-    // doesn't know about ROI — the runner crops the image first).
+    // The runner crops to the ROI before detecting; the crop is part of the
+    // cache key.
     let roi = camera.roi_xywh;
-    let key_config = augment_config_with_roi(&detector_config, roi);
 
     for image_path in &images {
-        let (features, _cache_hit) = detect_features(
-            detector.as_ref(),
-            &detector_config,
-            &key_config,
-            roi,
-            image_path,
-            detection,
-        )?;
+        let (features, _cache_hit) = detect_features(&detector_config, roi, image_path, detection)?;
 
         if let Err(reason) = filter.check(&features) {
             // Drop the view but keep walking, so an all-rejected camera
@@ -180,10 +169,17 @@ mod tests {
     fn planar_intrinsics_keeps_partial_chessboards() {
         // Each planar view has its own target pose, so a board labelled
         // from its own top-left corner is as good as a whole one.
-        use vision_calibration_detect::{CacheKey, CachedFeatures, ChessboardDetector, Feature};
+        use vision_calibration_detect::{CacheKey, CachedFeatures, Feature};
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        let config = serde_json::json!({"rows": 9, "cols": 6, "square_size_m": 0.025});
+        let config = vision_calibration_detect::DetectorConfig::Chessboard(
+            vision_calibration_detect::ChessboardConfig {
+                rows: 9,
+                cols: 6,
+                square_size_m: 0.025,
+                chess_corners: None,
+            },
+        );
         // Views showing 9, 5 and 3 of the board's 9 rows.
         let rel_paths = ["a.png", "b.png", "c.png"];
         for (rel, rows) in rel_paths.iter().zip([9u32, 5, 3]) {
@@ -196,7 +192,7 @@ mod tests {
                 })
                 .collect();
             std::fs::write(tmp.path().join(rel), rel.as_bytes()).unwrap();
-            let key = CacheKey::for_detector(rel.as_bytes(), &ChessboardDetector, &config);
+            let key = CacheKey::for_detection(rel.as_bytes(), &config, None);
             cache.put(&key, &CachedFeatures { features }).unwrap();
         }
         let mut spec = planar_spec_for_globless_test();
@@ -231,7 +227,7 @@ mod tests {
         use vision_calibration_dataset::{
             ChessCornersDetectorSpec, CornerCovarianceSpec, DetectorSpec,
         };
-        use vision_calibration_detect::{CacheKey, CachedFeatures, ChessboardDetector};
+        use vision_calibration_detect::{CacheKey, CachedFeatures};
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let mut spec = planar_spec_for_globless_test();
@@ -246,8 +242,8 @@ mod tests {
             paths: vec![PathBuf::from("a.png")],
         };
         std::fs::write(tmp.path().join("a.png"), b"a.png").unwrap();
-        let (_, config) = target_to_detector_config(&spec).unwrap();
-        let key = CacheKey::for_detector(b"a.png", &ChessboardDetector, &config);
+        let config = target_to_detector_config(&spec).unwrap();
+        let key = CacheKey::for_detection(b"a.png", &config, None);
         cache.put(&key, &CachedFeatures { features }).unwrap();
         build_planar_input(&spec, tmp.path(), Detection::Cached(&cache))
     }

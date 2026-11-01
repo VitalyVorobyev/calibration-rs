@@ -266,6 +266,16 @@
 "single_cam_handeye::step_intrinsics_optimize" = "single_cam_handeye.SingleCamHandeyeSession.step_intrinsics_optimize"
 
 [rust_only]
+"detect::CharucoConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::ChessCornersConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::ChessboardConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::CornerCovariance" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::CornerStrategy" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::DetectorConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::ImageNoise" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::PuzzleboardConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::RinggridConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
+"detect::GrayImageView" = "Python passes a (H, W) uint8 numpy array"
 "nalgebra" = "the math crate re-exported for Rust callers; Python passes floats, tuples and numpy arrays"
 "dataset_runner::Detection" = "Python passes cache= and force_redetect= to each build_*_input function"
 "analysis::LaserResidualRecords" = "builds an export's per-feature residuals; Python reads them from the export (per_feature_residuals)"

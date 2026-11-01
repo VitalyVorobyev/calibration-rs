@@ -64,7 +64,8 @@ The published crates do not ship a laser-line extractor, and extraction is the o
 
 ```rust
 use vision_calibration::dataset::LaserExtractionSpec;
-use vision_calibration::dataset_runner::{LaserPixelExtractor, build_rig_laserline_device_input};
+use vision_calibration::dataset_runner::{Detection, LaserPixelExtractor, build_rig_laserline_device_input};
+use vision_calibration::detect::GrayImageView;
 
 struct MyExtractor;
 
@@ -72,7 +73,7 @@ impl LaserPixelExtractor for MyExtractor {
     fn name(&self) -> &str { "my-extractor-v1" } // cache-key namespace
     fn extract(
         &self,
-        image: &image::DynamicImage,
+        image: GrayImageView<'_>, // 8-bit grayscale, row-major
         spec: &LaserExtractionSpec,
     ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
         // subpixel laser-line points in the (ROI-cropped) image
@@ -83,7 +84,7 @@ impl LaserPixelExtractor for MyExtractor {
 let run = build_rig_laserline_device_input(&spec, base_dir, Detection::Cached(&cache), &MyExtractor)?;
 ```
 
-The runner owns the caching (keyed `laser:<name>` plus a hash of the extraction spec), the ROI cropping and the coordinate lifting; the extractor only extracts. Unlike the target detectors, whose trait is sealed, this one is open. `name()` is part of the cache key, so switching implementations re-extracts instead of serving another extractor's pixels.
+The runner owns the caching (keyed `laser:<name>` plus a hash of the extraction spec), the ROI cropping and the coordinate lifting; the extractor only extracts. Unlike the target detectors, a closed set, this trait is open. `name()` is part of the cache key, so switching implementations re-extracts instead of serving another extractor's pixels.
 
 ### In Python
 

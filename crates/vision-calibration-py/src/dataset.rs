@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 use serde::Serialize;
 use vision_calibration::dataset::{DatasetSpec, LaserExtractionSpec, sniff_folder as rust_sniff};
 use vision_calibration::dataset_runner::{self as runner, Detection, LaserPixelExtractor};
+use vision_calibration::detect::GrayImageView;
 
 use crate::detect::PyFsDetectionCache;
 use crate::errors::{run_err, sniff_err};
@@ -61,13 +62,12 @@ impl PyLaserExtractor {
 
     fn call(
         &self,
-        image: &image::DynamicImage,
+        image: GrayImageView<'_>,
         spec: &LaserExtractionSpec,
     ) -> PyResult<Vec<[f64; 2]>> {
         Python::attach(|py| {
-            let gray = image.to_luma8();
-            let (w, h) = (gray.width() as usize, gray.height() as usize);
-            let array = PyArray1::from_vec(py, gray.into_raw()).reshape([h, w])?;
+            let (w, h) = (image.width() as usize, image.height() as usize);
+            let array = PyArray1::from_slice(py, image.pixels()).reshape([h, w])?;
             let spec = to_py(py, spec)?;
             let out = self.object.call_method1(py, "extract", (array, spec))?;
             let points: PyReadonlyArray2<'_, f64> = out.extract(py)?;
@@ -90,7 +90,7 @@ impl LaserPixelExtractor for PyLaserExtractor {
 
     fn extract(
         &self,
-        image: &image::DynamicImage,
+        image: GrayImageView<'_>,
         spec: &LaserExtractionSpec,
     ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
         self.call(image, spec).map_err(|err| err.to_string().into())

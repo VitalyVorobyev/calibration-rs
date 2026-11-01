@@ -1,23 +1,20 @@
 //! Calibration-target feature detectors plus a content-addressed
 //! detection cache.
 //!
-//! Every detector exposes the same minimal interface:
+//! A [`DetectorConfig`] names a target and its geometry (one variant per
+//! detector: chessboard, ChArUco, PuzzleBoard, coded ring grid) and detects
+//! it in an 8-bit grayscale [`GrayImageView`]:
 //!
 //! ```ignore
-//! pub trait Detector {
-//!     fn name(&self) -> &'static str;
-//!     fn detect_json(&self, image: &DynamicImage, config: &Value) -> Result<Vec<Feature>>;
-//! }
+//! let config = DetectorConfig::Chessboard(ChessboardConfig { rows: 7, cols: 11, square_size_m: 0.03, chess_corners: None });
+//! let features = config.detect(GrayImageView::new(width, height, &pixels)?)?;
 //! ```
 //!
-//! The dispatcher (in `vision-calibration-pipeline`) maps a
-//! `vision_calibration_dataset::TargetSpec` to a `(name, config_json)`
-//! pair and calls into a registered detector. Cached features are keyed
-//! on `(image_content_hash, detector_name, canonical_config_hash)` so
-//! re-running with the same images and same detector params is free
-//! (filesystem read only, no detection re-run); changing detector
-//! params auto-invalidates that detector's entries while leaving
-//! others intact.
+//! Each [`Feature`] pairs a pixel with its point on the target, in metres.
+//! Cached features are keyed on the image content, the detector and its
+//! configuration ([`CacheKey::for_detection`]), so re-running with the same
+//! images and parameters is a filesystem read, and changing a parameter
+//! recomputes only that detector's entries.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -42,30 +39,19 @@ pub use error::DetectError;
 pub use feature::{Feature, reject_ambiguous_detection};
 
 #[cfg(feature = "charuco")]
-pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};
+pub use charuco::{CharucoConfig, validate_charuco_layout, validate_dictionary};
 #[cfg(any(feature = "charuco", feature = "chessboard"))]
 pub use chess_options::{ChessCornersConfig, CornerCovariance, CornerStrategy, ImageNoise};
 #[cfg(feature = "chessboard")]
-pub use chessboard::{ChessboardConfig, ChessboardDetector};
+pub use chessboard::ChessboardConfig;
 #[cfg(feature = "puzzleboard")]
-pub use puzzleboard::{PuzzleboardConfig, PuzzleboardDetector};
+pub use puzzleboard::PuzzleboardConfig;
 #[cfg(feature = "ringgrid")]
-pub use ringgrid::{RinggridConfig, RinggridDetector};
+pub use ringgrid::RinggridConfig;
 
-use serde_json::Value;
+mod image_view;
 
-/// Sealed-trait guard: prevents downstream crates from implementing
-/// [`Detector`]. The detector set is closed and crate-owned.
-mod sealed {
-    /// Private supertrait of [`Detector`](super::Detector). Only types in
-    /// this crate can name it, so only this crate can implement `Detector`.
-    pub trait Sealed {
-        /// The detection crate this detector wraps, with its version
-        /// (one of the `crate::backend` constants). The cache key carries
-        /// it, so upgrading that crate recomputes cached detections.
-        fn backend(&self) -> &'static str;
-    }
-}
+pub use image_view::GrayImageView;
 
 /// The wrapped detection crates, as `"<crate> <version>"` pairs joined by
 /// `" / "`. Each must name the version the workspace lockfile resolves (a
@@ -81,34 +67,102 @@ pub(crate) mod backend {
     pub const RINGGRID: &str = "ringgrid 0.13.2";
 }
 
-/// Minimal detector interface used by the runner. Configs are passed
-/// in type-erased JSON form so dispatch (and the cache key derivation)
-/// can be data-driven from the dataset manifest without monomorphising
-/// over every detector.
-///
-/// This trait is **sealed**: it is implemented only by the built-in
-/// detectors in `vision-calibration-detect` and cannot be implemented
-/// by downstream crates.
-pub trait Detector: sealed::Sealed + Send + Sync {
-    /// Stable, lowercase name (`"chessboard"`, `"charuco"`, …).
-    fn name(&self) -> &'static str;
+/// A calibration target and the detector that finds it. The set is closed:
+/// one variant per built-in detector, each carrying its typed config.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "detector", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DetectorConfig {
+    /// A plain chessboard (`chess-corners` + `calib-targets`).
+    #[cfg(feature = "chessboard")]
+    Chessboard(ChessboardConfig),
+    /// A ChArUco board (`calib-targets`).
+    #[cfg(feature = "charuco")]
+    Charuco(CharucoConfig),
+    /// A PuzzleBoard (`calib-targets`).
+    #[cfg(feature = "puzzleboard")]
+    Puzzleboard(PuzzleboardConfig),
+    /// A hexagonal coded ring grid (`ringgrid`).
+    #[cfg(feature = "ringgrid")]
+    Ringgrid(RinggridConfig),
+}
 
-    /// Detect calibration-target features in `image`. The `config`
-    /// must deserialize into the detector-specific config struct.
-    fn detect_json(
-        &self,
-        image: &image::DynamicImage,
-        config: &Value,
-    ) -> Result<Vec<Feature>, DetectError>;
+impl DetectorConfig {
+    /// Stable, lowercase detector name (`"chessboard"`, `"charuco"`, …).
+    pub fn name(&self) -> &'static str {
+        match self {
+            #[cfg(feature = "chessboard")]
+            Self::Chessboard(_) => "chessboard",
+            #[cfg(feature = "charuco")]
+            Self::Charuco(_) => "charuco",
+            #[cfg(feature = "puzzleboard")]
+            Self::Puzzleboard(_) => "puzzleboard",
+            #[cfg(feature = "ringgrid")]
+            Self::Ringgrid(_) => "ringgrid",
+        }
+    }
 
-    /// Revision of this detector's output, folded into its cache key by
-    /// [`CacheKey::for_detector`]. The key already carries this crate's
-    /// release and the wrapped detection crate's version; bump the revision
+    /// Detect the target in `image`. A frame without the target yields an
+    /// empty list, not an error.
+    ///
+    /// # Errors
+    ///
+    /// [`DetectError::InvalidConfig`] for an impossible board,
+    /// [`DetectError::Backend`] when the wrapped detector fails for another
+    /// reason than a missing target.
+    pub fn detect(&self, image: GrayImageView<'_>) -> Result<Vec<Feature>, DetectError> {
+        let luma = image.to_gray_image();
+        match self {
+            #[cfg(feature = "chessboard")]
+            Self::Chessboard(cfg) => chessboard::detect(cfg, &luma),
+            #[cfg(feature = "charuco")]
+            Self::Charuco(cfg) => charuco::detect(cfg, &luma),
+            #[cfg(feature = "puzzleboard")]
+            Self::Puzzleboard(cfg) => puzzleboard::detect(cfg, &luma),
+            #[cfg(feature = "ringgrid")]
+            Self::Ringgrid(cfg) => ringgrid::detect(cfg, &luma),
+        }
+    }
+
+    /// Whether the config asks for each corner's pixel covariance (only the
+    /// chessboard-like detectors can provide one).
+    pub fn requests_covariance(&self) -> bool {
+        match self {
+            #[cfg(feature = "chessboard")]
+            Self::Chessboard(cfg) => cfg.chess_corners.is_some_and(|c| c.covariance.is_some()),
+            #[cfg(feature = "charuco")]
+            Self::Charuco(cfg) => cfg.chess_corners.is_some_and(|c| c.covariance.is_some()),
+            #[allow(unreachable_patterns)]
+            _ => false,
+        }
+    }
+
+    /// The detection crate this detector wraps, with its version. The cache
+    /// key carries it, so upgrading that crate recomputes cached detections.
+    pub(crate) fn backend(&self) -> &'static str {
+        match self {
+            #[cfg(feature = "ringgrid")]
+            Self::Ringgrid(_) => backend::RINGGRID,
+            #[cfg(any(feature = "chessboard", feature = "charuco", feature = "puzzleboard"))]
+            #[allow(unreachable_patterns)]
+            _ => backend::CALIB_TARGETS,
+        }
+    }
+
+    /// Revision of this detector's output, folded into its cache key: bumped
     /// when this crate changes the features returned for the same image and
     /// config between releases, so stale cache entries are not served.
-    /// `None` (the default) adds nothing.
-    fn output_revision(&self) -> Option<u32> {
-        None
+    pub(crate) fn output_revision(&self) -> Option<u32> {
+        match self {
+            // Labels are bounded by `cols` across and `rows` down.
+            #[cfg(feature = "chessboard")]
+            Self::Chessboard(_) => Some(2),
+            // Corner re-detection runs with the `chess_corners` override.
+            #[cfg(feature = "charuco")]
+            Self::Charuco(_) => Some(1),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
     }
 }
 

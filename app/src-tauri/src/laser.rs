@@ -7,6 +7,7 @@
 
 use vision_calibration::dataset::{LaserExtractionSpec, LaserScanAxis};
 use vision_calibration::dataset_runner::LaserPixelExtractor;
+use vision_calibration::detect::GrayImageView;
 use vision_metrology::{
     ColAccess, Edge1DConfig, ImageView, LaserExtractConfig, LaserExtractor, ScanAxis,
 };
@@ -25,13 +26,12 @@ impl LaserPixelExtractor for VmLaserExtractor {
 
     fn extract(
         &self,
-        image: &image::DynamicImage,
+        image: GrayImageView<'_>,
         spec: &LaserExtractionSpec,
     ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
-        let luma = image.to_luma8();
-        let width = luma.width() as usize;
-        let height = luma.height() as usize;
-        let view = ImageView::<u8>::from_slice(width, height, width, luma.as_raw()).map_err(
+        let width = image.width() as usize;
+        let height = image.height() as usize;
+        let view = ImageView::<u8>::from_slice(width, height, width, image.pixels()).map_err(
             |e| -> Box<dyn std::error::Error + Send + Sync> {
                 format!("image view ({width}x{height}): {e:?}").into()
             },
@@ -81,9 +81,9 @@ mod tests {
                 img.put_pixel(x, (y + dy) as u32, image::Luma([220]));
             }
         }
-        let dynamic = image::DynamicImage::ImageLuma8(img);
+        let dynamic = GrayImageView::new(img.width(), img.height(), img.as_raw()).unwrap();
         let points = VmLaserExtractor
-            .extract(&dynamic, &LaserExtractionSpec::default())
+            .extract(dynamic, &LaserExtractionSpec::default())
             .unwrap();
         assert!(points.len() >= 20, "got {} points", points.len());
         // One point per column at most, near the stripe centre.
@@ -101,12 +101,12 @@ mod tests {
                 img.put_pixel((24 + dx) as u32, y, image::Luma([220]));
             }
         }
-        let dynamic = image::DynamicImage::ImageLuma8(img);
+        let dynamic = GrayImageView::new(img.width(), img.height(), img.as_raw()).unwrap();
         let spec = LaserExtractionSpec {
             scan_axis: LaserScanAxis::Rows,
             ..Default::default()
         };
-        let points = VmLaserExtractor.extract(&dynamic, &spec).unwrap();
+        let points = VmLaserExtractor.extract(dynamic, &spec).unwrap();
         assert!(points.len() >= 20, "got {} points", points.len());
         for p in &points {
             assert!((p[0] - 24.0).abs() < 4.0, "outlier at {p:?}");

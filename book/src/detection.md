@@ -96,23 +96,23 @@ In Python, `Features.cov_px` is the `(N, 3)` array of covariances (`None` when n
 
 ## Calling a Detector Directly
 
-The detectors implement the sealed `Detector` trait: the set of detectors is closed and owned by the crate. A detector takes its configuration as JSON, which is what lets the runner dispatch from the manifest and derive cache keys without knowing the detector type:
+A `DetectorConfig` names the target and carries its typed configuration, one variant per detector; the set is closed and owned by the crate. It detects in an 8-bit grayscale `GrayImageView` (row-major pixels; decode and convert the image with any library):
 
 ```rust
-use vision_calibration_detect::{ChessboardConfig, ChessboardDetector, Detector};
+use vision_calibration::detect::{ChessboardConfig, DetectorConfig, GrayImageView};
 
-let config = serde_json::to_value(ChessboardConfig {
+let config = DetectorConfig::Chessboard(ChessboardConfig {
     rows: 17,
     cols: 28,
     square_size_m: 0.02,
     chess_corners: None,
-})?;
-let image = image::open("data/kuka_1/01.png")?;
-let features = ChessboardDetector.detect_json(&image, &config)?;
+});
+let gray = image::open("data/kuka_1/01.png")?.to_luma8();
+let features = config.detect(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?)?;
 println!("{} corners", features.len());
 ```
 
-`ChessboardConfig`, `CharucoConfig`, `PuzzleboardConfig` and `RinggridConfig` reject unknown fields when deserialized, so a typo in a hand-written JSON config fails loudly. Each detector sits behind its own cargo feature (`chessboard`, `charuco`, `puzzleboard`, `ringgrid`; all on by default), so a build that needs one target does not compile the others. The facade crate's `vision_calibration::detect` module re-exports the cache, `Feature` and the error types; the detectors themselves are reached through `vision-calibration-detect`.
+`ChessboardConfig`, `CharucoConfig`, `PuzzleboardConfig` and `RinggridConfig` reject unknown fields when deserialized, so a typo in a hand-written config fails loudly. Each detector sits behind its own cargo feature of `vision-calibration-detect` (`chessboard`, `charuco`, `puzzleboard`, `ringgrid`; all on by default), so a build that needs one target does not compile the others. The facade crate's `vision_calibration::detect` module re-exports the configs, the cache, `Feature` and the error types.
 
 To get features into a calibration without a manifest, build the problem input from `Feature` values yourself: `world_xyz` and `image_xy` are exactly the `points_3d` and `points_2d` of a `CorrespondenceView`.
 
@@ -121,9 +121,11 @@ The facade's `dataset_runner::detect_target` runs a detector from a manifest's `
 ```rust
 use vision_calibration::dataset::TargetSpec;
 use vision_calibration::dataset_runner::detect_target;
+use vision_calibration::detect::GrayImageView;
 
 let target = TargetSpec::Chessboard { rows: 17, cols: 28, square_size_m: 0.02 };
-let features = detect_target(&image::open("data/kuka_1/01.png")?, &target, None)?;
+let gray = image::open("data/kuka_1/01.png")?.to_luma8();
+let features = detect_target(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?, &target, None)?;
 ```
 
 ### In Python
@@ -155,20 +157,20 @@ A cache entry is keyed by `CacheKey`:
 
 - **the image content**: a 64-bit FNV-1a digest of the raw file bytes. File modification time is deliberately not used, so moving or copying an image does not invalidate its entry;
 - **the detector name**: `"chessboard"`, `"charuco"`, ... (laser extraction uses a `laser:<name>` namespace);
-- **the configuration**: a hash of the detector configuration serialized to JSON with sorted keys, together with the crate's release and the detector's output revision (`CacheKey::for_detector`). Semantically equal configurations collide on purpose; changing any detector parameter, upgrading the detector stack or bumping a detector's output revision gives a new key and so recomputes, while the entries of the other detectors stay valid.
+- **the configuration**: a hash of the detector configuration serialized to JSON with sorted keys, together with the crop the image was detected in, the crate's release and the detector's output revision (`CacheKey::for_detection`). Semantically equal configurations collide on purpose; changing any detector parameter, upgrading the detector stack or bumping a detector's output revision gives a new key and so recomputes, while the entries of the other detectors stay valid.
 
 ```rust
-use vision_calibration::detect::{CachedFeatures, DetectionCache, FsDetectionCache, CacheKey};
-use vision_calibration_detect::{ChessboardDetector, Detector};
+use vision_calibration::detect::{CacheKey, CachedFeatures, DetectionCache, FsDetectionCache, GrayImageView};
 
 let cache = FsDetectionCache::new("cache/kuka_1");   // created on first write
 let bytes = std::fs::read("data/kuka_1/01.png")?;
-let key = CacheKey::for_detector(&bytes, &ChessboardDetector, &config);
+let key = CacheKey::for_detection(&bytes, &config, None); // no crop
 
 let features = match cache.get(&key)? {
     Some(hit) => hit.features,
     None => {
-        let features = ChessboardDetector.detect_json(&image::load_from_memory(&bytes)?, &config)?;
+        let gray = image::load_from_memory(&bytes)?.to_luma8();
+        let features = config.detect(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?)?;
         cache.put(&key, &CachedFeatures { features: features.clone() })?;
         features
     }

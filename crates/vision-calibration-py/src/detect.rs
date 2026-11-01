@@ -11,7 +11,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use vision_calibration::dataset::{DetectorSpec, TargetSpec};
 use vision_calibration::detect::{
-    CacheKey, CachedFeatures, DetectionCache, Feature, FsDetectionCache,
+    CacheKey, CachedFeatures, DetectionCache, Feature, FsDetectionCache, GrayImageView,
     reject_ambiguous_detection as rust_reject,
 };
 
@@ -109,17 +109,13 @@ pub(crate) fn detect_target<'py>(
     let detector: Option<DetectorSpec> = parse_optional_checked(detector, "detector")?;
     let shape = image.shape();
     let (h, w) = (shape[0], shape[1]);
+    let width = u32::try_from(w).map_err(|_| value_err("image is too wide"))?;
+    let height = u32::try_from(h).map_err(|_| value_err("image is too tall"))?;
     let pixels = image.as_slice()?.to_vec();
-    let gray = image::GrayImage::from_raw(
-        u32::try_from(w).map_err(|_| value_err("image is too wide"))?,
-        u32::try_from(h).map_err(|_| value_err("image is too tall"))?,
-        pixels,
-    )
-    .ok_or_else(|| value_err("image buffer does not match its shape"))?;
-    let image = image::DynamicImage::ImageLuma8(gray);
+    let view = GrayImageView::new(width, height, &pixels).map_err(|e| value_err(e.to_string()))?;
     let features = py
         .detach(|| {
-            vision_calibration::dataset_runner::detect_target(&image, &target, detector.as_ref())
+            vision_calibration::dataset_runner::detect_target(view, &target, detector.as_ref())
         })
         .map_err(|err| run_err(py, err))?;
     to_arrays(py, &features)

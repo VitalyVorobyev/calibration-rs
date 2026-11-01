@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use vision_calibration::detect::GrayImageView;
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_pipeline::dataset_runner::detect_target;
 
@@ -99,16 +100,18 @@ pub fn measure(inputs: &[TimingInput], limit: Option<usize>) -> Result<Timing> {
             let image = match roi {
                 Some([x, y, w, h]) => image.crop_imm(x, y, w, h),
                 None => image,
-            };
+            }
+            .to_luma8();
+            let image = GrayImageView::new(image.width(), image.height(), image.as_raw())?;
             if i == 0 {
                 // Warm-up, untimed.
-                detect_target(&image, &specs[0].target, specs[0].detector.as_ref())?;
+                detect_target(image, &specs[0].target, specs[0].detector.as_ref())?;
             }
             let mut sample = BTreeMap::new();
             for k in 0..arms.len() {
                 let a = (i + k) % arms.len();
                 let start = Instant::now();
-                detect_target(&image, &specs[a].target, specs[a].detector.as_ref())
+                detect_target(image, &specs[a].target, specs[a].detector.as_ref())
                     .with_context(|| format!("{}: detect image {i}", input.label))?;
                 sample.insert(arms[a], start.elapsed().as_secs_f64() * 1000.0);
             }

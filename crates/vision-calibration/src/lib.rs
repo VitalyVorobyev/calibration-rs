@@ -550,8 +550,10 @@ pub mod dataset_runner {
 /// trait.
 pub mod detect {
     pub use vision_calibration_detect::{
-        CacheError, CacheKey, CachedFeatures, DetectError, DetectionCache, Feature,
-        FsDetectionCache, reject_ambiguous_detection,
+        CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
+        CornerCovariance, CornerStrategy, DetectError, DetectionCache, DetectorConfig, Feature,
+        FsDetectionCache, GrayImageView, ImageNoise, PuzzleboardConfig, RinggridConfig,
+        reject_ambiguous_detection,
     };
 }
 

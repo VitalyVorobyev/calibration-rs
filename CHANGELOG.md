@@ -93,6 +93,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `backend_options()`, `iterative_opts()` and `distortion_fit_opts()` are
   private. Calibrate through the step functions; set the solver on the
   config (`config.solver.backend`, `config.solver.max_iters`).
+- **Detectors are a typed enum.** `DetectorConfig` (one variant per
+  detector, carrying `ChessboardConfig`, `CharucoConfig`,
+  `PuzzleboardConfig` or `RinggridConfig`) replaces the sealed `Detector`
+  trait and the `ChessboardDetector`, `CharucoDetector`,
+  `PuzzleboardDetector` and `RinggridDetector` types:
+  `ChessboardDetector.detect_json(&image, &json)` becomes
+  `DetectorConfig::Chessboard(cfg).detect(view)`. Detectors read an 8-bit
+  grayscale `GrayImageView` (`GrayImageView::new(width, height, &pixels)`)
+  instead of an `image::DynamicImage`; so do
+  `dataset_runner::detect_target` and `LaserPixelExtractor::extract`.
+  `CacheKey::for_detector(bytes, &detector, &json)` becomes
+  `CacheKey::for_detection(bytes, &config, roi)`, `CacheKey::from_inputs`
+  takes any serializable config, and `CacheError::Serde` carries a message.
+  `DetectError::Config` is gone (configs are typed). A manifest
+  `detector.chess_corners` override on a PuzzleBoard or ring-grid target is
+  now rejected up front. Cached detections are recomputed once. Neither
+  `image` nor `serde_json` appears in the detector API any more.
 - **`vision_calibration::nalgebra`** re-exports the linear-algebra crate the
   math types are built on, so callers can name its types in the matching
   version.

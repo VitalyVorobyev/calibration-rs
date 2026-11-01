@@ -16,12 +16,11 @@ use calib_targets::detect;
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
 use image::imageops::FilterType;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::{DetectError, Detector, Feature};
+use crate::{DetectError, Feature};
 
 /// Upscale factor applied before detection. PuzzleBoard saddle decoding
 /// degrades on small/blurred tiles, so the image is resized 2× first and
@@ -50,86 +49,71 @@ pub struct PuzzleboardConfig {
     pub cell_size_m: f64,
 }
 
-/// Stateless PuzzleBoard detector instance.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct PuzzleboardDetector;
+/// Detect the PuzzleBoard `cfg` describes in `luma`.
+pub(crate) fn detect(
+    cfg: &PuzzleboardConfig,
+    luma: &image::GrayImage,
+) -> Result<Vec<Feature>, DetectError> {
+    // The detector decodes saddles in millimetres; build the spec in
+    // mm, the unit its tolerances are tuned in, and convert metric
+    // outputs back to metres below.
+    let cell_size_mm = (cfg.cell_size_m * 1000.0) as f32;
+    let spec = PuzzleBoardSpec::new(cfg.rows, cfg.cols, cell_size_mm)
+        .map_err(|e| DetectError::InvalidConfig(format!("invalid puzzleboard spec: {e}")))?;
+    let mut params = PuzzleBoardParams::for_board(spec);
+    params.decode.search_all_components = false;
+    params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
 
-impl crate::sealed::Sealed for PuzzleboardDetector {
-    fn backend(&self) -> &'static str {
-        crate::backend::CALIB_TARGETS
-    }
-}
+    let detection_image = image::imageops::resize(
+        luma,
+        luma.width().saturating_mul(DETECT_UPSCALE),
+        luma.height().saturating_mul(DETECT_UPSCALE),
+        FilterType::Triangle,
+    );
 
-impl Detector for PuzzleboardDetector {
-    fn name(&self) -> &'static str {
-        "puzzleboard"
-    }
+    // No board in frame is "no features", not an error — same
+    // semantics as the chessboard/charuco detectors on a blank image.
+    let detection = match detect::detect_puzzleboard(&detection_image, &params) {
+        Ok(detection) => detection,
+        Err(_) => return Ok(Vec::new()),
+    };
 
-    fn detect_json(
-        &self,
-        image: &image::DynamicImage,
-        config: &Value,
-    ) -> Result<Vec<Feature>, DetectError> {
-        let cfg: PuzzleboardConfig =
-            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
-                detector: "puzzleboard",
-                source: e,
-            })?;
+    // Decoded saddles outside the printed board are spurious; bound
+    // them to `[0, (n-1) * cell]` mm before lifting to metres.
+    let cell_size_mm = cfg.cell_size_m * 1000.0;
+    let max_x_mm = cfg.cols.saturating_sub(1) as f64 * cell_size_mm;
+    let max_y_mm = cfg.rows.saturating_sub(1) as f64 * cell_size_mm;
 
-        // The detector decodes saddles in millimetres; build the spec in
-        // mm, the unit its tolerances are tuned in, and convert metric
-        // outputs back to metres below.
-        let cell_size_mm = (cfg.cell_size_m * 1000.0) as f32;
-        let spec = PuzzleBoardSpec::new(cfg.rows, cfg.cols, cell_size_mm)
-            .map_err(|e| DetectError::InvalidConfig(format!("invalid puzzleboard spec: {e}")))?;
-        let mut params = PuzzleBoardParams::for_board(spec);
-        params.decode.search_all_components = false;
-        params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
-
-        let luma = image.to_luma8();
-        let detection_image = image::imageops::resize(
-            &luma,
-            luma.width().saturating_mul(DETECT_UPSCALE),
-            luma.height().saturating_mul(DETECT_UPSCALE),
-            FilterType::Triangle,
-        );
-
-        // No board in frame is "no features", not an error — same
-        // semantics as the chessboard/charuco detectors on a blank image.
-        let detection = match detect::detect_puzzleboard(&detection_image, &params) {
-            Ok(detection) => detection,
-            Err(_) => return Ok(Vec::new()),
-        };
-
-        // Decoded saddles outside the printed board are spurious; bound
-        // them to `[0, (n-1) * cell]` mm before lifting to metres.
-        let cell_size_mm = cfg.cell_size_m * 1000.0;
-        let max_x_mm = cfg.cols.saturating_sub(1) as f64 * cell_size_mm;
-        let max_y_mm = cfg.rows.saturating_sub(1) as f64 * cell_size_mm;
-
-        let mut features = Vec::with_capacity(detection.corners.len());
-        for corner in &detection.corners {
-            let x_mm = corner.target_position.x as f64;
-            let y_mm = corner.target_position.y as f64;
-            if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
-                continue;
-            }
-            features.push(Feature {
-                image_xy: [
-                    corner.position.x as f64 / DETECT_UPSCALE as f64,
-                    corner.position.y as f64 / DETECT_UPSCALE as f64,
-                ],
-                world_xyz: [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0],
-                cov_px: None,
-            });
+    let mut features = Vec::with_capacity(detection.corners.len());
+    for corner in &detection.corners {
+        let x_mm = corner.target_position.x as f64;
+        let y_mm = corner.target_position.y as f64;
+        if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
+            continue;
         }
-        Ok(crate::reject_ambiguous_detection(features))
+        features.push(Feature {
+            image_xy: [
+                corner.position.x as f64 / DETECT_UPSCALE as f64,
+                corner.position.y as f64 / DETECT_UPSCALE as f64,
+            ],
+            world_xyz: [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0],
+            cov_px: None,
+        });
     }
+    Ok(crate::reject_ambiguous_detection(features))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+
+    /// Detect with a JSON config, as a manifest would spell it.
+    fn run(image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>, DetectError> {
+        let cfg: PuzzleboardConfig = serde_json::from_value(config.clone())
+            .map_err(|e| DetectError::InvalidConfig(e.to_string()))?;
+        detect(&cfg, &image.to_luma8())
+    }
     use serde_json::json;
 
     const CELL_MM: f64 = 12.0;
@@ -156,9 +140,7 @@ mod tests {
     #[test]
     fn detects_synthetic_board() {
         let img = synthetic_board_image();
-        let features = PuzzleboardDetector
-            .detect_json(&img, &board_config())
-            .unwrap();
+        let features = run(&img, &board_config()).unwrap();
         assert!(
             features.len() >= 8,
             "expected >= 8 saddles on a clean frontal board, got {}",
@@ -179,21 +161,9 @@ mod tests {
     }
 
     #[test]
-    fn invalid_config_rejected() {
-        let img = image::DynamicImage::new_luma8(8, 8);
-        let err = PuzzleboardDetector
-            .detect_json(&img, &json!({"rows": 12})) // missing cols, cell_size_m
-            .unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("invalid puzzleboard config"), "got: {msg}");
-    }
-
-    #[test]
     fn blank_image_returns_no_features() {
         let img = image::DynamicImage::new_luma8(64, 64);
-        let features = PuzzleboardDetector
-            .detect_json(&img, &board_config())
-            .unwrap();
+        let features = run(&img, &board_config()).unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
     }
 
