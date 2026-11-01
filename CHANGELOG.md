@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **Python: one `Camera` class.** `PinholeCamera` and
+  `PinholeScheimpflugCamera` are replaced by `Camera(intrinsics, distortion,
+  projection=PinholeProjection(), sensor=IdentitySensor())`, which carries
+  any model per slot. Results report every camera as a `Camera`; check
+  `camera.sensor` (`IdentitySensor` or `ScheimpflugSensor`) where code
+  tested the class.
+
 - **The camera-model enums are `#[non_exhaustive]`**: `ProjectionKind`,
   `DistortionKind`, `SensorKind`, `ProjectionParams`, `DistortionParams`
   and `SensorParams`. New models can then arrive in a minor release; a
@@ -16,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Fisheye camera model.** `ProjectionKind::Equidistant` (the normalized
+  radius is the incidence angle, so rays beyond 90° project) and
+  `DistortionKind::KannalaBrandt4` (`r_d = r (1 + k1 r² + … + k4 r⁸)`).
+  Together they are the Kannala-Brandt model of OpenCV's `fisheye` module;
+  `KannalaBrandt4` on a pinhole camera calibrates in every workflow. The
+  workflows reject an equidistant camera with a configuration error until
+  they have an initializer for it. Python: `EquidistantProjection`,
+  `KannalaBrandt4Distortion`; `CameraModel` projects and back-projects such
+  cameras.
 - Each camera-model slot converts to and from its values in
   `param_names()` order: `ProjectionParams`, `DistortionParams` and
   `SensorParams` have `kind()`, `values()` and `from_values(kind, &values)`,

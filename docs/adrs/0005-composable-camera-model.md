@@ -33,18 +33,20 @@ pixel = K(sensor(distortion(projection(p_c))))
 | Sensor | distorted normalized → sensor plane | `Identity`, `Scheimpflug` | `tilt_x, tilt_y` |
 | K | sensor plane → pixels | one model, `fx, fy, cx, cy` | — |
 
-The code has the `Pinhole` projection, the five non-fisheye distortion
-kinds and both sensors. `Equidistant`, `Eucm`, `DoubleSphere`,
-`Telecentric` and `KannalaBrandt4` are the design's planned kinds (backlog
-CAM-KB, CAM-EUCM-DS, CAM-TELECENTRIC); the sections on them below are what
-those tasks implement.
+The code has the `Pinhole` and `Equidistant` projections, all six
+distortion kinds and both sensors. `Eucm`, `DoubleSphere` and `Telecentric`
+are the design's planned kinds (backlog CAM-EUCM-DS, CAM-TELECENTRIC); the
+sections on them below are what those tasks implement. The workflows'
+equidistant initializer is backlog CAM-KB; until it lands, camera
+validation rejects a projection without one.
 
 - **The projection takes the point, not a direction.**
   - Central projections use only its direction.
   - `Telecentric` uses its `x, y`.
-  - Each projection defines its own validity domain and returns `None`
-    outside it. There is no global `z > 0` test, so a fisheye camera sees
-    beyond 90°.
+  - Each projection defines its own validity domain (`in_domain`;
+    `project` itself is total, so the optimizer's kernels stay branch-free).
+    There is no global `z > 0` test, so a fisheye camera sees beyond 90°:
+    the equidistant domain is every direction but straight back.
 - **Back-projection returns a ray** `{ origin, direction }`. The
   direction is not normalized: for a pinhole camera it is the ray's point
   on the `z = 1` plane, so pinhole back-projection is exact.

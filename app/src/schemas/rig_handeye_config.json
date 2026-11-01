@@ -188,6 +188,11 @@
           "const": "division1",
           "description": "Fitzgibbon division model `[lambda]`.",
           "type": "string"
+        },
+        {
+          "const": "kannala_brandt4",
+          "description": "Kannala-Brandt radial polynomial `[k1, k2, k3, k4]`; with\n[`ProjectionKind::Equidistant`] the Kannala-Brandt fisheye model.",
+          "type": "string"
         }
       ]
     },
@@ -351,6 +356,11 @@
         {
           "const": "pinhole",
           "description": "Pinhole (perspective) projection; no parameters of its own.",
+          "type": "string"
+        },
+        {
+          "const": "equidistant",
+          "description": "Equidistant (fisheye) projection: radius = incidence angle, in\nradians; no parameters of its own. With\n[`DistortionKind::KannalaBrandt4`] it is the Kannala-Brandt fisheye\nmodel.",
           "type": "string"
         }
       ]

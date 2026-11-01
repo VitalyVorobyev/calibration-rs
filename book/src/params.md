@@ -62,7 +62,7 @@ This is used internally by the session framework to reconstruct cameras from JSO
 
 ### In Python
 
-`vc.CameraModel` is the built model, made from a result's camera (`PinholeCamera` or `PinholeScheimpflugCamera`) or a `CameraParams` payload, with any distortion model and an identity or Scheimpflug sensor. Its methods are vectorized over numpy arrays and release the GIL for large ones:
+`vc.CameraModel` is the built model, made from a result's camera (a `vc.Camera`: intrinsics plus `projection`, `distortion` and `sensor`) or a `CameraParams` payload, with any model in each slot. Its methods are vectorized over numpy arrays and release the GIL for large ones:
 
 ```python
 import numpy as np

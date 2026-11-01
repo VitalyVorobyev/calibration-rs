@@ -29,34 +29,19 @@ This matches the convention used by OpenCV and most computer vision libraries. A
 ## The `ProjectionModel` Trait
 
 ```rust
-pub trait ProjectionModel<S: RealField> {
-    fn project_dir(&self, dir_c: &Vector3<S>) -> Option<Point2<S>>;
-    fn unproject_dir(&self, n: &Point2<S>) -> Vector3<S>;
+pub trait ProjectionModel<T: RealField> {
+    fn in_domain(&self, p_c: &Vector3<T>) -> bool;
+    fn project(&self, p_c: &Vector3<T>) -> Point2<T>;
+    fn unproject(&self, n: &Point2<T>) -> Ray<T>;
+    fn is_central(&self) -> bool;
 }
 ```
 
-The `Pinhole` struct implements this trait:
-
-```rust
-pub struct Pinhole;
-
-impl<S: RealField> ProjectionModel<S> for Pinhole {
-    fn project_dir(&self, dir_c: &Vector3<S>) -> Option<Point2<S>> {
-        if dir_c.z > S::zero() {
-            Some(Point2::new(
-                dir_c.x.clone() / dir_c.z.clone(),
-                dir_c.y.clone() / dir_c.z.clone(),
-            ))
-        } else {
-            None
-        }
-    }
-
-    fn unproject_dir(&self, n: &Point2<S>) -> Vector3<S> {
-        Vector3::new(n.x.clone(), n.y.clone(), S::one())
-    }
-}
-```
+The projection takes the camera-frame point, and back-projection returns a
+`Ray` (origin and direction). For `Pinhole`, `in_domain` is `z > 0`,
+`project` is `(x / z, y / z)` and `unproject` returns the direction
+`(n_x, n_y, 1)` from the camera centre. `project` is total: callers that need
+validity check `in_domain` first.
 
 Note the use of `.clone()` — this is required for compatibility with dual numbers used in automatic differentiation (see [Autodiff and Generic Residual Functions](autodiff.md)).
 
@@ -68,4 +53,4 @@ The pinhole model assumes:
 - **No sensor tilt** — addressed by the [sensor stage](sensor.md)
 - **Central projection** — all rays pass through a single point
 
-For cameras with significant distortion (wide-angle, fisheye), the distortion model corrects for lens effects after pinhole projection to normalized coordinates.
+For wide-angle lenses the distortion model corrects for lens effects after pinhole projection to normalized coordinates. A fisheye lens that sees near or beyond 90° from the axis needs a different projection: see [Fisheye Projection](fisheye.md).

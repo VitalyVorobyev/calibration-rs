@@ -461,6 +461,80 @@ impl<T: RealField> DistortionModel<T> for Division<T> {
     }
 }
 
+/// Kannala-Brandt radial distortion: `r_d = r · (1 + k1·r² + k2·r⁴ + k3·r⁶ +
+/// k4·r⁸)`, an odd polynomial in the radius of the normalized point.
+///
+/// Parameters: `[k1, k2, k3, k4]`. On [`Equidistant`](super::Equidistant)
+/// coordinates the radius is the incidence angle `θ`, which makes the camera
+/// the Kannala-Brandt fisheye model (OpenCV `fisheye`, Kalibr
+/// `pinhole-equi` on a ray-angle basis); on pinhole coordinates it is a
+/// radial-only Brown-Conrady model with a fourth term.
+///
+/// Undistortion solves the forward map by Newton's method (at most `iters`
+/// steps, default 20).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct KannalaBrandt4<S: RealField> {
+    /// Coefficient of `r²`.
+    pub k1: S,
+    /// Coefficient of `r⁴`.
+    pub k2: S,
+    /// Coefficient of `r⁶`.
+    pub k3: S,
+    /// Coefficient of `r⁸`.
+    pub k4: S,
+    /// Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).
+    pub iters: u32,
+}
+
+impl<T: RealField> KannalaBrandt4<T> {
+    /// The radial factor `1 + k1·r² + … + k4·r⁸` and its derivative with
+    /// respect to `r²`.
+    fn radial(&self, r2: T) -> (T, T) {
+        let two = T::one() + T::one();
+        let three = two.clone() + T::one();
+        let four = three.clone() + T::one();
+        let r4 = r2.clone() * r2.clone();
+        let r6 = r4.clone() * r2.clone();
+        let radial = T::one()
+            + self.k1.clone() * r2.clone()
+            + self.k2.clone() * r4.clone()
+            + self.k3.clone() * r6.clone()
+            + self.k4.clone() * r6.clone() * r2.clone();
+        let d_radial = self.k1.clone()
+            + two * self.k2.clone() * r2
+            + three * self.k3.clone() * r4
+            + four * self.k4.clone() * r6;
+        (radial, d_radial)
+    }
+
+    fn distort_with_jacobian(&self, x: T, y: T) -> ((T, T), [[T; 2]; 2]) {
+        let (radial, d_radial) = self.radial(x.clone() * x.clone() + y.clone() * y.clone());
+        let jac = radial_tangential_jacobian(
+            x.clone(),
+            y.clone(),
+            radial.clone(),
+            d_radial,
+            T::zero(),
+            T::zero(),
+        );
+        ((x * radial.clone(), y * radial), jac)
+    }
+}
+
+impl<T: RealField> DistortionModel<T> for KannalaBrandt4<T> {
+    fn distort(&self, n_undist: &Point2<T>) -> Point2<T> {
+        let (x, y) = (n_undist.x.clone(), n_undist.y.clone());
+        let (radial, _) = self.radial(x.clone() * x.clone() + y.clone() * y.clone());
+        Point2::new(x * radial.clone(), y * radial)
+    }
+
+    fn undistort(&self, n_dist: &Point2<T>) -> Point2<T> {
+        let iters = if self.iters == 0 { 20 } else { self.iters };
+        newton_undistort(n_dist, iters, |x, y| self.distort_with_jacobian(x, y))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,6 +545,41 @@ mod tests {
         vals.iter()
             .flat_map(|&x| vals.iter().map(move |&y| (x, y)))
             .collect()
+    }
+
+    // ── KannalaBrandt4 ──────────────────────────────────────────────────────
+
+    /// OpenCV `fisheye::distortPoints` maps the equidistant point of angle
+    /// `θ` to `θ_d = θ (1 + k1 θ² + k2 θ⁴ + k3 θ⁶ + k4 θ⁸)`; the model
+    /// reproduces it, and inverts it wherever `θ_d(θ)` is increasing: the
+    /// fitted range of a real lens (OpenCV's test fisheye reaches about
+    /// 1.2 rad), and beyond 90° for a milder polynomial.
+    #[test]
+    fn kannala_brandt_matches_the_fisheye_polynomial_and_inverts() {
+        let cases = [
+            ([-0.0015, -0.0033, 0.0061, -0.0037], 1.3),
+            ([-0.02, 0.002, -0.0001, 0.0], 2.6),
+        ];
+        for (k, max_theta) in cases {
+            let m = KannalaBrandt4 {
+                k1: k[0],
+                k2: k[1],
+                k3: k[2],
+                k4: k[3],
+                iters: 0,
+            };
+            for i in 0..=20 {
+                let theta = max_theta * f64::from(i) / 20.0;
+                let phi: f64 = 0.7;
+                let p = Point2::new(theta * phi.cos(), theta * phi.sin());
+                let d = m.distort(&p);
+                let t2 = theta * theta;
+                let expected = theta * (1.0 + t2 * (k[0] + t2 * (k[1] + t2 * (k[2] + k[3] * t2))));
+                assert!((d.coords.norm() - expected).abs() < 1e-14, "θ = {theta}");
+                let u = m.undistort(&d);
+                assert!((u - p).norm() < 1e-12, "θ = {theta}: {u:?}");
+            }
+        }
     }
 
     // ── RationalPolynomial ──────────────────────────────────────────────────

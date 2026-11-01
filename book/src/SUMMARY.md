@@ -80,6 +80,7 @@
 - [Composable Camera Pipeline](camera_pipeline.md)
 - [Pinhole Projection](pinhole.md)
 - [Brown-Conrady Distortion](distortion.md)
+- [Fisheye Projection](fisheye.md)
 - [Intrinsics Matrix](intrinsics.md)
 - [Sensor Models and Scheimpflug Tilt](sensor.md)
 - [Serialization and Runtime-Dynamic Types](params.md)

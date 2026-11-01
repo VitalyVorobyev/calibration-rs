@@ -3,7 +3,7 @@ arrays.
 
 A :class:`CameraModel` is built from a camera's parameters — any result's
 ``camera`` / ``cameras[i]`` or a ``CameraParams`` payload — with any
-distortion model and an identity or Scheimpflug (tilted) sensor.
+projection, distortion and sensor model.
 
 .. code-block:: python
 
@@ -23,7 +23,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from . import _vision_calibration as _native
 from ._generated_types import CameraParams
-from .models import PinholeCamera, PinholeScheimpflugCamera
+from .models import Camera
 
 __all__ = ["CameraModel"]
 
@@ -51,9 +51,8 @@ class CameraModel:
     Parameters
     ----------
     camera:
-        A :class:`~vision_calibration.models.PinholeCamera`,
-        :class:`~vision_calibration.models.PinholeScheimpflugCamera`, or a
-        ``CameraParams`` payload.
+        A :class:`~vision_calibration.models.Camera` or a ``CameraParams``
+        payload.
 
     Raises
     ------
@@ -64,9 +63,9 @@ class CameraModel:
     __slots__ = ("_native",)
 
     def __init__(
-        self, camera: PinholeCamera | PinholeScheimpflugCamera | CameraParams | Mapping[str, Any]
+        self, camera: Camera | CameraParams | Mapping[str, Any]
     ) -> None:
-        if isinstance(camera, (PinholeCamera, PinholeScheimpflugCamera)):
+        if isinstance(camera, Camera):
             payload: Any = camera.to_payload()
         else:
             payload = dict(camera)
@@ -81,7 +80,7 @@ class CameraModel:
         """Project camera-frame points ``(N, 3)`` to pixels ``(N, 2)``.
 
         A point the camera cannot see (for a pinhole camera: not in front of
-        it) projects to NaN.
+        it; for an equidistant one: straight behind it) projects to NaN.
         """
         points, single = _rows(points_3d, 3, "points_3d")
         pixels = cast(NDArray[np.float64], self._native.project(points))
@@ -94,7 +93,8 @@ class CameraModel:
 
         Returns ``(origins, directions)``, each ``(N, 3)``. The directions are
         not normalized: a pinhole camera's have ``z = 1``, so a ray's point at
-        depth ``z`` is ``origin + z * direction``.
+        depth ``z`` is ``origin + z * direction``. An equidistant camera's
+        are unit vectors, with ``z ≤ 0`` beyond 90° from the axis.
         """
         rows, single = _rows(pixels, 2, "pixels")
         origins, directions = cast(
@@ -106,8 +106,8 @@ class CameraModel:
         """Map pixels ``(N, 2)`` to where they land in an ideal pinhole image
         with the same intrinsics: distortion and sensor tilt removed.
 
-        A pixel whose ray does not reach the plane in front of the camera maps
-        to NaN.
+        A pixel whose ray does not reach the plane in front of the camera
+        (a fisheye pixel beyond 90° from the axis) maps to NaN.
         """
         rows, single = _rows(pixels, 2, "pixels")
         out = cast(NDArray[np.float64], self._native.undistort(rows))
@@ -116,6 +116,7 @@ class CameraModel:
     def __repr__(self) -> str:
         params = self.params
         return (
-            f"CameraModel(distortion={params['distortion'].get('type')!r}, "
+            f"CameraModel(projection={params['projection'].get('type')!r}, "
+            f"distortion={params['distortion'].get('type')!r}, "
             f"sensor={params['sensor'].get('type')!r}, intrinsics={params['intrinsics']!r})"
         )

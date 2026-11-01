@@ -1,6 +1,6 @@
 """Runtime proof that the single-camera hand-eye and laserline-device configs'
 ``camera`` reaches the solver: the result's camera carries the requested
-distortion model, and a tilted sensor reports a :class:`PinholeScheimpflugCamera`.
+distortion model, and a tilted sensor reports a camera with a :class:`ScheimpflugSensor`.
 
 The data come from the synthetic Python examples.
 """
@@ -29,7 +29,7 @@ class SingleCamHandeyeCameraTest(unittest.TestCase):
     def test_distortion_model_reaches_the_result(self) -> None:
         cfg = vc.SingleCamHandeyeConfig(camera=_camera("division1"))
         result = vc.run_single_cam_handeye(handeye_synthetic.make_input(), cfg)
-        self.assertIsInstance(result.camera, vc.PinholeCamera)
+        self.assertIsInstance(result.camera.sensor, vc.IdentitySensor)
         self.assertIsInstance(result.camera.distortion, vc.Division1Distortion)
         self.assertLess(result.mean_reproj_error, 1e-3)
 
@@ -46,7 +46,7 @@ class LaserlineDeviceCameraTest(unittest.TestCase):
         cfg = vc.LaserlineDeviceConfig(camera=_camera("rational8"))
         result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)
         camera = result.params.camera
-        self.assertIsInstance(camera, vc.PinholeCamera)
+        self.assertIsInstance(camera.sensor, vc.IdentitySensor)
         self.assertIsInstance(camera.distortion, vc.Rational8Distortion)
         self.assertLess(result.mean_reproj_error, 1e-3)
 
@@ -55,7 +55,7 @@ class LaserlineDeviceCameraTest(unittest.TestCase):
             camera=_camera("brown_conrady5", sensor="scheimpflug")
         )
         result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)
-        self.assertIsInstance(result.params.camera, vc.PinholeScheimpflugCamera)
+        self.assertIsInstance(result.params.camera.sensor, vc.ScheimpflugSensor)
 
 
 if __name__ == "__main__":

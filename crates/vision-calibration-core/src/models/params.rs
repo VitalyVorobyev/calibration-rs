@@ -2,9 +2,9 @@ use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BrownConrady5, Camera, CameraModelSpec, DistortionKind, Division, FxFyCxCy, HomographySensor,
-    IdentitySensor, NoDistortion, Pinhole, ProjectionKind, ProjectionModel, RationalPolynomial,
-    ScheimpflugParams, SensorKind, SensorModel, ThinPrism,
+    BrownConrady5, Camera, CameraModelSpec, DistortionKind, Division, Equidistant, FxFyCxCy,
+    HomographySensor, IdentitySensor, KannalaBrandt4, NoDistortion, Pinhole, ProjectionKind,
+    ProjectionModel, RationalPolynomial, ScheimpflugParams, SensorKind, SensorModel, ThinPrism,
 };
 use crate::{Error, Real};
 
@@ -16,6 +16,8 @@ use crate::{Error, Real};
 pub enum ProjectionParams {
     /// Classic pinhole model.
     Pinhole,
+    /// Equidistant (fisheye) projection.
+    Equidistant,
 }
 
 /// Serializable distortion model parameters.
@@ -48,6 +50,12 @@ pub enum DistortionParams {
     Division {
         /// Division distortion coefficient.
         lambda: Real,
+    },
+    /// Kannala-Brandt 4-parameter radial polynomial.
+    KannalaBrandt4 {
+        /// Flattened Kannala-Brandt coefficients.
+        #[serde(flatten)]
+        params: KannalaBrandt4<Real>,
     },
 }
 
@@ -92,6 +100,7 @@ impl ProjectionParams {
     pub fn kind(&self) -> ProjectionKind {
         match self {
             ProjectionParams::Pinhole => ProjectionKind::Pinhole,
+            ProjectionParams::Equidistant => ProjectionKind::Equidistant,
         }
     }
 
@@ -99,7 +108,7 @@ impl ProjectionParams {
     /// [`ProjectionKind::param_names`] (empty for a pinhole).
     pub fn values(&self) -> Vec<Real> {
         match self {
-            ProjectionParams::Pinhole => Vec::new(),
+            ProjectionParams::Pinhole | ProjectionParams::Equidistant => Vec::new(),
         }
     }
 
@@ -113,6 +122,7 @@ impl ProjectionParams {
         check_len("projection", kind.dim(), values)?;
         Ok(match kind {
             ProjectionKind::Pinhole => ProjectionParams::Pinhole,
+            ProjectionKind::Equidistant => ProjectionParams::Equidistant,
         })
     }
 }
@@ -126,6 +136,7 @@ impl DistortionParams {
             DistortionParams::Rational { .. } => DistortionKind::Rational8,
             DistortionParams::ThinPrism { .. } => DistortionKind::ThinPrism9,
             DistortionParams::Division { .. } => DistortionKind::Division1,
+            DistortionParams::KannalaBrandt4 { .. } => DistortionKind::KannalaBrandt4,
         }
     }
 
@@ -142,6 +153,7 @@ impl DistortionParams {
                 vec![p.k1, p.k2, p.k3, p.p1, p.p2, p.s1, p.s2, p.s3, p.s4]
             }
             DistortionParams::Division { lambda } => vec![*lambda],
+            DistortionParams::KannalaBrandt4 { params: p } => vec![p.k1, p.k2, p.k3, p.k4],
         }
     }
 
@@ -194,6 +206,15 @@ impl DistortionParams {
                 },
             },
             DistortionKind::Division1 => DistortionParams::Division { lambda: v[0] },
+            DistortionKind::KannalaBrandt4 => DistortionParams::KannalaBrandt4 {
+                params: KannalaBrandt4 {
+                    k1: v[0],
+                    k2: v[1],
+                    k3: v[2],
+                    k4: v[3],
+                    iters,
+                },
+            },
         })
     }
 }
@@ -249,6 +270,15 @@ impl DistortionParams {
                 },
             },
             DistortionParams::Division { .. } => DistortionParams::Division { lambda: v[0] },
+            DistortionParams::KannalaBrandt4 { params: p } => DistortionParams::KannalaBrandt4 {
+                params: KannalaBrandt4 {
+                    k1: v[0],
+                    k2: v[1],
+                    k3: v[2],
+                    k4: v[3],
+                    ..*p
+                },
+            },
         })
     }
 }
@@ -347,6 +377,7 @@ impl CameraParams {
     pub fn build(&self) -> Result<CameraModel, Error> {
         let proj = match self.projection {
             ProjectionParams::Pinhole => AnyProjection::Pinhole(Pinhole),
+            ProjectionParams::Equidistant => AnyProjection::Equidistant(Equidistant),
         };
 
         let dist = match self.distortion {
@@ -355,6 +386,7 @@ impl CameraParams {
             DistortionParams::Rational { params } => AnyDistortion::Rational(params),
             DistortionParams::ThinPrism { params } => AnyDistortion::ThinPrism(params),
             DistortionParams::Division { lambda } => AnyDistortion::Division(Division { lambda }),
+            DistortionParams::KannalaBrandt4 { params } => AnyDistortion::KannalaBrandt4(params),
         };
 
         let sensor = match &self.sensor {
@@ -379,30 +411,35 @@ impl CameraParams {
 #[doc(hidden)]
 pub enum AnyProjection {
     Pinhole(Pinhole),
+    Equidistant(Equidistant),
 }
 
 impl ProjectionModel<Real> for AnyProjection {
     fn in_domain(&self, p_c: &nalgebra::Vector3<Real>) -> bool {
         match self {
             AnyProjection::Pinhole(m) => m.in_domain(p_c),
+            AnyProjection::Equidistant(m) => m.in_domain(p_c),
         }
     }
 
     fn project(&self, p_c: &nalgebra::Vector3<Real>) -> nalgebra::Point2<Real> {
         match self {
             AnyProjection::Pinhole(m) => m.project(p_c),
+            AnyProjection::Equidistant(m) => m.project(p_c),
         }
     }
 
     fn unproject(&self, n: &nalgebra::Point2<Real>) -> super::Ray<Real> {
         match self {
             AnyProjection::Pinhole(m) => m.unproject(n),
+            AnyProjection::Equidistant(m) => m.unproject(n),
         }
     }
 
     fn is_central(&self) -> bool {
         match self {
             AnyProjection::Pinhole(m) => ProjectionModel::<Real>::is_central(m),
+            AnyProjection::Equidistant(m) => ProjectionModel::<Real>::is_central(m),
         }
     }
 }
@@ -420,6 +457,8 @@ pub enum AnyDistortion {
     ThinPrism(ThinPrism<Real>),
     /// Division 1-parameter model.
     Division(Division<Real>),
+    /// Kannala-Brandt 4-parameter model.
+    KannalaBrandt4(KannalaBrandt4<Real>),
 }
 
 impl super::DistortionModel<Real> for AnyDistortion {
@@ -430,6 +469,7 @@ impl super::DistortionModel<Real> for AnyDistortion {
             AnyDistortion::Rational(m) => m.distort(n),
             AnyDistortion::ThinPrism(m) => m.distort(n),
             AnyDistortion::Division(m) => m.distort(n),
+            AnyDistortion::KannalaBrandt4(m) => m.distort(n),
         }
     }
 
@@ -440,6 +480,7 @@ impl super::DistortionModel<Real> for AnyDistortion {
             AnyDistortion::Rational(m) => m.undistort(n),
             AnyDistortion::ThinPrism(m) => m.undistort(n),
             AnyDistortion::Division(m) => m.undistort(n),
+            AnyDistortion::KannalaBrandt4(m) => m.undistort(n),
         }
     }
 }
@@ -510,16 +551,7 @@ mod tests {
                 assert!((params.p2 - 0.0).abs() < 1e-12);
                 assert_eq!(params.iters, 4);
             }
-            DistortionParams::None => panic!("expected BrownConrady5 params, got None"),
-            DistortionParams::Rational { .. } => {
-                panic!("expected BrownConrady5 params, got Rational")
-            }
-            DistortionParams::ThinPrism { .. } => {
-                panic!("expected BrownConrady5 params, got ThinPrism")
-            }
-            DistortionParams::Division { .. } => {
-                panic!("expected BrownConrady5 params, got Division")
-            }
+            other => panic!("expected BrownConrady5 params, got {other:?}"),
         }
     }
 

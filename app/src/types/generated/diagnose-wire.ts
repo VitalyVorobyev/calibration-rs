@@ -154,13 +154,40 @@ export type DistortionParams =
        */
       lambda: number;
       type: "division";
+    }
+  | {
+      /**
+       * Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).
+       */
+      iters: number;
+      /**
+       * Coefficient of `r²`.
+       */
+      k1: number;
+      /**
+       * Coefficient of `r⁴`.
+       */
+      k2: number;
+      /**
+       * Coefficient of `r⁶`.
+       */
+      k3: number;
+      /**
+       * Coefficient of `r⁸`.
+       */
+      k4: number;
+      type: "kannala_brandt4";
     };
 /**
  * Serializable projection model parameters.
  */
-export type ProjectionParams = {
-  type: "pinhole";
-};
+export type ProjectionParams =
+  | {
+      type: "pinhole";
+    }
+  | {
+      type: "equidistant";
+    };
 /**
  * Serializable sensor model parameters.
  */

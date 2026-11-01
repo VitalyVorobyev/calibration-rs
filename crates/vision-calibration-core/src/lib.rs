@@ -93,9 +93,10 @@ pub use math::{
 pub use models::{
     AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraFix, CameraModel,
     CameraModelSpec, CameraParams, CameraProject, DistortionKind, DistortionModel,
-    DistortionParams, Division, FxFyCxCy, HomographySensor, IdentitySensor, IntrinsicsModel,
-    NoDistortion, Pinhole, ProjectionKind, ProjectionModel, ProjectionParams, RationalPolynomial,
-    Ray, ScheimpflugParams, SensorKind, SensorModel, SensorParams, ThinPrism,
+    DistortionParams, Division, Equidistant, FxFyCxCy, HomographySensor, IdentitySensor,
+    IntrinsicsModel, KannalaBrandt4, NoDistortion, Pinhole, ProjectionKind, ProjectionModel,
+    ProjectionParams, RationalPolynomial, Ray, ScheimpflugParams, SensorKind, SensorModel,
+    SensorParams, ThinPrism,
 };
 // Workspace-internal: the parameter-fixing mask and intrinsics labels the
 // optimizer packs a camera with. Hidden from the docs and outside the semver
