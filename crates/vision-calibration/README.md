@@ -17,7 +17,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-vision-calibration = "0.10"
+vision-calibration = "0.11"
 ```
 
 ### Planar Intrinsics Calibration
