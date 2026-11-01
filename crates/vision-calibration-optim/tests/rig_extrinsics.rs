@@ -294,48 +294,19 @@ fn stereo_rig_extrinsics_converges() {
 
 /// Distortion of each kind with small, physically plausible coefficients.
 fn distortion_of(kind: DistortionKind) -> DistortionParams {
-    use vision_calibration_core::{RationalPolynomial, ThinPrism};
-    match kind {
-        DistortionKind::None => DistortionParams::None,
-        DistortionKind::BrownConrady5 => DistortionParams::BrownConrady5 {
-            params: BrownConrady5 {
-                k1: -0.12,
-                k2: 0.03,
-                k3: 0.0,
-                p1: 0.0004,
-                p2: -0.0003,
-                iters: 8,
-            },
-        },
-        DistortionKind::Rational8 => DistortionParams::Rational {
-            params: RationalPolynomial {
-                k1: -0.12,
-                k2: 0.03,
-                k3: 0.0,
-                k4: 0.0,
-                k5: 0.0,
-                k6: 0.0,
-                p1: 0.0004,
-                p2: -0.0003,
-                iters: 8,
-            },
-        },
-        DistortionKind::ThinPrism9 => DistortionParams::ThinPrism {
-            params: ThinPrism {
-                k1: -0.12,
-                k2: 0.03,
-                k3: 0.0,
-                p1: 0.0004,
-                p2: -0.0003,
-                s1: 0.0,
-                s2: 0.0,
-                s3: 0.0,
-                s4: 0.0,
-                iters: 8,
-            },
-        },
-        DistortionKind::Division1 => DistortionParams::Division { lambda: -0.1 },
-    }
+    let values: Vec<f64> = kind
+        .param_names()
+        .iter()
+        .map(|name| match *name {
+            "k1" => -0.12,
+            "k2" => 0.03,
+            "p1" => 0.0004,
+            "p2" => -0.0003,
+            "lambda" => -0.1,
+            _ => 0.0,
+        })
+        .collect();
+    DistortionParams::from_values(kind, &values).expect("values match the kind's dimension")
 }
 
 /// Every distortion kind with both sensors: camera 0 untilted, camera 1 with
@@ -343,20 +314,13 @@ fn distortion_of(kind: DistortionKind) -> DistortionParams {
 /// must reach the noise floor and recover camera 1's pose.
 #[test]
 fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
-    let kinds = [
-        DistortionKind::None,
-        DistortionKind::BrownConrady5,
-        DistortionKind::Rational8,
-        DistortionKind::ThinPrism9,
-        DistortionKind::Division1,
-    ];
     let tilted = SensorParams::Scheimpflug {
         params: ScheimpflugParams {
             tilt_x: 0.05,
             tilt_y: -0.03,
         },
     };
-    for kind in kinds {
+    for kind in DistortionKind::ALL {
         for sensor in [SensorParams::Identity, tilted.clone()] {
             let camera = |sensor: SensorParams, k: FxFyCxCy<Real>| CameraParams {
                 projection: ProjectionParams::Pinhole,

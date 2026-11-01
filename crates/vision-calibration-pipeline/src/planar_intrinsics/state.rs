@@ -6,11 +6,11 @@
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraModelSpec, CameraParams, FxFyCxCy, Iso3, Mat3, ProjectionParams, Real,
-    ScheimpflugParams, SensorKind, SensorParams,
+    ScheimpflugParams,
 };
 use vision_calibration_optim::PlanarIntrinsicsParams;
 
-use crate::planar_family::embed_distortion;
+use crate::planar_family::{embed_distortion, planar_sensor};
 
 /// Intermediate state for planar intrinsics calibration.
 ///
@@ -97,12 +97,7 @@ impl PlanarState {
         let poses = self.initial_poses.clone()?;
         let intrinsics = self.initial_intrinsics?;
         let distortion = self.initial_distortion.unwrap_or_default();
-        let sensor = match model.sensor {
-            SensorKind::Identity => SensorParams::Identity,
-            SensorKind::Scheimpflug => SensorParams::Scheimpflug {
-                params: self.initial_sensor.unwrap_or_default(),
-            },
-        };
+        let sensor = planar_sensor(model.sensor, self.initial_sensor).ok()?;
         let camera = CameraParams {
             projection: ProjectionParams::Pinhole,
             distortion: embed_distortion(&distortion, model.distortion),
@@ -130,7 +125,7 @@ impl PlanarState {
 mod tests {
     use super::*;
     use vision_calibration_core::Iso3;
-    use vision_calibration_core::{DistortionKind, DistortionParams};
+    use vision_calibration_core::{DistortionKind, DistortionParams, SensorKind, SensorParams};
 
     fn pinhole_bc5() -> CameraModelSpec {
         CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity)

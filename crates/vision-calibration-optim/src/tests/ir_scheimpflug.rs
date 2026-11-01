@@ -11,7 +11,6 @@ use crate::ir::{
     RobustLoss,
 };
 use crate::ir::{DistortionKind, SensorKind};
-use crate::params::distortion::pack_distortion_params;
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
@@ -146,9 +145,12 @@ fn scheimpflug_case(engine: SolverBackend) {
     );
     initial_map.insert(
         "dist".to_string(),
-        pack_distortion_params(&DistortionParams::BrownConrady5 {
-            params: distortion_init,
-        }),
+        DVector::from_vec(
+            DistortionParams::BrownConrady5 {
+                params: distortion_init,
+            }
+            .values(),
+        ),
     );
 
     let sensor_id = ir.add_param_block(

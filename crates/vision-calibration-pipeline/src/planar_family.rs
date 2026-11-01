@@ -10,8 +10,7 @@
 use vision_calibration_core::{
     BrownConrady5, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
     DistortionParams, FxFyCxCy, Iso3, Mat3, PinholeCamera, PlanarDataset, ProjectionParams, Pt2,
-    RationalPolynomial, Real, ScheimpflugParams, SensorKind, SensorParams, ThinPrism,
-    make_pinhole_camera,
+    Real, ScheimpflugParams, SensorKind, SensorParams, make_pinhole_camera,
 };
 
 use crate::Error;
@@ -217,9 +216,10 @@ pub(crate) fn bootstrap_camera(
             }
             (init.camera, Some(init.sensor), init.poses)
         }
+        other => return Err(unsupported_sensor(other)),
     };
     Ok(CameraBootstrap {
-        camera: camera_params(&camera, sensor, model),
+        camera: camera_params(&camera, sensor, model)?,
         poses,
     })
 }
@@ -231,18 +231,13 @@ fn camera_params(
     camera: &PinholeCamera,
     tilt: Option<ScheimpflugParams>,
     model: CameraModelSpec,
-) -> CameraParams {
-    CameraParams {
+) -> Result<CameraParams, Error> {
+    Ok(CameraParams {
         projection: ProjectionParams::Pinhole,
         distortion: embed_distortion(&camera.dist, model.distortion),
-        sensor: match model.sensor {
-            SensorKind::Identity => SensorParams::Identity,
-            SensorKind::Scheimpflug => SensorParams::Scheimpflug {
-                params: tilt.unwrap_or_default(),
-            },
-        },
+        sensor: planar_sensor(model.sensor, tilt)?,
         intrinsics: camera.k,
-    }
+    })
 }
 
 /// The seeded intrinsics and distortion (zero distortion unless seeded), or
@@ -334,6 +329,7 @@ pub(crate) fn optimize_camera(
                 "Scheimpflug intrinsics optimization failed for camera {cam_idx}: {e}"
             ))
         }),
+        other => Err(unsupported_sensor(other)),
     }
 }
 
@@ -343,38 +339,51 @@ pub(crate) fn embed_distortion(
     bc5: &BrownConrady5<Real>,
     kind: DistortionKind,
 ) -> DistortionParams {
-    match kind {
-        DistortionKind::None => DistortionParams::None,
-        DistortionKind::BrownConrady5 => DistortionParams::BrownConrady5 { params: *bc5 },
-        DistortionKind::Rational8 => DistortionParams::Rational {
-            params: RationalPolynomial {
-                k1: bc5.k1,
-                k2: bc5.k2,
-                k3: bc5.k3,
-                k4: 0.0,
-                k5: 0.0,
-                k6: 0.0,
-                p1: bc5.p1,
-                p2: bc5.p2,
-                iters: 8,
-            },
-        },
-        DistortionKind::ThinPrism9 => DistortionParams::ThinPrism {
-            params: ThinPrism {
-                k1: bc5.k1,
-                k2: bc5.k2,
-                k3: bc5.k3,
-                p1: bc5.p1,
-                p2: bc5.p2,
-                s1: 0.0,
-                s2: 0.0,
-                s3: 0.0,
-                s4: 0.0,
-                iters: 8,
-            },
-        },
-        DistortionKind::Division1 => DistortionParams::Division { lambda: 0.0 },
+    if kind == DistortionKind::BrownConrady5 {
+        return DistortionParams::BrownConrady5 { params: *bc5 };
     }
+    let values: Vec<Real> = kind
+        .param_names()
+        .iter()
+        .map(|name| match *name {
+            "k1" => bc5.k1,
+            "k2" => bc5.k2,
+            "k3" => bc5.k3,
+            "p1" => bc5.p1,
+            "p2" => bc5.p2,
+            _ => 0.0,
+        })
+        .collect();
+    DistortionParams::from_values(kind, &values)
+        .expect("one value per parameter name, so the dimension matches")
+}
+
+/// The sensor of a planar camera of `kind`, tilted by `tilt` when it is a
+/// Scheimpflug sensor (untilted without one).
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for a sensor kind planar calibration does not
+/// support.
+pub(crate) fn planar_sensor(
+    kind: SensorKind,
+    tilt: Option<ScheimpflugParams>,
+) -> Result<SensorParams, Error> {
+    match kind {
+        SensorKind::Identity => Ok(SensorParams::Identity),
+        SensorKind::Scheimpflug => Ok(SensorParams::Scheimpflug {
+            params: tilt.unwrap_or_default(),
+        }),
+        other => Err(unsupported_sensor(other)),
+    }
+}
+
+/// The error for a sensor kind the planar workflows have no initializer or
+/// solver route for.
+pub(crate) fn unsupported_sensor(kind: SensorKind) -> Error {
+    Error::invalid_input(format!(
+        "planar calibration does not support the {kind:?} sensor"
+    ))
 }
 
 #[cfg(test)]

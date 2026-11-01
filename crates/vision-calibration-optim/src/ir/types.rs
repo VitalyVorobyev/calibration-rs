@@ -3,7 +3,7 @@ use nalgebra::RealField;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 pub use vision_calibration_core::{
-    CameraModelSpec, DistortionKind, INTRINSICS_PARAM_NAMES, ProjectionKind, SensorKind,
+    CameraModelSpec, DistortionKind, INTRINSICS_PARAM_NAMES, SensorKind,
 };
 use vision_calibration_core::{CorrespondenceView, PointCovariance};
 

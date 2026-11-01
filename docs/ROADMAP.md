@@ -37,6 +37,7 @@ alongside both phases. Track names below match the backlog headings.
 | UQ | Uncertainty as a product: per-feature covariance from the detectors, a variance-factor test of the noise model, joint covariance for rigs, and a quality report with verdicts | Predicted scatter matches Monte-Carlo scatter (proof pack) and real split-half scatter; `calib-bench accept` gates on the quality report |
 | PY | Python parity: sessions and steps, manifest-driven runs, detectors, camera models with vectorized projection, quality report; types generated from the same JSON schemas as the app | The parity map in CI lists no unmapped facade item |
 | Data | The public regression suite fetches its images from their publishers | `calib-bench suite fetch` plus a scheduled freeze check |
+| CAM-KB | The camera-model enums take new models without a breaking release (`#[non_exhaustive]`), and Kannala-Brandt fisheye proves it: the first projection with parameters of its own, its own initializer and rays beyond 90°, so 1.0 freezes an API a second real projection has exercised | Synthetic matrix test across every problem type; OpenCV `fisheye` comparison on a public fisheye set; Python; book chapter |
 
 ### v1.0 exit criteria
 
@@ -78,7 +79,7 @@ alongside both phases. Track names below match the backlog headings.
 
 | Track | Goal | Gate |
 |---|---|---|
-| CAM | Kannala-Brandt fisheye, EUCM, double sphere and telecentric projection in every problem type, plus model selection | Per model: math note, synthetic matrix test, Python, book chapter; OpenCV comparison for fisheye |
+| CAM | EUCM, double sphere and telecentric projection in every problem type, plus model selection | Per model: math note, synthetic matrix test, Python, book chapter; OpenCV comparison for fisheye |
 | CAL | Rigs whose cameras do not all see the reference camera, multi-target scenes, more hand-eye initializers, robot-pose and target-flatness uncertainty, cross-frame projection uncertainty | Synthetic-GT matrix per feature |
 | MVG | Metrology-grade geometry: observations with covariance, triangulated points and derived measurements (lengths, angles, planes) with σ that includes the calibration's covariance, BA on the optimization IR with covariance, stereo from a rig export to depth with σ | Monte-Carlo agreement for every propagated σ; comparison against PoseLib/pycolmap |
 | PERF | Released solver speed-ups, analytic reprojection Jacobians, published timings | `calib-bench solver` against committed numbers |
@@ -99,6 +100,10 @@ order:
 1. The rest of the real-data honesty gap (UQ-REAL-SCALE): with the view
    scatter, the split-half `r` is 1.3–3.3 on the public cameras (it was
    5–24); criterion 3 asks for about 1.
+2. Kannala-Brandt fisheye (CAM-KB) with a public fisheye set (DATA-MORE).
+   Adding a model to the exhaustive camera-model enums after 1.0 would
+   break callers, so the enums are `#[non_exhaustive]` (0.12) and a real
+   second projection checks that nothing else in the API assumes a pinhole.
 
 The v1.0 API audit and the public-dependency decision (criterion 9) are
 done (0.11): ADRs 0006, 0012, 0016 and 0024 state the resulting rules, and
@@ -106,8 +111,7 @@ from 1.0 the release runbook runs `cargo semver-checks`.
 
 Phase 2 tracks are independent of each other and are picked by need. The
 Landscape says the gap to other libraries is adoption, so the published
-OpenCV comparison (BOOK-RESULTS) and fisheye (CAM-KB with a public fisheye
-set) come first. The in-browser book demos wait until after 1.0.
+OpenCV comparison (BOOK-RESULTS) comes first. The in-browser book demos wait until after 1.0.
 
 ## Landscape
 

@@ -11,16 +11,15 @@
 
 use std::collections::HashMap;
 
-use nalgebra::{DVector, DVectorView};
+use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraModelSpec, CameraParams, FixedParams, INTRINSICS_PARAM_NAMES, ProjectionKind,
-    ProjectionParams, ScheimpflugParams, SensorKind, SensorParams,
+    CameraModelSpec, CameraParams, DistortionParams, FixedParams, INTRINSICS_PARAM_NAMES,
+    ProjectionParams, SensorKind, SensorParams,
 };
 
 use crate::Error;
 use crate::ir::{Bound, FixedMask, ManifoldKind, ParamId, ProblemIR};
-use crate::params::distortion::{pack_distortion_params, unpack_distortion_params};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::uncertainty::BlockLabels;
 
@@ -208,21 +207,21 @@ pub(crate) fn add_camera_blocks(
         |s| s.projection.dim(),
         |f| f.projection.as_slice(),
         |_| None,
-        |c| pack_projection(&c.projection),
+        |c| DVector::from_vec(c.projection.values()),
     );
     let distortion = slot(
         "dist",
         |s| s.distortion.dim(),
         |f| f.distortion.as_slice(),
         |_| None,
-        |c| pack_distortion_params(&c.distortion),
+        |c| DVector::from_vec(c.distortion.values()),
     );
     let sensor = slot(
         "sensor",
         |s| s.sensor.dim(),
         |f| f.sensor.as_slice(),
         CameraBounds::sensor_bounds,
-        |c| pack_sensor(&c.sensor),
+        |c| DVector::from_vec(c.sensor.values()),
     );
 
     Ok(intrinsics
@@ -257,24 +256,27 @@ pub(crate) fn unpack_camera(
         let name = block_name(slot, index);
         solution
             .get(&name)
-            .map(DVector::as_view)
             .ok_or_else(|| Error::numerical(format!("missing {name} solution block")))
     };
-    let intrinsics = unpack_intrinsics(block("cam")?)?;
-    let projection = match spec.projection {
-        ProjectionKind::Pinhole => ProjectionParams::Pinhole,
+    // A slot without parameters has no block in the solution.
+    let values = |slot: &str, dim: usize| -> Result<Vec<f64>, Error> {
+        if dim == 0 {
+            Ok(Vec::new())
+        } else {
+            Ok(block(slot)?.as_slice().to_vec())
+        }
     };
-    let distortion = if spec.distortion.dim() > 0 {
-        unpack_distortion_params(spec.distortion, block("dist")?)?
-    } else {
-        unpack_distortion_params(spec.distortion, DVector::zeros(0).as_view())?
-    };
-    let sensor = unpack_sensor(spec.sensor, || block("sensor"))?;
     Ok(CameraParams {
-        projection,
-        distortion,
-        sensor,
-        intrinsics,
+        intrinsics: unpack_intrinsics(block("cam")?.as_view())?,
+        projection: ProjectionParams::from_values(
+            spec.projection,
+            &values("proj", spec.projection.dim())?,
+        )?,
+        distortion: DistortionParams::from_values(
+            spec.distortion,
+            &values("dist", spec.distortion.dim())?,
+        )?,
+        sensor: SensorParams::from_values(spec.sensor, &values("sensor", spec.sensor.dim())?)?,
     })
 }
 
@@ -282,60 +284,12 @@ pub(crate) fn unpack_camera(
 /// projection?, distortion?, sensor?]`), for evaluating a factor outside a
 /// solve.
 pub(crate) fn camera_block_values(camera: &CameraParams) -> Vec<DVector<f64>> {
-    let mut blocks = vec![pack_intrinsics(&camera.intrinsics)];
-    blocks.extend(
-        [
-            pack_projection(&camera.projection),
-            pack_distortion_params(&camera.distortion),
-            pack_sensor(&camera.sensor),
-        ]
+    camera
+        .blocks()
         .into_iter()
-        .filter(|b| !b.is_empty()),
-    );
-    blocks
-}
-
-/// The projection block of `projection` (empty for a pinhole).
-fn pack_projection(projection: &ProjectionParams) -> DVector<f64> {
-    match projection {
-        ProjectionParams::Pinhole => DVector::zeros(0),
-    }
-}
-
-/// The sensor block of `sensor`: `[tilt_x, tilt_y]` for a Scheimpflug sensor,
-/// empty otherwise.
-fn pack_sensor(sensor: &SensorParams) -> DVector<f64> {
-    match sensor {
-        SensorParams::Scheimpflug { params } => {
-            DVector::from_row_slice(&[params.tilt_x, params.tilt_y])
-        }
-        SensorParams::Identity | SensorParams::Homography { .. } => DVector::zeros(0),
-    }
-}
-
-fn unpack_sensor<'a>(
-    kind: SensorKind,
-    block: impl FnOnce() -> Result<DVectorView<'a, f64>, Error>,
-) -> Result<SensorParams, Error> {
-    match kind {
-        SensorKind::Identity => Ok(SensorParams::Identity),
-        SensorKind::Scheimpflug => {
-            let s = block()?;
-            if s.len() != kind.dim() {
-                return Err(Error::invalid_input(format!(
-                    "expected a sensor block of length {}, got {}",
-                    kind.dim(),
-                    s.len()
-                )));
-            }
-            Ok(SensorParams::Scheimpflug {
-                params: ScheimpflugParams {
-                    tilt_x: s[0],
-                    tilt_y: s[1],
-                },
-            })
-        }
-    }
+        .filter(|b| !b.is_empty())
+        .map(DVector::from_vec)
+        .collect()
 }
 
 /// Labels of a camera block's coordinates, for a block whose slot name is
@@ -362,7 +316,7 @@ pub(crate) fn camera_block_labels(
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, CameraFix, DistortionKind, DistortionParams, FxFyCxCy,
+        BrownConrady5, CameraFix, DistortionKind, FxFyCxCy, ScheimpflugParams,
     };
 
     fn camera(sensor: SensorParams) -> CameraParams {

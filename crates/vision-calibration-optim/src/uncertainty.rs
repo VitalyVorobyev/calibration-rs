@@ -382,11 +382,6 @@ pub(crate) fn per_camera(parts: &[Uncertainty], rig_fixed: Vec<String>) -> Uncer
     })
 }
 
-/// Labels of the intrinsics block, in IR order.
-pub(crate) const INTRINSICS_LABELS: [&str; 4] = ["fx", "fy", "cx", "cy"];
-/// Labels of the Scheimpflug sensor block, in IR order.
-pub(crate) const SENSOR_LABELS: [&str; 2] = ["tilt_x", "tilt_y"];
-
 /// A laser plane's unit normal, reported by its three components (the
 /// covariance of a unit vector has rank 2), and its signed distance.
 const PLANE_NORMAL: &str = "plane.normal";

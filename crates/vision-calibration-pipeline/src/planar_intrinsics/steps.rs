@@ -54,7 +54,8 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{
-    bootstrap_planar_intrinsics, estimate_view_homographies, recover_planar_poses_from_homographies,
+    bootstrap_planar_intrinsics, estimate_view_homographies,
+    recover_planar_poses_from_homographies, unsupported_sensor,
 };
 use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
@@ -234,6 +235,7 @@ pub fn step_init_with_seed(
     let result = match model.sensor {
         SensorKind::Identity => init_untilted(session, manual, opts, distortion_note)?,
         SensorKind::Scheimpflug => init_tilted(session, manual, opts, distortion_note)?,
+        other => return Err(unsupported_sensor(other)),
     };
     Ok(result)
 }
@@ -676,6 +678,7 @@ pub fn step_optimize(
             session.state.initial_sensor_manual,
             backend_opts,
         ),
+        other => Err(unsupported_sensor(other)),
     };
     let result = match solved {
         Ok(r) => r,
@@ -857,9 +860,7 @@ fn optimize_tilted(
     let k_seed = initial.camera.intrinsics;
     let s_seed = match initial.camera.sensor {
         SensorParams::Scheimpflug { params } => params,
-        SensorParams::Identity | SensorParams::Homography { .. } => {
-            unreachable!("step_optimize routes only Scheimpflug cameras here")
-        }
+        _ => unreachable!("step_optimize routes only Scheimpflug cameras here"),
     };
     let (pp_x, pp_y) = (0.15 * k_seed.fx, 0.15 * k_seed.fy);
     let tilt_margin = 0.35_f64;
