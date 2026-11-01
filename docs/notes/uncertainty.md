@@ -60,6 +60,51 @@ The result also reports `σ̂_f = 1.4826 · median |rᵢⱼ|`, the
 Gaussian-equivalent noise of one scalar residual, robust to outliers. It is
 a diagnostic only; the covariance uses `σ_f` above.
 
+## View scatter
+
+`Σ` takes every residual as independent. Errors a view's corners share
+(lens model, target, detector bias) make the estimate vary between view
+sets more than that, so the covariance is scaled by a measured factor
+(`backend/covariance.rs`, `view_scatter`).
+
+- **Jackknife.** A view is the per-view parameter block its residuals read
+  (`pose/`, `target/`, `rig_pose/`, `robot_delta/`). With each view's own
+  coordinates profiled out, view `v` contributes information `H̃_v` and
+  score `g̃_v = Σ ρ′ Jᵢᵀ rᵢ` on the `s` shared coordinates, whose total
+  information is `H̃ = L Lᵀ = ([H⁻¹]_shared)⁻¹`. Leaving `v` out moves them
+  by one Gauss–Newton step `δ_v = (H̃ − H̃_v)⁻¹ g̃_v = L⁻ᵀ F_v L⁻¹ g̃_v`,
+  `F_v = (I − W_v)⁻¹`, with the whitened leverage `W_v = L⁻¹ H̃_v L⁻ᵀ`
+  (eigenvalues in [0, 1]; at 1 the step keeps its first-order term).
+  `Σ_J = (V−1)/V · Σ_v δ_v δ_vᵀ`.
+- **Null expectation.** Under the noise model the scores have
+  `Cov(L⁻¹g̃_u, L⁻¹g̃_v) ∝ δ_uv W_v − W_u W_v` (they sum to zero at the
+  solution), so the whitened steps have covariances `F_v (W_v − W_v²) F_v`
+  (eigenvalues `cᵢ = fᵢ² λᵢ (1 − λᵢ)`) and, between views, `−A_u A_v` with
+  `A_v = F_v W_v`. `E[Σ_J]` exceeds `Σ` where a few views carry most of the
+  information (Efron–Stein), by the known `Σ cᵢ`.
+- **Factor.** `k = 1 + (V−1)/V · (tr(Σ⁻¹ Σ_J) − Σ cᵢ) / s`: mean 1 under the
+  noise model, the excess otherwise. The sum of the squared whitened steps
+  has mean `Σ cᵢ` and variance `2 Σ cᵢ² + 4 Σ_{u<v} ‖A_u A_v‖²_F`; taken as
+  a scaled χ² (Satterthwaite, Wilson–Hilferty quantile), the covariance is
+  scaled by `k` only above its 97.5 % point.
+- **Null check** (8 views, 300 clean runs): `k` mean 0.98, standard
+  deviation 0.61 against 0.59 predicted; scaled in 3.7 % of runs.
+- **Honesty.** Split-half `r` (mean `z²/2` of the projection difference
+  between calibrations from disjoint halves, 21 splits; 1 when honest):
+
+| | sandwich (no leverage) | CR2 (leverage^½) | raw jackknife | `k` as above |
+|---|---|---|---|---|
+| public real cameras (6), range | 1.44–3.42 | 1.05–2.42 | 0.64–1.48 | 0.66–1.53 |
+| public real cameras, geometric mean | 2.13 | 1.55 | 0.96 | 1.03 |
+| synthetic, independent noise, 15 views, 24 scenes | 0.87 | 0.82 | 0.73 | 0.88 |
+| synthetic, per-view warp, 24 views, 12 scenes | — | — | 0.75 | 0.93 |
+| Monte-Carlo gates passed | 7/7 | — | 2/7 | 7/7 |
+
+  One scene's `r` spans 0.50–1.50 (5–95 %, 96 synthetic scenes of 24 views
+  with an exact σ), so a single camera's `r` is a weak check; the gate is
+  the pooled value. Without any view scatter the real cameras' `r` is
+  4.9–26.
+
 ## Per-point covariance (whitening)
 
 When the observations state `Σᵢ` per point, the reprojection residual is
@@ -159,7 +204,7 @@ and the σ tolerance.
 | Hand-eye, robot-pose priors | as above, robot poses perturbed with the priors' σ (0.5°, 1 mm; view 0 exact) and refined, 400 runs | σ within ±10 %; NEES as above | sandwich σ 0.93–1.05, NEES 20.91; inverse-information form 0.64–1.07 (rejected) |
 | Laserline device | 10 views of a 9×9 board, laser sheet crossing the axis at 0.5 m, ±0.5 px uniform noise on corners and laser pixels, laser loss Huber 1 px (the default), 400 runs | σ within ±10 %, two families; NEES as above | σ 0.99–1.07 (12 parameters, rank 11), NEES 11.84; with Huber 0.01 px, nearly L1, `plane.d` 1.11 and the plane less precise (σ(d) 1.58e-4 against 1.45e-4) |
 | Projection σ | the Scheimpflug scene above, 744 × 516 image; rays fixed by the true camera at the centre, two opposite corners (outside the boards' coverage) and an interior node, 200 runs | major-axis σ within ±10 % of the scatter of the projected pixel | ratio 0.94–0.97; σ ≈ 10.5–11.3 px everywhere, set by σ(cx) 9.3, σ(cy) 10.0 (ρ(cx, tilt_y) = −0.99) |
-| Synthetic suite entries | six frozen scenes of the solver benchmark (0.5 px), one realization each, default configs | every parameter within 5σ of the truth (`suite check`) | planar 1.9σ, Scheimpflug 1.5σ, hand-eye 0.9σ, rig 2.1σ, laserline 2.2σ (Mahalanobis² 11.6 over rank 11; 17.8 with a nearly-L1 laser loss of 0.01 px), joint rig hand-eye laserline 4.5σ (`cam1.cam_se3_rig.rx`); hand-eye coordinates under robot-pose priors within 0.7σ |
+| Synthetic suite entries | six frozen scenes of the solver benchmark (0.5 px), one realization each, default configs | every parameter within 5σ of the truth (`suite check`) | planar 1.2σ (its view scatter, 2.5, passes the significance test by chance), Scheimpflug 1.5σ, hand-eye 1.2σ, rig 2.1σ, laserline 2.2σ, joint rig hand-eye laserline 3.0σ (`cam0.plane.nx`) |
 | Quality verdict | 20 views of a 9×7 board on a 1280 × 960 camera, 0.1 px Gaussian noise, spread over the image or bunched in its top-left quadrant (`analysis/quality/tests.rs`) | spread passes every check; bunched fails coverage | spread: coverage 100 %, projection σ ≤ 0.70 px, verdict pass; bunched: coverage 25 % (fail), projection σ 3.88 px (warn) |
 | Next-view prediction | 6 tilted views of a 9 × 7 board over the central part of a 1280 × 960 image, 0.1–0.3 px Gaussian noise, 5 seeds; Brown-Conrady, division, Scheimpflug; best-, median-, worst-ranked candidate and best three (`analysis/next_view/tests.rs`) | predicted σ per parameter and max projection σ against the re-solve at the current σ_eff, within 10 % on average; best candidate's real reduction above the worst one's | σ 0.5 %, 0.1 %, 2.1 % (worst case 13.5 %); max projection σ 0.5 %, 0.0 %, 1.2 %; best above worst in all 15 scenes |
 | Whitened reprojection | planar and 2-camera rig, per-point covariances 0.1–1 px, anisotropy up to 4:1, 1000 runs (see "Per-point covariance") | σ̂₀ within 5 % of 1; σ within ±10 %; normalized RMS within ±10 %; within-2σ 95.4 ± 2 %; RMSE below the uniform solve | σ̂₀ 0.976, 0.986; σ 0.96–1.04; RMSE 0.31–0.41 of uniform |

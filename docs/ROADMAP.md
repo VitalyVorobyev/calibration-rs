@@ -92,14 +92,11 @@ alongside both phases. Track names below match the backlog headings.
 
 ## Ordering
 
-Phase 1 is mostly in: the camera-model spec, the result-changing UQ fixes,
-the quality report, Python parity and the suite fetch. What is left, in
-order:
+Phase 1 is mostly in: the camera-model spec, the UQ fixes (the stated σ
+matches real split-half scatter: `r` 1.03 pooled over the public cameras),
+the quality report, Python parity and the suite fetch. What is left:
 
-1. The rest of the real-data honesty gap (UQ-REAL-SCALE): with the view
-   scatter, the split-half `r` is 1.3–3.3 on the public cameras (it was
-   5–24); criterion 3 asks for about 1.
-2. Kannala-Brandt fisheye (CAM-KB) with a public fisheye set (DATA-MORE).
+1. Kannala-Brandt fisheye (CAM-KB) with a public fisheye set (DATA-MORE).
    Adding a model to the exhaustive camera-model enums after 1.0 would
    break callers, so the enums are `#[non_exhaustive]` (0.12) and a real
    second projection checks that nothing else in the API assumes a pinhole.

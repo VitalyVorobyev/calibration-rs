@@ -13,20 +13,12 @@ from measured feature noise, and a quality verdict built on it. Design:
 ADR 0026; evidence: `notes/uncertainty.md`. Items that change results
 need their measurement first and stay opt-in until it is in.
 
-- [ ] UQ-REAL-SCALE - The covariance is scaled by the view scatter (a
-  view-clustered sandwich, `ParameterCovariance::view_scatter`), which took
-  the public cameras' split-half `r` from 5.1–24.5 to 1.3–3.3 (`kuka_1`,
-  `ds8` cameras; feature-cov E3, 21 splits). Left: the clustered estimate
-  is biased low with few views (CR1 scaling only). Try a small-sample
-  correction (a delete-one-view jackknife or the CR3 leverage form) and
-  re-measure with `stereo` too. Gate: split-half `r` within 0.85–1.15 on the
-  public cameras, or the remaining factor documented.
 - [~] UQ-RINGGRID-COV - The ring-grid detector reports the ellipse-centre
   covariance (cross-repo, ringgrid). Parked: the real-data study advises
   against weighting a calibration by the chessboard and ChArUco
   covariance, so a ring-grid one would only be a report. Reopen if a
-  ring-grid weighting study is wanted, or if UQ-REAL-SCALE needs the
-  detector's term.
+  ring-grid weighting study is wanted, or if the view scatter on ring-grid
+  data needs the detector's term.
 - [ ] UQ-CROSS-FRAME - (Phase 2) Projection uncertainty across the
   reference-frame shift (the mrcal method). Needs the intrinsics–pose
   cross-covariance, which results do not carry.

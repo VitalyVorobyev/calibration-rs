@@ -830,7 +830,42 @@ fn laserline_covariance_matches_monte_carlo() {
     mc.assert_calibrated(0.10);
 }
 
-/// The view scatter is about 1 when the corners' errors are independent, and
+/// With independent corner errors the views do not scatter significantly
+/// more than the noise predicts: the covariance is left unscaled in nearly
+/// every noise draw.
+#[test]
+fn view_scatter_leaves_independent_noise_unscaled() {
+    let gt = truth();
+    let scaled: Vec<f64> = (0..16)
+        .filter_map(|seed| {
+            let data = dataset(
+                &gt,
+                UniformPixelNoise {
+                    seed: 100 + seed,
+                    max_abs_px: 0.5,
+                },
+            );
+            let est = optimize_planar_intrinsics(
+                &data,
+                &gt,
+                PlanarIntrinsicsSolveOptions::default(),
+                BackendSolveOptions::default(),
+            )
+            .unwrap();
+            let Uncertainty::Available(cov) = est.uncertainty else {
+                panic!("no covariance: {:?}", est.uncertainty);
+            };
+            cov.view_scatter
+        })
+        .collect();
+    assert!(
+        scaled.len() <= 2,
+        "scaled in {} of 16 draws: {scaled:?}",
+        scaled.len()
+    );
+}
+
+/// The view scatter is absent when the corners' errors are independent, and
 /// large when each view carries an error of its own that no shared parameter
 /// absorbs (here a radial warp whose strength changes from view to view, as
 /// a target that bends differently in each view would). The covariance is
@@ -856,8 +891,11 @@ fn view_scatter_flags_errors_shared_within_a_view() {
         cov
     };
     let independent = solve(&dataset(&gt, noise));
-    let k = independent.view_scatter.expect("ten views");
-    assert!(k < 2.5, "independent noise: view scatter {k}");
+    assert!(
+        independent.view_scatter.is_none(),
+        "independent noise: view scatter {:?}",
+        independent.view_scatter
+    );
 
     let k_true = gt.camera.intrinsics;
     let warped = PlanarDataset::new(
@@ -883,7 +921,7 @@ fn view_scatter_flags_errors_shared_within_a_view() {
     )
     .unwrap();
     let shared = solve(&warped);
-    let k_shared = shared.view_scatter.expect("ten views");
+    let k_shared = shared.view_scatter.expect("a significant scatter");
     assert!(k_shared > 4.0, "per-view warp: view scatter {k_shared}");
     let unscaled_fx_var = independent.std_dev("fx").unwrap().powi(2);
     let scaled_fx_var = shared.std_dev("fx").unwrap().powi(2);

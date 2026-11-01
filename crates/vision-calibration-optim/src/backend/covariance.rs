@@ -64,6 +64,14 @@ const MAD_TO_SIGMA: f64 = 1.482_602_218_505_602;
 /// Fewest views [`view_scatter`] is estimated from: below it the scatter of
 /// per-view scores is too noisy to rescale a covariance by.
 pub(crate) const MIN_VIEWS: usize = 6;
+/// The covariance is scaled by the view scatter only when that exceeds its
+/// distribution under the noise model at this standard-normal quantile
+/// (1.96: a 2.5 % chance of scaling data that fit the model).
+const SCATTER_SIGNIFICANCE: f64 = 1.96;
+/// A view's whitened leverage within this of 1 marks a direction only that
+/// view observes: leaving it out has no finite step, so the view keeps its
+/// first-order term there.
+const LEVERAGE_TOLERANCE: f64 = 1e-9;
 /// Bound tolerance relative to `max(1, |bound|)`.
 const BOUND_TOLERANCE: f64 = 1e-10;
 
@@ -126,8 +134,8 @@ pub(crate) struct CovarianceEstimate {
     /// Residuals minus free tangent coordinates.
     pub dof: usize,
     /// How much more the shared parameters scatter across views than the
-    /// residual noise predicts (see [`view_scatter`]); `matrix` is scaled
-    /// by it when it exceeds 1. `None` with fewer than [`MIN_VIEWS`] views.
+    /// residual noise predicts (see [`view_scatter`]), when significantly
+    /// more; `matrix` is scaled by it.
     pub view_scatter: Option<f64>,
 }
 
@@ -268,8 +276,8 @@ pub(crate) fn estimate(
             &h_inverse * g * &h_inverse
         }
     };
-    let view_scatter = view_scatter(ir, &raw, &blocks, &h_inverse, &sigma, &free);
-    let scale = view_scatter.filter(|k| *k > 1.0).unwrap_or(1.0);
+    let view_scatter = view_scatter(ir, &raw, &blocks, &moments, &h_inverse, &sigma, &free);
+    let scale = view_scatter.unwrap_or(1.0);
     let tangent_coords: Vec<Coordinate> = free.iter().map(|&(c, _)| c).collect();
     let sigma_tangent = DMatrix::from_fn(n, n, |a, b| scale * sigma[(free[a].1, free[b].1)]);
     let (coordinates, matrix) = to_ambient(ir, params, &tangent_coords, &sigma_tangent);
@@ -653,48 +661,73 @@ fn to_ambient(
 }
 
 /// How much more the shared parameters scatter across views than the
-/// residual noise predicts: `k = tr(Σ⁻¹ Σ_v) / n` over the `n` free
-/// coordinates of blocks shared across views, with `Σ` the covariance from
-/// the residual noise and `Σ_v` the view-clustered sandwich
-/// `V/(V−1) · H⁻¹ (Σ_v g_v g_vᵀ) H⁻¹`, `g_v = Σ ρ′ Jᵢᵀ rᵢ` over view `v`'s
-/// residuals (priors on its blocks included).
+/// residual noise predicts, when significantly more: the factor `k` the
+/// covariance is scaled by.
 ///
-/// `Σ` treats every residual as independent noise; `Σ_v` is the scatter of
-/// the estimate under a change of views, whatever correlates the residuals
-/// within a view (a lens model or target that does not fit exactly, a
-/// detector bias). On real images it is several times `Σ`; on data that
-/// match the noise model it is 1 up to sampling noise.
+/// `Σ` (the covariance from the residual noise) treats every residual as
+/// independent. The delete-one-view jackknife `Σ_J` measures the scatter
+/// of the estimate under a change of views, whatever correlates the
+/// residuals within a view (a lens model or target that does not fit
+/// exactly, a detector bias). On real images it is several times `Σ`.
 ///
-/// `None` when fewer than [`MIN_VIEWS`] views carry residuals, no free
-/// coordinate is shared, or `Σ` restricted to the shared ones is singular.
+/// The jackknife takes one Gauss–Newton step per left-out view. With each
+/// view's own coordinates (its pose) profiled out, view `v` contributes the
+/// information `H̃_v` and the score `g̃_v` (`Σ ρ′ Jᵢᵀ rᵢ` over its residuals,
+/// priors on its blocks included) on the shared coordinates, whose total
+/// information is `H̃ = L Lᵀ = ([H⁻¹]_shared)⁻¹`. Leaving `v` out moves them
+/// by `δ_v = (H̃ − H̃_v)⁻¹ g̃_v = L⁻ᵀ (I − W_v)⁻¹ L⁻¹ g̃_v`, with the view's
+/// whitened leverage `W_v = L⁻¹ H̃_v L⁻ᵀ`, and `Σ_J = (V−1)/V · Σ_v δ_v
+/// δ_vᵀ`. In a direction that only one view observes (an eigenvalue of
+/// `W_v` at 1), that view keeps its first-order term `H̃⁻¹ g̃_v`.
+///
+/// The jackknife errs high: under the noise model `E[Σ_J]` exceeds `Σ`
+/// where a few views carry most of the information. That expectation is
+/// known from the leverages (`W_v`'s eigenvalues `λ` give the step's
+/// whitened variances `λ / (1 − λ)`), so
+/// `k = 1 + tr(Σ⁻¹ (Σ_J − E[Σ_J])) / s` over the `s` shared coordinates
+/// has mean 1 under the noise model and counts only the excess. The
+/// view-clustered sandwich `V/(V−1) · H̃⁻¹ (Σ_v g̃_v g̃_vᵀ) H̃⁻¹` (the
+/// jackknife without the leverage terms) is biased low where the jackknife
+/// is high: on real images it left the split-half scatter at 1.4–3.4 times
+/// the stated variance, `k` at about 1.
+///
+/// `k` is noisy with few views (a standard deviation of about 0.6 with
+/// eight), so the covariance is scaled only when `k` is significant: above
+/// its distribution under the noise model at [`SCATTER_SIGNIFICANCE`].
+/// There the whitened steps are jointly Gaussian, each with the covariance
+/// `F_v (W_v − W_v²) F_v` (`F_v = (I − W_v)⁻¹`) and between views `−A_u A_v`
+/// (`A_v = F_v W_v`; the scores sum to zero at the solution), so the sum of
+/// their squares has a known mean and variance and is taken as a scaled χ²
+/// (Satterthwaite). Scaling by every `k > 1` would inflate the covariance
+/// of data that fit the noise model.
+///
+/// `None` when `k` is not significantly above 1, fewer than [`MIN_VIEWS`]
+/// views carry residuals, no free coordinate is shared, a residual reads
+/// two views' blocks, or `Σ` restricted to the shared coordinates is
+/// singular.
 fn view_scatter(
     ir: &ProblemIR,
     raw: &RawLinearization,
     blocks: &[BlockTerms],
+    moments: &Moments,
     h_inverse: &DMatrix<f64>,
     sigma: &DMatrix<f64>,
     free: &[(Coordinate, usize)],
 ) -> Option<f64> {
     let block_view: Vec<Option<usize>> = ir.params.iter().map(|p| p.view()).collect();
-    // The view of each residual row (that of the first per-view block its
-    // residual reads) and its weight in the gradient, `ρ′`.
-    let mut row_view = vec![None; raw.residual.nrows()];
-    let mut row_weight = vec![0.0; raw.residual.nrows()];
+    // The residual blocks of each view: those reading one of its blocks.
     let mut views: Vec<usize> = Vec::new();
-    for (terms, block) in blocks.iter().zip(&ir.residuals) {
+    let mut members: Vec<Vec<usize>> = Vec::new();
+    for (index, block) in ir.residuals.iter().enumerate() {
         let Some(view) = block.params.iter().find_map(|p| block_view[p.0]) else {
             continue;
         };
-        let slot = match views.iter().position(|&v| v == view) {
-            Some(slot) => slot,
+        match views.iter().position(|&v| v == view) {
+            Some(slot) => members[slot].push(index),
             None => {
                 views.push(view);
-                views.len() - 1
+                members.push(vec![index]);
             }
-        };
-        for row in terms.rows.clone() {
-            row_view[row] = Some(slot);
-            row_weight[row] = terms.rho1;
         }
     }
     if views.len() < MIN_VIEWS {
@@ -705,31 +738,153 @@ fn view_scatter(
         .filter(|(c, _)| block_view[c.block].is_none())
         .map(|&(_, col)| col)
         .collect();
-    if shared.is_empty() {
+    let s = shared.len();
+    if s == 0 {
         return None;
     }
 
-    // One column of scores per view: `g_v`.
-    let mut scores = DMatrix::<f64>::zeros(h_inverse.nrows(), views.len());
+    // Each free column's place in its view's local Jacobian: the shared
+    // coordinates first, then the view's own (`owner` is its view slot).
+    let mut local: Vec<Option<(Option<usize>, usize)>> = vec![None; raw.jacobian.ncols()];
+    for (i, &col) in shared.iter().enumerate() {
+        local[col] = Some((None, i));
+    }
+    let mut own = vec![0_usize; views.len()];
+    for &(c, col) in free {
+        let Some(view) = block_view[c.block] else {
+            continue;
+        };
+        // A per-view block that no residual reads would leave `H` singular.
+        let slot = views.iter().position(|&v| v == view)?;
+        local[col] = Some((Some(slot), s + own[slot]));
+        own[slot] += 1;
+    }
+    // Each view's rows: `ψ = ρ′ r` (the score weight) and `κ` (the weight
+    // in `H`).
+    let mut row_of: Vec<Option<(usize, usize)>> = vec![None; raw.residual.nrows()];
+    let mut psi: Vec<Vec<f64>> = vec![Vec::new(); views.len()];
+    let mut kappa: Vec<Vec<f64>> = vec![Vec::new(); views.len()];
+    for (slot, list) in members.iter().enumerate() {
+        for &b in list {
+            let terms = &blocks[b];
+            let weight = moments.kappa(terms);
+            for row in terms.rows.clone() {
+                row_of[row] = Some((slot, psi[slot].len()));
+                psi[slot].push(terms.rho1 * raw.residual[(row, 0)]);
+                kappa[slot].push(weight);
+            }
+        }
+    }
+    let mut jac: Vec<DMatrix<f64>> = (0..views.len())
+        .map(|slot| DMatrix::zeros(psi[slot].len(), s + own[slot]))
+        .collect();
     let symbolic = raw.jacobian.symbolic();
     let values = raw.jacobian.val();
-    for col in 0..raw.jacobian.ncols() {
+    for (col, place) in local.iter().enumerate() {
+        let Some((owner, j)) = *place else {
+            continue;
+        };
         for (pos, &row) in symbolic
             .col_range(col)
             .zip(symbolic.row_idx_of_col_raw(col))
         {
-            if let Some(slot) = row_view[row] {
-                scores[(col, slot)] += row_weight[row] * values[pos] * raw.residual[(row, 0)];
+            let Some((slot, i)) = row_of[row] else {
+                continue;
+            };
+            if owner.is_some_and(|o| o != slot) {
+                // A residual reads two views' blocks: views are not
+                // independent clusters.
+                return None;
             }
+            jac[slot][(i, j)] = values[pos];
         }
     }
-    let v = views.len() as f64;
-    let spread = h_inverse * scores;
-    let clustered = &spread * spread.transpose() * (v / (v - 1.0));
 
-    let s = shared.len();
+    // `H̃ = L Lᵀ`, the information on the shared coordinates.
+    let marginal = DMatrix::from_fn(s, s, |a, b| h_inverse[(shared[a], shared[b])]);
+    let l = marginal.cholesky()?.inverse().cholesky()?.l();
+    let l_inv = l.try_inverse()?;
+    let mut jackknife = DMatrix::<f64>::zeros(s, s);
+    // Under the noise model: the eigenvalues `fᵢ² λᵢ (1 − λᵢ)` of each
+    // view's whitened step covariance, and `Σ_v A_v²` and `Σ_v ‖A_v²‖²` for
+    // the whitened steps `A_v = F_v W_v` (`F_v = (I − W_v)⁻¹`).
+    let mut own_variance: Vec<f64> = Vec::new();
+    let mut squares = DMatrix::<f64>::zeros(s, s);
+    let mut fourth = 0.0;
+    for slot in 0..views.len() {
+        let j = &jac[slot];
+        let weighted = DMatrix::from_fn(j.nrows(), j.ncols(), |r, c| kappa[slot][r] * j[(r, c)]);
+        let h = j.transpose() * weighted;
+        let g = j.transpose() * DVector::from_column_slice(&psi[slot]);
+        // `H̃_v` and `g̃_v`: the view's own coordinates profiled out.
+        let (info_v, score) = if own[slot] == 0 {
+            (
+                h.view((0, 0), (s, s)).into_owned(),
+                g.rows(0, s).into_owned(),
+            )
+        } else {
+            let o = own[slot];
+            let pose = h.view((s, s), (o, o)).into_owned().cholesky()?;
+            let cross = h.view((0, s), (s, o));
+            let x = pose.solve(&h.view((s, 0), (o, s)).into_owned());
+            let y = pose.solve(&g.rows(s, o).into_owned());
+            (h.view((0, 0), (s, s)) - cross * x, g.rows(0, s) - cross * y)
+        };
+        // `(H̃ − H̃_v)⁻¹ = L⁻ᵀ (I − W)⁻¹ L⁻¹` with the view's whitened
+        // leverage `W = L⁻¹ H̃_v L⁻ᵀ`, whose eigenvalues lie in [0, 1]; an
+        // eigenvalue of 1 is a direction only this view observes.
+        let w = &l_inv * info_v * l_inv.transpose();
+        let eigen = SymmetricEigen::new((&w + w.transpose()) * 0.5);
+        let inflation = eigen.eigenvalues.map(|lambda| {
+            let rest = 1.0 - lambda.clamp(0.0, 1.0);
+            if rest > LEVERAGE_TOLERANCE {
+                1.0 / rest
+            } else {
+                1.0
+            }
+        });
+        let u = &eigen.eigenvectors;
+        let mut step_squared = eigen.eigenvalues.clone();
+        for (i, (&lambda, &f)) in eigen.eigenvalues.iter().zip(inflation.iter()).enumerate() {
+            let lambda = lambda.clamp(0.0, 1.0);
+            own_variance.push(f * f * lambda * (1.0 - lambda));
+            step_squared[i] = (f * lambda).powi(2);
+        }
+        let step_squared = u * DMatrix::from_diagonal(&step_squared) * u.transpose();
+        fourth += step_squared.norm_squared();
+        squares += step_squared;
+        let delta = l_inv.transpose()
+            * u
+            * DMatrix::from_diagonal(&inflation)
+            * u.transpose()
+            * &l_inv
+            * score;
+        jackknife += &delta * delta.transpose();
+    }
+    let v = views.len() as f64;
+    jackknife *= (v - 1.0) / v;
+
     let model = DMatrix::from_fn(s, s, |a, b| sigma[(shared[a], shared[b])]);
-    let scatter = DMatrix::from_fn(s, s, |a, b| clustered[(shared[a], shared[b])]);
-    let k = model.cholesky()?.solve(&scatter).trace() / s as f64;
-    k.is_finite().then_some(k)
+    let k = model.cholesky()?.solve(&jackknife).trace() / s as f64;
+    // Under the noise model the whitened steps are jointly Gaussian with
+    // covariances `F_v (W_v − W_v²) F_v` (eigenvalues above) and, between
+    // views, `−A_u A_v`: the scores sum to zero at the solution. The sum of
+    // their squares has the mean and variance below (the cross terms
+    // `2 Σ_{u≠v} ‖A_u A_v‖²`, with `‖A_u A_v‖² = tr(A_u² A_v²)`) and is
+    // close to a scaled χ² (Satterthwaite).
+    let mean: f64 = own_variance.iter().sum();
+    let variance: f64 = own_variance.iter().map(|c| 2.0 * c * c).sum::<f64>()
+        + 2.0 * (squares.norm_squared() - fourth);
+    let factor = (v - 1.0) / v / s as f64;
+    let k = 1.0 + k - factor * mean;
+    let dof = 2.0 * mean * mean / variance;
+    let threshold = 1.0 + factor * (variance / (2.0 * mean) * chi_square_quantile(dof) - mean);
+    (k.is_finite() && k > threshold).then_some(k)
+}
+
+/// The upper [`SCATTER_SIGNIFICANCE`] quantile of χ² with `dof` degrees
+/// of freedom (Wilson–Hilferty).
+fn chi_square_quantile(dof: f64) -> f64 {
+    let a = 2.0 / (9.0 * dof);
+    dof * (1.0 - a + SCATTER_SIGNIFICANCE * a.sqrt()).powi(3)
 }

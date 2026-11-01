@@ -1,6 +1,6 @@
 {
   "suite_version": "2026.1",
-  "producer": "calibration-rs 0.10.0",
+  "producer": "calibration-rs 0.11.0",
   "export": {
     "diagnostics": {
       "per_feature_residuals": {
@@ -428,7 +428,6 @@
       ],
       "num_residuals": 4680,
       "status": "available",
-      "view_scatter": 0.820253556981771,
       "views": [
         {
           "covariance": [
