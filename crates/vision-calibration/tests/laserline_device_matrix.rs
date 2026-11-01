@@ -147,7 +147,7 @@ fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
     };
     let tiny = run(SolverBackend::TinySolver);
     let factrs = run(SolverBackend::Factrs);
-    let (a, b) = (&tiny.estimate.params, &factrs.estimate.params);
+    let (a, b) = (&tiny.params, &factrs.params);
     for (name, x, y) in [
         ("fx", a.camera.intrinsics.fx, b.camera.intrinsics.fx),
         ("fy", a.camera.intrinsics.fy, b.camera.intrinsics.fy),
@@ -207,7 +207,7 @@ fn laserline_device_recovers_plane_across_grid_and_noise() {
                 }
 
                 let export = solve(dataset);
-                let plane = &export.estimate.params.plane;
+                let plane = &export.params.plane;
 
                 // Align to the GT sign (the S2 double cover: (n, d) ≡ (−n, −d)).
                 let mut n_est = plane.normal.into_inner();

@@ -287,7 +287,7 @@ fn print_per_feature_residuals_summary(
     label: &str,
 ) -> Result<()> {
     let export = session.export_peek()?;
-    let pf = &export.per_feature_residuals;
+    let pf = &export.diagnostics.per_feature_residuals;
     let total = pf.target.len();
     let with_value = pf.target.iter().filter(|r| r.error_px.is_some()).count();
     println!(

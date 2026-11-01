@@ -212,7 +212,7 @@ pub fn diagnose(
     let mut cos_acc = 0.0;
     let mut cos_n = 0usize;
 
-    for rec in &export.per_feature_residuals.target {
+    for rec in &export.diagnostics.per_feature_residuals.target {
         let Some(projected) = rec.projected_px else {
             continue;
         };

@@ -7,8 +7,8 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, FeatureResidualHistogram, FxFyCxCy, ImageManifest, Iso3,
-    PerFeatureResiduals, Real, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
+    BrownConrady5, CameraParams, FeatureResidualHistogram, FxFyCxCy, Iso3, PerFeatureResiduals,
+    Real, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
     compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
@@ -17,12 +17,12 @@ use vision_calibration_optim::{
 #[cfg(test)]
 use vision_calibration_optim::{HandeyeParams, RobustLoss, SolveReport};
 
-use crate::common::ExportKind;
 use crate::common::config::{
     CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig,
     RobotPoseConfig, SolverConfig, rig_camera_for, validate_rig_camera_indices,
     validate_rig_cameras,
 };
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -234,23 +234,10 @@ pub struct RigHandeyeExport {
 
     /// Per-camera reprojection errors (pixels).
     pub per_cam_reproj_errors: Vec<f64>,
-
-    /// Per-feature reprojection residuals. Per-view
-    /// `rig_se3_target` is derived from the handeye chain
-    /// (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),
-    /// then composed with `cam_se3_rig` for projection.
+    /// Residuals and the image manifest: evidence for viewers and
+    /// debugging, not part of the result.
     #[serde(default)]
-    pub per_feature_residuals: PerFeatureResiduals,
-
-    /// Optional image manifest (viewer-side contract). When
-    /// populated, downstream viewers (the diagnose UI) can locate the source
-    /// image for each `(pose, camera)` slot. Tiled multi-camera frames
-    /// (e.g. six 720×540 tiles in one horizontal strip) point
-    /// multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
-    /// means "no images shipped"; the calibration pipeline never reads
-    /// this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_manifest: Option<ImageManifest>,
+    pub diagnostics: ExportDiagnostics,
     /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
     /// the noise level the residuals imply.
     #[serde(default)]
@@ -472,11 +459,9 @@ impl ProblemType for RigHandeyeProblem {
             robot_pose_sigma: output.robot_pose_sigma,
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
-            per_feature_residuals,
-            // Manifest is populated by callers that also wrote images for
-            // the dataset (e.g. a tiled-rig runner); the pipeline
-            // itself never has image paths to fill in.
-            image_manifest: None,
+            // Callers that have the images fill `image_manifest`; the
+            // pipeline never has image paths.
+            diagnostics: ExportDiagnostics::new(per_feature_residuals),
             uncertainty: output.uncertainty.clone(),
         })
     }
@@ -752,7 +737,7 @@ mod tests {
         };
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
-        assert!(export.image_manifest.is_none());
+        assert!(export.diagnostics.image_manifest.is_none());
 
         let json = serde_json::to_string(&export).unwrap();
         assert!(
@@ -760,7 +745,7 @@ mod tests {
             "absent manifest must not appear on the wire"
         );
         let restored: RigHandeyeExport = serde_json::from_str(&json).unwrap();
-        assert!(restored.image_manifest.is_none());
+        assert!(restored.diagnostics.image_manifest.is_none());
     }
 
     #[test]
@@ -773,7 +758,7 @@ mod tests {
         // pixel coords are *ROI-local* — the ROI is a render-time crop
         // hint only. This test pins the wire format; the convention
         // itself is exercised by the viewer (see app/src/components).
-        use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
+        use vision_calibration_core::{FrameRef, PixelRect};
 
         let output = make_dummy_output();
         let config = RigHandeyeConfig::default();
@@ -807,14 +792,15 @@ mod tests {
                 frame
             })
             .collect();
-        let mut manifest = ImageManifest::default();
+        let mut manifest = vision_calibration_core::ImageManifest::default();
         manifest.root = std::path::PathBuf::from(".");
         manifest.frames = frames;
-        export.image_manifest = Some(manifest);
+        export.diagnostics.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).unwrap();
         let restored: RigHandeyeExport = serde_json::from_str(&json).unwrap();
         let manifest = restored
+            .diagnostics
             .image_manifest
             .expect("manifest survives roundtrip");
         assert_eq!(manifest.frames.len(), 6);

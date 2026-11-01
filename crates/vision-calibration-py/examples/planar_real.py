@@ -42,7 +42,6 @@ def main() -> None:
     k = result.camera.intrinsics
     d = result.camera.distortion
 
-    print(f"Final cost: {result.final_cost:.3e}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")
     print(f"Intrinsics: fx={k.fx:.3f}, fy={k.fy:.3f}, cx={k.cx:.3f}, cy={k.cy:.3f}")
     print(f"Distortion: k1={d.k1:.6f}, k2={d.k2:.6f}, k3={d.k3:.6f}, p1={d.p1:.6f}, p2={d.p2:.6f}")

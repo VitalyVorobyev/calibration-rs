@@ -26,7 +26,7 @@ describe("adaptSceneExport", () => {
   it("passes rig-shaped exports through unchanged", () => {
     const rig = {
       kind: "rig_extrinsics",
-      per_feature_residuals: { target: [] },
+      diagnostics: { per_feature_residuals: { target: [] } },
       cameras: [CAMERA],
       cam_se3_rig: [POSE],
       rig_se3_target: [POSE],
@@ -37,13 +37,11 @@ describe("adaptSceneExport", () => {
   it("lifts a single-cam laserline export into a one-camera rig at the origin", () => {
     const laser = {
       kind: "laserline_device",
-      per_feature_residuals: { target: [], laser: [] },
-      estimate: {
-        params: {
-          camera: TILTED_CAMERA,
-          plane: PLANE,
-          poses: [POSE, POSE],
-        },
+      diagnostics: { per_feature_residuals: { target: [], laser: [] } },
+      params: {
+        camera: TILTED_CAMERA,
+        plane: PLANE,
+        poses: [POSE, POSE],
       },
     } as unknown as AnyExport;
 
@@ -65,8 +63,8 @@ describe("adaptSceneExport", () => {
   it("leaves a laserline export without plane/poses unchanged", () => {
     const bare = {
       kind: "laserline_device",
-      per_feature_residuals: { target: [] },
-      estimate: { params: { camera: CAMERA } },
+      diagnostics: { per_feature_residuals: { target: [] } },
+      params: { camera: CAMERA },
     } as unknown as AnyExport;
     const adapted = adaptSceneExport(bare);
     expect(adapted.cameras).toBeUndefined();
@@ -76,7 +74,7 @@ describe("adaptSceneExport", () => {
   it("leaves other single-camera exports (planar) unchanged", () => {
     const planar = {
       kind: "planar_intrinsics",
-      per_feature_residuals: { target: [] },
+      diagnostics: { per_feature_residuals: { target: [] } },
     } as unknown as AnyExport;
     expect(adaptSceneExport(planar)).toBe(planar);
   });

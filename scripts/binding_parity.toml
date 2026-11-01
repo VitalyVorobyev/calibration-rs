@@ -30,6 +30,7 @@
 "analysis::candidate_poses" = "candidate_poses"
 "analysis::predict_with_views" = "predict_with_views"
 "analysis::rank_candidates" = "rank_candidates"
+"common::ExportDiagnostics" = "types.ExportDiagnostics"
 "common::ExportKind" = "types.ExportKind"
 "common::HandeyeInitOptions" = "HandeyeInitOptions"
 "common::HandeyeOptimizeOptions" = "HandeyeOptimizeOptions"

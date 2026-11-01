@@ -257,6 +257,31 @@
         }
       ]
     },
+    "ExportDiagnostics": {
+      "description": "Evidence about how an export's result was reached: what a viewer or a\ndebugging session reads, not what a consumer needs to use the\ncalibration.\n\nThe result fields of an export (camera parameters, poses, uncertainty,\nmean reprojection error) are the stable contract; this group may gain\ndetail between releases.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
+        },
+        "per_feature_residuals": {
+          "$ref": "#/$defs/PerFeatureResiduals",
+          "default": {},
+          "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
+        }
+      },
+      "required": [
+        "per_feature_residuals"
+      ],
+      "type": "object"
+    },
     "ExportKind": {
       "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
       "oneOf": [
@@ -924,28 +949,6 @@
         }
       ]
     },
-    "SolveReport": {
-      "description": "Summary of backend solve outcome.",
-      "properties": {
-        "final_cost": {
-          "description": "The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual\nblocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without\none) — so `½‖r‖²` for a plain least-squares problem.",
-          "format": "double",
-          "type": "number"
-        },
-        "num_iters": {
-          "default": 0,
-          "description": "Number of outer solver iterations executed.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "final_cost",
-        "num_iters"
-      ],
-      "type": "object"
-    },
     "TargetFeatureResidual": {
       "description": "Reprojection record for a single target feature in a single view.",
       "properties": {
@@ -1190,16 +1193,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Export format for planar intrinsics calibration.",
   "properties": {
-    "image_manifest": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ImageManifest"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. `None` means \"no images\nshipped\"; the calibration pipeline never reads this field."
+    "diagnostics": {
+      "$ref": "#/$defs/ExportDiagnostics",
+      "default": {
+        "per_feature_residuals": {}
+      },
+      "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
     },
     "kind": {
       "$ref": "#/$defs/ExportKind",
@@ -1222,15 +1221,6 @@
       },
       "type": "array"
     },
-    "per_feature_residuals": {
-      "$ref": "#/$defs/PerFeatureResiduals",
-      "default": {},
-      "description": "Per-feature reprojection residuals. For planar intrinsics\nonly `target` is populated; `laser` is empty. `target_hist_per_camera`\nis `Some(vec![one_entry])` since this problem type is single-camera."
-    },
-    "report": {
-      "$ref": "#/$defs/SolveReport",
-      "description": "Solver report."
-    },
     "uncertainty": {
       "$ref": "#/$defs/Uncertainty",
       "default": {
@@ -1245,10 +1235,9 @@
   "required": [
     "kind",
     "params",
-    "report",
     "mean_reproj_error",
     "per_cam_reproj_errors",
-    "per_feature_residuals",
+    "diagnostics",
     "uncertainty"
   ],
   "title": "PlanarIntrinsicsExport",

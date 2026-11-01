@@ -49,6 +49,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and `vision-geometry` crates directly.
   - `vision_calibration_core::coordinate_utils` is private; its four
     functions stay at the crate root.
+- **Exports separate the result from its diagnostics (JSON).** Every
+  `*Export` has a `diagnostics` group (`common::ExportDiagnostics`) holding
+  `per_feature_residuals` and `image_manifest`; the two top-level fields are
+  gone. Read `export.diagnostics.per_feature_residuals` and set
+  `export.diagnostics.image_manifest`. `CalibratedCameras::feature_residuals()`
+  and `images()` become `diagnostics()`. Python results keep their
+  `per_feature_residuals` property.
+- **`PlanarIntrinsicsExport` drops `report`** (Python: `final_cost`). The
+  solve's cost and iteration count stay on the session output
+  (`PlanarIntrinsicsEstimate::report`).
+- **`LaserlineDeviceExport` matches the other exports.** `estimate` is
+  replaced by `params` (camera, laser plane, target poses) and a top-level
+  `uncertainty`; `export.estimate.params.plane` becomes `export.params.plane`.
+  Python's `LaserlineDeviceExport` follows (`result.params`,
+  `result.uncertainty`), and `LaserlineEstimate` is removed.
+- **Session bookkeeping is read-only.** `session::current_timestamp` is
+  private, as are the constructors of `SessionMetadata`, `LogEntry` and
+  `ExportRecord`; read them through `metadata()`, `log()` and `exports`.
 
 ## [0.10.0] - 2026-10-31
 

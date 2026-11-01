@@ -69,11 +69,10 @@ describe("correlationMatrix", () => {
 });
 
 describe("exportUncertainty", () => {
-  const base: AnyExport = { per_feature_residuals: { target: [] } };
-  it("reads the top level, then the laserline estimate", () => {
+  const base: AnyExport = { diagnostics: { per_feature_residuals: { target: [] } } };
+  it("reads the export's uncertainty", () => {
     const top = { status: "available", ...COV } as const;
     expect(exportUncertainty({ ...base, uncertainty: top })).toBe(top);
-    expect(exportUncertainty({ ...base, estimate: { uncertainty: top } })).toBe(top);
     expect(exportUncertainty(base)).toBeNull();
   });
 });

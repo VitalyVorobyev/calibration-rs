@@ -5,17 +5,16 @@ use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraParams, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals,
-    RigDataset, RigView, RigViewObs, Uncertainty, build_feature_histogram,
-    compute_rig_target_residuals,
+    CameraParams, FeatureResidualHistogram, Iso3, NoMeta, PerFeatureResiduals, RigDataset, RigView,
+    RigViewObs, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     LaserPlane, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
     compute_rig_laserline_feature_residuals,
 };
 
-use crate::common::ExportKind;
 use crate::common::config::SolverConfig;
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -176,22 +175,10 @@ pub struct RigLaserlineDeviceExport {
     /// reprojection.
     #[serde(default)]
     pub mean_reproj_error: f64,
-    /// Per-feature reprojection + laser residuals. Multi-camera
-    /// rig: `target` covers per-corner reprojection (when present) and
-    /// `laser` covers per-pixel laser distances. Both per-camera histograms
-    /// are populated.
+    /// Residuals and the image manifest: evidence for viewers and
+    /// debugging, not part of the result.
     #[serde(default)]
-    pub per_feature_residuals: PerFeatureResiduals,
-
-    /// Optional image manifest (viewer-side contract). When
-    /// populated, downstream viewers (the diagnose / 3D / epipolar UIs)
-    /// can locate the source image for each `(pose, camera)` slot.
-    /// Tiled multi-camera frames (e.g. six 720×540 tiles in one
-    /// horizontal strip) point multiple `FrameRef`s at the same
-    /// `path` with disjoint ROIs. `None` means "no images shipped"; the
-    /// calibration pipeline never reads this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_manifest: Option<ImageManifest>,
+    pub diagnostics: ExportDiagnostics,
     /// Covariance of the laser planes in their camera frames
     /// (`cam1.plane.nx`), conditional on the upstream calibration. Each
     /// camera's plane is solved on its own, so each camera has its own
@@ -371,10 +358,9 @@ impl ProblemType for RigLaserlineDeviceProblem {
             cam_se3_rig: upstream.cam_se3_rig.clone(),
             rig_se3_target: upstream.rig_se3_target.clone(),
             mean_reproj_error,
-            per_feature_residuals,
-            // Manifest is populated by callers that wrote images for the
-            // dataset; the pipeline never has image paths to fill in.
-            image_manifest: None,
+            // Callers that have the images fill `image_manifest`; the
+            // pipeline never has image paths.
+            diagnostics: ExportDiagnostics::new(per_feature_residuals),
             uncertainty: output.uncertainty.clone(),
         })
     }
@@ -398,8 +384,7 @@ mod tests {
             cam_se3_rig: Vec::new(),
             rig_se3_target: Vec::new(),
             mean_reproj_error: 0.0,
-            per_feature_residuals: PerFeatureResiduals::default(),
-            image_manifest: None,
+            diagnostics: ExportDiagnostics::default(),
             uncertainty: Uncertainty::default(),
         }
     }
@@ -409,7 +394,7 @@ mod tests {
         // ADR 0014: when the pipeline emits an export the manifest is
         // None and `skip_serializing_if` keeps existing serialized JSON byte-stable.
         let export = make_minimal_export();
-        assert!(export.image_manifest.is_none());
+        assert!(export.diagnostics.image_manifest.is_none());
 
         let json = serde_json::to_string(&export).unwrap();
         assert!(
@@ -417,7 +402,7 @@ mod tests {
             "absent manifest must not appear on the wire"
         );
         let restored: RigLaserlineDeviceExport = serde_json::from_str(&json).unwrap();
-        assert!(restored.image_manifest.is_none());
+        assert!(restored.diagnostics.image_manifest.is_none());
     }
 
     #[test]
@@ -426,7 +411,7 @@ mod tests {
         // and references each of its six 720×540 camera tiles via ROI;
         // mirror that shape here so any future change to PixelRect or
         // FrameRef serialization is caught at PR time.
-        use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
+        use vision_calibration_core::{FrameRef, PixelRect};
 
         let mut export = make_minimal_export();
         let frames: Vec<FrameRef> = (0..6)
@@ -443,14 +428,15 @@ mod tests {
                 frame
             })
             .collect();
-        let mut manifest = ImageManifest::default();
+        let mut manifest = vision_calibration_core::ImageManifest::default();
         manifest.root = std::path::PathBuf::from(".");
         manifest.frames = frames;
-        export.image_manifest = Some(manifest);
+        export.diagnostics.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).unwrap();
         let restored: RigLaserlineDeviceExport = serde_json::from_str(&json).unwrap();
         let manifest = restored
+            .diagnostics
             .image_manifest
             .expect("manifest survives roundtrip");
         assert_eq!(manifest.frames.len(), 6);

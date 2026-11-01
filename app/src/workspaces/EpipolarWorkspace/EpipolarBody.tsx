@@ -70,7 +70,10 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
   // Residuals of the active pose, per camera, so the overlay / tie-points /
   // snap logic doesn't re-scan the full residual array.
   const residualsForPose = useMemo<TargetFeatureResidual[]>(
-    () => data.per_feature_residuals.target.filter((r) => r.pose === selectedPose),
+    () =>
+      data.diagnostics.per_feature_residuals.target.filter(
+        (r) => r.pose === selectedPose,
+      ),
     [data, selectedPose],
   );
   const residualsA = useMemo(

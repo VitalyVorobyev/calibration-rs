@@ -463,7 +463,7 @@ fn existing_information(
 ) -> Result<DMatrix<f64>, Error> {
     let poses = &export.params.camera_se3_target;
     let mut points: Vec<Vec<Pt3>> = vec![Vec::new(); poses.len()];
-    for record in &export.per_feature_residuals.target {
+    for record in &export.diagnostics.per_feature_residuals.target {
         let view = points.get_mut(record.pose).ok_or_else(|| {
             Error::invalid_input(format!(
                 "a feature residual names view {}, but the result has {} poses",

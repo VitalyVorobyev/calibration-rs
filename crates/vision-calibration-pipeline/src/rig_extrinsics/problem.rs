@@ -7,16 +7,16 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraParams, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals,
-    RigDataset, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
+    CameraParams, FeatureResidualHistogram, Iso3, NoMeta, PerFeatureResiduals, RigDataset,
+    Uncertainty, build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::RigExtrinsicsEstimate;
 
-use crate::common::ExportKind;
 use crate::common::config::{
     CameraConfig, CameraOverride, IntrinsicsInitConfig, RigConfig, SolverConfig, rig_camera_for,
     validate_rig_camera_indices, validate_rig_cameras,
 };
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -112,22 +112,10 @@ pub struct RigExtrinsicsExport {
 
     /// Per-camera reprojection errors (pixels).
     pub per_cam_reproj_errors: Vec<f64>,
-
-    /// Per-feature reprojection residuals. For rig extrinsics
-    /// `target` is populated and `laser` is empty. `target_hist_per_camera`
-    /// is `Some(vec)` with one entry per camera.
+    /// Residuals and the image manifest: evidence for viewers and
+    /// debugging, not part of the result.
     #[serde(default)]
-    pub per_feature_residuals: PerFeatureResiduals,
-
-    /// Optional image manifest (viewer-side contract). When
-    /// populated, downstream viewers (the diagnose UI) can locate the source
-    /// image for each `(pose, camera)` slot. Tiled multi-camera frames
-    /// (e.g. six 720×540 tiles in one horizontal strip) point
-    /// multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
-    /// means "no images shipped"; the calibration pipeline never reads
-    /// this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_manifest: Option<ImageManifest>,
+    pub diagnostics: ExportDiagnostics,
     /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
     /// the noise level the residuals imply.
     #[serde(default)]
@@ -308,11 +296,9 @@ impl ProblemType for RigExtrinsicsProblem {
             rig_se3_target,
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
-            per_feature_residuals,
-            // Manifest is populated by callers that also wrote images for
-            // the dataset; the pipeline itself never has image paths to
-            // fill in. Mirrors the rig_handeye precedent.
-            image_manifest: None,
+            // Callers that have the images fill `image_manifest`; the
+            // pipeline never has image paths.
+            diagnostics: ExportDiagnostics::new(per_feature_residuals),
             uncertainty: output.uncertainty.clone(),
         })
     }
@@ -555,12 +541,13 @@ mod tests {
                 .expect("export");
 
         // 2 cameras × 3 views × 4 features = 24 records.
-        assert_eq!(export.per_feature_residuals.target.len(), 24);
-        for r in &export.per_feature_residuals.target {
+        assert_eq!(export.diagnostics.per_feature_residuals.target.len(), 24);
+        for r in &export.diagnostics.per_feature_residuals.target {
             let err = r.error_px.unwrap_or_else(|| panic!("residual missing"));
             assert!(err < 1e-9, "error_px {err} not near zero");
         }
         let hist = export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .as_ref()
@@ -570,8 +557,14 @@ mod tests {
             assert_eq!(h.count, 12, "cam {i} count mismatch");
             assert_eq!(h.counts, [12, 0, 0, 0, 0], "cam {i} buckets");
         }
-        assert!(export.per_feature_residuals.laser.is_empty());
-        assert!(export.per_feature_residuals.laser_hist_per_camera.is_none());
+        assert!(export.diagnostics.per_feature_residuals.laser.is_empty());
+        assert!(
+            export
+                .diagnostics
+                .per_feature_residuals
+                .laser_hist_per_camera
+                .is_none()
+        );
     }
 
     #[test]
@@ -643,12 +636,18 @@ mod tests {
         let json = serde_json::to_string(&export).unwrap();
         let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            restored.per_feature_residuals.target.len(),
-            export.per_feature_residuals.target.len()
+            restored.diagnostics.per_feature_residuals.target.len(),
+            export.diagnostics.per_feature_residuals.target.len()
         );
         assert_eq!(
-            restored.per_feature_residuals.target_hist_per_camera,
-            export.per_feature_residuals.target_hist_per_camera
+            restored
+                .diagnostics
+                .per_feature_residuals
+                .target_hist_per_camera,
+            export
+                .diagnostics
+                .per_feature_residuals
+                .target_hist_per_camera
         );
     }
 
@@ -722,7 +721,7 @@ mod tests {
         // ADR 0014: when the pipeline emits an export the manifest is
         // None and `skip_serializing_if` keeps existing serialized JSON byte-stable.
         let export = make_minimal_export();
-        assert!(export.image_manifest.is_none());
+        assert!(export.diagnostics.image_manifest.is_none());
 
         let json = serde_json::to_string(&export).unwrap();
         assert!(
@@ -730,7 +729,7 @@ mod tests {
             "absent manifest must not appear on the wire"
         );
         let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();
-        assert!(restored.image_manifest.is_none());
+        assert!(restored.diagnostics.image_manifest.is_none());
     }
 
     #[test]
@@ -739,7 +738,7 @@ mod tests {
         // and references each of its six 720×540 camera tiles via ROI;
         // mirror that shape here so any future change to PixelRect or
         // FrameRef serialization is caught at PR time.
-        use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
+        use vision_calibration_core::{FrameRef, PixelRect};
 
         let mut export = make_minimal_export();
         let frames: Vec<FrameRef> = (0..6)
@@ -756,14 +755,15 @@ mod tests {
                 frame
             })
             .collect();
-        let mut manifest = ImageManifest::default();
+        let mut manifest = vision_calibration_core::ImageManifest::default();
         manifest.root = std::path::PathBuf::from(".");
         manifest.frames = frames;
-        export.image_manifest = Some(manifest);
+        export.diagnostics.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).unwrap();
         let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();
         let manifest = restored
+            .diagnostics
             .image_manifest
             .expect("manifest survives roundtrip");
         assert_eq!(manifest.frames.len(), 6);

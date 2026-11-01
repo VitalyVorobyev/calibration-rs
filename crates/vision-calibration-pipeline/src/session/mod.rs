@@ -34,4 +34,4 @@ pub use calibsession::CalibrationSession;
 pub(crate) use problem_type::ProblemState;
 /// Session API with mutable state container.
 pub use problem_type::{InvalidationPolicy, ProblemType};
-pub use types::{ExportRecord, LogEntry, SessionMetadata, current_timestamp};
+pub use types::{ExportRecord, LogEntry, SessionMetadata};

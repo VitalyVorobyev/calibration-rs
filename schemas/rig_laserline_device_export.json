@@ -257,6 +257,31 @@
         }
       ]
     },
+    "ExportDiagnostics": {
+      "description": "Evidence about how an export's result was reached: what a viewer or a\ndebugging session reads, not what a consumer needs to use the\ncalibration.\n\nThe result fields of an export (camera parameters, poses, uncertainty,\nmean reprojection error) are the stable contract; this group may gain\ndetail between releases.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
+        },
+        "per_feature_residuals": {
+          "$ref": "#/$defs/PerFeatureResiduals",
+          "default": {},
+          "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
+        }
+      },
+      "required": [
+        "per_feature_residuals"
+      ],
+      "type": "object"
+    },
     "ExportKind": {
       "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
       "oneOf": [
@@ -1226,16 +1251,12 @@
       },
       "type": "array"
     },
-    "image_manifest": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ImageManifest"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. six 720×540 tiles in one\nhorizontal strip) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+    "diagnostics": {
+      "$ref": "#/$defs/ExportDiagnostics",
+      "default": {
+        "per_feature_residuals": {}
+      },
+      "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
     },
     "kind": {
       "$ref": "#/$defs/ExportKind",
@@ -1268,11 +1289,6 @@
       },
       "type": "array"
     },
-    "per_feature_residuals": {
-      "$ref": "#/$defs/PerFeatureResiduals",
-      "default": {},
-      "description": "Per-feature reprojection + laser residuals. Multi-camera\nrig: `target` covers per-corner reprojection (when present) and\n`laser` covers per-pixel laser distances. Both per-camera histograms\nare populated."
-    },
     "rig_se3_target": {
       "default": [],
       "description": "Frozen upstream per-view rig poses `T_R_T`.",
@@ -1301,7 +1317,7 @@
     "cam_se3_rig",
     "rig_se3_target",
     "mean_reproj_error",
-    "per_feature_residuals",
+    "diagnostics",
     "uncertainty"
   ],
   "title": "RigLaserlineDeviceExport",

@@ -36,12 +36,13 @@ function materializeExport(
   data: AnyExport,
   exportDir: string,
 ): { ok: true; value: MaterializedExport } | { ok: false; error: string } {
-  const manifest = data.image_manifest;
+  // Optional chaining: a hand-written export may lack the group.
+  const manifest = data.diagnostics?.image_manifest;
   if (!manifest) {
     return {
       ok: false,
       error:
-        "This export has no image_manifest field. v0 requires the manifest to render the source images alongside the residuals.",
+        "This export has no diagnostics.image_manifest. v0 requires the manifest to render the source images alongside the residuals.",
     };
   }
   const root = joinPath(exportDir, manifest.root);

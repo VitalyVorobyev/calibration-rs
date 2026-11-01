@@ -198,11 +198,15 @@ CHANGELOG migration notes.
     consumer needs are re-exported by name (decision 2).
 
 ### Phase 3 — Determinism and diagnostics (breaking JSON)
-8. Remove wall-clock timestamps from exports (`current_timestamp` →
-   private; the session log keeps time).
-9. `Export::diagnostics` collects the `report`, `per_feature_residuals` and
-   `image_manifest` fields. Python and the app follow, and the schemas are
-   regenerated.
+8. `current_timestamp` and the session bookkeeping constructors become
+   private. (Revised after a closer look: exports carry no timestamp; the
+   times live in the session's metadata, log and export records, which are
+   session state, not results, so they stay.)
+9. `Export::diagnostics` collects `per_feature_residuals` and
+   `image_manifest`. Planar's `report` is dropped (it stays on the session
+   output), and the laserline export gets `params` + `uncertainty` like the
+   others instead of embedding the optimizer's estimate. Python and the app
+   follow, and the schemas are regenerated.
 
 ### Phase 4 — One entry point per step (breaking)
 10. Seeds move into the init options; the 14 `step_*_with_seed` functions

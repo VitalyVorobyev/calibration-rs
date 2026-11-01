@@ -341,9 +341,13 @@ pub fn assess<E: CalibratedCameras + ?Sized>(
 ) -> Result<QualityReport, Error> {
     thresholds.validate()?;
     let cameras = export.camera_params();
-    let sizes = resolve_image_sizes(export.images(), cameras.len(), image_sizes)?;
+    let sizes = resolve_image_sizes(
+        export.diagnostics().image_manifest.as_ref(),
+        cameras.len(),
+        image_sizes,
+    )?;
     let uncertainty = export.parameter_uncertainty();
-    let target = &export.feature_residuals().target;
+    let target = &export.diagnostics().per_feature_residuals.target;
 
     let mut checks = vec![observability(uncertainty), convergence(uncertainty)];
     checks.extend(variance_factor(uncertainty, thresholds));

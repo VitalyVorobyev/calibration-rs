@@ -52,8 +52,10 @@ export const LASER_RESIDUAL: LaserFeatureResidual = {
 export const PLANAR_EXPORT_FIXTURE = {
   kind: "planar_intrinsics",
   params: { camera: { sensor: { type: "identity" } } },
-  per_feature_residuals: { target: [TARGET_RESIDUAL] },
-  image_manifest: TARGET_MANIFEST,
+  diagnostics: {
+    per_feature_residuals: { target: [TARGET_RESIDUAL] },
+    image_manifest: TARGET_MANIFEST,
+  },
   mean_reproj_error: 0.22,
 };
 

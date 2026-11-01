@@ -80,20 +80,20 @@ export function DiagnoseWorkspace() {
   }, [frames, selectedPoseB, cameraB]);
 
   const laserResiduals = useMemo<LaserFeatureResidual[]>(
-    () => data?.per_feature_residuals.laser ?? [],
+    () => data?.diagnostics.per_feature_residuals.laser ?? [],
     [data],
   );
   const laserOverlay = useMemo<LaserOverlayData>(
     () => ({
       residuals: laserResiduals,
-      lines: data?.per_feature_residuals.laser_lines ?? [],
+      lines: data?.diagnostics.per_feature_residuals.laser_lines ?? [],
     }),
     [data, laserResiduals],
   );
   const hasLaser = laserFrames.length > 0 || laserResiduals.length > 0;
 
   const targetResiduals = useMemo<TargetFeatureResidual[]>(
-    () => data?.per_feature_residuals.target ?? NO_TARGET_RESIDUALS,
+    () => data?.diagnostics.per_feature_residuals.target ?? NO_TARGET_RESIDUALS,
     [data],
   );
   const hasStats = targetResiduals.length > 0;
@@ -291,7 +291,7 @@ export function DiagnoseWorkspace() {
             <CompareViewer
               leftFrame={frame}
               rightFrame={rightFrame}
-              residuals={data.per_feature_residuals.target}
+              residuals={data.diagnostics.per_feature_residuals.target}
               activePane={activePane}
               onActivePane={setActivePane}
               linked={linked}
@@ -304,7 +304,9 @@ export function DiagnoseWorkspace() {
               ref={canvasHandleRef}
               frame={activeFrame}
               residuals={
-                showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target
+                showLaser
+                  ? NO_TARGET_RESIDUALS
+                  : data.diagnostics.per_feature_residuals.target
               }
               laser={showLaser ? laserOverlay : undefined}
               image={imageData?.image ?? null}
@@ -318,8 +320,8 @@ export function DiagnoseWorkspace() {
           ) : (
             <div className="m-auto text-[13px] text-fg-muted">
               Open an <code>export.json</code> from a calibration run with an
-              <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for camera; toggle
-              Compare to view two frames side by side.
+              <code> diagnostics.image_manifest</code>. Use ← / → for pose, ↑ / ↓ for
+              camera; toggle Compare to view two frames side by side.
             </div>
           )}
         </div>
@@ -363,11 +365,13 @@ export function DiagnoseWorkspace() {
               residuals={laserResiduals.filter(
                 (r) => r.pose === activeFrame.pose && r.camera === activeFrame.camera,
               )}
-              hist={data.per_feature_residuals.laser_hist_per_camera?.[cameraA]}
+              hist={
+                data.diagnostics.per_feature_residuals.laser_hist_per_camera?.[cameraA]
+              }
             />
           ) : (
             <ResidualLegend
-              residuals={data.per_feature_residuals.target.filter(
+              residuals={data.diagnostics.per_feature_residuals.target.filter(
                 (r) => r.pose === activeFrame.pose && r.camera === activeFrame.camera,
               )}
             />

@@ -439,7 +439,7 @@ fn inputs_are_checked() {
     );
 
     let mut stripped = scene.export.clone();
-    stripped.per_feature_residuals.target.clear();
+    stripped.diagnostics.per_feature_residuals.target.clear();
     let err = predict_with_views(&stripped, &[pose], &board(), IMAGE).unwrap_err();
     assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
 }

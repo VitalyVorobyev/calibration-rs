@@ -126,9 +126,9 @@ pub mod session {
 /// SolverConfig`, ...).
 pub mod common {
     pub use vision_calibration_pipeline::common::{
-        CalibratedCameras, ExportKind, HandeyeEstimate, HandeyeInitOptions, HandeyeOptimizeOptions,
-        HandeyeParams, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions,
-        RigLaserlineView, RigOptimizeOptions, RobotPoseMeta, calibrated_cameras,
+        CalibratedCameras, ExportDiagnostics, ExportKind, HandeyeEstimate, HandeyeInitOptions,
+        HandeyeOptimizeOptions, HandeyeParams, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+        RigInitOptions, RigLaserlineView, RigOptimizeOptions, RobotPoseMeta, calibrated_cameras,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`

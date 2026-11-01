@@ -631,6 +631,32 @@ DistortionParams: TypeAlias = (
 """Serializable distortion model parameters."""
 
 
+class _ExportDiagnosticsRequired(TypedDict):
+    """The keys of `ExportDiagnostics` that every payload has."""
+
+    per_feature_residuals: PerFeatureResiduals
+    """The reprojection (and, for a laser workflow, laser) residual of every
+    feature, with per-camera histograms.
+    """
+
+
+class ExportDiagnostics(_ExportDiagnosticsRequired, total=False):
+    """Evidence about how an export's result was reached: what a viewer or a
+    debugging session reads, not what a consumer needs to use the
+    calibration.
+
+    The result fields of an export (camera parameters, poses, uncertainty,
+    mean reprojection error) are the stable contract; this group may gain
+    detail between releases.
+    """
+
+    image_manifest: ImageManifest | None
+    """Where each view's source images are, for a viewer that overlays the
+    residuals on them. The calibration never reads it; `None` means no
+    images were recorded (the dataset runner and the desktop app fill it).
+    """
+
+
 ExportKind: TypeAlias = Literal[
     "planar_intrinsics",
     "single_cam_handeye",
@@ -1130,11 +1156,13 @@ class LaserlineDeviceConfig(_LaserlineDeviceConfigRequired, total=False):
     """
 
 
-class _LaserlineDeviceExportRequired(TypedDict):
-    """The keys of `LaserlineDeviceExport` that every payload has."""
+class LaserlineDeviceExport(TypedDict):
+    """Export type for laserline device calibration."""
 
-    estimate: LaserlineEstimate
-    """Pipeline output including optimized parameters and summary statistics."""
+    diagnostics: ExportDiagnostics
+    """Residuals and the image manifest: evidence for viewers and
+    debugging, not part of the result.
+    """
 
     kind: ExportKind
     """Export-type discriminator — always `ExportKind::LaserlineDevice`."""
@@ -1142,28 +1170,20 @@ class _LaserlineDeviceExportRequired(TypedDict):
     mean_reproj_error: float
     """Mean reprojection error (pixels)."""
 
+    params: LaserlineParams
+    """The calibrated camera, the laser plane (camera frame) and the
+    per-view target poses.
+    """
+
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (single element for single-camera workflows)."""
-
-    per_feature_residuals: PerFeatureResiduals
-    """Per-feature reprojection + laser residuals. Single-camera:
-    `target_hist_per_camera` and `laser_hist_per_camera` each carry
-    `Some(vec![one_entry])`.
-    """
 
     stats: LaserlineStats
     """Laserline statistics payload."""
 
-
-class LaserlineDeviceExport(_LaserlineDeviceExportRequired, total=False):
-    """Export type for laserline device calibration."""
-
-    image_manifest: ImageManifest | None
-    """Optional image manifest (viewer-side contract). Per
-    accepted view (pose = kept-view index, camera = 0): one frame
-    for the *target* image plus one of kind `laser` for the laser
-    image. `None` means "no images shipped"; the
-    calibration pipeline never reads this field.
+    uncertainty: Uncertainty
+    """Covariance of the calibrated parameters (camera and laser plane), with
+    the noise level the residuals imply.
     """
 
 
@@ -1178,23 +1198,6 @@ class LaserlineView(TypedDict):
 
 
 LaserlineDeviceInput: TypeAlias = list[LaserlineView]
-
-
-class LaserlineEstimate(TypedDict):
-    """Result of laserline bundle adjustment."""
-
-    params: LaserlineParams
-    """Refined bundle parameters."""
-
-    report: SolveReport
-    """Backend solve report."""
-
-    uncertainty: Uncertainty
-    """Covariance of the refined parameters: the camera's free parameters
-    (intrinsics, distortion and, for a tilted sensor, the tilt) and the
-    laser plane (`plane.nx … plane.d`, in the camera frame), with each
-    view's target pose as a per-view block.
-    """
 
 
 class _LaserlineMetaRequired(TypedDict):
@@ -1408,8 +1411,13 @@ class PlanarIntrinsicsConfig(_PlanarIntrinsicsConfigRequired, total=False):
     """
 
 
-class _PlanarIntrinsicsExportRequired(TypedDict):
-    """The keys of `PlanarIntrinsicsExport` that every payload has."""
+class PlanarIntrinsicsExport(TypedDict):
+    """Export format for planar intrinsics calibration."""
+
+    diagnostics: ExportDiagnostics
+    """Residuals and the image manifest: evidence for viewers and
+    debugging, not part of the result.
+    """
 
     kind: ExportKind
     """Export-type discriminator — always `ExportKind::PlanarIntrinsics`."""
@@ -1425,30 +1433,10 @@ class _PlanarIntrinsicsExportRequired(TypedDict):
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (single element for single-camera workflows)."""
 
-    per_feature_residuals: PerFeatureResiduals
-    """Per-feature reprojection residuals. For planar intrinsics
-    only `target` is populated; `laser` is empty. `target_hist_per_camera`
-    is `Some(vec![one_entry])` since this problem type is single-camera.
-    """
-
-    report: SolveReport
-    """Solver report."""
-
     uncertainty: Uncertainty
     """Covariance of the calibrated parameters: `fx ± σ` (and `tilt_x ± σ`
     for a tilted sensor), correlations, and the noise level the residuals
     imply.
-    """
-
-
-class PlanarIntrinsicsExport(_PlanarIntrinsicsExportRequired, total=False):
-    """Export format for planar intrinsics calibration."""
-
-    image_manifest: ImageManifest | None
-    """Optional image manifest (viewer-side contract). When
-    populated, downstream viewers (the diagnose UI) can locate the source
-    image for each `(pose, camera)` slot. `None` means "no images
-    shipped"; the calibration pipeline never reads this field.
     """
 
 
@@ -1919,8 +1907,8 @@ class RigExtrinsicsConfig(_RigExtrinsicsConfigRequired, total=False):
     """
 
 
-class _RigExtrinsicsExportRequired(TypedDict):
-    """The keys of `RigExtrinsicsExport` that every payload has."""
+class RigExtrinsicsExport(TypedDict):
+    """Export format for rig extrinsics calibration."""
 
     cam_se3_rig: list[Iso3]
     """Per-camera extrinsics: `cam_se3_rig` (T_C_R).
@@ -1929,6 +1917,11 @@ class _RigExtrinsicsExportRequired(TypedDict):
 
     cameras: list[CameraParams]
     """Per-camera calibrated parameters, each in its camera's model."""
+
+    diagnostics: ExportDiagnostics
+    """Residuals and the image manifest: evidence for viewers and
+    debugging, not part of the result.
+    """
 
     kind: ExportKind
     """Export-type discriminator — always `ExportKind::RigExtrinsics`."""
@@ -1939,32 +1932,12 @@ class _RigExtrinsicsExportRequired(TypedDict):
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (pixels)."""
 
-    per_feature_residuals: PerFeatureResiduals
-    """Per-feature reprojection residuals. For rig extrinsics
-    `target` is populated and `laser` is empty. `target_hist_per_camera`
-    is `Some(vec)` with one entry per camera.
-    """
-
     rig_se3_target: list[Iso3]
     """Per-view rig poses: `rig_se3_target` (T_R_T)."""
 
     uncertainty: Uncertainty
     """Covariance of the calibrated parameters: `fx ± σ`, correlations, and
     the noise level the residuals imply.
-    """
-
-
-class RigExtrinsicsExport(_RigExtrinsicsExportRequired, total=False):
-    """Export format for rig extrinsics calibration."""
-
-    image_manifest: ImageManifest | None
-    """Optional image manifest (viewer-side contract). When
-    populated, downstream viewers (the diagnose UI) can locate the source
-    image for each `(pose, camera)` slot. Tiled multi-camera frames
-    (e.g. six 720×540 tiles in one horizontal strip) point
-    multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
-    means "no images shipped"; the calibration pipeline never reads
-    this field.
     """
 
 
@@ -2036,8 +2009,8 @@ class RigHandeyeConfig(_RigHandeyeConfigRequired, total=False):
     """Optional manual seeds for the per-camera intrinsics stage."""
 
 
-class _RigHandeyeExportRequired(TypedDict):
-    """The keys of `RigHandeyeExport` that every payload has."""
+class RigHandeyeExport(TypedDict):
+    """Export format for rig hand-eye calibration."""
 
     base_se3_target: Iso3 | None
     """Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).
@@ -2052,6 +2025,11 @@ class _RigHandeyeExportRequired(TypedDict):
 
     cameras: list[CameraParams]
     """Per-camera calibrated parameters, each in its camera's model."""
+
+    diagnostics: ExportDiagnostics
+    """Residuals and the image manifest: evidence for viewers and
+    debugging, not part of the result.
+    """
 
     gripper_se3_rig: Iso3 | None
     """Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
@@ -2076,13 +2054,6 @@ class _RigHandeyeExportRequired(TypedDict):
 
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (pixels)."""
-
-    per_feature_residuals: PerFeatureResiduals
-    """Per-feature reprojection residuals. Per-view
-    `rig_se3_target` is derived from the handeye chain
-    (see `handeye_observer_se3_target`),
-    then composed with `cam_se3_rig` for projection.
-    """
 
     rig_se3_base: Iso3 | None
     """Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).
@@ -2117,20 +2088,6 @@ class _RigHandeyeExportRequired(TypedDict):
     """
 
 
-class RigHandeyeExport(_RigHandeyeExportRequired, total=False):
-    """Export format for rig hand-eye calibration."""
-
-    image_manifest: ImageManifest | None
-    """Optional image manifest (viewer-side contract). When
-    populated, downstream viewers (the diagnose UI) can locate the source
-    image for each `(pose, camera)` slot. Tiled multi-camera frames
-    (e.g. six 720×540 tiles in one horizontal strip) point
-    multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
-    means "no images shipped"; the calibration pipeline never reads
-    this field.
-    """
-
-
 class RigHandeyeInput(TypedDict):
     """Multi-view dataset for a camera rig."""
 
@@ -2154,8 +2111,8 @@ class RigHandeyeLaserlineConfig(TypedDict):
     """Frozen-geometry laser plane initialization stage."""
 
 
-class _RigHandeyeLaserlineExportRequired(TypedDict):
-    """The keys of `RigHandeyeLaserlineExport` that every payload has."""
+class RigHandeyeLaserlineExport(TypedDict):
+    """Export format for joint rig hand-eye laserline calibration."""
 
     base_se3_target: Iso3 | None
     """Eye-in-hand target reference pose `base_se3_target`."""
@@ -2165,6 +2122,11 @@ class _RigHandeyeLaserlineExportRequired(TypedDict):
 
     cameras: list[CameraParams]
     """Per-camera parameters, each in its camera's model."""
+
+    diagnostics: ExportDiagnostics
+    """Residuals and the image manifest: evidence for viewers and
+    debugging, not part of the result.
+    """
 
     gripper_se3_rig: Iso3 | None
     """Eye-in-hand hand-eye transform `gripper_se3_rig`."""
@@ -2193,9 +2155,6 @@ class _RigHandeyeLaserlineExportRequired(TypedDict):
     per_camera_stats: list[RigHandeyeLaserlinePerCamStats]
     """Joint per-camera stats."""
 
-    per_feature_residuals: PerFeatureResiduals
-    """Per-feature target and laser residuals."""
-
     rig_se3_base: Iso3 | None
     """Eye-to-hand hand-eye transform `rig_se3_base`."""
 
@@ -2217,13 +2176,6 @@ class _RigHandeyeLaserlineExportRequired(TypedDict):
     fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
     each camera's laser plane in its camera frame (`cam1.plane.nx`).
     """
-
-
-class RigHandeyeLaserlineExport(_RigHandeyeLaserlineExportRequired, total=False):
-    """Export format for joint rig hand-eye laserline calibration."""
-
-    image_manifest: ImageManifest | None
-    """Optional image manifest populated by app/dataset runners."""
 
 
 class RigHandeyeLaserlineInput(TypedDict):
@@ -2358,8 +2310,8 @@ class RigLaserlineDeviceConfig(TypedDict):
     """
 
 
-class _RigLaserlineDeviceExportRequired(TypedDict):
-    """The keys of `RigLaserlineDeviceExport` that every payload has."""
+class RigLaserlineDeviceExport(TypedDict):
+    """Export format for rig laserline calibration."""
 
     cam_se3_rig: list[Iso3]
     """Frozen upstream per-camera extrinsics `T_C_R`."""
@@ -2368,6 +2320,11 @@ class _RigLaserlineDeviceExportRequired(TypedDict):
     """Frozen upstream cameras, echoed so the export is self-contained for
     downstream viewers (3D rig scene, epipolar) — same field name as
     `RigHandeyeExport`. Empty when absent in the JSON (`serde(default)`).
+    """
+
+    diagnostics: ExportDiagnostics
+    """Residuals and the image manifest: evidence for viewers and
+    debugging, not part of the result.
     """
 
     kind: ExportKind
@@ -2388,13 +2345,6 @@ class _RigLaserlineDeviceExportRequired(TypedDict):
     per_camera_stats: list[LaserlineStats]
     """Per-camera stats (reprojection + laser residuals)."""
 
-    per_feature_residuals: PerFeatureResiduals
-    """Per-feature reprojection + laser residuals. Multi-camera
-    rig: `target` covers per-corner reprojection (when present) and
-    `laser` covers per-pixel laser distances. Both per-camera histograms
-    are populated.
-    """
-
     rig_se3_target: list[Iso3]
     """Frozen upstream per-view rig poses `T_R_T`."""
 
@@ -2403,20 +2353,6 @@ class _RigLaserlineDeviceExportRequired(TypedDict):
     (`cam1.plane.nx`), conditional on the upstream calibration. Each
     camera's plane is solved on its own, so each camera has its own
     noise levels.
-    """
-
-
-class RigLaserlineDeviceExport(_RigLaserlineDeviceExportRequired, total=False):
-    """Export format for rig laserline calibration."""
-
-    image_manifest: ImageManifest | None
-    """Optional image manifest (viewer-side contract). When
-    populated, downstream viewers (the diagnose / 3D / epipolar UIs)
-    can locate the source image for each `(pose, camera)` slot.
-    Tiled multi-camera frames (e.g. six 720×540 tiles in one
-    horizontal strip) point multiple `FrameRef`s at the same
-    `path` with disjoint ROIs. `None` means "no images shipped"; the
-    calibration pipeline never reads this field.
     """
 
 
@@ -2783,8 +2719,8 @@ class SingleCamHandeyeConfig(_SingleCamHandeyeConfigRequired, total=False):
     """
 
 
-class _SingleCamHandeyeExportRequired(TypedDict):
-    """The keys of `SingleCamHandeyeExport` that every payload has."""
+class SingleCamHandeyeExport(TypedDict):
+    """Export format for single-camera hand-eye calibration."""
 
     base_se3_target: Iso3 | None
     """Eye-in-hand: base_se3_target (T_B_T).
@@ -2799,6 +2735,11 @@ class _SingleCamHandeyeExportRequired(TypedDict):
     """Eye-to-hand: camera_se3_base (T_C_B).
 
     `None` for EyeInHand mode.
+    """
+
+    diagnostics: ExportDiagnostics
+    """Residuals and the image manifest: evidence for viewers and
+    debugging, not part of the result.
     """
 
     gripper_se3_camera: Iso3 | None
@@ -2825,12 +2766,6 @@ class _SingleCamHandeyeExportRequired(TypedDict):
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (pixels). Single element for single-camera."""
 
-    per_feature_residuals: PerFeatureResiduals
-    """Per-feature reprojection residuals. Single-camera, target
-    only. Per-view `cam_se3_target` is derived from the handeye chain
-    (see `handeye_observer_se3_target`).
-    """
-
     robot_deltas: list[tuple[float, float, float, float, float, float] | list[float]] | None
     """Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).
     Only present if robot refinement was enabled.
@@ -2849,17 +2784,6 @@ class _SingleCamHandeyeExportRequired(TypedDict):
     """
 
 
-class SingleCamHandeyeExport(_SingleCamHandeyeExportRequired, total=False):
-    """Export format for single-camera hand-eye calibration."""
-
-    image_manifest: ImageManifest | None
-    """Optional pointer to the source images behind this export. When
-    populated, downstream viewers (the diagnose UI) can locate the
-    source image for each view. `None` means "no images shipped";
-    the calibration pipeline never reads this field.
-    """
-
-
 class SingleCamHandeyeInput(TypedDict):
     """Input for single-camera hand-eye calibration."""
 
@@ -2875,19 +2799,6 @@ class SingleCamHandeyeView(TypedDict):
 
     obs: CorrespondenceView
     """2D-3D correspondences observed in this view."""
-
-
-class SolveReport(TypedDict):
-    """Summary of backend solve outcome."""
-
-    final_cost: float
-    """The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual
-    blocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without
-    one) — so `½‖r‖²` for a plain least-squares problem.
-    """
-
-    num_iters: int
-    """Number of outer solver iterations executed."""
 
 
 SolverBackend: TypeAlias = Literal["tiny_solver", "factrs"]
@@ -3303,6 +3214,7 @@ __all__ = [
     "DistortionParams_None",
     "DistortionParams_Rational",
     "DistortionParams_ThinPrism",
+    "ExportDiagnostics",
     "ExportKind",
     "FeatureResidualHistogram",
     "FrameKind",
@@ -3329,7 +3241,6 @@ __all__ = [
     "LaserlineDeviceConfig",
     "LaserlineDeviceExport",
     "LaserlineDeviceInput",
-    "LaserlineEstimate",
     "LaserlineMeta",
     "LaserlineParams",
     "LaserlineResidualType",
@@ -3406,7 +3317,6 @@ __all__ = [
     "SingleCamHandeyeExport",
     "SingleCamHandeyeInput",
     "SingleCamHandeyeView",
-    "SolveReport",
     "SolverBackend",
     "SolverConfig",
     "TargetFeatureResidual",

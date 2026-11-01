@@ -229,7 +229,7 @@ match export.handeye_mode {
 }
 ```
 
-`export.camera` is the calibrated camera (`CameraParams`) in the configured model, `export.robot_deltas` the per-view robot-pose corrections when refinement is on, and `export.per_feature_residuals` the per-corner reprojection records (see [Per-Feature Residuals](per_feature_residuals.md)).
+`export.camera` is the calibrated camera (`CameraParams`) in the configured model, `export.robot_deltas` the per-view robot-pose corrections when refinement is on, and `export.diagnostics.per_feature_residuals` the per-corner reprojection records (see [Per-Feature Residuals](per_feature_residuals.md)).
 
 The `SingleCamHandeyeInput::new` constructor rejects an empty set of views and any view with fewer than 4 correspondences (the minimum for a homography). Each stage has a `*_with_seed` sibling and a typed step result (`IntrinsicsInitResult`, `HandeyeOptimizeResult`, ...); see [Seeding with Prior Knowledge](manual_init.md).
 

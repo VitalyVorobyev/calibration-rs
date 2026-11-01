@@ -7,16 +7,16 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    ImageManifest, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
-    build_feature_histogram, compute_planar_target_residuals,
+    PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty, build_feature_histogram,
+    compute_planar_target_residuals,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, SolveReport,
+    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
 };
 
-use crate::common::ExportKind;
 use crate::common::config::{CameraConfig, IntrinsicsInitConfig, SolverConfig};
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
@@ -151,23 +151,14 @@ pub struct PlanarIntrinsicsExport {
     /// Calibrated parameters; `params.camera.sensor` states whether a tilted
     /// sensor was calibrated.
     pub params: PlanarIntrinsicsParams,
-    /// Solver report.
-    pub report: SolveReport,
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
-    /// Per-feature reprojection residuals. For planar intrinsics
-    /// only `target` is populated; `laser` is empty. `target_hist_per_camera`
-    /// is `Some(vec![one_entry])` since this problem type is single-camera.
+    /// Residuals and the image manifest: evidence for viewers and
+    /// debugging, not part of the result.
     #[serde(default)]
-    pub per_feature_residuals: PerFeatureResiduals,
-    /// Optional image manifest (viewer-side contract). When
-    /// populated, downstream viewers (the diagnose UI) can locate the source
-    /// image for each `(pose, camera)` slot. `None` means "no images
-    /// shipped"; the calibration pipeline never reads this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_manifest: Option<ImageManifest>,
+    pub diagnostics: ExportDiagnostics,
     /// Covariance of the calibrated parameters: `fx ± σ` (and `tilt_x ± σ`
     /// for a tilted sensor), correlations, and the noise level the residuals
     /// imply.
@@ -253,14 +244,11 @@ impl ProblemType for PlanarIntrinsicsProblem {
         Ok(PlanarIntrinsicsExport {
             kind: ExportKind::PlanarIntrinsics,
             params: output.params.clone(),
-            report: output.report.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: vec![output.mean_reproj_error],
-            per_feature_residuals,
-            // Manifest is populated by callers that also wrote images for
-            // the dataset (e.g. the `planar_synthetic_with_images` example);
-            // the pipeline itself never has image paths to fill in.
-            image_manifest: None,
+            // Callers that have the images fill `image_manifest`; the
+            // pipeline never has image paths.
+            diagnostics: ExportDiagnostics::new(per_feature_residuals),
             uncertainty: output.uncertainty.clone(),
         })
     }
@@ -272,6 +260,7 @@ mod tests {
     use vision_calibration_core::DistortionKind;
     use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
     use vision_calibration_optim::RobustLoss;
+    use vision_calibration_optim::SolveReport;
 
     fn make_minimal_dataset() -> PlanarDataset {
         // Create 3 views with 4 points each (minimum requirements)
@@ -544,13 +533,14 @@ mod tests {
         assert_eq!(export.per_cam_reproj_errors, vec![0.42]);
         // Even though the synthetic input has every feature at (0,0,0)
         // (projection diverges), one record per feature must still appear.
-        assert_eq!(export.per_feature_residuals.target.len(), 4);
-        for r in &export.per_feature_residuals.target {
+        assert_eq!(export.diagnostics.per_feature_residuals.target.len(), 4);
+        for r in &export.diagnostics.per_feature_residuals.target {
             assert_eq!(r.camera, 0);
             assert!(r.projected_px.is_none());
             assert!(r.error_px.is_none());
         }
         let hist = export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .as_ref()
@@ -619,14 +609,21 @@ mod tests {
             PlanarIntrinsicsProblem::export(&dataset, &output, &PlanarIntrinsicsConfig::default())
                 .expect("export");
 
-        assert_eq!(export.per_feature_residuals.target.len(), 12);
-        for (i, r) in export.per_feature_residuals.target.iter().enumerate() {
+        assert_eq!(export.diagnostics.per_feature_residuals.target.len(), 12);
+        for (i, r) in export
+            .diagnostics
+            .per_feature_residuals
+            .target
+            .iter()
+            .enumerate()
+        {
             let err = r
                 .error_px
                 .unwrap_or_else(|| panic!("record {i} missing error"));
             assert!(err < 1e-9, "record {i} error_px {err} not near zero");
         }
         let hist = &export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .as_ref()
@@ -689,23 +686,30 @@ mod tests {
         let json = serde_json::to_string(&export).expect("serialize");
         let restored: PlanarIntrinsicsExport = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(
-            restored.per_feature_residuals.target.len(),
-            export.per_feature_residuals.target.len()
+            restored.diagnostics.per_feature_residuals.target.len(),
+            export.diagnostics.per_feature_residuals.target.len()
         );
         assert_eq!(
-            restored.per_feature_residuals.target_hist_per_camera,
-            export.per_feature_residuals.target_hist_per_camera
+            restored
+                .diagnostics
+                .per_feature_residuals
+                .target_hist_per_camera,
+            export
+                .diagnostics
+                .per_feature_residuals
+                .target_hist_per_camera
         );
-        assert!(restored.per_feature_residuals.laser.is_empty());
+        assert!(restored.diagnostics.per_feature_residuals.laser.is_empty());
         assert!(
             restored
+                .diagnostics
                 .per_feature_residuals
                 .laser_hist_per_camera
                 .is_none()
         );
         // ADR 0014: image_manifest defaults to None and absent from the wire
         // when not populated, keeping existing serialized JSON byte-stable.
-        assert!(restored.image_manifest.is_none());
+        assert!(restored.diagnostics.image_manifest.is_none());
         assert!(!json.contains("image_manifest"));
     }
 
@@ -730,14 +734,9 @@ mod tests {
         let mut export = PlanarIntrinsicsExport {
             kind: ExportKind::PlanarIntrinsics,
             params,
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
-            per_feature_residuals: PerFeatureResiduals::default(),
-            image_manifest: None,
+            diagnostics: ExportDiagnostics::default(),
             uncertainty: Uncertainty::default(),
         };
         let mut frame = FrameRef::default();
@@ -745,11 +744,12 @@ mod tests {
         let mut manifest = ImageManifest::default();
         manifest.root = std::path::PathBuf::from("images");
         manifest.frames = vec![frame];
-        export.image_manifest = Some(manifest);
+        export.diagnostics.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).expect("serialize");
         let restored: PlanarIntrinsicsExport = serde_json::from_str(&json).expect("deserialize");
         let manifest = restored
+            .diagnostics
             .image_manifest
             .expect("manifest survives roundtrip");
         assert_eq!(manifest.root, std::path::PathBuf::from("images"));

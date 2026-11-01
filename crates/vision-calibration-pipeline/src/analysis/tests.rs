@@ -295,8 +295,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
         robot_pose_sigma: None,
         mean_reproj_error: 0.0,
         per_cam_reproj_errors: vec![0.0, 0.0],
-        per_feature_residuals,
-        image_manifest: None,
+        diagnostics: crate::common::ExportDiagnostics::new(per_feature_residuals),
         uncertainty: Default::default(),
     };
     let rig_stage = RigStageReprojection {

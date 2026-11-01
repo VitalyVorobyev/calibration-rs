@@ -1,4 +1,4 @@
-import type { FrameKey, ImageManifest, PerFeatureResiduals } from "../types";
+import type { ExportDiagnostics, FrameKey } from "../types";
 import type {
   CameraParams,
   ExportKind as WireExportKind,
@@ -44,8 +44,7 @@ export interface AnyExport {
    * structural view (a hand-edited payload or one written before the tag existed may omit it, in which
    * case `detectExportKind` returns `"unknown"`). */
   kind?: WireExportKind;
-  per_feature_residuals: PerFeatureResiduals;
-  image_manifest?: ImageManifest;
+  diagnostics: ExportDiagnostics;
   /** All current exports carry this, but treat it as optional: exports
    * written before their type gained the field (e.g. older
    * rig_laserline_device) omit it on the wire. */
@@ -63,11 +62,8 @@ export interface AnyExport {
   laser_planes_rig?: LaserPlaneWire[];
   /** Laser rig exports: the same planes in each camera's frame. */
   laser_planes_cam?: LaserPlaneWire[];
-  /** The covariance of the estimated parameters (every export but the
-   * laserline device, which keeps it in `estimate`). */
+  /** The covariance of the estimated parameters. */
   uncertainty?: Uncertainty;
-  /** Laserline device: the estimate, which carries its `uncertainty`. */
-  estimate?: { uncertainty?: Uncertainty };
 }
 
 /** Tauri command response shape from `load_export`. */
