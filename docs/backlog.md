@@ -198,7 +198,7 @@ were. What is left reorganizes them around the project.
   tangent columns with a zero Jacobian, which would make `JᵀJ` singular for
   the covariance. On release: replace
   `backend/s2.rs` with the upstream sphere manifold, and see
-  O-TINYSOLVER-PERF and D4-NALGEBRA-035.
+  O-TINYSOLVER-PERF and NALGEBRA-035.
 - [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver speed-ups once released.
   Results stay bit-identical and no code changes here; expected 3.9× faster
   solves on 12 threads, which `calib-bench solver` should confirm.
@@ -216,7 +216,7 @@ were. What is left reorganizes them around the project.
   ~3.9× over serial factrs on 12 threads, bit-identical.
   **Trigger**: that release. Then, in one commit: require it with
   `features = ["rayon"]` (off, nothing runs in parallel); take its Jacobian
-  as a faer-0.23 view (D4-NALGEBRA-035); rerun `calib-bench solver` for both
+  as a faer-0.23 view (NALGEBRA-035); rerun `calib-bench solver` for both
   backends.
 - [ ] PERF-ANALYTIC - Close the gap to Ceres. Planar intrinsics against Ceres
   2.2 at matched tolerances is 7–9× slower on 12 threads and about 21× on
@@ -229,25 +229,18 @@ were. What is left reorganizes them around the project.
   (Rust, cross-platform) for the KB4 and EUCM models on the same
   observations; PoseLib and pycolmap for MVG; a Ceres timing harness where
   it builds on all three platforms.
+- [~] NALGEBRA-035 - Move to `nalgebra` 0.35 / `faer` 0.24 / `faer-ext`
+  0.8. Parked: optim passes these types across both backend boundaries
+  (AGENTS.md §6), so the bump waits for a tiny-solver release (the bump is
+  a fork branch, TS-UPSTREAM) and a factrs release on them. factrs `main` is
+  on faer 0.24 / faer-ext 0.8 but still nalgebra 0.34; the shared LM reads
+  its Jacobian only as pattern and values (`backend/normal_equations.rs`),
+  so that side needs a zero-copy faer view, not a redesign. Landing it
+  before 1.0 keeps it a minor; after 1.0 it waits for 2.0.
 
 ## v1.0
 
 - [ ] D4-RELEASE - Cut v1.0 once the ROADMAP exit criteria hold.
-- [ ] D4-NALGEBRA-035 - **Decide before D4-RELEASE** (ROADMAP criterion 9):
-  ship 1.0 on `nalgebra` 0.34 and bump in 2.0, or wait for the backends.
-  Move to `nalgebra` 0.35 / `faer` 0.24 /
-  `faer-ext` 0.8. **Blocked on both backends**, built against 0.34 / 0.23 /
-  0.7: `vision-calibration-optim` passes nalgebra and faer types across the
-  tiny-solver boundary (`Factor<T: nalgebra::RealField>`,
-  `faer::sparse::SparseColMat`, `faer_ext::IntoNalgebra`) and the factrs one
-  (its variables and residual traits), so a bump fails to compile.
-  `vision-calibration-detect` stays nalgebra-free at its boundary, which is
-  what lets `calib-targets`' nalgebra 0.35 coexist.
-  - tiny-solver: the bump is a fork branch (TS-UPSTREAM).
-  - factrs `main` is on faer 0.24 / faer-ext 0.8 (nalgebra 0.34). The shared
-    LM owns its sparse solve and reads a Jacobian only as pattern and values
-    (`backend/normal_equations.rs`), so its next release needs a zero-copy
-    faer-0.23 view of those slices, not a blocker.
 
 ## Deferred and parked
 
