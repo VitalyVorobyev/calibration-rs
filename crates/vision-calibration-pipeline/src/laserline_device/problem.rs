@@ -118,7 +118,7 @@ impl LaserlineDeviceConfig {
     /// estimates ([`Self::effective_fix`]): with the tilt estimated, the
     /// default list holds the tangential terms, which trade off against it;
     /// with the tilt held, they are free.
-    pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
+    pub(crate) fn init_opts(&self) -> IterativeIntrinsicsOptions {
         let camera = CameraConfig {
             model: self.camera.model,
             fix: self.effective_fix(),
@@ -149,7 +149,7 @@ impl LaserlineDeviceConfig {
 
     /// Convert to vision-calibration-optim solve options; the camera's fix
     /// lists are [`Self::effective_fix`].
-    pub fn solve_opts(&self) -> LaserlineSolveOptions {
+    pub(crate) fn solve_opts(&self) -> LaserlineSolveOptions {
         LaserlineSolveOptions {
             calib_loss: self.optimize.calib_loss,
             calib_weight: self.optimize.calib_weight,

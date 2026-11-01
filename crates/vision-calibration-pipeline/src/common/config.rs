@@ -213,8 +213,8 @@ pub struct IntrinsicsInitConfig {
     /// fitted linearly overfits typical data, and the solve that frees it
     /// starts it from zero).
     ///
-    /// Which terms the linear stage fits otherwise follows the camera
-    /// ([`Self::distortion_fit_opts`]): a term the camera holds fixed, or its
+    /// Which terms the linear stage fits otherwise follows the camera: a
+    /// term the camera holds fixed, or its
     /// model lacks, stays at zero, and so do the tangential terms of a
     /// camera whose tilt is estimated.
     pub fix_k3: bool,
@@ -243,7 +243,7 @@ impl IntrinsicsInitConfig {
     /// `camera` is the camera being initialized, with the fix lists its
     /// non-linear solves apply; it sets which distortion terms the linear
     /// stage fits ([`Self::distortion_fit_opts`]).
-    pub fn iterative_opts(
+    pub(crate) fn iterative_opts(
         &self,
         iterations_override: Option<usize>,
         camera: &CameraConfig,
@@ -271,7 +271,7 @@ impl IntrinsicsInitConfig {
     ///   the camera frees it;
     /// - the pair is fitted only when both terms are free, since the linear
     ///   fit has no single-term option.
-    pub fn distortion_fit_opts(&self, camera: &CameraConfig) -> DistortionFitOptions {
+    pub(crate) fn distortion_fit_opts(&self, camera: &CameraConfig) -> DistortionFitOptions {
         let default = camera.model.default_fix();
         let held = |list: &Option<Vec<String>>, default: Option<Vec<String>>, name: &str| {
             list.clone()
@@ -338,7 +338,7 @@ impl SolverConfig {
     /// The solver options this stage runs with. A step that adjusts them (an
     /// iteration budget, say) overrides fields of this value, so the backend
     /// choice always comes from the config.
-    pub fn backend_options(&self) -> BackendSolveOptions {
+    pub(crate) fn backend_options(&self) -> BackendSolveOptions {
         BackendSolveOptions {
             backend: self.backend,
             max_iters: self.max_iters,

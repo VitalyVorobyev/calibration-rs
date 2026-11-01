@@ -94,6 +94,11 @@
 /// Typed error returned by all public calibration step functions.
 pub use vision_calibration_pipeline::Error;
 
+/// The linear-algebra crate the math types are built on (`Iso3`, `Pt2`, …
+/// are nalgebra types). Use this re-export to name nalgebra types in the
+/// version this library was built with.
+pub use nalgebra;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Session Framework
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -215,10 +220,8 @@ pub mod planar_intrinsics {
         IntrinsicsOptimizeResult,
     };
 
-    // Solve parameters and options of the estimate
-    pub use vision_calibration_pipeline::planar_intrinsics::{
-        PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
-    };
+    // Parameters of the estimate
+    pub use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsParams;
 
     // Step functions
     pub use vision_calibration_pipeline::planar_intrinsics::{
@@ -614,12 +617,13 @@ pub mod optim {
     };
 }
 
-/// Deterministic synthetic data generation for testing.
+/// Deterministic synthetic data generation for testing (feature `synthetic`).
 ///
 /// Provides builders for creating synthetic calibration datasets. The surface
 /// is a hand-picked subset of `vision_calibration_core::synthetic`: only the
 /// generator submodules genuinely useful to consumers are re-exported, not the
 /// whole module (which is primarily a test/example helper).
+#[cfg(feature = "synthetic")]
 pub mod synthetic {
     /// Laser-stripe pixels on a planar target for a camera model.
     pub use vision_calibration_core::synthetic::laser;

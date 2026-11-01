@@ -77,6 +77,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the new `Detection::Uncached` for a run without a cache. The laser
   converters take it before the extractor:
   `build_laserline_device_input(&spec, dir, Detection::Cached(&cache), &extractor)`.
+- **Synthetic data is a feature.** `vision_calibration::synthetic` (and
+  `vision_calibration_core::synthetic`) need the new `synthetic` feature:
+  `vision-calibration = { version = "…", features = ["synthetic"] }`.
+- **The low-level solve API is workspace-internal.** The
+  `vision-calibration-optim` entry points (`optimize_*`,
+  `evaluate_rig_handeye_laserline`), their option structs
+  (`*SolveOptions`, `BackendSolveOptions`, `CameraBounds`,
+  `ScheimpflugStagedInitOptions`) and helpers (`view_information`,
+  `with_leading_radial`, `projection_covariance_at`, `apply_robot_delta`)
+  stay callable but are hidden from the docs and outside the semver
+  promise, as are core's `FixedParams` and `INTRINSICS_PARAM_NAMES`.
+  `planar_intrinsics::PlanarIntrinsicsSolveOptions` is no longer
+  re-exported, and the configs' `init_opts()`, `solve_opts()`,
+  `backend_options()`, `iterative_opts()` and `distortion_fit_opts()` are
+  private. Calibrate through the step functions; set the solver on the
+  config (`config.solver.backend`, `config.solver.max_iters`).
+- **`vision_calibration::nalgebra`** re-exports the linear-algebra crate the
+  math types are built on, so callers can name its types in the matching
+  version.
 - **Session bookkeeping is read-only.** `session::current_timestamp` is
   private, as are the constructors of `SessionMetadata`, `LogEntry` and
   `ExportRecord`; read them through `metadata()`, `log()` and `exports`.

@@ -3398,6 +3398,7 @@ dependencies = [
  "nalgebra 0.34.2",
  "serde",
  "serde_json",
+ "vision-calibration",
  "vision-calibration-core",
  "vision-calibration-dataset",
  "vision-calibration-detect",

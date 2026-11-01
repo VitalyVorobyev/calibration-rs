@@ -23,7 +23,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-vision-calibration-core = { workspace = true, features = ["test-utils"] }
+vision-calibration-core = { workspace = true, features = ["synthetic", "test-utils"] }
 serde_json = { workspace = true }
 criterion = { workspace = true }
 

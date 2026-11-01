@@ -23,3 +23,6 @@ vision-geometry = { workspace = true }
 nalgebra = { workspace = true }
 thiserror = { workspace = true }
 tiny-solver = { workspace = true, optional = true }
+
+[dev-dependencies]
+vision-calibration-core = { workspace = true, features = ["synthetic"] }

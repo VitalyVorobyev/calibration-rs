@@ -1,151 +1,31 @@
-//! Non-linear optimization for camera calibration with automatic differentiation.
+//! Non-linear least-squares refinement for camera calibration: the
+//! optimization engine behind the `vision-calibration` sessions.
 //!
-//! This crate provides a backend-agnostic optimization framework for camera calibration
-//! problems. The core design separates problem definition from solver implementation using
-//! an intermediate representation (IR) that can be compiled to different optimization backends.
+//! Each calibration problem is lowered to a backend-agnostic
+//! intermediate representation (parameter blocks on their manifolds,
+//! autodiff residual factors, robust losses) and solved by one
+//! Levenberg–Marquardt loop over two linearization engines, tiny-solver
+//! (default) and factrs, selected by [`SolverBackend`].
 //!
-//! # Architecture
+//! # Public surface
 //!
-//! The optimization pipeline has three stages:
+//! This crate's documented items are the vocabulary and results the
+//! pipeline's sessions hand to callers:
 //!
-//! 1. **Problem Definition** - Build a \[`ir::ProblemIR`\] describing parameters, factors, and constraints
-//! 2. **Backend Compilation** - Translate the IR into the selected backend's problem
-//!    ([`SolverBackend`]: tiny-solver or factrs)
-//! 3. **Optimization** - Run the shared Levenberg–Marquardt loop and extract the
-//!    solution as domain types
+//! - the solve vocabulary: [`RobustLoss`], [`SolverBackend`], [`HandeyeMode`],
+//!   [`LaserlineResidualType`];
+//! - each problem's estimate and parameters ([`PlanarIntrinsicsEstimate`],
+//!   [`HandeyeEstimate`], [`LaserlineEstimate`], …) with their
+//!   [`SolveReport`];
+//! - the input types of the laser and hand-eye problems ([`RobotPoseMeta`],
+//!   [`LaserlineView`], [`RigLaserlineView`], …) and the [`LaserPlane`];
+//! - projection uncertainty ([`projection_uncertainty`]) and the residual
+//!   helpers the analysis reports use.
 //!
-//! ```text
-//! Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Domain Result
-//! ```
-//!
-//! ## Key Components
-//!
-//! - **\[`ir`\]** - Backend-agnostic intermediate representation for optimization problems
-//! - **\[`params`\]** - Parameter block definitions (intrinsics, distortion, poses)
-//! - **\[`factors`\]** - Residual functions with automatic differentiation support
-//! - **\[`backend`\]** - The Levenberg–Marquardt loop and its two linearization engines
-//!   (tiny-solver, factrs), selected by [`BackendSolveOptions::backend`]
-//! - **\[`problems`\]** - High-level calibration problem builders (planar intrinsics, etc.)
-//!
-//! # Examples
-//!
-//! ## Basic Planar Intrinsics Calibration
-//!
-//! ```rust,no_run
-//! use vision_calibration_core::{BrownConrady5, CameraFix, CorrespondenceView, FxFyCxCy, Iso3, PlanarDataset, Pt2, Pt3, View};
-//! use vision_calibration_optim::{
-//!     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
-//!     PlanarIntrinsicsSolveOptions, RobustLoss,
-//! };
-//!
-//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // 1. Prepare observations (world points + image detections)
-//! let view = View::without_meta(CorrespondenceView::new(
-//!     vec![
-//!         Pt3::new(0.0, 0.0, 0.0),
-//!         Pt3::new(1.0, 0.0, 0.0),
-//!         Pt3::new(1.0, 1.0, 0.0),
-//!         Pt3::new(0.0, 1.0, 0.0),
-//!     ],
-//!     vec![
-//!         Pt2::new(100.0, 100.0),
-//!         Pt2::new(200.0, 100.0),
-//!         Pt2::new(200.0, 200.0),
-//!         Pt2::new(100.0, 200.0),
-//!     ],
-//! )?);
-//! let dataset = PlanarDataset::new(vec![view])?;
-//!
-//! // 2. Initialize with linear method or prior calibration
-//! let init = PlanarIntrinsicsParams::new_from_components(
-//!     FxFyCxCy {
-//!         fx: 800.0,
-//!         fy: 800.0,
-//!         cx: 640.0,
-//!         cy: 360.0,
-//!     },
-//!     BrownConrady5 {
-//!         k1: 0.0,
-//!         k2: 0.0,
-//!         k3: 0.0,
-//!         p1: 0.0,
-//!         p2: 0.0,
-//!         iters: 8,
-//!     },
-//!     vec![Iso3::identity()],
-//! )?;
-//!
-//! // 3. Configure optimization
-//! let opts = PlanarIntrinsicsSolveOptions {
-//!     robust_loss: RobustLoss::Huber { scale: 2.0 },
-//!     // The model's defaults: k3 held fixed to prevent overfitting.
-//!     fix: CameraFix::default(),
-//!     ..Default::default()
-//! };
-//!
-//! // 4. Run optimization
-//! let result = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())?;
-//!
-//! println!("Calibrated camera: {:?}", result.params.camera);
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Custom Problem with IR
-//!
-//! # Feature Highlights
-//!
-//! ## Automatic Differentiation
-//!
-//! All residual functions are generic over [`nalgebra::RealField`], enabling automatic
-//! differentiation via dual numbers. The \[`factors::reprojection_model`\] module provides
-//! autodiff-compatible implementations of:
-//!
-//! - Pinhole projection with SE3 poses
-//! - Brown-Conrady distortion (k1, k2, k3, p1, p2)
-//! - Weighted reprojection residuals
-//!
-//! ## Flexible Parameter Fixing
-//!
-//! Name the camera parameters to hold fixed, per slot. A slot left `None`
-//! keeps the camera model's default; an explicit list replaces it:
-//!
-//! ```rust
-//! # use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
-//! # use vision_calibration_core::CameraFix;
-//! let opts = PlanarIntrinsicsSolveOptions {
-//!     fix: CameraFix {
-//!         intrinsics: Some(vec!["fx".into()]),                     // fix the focal length
-//!         distortion: Some(vec!["k3".into(), "p1".into(), "p2".into()]), // and k3 + tangential
-//!         ..CameraFix::default()
-//!     },
-//!     ..Default::default()
-//! };
-//! ```
-//!
-//! ## Robust Loss Functions
-//!
-//! Handle outliers with M-estimators ([`ir::RobustLoss`]):
-//!
-//! - `Huber` - L2 near zero, L1 for outliers
-//! - `Cauchy` - Gradual outlier suppression
-//! - `Arctan` - Bounded influence
-//!
-//! # Performance Considerations
-//!
-//! - **Initialization**: Always initialize with linear methods (the `vision-calibration-linear` crate) for faster convergence
-//! - **Robust Loss**: Use Huber with `scale ≈ 2.0` for real data with corner detection noise
-//! - **Distortion**: Fix `k3` by default unless calibrating wide-angle lenses
-//! - **Manifolds**: SE3/SO3 parameters use proper Lie group updates for stability
-//!
-//! # Numerical Stability
-//!
-//! The implementation uses several techniques for numerical robustness:
-//!
-//! - Safe division with epsilon thresholds in projection
-//! - Hartley normalization in linear initialization (via vision-calibration-linear)
-//! - Manifold-aware parameter updates for rotations
-//! - Sparse linear solvers for large problems
+//! The solve entry points (`optimize_*`) and their option structs are public
+//! for the workspace's own crates but hidden from these docs and outside the
+//! semver promise: they change whenever a pipeline step does. Calibrate
+//! through the step functions of `vision-calibration` instead.
 
 mod backend;
 mod error;
@@ -166,55 +46,74 @@ pub use error::Error;
 // builders establish, so a hand-built IR panics inside the solve loop rather
 // than failing to compile. Callers reach for the `optimize_*` entry points
 // below, which is what every consumer in this workspace does.
-pub use crate::backend::{BackendSolveOptions, SolveReport, SolverBackend};
-
+pub use crate::backend::{SolveReport, SolverBackend};
 pub use crate::ir::{DistortionKind, HandeyeMode, RobustLoss};
-
-/// The information a view carries about a camera's parameters.
-pub use crate::information::{ViewInformation, ViewPose, view_information};
-pub use crate::params::distortion::with_leading_radial;
 pub use crate::params::laser_plane::LaserPlane;
-/// Projection uncertainty of a calibrated camera.
-pub use crate::projection::{
-    ProjectionUncertainty, camera_parameters, projection_covariance_at, projection_uncertainty,
+pub use crate::problems::RobotPoseSigma;
+pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};
+
+// The results of each problem: its estimate, parameters and input types.
+pub use crate::problems::handeye::{
+    HandeyeEstimate, HandeyeParams, RobotPoseMeta, handeye_observer_se3_target,
+};
+pub use crate::problems::laserline_bundle::{
+    LaserResidualRecords, LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams,
+    LaserlineResidualType, LaserlineStats, LaserlineView, compute_laserline_feature_residuals,
+    compute_laserline_stats,
+};
+pub use crate::problems::laserline_rig_bundle::{
+    RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineView,
+    compute_rig_laserline_feature_residuals,
+};
+pub use crate::problems::planar_intrinsics::{PlanarIntrinsicsEstimate, PlanarIntrinsicsParams};
+pub use crate::problems::rig_extrinsics::{RigExtrinsicsEstimate, RigExtrinsicsParams};
+pub use crate::problems::rig_handeye_laserline_bundle::{
+    RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats,
+    RigHandeyeLaserlineView,
 };
 
+// Workspace-internal: the solve entry points and their options, and the
+// helpers the pipeline crate builds its steps from. They are public so the
+// pipeline (and the workspace's benchmarks) can call them, hidden from the
+// documentation, and outside the semver promise: they change whenever a
+// pipeline step does. Calibrate through the pipeline's step functions.
+#[doc(hidden)]
+pub use crate::backend::BackendSolveOptions;
+#[doc(hidden)]
+pub use crate::information::{ViewInformation, ViewPose, view_information};
+#[doc(hidden)]
 pub use crate::params::camera::CameraBounds;
-pub use crate::problems::planar_intrinsics::{
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
-    optimize_planar_intrinsics,
+#[doc(hidden)]
+pub use crate::params::distortion::with_leading_radial;
+#[doc(hidden)]
+pub use crate::problems::handeye::{
+    HandeyeDataset, HandeyeSolveOptions, apply_robot_delta, optimize_handeye,
 };
+#[doc(hidden)]
+pub use crate::problems::laserline_bundle::{LaserlineSolveOptions, optimize_laserline};
+#[doc(hidden)]
+pub use crate::problems::laserline_rig_bundle::{
+    RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
+};
+#[doc(hidden)]
+pub use crate::problems::planar_intrinsics::{
+    PlanarIntrinsicsSolveOptions, optimize_planar_intrinsics,
+};
+#[doc(hidden)]
+pub use crate::problems::rig_extrinsics::{
+    RigExtrinsicsDataset, RigExtrinsicsSolveOptions, optimize_rig_extrinsics,
+};
+#[doc(hidden)]
+pub use crate::problems::rig_handeye_laserline_bundle::{
+    RigHandeyeLaserlineDataset, RigHandeyeLaserlineSolveOptions, evaluate_rig_handeye_laserline,
+    optimize_rig_handeye_laserline,
+};
+#[doc(hidden)]
 pub use crate::problems::scheimpflug_intrinsics::{
     ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
 };
-
-pub use crate::problems::RobotPoseSigma;
-pub use crate::problems::handeye::{
-    HandeyeDataset, HandeyeEstimate, HandeyeParams, HandeyeSolveOptions, RobotPoseMeta,
-    apply_robot_delta, handeye_observer_se3_target, optimize_handeye,
-};
-
-pub use crate::problems::rig_extrinsics::{
-    RigExtrinsicsDataset, RigExtrinsicsEstimate, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
-    optimize_rig_extrinsics,
-};
-
-pub use crate::problems::laserline_rig_bundle::{
-    RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineSolveOptions, RigLaserlineUpstream,
-    RigLaserlineView, compute_rig_laserline_feature_residuals, optimize_rig_laserline,
-};
-
-pub use crate::problems::laserline_bundle::{
-    LaserResidualRecords, LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams,
-    LaserlineResidualType, LaserlineSolveOptions, LaserlineStats, LaserlineView,
-    compute_laserline_feature_residuals, compute_laserline_stats, optimize_laserline,
-};
-
-pub use crate::problems::rig_handeye_laserline_bundle::{
-    RigHandeyeLaserlineDataset, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams,
-    RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions, RigHandeyeLaserlineView,
-    evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
-};
+#[doc(hidden)]
+pub use crate::projection::projection_covariance_at;
 
 #[cfg(test)]
 mod tests;

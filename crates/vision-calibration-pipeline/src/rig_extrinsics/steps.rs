@@ -168,8 +168,7 @@ pub struct RigOptimizeResult {
 /// poses are *always* recovered from per-camera homographies — using the seeded
 /// intrinsics if provided, otherwise the auto-fit intrinsics. Each camera is
 /// initialized in its own model (`config.camera_for(i)`), and the linear
-/// stage fits only the distortion terms that camera's solves estimate
-/// ([`IntrinsicsInitConfig::distortion_fit_opts`](crate::common::config::IntrinsicsInitConfig::distortion_fit_opts)).
+/// stage fits only the distortion terms that camera's solves estimate.
 ///
 /// # Errors
 ///

@@ -1,6 +1,6 @@
 # Synthetic Data Generation
 
-calibration-rs provides utilities for generating synthetic calibration data, used in examples and tests. Synthetic data allows testing with known ground truth, verifying convergence, and debugging algorithm issues.
+calibration-rs provides utilities for generating synthetic calibration data, used in examples and tests. Synthetic data allows testing with known ground truth, verifying convergence, and debugging algorithm issues. The generators are behind the `synthetic` feature of `vision-calibration` (`cargo add vision-calibration --features synthetic`, or as a dev-dependency feature for tests).
 
 ## Board Point Generation
 

@@ -52,6 +52,4 @@ pub use steps::{
 // Re-exports from vision-calibration-optim
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub use vision_calibration_optim::{
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
-};
+pub use vision_calibration_optim::{PlanarIntrinsicsEstimate, PlanarIntrinsicsParams};

@@ -36,8 +36,8 @@ name = "calib-bench"
 path = "src/bin/calib_bench.rs"
 
 [dependencies]
-vision-calibration = { workspace = true }
-vision-calibration-core = { workspace = true }
+vision-calibration = { workspace = true, features = ["synthetic"] }
+vision-calibration-core = { workspace = true, features = ["synthetic"] }
 vision-calibration-optim = { workspace = true }
 vision-calibration-dataset = { workspace = true }
 vision-calibration-linear = { workspace = true }

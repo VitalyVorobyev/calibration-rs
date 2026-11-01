@@ -908,8 +908,8 @@ class IntrinsicsInitConfig(TypedDict):
     fitted linearly overfits typical data, and the solve that frees it
     starts it from zero).
 
-    Which terms the linear stage fits otherwise follows the camera
-    (`Self::distortion_fit_opts`): a term the camera holds fixed, or its
+    Which terms the linear stage fits otherwise follows the camera: a
+    term the camera holds fixed, or its
     model lacks, stays at zero, and so do the tangential terms of a
     camera whose tilt is estimated.
     """

@@ -176,7 +176,7 @@
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
-          "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera\n([`Self::distortion_fit_opts`]): a term the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
+          "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera: a\nterm the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
           "type": "boolean"
         },
         "iterations": {

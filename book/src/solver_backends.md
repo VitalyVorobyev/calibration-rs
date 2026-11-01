@@ -48,18 +48,12 @@ config form. Workflows with several solve stages (for example the joint rig,
 hand-eye and laser workflow) have one solver group per stage, each with its
 own backend.
 
-Code that calls an `optimize_*` function directly passes the backend in
-`BackendSolveOptions`:
+In code, set it on the config's solver group:
 
 ```rust
-let opts = BackendSolveOptions {
-    backend: SolverBackend::Factrs,
-    ..BackendSolveOptions::default()
-};
+let mut config = PlanarIntrinsicsConfig::default();
+config.solver.backend = SolverBackend::Factrs;
 ```
-
-`SolverConfig::backend_options()` gives the options a solver config stands
-for.
 
 ## The Levenberg–Marquardt Loop
 
@@ -159,16 +153,10 @@ application running many calibrations at once.
 
 ## Solver Options
 
-```rust
-pub struct BackendSolveOptions {
-    pub backend: SolverBackend,                  // default: TinySolver
-    pub max_iters: usize,                        // default: 100
-    pub verbosity: usize,                        // 0 = silent
-    pub min_abs_decrease: Option<f64>,           // default: Some(1e-5)
-    pub min_rel_decrease: Option<f64>,           // default: Some(1e-5)
-    pub min_error: Option<f64>,                  // default: Some(1e-10)
-}
-```
+Each solve stage's `SolverConfig` sets the `backend`, the iteration budget
+`max_iters`, the `verbosity` and the `robust_loss`. The loop stops when the
+cost decreases by less than 1e-5 in absolute or relative terms, or falls
+below 1e-10.
 
 The damped normal equations are always solved by sparse Cholesky. When the
 factorization fails (the damped $J^TJ$ is not numerically positive

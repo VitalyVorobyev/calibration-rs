@@ -266,6 +266,7 @@
 "single_cam_handeye::step_intrinsics_optimize" = "single_cam_handeye.SingleCamHandeyeSession.step_intrinsics_optimize"
 
 [rust_only]
+"nalgebra" = "the math crate re-exported for Rust callers; Python passes floats, tuples and numpy arrays"
 "dataset_runner::Detection" = "Python passes cache= and force_redetect= to each build_*_input function"
 "analysis::LaserResidualRecords" = "builds an export's per-feature residuals; Python reads them from the export (per_feature_residuals)"
 "analysis::LevelReport" = "reprojection by constraint level (intrinsic, rig, hand-eye), a diagnostic of the benchmark harness; not bound"
@@ -341,7 +342,6 @@
 "mvg::triangulation" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::types" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "optim::camera_parameters" = "the labelled parameter vector of a camera; Python's ParameterUncertainty carries the labels"
-"planar_intrinsics::PlanarIntrinsicsSolveOptions" = "the solver-level options of the estimate; a session derives them from its config"
 "prelude::Pt2" = "math alias; Python passes floats, tuples and numpy arrays"
 "prelude::Pt3" = "math alias; Python passes floats, tuples and numpy arrays"
 "rig_extrinsics::RigExtrinsicsParams" = "the estimate's parameter block; Python reads the estimate as session output and the result as RigExtrinsicsExport"

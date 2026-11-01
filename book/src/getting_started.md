@@ -10,11 +10,11 @@ Both interfaces drive the same solvers and expose the same workflow: a session p
 
 ```toml
 [dependencies]
-vision-calibration = "0.10"
+vision-calibration = { version = "0.10", features = ["synthetic"] }
 anyhow = "1"
 ```
 
-`vision-calibration` is the facade crate: it re-exports the calibration workflows, the dataset manifest, the target detectors' cache and the multiple-view geometry tools. Enable its `refine` feature for bundle adjustment in the `mvg` module.
+`vision-calibration` is the facade crate: it re-exports the calibration workflows, the dataset manifest, the target detectors' cache and the multiple-view geometry tools. The `synthetic` feature adds the synthetic-data generators the example below calibrates; a calibration from real images does not need it. Enable `refine` for bundle adjustment in the `mvg` module.
 
 ### Python
 
