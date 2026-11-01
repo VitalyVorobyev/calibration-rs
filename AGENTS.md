@@ -175,10 +175,11 @@ Every algorithmic change ships with tests:
 * `nalgebra` / `faer` / `faer-ext` are pinned by the solver backends, which
   exchange those types with optim (see the root `Cargo.toml` comment).
 * **MSRV** — `rust-version` in the root `Cargo.toml` is the single source;
-  the `MSRV (…)` CI job builds and tests it with `--locked`. Raise it when a
-  dependency we track needs a newer toolchain or a stable feature
-  simplifies the code, rather than pinning dependencies under the floor in
-  `Cargo.lock`. Bump `rust-version` and the CI job in the same PR.
+  the `MSRV (…)` CI job checks every target and feature on it with
+  `--locked`. Raise it when a dependency we track needs a newer toolchain
+  or a stable feature simplifies the code, rather than pinning
+  dependencies under the floor in `Cargo.lock`. Bump `rust-version` and
+  the CI job in the same PR.
 
 ---
 

@@ -5,6 +5,11 @@ on:
     branches: [ main ]
   pull_request:
 
+# A new push to a pull request supersedes its running checks.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     strategy:
@@ -72,11 +77,16 @@ jobs:
       - name: Install Rust 1.93
         uses: dtolnay/rust-toolchain@1.93
 
-      - name: Cargo build (MSRV)
-        run: cargo build --workspace --all-features --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust-msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Cargo test (MSRV)
-        run: cargo test --workspace --locked
+      # The job proves the workspace compiles on the oldest supported
+      # toolchain; the tests run on stable in `build`. Type-checking every
+      # target and feature covers the same code without codegen or linking.
+      - name: Cargo check (MSRV)
+        run: cargo check --workspace --all-targets --all-features --locked
 
   wasm32:
     name: wasm32 build (core + dataset)
@@ -101,7 +111,6 @@ jobs:
   # registry, locally.
   lfs-images:
     name: LFS-image tests
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (with LFS data)
@@ -127,7 +136,6 @@ jobs:
   # reference result. Image-free, so no LFS.
   regression-suite:
     name: Regression suite
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -165,7 +173,6 @@ jobs:
   # in the debug test run and run here in release.
   uncertainty-gates:
     name: Uncertainty gates
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -196,7 +203,6 @@ jobs:
 
   python-runtime:
     name: Python Runtime Tests
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
