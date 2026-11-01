@@ -159,7 +159,15 @@ mod tests {
 
     #[test]
     fn equidistant_radius_is_the_incidence_angle_beyond_ninety_degrees() {
-        for theta in [0.0_f64, 1e-10, 0.3, 1.2, 1.5707963, 2.0, 3.0] {
+        for theta in [
+            0.0_f64,
+            1e-10,
+            0.3,
+            1.2,
+            std::f64::consts::FRAC_PI_2,
+            2.0,
+            3.0,
+        ] {
             let phi = 2.1_f64;
             let dir = Vector3::new(
                 theta.sin() * phi.cos(),

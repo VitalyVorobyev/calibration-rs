@@ -37,7 +37,14 @@ class DistortionModelSchemaTest(unittest.TestCase):
         # Literal must carry exactly the serde spellings.
         self.assertEqual(
             set(typing.get_args(vc_types.DistortionModel)),
-            {"none", "brown_conrady5", "rational8", "thin_prism9", "division1"},
+            {
+                "none",
+                "brown_conrady5",
+                "rational8",
+                "thin_prism9",
+                "division1",
+                "kannala_brandt4",
+            },
         )
 
     def test_planar_default_payload_shape(self) -> None:
