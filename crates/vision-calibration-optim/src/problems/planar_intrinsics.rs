@@ -22,9 +22,9 @@ use crate::uncertainty;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFix, CameraModel, CameraParams, DistortionParams, FixedParams, FxFyCxCy,
-    Iso3, PinholeCamera, PlanarDataset, Real, TargetPose, Uncertainty, View,
-    compute_mean_reproj_error, make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CameraFix, CameraModel, CameraParams, FixedParams, FxFyCxCy, Iso3,
+    PinholeCamera, PlanarDataset, Real, TargetPose, Uncertainty, View, compute_mean_reproj_error,
+    make_pinhole_camera, pinhole_camera_params,
 };
 
 /// Optimization result for planar intrinsics.
@@ -104,27 +104,6 @@ impl PlanarIntrinsicsParams {
             make_pinhole_camera(intrinsics, BrownConrady5::default()),
             camera_se3_target,
         )
-    }
-
-    /// Get intrinsics.
-    pub fn intrinsics(&self) -> FxFyCxCy<Real> {
-        self.camera.intrinsics
-    }
-
-    /// Get distortion as Brown-Conrady (for BC-only consumers).
-    ///
-    /// Returns `None` when the active model is not Brown-Conrady or None.
-    pub fn distortion(&self) -> Option<BrownConrady5<Real>> {
-        match &self.camera.distortion {
-            DistortionParams::None => Some(BrownConrady5::default()),
-            DistortionParams::BrownConrady5 { params } => Some(*params),
-            _ => None,
-        }
-    }
-
-    /// Get poses.
-    pub fn poses(&self) -> &[Iso3] {
-        &self.camera_se3_target
     }
 }
 

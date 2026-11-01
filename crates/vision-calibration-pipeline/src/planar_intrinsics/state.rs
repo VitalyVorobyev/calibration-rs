@@ -200,7 +200,7 @@ mod tests {
         let params = state.initial_params(pinhole_bc5());
         assert!(params.is_some());
         let params = params.unwrap();
-        assert_eq!(params.poses().len(), 1);
+        assert_eq!(params.camera_se3_target.len(), 1);
         assert!(matches!(params.camera.sensor, SensorParams::Identity));
 
         // A Scheimpflug model carries the initial tilt; an extended

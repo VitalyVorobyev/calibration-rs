@@ -70,7 +70,7 @@ let init = step_init(&mut session, None)?;
 let opt = step_optimize(&mut session, None)?;
 let export = session.export()?;
 
-let k = export.params.intrinsics();
+let k = export.params.camera.intrinsics;
 println!("fx={:.2} fy={:.2} cx={:.2} cy={:.2}", k.fx, k.fy, k.cx, k.cy);
 println!("Mean reprojection error: {:.4} px", export.mean_reproj_error);
 ```

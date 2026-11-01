@@ -580,7 +580,10 @@ mod tests {
         .unwrap();
 
         let r = &est.params.camera;
-        let r_dist = est.params.distortion().expect("Brown-Conrady result");
+        let DistortionParams::BrownConrady5 { params: r_dist } = est.params.camera.distortion
+        else {
+            panic!("Brown-Conrady result")
+        };
         let SensorParams::Scheimpflug { params: tilt } = r.sensor else {
             panic!("Scheimpflug sensor expected, got {:?}", r.sensor);
         };

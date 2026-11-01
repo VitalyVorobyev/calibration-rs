@@ -63,14 +63,14 @@ ideal = cam.undistort(pixels)                   # (N, 2) in a distortion-free pi
 
 `undistort` removes the distortion and the sensor tilt, so the output is where each pixel lands in an ideal pinhole image with the same intrinsics. A point behind the camera projects to NaN.
 
-## Convenience Accessors
+## Reading the Result
 
-The calibrated planar-intrinsics parameters (`PlanarIntrinsicsParams`, `export.params`) wrap a `CameraParams` in their `camera` field and provide typed accessors:
+The calibrated planar-intrinsics parameters (`PlanarIntrinsicsParams`, `export.params`) hold the camera in their `camera` field and the per-view poses in `camera_se3_target`:
 
 ```rust
-export.params.intrinsics()   // → FxFyCxCy<f64>
-export.params.distortion()   // → Option<BrownConrady5<f64>>; None for non-Brown-Conrady models
-export.params.build_camera()?  // → CameraModel
+export.params.camera.intrinsics        // FxFyCxCy<f64>
+export.params.camera.distortion        // DistortionParams: match on the model
+export.params.build_camera()?          // CameraModel, ready to project
 ```
 
 ## Use in Session Framework

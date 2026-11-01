@@ -10,7 +10,7 @@ use vision_calibration::core::{NoiseLevel, Uncertainty};
 let export = session.export()?;
 match &export.uncertainty {
     Uncertainty::Available(cov) => {
-        let fx = export.params.intrinsics().fx;
+        let fx = export.params.camera.intrinsics.fx;
         println!("fx = {fx:.1} ± {:.2} px", cov.std_dev("fx").unwrap());
         println!("corr(fx, cx) = {:.2}", cov.correlation("fx", "cx").unwrap());
         for noise in &cov.noise {

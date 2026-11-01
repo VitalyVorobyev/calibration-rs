@@ -319,7 +319,7 @@ pub fn planar_intrinsics_report<M>(
     views: &[View<M>],
 ) -> Result<ReprojReport, Error> {
     let cam = export.params.build_camera()?;
-    let k = export.params.intrinsics();
+    let k = export.params.camera.intrinsics;
     let residuals = if !export.diagnostics.per_feature_residuals.target.is_empty() {
         export.diagnostics.per_feature_residuals.target.clone()
     } else {

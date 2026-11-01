@@ -360,7 +360,7 @@ pub fn step_intrinsics_optimize(
 
     // Update state
     let camera = result.params.camera.clone();
-    let target_poses = result.params.poses().to_vec();
+    let target_poses = result.params.camera_se3_target.to_vec();
     let mean_reproj_error = result.mean_reproj_error;
     session.state.optimized_camera = Some(camera.clone());
     session.state.optimized_target_poses = Some(target_poses.clone());

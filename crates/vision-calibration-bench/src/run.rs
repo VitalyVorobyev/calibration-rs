@@ -1902,7 +1902,10 @@ pub mod tier_b {
     ) -> Result<StagedIntrinsicsSolve> {
         // Bench staged solves are Brown-Conrady (the committed defaults);
         // `IntrinsicsParamReport` is BC5-shaped, so read the concrete coefficients.
-        let distortion = estimate.params.distortion().unwrap_or_default();
+        let distortion = match estimate.params.camera.distortion {
+            DistortionParams::BrownConrady5 { params } => params,
+            _ => BrownConrady5::default(),
+        };
         let tilt = planar_tilt(&estimate.params);
         let camera = Camera::new(
             Pinhole,

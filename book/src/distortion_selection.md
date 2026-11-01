@@ -16,7 +16,7 @@ Every workflow that estimates intrinsics picks a lens distortion model and a per
 
 Every workflow calibrates every kind with a straight or a tilted (Scheimpflug) sensor: planar intrinsics, single-camera hand-eye and the laserline device through `camera`, the rigs per camera (`camera` plus `camera_overrides`). The rig laser workflows take each camera of the upstream rig in its own model.
 
-For the non-default models, `export.params.distortion()` returns `None`; read the coefficients from `export.params.camera.distortion` (`DistortionParams`, see [Serialization and Runtime-Dynamic Types](params.md)).
+Read the coefficients from `export.params.camera.distortion`, a `DistortionParams` with one variant per model (see [Serialization and Runtime-Dynamic Types](params.md)).
 
 ## The Fix Lists
 

@@ -209,8 +209,12 @@ CHANGELOG migration notes.
    follow, and the schemas are regenerated.
 
 ### Phase 4 — One entry point per step (breaking)
-10. Seeds move into the init options; the 14 `step_*_with_seed` functions
-    go away. Python follows.
+10. ~~Seeds move into the init options.~~ Dropped: the intrinsics, rig and
+    hand-eye init options are one type shared by several problems while
+    their seeds differ per problem, so a seed field would split the shared
+    options. `step_init` is literally `step_init_with_seed` with the default
+    seed; the pair is an explicit, discoverable seeded route, not two
+    competing entry points.
 11. `PlanarIntrinsicsParams::distortion()` and similar model-specific
     `Option` accessors are removed in favour of `params.camera`.
 

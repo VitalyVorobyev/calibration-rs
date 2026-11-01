@@ -168,7 +168,7 @@ step_optimize(&mut session, None)?;
 
 // Export results
 let export = session.export()?;
-let k = export.params.intrinsics();
+let k = export.params.camera.intrinsics;
 println!("Final fx={:.1}, fy={:.1}", k.fx, k.fy);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 ```

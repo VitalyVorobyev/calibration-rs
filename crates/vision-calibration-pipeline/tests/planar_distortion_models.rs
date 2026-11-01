@@ -17,8 +17,9 @@
 use nalgebra::{Rotation3, Translation3};
 use vision_calibration_core::DistortionKind;
 use vision_calibration_core::{
-    Camera, CameraProject, CorrespondenceView, Division, FxFyCxCy, IdentitySensor, Iso3, Pinhole,
-    PlanarDataset, Pt2, Pt3, RationalPolynomial, ThinPrism, View, make_pinhole_camera,
+    Camera, CameraProject, CorrespondenceView, DistortionParams, Division, FxFyCxCy,
+    IdentitySensor, Iso3, Pinhole, PlanarDataset, Pt2, Pt3, RationalPolynomial, ThinPrism, View,
+    make_pinhole_camera,
 };
 use vision_calibration_pipeline::{
     common::{CalibratedCameras, calibrated_cameras},
@@ -189,11 +190,10 @@ fn bc5_pipeline_noiseless_round_trip() {
     );
 
     // Verify coefficients converge close to GT.
-    let k_out = export.params.intrinsics();
-    let d_out = export
-        .params
-        .distortion()
-        .expect("BC5 must produce BC5 distortion");
+    let k_out = export.params.camera.intrinsics;
+    let DistortionParams::BrownConrady5 { params: d_out } = export.params.camera.distortion else {
+        panic!("BC5 must produce BC5 distortion")
+    };
     println!(
         "[BC5] fx_err={:.3} fy_err={:.3} k1_err={:.4e} k2_err={:.4e}",
         (k_out.fx - k_gt.fx).abs(),
@@ -239,7 +239,7 @@ fn rational8_pipeline_noiseless_round_trip() {
         "Rational8 pipeline: reprojection RMS too large: {rms:.4e} px"
     );
 
-    let k_out = export.params.intrinsics();
+    let k_out = export.params.camera.intrinsics;
     println!(
         "[Rational8] fx_err={:.3} fy_err={:.3}",
         (k_out.fx - k_gt.fx).abs(),
@@ -283,7 +283,7 @@ fn thinprism9_pipeline_noiseless_round_trip() {
 
     let (export, rms) = run_pipeline(dataset.clone(), DistortionKind::ThinPrism9);
     assert_projection_uncertainty(&export);
-    assert_camera_parameters_from_json(&export, export.params.intrinsics().fx);
+    assert_camera_parameters_from_json(&export, export.params.camera.intrinsics.fx);
 
     println!("[ThinPrism9 pipeline] rms={rms:.4e} px");
     assert!(
@@ -291,7 +291,7 @@ fn thinprism9_pipeline_noiseless_round_trip() {
         "ThinPrism9 pipeline: reprojection RMS too large: {rms:.4e} px"
     );
 
-    let k_out = export.params.intrinsics();
+    let k_out = export.params.camera.intrinsics;
     println!(
         "[ThinPrism9] fx_err={:.3} fy_err={:.3}",
         (k_out.fx - k_gt.fx).abs(),
@@ -333,7 +333,7 @@ fn division1_pipeline_noiseless_round_trip() {
         "Division1 pipeline: reprojection RMS too large: {rms:.4e} px"
     );
 
-    let k_out = export.params.intrinsics();
+    let k_out = export.params.camera.intrinsics;
     println!(
         "[Division1] fx_err={:.3} fy_err={:.3}",
         (k_out.fx - k_gt.fx).abs(),
@@ -380,8 +380,8 @@ fn rational8_export_json_roundtrip() {
         serde_json::from_str(&json).expect("deserialize export");
 
     // Intrinsics survive the roundtrip.
-    let k_orig = export.params.intrinsics();
-    let k_rest = restored.params.intrinsics();
+    let k_orig = export.params.camera.intrinsics;
+    let k_rest = restored.params.camera.intrinsics;
     assert!((k_orig.fx - k_rest.fx).abs() < 1e-9);
     assert!((k_orig.fy - k_rest.fy).abs() < 1e-9);
     assert!((k_orig.cx - k_rest.cx).abs() < 1e-9);
