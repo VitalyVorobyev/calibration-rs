@@ -19,9 +19,7 @@ use vision_calibration_pipeline::{
     planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize},
     rig_extrinsics::RigExtrinsicsProblem,
     rig_handeye::RigHandeyeProblem,
-    single_cam_handeye::{
-        HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
-    },
+    single_cam_handeye::{SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView},
 };
 
 /// A frontal camera with real tangential distortion, so a linear fit of
@@ -165,7 +163,7 @@ fn single_cam_handeye() {
         .map(|p| {
             SingleCamHandeyeView::new(
                 view(p),
-                HandeyeMeta {
+                RobotPoseMeta {
                     base_se3_gripper: base_se3_gripper(p),
                 },
             )

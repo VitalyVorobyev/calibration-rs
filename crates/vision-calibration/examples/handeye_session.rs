@@ -21,12 +21,12 @@ mod handeye_io;
 use anyhow::Result;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::optim::HandeyeMode;
 use vision_calibration::prelude::*;
 use vision_calibration::single_cam_handeye::{
-    HandeyeMeta, SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem,
-    SingleCamHandeyeView, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
-    step_intrinsics_optimize,
+    SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
+    step_handeye_init, step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
 };
 
 use crate::handeye_io::DatasetSummary;
@@ -71,7 +71,7 @@ fn main() -> Result<()> {
         .into_iter()
         .map(|s| SingleCamHandeyeView {
             obs: s.view,
-            meta: HandeyeMeta {
+            meta: RobotPoseMeta {
                 base_se3_gripper: s.robot_pose,
             },
         })

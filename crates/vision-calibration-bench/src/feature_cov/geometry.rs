@@ -4,7 +4,7 @@
 use anyhow::{Result, anyhow};
 use nalgebra::{Matrix2, Matrix3, SMatrix, SVector, Vector2, Vector3};
 use serde::Serialize;
-use vision_calibration::geometry::homography::dlt_homography;
+use vision_calibration::mvg::dlt_homography;
 use vision_calibration_core::{CameraParams, Pt2};
 
 /// Grid nodes across the image, `[columns, rows]`, as the projection

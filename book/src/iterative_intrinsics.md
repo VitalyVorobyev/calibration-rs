@@ -94,8 +94,8 @@ The iterative linear estimate is not meant to be highly accurate. Its purpose is
 ## API
 
 ```rust
-use vision_calibration::linear::iterative_intrinsics::*;
-use vision_calibration::linear::distortion_fit::DistortionFitOptions;
+use vision_calibration_linear::iterative_intrinsics::*;
+use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 
 let opts = IterativeIntrinsicsOptions {
     iterations: 2,

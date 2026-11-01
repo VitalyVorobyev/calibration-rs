@@ -73,9 +73,9 @@ Every problem with an initialization step also has a `*_with_seed` variant (for 
 Every problem module uses the same names, so code written against one problem reads the same against another:
 
 - The problem is `<Name>Problem`, with `<Name>Input`, `<Name>Config` and `<Name>Export` (`PlanarIntrinsicsInput`, `RigHandeyeConfig`, …). An input that is a shared data type is a type alias (`PlanarIntrinsicsInput = PlanarDataset`).
-- The problem's output is the final solve's estimate, `*Estimate` (`PlanarIntrinsicsEstimate`, `HandeyeEstimate`, …).
+- The problem's output is the final solve's estimate, `*Estimate` (`PlanarIntrinsicsEstimate`, `HandeyeEstimate`, …). The hand-eye estimate is shared by the single-camera and rig workflows and lives in `vision_calibration::common`.
 - A step of stage `<Stage>` and action `<Action>` takes `Option<<Stage><Action>Options>` (`None` keeps the session config) and returns `<Stage><Action>Result`; its `_with_seed` variant takes a `<Stage>ManualInit` before the options. The stages are `Intrinsics`, `Rig` and `Handeye`; the single-stage laser problems use `Device` (camera and laser plane, `laserline_device`) and `Plane` (the laser planes, `rig_laserline_device`).
-- Option types shared by several problems (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …) are one type, also reachable from `vision_calibration::common`. Step results and manual seeds are per problem: `rig_handeye::IntrinsicsInitResult` and `planar_intrinsics::IntrinsicsInitResult` are different types.
+- Option types shared by several problems (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …) are one type each, imported from `vision_calibration::common`. Step results and manual seeds are per problem: `rig_handeye::IntrinsicsInitResult` and `planar_intrinsics::IntrinsicsInitResult` are different types.
 - `run_calibration(session)` has the same signature in every problem and runs with the session's config.
 
 ## Pipeline Functions

@@ -45,7 +45,7 @@ pub struct FxFyCxCy<S: RealField> {
 
 ## Coordinate Utilities
 
-The `coordinate_utils` module provides convenience functions that combine intrinsics with distortion:
+Four functions at the root of `vision_calibration_core` combine intrinsics with distortion:
 
 - `pixel_to_normalized(pixel, K)` — apply $K^{-1}$ to get normalized coordinates on the $Z = 1$ plane
 - `normalized_to_pixel(normalized, K)` — apply $K$ to get pixel coordinates

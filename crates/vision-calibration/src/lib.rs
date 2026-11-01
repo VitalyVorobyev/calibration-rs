@@ -11,8 +11,7 @@
 //! - Joint rig + hand-eye + laserline calibration
 //!
 //! Alongside the workflows it exposes dataset manifests ([`dataset`]), target
-//! detection ([`detect`]), two-view geometry ([`geometry`]) and N-view MVG
-//! ([`mvg`]).
+//! detection ([`detect`]) and multiple-view geometry ([`mvg`]).
 //!
 //! # Quick Start
 //!
@@ -31,7 +30,7 @@
 //! step_optimize(&mut session, None)?;
 //!
 //! // Option 2: Pipeline function (convenience)
-//! // run_planar_intrinsics(&mut session)?;
+//! // vision_calibration::planar_intrinsics::run_calibration(&mut session)?;
 //!
 //! // Export results
 //! let result = session.export()?;
@@ -56,13 +55,12 @@
 //!
 //! - [`dataset`] / [`dataset_runner`] - Dataset manifests and manifest-driven runs
 //! - [`detect`] - Calibration-target detection
-//! - [`geometry`] - Two-view solvers (homography, epipolar, triangulation)
-//! - [`mvg`] - N-view MVG (bundle adjustment, rectification, dense stereo)
+//! - [`mvg`] - Two-view solvers and N-view MVG (bundle adjustment,
+//!   rectification, dense stereo)
 //!
 //! ## Foundation Crates (Advanced Users)
 //!
 //! - [`core`] - Math types, camera models, RANSAC primitives
-//! - [`linear`] - Closed-form initialization algorithms
 //! - [`optim`] - Non-linear least-squares optimization
 //! - [`synthetic`] - Synthetic data generation for testing
 //!
@@ -110,14 +108,17 @@ pub mod session {
     };
 }
 
-/// Step-option types shared across problem modules.
+/// Types shared by several problem modules, defined once here.
 ///
-/// The intrinsics and hand-eye step-option structs are identical across every
-/// problem that exposes the corresponding step. They are defined once here; the
-/// per-problem modules re-export the ones they use, so both
-/// `vision_calibration::common::IntrinsicsInitOptions` and
-/// `vision_calibration::planar_intrinsics::IntrinsicsInitOptions` resolve to the
-/// same type.
+/// - The step options of the stages several problems share: intrinsics,
+///   rig and hand-eye init and optimize (`IntrinsicsInitOptions`, …).
+/// - The shared input parts: [`RobotPoseMeta`](common::RobotPoseMeta) (a
+///   view's robot pose) and [`RigLaserlineView`](common::RigLaserlineView)
+///   (a rig view with laser pixels).
+/// - The hand-eye estimate ([`HandeyeEstimate`](common::HandeyeEstimate),
+///   [`HandeyeParams`](common::HandeyeParams)).
+/// - [`CalibratedCameras`](common::CalibratedCameras), every export's camera
+///   view.
 ///
 /// The nested [`common::config`] module holds the sibling set of shared
 /// **config** sub-structs — the grouped building blocks embedded
@@ -125,9 +126,9 @@ pub mod session {
 /// SolverConfig`, ...).
 pub mod common {
     pub use vision_calibration_pipeline::common::{
-        CalibratedCameras, ExportKind, HandeyeInitOptions, HandeyeOptimizeOptions,
-        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
-        calibrated_cameras,
+        CalibratedCameras, ExportKind, HandeyeEstimate, HandeyeInitOptions, HandeyeOptimizeOptions,
+        HandeyeParams, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions,
+        RigLaserlineView, RigOptimizeOptions, RobotPoseMeta, calibrated_cameras,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -210,8 +211,8 @@ pub mod planar_intrinsics {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::planar_intrinsics::{
-        IntrinsicsFilterOptions, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
-        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult,
+        IntrinsicsFilterOptions, IntrinsicsInitResult, IntrinsicsManualInit,
+        IntrinsicsOptimizeResult,
     };
 
     // Solve parameters and options of the estimate
@@ -255,22 +256,18 @@ pub mod planar_intrinsics {
 pub mod single_cam_handeye {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::single_cam_handeye::{
-        HandeyeEstimate, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
+        SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
         SingleCamHandeyeProblem,
     };
 
     // Input views
-    pub use vision_calibration_pipeline::single_cam_handeye::{HandeyeMeta, SingleCamHandeyeView};
+    pub use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeView;
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::single_cam_handeye::{
-        HandeyeInitOptions, HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeOptions,
-        HandeyeOptimizeResult, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
-        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult,
+        HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
+        IntrinsicsManualInit, IntrinsicsOptimizeResult,
     };
-
-    // Parameters of the estimate
-    pub use vision_calibration_pipeline::single_cam_handeye::HandeyeParams;
 
     // Step functions
     pub use vision_calibration_pipeline::single_cam_handeye::{
@@ -310,6 +307,9 @@ pub mod laserline_device {
 
     // Config groups
     pub use vision_calibration_pipeline::laserline_device::DeviceOptimizeConfig;
+
+    // Input views
+    pub use vision_calibration_pipeline::laserline_device::{LaserlineMeta, LaserlineView};
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::laserline_device::{
@@ -359,9 +359,8 @@ pub mod rig_extrinsics {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_extrinsics::{
-        IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
-        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult, RigInitOptions, RigInitResult,
-        RigManualInit, RigOptimizeOptions, RigOptimizeResult,
+        IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeResult, RigInitResult,
+        RigManualInit, RigOptimizeResult,
     };
 
     // Parameters of the estimate
@@ -404,7 +403,7 @@ pub mod rig_extrinsics {
 pub mod rig_handeye {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_handeye::{
-        HandeyeEstimate, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem,
+        RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem,
     };
 
     // Config groups
@@ -412,14 +411,10 @@ pub mod rig_handeye {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_handeye::{
-        HandeyeInitOptions, HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeOptions,
-        HandeyeOptimizeResult, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
-        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult, RigInitOptions, RigInitResult,
-        RigManualInit, RigOptimizeOptions, RigOptimizeResult,
+        HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
+        IntrinsicsManualInit, IntrinsicsOptimizeResult, RigInitResult, RigManualInit,
+        RigOptimizeResult,
     };
-
-    // Parameters of the estimate
-    pub use vision_calibration_pipeline::rig_handeye::HandeyeParams;
 
     // Step functions
     pub use vision_calibration_pipeline::rig_handeye::{
@@ -443,7 +438,7 @@ pub mod rig_laserline_device {
 
     // Input parts
     pub use vision_calibration_pipeline::rig_laserline_device::{
-        RigLaserlineDataset, RigLaserlineView, RigUpstreamCalibration,
+        RigLaserlineDataset, RigUpstreamCalibration,
     };
 
     // Step options and manual seeds
@@ -471,10 +466,8 @@ pub mod rig_handeye_laserline {
     // Config groups
     pub use vision_calibration_pipeline::rig_handeye_laserline::JointOptimizeConfig;
 
-    // Input views
-    pub use vision_calibration_pipeline::rig_handeye_laserline::{
-        RigHandeyeLaserlineView, RigLaserlineView, RobotPoseMeta,
-    };
+    // Input view
+    pub use vision_calibration_pipeline::rig_handeye_laserline::RigHandeyeLaserlineView;
 
     // Step functions
     pub use vision_calibration_pipeline::rig_handeye_laserline::run_calibration;
@@ -559,38 +552,11 @@ pub mod detect {
     };
 }
 
-/// Closed-form initialization algorithms.
-///
-/// Includes Zhang's method, PnP solvers, hand-eye solvers, and more.
-/// Two-view geometric solvers (homography, fundamental/essential matrix,
-/// camera matrix, triangulation) are in the `geometry` module below.
-///
-/// Re-exports the algorithm modules of `vision_calibration_linear` by name —
-/// items are reached via their owning module, e.g.
-/// `vision_calibration::linear::zhang_intrinsics::estimate_intrinsics_from_homographies`.
-/// The curated [`prelude`](linear::prelude) gathers the most-used items.
-pub mod linear {
-    pub use vision_calibration_linear::{
-        Error, distortion_fit, extrinsics, handeye, iterative_intrinsics, laserline, math,
-        planar_pose, pnp, scheimpflug_init, zhang_intrinsics,
-    };
-
-    pub mod prelude {
-        //! Curated, most-used items from `vision-calibration-linear`.
-        pub use vision_calibration_linear::prelude::*;
-    }
-}
-
-/// Deterministic two-view geometric solvers: epipolar geometry, homography,
-/// triangulation, and camera-matrix decomposition. Re-exported from
-/// `vision_geometry`, e.g. `vision_calibration::geometry::homography::dlt_homography`.
-pub mod geometry {
-    pub use vision_geometry::{camera_matrix, epipolar, homography, triangulation};
-}
-
-/// Multiple-view geometry pipelines over the [`geometry`] solvers, re-exported
-/// from `vision_mvg`: calibrated relative-pose recovery, robust (RANSAC)
-/// estimation, degeneracy checks, N-view triangulation, homography
+/// Multiple-view geometry, re-exported from `vision_mvg`: the deterministic
+/// two-view solvers (essential and fundamental matrix, homography DLT,
+/// camera-matrix DLT, linear triangulation) at the module root, plus
+/// calibrated relative-pose recovery, robust (RANSAC) estimation, degeneracy
+/// checks, N-view triangulation, homography
 /// decomposition, Scheimpflug-aware stereo rectification, and pure-Rust dense
 /// stereo matching — reached via the owning module, e.g.
 /// `vision_calibration::mvg::rectification::rectify_stereo_pair` or
@@ -601,6 +567,12 @@ pub mod geometry {
 pub mod mvg {
     /// RANSAC settings taken by the robust estimators in [`robust`].
     pub use vision_calibration_core::RansacOptions;
+    /// Deterministic two-view solvers, on normalized (or pixel) coordinates.
+    pub use vision_mvg::{
+        CameraMatrixDecomposition, Mat34, decompose_camera_matrix, decompose_essential,
+        dlt_camera_matrix, dlt_homography, essential_5point, fundamental_7point,
+        fundamental_8point, triangulate_point_linear,
+    };
     pub use vision_mvg::{
         MvgError, degeneracy, dense, error, homography, pose_recovery, rectification, residuals,
         robust, triangulation, types,
@@ -617,8 +589,7 @@ pub mod mvg {
 /// the per-problem `step_*` functions, which wrap it. This module re-exports
 /// only the small value/enum vocabulary a facade consumer legitimately names:
 /// the robust-loss and solver-backend selectors, the laser-plane parameter
-/// type, the hand-eye mode enum, and the per-problem input-construction
-/// `*Meta`/`*View` types.
+/// type, the hand-eye mode enum and projection uncertainty.
 ///
 /// The `compute_*_feature_residuals` / `handeye_observer_se3_target` helpers
 /// live in [`analysis`], not here.
@@ -629,12 +600,6 @@ pub mod optim {
     pub use vision_calibration_optim::HandeyeMode;
     /// Laser-plane parameter type.
     pub use vision_calibration_optim::LaserPlane;
-    /// Per-view metadata for laserline device input.
-    pub use vision_calibration_optim::LaserlineMeta;
-    /// Per-view observation type for laserline device input.
-    pub use vision_calibration_optim::LaserlineView;
-    /// Per-view robot-pose metadata for rig hand-eye input.
-    pub use vision_calibration_optim::RobotPoseMeta;
     /// Robust loss (M-estimator) selector for optimization.
     pub use vision_calibration_optim::RobustLoss;
     /// Solver backend selector — the `backend` field of
@@ -681,9 +646,6 @@ pub mod prelude {
 
     /// Planar intrinsics problem type for hello-world calibration.
     pub use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsProblem;
-
-    /// Convenience planar calibration runner.
-    pub use vision_calibration_pipeline::planar_intrinsics::run_calibration as run_planar_intrinsics;
 
     /// Core geometry and dataset types used in minimal planar workflows.
     pub use vision_calibration_core::{

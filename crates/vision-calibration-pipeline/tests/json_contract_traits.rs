@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 
 use serde::{Serialize, de::DeserializeOwned};
+use vision_calibration_pipeline::common::RobotPoseMeta;
 use vision_calibration_pipeline::{
     common::config::CameraConfig,
     laserline_device::{
@@ -14,9 +15,7 @@ use vision_calibration_pipeline::{
     rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput},
     rig_handeye::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput},
     session::{CalibrationSession, ExportRecord, LogEntry, SessionMetadata},
-    single_cam_handeye::{
-        HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
-    },
+    single_cam_handeye::{SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput},
 };
 
 fn assert_json_contract<T>()
@@ -52,7 +51,7 @@ fn rig_extrinsics_contract_types_are_serde() {
 
 #[test]
 fn single_cam_handeye_contract_types_are_serde() {
-    assert_json_contract::<HandeyeMeta>();
+    assert_json_contract::<RobotPoseMeta>();
     assert_json_contract::<SingleCamHandeyeInput>();
     assert_json_contract::<SingleCamHandeyeConfig>();
     assert_json_contract::<SingleCamHandeyeExport>();

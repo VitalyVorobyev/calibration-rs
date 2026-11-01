@@ -26,6 +26,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The detection cache types are reached only at the crate root of
     `vision-calibration-detect`; the `cache` module and `hash_image_bytes`
     are private (`CacheKey::from_inputs` hashes the image).
+- **One import path per type.**
+  - The shared step options (`IntrinsicsInitOptions`,
+    `IntrinsicsOptimizeOptions`, `RigInitOptions`, `RigOptimizeOptions`,
+    `HandeyeInitOptions`, `HandeyeOptimizeOptions`) are imported from
+    `common` only; the problem modules no longer re-export them. Step
+    results and manual seeds stay per problem.
+  - Types shared by several workflows moved to `common`: `RobotPoseMeta`,
+    `RigLaserlineView`, `HandeyeEstimate` and `HandeyeParams`. The facade's
+    `optim` module no longer carries input types; `LaserlineMeta` and
+    `LaserlineView` are in `laserline_device`.
+  - `single_cam_handeye::HandeyeMeta` is removed: a single-camera hand-eye
+    view is `View<RobotPoseMeta>`, the type the rig workflows use. The JSON
+    is unchanged (`{"base_se3_gripper": …}`).
+  - `prelude::run_planar_intrinsics` is removed; call
+    `planar_intrinsics::run_calibration`.
+  - The facade's `linear` and `geometry` modules are removed. The two-view
+    solvers (`dlt_homography`, `essential_5point`, `fundamental_8point`,
+    `decompose_essential`, `triangulate_point_linear`, `dlt_camera_matrix`,
+    `decompose_camera_matrix`, `Mat34`, …) are at the root of `mvg`; the
+    closed-form initializers are used through the `vision-calibration-linear`
+    and `vision-geometry` crates directly.
+  - `vision_calibration_core::coordinate_utils` is private; its four
+    functions stay at the crate root.
 
 ## [0.10.0] - 2026-10-31
 

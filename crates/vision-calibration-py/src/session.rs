@@ -228,6 +228,7 @@ macro_rules! session_class {
 
 pub(crate) mod planar {
     use super::*;
+    use vision_calibration::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
     use vision_calibration::planar_intrinsics::*;
 
     session_class! {
@@ -247,6 +248,10 @@ pub(crate) mod planar {
 
 pub(crate) mod single_cam_handeye {
     use super::*;
+    use vision_calibration::common::{
+        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions,
+    };
     use vision_calibration::single_cam_handeye::*;
 
     session_class! {
@@ -285,6 +290,9 @@ pub(crate) mod laserline_device {
 
 pub(crate) mod rig_extrinsics {
     use super::*;
+    use vision_calibration::common::{
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+    };
     use vision_calibration::rig_extrinsics::*;
 
     session_class! {
@@ -306,6 +314,10 @@ pub(crate) mod rig_extrinsics {
 
 pub(crate) mod rig_handeye {
     use super::*;
+    use vision_calibration::common::{
+        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+    };
     use vision_calibration::rig_handeye::*;
 
     session_class! {

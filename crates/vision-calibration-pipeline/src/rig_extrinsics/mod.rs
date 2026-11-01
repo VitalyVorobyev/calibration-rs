@@ -70,9 +70,8 @@ pub use problem::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
 };
 pub use steps::{
-    IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeOptions,
-    IntrinsicsOptimizeResult, RigInitOptions, RigInitResult, RigManualInit, RigOptimizeOptions,
-    RigOptimizeResult, run_calibration, step_intrinsics_init_all,
+    IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeResult, RigInitResult,
+    RigManualInit, RigOptimizeResult, run_calibration, step_intrinsics_init_all,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init,
     step_rig_init_with_seed, step_rig_optimize,
 };

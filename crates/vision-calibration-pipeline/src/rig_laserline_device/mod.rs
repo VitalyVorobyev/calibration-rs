@@ -20,6 +20,6 @@ pub use steps::{
     PlaneInitOptions, PlaneManualInit, PlaneOptimizeOptions, run_calibration, step_init,
     step_init_with_seed, step_optimize,
 };
-// The input's dataset types, so the workflow is usable from this module alone,
-// and the plane solve's estimate (the problem's output).
-pub use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineView};
+// The input's dataset type and the plane solve's estimate (the problem's
+// output); the per-view type is shared, in `common`.
+pub use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineEstimate};

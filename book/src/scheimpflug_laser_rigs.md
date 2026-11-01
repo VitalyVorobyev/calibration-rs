@@ -104,7 +104,7 @@ run_calibration(&mut session)?;
 let export = session.export()?; // laser_planes_rig, laser_planes_cam, per_camera_stats, ...
 ```
 
-The steps `step_init` and `step_optimize` are available for finer control. `dataset` is a `RigLaserlineDataset` (`RigLaserlineDataset::new(views, num_cameras)`, also exported from this module, as is `RigLaserlineView`) whose views hold, per camera, target correspondences and the extracted laser pixels. Laser pixel extraction itself is left to the application.
+The steps `step_init` and `step_optimize` are available for finer control. `dataset` is a `RigLaserlineDataset` (`RigLaserlineDataset::new(views, num_cameras)`, also exported from this module; its view type `RigLaserlineView` is in `vision_calibration::common`) whose views hold, per camera, target correspondences and the extracted laser pixels. Laser pixel extraction itself is left to the application.
 
 ## RigHandeyeLaserline
 
@@ -128,7 +128,7 @@ warm-start values, because they trade off against the extrinsics and the
 laser planes. An entry's slot left out keeps the model's default, as in every
 `CameraFix`.
 
-The input is a `RigHandeyeLaserlineInput { views, num_cameras }`. Each `RigHandeyeLaserlineView` (exported from this module with `RigLaserlineView` and `RobotPoseMeta`) carries the per-camera target observations, the laser pixels, and the robot pose (`base_se3_gripper`). There is a single entry point:
+The input is a `RigHandeyeLaserlineInput { views, num_cameras }`. Each `RigHandeyeLaserlineView` (exported from this module; its parts `RigLaserlineView` and `RobotPoseMeta` are in `vision_calibration::common`) carries the per-camera target observations, the laser pixels, and the robot pose (`base_se3_gripper`). There is a single entry point:
 
 ```rust
 use vision_calibration::rig_handeye_laserline::{RigHandeyeLaserlineProblem, run_calibration};

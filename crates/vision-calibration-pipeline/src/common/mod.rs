@@ -32,6 +32,11 @@ mod export_kind;
 pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use export_kind::ExportKind;
+// Input and output types shared by several problem types: the robot pose of
+// a hand-eye view, a rig view with laser pixels, and the hand-eye estimate.
+pub use vision_calibration_optim::{
+    HandeyeEstimate, HandeyeParams, RigLaserlineView, RobotPoseMeta,
+};
 
 use serde::{Deserialize, Serialize};
 

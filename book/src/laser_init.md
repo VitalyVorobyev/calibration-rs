@@ -69,7 +69,7 @@ Typical accuracy: 1-5° normal direction error, 5-20% distance error. Refined in
 ## API
 
 ```rust
-use vision_calibration::linear::laserline::{LaserlinePlaneSolver, LaserlineView};
+use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LaserlineView};
 
 // Each view carries laser pixels and the camera-to-target pose
 let views: Vec<LaserlineView> = poses.iter().zip(laser_pixels_per_view.iter())

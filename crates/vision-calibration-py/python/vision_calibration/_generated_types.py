@@ -765,16 +765,6 @@ class HandeyeInitConfig(TypedDict):
     """Minimum motion angle (degrees) for linear hand-eye initialization."""
 
 
-class HandeyeMeta(TypedDict):
-    """Metadata for a single hand-eye view.
-
-    `base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).
-    """
-
-    base_se3_gripper: Iso3
-    """Gripper pose expressed in base frame (`T_B_G`) for this view."""
-
-
 HandeyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
 """Hand-eye calibration mode.
 
@@ -2880,7 +2870,7 @@ class SingleCamHandeyeInput(TypedDict):
 class SingleCamHandeyeView(TypedDict):
     """Single-camera observation view with attached metadata."""
 
-    meta: HandeyeMeta
+    meta: RobotPoseMeta
     """Arbitrary metadata payload associated with the view."""
 
     obs: CorrespondenceView
@@ -3319,7 +3309,6 @@ __all__ = [
     "FrameRef",
     "FxFyCxCy",
     "HandeyeInitConfig",
-    "HandeyeMeta",
     "HandeyeMode",
     "HandeyeOptimizeConfig",
     "ImageManifest",

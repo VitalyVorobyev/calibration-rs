@@ -44,19 +44,6 @@
       ],
       "type": "object"
     },
-    "HandeyeMeta": {
-      "description": "Metadata for a single hand-eye view.\n\n`base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).",
-      "properties": {
-        "base_se3_gripper": {
-          "$ref": "#/$defs/Iso3Schema",
-          "description": "Gripper pose expressed in base frame (`T_B_G`) for this view."
-        }
-      },
-      "required": [
-        "base_se3_gripper"
-      ],
-      "type": "object"
-    },
     "Iso3Schema": {
       "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
       "properties": {
@@ -113,11 +100,24 @@
       ],
       "type": "object"
     },
+    "RobotPoseMeta": {
+      "description": "Per-view robot metadata required by hand-eye calibration.",
+      "properties": {
+        "base_se3_gripper": {
+          "$ref": "#/$defs/Iso3Schema",
+          "description": "Gripper pose expressed in the robot base frame (T_B_G)."
+        }
+      },
+      "required": [
+        "base_se3_gripper"
+      ],
+      "type": "object"
+    },
     "View": {
       "description": "Single-camera observation view with attached metadata.",
       "properties": {
         "meta": {
-          "$ref": "#/$defs/HandeyeMeta",
+          "$ref": "#/$defs/RobotPoseMeta",
           "description": "Arbitrary metadata payload associated with the view."
         },
         "obs": {

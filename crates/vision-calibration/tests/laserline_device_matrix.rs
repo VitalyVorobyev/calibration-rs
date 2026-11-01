@@ -26,7 +26,8 @@ use vision_calibration::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput, LaserlineDeviceProblem,
     run_calibration,
 };
-use vision_calibration::optim::{LaserPlane, LaserlineMeta, LaserlineView, SolverBackend};
+use vision_calibration::laserline_device::{LaserlineMeta, LaserlineView};
+use vision_calibration::optim::{LaserPlane, SolverBackend};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::noise::UniformPixelNoise;
 use vision_calibration::synthetic::{laser, poses};

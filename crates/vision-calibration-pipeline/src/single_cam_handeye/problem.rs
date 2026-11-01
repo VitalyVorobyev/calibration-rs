@@ -11,7 +11,7 @@ use vision_calibration_core::{
     build_feature_histogram, compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
-    HandeyeEstimate, HandeyeMode, RobotPoseSigma, handeye_observer_se3_target,
+    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
 };
 
 use crate::common::ExportKind;
@@ -26,22 +26,8 @@ use super::state::SingleCamHandeyeState;
 // Input Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Metadata for a single hand-eye view.
-///
-/// `base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct HandeyeMeta {
-    /// Gripper pose expressed in base frame (`T_B_G`) for this view.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "vision_calibration_core::Iso3Schema")
-    )]
-    pub base_se3_gripper: Iso3,
-}
-
 /// A single view with robot pose and 2D-3D correspondences.
-pub type SingleCamHandeyeView = View<HandeyeMeta>;
+pub type SingleCamHandeyeView = View<RobotPoseMeta>;
 
 /// Input for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -409,7 +395,7 @@ mod tests {
                 ],
             )
             .unwrap(),
-            HandeyeMeta {
+            RobotPoseMeta {
                 base_se3_gripper: Iso3::identity(),
             },
         )

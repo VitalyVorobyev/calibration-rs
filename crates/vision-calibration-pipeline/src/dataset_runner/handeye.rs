@@ -13,7 +13,8 @@ use vision_calibration_core::View;
 use vision_calibration_dataset::{DatasetSpec, Topology, validate};
 use vision_calibration_detect::DetectionCache;
 
-use crate::single_cam_handeye::{HandeyeMeta, SingleCamHandeyeInput};
+use crate::common::RobotPoseMeta;
+use crate::single_cam_handeye::SingleCamHandeyeInput;
 
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
@@ -151,12 +152,12 @@ pub fn build_single_cam_handeye_input(
     }
 
     let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, total_views)?;
-    let views: Vec<View<HandeyeMeta>> = kept_obs
+    let views: Vec<View<RobotPoseMeta>> = kept_obs
         .into_iter()
         .zip(matched)
         .map(|(obs, base_se3_gripper)| View {
             obs,
-            meta: HandeyeMeta { base_se3_gripper },
+            meta: RobotPoseMeta { base_se3_gripper },
         })
         .collect();
 

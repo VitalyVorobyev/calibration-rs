@@ -154,15 +154,15 @@ pub struct SingleCamHandeyeConfig {
 
 ## Input Format
 
-Each view is a `View<HandeyeMeta>` (aliased as `SingleCamHandeyeView`):
+Each view is a `View<RobotPoseMeta>` (aliased as `SingleCamHandeyeView`); `RobotPoseMeta` is in `vision_calibration::common`, shared with the rig hand-eye workflows:
 
 ```rust
-pub struct HandeyeMeta {
+pub struct RobotPoseMeta {
     pub base_se3_gripper: Iso3,  // Robot pose (from kinematics)
 }
 
 // Type alias
-pub type SingleCamHandeyeView = View<HandeyeMeta>;
+pub type SingleCamHandeyeView = View<RobotPoseMeta>;
 // Where View<Meta> has fields: obs: CorrespondenceView, meta: Meta
 ```
 

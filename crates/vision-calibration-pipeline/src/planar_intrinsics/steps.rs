@@ -65,7 +65,7 @@ use super::problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
+use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 
 /// Manual initialization seeds for planar intrinsics calibration.
 ///
