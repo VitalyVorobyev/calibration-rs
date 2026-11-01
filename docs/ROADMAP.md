@@ -68,11 +68,10 @@ alongside both phases. Track names below match the backlog headings.
 8. **Docs current** — README, crate READMEs, the book, ADRs and this file
    describe the code as it is, and user-facing docs carry no internal
    references (`cargo xtask check-docs`).
-9. **Public dependencies** — the external crates whose types the facade
-   exposes (`nalgebra`) are at versions the 1.x line can keep, or the policy
-   for bumping them is recorded. Today `nalgebra` 0.34 is held by both solver
-   backends (D4-NALGEBRA-035), so 1.0 would freeze it: a maintainer decision
-   before D4-RELEASE.
+9. **Public dependencies** — only `nalgebra` reaches the facade's
+   signatures, and its bump policy is recorded (AGENTS.md §6): the version
+   follows the solver backends, and a bump is a breaking release. 1.0 ships
+   on whatever both backends are built against at the time (NALGEBRA-035).
 
 ### Phase 2 — Growth in 1.x
 
@@ -100,7 +99,7 @@ order:
    scatter, the split-half `r` is 1.3–3.3 on the public cameras (it was
    5–24); criterion 3 asks for about 1.
 
-The v1.0 API audit and the public-dependency decision (criterion 9) are
+The v1.0 API audit and the public-dependency policy (criterion 9) are
 done (0.11): ADRs 0006, 0012, 0016 and 0024 state the resulting rules, and
 from 1.0 the release runbook runs `cargo semver-checks`.
 
