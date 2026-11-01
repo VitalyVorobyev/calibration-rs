@@ -22,7 +22,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod cache;
+mod cache;
 mod error;
 mod feature;
 
@@ -37,9 +37,7 @@ mod puzzleboard;
 #[cfg(feature = "ringgrid")]
 mod ringgrid;
 
-pub use cache::{
-    CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache, hash_image_bytes,
-};
+pub use cache::{CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache};
 pub use error::DetectError;
 pub use feature::{Feature, reject_ambiguous_detection};
 

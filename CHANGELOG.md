@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **Internal helpers leave the public API.** Nothing in the calibration
+  workflows used them.
+  - `vision_calibration_linear::handeye::{build_all_pairs, MotionPair}` are
+    removed; the hand-eye initializers form their motion pairs internally.
+  - `LaserPlane::{to_dvec, from_dvec, normal_to_dvec, distance_to_dvec,
+    from_split_dvec}` are removed from the public API; build a plane with
+    `LaserPlane::new` and read `normal` / `distance`.
+  - `vision_mvg::cheirality` (and `mvg::cheirality` on the facade) is
+    private: `recover_relative_pose` and `recover_relative_pose_robust` pick
+    the pose. `degeneracy::{detect_pure_rotation, detect_planar_scene,
+    detect_poor_baseline}` and `triangulation::triangulate_two_view_partial`
+    are gone; `degeneracy::analyze_scene` reports the same verdicts.
+  - The session types are reached only as `session::X`; the `calibsession`,
+    `problem_type` and `types` submodules are private.
+  - The detection cache types are reached only at the crate root of
+    `vision-calibration-detect`; the `cache` module and `hash_image_bytes`
+    are private (`CacheKey::from_inputs` hashes the image).
+
 ## [0.10.0] - 2026-10-31
 
 ### Migration

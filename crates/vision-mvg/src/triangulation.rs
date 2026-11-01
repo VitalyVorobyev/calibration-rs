@@ -90,7 +90,7 @@ pub fn triangulate_two_view(
 /// Returns the successfully triangulated points, which may be empty if none
 /// triangulate. The two slices must have equal length (callers pass
 /// [`Correspondence2D::split`](crate::types::Correspondence2D::split) output).
-pub fn triangulate_two_view_partial(
+pub(crate) fn triangulate_two_view_partial(
     r: &Mat3,
     t: &Vec3,
     pts1: &[Pt2],

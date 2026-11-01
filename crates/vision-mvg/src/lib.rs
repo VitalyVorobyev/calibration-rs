@@ -5,7 +5,7 @@
 //! - **Types**: [`Correspondence2D`], [`TriangulatedPoint`], matrix type aliases
 //! - **Residuals**: algebraic, Sampson, geometric epipolar residuals and
 //!   symmetric transfer error for homographies
-//! - **Cheirality**: pose disambiguation from essential matrix decomposition
+//! - **Degeneracy**: pure-rotation, planar-scene and poor-baseline detection
 //! - **Pose recovery**: [`recover_relative_pose`] — end-to-end calibrated 2-view pose
 //! - **Triangulation**: two-view and N-view triangulation with diagnostics
 //!
@@ -27,7 +27,7 @@
 
 #[cfg(feature = "refine")]
 pub mod bundle_adjust;
-pub mod cheirality;
+mod cheirality;
 pub mod degeneracy;
 pub mod dense;
 pub mod error;

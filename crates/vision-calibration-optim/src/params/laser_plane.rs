@@ -38,49 +38,14 @@ impl LaserPlane {
         }
     }
 
-    /// Convert to 4D parameter vector [nx, ny, nz, d].
-    ///
-    /// This is a compact serialization form. For S2 optimization, prefer
-    /// [`normal_to_dvec`](Self::normal_to_dvec) and
-    /// [`distance_to_dvec`](Self::distance_to_dvec).
-    pub fn to_dvec(&self) -> DVector<f64> {
-        DVector::from_vec(vec![
-            self.normal.x,
-            self.normal.y,
-            self.normal.z,
-            self.distance,
-        ])
-    }
-
     /// Convert the unit normal to a 3D parameter vector [nx, ny, nz].
-    pub fn normal_to_dvec(&self) -> DVector<f64> {
+    pub(crate) fn normal_to_dvec(&self) -> DVector<f64> {
         DVector::from_vec(vec![self.normal.x, self.normal.y, self.normal.z])
     }
 
     /// Convert the distance to a 1D parameter vector \[d\].
-    pub fn distance_to_dvec(&self) -> DVector<f64> {
+    pub(crate) fn distance_to_dvec(&self) -> DVector<f64> {
         DVector::from_vec(vec![self.distance])
-    }
-
-    /// Parse from 4D vector [nx, ny, nz, d].
-    ///
-    /// The first 3 components are normalized to create a unit normal.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::InvalidInput`] if the vector length is not 4.
-    pub fn from_dvec(v: DVectorView<f64>) -> Result<Self, Error> {
-        if v.len() != 4 {
-            return Err(Error::invalid_input(format!(
-                "LaserPlane requires 4D vector, got {}",
-                v.len()
-            )));
-        }
-        let normal = Unit::new_normalize(Vector3::new(v[0], v[1], v[2]));
-        Ok(Self {
-            normal,
-            distance: v[3],
-        })
     }
 
     /// Parse from split normal + distance vectors.
@@ -89,7 +54,7 @@ impl LaserPlane {
     ///
     /// Returns [`Error::InvalidInput`] if `normal` is not length 3 or
     /// `distance` is not length 1.
-    pub fn from_split_dvec(
+    pub(crate) fn from_split_dvec(
         normal: DVectorView<f64>,
         distance: DVectorView<f64>,
     ) -> Result<Self, Error> {
@@ -156,19 +121,6 @@ mod tests {
     }
 
     #[test]
-    fn plane_roundtrip_conversion() {
-        let plane = LaserPlane::new(Vector3::new(1.0, 0.0, 1.0), -0.3);
-
-        let v = plane.to_dvec();
-        let plane2 = LaserPlane::from_dvec(v.as_view()).unwrap();
-
-        assert!((plane.normal.x - plane2.normal.x).abs() < 1e-10);
-        assert!((plane.normal.y - plane2.normal.y).abs() < 1e-10);
-        assert!((plane.normal.z - plane2.normal.z).abs() < 1e-10);
-        assert!((plane.distance - plane2.distance).abs() < 1e-10);
-    }
-
-    #[test]
     fn plane_point_distance() {
         // Plane: z = 0.5 (parallel to XY plane)
         // Normal: [0, 0, 1], distance: -0.5
@@ -185,12 +137,6 @@ mod tests {
         // Point below the plane
         let p3 = Pt3::new(1.0, 2.0, 0.3);
         assert!((plane.point_distance(&p3) + 0.2).abs() < 1e-10);
-    }
-
-    #[test]
-    fn plane_from_dvec_wrong_size() {
-        let v = DVector::from_vec(vec![1.0, 2.0, 3.0]); // Only 3D
-        assert!(LaserPlane::from_dvec(v.as_view()).is_err());
     }
 
     #[test]

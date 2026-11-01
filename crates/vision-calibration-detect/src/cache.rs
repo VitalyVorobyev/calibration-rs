@@ -122,7 +122,7 @@ fn sanitize_detector(detector: &str) -> String {
 /// Hash raw image bytes with FNV-1a (64-bit). Cheap, allocation-free,
 /// good enough for content-addressed cache keys (we're not defending
 /// against adversarial collisions, only against accidental ones).
-pub fn hash_image_bytes(bytes: &[u8]) -> u64 {
+pub(crate) fn hash_image_bytes(bytes: &[u8]) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
     let mut h = FNV_OFFSET;
