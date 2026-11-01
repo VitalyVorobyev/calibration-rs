@@ -120,16 +120,16 @@ runner* detects features and builds the problem input for you:
 ```rust
 use std::path::Path;
 use vision_calibration::dataset::DatasetSpec;
-use vision_calibration::dataset_runner::build_planar_input;
+use vision_calibration::dataset_runner::{Detection, build_planar_input};
 use vision_calibration::detect::FsDetectionCache;
 
-let spec: DatasetSpec = serde_json::from_str(&std::fs::read_to_string("dataset.json")?)?;
+let spec = DatasetSpec::from_path("dataset.toml")?; // TOML or JSON
 let cache = FsDetectionCache::new(".detect-cache");
-let run = build_planar_input(&spec, Path::new("."), &cache, false)?;
+let run = build_planar_input(&spec, Path::new("."), Detection::Cached(&cache))?;
 println!("{} of {} views usable", run.usable_views, run.total_views);
 
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-session.set_input(run.dataset)?;
+session.set_input(run.input)?;
 ```
 
 `cargo run -p vision-calibration-dataset --features cli --bin generate-manifest`

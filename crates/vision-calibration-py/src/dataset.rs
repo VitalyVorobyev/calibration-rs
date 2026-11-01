@@ -8,8 +8,7 @@ use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use serde::Serialize;
 use vision_calibration::dataset::{DatasetSpec, LaserExtractionSpec, sniff_folder as rust_sniff};
-use vision_calibration::dataset_runner::{self as runner, LaserPixelExtractor};
-use vision_calibration::detect::{CacheError, CacheKey, CachedFeatures, DetectionCache};
+use vision_calibration::dataset_runner::{self as runner, Detection, LaserPixelExtractor};
 
 use crate::detect::PyFsDetectionCache;
 use crate::errors::{run_err, sniff_err};
@@ -17,24 +16,8 @@ use crate::parse_payload;
 use crate::session::to_py;
 use crate::validation::value_err;
 
-/// Read a manifest file: TOML for a `.toml` extension, JSON otherwise. The
-/// error is the message to raise.
-pub(crate) fn read_manifest(path: &Path) -> Result<DatasetSpec, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|err| format!("cannot read manifest {}: {err}", path.display()))?;
-    let is_toml = path
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"));
-    let spec = if is_toml {
-        toml::from_str(&text).map_err(|err| err.to_string())
-    } else {
-        serde_json::from_str(&text).map_err(|err| err.to_string())
-    };
-    spec.map_err(|err| format!("invalid manifest {}: {err}", path.display()))
-}
-
 fn load_manifest_file(path: &Path) -> PyResult<DatasetSpec> {
-    read_manifest(path).map_err(value_err)
+    DatasetSpec::from_path(path).map_err(|err| value_err(err.to_string()))
 }
 
 /// A manifest path (its directory is the base directory unless `base_dir`
@@ -56,20 +39,6 @@ fn resolve_manifest(
         value_err("base_dir is required when the manifest is a mapping rather than a file")
     })?;
     Ok((spec, base))
-}
-
-/// A cache that never hits: a run without a cache detects every image and
-/// writes nothing.
-struct NoCache;
-
-impl DetectionCache for NoCache {
-    fn get(&self, _key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
-        Ok(None)
-    }
-
-    fn put(&self, _key: &CacheKey, _value: &CachedFeatures) -> Result<(), CacheError> {
-        Ok(())
-    }
 }
 
 /// A Python object with a `name` and an `extract(image, spec)` method, as the
@@ -128,18 +97,25 @@ impl LaserPixelExtractor for PyLaserExtractor {
     }
 }
 
-/// Run a converter with the GIL released, against the given cache (or none).
+/// Run a converter with the GIL released: against the given cache, refreshing
+/// it when `force_redetect` is set, or with no cache at all.
 fn convert<T: Send>(
     py: Python<'_>,
     cache: Option<PyRef<'_, PyFsDetectionCache>>,
-    build: impl FnOnce(&dyn DetectionCache) -> Result<T, runner::RunError> + Send,
+    force_redetect: bool,
+    build: impl FnOnce(Detection<'_>) -> Result<T, runner::RunError> + Send,
 ) -> PyResult<T> {
     let result = match &cache {
         Some(cache) => {
             let cache = cache.inner();
-            py.detach(|| build(cache))
+            let detection = if force_redetect {
+                Detection::Refresh(cache)
+            } else {
+                Detection::Cached(cache)
+            };
+            py.detach(|| build(detection))
         }
-        None => py.detach(|| build(&NoCache)),
+        None => py.detach(|| build(Detection::Uncached)),
     };
     result.map_err(|err| run_err(py, err))
 }
@@ -216,8 +192,8 @@ macro_rules! target_converter {
             force_redetect: bool,
         ) -> PyResult<Py<PyAny>> {
             let (spec, base) = resolve_manifest(manifest, base_dir)?;
-            let run = convert(py, cache, |cache| {
-                runner::$name(&spec, &base, cache, force_redetect)
+            let run = convert(py, cache, force_redetect, |detection| {
+                runner::$name(&spec, &base, detection)
             })?;
             to_py(
                 py,
@@ -250,8 +226,8 @@ macro_rules! laser_converter {
         ) -> PyResult<Py<PyAny>> {
             let (spec, base) = resolve_manifest(manifest, base_dir)?;
             let extractor = PyLaserExtractor::new(laser_extractor)?;
-            let run = convert(py, cache, |cache| {
-                runner::$name(&spec, &base, cache, &extractor, force_redetect)
+            let run = convert(py, cache, force_redetect, |detection| {
+                runner::$name(&spec, &base, detection, &extractor)
             })?;
             to_py(
                 py,
@@ -288,41 +264,4 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_rig_laserline_device_input, m)?)?;
     m.add_function(wrap_pyfunction!(build_rig_handeye_laserline_input, m)?)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn loads_toml_and_json_manifests() {
-        let dir = std::env::temp_dir().join(format!("vc-py-manifest-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let toml_text = r#"
-version = 1
-topology = "planar_intrinsics"
-
-[[cameras]]
-id = "cam0"
-images = { kind = "glob", pattern = "*.png" }
-
-[target]
-kind = "chessboard"
-rows = 5
-cols = 7
-square_size_m = 0.03
-"#;
-        let toml_path = dir.join("dataset.toml");
-        std::fs::write(&toml_path, toml_text).unwrap();
-        let from_toml = read_manifest(&toml_path).unwrap();
-        let json_path = dir.join("dataset.json");
-        std::fs::write(&json_path, serde_json::to_string(&from_toml).unwrap()).unwrap();
-        let from_json = read_manifest(&json_path).unwrap();
-        assert_eq!(
-            serde_json::to_value(&from_toml).unwrap(),
-            serde_json::to_value(&from_json).unwrap()
-        );
-        assert!(read_manifest(&dir.join("missing.toml")).is_err());
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
 }

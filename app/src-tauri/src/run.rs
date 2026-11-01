@@ -27,9 +27,9 @@ use vision_calibration::core::{
 };
 use vision_calibration::dataset::{DatasetSpec, Topology};
 use vision_calibration::dataset_runner::{
-    RunError, build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
-    build_rig_handeye_input, build_rig_handeye_laserline_input, build_rig_laserline_device_input,
-    build_single_cam_handeye_input,
+    Detection, RunError, build_laserline_device_input, build_planar_input,
+    build_rig_extrinsics_input, build_rig_handeye_input, build_rig_handeye_laserline_input,
+    build_rig_laserline_device_input, build_single_cam_handeye_input,
 };
 use vision_calibration::detect::FsDetectionCache;
 use vision_calibration::laserline_device::{
@@ -484,7 +484,7 @@ fn run_planar_topology<P>(
 where
     P: ProblemType<Input = PlanarDataset>,
 {
-    let planar_run = match build_planar_input(spec, base_dir, detection_cache, false) {
+    let planar_run = match build_planar_input(spec, base_dir, Detection::Cached(detection_cache)) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
@@ -518,10 +518,11 @@ fn run_single_cam_handeye_topology(
     started: Instant,
     ctx: &RunCtx,
 ) -> RunResponse {
-    let handeye_run = match build_single_cam_handeye_input(spec, base_dir, detection_cache, false) {
-        Ok(r) => r,
-        Err(e) => return run_error_to_response(e),
-    };
+    let handeye_run =
+        match build_single_cam_handeye_input(spec, base_dir, Detection::Cached(detection_cache)) {
+            Ok(r) => r,
+            Err(e) => return run_error_to_response(e),
+        };
     let cache_used = handeye_run.usable_views > 0; // hit/miss counts are not surfaced yet
     let usable_views = handeye_run.usable_views;
     let total_views = handeye_run.total_views;
@@ -564,9 +565,8 @@ fn run_laserline_topology(
     let laser_run = match build_laserline_device_input(
         spec,
         base_dir,
-        detection_cache,
+        Detection::Cached(detection_cache),
         &crate::laser::VmLaserExtractor,
-        false,
     ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
@@ -619,9 +619,8 @@ fn run_rig_laserline_topology(
     let laser_run = match build_rig_laserline_device_input(
         spec,
         base_dir,
-        detection_cache,
+        Detection::Cached(detection_cache),
         &crate::laser::VmLaserExtractor,
-        false,
     ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
@@ -668,9 +667,8 @@ fn run_rig_handeye_laserline_topology(
     let joint_run = match build_rig_handeye_laserline_input(
         spec,
         base_dir,
-        detection_cache,
+        Detection::Cached(detection_cache),
         &crate::laser::VmLaserExtractor,
-        false,
     ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
@@ -710,8 +708,7 @@ type RigBuilder<Meta> =
     fn(
         &DatasetSpec,
         &Path,
-        &dyn vision_calibration::detect::DetectionCache,
-        bool,
+        Detection<'_>,
     ) -> Result<vision_calibration::dataset_runner::RigRunResult<Meta>, RunError>;
 
 // Internal generic dispatch helper: it fans the shared run inputs plus a
@@ -733,7 +730,7 @@ fn run_rig_topology<P, Meta>(
 where
     P: ProblemType<Input = RigDataset<Meta>>,
 {
-    let rig_run = match build(spec, base_dir, detection_cache, false) {
+    let rig_run = match build(spec, base_dir, Detection::Cached(detection_cache)) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };

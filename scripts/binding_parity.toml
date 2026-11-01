@@ -9,6 +9,7 @@
 # `module.Class.member`; or `builtins.X` for a Python built-in.
 
 [bound]
+"dataset::ManifestError" = "builtins.ValueError"
 "Error" = ["builtins.ValueError", "builtins.RuntimeError"]
 "analysis::CandidateGrid" = "CandidateGrid"
 "analysis::CheckKind" = "types.CheckKind"
@@ -265,6 +266,7 @@
 "single_cam_handeye::step_intrinsics_optimize" = "single_cam_handeye.SingleCamHandeyeSession.step_intrinsics_optimize"
 
 [rust_only]
+"dataset_runner::Detection" = "Python passes cache= and force_redetect= to each build_*_input function"
 "analysis::LaserResidualRecords" = "builds an export's per-feature residuals; Python reads them from the export (per_feature_residuals)"
 "analysis::LevelReport" = "reprojection by constraint level (intrinsic, rig, hand-eye), a diagnostic of the benchmark harness; not bound"
 "analysis::LevelStats" = "reprojection by constraint level (intrinsic, rig, hand-eye), a diagnostic of the benchmark harness; not bound"

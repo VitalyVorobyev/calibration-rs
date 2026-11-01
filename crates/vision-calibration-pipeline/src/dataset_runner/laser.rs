@@ -25,7 +25,7 @@ use vision_calibration_core::{Iso3, Pt2, View};
 use vision_calibration_dataset::{
     DatasetSpec, ImagePattern, LaserExtractionSpec, PosePairing, Topology, validate,
 };
-use vision_calibration_detect::{CacheKey, CachedFeatures, DetectionCache, Feature};
+use vision_calibration_detect::{CacheKey, CachedFeatures, Feature};
 use vision_calibration_optim::{
     HandeyeMode, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
     RobotPoseMeta, apply_robot_delta,
@@ -39,9 +39,9 @@ use crate::rig_laserline_device::RigLaserlineDeviceInput;
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
-    RejectedDetection, RunError, augment_config_with_roi, detect_features, expand_camera_images,
-    expand_image_pattern, features_to_obs, pattern_repr, pick_detector, rig::build_rig_core,
-    target_to_detector_config, view_filter::ViewFilter,
+    Detection, RejectedDetection, RunError, augment_config_with_roi, detect_features,
+    expand_camera_images, expand_image_pattern, features_to_obs, pattern_repr, pick_detector,
+    rig::build_rig_core, target_to_detector_config, view_filter::ViewFilter,
 };
 
 /// Injected laser-line extractor.
@@ -137,9 +137,8 @@ pub struct RigHandeyeLaserlineRunResult {
 pub fn build_laserline_device_input(
     spec: &DatasetSpec,
     base_dir: &Path,
-    cache: &dyn DetectionCache,
+    detection: Detection<'_>,
     laser_extractor: &dyn LaserPixelExtractor,
-    force_redetect: bool,
 ) -> Result<LaserlineRunResult, RunError> {
     // Same gate ordering as the other converters: topology + target +
     // validation + pairing config before any filesystem access.
@@ -211,8 +210,7 @@ pub fn build_laserline_device_input(
             &key_config,
             roi,
             path,
-            cache,
-            force_redetect,
+            detection,
         )?;
         if let Err(reason) = filter.check(&features) {
             rejected.push(RejectedDetection {
@@ -234,8 +232,7 @@ pub fn build_laserline_device_input(
             &laser_key_config,
             roi,
             laser_path,
-            cache,
-            force_redetect,
+            detection,
         )?;
         if pixels.len() < laser_spec.min_points as usize {
             continue;
@@ -278,16 +275,15 @@ pub fn build_laserline_device_input(
 pub fn build_rig_laserline_device_input(
     spec: &DatasetSpec,
     base_dir: &Path,
-    cache: &dyn DetectionCache,
+    detection: Detection<'_>,
     laser_extractor: &dyn LaserPixelExtractor,
-    force_redetect: bool,
 ) -> Result<RigLaserlineRunResult, RunError> {
     if spec.topology != Topology::RigLaserlineDevice {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
     }
-    let core = build_rig_core(spec, base_dir, cache, force_redetect)?;
+    let core = build_rig_core(spec, base_dir, detection)?;
     let num_cameras = spec.cameras.len();
 
     // `validate` (inside build_rig_core) guarantees pose_pairing,
@@ -340,8 +336,7 @@ pub fn build_rig_laserline_device_input(
                 &laser_key_configs[cam_idx],
                 spec.cameras[cam_idx].roi_xywh,
                 laser_path,
-                cache,
-                force_redetect,
+                detection,
             )?;
             if pixels.len() < laser_spec.min_points as usize {
                 slots.push(None);
@@ -458,16 +453,15 @@ pub fn build_rig_laserline_device_input(
 pub fn build_rig_handeye_laserline_input(
     spec: &DatasetSpec,
     base_dir: &Path,
-    cache: &dyn DetectionCache,
+    detection: Detection<'_>,
     laser_extractor: &dyn LaserPixelExtractor,
-    force_redetect: bool,
 ) -> Result<RigHandeyeLaserlineRunResult, RunError> {
     if spec.topology != Topology::RigHandeyeLaserline {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
     }
-    let core = build_rig_core(spec, base_dir, cache, force_redetect)?;
+    let core = build_rig_core(spec, base_dir, detection)?;
     let num_cameras = spec.cameras.len();
     let pairing = spec
         .pose_pairing
@@ -513,8 +507,7 @@ pub fn build_rig_handeye_laserline_input(
                 &laser_key_configs[cam_idx],
                 spec.cameras[cam_idx].roi_xywh,
                 laser_path,
-                cache,
-                force_redetect,
+                detection,
             )?;
             if pixels.len() < laser_spec.min_points as usize {
                 slots.push(None);
@@ -679,18 +672,13 @@ fn extract_laser_pixels(
     key_config: &Value,
     roi: Option<[u32; 4]>,
     image_path: &Path,
-    cache: &dyn DetectionCache,
-    force_redetect: bool,
+    detection: Detection<'_>,
 ) -> Result<Vec<Pt2>, RunError> {
     let bytes = std::fs::read(image_path)?;
     let detector_name = format!("laser:{}", extractor.name());
     let key = CacheKey::from_inputs(&bytes, &detector_name, key_config);
 
-    let cached: Option<CachedFeatures> = if force_redetect {
-        None
-    } else {
-        cache.get(&key)?
-    };
+    let cached: Option<CachedFeatures> = detection.lookup(&key)?;
     if let Some(entry) = cached {
         return Ok(entry
             .features
@@ -714,7 +702,7 @@ fn extract_laser_pixels(
             path: image_path.to_path_buf(),
             source: e,
         })?;
-    cache.put(
+    detection.store(
         &key,
         &CachedFeatures {
             features: points
@@ -886,6 +874,7 @@ mod tests {
         CameraSource, PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
         TransformConvention, TranslationUnits,
     };
+    use vision_calibration_detect::DetectionCache;
     use vision_calibration_detect::{ChessboardDetector, FsDetectionCache};
 
     /// Deterministic extractor: `n` points along a horizontal line.
@@ -1036,7 +1025,9 @@ mod tests {
             &["laser_0.png", "laser_1.png", "laser_2.png"],
         );
         let fake = FakeLaser::new(30);
-        let result = build_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+        let result =
+            build_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
         assert_eq!(result.input.len(), 3);
         assert_eq!(result.input[0].meta.laser_pixels.len(), 30);
@@ -1077,7 +1068,9 @@ mod tests {
             &["laser_0.png", "laser_1.png", "laser_2.png", "laser_3.png"],
         );
         let fake = FakeLaser::new(30);
-        let result = build_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+        let result =
+            build_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 4));
         assert!(
             result
@@ -1105,8 +1098,8 @@ mod tests {
             &["laser_0.png"],
         );
         let fake = FakeLaser::new(30);
-        let err =
-            build_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err();
+        let err = build_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+            .unwrap_err();
         match err {
             RunError::LaserPairing { message } => {
                 assert!(
@@ -1153,7 +1146,9 @@ mod tests {
             group: "view".into(),
         });
         let fake = FakeLaser::new(30);
-        let result = build_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+        let result =
+            build_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 4));
 
         // An orphan laser token (no matching target view) must error.
@@ -1166,8 +1161,8 @@ mod tests {
                     .collect(),
             });
         }
-        let err =
-            build_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err();
+        let err = build_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+            .unwrap_err();
         match err {
             RunError::LaserPairing { message } => {
                 assert!(message.contains("\"9\""), "got: {message}");
@@ -1197,8 +1192,7 @@ mod tests {
             &key_config,
             roi,
             &img_path,
-            &cache,
-            false,
+            Detection::Cached(&cache),
         )
         .unwrap();
         assert_eq!(pixels.len(), 25);
@@ -1214,8 +1208,7 @@ mod tests {
             &key_config,
             roi,
             &img_path,
-            &cache,
-            false,
+            Detection::Cached(&cache),
         )
         .unwrap();
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
@@ -1338,7 +1331,8 @@ mod tests {
         let spec = rig_laserline_spec(tmp.path(), 3);
         let fake = FakeLaser::new(30);
         let result =
-            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+            build_rig_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
         // Laser image paths are captured per (view, camera), aligned
         // with view_paths, for the export's image_manifest.
@@ -1388,7 +1382,8 @@ mod tests {
         let fake = FakeLaser::new(30);
 
         let result =
-            build_rig_handeye_laserline_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+            build_rig_handeye_laserline_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
         assert_eq!(result.input.num_cameras, 2);
         assert_eq!(result.input.num_views(), 3);
@@ -1435,7 +1430,8 @@ mod tests {
 
         let fake = FakeLaser::new(30);
         let result =
-            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+            build_rig_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap();
         let t = result.input.upstream.rig_se3_target[1].translation.vector;
         assert!(
             (t - nalgebra::Vector3::new(2.0, 0.0, 1.0)).norm() < 1e-12,
@@ -1459,7 +1455,8 @@ mod tests {
 
         let fake = FakeLaser::new(30);
         let result =
-            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+            build_rig_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap();
         let t = result.input.upstream.rig_se3_target[1].translation.vector;
         assert!(
             (t - nalgebra::Vector3::new(-0.25, 0.0, 1.0)).norm() < 1e-12,
@@ -1484,7 +1481,8 @@ mod tests {
         let spec = rig_laserline_spec(tmp.path(), 3);
         let fake = FakeLaser::new(30);
         let err =
-            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err();
+            build_rig_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap_err();
         match err {
             RunError::InsufficientLaserViews { camera_id, .. } => assert_eq!(camera_id, "cam1"),
             other => panic!("expected InsufficientLaserViews, got {other:?}"),
@@ -1505,7 +1503,8 @@ mod tests {
         .unwrap();
         let fake = FakeLaser::new(30);
         let err =
-            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err();
+            build_rig_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap_err();
         match err {
             RunError::UpstreamCalibration { message, .. } => {
                 assert!(message.contains("3 cameras"), "got: {message}");
@@ -1523,7 +1522,8 @@ mod tests {
         spec.upstream_calibration = Some(PathBuf::from("does_not_exist.json"));
         let fake = FakeLaser::new(30);
         let err =
-            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err();
+            build_rig_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap_err();
         match err {
             RunError::UpstreamCalibration { message, .. } => {
                 assert!(message.contains("read failed"), "got: {message}");
@@ -1540,15 +1540,18 @@ mod tests {
         let mut spec = laserline_spec(&["a.png"], &["b.png"]);
         spec.topology = Topology::PlanarIntrinsics;
         assert!(matches!(
-            build_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err(),
+            build_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap_err(),
             RunError::UnsupportedTopology { .. }
         ));
         assert!(matches!(
-            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err(),
+            build_rig_laserline_device_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap_err(),
             RunError::UnsupportedTopology { .. }
         ));
         assert!(matches!(
-            build_rig_handeye_laserline_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err(),
+            build_rig_handeye_laserline_input(&spec, tmp.path(), Detection::Cached(&cache), &fake)
+                .unwrap_err(),
             RunError::UnsupportedTopology { .. }
         ));
     }

@@ -13,16 +13,6 @@ use vision_calibration_dataset::DatasetSpec;
 use super::{Suite, SuiteEntry, fetch};
 use crate::registry::{BenchEntry, CrossvalCfg, SpecRef, StabilityCfg, Tier, Visibility};
 
-/// Read a dataset manifest (TOML).
-///
-/// # Errors
-///
-/// Fails on an unreadable or invalid manifest.
-pub fn read_dataset_manifest(path: &Path) -> Result<DatasetSpec> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("parse {}", path.display()))
-}
-
 /// The dataset manifest of image entry `entry` and the directory its paths
 /// resolve against: the manifest's own directory, or, with `images`, the
 /// entry's directory in that `suite fetch` cache, after checking every file
@@ -93,7 +83,7 @@ pub fn bench_entries(
             );
             let images = images.filter(|_| entry.fetch.is_some());
             let (manifest, data_root) = image_source(suite, entry, images)?;
-            let spec = read_dataset_manifest(&manifest)?;
+            let spec = DatasetSpec::from_path(&manifest)?;
             Ok(bench_entry(&entry.id, spec, data_root))
         })
         .collect()

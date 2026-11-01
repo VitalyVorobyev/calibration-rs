@@ -15,6 +15,7 @@ use serde_json::json;
 use vision_calibration_core::{NoiseLevel, ResidualKind, Uncertainty};
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_detect::FsDetectionCache;
+use vision_calibration_pipeline::dataset_runner::Detection;
 use vision_calibration_pipeline::{
     dataset_runner::{RunError, build_planar_input},
     planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, run_calibration},
@@ -136,7 +137,12 @@ fn covariance_in_the_manifest_whitens_the_calibration() {
     let cache = FsDetectionCache::new(dir.path().join("cache"));
 
     // Off (the default): no covariances, residual noise in pixels.
-    let off = build_planar_input(&spec(&files, json!({})), dir.path(), &cache, false).unwrap();
+    let off = build_planar_input(
+        &spec(&files, json!({})),
+        dir.path(),
+        Detection::Cached(&cache),
+    )
+    .unwrap();
     assert!(off.usable_views >= 4, "{} usable views", off.usable_views);
     assert!(
         off.input
@@ -159,7 +165,12 @@ fn covariance_in_the_manifest_whitens_the_calibration() {
     // On: every view carries covariances; the noise is σ̂₀.
     let detector =
         json!({ "chess_corners": { "covariance": { "image_noise": { "known": 2.0 } } } });
-    let on = build_planar_input(&spec(&files, detector), dir.path(), &cache, false).unwrap();
+    let on = build_planar_input(
+        &spec(&files, detector),
+        dir.path(),
+        Detection::Cached(&cache),
+    )
+    .unwrap();
     assert_eq!(on.usable_views, off.usable_views);
     assert!(on.input.views.iter().all(|v| v.obs.covariances().is_some()));
     // The same corners, with the same positions.
@@ -192,7 +203,7 @@ fn covariance_on_a_target_without_one_fails_before_detection() {
     }))
     .unwrap();
     // The image does not exist: only a check made before any I/O gets here.
-    let err = build_planar_input(&spec, dir.path(), &cache, false).unwrap_err();
+    let err = build_planar_input(&spec, dir.path(), Detection::Cached(&cache)).unwrap_err();
     assert!(
         matches!(
             err,
@@ -217,8 +228,7 @@ fn a_view_without_corners_is_not_a_covariance_fault() {
     let err = build_planar_input(
         &spec(&["blank.png".to_string()], detector),
         dir.path(),
-        &cache,
-        false,
+        Detection::Cached(&cache),
     )
     .unwrap_err();
     assert!(

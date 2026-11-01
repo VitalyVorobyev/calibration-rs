@@ -175,7 +175,7 @@ let features = match cache.get(&key)? {
 };
 ```
 
-`FsDetectionCache` writes one JSON file per entry under its root, named `<image>-<detector>-<config>.json` with a portable file-name encoding that is valid on Linux, macOS and Windows. Entries are written atomically, so the cache is safe under concurrent readers and writers. The dataset runner takes any `&dyn DetectionCache`, so an application can supply its own store; every `build_*_input` converter also has a `force_redetect` flag that bypasses lookups.
+`FsDetectionCache` writes one JSON file per entry under its root, named `<image>-<detector>-<config>.json` with a portable file-name encoding that is valid on Linux, macOS and Windows. Entries are written atomically, so the cache is safe under concurrent readers and writers. The dataset runner takes a `Detection` mode: `Detection::Cached(&cache)` reuses and stores entries, `Detection::Refresh(&cache)` detects every image again and overwrites its entry, and `Detection::Uncached` uses no cache. The cache is any `&dyn DetectionCache`, so an application can supply its own store.
 
 In Python, `vc.FsDetectionCache(root)` is the filesystem cache, passed as `cache=` to `calibrate_dataset` and the `build_*_input` functions (without one, every image is detected). Its `get(key)` and `put(key, features)` take a `CacheKey`; `CacheKey.from_inputs(image_bytes, detector, config)` keys entries you manage yourself.
 

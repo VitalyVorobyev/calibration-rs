@@ -80,7 +80,7 @@ impl LaserPixelExtractor for MyExtractor {
     }
 }
 
-let run = build_rig_laserline_device_input(&spec, base_dir, &cache, &MyExtractor, false)?;
+let run = build_rig_laserline_device_input(&spec, base_dir, Detection::Cached(&cache), &MyExtractor)?;
 ```
 
 The runner owns the caching (keyed `laser:<name>` plus a hash of the extraction spec), the ROI cropping and the coordinate lifting; the extractor only extracts. Unlike the target detectors, whose trait is sealed, this one is open. `name()` is part of the cache key, so switching implementations re-extracts instead of serving another extractor's pixels.

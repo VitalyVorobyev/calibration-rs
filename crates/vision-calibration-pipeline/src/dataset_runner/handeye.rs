@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 
 use vision_calibration_core::View;
 use vision_calibration_dataset::{DatasetSpec, Topology, validate};
-use vision_calibration_detect::DetectionCache;
 
 use crate::common::RobotPoseMeta;
 use crate::single_cam_handeye::SingleCamHandeyeInput;
@@ -19,8 +18,8 @@ use crate::single_cam_handeye::SingleCamHandeyeInput;
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
-    RejectedDetection, RunError, augment_config_with_roi, detect_features, expand_camera_images,
-    features_to_obs, pattern_repr, pick_detector, target_to_detector_config,
+    Detection, RejectedDetection, RunError, augment_config_with_roi, detect_features,
+    expand_camera_images, features_to_obs, pattern_repr, pick_detector, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -46,8 +45,7 @@ pub struct HandeyeRunResult {
 pub fn build_single_cam_handeye_input(
     spec: &DatasetSpec,
     base_dir: &Path,
-    cache: &dyn DetectionCache,
-    force_redetect: bool,
+    detection: Detection<'_>,
 ) -> Result<HandeyeRunResult, RunError> {
     // Same gate ordering as the other converters: topology + target +
     // validation + pairing config before any filesystem access.
@@ -129,8 +127,7 @@ pub fn build_single_cam_handeye_input(
             &key_config,
             roi,
             path,
-            cache,
-            force_redetect,
+            detection,
         )?;
         if let Err(reason) = filter.check(&features) {
             // Drop the view (still counted in total_views, keeping
@@ -187,6 +184,7 @@ mod tests {
         CameraSource, ImagePattern, PoseColumnMap, PoseConvention, PosePairing, RobotPoseFormat,
         RobotPoseSource, RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
     };
+    use vision_calibration_detect::DetectionCache;
     use vision_calibration_detect::{
         CacheKey, CachedFeatures, ChessboardDetector, Feature, FsDetectionCache,
     };
@@ -301,7 +299,8 @@ mod tests {
             .map(|i| identity_pose_line((i + 1) as f64 / 10.0))
             .collect();
         let spec = handeye_spec(tmp.path(), &["img_0.png", "img_1.png", "img_2.png"], &poses);
-        let result = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
+        let result =
+            build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
         assert_eq!(result.input.num_views(), 3);
         assert_eq!((result.usable_views, result.total_views), (3, 3));
         let xs: Vec<f64> = result
@@ -326,7 +325,8 @@ mod tests {
             .map(|i| identity_pose_line((i + 1) as f64 / 10.0))
             .collect();
         let spec = handeye_spec(tmp.path(), &["img_0.png", "img_1.png", "img_2.png"], &poses);
-        let result = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
+        let result =
+            build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
         assert_eq!((result.usable_views, result.total_views), (2, 3));
         // The surviving views must keep poses 0 and 2 — not 0 and 1.
         let xs: Vec<f64> = result
@@ -363,7 +363,8 @@ mod tests {
             .map(|i| identity_pose_line((i + 1) as f64 / 10.0))
             .collect();
         let spec = handeye_spec(tmp.path(), &["img_0.png", "img_1.png", "img_2.png"], &poses);
-        let result = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
+        let result =
+            build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
         assert_eq!((result.usable_views, result.total_views), (2, 3));
         assert_eq!(result.rejected.len(), 1);
         assert_eq!(result.rejected[0].reason, RejectReason::PartialChessboard);
@@ -391,7 +392,8 @@ mod tests {
         seed_image(tmp.path(), &cache, "img_1.png", grid_features(3));
         let poses: String = (0..2).map(|i| identity_pose_line(f64::from(i))).collect();
         let spec = handeye_spec(tmp.path(), &["img_0.png", "img_1.png"], &poses);
-        let err = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        let err = build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache))
+            .unwrap_err();
         match err {
             RunError::NoWholeChessboardViews {
                 camera_id,
@@ -417,7 +419,8 @@ mod tests {
             &["img_0.png", "img_1.png"],
             &identity_pose_line(0.1),
         );
-        let err = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        let err = build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache))
+            .unwrap_err();
         match err {
             RunError::PoseCountMismatch { poses, views } => assert_eq!((poses, views), (1, 2)),
             other => panic!("expected PoseCountMismatch, got {other:?}"),
@@ -430,7 +433,8 @@ mod tests {
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let mut spec = handeye_spec(tmp.path(), &["a.png"], &identity_pose_line(0.1));
         spec.topology = Topology::PlanarIntrinsics;
-        let err = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        let err = build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache))
+            .unwrap_err();
         assert!(matches!(err, RunError::UnsupportedTopology { .. }));
     }
 
@@ -440,7 +444,8 @@ mod tests {
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let mut spec = handeye_spec(tmp.path(), &["a.png"], &identity_pose_line(0.1));
         spec.pose_pairing = None;
-        let err = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        let err = build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache))
+            .unwrap_err();
         match err {
             RunError::AskUser { field, .. } => assert_eq!(field, "pose_pairing"),
             other => panic!("expected AskUser, got {other:?}"),
@@ -480,7 +485,8 @@ mod tests {
             regex: r"^img_(?<view>\d+)\.png$".into(),
             group: "view".into(),
         });
-        let result = build_single_cam_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
+        let result =
+            build_single_cam_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
         let xs: Vec<f64> = result
             .input
             .views

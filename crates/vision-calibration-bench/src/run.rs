@@ -92,7 +92,9 @@ pub mod tier_b {
         CameraSource, ChessCornersDetectorSpec, DatasetSpec, DetectorSpec, TargetSpec,
     };
     use vision_calibration_detect::DetectionCache;
-    use vision_calibration_pipeline::dataset_runner::{RunError, build_planar_input};
+    use vision_calibration_pipeline::dataset_runner::{
+        Detection as DetectionMode, RunError, build_planar_input,
+    };
 
     use crate::detect::{
         RigViewPaths, TimingCache, board_feature_count, camera_spec, detect_planar,
@@ -1508,8 +1510,9 @@ pub mod tier_b {
     ) -> Result<DetectedIntrinsicsCamera> {
         let camera_spec = camera_spec(spec, camera);
         let camera_id = camera_spec.cameras[0].id.clone();
-        let built = build_planar_input(&camera_spec, &entry.data_root, cache, false)
-            .with_context(|| format!("detection failed for {camera_id}"))?;
+        let built =
+            build_planar_input(&camera_spec, &entry.data_root, DetectionMode::Cached(cache))
+                .with_context(|| format!("detection failed for {camera_id}"))?;
         let views = &built.input.views;
         let features_detected = views.iter().map(|v| v.obs.len()).sum::<usize>();
 
@@ -2090,18 +2093,21 @@ pub mod tier_b {
         for camera in 0..spec.cameras.len() {
             let camera_spec = camera_spec(&spec, camera);
             let timing = TimingCache::new(max_images_per_camera);
-            let (views, images_total) =
-                match build_planar_input(&camera_spec, &entry.data_root, &timing, false) {
-                    Ok(built) => (built.input.views, built.total_views),
-                    // A camera that found no board is a profile, not a failure.
-                    Err(RunError::InsufficientUsableViews { total, .. }) => (Vec::new(), total),
-                    Err(e) => {
-                        return Err(anyhow::Error::new(e).context(format!(
-                            "profile detection for {}",
-                            camera_spec.cameras[0].id
-                        )));
-                    }
-                };
+            let (views, images_total) = match build_planar_input(
+                &camera_spec,
+                &entry.data_root,
+                DetectionMode::Cached(&timing),
+            ) {
+                Ok(built) => (built.input.views, built.total_views),
+                // A camera that found no board is a profile, not a failure.
+                Err(RunError::InsufficientUsableViews { total, .. }) => (Vec::new(), total),
+                Err(e) => {
+                    return Err(anyhow::Error::new(e).context(format!(
+                        "profile detection for {}",
+                        camera_spec.cameras[0].id
+                    )));
+                }
+            };
             let durations: Vec<u64> = timing.durations().into_iter().map(ms).collect();
             let stage_ms = durations.iter().sum::<u64>();
             target_per_camera.push(ProfileCameraStat {
