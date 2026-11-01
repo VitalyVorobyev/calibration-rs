@@ -104,6 +104,7 @@
 - [Distortion Estimation from Homography Residuals](distortion_fit.md)
 - [Iterative Intrinsics + Distortion](iterative_intrinsics.md)
 - [Pose from Homography](planar_pose.md)
+- [Fisheye Intrinsics from Bearings](fisheye_init.md)
 - [Perspective-n-Point Solvers](pnp.md)
 - [Epipolar Geometry](epipolar.md)
 - [Camera Matrix and RQ Decomposition](camera_matrix.md)

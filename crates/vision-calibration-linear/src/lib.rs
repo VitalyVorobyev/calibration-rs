@@ -10,7 +10,8 @@
 //! - Distortion estimation (Brown-Conrady from homography residuals)
 //! - Iterative intrinsics refinement (alternating K and distortion estimation)
 //! - Tilt-aware Scheimpflug planar intrinsics initialization
-//! - Planar pose from homography + intrinsics
+//! - Equidistant (fisheye) planar intrinsics initialization from bearings
+//! - Planar pose from homography + intrinsics, or from bearing vectors
 //! - Camera pose (PnP): DLT, P3P, EPnP, and DLT-in-RANSAC
 //! - Multi-camera rig extrinsics and hand-eye calibration
 //! - Laserline plane estimation (SVD-based from ray-plane intersections)
@@ -57,6 +58,7 @@ pub mod error;
 pub use error::Error;
 
 pub mod distortion_fit;
+pub mod equidistant_init;
 pub mod extrinsics;
 pub mod handeye;
 pub mod iterative_intrinsics;
@@ -70,10 +72,13 @@ pub mod zhang_intrinsics;
 /// Minimal imports for common planar initialization workflows.
 pub mod prelude {
     pub use crate::distortion_fit::DistortionFitOptions;
+    pub use crate::equidistant_init::{
+        EquidistantIntrinsicsLinearInit, estimate_equidistant_intrinsics,
+    };
     pub use crate::iterative_intrinsics::{
         IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
     };
-    pub use crate::planar_pose::estimate_planar_pose_from_h;
+    pub use crate::planar_pose::{estimate_planar_pose_from_bearings, estimate_planar_pose_from_h};
     pub use crate::scheimpflug_init::{
         ScheimpflugIntrinsicsInitOptions, ScheimpflugIntrinsicsLinearInit,
         estimate_scheimpflug_intrinsics_iterative,

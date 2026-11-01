@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Fisheye initializer** in `vision-calibration-linear`:
+  `equidistant_init::estimate_equidistant_intrinsics` estimates a
+  Kannala-Brandt camera's focal length, principal point, `k1`, `k2` and
+  per-view poses from planar views without homographies or an image size,
+  and `planar_pose::estimate_planar_pose_from_bearings` recovers a board
+  pose from any central camera's bearings, including points beyond 90°.
 - **Fisheye camera model.** `ProjectionKind::Equidistant` (the normalized
   radius is the incidence angle, so rays beyond 90° project) and
   `DistortionKind::KannalaBrandt4` (`r_d = r (1 + k1 r² + … + k4 r⁸)`).
