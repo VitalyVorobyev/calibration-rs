@@ -19,8 +19,8 @@ use vision_calibration_detect::{
 };
 use vision_calibration_optim::RobotPoseMeta;
 use vision_calibration_pipeline::dataset_runner::{
-    build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
-    build_single_cam_handeye_input,
+    Detection as DetectionMode, build_planar_input, build_rig_extrinsics_input,
+    build_rig_handeye_input, build_single_cam_handeye_input,
 };
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeInput;
 
@@ -71,7 +71,7 @@ pub fn detect_planar(
     cache: &dyn DetectionCache,
 ) -> Result<Detected<PlanarDataset>> {
     let start = Instant::now();
-    let built = build_planar_input(spec, base_dir, cache, false)?;
+    let built = build_planar_input(spec, base_dir, DetectionMode::Cached(cache))?;
     let detection_ms = ms(start.elapsed());
     let counts = [built
         .input
@@ -96,7 +96,7 @@ pub fn detect_single_cam_handeye(
     cache: &dyn DetectionCache,
 ) -> Result<Detected<SingleCamHandeyeInput>> {
     let start = Instant::now();
-    let built = build_single_cam_handeye_input(spec, base_dir, cache, false)?;
+    let built = build_single_cam_handeye_input(spec, base_dir, DetectionMode::Cached(cache))?;
     let detection_ms = ms(start.elapsed());
     let counts = [built
         .input
@@ -121,7 +121,7 @@ pub fn detect_rig_extrinsics(
     cache: &dyn DetectionCache,
 ) -> Result<Detected<RigDataset<NoMeta>>> {
     let start = Instant::now();
-    let built = build_rig_extrinsics_input(spec, base_dir, cache, false)?;
+    let built = build_rig_extrinsics_input(spec, base_dir, DetectionMode::Cached(cache))?;
     let detection_ms = ms(start.elapsed());
     rig_detected(
         spec,
@@ -141,7 +141,7 @@ pub fn detect_rig_handeye(
     cache: &dyn DetectionCache,
 ) -> Result<(Detected<RigDataset<RobotPoseMeta>>, RigViewPaths)> {
     let start = Instant::now();
-    let built = build_rig_handeye_input(spec, base_dir, cache, false)?;
+    let built = build_rig_handeye_input(spec, base_dir, DetectionMode::Cached(cache))?;
     let detection_ms = ms(start.elapsed());
     let detected = rig_detected(
         spec,

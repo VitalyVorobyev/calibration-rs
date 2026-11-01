@@ -20,6 +20,7 @@
 #![warn(missing_docs)]
 
 mod device_spec;
+mod load;
 mod sniff;
 mod spec;
 mod validator;
@@ -29,6 +30,7 @@ pub use device_spec::{
     DeviceSpecError, HandeyeMountSpec, LaserPlaneSpec, NominalPoseSpec, RigLayoutSpec,
     ScheimpflugMountSpec,
 };
+pub use load::ManifestError;
 pub use sniff::{SniffError, sniff_folder};
 pub use spec::{
     CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec,

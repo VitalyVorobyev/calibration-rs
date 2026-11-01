@@ -69,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `None` for any non-Brown-Conrady model (and zeros for no distortion). Read
   `params.camera.intrinsics`, `params.camera_se3_target`, and match
   `params.camera.distortion`.
+- **Manifests load in one call, and the runner takes a detection mode.**
+  `DatasetSpec::from_path` reads a TOML or JSON manifest (errors are
+  `ManifestError`). The `build_*_input` converters take a `Detection` in
+  place of `cache, force_redetect`: `Detection::Cached(&cache)` for
+  `(&cache, false)`, `Detection::Refresh(&cache)` for `(&cache, true)`, and
+  the new `Detection::Uncached` for a run without a cache. The laser
+  converters take it before the extractor:
+  `build_laserline_device_input(&spec, dir, Detection::Cached(&cache), &extractor)`.
 - **Session bookkeeping is read-only.** `session::current_timestamp` is
   private, as are the constructors of `SessionMetadata`, `LogEntry` and
   `ExportRecord`; read them through `metadata()`, `log()` and `exports`.

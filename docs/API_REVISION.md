@@ -221,9 +221,13 @@ CHANGELOG migration notes.
 ### Phase 5 — The manifest path (additive first, then breaking)
 12. Additive: `DatasetSpec::from_path` / `from_toml_str` /
     `from_json_str`, and a public `NoDetectionCache`.
-13. Add `build_input::<P>` with the `Detection` enum. Migrate py, bench and
-    the examples.
-14. Remove the seven `build_*_input` functions.
+13. The `Detection` enum replaces `cache, force_redetect: bool` in every
+    converter, with an `Uncached` mode (Python's private `NoCache` goes).
+14. ~~One `build_input::<P>`.~~ Dropped: the seven converters return seven
+    different typed results and three need a laser extractor; a generic
+    entry point would need a trait with associated types and a runtime
+    error for a missing extractor. Seven typed functions named after their
+    topology are the simpler, honest API.
 
 ### Phase 6 — Test helpers and cross-crate internals (breaking)
 15. `core::synthetic`, `make_pinhole_camera` and `pinhole_camera_params` go

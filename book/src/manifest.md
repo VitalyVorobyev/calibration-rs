@@ -158,16 +158,16 @@ The converters in `vision_calibration::dataset_runner` turn a `DatasetSpec` into
 ```rust
 use std::path::Path;
 use vision_calibration::dataset::DatasetSpec;
-use vision_calibration::dataset_runner::build_single_cam_handeye_input;
+use vision_calibration::dataset_runner::{Detection, build_single_cam_handeye_input};
 use vision_calibration::detect::FsDetectionCache;
 use vision_calibration::prelude::*;
 use vision_calibration::single_cam_handeye::{SingleCamHandeyeProblem, run_calibration};
 
 let base_dir = Path::new("data/kuka_1");
-let spec: DatasetSpec = toml::from_str(&std::fs::read_to_string(base_dir.join("dataset.toml"))?)?;
+let spec = DatasetSpec::from_path(base_dir.join("dataset.toml"))?; // TOML or JSON
 let cache = FsDetectionCache::new("cache/kuka_1");
 
-let run = build_single_cam_handeye_input(&spec, base_dir, &cache, false)?;
+let run = build_single_cam_handeye_input(&spec, base_dir, Detection::Cached(&cache))?;
 println!("{}/{} views usable", run.usable_views, run.total_views);
 
 let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();

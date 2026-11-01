@@ -5,11 +5,10 @@ use std::path::{Path, PathBuf};
 
 use vision_calibration_core::{NoMeta, PlanarDataset, View};
 use vision_calibration_dataset::{DatasetSpec, Topology, validate};
-use vision_calibration_detect::DetectionCache;
 
 use super::{
-    RejectedDetection, RunError, augment_config_with_roi, detect_features, expand_camera_images,
-    features_to_view, pattern_repr, pick_detector, target_to_detector_config,
+    Detection, RejectedDetection, RunError, augment_config_with_roi, detect_features,
+    expand_camera_images, features_to_view, pattern_repr, pick_detector, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -22,8 +21,7 @@ use super::{
 pub fn build_planar_input(
     spec: &DatasetSpec,
     base_dir: &Path,
-    cache: &dyn DetectionCache,
-    force_redetect: bool,
+    detection: Detection<'_>,
 ) -> Result<PlanarRunResult, RunError> {
     // Order matters: gate on topology + target before touching the
     // filesystem so users with broken globs still see helpful
@@ -75,8 +73,7 @@ pub fn build_planar_input(
             &key_config,
             roi,
             image_path,
-            cache,
-            force_redetect,
+            detection,
         )?;
 
         if let Err(reason) = filter.check(&features) {
@@ -134,6 +131,7 @@ pub struct PlanarRunResult {
 mod tests {
     use super::*;
     use vision_calibration_dataset::{CameraSource, ImagePattern, TargetSpec};
+    use vision_calibration_detect::DetectionCache;
     use vision_calibration_detect::FsDetectionCache;
 
     pub(crate) fn planar_spec_for_globless_test() -> DatasetSpec {
@@ -173,7 +171,8 @@ mod tests {
             laser_images: None,
         });
         let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
-        let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
+        let err =
+            build_planar_input(&spec, Path::new("/tmp"), Detection::Cached(&cache)).unwrap_err();
         assert!(matches!(err, RunError::UnsupportedTopology { .. }));
     }
 
@@ -204,7 +203,7 @@ mod tests {
         spec.cameras[0].images = ImagePattern::List {
             paths: rel_paths.iter().map(PathBuf::from).collect(),
         };
-        let result = build_planar_input(&spec, tmp.path(), &cache, false).unwrap();
+        let result = build_planar_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
         assert!(result.rejected.is_empty());
     }
@@ -217,7 +216,7 @@ mod tests {
         };
         let tmp = tempfile::tempdir().expect("tempdir");
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        let err = build_planar_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        let err = build_planar_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
         match err {
             RunError::EmptyImageMatch { camera_id, .. } => assert_eq!(camera_id, "cam0"),
             other => panic!("expected EmptyImageMatch, got {other:?}"),
@@ -250,7 +249,7 @@ mod tests {
         let (_, config) = target_to_detector_config(&spec).unwrap();
         let key = CacheKey::for_detector(b"a.png", &ChessboardDetector, &config);
         cache.put(&key, &CachedFeatures { features }).unwrap();
-        build_planar_input(&spec, tmp.path(), &cache, false)
+        build_planar_input(&spec, tmp.path(), Detection::Cached(&cache))
     }
 
     fn feature(i: u32, cov: Option<[f64; 3]>) -> vision_calibration_detect::Feature {

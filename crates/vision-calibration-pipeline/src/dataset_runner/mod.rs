@@ -49,7 +49,7 @@ use vision_calibration_dataset::{
     ImageNoiseSpec, ImagePattern, TargetSpec, Topology, ValidationError,
 };
 use vision_calibration_detect::{
-    CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
+    CacheError, CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
     CornerCovariance, CornerStrategy, DetectionCache, Detector, Feature, ImageNoise,
     PuzzleboardDetector, RinggridDetector, validate_charuco_layout,
 };
@@ -706,8 +706,7 @@ fn detect_features(
     key_config: &Value,
     roi: Option<[u32; 4]>,
     image_path: &Path,
-    cache: &dyn DetectionCache,
-    force_redetect: bool,
+    detection: Detection<'_>,
 ) -> Result<(Vec<Feature>, bool), RunError> {
     let (features, cache_hit) = cached_or_detected(
         detector,
@@ -715,8 +714,7 @@ fn detect_features(
         key_config,
         roi,
         image_path,
-        cache,
-        force_redetect,
+        detection,
     )?;
     if covariance_requested(detector_config) {
         check_corner_covariances(&features, detector.name(), image_path)?;
@@ -763,6 +761,47 @@ fn check_corner_covariances(
     Ok(())
 }
 
+/// How the runner obtains each image's features.
+#[derive(Clone, Copy)]
+pub enum Detection<'a> {
+    /// Reuse the cached features of an image the cache has seen with the
+    /// same detector and config; detect and store the others.
+    Cached(&'a dyn DetectionCache),
+    /// Detect every image again and overwrite its cache entry: for a
+    /// detector change the cache key does not capture.
+    Refresh(&'a dyn DetectionCache),
+    /// Detect every image; read and write no cache.
+    Uncached,
+}
+
+impl Detection<'_> {
+    /// The cached features for `key`, when this mode reads the cache.
+    fn lookup(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
+        match self {
+            Detection::Cached(cache) => cache.get(key),
+            Detection::Refresh(_) | Detection::Uncached => Ok(None),
+        }
+    }
+
+    /// Store freshly detected features, when this mode writes the cache.
+    fn store(&self, key: &CacheKey, features: &CachedFeatures) -> Result<(), CacheError> {
+        match self {
+            Detection::Cached(cache) | Detection::Refresh(cache) => cache.put(key, features),
+            Detection::Uncached => Ok(()),
+        }
+    }
+}
+
+impl std::fmt::Debug for Detection<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Detection::Cached(_) => "Detection::Cached",
+            Detection::Refresh(_) => "Detection::Refresh",
+            Detection::Uncached => "Detection::Uncached",
+        })
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cached_or_detected(
     detector: &dyn Detector,
@@ -770,17 +809,12 @@ fn cached_or_detected(
     key_config: &Value,
     roi: Option<[u32; 4]>,
     image_path: &Path,
-    cache: &dyn DetectionCache,
-    force_redetect: bool,
+    detection: Detection<'_>,
 ) -> Result<(Vec<Feature>, bool), RunError> {
     let bytes = std::fs::read(image_path)?;
     let key = CacheKey::for_detector(&bytes, detector, key_config);
 
-    let cached: Option<CachedFeatures> = if force_redetect {
-        None
-    } else {
-        cache.get(&key)?
-    };
+    let cached: Option<CachedFeatures> = detection.lookup(&key)?;
     if let Some(entry) = cached {
         return Ok((entry.features, true));
     }
@@ -801,7 +835,7 @@ fn cached_or_detected(
             path: image_path.to_path_buf(),
             source: e,
         })?;
-    cache.put(
+    detection.store(
         &key,
         &CachedFeatures {
             features: detected.clone(),

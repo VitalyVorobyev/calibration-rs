@@ -16,20 +16,18 @@ workspace = true
 
 [features]
 schemars = ["dep:schemars"]
-# CLI-only: pulls in a TOML serializer for the `generate-manifest` binary.
-# Kept out of the default build so downstream library consumers stay lean.
-cli = ["dep:toml"]
+# Builds the `generate-manifest` binary.
+cli = []
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 schemars = { workspace = true, optional = true }
-toml = { version = "1", optional = true }
+toml = "1"
 
 [dev-dependencies]
 serde_json = { workspace = true }
-toml = "1"
 
 [[bin]]
 name = "generate-manifest"
