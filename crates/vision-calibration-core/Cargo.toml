@@ -15,6 +15,9 @@ repository.workspace = true
 workspace = true
 
 [features]
+# Deterministic synthetic calibration data (target grids, poses, noise) for
+# tests, examples and benchmarks.
+synthetic = []
 tracing = ["dep:tracing"]
 schemars = ["dep:schemars"]
 # Unstable/internal: exposes the `test_utils` module for cross-crate test

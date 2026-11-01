@@ -76,6 +76,15 @@ for c in vision-calibration-core vision-geometry vision-calibration-dataset \
 done
 ```
 
+From 1.0 on, check every published crate against its last release before a
+patch or minor tag (`cargo install cargo-semver-checks`); a reported break
+needs a major version. Items marked `#[doc(hidden)]` are workspace-internal
+and exempt.
+
+```bash
+cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py
+```
+
 Also confirm on crates.io, once per crate in §2, that the crate exists and has
 a Trusted Publisher entry (§4). There is no CLI for this.
 

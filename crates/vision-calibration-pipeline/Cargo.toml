@@ -38,6 +38,7 @@ regex = { workspace = true }
 schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
+vision-calibration-core = { workspace = true, features = ["synthetic"] }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"

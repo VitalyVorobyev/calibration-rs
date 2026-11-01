@@ -18,7 +18,8 @@
 //! - \[`math`\]: basic type aliases and homogeneous helpers.
 //! - \[`models`\]: camera model traits and configuration wrappers.
 //! - \[`ransac`\]: generic robust estimation helpers.
-//! - \[`synthetic`\]: deterministic synthetic data helpers (tests/examples/benchmarks).
+//! - `synthetic` (feature `synthetic`): deterministic synthetic data helpers
+//!   for tests, examples and benchmarks.
 //!
 //! # Example
 //!
@@ -63,7 +64,8 @@ mod ransac;
 /// This module provides small, reusable building blocks for constructing
 /// synthetic calibration problems (planar grids, poses, projections, noise).
 /// It is used in workspace tests/examples and can be useful for benchmarking
-/// and regression testing.
+/// and regression testing. Enabled by the `synthetic` feature.
+#[cfg(any(test, feature = "synthetic"))]
 pub mod synthetic;
 /// Test utilities for cross-crate calibration testing.
 ///
@@ -91,11 +93,15 @@ pub use math::{
 pub use models::{
     AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraFix, CameraModel,
     CameraModelSpec, CameraParams, CameraProject, DistortionKind, DistortionModel,
-    DistortionParams, Division, FixedParams, FxFyCxCy, HomographySensor, INTRINSICS_PARAM_NAMES,
-    IdentitySensor, IntrinsicsModel, NoDistortion, Pinhole, ProjectionKind, ProjectionModel,
-    ProjectionParams, RationalPolynomial, Ray, ScheimpflugParams, SensorKind, SensorModel,
-    SensorParams, ThinPrism,
+    DistortionParams, Division, FxFyCxCy, HomographySensor, IdentitySensor, IntrinsicsModel,
+    NoDistortion, Pinhole, ProjectionKind, ProjectionModel, ProjectionParams, RationalPolynomial,
+    Ray, ScheimpflugParams, SensorKind, SensorModel, SensorParams, ThinPrism,
 };
+// Workspace-internal: the parameter-fixing mask and intrinsics labels the
+// optimizer packs a camera with. Hidden from the docs and outside the semver
+// promise; name fixed parameters through `CameraFix`.
+#[doc(hidden)]
+pub use models::{FixedParams, INTRINSICS_PARAM_NAMES};
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
     CorrespondenceView, FeatureResidualHistogram, FrameKind, FrameRef, ImageManifest,

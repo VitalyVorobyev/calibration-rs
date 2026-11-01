@@ -230,8 +230,9 @@ CHANGELOG migration notes.
     topology are the simpler, honest API.
 
 ### Phase 6 — Test helpers and cross-crate internals (breaking)
-15. `core::synthetic`, `make_pinhole_camera` and `pinhole_camera_params` go
-    behind a `synthetic` feature. The workspace's dev-dependencies enable
+15. `core::synthetic` goes behind a `synthetic` feature
+    (`make_pinhole_camera` / `pinhole_camera_params` stay: they are camera
+    constructors the pipeline itself uses, not test data). The workspace's dev-dependencies enable
     it, and the facade's `synthetic` module sits behind the same feature.
 16. The pipeline-only optim helpers (`with_leading_radial`,
     `projection_covariance_at`, `view_information`) and the core model
@@ -245,8 +246,10 @@ CHANGELOG migration notes.
       a minor release of ours.
     - `image` and `serde_json` appear only in `detect` and
       `dataset_runner`; see the open questions.
-18. `cargo public-api` diff gate in CI. It runs against the committed
-    listings and fails on an unreviewed change to the facade surface.
+18. ~~`cargo public-api` diff gate in CI.~~ Replaced: before 1.0 nearly
+    every API PR changes the surface on purpose, so a listing gate would be
+    regenerated in each. From 1.0 the release runbook runs
+    `cargo semver-checks` against the last release instead.
 19. Re-run this inventory and record the final surface (after Phase 7).
 
 ### Phase 7 — Typed detector boundary (breaking)

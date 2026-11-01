@@ -232,8 +232,7 @@ pub struct HandeyeOptimizeResult {
 ///
 /// Runs Zhang's method with iterative distortion estimation on each camera
 /// independently (the tilted variant for a Scheimpflug camera). The linear
-/// stage fits only the distortion terms each camera's solves estimate
-/// ([`IntrinsicsInitConfig::distortion_fit_opts`](crate::common::config::IntrinsicsInitConfig::distortion_fit_opts)). See
+/// stage fits only the distortion terms each camera's solves estimate. See
 /// `rig_extrinsics::step_intrinsics_init_all_with_seed` for the seed
 /// semantics.
 ///

@@ -126,12 +126,12 @@ impl PlanarIntrinsicsConfig {
     }
 
     /// Convert to vision-calibration-linear initialization options.
-    pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
+    pub(crate) fn init_opts(&self) -> IterativeIntrinsicsOptions {
         self.init.iterative_opts(None, &self.camera)
     }
 
     /// Convert to vision-calibration-optim solve options.
-    pub fn solve_opts(&self) -> PlanarIntrinsicsSolveOptions {
+    pub(crate) fn solve_opts(&self) -> PlanarIntrinsicsSolveOptions {
         PlanarIntrinsicsSolveOptions {
             robust_loss: self.solver.robust_loss,
             fix: self.camera.fix.clone(),

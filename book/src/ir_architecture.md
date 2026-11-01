@@ -10,7 +10,7 @@ Problem Builder  →  ProblemIR  →  Backend.compile()  →  Backend.solve()
 ```
 
 1. **Problem Builder**: Domain code (e.g., `build_planar_intrinsics_ir()`) constructs a `ProblemIR` from calibration data and initial parameter estimates
-2. **Backend Compilation**: The backend `BackendSolveOptions::backend` selects (tiny-solver or factrs) translates the IR into its own variables and residuals
+2. **Backend Compilation**: The backend the solver config selects (tiny-solver or factrs) translates the IR into its own variables and residuals
 3. **Solving**: The shared Levenberg–Marquardt loop runs on that backend's linearization and returns a `BackendSolution` (see [Solver Backends](solver_backends.md))
 
 ## ProblemIR

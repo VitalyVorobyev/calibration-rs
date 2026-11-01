@@ -174,6 +174,13 @@ Every algorithmic change ships with tests:
 * New dependencies need a reason and a compatible license.
 * `nalgebra` / `faer` / `faer-ext` are pinned by the solver backends, which
   exchange those types with optim (see the root `Cargo.toml` comment).
+* **Public dependencies.** `nalgebra` is the one deliberate public
+  dependency: the math aliases (`Iso3`, `Pt2`, …) are nalgebra types, and the
+  facade re-exports the crate as `vision_calibration::nalgebra` so callers
+  use the matching version. A nalgebra major bump is a breaking release of
+  ours. `serde` derives appear on every config and export type. Nothing else
+  reaches a public signature of the facade; `image` and `serde_json` are
+  confined to the detector and dataset-runner boundaries.
 * **MSRV** — `rust-version` in the root `Cargo.toml` is the single source;
   the `MSRV (…)` CI job checks every target and feature on it with
   `--locked`. Raise it when a dependency we track needs a newer toolchain
