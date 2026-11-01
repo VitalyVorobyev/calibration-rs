@@ -66,7 +66,7 @@ fn main() -> Result<()> {
 
     // 5. Inspect the result
     let export = session.export()?;
-    let k = export.params.intrinsics();
+    let k = export.params.camera.intrinsics;
     println!("fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
              k.fx, k.fy, k.cx, k.cy);
     println!("Mean reprojection error: {:.4} px",

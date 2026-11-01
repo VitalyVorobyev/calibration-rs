@@ -230,7 +230,9 @@ fn scheimpflug_bc5_round_trip() {
     println!("[scheimpflug BC5] rms={rms:.4e} px");
     assert!(rms < 1e-2, "BC5 reprojection RMS too large: {rms:.4e}");
 
-    let d = params.distortion().expect("Brown-Conrady result");
+    let DistortionParams::BrownConrady5 { params: d } = params.camera.distortion else {
+        panic!("Brown-Conrady result")
+    };
     assert!(
         (d.k1 - dist_gt.k1).abs() < 1e-2,
         "k1 not recovered: {}",

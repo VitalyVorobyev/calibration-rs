@@ -126,7 +126,7 @@ fn synthetic_planar_intrinsics_refinement_converges() {
     let solver = BackendSolveOptions::default();
 
     let result = optimize_planar_intrinsics(&dataset, &init, opts, solver).unwrap();
-    let k = result.params.intrinsics();
+    let k = result.params.camera.intrinsics;
 
     assert!((k.fx - k_gt.fx).abs() < 5.0);
     assert!((k.fy - k_gt.fy).abs() < 5.0);
@@ -232,8 +232,8 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
             + (k.cy - k_gt.cy).abs()
     };
 
-    let err_l2 = err_total(l2.params.intrinsics());
-    let err_robust = err_total(robust.params.intrinsics());
+    let err_l2 = err_total(l2.params.camera.intrinsics);
+    let err_robust = err_total(robust.params.camera.intrinsics);
 
     assert!(
         err_robust < err_l2,
@@ -263,8 +263,8 @@ fn intrinsics_masking_keeps_fixed_params() {
     let solver = BackendSolveOptions::default();
 
     let result = optimize_planar_intrinsics(&dataset, &init, opts, solver).unwrap();
-    let k_init = init.intrinsics();
-    let k_result = result.params.intrinsics();
+    let k_init = init.camera.intrinsics;
+    let k_result = result.params.camera.intrinsics;
 
     assert!(
         (k_result.fx - k_init.fx).abs() < 1e-12,
@@ -360,8 +360,11 @@ fn synthetic_planar_with_distortion_converges() {
     let backend_opts = BackendSolveOptions::default();
     let result = optimize_planar_intrinsics(&dataset, &init, opts, backend_opts).unwrap();
 
-    let k_res = result.params.intrinsics();
-    let dist_res = result.params.distortion().expect("BC5 distortion expected");
+    let k_res = result.params.camera.intrinsics;
+    let DistortionParams::BrownConrady5 { params: dist_res } = result.params.camera.distortion
+    else {
+        panic!("BC5 distortion expected")
+    };
 
     // Verify convergence to ground truth
     println!(
@@ -500,7 +503,10 @@ fn distortion_parameter_masking_works() {
     let result =
         optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default()).unwrap();
 
-    let dist_res = result.params.distortion().expect("BC5 distortion expected");
+    let DistortionParams::BrownConrady5 { params: dist_res } = result.params.camera.distortion
+    else {
+        panic!("BC5 distortion expected")
+    };
 
     // Fixed params should stay at initial values
     assert_eq!(dist_res.k3, 0.0, "k3 should stay fixed at 0");

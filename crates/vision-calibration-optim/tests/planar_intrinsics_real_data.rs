@@ -11,8 +11,8 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 use vision_calibration_core::{
-    BrownConrady5, CameraFix, CorrespondenceView, DistortionModel, FxFyCxCy, Mat3, NoMeta,
-    PlanarDataset, Pt2, Pt3, Real, View,
+    BrownConrady5, CameraFix, CorrespondenceView, DistortionModel, DistortionParams, FxFyCxCy,
+    Mat3, NoMeta, PlanarDataset, Pt2, Pt3, Real, View,
     test_utils::{CalibrationView, pixel_from_normalized, undistort_pixel_normalized},
 };
 use vision_calibration_linear::distortion_fit::DistortionFitOptions;
@@ -254,12 +254,11 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         .unwrap();
 
         // Compute initial reprojection error
-        let (init_mean, init_max) = compute_reprojection_error(
-            &nl_views,
-            &init.intrinsics(),
-            &init.distortion().expect("BC5"),
-            &init_poses,
-        );
+        let DistortionParams::BrownConrady5 { params: init_dist } = init.camera.distortion else {
+            panic!("BC5")
+        };
+        let (init_mean, init_max) =
+            compute_reprojection_error(&nl_views, &init.camera.intrinsics, &init_dist, &init_poses);
         println!(
             "Initial reprojection error: mean={:.3} px, max={:.3} px",
             init_mean, init_max
@@ -280,8 +279,11 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         let result = optimize_planar_intrinsics(&dataset, &init, opts, backend_opts)
             .expect("optimization failed");
 
-        let opt_k = result.params.intrinsics();
-        let opt_dist = result.params.distortion().expect("BC5");
+        let opt_k = result.params.camera.intrinsics;
+        let DistortionParams::BrownConrady5 { params: opt_dist } = result.params.camera.distortion
+        else {
+            panic!("BC5")
+        };
 
         println!(
             "Optimized: fx={:.2}, fy={:.2}, cx={:.2}, cy={:.2}",
@@ -436,7 +438,10 @@ fn planar_intrinsics_parameter_fixing_works() {
     let result = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())
         .expect("optimization with fixed p1, p2");
 
-    let dist_res = result.params.distortion().expect("BC5");
+    let DistortionParams::BrownConrady5 { params: dist_res } = result.params.camera.distortion
+    else {
+        panic!("BC5")
+    };
     assert_eq!(dist_res.p1, 0.0, "p1 should remain fixed at 0.0");
     assert_eq!(dist_res.p2, 0.0, "p2 should remain fixed at 0.0");
     println!(
@@ -482,7 +487,10 @@ fn planar_intrinsics_parameter_fixing_works() {
         optimize_planar_intrinsics(&dataset, &init2, opts2, BackendSolveOptions::default())
             .expect("optimization with default k3 fixed");
 
-    let dist_res2 = result2.params.distortion().expect("BC5");
+    let DistortionParams::BrownConrady5 { params: dist_res2 } = result2.params.camera.distortion
+    else {
+        panic!("BC5")
+    };
     assert_eq!(dist_res2.k3, 0.0, "k3 should be fixed by default");
     println!("✓ k3 stayed fixed at default: k3={}", dist_res2.k3);
 
@@ -521,9 +529,12 @@ fn planar_intrinsics_parameter_fixing_works() {
         optimize_planar_intrinsics(&dataset, &init3, opts3, BackendSolveOptions::default())
             .expect("optimization with fixed fx, fy");
 
-    let k3 = result3.params.intrinsics();
-    let k_init3 = init3.intrinsics();
-    let dist_res3 = result3.params.distortion().expect("BC5");
+    let k3 = result3.params.camera.intrinsics;
+    let k_init3 = init3.camera.intrinsics;
+    let DistortionParams::BrownConrady5 { params: dist_res3 } = result3.params.camera.distortion
+    else {
+        panic!("BC5")
+    };
     assert!((k3.fx - k_init3.fx).abs() < 1e-6, "fx should remain fixed");
     assert!((k3.fy - k_init3.fy).abs() < 1e-6, "fy should remain fixed");
     println!(
@@ -688,8 +699,11 @@ fn planar_intrinsics_with_iterative_linear_init() {
         let result = optimize_planar_intrinsics(&dataset, &init, optim_opts, backend_opts)
             .expect("optimization");
 
-        let opt_k = result.params.intrinsics();
-        let opt_dist = result.params.distortion().expect("BC5");
+        let opt_k = result.params.camera.intrinsics;
+        let DistortionParams::BrownConrady5 { params: opt_dist } = result.params.camera.distortion
+        else {
+            panic!("BC5")
+        };
 
         println!(
             "  Final K: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",

@@ -64,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `uncertainty`; `export.estimate.params.plane` becomes `export.params.plane`.
   Python's `LaserlineDeviceExport` follows (`result.params`,
   `result.uncertainty`), and `LaserlineEstimate` is removed.
+- **`PlanarIntrinsicsParams` loses its accessors.** `intrinsics()` and
+  `poses()` duplicated the public fields, and `distortion()` returned
+  `None` for any non-Brown-Conrady model (and zeros for no distortion). Read
+  `params.camera.intrinsics`, `params.camera_se3_target`, and match
+  `params.camera.distortion`.
 - **Session bookkeeping is read-only.** `session::current_timestamp` is
   private, as are the constructors of `SessionMetadata`, `LogEntry` and
   `ExportRecord`; read them through `metadata()`, `log()` and `exports`.

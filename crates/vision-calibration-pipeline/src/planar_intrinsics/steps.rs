@@ -918,7 +918,7 @@ pub fn step_filter(
     let output = session.require_output()?.clone();
     let input = session.require_input()?.clone();
 
-    let poses = output.params.poses();
+    let poses = &output.params.camera_se3_target;
     if input.views.len() != poses.len() {
         return Err(Error::invalid_input(format!(
             "pose count ({}) must match view count ({})",
@@ -1182,7 +1182,7 @@ mod tests {
         let output = session.output().unwrap();
 
         // Check accuracy on synthetic data (no noise)
-        let k = output.params.intrinsics();
+        let k = output.params.camera.intrinsics;
         assert!((k.fx - 800.0).abs() < 10.0);
         assert!((k.fy - 780.0).abs() < 10.0);
         assert!((k.cx - 640.0).abs() < 10.0);

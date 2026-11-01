@@ -19,7 +19,7 @@ mod handeye_io;
 use anyhow::Result;
 use std::io::{self, Write};
 use std::path::Path;
-use vision_calibration::core::{NoiseLevel, Uncertainty};
+use vision_calibration::core::{DistortionParams, NoiseLevel, Uncertainty};
 use vision_calibration::planar_intrinsics::{
     IntrinsicsFilterOptions, run_calibration_with_filtering, step_init, step_optimize,
 };
@@ -75,8 +75,11 @@ fn main() -> Result<()> {
 
     // Export results
     let export = session.export()?;
-    let final_k = export.params.intrinsics();
-    let final_dist = export.params.distortion();
+    let final_k = export.params.camera.intrinsics;
+    let final_dist = match export.params.camera.distortion {
+        DistortionParams::BrownConrady5 { params } => Some(params),
+        _ => None,
+    };
 
     println!("--- Final Results ---");
     println!("  Intrinsics:");

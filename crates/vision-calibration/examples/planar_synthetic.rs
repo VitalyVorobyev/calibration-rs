@@ -9,7 +9,7 @@
 //! Run with: `cargo run -p vision-calibration --example planar_synthetic`
 
 use anyhow::Result;
-use vision_calibration::core::make_pinhole_camera;
+use vision_calibration::core::{DistortionParams, make_pinhole_camera};
 use vision_calibration::planar_intrinsics::{run_calibration, step_init, step_optimize};
 use vision_calibration::prelude::*;
 use vision_calibration::synthetic::planar;
@@ -98,8 +98,11 @@ fn main() -> Result<()> {
 
     // Export results
     let export = session.export()?;
-    let final_k = export.params.intrinsics();
-    let final_dist = export.params.distortion();
+    let final_k = export.params.camera.intrinsics;
+    let final_dist = match export.params.camera.distortion {
+        DistortionParams::BrownConrady5 { params } => Some(params),
+        _ => None,
+    };
 
     println!("--- Final Results ---");
     println!(
