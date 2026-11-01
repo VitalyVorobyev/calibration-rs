@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-01
+
+Minor release: the public API is cut down to what a calibration needs before
+it is frozen for 1.0. Every change below is breaking; the numbers a
+calibration produces are unchanged. Exports put residuals and image
+manifests in a `diagnostics` group, detectors take typed configs and 8-bit
+image views, manifests load in one call, synthetic data needs a feature,
+and the low-level solve API is no longer documented API.
+
 ### Migration
 
 - **Internal helpers leave the public API.** Nothing in the calibration
@@ -110,12 +119,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `detector.chess_corners` override on a PuzzleBoard or ring-grid target is
   now rejected up front. Cached detections are recomputed once. Neither
   `image` nor `serde_json` appears in the detector API any more.
-- **`vision_calibration::nalgebra`** re-exports the linear-algebra crate the
-  math types are built on, so callers can name its types in the matching
-  version.
 - **Session bookkeeping is read-only.** `session::current_timestamp` is
   private, as are the constructors of `SessionMetadata`, `LogEntry` and
   `ExportRecord`; read them through `metadata()`, `log()` and `exports`.
+
+### Added
+
+- **`vision_calibration::nalgebra`** re-exports the linear-algebra crate the
+  math types are built on, so callers can name its types in the matching
+  version.
 
 ## [0.10.0] - 2026-10-31
 
@@ -731,63 +743,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every JSON read in a build linking `vision-calibration-detect`), so a
   cache hit is bit-identical to the fresh detection.
 
-## [0.9.0] - 2026-09-29
-
-Minor release. The dataset runner's chessboard detector keeps the whole
-board, chess-based detectors can use Radon corners, and the laser-rig
-workflows are usable from the facade alone. Documentation — READMEs, the
-book, tutorials and rustdoc — is brought up to date with the API, and
-crate READMEs are now compiled as doctests.
-
-### Migration
-
-- `ChessCornersConfig` (detect) and `ChessCornersDetectorSpec` (dataset)
-  gain a `strategy` field. Struct literals must add it or end with
-  `..Default::default()`. Manifests and JSON are unaffected: the field is
-  optional.
-
-### Fixed
-
-- **The laser-rig workflows are usable from the facade alone.**
-  `rig_laserline_device` now re-exports `RigLaserlineDataset` and
-  `RigLaserlineView`, and `rig_handeye_laserline` re-exports
-  `RigHandeyeLaserlineView`, `RigLaserlineView` and `RobotPoseMeta`, so
-  their `*Input` types can be built without depending on
-  `vision-calibration-optim` directly.
-- **The dataset runner's chessboard detector keeps the whole board.** It
-  bounded `calib-targets`' labels by `u < rows` and `v < cols`, but those
-  labels run `u` across the image and `v` down it, so a board seen as its
-  manifest declares it (`cols` across, `rows` down) lost the corners past
-  column `rows`. Both committed chessboard datasets were affected: `kuka_1`
-  kept 289 of 476 corners per view, `stereo` 49 of 77. The bounds are now
-  `u < cols`, `v < rows`, as the benchmark detector already had them; a
-  board seen turned by 90° is still kept whole. Chessboard detection-cache
-  keys carry a revision, so entries written before the fix are re-detected
-  rather than served.
-
-### Added
-
-- **Radon corner detection for chessboard and ChArUco targets.**
-  `ChessCornersDetectorSpec::strategy` (manifest `[detector.chess_corners]`,
-  benchmark registry) and `ChessCornersConfig::strategy` select
-  `chess-corners`' `"radon"` detector in place of the default `"chess"`.
-  Under Radon, `threshold_value` is a fraction in `(0, 1]` of the frame's
-  maximum response; the validator rejects values above 1.
-- `Detector::output_revision` and `CacheKey::for_detector`: a detector's
-  output revision is part of its detection-cache key, so a change to what
-  a detector returns invalidates entries written before it.
-
-### Security
-
-- Desktop app: dependency refresh (Tauri 2.12) clears the `unic-*`,
-  `anyhow` and yanked `chacha20` advisories. The two left, in the
-  Linux-only GTK3 stack Tauri pins (`glib` 0.18, `proc-macro-error`), are
-  not reachable from the app and are tracked in `.cargo/audit.toml`.
-
 ## Older releases
 
 Earlier releases are archived verbatim under [`docs/changelog/`](docs/changelog/), one file per version:
 
+- [`0.9.0`](docs/changelog/0.9.0.md) - 2026-09-29
 - [`0.8.3`](docs/changelog/0.8.3.md) - 2026-09-28
 - [`0.8.2`](docs/changelog/0.8.2.md) - 2026-09-27
 - [`0.8.1`](docs/changelog/0.8.1.md) - 2026-09-07
