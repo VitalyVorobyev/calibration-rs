@@ -70,12 +70,9 @@ pub fn parameter_changes(reference: &Value, actual: &Value) -> Result<Vec<Parame
     Ok(out)
 }
 
-/// An export's `uncertainty`: top-level, or with the laserline device's
-/// estimate.
+/// An export's `uncertainty`.
 pub(super) fn export_uncertainty(export: &Value) -> Option<&Value> {
-    export
-        .get("uncertainty")
-        .or_else(|| export.pointer("/estimate/uncertainty"))
+    export.get("uncertainty")
 }
 
 fn qualified(label: &str, view: Option<usize>) -> String {
@@ -186,14 +183,10 @@ pub(super) fn split_camera(label: &str) -> (Option<usize>, &str) {
 }
 
 /// Export field `name`, element `index` when given. Looked up at the top
-/// level, under `params`, and under the laserline device's
-/// `estimate.params`, whose per-view poses are named `poses`.
+/// level and under `params` (the laserline device names its per-view poses
+/// `poses`).
 pub(super) fn field<'a>(export: &'a Value, name: &str, index: Option<usize>) -> Result<&'a Value> {
-    let containers = [
-        Some(export),
-        export.get("params"),
-        export.pointer("/estimate/params"),
-    ];
+    let containers = [Some(export), export.get("params")];
     let alias = (name == "camera_se3_target").then_some("poses");
     let value = containers
         .into_iter()
@@ -319,7 +312,7 @@ mod tests {
     #[test]
     fn laser_planes_are_read_where_each_export_keeps_them() {
         let single = json!({
-            "estimate": {"params": {"plane": {"normal": [0.0, 0.0, -1.0], "distance": 0.5}}}
+            "params": {"plane": {"normal": [0.0, 0.0, -1.0], "distance": 0.5}}
         });
         assert_eq!(plane(&single, None).unwrap(), ([0.0, 0.0, -1.0], 0.5));
         let rig = json!({"laser_planes_cam": [

@@ -151,14 +151,15 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             s.set_input(input.clone())?;
             ph.init(|| planar_init(&mut s, None))?;
             ph.optimize(|| planar_optimize(&mut s, None))?;
+            let report = s.output().map(|o| o.report.clone());
             let e = s.export()?;
             (
                 ModelParams {
                     cameras: vec![camera_set(&e.params.camera)?],
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
-                Some(e.report),
+                e.diagnostics.per_feature_residuals,
+                report,
             )
         }
         SceneData::Scheimpflug {
@@ -171,14 +172,15 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             s.set_input(input.clone())?;
             ph.init(|| planar_init_with_seed(&mut s, seed.clone(), None))?;
             ph.optimize(|| planar_optimize(&mut s, None))?;
+            let report = s.output().map(|o| o.report.clone());
             let e = s.export()?;
             (
                 ModelParams {
                     cameras: vec![camera_set(&e.params.camera)?],
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
-                Some(e.report),
+                e.diagnostics.per_feature_residuals,
+                report,
             )
         }
         SceneData::SingleCamHandeye { input, config } => {
@@ -197,7 +199,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                     handeye: e.gripper_se3_camera,
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
+                e.diagnostics.per_feature_residuals,
                 report,
             )
         }
@@ -207,16 +209,17 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             s.set_input(input.clone())?;
             ph.init(|| laser_init(&mut s, None))?;
             ph.optimize(|| laser_optimize(&mut s, None))?;
+            let report = s.output().map(|o| o.estimate.report.clone());
             let e = s.export()?;
-            let p = &e.estimate.params;
+            let p = &e.params;
             (
                 ModelParams {
                     cameras: vec![camera_set(&p.camera)?],
                     planes_cam: vec![p.plane.clone()],
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
-                Some(e.estimate.report.clone()),
+                e.diagnostics.per_feature_residuals,
+                report,
             )
         }
         SceneData::Rig {
@@ -239,7 +242,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                     cam_se3_rig: e.cam_se3_rig,
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
+                e.diagnostics.per_feature_residuals,
                 report,
             )
         }
@@ -263,7 +266,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                     handeye: e.gripper_se3_rig,
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
+                e.diagnostics.per_feature_residuals,
                 report,
             )
         }
@@ -279,7 +282,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                     planes_cam: e.laser_planes_cam,
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
+                e.diagnostics.per_feature_residuals,
                 None,
             )
         }
@@ -299,7 +302,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                     planes_cam: e.laser_planes_cam,
                     ..ModelParams::default()
                 },
-                e.per_feature_residuals,
+                e.diagnostics.per_feature_residuals,
                 report,
             )
         }

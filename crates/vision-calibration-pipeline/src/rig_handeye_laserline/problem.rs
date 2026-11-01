@@ -1,15 +1,15 @@
 //! [`ProblemType`] implementation for joint rig hand-eye laserline calibration.
 
 use crate::Error;
-use crate::common::ExportKind;
 use crate::common::config::{RobotPoseConfig, SolverConfig};
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraFix, CameraModelSpec, CameraParams, FeatureResidualHistogram, ImageManifest, Iso3,
-    NoMeta, PerFeatureResiduals, Real, RigDataset, RigView, RigViewObs, Uncertainty,
+    CameraFix, CameraModelSpec, CameraParams, FeatureResidualHistogram, Iso3, NoMeta,
+    PerFeatureResiduals, Real, RigDataset, RigView, RigViewObs, Uncertainty,
     build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
@@ -255,12 +255,10 @@ pub struct RigHandeyeLaserlineExport {
     pub mean_reproj_error: f64,
     /// Per-camera target reprojection errors (pixels).
     pub per_cam_reproj_errors: Vec<f64>,
-    /// Per-feature target and laser residuals.
+    /// Residuals and the image manifest: evidence for viewers and
+    /// debugging, not part of the result.
     #[serde(default)]
-    pub per_feature_residuals: PerFeatureResiduals,
-    /// Optional image manifest populated by app/dataset runners.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_manifest: Option<ImageManifest>,
+    pub diagnostics: ExportDiagnostics,
     /// Covariance of the jointly refined parameters, labelled as the export
     /// fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
     /// each camera's laser plane in its camera frame (`cam1.plane.nx`).
@@ -439,8 +437,9 @@ pub(crate) fn export_joint(
             .iter()
             .map(|s| s.mean_reproj_error_px)
             .collect(),
-        per_feature_residuals,
-        image_manifest: None,
+        // Callers that have the images fill `image_manifest`; the
+        // pipeline never has image paths.
+        diagnostics: ExportDiagnostics::new(per_feature_residuals),
         uncertainty: estimate.uncertainty.clone(),
     })
 }

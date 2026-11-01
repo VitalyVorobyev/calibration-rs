@@ -1,6 +1,6 @@
 {
   "suite_version": "2026.1",
-  "producer": "calibration-rs 0.9.0",
+  "producer": "calibration-rs 0.10.0",
   "export": {
     "base_se3_target": {
       "rotation": [
@@ -39,6 +39,30 @@
       }
     },
     "camera_se3_base": null,
+    "diagnostics": {
+      "per_feature_residuals": {
+        "target_hist_per_camera": [
+          {
+            "bucket_edges_px": [
+              1.0,
+              2.0,
+              5.0,
+              10.0
+            ],
+            "count": 14280,
+            "counts": [
+              14280,
+              0,
+              0,
+              0,
+              0
+            ],
+            "max": 0.49508242491024973,
+            "mean": 0.1346576618935906
+          }
+        ]
+      }
+    },
     "gripper_se3_camera": {
       "rotation": [
         -0.5008113972342443,
@@ -59,28 +83,6 @@
     "per_cam_reproj_errors": [
       0.13465766189358744
     ],
-    "per_feature_residuals": {
-      "target_hist_per_camera": [
-        {
-          "bucket_edges_px": [
-            1.0,
-            2.0,
-            5.0,
-            10.0
-          ],
-          "count": 14280,
-          "counts": [
-            14280,
-            0,
-            0,
-            0,
-            0
-          ],
-          "max": 0.49508242491024973,
-          "mean": 0.1346576618935906
-        }
-      ]
-    },
     "robot_deltas": [
       [
         0.0005403608149660699,

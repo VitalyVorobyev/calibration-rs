@@ -62,6 +62,7 @@ fn fixture_writes_files_and_residuals_stay_tight() {
     let export: PlanarIntrinsicsExport =
         serde_json::from_str(&json).expect("export.json round-trips");
     let manifest = export
+        .diagnostics
         .image_manifest
         .as_ref()
         .expect("ImageManifest must be populated for this fixture");

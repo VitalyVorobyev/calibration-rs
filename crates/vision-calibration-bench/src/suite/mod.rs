@@ -150,7 +150,8 @@ pub fn calibrate_entry(
 ) -> Result<Value> {
     let set = load_observations(suite, &entry.id)?;
     let mut export = set.input.calibrate(entry.config.as_ref(), backend)?;
-    if let Some(Value::Object(residuals)) = export.get_mut("per_feature_residuals") {
+    if let Some(Value::Object(residuals)) = export.pointer_mut("/diagnostics/per_feature_residuals")
+    {
         residuals.remove("target");
         residuals.remove("laser");
         residuals.remove("laser_lines");

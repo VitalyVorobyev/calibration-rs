@@ -477,10 +477,11 @@ fn a_stated_isotropic_covariance_reproduces_the_unweighted_solve() {
     assert!((s0 - 1.0).abs() < 0.1, "σ̂₀ = {s0}");
 
     for (p, s) in plain
+        .diagnostics
         .per_feature_residuals
         .target
         .iter()
-        .zip(&stated.per_feature_residuals.target)
+        .zip(&stated.diagnostics.per_feature_residuals.target)
     {
         assert!((p.error_px.unwrap() - s.error_px.unwrap()).abs() < 1e-9);
         assert_eq!(p.error_whitened, None);

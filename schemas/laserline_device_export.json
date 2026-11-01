@@ -257,6 +257,31 @@
         }
       ]
     },
+    "ExportDiagnostics": {
+      "description": "Evidence about how an export's result was reached: what a viewer or a\ndebugging session reads, not what a consumer needs to use the\ncalibration.\n\nThe result fields of an export (camera parameters, poses, uncertainty,\nmean reprojection error) are the stable contract; this group may gain\ndetail between releases.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
+        },
+        "per_feature_residuals": {
+          "$ref": "#/$defs/PerFeatureResiduals",
+          "default": {},
+          "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
+        }
+      },
+      "required": [
+        "per_feature_residuals"
+      ],
+      "type": "object"
+    },
     "ExportKind": {
       "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
       "oneOf": [
@@ -603,35 +628,6 @@
       "required": [
         "normal",
         "distance"
-      ],
-      "type": "object"
-    },
-    "LaserlineEstimate": {
-      "description": "Result of laserline bundle adjustment.",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/LaserlineParams",
-          "description": "Refined bundle parameters."
-        },
-        "report": {
-          "$ref": "#/$defs/SolveReport",
-          "description": "Backend solve report."
-        },
-        "uncertainty": {
-          "$ref": "#/$defs/Uncertainty",
-          "default": {
-            "reason": {
-              "kind": "not_computed"
-            },
-            "status": "unavailable"
-          },
-          "description": "Covariance of the refined parameters: the camera's free parameters\n(intrinsics, distortion and, for a tilted sensor, the tilt) and the\nlaser plane (`plane.nx … plane.d`, in the camera frame), with each\nview's target pose as a per-view block."
-        }
-      },
-      "required": [
-        "params",
-        "report",
-        "uncertainty"
       ],
       "type": "object"
     },
@@ -1021,28 +1017,6 @@
         }
       ]
     },
-    "SolveReport": {
-      "description": "Summary of backend solve outcome.",
-      "properties": {
-        "final_cost": {
-          "description": "The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual\nblocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without\none) — so `½‖r‖²` for a plain least-squares problem.",
-          "format": "double",
-          "type": "number"
-        },
-        "num_iters": {
-          "default": 0,
-          "description": "Number of outer solver iterations executed.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "final_cost",
-        "num_iters"
-      ],
-      "type": "object"
-    },
     "TargetFeatureResidual": {
       "description": "Reprojection record for a single target feature in a single view.",
       "properties": {
@@ -1287,20 +1261,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Export type for laserline device calibration.",
   "properties": {
-    "estimate": {
-      "$ref": "#/$defs/LaserlineEstimate",
-      "description": "Pipeline output including optimized parameters and summary statistics."
-    },
-    "image_manifest": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ImageManifest"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Optional image manifest (viewer-side contract). Per\naccepted view (pose = kept-view index, camera = 0): one frame\nfor the *target* image plus one of kind `laser` for the laser\nimage. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+    "diagnostics": {
+      "$ref": "#/$defs/ExportDiagnostics",
+      "default": {
+        "per_feature_residuals": {}
+      },
+      "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
     },
     "kind": {
       "$ref": "#/$defs/ExportKind",
@@ -1311,6 +1277,10 @@
       "format": "double",
       "type": "number"
     },
+    "params": {
+      "$ref": "#/$defs/LaserlineParams",
+      "description": "The calibrated camera, the laser plane (camera frame) and the\nper-view target poses."
+    },
     "per_cam_reproj_errors": {
       "description": "Per-camera reprojection errors (single element for single-camera workflows).",
       "items": {
@@ -1319,23 +1289,29 @@
       },
       "type": "array"
     },
-    "per_feature_residuals": {
-      "$ref": "#/$defs/PerFeatureResiduals",
-      "default": {},
-      "description": "Per-feature reprojection + laser residuals. Single-camera:\n`target_hist_per_camera` and `laser_hist_per_camera` each carry\n`Some(vec![one_entry])`."
-    },
     "stats": {
       "$ref": "#/$defs/LaserlineStats",
       "description": "Laserline statistics payload."
+    },
+    "uncertainty": {
+      "$ref": "#/$defs/Uncertainty",
+      "default": {
+        "reason": {
+          "kind": "not_computed"
+        },
+        "status": "unavailable"
+      },
+      "description": "Covariance of the calibrated parameters (camera and laser plane), with\nthe noise level the residuals imply."
     }
   },
   "required": [
     "kind",
-    "estimate",
+    "params",
     "stats",
     "mean_reproj_error",
     "per_cam_reproj_errors",
-    "per_feature_residuals"
+    "uncertainty",
+    "diagnostics"
   ],
   "title": "LaserlineDeviceExport",
   "type": "object"

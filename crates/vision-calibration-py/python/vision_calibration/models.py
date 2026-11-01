@@ -1434,30 +1434,6 @@ class LaserlineParams:
 
 
 @dataclass(slots=True)
-class LaserlineEstimate:
-    """Typed laserline optimizer estimate payload."""
-
-    params: LaserlineParams
-    final_cost: float
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
-    )
-
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineEstimate":
-        report = cast(Mapping[str, Any], payload["report"])
-        return cls(
-            params=LaserlineParams.from_payload(
-                cast(Mapping[str, Any], payload["params"])
-            ),
-            final_cost=float(report["final_cost"]),
-            uncertainty=ParameterUncertainty.from_payload(
-                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
-            ),
-        )
-
-
-@dataclass(slots=True)
 class LaserlineStats:
     """Typed summary statistics for laserline results."""
 
@@ -1901,8 +1877,9 @@ class _ExportResiduals:
     def per_feature_residuals(self) -> PerFeatureResiduals:
         """Every target corner's and laser pixel's residual, as numpy tables
         (see :class:`~vision_calibration.residuals.PerFeatureResiduals`)."""
+        diagnostics = cast(Mapping[str, Any], self.export.get("diagnostics") or {})
         return PerFeatureResiduals.from_payload(
-            cast(Mapping[str, Any] | None, self.export.get("per_feature_residuals"))
+            cast(Mapping[str, Any] | None, diagnostics.get("per_feature_residuals"))
         )
 
 
@@ -1932,7 +1909,6 @@ class PlanarIntrinsicsExport(_ExportResiduals):
 
     camera: Camera
     camera_se3_target: list[Pose]
-    final_cost: float
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
     uncertainty: ParameterUncertainty = field(
@@ -1945,7 +1921,6 @@ class PlanarIntrinsicsExport(_ExportResiduals):
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarIntrinsicsExport":
         params = cast(Mapping[str, Any], payload["params"])
-        report = cast(Mapping[str, Any], payload["report"])
         poses = [
             Pose.from_payload(cast(Mapping[str, Any], p))
             for p in cast(list[Any], params["camera_se3_target"])
@@ -1954,7 +1929,6 @@ class PlanarIntrinsicsExport(_ExportResiduals):
             export=dict(payload),
             camera=_camera_from_payload(cast(Mapping[str, Any], params["camera"])),
             camera_se3_target=poses,
-            final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
@@ -2141,10 +2115,15 @@ class RigHandeyeExport(_ExportResiduals):
 class LaserlineDeviceExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_laserline_device`."""
 
-    estimate: LaserlineEstimate
+    params: LaserlineParams
     stats: LaserlineStats
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
+    """Covariance of the camera's free parameters and the laser plane
+    (``plane.nx`` … ``plane.d``), with each view's target pose."""
     export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     """The result as the library's export JSON, as
     :func:`~vision_calibration.projection_uncertainty` reads it."""
@@ -2154,22 +2133,17 @@ class LaserlineDeviceExport(_ExportResiduals):
         """Mean laser residual (units depend on residual type)."""
         return self.stats.mean_laser_error
 
-    @property
-    def uncertainty(self) -> ParameterUncertainty:
-        """Covariance of the camera's free parameters and the laser plane
-        (``plane.nx`` … ``plane.d``), with each view's target pose."""
-        return self.estimate.uncertainty
-
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceExport":
         return cls(
             export=dict(payload),
-            estimate=LaserlineEstimate.from_payload(
-                cast(Mapping[str, Any], payload["estimate"])
-            ),
+            params=LaserlineParams.from_payload(cast(Mapping[str, Any], payload["params"])),
             stats=LaserlineStats.from_payload(cast(Mapping[str, Any], payload["stats"])),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 

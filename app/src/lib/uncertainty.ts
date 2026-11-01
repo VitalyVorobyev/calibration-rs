@@ -9,11 +9,10 @@ import type {
 } from "../types/generated/diagnose-wire";
 import type { AnyExport } from "../store/types";
 
-/** The export's uncertainty: top-level on every export except the laserline
- * device, which keeps it with its estimate. `null` when the export has none
- * (written without uncertainty). */
+/** The export's uncertainty; `null` when the export has none (written
+ * without uncertainty). */
 export function exportUncertainty(data: AnyExport): Uncertainty | null {
-  return data.uncertainty ?? data.estimate?.uncertainty ?? null;
+  return data.uncertainty ?? null;
 }
 
 /** A display unit and the factor from the label's own unit to it. */

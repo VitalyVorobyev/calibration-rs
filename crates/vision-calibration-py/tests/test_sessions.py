@@ -270,7 +270,7 @@ class LaserlineDeviceSessionTest(unittest.TestCase):
         self.assertEqual(len(optimized.per_view_laser_errors), len(payload))
         result = session.export()
         reference = _run_laserline_device_raw(payload)
-        self.assertEqual(result.estimate.params.plane, reference.estimate.params.plane)
+        self.assertEqual(result.params.plane, reference.params.plane)
 
     def test_a_seeded_plane_has_no_fit_rmse(self) -> None:
         session = vc.LaserlineDeviceSession()

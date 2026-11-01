@@ -51,7 +51,6 @@ def main() -> None:
     d = result.camera.distortion
 
     print(f"Views: {len(payload.views)}")
-    print(f"Final cost: {result.final_cost:.3e}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")
     print("Recovered intrinsics:")
     print(f"  fx={k.fx:.3f}, fy={k.fy:.3f}, cx={k.cx:.3f}, cy={k.cy:.3f}")

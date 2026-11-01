@@ -232,7 +232,7 @@ pub fn measure(unit: &Unit, options: &Options) -> Result<UnitRaw> {
 /// unweighted with the camera fixed.
 fn heldout_sums(export: &PlanarIntrinsicsExport, view: &View<NoMeta>) -> Result<(f64, usize)> {
     let mut camera_only = export.clone();
-    camera_only.per_feature_residuals.target.clear();
+    camera_only.diagnostics.per_feature_residuals.target.clear();
     let report = planar_intrinsics_report(&camera_only, std::slice::from_ref(view))?;
     let errors: Vec<f64> = report.levels[0]
         .residuals

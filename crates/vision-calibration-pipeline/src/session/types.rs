@@ -27,7 +27,7 @@ pub struct SessionMetadata {
 
 impl SessionMetadata {
     /// Create new metadata for a problem type.
-    pub fn new(problem_type: impl Into<String>, schema_version: u32) -> Self {
+    pub(crate) fn new(problem_type: impl Into<String>, schema_version: u32) -> Self {
         let now = current_timestamp();
         Self {
             problem_type: problem_type.into(),
@@ -39,7 +39,7 @@ impl SessionMetadata {
     }
 
     /// Create new metadata with a description.
-    pub fn with_description(
+    pub(crate) fn with_description(
         problem_type: impl Into<String>,
         schema_version: u32,
         description: impl Into<String>,
@@ -50,7 +50,7 @@ impl SessionMetadata {
     }
 
     /// Update the last_modified timestamp to now.
-    pub fn touch(&mut self) {
+    pub(crate) fn touch(&mut self) {
         self.last_modified = current_timestamp();
     }
 }
@@ -77,7 +77,7 @@ pub struct LogEntry {
 
 impl LogEntry {
     /// Create a success log entry.
-    pub fn success(operation: impl Into<String>) -> Self {
+    pub(crate) fn success(operation: impl Into<String>) -> Self {
         Self {
             timestamp: current_timestamp(),
             operation: operation.into(),
@@ -87,7 +87,10 @@ impl LogEntry {
     }
 
     /// Create a success log entry with notes.
-    pub fn success_with_notes(operation: impl Into<String>, notes: impl Into<String>) -> Self {
+    pub(crate) fn success_with_notes(
+        operation: impl Into<String>,
+        notes: impl Into<String>,
+    ) -> Self {
         Self {
             timestamp: current_timestamp(),
             operation: operation.into(),
@@ -97,7 +100,7 @@ impl LogEntry {
     }
 
     /// Create a failure log entry.
-    pub fn failure(operation: impl Into<String>, error: impl Into<String>) -> Self {
+    pub(crate) fn failure(operation: impl Into<String>, error: impl Into<String>) -> Self {
         Self {
             timestamp: current_timestamp(),
             operation: operation.into(),
@@ -126,7 +129,7 @@ pub struct ExportRecord<E> {
 
 impl<E> ExportRecord<E> {
     /// Create an export record.
-    pub fn new(export: E) -> Self {
+    pub(crate) fn new(export: E) -> Self {
         Self {
             timestamp: current_timestamp(),
             export,
@@ -135,7 +138,7 @@ impl<E> ExportRecord<E> {
     }
 
     /// Create an export record with notes.
-    pub fn with_notes(export: E, notes: impl Into<String>) -> Self {
+    pub(crate) fn with_notes(export: E, notes: impl Into<String>) -> Self {
         Self {
             timestamp: current_timestamp(),
             export,
@@ -149,7 +152,7 @@ impl<E> ExportRecord<E> {
 /// A clock set before 1970 yields `0` rather than panicking: this stamps
 /// session metadata and export records, and a nonsense timestamp is a far
 /// better outcome there than aborting a calibration that has already run.
-pub fn current_timestamp() -> u64 {
+pub(crate) fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())

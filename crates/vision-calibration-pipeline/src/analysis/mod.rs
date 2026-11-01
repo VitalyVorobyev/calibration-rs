@@ -320,8 +320,8 @@ pub fn planar_intrinsics_report<M>(
 ) -> Result<ReprojReport, Error> {
     let cam = export.params.build_camera()?;
     let k = export.params.intrinsics();
-    let residuals = if !export.per_feature_residuals.target.is_empty() {
-        export.per_feature_residuals.target.clone()
+    let residuals = if !export.diagnostics.per_feature_residuals.target.is_empty() {
+        export.diagnostics.per_feature_residuals.target.clone()
     } else {
         intrinsic_floor_single_cam(&cam, &k, views, 0)
     };
@@ -347,7 +347,7 @@ pub fn single_cam_handeye_report(
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, 1, views.len());
 
-    let handeye_residuals = export.per_feature_residuals.target.clone();
+    let handeye_residuals = export.diagnostics.per_feature_residuals.target.clone();
     let handeye_views = views.len().max(max_pose(&handeye_residuals) + 1);
     let handeye_level =
         LevelReport::from_residuals(ReprojLevel::Handeye, handeye_residuals, 1, handeye_views);
@@ -374,8 +374,8 @@ pub fn rig_extrinsics_report<M>(
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
-    let rig_residuals = if !export.per_feature_residuals.target.is_empty() {
-        export.per_feature_residuals.target.clone()
+    let rig_residuals = if !export.diagnostics.per_feature_residuals.target.is_empty() {
+        export.diagnostics.per_feature_residuals.target.clone()
     } else {
         rig_constrained_residuals(export, dataset)?
     };
@@ -412,7 +412,7 @@ pub fn rig_handeye_report<M>(
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
-    let handeye_residuals = export.per_feature_residuals.target.clone();
+    let handeye_residuals = export.diagnostics.per_feature_residuals.target.clone();
     let handeye_level = LevelReport::from_residuals(
         ReprojLevel::Handeye,
         handeye_residuals.clone(),
@@ -448,7 +448,7 @@ pub fn rig_handeye_report_with_rig_stage<M>(
         num_views.max(max_pose(&rig_residuals) + 1),
     );
 
-    let handeye_residuals = export.per_feature_residuals.target.clone();
+    let handeye_residuals = export.diagnostics.per_feature_residuals.target.clone();
     let handeye_level = LevelReport::from_residuals(
         ReprojLevel::Handeye,
         handeye_residuals.clone(),

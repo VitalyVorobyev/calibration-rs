@@ -4,7 +4,7 @@
  * The 3D workspace draws `cameras` + `cam_se3_rig` + `rig_se3_target`
  * (+ `laser_planes_rig`). Rig exports carry those directly. A
  * single-camera `laserline_device` export instead carries its laser
- * plane and per-view target poses under `estimate.params`, in the
+ * plane and per-view target poses under `params`, in the
  * camera's own frame. Placing that one camera at the rig origin
  * (identity `cam_se3_rig`) makes camera frame ≡ rig frame, so the laser
  * plane and `camera_se3_target` poses drop straight into the rig fields
@@ -38,7 +38,7 @@ export function adaptSceneExport(data: AnyExport): AnyExport {
   if (isRigShaped(data)) return data;
   if (data.kind !== "laserline_device") return data;
 
-  const params = (data as unknown as LaserlineDeviceExport).estimate?.params;
+  const params = (data as unknown as LaserlineDeviceExport).params;
   const plane = params?.plane;
   const poses = params?.poses;
   // Need the camera, the plane (camera frame) and the per-view poses to

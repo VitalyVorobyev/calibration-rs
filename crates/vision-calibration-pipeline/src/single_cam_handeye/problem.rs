@@ -7,17 +7,17 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraParams, ImageManifest, Iso3, PerFeatureResiduals, Uncertainty, View,
-    build_feature_histogram, compute_planar_target_residuals_views,
+    CameraParams, Iso3, PerFeatureResiduals, Uncertainty, View, build_feature_histogram,
+    compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
     HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
 };
 
-use crate::common::ExportKind;
 use crate::common::config::{
     CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
 };
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
@@ -174,19 +174,10 @@ pub struct SingleCamHandeyeExport {
 
     /// Per-camera reprojection errors (pixels). Single element for single-camera.
     pub per_cam_reproj_errors: Vec<f64>,
-
-    /// Per-feature reprojection residuals. Single-camera, target
-    /// only. Per-view `cam_se3_target` is derived from the handeye chain
-    /// (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)).
+    /// Residuals and the image manifest: evidence for viewers and
+    /// debugging, not part of the result.
     #[serde(default)]
-    pub per_feature_residuals: PerFeatureResiduals,
-
-    /// Optional pointer to the source images behind this export. When
-    /// populated, downstream viewers (the diagnose UI) can locate the
-    /// source image for each view. `None` means "no images shipped";
-    /// the calibration pipeline never reads this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_manifest: Option<ImageManifest>,
+    pub diagnostics: ExportDiagnostics,
     /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
     /// the noise level the residuals imply.
     #[serde(default)]
@@ -364,8 +355,9 @@ impl ProblemType for SingleCamHandeyeProblem {
             robot_pose_sigma: output.robot_pose_sigma,
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
-            per_feature_residuals,
-            image_manifest: None,
+            // Callers that have the images fill `image_manifest`; the
+            // pipeline never has image paths.
+            diagnostics: ExportDiagnostics::new(per_feature_residuals),
             uncertainty: output.uncertainty.clone(),
         })
     }

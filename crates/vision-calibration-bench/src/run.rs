@@ -528,6 +528,10 @@ pub mod tier_b {
         let _ = step_optimize(&mut session, None).context("step_optimize failed")?;
         let optimize_ms = ms_since(opt_start);
 
+        let report = session
+            .output()
+            .map(|estimate| estimate.report.clone())
+            .context("step_optimize left no estimate")?;
         let export = session.export().context("session.export failed")?;
 
         // ── Fit metrics ────────────────────────────────────────────────────
@@ -535,6 +539,7 @@ pub mod tier_b {
         // bench-computed aggregate); `reported_*` mirror what the export itself
         // claimed so a divergence surfaces.
         let errors: Vec<f64> = export
+            .diagnostics
             .per_feature_residuals
             .target
             .iter()
@@ -546,6 +551,7 @@ pub mod tier_b {
         // histogram comes straight from the export.
         let per_camera = vec![overall];
         let per_camera_hist = export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .clone()
@@ -565,7 +571,7 @@ pub mod tier_b {
             // successful `step_optimize` that produced an export is treated as
             // converged. `report` carries the underlying cost/iteration detail.
             converged: true,
-            report: export.report.clone(),
+            report,
         };
 
         let total_ms = init_ms
@@ -700,6 +706,8 @@ pub mod tier_b {
     pub struct ScheimpflugSeededSolve {
         /// Session export.
         pub export: PlanarIntrinsicsExport,
+        /// The final solve's cost and iteration count.
+        pub report: SolveReport,
         /// Seeded-init wall-clock time in milliseconds.
         pub init_ms: u64,
         /// Optimize wall-clock time in milliseconds.
@@ -740,9 +748,14 @@ pub mod tier_b {
         step_optimize(&mut session, None).context("optimize failed")?;
         let optimize_ms = ms_since(opt_start);
 
+        let report = session
+            .output()
+            .map(|estimate| estimate.report.clone())
+            .context("step_optimize left no estimate")?;
         let export = session.export().context("session.export failed")?;
         Ok(ScheimpflugSeededSolve {
             export,
+            report,
             init_ms,
             optimize_ms,
         })
@@ -777,6 +790,7 @@ pub mod tier_b {
 
         // ── Fit metrics (bench-recomputed + export-reported) ───────────────
         let errors: Vec<f64> = export
+            .diagnostics
             .per_feature_residuals
             .target
             .iter()
@@ -785,6 +799,7 @@ pub mod tier_b {
         let overall = ReprojectionStats::from_errors(&errors);
         let per_camera = vec![overall];
         let per_camera_hist = export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .clone()
@@ -800,7 +815,7 @@ pub mod tier_b {
         let convergence = Convergence {
             init_ok: true,
             converged: true,
-            report: export.report.clone(),
+            report: solve.report.clone(),
         };
         let total_ms = solve
             .init_ms
@@ -946,8 +961,9 @@ pub mod tier_b {
         // divergence between bench-computed and self-reported numbers surfaces.
         let n_cam = spec.cameras.len();
         let (overall, per_camera) =
-            split_target_residuals(&export.per_feature_residuals.target, n_cam);
+            split_target_residuals(&export.diagnostics.per_feature_residuals.target, n_cam);
         let per_camera_hist = export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .clone()
@@ -1100,6 +1116,7 @@ pub mod tier_b {
         // per-camera histogram comes straight from the export. `reported_*`
         // mirror the export's self-reported numbers so divergence surfaces.
         let errors: Vec<f64> = export
+            .diagnostics
             .per_feature_residuals
             .target
             .iter()
@@ -1107,6 +1124,7 @@ pub mod tier_b {
             .collect();
         let overall = ReprojectionStats::from_errors(&errors);
         let per_camera_hist = export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .clone()
@@ -1280,8 +1298,9 @@ pub mod tier_b {
 
         // ── Fit metrics (per-camera split of the export's per-feature errors) ─
         let (overall, per_camera) =
-            split_target_residuals(&export.per_feature_residuals.target, n_cam);
+            split_target_residuals(&export.diagnostics.per_feature_residuals.target, n_cam);
         let per_camera_hist = export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .clone()

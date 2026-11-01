@@ -292,12 +292,13 @@ fn validate_run_name(name: &str) -> Result<(), ProjectError> {
     }
 }
 
-/// Point the export's `image_manifest.root` (relative to `dataset_dir`) at
+/// Point the export's `diagnostics.image_manifest.root` (relative to `dataset_dir`) at
 /// the same folder as seen from `<project>/runs/<name>/`: a relative path
 /// when the images lie inside the project, the absolute folder otherwise.
 fn rebase_image_root(export: &mut serde_json::Value, dataset_dir: &Path, project: &Path) {
     let Some(manifest) = export
-        .get_mut("image_manifest")
+        .get_mut("diagnostics")
+        .and_then(|d| d.get_mut("image_manifest"))
         .and_then(|m| m.as_object_mut())
     else {
         return;
@@ -438,7 +439,9 @@ mod tests {
             config: json!({ "max_iters": 50 }),
             export: json!({
                 "kind": "planar_intrinsics",
-                "image_manifest": { "root": ".", "frames": [{ "path": "img/01.png" }] }
+                "diagnostics": {
+                    "image_manifest": { "root": ".", "frames": [{ "path": "img/01.png" }] }
+                }
             }),
             diagnostics: diagnostics(),
             dataset_dir: dataset_dir.to_path_buf(),
@@ -541,7 +544,7 @@ mod tests {
 
         let run_dir = tmp.path().join(RUNS_DIR).join("run-001");
         let export: serde_json::Value = read_json(&run_dir.join("export.json")).unwrap();
-        assert_eq!(export["image_manifest"]["root"], "../..");
+        assert_eq!(export["diagnostics"]["image_manifest"]["root"], "../..");
         // The rebased root resolves to the dataset folder.
         let images = dunce::canonicalize(run_dir.join("../..")).unwrap();
         assert_eq!(path_string(&images), info.dataset_dir);
@@ -557,7 +560,10 @@ mod tests {
         save_run(project.path(), "a", record(data.path())).unwrap();
         let export: serde_json::Value =
             read_json(&project.path().join(RUNS_DIR).join("a").join("export.json")).unwrap();
-        assert_eq!(export["image_manifest"]["root"], info.dataset_dir.as_str());
+        assert_eq!(
+            export["diagnostics"]["image_manifest"]["root"],
+            info.dataset_dir.as_str()
+        );
     }
 
     #[test]
@@ -569,7 +575,10 @@ mod tests {
         save_run(tmp.path(), "a", record(&tmp.path().join("cam_left"))).unwrap();
         let export: serde_json::Value =
             read_json(&tmp.path().join(RUNS_DIR).join("a").join("export.json")).unwrap();
-        assert_eq!(export["image_manifest"]["root"], "../../cam_left");
+        assert_eq!(
+            export["diagnostics"]["image_manifest"]["root"],
+            "../../cam_left"
+        );
     }
 
     #[test]

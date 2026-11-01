@@ -409,6 +409,32 @@
       ],
       "type": "object"
     },
+    "ExportDiagnostics": {
+      "description": "Evidence about how an export's result was reached: what a viewer or a\ndebugging session reads, not what a consumer needs to use the\ncalibration.\n\nThe result fields of an export (camera parameters, poses, uncertainty,\nmean reprojection error) are the stable contract; this group may gain\ndetail between releases.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
+        }
+      },
+      "type": "object"
+    },
     "ExportKind": {
       "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
       "oneOf": [
@@ -778,24 +804,16 @@
     "LaserlineDeviceExport": {
       "description": "Export type for laserline device calibration.",
       "properties": {
-        "estimate": {
+        "diagnostics": {
           "allOf": [
             {
-              "$ref": "#/definitions/LaserlineEstimate"
+              "$ref": "#/definitions/ExportDiagnostics"
             }
           ],
-          "description": "Pipeline output including optimized parameters and summary statistics."
-        },
-        "image_manifest": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional image manifest (viewer-side contract). Per\naccepted view (pose = kept-view index, camera = 0): one frame\nfor the *target* image plus one of kind `laser` for the laser\nimage. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+          "default": {
+            "per_feature_residuals": {}
+          },
+          "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
         },
         "kind": {
           "allOf": [
@@ -810,6 +828,14 @@
           "format": "double",
           "type": "number"
         },
+        "params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/LaserlineParams"
+            }
+          ],
+          "description": "The calibrated camera, the laser plane (camera frame) and the\nper-view target poses."
+        },
         "per_cam_reproj_errors": {
           "description": "Per-camera reprojection errors (single element for single-camera workflows).",
           "items": {
@@ -818,15 +844,6 @@
           },
           "type": "array"
         },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature reprojection + laser residuals. Single-camera:\n`target_hist_per_camera` and `laser_hist_per_camera` each carry\n`Some(vec![one_entry])`."
-        },
         "stats": {
           "allOf": [
             {
@@ -834,35 +851,6 @@
             }
           ],
           "description": "Laserline statistics payload."
-        }
-      },
-      "required": [
-        "kind",
-        "estimate",
-        "stats",
-        "mean_reproj_error",
-        "per_cam_reproj_errors"
-      ],
-      "type": "object"
-    },
-    "LaserlineEstimate": {
-      "description": "Result of laserline bundle adjustment.",
-      "properties": {
-        "params": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/LaserlineParams"
-            }
-          ],
-          "description": "Refined bundle parameters."
-        },
-        "report": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/SolveReport"
-            }
-          ],
-          "description": "Backend solve report."
         },
         "uncertainty": {
           "allOf": [
@@ -876,12 +864,15 @@
             },
             "status": "unavailable"
           },
-          "description": "Covariance of the refined parameters: the camera's free parameters\n(intrinsics, distortion and, for a tilted sensor, the tilt) and the\nlaser plane (`plane.nx … plane.d`, in the camera frame), with each\nview's target pose as a per-view block."
+          "description": "Covariance of the calibrated parameters (camera and laser plane), with\nthe noise level the residuals imply."
         }
       },
       "required": [
+        "kind",
         "params",
-        "report"
+        "stats",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
       ],
       "type": "object"
     },
@@ -1115,16 +1106,16 @@
     "PlanarIntrinsicsExport": {
       "description": "Export format for planar intrinsics calibration.",
       "properties": {
-        "image_manifest": {
-          "anyOf": [
+        "diagnostics": {
+          "allOf": [
             {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
+              "$ref": "#/definitions/ExportDiagnostics"
             }
           ],
-          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. `None` means \"no images\nshipped\"; the calibration pipeline never reads this field."
+          "default": {
+            "per_feature_residuals": {}
+          },
+          "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
         },
         "kind": {
           "allOf": [
@@ -1155,23 +1146,6 @@
           },
           "type": "array"
         },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature reprojection residuals. For planar intrinsics\nonly `target` is populated; `laser` is empty. `target_hist_per_camera`\nis `Some(vec![one_entry])` since this problem type is single-camera."
-        },
-        "report": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/SolveReport"
-            }
-          ],
-          "description": "Solver report."
-        },
         "uncertainty": {
           "allOf": [
             {
@@ -1190,7 +1164,6 @@
       "required": [
         "kind",
         "params",
-        "report",
         "mean_reproj_error",
         "per_cam_reproj_errors"
       ],
@@ -1522,16 +1495,16 @@
           },
           "type": "array"
         },
-        "image_manifest": {
-          "anyOf": [
+        "diagnostics": {
+          "allOf": [
             {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
+              "$ref": "#/definitions/ExportDiagnostics"
             }
           ],
-          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. six 720×540 tiles in one horizontal strip) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
+          "default": {
+            "per_feature_residuals": {}
+          },
+          "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
         },
         "kind": {
           "allOf": [
@@ -1553,15 +1526,6 @@
             "type": "number"
           },
           "type": "array"
-        },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature reprojection residuals. For rig extrinsics\n`target` is populated and `laser` is empty. `target_hist_per_camera`\nis `Some(vec)` with one entry per camera."
         },
         "rig_se3_target": {
           "description": "Per-view rig poses: `rig_se3_target` (T_R_T).",
@@ -1623,6 +1587,17 @@
           },
           "type": "array"
         },
+        "diagnostics": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportDiagnostics"
+            }
+          ],
+          "default": {
+            "per_feature_residuals": {}
+          },
+          "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
+        },
         "gripper_se3_rig": {
           "anyOf": [
             {
@@ -1653,17 +1628,6 @@
           ],
           "description": "Hand-eye mode used to interpret mode-dependent transforms."
         },
-        "image_manifest": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. six 720×540 tiles in one horizontal strip) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
-        },
         "kind": {
           "allOf": [
             {
@@ -1684,15 +1648,6 @@
             "type": "number"
           },
           "type": "array"
-        },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature reprojection residuals. Per-view\n`rig_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),\nthen composed with `cam_se3_rig` for projection."
         },
         "rig_se3_base": {
           "anyOf": [
@@ -1794,6 +1749,17 @@
           },
           "type": "array"
         },
+        "diagnostics": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportDiagnostics"
+            }
+          ],
+          "default": {
+            "per_feature_residuals": {}
+          },
+          "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
+        },
         "gripper_se3_rig": {
           "anyOf": [
             {
@@ -1823,17 +1789,6 @@
             }
           ],
           "description": "Hand-eye mode used to interpret mode-dependent transforms."
-        },
-        "image_manifest": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional image manifest populated by app/dataset runners."
         },
         "kind": {
           "allOf": [
@@ -1876,15 +1831,6 @@
             "$ref": "#/definitions/RigHandeyeLaserlinePerCamStats"
           },
           "type": "array"
-        },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature target and laser residuals."
         },
         "rig_se3_base": {
           "anyOf": [
@@ -2062,16 +2008,16 @@
           },
           "type": "array"
         },
-        "image_manifest": {
-          "anyOf": [
+        "diagnostics": {
+          "allOf": [
             {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
+              "$ref": "#/definitions/ExportDiagnostics"
             }
           ],
-          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. six 720×540 tiles in one\nhorizontal strip) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+          "default": {
+            "per_feature_residuals": {}
+          },
+          "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
         },
         "kind": {
           "allOf": [
@@ -2107,15 +2053,6 @@
             "$ref": "#/definitions/LaserlineStats"
           },
           "type": "array"
-        },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature reprojection + laser residuals. Multi-camera\nrig: `target` covers per-corner reprojection (when present) and\n`laser` covers per-pixel laser distances. Both per-camera histograms\nare populated."
         },
         "rig_se3_target": {
           "default": [],
@@ -2373,6 +2310,17 @@
           ],
           "description": "Eye-to-hand: camera_se3_base (T_C_B).\n\n`None` for EyeInHand mode."
         },
+        "diagnostics": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportDiagnostics"
+            }
+          ],
+          "default": {
+            "per_feature_residuals": {}
+          },
+          "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
+        },
         "gripper_se3_camera": {
           "anyOf": [
             {
@@ -2403,17 +2351,6 @@
           ],
           "description": "Hand-eye mode used to interpret the transforms."
         },
-        "image_manifest": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ImageManifest"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional pointer to the source images behind this export. When\npopulated, downstream viewers (the diagnose UI) can locate the\nsource image for each view. `None` means \"no images shipped\";\nthe calibration pipeline never reads this field."
-        },
         "kind": {
           "allOf": [
             {
@@ -2434,15 +2371,6 @@
             "type": "number"
           },
           "type": "array"
-        },
-        "per_feature_residuals": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/PerFeatureResiduals"
-            }
-          ],
-          "default": {},
-          "description": "Per-feature reprojection residuals. Single-camera, target\nonly. Per-view `cam_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target))."
         },
         "robot_deltas": {
           "description": "Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).\nOnly present if robot refinement was enabled.",
@@ -2493,27 +2421,6 @@
         "handeye_mode",
         "mean_reproj_error",
         "per_cam_reproj_errors"
-      ],
-      "type": "object"
-    },
-    "SolveReport": {
-      "description": "Summary of backend solve outcome.",
-      "properties": {
-        "final_cost": {
-          "description": "The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual\nblocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without\none) — so `½‖r‖²` for a plain least-squares problem.",
-          "format": "double",
-          "type": "number"
-        },
-        "num_iters": {
-          "default": 0,
-          "description": "Number of outer solver iterations executed.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "final_cost"
       ],
       "type": "object"
     },

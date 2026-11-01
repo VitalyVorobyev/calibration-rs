@@ -191,7 +191,7 @@ fn pipeline_converges_pinhole() {
     run_calibration(&mut session).unwrap();
 
     let export = session.export().unwrap();
-    let params = &export.estimate.params;
+    let params = &export.params;
 
     let json = serde_json::to_string(&export).unwrap();
     let _: LaserlineDeviceExport = serde_json::from_str(&json).unwrap();
@@ -265,7 +265,7 @@ fn pipeline_converges_scheimpflug() {
         step_init_with_seed(&mut session, seed, None).unwrap();
         step_optimize(&mut session, None).unwrap();
         let export = session.export().unwrap();
-        let SensorParams::Scheimpflug { params } = export.estimate.params.camera.sensor else {
+        let SensorParams::Scheimpflug { params } = export.params.camera.sensor else {
             panic!("tilted camera expected");
         };
         assert_eq!(
@@ -285,7 +285,7 @@ fn pipeline_converges_scheimpflug() {
     step_init_with_seed(&mut session, seed, None).unwrap();
     step_optimize(&mut session, None).unwrap();
     let export = session.export().unwrap();
-    let SensorParams::Scheimpflug { params } = export.estimate.params.camera.sensor else {
+    let SensorParams::Scheimpflug { params } = export.params.camera.sensor else {
         panic!("tilted camera expected");
     };
     assert_eq!(
@@ -300,7 +300,7 @@ fn tilted() -> CameraModelSpec {
 }
 
 fn assert_tilt(export: &LaserlineDeviceExport, sensor_gt: ScheimpflugParams) {
-    let SensorParams::Scheimpflug { params: est } = export.estimate.params.camera.sensor else {
+    let SensorParams::Scheimpflug { params: est } = export.params.camera.sensor else {
         panic!("tilted camera expected");
     };
     assert!(
@@ -348,7 +348,7 @@ fn every_distortion_kind_calibrates() {
         session.set_config(config).unwrap();
         run_calibration(&mut session).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
         let export = session.export().unwrap();
-        let camera = &export.estimate.params.camera;
+        let camera = &export.params.camera;
         assert_eq!(camera.spec().map(|s| s.distortion), Some(kind));
         let fx_err = (camera.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
         assert!(fx_err < 0.05, "{kind:?}: fx error {:.3}%", fx_err * 100.0);

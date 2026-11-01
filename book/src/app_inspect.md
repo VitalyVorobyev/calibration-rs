@@ -1,6 +1,6 @@
 # Inspecting Results
 
-The four result workspaces work on the currently loaded export. Load one with **Open Export…** in the top bar (any `*Export.json` produced by a calibration session, with `image_manifest` populated), or arrive with one from a run. The viewer infers the export kind from its JSON shape (planar, rig hand-eye, rig plus laserline, ...) and shows the matching header label. It works for all eight export kinds, single-camera or rig, with or without a laser stage.
+The four result workspaces work on the currently loaded export. Load one with **Open Export…** in the top bar (any `*Export.json` produced by a calibration session, with `diagnostics.image_manifest` populated), or arrive with one from a run. The viewer infers the export kind from its JSON shape (planar, rig hand-eye, rig plus laserline, ...) and shows the matching header label. It works for all eight export kinds, single-camera or rig, with or without a laser stage.
 
 ## Diagnose
 
@@ -30,5 +30,5 @@ Click a frustum to select a camera and see its intrinsics and its pose relative 
 ## Walkthrough: Load an Export into Diagnose
 
 1. Click **Open Export…** in the top bar.
-2. Pick any `*Export.json` produced by a calibration session, from a Run or written by `session.export()` in your own code with `image_manifest` populated.
+2. Pick any `*Export.json` produced by a calibration session, from a Run or written by `session.export()` in your own code with `diagnostics.image_manifest` populated.
 3. Diagnose infers the export kind from the JSON and shows the right header label. Step through frames with the arrow keys or the steppers.

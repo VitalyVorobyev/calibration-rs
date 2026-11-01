@@ -880,7 +880,7 @@ mod tests {
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use vision_calibration_core::{
-        BrownConrady5, FxFyCxCy, PerFeatureResiduals, make_pinhole_camera, pinhole_camera_params,
+        BrownConrady5, FxFyCxCy, make_pinhole_camera, pinhole_camera_params,
     };
     use vision_calibration_dataset::{
         CameraSource, PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
@@ -1253,8 +1253,7 @@ mod tests {
             robot_pose_sigma: None,
             mean_reproj_error: 0.5,
             per_cam_reproj_errors: vec![0.5; num_cameras],
-            per_feature_residuals: PerFeatureResiduals::default(),
-            image_manifest: None,
+            diagnostics: Default::default(),
             uncertainty: Default::default(),
         }
     }

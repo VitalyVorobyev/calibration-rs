@@ -137,13 +137,14 @@ pub fn write_fixture(out_dir: &Path) -> Result<FixtureSummary> {
     let mut manifest = ImageManifest::default();
     manifest.root = PathBuf::from("images");
     manifest.frames = frames;
-    export.image_manifest = Some(manifest);
+    export.diagnostics.image_manifest = Some(manifest);
 
     let export_path = out_dir.join("export.json");
     let file = std::fs::File::create(&export_path)?;
     serde_json::to_writer_pretty(file, &export)?;
 
     let max_error_px = export
+        .diagnostics
         .per_feature_residuals
         .target
         .iter()
@@ -152,7 +153,7 @@ pub fn write_fixture(out_dir: &Path) -> Result<FixtureSummary> {
 
     Ok(FixtureSummary {
         export_path,
-        num_residuals: export.per_feature_residuals.target.len(),
+        num_residuals: export.diagnostics.per_feature_residuals.target.len(),
         mean_error_px: export.mean_reproj_error,
         max_error_px,
     })

@@ -149,19 +149,19 @@ session.set_input(laserline_input)?;
 run_calibration(&mut session)?;
 
 let export = session.export()?;
-println!("Plane normal: {:?}", export.estimate.params.plane.normal);
-println!("Plane distance: {:.4}", export.estimate.params.plane.distance);
+println!("Plane normal: {:?}", export.params.plane.normal);
+println!("Plane distance: {:.4}", export.params.plane.distance);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 println!("Laser error: {:.4}", export.stats.mean_laser_error);
 
 // The plane's uncertainty, from corner and laser residuals together.
-if let Some(cov) = export.estimate.uncertainty.covariance() {
+if let Some(cov) = export.uncertainty.covariance() {
     println!("Plane distance σ: {:.2e} m", cov.std_dev("plane.d").unwrap());
 }
 ```
 
-`export.estimate.params.camera` is the calibrated camera in its model
-(`CameraParams`). The estimate's `uncertainty` covers the camera's free
+`export.params.camera` is the calibrated camera in its model
+(`CameraParams`). The export's `uncertainty` covers the camera's free
 parameters (intrinsics, distortion and, for a tilted sensor, the tilt) and the
 laser plane (`plane.nx`, `plane.ny`, `plane.nz`, `plane.d`, in the camera
 frame), with each view's target pose as a per-view block; see

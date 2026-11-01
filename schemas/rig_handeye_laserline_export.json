@@ -257,6 +257,31 @@
         }
       ]
     },
+    "ExportDiagnostics": {
+      "description": "Evidence about how an export's result was reached: what a viewer or a\ndebugging session reads, not what a consumer needs to use the\ncalibration.\n\nThe result fields of an export (camera parameters, poses, uncertainty,\nmean reprojection error) are the stable contract; this group may gain\ndetail between releases.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
+        },
+        "per_feature_residuals": {
+          "$ref": "#/$defs/PerFeatureResiduals",
+          "default": {},
+          "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
+        }
+      },
+      "required": [
+        "per_feature_residuals"
+      ],
+      "type": "object"
+    },
     "ExportKind": {
       "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
       "oneOf": [
@@ -1314,6 +1339,13 @@
       },
       "type": "array"
     },
+    "diagnostics": {
+      "$ref": "#/$defs/ExportDiagnostics",
+      "default": {
+        "per_feature_residuals": {}
+      },
+      "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
+    },
     "gripper_se3_rig": {
       "anyOf": [
         {
@@ -1339,17 +1371,6 @@
     "handeye_mode": {
       "$ref": "#/$defs/HandeyeMode",
       "description": "Hand-eye mode used to interpret mode-dependent transforms."
-    },
-    "image_manifest": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ImageManifest"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Optional image manifest populated by app/dataset runners."
     },
     "kind": {
       "$ref": "#/$defs/ExportKind",
@@ -1388,11 +1409,6 @@
         "$ref": "#/$defs/RigHandeyeLaserlinePerCamStats"
       },
       "type": "array"
-    },
-    "per_feature_residuals": {
-      "$ref": "#/$defs/PerFeatureResiduals",
-      "default": {},
-      "description": "Per-feature target and laser residuals."
     },
     "rig_se3_base": {
       "anyOf": [
@@ -1468,7 +1484,7 @@
     "robot_pose_sigma",
     "mean_reproj_error",
     "per_cam_reproj_errors",
-    "per_feature_residuals",
+    "diagnostics",
     "uncertainty"
   ],
   "title": "RigHandeyeLaserlineExport",

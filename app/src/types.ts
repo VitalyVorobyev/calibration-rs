@@ -81,10 +81,16 @@ export interface PerFeatureResiduals {
   laser_hist_per_camera?: FeatureResidualHistogram[] | null;
 }
 
-/** The subset of PlanarIntrinsicsExport the viewer reads. */
-export interface PlanarExport {
+/** An export's `diagnostics` group: every feature's residual and, when
+ * the images are known, where they are. */
+export interface ExportDiagnostics {
   per_feature_residuals: PerFeatureResiduals;
   image_manifest?: ImageManifest;
+}
+
+/** The subset of PlanarIntrinsicsExport the viewer reads. */
+export interface PlanarExport {
+  diagnostics: ExportDiagnostics;
   /** Optional on the wire — older export files may omit it. */
   mean_reproj_error?: number;
 }

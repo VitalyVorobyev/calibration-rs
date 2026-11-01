@@ -134,6 +134,7 @@ mod tier_b {
             Ok(solve) => {
                 let errors: Vec<f64> = solve
                     .export
+                    .diagnostics
                     .per_feature_residuals
                     .target
                     .iter()

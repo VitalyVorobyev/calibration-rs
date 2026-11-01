@@ -20,7 +20,7 @@ bun run tauri build    # bundles the app (installer or binary)
 - **Five workspaces**, reachable from the left rail (hotkeys `⌘1` to `⌘5`): Diagnose, 3D viewer, Epipolar, Depth and Run calibration.
 - **One shared store** holds the currently loaded `*Export` JSON plus derived pose and camera indices. Every workspace except Run reads from it; they all react to the same loaded export, the selected pose and the selected camera.
 - **Three ways to fill the store.** The top bar's **Open Export…** button loads a `*Export.json` file directly. Running a calibration from the **Run** workspace hands off to **Diagnose** automatically on success. With a project open, choosing one of its saved runs loads that run's export.
-- **The export needs an `image_manifest` field to render anything visual.** An export with residual numbers but no manifest produces an error banner ("This export has no image_manifest field") instead of a blank viewer. Runs launched from the Run workspace fill it in; a hand-written export may not have one.
+- **The export needs `diagnostics.image_manifest` to render anything visual.** An export with residual numbers but no manifest produces an error banner ("This export has no image_manifest field") instead of a blank viewer. Runs launched from the Run workspace fill it in; a hand-written export may not have one.
 
 ## What Is Where
 

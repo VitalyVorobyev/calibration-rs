@@ -5,17 +5,17 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
 use vision_calibration_core::{
-    ImageManifest, PerFeatureResiduals, build_feature_histogram,
+    PerFeatureResiduals, Uncertainty, build_feature_histogram,
     compute_planar_target_residuals_views,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    LaserlineDataset, LaserlineEstimate, LaserlineResidualType, LaserlineSolveOptions,
-    LaserlineStats, compute_laserline_feature_residuals,
+    LaserlineDataset, LaserlineEstimate, LaserlineParams, LaserlineResidualType,
+    LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
 };
 
-use crate::common::ExportKind;
 use crate::common::config::{CameraConfig, IntrinsicsInitConfig, SolverConfig};
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
@@ -181,27 +181,23 @@ pub struct LaserlineDeviceEstimate {
 pub struct LaserlineDeviceExport {
     /// Export-type discriminator — always [`ExportKind::LaserlineDevice`].
     pub kind: ExportKind,
-    /// Pipeline output including optimized parameters and summary statistics.
-    pub estimate: LaserlineEstimate,
+    /// The calibrated camera, the laser plane (camera frame) and the
+    /// per-view target poses.
+    pub params: LaserlineParams,
     /// Laserline statistics payload.
     pub stats: LaserlineStats,
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
-    /// Per-feature reprojection + laser residuals. Single-camera:
-    /// `target_hist_per_camera` and `laser_hist_per_camera` each carry
-    /// `Some(vec![one_entry])`.
+    /// Covariance of the calibrated parameters (camera and laser plane), with
+    /// the noise level the residuals imply.
     #[serde(default)]
-    pub per_feature_residuals: PerFeatureResiduals,
-
-    /// Optional image manifest (viewer-side contract). Per
-    /// accepted view (pose = kept-view index, camera = 0): one frame
-    /// for the *target* image plus one of kind `laser` for the laser
-    /// image. `None` means "no images shipped"; the
-    /// calibration pipeline never reads this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_manifest: Option<ImageManifest>,
+    pub uncertainty: Uncertainty,
+    /// Residuals and the image manifest: evidence for viewers and
+    /// debugging, not part of the result.
+    #[serde(default)]
+    pub diagnostics: ExportDiagnostics,
 }
 
 impl ProblemState for LaserlineDeviceProblem {
@@ -290,14 +286,14 @@ impl ProblemType for LaserlineDeviceProblem {
         per_feature_residuals.laser_hist_per_camera = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {
             kind: ExportKind::LaserlineDevice,
-            estimate: output.estimate.clone(),
+            params: output.estimate.params.clone(),
             stats: output.stats.clone(),
             mean_reproj_error: output.stats.mean_reproj_error,
             per_cam_reproj_errors: vec![output.stats.mean_reproj_error],
-            per_feature_residuals,
-            // Manifest is populated by callers that have image paths;
-            // the pipeline never does.
-            image_manifest: None,
+            uncertainty: output.estimate.uncertainty.clone(),
+            // Callers that have the images fill `image_manifest`; the
+            // pipeline never has image paths.
+            diagnostics: ExportDiagnostics::new(per_feature_residuals),
         })
     }
 }
@@ -413,18 +409,19 @@ mod tests {
                 .expect("export");
 
         // 3 views × 4 target features = 12; 3 views × 5 laser pixels = 15.
-        assert_eq!(export.per_feature_residuals.target.len(), 12);
-        assert_eq!(export.per_feature_residuals.laser.len(), 15);
-        for r in &export.per_feature_residuals.target {
+        assert_eq!(export.diagnostics.per_feature_residuals.target.len(), 12);
+        assert_eq!(export.diagnostics.per_feature_residuals.laser.len(), 15);
+        for r in &export.diagnostics.per_feature_residuals.target {
             assert!(r.error_px.unwrap() < 1e-9);
         }
-        for r in &export.per_feature_residuals.laser {
+        for r in &export.diagnostics.per_feature_residuals.laser {
             let res_m = r.residual_m.expect("ray must hit target plane");
             let res_px = r.residual_px.expect("line endpoints must be recoverable");
             assert!(res_m.abs() < 1e-6, "residual_m {res_m}");
             assert!(res_px < 1e-6, "residual_px {res_px}");
         }
         let target_hist = &export
+            .diagnostics
             .per_feature_residuals
             .target_hist_per_camera
             .as_ref()
@@ -432,6 +429,7 @@ mod tests {
         assert_eq!(target_hist.count, 12);
         assert_eq!(target_hist.counts, [12, 0, 0, 0, 0]);
         let laser_hist = &export
+            .diagnostics
             .per_feature_residuals
             .laser_hist_per_camera
             .as_ref()
@@ -519,8 +517,8 @@ mod tests {
         let export =
             LaserlineDeviceProblem::export(&dataset, &output, &LaserlineDeviceConfig::default())
                 .expect("export");
-        assert_eq!(export.per_feature_residuals.target.len(), 4);
-        for r in &export.per_feature_residuals.target {
+        assert_eq!(export.diagnostics.per_feature_residuals.target.len(), 4);
+        for r in &export.diagnostics.per_feature_residuals.target {
             let err = r.error_px.expect("residual missing");
             assert!(
                 err < 1e-6,
@@ -586,20 +584,32 @@ mod tests {
         let json = serde_json::to_string(&export).unwrap();
         let restored: LaserlineDeviceExport = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            restored.per_feature_residuals.target.len(),
-            export.per_feature_residuals.target.len()
+            restored.diagnostics.per_feature_residuals.target.len(),
+            export.diagnostics.per_feature_residuals.target.len()
         );
         assert_eq!(
-            restored.per_feature_residuals.laser.len(),
-            export.per_feature_residuals.laser.len()
+            restored.diagnostics.per_feature_residuals.laser.len(),
+            export.diagnostics.per_feature_residuals.laser.len()
         );
         assert_eq!(
-            restored.per_feature_residuals.target_hist_per_camera,
-            export.per_feature_residuals.target_hist_per_camera
+            restored
+                .diagnostics
+                .per_feature_residuals
+                .target_hist_per_camera,
+            export
+                .diagnostics
+                .per_feature_residuals
+                .target_hist_per_camera
         );
         assert_eq!(
-            restored.per_feature_residuals.laser_hist_per_camera,
-            export.per_feature_residuals.laser_hist_per_camera
+            restored
+                .diagnostics
+                .per_feature_residuals
+                .laser_hist_per_camera,
+            export
+                .diagnostics
+                .per_feature_residuals
+                .laser_hist_per_camera
         );
     }
 }

@@ -257,6 +257,31 @@
         }
       ]
     },
+    "ExportDiagnostics": {
+      "description": "Evidence about how an export's result was reached: what a viewer or a\ndebugging session reads, not what a consumer needs to use the\ncalibration.\n\nThe result fields of an export (camera parameters, poses, uncertainty,\nmean reprojection error) are the stable contract; this group may gain\ndetail between releases.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
+        },
+        "per_feature_residuals": {
+          "$ref": "#/$defs/PerFeatureResiduals",
+          "default": {},
+          "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
+        }
+      },
+      "required": [
+        "per_feature_residuals"
+      ],
+      "type": "object"
+    },
     "ExportKind": {
       "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
       "oneOf": [
@@ -1208,6 +1233,13 @@
       ],
       "description": "Eye-to-hand: camera_se3_base (T_C_B).\n\n`None` for EyeInHand mode."
     },
+    "diagnostics": {
+      "$ref": "#/$defs/ExportDiagnostics",
+      "default": {
+        "per_feature_residuals": {}
+      },
+      "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
+    },
     "gripper_se3_camera": {
       "anyOf": [
         {
@@ -1234,17 +1266,6 @@
       "$ref": "#/$defs/HandeyeMode",
       "description": "Hand-eye mode used to interpret the transforms."
     },
-    "image_manifest": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ImageManifest"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Optional pointer to the source images behind this export. When\npopulated, downstream viewers (the diagnose UI) can locate the\nsource image for each view. `None` means \"no images shipped\";\nthe calibration pipeline never reads this field."
-    },
     "kind": {
       "$ref": "#/$defs/ExportKind",
       "description": "Export-type discriminator — always [`ExportKind::SingleCamHandeye`]."
@@ -1261,11 +1282,6 @@
         "type": "number"
       },
       "type": "array"
-    },
-    "per_feature_residuals": {
-      "$ref": "#/$defs/PerFeatureResiduals",
-      "default": {},
-      "description": "Per-feature reprojection residuals. Single-camera, target\nonly. Per-view `cam_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target))."
     },
     "robot_deltas": {
       "description": "Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).\nOnly present if robot refinement was enabled.",
@@ -1318,7 +1334,7 @@
     "robot_pose_sigma",
     "mean_reproj_error",
     "per_cam_reproj_errors",
-    "per_feature_residuals",
+    "diagnostics",
     "uncertainty"
   ],
   "title": "SingleCamHandeyeExport",

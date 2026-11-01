@@ -6,7 +6,7 @@ Every `*Export` therefore carries per-feature residual records, so a consumer (t
 
 ## Structure
 
-Every export has a `per_feature_residuals: PerFeatureResiduals` field. The container is always present (empty by default); empty inner vectors mean "this problem type does not produce observations of that flavour". For example, `PlanarIntrinsicsExport.per_feature_residuals.laser` is always empty.
+Every export has a `diagnostics` group (`ExportDiagnostics`) holding `per_feature_residuals: PerFeatureResiduals` and, when the images are known, the `image_manifest`. The container is always present (empty by default); empty inner vectors mean "this problem type does not produce observations of that flavour". For example, `PlanarIntrinsicsExport.diagnostics.per_feature_residuals.laser` is always empty.
 
 Each export also serializes a required `kind` discriminator (`ExportKind`, snake_case: `"planar_intrinsics"`, `"rig_handeye"`, ...) as its first field, so a consumer that loads raw JSON can narrow on the single tag instead of probing which fields are present.
 
@@ -49,7 +49,7 @@ let export = session.export()?;
 ### 2. Summarize the histograms
 
 ```rust
-let pf = &export.per_feature_residuals;
+let pf = &export.diagnostics.per_feature_residuals;
 let total = pf.target.len();
 let with_value = pf.target.iter().filter(|r| r.error_px.is_some()).count();
 println!("{total} target records ({with_value} converged, {} divergent)",
@@ -133,7 +133,10 @@ Every record type derives `Serialize` and `Deserialize`, and the export round-tr
 ```rust
 let json = serde_json::to_string(&export)?;
 let restored: RigExtrinsicsExport = serde_json::from_str(&json)?;
-assert_eq!(restored.per_feature_residuals, export.per_feature_residuals);
+assert_eq!(
+    restored.diagnostics.per_feature_residuals,
+    export.diagnostics.per_feature_residuals,
+);
 ```
 
 Empty vectors and `None` histograms are skipped on the wire (`{}` for an empty container).

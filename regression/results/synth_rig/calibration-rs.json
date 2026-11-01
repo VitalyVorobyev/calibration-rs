@@ -1,6 +1,6 @@
 {
   "suite_version": "2026.1",
-  "producer": "calibration-rs 0.9.0",
+  "producer": "calibration-rs 0.10.0",
   "export": {
     "cam_se3_rig": [
       {
@@ -78,52 +78,54 @@
         }
       }
     ],
+    "diagnostics": {
+      "per_feature_residuals": {
+        "target_hist_per_camera": [
+          {
+            "bucket_edges_px": [
+              1.0,
+              2.0,
+              5.0,
+              10.0
+            ],
+            "count": 2340,
+            "counts": [
+              2180,
+              160,
+              0,
+              0,
+              0
+            ],
+            "max": 1.2584786619678419,
+            "mean": 0.6548793428227441
+          },
+          {
+            "bucket_edges_px": [
+              1.0,
+              2.0,
+              5.0,
+              10.0
+            ],
+            "count": 2340,
+            "counts": [
+              2164,
+              176,
+              0,
+              0,
+              0
+            ],
+            "max": 1.2530815394079124,
+            "mean": 0.6509608834515304
+          }
+        ]
+      }
+    },
     "kind": "rig_extrinsics",
     "mean_reproj_error": 0.6529201131371373,
     "per_cam_reproj_errors": [
       0.6548793428227441,
       0.6509608834515304
     ],
-    "per_feature_residuals": {
-      "target_hist_per_camera": [
-        {
-          "bucket_edges_px": [
-            1.0,
-            2.0,
-            5.0,
-            10.0
-          ],
-          "count": 2340,
-          "counts": [
-            2180,
-            160,
-            0,
-            0,
-            0
-          ],
-          "max": 1.2584786619678419,
-          "mean": 0.6548793428227441
-        },
-        {
-          "bucket_edges_px": [
-            1.0,
-            2.0,
-            5.0,
-            10.0
-          ],
-          "count": 2340,
-          "counts": [
-            2164,
-            176,
-            0,
-            0,
-            0
-          ],
-          "max": 1.2530815394079124,
-          "mean": 0.6509608834515304
-        }
-      ]
-    },
     "rig_se3_target": [
       {
         "rotation": [
@@ -956,7 +958,7 @@
       ],
       "num_residuals": 9360,
       "status": "available",
-      "view_scatter": 0.8695229742443513,
+      "view_scatter": 0.8695229742425602,
       "views": [
         {
           "covariance": [

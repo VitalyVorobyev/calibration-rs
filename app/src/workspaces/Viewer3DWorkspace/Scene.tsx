@@ -76,7 +76,7 @@ export function Scene({
   // scan per board, especially when "show all poses" is on.
   const residualsByPose = useMemo(() => {
     const m = new Map<number, TargetFeatureResidual[]>();
-    for (const r of data.per_feature_residuals.target) {
+    for (const r of data.diagnostics.per_feature_residuals.target) {
       const arr = m.get(r.pose);
       if (arr) arr.push(r);
       else m.set(r.pose, [r]);

@@ -448,10 +448,10 @@ where
     })
 }
 
-/// Splice an image manifest into a serialized export. Every supported
-/// `*Export` carries an `image_manifest: Option<ImageManifest>` field
-/// with `#[serde(default)]`, so setting it on the JSON value is
-/// round-trip-safe and avoids a cross-export trait.
+/// Splice an image manifest into a serialized export. Every `*Export`
+/// carries it as `diagnostics.image_manifest: Option<ImageManifest>`
+/// (`#[serde(default)]`), so setting it on the JSON value is round-trip-safe
+/// and avoids a cross-export trait.
 fn splice_image_manifest(
     export: &mut serde_json::Value,
     manifest: Result<ImageManifest, String>,
@@ -468,7 +468,7 @@ fn splice_image_manifest(
             message: format!("image manifest serialization failed: {e}"),
         })
     })?;
-    export["image_manifest"] = value;
+    export["diagnostics"]["image_manifest"] = value;
     Ok(())
 }
 
@@ -1299,12 +1299,13 @@ mod tests {
 
     #[test]
     fn image_manifest_splice_lands_in_export_json() {
-        let mut export = json!({"params": {}, "report": {}});
+        let mut export = json!({"params": {}, "diagnostics": {"per_feature_residuals": {}}});
         let mut manifest = ImageManifest::default();
         manifest.root = PathBuf::from(".");
         splice_image_manifest(&mut export, Ok(manifest)).unwrap();
-        assert!(export["image_manifest"].is_object());
-        assert_eq!(export["image_manifest"]["root"], ".");
+        assert!(export["diagnostics"]["image_manifest"].is_object());
+        assert_eq!(export["diagnostics"]["image_manifest"]["root"], ".");
+        assert!(export["diagnostics"]["per_feature_residuals"].is_object());
     }
 
     /// Load a local-data preset (manifest JSON + default config + dir).

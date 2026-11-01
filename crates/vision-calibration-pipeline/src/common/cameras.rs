@@ -4,16 +4,14 @@
 use serde::de::DeserializeOwned;
 
 use nalgebra::Matrix2;
-use vision_calibration_core::{
-    CameraParams, ImageManifest, ParameterCovariance, PerFeatureResiduals, Uncertainty,
-};
+use vision_calibration_core::{CameraParams, ParameterCovariance, Uncertainty};
 use vision_calibration_optim::{
     Error as OptimError, ProjectionUncertainty, camera_parameters, projection_covariance_at,
     projection_uncertainty,
 };
 
 use crate::Error;
-use crate::common::ExportKind;
+use crate::common::{ExportDiagnostics, ExportKind};
 use crate::laserline_device::LaserlineDeviceExport;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
@@ -31,11 +29,9 @@ pub trait CalibratedCameras {
     /// The uncertainty of the estimated parameters.
     fn parameter_uncertainty(&self) -> &Uncertainty;
 
-    /// The residual of every observed feature at the solution.
-    fn feature_residuals(&self) -> &PerFeatureResiduals;
-
-    /// The images behind the observations, when the export records them.
-    fn images(&self) -> Option<&ImageManifest>;
+    /// The residual of every observed feature at the solution, and the
+    /// images behind the observations when the export records them.
+    fn diagnostics(&self) -> &ExportDiagnostics;
 
     /// The value of the camera parameter a covariance label names (`fx`,
     /// `cam1.k1`, `tilt_x`); `None` for any other label (a pose, a plane) or
@@ -168,12 +164,8 @@ impl CalibratedCameras for PlanarIntrinsicsExport {
         &self.uncertainty
     }
 
-    fn feature_residuals(&self) -> &PerFeatureResiduals {
-        &self.per_feature_residuals
-    }
-
-    fn images(&self) -> Option<&ImageManifest> {
-        self.image_manifest.as_ref()
+    fn diagnostics(&self) -> &ExportDiagnostics {
+        &self.diagnostics
     }
 }
 
@@ -186,30 +178,22 @@ impl CalibratedCameras for SingleCamHandeyeExport {
         &self.uncertainty
     }
 
-    fn feature_residuals(&self) -> &PerFeatureResiduals {
-        &self.per_feature_residuals
-    }
-
-    fn images(&self) -> Option<&ImageManifest> {
-        self.image_manifest.as_ref()
+    fn diagnostics(&self) -> &ExportDiagnostics {
+        &self.diagnostics
     }
 }
 
 impl CalibratedCameras for LaserlineDeviceExport {
     fn camera_params(&self) -> Vec<CameraParams> {
-        vec![self.estimate.params.camera.clone()]
+        vec![self.params.camera.clone()]
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
-        &self.estimate.uncertainty
+        &self.uncertainty
     }
 
-    fn feature_residuals(&self) -> &PerFeatureResiduals {
-        &self.per_feature_residuals
-    }
-
-    fn images(&self) -> Option<&ImageManifest> {
-        self.image_manifest.as_ref()
+    fn diagnostics(&self) -> &ExportDiagnostics {
+        &self.diagnostics
     }
 }
 
@@ -222,12 +206,8 @@ impl CalibratedCameras for RigExtrinsicsExport {
         &self.uncertainty
     }
 
-    fn feature_residuals(&self) -> &PerFeatureResiduals {
-        &self.per_feature_residuals
-    }
-
-    fn images(&self) -> Option<&ImageManifest> {
-        self.image_manifest.as_ref()
+    fn diagnostics(&self) -> &ExportDiagnostics {
+        &self.diagnostics
     }
 }
 
@@ -240,12 +220,8 @@ impl CalibratedCameras for RigHandeyeExport {
         &self.uncertainty
     }
 
-    fn feature_residuals(&self) -> &PerFeatureResiduals {
-        &self.per_feature_residuals
-    }
-
-    fn images(&self) -> Option<&ImageManifest> {
-        self.image_manifest.as_ref()
+    fn diagnostics(&self) -> &ExportDiagnostics {
+        &self.diagnostics
     }
 }
 
@@ -258,12 +234,8 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
         &self.uncertainty
     }
 
-    fn feature_residuals(&self) -> &PerFeatureResiduals {
-        &self.per_feature_residuals
-    }
-
-    fn images(&self) -> Option<&ImageManifest> {
-        self.image_manifest.as_ref()
+    fn diagnostics(&self) -> &ExportDiagnostics {
+        &self.diagnostics
     }
 }
 
@@ -276,11 +248,7 @@ impl CalibratedCameras for RigHandeyeLaserlineExport {
         &self.uncertainty
     }
 
-    fn feature_residuals(&self) -> &PerFeatureResiduals {
-        &self.per_feature_residuals
-    }
-
-    fn images(&self) -> Option<&ImageManifest> {
-        self.image_manifest.as_ref()
+    fn diagnostics(&self) -> &ExportDiagnostics {
+        &self.diagnostics
     }
 }
