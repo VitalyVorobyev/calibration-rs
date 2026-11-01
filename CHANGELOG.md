@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **The camera-model enums are `#[non_exhaustive]`**: `ProjectionKind`,
+  `DistortionKind`, `SensorKind`, `ProjectionParams`, `DistortionParams`
+  and `SensorParams`. New models can then arrive in a minor release; a
+  `match` on one of them needs a wildcard arm.
+
+### Added
+
+- Each camera-model slot converts to and from its values in
+  `param_names()` order: `ProjectionParams`, `DistortionParams` and
+  `SensorParams` have `kind()`, `values()` and `from_values(kind, &values)`,
+  and `DistortionParams::with_values` replaces the coefficients but keeps
+  the model's settings. `CameraParams::blocks()` gives all four slots'
+  values (intrinsics, projection, distortion, sensor). `ProjectionKind::ALL`,
+  `DistortionKind::ALL` and `SensorKind::ALL` list the supported models.
+
 ## [0.11.0] - 2026-11-01
 
 Minor release: the public API is cut down to what a calibration needs before

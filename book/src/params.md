@@ -37,6 +37,19 @@ pub enum SensorParams {
 
 The `params` payloads are flattened in JSON, so a Brown-Conrady camera serializes as `{"type": "brown_conrady5", "k1": ..., "k2": ..., ...}`.
 
+The enums are `#[non_exhaustive]`: new models arrive in minor releases, so a `match` on one needs a wildcard arm. Code that should work for every model reads the values instead, in the order the model's kind names them:
+
+```rust
+let d = &camera.distortion;
+for (name, value) in d.kind().param_names().iter().zip(d.values()) {
+    println!("{name} = {value}");
+}
+let adjusted = d.with_values(&new_values)?;                          // same model, new coefficients
+let fresh = DistortionParams::from_values(DistortionKind::Rational8, &values)?;
+```
+
+`ProjectionParams` and `SensorParams` have the same `kind()`, `values()` and `from_values()`, and `DistortionKind::ALL` (likewise for projections and sensors) lists the supported models.
+
 ## Building a Camera from Parameters
 
 The `build()` method constructs a concrete `CameraModel` from serialized parameters. It returns an error if a `SensorParams::Homography` matrix is not invertible (reachable with hand-edited or corrupted files):

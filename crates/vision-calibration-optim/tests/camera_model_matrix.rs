@@ -7,9 +7,8 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CameraModel, CameraParams, CorrespondenceView, DistortionKind, DistortionParams,
-    FxFyCxCy, Iso3, Pt2, Pt3, RationalPolynomial, Real, RigView, RigViewObs, ScheimpflugParams,
-    SensorParams, ThinPrism, View,
+    CameraModel, CameraParams, CorrespondenceView, DistortionKind, DistortionParams, FxFyCxCy,
+    Iso3, Pt2, Pt3, Real, RigView, RigViewObs, SensorKind, SensorParams, View,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
@@ -20,69 +19,37 @@ use vision_calibration_optim::{
     optimize_rig_laserline,
 };
 
-const KINDS: [DistortionKind; 5] = [
-    DistortionKind::None,
-    DistortionKind::BrownConrady5,
-    DistortionKind::Rational8,
-    DistortionKind::ThinPrism9,
-    DistortionKind::Division1,
-];
-
 /// Distortion of each kind with small, physically plausible coefficients.
 fn distortion_of(kind: DistortionKind) -> DistortionParams {
-    match kind {
-        DistortionKind::None => DistortionParams::None,
-        DistortionKind::BrownConrady5 => DistortionParams::BrownConrady5 {
-            params: BrownConrady5 {
-                k1: -0.12,
-                k2: 0.03,
-                k3: 0.0,
-                p1: 0.0004,
-                p2: -0.0003,
-                iters: 8,
-            },
-        },
-        DistortionKind::Rational8 => DistortionParams::Rational {
-            params: RationalPolynomial {
-                k1: -0.12,
-                k2: 0.03,
-                k3: 0.0,
-                k4: 0.0,
-                k5: 0.0,
-                k6: 0.0,
-                p1: 0.0004,
-                p2: -0.0003,
-                iters: 8,
-            },
-        },
-        DistortionKind::ThinPrism9 => DistortionParams::ThinPrism {
-            params: ThinPrism {
-                k1: -0.12,
-                k2: 0.03,
-                k3: 0.0,
-                p1: 0.0004,
-                p2: -0.0003,
-                s1: 0.0,
-                s2: 0.0,
-                s3: 0.0,
-                s4: 0.0,
-                iters: 8,
-            },
-        },
-        DistortionKind::Division1 => DistortionParams::Division { lambda: -0.1 },
-    }
+    let values: Vec<f64> = kind
+        .param_names()
+        .iter()
+        .map(|name| match *name {
+            "k1" => -0.12,
+            "k2" => 0.03,
+            "p1" => 0.0004,
+            "p2" => -0.0003,
+            "lambda" => -0.1,
+            _ => 0.0,
+        })
+        .collect();
+    DistortionParams::from_values(kind, &values).expect("values match the kind's dimension")
 }
 
-fn sensors() -> [SensorParams; 2] {
-    [
-        SensorParams::Identity,
-        SensorParams::Scheimpflug {
-            params: ScheimpflugParams {
-                tilt_x: 0.05,
-                tilt_y: -0.03,
-            },
-        },
-    ]
+/// A sensor of every kind, tilted by a few degrees where it can be.
+fn sensors() -> impl Iterator<Item = SensorParams> {
+    SensorKind::ALL.into_iter().map(|kind| {
+        let values: Vec<f64> = kind
+            .param_names()
+            .iter()
+            .map(|name| match *name {
+                "tilt_x" => 0.05,
+                "tilt_y" => -0.03,
+                _ => 0.0,
+            })
+            .collect();
+        SensorParams::from_values(kind, &values).expect("values match the kind's dimension")
+    })
 }
 
 fn truth_k() -> FxFyCxCy<Real> {
@@ -214,7 +181,7 @@ fn handeye_solves_every_camera_model() {
         Translation3::new(0.4, 0.1, -0.2),
         Rotation3::from_euler_angles(0.0, 0.0, 0.3).into(),
     );
-    for kind in KINDS {
+    for kind in DistortionKind::ALL {
         for sensor in sensors() {
             let truth = camera(kind, &sensor, truth_k());
             let model = truth.build().unwrap();
@@ -266,7 +233,7 @@ fn handeye_solves_every_camera_model() {
 #[test]
 fn laserline_solves_every_camera_model() {
     let plane = laser_plane();
-    for kind in KINDS {
+    for kind in DistortionKind::ALL {
         for sensor in sensors() {
             let truth = camera(kind, &sensor, truth_k());
             let model = truth.build().unwrap();
@@ -390,7 +357,7 @@ fn perturbed_plane(plane: &LaserPlane) -> LaserPlane {
 
 #[test]
 fn rig_laserline_solves_every_camera_model() {
-    for kind in KINDS {
+    for kind in DistortionKind::ALL {
         for sensor in sensors() {
             let scene = rig_scene(kind, &sensor);
             let dataset = RigLaserlineDataset::new(scene.views.clone(), 2).unwrap();
@@ -434,7 +401,7 @@ fn joint_rig_laserline_solves_every_camera_model() {
         Translation3::new(0.4, 0.1, -0.2),
         Rotation3::from_euler_angles(0.0, 0.0, 0.3).into(),
     );
-    for kind in KINDS {
+    for kind in DistortionKind::ALL {
         for sensor in sensors() {
             let scene = rig_scene(kind, &sensor);
             let robot_poses: Vec<Iso3> = scene

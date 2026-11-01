@@ -315,11 +315,11 @@ pub(crate) fn rig_distortion(camera: &CameraParams) -> BrownConrady5<Real> {
     }
 }
 
-/// The sensor tilt of a camera (zero for an untilted camera).
+/// The sensor tilt of a camera (zero for a sensor without a tilt).
 pub(crate) fn rig_tilt(camera: &CameraParams) -> ScheimpflugParams {
     match camera.sensor {
         SensorParams::Scheimpflug { params } => params,
-        SensorParams::Identity | SensorParams::Homography { .. } => ScheimpflugParams::default(),
+        _ => ScheimpflugParams::default(),
     }
 }
 

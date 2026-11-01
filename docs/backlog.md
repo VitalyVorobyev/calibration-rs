@@ -55,7 +55,7 @@ private sets.
   same record as DS8), OpenCV's sample stereo chessboards (Apache-2.0), and
   a fisheye set for CAM-KB.
 
-## Camera models (Phase 2)
+## Camera models (CAM-KB in Phase 1, the rest in Phase 2)
 
 Each model ships with:
 - a math note;
@@ -65,8 +65,13 @@ Each model ships with:
 
 Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 
-- [ ] CAM-KB - Kannala-Brandt equidistant fisheye (k1–k4) as a projection
-  model. Gate: OpenCV `fisheye` comparison on a public fisheye set
+- [ ] CAM-KB - (Phase 1) Kannala-Brandt equidistant fisheye (k1–k4) as a
+  projection model, before 1.0 so that a second real projection exercises
+  the camera-model API it freezes. Known pinhole assumptions to clear:
+  covariance labels are bare parameter names (`k1` would collide between
+  the projection and the distortion), the planar initializers are
+  homography-based (Zhang), and points beyond 90° have no `z = 1` normal
+  point. Gate: OpenCV `fisheye` comparison on a public fisheye set
   (DATA-MORE).
 - [ ] CAM-EUCM-DS - Enhanced unified (EUCM) and double-sphere projections,
   with their closed-form unprojection and validity regions.

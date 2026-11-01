@@ -17,6 +17,7 @@ pub const INTRINSICS_PARAM_NAMES: [&str; 4] = ["fx", "fy", "cx", "cy"];
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ProjectionKind {
     /// Pinhole (perspective) projection; no parameters of its own.
     #[default]
@@ -24,6 +25,9 @@ pub enum ProjectionKind {
 }
 
 impl ProjectionKind {
+    /// Every projection model, for iterating over the supported models.
+    pub const ALL: [ProjectionKind; 1] = [ProjectionKind::Pinhole];
+
     /// Names of the projection's own parameters, in block order (empty when
     /// the projection has none).
     pub fn param_names(self) -> &'static [&'static str] {
@@ -76,6 +80,7 @@ impl ProjectionKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum DistortionKind {
     /// No distortion; no parameter block.
     None,
@@ -90,6 +95,15 @@ pub enum DistortionKind {
 }
 
 impl DistortionKind {
+    /// Every distortion model, for iterating over the supported models.
+    pub const ALL: [DistortionKind; 5] = [
+        DistortionKind::None,
+        DistortionKind::BrownConrady5,
+        DistortionKind::Rational8,
+        DistortionKind::ThinPrism9,
+        DistortionKind::Division1,
+    ];
+
     /// Dimension of the distortion parameter block (0 = no block).
     pub fn dim(self) -> usize {
         self.param_names().len()
@@ -206,6 +220,7 @@ fn division1<T: RealField>(c: &[T]) -> Division<T> {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SensorKind {
     /// Sensor plane perpendicular to the optical axis; no parameters.
     #[default]
@@ -215,6 +230,9 @@ pub enum SensorKind {
 }
 
 impl SensorKind {
+    /// Every sensor model, for iterating over the supported models.
+    pub const ALL: [SensorKind; 2] = [SensorKind::Identity, SensorKind::Scheimpflug];
+
     /// Names of the sensor parameters, in block order.
     pub fn param_names(self) -> &'static [&'static str] {
         match self {
@@ -286,5 +304,79 @@ impl CameraModelSpec {
     /// A pinhole camera with the given distortion and sensor.
     pub const fn pinhole(distortion: DistortionKind, sensor: SensorKind) -> Self {
         Self::new(ProjectionKind::Pinhole, distortion, sensor)
+    }
+}
+
+#[cfg(all(test, feature = "schemars"))]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// The variant names a kind's JSON schema lists (`enum` values or
+    /// per-variant `const`s).
+    fn schema_names<T: schemars::JsonSchema>() -> BTreeSet<String> {
+        fn collect(v: &serde_json::Value, out: &mut BTreeSet<String>) {
+            match v {
+                serde_json::Value::Object(map) => {
+                    for (key, value) in map {
+                        match (key.as_str(), value) {
+                            ("const", serde_json::Value::String(s)) => {
+                                out.insert(s.clone());
+                            }
+                            ("enum", serde_json::Value::Array(items)) => {
+                                out.extend(
+                                    items.iter().filter_map(|i| i.as_str().map(String::from)),
+                                );
+                            }
+                            _ => collect(value, out),
+                        }
+                    }
+                }
+                serde_json::Value::Array(items) => items.iter().for_each(|i| collect(i, out)),
+                _ => {}
+            }
+        }
+        let mut out = BTreeSet::new();
+        collect(
+            &serde_json::to_value(schemars::schema_for!(T)).unwrap(),
+            &mut out,
+        );
+        out
+    }
+
+    fn all_names<T: serde::Serialize>(all: &[T]) -> BTreeSet<String> {
+        all.iter()
+            .map(|k| {
+                serde_json::to_value(k)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// `ALL` lists every variant: the schema is derived from the enum, so a
+    /// variant missing from `ALL` fails here.
+    #[test]
+    fn all_lists_every_kind() {
+        assert_eq!(
+            all_names(&ProjectionKind::ALL),
+            schema_names::<ProjectionKind>()
+        );
+        assert_eq!(
+            all_names(&DistortionKind::ALL),
+            schema_names::<DistortionKind>()
+        );
+        assert_eq!(all_names(&SensorKind::ALL), schema_names::<SensorKind>());
+        assert_eq!(
+            ProjectionKind::ALL.len(),
+            all_names(&ProjectionKind::ALL).len()
+        );
+        assert_eq!(
+            DistortionKind::ALL.len(),
+            all_names(&DistortionKind::ALL).len()
+        );
+        assert_eq!(SensorKind::ALL.len(), all_names(&SensorKind::ALL).len());
     }
 }

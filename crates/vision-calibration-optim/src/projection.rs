@@ -19,16 +19,11 @@
 use nalgebra::{DVector, Dyn, Matrix2, OMatrix, SVector, U2, Vector2, Vector3};
 use num_dual::{DualDVec64, jacobian};
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{
-    CameraParams, ParameterCovariance, ProjectionParams, Pt2, SensorParams,
-};
+use vision_calibration_core::{CameraParams, INTRINSICS_PARAM_NAMES, ParameterCovariance, Pt2};
 
 use crate::Error;
 use crate::factors::camera_blocks::CameraBlocks;
-use crate::ir::{CameraModelSpec, ProjectionKind, SensorKind};
-use crate::params::distortion::pack_distortion_params;
-use crate::params::intrinsics::pack_intrinsics;
-use crate::uncertainty::{INTRINSICS_LABELS, SENSOR_LABELS};
+use crate::ir::CameraModelSpec;
 
 /// Grid nodes across the image, `[columns, rows]`.
 const GRID: [usize; 2] = [16, 12];
@@ -184,7 +179,7 @@ fn major_axis_sigma(c: &Matrix2<f64>) -> f64 {
 }
 
 /// A camera's parameters as one vector `θ`, in the solver's block order:
-/// intrinsics, distortion, sensor.
+/// intrinsics, projection, distortion, sensor.
 pub(crate) struct CameraVector {
     pub(crate) model: CameraModelSpec,
     pub(crate) theta: DVector<f64>,
@@ -193,48 +188,21 @@ pub(crate) struct CameraVector {
 
 impl CameraVector {
     pub(crate) fn new(camera: &CameraParams) -> Result<Self, Error> {
-        let ProjectionParams::Pinhole = camera.projection;
-        let k = camera.intrinsics;
-        let (sensor, tilt) = match &camera.sensor {
-            SensorParams::Identity => (SensorKind::Identity, Vec::new()),
-            SensorParams::Scheimpflug { params } => {
-                (SensorKind::Scheimpflug, vec![params.tilt_x, params.tilt_y])
-            }
-            SensorParams::Homography { .. } => {
-                return Err(Error::invalid_input(
-                    "projection uncertainty needs a Scheimpflug or identity sensor, \
-                     not a general homography",
-                ));
-            }
-        };
-        // The sensor is identity or Scheimpflug here, so the camera has a spec.
-        let distortion = camera
-            .spec()
-            .expect("a non-homography camera has a spec")
-            .distortion;
-        let intrinsics = pack_intrinsics(&k);
-        let dist = pack_distortion_params(&camera.distortion);
-        let theta = DVector::from_iterator(
-            intrinsics.len() + dist.len() + tilt.len(),
-            intrinsics
-                .iter()
-                .chain(dist.iter())
-                .chain(tilt.iter())
-                .copied(),
-        );
-        let sensor_labels: &[&'static str] = if tilt.is_empty() { &[] } else { &SENSOR_LABELS };
-        let labels = INTRINSICS_LABELS
+        let model = camera.spec().ok_or_else(|| {
+            Error::invalid_input(
+                "projection uncertainty needs a named sensor kind, not a general homography",
+            )
+        })?;
+        let theta = DVector::from_vec(camera.blocks().concat());
+        let labels = INTRINSICS_PARAM_NAMES
             .iter()
-            .chain(distortion.param_names())
-            .chain(sensor_labels)
+            .chain(model.projection.param_names())
+            .chain(model.distortion.param_names())
+            .chain(model.sensor.param_names())
             .copied()
             .collect();
         Ok(Self {
-            model: CameraModelSpec {
-                projection: ProjectionKind::Pinhole,
-                distortion,
-                sensor,
-            },
+            model,
             theta,
             labels,
         })
@@ -330,7 +298,8 @@ fn project(model: CameraModelSpec, v: &DVector<DualDVec64>, n: usize) -> SVector
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, DistortionParams, FxFyCxCy, ResidualKind, ResidualNoise, ScheimpflugParams,
+        BrownConrady5, DistortionParams, FxFyCxCy, ProjectionParams, ResidualKind, ResidualNoise,
+        ScheimpflugParams, SensorParams,
     };
 
     fn camera(sensor: SensorParams) -> CameraParams {

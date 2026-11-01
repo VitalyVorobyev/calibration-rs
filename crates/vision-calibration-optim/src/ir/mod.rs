@@ -4,8 +4,7 @@ mod types;
 
 pub use types::{
     Bound, CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandeyeMode, LaserChain,
-    ManifoldKind, ProblemIR, ProjectionKind, ReprojChain, ReprojSqrtInfo, ResidualBlock,
-    RobustLoss, SensorKind,
+    ManifoldKind, ProblemIR, ReprojChain, ReprojSqrtInfo, ResidualBlock, RobustLoss, SensorKind,
 };
 
 #[cfg(test)]

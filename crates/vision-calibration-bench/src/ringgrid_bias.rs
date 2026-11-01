@@ -108,6 +108,7 @@ fn tilt_homography(sensor: &SensorParams) -> Matrix3<f64> {
             h[0][0], h[0][1], h[0][2], h[1][0], h[1][1], h[1][2], h[2][0], h[2][1], h[2][2],
         ]),
         SensorParams::Identity => Matrix3::identity(),
+        other => panic!("no homography form for the sensor {other:?}"),
     }
 }
 

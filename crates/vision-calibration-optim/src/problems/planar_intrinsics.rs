@@ -304,9 +304,12 @@ pub fn optimize_planar_intrinsics(
     let camera_model = camera
         .build()
         .expect("identity and Scheimpflug sensors are invertible");
-    let mean_reproj_error = match spec.sensor {
-        SensorKind::Identity => mean_reproj_error(&camera_model, dataset, &poses)?,
-        SensorKind::Scheimpflug => finite_mean_reproj_error(&camera_model, dataset, &poses),
+    // A tilted sensor's multi-start ranks candidates by the finite mean
+    // (`finite_mean_reproj_error`).
+    let mean_reproj_error = if spec.sensor == SensorKind::Identity {
+        mean_reproj_error(&camera_model, dataset, &poses)?
+    } else {
+        finite_mean_reproj_error(&camera_model, dataset, &poses)
     };
 
     let labels: Vec<_> = ir
