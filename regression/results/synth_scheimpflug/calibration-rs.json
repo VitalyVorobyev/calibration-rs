@@ -1,7 +1,31 @@
 {
   "suite_version": "2026.1",
-  "producer": "calibration-rs 0.9.0",
+  "producer": "calibration-rs 0.10.0",
   "export": {
+    "diagnostics": {
+      "per_feature_residuals": {
+        "target_hist_per_camera": [
+          {
+            "bucket_edges_px": [
+              1.0,
+              2.0,
+              5.0,
+              10.0
+            ],
+            "count": 2340,
+            "counts": [
+              2154,
+              186,
+              0,
+              0,
+              0
+            ],
+            "max": 1.3570757320232973,
+            "mean": 0.6568057760594294
+          }
+        ]
+      }
+    },
     "kind": "planar_intrinsics",
     "mean_reproj_error": 0.6568057760594294,
     "params": {
@@ -296,32 +320,6 @@
     "per_cam_reproj_errors": [
       0.6568057760594294
     ],
-    "per_feature_residuals": {
-      "target_hist_per_camera": [
-        {
-          "bucket_edges_px": [
-            1.0,
-            2.0,
-            5.0,
-            10.0
-          ],
-          "count": 2340,
-          "counts": [
-            2154,
-            186,
-            0,
-            0,
-            0
-          ],
-          "max": 1.3570757320232973,
-          "mean": 0.6568057760594294
-        }
-      ]
-    },
-    "report": {
-      "final_cost": 578.9863246418593,
-      "num_iters": 7
-    },
     "uncertainty": {
       "covariance": [
         [
@@ -430,7 +428,7 @@
       ],
       "num_residuals": 4680,
       "status": "available",
-      "view_scatter": 0.8202535569817704,
+      "view_scatter": 0.820253556981771,
       "views": [
         {
           "covariance": [

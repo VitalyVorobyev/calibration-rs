@@ -30,7 +30,7 @@ pub(super) fn rig_export(fx1: f64, cam1: &Iso3, delta_rx: f64) -> Value {
         "robot_deltas": [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [delta_rx, 0.0, 0.0, 0.0, 0.0, 0.0]],
         "mean_reproj_error": 0.1,
         "per_cam_reproj_errors": [0.1, 0.1],
-        "per_feature_residuals": {},
+        "diagnostics": {"per_feature_residuals": {}},
         "uncertainty": {
             "status": "available",
             "labels": ["cam1.fx", "cam1.cam_se3_rig.tx", "cam1.cam_se3_rig.rz"],
