@@ -363,7 +363,6 @@
 "mvg::MvgError" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::RansacOptions" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::bundle_adjust" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
-"mvg::cheirality" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::degeneracy" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::dense" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::error" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
