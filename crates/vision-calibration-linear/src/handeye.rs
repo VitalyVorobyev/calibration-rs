@@ -14,27 +14,31 @@ use vision_calibration_core::{Iso3, Real};
 /// - `A`: relative motion from the robot pose stream (e.g. base->gripper).
 /// - `B`: relative motion from the observation pose stream (e.g. target->camera).
 #[derive(Debug, Clone, Copy)]
-pub struct MotionPair {
+struct MotionPair {
     /// Relative rotation from robot motion stream (`A`).
-    pub rot_a: Matrix3<Real>,
+    rot_a: Matrix3<Real>,
     /// Relative rotation from observation motion stream (`B`).
-    pub rot_b: Matrix3<Real>,
+    rot_b: Matrix3<Real>,
     /// Relative translation from robot motion stream (`A`).
-    pub tra_a: Vector3<Real>,
+    tra_a: Vector3<Real>,
     /// Relative translation from observation motion stream (`B`).
-    pub tra_b: Vector3<Real>,
+    tra_b: Vector3<Real>,
 }
 
 /// Linear hand–eye initialisation using the Tsai–Lenz formulation.
 #[derive(Debug, Clone, Copy)]
 pub struct HandeyeInit;
 
-fn build_all_pairs_impl(
+/// Every pose pair whose rotation in both streams reaches `min_angle_deg`.
+///
+/// There is no per-pair A/B axis test: A and B share their rotation axis
+/// whenever the hand-eye rotation is the identity (a camera bolted square to
+/// the flange) or rotates about that axis, and such pairs are perfectly
+/// informative.
+fn build_all_pairs(
     base_se3_gripper: &[Iso3],
     stream_b: &[Iso3],
-    min_angle_deg: Real,        // discard too-small motions
-    reject_axis_parallel: bool, // guard against ill-conditioning
-    axis_parallel_eps: Real,
+    min_angle_deg: Real,
 ) -> Result<Vec<MotionPair>, Error> {
     if base_se3_gripper.len() != stream_b.len() {
         return Err(Error::invalid_input(format!(
@@ -64,7 +68,7 @@ fn build_all_pairs_impl(
                 &stream_b[j],
             )?;
 
-            if is_good_pair(&pair, min_angle, reject_axis_parallel, axis_parallel_eps) {
+            if is_good_pair(&pair, min_angle) {
                 pairs.push(pair);
             } else {
                 debug!("skipping pair ({},{})", i, j);
@@ -84,17 +88,8 @@ fn tsai_lenz_allpairs(
     stream_b: &[Iso3],
     min_angle_deg: Real,
 ) -> Result<Iso3, Error> {
-    // No per-pair A/B axis test: A and B share their rotation axis whenever
-    // the hand-eye rotation is the identity (a camera bolted square to the
-    // flange) or rotates about that axis, and such pairs are perfectly
-    // informative. What the solve needs is a well-posed *set* of pairs.
-    let pairs = build_all_pairs_impl(
-        base_se3_gripper,
-        stream_b,
-        min_angle_deg,
-        false, // reject_axis_parallel
-        0.0,   // axis_parallel_eps
-    )?;
+    // What the solve needs is a well-posed *set* of pairs.
+    let pairs = build_all_pairs(base_se3_gripper, stream_b, min_angle_deg)?;
     if !robot_axes_span_two_directions(&pairs, 1e-3) {
         return Err(Error::NoValidMotionPairs);
     }
@@ -161,20 +156,9 @@ fn make_motion_pair(
     })
 }
 
-/// Check if a motion pair is usable:
-/// - has sufficient rotation in both chains
-/// - optionally rejects near-parallel rotation axes (ill-conditioned)
-fn is_good_pair(
-    pair: &MotionPair,
-    min_angle: Real,
-    reject_axis_parallel: bool,
-    axis_parallel_eps: Real,
-) -> bool {
-    let alpha = log_so3(&pair.rot_a);
-    let beta = log_so3(&pair.rot_b);
-    let norm_a = alpha.norm();
-    let norm_b = beta.norm();
-    let min_rot = norm_a.min(norm_b);
+/// Whether a motion pair rotates by at least `min_angle` in both chains.
+fn is_good_pair(pair: &MotionPair, min_angle: Real) -> bool {
+    let min_rot = log_so3(&pair.rot_a).norm().min(log_so3(&pair.rot_b).norm());
 
     if min_rot < min_angle {
         debug!(
@@ -183,46 +167,7 @@ fn is_good_pair(
         );
         return false;
     }
-
-    if reject_axis_parallel {
-        let aa = if norm_a < 1e-9 { 0.0 } else { 1.0 };
-        let bb = if norm_b < 1e-9 { 0.0 } else { 1.0 };
-        if aa * bb > 0.0 {
-            let sin_axis = (alpha.normalize().cross(&beta.normalize())).norm();
-            if sin_axis < axis_parallel_eps {
-                debug!("motion pair rejected: near-parallel axes");
-                return false;
-            }
-        }
-    }
-
     true
-}
-
-/// Build all valid motion pairs from pose streams.
-///
-/// `base_se3_gripper` are gripper poses in the base frame, and
-/// `target_se3_camera` are camera poses in the target frame (`T_T_C`).
-///
-/// Pairs with too-small rotations can be rejected. `reject_axis_parallel`
-/// additionally drops pairs whose `A` and `B` rotation axes are parallel;
-/// note that this is **not** an ill-conditioning test — it holds for every
-/// pair when the hand-eye rotation is the identity — so the Tsai–Lenz
-/// initialisers in this module do not use it.
-pub fn build_all_pairs(
-    base_se3_gripper: &[Iso3],
-    target_se3_camera: &[Iso3],
-    min_angle_deg: Real,        // discard too-small motions
-    reject_axis_parallel: bool, // guard against ill-conditioning
-    axis_parallel_eps: Real,
-) -> Result<Vec<MotionPair>, Error> {
-    build_all_pairs_impl(
-        base_se3_gripper,
-        target_se3_camera,
-        min_angle_deg,
-        reject_axis_parallel,
-        axis_parallel_eps,
-    )
 }
 
 // ---------- weighted Tsai–Lenz rotation over all pairs ----------

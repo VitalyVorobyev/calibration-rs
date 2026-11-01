@@ -590,7 +590,7 @@ pub mod geometry {
 
 /// Multiple-view geometry pipelines over the [`geometry`] solvers, re-exported
 /// from `vision_mvg`: calibrated relative-pose recovery, robust (RANSAC)
-/// estimation, cheirality/degeneracy checks, N-view triangulation, homography
+/// estimation, degeneracy checks, N-view triangulation, homography
 /// decomposition, Scheimpflug-aware stereo rectification, and pure-Rust dense
 /// stereo matching — reached via the owning module, e.g.
 /// `vision_calibration::mvg::rectification::rectify_stereo_pair` or
@@ -602,8 +602,8 @@ pub mod mvg {
     /// RANSAC settings taken by the robust estimators in [`robust`].
     pub use vision_calibration_core::RansacOptions;
     pub use vision_mvg::{
-        MvgError, cheirality, degeneracy, dense, error, homography, pose_recovery, rectification,
-        residuals, robust, triangulation, types,
+        MvgError, degeneracy, dense, error, homography, pose_recovery, rectification, residuals,
+        robust, triangulation, types,
     };
 
     #[cfg(feature = "refine")]

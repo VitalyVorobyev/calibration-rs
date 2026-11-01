@@ -26,9 +26,9 @@
 //! ```
 
 // Session API
-pub mod calibsession;
-pub mod problem_type;
-pub mod types;
+mod calibsession;
+mod problem_type;
+mod types;
 
 pub use calibsession::CalibrationSession;
 pub(crate) use problem_type::ProblemState;
