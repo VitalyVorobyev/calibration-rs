@@ -498,6 +498,7 @@ DistortionKind: TypeAlias = Literal[
     "rational8",
     "thin_prism9",
     "division1",
+    "kannala_brandt4",
 ]
 """Which distortion model a camera carries.
 
@@ -508,6 +509,8 @@ DistortionKind: TypeAlias = Literal[
 - ``"rational8"``: Rational polynomial `[k1, k2, k3, k4, k5, k6, p1, p2]`.
 - ``"thin_prism9"``: Brown-Conrady + thin-prism `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.
 - ``"division1"``: Fitzgibbon division model `[lambda]`.
+- ``"kannala_brandt4"``: Kannala-Brandt radial polynomial `[k1, k2, k3, k4]`; with
+  `ProjectionKind::Equidistant` the Kannala-Brandt fisheye model.
 """
 
 
@@ -544,6 +547,27 @@ DistortionParams_Division = TypedDict(
     },
 )
 """Fitzgibbon single-parameter division model."""
+
+
+class DistortionParams_KannalaBrandt4(TypedDict):
+    """Kannala-Brandt 4-parameter radial polynomial."""
+
+    iters: int
+    """Maximum Newton iterations of `DistortionModel::undistort` (0 → 20)."""
+
+    k1: float
+    """Coefficient of `r²`."""
+
+    k2: float
+    """Coefficient of `r⁴`."""
+
+    k3: float
+    """Coefficient of `r⁶`."""
+
+    k4: float
+    """Coefficient of `r⁸`."""
+
+    type: Literal["kannala_brandt4"]
 
 
 class DistortionParams_None(TypedDict):
@@ -627,6 +651,7 @@ DistortionParams: TypeAlias = (
     | DistortionParams_Rational
     | DistortionParams_ThinPrism
     | DistortionParams_Division
+    | DistortionParams_KannalaBrandt4
 )
 """Serializable distortion model parameters."""
 
@@ -1610,11 +1635,21 @@ class PredictedUncertainty(TypedDict):
     """
 
 
-ProjectionKind: TypeAlias = Literal["pinhole"]
+ProjectionKind: TypeAlias = Literal["pinhole", "equidistant"]
 """Which projection model a camera uses.
 
 - ``"pinhole"``: Pinhole (perspective) projection; no parameters of its own.
+- ``"equidistant"``: Equidistant (fisheye) projection: radius = incidence angle, in
+  radians; no parameters of its own. With
+  `DistortionKind::KannalaBrandt4` it is the Kannala-Brandt fisheye
+  model.
 """
+
+
+class ProjectionParams_Equidistant(TypedDict):
+    """Equidistant (fisheye) projection."""
+
+    type: Literal["equidistant"]
 
 
 class ProjectionParams_Pinhole(TypedDict):
@@ -1623,7 +1658,7 @@ class ProjectionParams_Pinhole(TypedDict):
     type: Literal["pinhole"]
 
 
-ProjectionParams: TypeAlias = ProjectionParams_Pinhole
+ProjectionParams: TypeAlias = ProjectionParams_Pinhole | ProjectionParams_Equidistant
 """Serializable projection model parameters."""
 
 
@@ -3215,6 +3250,7 @@ __all__ = [
     "DistortionParams",
     "DistortionParams_BrownConrady5",
     "DistortionParams_Division",
+    "DistortionParams_KannalaBrandt4",
     "DistortionParams_None",
     "DistortionParams_Rational",
     "DistortionParams_ThinPrism",
@@ -3269,6 +3305,7 @@ __all__ = [
     "PredictedUncertainty",
     "ProjectionKind",
     "ProjectionParams",
+    "ProjectionParams_Equidistant",
     "ProjectionParams_Pinhole",
     "ProjectionUncertainty",
     "QualityCheck",

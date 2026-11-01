@@ -15,7 +15,7 @@
 //! problem has no reason to deviate.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
+use vision_calibration_core::{CameraFix, CameraModelSpec, ProjectionKind, SensorKind};
 use vision_calibration_linear::prelude::{DistortionFitOptions, IterativeIntrinsicsOptions};
 use vision_calibration_optim::{
     BackendSolveOptions, DistortionKind, HandeyeMode, RobustLoss, SolverBackend,
@@ -75,12 +75,15 @@ impl CameraConfig {
         }
     }
 
-    /// Check the fix lists name parameters of the model.
+    /// Check the workflows can calibrate the model and the fix lists name
+    /// parameters of it.
     ///
     /// # Errors
     ///
-    /// [`crate::Error::InvalidInput`] naming the unknown parameter.
+    /// [`crate::Error::InvalidInput`] naming the unsupported projection or
+    /// the unknown parameter.
     pub fn validate(&self) -> Result<(), crate::Error> {
+        check_projection("camera", self.model)?;
         self.fix
             .resolve(self.model)
             .map(|_| ())
@@ -172,11 +175,26 @@ pub(crate) fn validate_rig_cameras(
                 o.camera
             )));
         }
+        check_projection(&format!("camera_overrides[{i}]"), o.model)?;
         o.fix
             .resolve(o.model)
             .map_err(|e| crate::Error::invalid_input(format!("camera_overrides[{i}].fix: {e}")))?;
     }
     Ok(())
+}
+
+/// Check the workflows have an initializer for `model`'s projection: the
+/// linear initializers are pinhole-based (homographies), so a camera of
+/// another projection is rejected before any work rather than solved as a
+/// pinhole.
+fn check_projection(field: &str, model: CameraModelSpec) -> Result<(), crate::Error> {
+    match model.projection {
+        ProjectionKind::Pinhole => Ok(()),
+        other => Err(crate::Error::invalid_input(format!(
+            "{field}.model: the {other:?} projection has no initializer in the calibration \
+             workflows yet; they calibrate pinhole cameras"
+        ))),
+    }
 }
 
 /// Check every override names a camera of a rig of `num_cameras`.
@@ -580,6 +598,27 @@ mod tests {
         assert_eq!(cfg.reference_camera_idx, 0);
         assert!(cfg.refine_intrinsics);
         assert!(!cfg.refine_sensor);
+    }
+
+    /// A projection without a linear initializer is rejected before any
+    /// work, never solved as a pinhole.
+    #[test]
+    fn a_projection_without_an_initializer_is_rejected() {
+        let fisheye = CameraModelSpec::new(
+            ProjectionKind::Equidistant,
+            DistortionKind::KannalaBrandt4,
+            SensorKind::Identity,
+        );
+        let err = CameraConfig::new(fisheye)
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Equidistant"), "{err}");
+        let overrides = vec![CameraOverride::new(1, fisheye)];
+        let err = validate_rig_cameras(&CameraConfig::default(), &overrides)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("camera_overrides[0]"), "{err}");
     }
 
     #[test]

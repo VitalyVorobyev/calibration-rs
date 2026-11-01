@@ -62,8 +62,8 @@ hand-eye and laserline-device configs have a `camera` field, and the rig
 configs take the same `camera` for every rig camera, plus `camera_overrides`
 to give individual cameras their own model and fix lists
 (`vc.CameraOverride(camera=1, model=vc.CameraModelSpec(sensor="scheimpflug"))`).
-Results report each camera as a `PinholeCamera` or, for a tilted sensor, a
-`PinholeScheimpflugCamera`, whose `distortion` is the configured model's.
+Results report each camera as a `Camera`: its intrinsics plus one model per
+slot (`projection`, `distortion`, `sensor`), as configured.
 
 ## Sessions and steps
 

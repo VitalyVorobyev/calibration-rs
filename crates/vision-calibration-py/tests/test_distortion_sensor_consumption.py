@@ -61,12 +61,12 @@ class PlanarDistortionModelConsumptionTest(unittest.TestCase):
         # typed result must parse it (regression guard: the dispatcher must have a
         # "none" entry, or parsing raises after a successful solve).
         result = self._run("none")
-        self.assertIsInstance(result.camera, vc.PinholeCamera)
+        self.assertIsInstance(result.camera.sensor, vc.IdentitySensor)
         self.assertIsInstance(result.camera.distortion, vc.NoDistortion)
 
     def test_default_model_yields_brown_conrady_dataclass(self) -> None:
         result = self._run("brown_conrady5")
-        self.assertIsInstance(result.camera, vc.PinholeCamera)
+        self.assertIsInstance(result.camera.sensor, vc.IdentitySensor)
         self.assertIsInstance(result.camera.distortion, vc.BrownConradyDistortion)
 
     def test_division_model_yields_division_dataclass(self) -> None:
@@ -102,7 +102,7 @@ class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
         result = vc.run_planar_intrinsics(planar_calibration_dataset(), cfg)
         # The Scheimpflug result camera is polymorphic on distortion too, while
         # still carrying the Scheimpflug sensor tilt.
-        self.assertIsInstance(result.camera, vc.PinholeScheimpflugCamera)
+        self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
         self.assertIsInstance(result.camera.distortion, vc.Division1Distortion)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
 
@@ -127,7 +127,7 @@ class RigCameraOverrideConsumptionTest(unittest.TestCase):
             _rig_extrinsics_dataset(), vc.RigExtrinsicsConfig()
         )
         for cam in result.cameras:
-            self.assertIsInstance(cam, vc.PinholeCamera)
+            self.assertIsInstance(cam.sensor, vc.IdentitySensor)
             self.assertIsInstance(cam.distortion, vc.BrownConradyDistortion)
 
 

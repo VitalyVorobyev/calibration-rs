@@ -6,8 +6,8 @@ use nalgebra::{Point2, RealField, Vector3};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BrownConrady5, DistortionModel, Division, Pinhole, ProjectionModel, RationalPolynomial, Ray,
-    ScheimpflugParams, SensorModel, ThinPrism,
+    BrownConrady5, DistortionModel, Division, Equidistant, KannalaBrandt4, Pinhole,
+    ProjectionModel, RationalPolynomial, Ray, ScheimpflugParams, SensorModel, ThinPrism,
 };
 
 /// Names of the intrinsics parameters, in block order.
@@ -22,17 +22,22 @@ pub enum ProjectionKind {
     /// Pinhole (perspective) projection; no parameters of its own.
     #[default]
     Pinhole,
+    /// Equidistant (fisheye) projection: radius = incidence angle, in
+    /// radians; no parameters of its own. With
+    /// [`DistortionKind::KannalaBrandt4`] it is the Kannala-Brandt fisheye
+    /// model.
+    Equidistant,
 }
 
 impl ProjectionKind {
     /// Every projection model, for iterating over the supported models.
-    pub const ALL: [ProjectionKind; 1] = [ProjectionKind::Pinhole];
+    pub const ALL: [ProjectionKind; 2] = [ProjectionKind::Pinhole, ProjectionKind::Equidistant];
 
     /// Names of the projection's own parameters, in block order (empty when
     /// the projection has none).
     pub fn param_names(self) -> &'static [&'static str] {
         match self {
-            ProjectionKind::Pinhole => &[],
+            ProjectionKind::Pinhole | ProjectionKind::Equidistant => &[],
         }
     }
 
@@ -45,7 +50,7 @@ impl ProjectionKind {
     /// centre.
     pub fn is_central(self) -> bool {
         match self {
-            ProjectionKind::Pinhole => true,
+            ProjectionKind::Pinhole | ProjectionKind::Equidistant => true,
         }
     }
 
@@ -54,6 +59,17 @@ impl ProjectionKind {
     pub fn preserves_lines(self) -> bool {
         match self {
             ProjectionKind::Pinhole => true,
+            ProjectionKind::Equidistant => false,
+        }
+    }
+
+    /// Whether the camera-frame point lies in the projection's domain
+    /// (in front of a pinhole camera; anything but straight back for an
+    /// equidistant one).
+    pub fn in_domain<T: RealField>(self, _params: &[T], p_c: &Vector3<T>) -> bool {
+        match self {
+            ProjectionKind::Pinhole => Pinhole.in_domain(p_c),
+            ProjectionKind::Equidistant => Equidistant.in_domain(p_c),
         }
     }
 
@@ -63,6 +79,7 @@ impl ProjectionKind {
     pub fn project<T: RealField>(self, _params: &[T], p_c: &Vector3<T>) -> Point2<T> {
         match self {
             ProjectionKind::Pinhole => Pinhole.project(p_c),
+            ProjectionKind::Equidistant => Equidistant.project(p_c),
         }
     }
 
@@ -70,6 +87,7 @@ impl ProjectionKind {
     pub fn unproject<T: RealField>(self, _params: &[T], n: &Point2<T>) -> Ray<T> {
         match self {
             ProjectionKind::Pinhole => Pinhole.unproject(n),
+            ProjectionKind::Equidistant => Equidistant.unproject(n),
         }
     }
 }
@@ -92,16 +110,20 @@ pub enum DistortionKind {
     ThinPrism9,
     /// Fitzgibbon division model `[lambda]`.
     Division1,
+    /// Kannala-Brandt radial polynomial `[k1, k2, k3, k4]`; with
+    /// [`ProjectionKind::Equidistant`] the Kannala-Brandt fisheye model.
+    KannalaBrandt4,
 }
 
 impl DistortionKind {
     /// Every distortion model, for iterating over the supported models.
-    pub const ALL: [DistortionKind; 5] = [
+    pub const ALL: [DistortionKind; 6] = [
         DistortionKind::None,
         DistortionKind::BrownConrady5,
         DistortionKind::Rational8,
         DistortionKind::ThinPrism9,
         DistortionKind::Division1,
+        DistortionKind::KannalaBrandt4,
     ];
 
     /// Dimension of the distortion parameter block (0 = no block).
@@ -117,6 +139,7 @@ impl DistortionKind {
             DistortionKind::Rational8 => &["k1", "k2", "k3", "k4", "k5", "k6", "p1", "p2"],
             DistortionKind::ThinPrism9 => &["k1", "k2", "k3", "p1", "p2", "s1", "s2", "s3", "s4"],
             DistortionKind::Division1 => &["lambda"],
+            DistortionKind::KannalaBrandt4 => &["k1", "k2", "k3", "k4"],
         }
     }
 
@@ -127,7 +150,8 @@ impl DistortionKind {
             DistortionKind::None => None,
             DistortionKind::BrownConrady5
             | DistortionKind::Rational8
-            | DistortionKind::ThinPrism9 => Some("k1"),
+            | DistortionKind::ThinPrism9
+            | DistortionKind::KannalaBrandt4 => Some("k1"),
             DistortionKind::Division1 => Some("lambda"),
         }
     }
@@ -154,6 +178,7 @@ impl DistortionKind {
             DistortionKind::Rational8 => rational8(c).distort(n),
             DistortionKind::ThinPrism9 => thin_prism9(c).distort(n),
             DistortionKind::Division1 => division1(c).distort(n),
+            DistortionKind::KannalaBrandt4 => kannala_brandt4(c).distort(n),
         }
     }
 
@@ -166,6 +191,7 @@ impl DistortionKind {
             DistortionKind::Rational8 => rational8(c).undistort(n),
             DistortionKind::ThinPrism9 => thin_prism9(c).undistort(n),
             DistortionKind::Division1 => division1(c).undistort(n),
+            DistortionKind::KannalaBrandt4 => kannala_brandt4(c).undistort(n),
         }
     }
 }
@@ -206,6 +232,16 @@ fn thin_prism9<T: RealField>(c: &[T]) -> ThinPrism<T> {
         s2: c[6].clone(),
         s3: c[7].clone(),
         s4: c[8].clone(),
+        iters: 0,
+    }
+}
+
+fn kannala_brandt4<T: RealField>(c: &[T]) -> KannalaBrandt4<T> {
+    KannalaBrandt4 {
+        k1: c[0].clone(),
+        k2: c[1].clone(),
+        k3: c[2].clone(),
+        k4: c[3].clone(),
         iters: 0,
     }
 }

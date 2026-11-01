@@ -37,7 +37,7 @@ alongside both phases. Track names below match the backlog headings.
 | UQ | Uncertainty as a product: per-feature covariance from the detectors, a variance-factor test of the noise model, joint covariance for rigs, and a quality report with verdicts | Predicted scatter matches Monte-Carlo scatter (proof pack) and real split-half scatter; `calib-bench accept` gates on the quality report |
 | PY | Python parity: sessions and steps, manifest-driven runs, detectors, camera models with vectorized projection, quality report; types generated from the same JSON schemas as the app | The parity map in CI lists no unmapped facade item |
 | Data | The public regression suite fetches its images from their publishers | `calib-bench suite fetch` plus a scheduled freeze check |
-| CAM-KB | The camera-model enums take new models without a breaking release (`#[non_exhaustive]`), and Kannala-Brandt fisheye proves it: the first projection with parameters of its own, its own initializer and rays beyond 90°, so 1.0 freezes an API a second real projection has exercised | Synthetic matrix test across every problem type; OpenCV `fisheye` comparison on a public fisheye set; Python; book chapter |
+| CAM-KB | The camera-model enums take new models without a breaking release (`#[non_exhaustive]`), and Kannala-Brandt fisheye proves it: a second projection (equidistant) with its own initializer and rays beyond 90°, so 1.0 freezes an API a second real projection has exercised | Synthetic matrix test across every problem type; OpenCV `fisheye` comparison on a public fisheye set; Python; book chapter |
 
 ### v1.0 exit criteria
 

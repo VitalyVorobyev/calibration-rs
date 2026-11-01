@@ -33,7 +33,9 @@ class TypedModelParsingTest(unittest.TestCase):
             "sensor": {"type": "identity"},
         }
 
-        cam = vc.PinholeCamera.from_payload(payload)
+        cam = vc.Camera.from_payload(payload)
+        self.assertIsInstance(cam.projection, vc.PinholeProjection)
+        self.assertIsInstance(cam.sensor, vc.IdentitySensor)
         self.assertAlmostEqual(cam.intrinsics.fx, 800.0)
         self.assertAlmostEqual(cam.intrinsics.fy, 780.0)
         self.assertIsInstance(cam.distortion, vc.BrownConradyDistortion)
@@ -74,7 +76,8 @@ class TypedModelParsingTest(unittest.TestCase):
             },
         }
 
-        cam = vc.PinholeScheimpflugCamera.from_payload(payload)
+        cam = vc.Camera.from_payload(payload)
+        assert isinstance(cam.sensor, vc.ScheimpflugSensor)
         self.assertAlmostEqual(cam.sensor.tilt_x, 0.015)
         self.assertAlmostEqual(cam.sensor.tilt_y, -0.012)
         # Brown-Conrady payload parses into the BC5 variant of the union.

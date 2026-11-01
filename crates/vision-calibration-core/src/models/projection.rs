@@ -94,3 +94,106 @@ impl<T: RealField> ProjectionModel<T> for Pinhole {
         true
     }
 }
+
+/// Equidistant (fisheye) projection: the normalized point lies in the
+/// direction of the point's azimuth at a radius equal to its incidence angle,
+/// `n = θ · (x, y) / ρ` with `ρ = √(x² + y²)` and `θ = atan2(ρ, z)`.
+///
+/// Normalized coordinates are in radians, so `fx`, `fy` are pixels per
+/// radian. The domain is every direction but straight back (`θ < π`): points
+/// beyond 90° from the optical axis (`z ≤ 0`) project. Combined with
+/// [`KannalaBrandt4`](super::KannalaBrandt4) distortion it is the
+/// Kannala-Brandt fisheye model.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct Equidistant;
+
+/// Below this radius (relative to `|p|`) the equidistant map uses the
+/// first-order form `(x, y) / z`, where `θ / ρ → 1 / z`.
+const EQUIDISTANT_AXIS: f64 = 1e-8;
+
+impl<T: RealField> ProjectionModel<T> for Equidistant {
+    fn in_domain(&self, p_c: &Vector3<T>) -> bool {
+        let rho2 = p_c.x.clone() * p_c.x.clone() + p_c.y.clone() * p_c.y.clone();
+        rho2 > T::zero() || p_c.z > T::zero()
+    }
+
+    fn project(&self, p_c: &Vector3<T>) -> Point2<T> {
+        let (x, y, z) = (p_c.x.clone(), p_c.y.clone(), p_c.z.clone());
+        let rho = (x.clone() * x.clone() + y.clone() * y.clone()).sqrt();
+        let norm = (rho.clone() * rho.clone() + z.clone() * z.clone()).sqrt();
+        let axis = T::from_f64(EQUIDISTANT_AXIS).unwrap() * norm;
+        // θ / ρ; on the axis its limit 1 / z, whose derivative is that of
+        // θ / ρ to first order.
+        let scale = if rho > axis {
+            rho.clone().atan2(z) / rho
+        } else {
+            let eps = T::from_f64(1e-300).unwrap();
+            T::one() / if z > eps.clone() { z } else { eps }
+        };
+        Point2::new(x * scale.clone(), y * scale)
+    }
+
+    fn unproject(&self, n: &Point2<T>) -> Ray<T> {
+        let theta = (n.x.clone() * n.x.clone() + n.y.clone() * n.y.clone()).sqrt();
+        // sin θ / θ, with its limit 1 on the axis.
+        let sinc = if theta > T::from_f64(EQUIDISTANT_AXIS).unwrap() {
+            theta.clone().sin() / theta.clone()
+        } else {
+            T::one()
+        };
+        Ray {
+            origin: Vector3::zeros(),
+            direction: Vector3::new(n.x.clone() * sinc.clone(), n.y.clone() * sinc, theta.cos()),
+        }
+    }
+
+    fn is_central(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn equidistant_radius_is_the_incidence_angle_beyond_ninety_degrees() {
+        for theta in [
+            0.0_f64,
+            1e-10,
+            0.3,
+            1.2,
+            std::f64::consts::FRAC_PI_2,
+            2.0,
+            3.0,
+        ] {
+            let phi = 2.1_f64;
+            let dir = Vector3::new(
+                theta.sin() * phi.cos(),
+                theta.sin() * phi.sin(),
+                theta.cos(),
+            );
+            let p = dir * 3.5;
+            assert!(Equidistant.in_domain(&p), "θ = {theta}");
+            let n = Equidistant.project(&p);
+            assert!(
+                (n.coords.norm() - theta).abs() < 1e-12,
+                "θ = {theta}: {n:?}"
+            );
+            if theta > 0.0 {
+                assert!(
+                    (n.y.atan2(n.x) - phi).abs() < 1e-9,
+                    "azimuth at θ = {theta}"
+                );
+            }
+            let ray = Equidistant.unproject(&n);
+            assert!(
+                (ray.direction.normalize() - dir).norm() < 1e-12,
+                "θ = {theta}: {:?}",
+                ray.direction
+            );
+        }
+        assert!(!Equidistant.in_domain(&Vector3::new(0.0, 0.0, -1.0)));
+    }
+}

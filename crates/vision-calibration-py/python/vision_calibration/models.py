@@ -204,9 +204,12 @@ class RigConfig:
 class CameraModelSpec:
     """Camera model: one kind per slot.
 
-    ``projection`` is ``"pinhole"``; ``distortion`` is one of ``"none"``,
-    ``"brown_conrady5"``, ``"rational8"``, ``"thin_prism9"``, ``"division1"``;
-    ``sensor`` is ``"identity"`` or ``"scheimpflug"`` (tilted sensor).
+    ``projection`` is ``"pinhole"`` or ``"equidistant"`` (fisheye);
+    ``distortion`` is one of ``"none"``, ``"brown_conrady5"``, ``"rational8"``,
+    ``"thin_prism9"``, ``"division1"``, ``"kannala_brandt4"``; ``sensor`` is
+    ``"identity"`` or ``"scheimpflug"`` (tilted sensor). The calibration
+    workflows take a pinhole projection; an equidistant camera can be built
+    and evaluated with :class:`~vision_calibration.CameraModel`.
     """
 
     projection: ProjectionKind = "pinhole"
@@ -1234,6 +1237,41 @@ class ThinPrism9Distortion:
         )
 
 
+@dataclass(slots=True)
+class KannalaBrandt4Distortion:
+    """Kannala-Brandt radial polynomial (serde tag ``kannala_brandt4``):
+    ``r_d = r (1 + k1 r² + k2 r⁴ + k3 r⁶ + k4 r⁸)``. With an
+    :class:`EquidistantProjection` it is the Kannala-Brandt fisheye model
+    (OpenCV ``fisheye``)."""
+
+    k1: float
+    k2: float
+    k3: float
+    k4: float
+    iters: int
+
+    def to_payload(self) -> dict[str, float | int]:
+        """Convert to serde payload shape (flat, no ``type`` tag)."""
+        return {
+            "k1": float(self.k1),
+            "k2": float(self.k2),
+            "k3": float(self.k3),
+            "k4": float(self.k4),
+            "iters": int(self.iters),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "KannalaBrandt4Distortion":
+        """Parse from serde payload shape."""
+        return cls(
+            k1=float(payload["k1"]),
+            k2=float(payload["k2"]),
+            k3=float(payload["k3"]),
+            k4=float(payload["k4"]),
+            iters=int(payload["iters"]),
+        )
+
+
 # Any distortion model a result's camera may carry.
 Distortion = (
     NoDistortion
@@ -1241,6 +1279,7 @@ Distortion = (
     | Division1Distortion
     | Rational8Distortion
     | ThinPrism9Distortion
+    | KannalaBrandt4Distortion
 )
 
 # Single source of truth mapping the serde ``DistortionParams`` tag to its parser
@@ -1254,6 +1293,7 @@ _DISTORTION_BY_TAG: dict[str, type] = {
     "division": Division1Distortion,
     "rational": Rational8Distortion,
     "thin_prism": ThinPrism9Distortion,
+    "kannala_brandt4": KannalaBrandt4Distortion,
 }
 _DISTORTION_TAG_BY_TYPE: dict[type, str] = {v: k for k, v in _DISTORTION_BY_TAG.items()}
 
@@ -1303,70 +1343,120 @@ class ScheimpflugSensor:
 
 
 @dataclass(slots=True)
-class PinholeCamera:
-    """Typed pinhole camera whose distortion may be any fitted model.
-
-    Every result reports an untilted (identity-sensor) camera as this type.
-    """
-
-    intrinsics: PinholeIntrinsics
-    distortion: Distortion
+class PinholeProjection:
+    """Pinhole (perspective) projection (serde tag ``pinhole``); no parameters."""
 
     def to_payload(self) -> dict[str, Any]:
-        """Convert to the `CameraParams` serde payload shape."""
-        return {
-            "projection": {"type": "pinhole"},
-            "distortion": _distortion_to_payload(self.distortion),
-            "sensor": {"type": "identity"},
-            "intrinsics": self.intrinsics.to_payload(),
-        }
+        """Convert to serde payload shape (no parameters)."""
+        return {}
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeCamera":
-        """Parse from the `CameraParams` serde payload shape."""
-        intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
-        return cls(
-            intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
-            distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["distortion"])),
-        )
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeProjection":
+        """Parse from serde payload shape."""
+        return cls()
 
 
 @dataclass(slots=True)
-class PinholeScheimpflugCamera:
-    """Typed pinhole + Scheimpflug camera whose distortion may be any fitted model.
+class EquidistantProjection:
+    """Equidistant (fisheye) projection (serde tag ``equidistant``): the
+    normalized radius is the incidence angle in radians, so rays beyond 90°
+    project. No parameters."""
 
-    Every result reports a camera with a Scheimpflug sensor as this type.
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to serde payload shape (no parameters)."""
+        return {}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "EquidistantProjection":
+        """Parse from serde payload shape."""
+        return cls()
+
+
+# Any projection model a camera may use.
+Projection = PinholeProjection | EquidistantProjection
+
+_PROJECTION_BY_TAG: dict[str, type] = {
+    "pinhole": PinholeProjection,
+    "equidistant": EquidistantProjection,
+}
+_PROJECTION_TAG_BY_TYPE: dict[type, str] = {v: k for k, v in _PROJECTION_BY_TAG.items()}
+
+
+@dataclass(slots=True)
+class IdentitySensor:
+    """Sensor plane perpendicular to the optical axis (serde tag ``identity``);
+    no parameters."""
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to serde payload shape (no parameters)."""
+        return {}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "IdentitySensor":
+        """Parse from serde payload shape."""
+        return cls()
+
+
+# Any sensor model a camera may use.
+Sensor = IdentitySensor | ScheimpflugSensor
+
+_SENSOR_BY_TAG: dict[str, type] = {
+    "identity": IdentitySensor,
+    "scheimpflug": ScheimpflugSensor,
+}
+_SENSOR_TAG_BY_TYPE: dict[type, str] = {v: k for k, v in _SENSOR_BY_TAG.items()}
+
+
+def _tagged_from_payload(kind: str, table: Mapping[str, type], payload: Mapping[str, Any]) -> Any:
+    tag = payload.get("type")
+    parser = table.get(cast(str, tag))
+    if parser is None:
+        raise ValueError(f"unsupported {kind} payload type: {tag!r}")
+    return parser.from_payload(payload)
+
+
+@dataclass(slots=True)
+class Camera:
+    """A calibrated camera: intrinsics plus one model per slot (projection,
+    distortion, sensor), the ``CameraParams`` of a result.
+
+    ``projection`` defaults to :class:`PinholeProjection` and ``sensor`` to
+    :class:`IdentitySensor`; ``distortion`` is any :data:`Distortion` model.
     """
 
     intrinsics: PinholeIntrinsics
     distortion: Distortion
-    sensor: ScheimpflugSensor
+    projection: Projection = field(default_factory=PinholeProjection)
+    sensor: Sensor = field(default_factory=IdentitySensor)
 
     def to_payload(self) -> dict[str, Any]:
-        """Convert to `CameraParams` serde payload shape."""
+        """Convert to the ``CameraParams`` serde payload shape."""
         return {
-            "projection": {"type": "pinhole"},
+            "projection": {
+                "type": _PROJECTION_TAG_BY_TYPE[type(self.projection)],
+                **self.projection.to_payload(),
+            },
             "distortion": _distortion_to_payload(self.distortion),
-            "sensor": {"type": "scheimpflug", **self.sensor.to_payload()},
+            "sensor": {"type": _SENSOR_TAG_BY_TYPE[type(self.sensor)], **self.sensor.to_payload()},
             "intrinsics": self.intrinsics.to_payload(),
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeScheimpflugCamera":
-        """Parse from `CameraParams` payload with Scheimpflug sensor."""
-        intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
-        sensor_payload = cast(Mapping[str, Any], payload["sensor"])
+    def from_payload(cls, payload: Mapping[str, Any]) -> "Camera":
+        """Parse from the ``CameraParams`` serde payload shape.
 
-        sensor_type = sensor_payload.get("type")
-        if sensor_type not in (None, "scheimpflug"):
-            raise ValueError(
-                f"unsupported sensor payload type for Scheimpflug camera: {sensor_type!r}"
-            )
-
+        Raises ``ValueError`` for a projection or sensor this package does
+        not know (a general homography sensor included).
+        """
         return cls(
-            intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
+            intrinsics=PinholeIntrinsics.from_payload(cast(Mapping[str, Any], payload["intrinsics"])),
             distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["distortion"])),
-            sensor=ScheimpflugSensor.from_payload(sensor_payload),
+            projection=_tagged_from_payload(
+                "projection", _PROJECTION_BY_TAG, cast(Mapping[str, Any], payload["projection"])
+            ),
+            sensor=_tagged_from_payload(
+                "sensor", _SENSOR_BY_TAG, cast(Mapping[str, Any], payload["sensor"])
+            ),
         )
 
 
@@ -1413,11 +1503,10 @@ class LaserPlane:
 class LaserlineParams:
     """Typed parameter payload for laserline optimization results.
 
-    ``camera`` is a :class:`PinholeCamera` or, for a tilted sensor, a
-    :class:`PinholeScheimpflugCamera`.
+    ``camera`` is a :class:`Camera`.
     """
 
-    camera: "Camera"
+    camera: Camera
     poses: list[Pose]
     plane: LaserPlane
 
@@ -1865,9 +1954,6 @@ class RankedCandidate:
         )
 
 
-#: One calibrated camera as reported by a result: untilted or tilted sensor.
-Camera = PinholeCamera | PinholeScheimpflugCamera
-
 
 class _ExportResiduals:
     """The typed per-feature residuals of a result's export JSON."""
@@ -1886,10 +1972,7 @@ class _ExportResiduals:
 
 
 def _camera_from_payload(payload: Mapping[str, Any]) -> Camera:
-    sensor = cast(Mapping[str, Any], payload["sensor"])
-    if sensor.get("type") == "scheimpflug":
-        return PinholeScheimpflugCamera.from_payload(payload)
-    return PinholeCamera.from_payload(payload)
+    return Camera.from_payload(payload)
 
 
 def _cameras_from_payload(payload: Mapping[str, Any]) -> list[Camera]:
@@ -1905,8 +1988,8 @@ class PlanarIntrinsicsExport(_ExportResiduals):
 
     ``camera.distortion`` is one of the :data:`Distortion` variants, matching
     ``camera.model.distortion`` in the config (Brown-Conrady by default).
-    ``camera`` is a :class:`PinholeScheimpflugCamera` when the config selected a
-    Scheimpflug sensor, otherwise a :class:`PinholeCamera`.
+    ``camera.sensor`` is a :class:`ScheimpflugSensor` when the config selected a
+    Scheimpflug sensor, otherwise an :class:`IdentitySensor`.
     """
 
     camera: Camera
@@ -1945,8 +2028,7 @@ class PlanarIntrinsicsExport(_ExportResiduals):
 class SingleCamHandeyeExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_single_cam_handeye`.
 
-    ``camera`` is a :class:`PinholeCamera` or, for a tilted sensor, a
-    :class:`PinholeScheimpflugCamera`.
+    ``camera`` is a :class:`Camera`.
     """
 
     camera: Camera
@@ -2029,8 +2111,7 @@ class RigExtrinsicsExport(_ExportResiduals):
 class RigHandeyeExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_rig_handeye`.
 
-    Each entry of ``cameras`` is a :class:`PinholeCamera` or, for a tilted
-    sensor, a :class:`PinholeScheimpflugCamera`.
+    Each entry of ``cameras`` is a :class:`Camera`.
     """
 
     cameras: list[Camera]

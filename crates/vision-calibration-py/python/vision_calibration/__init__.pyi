@@ -21,10 +21,15 @@ from .models import (
     NoDistortion,
     Observation,
     PointCovariance,
-    PinholeCamera,
+    Camera,
+    EquidistantProjection,
+    IdentitySensor,
+    KannalaBrandt4Distortion,
     PinholeIntrinsics,
-    PinholeScheimpflugCamera,
+    PinholeProjection,
+    Projection,
     Rational8Distortion,
+    Sensor,
     ThinPrism9Distortion,
     PlanarIntrinsicsConfig,
     ParameterUncertainty,
@@ -250,7 +255,7 @@ def rank_candidates(
 
 
 def candidate_poses(
-    camera: PinholeCamera | PinholeScheimpflugCamera | Mapping[str, Any],
+    camera: Camera | Mapping[str, Any],
     target_points: Sequence[Sequence[float]],
     image_size: tuple[int, int],
     grid: CandidateGrid,

@@ -21,13 +21,13 @@ class PlanarScheimpflugTest(unittest.TestCase):
     def test_public_bindings_run(self) -> None:
         result = vc.run_planar_intrinsics(_make_dataset(), _tilted_config())
         self.assertGreaterEqual(result.mean_reproj_error, 0.0)
-        self.assertIsInstance(result.camera, vc.PinholeScheimpflugCamera)
+        self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
         self.assertEqual(result.export["params"]["camera"]["sensor"]["type"], "scheimpflug")
 
     def test_untilted_camera_has_identity_sensor(self) -> None:
         result = vc.run_planar_intrinsics(_make_dataset())
-        self.assertIsInstance(result.camera, vc.PinholeCamera)
+        self.assertIsInstance(result.camera.sensor, vc.IdentitySensor)
 
     def test_explicit_fix_lists_reach_the_solver(self) -> None:
         cfg = _tilted_config()
