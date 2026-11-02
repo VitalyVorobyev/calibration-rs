@@ -84,7 +84,9 @@ Some combinations have no initializer and are configuration errors:
 - an equidistant camera with a Scheimpflug sensor;
 - the line-distance laser residual (`LineDistNormalized`), which needs the
   laser line's image to be straight: a fisheye laser workflow uses
-  `PointToPlane`;
-- a distortion seed, which holds a pinhole camera's Brown-Conrady
-  coefficients (seeded intrinsics are fine).
+  `PointToPlane`.
+
+Seeds are values in the camera's own model: a fisheye camera takes seeded
+intrinsics and a `KannalaBrandt4` distortion seed, and poses then come from
+the bearings of the pixels back-projected through the seeded camera.
 

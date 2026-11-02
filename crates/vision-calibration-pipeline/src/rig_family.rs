@@ -19,7 +19,9 @@
 
 use crate::Error;
 use crate::common::config::{CameraConfig, IntrinsicsInitConfig};
-use crate::planar_family::{CameraSeed, bootstrap_camera, check_sensor_seed};
+use crate::planar_family::{
+    CameraSeed, bootstrap_camera, check_distortion_seed, check_sensor_seed,
+};
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModel, CameraModelSpec, CameraParams, DistortionParams,
     FxFyCxCy, Iso3, NoMeta, PlanarDataset, ProjectionParams, Real, ScheimpflugParams, SensorKind,
@@ -39,7 +41,7 @@ use vision_calibration_optim::PlanarIntrinsicsParams;
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RigIntrinsicsSeeds {
     pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
-    pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
+    pub per_cam_distortion: Option<Vec<DistortionParams>>,
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
@@ -63,9 +65,11 @@ pub(crate) struct RigIntrinsicsBootstrap {
 /// (Zhang's method; for a Scheimpflug sensor, the tilted variant that also
 /// estimates the tilt). The linear stage fits Brown-Conrady coefficients,
 /// embedded into each camera's distortion model (extra coefficients start
-/// at zero), with `init`'s options resolved for each camera
+/// at zero) unless that camera's distortion is seeded in its own model, with
+/// `init`'s options resolved for each camera
 /// ([`IntrinsicsInitConfig::iterative_opts`]: only the terms the camera's
-/// solves estimate are fitted; `iterations` overrides `init.iterations`). Per-camera target poses are recovered from per-camera
+/// solves estimate are fitted; `iterations` overrides `init.iterations`).
+/// Per-camera target poses are recovered from per-camera
 /// homographies using whichever intrinsics were chosen.
 ///
 /// # Errors
@@ -102,7 +106,10 @@ where
 
         let seed = CameraSeed {
             intrinsics: seeds.per_cam_intrinsics.as_ref().map(|s| s[cam_idx]),
-            distortion: seeds.per_cam_distortion.as_ref().map(|s| s[cam_idx]),
+            distortion: seeds
+                .per_cam_distortion
+                .as_ref()
+                .map(|s| s[cam_idx].clone()),
             sensor: seeds.per_cam_sensors.as_ref().map(|s| s[cam_idx]),
         };
         let init_opts = init.camera_init_opts(iterations, &camera_configs[cam_idx]);
@@ -143,6 +150,11 @@ fn validate_seeds(seeds: &RigIntrinsicsSeeds, models: &[CameraModelSpec]) -> Res
             s.len(),
             num_cameras
         )));
+    }
+    if let Some(s) = &seeds.per_cam_distortion {
+        for (cam_idx, (seed, model)) in s.iter().zip(models).enumerate() {
+            check_distortion_seed(seed, *model, &format!("per_cam_distortion[{cam_idx}]"))?;
+        }
     }
     if let Some(s) = &seeds.per_cam_sensors {
         if s.len() != num_cameras {

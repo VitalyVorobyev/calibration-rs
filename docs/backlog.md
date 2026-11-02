@@ -61,16 +61,11 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   (`Equidistant` + `KannalaBrandt4`) in every workflow, so a second real
   projection exercises the API 1.0 freezes. The workflows initialize and
   calibrate one (bearing-based initializer). Left, in order:
-  1. *Seeds in the camera's model.* Distortion seeds
-     (`IntrinsicsManualInit::distortion`, `per_cam_distortion`, the laser
-     device's) are Brown-Conrady, so a fisheye camera rejects one. Make
-     them `DistortionParams` of the configured kind (breaking; Python
-     too), and drop the Brown-Conrady embedding note.
-  2. *Wide-angle consumers.* Projection uncertainty, next-view planning and
+  1. *Wide-angle consumers.* Projection uncertainty, next-view planning and
      the information matrix assume rays on `z = 1` (`point_at_unit_depth`,
      `z > 0` filters); give them unit-direction rays. The analysis pose
      seed (`analysis/mod.rs`, homography or EPnP) should use bearings.
-  3. *Data and comparison.* A suite entry from OpenCV's own fisheye test set
+  2. *Data and comparison.* A suite entry from OpenCV's own fisheye test set
      (`opencv_extra` `calib-3_stereo_from_JY`, 34 stereo pairs, corner files
      included; no licence stated, so fetched at a pinned commit), compared
      against `cv::fisheye::calibrate` and `stereoCalibrate`; synthetic

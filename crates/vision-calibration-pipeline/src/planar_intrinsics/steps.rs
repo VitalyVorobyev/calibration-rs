@@ -55,8 +55,9 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{
-    CameraSeed, bootstrap_camera, bootstrap_planar_intrinsics, estimate_view_homographies,
-    recover_planar_poses_from_homographies, unsupported_projection, unsupported_sensor,
+    CameraSeed, bootstrap_camera, bootstrap_planar_intrinsics, check_distortion_seed,
+    estimate_view_homographies, recover_planar_poses_from_homographies, unsupported_projection,
+    unsupported_sensor,
 };
 use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
@@ -85,20 +86,19 @@ use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 /// - When `intrinsics` is `None`, the bootstrap auto-fit runs and any `Some` field
 ///   overrides the corresponding bootstrap output.
 ///
-/// The distortion seed is Brown-Conrady, the model the linear stage fits. For
-/// another configured distortion model its `k1, k2, k3, p1, p2` are embedded
-/// into that model and the extra coefficients start at zero (the division
-/// model's `lambda` starts at zero); the init log notes this. A manual
-/// distortion seed is used as given — the tilted sensor's tangential zeroing
-/// applies only to the auto-fit.
+/// The distortion seed is a value in the camera's own distortion model: its
+/// kind must equal `camera.model.distortion` (a typed error otherwise). It is
+/// used as given — no coefficient is converted, and the tilted sensor's
+/// tangential zeroing applies only to the auto-fit.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
     pub intrinsics: Option<FxFyCxCy<Real>>,
-    /// Manual distortion seed. `None` means auto-init (or zeros when intrinsics are
-    /// also seeded — see struct docs).
-    pub distortion: Option<BrownConrady5<Real>>,
+    /// Manual distortion seed, of the kind `camera.model.distortion` names. `None`
+    /// means auto-init (or zeros when intrinsics are also seeded — see struct
+    /// docs).
+    pub distortion: Option<DistortionParams>,
     /// Manual sensor tilt, for a camera whose model has a Scheimpflug sensor
     /// (a typed error otherwise). `None` starts from the auto-fit tilt (zero
     /// when intrinsics are seeded). A seeded tilt is trusted: `step_optimize`
@@ -184,8 +184,8 @@ pub struct IntrinsicsOptimizeResult {
 ///   variant that also estimates the tilt; for an equidistant camera, the
 ///   bearing-based fisheye initializer).
 /// - `distortion`: `Some` overrides the bootstrap's fitted distortion; `None` keeps
-///   the bootstrap value (or `BrownConrady5::default()` when intrinsics are seeded
-///   and the bootstrap doesn't run). Pinhole cameras only.
+///   the bootstrap value (or zeros when intrinsics are seeded and the bootstrap
+///   doesn't run). The seed's kind must equal the camera's distortion kind.
 /// - `sensor`: Scheimpflug sensor only — see [`IntrinsicsManualInit::sensor`].
 /// - `poses`: `Some` uses the seed verbatim (count must match view count); `None`
 ///   recovers poses from homographies (bearings for an equidistant camera) using
@@ -203,7 +203,8 @@ pub struct IntrinsicsOptimizeResult {
 ///
 /// - Input not set, or fewer than 3 views.
 /// - `manual.sensor` is `Some` but the camera's sensor is not Scheimpflug.
-/// - `manual.distortion` is `Some` for an equidistant camera.
+/// - `manual.distortion` is `Some` and of another kind than the camera's
+///   distortion model.
 /// - `init.iterations == 0` when running the bootstrap auto-fit.
 /// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
@@ -222,21 +223,15 @@ pub fn step_init_with_seed(
         session.log_failure("init", msg.clone());
         return Err(Error::invalid_input(msg));
     }
-    let distortion_note =
-        if manual.distortion.is_some() && model.distortion != DistortionKind::BrownConrady5 {
-            " — WARNING: a manual Brown-Conrady distortion seed was combined with another \
-         distortion model; only (k1,k2,k3,p1,p2) are embedded and the extra coefficients \
-         start at zero"
-        } else {
-            ""
-        };
+    if let Some(distortion) = &manual.distortion
+        && let Err(e) = check_distortion_seed(distortion, model, "distortion")
+    {
+        session.log_failure("init", e.to_string());
+        return Err(e);
+    }
     match (model.projection, model.sensor) {
-        (ProjectionKind::Pinhole, SensorKind::Identity) => {
-            init_untilted(session, manual, opts, distortion_note)
-        }
-        (ProjectionKind::Pinhole, SensorKind::Scheimpflug) => {
-            init_tilted(session, manual, opts, distortion_note)
-        }
+        (ProjectionKind::Pinhole, SensorKind::Identity) => init_untilted(session, manual, opts),
+        (ProjectionKind::Pinhole, SensorKind::Scheimpflug) => init_tilted(session, manual, opts),
         (ProjectionKind::Equidistant, _) => init_fisheye(session, manual),
         (ProjectionKind::Pinhole, other) => Err(unsupported_sensor(other)),
         (other, _) => Err(unsupported_projection(other)),
@@ -277,6 +272,7 @@ fn init_fisheye(
     let (mut manual_fields, mut auto_fields) = (Vec::new(), Vec::new());
     for (name, seeded) in [
         ("intrinsics", seed.intrinsics.is_some()),
+        ("distortion", seed.distortion.is_some()),
         ("poses", manual.poses.is_some()),
     ] {
         if seeded {
@@ -332,12 +328,23 @@ fn init_result(
     })
 }
 
+/// The distortion of a camera with seeded intrinsics and no distortion seed:
+/// zero (state conversion expresses it in the configured kind).
+fn zero_distortion() -> DistortionParams {
+    fitted_distortion(BrownConrady5::default())
+}
+
+/// The linear stage's fitted Brown-Conrady coefficients; state conversion
+/// embeds them in the configured kind.
+fn fitted_distortion(fitted: BrownConrady5<Real>) -> DistortionParams {
+    DistortionParams::BrownConrady5 { params: fitted }
+}
+
 /// Untilted camera: Zhang's method with iterative distortion.
 fn init_untilted(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-    distortion_note: &str,
 ) -> Result<IntrinsicsInitResult, Error> {
     let input = session.require_input()?;
 
@@ -360,7 +367,7 @@ fn init_untilted(
             }
             None => {
                 auto_fields.push("distortion");
-                BrownConrady5::default()
+                zero_distortion()
             }
         };
 
@@ -417,7 +424,7 @@ fn init_untilted(
             }
             None => {
                 auto_fields.push("distortion");
-                bootstrap.camera.dist
+                fitted_distortion(bootstrap.camera.dist)
             }
         };
 
@@ -446,7 +453,7 @@ fn init_untilted(
 
     let camera = CameraParams {
         projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: distortion },
+        distortion,
         sensor: SensorParams::Identity,
         intrinsics,
     };
@@ -456,8 +463,8 @@ fn init_untilted(
     session.log_success_with_notes(
         "init",
         format!(
-            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}{}",
-            intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy, source, distortion_note
+            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
+            intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy, source
         ),
     );
 
@@ -469,7 +476,6 @@ fn init_tilted(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-    distortion_note: &str,
 ) -> Result<IntrinsicsInitResult, Error> {
     let dataset = session.require_input()?.clone();
 
@@ -523,7 +529,7 @@ fn init_tilted(
                 } else {
                     auto_fields.push("distortion");
                 }
-                (manual_dist.unwrap_or_default(), p)
+                (manual_dist.unwrap_or_else(zero_distortion), p)
             }
             None => {
                 auto_fields.push("poses");
@@ -550,7 +556,7 @@ fn init_tilted(
                     }
                     None => {
                         auto_fields.push("distortion");
-                        BrownConrady5::default()
+                        zero_distortion()
                     }
                 };
                 (dist, poses)
@@ -586,7 +592,7 @@ fn init_tilted(
             }
             None => {
                 auto_fields.push("distortion");
-                bootstrap.camera.dist
+                fitted_distortion(bootstrap.camera.dist)
             }
         };
 
@@ -626,7 +632,7 @@ fn init_tilted(
 
     let camera = CameraParams {
         projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: distortion },
+        distortion,
         sensor: SensorParams::Scheimpflug { params: sensor },
         intrinsics,
     };
@@ -643,13 +649,12 @@ fn init_tilted(
     session.log_success_with_notes(
         "init",
         format!(
-            "fx={:.1}, fy={:.1}, views={} {}{}{}",
+            "fx={:.1}, fy={:.1}, views={} {}{}",
             intrinsics.fx,
             intrinsics.fy,
             dataset.num_views(),
             source,
-            experimental,
-            distortion_note
+            experimental
         ),
     );
 
@@ -1134,6 +1139,27 @@ pub fn run_calibration_with_filtering(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn manual_init_distortion_seed_round_trips_as_a_tagged_payload() {
+        let seed = IntrinsicsManualInit {
+            distortion: Some(
+                DistortionParams::from_values(
+                    DistortionKind::KannalaBrandt4,
+                    &[0.1, 0.0, 0.0, 0.0],
+                )
+                .unwrap(),
+            ),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&seed).unwrap();
+        assert_eq!(json["distortion"]["type"], "kannala_brandt4");
+        let back: IntrinsicsManualInit = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            back.distortion.unwrap().values(),
+            seed.distortion.unwrap().values()
+        );
+    }
+
     use super::*;
     use vision_calibration_core::{
         BrownConrady5, FxFyCxCy, Pinhole, make_pinhole_camera, synthetic::planar,
@@ -1380,7 +1406,9 @@ mod tests {
                 cx: 640.0,
                 cy: 360.0,
             }),
-            distortion: Some(BrownConrady5::default()),
+            distortion: Some(DistortionParams::BrownConrady5 {
+                params: BrownConrady5::default(),
+            }),
             sensor: None,
             poses: Some(auto_poses),
         };
@@ -1570,7 +1598,9 @@ mod tests {
                 cx: 640.0,
                 cy: 360.0,
             }),
-            distortion: Some(BrownConrady5::default()),
+            distortion: Some(DistortionParams::BrownConrady5 {
+                params: BrownConrady5::default(),
+            }),
             sensor: Some(sensor_gt),
             poses: None,
         };
@@ -1602,7 +1632,9 @@ mod tests {
                 cx: 640.0,
                 cy: 360.0,
             }),
-            distortion: Some(BrownConrady5::default()),
+            distortion: Some(DistortionParams::BrownConrady5 {
+                params: BrownConrady5::default(),
+            }),
             sensor: Some(ScheimpflugParams::default()),
             poses: None,
         };
@@ -1669,21 +1701,42 @@ mod tests {
     }
 
     #[test]
-    fn manual_brown_conrady_seed_with_another_model_is_noted() {
+    fn distortion_seed_of_another_kind_is_rejected_naming_the_field() {
         let mut config = super::super::PlanarIntrinsicsConfig::default();
         config.camera.model.distortion = DistortionKind::Rational8;
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_config(config).unwrap();
         session.set_input(make_test_dataset()).unwrap();
         let manual = IntrinsicsManualInit {
-            distortion: Some(BrownConrady5::default()),
+            distortion: Some(DistortionParams::BrownConrady5 {
+                params: BrownConrady5::default(),
+            }),
             ..Default::default()
         };
-        step_init_with_seed(&mut session, manual, None).unwrap();
-        assert!(session.log().iter().any(|e| {
-            e.notes
-                .as_deref()
-                .is_some_and(|n| n.contains("manual Brown-Conrady distortion seed"))
-        }));
+        let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
+        assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
+        let msg = err.to_string();
+        assert!(msg.contains("distortion"), "{msg}");
+        assert!(msg.contains("Rational8"), "{msg}");
+    }
+
+    #[test]
+    fn distortion_seed_of_the_cameras_kind_is_used_as_given() {
+        let mut config = super::super::PlanarIntrinsicsConfig::default();
+        config.camera.model.distortion = DistortionKind::Rational8;
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_config(config).unwrap();
+        session.set_input(make_test_dataset()).unwrap();
+        let seed = DistortionParams::from_values(
+            DistortionKind::Rational8,
+            &[-0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        let manual = IntrinsicsManualInit {
+            distortion: Some(seed.clone()),
+            ..Default::default()
+        };
+        let init = step_init_with_seed(&mut session, manual, None).unwrap();
+        assert_eq!(init.camera.distortion.values(), seed.values());
     }
 }

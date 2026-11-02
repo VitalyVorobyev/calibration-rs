@@ -46,7 +46,7 @@
 "common::config::RigConfig" = "RigConfig"
 "common::config::RobotPoseConfig" = "RobotPoseConfig"
 "common::config::SolverConfig" = "SolverConfig"
-"core::BrownConrady5" = ["BrownConradyDistortion", "types.BrownConrady5"]
+"core::BrownConrady5" = "BrownConradyDistortion"
 "core::Camera" = "CameraModel"
 "core::CameraFix" = "CameraFix"
 "core::CameraModel" = "CameraModel"

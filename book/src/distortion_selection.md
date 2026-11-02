@@ -103,7 +103,7 @@ step_init_with_seed(&mut session, seed, None)?;
 step_optimize(&mut session, None)?;
 ```
 
-The linear stage always produces Brown-Conrady coefficients; they are embedded into the chosen model with any extra degrees of freedom zeroed before the non-linear refinement. A Brown-Conrady `distortion` seed is embedded the same way, and the initialization log notes it. See [Seeding with Prior Knowledge](manual_init.md) for the seeding mechanism and [Planar Intrinsics Calibration](planar_intrinsics.md#tilted-scheimpflug-sensor) for why a tilted camera starts from a seed.
+The linear stage always produces Brown-Conrady coefficients; they are embedded into the chosen model with any extra degrees of freedom zeroed before the non-linear refinement. A `distortion` seed is a value in the chosen model itself (its kind must match `camera.model.distortion`) and replaces the fitted coefficients as given. See [Seeding with Prior Knowledge](manual_init.md) for the seeding mechanism and [Planar Intrinsics Calibration](planar_intrinsics.md#tilted-scheimpflug-sensor) for why a tilted camera starts from a seed.
 
 ## Does a Richer Model Help?
 

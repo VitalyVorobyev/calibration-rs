@@ -16,8 +16,8 @@ from typing import Any
 from . import _vision_calibration as _native
 from .common import IntrinsicsInitOptions, IntrinsicsOptimizeOptions, _StepOptions
 from .models import (
-    BrownConradyDistortion,
     Camera,
+    Distortion,
     PinholeIntrinsics,
     PlanarIntrinsicsConfig,
     PlanarIntrinsicsExport,
@@ -57,15 +57,15 @@ class IntrinsicsManualInit:
     estimated.
 
     A seeded ``intrinsics`` skips the linear intrinsics fit (distortion then
-    starts at zero unless seeded too). The distortion seed is Brown-Conrady;
-    for another distortion model its coefficients are embedded and the extra
-    ones start at zero. ``sensor`` seeds the tilt of a Scheimpflug camera (an
+    starts at zero unless seeded too). The distortion seed is a model of the
+    camera's own distortion kind (``camera.model.distortion``) and is used
+    as given; another kind is an error. ``sensor`` seeds the tilt of a Scheimpflug camera (an
     error for an untilted one); a seeded tilt is refined directly instead of
     swept. ``poses`` are camera-from-target, one per view.
     """
 
     intrinsics: PinholeIntrinsics | None = None
-    distortion: BrownConradyDistortion | None = None
+    distortion: Distortion | None = None
     sensor: ScheimpflugSensor | None = None
     poses: list[Pose] | None = None
 

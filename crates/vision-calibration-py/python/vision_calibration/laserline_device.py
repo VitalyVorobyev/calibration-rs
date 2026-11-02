@@ -15,8 +15,8 @@ from typing import Any, cast
 from . import _vision_calibration as _native
 from .common import _StepOptions
 from .models import (
-    BrownConradyDistortion,
     Camera,
+    Distortion,
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
     LaserlineDeviceInput,
@@ -66,7 +66,7 @@ class DeviceManualInit:
     """
 
     intrinsics: PinholeIntrinsics | None = None
-    distortion: BrownConradyDistortion | None = None
+    distortion: Distortion | None = None
     sensor: ScheimpflugSensor | None = None
     poses: list[Pose] | None = None
     plane: LaserPlane | None = None

@@ -192,14 +192,58 @@ fn planar_intrinsics_from_seeded_intrinsics() {
 }
 
 #[test]
-fn planar_intrinsics_rejects_a_pinhole_distortion_seed() {
+fn planar_intrinsics_from_seeded_intrinsics_and_distortion() {
     let mut session = planar_session();
     let mut seed = IntrinsicsManualInit::default();
-    seed.distortion = Some(Default::default());
+    seed.intrinsics = Some(FxFyCxCy {
+        fx: 295.0,
+        fy: 305.0,
+        cx: 635.0,
+        cy: 405.0,
+    });
+    let distortion =
+        DistortionParams::from_values(DistortionKind::KannalaBrandt4, &[-0.015, 0.001, 0.0, 0.0])
+            .unwrap();
+    seed.distortion = Some(distortion.clone());
+    let init = step_init_with_seed(&mut session, seed, None).unwrap();
+    assert_eq!(
+        init.camera.distortion.values(),
+        distortion.values(),
+        "the seed is used as given"
+    );
+    vision_calibration_pipeline::planar_intrinsics::step_optimize(&mut session, None).unwrap();
+    assert_recovered(&session.export().unwrap().params.camera, "optimize");
+}
+
+#[test]
+fn a_distortion_seed_of_another_kind_is_rejected() {
+    let brown_conrady =
+        DistortionParams::from_values(DistortionKind::BrownConrady5, &[0.0; 5]).unwrap();
+
+    let mut session = planar_session();
+    let mut seed = IntrinsicsManualInit::default();
+    seed.distortion = Some(brown_conrady.clone());
     let err = step_init_with_seed(&mut session, seed, None)
         .unwrap_err()
         .to_string();
-    assert!(err.contains("distortion seed"), "{err}");
+    assert!(err.contains("distortion"), "{err}");
+    assert!(err.contains("BrownConrady5"), "{err}");
+
+    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session.set_input(rig_views(|_| NoMeta)).unwrap();
+    let mut config = session.config.clone();
+    config.camera = CameraConfig::new(model());
+    session.set_config(config).unwrap();
+    let mut seed = vision_calibration_pipeline::rig_extrinsics::IntrinsicsManualInit::default();
+    seed.per_cam_distortion = Some(vec![brown_conrady; 2]);
+    let err = vision_calibration_pipeline::rig_extrinsics::step_intrinsics_init_all_with_seed(
+        &mut session,
+        seed,
+        None,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("per_cam_distortion[0]"), "{err}");
 }
 
 #[test]

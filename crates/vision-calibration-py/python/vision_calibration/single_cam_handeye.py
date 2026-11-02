@@ -21,8 +21,8 @@ from .common import (
     IntrinsicsOptimizeOptions,
 )
 from .models import (
-    BrownConradyDistortion,
     Camera,
+    Distortion,
     PinholeIntrinsics,
     Pose,
     ScheimpflugSensor,
@@ -64,7 +64,7 @@ class IntrinsicsManualInit:
     """
 
     intrinsics: PinholeIntrinsics | None = None
-    distortion: BrownConradyDistortion | None = None
+    distortion: Distortion | None = None
     sensor: ScheimpflugSensor | None = None
     target_poses: list[Pose] | None = None
 

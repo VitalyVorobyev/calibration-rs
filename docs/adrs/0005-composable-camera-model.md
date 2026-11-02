@@ -157,9 +157,8 @@ Each projection kind names its linear initializer:
 - Other central wide-angle kinds: their own initializer; the bearing pose
   serves all of them.
 
-Seeds hold a pinhole camera's values (Brown-Conrady distortion), so a
-distortion seed for another projection is a typed error until seeds take
-the camera's own model.
+Seeds are values in the camera's own model: a distortion seed is a
+`DistortionParams` whose kind must equal the configured one, used as given.
 
 A kind without an initializer requires a seed (ADR 0011). That is a typed
 error at validation, never a silent fallback.

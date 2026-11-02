@@ -19,28 +19,6 @@ from __future__ import annotations
 from typing import Literal, TypeAlias, TypedDict
 
 
-class BrownConrady5(TypedDict):
-    """Brown-Conrady 5-parameter radial-tangential distortion model."""
-
-    iters: int
-    """Maximum Newton iterations of `DistortionModel::undistort` (0 → 20)."""
-
-    k1: float
-    """Radial coefficient k1."""
-
-    k2: float
-    """Radial coefficient k2."""
-
-    k3: float
-    """Radial coefficient k3."""
-
-    p1: float
-    """Tangential coefficient p1."""
-
-    p2: float
-    """Tangential coefficient p2."""
-
-
 class _CameraConfigRequired(TypedDict):
     """The keys of `CameraConfig` that every payload has."""
 
@@ -952,8 +930,8 @@ class IntrinsicsManualInit(TypedDict, total=False):
     takes only a zero tilt.
     """
 
-    per_cam_distortion: list[BrownConrady5] | None
-    """Per-camera distortion seeds."""
+    per_cam_distortion: list[DistortionParams] | None
+    """Per-camera distortion seeds, each of the kind its camera's model names."""
 
     per_cam_intrinsics: list[FxFyCxCy] | None
     """Per-camera intrinsics seeds. `None` runs Zhang's method per camera."""
@@ -3229,7 +3207,6 @@ class ViewCovariance(TypedDict):
 
 
 __all__ = [
-    "BrownConrady5",
     "CameraConfig",
     "CameraFix",
     "CameraModelSpec",

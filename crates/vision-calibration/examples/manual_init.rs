@@ -25,7 +25,7 @@
 mod observations;
 
 use anyhow::{Result, ensure};
-use vision_calibration::core::{BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3};
+use vision_calibration::core::{CameraParams, DistortionParams, FxFyCxCy, Iso3};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     IntrinsicsManualInit, RigExtrinsicsInput, RigExtrinsicsProblem, RigManualInit,
@@ -69,14 +69,9 @@ fn main() -> Result<()> {
     println!();
 
     let per_cam_k: Vec<FxFyCxCy<f64>> = cameras_a.iter().map(|c| c.intrinsics).collect();
-    // The rig's cameras are Brown-Conrady, the model of a distortion seed.
-    let per_cam_dist: Vec<BrownConrady5<f64>> = cameras_a
-        .iter()
-        .map(|c| match c.distortion {
-            DistortionParams::BrownConrady5 { params } => params,
-            _ => BrownConrady5::default(),
-        })
-        .collect();
+    // A distortion seed is a value in its camera's own model.
+    let per_cam_dist: Vec<DistortionParams> =
+        cameras_a.iter().map(|c| c.distortion.clone()).collect();
 
     // ─── Run B: replay Run A's intermediates as manual seeds ──────────────
     println!("--- Run B: replay Run A's seeds via ManualInit ---");
