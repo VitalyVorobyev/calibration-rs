@@ -4,16 +4,24 @@
 
 [API reference](https://vitalyvorobyev.github.io/calibration-rs/api)
 
+## Three Ways In
+
+- **The desktop app** runs a calibration from a folder of images and shows the result, its residuals and its uncertainty, without code ([The Desktop App](app.md)).
+- **Python**: `pip install vision-calibration`, one call per workflow ([Getting Started](getting_started.md)).
+- **Rust**: the `vision-calibration` crate, with the same workflows plus step-by-step sessions ([Getting Started](getting_started.md)).
+
+Not sure which workflow fits your hardware? [Choose Your Workflow](choose_workflow.md) maps your setup to a workflow and a camera model and says what to capture.
+
 ## Who This Book Is For
 
-This book targets engineers and researchers working in machine vision, robotics, and 3D reconstruction who want to:
+Engineers and researchers in machine vision, robotics and 3D reconstruction who want to:
 
-- Calibrate single cameras, stereo rigs, or multi-camera systems
-- Perform hand-eye calibration for cameras mounted on robot arms
-- Calibrate laser triangulation devices (camera + laser plane)
-- Understand the mathematical foundations behind calibration algorithms
+- calibrate single cameras, stereo rigs or multi-camera systems;
+- perform hand-eye calibration for cameras mounted on robot arms;
+- calibrate laser triangulation devices (camera + laser plane);
+- understand the mathematics behind calibration algorithms.
 
-We assume familiarity with linear algebra (SVD, eigendecomposition, least squares) and basic projective geometry (homogeneous coordinates, projection matrices). Lie group theory (SO(3), SE(3)) is introduced when needed.
+Running a calibration needs no mathematical background. The theory chapters assume familiarity with linear algebra (SVD, eigendecomposition, least squares) and basic projective geometry (homogeneous coordinates, projection matrices), and introduce Lie group theory (SO(3), SE(3)) when needed.
 
 ## What calibration-rs Provides
 
@@ -60,6 +68,7 @@ calibration-rs differs from OpenCV in several ways: it is written in pure Rust, 
 
 The book is the one user guide for the library. It is organized by what you want to do first and by the mathematics behind it last:
 
+- **Choose Your Workflow**: from your hardware to a workflow, a camera model and a capture plan.
 - **Getting Started**: install the library and run a first calibration in Rust and Python, then a stereo rig on real data.
 - **Calibration Workflows**: one chapter per problem type (planar intrinsics, hand-eye, rigs, laser devices), plus choosing a distortion model, seeding the initialization with prior knowledge and reading per-feature residuals.
 - **The Session Framework**: the `CalibrationSession` API behind every workflow.
@@ -72,4 +81,4 @@ The book is the one user guide for the library. It is organized by what you want
 
 Each algorithm chapter in the theory parts includes a formal **problem statement**, **objective function**, **assumptions**, and a **full derivation** leading to the implementation.
 
-The library is usable from Rust (the `vision-calibration` crate) and from Python (the `vision-calibration` package on PyPI). The chapters show Rust unless a section says otherwise; [Getting Started](getting_started.md) puts the two side by side.
+The chapters show Rust unless a section says otherwise; [Getting Started](getting_started.md) puts Rust and Python side by side.

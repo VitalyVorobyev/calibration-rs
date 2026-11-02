@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- The book opens with a "Choose Your Workflow" chapter that maps a
+  hardware setup to a workflow, a camera model and a capture plan, and the
+  Introduction names the app, Python and Rust routes first.
+
 ## [0.12.0] - 2026-11-02
 
 Minor release: Kannala-Brandt fisheye cameras calibrate in every workflow
