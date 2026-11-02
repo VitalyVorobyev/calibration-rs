@@ -87,7 +87,7 @@
 //! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 //! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
 //! | [`RigLaserlineDeviceProblem`](rig_laserline_device) | `RigLaserlineDeviceInput` | `step_init` → `step_optimize` |
-//! | [`RigHandeyeLaserlineProblem`](rig_handeye_laserline) | `RigHandeyeLaserlineInput` | `run_calibration` (joint solve) |
+//! | [`RigHandeyeLaserlineProblem`](rig_handeye_laserline) | `RigHandeyeLaserlineInput` | `run_calibration` (joint solve), or `run_calibration_with_seed` from an earlier rig hand-eye result or given laser planes |
 
 #![deny(missing_docs)]
 
@@ -472,8 +472,13 @@ pub mod rig_handeye_laserline {
     // Input view
     pub use vision_calibration_pipeline::rig_handeye_laserline::RigHandeyeLaserlineView;
 
-    // Step functions
-    pub use vision_calibration_pipeline::rig_handeye_laserline::run_calibration;
+    // Manual seeds
+    pub use vision_calibration_pipeline::rig_handeye_laserline::JointManualInit;
+
+    // Pipeline functions
+    pub use vision_calibration_pipeline::rig_handeye_laserline::{
+        run_calibration, run_calibration_with_seed,
+    };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

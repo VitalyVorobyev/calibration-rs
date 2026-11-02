@@ -18,6 +18,7 @@ from vision_calibration import (
     planar_intrinsics,
     rig_extrinsics,
     rig_handeye,
+    rig_handeye_laserline,
     rig_laserline_device,
     single_cam_handeye,
 )
@@ -367,6 +368,55 @@ class RigHandeyeLaserlineSessionTest(unittest.TestCase):
         reference = _run_rig_handeye_laserline_raw(payload)
         self.assertEqual(result.cam_se3_rig, reference.cam_se3_rig)
         self.assertEqual(len(result.laser_planes_rig), 2)
+
+    def _rig_handeye_export(self, payload: Any, config: vc.RigHandeyeConfig) -> vc.RigHandeyeExport:
+        """The rig hand-eye stage of the same views, run on its own."""
+        rig = vc.RigHandeyeSession()
+        rig.set_input(
+            {
+                "num_cameras": payload["num_cameras"],
+                "views": [
+                    {"meta": v["meta"], "obs": {"cameras": v["obs"]["cameras"]}}
+                    for v in payload["views"]
+                ],
+            }
+        )
+        rig.set_config(config)
+        rig.run_calibration()
+        return rig.export()
+
+    def test_seeded_with_a_separate_rig_handeye_run_matches_the_run(self) -> None:
+        payload = observation("synth_rig_handeye_laserline")
+        session = vc.RigHandeyeLaserlineSession()
+        session.set_input(payload)
+        session.run_calibration()
+        unseeded = session.export()
+
+        seeded = vc.RigHandeyeLaserlineSession()
+        seeded.set_input(payload)
+        rig_export = self._rig_handeye_export(payload, seeded.config.handeye)
+        seeded.run_calibration_with_seed(
+            rig_handeye_laserline.JointManualInit(rig_handeye=rig_export)
+        )
+        self.assertEqual(seeded.export().export, unseeded.export)
+
+        # Planes alone: the joint solve reaches the same optimum.
+        planes = vc.RigHandeyeLaserlineSession()
+        planes.set_input(payload)
+        planes.run_calibration_with_seed(
+            rig_handeye_laserline.JointManualInit(planes_cam=unseeded.laser_planes_cam)
+        )
+        for plane, reference in zip(planes.export().laser_planes_cam, unseeded.laser_planes_cam):
+            self.assertAlmostEqual(plane.distance, reference.distance, places=6)
+
+    def test_a_seed_that_does_not_fit_raises_value_error(self) -> None:
+        payload = observation("synth_rig_handeye_laserline")
+        session = vc.RigHandeyeLaserlineSession()
+        session.set_input(payload)
+        plane = vc.LaserPlane(normal_xyz=(0.0, 0.0, 1.0), distance=-0.3)
+        with self.assertRaisesRegex(ValueError, "planes_cam"):
+            session.run_calibration_with_seed(rig_handeye_laserline.JointManualInit(planes_cam=[plane]))
+        self.assertFalse(session.has_output)
 
 
 if __name__ == "__main__":

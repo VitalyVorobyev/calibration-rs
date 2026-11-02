@@ -74,7 +74,7 @@ Every problem module uses the same names, so code written against one problem re
 
 - The problem is `<Name>Problem`, with `<Name>Input`, `<Name>Config` and `<Name>Export` (`PlanarIntrinsicsInput`, `RigHandeyeConfig`, …). An input that is a shared data type is a type alias (`PlanarIntrinsicsInput = PlanarDataset`).
 - The problem's output is the final solve's estimate, `*Estimate` (`PlanarIntrinsicsEstimate`, `HandeyeEstimate`, …). The hand-eye estimate is shared by the single-camera and rig workflows and lives in `vision_calibration::common`.
-- A step of stage `<Stage>` and action `<Action>` takes `Option<<Stage><Action>Options>` (`None` keeps the session config) and returns `<Stage><Action>Result`; its `_with_seed` variant takes a `<Stage>ManualInit` before the options. The stages are `Intrinsics`, `Rig` and `Handeye`; the single-stage laser problems use `Device` (camera and laser plane, `laserline_device`) and `Plane` (the laser planes, `rig_laserline_device`).
+- A step of stage `<Stage>` and action `<Action>` takes `Option<<Stage><Action>Options>` (`None` keeps the session config) and returns `<Stage><Action>Result`; its `_with_seed` variant takes a `<Stage>ManualInit` before the options. The stages are `Intrinsics`, `Rig` and `Handeye`; the single-stage laser problems use `Device` (camera and laser plane, `laserline_device`) and `Plane` (the laser planes, `rig_laserline_device`); the joint rig laser solve is the `Joint` stage (`JointOptimizeConfig`, `JointManualInit`).
 - Option types shared by several problems (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …) are one type each, imported from `vision_calibration::common`. Step results and manual seeds are per problem: `rig_handeye::IntrinsicsInitResult` and `planar_intrinsics::IntrinsicsInitResult` are different types.
 - `run_calibration(session)` has the same signature in every problem and runs with the session's config.
 
@@ -117,9 +117,9 @@ Paths are relative to the facade module named after the problem (`vision_calibra
 | `RigExtrinsicsProblem` | `rig_extrinsics` | `step_intrinsics_init_all`, `step_intrinsics_optimize_all`, `step_rig_init`, `step_rig_optimize` | `run_calibration(session)` |
 | `RigHandeyeProblem` | `rig_handeye` | the four rig steps above plus `step_handeye_init`, `step_handeye_optimize` | `run_calibration(session)` |
 | `RigLaserlineDeviceProblem` | `rig_laserline_device` | `step_init`, `step_optimize` | `run_calibration(session)` |
-| `RigHandeyeLaserlineProblem` | `rig_handeye_laserline` | (none; the pipeline is a single joint solve) | `run_calibration(session)` |
+| `RigHandeyeLaserlineProblem` | `rig_handeye_laserline` | (none; the pipeline is a single joint solve) | `run_calibration(session)`, `run_calibration_with_seed(session, manual)` |
 
-The `*_with_seed` variants exist for `step_init` / `step_intrinsics_init` / `step_intrinsics_init_all` / `step_rig_init` / `step_handeye_init` of the problems above.
+The `*_with_seed` variants exist for `step_init` / `step_intrinsics_init` / `step_intrinsics_init_all` / `step_rig_init` / `step_handeye_init` of the problems above. `RigHandeyeLaserlineProblem` has no steps; `run_calibration_with_seed` takes a `JointManualInit` that replaces its rig hand-eye warm start, its starting laser planes, or both.
 
 `step_filter` removes high-residual points from the session input, which invalidates the computed state; run `step_init` and `step_optimize` again afterwards. `run_calibration_with_filtering` does exactly that: solve, filter, solve.
 

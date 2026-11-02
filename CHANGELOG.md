@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the manifest's path. Python: `vc.samples.fetch(id)`,
   `vc.samples.catalogue()`. The cache defaults to the platform's cache
   directory; `VISION_CALIBRATION_DATA` moves it.
+- `rig_handeye_laserline::run_calibration_with_seed` starts the joint rig
+  laser solve from a `JointManualInit`: a rig hand-eye export of the same
+  views (an earlier `rig_handeye` run, so a staged calibration need not
+  solve the rig twice) and/or one laser plane per camera (a design value).
+  A seed that does not fit the input or the config is an `InvalidInput`
+  error raised before any solve; with an empty seed it is
+  `run_calibration`. Python: `RigHandeyeLaserlineSession.run_calibration_with_seed`
+  and `rig_handeye_laserline.JointManualInit`.
 
 ### Changed
 

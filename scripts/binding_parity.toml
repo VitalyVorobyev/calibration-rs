@@ -232,6 +232,7 @@
 "rig_handeye::step_rig_init" = "rig_handeye.RigHandeyeSession.step_rig_init"
 "rig_handeye::step_rig_init_with_seed" = "rig_handeye.RigHandeyeSession.step_rig_init_with_seed"
 "rig_handeye::step_rig_optimize" = "rig_handeye.RigHandeyeSession.step_rig_optimize"
+"rig_handeye_laserline::JointManualInit" = "rig_handeye_laserline.JointManualInit"
 "rig_handeye_laserline::JointOptimizeConfig" = "JointOptimizeConfig"
 "rig_handeye_laserline::RigHandeyeLaserlineConfig" = "RigHandeyeLaserlineConfig"
 "rig_handeye_laserline::RigHandeyeLaserlineEstimate" = "session.CalibrationSession.output"
@@ -240,6 +241,7 @@
 "rig_handeye_laserline::RigHandeyeLaserlineProblem" = "RigHandeyeLaserlineSession"
 "rig_handeye_laserline::RigHandeyeLaserlineView" = "RigHandeyeLaserlineView"
 "rig_handeye_laserline::run_calibration" = ["run_rig_handeye_laserline", "session.CalibrationSession.run_calibration"]
+"rig_handeye_laserline::run_calibration_with_seed" = "rig_handeye_laserline.RigHandeyeLaserlineSession.run_calibration_with_seed"
 "rig_laserline_device::PlaneInitOptions" = "PlaneInitOptions"
 "rig_laserline_device::PlaneManualInit" = "rig_laserline_device.PlaneManualInit"
 "rig_laserline_device::PlaneOptimizeOptions" = "PlaneOptimizeOptions"

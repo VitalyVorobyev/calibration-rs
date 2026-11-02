@@ -255,6 +255,11 @@ fn every_problem_follows_the_vocabulary() {
     let _: fn(&mut Rld, Option<rld::PlaneOptimizeOptions>) -> Result<(), Error> =
         rld::step_optimize;
 
+    // The joint rig laser problem has no steps; its seeded runner takes the
+    // warm start's `JointManualInit`.
+    type Rhl = session::CalibrationSession<rhl::RigHandeyeLaserlineProblem>;
+    let _: fn(&mut Rhl, rhl::JointManualInit) -> Result<(), Error> = rhl::run_calibration_with_seed;
+
     // Shared step options are one type, reachable only from `common`.
     let _: common::IntrinsicsInitOptions = common::IntrinsicsInitOptions::default();
     let _: common::RigInitOptions = common::RigInitOptions::default();
