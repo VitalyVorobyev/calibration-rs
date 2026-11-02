@@ -304,9 +304,9 @@ pub fn candidate_poses(
             );
             let ray = model
                 .backproject_pixel(&pixel)
-                .point_at_unit_depth()
-                .ok_or_else(|| Error::numerical(format!("no camera ray reaches pixel {pixel}")))?
-                .normalize();
+                .direction
+                .try_normalize(0.0)
+                .ok_or_else(|| Error::numerical(format!("no camera ray reaches pixel {pixel}")))?;
             for &(about_x, about_y) in tilts {
                 let rotation: UnitQuaternion<f64> =
                     Rotation3::from_euler_angles(about_x, about_y, 0.0).into();
@@ -409,10 +409,10 @@ impl<'a> Planner<'a> {
             .iter()
             .filter(|point| {
                 let p_c = camera_se3_target.transform_point(point).coords;
-                p_c.z > 0.0
-                    && self.model.project_point_c(&p_c).is_some_and(|q| {
-                        (0.0..=width).contains(&q.x) && (0.0..=height).contains(&q.y)
-                    })
+                // `project_point_c` is `None` outside the projection's domain.
+                self.model
+                    .project_point_c(&p_c)
+                    .is_some_and(|q| (0.0..=width).contains(&q.x) && (0.0..=height).contains(&q.y))
             })
             .copied()
             .collect();

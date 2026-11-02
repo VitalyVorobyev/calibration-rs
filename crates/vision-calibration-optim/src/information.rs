@@ -63,7 +63,8 @@ pub struct ViewInformation {
 /// # Errors
 ///
 /// [`Error::InvalidInput`] for a camera model the solver does not estimate
-/// (a general sensor homography) or a point not in front of the camera;
+/// (a general sensor homography) or a point outside the projection's
+/// domain (behind a pinhole camera);
 /// [`Error::Numerical`] when the points do not determine an estimated pose
 /// (fewer than three, or a degenerate configuration).
 pub fn view_information(
@@ -80,9 +81,12 @@ pub fn view_information(
     let mut a = DMatrix::<f64>::zeros(n + 6, n + 6);
     for point in points {
         let p_c = camera_se3_target.transform_point(point).coords;
-        if !p_c.z.is_finite() || p_c.z <= 0.0 {
+        let projection = camera.projection.values();
+        if !p_c.iter().all(|v| v.is_finite())
+            || !model.model.projection.in_domain(&projection, &p_c)
+        {
             return Err(Error::invalid_input(format!(
-                "target point {point} is not in front of the camera"
+                "target point {point} is outside the camera's field of view"
             )));
         }
         x.rows_mut(n, 3).copy_from(&p_c);
@@ -308,6 +312,37 @@ mod tests {
                 assert!((e - m).abs() < 1e-5, "({i}, {j}): exact {e}, numeric {m}");
             }
         }
+    }
+
+    #[test]
+    fn a_fisheye_view_beyond_ninety_degrees_has_information() {
+        use vision_calibration_core::DistortionKind;
+        let fisheye = CameraParams {
+            projection: ProjectionParams::Equidistant,
+            distortion: DistortionParams::from_values(
+                DistortionKind::KannalaBrandt4,
+                &[-0.02, 0.002, 0.0, 0.0],
+            )
+            .unwrap(),
+            sensor: SensorParams::Identity,
+            intrinsics: FxFyCxCy {
+                fx: 300.0,
+                fy: 300.0,
+                cx: 640.0,
+                cy: 400.0,
+            },
+        };
+        // A board beside the camera, partly behind its image plane.
+        let beside = Iso3::from_parts(
+            Translation3::new(0.25, -0.09, 0.05),
+            Rotation3::from_euler_angles(0.0, 1.4, 0.0).into(),
+        );
+        assert!(board().iter().any(|p| beside.transform_point(p).z < 0.0));
+        let info = view_information(&fisheye, &beside, &board(), ViewPose::Estimated).unwrap();
+        assert!(info.matrix.iter().all(|v| v.is_finite()));
+        // Straight back is outside the equidistant domain.
+        let behind = Iso3::translation(0.0, 0.0, -0.5);
+        assert!(view_information(&fisheye, &behind, &[Pt3::origin()], ViewPose::Fixed).is_err());
     }
 
     #[test]
