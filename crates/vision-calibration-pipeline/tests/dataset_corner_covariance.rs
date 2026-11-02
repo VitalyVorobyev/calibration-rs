@@ -236,3 +236,46 @@ fn a_view_without_corners_is_not_a_covariance_fault() {
         "{err:?}"
     );
 }
+
+#[test]
+fn calibrate_dataset_matches_the_session_route() {
+    use vision_calibration_pipeline::dataset_runner::{CalibrationExport, calibrate_dataset};
+
+    let dir = tempfile::tempdir().unwrap();
+    let files = write_views(dir.path());
+    let cache = FsDetectionCache::new(dir.path().join("cache"));
+    let spec = spec(&files, json!({}));
+
+    let run = build_planar_input(&spec, dir.path(), Detection::Cached(&cache)).unwrap();
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session.set_input(run.input).unwrap();
+    run_calibration(&mut session).unwrap();
+    let by_session = session.export().unwrap();
+
+    let one_call = calibrate_dataset(&spec, dir.path(), None, Detection::Cached(&cache), None)
+        .expect("calibrate_dataset");
+    assert_eq!(one_call.usable_views, run.usable_views);
+    assert_eq!(one_call.total_views, run.total_views);
+    assert_eq!(one_call.rejected.len(), run.rejected.len());
+    let CalibrationExport::PlanarIntrinsics(export) = &one_call.export else {
+        panic!("a planar manifest exports a planar calibration");
+    };
+    // The same route, so the same numbers, bit for bit.
+    assert_eq!(
+        serde_json::to_value(export).unwrap(),
+        serde_json::to_value(&by_session).unwrap()
+    );
+    // The enum serializes as the problem's own export.
+    assert_eq!(
+        serde_json::to_value(&one_call.export).unwrap(),
+        serde_json::to_value(&by_session).unwrap()
+    );
+    // And the analyses take it as they take the problem's export.
+    use vision_calibration_pipeline::analysis::{QualityThresholds, assess};
+    let sizes = [[WIDTH, HEIGHT]];
+    let thresholds = QualityThresholds::default();
+    assert_eq!(
+        serde_json::to_value(assess(&one_call.export, &sizes, &thresholds).unwrap()).unwrap(),
+        serde_json::to_value(assess(&by_session, &sizes, &thresholds).unwrap()).unwrap()
+    );
+}
