@@ -351,11 +351,10 @@ impl ProblemType for RigHandeyeProblem {
             });
         }
 
-        if input.num_cameras < 2 {
-            return Err(Error::InsufficientData {
-                need: 2,
-                got: input.num_cameras,
-            });
+        // One camera is a rig too: the joint laser workflow's warm start
+        // calibrates a single laser head as one (`rig_handeye_laserline`).
+        if input.num_cameras == 0 {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
         }
 
         // Check each view has correct number of cameras and robot pose
@@ -541,8 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_input_requires_2_cameras() {
-        // Create single-camera input (should fail)
+    fn validate_input_accepts_one_camera() {
         let views = (0..3)
             .map(|_| RigView {
                 meta: RobotPoseMeta {
@@ -555,9 +553,7 @@ mod tests {
             .collect();
 
         let input = RigDataset::new(views, 1).unwrap();
-        let result = RigHandeyeProblem::validate_input(&input);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("need 2"));
+        assert!(RigHandeyeProblem::validate_input(&input).is_ok());
     }
 
     #[test]

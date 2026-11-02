@@ -338,10 +338,12 @@ fn topology_camera_range(t: Topology) -> (usize, usize) {
         }
         // Rig topologies need at least two cameras; the upper bound is
         // unconstrained (puzzle 130×130 ships with 6).
-        Topology::RigExtrinsics
-        | Topology::RigHandeye
-        | Topology::RigLaserlineDevice
-        | Topology::RigHandeyeLaserline => (2, usize::MAX),
+        Topology::RigExtrinsics | Topology::RigHandeye | Topology::RigLaserlineDevice => {
+            (2, usize::MAX)
+        }
+        // The joint laser hand-eye also takes one camera carrying its laser
+        // (a triangulation head on a robot).
+        Topology::RigHandeyeLaserline => (1, usize::MAX),
     }
 }
 
@@ -892,6 +894,25 @@ mod tests {
         validate(&laserline_minimal()).unwrap();
         validate(&rig_laserline_minimal()).unwrap();
         validate(&rig_handeye_laserline_minimal()).unwrap();
+    }
+
+    #[test]
+    fn the_joint_laser_hand_eye_takes_one_camera() {
+        // One camera carrying its laser, on a robot: a triangulation head.
+        let mut head = rig_handeye_laserline_minimal();
+        head.cameras.truncate(1);
+        validate(&head).unwrap();
+        // The rig laser device still needs a rig.
+        let mut rig = rig_laserline_minimal();
+        rig.cameras.truncate(1);
+        assert!(matches!(
+            validate(&rig).unwrap_err(),
+            ValidationError::WrongCameraCount {
+                expected_min: 2,
+                got: 1,
+                ..
+            }
+        ));
     }
 
     #[test]

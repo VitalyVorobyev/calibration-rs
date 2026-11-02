@@ -12,7 +12,7 @@ Top-level dataset manifest. Authoritative description of where the user's calibr
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `cameras` | array of [CameraSource](#camerasource) | yes | | Per-camera image sources. Length must match the topology's expected camera count (a single-camera topology requires exactly one entry, a rig topology at least two). |
+| `cameras` | array of [CameraSource](#camerasource) | yes | | Per-camera image sources. Length must match the topology's expected camera count (a single-camera topology requires exactly one entry, a rig topology at least two, `rig_handeye_laserline` at least one). |
 | `target` | [TargetSpec](#targetspec) | yes | | Calibration-target specification. Tagged enum on `kind`. |
 | `topology` | [Topology](#topology) | yes | | Calibration topology — selects which problem type the runner will dispatch to. |
 | `_unresolved` | array of string | no | | Field paths the manifest generator could not determine. Validated to be empty before the runner accepts the manifest. Populated as e.g. `["pose_convention.transform"]`. |

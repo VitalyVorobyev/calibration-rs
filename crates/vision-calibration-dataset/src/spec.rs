@@ -29,7 +29,8 @@ pub struct DatasetSpec {
 
     /// Per-camera image sources. Length must match the topology's
     /// expected camera count (a single-camera topology requires exactly
-    /// one entry, a rig topology at least two).
+    /// one entry, a rig topology at least two, `rig_handeye_laserline` at
+    /// least one).
     pub cameras: Vec<CameraSource>,
 
     /// Calibration-target specification. Tagged enum on `kind`.

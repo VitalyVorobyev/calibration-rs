@@ -8,6 +8,13 @@
 //!
 //! [`run_calibration_with_seed`] starts from an earlier rig hand-eye result
 //! and/or given laser planes ([`JointManualInit`]) instead of estimating them.
+//!
+//! A rig of one camera is a laser triangulation head on a robot: its
+//! camera, laser plane and hand-eye come out of one solve, so the plane and
+//! the hand-eye share one camera frame. Calibrating the head with
+//! [`crate::laserline_device`] and the hand-eye separately with
+//! [`crate::single_cam_handeye`] gives each its own camera estimate, which
+//! do not compose unless the second holds the first's camera fixed.
 
 mod problem;
 mod state;
