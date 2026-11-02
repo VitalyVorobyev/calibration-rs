@@ -6,16 +6,6 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 match the ROADMAP; each says its phase. Dependencies are named as
 `Needs: <ID>`. Phase 1b tracks are listed in the order they run.
 
-## Extension API — EXT (Phase 1b)
-
-A user builds their own pipeline from the facade. The public problem
-builder (ADR 0027, `optim::problem`) takes residuals of their own; what
-remains is showing how a whole pipeline is composed from it.
-
-- [ ] EXT-COMPOSE - A book chapter "Compose your own pipeline": closed-form
-  init → IR → solve → σ from the public pieces. The contributor chapters on
-  new problem types say they are for contributors.
-
 ## Multiple-view geometry — MVG (Phase 1b)
 
 Measurements from a calibrated system with error bars. Today MVG takes a
@@ -30,6 +20,11 @@ Python binding and no real-data demonstration.
   - MVG takes calibrated cameras (`CameraParams`, rig exports);
   - σ propagation from measurement noise and the calibration's covariance,
     keeping the cross-covariance a shared calibration induces;
+  - a camera known only by its values and covariance (a workflow's
+    export) enters an `optim::problem` as a prior. Today a measurement
+    gets the calibration's σ only by solving jointly with the calibration's
+    observations; a camera held fixed understates σ(depth) 2.5× in the
+    book's "Compose Your Own Pipeline" setup;
   - gauge and scale anchoring for BA.
 - [ ] MVG-CAMERA-IN - MVG APIs take the composable camera and rig exports
   instead of a bare `K`, so every camera model works (bearings through the

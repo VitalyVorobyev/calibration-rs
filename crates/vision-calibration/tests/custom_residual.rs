@@ -3,9 +3,12 @@
 //! residual, a residual of your own with a known σ, and a covariance that
 //! matches the scatter of the estimates over repeated noise.
 
+mod common;
+
+use common::{Truth, depth_variance, gauss, observe_board, scatter_over_stated, truth};
 use vision_calibration::core::{
-    BrownConrady5, CameraFix, CameraParams, CorrespondenceView, FxFyCxCy, Iso3,
-    ParameterCovariance, PlanarDataset, Pt2, Pt3, View, make_pinhole_camera, pinhole_camera_params,
+    CameraFix, CameraParams, CorrespondenceView, Iso3, PlanarDataset, Pt2, Pt3, View,
+    pinhole_camera_params,
 };
 use vision_calibration::init::{
     IterativeIntrinsicsOptions, estimate_intrinsics_iterative, estimate_planar_pose_from_h,
@@ -16,7 +19,6 @@ use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::{
     BlockId, CameraId, Noise, Problem, Residual, Solution, SolveOptions, se3, solve,
 };
-use vision_calibration::synthetic::{planar, poses};
 
 /// A measured distance from the camera centre to the board's origin: the
 /// length of the translation of `camera_se3_target`.
@@ -37,81 +39,12 @@ impl Residual for Range {
     }
 }
 
-const PIXEL_SIGMA: f64 = 0.3;
 const RANGE_SIGMA: f64 = 2e-4;
-
-/// A deterministic standard normal draw for `key`.
-fn gauss(key: u64) -> f64 {
-    let mix = |mut z: u64| {
-        z = z.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    };
-    let uniform = |z: u64| ((mix(z) >> 11) as f64 + 0.5) / (1u64 << 53) as f64;
-    let (u1, u2) = (uniform(2 * key), uniform(2 * key + 1));
-    (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
-}
-
-/// The true camera, board and board poses.
-struct Truth {
-    camera: CameraParams,
-    board: Vec<Pt3>,
-    poses: Vec<Iso3>,
-}
-
-fn truth() -> Truth {
-    let k = FxFyCxCy {
-        fx: 820.0,
-        fy: 810.0,
-        cx: 640.0,
-        cy: 360.0,
-    };
-    let distortion = BrownConrady5 {
-        k1: -0.12,
-        k2: 0.03,
-        k3: 0.0,
-        p1: 0.0,
-        p2: 0.0,
-        iters: 8,
-    };
-    Truth {
-        camera: pinhole_camera_params(&make_pinhole_camera(k, distortion)),
-        board: planar::grid_points(9, 6, 0.03),
-        poses: poses::tilted_board_poses(
-            &poses::seeded_tilts(8, 0.4, 7),
-            (0.12, 0.075),
-            0.45,
-            0.02,
-        ),
-    }
-}
 
 /// Noisy pixels of every view and a noisy range of view 0, from `seed`.
 fn observe(truth: &Truth, seed: u64) -> (Vec<Vec<Pt2>>, f64) {
-    let model = truth.camera.build().unwrap();
-    let key = |v: usize, i: usize, axis: u64| (seed << 32) + 2 * (1000 * v + i) as u64 + axis;
-    let pixels = truth
-        .poses
-        .iter()
-        .enumerate()
-        .map(|(v, pose)| {
-            truth
-                .board
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let q = model.project_point(&pose.transform_point(p)).unwrap();
-                    Pt2::new(
-                        q.x + PIXEL_SIGMA * gauss(key(v, i, 0)),
-                        q.y + PIXEL_SIGMA * gauss(key(v, i, 1)),
-                    )
-                })
-                .collect()
-        })
-        .collect();
     let range = truth.poses[0].translation.vector.norm() + RANGE_SIGMA * gauss((seed << 32) - 1);
-    (pixels, range)
+    (observe_board(truth, seed), range)
 }
 
 /// A solve, with its camera and the pose block of each view.
@@ -215,33 +148,13 @@ fn a_problem_starts_from_the_closed_form_initializers() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The stated variance of a pose's translation along the camera's z axis.
-///
-/// A pose's covariance is over its right-perturbation tangent: `T·Exp(δ)`
-/// moves the translation by `R·δt`, a step in the board's frame. Rotated
-/// into the camera frame, the depth's variance is `r₃ᵀ Σ_t r₃` with `r₃`
-/// the third row of `R`.
-fn depth_variance(cov: &ParameterCovariance, view: usize, pose: &Iso3) -> f64 {
-    let at = |c: &str| {
-        let label = format!("view{view}.{c}");
-        cov.labels.iter().position(|l| *l == label).unwrap()
-    };
-    let t = [at("tx"), at("ty"), at("tz")];
-    let r = pose.rotation.to_rotation_matrix();
-    let row = [r[(2, 0)], r[(2, 1)], r[(2, 2)]];
-    (0..3)
-        .flat_map(|a| (0..3).map(move |b| (a, b)))
-        .map(|(a, b)| row[a] * cov.covariance[t[a]][t[b]] * row[b])
-        .sum()
-}
-
 #[test]
 fn the_stated_sigma_matches_the_scatter_of_the_estimates() {
     let truth = truth();
     let runs = 120;
     let names = ["fx", "cx", "view 0 depth", "view 3 depth"];
     let mut estimates = vec![Vec::new(); names.len()];
-    let mut variances = vec![0.0; names.len()];
+    let mut variances = vec![Vec::new(); names.len()];
     for seed in 0..runs {
         let (pixels, range) = observe(&truth, seed + 100);
         let refined = refine(&truth.board, &pixels, range, &truth.camera, &truth.poses);
@@ -256,8 +169,8 @@ fn the_stated_sigma_matches_the_scatter_of_the_estimates() {
         let stated = [
             cov.covariance[fx][fx],
             cov.covariance[cx][cx],
-            depth_variance(cov, 0, &truth.poses[0]),
-            depth_variance(cov, 3, &truth.poses[3]),
+            depth_variance(cov, "view0", &truth.poses[0]),
+            depth_variance(cov, "view3", &truth.poses[3]),
         ];
         let values = [
             camera.intrinsics.fx,
@@ -266,21 +179,17 @@ fn the_stated_sigma_matches_the_scatter_of_the_estimates() {
             refined.pose(3).translation.z,
         ];
         for k in 0..names.len() {
-            variances[k] += stated[k] / runs as f64;
+            variances[k].push(stated[k]);
             estimates[k].push(values[k]);
         }
     }
     for (k, name) in names.iter().enumerate() {
-        let mean = estimates[k].iter().sum::<f64>() / runs as f64;
-        let scatter = (estimates[k].iter().map(|x| (x - mean).powi(2)).sum::<f64>()
-            / (runs - 1) as f64)
-            .sqrt();
-        let stated = variances[k].sqrt();
+        let ratio = scatter_over_stated(&estimates[k], &variances[k]);
         // The sample standard deviation of 120 draws is within ±20 % of the
         // true one at about 3σ.
         assert!(
-            (scatter / stated - 1.0).abs() < 0.2,
-            "{name}: stated σ {stated:.3e}, scatter {scatter:.3e}"
+            (ratio - 1.0).abs() < 0.2,
+            "{name}: scatter / stated σ {ratio:.3}"
         );
     }
 }
