@@ -23,6 +23,9 @@ the private examples:
    outside the workspace and CI, so a stale pin breaks only the private
    examples.
 
+On a minor bump, also move the install snippets to the new `"X.Y"`
+(`grep -rn 'vision-calibration = ' README.md crates/*/README.md book/src`).
+
 Then refresh the lockfiles:
 
 ```bash
