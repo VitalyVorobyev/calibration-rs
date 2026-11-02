@@ -108,3 +108,84 @@ calibration whose corners are extrapolated to tens of pixels of σ is far
 enough from the truth that its Jacobians are not the re-solve's, and the
 prediction can then be off by tens of percent. Take a few spread views
 first; plan from there.
+
+## Planning the next robot pose
+
+A rig hand-eye calibration estimates more than its cameras: the rig, the
+hand-eye and the target pose. Its next view is a robot pose, and the target
+pose follows from the calibration's own chain. `predict_with_robot_poses`
+predicts the covariance with views at candidate robot poses added, and
+`rank_robot_poses` orders the candidates.
+
+```rust
+use vision_calibration::analysis::{predict_with_robot_poses, rank_robot_poses};
+
+let export = session.export()?; // a rig hand-eye export
+let board = vision_calibration::synthetic::planar::grid_points(9, 7, 0.03);
+let image_sizes = [[1280, 960], [1280, 960]]; // one per camera
+
+// Robot poses the arm can reach (`base_se3_gripper`), from the application.
+let ranked = rank_robot_poses(&export, &reachable, &board, &image_sizes)?;
+let best = &ranked[0];
+println!(
+    "move to pose {}: ln det Σ −{:.2}, max projection σ {:.2} px",
+    best.index, best.log_det_reduction, best.max_projection_sigma_px
+);
+
+let picks: Vec<_> = ranked[..3].iter().map(|r| reachable[r.index]).collect();
+let predicted = predict_with_robot_poses(&export, &picks, &board, &image_sizes)?;
+println!(
+    "σ(hand-eye tz) {:.3} mm",
+    1e3 * predicted.covariance.std_dev("gripper_se3_rig.tz").unwrap()
+);
+```
+
+```python
+ranked = vc.rank_robot_poses(result, reachable, board, [(1280, 960), (1280, 960)])
+best = ranked[0]
+print(f"move to pose {best.index}: ln det Σ −{best.log_det_reduction:.2}")
+
+picks = [reachable[r.index] for r in ranked[:3]]
+predicted = vc.predict_with_robot_poses(result, picks, board, [(1280, 960), (1280, 960)])
+print(f"σ(hand-eye tz) {1e3 * predicted.covariance.std_dev('gripper_se3_rig.tz'):.3f} mm")
+```
+
+A candidate is a `base_se3_gripper` pose. Each camera sees the target
+through the result's chain at that pose: eye-in-hand, the rig on the gripper
+and the target in the base; eye-to-hand, the rig in the base and the target
+on the gripper. Points behind a camera or outside its image are dropped, and
+a camera that keeps fewer than four adds nothing.
+
+**What the view adds.** Its information is exact over every parameter the
+result estimated: each camera's intrinsics and distortion, each camera's
+`cam_se3_rig`, the hand-eye and the target pose, in the coordinates the
+covariance reports them. A robot pose adds no unknown when the calibration
+took the robot poses as exact. A calibration that corrected them
+(`robot_poses.refine`, the default) corrects the candidate's too: the
+correction is marginalized under the result's robot pose error, weighed
+against its reprojection noise as the solve weighed it.
+
+**The scale** is read off the result as for a planar calibration: the
+existing views' information is rebuilt from the export's observed target
+points at the robot poses it solved with, and `σ²` relates it to `Σ`. With
+exact robot poses that relation is exact. With corrected ones it holds when
+the corner noise is Gaussian: the solve weighs its robot pose priors at a
+median-based estimate of that noise, which overstates a heavy-tailed noise's
+σ.
+
+**The ranking** is by `log_det_reduction`, the shrinkage of the whole
+covariance's volume. A view that pins down the hand-eye counts as much as one
+that pins down a lens, and the score does not depend on units. The largest
+projection σ over every camera's image is reported alongside, for the lenses
+alone.
+
+**How far to trust it.** On synthetic two-camera rigs (a 9 × 7 board, six
+base robot poses, 0.2 px Gaussian noise, both modes, with and without robot
+pose corrections), the predicted σ of each parameter matches a re-solve with
+the views actually added to within 0.1–1.2 % on average, for the best-,
+median- and worst-ranked candidate and the best three at once; the largest
+single-parameter difference is 9.6 %. The best-ranked candidate's real
+reduction of `ln det Σ` beats the worst one's in every scene.
+
+A rig hand-eye laserline calibration is not planned this way: its laser
+residuals are not part of the prediction.

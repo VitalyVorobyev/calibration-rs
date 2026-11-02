@@ -80,8 +80,9 @@ use vision_calibration_linear::pnp::PnpSolver;
 
 mod next_view;
 pub use next_view::{
-    CandidateGrid, PredictedUncertainty, RankedCandidate, candidate_poses, predict_with_views,
-    rank_candidates,
+    CandidateGrid, PredictedRigUncertainty, PredictedUncertainty, RankedCandidate, RankedRobotPose,
+    candidate_poses, predict_with_robot_poses, predict_with_views, rank_candidates,
+    rank_robot_poses,
 };
 mod report;
 pub use report::{ReportOptions, html_report};

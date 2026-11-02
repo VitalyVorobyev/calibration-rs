@@ -103,7 +103,10 @@ pub use crate::problems::rig_handeye_laserline_bundle::{
 #[doc(hidden)]
 pub use crate::backend::BackendSolveOptions;
 #[doc(hidden)]
-pub use crate::information::{ViewInformation, ViewPose, view_information};
+pub use crate::information::{
+    RigHandeyeGeometry, RigViewInformation, RobotPose, ViewInformation, ViewPose,
+    rig_handeye_view_information, view_information,
+};
 #[doc(hidden)]
 pub use crate::params::camera::CameraBounds;
 #[doc(hidden)]

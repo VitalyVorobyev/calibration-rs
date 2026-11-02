@@ -1586,6 +1586,34 @@ align with robot poses.
 """
 
 
+class PredictedRigUncertainty(TypedDict):
+    """The covariance a rig hand-eye calibration is predicted to have with
+    views at candidate robot poses added.
+    """
+
+    covariance: ParameterCovariance
+    """The predicted covariance of the parameters the result estimated, with
+    the result's labels, fixed list and noise levels. Per-view blocks are
+    not predicted (`views` is empty); `num_residuals` and `dof` count the
+    candidates' visible points.
+    """
+
+    effective_noise_px: float
+    """The standard deviation of a pixel residual (per axis) the result's
+    covariance implies, which scales the candidates' information, in
+    pixels.
+    """
+
+    projection: list[ProjectionUncertainty]
+    """Each camera's predicted projection uncertainty over its image."""
+
+    visible_points: list[list[int]]
+    """Per candidate, in order, per camera, the target points that land in
+    that camera's image. A camera that sees fewer than four adds no
+    information.
+    """
+
+
 class PredictedUncertainty(TypedDict):
     """The covariance a calibration is predicted to have with candidate views
     added.
@@ -1808,6 +1836,35 @@ class RankedCandidate(TypedDict):
     visible_points: int
     """Target points that land in the image. Fewer than four add no
     information.
+    """
+
+
+class RankedRobotPose(TypedDict):
+    """One candidate robot pose, scored by the uncertainty its view would
+    leave.
+    """
+
+    index: int
+    """The candidate's position in the list given to `rank_robot_poses`."""
+
+    log_det_reduction: float
+    """`ln det Σ − ln det Σ′`, the reduction of the log-volume of the whole
+    covariance (≥ 0, unit-free).
+    """
+
+    max_projection_sigma_px: float
+    """The largest projection σ over every camera's image with this view
+    added, in pixels.
+    """
+
+    projection_sigma_reduction_px: float
+    """The current largest projection σ minus `max_projection_sigma_px`, in
+    pixels (≥ 0).
+    """
+
+    visible_points: list[int]
+    """Per camera, the target points that land in its image. A camera that
+    sees fewer than four adds no information.
     """
 
 
@@ -3288,6 +3345,7 @@ __all__ = [
     "PosePairing",
     "PosePairing_ByIndex",
     "PosePairing_SharedFilenameToken",
+    "PredictedRigUncertainty",
     "PredictedUncertainty",
     "ProjectionKind",
     "ProjectionParams",
@@ -3298,6 +3356,7 @@ __all__ = [
     "QualityReport",
     "QualityThresholds",
     "RankedCandidate",
+    "RankedRobotPose",
     "ResidualKind",
     "ResidualNoise",
     "RigConfig",
