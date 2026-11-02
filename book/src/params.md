@@ -37,7 +37,7 @@ pub enum SensorParams {
 
 The `params` payloads are flattened in JSON, so a Brown-Conrady camera serializes as `{"type": "brown_conrady5", "k1": ..., "k2": ..., ...}`.
 
-The enums are `#[non_exhaustive]`: new models arrive in minor releases, so a `match` on one needs a wildcard arm. Code that should work for every model reads the values instead, in the order the model's kind names them:
+The enums are `#[non_exhaustive]`: new models arrive in non-breaking releases, so a `match` on one needs a wildcard arm. Code that should work for every model reads the values instead, in the order the model's kind names them:
 
 ```rust
 let d = &camera.distortion;

@@ -32,7 +32,7 @@ Every end-to-end workflow is a `ProblemType` driven through a mutable
 ## Consequences
 
 - A new problem type is mechanical: a module, a `ProblemType`, its steps
-  (AGENTS.md §1 lists the steps).
+  (AGENTS.md §10 lists the steps).
 - Steps compose without trait hierarchies, and a caller can run, replace or
   seed any one of them (ADR 0011).
 - The mutable session is less idiomatic than a builder, but it matches the

@@ -29,7 +29,7 @@ freely. `DatasetSpec::from_path` reads a TOML or JSON manifest.
 
 ### Ambiguity fails fast
 
-Nothing that changes a result's meaning is defaulted (AGENTS.md §4):
+Nothing that changes a result's meaning is defaulted (AGENTS.md §5):
 
 - The pose convention is three closed enums — transform direction,
   rotation format, translation units — with no defaults, required whenever

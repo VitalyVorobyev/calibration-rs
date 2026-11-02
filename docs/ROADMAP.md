@@ -14,30 +14,48 @@ itself in four ways:
 - quality gates turn that uncertainty into pass/warn/fail verdicts;
 - multiple-view geometry is built on the same uncertainty, so a
   measurement from a calibrated system comes with error bars;
-- the same capabilities are available in Rust and Python, explained in an
-  interactive book, and usable without code in the desktop app.
+- the same capabilities are available in Rust, Python and a command-line
+  tool, explained in an interactive book, and usable without code in the
+  desktop app.
 
 ## State
 
-Pre-1.0 (0.x): breaking changes are allowed, each listed in the CHANGELOG
-with migration notes. The published packages are listed in AGENTS.md.
+Pre-1.0 (0.x). The version rule is AGENTS.md §8: a breaking release is a
+minor (`0.x.0`) with migration notes, everything else a patch (`0.x.y`).
+The published packages are listed in AGENTS.md.
 
 ## Phases
 
-The program runs in two phases. **Phase 1** holds every breaking change
-and ends with v1.0. **Phase 2** adds capability in 1.x without breaking
-the API. The book and app tracks are not bound by semver, so they run
-alongside both phases. Track names below match the backlog headings.
+**Phase 1** (done, 0.12) built the foundation. **Phase 1b** makes the
+library clear to use, extensible and measured, and holds every remaining
+breaking change; it ends with v1.0. **Phase 2** adds capability in 1.x
+without breaking the API. The book and app tracks are not bound by semver
+and run alongside. Track names below match the backlog headings.
 
-### Phase 1 — Foundation, then v1.0
+### Phase 1 — Foundation (done)
+
+One camera-model spec across every problem type (`#[non_exhaustive]`
+enums, Kannala-Brandt fisheye as the second projection, agreeing with
+OpenCV's `fisheye` within 0.01σ); parameter uncertainty whose stated σ
+matches real split-half scatter (`r` 1.03 pooled); the quality report;
+Python parity enforced in CI; the public regression suite fetched from its
+publishers; the API audit and the public-dependency policy.
+
+### Phase 1b — Usable, extensible, measured
+
+The 0.12 review found a library that calibrates well but is not ready to
+freeze: a first real-image run needs a source checkout, a user cannot add
+a residual or compose a pipeline without forking, and multiple-view
+geometry takes a bare `K`, carries no covariance and has no demonstration.
 
 | Track | Goal | Gate |
 |---|---|---|
-| API | One configuration vocabulary. Every problem type takes the same camera-model spec (projection, distortion, sensor), and factors and bundles are generic over it. One naming scheme for inputs, outputs and step functions, identical in Rust and Python. | Every problem accepts every distortion and sensor model; the facade compile-surface test and the binding parity check pass |
-| UQ | Uncertainty as a product: per-feature covariance from the detectors, a variance-factor test of the noise model, joint covariance for rigs, and a quality report with verdicts | Predicted scatter matches Monte-Carlo scatter (proof pack) and real split-half scatter; `calib-bench accept` gates on the quality report |
-| PY | Python parity: sessions and steps, manifest-driven runs, detectors, camera models with vectorized projection, quality report; types generated from the same JSON schemas as the app | The parity map in CI lists no unmapped facade item |
-| Data | The public regression suite fetches its images from their publishers | `calib-bench suite fetch` plus a scheduled freeze check |
-| CAM-KB | The camera-model enums take new models without a breaking release (`#[non_exhaustive]`), and Kannala-Brandt fisheye proves it: a second projection (equidistant) with its own initializer and rays beyond 90°, so 1.0 freezes an API a second real projection has exercised | Synthetic matrix test across every problem type; OpenCV `fisheye` comparison on a public fisheye set; Python; book chapter |
+| USE | A newcomer reaches a result on their own images from the book alone: a workflow chooser, a real-image quickstart, sample data fetched without a checkout, runnable docs.rs examples, capture guidance | Every quickstart and example runs from a crates.io / PyPI install; `check-docs` |
+| CLI | `vcal`: manifest in, export and report out, plus `init`, `check` and sample fetch, as a thin layer over the dataset runner; one HTML report shared with the app | CLI integration tests on the public suite data; the report renders every workflow |
+| EXT | Build your own pipeline: a public residual trait and IR builder with covariance over labelled blocks, the closed-form initializers on the facade, and a book chapter on each | A downstream test crate that uses only the facade defines a residual, solves and reads σ |
+| MVG | Measurements with error bars: MVG takes calibrated cameras (any camera model, rig exports), observations carry covariance, triangulation, BA, stereo and a metrology API return σ that includes the calibration's covariance; BA on the optimization IR, built on the EXT API | Monte-Carlo agreement for every propagated σ; a real-data walk-through measuring known board lengths with predicted σ checked against the actual error; Python bindings |
+| CORRECT | Rig initialization through a co-visibility graph, more hand-eye initializers, progress and cancellation through the solver | Synthetic-GT matrix per feature |
+| LEAN | Shared step logic of the problem types factored once; MVG and geometry free of duplicate solvers | Library code lines down, results bit-identical |
 
 ### v1.0 exit criteria
 
@@ -47,68 +65,65 @@ alongside both phases. Track names below match the backlog headings.
    the repository, images fetched from their publishers and verified by
    checksum) gates every PR, with reference results compared against OpenCV.
 3. **Uncertainty** — every result carries its parameter covariance,
-   projection uncertainty and quality report. Rig results include the
-   intrinsics. The estimator is validated by Monte-Carlo, and its predicted
-   σ against real-image scatter (split-half consistency). The detector's
-   per-corner covariance does not weight results by default: the
-   pre-registered real-data study (`notes/feature-covariance-study.md`)
-   advised against it.
+   projection uncertainty and quality report, validated by Monte-Carlo and
+   against real-image scatter (split-half consistency). The detector's
+   per-corner covariance does not weight results by default
+   (`notes/feature-covariance-study.md`).
 4. **Soundness** — every shipped algorithm family has a proof pack
    ([`notes/`](notes/README.md)): math note, synthetic-GT matrix test,
    property tests where an invariant exists, and a committed regression
    baseline with a drift gate.
 5. **Frozen API** — facade-only consumers; one camera-model spec across all
-   problem types; normalized configs
+   problem types and MVG; normalized configs
    ([ADR 0024](adrs/0024-api-vocabulary.md)); typed errors; no duplicate
-   public type names and no deprecated shims; the API unchanged across two
-   consecutive minor releases.
-6. **Python parity** — every facade capability is in the Python package,
-   enforced in CI.
-7. **App CI green** — lint (zero warnings), format, typecheck, unit,
-   component and smoke tests, generated IPC types in sync.
-8. **Docs current** — README, crate READMEs, the book, ADRs and this file
-   describe the code as it is, and user-facing docs carry no internal
-   references (`cargo xtask check-docs`).
-9. **Public dependencies** — only `nalgebra` reaches the facade's
-   signatures, and its bump policy is recorded (AGENTS.md §6): the version
-   follows the solver backends, and a bump is a breaking release. 1.0 ships
-   on whatever both backends are built against at the time (NALGEBRA-035).
+   public type names and no deprecated shims; no breaking change through a
+   `1.0.0-rc` series.
+6. **Python parity** — every facade capability, MVG included, is in the
+   Python package, enforced in CI.
+7. **Measurements** — a measurement from a calibrated system (point,
+   distance, depth) comes with σ that includes the calibration's
+   covariance, demonstrated on public real data.
+8. **Extensible** — a user residual and a composed pipeline work from the
+   facade alone, exercised by MVG bundle adjustment.
+9. **Onboarding** — the book's quickstarts, the examples and `vcal` work
+   from a crates.io / PyPI install, without a source checkout.
+10. **App CI green** — lint (zero warnings), format, typecheck, unit,
+    component and smoke tests, generated IPC types in sync.
+11. **Docs current** — README, crate READMEs, the book, ADRs and this file
+    describe the code as it is, and user-facing docs carry no internal
+    references (`cargo xtask check-docs`).
+12. **Public dependencies** — only `nalgebra` reaches the facade's
+    signatures; its version follows the solver backends, and a bump is a
+    breaking release (AGENTS.md §7). Decide before the rc whether 1.0
+    waits for the backends' move to nalgebra 0.35 (NALGEBRA-035).
 
 ### Phase 2 — Growth in 1.x
 
 | Track | Goal | Gate |
 |---|---|---|
 | CAM | EUCM, double sphere and telecentric projection in every problem type, plus model selection | Per model: math note, synthetic matrix test, Python, book chapter; OpenCV comparison for fisheye |
-| CAL | Rigs whose cameras do not all see the reference camera, multi-target scenes, more hand-eye initializers, robot-pose and target-flatness uncertainty, cross-frame projection uncertainty | Synthetic-GT matrix per feature |
-| MVG | Metrology-grade geometry: observations with covariance, triangulated points and derived measurements (lengths, angles, planes) with σ that includes the calibration's covariance, BA on the optimization IR with covariance, stereo from a rig export to depth with σ | Monte-Carlo agreement for every propagated σ; comparison against PoseLib/pycolmap |
+| CAL | Multi-target scenes, robot-pose and target-flatness uncertainty, cross-frame projection uncertainty | Synthetic-GT matrix per feature |
+| MVG | Two-view robustness and uncertainty (optimal triangulation, F/E/H covariance, GRIC, LO-RANSAC), comparison against PoseLib/pycolmap | Monte-Carlo agreement; published comparison |
 | PERF | Released solver speed-ups, analytic reprojection Jacobians, published timings | `calib-bench solver` against committed numbers |
 
 ### Alongside both phases
 
 | Track | Goal | Gate |
 |---|---|---|
-| Book | The one user guide, now covering getting started in Rust and Python, detection, the manifest and its schema reference, uncertainty, MVG and the app; next, interactive demos running the library in the browser through a wasm build | `check-docs`; every demo runs in the published book |
-| App | Rebuilt frontend on the `@vitavision/workbench` shell, organized as Project → Dataset → Detect → Calibrate → Diagnose → Use. Saved runs, reports, solver progress with cancel, installers that run without a source checkout | App gates (AGENTS.md §10) plus a frontend review with no high-severity findings |
+| Book | The one user guide; next, a results page generated from the regression suite and interactive demos running the library in the browser through a wasm build (MVG σ, planar σ, the camera models) | `check-docs`; every demo runs in the published book |
+| App | Rebuilt frontend on the `@vitavision/workbench` shell, organized as Project → Dataset → Detect → Calibrate → Diagnose → Use. Saved runs, reports, solver progress with cancel, installers that run without a source checkout | App gates (AGENTS.md §12) plus a frontend review with no high-severity findings |
 
 ## Ordering
 
-Phase 1 is in: the camera-model spec, the UQ fixes (the stated σ matches
-real split-half scatter: `r` 1.03 pooled over the public cameras), the
-quality report, Python parity, the suite fetch and Kannala-Brandt fisheye
-(CAM-KB). The camera-model enums are `#[non_exhaustive]` (0.12), and the
-fisheye camera, a second real projection, calibrates in every workflow and
-the synthetic matrix, and agrees with OpenCV's `fisheye` module within
-0.01σ on OpenCV's own fisheye test set. What is left is the release
-(D4-RELEASE) once the exit criteria above hold; more public suite entries
-(DATA-MORE) can land before or after it.
+Phase 1b runs USE first (cheap, and it unblocks every later demo), then
+the CLI, then EXT, whose public residual API MVG bundle adjustment is the
+first user of, then the MVG chain (ADR → calibrated cameras in →
+observation covariance → triangulation σ → BA → stereo → metrology →
+Python → the real-data walk-through), then CORRECT and LEAN. The browser
+demos follow MVG σ, since they show it. The release is a `1.0.0-rc`
+series once the exit criteria hold.
 
-The v1.0 API audit and the public-dependency policy (criterion 9) are
-done (0.11): ADRs 0006, 0012, 0016 and 0024 state the resulting rules, and
-from 1.0 the release runbook runs `cargo semver-checks`.
-
-Phase 2 tracks are independent of each other and are picked by need. The
-Landscape says the gap to other libraries is adoption, so the published
-OpenCV comparison (BOOK-RESULTS) comes first. The in-browser book demos wait until after 1.0.
+Phase 2 tracks are independent of each other and are picked by need.
 
 ## Landscape
 
@@ -125,11 +140,9 @@ laser-plane and Scheimpflug calibration exist nowhere else in Rust.
 | `mrcal` | — | Bindings to the C mrcal, which has uncertainty | Needs a native build, Linux-only, practically unused |
 | `sophus`, `rust-cv`, `kornia-rs`, `cam-geom`, `sqpnp`, `factrs` | permissive | Lie groups, camera geometry, PnP, solvers | No calibration; `rust-cv` inactive since 2020; `factrs` is one of our backends |
 
-The gap to the closest rival is adoption, not capability. Within the
-current scope the levers are a published comparison against OpenCV
-(BOOK-RESULTS) and wider fisheye coverage (Kannala-Brandt is in) with a
-comparison against `camera-intrinsic-calibration` (CAM-EUCM-DS,
-BENCH-COMPARE).
+The gap to the closest rival is adoption, not capability. The levers are
+Phase 1b's onboarding and CLI, a published comparison against OpenCV
+(BOOK-RESULTS), and measurements with error bars, which no rival offers.
 Revisit the table when a crate adds calibration pipelines or covariance.
 
 ## Standing decisions
@@ -158,8 +171,6 @@ Each item states why it is out or what would bring it in.
   closure; ADR 0006): no trigger. That belongs in a dedicated SfM library.
 - **`rerun.io` / `egui` as the UI.**
 - **Live camera capture in the app**: the app works on recorded datasets.
-- **A user command-line tool**: the library, the Python package and the
-  app are the interfaces.
 - **Interchange formats and remap maps** (OpenCV, ROS, Kalibr, COLMAP,
   mrcal files; undistort/rectify lookup tables): exports are JSON with a
   published schema, and image remapping belongs to the image-processing

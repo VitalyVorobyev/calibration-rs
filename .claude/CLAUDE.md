@@ -1,11 +1,12 @@
 # CLAUDE.md
 
-Shared rules — layering, where code goes, quality gates, testing, docs,
-backlog workflow, desktop app — live in AGENTS.md and apply here in full:
+The shared rules are in AGENTS.md and apply in full:
 
 @../AGENTS.md
 
-This file adds what is specific to working with Claude.
+This file adds what is specific to working with Claude. The developer docs
+(ROADMAP, backlog, ADRs, proof-pack notes, release runbook) are mapped in
+[`docs/README.md`](../docs/README.md).
 
 ## Commands
 
@@ -18,85 +19,27 @@ cargo xtask check-docs                    # user-facing docs gate
 maturin develop -m crates/vision-calibration-py/Cargo.toml   # Python dev build
 ```
 
-App commands and the bun-only rule: AGENTS.md §10.
+The full gate list is AGENTS.md §3; the app's is §12.
 
-## Engineering principles & critical review
+## Be critical
 
-Hold every change to a high design bar, and keep the workspace from
-drifting into undisciplined, copy-paste code:
+Treat every request, the user's included, as the start of a design
+discussion. If a proposal adds duplication, leaks internals, adds a dominated
+alternative or widens the public surface needlessly, say so and offer the
+cleaner design. Pre-1.0, prefer the better design even when it breaks the
+API, and record the break in the CHANGELOG with migration notes (§8).
 
-- **SOLID** — one responsibility per type/module; extend behavior through
-  traits (`ProblemType`, the camera-model kinds, the solver
-  backends), not by editing parallel match arms; depend on abstractions,
-  not concretions.
-- **DRY / single source of truth** — one canonical definition per concept.
-  Lower config to core params in exactly one place; never let a
-  threshold's or parameter's meaning diverge across crates.
-- **KISS & YAGNI** — the simplest design that meets the actual
-  requirement; no config knobs, enum variants or abstraction layers for
-  hypothetical needs.
-- **Make illegal states unrepresentable** — enum-with-payload over a
-  discriminator plus parallel fields; `Option` / newtypes over magic
-  sentinels.
-- **Least astonishment & orthogonality** — APIs do what their names say;
-  independent concerns stay independent.
-- **Minimal, honest public surface** — expose only what callers need;
-  diagnostics and internals stay out of the stable API (`pub(crate)`,
-  sealed traits, curated re-exports).
+## Roles
 
-**Be critical of every proposal, including the user's.** Treat a request
-as the start of a design discussion. If it would add duplication, leak
-internals, add a dominated alternative or widen the public surface
-needlessly, say so and offer the cleaner design. We are pre-1.0: when the
-better design needs a breaking change, prefer it and record it in the
-CHANGELOG with migration notes.
+Delegate through the project's subagents in `.claude/agents/`:
 
-## Design in brief
+| Role | Model | For |
+|---|---|---|
+| `calib-architect` | opus | design and ADRs, numerical and algorithmic work, root-causing, cross-crate refactors, reviewing such changes |
+| `implementer` | sonnet | a change that is already designed: plumbing, serde types, bindings, tests, docs |
+| `sweeper` | haiku | searches, inventories, mechanical edits with an exact spec |
 
-- **Camera model** ([ADR 0005](../docs/adrs/0005-composable-camera-model.md)):
-  `pixel = K(sensor(distortion(projection(dir))))`, as
-  `Camera<S, P, D, Sm, K>`.
-- **Sessions** ([ADR 0007](../docs/adrs/0007-session-framework.md)): every
-  workflow is `CalibrationSession<P: ProblemType>` driven by free step
-  functions (`set_input` → `step_init` → `step_optimize` → `export`).
-  Seven problem types: `PlanarIntrinsics`, `SingleCamHandeye`,
-  `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, `RigLaserlineDevice`,
-  `RigHandeyeLaserline`. Every type that calibrates a camera takes
-  `camera: CameraConfig` (model + named fix lists: any distortion, an
-  identity or Scheimpflug sensor); the rig types add per-camera
-  `camera_overrides`, and the rig laser types take each camera's model from
-  the upstream rig. Exports carry `CameraParams`.
-- **Optimization IR** ([ADR 0008](../docs/adrs/0008-optimization-ir-and-backends.md)):
-  problems are `ProblemIR` (parameter + residual blocks) compiled to a
-  solver backend; factors are generic over `T: RealField` for autodiff
-  (`.clone()` freely, `T::from_f64().unwrap()` for constants).
-- **Conventions** ([ADR 0009](../docs/adrs/0009-coordinate-and-pose-conventions.md)):
-  `frame_se3_frame` naming (`T_C_W` = world → camera); SE3 stored as
-  `[qx, qy, qz, qw, tx, ty, tz]`.
-- **Numerics**: Hartley normalization for DLT, robust losses for outliers,
-  Lie-group manifolds for rotations; `fix_k3: true` by default.
-- **Tests**: synthetic ground truth for algorithms, JSON round-trips for
-  config/export types; ~5 % tolerance for linear init, < 1 % after
-  optimization.
-
-## Where things are
-
-[`docs/README.md`](../docs/README.md) maps the developer docs: roadmap,
-backlog, ADRs, proof-pack notes and the release runbook. Read
-[`docs/RELEASE-RUNBOOK.md`](../docs/RELEASE-RUNBOOK.md) before touching any
-version string.
-
-## Delegating to subagents
-
-Use the built-in agents and pick the model by how much judgment the work
-needs:
-
-- **haiku** — searches, file sweeps, mechanical edits with an exact spec.
-- **sonnet** — well-specified implementation: plumbing, serde types, tests,
-  docs, applying a change that is already designed.
-- **opus** — numerical and algorithmic work, root-causing, design and
-  cross-crate refactors, and reviewing such changes.
-
-A subagent does not see this conversation: give it the full task, the
-files involved and what to report (files changed, gate results, and
-before/after numbers for numerical changes).
+A subagent does not see this conversation. Give it the task, the files
+involved, what is already ruled out, and what to report: files changed, gate
+results, and before/after numbers for numerical changes. When the context is
+already warm and the task is a handful of tool calls, do it inline.
