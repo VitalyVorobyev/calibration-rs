@@ -153,6 +153,26 @@ The `device_seed` module derives these seeds from a device description (focal le
 
 If you seed `handeye` but not `mode_target_pose`, the latter is derived from the chain.
 
+### Staged rig laser calibration
+
+`RigHandeyeLaserline` has no steps: `run_calibration` runs rig hand-eye, fits each camera's laser plane against that frozen geometry, then refines everything jointly. `run_calibration_with_seed` takes a `JointManualInit` that replaces either warm start:
+
+- `rig_handeye`: a `RigHandeyeExport` of the same views, for example from a `RigHandeyeProblem` session you ran (and inspected) first. The rig hand-eye stage is skipped; its cameras, extrinsics, hand-eye transform, target poses and robot-pose corrections start the joint solve.
+- `planes_cam`: one laser plane per camera, in camera frame, for example from the mechanical drawing. The plane stage refines them instead of fitting its starting planes linearly.
+
+```rust
+use vision_calibration::rig_handeye_laserline::{JointManualInit, run_calibration_with_seed};
+
+// `rig_export` is the export of a rig hand-eye session on the same views,
+// with `config.handeye` as its config.
+let mut seed = JointManualInit::default();
+seed.rig_handeye = Some(rig_export);
+seed.planes_cam = Some(design_planes); // Vec<LaserPlane>, one per camera
+run_calibration_with_seed(&mut joint_session, seed)?;
+```
+
+With the warm start a rig hand-eye session computes from the joint session's input and `config.handeye`, the result is identical to `run_calibration`. The export must have the input's camera count, each camera in the configured model, one target pose per view, and the configured hand-eye mode with its transforms; the seeded planes must be one per camera. Anything else is an `Error::InvalidInput`, raised before any solve.
+
 ## In Python
 
 The seeds are dataclasses in the problem's module, with the Rust names and fields; a field left `None` is estimated. The datasheet seed above:
@@ -170,6 +190,19 @@ print(session.log[-1].notes)  # the init log names the manual and the estimated 
 ```
 
 Distortion seeds are the distortion dataclasses of the camera model (`BrownConradyDistortion`, `KannalaBrandt4Distortion`, …). A seed that does not fit the camera model (a tilt for an untilted camera, a distortion of another kind, one rig pose without the other) raises `ValueError`.
+
+The staged rig laser calibration takes the rig hand-eye session's export as it is:
+
+```python
+from vision_calibration import rig_handeye_laserline
+
+rig_export = rig_session.export()  # a RigHandeyeSession on the same views
+joint = vc.RigHandeyeLaserlineSession()
+joint.set_input(dataset)
+joint.run_calibration_with_seed(
+    rig_handeye_laserline.JointManualInit(rig_handeye=rig_export, planes_cam=design_planes)
+)
+```
 
 ## See Also
 
