@@ -172,7 +172,11 @@ When a crate joins the publish set:
 
 1. Publish it manually once (`cargo publish -p <crate>` with a real token, or
    ask a crates.io owner). The Trusted Publisher UI exists only for crates
-   that already exist.
+   that already exist. Do it right after the tagged release that published
+   its workspace dependencies at the same version: `cargo publish` resolves
+   them against crates.io, so before that release it fails on any
+   dependency item or feature the registry copy lacks (`vision-calibration-cli`
+   needs the facade's `fetch` feature, which 0.12.0 does not have).
 2. Add the Trusted Publisher entry on its crates.io settings page.
 3. The next tagged release then publishes it automatically.
 
