@@ -8,23 +8,13 @@ match the ROADMAP; each says its phase. Dependencies are named as
 
 ## Extension API — EXT (Phase 1b)
 
-A user builds their own pipeline from the facade. Today the optimization IR,
-the factors and the backends are private and `ProblemType` is sealed, so a
-new residual or problem needs a fork.
+A user builds their own pipeline from the facade. The public problem
+builder (ADR 0027, `optim::problem`) takes residuals of their own; what
+remains is showing how a whole pipeline is composed from it.
 
-- [ ] EXT-FACTOR - Implement [ADR 0027](adrs/0027-public-optimization-extension.md):
-  the `Problem` builder, the `Residual` trait behind a private
-  `FactorKind::Custom`, `Noise` families in the covariance estimator, the
-  camera and reprojection constructors, `solve` → `Solution`, the factrs
-  typed error, and the facade's `optim::problem` and `init` modules. A
-  downstream test crate that uses only the facade; Python recorded
-  Rust-only in the parity check; a book chapter "Your own residual"
-  (worked example: a planar calibration plus a measured camera-to-board
-  distance as a known-σ residual on one view's pose); ADR 0008 and 0007
-  updated for the `Custom` arm and composition.
 - [ ] EXT-COMPOSE - A book chapter "Compose your own pipeline": closed-form
   init → IR → solve → σ from the public pieces. The contributor chapters on
-  new problem types say they are for contributors. Needs: EXT-FACTOR.
+  new problem types say they are for contributors.
 
 ## Multiple-view geometry — MVG (Phase 1b)
 
@@ -41,7 +31,6 @@ Python binding and no real-data demonstration.
   - σ propagation from measurement noise and the calibration's covariance,
     keeping the cross-covariance a shared calibration induces;
   - gauge and scale anchoring for BA.
-  Needs: EXT-ADR.
 - [ ] MVG-CAMERA-IN - MVG APIs take the composable camera and rig exports
   instead of a bare `K`, so every camera model works (bearings through the
   camera's own unprojection). Remove the duplicate triangulator and
@@ -66,7 +55,7 @@ Python binding and no real-data demonstration.
   - covariance through the existing sandwich.
 
   It replaces the current `bundle_adjust`. Gate: synthetic-GT matrix and
-  Monte-Carlo σ. Needs: EXT-FACTOR, MVG-CAMERA-IN.
+  Monte-Carlo σ. Needs: MVG-CAMERA-IN.
 - [ ] MVG-STEREO - Stereo from a calibration:
   - rectification straight from a rig export, any supported camera model;
   - the disparity-to-depth matrix;

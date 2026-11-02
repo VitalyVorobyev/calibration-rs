@@ -28,6 +28,10 @@ Every end-to-end workflow is a `ProblemType` driven through a mutable
 - The facade re-exports the modules. Python drives every problem type
   through one generic `run_problem(input_json, config_json) -> export_json`
   binding, with no per-workflow wrapper.
+- `ProblemType` is sealed (a crate-private supertrait): the workflows are
+  the library's own. A pipeline of a user's own is composed from public
+  pieces instead, the closed-form initializers (`init`), a `Problem` and
+  `solve` (ADR 0027), so its steps, state and export are not API.
 
 ## Consequences
 

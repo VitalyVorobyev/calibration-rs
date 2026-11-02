@@ -19,7 +19,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   images differ in size. A `match` on `RunError` needs the new arm; Python's
   `RunError.kind` is `"image_size_mismatch"`.
 
+- **`ResidualKind` has a `Custom(String)` variant** and is no longer
+  `Copy`: a noise level of a residual family of your own (see
+  `optim::problem` below). A `match` on `ResidualKind` needs the new arm,
+  and code that copied a kind clones it. In JSON a custom family is
+  `{"custom": "<name>"}`; the built-in kinds are unchanged.
+
 ### Added
+
+- `optim::problem` builds and solves a least-squares problem of your own
+  (Rust): parameter blocks (vectors, SE(3) poses, unit vectors) with fixed
+  components, bounds and labels; residuals you write once with a generic
+  `eval` (the `Residual` trait), differentiated exactly by dual numbers;
+  and the library's reprojection residual through a camera of any model
+  (`add_camera`, `add_reprojection`). Each residual states its noise, known
+  (`Noise::Known(σ)`, weighed by it) or estimated per named family. `solve`
+  returns each block's value, the noise of each family and the parameter
+  covariance, labelled as the workflows' results are, so
+  `projection_uncertainty` reads a camera solved this way. Every input is
+  checked as it is added. The book's "Your Own Residual" chapter adds a
+  measured distance to a planar calibration.
+- `init` gathers the closed-form initializers on the facade: Zhang's
+  intrinsics (with distortion), a board's pose from its homography, PnP,
+  hand-eye (Tsai–Lenz) and a plane through points.
+- `optim::SolveReport` is on the facade.
 
 - `vcal`, the command line (`cargo install vision-calibration-cli`; the
   Python package installs it too): `vcal init <folder>` drafts the

@@ -4,6 +4,7 @@
 
 import type {
   ParameterCovariance,
+  ResidualKind,
   Uncertainty,
   UncertaintyUnavailable,
 } from "../types/generated/diagnose-wire";
@@ -92,4 +93,17 @@ export function unavailableText(reason: UncertaintyUnavailable): string {
     case "not_computed":
       return "The export was written without uncertainty.";
   }
+}
+
+/** A residual family's name for display: `laser plane`, or a custom
+ * family's own name. */
+export function residualKindName(kind: ResidualKind): string {
+  return typeof kind === "string" ? kind.replace("_", " ") : kind.custom;
+}
+
+/** The unit of a residual family's noise level, with its leading space;
+ * empty for a custom family, whose unit is its residual's. */
+export function residualKindUnit(kind: ResidualKind): string {
+  if (typeof kind !== "string") return "";
+  return kind === "laser_plane" ? " m" : " px";
 }

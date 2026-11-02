@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::ir::custom::CustomResidual;
 use nalgebra::RealField;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -207,7 +208,7 @@ impl RobustLoss {
     }
 
     /// Rejects a non-positive or NaN scale.
-    fn validate(self) -> Result<(), Error> {
+    pub(crate) fn validate(self) -> Result<(), Error> {
         let (name, scale) = match self {
             RobustLoss::None => return Ok(()),
             RobustLoss::Huber { scale } => ("Huber", scale),
@@ -600,6 +601,12 @@ pub enum FactorKind {
         /// the covariance needs to count the prior's scatter.
         residual_sigma: f64,
     },
+    /// A residual defined outside this crate, through the public problem
+    /// builder.
+    ///
+    /// Parameters: the blocks its `block_dims` declare, on any manifold
+    /// (it reads their stored values).
+    Custom(CustomResidual),
 }
 
 impl FactorKind {
@@ -609,6 +616,7 @@ impl FactorKind {
             FactorKind::ReprojPoint { .. } => 2,
             FactorKind::LaserPointToPlane { .. } | FactorKind::LaserLineDistance { .. } => 1,
             FactorKind::Se3TangentPrior { .. } => 6,
+            FactorKind::Custom(custom) => custom.factor.dim(),
         }
     }
 
@@ -619,6 +627,7 @@ impl FactorKind {
             FactorKind::LaserPointToPlane { .. } => "LaserPointToPlane",
             FactorKind::LaserLineDistance { .. } => "LaserLineDistance",
             FactorKind::Se3TangentPrior { .. } => "Se3TangentPrior",
+            FactorKind::Custom(_) => "Custom",
         }
     }
 
@@ -642,6 +651,18 @@ impl FactorKind {
                 manifold: ManifoldKind::Euclidean,
                 role: "robot_delta",
             }],
+            // A custom residual reads a block's stored values whatever its
+            // manifold; `manifold` is not checked for it.
+            FactorKind::Custom(custom) => custom
+                .factor
+                .block_dims()
+                .iter()
+                .map(|&dim| ParamSlotSpec {
+                    dim,
+                    manifold: ManifoldKind::Euclidean,
+                    role: "block",
+                })
+                .collect(),
         }
     }
 }
@@ -860,9 +881,10 @@ impl ProblemIR {
                     residual.params.len()
                 )));
             }
+            let any_manifold = matches!(residual.factor, FactorKind::Custom(_));
             for (slot, pid) in layout.iter().zip(&residual.params) {
                 let block = &self.params[pid.0];
-                if block.dim != slot.dim || block.manifold != slot.manifold {
+                if block.dim != slot.dim || (!any_manifold && block.manifold != slot.manifold) {
                     return Err(Error::invalid_input(format!(
                         "{} factor expects {}D {:?} {}, got dim={} manifold={:?}",
                         residual.factor.name(),

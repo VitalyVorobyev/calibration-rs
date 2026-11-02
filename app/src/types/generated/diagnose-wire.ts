@@ -252,7 +252,13 @@ export type ResidualNoise = {
 /**
  * A kind of residual, which sets its unit.
  */
-export type ResidualKind = "reprojection" | "laser_plane" | "laser_line";
+export type ResidualKind =
+  | "reprojection"
+  | "laser_plane"
+  | "laser_line"
+  | {
+      custom: string;
+    };
 export type ResidualNoise1 =
   | {
       sigma: number;
