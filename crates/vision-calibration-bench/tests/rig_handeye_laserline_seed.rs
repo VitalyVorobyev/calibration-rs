@@ -222,6 +222,16 @@ fn a_seed_that_does_not_fit_is_invalid_input_before_any_solve() {
                 Some(p)
             }),
         ),
+        (
+            "not 1",
+            seed(None, {
+                // A plane as JSON or Python can deliver it: the normal is not
+                // renormalized on the way in.
+                let mut p = planes.clone();
+                p[0].normal = nalgebra::Unit::new_unchecked(2.0 * p[0].normal.into_inner());
+                Some(p)
+            }),
+        ),
     ];
     for (what, bad) in cases {
         let mut s = session(&f);

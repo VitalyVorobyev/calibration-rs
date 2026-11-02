@@ -174,6 +174,10 @@ pub fn run_calibration_with_seed(
     Ok(())
 }
 
+/// How far from 1 a seeded plane normal's length may be: rounding in a
+/// normal written out to JSON or computed in Python, not a scale.
+const UNIT_NORMAL_TOLERANCE: f64 = 1e-9;
+
 /// Check that a seed fits the input and the config.
 ///
 /// # Errors
@@ -254,6 +258,20 @@ fn check_manual_init(
         {
             return Err(Error::invalid_input(format!(
                 "seed planes_cam: plane {i} is not finite"
+            )));
+        }
+        // `distance` is a distance only for a unit normal, so a normal of
+        // another length is rejected, not rescaled: rescaling the normal
+        // alone would move the plane. (A deserialized plane is not
+        // renormalized.)
+        if let Some(i) = planes
+            .iter()
+            .position(|p| (p.normal.norm() - 1.0).abs() > UNIT_NORMAL_TOLERANCE)
+        {
+            return Err(Error::invalid_input(format!(
+                "seed planes_cam: plane {i} normal has length {}, not 1; divide the normal \
+                 and the distance by its length",
+                planes[i].normal.norm()
             )));
         }
     }
