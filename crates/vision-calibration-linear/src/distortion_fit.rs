@@ -122,7 +122,7 @@ pub type DistortionView = View<MetaHomography>;
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```
 /// use vision_calibration_core::{CorrespondenceView, Mat3, Pt2, Pt3, View};
 /// use vision_calibration_linear::distortion_fit::{
 ///     estimate_distortion_from_homographies, DistortionFitOptions, DistortionView, MetaHomography,

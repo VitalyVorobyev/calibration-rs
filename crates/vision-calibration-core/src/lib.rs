@@ -23,7 +23,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```
 //! use vision_calibration_core::{
 //!     CameraParams, DistortionParams, FxFyCxCy, ProjectionParams, SensorParams,
 //! };

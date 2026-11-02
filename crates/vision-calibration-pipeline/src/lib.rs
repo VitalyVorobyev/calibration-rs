@@ -1,30 +1,41 @@
 //! High-level camera calibration pipelines.
 //!
-//! This crate provides ready-to-use calibration workflows with multiple APIs:
+//! Most users want the facade crate `vision-calibration`, which re-exports
+//! these workflows next to the camera models, detection and dataset
+//! manifests.
 //!
 //! ## Session API
 //!
-//! The session API uses a mutable state container with step functions.
+//! A [`CalibrationSession`](session::CalibrationSession) holds a problem's
+//! input, config, intermediate state and export; step functions advance it.
+//! Here eight synthetic views of an 8×6 board (40 mm pitch) calibrate a camera:
 //!
-//! ```no_run
-//! use vision_calibration_pipeline::session::CalibrationSession;
+//! ```
+//! use vision_calibration_core::synthetic::{planar, poses};
+//! use vision_calibration_core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
 //! use vision_calibration_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblem, step_init, step_optimize, run_calibration,
+//!     PlanarIntrinsicsProblem, step_init, step_optimize,
 //! };
+//! use vision_calibration_pipeline::session::CalibrationSession;
 //! # fn main() -> anyhow::Result<()> {
-//! # let dataset = unimplemented!();
+//!
+//! let truth = make_pinhole_camera(
+//!     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+//!     BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
+//! );
+//! let board = planar::grid_points(8, 6, 0.04);
+//! let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
+//! let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
+//! let views = planar::project_views_all(&truth, &board, &poses)?;
+//! let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //! session.set_input(dataset)?;
-//!
-//! // Option 1: Step-by-step control
 //! step_init(&mut session, None)?;
 //! step_optimize(&mut session, None)?;
 //!
-//! // Option 2: Pipeline function
-//! // run_calibration(&mut session)?;
-//!
 //! let export = session.export()?;
+//! assert!((export.params.camera.intrinsics.fx - 800.0).abs() < 1e-3);
 //! # Ok(())
 //! # }
 //! ```

@@ -4,6 +4,9 @@ Non-linear least-squares refinement for camera calibration: the optimization
 engine behind the [`vision-calibration`](https://crates.io/crates/vision-calibration)
 sessions.
 
+Most users want [`vision-calibration`](https://crates.io/crates/vision-calibration) instead: its step functions drive this
+engine, and it re-exports the vocabulary below as `vision_calibration::optim`.
+
 Each calibration problem (planar intrinsics, rig extrinsics, hand-eye, laser
 plane, joint rig + hand-eye + laser) is lowered to a backend-agnostic
 intermediate representation: parameter blocks on their manifolds (SE(3)

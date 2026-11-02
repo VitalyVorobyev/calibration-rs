@@ -14,6 +14,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+features = ["refine"]
+
 [features]
 refine = ["dep:tiny-solver"]
 

@@ -59,20 +59,6 @@ impl RigHandeyeExport {
     ///
     /// Returns [`Error::InvalidInput`] if the export's camera and
     /// `cam_se3_rig` counts differ.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use vision_calibration_pipeline::rig_handeye::RigHandeyeExport;
-    /// # use vision_calibration_pipeline::rig_laserline_device::RigUpstreamCalibration;
-    /// # use vision_calibration_core::Iso3;
-    /// # let handeye_export: RigHandeyeExport = unimplemented!();
-    /// # let num_views: usize = unimplemented!();
-    /// # let target_pose: Iso3 = Iso3::identity();
-    /// let upstream: RigUpstreamCalibration = handeye_export
-    ///     .to_upstream_calibration(vec![target_pose; num_views])
-    ///     .expect("consistent rig handeye export");
-    /// ```
     pub fn to_upstream_calibration(
         &self,
         rig_se3_target: Vec<Iso3>,

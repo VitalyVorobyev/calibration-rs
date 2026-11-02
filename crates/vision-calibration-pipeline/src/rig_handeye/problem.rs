@@ -265,17 +265,43 @@ pub struct RigHandeyeExport {
 ///
 /// # Example
 ///
-/// ```no_run
+/// A two-camera rig on the gripper views a static board from eight robot
+/// stations; every rig frame carries the robot's `base_se3_gripper`:
+///
+/// ```
+/// use vision_calibration_core::{RigView, RigViewObs};
+/// use vision_calibration_pipeline::common::RobotPoseMeta;
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::rig_handeye::{
-///     RigHandeyeProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
-///     step_rig_init, step_rig_optimize, step_handeye_init, step_handeye_optimize,
+///     RigHandeyeInput, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,
+///     step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init,
+///     step_rig_optimize,
 /// };
+/// # use vision_calibration_core::synthetic::{planar, poses};
+/// # use vision_calibration_core::{BrownConrady5, FxFyCxCy, Iso3, make_pinhole_camera};
 /// # fn main() -> anyhow::Result<()> {
-/// # let rig_dataset = unimplemented!();
+/// # let camera = make_pinhole_camera(
+/// #     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+/// #     BrownConrady5::default(),
+/// # );
+/// # let cam_se3_rig = poses::rig_layout(2, 0.1, 0.05);
+/// # let gripper_se3_rig = poses::make_iso((0.1, -0.05, 0.02), (0.05, -0.03, 0.1));
+/// # let base_se3_target = poses::make_iso((0.0, 0.0, 0.0), (-0.1, -0.1, 1.0));
+/// # let board = planar::grid_points(8, 6, 0.04);
+/// # let stations = poses::robot_stations(8, 7);
+/// # let observe = |cam: usize, base_se3_gripper: &Iso3| {
+/// #     let rig_se3_target = (base_se3_gripper * gripper_se3_rig).inverse() * base_se3_target;
+/// #     planar::project_view_all(&camera, &(cam_se3_rig[cam] * rig_se3_target), &board).map(Some)
+/// # };
 ///
+/// let mut views = Vec::new();
+/// for base_se3_gripper in stations {
+///     let cameras = vec![observe(0, &base_se3_gripper)?, observe(1, &base_se3_gripper)?];
+///     let meta = RobotPoseMeta { base_se3_gripper };
+///     views.push(RigView { obs: RigViewObs { cameras }, meta });
+/// }
 /// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
-/// session.set_input(rig_dataset)?;
+/// session.set_input(RigHandeyeInput::new(views, 2)?)?;
 ///
 /// step_intrinsics_init_all(&mut session, None)?;
 /// step_intrinsics_optimize_all(&mut session, None)?;
@@ -285,6 +311,8 @@ pub struct RigHandeyeExport {
 /// step_handeye_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
+/// let estimate = export.gripper_se3_rig.expect("an eye-in-hand export");
+/// assert!((estimate.translation.vector - gripper_se3_rig.translation.vector).norm() < 1e-4);
 /// # Ok(())
 /// # }
 /// ```

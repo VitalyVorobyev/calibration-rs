@@ -21,7 +21,7 @@ use crate::{DistortionModel, Mat3, Pt2, Real, Vec3};
 /// Panics if the intrinsics matrix is singular (non-invertible).
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// use vision_calibration_core::{Mat3, Pt2};
 /// use vision_calibration_core::pixel_to_normalized;
 ///
@@ -57,7 +57,7 @@ pub fn pixel_to_normalized(pixel: Pt2, intrinsics: &Mat3) -> Pt2 {
 /// Pixel coordinates computed as K * [x, y, 1]^T with homogeneous division.
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// use vision_calibration_core::{Mat3, Pt2};
 /// use vision_calibration_core::normalized_to_pixel;
 ///
@@ -90,7 +90,7 @@ pub fn normalized_to_pixel(normalized: Pt2, intrinsics: &Mat3) -> Pt2 {
 /// 2. Apply iterative undistortion: `n_undist = distortion.undistort(n)`
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// use vision_calibration_core::{BrownConrady5, Mat3, Pt2};
 /// use vision_calibration_core::undistort_pixel;
 ///
@@ -127,7 +127,7 @@ pub fn undistort_pixel<D: DistortionModel<Real>>(
 /// 2. Convert to pixels: `pixel = K * [n_dist.x, n_dist.y, 1]^T`
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// use vision_calibration_core::{BrownConrady5, Mat3, Pt2};
 /// use vision_calibration_core::distort_to_pixel;
 ///

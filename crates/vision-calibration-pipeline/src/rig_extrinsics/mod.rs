@@ -12,35 +12,8 @@
 //! 3. **Rig initialization**: Linear estimation of camera-to-rig transforms
 //! 4. **Rig optimization**: Bundle adjustment jointly optimizing extrinsics and rig poses
 //!
-//! # Example
-//!
-//! ```no_run
-//! use vision_calibration_pipeline::session::CalibrationSession;
-//! use vision_calibration_pipeline::rig_extrinsics::{
-//!     RigExtrinsicsProblem, RigExtrinsicsInput,
-//!     step_intrinsics_init_all, step_intrinsics_optimize_all,
-//!     step_rig_init, step_rig_optimize, run_calibration,
-//! };
-//! # fn main() -> anyhow::Result<()> {
-//! # let input: RigExtrinsicsInput = unimplemented!();
-//!
-//! // Create session and run calibration
-//! let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-//! session.set_input(input)?;
-//!
-//! // Option 1: Step-by-step
-//! step_intrinsics_init_all(&mut session, None)?;
-//! step_intrinsics_optimize_all(&mut session, None)?;
-//! step_rig_init(&mut session, None)?;
-//! step_rig_optimize(&mut session, None)?;
-//!
-//! // Option 2: Full pipeline
-//! // run_calibration(&mut session)?;
-//!
-//! let export = session.export()?;
-//! # Ok(())
-//! # }
-//! ```
+//! [`RigExtrinsicsProblem`] has a runnable example; `run_calibration` runs
+//! the four steps in order.
 //!
 //! # Conventions
 //!

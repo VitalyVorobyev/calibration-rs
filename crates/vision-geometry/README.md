@@ -3,6 +3,9 @@
 Deterministic, allocation-light geometric solvers shared across the
 `calibration-rs` workspace.
 
+Most users want [`vision-calibration`](https://crates.io/crates/vision-calibration) instead, which re-exports these solvers at
+the root of `vision_calibration::mvg`; this crate is one of its building blocks.
+
 This crate provides the low-level building blocks behind calibration and
 multiple-view geometry workflows: epipolar estimation, homography estimation,
 linear triangulation, and camera matrix decomposition.

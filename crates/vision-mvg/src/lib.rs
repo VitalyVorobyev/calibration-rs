@@ -24,6 +24,37 @@
 //! All calibrated functions expect **normalized camera coordinates** (after
 //! applying `K⁻¹` to pixel coordinates). Pose outputs follow the `T_C_W`
 //! convention: transform from world into camera frame.
+//!
+//! # Example
+//!
+//! Two views of twelve points: the relative pose comes back with its
+//! translation known up to scale, and the points triangulated:
+//!
+//! ```
+//! use nalgebra::Rotation3;
+//! use vision_calibration_core::{Pt2, Pt3, Vec3};
+//! use vision_mvg::{Correspondence2D, recover_relative_pose};
+//!
+//! // The second camera, 20 cm to the right and turned 0.1 rad toward the scene.
+//! let r = Rotation3::from_euler_angles(0.0, -0.1, 0.0).into_inner();
+//! let t = Vec3::new(-0.2, 0.0, 0.0);
+//! let scene: Vec<Pt3> = (0..12)
+//!     .map(|i| {
+//!         let a = f64::from(i);
+//!         Pt3::new((0.7 * a).sin(), 0.5 * (1.3 * a).cos(), 2.0 + 0.1 * a)
+//!     })
+//!     .collect();
+//! let normalized = |p: Vec3| Pt2::new(p.x / p.z, p.y / p.z);
+//! let corrs: Vec<Correspondence2D> = scene
+//!     .iter()
+//!     .map(|p| Correspondence2D::new(normalized(p.coords), normalized(r * p.coords + t)))
+//!     .collect();
+//!
+//! let pose = recover_relative_pose(&corrs)?;
+//! assert!((pose.t.normalize() - t.normalize()).norm() < 1e-6);
+//! assert_eq!(pose.points.len(), 12);
+//! # Ok::<(), vision_mvg::MvgError>(())
+//! ```
 
 #[cfg(feature = "refine")]
 pub mod bundle_adjust;

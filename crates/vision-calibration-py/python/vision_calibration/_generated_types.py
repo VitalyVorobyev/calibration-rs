@@ -2276,17 +2276,26 @@ class RigLaserlineDataset(TypedDict):
 
     # Example
 
-    ```no_run
+    ```
+    # use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
     # use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineView};
+    # let board = || {
+    #     let target = [(0.0, 0.0), (0.1, 0.0), (0.1, 0.1), (0.0, 0.1)];
+    #     CorrespondenceView::new(
+    #         target.iter().map(|&(x, y)| Pt3::new(x, y, 0.0)).collect(),
+    #         target.iter().map(|&(x, y)| Pt2::new(100.0 + 1e3 * x, 100.0 + 1e3 * y)).collect(),
+    #     )
+    #     .unwrap()
+    # };
     // Two views, two cameras; camera 1 missed the target in view 0.
     let views = vec![
         RigLaserlineView {
-            cameras:      vec![Some(/* cam0 obs */ todo!()), None],
-            laser_pixels: vec![Some(vec![]),                None],
+            cameras: vec![Some(board()), None],
+            laser_pixels: vec![Some(vec![]), None],
         },
         RigLaserlineView {
-            cameras:      vec![Some(/* cam0 obs */ todo!()), Some(/* cam1 obs */ todo!())],
-            laser_pixels: vec![Some(vec![]),                 Some(vec![])],
+            cameras: vec![Some(board()), Some(board())],
+            laser_pixels: vec![Some(vec![]), Some(vec![])],
         },
     ];
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();

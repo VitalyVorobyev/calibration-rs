@@ -1,42 +1,81 @@
 # vision-calibration
 
-High-level entry crate and facade for the `calibration-rs` toolbox.
+Camera calibration in Rust: one camera or a multi-camera rig, on a robot arm
+or not, with a laser plane or not, for every supported camera model, with the
+uncertainty of each estimate.
 
-This is the recommended crate for most users. It re-exports all sub-crates through a unified API.
+## Which crate do I want?
 
-## Features
+This one. `vision-calibration` re-exports the whole toolbox under one module
+tree, and its module paths are the stable API. The other crates are its
+building blocks, published so it can depend on them:
 
-- **Session API**: structured calibration workflows with step functions, state tracking, and JSON checkpointing
-- **Seven workflows**: planar intrinsics (straight or tilted Scheimpflug sensor), single-camera hand-eye, laserline device, rig extrinsics, rig hand-eye, rig laserline device, rig hand-eye + laserline
-- **Prelude module**: minimal imports for planar "hello world" calibration
-- **Foundation access**: core types, linear solvers, optimization, two-view geometry and MVG when needed
+| Crate | Holds |
+|---|---|
+| `vision-calibration` | everything below, as one API: workflows, dataset manifests, detection, camera models, MVG |
+| `vision-calibration-pipeline` | the calibration workflows and the session API |
+| `vision-calibration-core` | math types, camera models, synthetic data |
+| `vision-calibration-linear` | closed-form initialization (Zhang, PnP, hand-eye, laser plane) |
+| `vision-calibration-optim` | non-linear least squares and parameter covariance |
+| `vision-calibration-dataset` | the dataset manifest and the sample datasets |
+| `vision-calibration-detect` | calibration-target detectors and the detection cache |
+| `vision-geometry`, `vision-mvg` | two-view solvers; multiple-view geometry over calibrated cameras |
 
-## Quick Start
+From Python, install the `vision-calibration` package from PyPI instead.
 
-Add to your `Cargo.toml`:
+## Quick start
 
 ```toml
 [dependencies]
-vision-calibration = "0.12"
+vision-calibration = { version = "0.12", features = ["synthetic"] }
 ```
 
-### Planar Intrinsics Calibration
+Eight synthetic views of an 8×6 board (40 mm pitch) calibrate a camera:
+
+```rust
+use vision_calibration::planar_intrinsics::run_calibration;
+use vision_calibration::prelude::*;
+use vision_calibration::synthetic::{planar, poses};
+
+fn main() -> anyhow::Result<()> {
+    let truth = make_pinhole_camera(
+        FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+        BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
+    );
+    let board = planar::grid_points(8, 6, 0.04);
+    let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
+    let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
+    let views = planar::project_views_all(&truth, &board, &poses)?;
+    let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
+
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session.set_input(dataset)?;
+    run_calibration(&mut session)?;
+
+    let export = session.export()?;
+    println!("fx = {:.2} px", export.params.camera.intrinsics.fx);
+    Ok(())
+}
+```
+
+### On real images
+
+A dataset manifest names the images, the target and the workflow;
+`calibrate_dataset` detects the target and runs the workflow. The `fetch`
+feature downloads a sample dataset with a ready manifest:
 
 ```rust,no_run
-use vision_calibration::prelude::*;
-use vision_calibration::planar_intrinsics::{step_init, step_optimize};
+use vision_calibration::dataset::{DatasetSpec, samples};
+use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
 
-# fn main() -> anyhow::Result<()> {
-let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-# let dataset: PlanarDataset = unimplemented!();
-session.set_input(dataset)?;
-
-step_init(&mut session, None)?;
-step_optimize(&mut session, None)?;
-
-let result = session.export()?;
-# Ok(())
-# }
+fn main() -> anyhow::Result<()> {
+    let manifest = samples::fetch("opencv_left", &samples::default_cache_dir()?)?;
+    let spec = DatasetSpec::from_path(&manifest)?;
+    let dir = manifest.parent().expect("the manifest sits in the sample's folder");
+    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None)?;
+    println!("{} of {} views used", run.usable_views, run.total_views);
+    Ok(())
+}
 ```
 
 ## Problem Types
@@ -65,10 +104,10 @@ options.
 | `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, `rig_handeye_laserline` | Multi-camera rig workflows |
 | `device_seed`, `dataset_runner` | Device-spec seeding and manifest-driven dataset runs |
 | `dataset`, `detect` | Dataset manifests and target detection |
-| `analysis` | Reprojection-error analysis |
-| `core`, `linear`, `optim` | Math types and camera models, closed-form solvers, non-linear optimization |
-| `geometry`, `mvg` | Two-view geometry solvers; N-view MVG (bundle adjustment, rectification, dense stereo) |
-| `synthetic` | Deterministic synthetic data generation |
+| `analysis` | Quality verdict, reprojection reports and per-feature residuals |
+| `core`, `optim` | Math types and camera models; the optimization vocabulary (robust losses, solver backends, projection uncertainty) |
+| `mvg` | Two-view solvers and N-view MVG (triangulation, bundle adjustment, rectification, dense stereo) |
+| `synthetic` | Deterministic synthetic data generation (feature `synthetic`) |
 | `prelude` | Convenient re-exports |
 
 ## Examples

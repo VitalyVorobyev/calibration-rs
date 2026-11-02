@@ -15,38 +15,8 @@
 //! 5. **Hand-eye initialization**: Tsai-Lenz linear estimation from pose pairs
 //! 6. **Hand-eye optimization**: Bundle adjustment with optional robot pose refinement
 //!
-//! # Example
-//!
-//! ```no_run
-//! use vision_calibration_pipeline::session::CalibrationSession;
-//! use vision_calibration_pipeline::rig_handeye::{
-//!     RigHandeyeProblem, RigHandeyeInput,
-//!     step_intrinsics_init_all, step_intrinsics_optimize_all,
-//!     step_rig_init, step_rig_optimize,
-//!     step_handeye_init, step_handeye_optimize, run_calibration,
-//! };
-//! # fn main() -> anyhow::Result<()> {
-//! # let input: RigHandeyeInput = unimplemented!();
-//!
-//! // Create session and run calibration
-//! let mut session = CalibrationSession::<RigHandeyeProblem>::new();
-//! session.set_input(input)?;
-//!
-//! // Option 1: Step-by-step
-//! step_intrinsics_init_all(&mut session, None)?;
-//! step_intrinsics_optimize_all(&mut session, None)?;
-//! step_rig_init(&mut session, None)?;
-//! step_rig_optimize(&mut session, None)?;
-//! step_handeye_init(&mut session, None)?;
-//! step_handeye_optimize(&mut session, None)?;
-//!
-//! // Option 2: Full pipeline
-//! // run_calibration(&mut session)?;
-//!
-//! let export = session.export()?;
-//! # Ok(())
-//! # }
-//! ```
+//! [`RigHandeyeProblem`] has a runnable example; `run_calibration` runs the
+//! six steps in order.
 //!
 //! # Conventions
 //!

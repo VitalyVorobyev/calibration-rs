@@ -141,17 +141,38 @@ pub struct RigExtrinsicsExport {
 ///
 /// # Example
 ///
-/// ```no_run
+/// Two cameras 10 cm apart, toed in by 0.05 rad, view a board in six rig
+/// poses; every rig frame holds one observation per camera:
+///
+/// ```
+/// use vision_calibration_core::{NoMeta, RigView, RigViewObs};
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::rig_extrinsics::{
-///     RigExtrinsicsProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
-///     step_rig_init, step_rig_optimize,
+///     RigExtrinsicsInput, RigExtrinsicsProblem, step_intrinsics_init_all,
+///     step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
 /// };
+/// # use vision_calibration_core::synthetic::{planar, poses};
+/// # use vision_calibration_core::{BrownConrady5, FxFyCxCy, Iso3, make_pinhole_camera};
 /// # fn main() -> anyhow::Result<()> {
-/// # let rig_dataset = unimplemented!();
+/// # let camera = make_pinhole_camera(
+/// #     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+/// #     BrownConrady5::default(),
+/// # );
+/// # let cam_se3_rig = poses::rig_layout(2, 0.1, 0.05);
+/// # let board = planar::grid_points(8, 6, 0.04);
+/// # let board_poses = poses::seeded_board_pose_specs(6, 0.3, 11);
+/// # let rig_poses = poses::centered_board_poses(&board_poses, (0.14, 0.1), 0.7);
+/// # let observe = |cam: usize, rig_se3_target: &Iso3| {
+/// #     planar::project_view_all(&camera, &(cam_se3_rig[cam] * rig_se3_target), &board).map(Some)
+/// # };
 ///
+/// let mut views = Vec::new();
+/// for rig_se3_target in &rig_poses {
+///     let cameras = vec![observe(0, rig_se3_target)?, observe(1, rig_se3_target)?];
+///     views.push(RigView { obs: RigViewObs { cameras }, meta: NoMeta });
+/// }
 /// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-/// session.set_input(rig_dataset)?;
+/// session.set_input(RigExtrinsicsInput::new(views, 2)?)?;
 ///
 /// step_intrinsics_init_all(&mut session, None)?;
 /// step_intrinsics_optimize_all(&mut session, None)?;
@@ -159,6 +180,9 @@ pub struct RigExtrinsicsExport {
 /// step_rig_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
+/// // Camera 0 defines the rig frame; camera 1 sits 10 cm along its x axis.
+/// let baseline = export.cam_se3_rig[1].inverse().translation.vector;
+/// assert!((baseline.norm() - 0.1).abs() < 1e-5);
 /// # Ok(())
 /// # }
 /// ```

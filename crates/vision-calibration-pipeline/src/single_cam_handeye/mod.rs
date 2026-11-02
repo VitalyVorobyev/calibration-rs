@@ -15,43 +15,8 @@
 //! 3. **Hand-eye initialization**: Tsai-Lenz linear estimation from pose pairs
 //! 4. **Hand-eye optimization**: Bundle adjustment with optional robot pose refinement
 //!
-//! # Example
-//!
-//! ```no_run
-//! use vision_calibration_pipeline::common::RobotPoseMeta;
-//! use vision_calibration_pipeline::session::CalibrationSession;
-//! use vision_calibration_pipeline::single_cam_handeye::{
-//!     SingleCamHandeyeProblem, SingleCamHandeyeInput, SingleCamHandeyeView,
-//!     step_intrinsics_init, step_intrinsics_optimize,
-//!     step_handeye_init, step_handeye_optimize, run_calibration,
-//! };
-//! # fn main() -> anyhow::Result<()> {
-//! # let (obs, base_se3_gripper) = unimplemented!();
-//!
-//! // Create input from robot poses and observations
-//! let views = vec![
-//!     SingleCamHandeyeView::new(obs, RobotPoseMeta { base_se3_gripper }),
-//!     // ... more views
-//! ];
-//! let input = SingleCamHandeyeInput::new(views)?;
-//!
-//! // Create session and run calibration
-//! let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
-//! session.set_input(input)?;
-//!
-//! // Option 1: Step-by-step
-//! step_intrinsics_init(&mut session, None)?;
-//! step_intrinsics_optimize(&mut session, None)?;
-//! step_handeye_init(&mut session, None)?;
-//! step_handeye_optimize(&mut session, None)?;
-//!
-//! // Option 2: Full pipeline
-//! // run_calibration(&mut session)?;
-//!
-//! let export = session.export()?;
-//! # Ok(())
-//! # }
-//! ```
+//! [`SingleCamHandeyeProblem`] has a runnable example; `run_calibration`
+//! runs the four steps in order.
 //!
 //! # Conventions
 //!

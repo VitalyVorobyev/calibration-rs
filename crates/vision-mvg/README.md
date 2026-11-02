@@ -2,6 +2,9 @@
 
 Multiple-view geometry tools for calibrated cameras.
 
+Most users want [`vision-calibration`](https://crates.io/crates/vision-calibration) instead, which re-exports this crate as
+`vision_calibration::mvg` next to the calibration that produces its cameras.
+
 This crate builds on `vision-geometry` and adds the multi-view pipelines over
 already-calibrated cameras.
 

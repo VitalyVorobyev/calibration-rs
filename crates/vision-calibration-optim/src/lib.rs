@@ -26,6 +26,29 @@
 //! for the workspace's own crates but hidden from these docs and outside the
 //! semver promise: they change whenever a pipeline step does. Calibrate
 //! through the step functions of `vision-calibration` instead.
+//!
+//! # Example
+//!
+//! A parameter covariance labels its rows by parameter name;
+//! [`camera_parameters`] lists a camera's parameters in that order:
+//!
+//! ```
+//! use vision_calibration_core::{
+//!     BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, ProjectionParams, SensorParams,
+//! };
+//! use vision_calibration_optim::camera_parameters;
+//!
+//! let camera = CameraParams {
+//!     projection: ProjectionParams::Pinhole,
+//!     distortion: DistortionParams::BrownConrady5 { params: BrownConrady5::default() },
+//!     sensor: SensorParams::Identity,
+//!     intrinsics: FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+//! };
+//! let labels: Vec<&str> = camera_parameters(&camera)?.iter().map(|(label, _)| *label).collect();
+//! assert_eq!(labels[..4], ["fx", "fy", "cx", "cy"]);
+//! assert!(labels.contains(&"k1"));
+//! # Ok::<(), vision_calibration_optim::Error>(())
+//! ```
 
 mod backend;
 mod error;
