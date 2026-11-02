@@ -47,14 +47,11 @@ fn main() -> Result<()> {
     println!("\nLoading images and detecting corners...");
     let board_params = handeye_io::kuka_chessboard_params();
 
-    let (samples, summary) = handeye_io::load_kuka_dataset_with_progress(
-        data_path,
-        &board_params,
-        |current, total| {
+    let (samples, summary) =
+        handeye_io::load_kuka_dataset_with_progress(data_path, &board_params, |current, total| {
             print!("\r  Processing image {current}/{total}...");
             io::stdout().flush().ok();
-        },
-    )?;
+        })?;
 
     print_dataset_summary(&summary);
 
