@@ -133,7 +133,7 @@ pub fn repo_root_cmd() -> Result<String, String> {
 /// array. The frontend loads the returned JSON straight into the Run
 /// workspace's manifest form; the non-empty `_unresolved` list drives the red
 /// badges and blocks Run until the user fills and clears them (ADR 0016).
-/// This is the same inference the `generate-manifest` CLI uses.
+/// This is the same inference `vcal init` uses.
 #[tauri::command]
 pub async fn sniff_folder(folder: String) -> Result<serde_json::Value, String> {
     let spec = vision_calibration::dataset::sniff_folder(std::path::Path::new(&folder))

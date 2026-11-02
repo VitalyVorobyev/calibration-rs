@@ -76,7 +76,7 @@ cargo run --release -p vision-calibration-bench --features "tier-b laser" \
 for c in vision-calibration-core vision-geometry vision-calibration-dataset \
          vision-calibration-detect vision-calibration-linear \
          vision-calibration-optim vision-mvg vision-calibration-pipeline \
-         vision-calibration; do
+         vision-calibration vision-calibration-cli; do
   echo "=== $c ==="; cargo publish -p "$c" --dry-run --locked
 done
 ```
@@ -90,7 +90,8 @@ exempt. `release.yml` runs the same command before publishing and stops the
 release on a break.
 
 ```bash
-cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py
+cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py \
+  --exclude vision-calibration-cli   # until its first release
 ```
 
 A crate not yet on crates.io has no baseline; exclude it here and in
@@ -134,6 +135,7 @@ None of them push back to `main`.
 6. `vision-mvg` (core, geometry)
 7. `vision-calibration-pipeline` (core, linear, optim, geometry, dataset, detect)
 8. `vision-calibration` (facade)
+9. `vision-calibration-cli` (facade): the `vcal` program
 
 `vision-calibration-py` ships to PyPI through `release-pypi.yml`; the bench and
 examples-private crates are not published. Dev-dependencies do not constrain
@@ -170,7 +172,11 @@ When a crate joins the publish set:
 
 1. Publish it manually once (`cargo publish -p <crate>` with a real token, or
    ask a crates.io owner). The Trusted Publisher UI exists only for crates
-   that already exist.
+   that already exist. Do it right after the tagged release that published
+   its workspace dependencies at the same version: `cargo publish` resolves
+   them against crates.io, so before that release it fails on any
+   dependency item or feature the registry copy lacks (`vision-calibration-cli`
+   needs the facade's `fetch` feature, which 0.12.0 does not have).
 2. Add the Trusted Publisher entry on its crates.io settings page.
 3. The next tagged release then publishes it automatically.
 

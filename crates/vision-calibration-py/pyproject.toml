@@ -25,6 +25,9 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 
+[project.scripts]
+vcal = "vision_calibration.cli:main"
+
 [project.urls]
 Homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 Repository = "https://github.com/VitalyVorobyev/calibration-rs"

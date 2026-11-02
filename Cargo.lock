@@ -3433,6 +3433,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vision-calibration-cli"
+version = "0.12.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "image",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "vision-calibration",
+]
+
+[[package]]
 name = "vision-calibration-core"
 version = "0.12.0"
 dependencies = [
@@ -3544,6 +3558,7 @@ dependencies = [
  "serde_json",
  "toml",
  "vision-calibration",
+ "vision-calibration-cli",
 ]
 
 [[package]]

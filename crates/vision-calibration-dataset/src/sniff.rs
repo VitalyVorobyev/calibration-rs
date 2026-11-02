@@ -12,9 +12,9 @@
 //! schema-driven form has something to edit.
 //!
 //! Inference is heuristic-only — filename and folder structure, no image
-//! content analysis. The companion `generate-manifest` binary (the `cli`
-//! feature) and the app's `sniff_folder` Tauri command both call this
-//! function, so all three paths share one inference.
+//! content analysis. `vcal init` (the `vision-calibration-cli` crate) and
+//! the app's `sniff_folder` Tauri command both call this function, so all
+//! three paths share one inference.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

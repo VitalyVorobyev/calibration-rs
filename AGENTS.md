@@ -34,7 +34,8 @@ The workspace is a strict layered DAG ([ADR 0006](docs/adrs/0006-layered-crate-a
 | `vision-calibration-detect` | — | target detectors (`DetectorConfig`), detection cache; plain arrays at its boundary |
 | `vision-calibration-pipeline` | core, linear, optim, geometry, dataset, detect | sessions, problem types, `dataset_runner`, analysis |
 | `vision-calibration` | all of the above | the facade: re-exports only, no logic |
-| `vision-calibration-py` | the facade | PyO3/maturin bindings |
+| `vision-calibration-cli` | the facade | the `vcal` program: a thin command layer over the facade |
+| `vision-calibration-py` | the facade, the CLI | PyO3/maturin bindings; the `vcal` console script runs the CLI |
 | `vision-calibration-bench` | facade, pipeline, core, optim, dataset, linear | benchmarks, acceptance, the public regression suite |
 
 `linear` and `optim` are peers (no edge either way). The pipeline does not

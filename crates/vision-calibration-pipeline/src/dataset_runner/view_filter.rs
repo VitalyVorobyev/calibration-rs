@@ -30,6 +30,18 @@ pub enum RejectReason {
     TurnedChessboard,
 }
 
+impl std::fmt::Display for RejectReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::TooFewFeatures => "too few features detected",
+            Self::PartialChessboard => {
+                "the chessboard's corners do not reach every edge of the board"
+            }
+            Self::TurnedChessboard => "the chessboard is seen turned by 90°",
+        })
+    }
+}
+
 /// A target detection the runner left out of the calibration input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

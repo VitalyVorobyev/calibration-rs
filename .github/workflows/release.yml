@@ -53,6 +53,7 @@ jobs:
           cargo semver-checks --workspace
           --exclude vision-calibration-bench
           --exclude vision-calibration-py
+          --exclude vision-calibration-cli
 
   publish-crates:
     name: Publish crates.io
@@ -98,6 +99,7 @@ jobs:
             vision-mvg
             vision-calibration-pipeline
             vision-calibration
+            vision-calibration-cli
           )
 
           metadata=$(cargo metadata --format-version 1 --no-deps)

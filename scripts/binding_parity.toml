@@ -124,6 +124,7 @@
 "dataset_runner::CalibrationExport" = "dataset_runner.CalibrationResult"
 "dataset_runner::DatasetCalibration" = "calibrate_dataset"
 "dataset_runner::calibrate_dataset" = "calibrate_dataset"
+"dataset_runner::camera_image_sizes" = "dataset_runner.camera_image_sizes"
 "dataset_runner::RunError" = ["RunError", "AskUserError"]
 "dataset_runner::build_laserline_device_input" = ["dataset_runner.build_laserline_device_input", "calibrate_dataset"]
 "dataset_runner::build_planar_input" = ["dataset_runner.build_planar_input", "calibrate_dataset"]

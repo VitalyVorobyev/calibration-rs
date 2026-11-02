@@ -39,8 +39,8 @@ Nothing that changes a result's meaning is defaulted (AGENTS.md §5):
   a manifest with entries there is rejected, and the app blocks Run until
   they are filled.
 - Ambiguity that survives validation (an inconsistent pairing) is the typed
-  `AskUser { field, prompt, suggestions }` error: the app asks, and the
-  `generate-manifest` CLI prints the question and exits with status 2.
+  `AskUser { field, prompt, suggestions }` error: the app asks, and `vcal`
+  prints the question and exits with status 1.
 - Empty globs, too few features per view and laser fields on a non-laser
   topology are typed errors, never silently skipped.
 - Algorithm tuning with safe defaults (detector and laser-extraction

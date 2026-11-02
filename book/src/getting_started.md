@@ -24,6 +24,14 @@ pip install vision-calibration
 
 Python 3.10 or newer. To build the extension from a checkout instead, run `maturin develop -m crates/vision-calibration-py/Cargo.toml`. The package is `vision_calibration`; the examples below import it as `vc`.
 
+### Command line
+
+```bash
+cargo install vision-calibration-cli
+```
+
+The Python package installs the same `vcal` program. It calibrates a folder of images without code: [The Command Line](cli.md).
+
 ## A Minimal Calibration
 
 Each program builds a synthetic camera with known intrinsics and Brown-Conrady distortion, projects an 8x6 board (40 mm squares) from several poses, and recovers the camera from those pixels alone.
@@ -151,7 +159,7 @@ print(cam.project([0.0, 0.0, 1.0]))        # the principal point
 
 ## Calibrate Your Own Images
 
-A folder of photographs of a calibration board is enough to start. The program below takes three steps. It drafts a *dataset manifest* that describes the folder, waits for you to fill in what only you know, and then detects the board, calibrates and judges the result. It works for any [workflow](choose_workflow.md): the manifest's `topology` picks it.
+A folder of photographs of a calibration board is enough to start. Without code, `vcal init <folder>` and `vcal run <folder>/dataset.toml` do what this section does ([The Command Line](cli.md)). The program below takes three steps. It drafts a *dataset manifest* that describes the folder, waits for you to fill in what only you know, and then detects the board, calibrates and judges the result. It works for any [workflow](choose_workflow.md): the manifest's `topology` picks it.
 
 ### 1. Draft the manifest
 
