@@ -102,10 +102,10 @@ let spec = sniff_folder(Path::new("data/my_dataset"))?;
 println!("{:?}", spec.unresolved);
 ```
 
-The same function is the `generate-manifest` binary (needs the `cli` feature of `vision-calibration-dataset`) and the **Sniff folder** button of the app's Run workspace:
+The same function is `vcal init` on the command line ([The Command Line](cli.md)) and the **Sniff folder** button of the app's Run workspace:
 
 ```bash
-cargo run -p vision-calibration-dataset --features cli --bin generate-manifest -- data/my_dataset > data/my_dataset/dataset.toml
+vcal init data/my_dataset        # writes data/my_dataset/dataset.toml
 ```
 
 It looks only at file names and folder structure, never at image content, and infers **only what is structurally unambiguous**:

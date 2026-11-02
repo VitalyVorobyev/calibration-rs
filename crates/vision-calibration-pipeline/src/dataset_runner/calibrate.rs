@@ -12,7 +12,7 @@ use super::{
     Detection, LaserPixelExtractor, RejectedDetection, RunError, build_laserline_device_input,
     build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
     build_rig_handeye_laserline_input, build_rig_laserline_device_input,
-    build_single_cam_handeye_input,
+    build_single_cam_handeye_input, camera_image_sizes,
 };
 use crate::Error;
 use crate::common::{CalibratedCameras, ExportDiagnostics, ExportKind};
@@ -163,6 +163,10 @@ impl CalibratedCameras for CalibrationExport {
 pub struct DatasetCalibration {
     /// The calibration's export.
     pub export: CalibrationExport,
+    /// Each camera's image size in pixels, `[width, height]`, in camera
+    /// order ([`camera_image_sizes`](super::camera_image_sizes)): the
+    /// `image_sizes` that [`assess`](crate::analysis::assess) takes.
+    pub image_sizes: Vec<[u32; 2]>,
     /// Views that entered the calibration.
     pub usable_views: usize,
     /// Views the manifest's images formed before screening.
@@ -218,9 +222,10 @@ pub enum CalibrateDatasetError {
 /// - [`CalibrateDatasetError::ConfigTopologyMismatch`] and
 ///   [`CalibrateDatasetError::LaserExtractorRequired`] before any image is
 ///   read.
-/// - [`CalibrateDatasetError::Run`] from the converter: an invalid manifest,
-///   a choice the manifest leaves open ([`RunError::AskUser`]), or detection
-///   and pairing failures.
+/// - [`CalibrateDatasetError::Run`]: an invalid manifest, a camera whose
+///   images differ in size ([`RunError::ImageSizeMismatch`]), a choice the
+///   manifest leaves open ([`RunError::AskUser`]), or detection and pairing
+///   failures.
 /// - [`CalibrateDatasetError::Calibration`] from the session.
 ///
 /// # Example
@@ -258,6 +263,17 @@ pub fn calibrate_dataset(
     }
     let laser =
         || laser_extractor.ok_or(CalibrateDatasetError::LaserExtractorRequired { topology });
+    let needs_laser = matches!(
+        config,
+        CalibrationConfig::LaserlineDevice(_)
+            | CalibrationConfig::RigLaserlineDevice(_)
+            | CalibrationConfig::RigHandeyeLaserline(_)
+    );
+    if needs_laser {
+        laser()?;
+    }
+    // A camera whose images differ in size fails here, before any detection.
+    let image_sizes = camera_image_sizes(spec, base_dir)?;
 
     // `config.topology() == topology` was checked above, so each arm sees the
     // config variant of its own topology.
@@ -270,6 +286,7 @@ pub fn calibrate_dataset(
                 crate::planar_intrinsics::run_calibration,
             )?;
             Ok(finish(
+                image_sizes,
                 CalibrationExport::PlanarIntrinsics(export),
                 run.usable_views,
                 run.total_views,
@@ -284,6 +301,7 @@ pub fn calibrate_dataset(
                 crate::single_cam_handeye::run_calibration,
             )?;
             Ok(finish(
+                image_sizes,
                 CalibrationExport::SingleCamHandeye(export),
                 run.usable_views,
                 run.total_views,
@@ -298,6 +316,7 @@ pub fn calibrate_dataset(
                 crate::laserline_device::run_calibration,
             )?;
             Ok(finish(
+                image_sizes,
                 CalibrationExport::LaserlineDevice(export),
                 run.usable_views,
                 run.total_views,
@@ -312,6 +331,7 @@ pub fn calibrate_dataset(
                 crate::rig_extrinsics::run_calibration,
             )?;
             Ok(finish(
+                image_sizes,
                 CalibrationExport::RigExtrinsics(export),
                 run.usable_views,
                 run.total_views,
@@ -323,6 +343,7 @@ pub fn calibrate_dataset(
             let export =
                 solve::<RigHandeyeProblem>(run.input, config, crate::rig_handeye::run_calibration)?;
             Ok(finish(
+                image_sizes,
                 CalibrationExport::RigHandeye(export),
                 run.usable_views,
                 run.total_views,
@@ -337,6 +358,7 @@ pub fn calibrate_dataset(
                 crate::rig_laserline_device::run_calibration,
             )?;
             Ok(finish(
+                image_sizes,
                 CalibrationExport::RigLaserlineDevice(export),
                 run.usable_views,
                 run.total_views,
@@ -351,6 +373,7 @@ pub fn calibrate_dataset(
                 crate::rig_handeye_laserline::run_calibration,
             )?;
             Ok(finish(
+                image_sizes,
                 CalibrationExport::RigHandeyeLaserline(export),
                 run.usable_views,
                 run.total_views,
@@ -373,6 +396,7 @@ fn solve<P: ProblemType>(
 }
 
 fn finish(
+    image_sizes: Vec<[u32; 2]>,
     export: CalibrationExport,
     usable_views: usize,
     total_views: usize,
@@ -380,6 +404,7 @@ fn finish(
 ) -> DatasetCalibration {
     DatasetCalibration {
         export,
+        image_sizes,
         usable_views,
         total_views,
         rejected,

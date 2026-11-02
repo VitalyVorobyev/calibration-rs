@@ -1,0 +1,31 @@
+[package]
+name = "vision-calibration-cli"
+description = "vcal: calibrate cameras from a folder of images on the command line"
+readme = "README.md"
+keywords = ["camera", "calibration", "computer-vision", "cli", "robotics"]  # max 5
+categories = ["computer-vision", "command-line-utilities"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vcal"
+path = "src/main.rs"
+
+[dependencies]
+vision-calibration = { workspace = true, features = ["fetch"] }
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "1"
+
+[dev-dependencies]
+image = { workspace = true }
+tempfile = "3"

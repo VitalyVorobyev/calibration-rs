@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **`generate-manifest` is `vcal init`.** The dataset crate's
+  `generate-manifest` binary and its `cli` feature are removed;
+  `vcal init <folder>` writes the same draft to `<folder>/dataset.toml`
+  (`-o -` prints it).
+
+- **`RunError` has an `ImageSizeMismatch` variant**, and
+  `calibrate_dataset` returns it, before any detection, when one camera's
+  images differ in size. A `match` on `RunError` needs the new arm; Python's
+  `RunError.kind` is `"image_size_mismatch"`.
+
 ### Added
+
+- `vcal`, the command line (`cargo install vision-calibration-cli`; the
+  Python package installs it too): `vcal init <folder>` drafts the
+  manifest, `vcal check` checks it and its images without detecting,
+  `vcal run` detects, calibrates, prints each camera's parameters with
+  their σ and the quality verdict, and writes `calibration.json` and
+  `quality.json`, and `vcal sample list` / `vcal sample fetch <id>` give
+  the sample datasets. `-c <file>` changes the workflow's default
+  configuration (TOML or JSON). The exit status is 3 when a run finishes
+  with a failing verdict.
+- `dataset_runner::camera_image_sizes` reads each camera's image size from
+  the image headers (or its region), the `image_sizes` that `assess` and
+  the other image-wide analyses take; `DatasetCalibration::image_sizes`
+  carries it. Python: `dataset_runner.camera_image_sizes(manifest)`.
+- `RejectReason` implements `Display`.
 
 - `dataset_runner::calibrate_dataset` runs a dataset manifest end to end in
   Rust, as `calibrate_dataset` already did in Python: the manifest's
@@ -35,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- A "The Command Line" chapter walks through `vcal` on a sample dataset.
 - A "Capturing Calibration Images" chapter says how to capture: how many
   views, how much tilt and in which directions, how large the board should
   be in the image and where to place it, with the uncertainty each choice

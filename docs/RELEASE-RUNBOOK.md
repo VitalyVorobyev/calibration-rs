@@ -76,7 +76,7 @@ cargo run --release -p vision-calibration-bench --features "tier-b laser" \
 for c in vision-calibration-core vision-geometry vision-calibration-dataset \
          vision-calibration-detect vision-calibration-linear \
          vision-calibration-optim vision-mvg vision-calibration-pipeline \
-         vision-calibration; do
+         vision-calibration vision-calibration-cli; do
   echo "=== $c ==="; cargo publish -p "$c" --dry-run --locked
 done
 ```
@@ -90,7 +90,8 @@ exempt. `release.yml` runs the same command before publishing and stops the
 release on a break.
 
 ```bash
-cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py
+cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py \
+  --exclude vision-calibration-cli   # until its first release
 ```
 
 A crate not yet on crates.io has no baseline; exclude it here and in
@@ -134,6 +135,7 @@ None of them push back to `main`.
 6. `vision-mvg` (core, geometry)
 7. `vision-calibration-pipeline` (core, linear, optim, geometry, dataset, detect)
 8. `vision-calibration` (facade)
+9. `vision-calibration-cli` (facade): the `vcal` program
 
 `vision-calibration-py` ships to PyPI through `release-pypi.yml`; the bench and
 examples-private crates are not published. Dev-dependencies do not constrain

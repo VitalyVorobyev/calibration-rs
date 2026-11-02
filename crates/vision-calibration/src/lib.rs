@@ -457,8 +457,8 @@ pub mod core {
 /// metadata live for a calibration run; see [`dataset_runner`] for the
 /// converters that turn a manifest into the per-problem `*Input` types.
 /// [`sniff_folder`](dataset::sniff_folder) heuristically infers a
-/// `DatasetSpec` from a dataset folder (used by the `generate-manifest` CLI
-/// and the diagnose app's "Sniff folder" command). [`samples`](dataset::samples)
+/// `DatasetSpec` from a dataset folder (used by `vcal init` and the diagnose
+/// app's "Sniff folder" command). [`samples`](dataset::samples)
 /// lists real sample datasets with ready manifests and, with the `fetch`
 /// feature, downloads them.
 pub mod dataset {
@@ -489,7 +489,7 @@ pub mod dataset_runner {
         build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
         build_rig_handeye_input, build_rig_handeye_laserline_input,
         build_rig_laserline_device_input, build_single_cam_handeye_input, calibrate_dataset,
-        detect_target,
+        camera_image_sizes, detect_target,
     };
 }
 

@@ -6,6 +6,8 @@
 //! [`calibrate_dataset`] runs a manifest end to end: it picks the converter
 //! and the problem type by the manifest's topology and returns the export as
 //! a [`CalibrationExport`].
+//! [`camera_image_sizes`] reads each camera's image size, which the
+//! image-wide analyses take.
 //!
 //! Converters, for a run driven step by step:
 //! - [`build_planar_input`] — `PlanarIntrinsics` (any camera model)
@@ -195,6 +197,25 @@ pub enum RunError {
         /// Underlying error.
         #[source]
         source: image::ImageError,
+    },
+
+    /// A camera's images differ in size. One camera's intrinsics hold for
+    /// one image size, so its images must share it.
+    #[error(
+        "camera {camera_id:?}: {path} is {size:?} pixels but {first} is {first_size:?}; \
+         a camera's images must all have one size"
+    )]
+    ImageSizeMismatch {
+        /// Camera whose images differ.
+        camera_id: String,
+        /// The camera's first image.
+        first: PathBuf,
+        /// Its `[width, height]` in pixels.
+        first_size: [u32; 2],
+        /// The first image of another size.
+        path: PathBuf,
+        /// Its `[width, height]` in pixels.
+        size: [u32; 2],
     },
 
     /// Detection failure for a specific image.
@@ -548,6 +569,63 @@ fn parse_puzzleboard_layout(layout: &str) -> Result<(u32, u32), String> {
         ));
     }
     Ok((rows, cols))
+}
+
+/// Each camera's image size in pixels, `[width, height]`, in camera order:
+/// the size of its region (`roi_xywh`) when it has one, else the size its
+/// target images share. This is the `image_sizes` argument of
+/// [`assess`](crate::analysis::assess) and the other image-wide analyses.
+///
+/// Reads only each image's header. Relative paths in the manifest resolve
+/// against `base_dir`.
+///
+/// # Errors
+///
+/// [`RunError::Validation`] for an invalid manifest,
+/// [`RunError::EmptyImageMatch`] or [`RunError::BadGlob`] when a camera's
+/// images cannot be listed, [`RunError::Decode`] when an image header cannot
+/// be read, and [`RunError::ImageSizeMismatch`] when one camera's images
+/// differ in size.
+pub fn camera_image_sizes(spec: &DatasetSpec, base_dir: &Path) -> Result<Vec<[u32; 2]>, RunError> {
+    vision_calibration_dataset::validate(spec)?;
+    spec.cameras
+        .iter()
+        .map(|camera| {
+            if let Some([_, _, width, height]) = camera.roi_xywh {
+                return Ok([width, height]);
+            }
+            let images = expand_camera_images(camera, base_dir)?;
+            let mut first: Option<(&PathBuf, [u32; 2])> = None;
+            for path in &images {
+                let (width, height) =
+                    image::image_dimensions(path).map_err(|source| RunError::Decode {
+                        path: path.clone(),
+                        source,
+                    })?;
+                let size = [width, height];
+                match first {
+                    None => first = Some((path, size)),
+                    Some((first_path, first_size)) if first_size != size => {
+                        return Err(RunError::ImageSizeMismatch {
+                            camera_id: camera.id.clone(),
+                            first: first_path.clone(),
+                            first_size,
+                            path: path.clone(),
+                            size,
+                        });
+                    }
+                    Some(_) => {}
+                }
+            }
+            first
+                .map(|(_, size)| size)
+                .ok_or_else(|| RunError::EmptyImageMatch {
+                    camera_id: camera.id.clone(),
+                    pattern: pattern_repr(&camera.images),
+                    base: base_dir.to_path_buf(),
+                })
+        })
+        .collect()
 }
 
 fn expand_camera_images(
@@ -1165,5 +1243,78 @@ mod tests {
         assert_ne!(key_no_roi, key_roi_a);
         assert_ne!(key_roi_a, key_roi_b);
         assert_ne!(key_no_roi, key_roi_b);
+    }
+
+    /// A one-camera planar spec over `paths`, with `roi`.
+    fn sized_spec(paths: Vec<PathBuf>, roi: Option<[u32; 4]>) -> DatasetSpec {
+        let mut spec = spec_for_target(TargetSpec::Chessboard {
+            rows: 5,
+            cols: 4,
+            square_size_m: 0.03,
+        });
+        spec.cameras[0].images = ImagePattern::List { paths };
+        spec.cameras[0].roi_xywh = roi;
+        spec
+    }
+
+    fn write_blank(dir: &Path, name: &str, width: u32, height: u32) -> PathBuf {
+        let path = dir.join(name);
+        image::GrayImage::new(width, height).save(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn camera_image_sizes_reads_the_shared_size_or_the_region() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = vec![
+            write_blank(tmp.path(), "a.png", 64, 48),
+            write_blank(tmp.path(), "b.png", 64, 48),
+        ];
+        let spec = sized_spec(paths.clone(), None);
+        assert_eq!(
+            camera_image_sizes(&spec, tmp.path()).unwrap(),
+            vec![[64, 48]]
+        );
+
+        // A region is the camera's image, whatever the files' size.
+        let spec = sized_spec(paths, Some([8, 4, 32, 24]));
+        assert_eq!(
+            camera_image_sizes(&spec, tmp.path()).unwrap(),
+            vec![[32, 24]]
+        );
+    }
+
+    #[test]
+    fn camera_image_sizes_rejects_a_camera_with_mixed_sizes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = vec![
+            write_blank(tmp.path(), "a.png", 64, 48),
+            write_blank(tmp.path(), "b.png", 48, 64),
+        ];
+        let err = camera_image_sizes(&sized_spec(paths, None), tmp.path()).unwrap_err();
+        let RunError::ImageSizeMismatch {
+            camera_id,
+            first_size,
+            size,
+            path,
+            ..
+        } = err
+        else {
+            panic!("expected ImageSizeMismatch, got {err:?}");
+        };
+        assert_eq!(camera_id, "cam0");
+        assert_eq!((first_size, size), ([64, 48], [48, 64]));
+        assert!(path.ends_with("b.png"));
+    }
+
+    #[test]
+    fn camera_image_sizes_names_a_camera_without_images() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut spec = sized_spec(vec![], None);
+        spec.cameras[0].images = ImagePattern::Glob {
+            pattern: "missing/*.png".into(),
+        };
+        let err = camera_image_sizes(&spec, tmp.path()).unwrap_err();
+        assert!(matches!(err, RunError::EmptyImageMatch { .. }), "{err:?}");
     }
 }

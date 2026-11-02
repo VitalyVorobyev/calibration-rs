@@ -8,12 +8,9 @@ Most users want [`vision-calibration`](https://crates.io/crates/vision-calibrati
 `vision_calibration::dataset` next to the runner that calibrates a manifest.
 
 You can write a manifest by hand, or generate a skeleton with `sniff_folder`
-(also available as the `generate-manifest` binary, which needs the `cli`
-feature):
-
-```text
-cargo run -p vision-calibration-dataset --features cli --bin generate-manifest -- <dataset-folder>
-```
+(also available as `vcal init <dataset-folder>`, from the
+[`vision-calibration-cli`](https://crates.io/crates/vision-calibration-cli)
+crate).
 
 The sniffer infers only what is structurally unambiguous (camera folders,
 image globs, robot-pose file format, pairing). Everything that needs domain

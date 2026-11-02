@@ -19,8 +19,6 @@ features = ["fetch"]
 
 [features]
 schemars = ["dep:schemars"]
-# Builds the `generate-manifest` binary.
-cli = []
 # `samples::fetch`: downloads a sample dataset from its publisher over HTTPS
 # (pure-Rust TLS, the same on every platform), unpacks a published ZIP
 # archive (deflate only) and verifies every file's SHA-256.
@@ -38,7 +36,3 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 
 [dev-dependencies]
 serde_json = { workspace = true }
-
-[[bin]]
-name = "generate-manifest"
-required-features = ["cli"]

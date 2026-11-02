@@ -132,9 +132,9 @@ let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_input(run.input)?;
 ```
 
-`cargo run -p vision-calibration-dataset --features cli --bin generate-manifest`
-sniffs a folder and writes a starting manifest; the validator flags anything it
-could not determine rather than guessing.
+`vcal init <folder>` (the `vision-calibration-cli` crate) sniffs a folder and
+writes a starting manifest; the validator flags anything it could not determine
+rather than guessing. `vcal run <manifest>` then calibrates it.
 
 ## Desktop app
 

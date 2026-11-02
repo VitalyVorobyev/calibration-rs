@@ -89,12 +89,13 @@ __all__ = [
     "build_rig_laserline_device_input",
     "build_single_cam_handeye_input",
     "calibrate_dataset",
+    "camera_image_sizes",
     "detect_target",
 ]
 
 RunError = _native.RunError
 """A manifest run failed; ``kind`` names the failure: ``"validation"``,
-``"empty_image_match"``, ``"pose_count_mismatch"``, ``"detection"``,
+``"empty_image_match"``, ``"image_size_mismatch"``, ``"pose_count_mismatch"``, ``"detection"``,
 ``"insufficient_usable_views"``, ``"no_whole_chessboard_views"``, ...."""
 
 AskUserError = _native.AskUserError
@@ -554,6 +555,28 @@ def calibrate_dataset(
         session.set_config(config)
     session.run_calibration()
     return cast(CalibrationResult, session.export())
+
+
+def camera_image_sizes(
+    manifest: Manifest,
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> list[tuple[int, int]]:
+    """Each camera's image size ``(width, height)`` in pixels, in camera order.
+
+    A camera's size is its region's (``roi_xywh``) when it has one, else the
+    size its target images share: the ``image_sizes`` that :func:`assess`
+    and :func:`projection_uncertainty` take. Only the image headers are read.
+
+    Raises
+    ------
+    RunError
+        The manifest is invalid, a camera's images cannot be listed or read,
+        or one camera's images differ in size (``kind`` is
+        ``"image_size_mismatch"``).
+    """
+    sizes = _native.camera_image_sizes(_manifest_arg(manifest), _base_dir_arg(base_dir))
+    return [(int(w), int(h)) for w, h in sizes]
 
 
 def detect_target(

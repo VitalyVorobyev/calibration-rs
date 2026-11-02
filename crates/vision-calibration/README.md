@@ -20,6 +20,7 @@ building blocks, published so it can depend on them:
 | `vision-calibration-dataset` | the dataset manifest and the sample datasets |
 | `vision-calibration-detect` | calibration-target detectors and the detection cache |
 | `vision-geometry`, `vision-mvg` | two-view solvers; multiple-view geometry over calibrated cameras |
+| `vision-calibration-cli` | the `vcal` program: calibrate a folder of images without code |
 
 From Python, install the `vision-calibration` package from PyPI instead.
 

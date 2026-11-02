@@ -176,6 +176,27 @@ pub(crate) fn sample_cache_dir() -> PyResult<PathBuf> {
     samples::default_cache_dir().map_err(fetch_err)
 }
 
+/// Each camera's image size `[width, height]` in pixels, in camera order.
+#[pyfunction]
+#[pyo3(signature = (manifest, base_dir=None))]
+pub(crate) fn camera_image_sizes(
+    py: Python<'_>,
+    manifest: &Bound<'_, PyAny>,
+    base_dir: Option<PathBuf>,
+) -> PyResult<Vec<[u32; 2]>> {
+    let (spec, base) = resolve_manifest(manifest, base_dir)?;
+    py.detach(|| runner::camera_image_sizes(&spec, &base))
+        .map_err(|err| run_err(py, err))
+}
+
+/// Run the `vcal` command line on `argv` (the program name first) and
+/// return its exit status. Output goes to the process's standard output and
+/// error.
+#[pyfunction]
+pub(crate) fn vcal_main(py: Python<'_>, argv: Vec<std::ffi::OsString>) -> u8 {
+    py.detach(|| vision_calibration_cli::run(argv))
+}
+
 /// Read a manifest file (TOML or JSON) and return its `DatasetSpec` payload.
 #[pyfunction]
 pub(crate) fn load_manifest(py: Python<'_>, path: PathBuf) -> PyResult<Py<PyAny>> {
@@ -305,6 +326,8 @@ laser_converter!(build_rig_handeye_laserline_input);
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sniff_folder, m)?)?;
     m.add_function(wrap_pyfunction!(load_manifest, m)?)?;
+    m.add_function(wrap_pyfunction!(camera_image_sizes, m)?)?;
+    m.add_function(wrap_pyfunction!(vcal_main, m)?)?;
     m.add_function(wrap_pyfunction!(sample_catalogue, m)?)?;
     m.add_function(wrap_pyfunction!(fetch_sample, m)?)?;
     m.add_function(wrap_pyfunction!(sample_cache_dir, m)?)?;

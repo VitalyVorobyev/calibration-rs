@@ -9,6 +9,7 @@ members = [
     "crates/vision-calibration-dataset",
     "crates/vision-calibration-detect",
     "crates/vision-calibration-bench",
+    "crates/vision-calibration-cli",
     "crates/vision-geometry",
     "crates/vision-mvg",
     "xtask",
@@ -39,6 +40,7 @@ vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", v
 vision-calibration-dataset = { path = "./crates/vision-calibration-dataset", version = "0.12.0" }
 vision-calibration-detect = { path = "./crates/vision-calibration-detect", version = "0.12.0" }
 vision-calibration-bench = { path = "./crates/vision-calibration-bench", version = "0.12.0" }
+vision-calibration-cli = { path = "./crates/vision-calibration-cli", version = "0.12.0" }
 vision-geometry = { path = "./crates/vision-geometry", version = "0.12.0" }
 vision-mvg = { path = "./crates/vision-mvg", version = "0.12.0" }
 
