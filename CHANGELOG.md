@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the other image-wide analyses take; `DatasetCalibration::image_sizes`
   carries it. Python: `dataset_runner.camera_image_sizes(manifest)`.
 - `RejectReason` implements `Display`.
+- `analysis::html_report` renders a result as one self-contained HTML page:
+  the verdict and every quality check, each camera's model and parameters
+  with σ, the reprojection-error statistics, and four figures (the error
+  histogram, the mean error by image region, the mean error per view and
+  the projection-σ map). It loads nothing from elsewhere and is the same
+  bytes for the same result. `vcal run --report` writes it as
+  `report.html`, the desktop app writes it into every saved run, and Python
+  has `vc.html_report(result, image_sizes=...)`.
 
 - `dataset_runner::calibrate_dataset` runs a dataset manifest end to end in
   Rust, as `calibrate_dataset` already did in Python: the manifest's
@@ -62,7 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- A "The Command Line" chapter walks through `vcal` on a sample dataset.
+- A "The Command Line" chapter walks through `vcal` on a sample dataset,
+  and "The Calibration Report" describes the HTML report.
 - A "Capturing Calibration Images" chapter says how to capture: how many
   views, how much tilt and in which directions, how large the board should
   be in the image and where to place it, with the uncertainty each choice

@@ -28,6 +28,8 @@
 "analysis::Unit" = "types.Unit"
 "analysis::Verdict" = "types.Verdict"
 "analysis::assess" = "assess"
+"analysis::html_report" = "html_report"
+"analysis::ReportOptions" = "html_report"
 "analysis::candidate_poses" = "candidate_poses"
 "analysis::predict_with_views" = "predict_with_views"
 "analysis::rank_candidates" = "rank_candidates"

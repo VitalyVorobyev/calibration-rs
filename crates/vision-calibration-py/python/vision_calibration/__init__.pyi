@@ -239,6 +239,23 @@ def assess(
 ) -> QualityReport: ...
 
 
+def html_report(
+    result: PlanarIntrinsicsExport
+    | SingleCamHandeyeExport
+    | LaserlineDeviceExport
+    | RigExtrinsicsExport
+    | RigHandeyeExport
+    | RigLaserlineDeviceExport
+    | RigHandeyeLaserlineExport
+    | Mapping[str, Any],
+    image_sizes: list[tuple[int, int]] | None = None,
+    *,
+    title: str | None = None,
+    camera_names: Sequence[str] | None = None,
+    thresholds: QualityThresholds | None = None,
+) -> str: ...
+
+
 def predict_with_views(
     result: PlanarIntrinsicsExport | Mapping[str, Any],
     candidates: Sequence[Pose | Mapping[str, Any]],

@@ -42,7 +42,7 @@ A project is a folder that keeps a dataset's manifest and the runs calibrated fr
 my-project/
   calibration-project.json   marks the folder as a project; names the dataset folder
   dataset.json               the dataset manifest
-  runs/run-001/              manifest.json, config.json, export.json, diagnostics.json
+  runs/run-001/              manifest.json, config.json, export.json, diagnostics.json, report.html
 ```
 
 The **Project** menu in the top bar does four things:
@@ -52,7 +52,7 @@ The **Project** menu in the top bar does four things:
 - **Save manifest** writes the Run workspace's edited manifest back to `dataset.json`.
 - **Recent** reopens one of the last projects you opened.
 
-While a project is open, every successful run is saved as the next `runs/run-NNN/` folder: the manifest and configuration it ran with, the export, and its diagnostics (views used, run time). A saved run is never overwritten. Its `export.json` points back at the dataset's images, so it also opens on its own with **Open Export…**.
+While a project is open, every successful run is saved as the next `runs/run-NNN/` folder: the manifest and configuration it ran with, the export, its diagnostics (views used, run time) and `report.html`, the run as one page to read or share ([The Calibration Report](report.md)). A saved run is never overwritten. Its `export.json` points back at the dataset's images, so it also opens on its own with **Open Export…**.
 
 The app reads images only from folders you opened (a project's dataset, an export's images); a frame elsewhere fails to load with an error instead of being read silently.
 

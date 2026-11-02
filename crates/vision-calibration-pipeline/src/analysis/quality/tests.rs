@@ -738,3 +738,43 @@ fn quantiles_match_tables() {
         );
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The HTML report of a calibration
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn html_report_is_one_self_contained_deterministic_page() {
+    use crate::analysis::{ReportOptions, html_report};
+
+    let export = calibrate(&well_covered_poses());
+    let options = ReportOptions {
+        title: "Left <camera> & co".to_string(),
+        camera_names: vec!["cam0".to_string()],
+        ..ReportOptions::default()
+    };
+    let page = html_report(&export, &[IMAGE], &options).expect("report");
+
+    assert!(page.starts_with("<!doctype html>"));
+    assert!(page.contains("<title>Left &lt;camera&gt; &amp; co</title>"));
+    assert!(page.contains("Camera 0 (cam0)"));
+    // Histogram, error by region, per view and the projection-σ map.
+    assert_eq!(page.matches("<svg").count(), 4);
+    // Every parameter with its σ; k3 is held fixed by default.
+    for label in ["fx", "fy", "cx", "cy", "k1", "k2", "p1", "p2"] {
+        assert!(page.contains(&format!("<tr><td>{label}</td>")), "{label}");
+    }
+    assert!(page.contains("<tr><td>k3</td><td>0</td><td>fixed</td></tr>"));
+    // Nothing loads from elsewhere.
+    for external in ["<script", "src=", "href=", "@import", "url("] {
+        assert!(!page.contains(external), "{external}");
+    }
+    // The same result gives the same bytes.
+    assert_eq!(page, html_report(&export, &[IMAGE], &options).unwrap());
+
+    // Without the image size there is no projection-σ map.
+    let page = html_report(&export, &[], &options).unwrap();
+    assert_eq!(page.matches("<svg").count(), 3);
+    // A size per camera or none, as `assess` takes them.
+    assert!(html_report(&export, &[IMAGE, IMAGE], &options).is_err());
+}
