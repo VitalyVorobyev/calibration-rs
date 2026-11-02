@@ -148,6 +148,9 @@ contract stay the library's own.
   Python residual would be a per-evaluation callback that cannot take dual
   numbers.
 - The book gains "Your own residual" and "Compose your own pipeline".
+- [ADR 0028](0028-measurements-from-a-calibration.md) extends the builder
+  for measurements: a calibration with its covariance (`add_calibrated_rig`),
+  point-block and rig-chain reprojection, whitened reprojection.
 
 ## Alternatives rejected
 

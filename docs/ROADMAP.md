@@ -53,7 +53,7 @@ geometry takes a bare `K`, carries no covariance and has no demonstration.
 | USE | A newcomer reaches a result on their own images from the book alone: a workflow chooser, a real-image quickstart, sample data fetched without a checkout, runnable docs.rs examples, capture guidance | Every quickstart and example runs from a crates.io / PyPI install; `check-docs` |
 | CLI | `vcal`: manifest in, export and report out, plus `init`, `check` and sample fetch, as a thin layer over the dataset runner; one HTML report shared with the app | CLI integration tests on the public suite data; the report renders every workflow |
 | EXT | Build your own pipeline: a public residual trait and IR builder with covariance over labelled blocks, the closed-form initializers on the facade, and a book chapter on each | A downstream test crate that uses only the facade defines a residual, solves and reads σ |
-| MVG | Measurements with error bars: MVG takes calibrated cameras (any camera model, rig exports), observations carry covariance, triangulation, BA, stereo and a metrology API return σ that includes the calibration's covariance; BA on the optimization IR, built on the EXT API | Monte-Carlo agreement for every propagated σ; a real-data walk-through measuring known board lengths with predicted σ checked against the actual error; Python bindings |
+| MVG | Measurements with error bars: MVG takes calibrated cameras (any camera model, rig exports), observations carry covariance, triangulation, BA, stereo and a metrology API return σ that includes the calibration's covariance; BA and every σ through the public problem builder (ADR 0028) | Monte-Carlo agreement for every propagated σ; a real-data walk-through measuring known board lengths with predicted σ checked against the actual error; Python bindings |
 | CORRECT | Rig initialization through a co-visibility graph, more hand-eye initializers, progress and cancellation through the solver | Synthetic-GT matrix per feature |
 | LEAN | Shared step logic of the problem types factored once; MVG and geometry free of duplicate solvers | Library code lines down, results bit-identical |
 
@@ -117,9 +117,9 @@ geometry takes a bare `K`, carries no covariance and has no demonstration.
 
 Phase 1b runs USE first (cheap, and it unblocks every later demo), then
 the CLI, then EXT, whose public residual API MVG bundle adjustment is the
-first user of, then the MVG chain (ADR → calibrated cameras in →
-observation covariance → triangulation σ → BA → stereo → metrology →
-Python → the real-data walk-through), then CORRECT and LEAN. The browser
+first user of, then the MVG chain (ADR 0028 → calibrated cameras in →
+the problem builder for measurements → observation noise → triangulation
+σ → BA → stereo → metrology → Python → the real-data walk-through), then CORRECT and LEAN. The browser
 demos follow MVG σ, since they show it. The release is a `1.0.0-rc`
 series once the exit criteria hold.
 

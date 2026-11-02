@@ -29,7 +29,7 @@ The workspace is a strict layered DAG ([ADR 0006](docs/adrs/0006-layered-crate-a
 | `vision-geometry` | core | deterministic two-view solvers |
 | `vision-calibration-linear` | core, geometry | closed-form / linear initialization |
 | `vision-calibration-optim` | core | NLLS IR, factors, robust kernels, solver backends, covariance |
-| `vision-mvg` | core, geometry | MVG pipelines: robust pose, triangulation, BA, rectification, dense stereo |
+| `vision-mvg` | core, geometry, optim | MVG pipelines: robust pose, triangulation, BA, rectification, dense stereo |
 | `vision-calibration-dataset` | — | `DatasetSpec` manifest, validator, folder sniffer |
 | `vision-calibration-detect` | — | target detectors (`DetectorConfig`), detection cache; plain arrays at its boundary |
 | `vision-calibration-pipeline` | core, linear, optim, geometry, dataset, detect | sessions, problem types, `dataset_runner`, analysis |
