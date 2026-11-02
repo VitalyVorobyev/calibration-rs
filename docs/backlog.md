@@ -12,19 +12,16 @@ A user builds their own pipeline from the facade. Today the optimization IR,
 the factors and the backends are private and `ProblemType` is sealed, so a
 new residual or problem needs a fork.
 
-- [ ] EXT-ADR - ADR for the public optimization extension:
-  - a user residual trait with a generic `eval<T: RealField>`, bridged to an
-    object-safe trait behind `FactorKind::Custom`;
-  - a public IR builder subset (parameter blocks, manifolds, `FixedMask`,
-    robust losses);
-  - a public solve returning the solution and the covariance over labelled
-    blocks, reusing the existing covariance estimator;
-  - user residuals run on tiny-solver; on factrs they are a typed error;
-  - `ProblemType` stays sealed: composition goes through public building
-    blocks, with the closed-form initializers re-exported on the facade.
-- [ ] EXT-FACTOR - Implement it, with a downstream test crate that uses only
-  the facade, Python where it applies, and a book chapter "Your own
-  residual" (worked example: a known-distance constraint). Needs: EXT-ADR.
+- [ ] EXT-FACTOR - Implement [ADR 0027](adrs/0027-public-optimization-extension.md):
+  the `Problem` builder, the `Residual` trait behind a private
+  `FactorKind::Custom`, `Noise` families in the covariance estimator, the
+  camera and reprojection constructors, `solve` → `Solution`, the factrs
+  typed error, and the facade's `optim::problem` and `init` modules. A
+  downstream test crate that uses only the facade; Python recorded
+  Rust-only in the parity check; a book chapter "Your own residual"
+  (worked example: a planar calibration plus a measured camera-to-board
+  distance as a known-σ residual on one view's pose); ADR 0008 and 0007
+  updated for the `Custom` arm and composition.
 - [ ] EXT-COMPOSE - A book chapter "Compose your own pipeline": closed-form
   init → IR → solve → σ from the public pieces. The contributor chapters on
   new problem types say they are for contributors. Needs: EXT-FACTOR.
