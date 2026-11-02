@@ -170,6 +170,12 @@ def camera_flags(entry: dict[str, Any]) -> int:
     return flags
 
 
+def equidistant(entry: dict[str, Any]) -> bool:
+    """Whether the entry's config names an equidistant (fisheye) projection."""
+    model = entry.get("config", {}).get("camera", {}).get("model", {})
+    return model.get("projection") == "equidistant"
+
+
 def observations(views: list[dict[str, Any]]) -> tuple[list[np.ndarray], list[np.ndarray]]:
     return (
         [np.array(v["points_3d"], np.float32) for v in views],
@@ -177,10 +183,100 @@ def observations(views: list[dict[str, Any]]) -> tuple[list[np.ndarray], list[np
     )
 
 
+# ── fisheye cameras ──────────────────────────────────────────────────────────
+
+# The flags of OpenCV's own fisheye calibration tests. `cv::fisheye` has no
+# tangential terms and fixes nothing else; its distortion is (k1, k2, k3, k4)
+# of the Kannala-Brandt model, calibration-rs's `KannalaBrandt4`.
+FISHEYE_FLAGS = (
+    cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC
+    | cv2.fisheye.CALIB_CHECK_COND
+    | cv2.fisheye.CALIB_FIX_SKEW
+)
+FISHEYE_FLAG_NAMES = "CALIB_RECOMPUTE_EXTRINSIC, CALIB_CHECK_COND, CALIB_FIX_SKEW"
+FISHEYE_LABELS = ("k1", "k2", "k3", "k4")
+
+
+def fisheye_observations(
+    views: list[dict[str, Any]],
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Points in the shapes `cv::fisheye` takes: (1, N, 3) and (1, N, 2), float64."""
+    return (
+        [np.array(v["points_3d"], np.float64).reshape(1, -1, 3) for v in views],
+        [np.array(v["points_2d"], np.float64).reshape(1, -1, 2) for v in views],
+    )
+
+
+def fisheye_parameters(k: np.ndarray, d: np.ndarray) -> dict[str, float]:
+    out = {"fx": k[0, 0], "fy": k[1, 1], "cx": k[0, 2], "cy": k[1, 2]}
+    out.update(zip(FISHEYE_LABELS, np.asarray(d).ravel()))
+    return {key: float(v) for key, v in out.items()}
+
+
+def fisheye_planar(obs: dict[str, Any]) -> dict[str, Any]:
+    size = tuple(obs["cameras"][0]["image_size"])
+    obj, img = fisheye_observations([v["obs"] for v in obs["input"]["views"]])
+    _rms, k, d, rvecs, tvecs = cv2.fisheye.calibrate(
+        obj, img, size, None, None, flags=FISHEYE_FLAGS, criteria=CRITERIA
+    )
+    errors = [
+        np.linalg.norm(
+            cv2.fisheye.projectPoints(o, r, t, k, d)[0].reshape(-1, 2) - i.reshape(-1, 2), axis=1
+        )
+        for o, i, r, t in zip(obj, img, rvecs, tvecs)
+    ]
+    return {
+        "method": f"fisheye.calibrate ({FISHEYE_FLAG_NAMES})",
+        "parameters": fisheye_parameters(k, d),
+        "poses": {},
+        "sigma": {},
+        "mean_reproj_error": float(np.concatenate(errors).mean()),
+    }
+
+
+def fisheye_rig(obs: dict[str, Any]) -> dict[str, Any]:
+    """`fisheye.stereoCalibrate` of a two-camera rig from scratch, intrinsics
+    refined jointly with the extrinsics, as OpenCV's own test runs it."""
+    views = obs["input"]["views"]
+    if len(obs["cameras"]) != 2 or any(None in v["obs"]["cameras"] for v in views):
+        raise SystemExit("fisheye.stereoCalibrate needs two cameras that see every view")
+    obj, img0 = fisheye_observations([v["obs"]["cameras"][0] for v in views])
+    _, img1 = fisheye_observations([v["obs"]["cameras"][1] for v in views])
+    _rms, k0, d0, k1, d1, rot, trans, *_ = cv2.fisheye.stereoCalibrate(
+        obj,
+        img0,
+        img1,
+        None,
+        None,
+        None,
+        None,
+        tuple(obs["cameras"][0]["image_size"]),
+        flags=FISHEYE_FLAGS,
+        criteria=CRITERIA,
+    )
+    parameters = {
+        **prefixed(0, fisheye_parameters(k0, d0)),
+        **prefixed(1, fisheye_parameters(k1, d1)),
+    }
+    return {
+        "method": f"fisheye.stereoCalibrate ({FISHEYE_FLAG_NAMES})",
+        "parameters": parameters,
+        # R, T map camera-0 coordinates to camera 1: cam1_se3_cam0.
+        "poses": {
+            "cam0.cam_se3_rig": to_pose(np.eye(4)),
+            "cam1.cam_se3_rig": to_pose(from_rt(rot, trans)),
+        },
+        "sigma": {},
+        "mean_reproj_error": None,
+    }
+
+
 # ── problems ─────────────────────────────────────────────────────────────────
 
 
 def planar(entry: dict[str, Any], obs: dict[str, Any]) -> dict[str, Any]:
+    if equidistant(entry):
+        return fisheye_planar(obs)
     size = tuple(obs["cameras"][0]["image_size"])
     views = obs["input"]["views"]
     cam = Camera(*observations([v["obs"] for v in views]), size, camera_flags(entry))
@@ -255,6 +351,8 @@ def prefixed(i: int, values: dict[str, float]) -> dict[str, float]:
 
 
 def rig_extrinsics(entry: dict[str, Any], obs: dict[str, Any]) -> dict[str, Any]:
+    if equidistant(entry):
+        return fisheye_rig(obs)
     views = obs["input"]["views"]
     cams = rig_cameras(obs)
     # The rig refines intrinsics jointly unless the entry's config says not to.

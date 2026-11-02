@@ -10,7 +10,7 @@ use super::metrics::QualityMetrics;
 use super::scenes::SceneSpec;
 
 /// Report schema version; bumped on any incompatible change.
-pub const SOLVER_SCHEMA_VERSION: u32 = 1;
+pub const SOLVER_SCHEMA_VERSION: u32 = 2;
 
 /// One timed run of the init and optimize phases, milliseconds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

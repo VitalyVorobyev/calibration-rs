@@ -79,6 +79,9 @@ config.camera.model = CameraModelSpec::new(
 );
 ```
 
+[Fisheye Calibration: OpenCV's Test Set](fisheye_walkthrough.md) runs this
+on real fisheye images and compares the result with OpenCV's.
+
 The analysis tools — projection uncertainty, next-view planning, the
 information matrix and the reprojection report — follow the camera's rays,
 so they cover the whole fisheye image, beyond 90° included.

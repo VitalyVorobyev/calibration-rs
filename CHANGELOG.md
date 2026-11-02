@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `vision_calibration::optim::LaserlineResidualType`, the type of the laser
+  workflows' `laser_residual_type` config field (a fisheye camera takes
+  `PointToPlane`).
 - **Fisheye camera model.** `ProjectionKind::Equidistant` (the normalized
   radius is the incidence angle, so rays beyond 90° project) and
   `DistortionKind::KannalaBrandt4` (`r_d = r (1 + k1 r² + … + k4 r⁸)`).
@@ -73,6 +76,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the model's settings. `CameraParams::blocks()` gives all four slots'
   values (intrinsics, projection, distortion, sensor). `ProjectionKind::ALL`,
   `DistortionKind::ALL` and `SensorKind::ALL` list the supported models.
+- **Fisheye comparison with OpenCV.** The regression suite has
+  `opencv_fisheye_left`, `opencv_fisheye_right` and `opencv_fisheye_stereo`,
+  OpenCV's own fisheye stereo test set (34 pairs, 1280×800), frozen from the
+  corners OpenCV publishes with it: a suite entry can name a publisher's
+  `cv::FileStorage` corner files under `corners`, fetched and checksummed
+  like images. calibration-rs and `cv::fisheye::calibrate` /
+  `stereoCalibrate` agree within 0.01σ. The book walks through the
+  calibration, and the `fisheye_opencv` example runs it. The solver
+  benchmark's scene matrix has a fisheye camera for every problem type,
+  laser workflows included, tested against its ground truth on both
+  solver backends.
 
 ### Changed
 
@@ -89,6 +103,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     covariance unscaled. Before, it was scaled whenever the noisy measure
     exceeded 1. It is `None` whenever the excess is within the measure's
     own sampling noise.
+
+### Fixed
+
+- The factrs backend panicked on a Kannala-Brandt camera, whose parameter
+  block has a size it had no variable for. It now covers every camera
+  model, and an unsupported block size is an error, not a panic.
 
 ## [0.11.0] - 2026-11-01
 

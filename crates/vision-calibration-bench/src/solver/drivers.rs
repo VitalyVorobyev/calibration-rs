@@ -4,7 +4,6 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use vision_calibration::core::{CameraParams, DistortionParams, SensorParams};
 use vision_calibration::laserline_device::{
     LaserlineDeviceProblem, step_init as laser_init, step_optimize as laser_optimize,
 };
@@ -37,7 +36,7 @@ use vision_calibration::single_cam_handeye::{
 use vision_calibration_core::PerFeatureResiduals;
 use vision_calibration_optim::SolveReport;
 
-use super::metrics::{CameraParamsSet, ModelParams};
+use super::metrics::ModelParams;
 use super::record::{SolverTiming, TimingSample};
 use super::scenes::{Scene, SceneData};
 
@@ -122,26 +121,6 @@ pub fn measure(scene: &Scene, repeats: usize) -> Result<Measured> {
     })
 }
 
-fn camera_set(camera: &CameraParams) -> Result<CameraParamsSet> {
-    let k = camera.intrinsics;
-    let DistortionParams::BrownConrady5 { params: dist } = camera.distortion else {
-        bail!(
-            "expected Brown-Conrady distortion, got {:?}",
-            camera.distortion
-        );
-    };
-    let sensor = match camera.sensor {
-        SensorParams::Identity => None,
-        SensorParams::Scheimpflug { params } => Some(params),
-        ref other => bail!("unexpected sensor params {other:?}"),
-    };
-    Ok(CameraParamsSet { k, dist, sensor })
-}
-
-fn rig_cameras(cameras: &[CameraParams]) -> Result<Vec<CameraParamsSet>> {
-    cameras.iter().map(camera_set).collect()
-}
-
 fn solve_once(scene: &Scene) -> Result<Solved> {
     let mut ph = Phases::default();
     let (params, residuals, report) = match &scene.data {
@@ -155,7 +134,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: vec![camera_set(&e.params.camera)?],
+                    cameras: vec![e.params.camera],
                     ..ModelParams::default()
                 },
                 e.diagnostics.per_feature_residuals,
@@ -176,7 +155,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: vec![camera_set(&e.params.camera)?],
+                    cameras: vec![e.params.camera],
                     ..ModelParams::default()
                 },
                 e.diagnostics.per_feature_residuals,
@@ -195,7 +174,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: vec![camera_set(&e.camera)?],
+                    cameras: vec![e.camera],
                     handeye: e.gripper_se3_camera,
                     ..ModelParams::default()
                 },
@@ -214,7 +193,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let p = &e.params;
             (
                 ModelParams {
-                    cameras: vec![camera_set(&p.camera)?],
+                    cameras: vec![p.camera.clone()],
                     planes_cam: vec![p.plane.clone()],
                     ..ModelParams::default()
                 },
@@ -238,7 +217,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: rig_cameras(&e.cameras)?,
+                    cameras: e.cameras,
                     cam_se3_rig: e.cam_se3_rig,
                     ..ModelParams::default()
                 },
@@ -261,7 +240,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: rig_cameras(&e.cameras)?,
+                    cameras: e.cameras,
                     cam_se3_rig: e.cam_se3_rig,
                     handeye: e.gripper_se3_rig,
                     ..ModelParams::default()
@@ -296,7 +275,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: rig_cameras(&e.cameras)?,
+                    cameras: e.cameras,
                     cam_se3_rig: e.cam_se3_rig,
                     handeye: e.gripper_se3_rig,
                     planes_cam: e.laser_planes_cam,

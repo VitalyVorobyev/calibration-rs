@@ -9,10 +9,12 @@
 //!   against them in units of its σ.
 //! - [`synthetic`] — a benchmark scene → [`ObservationSet`] + [`Truth`].
 //! - [`compare`] — other libraries' results against the references.
+//! - [`corners`] — observations from the corner files a publisher released
+//!   with its images.
 //! - `fetch` (feature `tier-b`) — an image entry's files, downloaded from
 //!   their publisher into a local cache and checksum-verified.
-//! - `freeze` (feature `tier-b`) — dataset manifest + images →
-//!   [`ObservationSet`].
+//! - `freeze` (feature `tier-b`) — dataset manifest + images, or fetched
+//!   corner files → [`ObservationSet`].
 //!
 //! [`check_entry`] verifies an entry's checksum, calibrates from its
 //! observations and compares the export with the reference result, either
@@ -23,6 +25,7 @@
 //! reference; [`freeze_synthetic_entry`] writes a synthetic entry's data.
 
 pub mod compare;
+pub mod corners;
 #[cfg(feature = "tier-b")]
 pub mod datasets;
 #[cfg(feature = "tier-b")]

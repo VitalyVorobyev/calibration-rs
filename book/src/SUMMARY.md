@@ -17,6 +17,7 @@
 - [Planar Intrinsics Calibration](planar_intrinsics.md)
 - [Planar Intrinsics with Real Data](planar_real_data.md)
 - [Choosing a Distortion Model](distortion_selection.md)
+- [Fisheye Calibration: OpenCV's Test Set](fisheye_walkthrough.md)
 - [Single-Camera Hand-Eye](handeye_workflow.md)
 - [Hand-Eye with KUKA Robot](handeye_real_data.md)
 - [Multi-Camera Rig Extrinsics](rig_extrinsics.md)

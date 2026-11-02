@@ -92,14 +92,15 @@ alongside both phases. Track names below match the backlog headings.
 
 ## Ordering
 
-Phase 1 is mostly in: the camera-model spec, the UQ fixes (the stated σ
-matches real split-half scatter: `r` 1.03 pooled over the public cameras),
-the quality report, Python parity and the suite fetch. What is left:
-
-1. Kannala-Brandt fisheye (CAM-KB) with a public fisheye set (DATA-MORE).
-   Adding a model to the exhaustive camera-model enums after 1.0 would
-   break callers, so the enums are `#[non_exhaustive]` (0.12) and a real
-   second projection checks that nothing else in the API assumes a pinhole.
+Phase 1 is in: the camera-model spec, the UQ fixes (the stated σ matches
+real split-half scatter: `r` 1.03 pooled over the public cameras), the
+quality report, Python parity, the suite fetch and Kannala-Brandt fisheye
+(CAM-KB). The camera-model enums are `#[non_exhaustive]` (0.12), and the
+fisheye camera, a second real projection, calibrates in every workflow and
+the synthetic matrix, and agrees with OpenCV's `fisheye` module within
+0.01σ on OpenCV's own fisheye test set. What is left is the release
+(D4-RELEASE) once the exit criteria above hold; more public suite entries
+(DATA-MORE) can land before or after it.
 
 The v1.0 API audit and the public-dependency policy (criterion 9) are
 done (0.11): ADRs 0006, 0012, 0016 and 0024 state the resulting rules, and
@@ -126,8 +127,9 @@ laser-plane and Scheimpflug calibration exist nowhere else in Rust.
 
 The gap to the closest rival is adoption, not capability. Within the
 current scope the levers are a published comparison against OpenCV
-(BOOK-RESULTS) and fisheye coverage with a comparison against
-`camera-intrinsic-calibration` (CAM-KB, CAM-EUCM-DS, BENCH-COMPARE).
+(BOOK-RESULTS) and wider fisheye coverage (Kannala-Brandt is in) with a
+comparison against `camera-intrinsic-calibration` (CAM-EUCM-DS,
+BENCH-COMPARE).
 Revisit the table when a crate adds calibration pipelines or covariance.
 
 ## Standing decisions

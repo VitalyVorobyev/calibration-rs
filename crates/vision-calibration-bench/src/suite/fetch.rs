@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
 
-use super::manifest::parse_checksums;
+use super::manifest::{parse_checksums, safe_relative_path};
 use super::{FetchSource, Suite, SuiteEntry};
 
 /// How many files an error lists before summarizing the rest.
@@ -53,31 +53,6 @@ pub enum FetchOutcome {
 /// Directory of an entry's files inside the cache `cache`.
 pub fn entry_dir(cache: &Path, id: &str) -> PathBuf {
     cache.join(id)
-}
-
-/// Turn a `/`-separated relative path from a fetch list or an archive into
-/// a path that stays inside the directory it is joined to.
-///
-/// # Errors
-///
-/// Fails on an empty path, an absolute path, a drive or `\` separator, a
-/// NUL byte, and an empty, `.` or `..` component.
-pub fn safe_relative_path(name: &str) -> Result<PathBuf> {
-    ensure!(!name.is_empty(), "empty path");
-    ensure!(
-        !name.contains(['\\', ':', '\0']),
-        "{name:?}: paths use `/` and no drive or NUL"
-    );
-    ensure!(!name.starts_with('/'), "{name:?} is an absolute path");
-    let mut path = PathBuf::new();
-    for part in name.split('/') {
-        ensure!(
-            !part.is_empty() && part != "." && part != "..",
-            "{name:?} has an empty, `.` or `..` component"
-        );
-        path.push(part);
-    }
-    Ok(path)
 }
 
 /// Read an entry's fetch list: relative path → SHA-256 (lowercase hex).
@@ -342,31 +317,6 @@ mod tests {
     }
 
     #[test]
-    fn safe_paths_stay_inside_their_directory() {
-        assert_eq!(
-            safe_relative_path("images/camera0/a.png").unwrap(),
-            Path::new("images").join("camera0").join("a.png")
-        );
-        for unsafe_name in [
-            "",
-            "/etc/passwd",
-            "../a.png",
-            "images/../../a.png",
-            "images/./a.png",
-            "images//a.png",
-            "images/",
-            "C:/a.png",
-            "images\\a.png",
-            "a\0.png",
-        ] {
-            assert!(
-                safe_relative_path(unsafe_name).is_err(),
-                "{unsafe_name:?} accepted"
-            );
-        }
-    }
-
-    #[test]
     fn verification_reports_missing_and_changed_files() {
         let dir = temp_dir("verify");
         fs::write(dir.join("a.txt"), b"a").unwrap();
@@ -460,7 +410,10 @@ mod tests {
                 .unwrap();
         let mut fetchable = 0;
         for entry in suite.manifest.entries.iter().filter(|e| e.fetch.is_some()) {
-            read_fetch_list(&suite, &entry.id).unwrap();
+            let list = read_fetch_list(&suite, &entry.id).unwrap();
+            for file in entry.corners.iter().flat_map(|c| c.files()) {
+                assert!(list.contains_key(file), "{}: {file} not fetched", entry.id);
+            }
             fetchable += 1;
         }
         assert!(fetchable > 0);

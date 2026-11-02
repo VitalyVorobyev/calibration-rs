@@ -1,6 +1,6 @@
 //! Deterministic synthetic scene matrix for the solver benchmark.
 //!
-//! A scene is `problem × sensor × scale × pixel noise × outlier spec`. Every
+//! A scene is `problem × camera × scale × pixel noise × outlier spec`. Every
 //! scene is generated from a seed derived from its id, carries the ground
 //! truth that produced it, and records exactly which target observations were
 //! displaced into outliers.
@@ -13,8 +13,10 @@ use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use vision_calibration::common::{RigLaserlineView, RobotPoseMeta};
 use vision_calibration::core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Pt2, Pt3, Real,
-    RigDataset, RigView, RigViewObs, ScheimpflugParams, View,
+    BrownConrady5, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
+    DistortionParams, FxFyCxCy, Iso3, KannalaBrandt4, NoMeta, PlanarDataset, ProjectionKind,
+    ProjectionParams, Pt2, Pt3, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams,
+    View,
 };
 use vision_calibration::laserline_device::LaserlineMeta;
 use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDeviceInput};
@@ -37,9 +39,10 @@ use vision_calibration::synthetic::laser::{BoardExtent, laser_stripe_pixels};
 use vision_calibration::synthetic::noise::UniformPixelNoise;
 use vision_calibration::synthetic::planar;
 use vision_calibration::synthetic::poses;
-use vision_calibration_core::{Camera, HomographySensor, Pinhole};
+use vision_calibration_core::CameraModel;
+use vision_calibration_optim::LaserlineResidualType;
 
-use super::metrics::{CameraParamsSet, ModelParams};
+use super::metrics::ModelParams;
 
 /// Pixel-noise levels of the full matrix (per-axis standard deviation, px).
 pub const NOISE_LEVELS_PX: [f64; 2] = [0.1, 0.5];
@@ -50,15 +53,15 @@ pub const OUTLIER_SHIFT_PX: (f64, f64) = (10.0, 30.0);
 /// Scale of the Huber / Cauchy loss used on contaminated scenes.
 pub const OUTLIER_LOSS_SCALE: f64 = 1.0;
 
-/// The seven problem types; a tilted sensor is a [`SensorKind`] of a scene,
-/// not a problem.
+/// The seven problem types; a tilted sensor or a fisheye lens is a
+/// [`CameraKind`] of a scene, not a problem.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, clap::ValueEnum,
 )]
 #[serde(rename_all = "snake_case")]
 #[value(rename_all = "snake_case")]
 pub enum Problem {
-    /// Zhang planar intrinsics (straight or tilted sensor).
+    /// Planar intrinsics.
     PlanarIntrinsics,
     /// Single camera hand-eye.
     SingleCamHandeye,
@@ -113,22 +116,50 @@ impl fmt::Display for Problem {
     }
 }
 
-/// Sensor flavour of the scene (the cameras' `model.sensor`).
+/// Camera flavour of the scene: the model its cameras are generated with
+/// and calibrated as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SensorKind {
-    /// Plain pinhole sensor.
+pub enum CameraKind {
+    /// Pinhole projection, Brown-Conrady distortion, straight sensor.
     Pinhole,
-    /// Scheimpflug-tilted sensor.
+    /// Pinhole projection, Brown-Conrady distortion, Scheimpflug-tilted
+    /// sensor.
     Scheimpflug,
+    /// Kannala-Brandt fisheye: equidistant projection, `KannalaBrandt4`
+    /// distortion, straight sensor. Boards come closer, so the corners
+    /// reach 50–60° off-axis.
+    Fisheye,
 }
 
-impl fmt::Display for SensorKind {
+impl fmt::Display for CameraKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Pinhole => "pinhole",
             Self::Scheimpflug => "scheimpflug",
+            Self::Fisheye => "fisheye",
         })
+    }
+}
+
+impl CameraKind {
+    /// The camera model spec the scene's cameras are calibrated as.
+    pub fn model(self) -> CameraModelSpec {
+        match self {
+            Self::Pinhole => CameraModelSpec::pinhole(
+                DistortionKind::BrownConrady5,
+                vision_calibration::core::SensorKind::Identity,
+            ),
+            Self::Scheimpflug => CameraModelSpec::pinhole(
+                DistortionKind::BrownConrady5,
+                vision_calibration::core::SensorKind::Scheimpflug,
+            ),
+            Self::Fisheye => CameraModelSpec::new(
+                ProjectionKind::Equidistant,
+                DistortionKind::KannalaBrandt4,
+                vision_calibration::core::SensorKind::Identity,
+            ),
+        }
     }
 }
 
@@ -233,8 +264,8 @@ pub enum OutlierSpec {
 pub struct SceneSpec {
     /// Problem type.
     pub problem: Problem,
-    /// Sensor flavour.
-    pub sensor: SensorKind,
+    /// Camera flavour.
+    pub camera: CameraKind,
     /// Scene size.
     pub scale: Scale,
     /// Per-axis pixel-noise standard deviation.
@@ -246,7 +277,7 @@ pub struct SceneSpec {
 }
 
 impl SceneSpec {
-    /// Stable scene key: `problem/sensor/scale/n<σ>/<clean|huber|cauchy|…>`.
+    /// Stable scene key: `problem/camera/scale/n<σ>/<clean|huber|cauchy|…>`.
     pub fn id(&self) -> String {
         let contamination = match (self.outliers, self.loss) {
             (OutlierSpec::None, RobustLoss::None) => "clean".to_string(),
@@ -256,7 +287,7 @@ impl SceneSpec {
         };
         format!(
             "{}/{}/{}/n{:.1}/{}",
-            self.problem, self.sensor, self.scale, self.noise_px, contamination
+            self.problem, self.camera, self.scale, self.noise_px, contamination
         )
     }
 
@@ -268,8 +299,8 @@ impl SceneSpec {
     /// its data.
     pub fn seed(&self) -> u64 {
         let id = self.id();
-        let key = match (self.problem, self.sensor) {
-            (Problem::PlanarIntrinsics, SensorKind::Scheimpflug) => id.replacen(
+        let key = match (self.problem, self.camera) {
+            (Problem::PlanarIntrinsics, CameraKind::Scheimpflug) => id.replacen(
                 Problem::PlanarIntrinsics.name(),
                 "scheimpflug_intrinsics",
                 1,
@@ -415,8 +446,8 @@ pub struct Scene {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Preset {
-    /// Each problem at small scale, σ = 0.1 px, no outliers (plus the
-    /// Scheimpflug rig variant).
+    /// Each problem × camera variant at small scale, σ = 0.1 px, no
+    /// outliers.
     Quick,
     /// The whole product.
     Full,
@@ -431,24 +462,33 @@ impl fmt::Display for Preset {
     }
 }
 
-/// Problem × sensor combinations of the matrix.
-const VARIANTS: [(Problem, SensorKind); 9] = [
-    (Problem::PlanarIntrinsics, SensorKind::Pinhole),
-    (Problem::PlanarIntrinsics, SensorKind::Scheimpflug),
-    (Problem::SingleCamHandeye, SensorKind::Pinhole),
-    (Problem::LaserlineDevice, SensorKind::Pinhole),
-    (Problem::RigExtrinsics, SensorKind::Pinhole),
-    (Problem::RigExtrinsics, SensorKind::Scheimpflug),
-    (Problem::RigHandeye, SensorKind::Pinhole),
-    (Problem::RigLaserlineDevice, SensorKind::Pinhole),
-    (Problem::RigHandeyeLaserline, SensorKind::Pinhole),
+/// Problem × camera combinations of the matrix: every problem with a
+/// pinhole and a fisheye camera, and a tilted sensor where the scenes seed
+/// one.
+const VARIANTS: [(Problem, CameraKind); 16] = [
+    (Problem::PlanarIntrinsics, CameraKind::Pinhole),
+    (Problem::PlanarIntrinsics, CameraKind::Scheimpflug),
+    (Problem::SingleCamHandeye, CameraKind::Pinhole),
+    (Problem::LaserlineDevice, CameraKind::Pinhole),
+    (Problem::RigExtrinsics, CameraKind::Pinhole),
+    (Problem::RigExtrinsics, CameraKind::Scheimpflug),
+    (Problem::RigHandeye, CameraKind::Pinhole),
+    (Problem::RigLaserlineDevice, CameraKind::Pinhole),
+    (Problem::RigHandeyeLaserline, CameraKind::Pinhole),
+    (Problem::PlanarIntrinsics, CameraKind::Fisheye),
+    (Problem::SingleCamHandeye, CameraKind::Fisheye),
+    (Problem::LaserlineDevice, CameraKind::Fisheye),
+    (Problem::RigExtrinsics, CameraKind::Fisheye),
+    (Problem::RigHandeye, CameraKind::Fisheye),
+    (Problem::RigLaserlineDevice, CameraKind::Fisheye),
+    (Problem::RigHandeyeLaserline, CameraKind::Fisheye),
 ];
 
 /// The scene specs of a preset, in a stable order.
 pub fn scene_specs(preset: Preset) -> Vec<SceneSpec> {
-    let clean = |problem, sensor, scale, noise_px| SceneSpec {
+    let clean = |problem, camera, scale, noise_px| SceneSpec {
         problem,
-        sensor,
+        camera,
         scale,
         noise_px,
         outliers: OutlierSpec::None,
@@ -461,10 +501,10 @@ pub fn scene_specs(preset: Preset) -> Vec<SceneSpec> {
             .collect(),
         Preset::Full => {
             let mut out = Vec::new();
-            for &(problem, sensor) in &VARIANTS {
+            for &(problem, camera) in &VARIANTS {
                 for scale in Scale::ALL {
                     for noise_px in NOISE_LEVELS_PX {
-                        out.push(clean(problem, sensor, scale, noise_px));
+                        out.push(clean(problem, camera, scale, noise_px));
                         if !problem.uses_target_loss() {
                             continue;
                         }
@@ -481,7 +521,7 @@ pub fn scene_specs(preset: Preset) -> Vec<SceneSpec> {
                                     fraction: OUTLIER_FRACTION,
                                 },
                                 loss,
-                                ..clean(problem, sensor, scale, noise_px)
+                                ..clean(problem, camera, scale, noise_px)
                             });
                         }
                     }
@@ -566,28 +606,60 @@ fn inject_outliers(
 // Scene construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-type SynthCamera =
-    Camera<Real, Pinhole, BrownConrady5<Real>, HomographySensor<Real>, FxFyCxCy<Real>>;
-
-fn synth_camera(c: &CameraParamsSet) -> SynthCamera {
-    // A zero-tilt Scheimpflug sensor is the identity, so one camera type
-    // covers pinhole and tilted sensors.
-    Camera::new(Pinhole, c.dist, c.sensor.unwrap_or_default().compile(), c.k)
+fn synth_camera(c: &CameraParams) -> Result<CameraModel> {
+    Ok(c.build()?)
 }
 
-fn cam(fx: f64, fy: f64, cx: f64, cy: f64, k1: f64, k2: f64) -> CameraParamsSet {
-    CameraParamsSet {
-        k: FxFyCxCy { fx, fy, cx, cy },
-        dist: BrownConrady5 {
-            k1,
-            k2,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 8,
+/// A pinhole camera with Brown-Conrady `k1`, `k2` (the rest zero) and a
+/// straight sensor.
+fn pinhole(fx: f64, fy: f64, cx: f64, cy: f64, k1: f64, k2: f64) -> CameraParams {
+    CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 {
+            params: BrownConrady5 {
+                k1,
+                k2,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
         },
-        sensor: None,
+        sensor: SensorParams::Identity,
+        intrinsics: FxFyCxCy { fx, fy, cx, cy },
     }
+}
+
+/// A Kannala-Brandt fisheye camera: equidistant projection, `KannalaBrandt4`
+/// coefficients `k`, straight sensor.
+fn fisheye(fx: f64, fy: f64, cx: f64, cy: f64, k: [f64; 4]) -> CameraParams {
+    CameraParams {
+        projection: ProjectionParams::Equidistant,
+        distortion: DistortionParams::KannalaBrandt4 {
+            params: KannalaBrandt4 {
+                k1: k[0],
+                k2: k[1],
+                k3: k[2],
+                k4: k[3],
+                iters: 8,
+            },
+        },
+        sensor: SensorParams::Identity,
+        intrinsics: FxFyCxCy { fx, fy, cx, cy },
+    }
+}
+
+/// `KannalaBrandt4` coefficients of the fisheye scenes' cameras: a lens
+/// whose image radius grows monotonically past 70° off-axis.
+const FISHEYE_KB4: [[f64; 4]; 2] = [
+    [-0.015, 0.008, -0.004, 0.0008],
+    [-0.012, 0.006, -0.003, 0.0005],
+];
+
+/// `camera` with a Scheimpflug sensor of tilt `params`.
+fn tilted(mut camera: CameraParams, params: ScheimpflugParams) -> CameraParams {
+    camera.sensor = SensorParams::Scheimpflug { params };
+    camera
 }
 
 /// Shared per-scene state.
@@ -613,6 +685,10 @@ impl Builder {
 
     fn views(&self) -> usize {
         self.scale.views
+    }
+
+    fn fisheye(&self) -> bool {
+        self.spec.camera == CameraKind::Fisheye
     }
 
     /// Board half extent: the offset that centres a corner-anchored board.
@@ -650,12 +726,12 @@ impl Builder {
     /// Noisy projections of the board, `[view]`, for one camera.
     fn observe(
         &self,
-        camera: &CameraParamsSet,
+        camera: &CameraParams,
         cam_se3_target: &[Iso3],
         stream: u64,
     ) -> Result<Vec<CorrespondenceView>> {
         Ok(planar::project_views_noisy(
-            &synth_camera(camera),
+            &synth_camera(camera)?,
             &self.board,
             cam_se3_target,
             &self.noise(stream),
@@ -665,7 +741,7 @@ impl Builder {
     /// Noisy projections for a rig: `[view][camera]`.
     fn observe_rig(
         &self,
-        cameras: &[CameraParamsSet],
+        cameras: &[CameraParams],
         cam_se3_rig: &[Iso3],
         rig_se3_target: &[Iso3],
     ) -> Result<Vec<Vec<CorrespondenceView>>> {
@@ -682,7 +758,7 @@ impl Builder {
     }
 
     /// Board poses (`rig_se3_target`) centred on the optical axis at
-    /// [`LASER_Z0`] whose laser stripe crosses the board in every camera.
+    /// `z0` whose laser stripe crosses the board in every camera.
     ///
     /// A seeded pose can leave the board nearly parallel to a laser plane,
     /// which gives no stripe; such poses are skipped. Seeded candidates are
@@ -690,9 +766,10 @@ impl Builder {
     /// the result stays deterministic.
     fn laser_board_poses(
         &self,
-        cameras: &[CameraParamsSet],
+        cameras: &[CameraParams],
         cam_se3_rig: &[Iso3],
         planes: &[LaserPlane],
+        z0: f64,
     ) -> Result<Vec<Iso3>> {
         /// Stripe samples a view needs in every camera.
         const MIN_STRIPE_PIXELS: usize = 20;
@@ -700,16 +777,17 @@ impl Builder {
         let c = self.extent.center();
         let specs = poses::seeded_board_pose_specs(4 * n, LASER_MAX_TILT, self.rng_seed(1));
         let silent = UniformPixelNoise::default();
-        let kept: Vec<Iso3> = poses::centered_board_poses(&specs, (c[0], c[1]), LASER_Z0)
+        let synth: Vec<CameraModel> = cameras.iter().map(synth_camera).collect::<Result<_>>()?;
+        let kept: Vec<Iso3> = poses::centered_board_poses(&specs, (c[0], c[1]), z0)
             .into_iter()
             .filter(|rig_se3_target| {
-                cameras
+                synth
                     .iter()
                     .zip(cam_se3_rig)
                     .zip(planes)
                     .all(|((camera, t_c_r), plane)| {
                         laser_stripe_pixels(
-                            &synth_camera(camera),
+                            camera,
                             &(t_c_r * rig_se3_target),
                             plane.normal.as_ref(),
                             plane.distance,
@@ -732,14 +810,14 @@ impl Builder {
     /// Laser stripe pixels for one camera, `[view]`.
     fn stripes(
         &self,
-        camera: &CameraParamsSet,
+        camera: &CameraParams,
         cam_se3_target: &[Iso3],
         plane: &LaserPlane,
         stream: u64,
-    ) -> Vec<Vec<Pt2>> {
-        let synth = synth_camera(camera);
+    ) -> Result<Vec<Vec<Pt2>>> {
+        let synth = synth_camera(camera)?;
         let noise = self.noise(1000 + stream);
-        cam_se3_target
+        Ok(cam_se3_target
             .iter()
             .enumerate()
             .map(|(view, pose)| {
@@ -753,11 +831,31 @@ impl Builder {
                     &noise,
                 )
             })
-            .collect()
+            .collect())
     }
 
     fn outliers(&self, obs: &mut [Vec<CorrespondenceView>]) -> Vec<OutlierRef> {
         inject_outliers(obs, &self.spec, self.rng_seed(2))
+    }
+
+    /// The laser residual the scene solves with: a fisheye laser workflow
+    /// needs the point-to-plane residual (a line's image is not straight).
+    fn laser_residual(&self, default: LaserlineResidualType) -> LaserlineResidualType {
+        if self.fisheye() {
+            LaserlineResidualType::PointToPlane
+        } else {
+            default
+        }
+    }
+
+    /// Anchor depth of the laser scenes: closer for a fisheye camera, so the
+    /// board spans a wide field.
+    fn laser_z0(&self) -> f64 {
+        if self.fisheye() {
+            FISHEYE_LASER_Z0
+        } else {
+            LASER_Z0
+        }
     }
 }
 
@@ -787,17 +885,20 @@ impl Scene {
     /// geometry is not projectable.
     pub fn build(spec: &SceneSpec) -> Result<Self> {
         let b = Builder::new(spec);
-        let supported = match spec.problem {
-            Problem::PlanarIntrinsics | Problem::RigExtrinsics => true,
-            _ => spec.sensor == SensorKind::Pinhole,
+        let supported = match spec.camera {
+            CameraKind::Pinhole | CameraKind::Fisheye => true,
+            CameraKind::Scheimpflug => matches!(
+                spec.problem,
+                Problem::PlanarIntrinsics | Problem::RigExtrinsics
+            ),
         };
         if !supported {
             bail!("unsupported combination {}", spec.id());
         }
         match spec.problem {
-            Problem::PlanarIntrinsics => match spec.sensor {
-                SensorKind::Pinhole => planar_scene(&b),
-                SensorKind::Scheimpflug => scheimpflug_scene(&b),
+            Problem::PlanarIntrinsics => match spec.camera {
+                CameraKind::Pinhole | CameraKind::Fisheye => planar_scene(&b),
+                CameraKind::Scheimpflug => scheimpflug_scene(&b),
             },
             Problem::SingleCamHandeye => single_handeye_scene(&b),
             Problem::LaserlineDevice => laserline_scene(&b),
@@ -810,8 +911,20 @@ impl Scene {
 }
 
 fn planar_scene(b: &Builder) -> Result<Scene> {
-    let truth_cam = cam(1000.0, 990.0, 640.0, 480.0, -0.12, 0.04);
-    let poses = b.board_poses(0.5, 0.6, 0.4);
+    // A fisheye board comes within 0.22–0.42 m, so its corners reach about
+    // 55° off-axis (more on the tilted views).
+    let (truth_cam, (z_start, z_span)) = if b.fisheye() {
+        (
+            fisheye(420.0, 418.0, 640.0, 480.0, FISHEYE_KB4[0]),
+            (0.22, 0.2),
+        )
+    } else {
+        (
+            pinhole(1000.0, 990.0, 640.0, 480.0, -0.12, 0.04),
+            (0.6, 0.4),
+        )
+    };
+    let poses = b.board_poses(0.5, z_start, z_span);
     let mut obs = transpose(vec![b.observe(&truth_cam, &poses, 0)?]);
     let outliers = b.outliers(&mut obs);
     let input = PlanarDataset::new(
@@ -820,6 +933,7 @@ fn planar_scene(b: &Builder) -> Result<Scene> {
             .collect(),
     )?;
     let mut config = PlanarIntrinsicsConfig::default();
+    config.camera.model = b.spec.camera.model();
     config.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
@@ -834,12 +948,13 @@ fn planar_scene(b: &Builder) -> Result<Scene> {
 }
 
 fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
-    let sensor = ScheimpflugParams {
-        tilt_x: -0.05,
-        tilt_y: 0.02,
-    };
-    let mut truth_cam = cam(1000.0, 990.0, 640.0, 480.0, -0.12, 0.04);
-    truth_cam.sensor = Some(sensor);
+    let truth_cam = tilted(
+        pinhole(1000.0, 990.0, 640.0, 480.0, -0.12, 0.04),
+        ScheimpflugParams {
+            tilt_x: -0.05,
+            tilt_y: 0.02,
+        },
+    );
     let poses = b.board_poses(0.5, 0.6, 0.4);
     let mut obs = transpose(vec![b.observe(&truth_cam, &poses, 0)?]);
     let outliers = b.outliers(&mut obs);
@@ -849,7 +964,7 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
             .collect(),
     )?;
     let mut config = PlanarIntrinsicsConfig::default();
-    config.camera.model.sensor = vision_calibration::core::SensorKind::Scheimpflug;
+    config.camera.model = b.spec.camera.model();
     config.solver.robust_loss = b.spec.loss;
     // Coarse device-spec seed: focal ~8 % low, principal point at the image
     // centre, the nominal mount tilt, no distortion.
@@ -882,10 +997,16 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
 
 /// Hand-eye ground truth shared by the single-camera and rig scenes:
 /// `gripper_se3_camera` (or `_rig`) and the target pose in the robot base.
-fn handeye_truth() -> (Iso3, Iso3) {
+/// A fisheye camera sees the target from about 0.3 m instead of 1 m, so the
+/// board spans a wide field.
+fn handeye_truth(camera: CameraKind) -> (Iso3, Iso3) {
+    let target_z = match camera {
+        CameraKind::Fisheye => 0.35,
+        CameraKind::Pinhole | CameraKind::Scheimpflug => 1.0,
+    };
     (
         poses::make_iso((0.10, -0.05, 0.02), (0.05, -0.03, 0.08)),
-        poses::make_iso((0.05, -0.08, 0.0), (-0.10, -0.08, 1.0)),
+        poses::make_iso((0.05, -0.08, 0.0), (-0.10, -0.08, target_z)),
     )
 }
 
@@ -898,8 +1019,12 @@ fn rig_poses_from_robot(stations: &[Iso3], x: &Iso3, y: &Iso3) -> Vec<Iso3> {
 }
 
 fn single_handeye_scene(b: &Builder) -> Result<Scene> {
-    let truth_cam = cam(800.0, 780.0, 512.0, 384.0, 0.0, 0.0);
-    let (x, y) = handeye_truth();
+    let truth_cam = if b.fisheye() {
+        fisheye(340.0, 336.0, 512.0, 384.0, FISHEYE_KB4[0])
+    } else {
+        pinhole(800.0, 780.0, 512.0, 384.0, 0.0, 0.0)
+    };
+    let (x, y) = handeye_truth(b.spec.camera);
     let stations = poses::robot_stations(b.views(), b.rng_seed(3));
     let cam_poses = rig_poses_from_robot(&stations, &x, &y);
     let mut obs = transpose(vec![b.observe(&truth_cam, &cam_poses, 0)?]);
@@ -917,6 +1042,7 @@ fn single_handeye_scene(b: &Builder) -> Result<Scene> {
         })
         .collect();
     let mut config = SingleCamHandeyeConfig::default();
+    config.camera.model = b.spec.camera.model();
     config.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
     config.solver.robust_loss = b.spec.loss;
     Ok(Scene {
@@ -938,22 +1064,31 @@ fn single_handeye_scene(b: &Builder) -> Result<Scene> {
 
 /// Anchor depth of the laser-plane scenes.
 const LASER_Z0: f64 = 0.5;
+/// Anchor depth of the fisheye laser-plane scenes: the board's corners reach
+/// about 50° off-axis.
+const FISHEYE_LASER_Z0: f64 = 0.25;
 /// Pitch/yaw range of the laser-plane scenes' board poses, radians: tilted
 /// enough to observe the focal length, and the board centre stays on the
 /// optical axis so every stripe crosses the board.
 const LASER_MAX_TILT: f64 = 0.35;
 
 fn laserline_scene(b: &Builder) -> Result<Scene> {
-    let truth_cam = cam(900.0, 900.0, 640.0, 360.0, 0.0, 0.0);
-    let plane = plane_at(Vector3::new(0.30, 0.0, 1.0), LASER_Z0);
+    let truth_cam = if b.fisheye() {
+        fisheye(380.0, 380.0, 640.0, 360.0, FISHEYE_KB4[0])
+    } else {
+        pinhole(900.0, 900.0, 640.0, 360.0, 0.0, 0.0)
+    };
+    let z0 = b.laser_z0();
+    let plane = plane_at(Vector3::new(0.30, 0.0, 1.0), z0);
     let cam_poses = b.laser_board_poses(
         std::slice::from_ref(&truth_cam),
         &[Iso3::identity()],
         std::slice::from_ref(&plane),
+        z0,
     )?;
     let mut obs = transpose(vec![b.observe(&truth_cam, &cam_poses, 0)?]);
     let outliers = b.outliers(&mut obs);
-    let stripes = b.stripes(&truth_cam, &cam_poses, &plane, 0);
+    let stripes = b.stripes(&truth_cam, &cam_poses, &plane, 0)?;
     let views = obs
         .into_iter()
         .zip(stripes)
@@ -968,6 +1103,8 @@ fn laserline_scene(b: &Builder) -> Result<Scene> {
         })
         .collect();
     let mut config = LaserlineDeviceConfig::default();
+    config.camera.model = b.spec.camera.model();
+    config.optimize.laser_residual_type = b.laser_residual(config.optimize.laser_residual_type);
     config.optimize.calib_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
@@ -987,31 +1124,43 @@ fn laserline_scene(b: &Builder) -> Result<Scene> {
 
 /// Two-camera rig intrinsics of the rig scenes (with a per-camera tilt for the
 /// Scheimpflug variant).
-fn rig_cameras(sensor: SensorKind) -> Vec<CameraParamsSet> {
-    let mut cams = vec![
-        cam(850.0, 845.0, 640.0, 480.0, -0.05, 0.0),
-        cam(820.0, 815.0, 650.0, 470.0, -0.04, 0.0),
-    ];
-    if sensor == SensorKind::Scheimpflug {
-        cams[0].sensor = Some(ScheimpflugParams::default());
-        cams[1].sensor = Some(ScheimpflugParams {
-            tilt_x: 0.06,
-            tilt_y: -0.04,
-        });
+fn rig_cameras(camera: CameraKind) -> Vec<CameraParams> {
+    match camera {
+        CameraKind::Pinhole => vec![
+            pinhole(850.0, 845.0, 640.0, 480.0, -0.05, 0.0),
+            pinhole(820.0, 815.0, 650.0, 470.0, -0.04, 0.0),
+        ],
+        CameraKind::Scheimpflug => vec![
+            tilted(
+                pinhole(850.0, 845.0, 640.0, 480.0, -0.05, 0.0),
+                ScheimpflugParams::default(),
+            ),
+            tilted(
+                pinhole(820.0, 815.0, 650.0, 470.0, -0.04, 0.0),
+                ScheimpflugParams {
+                    tilt_x: 0.06,
+                    tilt_y: -0.04,
+                },
+            ),
+        ],
+        CameraKind::Fisheye => vec![
+            fisheye(400.0, 398.0, 640.0, 480.0, FISHEYE_KB4[0]),
+            fisheye(390.0, 388.0, 650.0, 470.0, FISHEYE_KB4[1]),
+        ],
     }
-    cams
 }
 
 fn rig_scene(b: &Builder) -> Result<Scene> {
-    let sensor = b.spec.sensor;
-    let cameras = rig_cameras(sensor);
-    let layout = match sensor {
-        SensorKind::Pinhole => poses::rig_layout(2, 0.06, 0.05),
-        SensorKind::Scheimpflug => poses::rig_layout(2, 0.12, 0.0),
+    let camera = b.spec.camera;
+    let cameras = rig_cameras(camera);
+    let layout = match camera {
+        CameraKind::Pinhole | CameraKind::Fisheye => poses::rig_layout(2, 0.06, 0.05),
+        CameraKind::Scheimpflug => poses::rig_layout(2, 0.12, 0.0),
     };
-    let (z_start, z_span) = match sensor {
-        SensorKind::Pinhole => (0.65, 0.3),
-        SensorKind::Scheimpflug => (0.55, 0.2),
+    let (z_start, z_span) = match camera {
+        CameraKind::Pinhole => (0.65, 0.3),
+        CameraKind::Scheimpflug => (0.55, 0.2),
+        CameraKind::Fisheye => (0.25, 0.2),
     };
     let rig_poses = b.board_poses(0.45, z_start, z_span);
     let mut obs = b.observe_rig(&cameras, &layout, &rig_poses)?;
@@ -1028,15 +1177,10 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
     let input = RigDataset::new(views, cameras.len())?;
     let mut config = RigExtrinsicsConfig::default();
     config.solver.robust_loss = b.spec.loss;
-    if sensor == SensorKind::Scheimpflug {
-        // Every camera tilted; the model's default fix lists hold all but
-        // the low-order radial terms.
-        config.camera = vision_calibration::common::config::CameraConfig::new(
-            vision_calibration::core::CameraModelSpec::pinhole(
-                vision_calibration::core::DistortionKind::BrownConrady5,
-                vision_calibration::core::SensorKind::Scheimpflug,
-            ),
-        );
+    config.camera.model = camera.model();
+    // Every camera tilted; the model's default fix lists hold all but the
+    // low-order radial terms.
+    if camera == CameraKind::Scheimpflug {
         config.solver.max_iters = 80;
     }
     // From a zero tilt the per-camera Scheimpflug init can settle in the
@@ -1044,7 +1188,7 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
     // tilt (a device-spec seed, about 1° off), as the Scheimpflug intrinsics
     // scene does.
     let mut seed = RigIntrinsicsManualInit::default();
-    if sensor == SensorKind::Scheimpflug {
+    if camera == CameraKind::Scheimpflug {
         seed.per_cam_sensors = Some(vec![
             ScheimpflugParams::default(),
             ScheimpflugParams {
@@ -1071,9 +1215,9 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
 }
 
 fn rig_handeye_scene(b: &Builder) -> Result<Scene> {
-    let cameras = rig_cameras(SensorKind::Pinhole);
+    let cameras = rig_cameras(b.spec.camera);
     let layout = poses::rig_layout(2, 0.12, 0.0);
-    let (x, y) = handeye_truth();
+    let (x, y) = handeye_truth(b.spec.camera);
     let stations = poses::robot_stations(b.views(), b.rng_seed(3));
     let rig_poses = rig_poses_from_robot(&stations, &x, &y);
     let mut obs = b.observe_rig(&cameras, &layout, &rig_poses)?;
@@ -1092,6 +1236,7 @@ fn rig_handeye_scene(b: &Builder) -> Result<Scene> {
         .collect();
     let input = RigDataset::new(views, cameras.len())?;
     let mut config = RigHandeyeConfig::default();
+    config.camera.model = b.spec.camera.model();
     config.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
@@ -1122,15 +1267,19 @@ fn rig_planes(z0: f64) -> Vec<LaserPlane> {
 /// it in only some views. For each camera the plane normal is fixed and the
 /// offset is the one (scanned around the mean board position) that cuts the
 /// board in the most views, ties going to the offset nearest the mean.
-fn planes_through_target(b: &Builder, layout: &[Iso3], rig_poses: &[Iso3]) -> Vec<LaserPlane> {
+fn planes_through_target(
+    b: &Builder,
+    cameras: &[CameraParams],
+    layout: &[Iso3],
+    rig_poses: &[Iso3],
+) -> Result<Vec<LaserPlane>> {
     let c = b.extent.center();
     let board_center = Pt3::new(c[0], c[1], 0.0);
     let normals = [Vector3::new(0.25, 0.0, 1.0), Vector3::new(0.0, 0.25, 1.0)];
-    let cameras = rig_cameras(SensorKind::Pinhole);
     layout
         .iter()
         .zip(normals)
-        .zip(&cameras)
+        .zip(cameras)
         .map(|((t_c_r, normal), camera)| {
             let poses: Vec<Iso3> = rig_poses.iter().map(|t| t_c_r * t).collect();
             let sum: Vector3<f64> = poses
@@ -1139,7 +1288,7 @@ fn planes_through_target(b: &Builder, layout: &[Iso3], rig_poses: &[Iso3]) -> Ve
                 .sum();
             let n = normal.normalize();
             let d_mean = -n.dot(&(sum / poses.len() as f64));
-            let synth = synth_camera(camera);
+            let synth = synth_camera(camera)?;
             let silent = UniformPixelNoise::default();
             let coverage = |d: f64| {
                 poses
@@ -1154,34 +1303,27 @@ fn planes_through_target(b: &Builder, layout: &[Iso3], rig_poses: &[Iso3]) -> Ve
                 .map(|k| d_mean + 0.005 * f64::from(k))
                 .max_by_key(|&d| (coverage(d), -((d - d_mean).abs() * 1e6) as i64))
                 .expect("non-empty scan");
-            LaserPlane::new(n, best)
+            Ok(LaserPlane::new(n, best))
         })
         .collect()
 }
 
 fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
-    let cameras = rig_cameras(SensorKind::Pinhole);
+    let cameras = rig_cameras(b.spec.camera);
     let layout = poses::rig_layout(2, 0.06, 0.0);
-    let planes = rig_planes(LASER_Z0);
-    let rig_poses = b.laser_board_poses(&cameras, &layout, &planes)?;
+    let z0 = b.laser_z0();
+    let planes = rig_planes(z0);
+    let rig_poses = b.laser_board_poses(&cameras, &layout, &planes, z0)?;
     let obs = b.observe_rig(&cameras, &layout, &rig_poses)?;
     let views = rig_laser_views(b, &cameras, &layout, &planes, &rig_poses, obs)?;
     let dataset = RigLaserlineDataset::new(views, cameras.len())?;
     let upstream = RigUpstreamCalibration {
-        cameras: cameras
-            .iter()
-            .map(|c| vision_calibration::core::CameraParams {
-                projection: vision_calibration::core::ProjectionParams::Pinhole,
-                distortion: vision_calibration::core::DistortionParams::BrownConrady5 {
-                    params: c.dist,
-                },
-                sensor: vision_calibration::core::SensorParams::Identity,
-                intrinsics: c.k,
-            })
-            .collect(),
+        cameras,
         cam_se3_rig: layout,
         rig_se3_target: rig_poses,
     };
+    let mut config = RigLaserlineDeviceConfig::default();
+    config.laser_residual_type = b.laser_residual(config.laser_residual_type);
     Ok(Scene {
         spec: b.spec.clone(),
         image_sizes: vec![[1280, 960]; 2],
@@ -1197,7 +1339,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
                 upstream,
                 initial_planes_cam: None,
             },
-            config: RigLaserlineDeviceConfig::default(),
+            config,
         },
     })
 }
@@ -1205,7 +1347,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
 /// Pair per-camera target observations with laser stripes.
 fn rig_laser_views(
     b: &Builder,
-    cameras: &[CameraParamsSet],
+    cameras: &[CameraParams],
     layout: &[Iso3],
     planes: &[LaserPlane],
     rig_poses: &[Iso3],
@@ -1220,7 +1362,7 @@ fn rig_laser_views(
             let poses: Vec<Iso3> = rig_poses.iter().map(|t| t_c_r * t).collect();
             b.stripes(camera, &poses, plane, c as u64)
         })
-        .collect();
+        .collect::<Result<_>>()?;
     Ok(obs
         .into_iter()
         .enumerate()
@@ -1232,12 +1374,12 @@ fn rig_laser_views(
 }
 
 fn rig_handeye_laserline_scene(b: &Builder) -> Result<Scene> {
-    let cameras = rig_cameras(SensorKind::Pinhole);
+    let cameras = rig_cameras(b.spec.camera);
     let layout = poses::rig_layout(2, 0.12, 0.0);
-    let (x, y) = handeye_truth();
+    let (x, y) = handeye_truth(b.spec.camera);
     let stations = poses::robot_stations(b.views(), b.rng_seed(3));
     let rig_poses = rig_poses_from_robot(&stations, &x, &y);
-    let planes = planes_through_target(b, &layout, &rig_poses);
+    let planes = planes_through_target(b, &cameras, &layout, &rig_poses)?;
     let mut obs = b.observe_rig(&cameras, &layout, &rig_poses)?;
     let outliers = b.outliers(&mut obs);
     let laser_views = rig_laser_views(b, &cameras, &layout, &planes, &rig_poses, obs)?;
@@ -1252,6 +1394,7 @@ fn rig_handeye_laserline_scene(b: &Builder) -> Result<Scene> {
         })
         .collect();
     let mut config = RigHandeyeLaserlineConfig::default();
+    config.handeye.camera.model = b.spec.camera.model();
     config.joint_optimize.calib_loss = b.spec.loss;
     config.handeye.solver.robust_loss = b.spec.loss;
     Ok(Scene {
@@ -1313,8 +1456,10 @@ mod tests {
         );
         let seeds: std::collections::BTreeSet<_> = full.iter().map(SceneSpec::seed).collect();
         assert_eq!(seeds.len(), n);
-        assert_eq!(scene_specs(Preset::Quick).len(), 9);
-        assert_eq!(n, 150);
+        assert_eq!(scene_specs(Preset::Quick).len(), 16);
+        // 14 variants with target losses × 6 (scale, noise) × 3 contaminations
+        // + the two frozen-rig laser variants × 6 clean scenes.
+        assert_eq!(n, 264);
     }
 
     #[test]
@@ -1338,7 +1483,7 @@ mod tests {
     fn outlier_scenes_record_their_outliers() {
         let spec = SceneSpec {
             problem: Problem::PlanarIntrinsics,
-            sensor: SensorKind::Pinhole,
+            camera: CameraKind::Pinhole,
             scale: Scale::Small,
             noise_px: 0.1,
             outliers: OutlierSpec::Injected {

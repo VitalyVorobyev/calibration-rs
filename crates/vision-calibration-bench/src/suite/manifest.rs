@@ -24,6 +24,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+pub use super::corners::PublishedCorners;
+
 /// Name of the checksum file next to `suite.toml`.
 pub const CHECKSUM_FILE: &str = "SHA256SUMS";
 
@@ -68,9 +70,14 @@ pub struct SuiteEntry {
     /// suite directory. `None` for entries that have no images.
     #[serde(default)]
     pub manifest: Option<PathBuf>,
-    /// Where `suite fetch` downloads the files the dataset manifest reads.
-    /// `None` when they must be downloaded by hand from `source_url`.
-    /// Needs `manifest`; the files and their checksums are listed in
+    /// The corner files the publisher released with the images, which the
+    /// observations are frozen from instead of from detection. Excludes
+    /// `manifest` and `synthetic`; needs `fetch`.
+    #[serde(default)]
+    pub corners: Option<PublishedCorners>,
+    /// Where `suite fetch` downloads the files the dataset manifest or the
+    /// corner source reads. `None` when they must be downloaded by hand
+    /// from `source_url`. The files and their checksums are listed in
     /// `fetch/<id>.sha256`.
     #[serde(default)]
     pub fetch: Option<FetchSource>,
@@ -159,16 +166,33 @@ impl Suite {
                 "duplicate suite entry id {:?}",
                 entry.id
             );
+            let sources = [
+                entry.manifest.is_some(),
+                entry.corners.is_some(),
+                entry.synthetic.is_some(),
+            ];
             ensure!(
-                entry.manifest.is_none() || entry.synthetic.is_none(),
-                "suite entry {:?} names both a dataset manifest and a synthetic scene",
+                sources.iter().filter(|&&s| s).count() <= 1,
+                "suite entry {:?} names more than one of a dataset manifest, published \
+                 corners and a synthetic scene",
                 entry.id
             );
             ensure!(
-                entry.fetch.is_none() || entry.manifest.is_some(),
-                "suite entry {:?} has a fetch source but no dataset manifest",
+                entry.fetch.is_none() || entry.manifest.is_some() || entry.corners.is_some(),
+                "suite entry {:?} has a fetch source but no dataset manifest or corners",
                 entry.id
             );
+            if let Some(corners) = &entry.corners {
+                ensure!(
+                    entry.fetch.is_some(),
+                    "suite entry {:?}: published corners are read from the fetched files, \
+                     so the entry needs a fetch source",
+                    entry.id
+                );
+                corners
+                    .validate()
+                    .with_context(|| format!("suite entry {:?}: corners", entry.id))?;
+            }
             if let Some(FetchSource::Files { base_url }) = &entry.fetch {
                 ensure!(
                     base_url.ends_with('/'),
@@ -309,6 +333,32 @@ impl Suite {
     }
 }
 
+/// Turn a `/`-separated relative path from a fetch list, a corner source
+/// or an archive into a path that stays inside the directory it is joined
+/// to.
+///
+/// # Errors
+///
+/// Fails on an empty path, an absolute path, a drive or `\` separator, a
+/// NUL byte, and an empty, `.` or `..` component.
+pub fn safe_relative_path(name: &str) -> Result<PathBuf> {
+    ensure!(!name.is_empty(), "empty path");
+    ensure!(
+        !name.contains(['\\', ':', '\0']),
+        "{name:?}: paths use `/` and no drive or NUL"
+    );
+    ensure!(!name.starts_with('/'), "{name:?} is an absolute path");
+    let mut path = PathBuf::new();
+    for part in name.split('/') {
+        ensure!(
+            !part.is_empty() && part != "." && part != "..",
+            "{name:?} has an empty, `.` or `..` component"
+        );
+        path.push(part);
+    }
+    Ok(path)
+}
+
 /// Lowercase hex SHA-256 of `bytes`.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
@@ -367,6 +417,31 @@ mod tests {
     fn rejects_malformed_checksum_lines() {
         assert!(parse_checksums("abc  x.json").is_err());
         assert!(parse_checksums(&format!("{}x.json", "a".repeat(64))).is_err());
+    }
+
+    #[test]
+    fn safe_paths_stay_inside_their_directory() {
+        assert_eq!(
+            safe_relative_path("images/camera0/a.png").unwrap(),
+            Path::new("images").join("camera0").join("a.png")
+        );
+        for unsafe_name in [
+            "",
+            "/etc/passwd",
+            "../a.png",
+            "images/../../a.png",
+            "images/./a.png",
+            "images//a.png",
+            "images/",
+            "C:/a.png",
+            "images\\a.png",
+            "a\0.png",
+        ] {
+            assert!(
+                safe_relative_path(unsafe_name).is_err(),
+                "{unsafe_name:?} accepted"
+            );
+        }
     }
 
     #[test]
@@ -460,6 +535,44 @@ mod tests {
             .unwrap();
             let err = Suite::load(&dir.join("suite.toml")).unwrap_err();
             assert!(err.to_string().contains(message), "{err}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn corner_sources_parse_and_are_checked() {
+        let corners = "[entry.corners]\nformat = \"opencv_storage\"\n\
+            problem = \"planar_intrinsics\"\nobject = \"object.xml\"\n\
+            cameras = [{ id = \"left\", points = \"left.xml\", image_size = [1280, 800] }]\n";
+        let entry = "[[entry]]\nid = \"a\"\ndescription = \"d\"\nlicence = \"MIT\"\n";
+        let fetch = "fetch = { kind = \"files\", base_url = \"https://example.org/a/\" }\n";
+
+        let dir = std::env::temp_dir().join(format!("calib-suite-corners-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let load = |extra: &str| {
+            std::fs::write(
+                dir.join("suite.toml"),
+                format!("suite_version = \"t\"\n{entry}{extra}{corners}"),
+            )
+            .unwrap();
+            Suite::load(&dir.join("suite.toml"))
+        };
+        let suite = load(fetch).unwrap();
+        let source = suite.manifest.entries[0].corners.as_ref().unwrap();
+        assert_eq!(
+            source.files().collect::<Vec<_>>(),
+            ["object.xml", "left.xml"]
+        );
+        assert_eq!(source.cameras[0].image_size, [1280, 800]);
+        for (extra, message) in [
+            ("", "needs a fetch source"),
+            (
+                &format!("{fetch}manifest = \"a/dataset.toml\"\n") as &str,
+                "more than one",
+            ),
+        ] {
+            let err = load(extra).unwrap_err();
+            assert!(format!("{err:#}").contains(message), "{err:#}");
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }

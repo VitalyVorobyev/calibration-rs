@@ -1,8 +1,8 @@
 name: Suite images
 
-# Downloads the regression suite's public images from their publishers
-# (`calib-bench suite fetch`), re-freezes those entries' observations from
-# them and fails when the result differs from the committed observations
+# Downloads the regression suite's public images (and published corner
+# files) from their publishers (`calib-bench suite fetch`), re-freezes those
+# entries' observations from them and fails when the result differs from the committed observations
 # and `regression/SHA256SUMS`: a publisher changed its files, or the
 # detector moved the observations without a re-freeze. The checkout has no
 # LFS data, so the images can only come from the publishers.
@@ -16,6 +16,7 @@ on:
       - "regression/fetch/**"
       - "data/*/dataset.toml"
       - "crates/vision-calibration-bench/src/suite/fetch.rs"
+      - "crates/vision-calibration-bench/src/suite/corners.rs"
       - ".github/workflows/suite-images.yml"
 
 permissions:

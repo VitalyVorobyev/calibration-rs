@@ -207,9 +207,10 @@ class CameraModelSpec:
     ``projection`` is ``"pinhole"`` or ``"equidistant"`` (fisheye);
     ``distortion`` is one of ``"none"``, ``"brown_conrady5"``, ``"rational8"``,
     ``"thin_prism9"``, ``"division1"``, ``"kannala_brandt4"``; ``sensor`` is
-    ``"identity"`` or ``"scheimpflug"`` (tilted sensor). The calibration
-    workflows take a pinhole projection; an equidistant camera can be built
-    and evaluated with :class:`~vision_calibration.CameraModel`.
+    ``"identity"`` or ``"scheimpflug"`` (tilted sensor). Every calibration
+    workflow takes either projection; ``"equidistant"`` with
+    ``"kannala_brandt4"`` is the Kannala-Brandt fisheye camera of OpenCV's
+    ``fisheye`` module.
     """
 
     projection: ProjectionKind = "pinhole"

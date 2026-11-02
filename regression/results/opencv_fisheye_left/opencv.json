@@ -1,0 +1,17 @@
+{
+  "producer": "opencv 4.12.0",
+  "method": "fisheye.calibrate (CALIB_RECOMPUTE_EXTRINSIC, CALIB_CHECK_COND, CALIB_FIX_SKEW)",
+  "parameters": {
+    "fx": 558.4780859375346,
+    "fy": 560.5067657025161,
+    "cx": 620.4585048335529,
+    "cy": 381.9394113508235,
+    "k1": -0.0014613613103845902,
+    "k2": -0.0032984640415739965,
+    "k3": 0.006057403027072357,
+    "k4": -0.0037420061512447186
+  },
+  "poses": {},
+  "sigma": {},
+  "mean_reproj_error": 0.22271993618327973
+}

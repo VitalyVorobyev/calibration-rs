@@ -145,6 +145,7 @@
 "laserline_device::step_optimize" = "laserline_device.LaserlineDeviceSession.step_optimize"
 "optim::Error" = "builtins.RuntimeError"
 "optim::HandeyeMode" = "types.HandeyeMode"
+"optim::LaserlineResidualType" = "types.LaserlineResidualType"
 "optim::LaserPlane" = "LaserPlane"
 "laserline_device::LaserlineMeta" = "types.LaserlineMeta"
 "laserline_device::LaserlineView" = "LaserlineView"

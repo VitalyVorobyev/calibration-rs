@@ -605,6 +605,9 @@ pub mod optim {
     pub use vision_calibration_optim::HandeyeMode;
     /// Laser-plane parameter type.
     pub use vision_calibration_optim::LaserPlane;
+    /// The laser residual of the laser workflows' configs
+    /// (`laser_residual_type`): a fisheye camera takes `PointToPlane`.
+    pub use vision_calibration_optim::LaserlineResidualType;
     /// Robust loss (M-estimator) selector for optimization.
     pub use vision_calibration_optim::RobustLoss;
     /// Solver backend selector — the `backend` field of
