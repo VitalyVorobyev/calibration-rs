@@ -32,6 +32,9 @@ use crate::factors::camera_blocks::CameraBlocks;
 use crate::ir::CameraModelSpec;
 use crate::projection::CameraVector;
 
+mod rig;
+pub use rig::{RigHandeyeGeometry, RigViewInformation, RobotPose, rig_handeye_view_information};
+
 /// Whether a view's pose is estimated with the camera, or known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewPose {

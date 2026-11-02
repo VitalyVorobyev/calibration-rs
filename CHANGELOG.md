@@ -151,6 +151,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the manifest's path. Python: `vc.samples.fetch(id)`,
   `vc.samples.catalogue()`. The cache defaults to the platform's cache
   directory; `VISION_CALIBRATION_DATA` moves it.
+- `analysis::predict_with_robot_poses` and `analysis::rank_robot_poses`
+  plan the next robot pose of a rig hand-eye calibration: the covariance
+  the calibration would have with views at candidate `base_se3_gripper`
+  poses added, without a re-solve, over every estimated parameter (cameras,
+  rig, hand-eye, target), with robot pose corrections marginalized under
+  the result's robot pose error; candidates ranked by the reduction of
+  `ln det Σ`. Python: `vc.predict_with_robot_poses`, `vc.rank_robot_poses`.
 - `rig_handeye_laserline::run_calibration_with_seed` starts the joint rig
   laser solve from a `JointManualInit`: a rig hand-eye export of the same
   views (an earlier `rig_handeye` run, so a staged calibration need not

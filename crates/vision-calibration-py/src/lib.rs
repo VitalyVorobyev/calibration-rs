@@ -633,6 +633,119 @@ fn rank_candidates(
     Ok(output.unbind())
 }
 
+/// Parse a rig hand-eye export payload.
+fn rig_handeye_export(
+    export: &Bound<'_, PyAny>,
+) -> PyResult<vision_calibration::rig_handeye::RigHandeyeExport> {
+    let value: serde_json::Value = parse_payload(export, "export")?;
+    let kind = value.get("kind").and_then(serde_json::Value::as_str);
+    if kind != Some("rig_handeye") {
+        return Err(PyTypeError::new_err(format!(
+            "robot pose planning needs a rig hand-eye export, not {}",
+            kind.unwrap_or("a payload without a kind")
+        )));
+    }
+    serde_json::from_value(value)
+        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))
+}
+
+/// Candidate robot poses, target points and one image size per camera.
+type RobotPoseInputs = (
+    Vec<vision_calibration::core::Iso3>,
+    Vec<vision_calibration::core::Pt3>,
+    Vec<[u32; 2]>,
+);
+
+/// Parse candidate robot poses, target points and one image size per camera.
+fn robot_pose_inputs(
+    candidates: &Bound<'_, PyAny>,
+    target_points: &Bound<'_, PyAny>,
+    image_sizes: &Bound<'_, PyAny>,
+) -> PyResult<RobotPoseInputs> {
+    reject_non_finite("candidates", candidates)?;
+    let candidates = parse_payload(candidates, "candidates")?;
+    let points = parse_target_points(target_points)?;
+    let image_sizes = parse_payload(image_sizes, "image_sizes")?;
+    Ok((candidates, points, image_sizes))
+}
+
+/// The covariance a rig hand-eye calibration is predicted to have with views
+/// at candidate robot poses added, without a re-solve.
+///
+/// Parameters
+/// ----------
+/// export:
+///     A rig hand-eye export.
+/// candidates:
+///     ``base_se3_gripper`` robot poses, serde `Iso3` payloads.
+/// target_points:
+///     The target's points in its own frame, metres, ``[[x, y, z], ...]``.
+/// image_sizes:
+///     ``[width, height]`` of each camera's images, pixels.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `PredictedRigUncertainty`.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the export has no covariance, `candidates` or `target_points` is
+///     empty, `image_sizes` does not give one size per camera, or the export
+///     cannot be planned from.
+/// TypeError
+///     If `export` is not a rig hand-eye export or a payload has the wrong
+///     shape.
+#[pyfunction]
+fn predict_with_robot_poses(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    candidates: &Bound<'_, PyAny>,
+    target_points: &Bound<'_, PyAny>,
+    image_sizes: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let export = rig_handeye_export(export)?;
+    let (candidates, points, sizes) = robot_pose_inputs(candidates, target_points, image_sizes)?;
+    let predicted = vision_calibration::analysis::predict_with_robot_poses(
+        &export,
+        &candidates,
+        &points,
+        &sizes,
+    )
+    .map_err(analysis_err)?;
+    let output = pythonize(py, &predicted)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
+/// Candidate robot poses of a rig hand-eye calibration, each added alone,
+/// ranked by how much they reduce the log-volume of the covariance.
+///
+/// Parameters and errors as `predict_with_robot_poses`.
+///
+/// Returns
+/// -------
+/// list[dict]
+///     Serde payloads of `RankedRobotPose`, best first.
+#[pyfunction]
+fn rank_robot_poses(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    candidates: &Bound<'_, PyAny>,
+    target_points: &Bound<'_, PyAny>,
+    image_sizes: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let export = rig_handeye_export(export)?;
+    let (candidates, points, sizes) = robot_pose_inputs(candidates, target_points, image_sizes)?;
+    let ranked =
+        vision_calibration::analysis::rank_robot_poses(&export, &candidates, &points, &sizes)
+            .map_err(analysis_err)?;
+    let output = pythonize(py, &ranked)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
 /// A deterministic set of candidate target poses over the image.
 ///
 /// Parameters
@@ -698,6 +811,8 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(html_report, m)?)?;
     m.add_function(wrap_pyfunction!(predict_with_views, m)?)?;
     m.add_function(wrap_pyfunction!(rank_candidates, m)?)?;
+    m.add_function(wrap_pyfunction!(predict_with_robot_poses, m)?)?;
+    m.add_function(wrap_pyfunction!(rank_robot_poses, m)?)?;
     m.add_function(wrap_pyfunction!(candidate_poses, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
