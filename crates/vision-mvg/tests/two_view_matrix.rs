@@ -6,37 +6,52 @@
 //! pixels, adds deterministic per-pixel noise, and pushes the result through:
 //!
 //! 1. **Relative pose recovery** (`recover_relative_pose`, the 5-point +
-//!    cheirality pipeline on normalized coordinates) — asserts rotation error
-//!    (deg) and translation-direction error (deg).
-//! 2. **Metric triangulation** (`triangulate_nview`, DLT + Gauss-Newton) with
-//!    the *known* metric projection matrices — asserts reprojection error (px)
-//!    and 3D Euclidean error against ground truth, scaled to the injected
-//!    noise floor.
+//!    cheirality pipeline on bearings from the camera model) — asserts
+//!    rotation error (deg) and translation-direction error (deg).
+//! 2. **Metric triangulation** (`triangulate`, the linear DLT on bearings)
+//!    with the *known* metric rig — asserts reprojection error (px) and 3D
+//!    Euclidean error against ground truth, scaled to the injected noise
+//!    floor.
 //!
 //! Two-view geometry is observable only up to a similarity scale, so (1) uses
 //! only the scale-invariant quantities (rotation, translation *direction*).
 //! (2) resolves the scale gauge by handing the solver the true metric cameras,
 //! which is exactly the frozen-extrinsics regime the triangulation solver runs
-//! in downstream.
+//! in downstream. The linear estimate carries no reprojection polish, so
+//! its noisy-cell errors are a little larger than a refined point's.
 
 #![allow(missing_docs)]
 
-use nalgebra::Rotation3;
+use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
-use vision_calibration_core::{FxFyCxCy, Mat3, Pt2, Pt3, Vec3, pixel_to_normalized};
-use vision_geometry::camera_matrix::Mat34;
-use vision_mvg::triangulation::triangulate_nview;
+use vision_calibration_core::{
+    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Uncertainty, Vec3,
+    make_pinhole_camera, pinhole_camera_params,
+};
+use vision_mvg::triangulation::{RigObservation, triangulate};
 use vision_mvg::{Correspondence2D, recover_relative_pose};
 
 /// Shared intrinsics for both views (a 1280×720-ish pinhole).
-fn intrinsics() -> Mat3 {
+fn intrinsics() -> FxFyCxCy<f64> {
     FxFyCxCy {
         fx: 800.0,
         fy: 790.0,
         cx: 640.0,
         cy: 360.0,
     }
-    .k_matrix()
+}
+
+/// A two-camera rig of identical pinholes; camera 0 is the rig frame and
+/// camera 1 sits at `cam1_se3_rig`.
+fn stereo_rig(cam1_se3_rig: Iso3) -> CalibratedRig {
+    let camera =
+        pinhole_camera_params(&make_pinhole_camera(intrinsics(), BrownConrady5::default()));
+    CalibratedRig::new(
+        vec![camera.clone(), camera],
+        vec![Iso3::identity(), cam1_se3_rig],
+        Uncertainty::default(),
+    )
+    .unwrap()
 }
 
 /// A non-coplanar 3D point cloud spread across the shared frustum. Depth varies
@@ -134,23 +149,10 @@ fn tdir_err_deg(t_est: &Vec3, t_gt: &Vec3) -> f64 {
     cos.acos().to_degrees()
 }
 
-/// Build the metric pixel-domain projection matrices `P₁ = K[I|0]`,
-/// `P₂ = K[R|t]`.
-fn projection_pair(k: &Mat3, r: &Mat3, t: &Vec3) -> (Mat34, Mat34) {
-    let mut p1 = Mat34::zeros();
-    p1.fixed_view_mut::<3, 3>(0, 0).copy_from(k);
-    let mut p2 = Mat34::zeros();
-    p2.fixed_view_mut::<3, 3>(0, 0).copy_from(&(k * r));
-    p2.set_column(3, &(k * t));
-    (p1, p2)
-}
-
-fn project(p: &Mat34, pw: &Pt3) -> Option<Pt2> {
-    let x = p * nalgebra::Vector4::new(pw.x, pw.y, pw.z, 1.0);
-    if x.z <= 1e-6 {
-        return None;
-    }
-    Some(Pt2::new(x.x / x.z, x.y / x.z))
+/// The pixel where camera `camera` of the rig sees the rig-frame point.
+fn project(rig: &CalibratedRig, camera: usize, pw: &Pt3) -> Option<Pt2> {
+    rig.model(camera)?
+        .project_point(&(rig.cam_se3_rig()[camera] * pw))
 }
 
 fn median(mut v: Vec<f64>) -> f64 {
@@ -160,13 +162,16 @@ fn median(mut v: Vec<f64>) -> f64 {
 
 #[test]
 fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
-    let k = intrinsics();
     let world = world_points();
     let noise_levels = [0.0_f64, 0.2, 0.5];
 
     for cell in cells() {
         let r_gt = *Rotation3::from_euler_angles(cell.rot.0, cell.rot.1, cell.rot.2).matrix();
-        let (p1, p2) = projection_pair(&k, &r_gt, &cell.t);
+        let cam1_se3_rig = Iso3::from_parts(
+            Translation3::from(cell.t),
+            UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r_gt)),
+        );
+        let rig = stereo_rig(cam1_se3_rig);
 
         for &noise_px in &noise_levels {
             let noise = UniformPixelNoise {
@@ -180,17 +185,14 @@ fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
             let mut px2 = Vec::new();
             let mut kept_world = Vec::new();
             for (j, pw) in world.iter().enumerate() {
-                let (Some(u1), Some(u2)) = (project(&p1, pw), project(&p2, pw)) else {
+                let (Some(u1), Some(u2)) = (project(&rig, 0, pw), project(&rig, 1, pw)) else {
                     continue;
                 };
                 let n1 = noise.sample(0, j);
                 let n2 = noise.sample(1, j);
                 let q1 = Pt2::new(u1.x + n1.x, u1.y + n1.y);
                 let q2 = Pt2::new(u2.x + n2.x, u2.y + n2.y);
-                corrs.push(Correspondence2D::new(
-                    pixel_to_normalized(q1, &k),
-                    pixel_to_normalized(q2, &k),
-                ));
+                corrs.push(Correspondence2D::new(q1, q2));
                 px1.push(q1);
                 px2.push(q2);
                 kept_world.push(*pw);
@@ -200,19 +202,28 @@ fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
             let label = format!("{} noise={noise_px}px", cell.name);
 
             // --- (1) Relative pose recovery ---
-            let pose = recover_relative_pose(&corrs)
+            // One capture by the two cameras of the rig.
+            let pose = recover_relative_pose(&rig, [0, 1], &corrs)
                 .unwrap_or_else(|e| panic!("{label}: pose recovery failed: {e:?}"));
-            let rerr = rot_err_deg(&pose.r, &r_gt);
-            let terr = tdir_err_deg(&pose.t, &cell.t);
+            let rerr = rot_err_deg(
+                pose.second_se3_first.rotation.to_rotation_matrix().matrix(),
+                &r_gt,
+            );
+            let terr = tdir_err_deg(&pose.second_se3_first.translation.vector, &cell.t);
 
             // --- (2) Metric triangulation with the true cameras ---
             let mut reproj_px = Vec::new();
             let mut err3d = Vec::new();
             for ((u1, u2), pw) in px1.iter().zip(px2.iter()).zip(kept_world.iter()) {
-                let tp = triangulate_nview(&[p1, p2], &[*u1, *u2])
-                    .unwrap_or_else(|e| panic!("{label}: triangulation failed: {e:?}"));
+                let track = vec![
+                    RigObservation::new(0, 0, *u1),
+                    RigObservation::new(0, 1, *u2),
+                ];
+                let tp = triangulate(&rig, &[Iso3::identity()], &[track])
+                    .unwrap_or_else(|e| panic!("{label}: triangulation failed: {e:?}"))
+                    .remove(0);
                 assert!(tp.in_front, "{label}: triangulated point behind a camera");
-                reproj_px.push(tp.reprojection_error);
+                reproj_px.push(tp.reprojection_error.expect("projects in both cameras"));
                 err3d.push((tp.point - pw).norm());
             }
             let med_reproj = median(reproj_px);

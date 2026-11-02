@@ -14,11 +14,11 @@ pub type FundamentalMatrix = Mat3;
 /// Homography matrix (3×3, invertible projective transform between planes).
 pub type HomographyMatrix = Mat3;
 
-/// A pair of corresponding 2D points observed in two views.
+/// A pair of corresponding **pixels** observed in two views.
 ///
-/// For calibrated workflows, both points should be in **normalized camera
-/// coordinates** (i.e., after applying `K⁻¹`). For uncalibrated workflows,
-/// both points are in **pixel coordinates**.
+/// For the calibrated functions, `pt1` is a pixel of the first camera and `pt2`
+/// of the second, the two cameras the call names. The uncalibrated estimators
+/// (fundamental matrix, homography) take them as plain image coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Correspondence2D {
     /// Point observed in the first view.
@@ -50,14 +50,21 @@ impl Correspondence2D {
 /// A triangulated 3D point with quality diagnostics.
 #[derive(Debug, Clone)]
 pub struct TriangulatedPoint {
-    /// Reconstructed 3D position.
+    /// Reconstructed 3D position, in the frame the triangulation's poses
+    /// define (the world frame, or the first camera's frame for a relative
+    /// pose).
     pub point: Pt3,
-    /// Root-mean-square reprojection error across the views used.
-    pub reprojection_error: Real,
-    /// Parallax angle in degrees between the observing rays.
+    /// Root-mean-square distance, in pixels, between each observation and the
+    /// point projected through that observation's camera model. `None` when
+    /// the point does not project in one of the cameras.
+    pub reprojection_error: Option<Real>,
+    /// Largest angle, in degrees, between two observing rays (the directions
+    /// from each camera centre to the point).
     ///
     /// Small angles indicate poor triangulation geometry.
     pub parallax_deg: Real,
-    /// Whether the point is in front of all cameras (positive depth).
+    /// Whether the point lies ahead along every observing bearing
+    /// (`bearing · p_camera > 0`). For a pinhole this is positive depth; a
+    /// wide-angle camera can see a point at negative `z` in front of it.
     pub in_front: bool,
 }

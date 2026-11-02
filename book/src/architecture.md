@@ -44,7 +44,7 @@ Deterministic two-view solvers, all free functions in per-topic modules:
 |--------|-----------|
 | `homography` | `dlt_homography`, `dlt_homography_ransac` |
 | `epipolar` | `fundamental_8point`, `essential_5point` |
-| `triangulation` | `triangulate_point_linear`, `triangulate_point` |
+| `triangulation` | `triangulate_point_linear` |
 | `camera_matrix` | `dlt_camera_matrix` |
 
 The facade re-exports the main solvers at the root of its `mvg` module (`vision_calibration::mvg::dlt_homography`, …); the full set is in the `vision-geometry` crate.

@@ -1,324 +1,387 @@
-//! Enhanced triangulation with quality diagnostics.
+//! Triangulation from a calibration, with quality diagnostics.
 //!
-//! Wraps the low-level DLT triangulation from `vision-geometry` and adds
-//! reprojection error computation, parallax angle measurement, and cheirality
-//! validation.
+//! Pixels become bearings through each rig camera's own model, the linear
+//! (DLT) triangulator of `vision-geometry` solves for the point, and the
+//! diagnostics report the reprojection error in pixels, the parallax and
+//! whether the point lies ahead of every observing camera.
 
+use crate::bearing::{bearing, camera_model};
 use crate::types::TriangulatedPoint;
 use crate::{MvgError, Result};
-use vision_calibration_core::{Mat3, Pt2, Vec3};
-use vision_geometry::camera_matrix::Mat34;
+use vision_calibration_core::{CalibratedRig, CameraModel, Iso3, Pt2, Pt3, Real, Vec3};
+use vision_geometry::GeometryError;
+use vision_geometry::triangulation::triangulate_point_linear;
 
-/// Triangulate a single point from two views with diagnostics.
-///
-/// `p1` and `p2` are 3×4 projection matrices. Returns a [`TriangulatedPoint`]
-/// with reprojection error, parallax angle, and cheirality flag.
-pub fn triangulate_point_two_view(
-    p1: &Mat34,
-    p2: &Mat34,
-    pt1: &Pt2,
-    pt2: &Pt2,
-) -> Result<TriangulatedPoint> {
-    let pt3 = vision_geometry::triangulation::triangulate_point_linear(&[*p1, *p2], &[*pt1, *pt2])?;
-
-    // Reprojection error.
-    let x1 = p1 * nalgebra::Vector4::new(pt3.x, pt3.y, pt3.z, 1.0);
-    let x2 = p2 * nalgebra::Vector4::new(pt3.x, pt3.y, pt3.z, 1.0);
-
-    let proj1 = Pt2::new(x1.x / x1.z, x1.y / x1.z);
-    let proj2 = Pt2::new(x2.x / x2.z, x2.y / x2.z);
-
-    let e1 = ((proj1.x - pt1.x).powi(2) + (proj1.y - pt1.y).powi(2)).sqrt();
-    let e2 = ((proj2.x - pt2.x).powi(2) + (proj2.y - pt2.y).powi(2)).sqrt();
-    let reprojection_error = ((e1 * e1 + e2 * e2) / 2.0).sqrt();
-
-    // Cheirality: positive depth in both cameras.
-    let z1 = x1.z;
-    let z2 = x2.z;
-    let in_front = z1 > 0.0 && z2 > 0.0;
-
-    // Parallax angle: angle between rays from each camera center to the point.
-    let c1 = camera_center(p1);
-    let c2 = camera_center(p2);
-    let ray1 = (pt3 - c1).normalize();
-    let ray2 = (pt3 - c2).normalize();
-    let cos_angle = ray1.dot(&ray2).clamp(-1.0, 1.0);
-    let parallax_deg = cos_angle.acos().to_degrees();
-
-    Ok(TriangulatedPoint {
-        point: pt3,
-        reprojection_error,
-        parallax_deg,
-        in_front,
-    })
+/// One pixel of a point: seen by rig camera `camera` at capture `capture`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RigObservation {
+    /// Index into the capture poses (`rig_se3_world`) the call takes.
+    pub capture: usize,
+    /// Index of the rig camera that saw the point.
+    pub camera: usize,
+    /// The observed pixel.
+    pub pixel: Pt2,
 }
 
-/// Triangulate multiple correspondences from two calibrated views.
-///
-/// Camera 1 is at the origin: `P₁ = [I | 0]`. Camera 2 has relative pose
-/// `(R, t)`: `P₂ = [R | t]`. Points must be in normalized camera coordinates.
-pub fn triangulate_two_view(
-    r: &Mat3,
-    t: &Vec3,
-    pts1: &[Pt2],
-    pts2: &[Pt2],
-) -> Result<Vec<TriangulatedPoint>> {
-    if pts1.len() != pts2.len() {
-        return Err(MvgError::CountMismatch {
-            expected: pts1.len(),
-            got: pts2.len(),
-        });
+impl RigObservation {
+    /// An observation of a point by rig camera `camera` at capture `capture`.
+    pub fn new(capture: usize, camera: usize, pixel: Pt2) -> Self {
+        Self {
+            capture,
+            camera,
+            pixel,
+        }
     }
-
-    let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-    let mut p2 = Mat34::zeros();
-    p2.fixed_view_mut::<3, 3>(0, 0).copy_from(r);
-    p2.set_column(3, t);
-
-    let mut results = Vec::with_capacity(pts1.len());
-    for (q1, q2) in pts1.iter().zip(pts2.iter()) {
-        results.push(triangulate_point_two_view(&p1, &p2, q1, q2)?);
-    }
-
-    Ok(results)
 }
 
-/// Like [`triangulate_two_view`] but tolerant of per-point degeneracies.
+/// Triangulate each track (the observations of one point) in the world frame.
 ///
-/// Correspondences that fail to triangulate (e.g. a single on-baseline /
-/// zero-parallax outlier) are skipped instead of discarding the whole set.
-/// Returns the successfully triangulated points, which may be empty if none
-/// triangulate. The two slices must have equal length (callers pass
-/// [`Correspondence2D::split`](crate::types::Correspondence2D::split) output).
-pub(crate) fn triangulate_two_view_partial(
-    r: &Mat3,
-    t: &Vec3,
-    pts1: &[Pt2],
-    pts2: &[Pt2],
-) -> Vec<TriangulatedPoint> {
-    debug_assert_eq!(pts1.len(), pts2.len(), "point count mismatch");
-
-    let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-    let mut p2 = Mat34::zeros();
-    p2.fixed_view_mut::<3, 3>(0, 0).copy_from(r);
-    p2.set_column(3, t);
-
-    pts1.iter()
-        .zip(pts2.iter())
-        .filter_map(|(q1, q2)| triangulate_point_two_view(&p1, &p2, q1, q2).ok())
-        .collect()
-}
-
-/// Triangulate a single point from N ≥ 2 views with refinement and diagnostics.
+/// `rig_se3_world[k]` is the pose of the rig at capture `k` (world → rig
+/// frame). Camera `i` at capture `k` sees the world through
+/// `rig.cam_se3_rig()[i] * rig_se3_world[k]`. Every pixel is unprojected
+/// through its camera's own model, so distortion, fisheye and tilted sensors
+/// need no separate undistortion, and the estimate is the linear (DLT)
+/// triangulation of the resulting bearings.
 ///
-/// `cameras` are 3×4 projection matrices and `points` their corresponding image
-/// coordinates. Uses [`vision_geometry::triangulation::triangulate_point`]
-/// (linear DLT + Gauss-Newton reprojection refinement), then reports:
+/// For one stereo capture pass `&[Iso3::identity()]`: the rig frame is the
+/// world frame and the points come out in the rig frame.
 ///
-/// - `reprojection_error`: RMS reprojection error over all views,
-/// - `parallax_deg`: the **widest** parallax angle across all camera-center
-///   pairs (the best-conditioned baseline; larger ⇒ better depth constraint),
-/// - `in_front`: whether the point has positive depth in **every** view.
+/// ```
+/// use vision_calibration_core::{
+///     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Pt2, Pt3, Uncertainty, Vec3,
+///     make_pinhole_camera, pinhole_camera_params,
+/// };
+/// use vision_mvg::triangulation::{RigObservation, triangulate};
+///
+/// // A stereo pair: camera 0 is the rig frame, camera 1 sits 10 cm to its right.
+/// let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 320.0, cy: 240.0 };
+/// let camera = pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default()));
+/// let cam1_se3_rig = Iso3::translation(-0.1, 0.0, 0.0);
+/// let rig = CalibratedRig::new(
+///     vec![camera.clone(), camera],
+///     vec![Iso3::identity(), cam1_se3_rig],
+///     Uncertainty::default(),
+/// )?;
+///
+/// // A point 2 m ahead, and the pixels the two cameras see it at.
+/// let point = Pt3::new(0.05, -0.02, 2.0);
+/// let pixel = |camera: usize| {
+///     rig.model(camera)
+///         .unwrap()
+///         .project_point(&(rig.cam_se3_rig()[camera] * point))
+///         .unwrap()
+/// };
+/// let track = vec![
+///     RigObservation::new(0, 0, pixel(0)),
+///     RigObservation::new(0, 1, pixel(1)),
+/// ];
+///
+/// let found = triangulate(&rig, &[Iso3::identity()], &[track])?;
+/// assert!((found[0].point - point).norm() < 1e-9);
+/// assert!(found[0].in_front);
+/// # Ok::<(), vision_mvg::MvgError>(())
+/// ```
 ///
 /// # Errors
 ///
-/// Returns an error if the camera/point counts disagree, fewer than 2 views are
-/// given, or the system is degenerate (see the linear solver).
-pub fn triangulate_nview(cameras: &[Mat34], points: &[Pt2]) -> Result<TriangulatedPoint> {
-    if cameras.len() != points.len() {
-        return Err(MvgError::CountMismatch {
-            expected: cameras.len(),
-            got: points.len(),
+/// All-or-nothing: a track with fewer than 2 observations, a camera or
+/// capture index out of range, a pixel without a finite viewing ray or a
+/// degenerate (zero-parallax) system is an error whose message names the
+/// track by its index in `tracks`.
+pub fn triangulate(
+    rig: &CalibratedRig,
+    rig_se3_world: &[Iso3],
+    tracks: &[Vec<RigObservation>],
+) -> Result<Vec<TriangulatedPoint>> {
+    tracks
+        .iter()
+        .enumerate()
+        .map(|(i, track)| {
+            triangulate_track(rig, rig_se3_world, track)
+                .map_err(|e| with_context(&format!("track {i}"), e))
+        })
+        .collect()
+}
+
+fn triangulate_track(
+    rig: &CalibratedRig,
+    rig_se3_world: &[Iso3],
+    track: &[RigObservation],
+) -> Result<TriangulatedPoint> {
+    if track.len() < 2 {
+        return Err(MvgError::invalid_input(format!(
+            "has {} observation(s); triangulation needs at least 2",
+            track.len()
+        )));
+    }
+    let mut views = Vec::with_capacity(track.len());
+    for (j, obs) in track.iter().enumerate() {
+        let rig_pose = rig_se3_world.get(obs.capture).ok_or_else(|| {
+            MvgError::invalid_input(format!(
+                "observation {j}: capture {} out of range: {} rig poses given",
+                obs.capture,
+                rig_se3_world.len()
+            ))
+        })?;
+        let model = camera_model(rig, obs.camera)
+            .map_err(|e| with_context(&format!("observation {j}"), e))?;
+        views.push(ViewRay {
+            cam_se3_world: rig.cam_se3_rig()[obs.camera] * rig_pose,
+            model,
+            pixel: obs.pixel,
+            bearing: bearing(model, &obs.pixel, j)?,
         });
     }
+    triangulate_views(&views)
+}
 
-    let pt3 = vision_geometry::triangulation::triangulate_point(cameras, points)?;
-    let xh = nalgebra::Vector4::new(pt3.x, pt3.y, pt3.z, 1.0);
-
-    // RMS reprojection error + all-views cheirality.
-    let mut sq_sum = 0.0;
-    let mut in_front = true;
-    for (cam, obs) in cameras.iter().zip(points.iter()) {
-        let x = cam * xh;
-        in_front &= x.z > 0.0;
-        let proj = Pt2::new(x.x / x.z, x.y / x.z);
-        sq_sum += (proj.x - obs.x).powi(2) + (proj.y - obs.y).powi(2);
+/// Prefix the message of an error with the item it concerns.
+pub(crate) fn with_context(context: &str, err: MvgError) -> MvgError {
+    match err {
+        MvgError::InvalidInput { reason } => {
+            MvgError::invalid_input(format!("{context}: {reason}"))
+        }
+        MvgError::Degenerate { reason }
+        | MvgError::Geometry(GeometryError::Degenerate { reason }) => {
+            MvgError::degenerate(format!("{context}: {reason}"))
+        }
+        other => MvgError::numerical(format!("{context}: {other}")),
     }
-    let reprojection_error = (sq_sum / cameras.len() as f64).sqrt();
+}
 
-    // Widest pairwise parallax: the best baseline angle subtended at the point.
-    let centers: Vec<vision_calibration_core::Pt3> = cameras.iter().map(camera_center).collect();
-    let mut parallax_deg = 0.0_f64;
-    for i in 0..centers.len() {
-        for j in (i + 1)..centers.len() {
-            let ray_i = (pt3 - centers[i]).normalize();
-            let ray_j = (pt3 - centers[j]).normalize();
-            let cos_angle = ray_i.dot(&ray_j).clamp(-1.0, 1.0);
-            let angle = cos_angle.acos().to_degrees();
-            if angle > parallax_deg {
-                parallax_deg = angle;
-            }
+/// One observation of a point as the triangulator needs it.
+pub(crate) struct ViewRay<'a> {
+    /// World → camera pose of the observing camera.
+    pub cam_se3_world: Iso3,
+    /// The camera's model, for the reprojection diagnostic.
+    pub model: &'a CameraModel,
+    /// The observed pixel.
+    pub pixel: Pt2,
+    /// Its unit bearing in the camera frame.
+    pub bearing: Vec3,
+}
+
+/// Linear triangulation of one point from its views, with diagnostics.
+pub(crate) fn triangulate_views(views: &[ViewRay<'_>]) -> Result<TriangulatedPoint> {
+    let poses: Vec<Iso3> = views.iter().map(|v| v.cam_se3_world).collect();
+    let bearings: Vec<Vec3> = views.iter().map(|v| v.bearing).collect();
+    let point = triangulate_point_linear(&poses, &bearings)?;
+
+    let mut in_front = true;
+    let mut sq_sum = 0.0;
+    let mut projects = true;
+    for v in views {
+        let p_cam = v.cam_se3_world * point;
+        in_front &= v.bearing.dot(&p_cam.coords) > 0.0;
+        match v.model.project_point(&p_cam) {
+            Some(px) => sq_sum += (px - v.pixel).norm_squared(),
+            None => projects = false,
         }
     }
+    let reprojection_error = projects.then(|| (sq_sum / views.len() as Real).sqrt());
 
     Ok(TriangulatedPoint {
-        point: pt3,
+        point,
         reprojection_error,
-        parallax_deg,
+        parallax_deg: max_parallax_deg(&poses, &point),
         in_front,
     })
 }
 
-/// Extract camera center from a projection matrix.
-///
-/// For `P = [M | p₄]`, the camera center is `C = -M⁻¹ p₄`.
-fn camera_center(p: &Mat34) -> vision_calibration_core::Pt3 {
-    let m = p.fixed_view::<3, 3>(0, 0).into_owned();
-    let p4 = p.column(3).into_owned();
-    match m.try_inverse() {
-        Some(m_inv) => {
-            let c = -m_inv * p4;
-            vision_calibration_core::Pt3::new(c.x, c.y, c.z)
+/// The largest angle, in degrees, between two rays from camera centres to the
+/// point. A camera centred on the point has no ray and is skipped.
+fn max_parallax_deg(cam_se3_world: &[Iso3], point: &Pt3) -> Real {
+    let rays: Vec<Vec3> = cam_se3_world
+        .iter()
+        .filter_map(|pose| {
+            let centre = pose.inverse_transform_point(&Pt3::origin());
+            let d = point - centre;
+            let n = d.norm();
+            (n > 0.0).then(|| d / n)
+        })
+        .collect();
+    let mut widest = 0.0_f64;
+    for (i, a) in rays.iter().enumerate() {
+        for b in &rays[i + 1..] {
+            widest = widest.max(a.dot(b).clamp(-1.0, 1.0).acos().to_degrees());
         }
-        None => vision_calibration_core::Pt3::origin(),
     }
+    widest
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Rotation3;
-    use vision_calibration_core::Pt3;
+    use crate::test_support::{Lcg, fisheye_params, iso, pinhole_params, pixel_of};
+    use vision_calibration_core::Uncertainty;
 
-    #[test]
-    fn triangulate_two_view_noiseless() {
-        let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
-        let r = *rot.matrix();
-        let t = Vec3::new(0.3, 0.01, 0.005);
+    fn stereo_rig(k1: f64) -> CalibratedRig {
+        CalibratedRig::new(
+            vec![pinhole_params(k1), pinhole_params(k1)],
+            vec![
+                Iso3::identity(),
+                iso(0.0, 0.05, 0.0, Vec3::new(-0.12, 0.0, 0.01)),
+            ],
+            Uncertainty::default(),
+        )
+        .unwrap()
+    }
 
-        let world = [
-            Pt3::new(0.1, 0.2, 3.0),
-            Pt3::new(-0.2, 0.1, 2.5),
-            Pt3::new(0.3, -0.1, 4.0),
-        ];
-
-        let mut pts1 = Vec::new();
-        let mut pts2 = Vec::new();
-        for pw in &world {
-            let pc1 = pw.coords;
-            let pc2 = r * pw.coords + t;
-            pts1.push(Pt2::new(pc1.x / pc1.z, pc1.y / pc1.z));
-            pts2.push(Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z));
+    /// The track of `world` seen by every camera at every capture.
+    fn track(rig: &CalibratedRig, rig_se3_world: &[Iso3], world: &Pt3) -> Vec<RigObservation> {
+        let mut obs = Vec::new();
+        for (k, rig_pose) in rig_se3_world.iter().enumerate() {
+            for (c, cam_pose) in rig.cam_se3_rig().iter().enumerate() {
+                let p_cam = (cam_pose * rig_pose * world).coords;
+                obs.push(RigObservation::new(k, c, pixel_of(rig, c, &p_cam)));
+            }
         }
+        obs
+    }
 
-        let results = triangulate_two_view(&r, &t, &pts1, &pts2).unwrap();
+    #[test]
+    fn stereo_capture_is_triangulated_in_the_rig_frame() {
+        let rig = stereo_rig(0.0);
+        let world = [Pt3::new(0.05, -0.02, 2.0), Pt3::new(-0.3, 0.2, 1.2)];
+        let tracks: Vec<_> = world
+            .iter()
+            .map(|p| track(&rig, &[Iso3::identity()], p))
+            .collect();
+        let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+        assert_eq!(found.len(), 2);
+        for (f, p) in found.iter().zip(&world) {
+            assert!((f.point - p).norm() < 1e-9);
+            assert!(f.in_front);
+            assert!(f.reprojection_error.unwrap() < 1e-8);
+            assert!(f.parallax_deg > 1.0);
+        }
+    }
 
-        assert_eq!(results.len(), world.len());
-        for (tp, pw) in results.iter().zip(world.iter()) {
-            let err = (tp.point - pw).norm();
-            assert!(err < 1e-6, "triangulation error too large: {}", err);
-            assert!(tp.reprojection_error < 1e-8);
-            assert!(tp.in_front);
-            assert!(tp.parallax_deg > 0.0);
+    /// Several captures of a moving rig, through lens distortion, from raw
+    /// distorted pixels.
+    #[test]
+    fn moving_rig_with_distortion_recovers_the_point() {
+        let rig = stereo_rig(-0.2);
+        let captures = [
+            iso(0.0, 0.0, 0.0, Vec3::new(0.0, 0.0, 0.0)),
+            iso(0.02, -0.03, 0.01, Vec3::new(-0.3, 0.05, 0.02)),
+            iso(-0.05, 0.04, 0.0, Vec3::new(0.25, -0.1, 0.1)),
+        ];
+        let world = Pt3::new(0.15, -0.1, 2.5);
+        let found = triangulate(&rig, &captures, &[track(&rig, &captures, &world)]).unwrap();
+        assert!((found[0].point - world).norm() < 1e-9);
+        assert!(found[0].reprojection_error.unwrap() < 1e-7);
+    }
+
+    /// With pixel noise the diagnostics report it: the reprojection RMS is of
+    /// the order of the noise and the point stays close to the truth.
+    #[test]
+    fn noisy_pixels_show_in_the_reprojection_error() {
+        let rig = stereo_rig(-0.1);
+        let captures = [
+            Iso3::identity(),
+            iso(0.0, 0.1, 0.0, Vec3::new(-0.4, 0.0, 0.05)),
+        ];
+        let mut rng = Lcg(5);
+        let world = Pt3::new(0.1, 0.05, 3.0);
+        let mut noisy = track(&rig, &captures, &world);
+        for o in &mut noisy {
+            o.pixel.x += 0.3 * rng.next();
+            o.pixel.y += 0.3 * rng.next();
+        }
+        let found = triangulate(&rig, &captures, &[noisy]).unwrap();
+        let err = found[0].reprojection_error.unwrap();
+        assert!(err > 0.01 && err < 0.5, "reprojection {err}");
+        assert!((found[0].point - world).norm() < 0.1);
+    }
+
+    /// Diverging rays put the point behind both cameras: not in front, and a
+    /// pinhole does not project it.
+    #[test]
+    fn point_behind_the_cameras_is_flagged() {
+        let rig = CalibratedRig::single(pinhole_params(0.0), Uncertainty::default()).unwrap();
+        let captures = [
+            Iso3::identity(),
+            iso(0.0, 0.0, 0.0, Vec3::new(-1.0, 0.0, 0.0)),
+        ];
+        // Camera 0 (at the origin) sees the point left of centre; camera 1,
+        // 1 m to its right, sees it right of centre: the rays diverge and
+        // meet behind both cameras.
+        let track = vec![
+            RigObservation::new(0, 0, Pt2::new(600.0, 480.0)),
+            RigObservation::new(1, 0, Pt2::new(720.0, 480.0)),
+        ];
+        let found = triangulate(&rig, &captures, &[track]).unwrap();
+        assert!(!found[0].in_front);
+        assert!(found[0].reprojection_error.is_none());
+    }
+
+    /// A fisheye rig sees points beyond 90° from the axis: the bearing
+    /// triangulation recovers them, which normalized coordinates cannot.
+    #[test]
+    fn fisheye_points_beyond_90_degrees_triangulate() {
+        let rig = CalibratedRig::new(
+            vec![fisheye_params(), fisheye_params()],
+            vec![
+                Iso3::identity(),
+                iso(0.0, 0.1, 0.0, Vec3::new(-0.2, 0.0, 0.05)),
+            ],
+            Uncertainty::default(),
+        )
+        .unwrap();
+        let world = [
+            Pt3::new(1.5, 0.2, -0.5),  // ~109° off the first axis
+            Pt3::new(-2.0, 0.5, -1.0), // ~154°
+            Pt3::new(0.3, -0.2, 2.0),
+            Pt3::new(1.0, 1.0, -0.3),
+        ];
+        assert!(world.iter().filter(|p| p.z < 0.0).count() >= 3);
+        let tracks: Vec<_> = world
+            .iter()
+            .map(|p| track(&rig, &[Iso3::identity()], p))
+            .collect();
+        let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+        for (f, p) in found.iter().zip(&world) {
+            assert!((f.point - p).norm() < 1e-9, "{:?} vs {p:?}", f.point);
+            assert!(f.in_front);
+            assert!(f.reprojection_error.unwrap() < 1e-7);
         }
     }
 
     #[test]
-    fn triangulate_small_baseline_has_small_parallax() {
-        let r = Mat3::identity();
-        let t = Vec3::new(0.001, 0.0, 0.0); // very small baseline
+    fn errors_name_the_track() {
+        let rig = stereo_rig(0.0);
+        let captures = [Iso3::identity()];
+        let good = track(&rig, &captures, &Pt3::new(0.0, 0.0, 2.0));
+        let message = |tracks: Vec<Vec<RigObservation>>| -> String {
+            triangulate(&rig, &captures, &tracks)
+                .unwrap_err()
+                .to_string()
+        };
 
-        let pw = Pt3::new(0.0, 0.0, 10.0); // far away point
-        let pc2 = r * pw.coords + t;
-        let pt1 = Pt2::new(pw.x / pw.z, pw.y / pw.z);
-        let pt2 = Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z);
+        // Fewer than two observations.
+        let m = message(vec![good.clone(), good[..1].to_vec()]);
+        assert!(m.contains("track 1") && m.contains("at least 2"), "{m}");
 
-        let results = triangulate_two_view(&r, &t, &[pt1], &[pt2]).unwrap();
+        // Camera out of range.
+        let mut bad = good.clone();
+        bad[1].camera = 5;
+        let m = message(vec![bad]);
+        assert!(m.contains("track 0") && m.contains("camera 5"), "{m}");
 
-        assert!(
-            results[0].parallax_deg < 0.01,
-            "expected small parallax for narrow baseline, got {}",
-            results[0].parallax_deg
-        );
-    }
+        // Capture out of range.
+        let mut bad = good.clone();
+        bad[0].capture = 3;
+        let m = message(vec![good.clone(), good.clone(), bad]);
+        assert!(m.contains("track 2") && m.contains("capture 3"), "{m}");
 
-    #[test]
-    fn triangulate_two_view_partial_skips_degenerate_points() {
-        // r = identity, t = 0 → p1 == p2 → every point's DLT is rank-deficient.
-        // The partial variant must return an empty vec WITHOUT erroring
-        // (contrast: triangulate_two_view is all-or-nothing and would fail).
-        let r = Mat3::identity();
-        let t = Vec3::zeros();
-        let pts1 = vec![Pt2::new(0.1, 0.2), Pt2::new(-0.3, 0.4)];
-        let pts2 = pts1.clone();
-        let got = triangulate_two_view_partial(&r, &t, &pts1, &pts2);
-        assert!(
-            got.is_empty(),
-            "degenerate (zero-baseline) points must be skipped, got {}",
-            got.len()
-        );
-    }
-
-    fn camera_rt(rx: f64, ry: f64, rz: f64, t: Vec3) -> Mat34 {
-        let r = *Rotation3::from_euler_angles(rx, ry, rz).matrix();
-        let mut p = Mat34::zeros();
-        p.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
-        p.set_column(3, &t);
-        p
-    }
-
-    #[test]
-    fn triangulate_nview_noiseless_diagnostics() {
-        let cams = [
-            camera_rt(0.0, 0.0, 0.0, Vec3::new(0.0, 0.0, 0.0)),
-            camera_rt(0.02, -0.03, 0.01, Vec3::new(-0.4, 0.05, 0.02)),
-            camera_rt(-0.05, 0.04, 0.0, Vec3::new(0.3, -0.2, 0.1)),
-            camera_rt(0.01, 0.06, -0.02, Vec3::new(0.1, 0.35, -0.05)),
-        ];
-        let pw = Pt3::new(0.15, -0.1, 3.0);
-        let pts: Vec<Pt2> = cams
-            .iter()
-            .map(|c| {
-                let x = c * nalgebra::Vector4::new(pw.x, pw.y, pw.z, 1.0);
-                Pt2::new(x.x / x.z, x.y / x.z)
-            })
-            .collect();
-
-        let tp = triangulate_nview(&cams, &pts).unwrap();
-        assert!((tp.point - pw).norm() < 1e-9, "n-view 3D error too large");
-        assert!(tp.reprojection_error < 1e-8);
-        assert!(tp.in_front);
-        assert!(tp.parallax_deg > 0.0);
-    }
-
-    #[test]
-    fn triangulate_nview_rejects_count_mismatch() {
-        let cam = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-        assert!(triangulate_nview(&[cam, cam], &[Pt2::new(0.0, 0.0)]).is_err());
-    }
-
-    #[test]
-    fn triangulate_two_view_partial_keeps_good_points() {
-        let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
-        let r = *rot.matrix();
-        let t = Vec3::new(0.3, 0.01, 0.005);
-        let world = [
-            Pt3::new(0.5, 0.3, 3.0),
-            Pt3::new(-0.4, 0.2, 4.0),
-            Pt3::new(0.6, -0.3, 5.0),
-        ];
-        let pts1: Vec<Pt2> = world
-            .iter()
-            .map(|pw| Pt2::new(pw.x / pw.z, pw.y / pw.z))
-            .collect();
-        let pts2: Vec<Pt2> = world
-            .iter()
-            .map(|pw| {
-                let pc = r * pw.coords + t;
-                Pt2::new(pc.x / pc.z, pc.y / pc.z)
-            })
-            .collect();
-        let got = triangulate_two_view_partial(&r, &t, &pts1, &pts2);
-        assert_eq!(got.len(), 3, "all valid points must be retained");
+        // Zero baseline: the same camera at the same capture twice.
+        let same = vec![good[0], good[0]];
+        let m = message(vec![same]);
+        assert!(m.contains("track 0"), "{m}");
+        assert!(matches!(
+            triangulate(&rig, &captures, &[vec![good[0], good[0]]]),
+            Err(MvgError::Degenerate { .. })
+        ));
     }
 }

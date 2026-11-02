@@ -5,11 +5,11 @@ use std::fs;
 use std::path::Path;
 use vision_calibration_core::{
     BrownConrady5, CorrespondenceView, Iso3, Mat3, Mat4, NoMeta, PlanarDataset, Pt2, Pt3, Real,
+    Vec3,
     test_utils::{CalibrationView, CornerInfo, ViewDetections, build_corner_info},
 };
 use vision_calibration_linear::planar_pose::PlanarPoseSolver;
 use vision_calibration_linear::zhang_intrinsics::PlanarIntrinsicsLinearInit;
-use vision_geometry::camera_matrix::Mat34;
 use vision_geometry::epipolar::{essential_5point, fundamental_8point};
 use vision_geometry::homography::dlt_homography;
 use vision_geometry::triangulation::triangulate_point_linear;
@@ -101,13 +101,15 @@ fn board_point_2d(i: usize, j: usize, square: Real) -> Pt2 {
     Pt2::new(i as Real * square, j as Real * square)
 }
 
-fn projection_matrix(k: &Mat3, extr: &Mat4) -> Mat34 {
+fn pose_from_matrix(extr: &Mat4) -> Iso3 {
     let r = extr.fixed_view::<3, 3>(0, 0).into_owned();
     let t = extr.fixed_view::<3, 1>(0, 3).into_owned();
-    let mut p = Mat34::zeros();
-    p.fixed_view_mut::<3, 3>(0, 0).copy_from(&(k * r));
-    p.set_column(3, &(k * t));
-    p
+    Iso3::from_parts(
+        nalgebra::Translation3::from(t),
+        nalgebra::UnitQuaternion::from_rotation_matrix(
+            &nalgebra::Rotation3::from_matrix_unchecked(r),
+        ),
+    )
 }
 
 fn pose_error(est: &Iso3, gt: &Mat4) -> (Real, Real) {
@@ -313,8 +315,8 @@ fn stereo_fundamental_and_essential_match_ground_truth() {
     for (i, j) in sample {
         let l = find_corner(&left, i, j).expect("left corner");
         let r = find_corner(&right, i, j).expect("right corner");
-        n_l.push(Pt2::new(l.undist_norm.x, l.undist_norm.y));
-        n_r.push(Pt2::new(r.undist_norm.x, r.undist_norm.y));
+        n_l.push(Vec3::new(l.undist_norm.x, l.undist_norm.y, 1.0));
+        n_r.push(Vec3::new(r.undist_norm.x, r.undist_norm.y, 1.0));
     }
 
     let mut e_candidates = essential_5point(&n_l, &n_r).expect("essential 5-point");
@@ -325,9 +327,7 @@ fn stereo_fundamental_and_essential_match_ground_truth() {
     let mut gt_residual = 0.0;
 
     for (l, r) in n_l.iter().zip(n_r.iter()) {
-        let x = nalgebra::Vector3::new(l.x, l.y, 1.0);
-        let xp = nalgebra::Vector3::new(r.x, r.y, 1.0);
-        let val = xp.transpose() * e_gt * x;
+        let val = r.transpose() * e_gt * l;
         gt_residual += val[0].abs();
     }
     gt_residual /= n_l.len() as Real;
@@ -335,9 +335,7 @@ fn stereo_fundamental_and_essential_match_ground_truth() {
     for e in e_candidates.drain(..) {
         let mut residual = 0.0;
         for (l, r) in n_l.iter().zip(n_r.iter()) {
-            let x = nalgebra::Vector3::new(l.x, l.y, 1.0);
-            let xp = nalgebra::Vector3::new(r.x, r.y, 1.0);
-            let val = xp.transpose() * e * x;
+            let val = r.transpose() * e * l;
             residual += val[0].abs();
         }
         residual /= n_l.len() as Real;
@@ -371,8 +369,8 @@ fn stereo_triangulation_recovers_board_points() {
         let gt_left = mat4_from_array(&data.extrinsics.left[view.view_index]);
         let gt_right = mat4_from_array(&data.extrinsics.right[view.view_index]);
 
-        let p_left = projection_matrix(&k_left, &gt_left);
-        let p_right = projection_matrix(&k_right, &gt_right);
+        let pose_left = pose_from_matrix(&gt_left);
+        let pose_right = pose_from_matrix(&gt_right);
 
         for (idx, (l, r)) in left.iter().zip(right.iter()).enumerate() {
             assert_eq!((l.i, l.j), (r.i, r.j));
@@ -380,9 +378,11 @@ fn stereo_triangulation_recovers_board_points() {
                 continue;
             }
             let world = board_point(l.i, l.j, board.square_size);
-            let est =
-                triangulate_point_linear(&[p_left, p_right], &[l.undist_pixel, r.undist_pixel])
-                    .expect("triangulation");
+            // Bearings are the undistorted normalized coordinates `(x, y, 1)`.
+            let b_left = Vec3::new(l.undist_norm.x, l.undist_norm.y, 1.0);
+            let b_right = Vec3::new(r.undist_norm.x, r.undist_norm.y, 1.0);
+            let est = triangulate_point_linear(&[pose_left, pose_right], &[b_left, b_right])
+                .expect("triangulation");
             errs.push((est - world).norm());
         }
     }

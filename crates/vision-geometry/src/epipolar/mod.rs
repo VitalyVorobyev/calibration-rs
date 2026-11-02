@@ -4,8 +4,9 @@
 //! decomposition of the essential matrix into candidate poses.
 //!
 //! - Fundamental matrix `F` expects **pixel coordinates** in both images.
-//! - Essential matrix `E` expects **normalized coordinates** (after applying
-//!   `K⁻¹`), or equivalently calibrated rays on the normalized image plane.
+//! - Essential matrix `E` expects **bearings**: rays in each camera's frame
+//!   from its own unprojection (any nonzero length), with `b2ᵀ E b1 = 0`. A
+//!   pinhole's `(x, y, 1)` of normalized coordinates is one.
 
 mod decomposition;
 mod essential;

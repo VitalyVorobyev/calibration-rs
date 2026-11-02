@@ -4,7 +4,9 @@
 use serde::de::DeserializeOwned;
 
 use nalgebra::Matrix2;
-use vision_calibration_core::{CameraParams, ParameterCovariance, Uncertainty};
+use vision_calibration_core::{
+    CalibratedRig, CameraParams, Iso3, ParameterCovariance, Uncertainty,
+};
 use vision_calibration_optim::{
     Error as OptimError, ProjectionUncertainty, camera_parameters, projection_covariance_at,
     projection_uncertainty,
@@ -26,12 +28,32 @@ pub trait CalibratedCameras {
     /// Each camera's model, in camera order.
     fn camera_params(&self) -> Vec<CameraParams>;
 
+    /// Each camera's pose in the rig (`cam_se3_rig`), in camera order; the
+    /// identity for a single-camera export.
+    fn cam_se3_rig(&self) -> Vec<Iso3>;
+
     /// The uncertainty of the estimated parameters.
     fn parameter_uncertainty(&self) -> &Uncertainty;
 
     /// The residual of every observed feature at the solution, and the
     /// images behind the observations when the export records them.
     fn diagnostics(&self) -> &ExportDiagnostics;
+
+    /// The calibration as a value a measurement takes: the cameras, their
+    /// poses in the rig and the uncertainty of the estimated parameters
+    /// (labelled as in [`parameter_uncertainty`](Self::parameter_uncertainty)).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] when a camera's parameters do not build a model.
+    fn calibrated_rig(&self) -> Result<CalibratedRig, Error> {
+        CalibratedRig::new(
+            self.camera_params(),
+            self.cam_se3_rig(),
+            self.parameter_uncertainty().clone(),
+        )
+        .map_err(|e| Error::invalid_input(e.to_string()))
+    }
 
     /// The value of the camera parameter a covariance label names (`fx`,
     /// `cam1.k1`, `tilt_x`); `None` for any other label (a pose, a plane) or
@@ -160,6 +182,10 @@ impl CalibratedCameras for PlanarIntrinsicsExport {
         vec![self.params.camera.clone()]
     }
 
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        vec![Iso3::identity()]
+    }
+
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
@@ -172,6 +198,10 @@ impl CalibratedCameras for PlanarIntrinsicsExport {
 impl CalibratedCameras for SingleCamHandeyeExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         vec![self.camera.clone()]
+    }
+
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        vec![Iso3::identity()]
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
@@ -188,6 +218,10 @@ impl CalibratedCameras for LaserlineDeviceExport {
         vec![self.params.camera.clone()]
     }
 
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        vec![Iso3::identity()]
+    }
+
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
@@ -200,6 +234,10 @@ impl CalibratedCameras for LaserlineDeviceExport {
 impl CalibratedCameras for RigExtrinsicsExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras.clone()
+    }
+
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        self.cam_se3_rig.clone()
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {
@@ -216,6 +254,10 @@ impl CalibratedCameras for RigHandeyeExport {
         self.cameras.clone()
     }
 
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        self.cam_se3_rig.clone()
+    }
+
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
@@ -230,6 +272,10 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
         self.cameras.clone()
     }
 
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        self.cam_se3_rig.clone()
+    }
+
     fn parameter_uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
@@ -242,6 +288,10 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
 impl CalibratedCameras for RigHandeyeLaserlineExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras.clone()
+    }
+
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        self.cam_se3_rig.clone()
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {

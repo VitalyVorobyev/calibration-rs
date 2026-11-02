@@ -25,8 +25,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and code that copied a kind clones it. In JSON a custom family is
   `{"custom": "<name>"}`; the built-in kinds are unchanged.
 
+- **Multiple-view geometry takes a calibration and pixels** (breaking, in
+  `vision-mvg`, `vision-geometry` and the facade's `mvg`). Closed-form steps
+  work on bearings, the unit rays of each camera's own unprojection, so
+  every camera model works, including a fisheye beyond 90° from its axis:
+  - `recover_relative_pose(&corrs)` is
+    `recover_relative_pose(&rig, [camera0, camera1], &matches)`, and
+    `Correspondence2D` holds a pair of **pixels**, not normalized
+    coordinates. The same for `robust::estimate_essential` and
+    `robust::recover_relative_pose_robust`, which take the rig, the two
+    camera indices, the matches and the options (`[0, 0]` for one moving
+    camera). `RelativePose` and `RobustRelativePose` return
+    `second_se3_first: Iso3` (unit translation) instead of `r` and `t`;
+    `RelativePose` also carries `scene: SceneDiagnostics`.
+  - **The RANSAC threshold of `estimate_essential` and
+    `recover_relative_pose_robust` is in radians**, the first-order angular
+    epipolar error, no longer a Sampson distance on the normalized plane:
+    a pixel threshold `t` is about `t / f` radians for a focal length of
+    `f` px (`1e-3` is about 0.8 px at `f = 800`). `inlier_rms` is in
+    radians too.
+  - `triangulation::triangulate_nview`, `triangulate_two_view` and
+    `triangulate_point_two_view` are `triangulation::triangulate(&rig,
+    &rig_se3_world, &tracks)`, with `RigObservation { capture, camera,
+    pixel }` tracks; for one stereo capture pass `&[Iso3::identity()]`.
+    `TriangulatedPoint::reprojection_error` is an `Option` in pixels
+    through each camera's model (`None` when the point does not project),
+    `parallax_deg` is the largest angle between two observing rays and
+    `in_front` means ahead along every bearing. The estimate is the linear
+    triangulation; there is no Gauss-Newton polish.
+  - `triangulation::triangulate_point_linear` takes poses and bearings
+    (`&[Iso3]` world to camera, `&[Vec3]`) instead of projection matrices
+    and image points. `triangulate_point` and both `refine_point`s are
+    removed.
+  - `essential_5point` and `essential_linear` take bearings (`&[Vec3]`,
+    `b2ᵀ E b1 = 0`); for a pinhole, pass `(x, y, 1)` of the normalized
+    coordinates.
+  - `degeneracy::analyze_scene` is gone; `RelativePose::scene` carries its
+    `SceneDiagnostics`, with depth measured along the first camera's
+    bearing.
+  Rectification, bundle adjustment and the homography and fundamental
+  estimators are unchanged. A type that implements `CalibratedCameras`
+  implements the new required `cam_se3_rig`.
+
 ### Added
 
+- `core::CalibratedRig` is a calibration as a value: the cameras, each
+  camera's `cam_se3_rig` and the joint parameter uncertainty. Every export
+  with cameras produces one with `CalibratedCameras::calibrated_rig`, and
+  `CalibratedCameras::cam_se3_rig` gives the extrinsics (the identity for a
+  single camera). The multiple-view functions take it.
 - `optim::problem` builds and solves a least-squares problem of your own
   (Rust): parameter blocks (vectors, SE(3) poses, unit vectors) with fixed
   components, bounds and labels; residuals you write once with a generic
