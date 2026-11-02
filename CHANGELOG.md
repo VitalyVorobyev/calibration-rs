@@ -79,13 +79,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   components, bounds and labels; residuals you write once with a generic
   `eval` (the `Residual` trait), differentiated exactly by dual numbers;
   and the library's reprojection residual through a camera of any model
-  (`add_camera`, `add_reprojection`). Each residual states its noise, known
-  (`Noise::Known(σ)`, weighed by it) or estimated per named family. `solve`
+  (`add_camera`, `add_reprojection`). A reprojection reaches its camera
+  through one pose or a rig chain (`PoseChain::Pose`, `PoseChain::Rig`:
+  `cam_se3_rig · rig_se3_target`), projects a known point or a point being
+  estimated (`TargetPoint::Known`, `TargetPoint::Block`), and its pixel's
+  noise is estimated with the other reprojections' or a stated 2×2
+  covariance (`PixelNoise::Estimated`, `PixelNoise::Stated`). Each residual
+  of your own states its noise, known (`Noise::Known(σ)`, weighed by it) or
+  estimated per named family. `solve`
   returns each block's value, the noise of each family and the parameter
   covariance, labelled as the workflows' results are, so
   `projection_uncertainty` reads a camera solved this way. Every input is
   checked as it is added. The book's "Your Own Residual" chapter adds a
   measured distance to a planar calibration.
+- `optim::problem::Problem::add_calibrated_rig` adds a calibration's
+  cameras and extrinsics (a `CalibratedRig`, from any result's
+  `calibrated_rig()`) with its uncertainty. With `Use::Consider` they stay
+  fixed and the solution's covariance adds the calibration's share: in the
+  book's measurement of a part at half a metre, σ(depth) is 2.54 mm and
+  matches the scatter of repeated calibrations and measurements (ratio
+  0.91, as solving with the board images does), where a fixed camera
+  states 0.91 mm. With `Use::Prior` they are free, held by a prior with
+  the calibration's covariance, for bundle adjustment that refines the
+  cameras. A calibration without a covariance is added fixed, and the
+  solution's uncertainty is unavailable for the new reason
+  `UncertaintyUnavailable::CalibrationWithoutCovariance` (JSON
+  `"calibration_without_covariance"`; a `match` on the enum needs the new
+  arm).
 - `init` gathers the closed-form initializers on the facade: Zhang's
   intrinsics (with distortion), a board's pose from its homography, PnP,
   hand-eye (Tsai–Lenz) and a plane through points.
@@ -142,6 +162,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A covariance with priors counts their degrees of freedom.** The
+  estimated noise level of a residual family is scaled by
+  `m_obs / (m − n)`, the observations' rows over the redundancy, instead of
+  `m / (m − n)`: a prior holds the parameters it is over, so its rows do
+  not add to the observations' degrees of freedom. Only solves with priors
+  change: in the hand-eye workflows with robot-pose priors σ moves by −1.2 %
+  to +0.5 % on the regression datasets (the robot-pose σ re-estimated from
+  the covariance shifts with it), and the estimates by at most 0.02 σ.
 - The real-image examples (`planar_real`, `handeye_session`, Rust and
   Python) fetch the `kuka_1` sample instead of reading the repository's Git
   LFS images.

@@ -292,6 +292,9 @@ export type UncertaintyUnavailable =
     }
   | {
       kind: "not_computed";
+    }
+  | {
+      kind: "calibration_without_covariance";
     };
 /**
  * The kinds of [`ProjectError`].

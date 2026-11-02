@@ -16,20 +16,10 @@ returns no covariance, runs BA and the rectification on a bare `K` and its
 own tiny-solver problem, and has no Python binding and no real-data
 demonstration.
 
-- [ ] MVG-PROBLEM - `optim::problem` for measurements (ADR 0028):
-  - `add_calibrated_rig(&CalibratedRig, Use::{Consider, Prior})`; Consider
-    keeps the calibration fixed and adds `S Σ_c Sᵀ` to the covariance,
-    Prior holds it by its whitened covariance;
-  - reprojection of a point block, and through a rig chain;
-  - whitened reprojection for a stated 2×2 covariance.
-
-  Gate: in the "Compose Your Own Pipeline" setup, Consider's σ(depth)
-  matches the scatter when the calibration images are redrawn (the joint
-  solve states 2.53 mm, ratio 0.91), Monte-Carlo within 20 %.
 - [ ] MVG-OBS - An observation's noise is stated: a 2×2 covariance per
   observation, one σ, or the calibration's reprojection noise level, with
-  no implicit default. Covariance-weighted Sampson residuals. Needs:
-  MVG-PROBLEM.
+  no implicit default (the problem builder's `PixelNoise::Stated` carries
+  it). Covariance-weighted Sampson residuals.
 - [ ] MVG-TRI-COV - N-view triangulation refined through the problem
   builder returns each point's covariance from its observations' noise
   and the calibration's (consider), with the cross-covariance between the
@@ -48,7 +38,7 @@ demonstration.
 
   `vision-mvg` drops its tiny-solver dependency and `refine` feature;
   homography refinement moves onto the builder. Gate: synthetic-GT matrix
-  and Monte-Carlo σ. Needs: MVG-PROBLEM.
+  and Monte-Carlo σ.
 - [ ] MVG-STEREO - Stereo from a calibration:
   - rectification straight from a `CalibratedRig`, any supported camera
     model (maps through each camera's unprojection);

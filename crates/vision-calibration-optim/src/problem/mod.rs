@@ -3,7 +3,11 @@
 //!
 //! A [`Problem`] holds parameter blocks and the residuals that read them:
 //! residuals you write (a [`Residual`]) and the library's own reprojection
-//! residual through a camera you add. [`solve`] runs the Levenberg–Marquardt
+//! residual through a camera you add, of a known point or one being
+//! estimated, through one pose or a rig chain. A calibration enters with
+//! its uncertainty through [`Problem::add_calibrated_rig`]: held fixed with
+//! its covariance carried into the solution's ([`Use::Consider`]), or
+//! refined under a prior ([`Use::Prior`]). [`solve`] runs the Levenberg–Marquardt
 //! loop the calibration workflows use and returns a [`Solution`]: each
 //! block's value, the [`SolveReport`], the noise level of each residual
 //! family and the covariance of the free parameters, labelled as the
@@ -61,9 +65,12 @@
 //! # Ok::<(), vision_calibration_optim::Error>(())
 //! ```
 
+mod calibration;
 mod residual;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_measurement;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -71,15 +78,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use nalgebra::DVector;
 use vision_calibration_core::{
-    CameraFix, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, ProjectionParams,
-    Pt2, Pt3, ResidualKind, ResidualNoise, SensorParams, Uncertainty, UncertaintyUnavailable,
+    CameraFix, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, PointCovariance,
+    ProjectionParams, Pt2, Pt3, ResidualKind, ResidualNoise, SensorParams, Uncertainty,
+    UncertaintyUnavailable,
 };
 
+pub use calibration::{RigBlocks, Use};
 pub use residual::{Noise, Residual, se3};
 
 use crate::Error;
+use crate::backend::covariance::{self, Coordinate, ParamUncertainty};
 use crate::backend::{self, BackendSolveOptions, SolveReport, SolverBackend};
-use crate::factors::reprojection_model::reproj_residual;
+use crate::factors::reprojection_model::{reproj_free_point_residual, reproj_residual};
 use crate::ir::{
     Bound, CustomFactor, CustomNoise, CustomResidual, FactorKind, FixedMask, ManifoldKind, ParamId,
     ProblemIR, ReprojChain, ReprojSqrtInfo, ResidualBlock, RobustLoss,
@@ -87,6 +97,7 @@ use crate::ir::{
 use crate::params::camera::{camera_block_labels, camera_spec};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::uncertainty::{self, BlockLabels};
+use calibration::Calibration;
 use residual::Bridge;
 
 /// The slot names of a camera's blocks, in the order of
@@ -200,6 +211,48 @@ struct Camera {
     blocks: Vec<BlockId>,
 }
 
+/// How a reprojected point reaches the camera frame, as
+/// [`Problem::add_reprojection`] takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PoseChain {
+    /// One SE3 block, `camera_se3_target`.
+    Pose(BlockId),
+    /// A camera of a rig: `cam_se3_rig · rig_se3_target`, two SE3 blocks.
+    /// [`RigBlocks::chain`] builds it for a calibrated rig.
+    Rig {
+        /// The camera's pose in the rig frame, `cam_se3_rig`.
+        cam_se3_rig: BlockId,
+        /// The target's pose in the rig frame, `rig_se3_target`.
+        rig_se3_target: BlockId,
+    },
+}
+
+/// The point a reprojection residual projects, in the target frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum TargetPoint {
+    /// A known point, such as a board corner.
+    Known(Pt3),
+    /// A point being estimated: a Euclidean block of 3 values `[x, y, z]`.
+    Block(BlockId),
+}
+
+/// The noise of an observed pixel, as [`Problem::add_reprojection`] takes
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum PixelNoise {
+    /// Shared by the problem's reprojections of estimated noise, and
+    /// estimated from their scatter at the solution, in pixels.
+    Estimated,
+    /// A stated covariance, taken as exact: the residual is whitened by it,
+    /// and the covariance counts it as known information. A robust loss
+    /// changes the estimate; the covariance takes the residual at its
+    /// stated variance.
+    Stated(PointCovariance),
+}
+
 #[derive(Debug, Clone)]
 struct Term {
     factor: FactorKind,
@@ -215,6 +268,7 @@ pub struct Problem {
     blocks: Vec<Block>,
     cameras: Vec<Camera>,
     residuals: Vec<Term>,
+    calibration: Option<Calibration>,
 }
 
 impl Default for Problem {
@@ -231,6 +285,7 @@ impl Problem {
             blocks: Vec::new(),
             cameras: Vec::new(),
             residuals: Vec::new(),
+            calibration: None,
         }
     }
 
@@ -562,63 +617,147 @@ impl Problem {
         })
     }
 
-    /// Add the library's reprojection residual: the target point `point`,
-    /// moved into the camera frame by the SE3 block `camera_se3_target`
-    /// and projected by `camera`, against the observed pixel `pixel`.
+    /// Add the library's reprojection residual: `point`, moved into the
+    /// camera frame through `chain` and projected by `camera`, against the
+    /// observed pixel `pixel`, with its noise and a robust loss.
     ///
-    /// Its noise is the reprojection family's, estimated from the scatter
-    /// of the problem's reprojection residuals, in pixels.
+    /// A [`TargetPoint::Known`] point is data, such as a board corner; a
+    /// [`TargetPoint::Block`] is a point being estimated. With
+    /// [`PixelNoise::Estimated`] the residual is in pixels and joins the
+    /// reprojection family, whose noise level is estimated from the scatter
+    /// of its residuals; with [`PixelNoise::Stated`] it is whitened by the
+    /// pixel's covariance. Within one problem the reprojections of
+    /// estimated noise are all whitened by a view's stated covariances or
+    /// none are, so stated noise is a [`PixelNoise::Stated`] here.
     ///
     /// # Errors
     ///
     /// [`Error::InvalidInput`] for a camera or block of another problem, a
-    /// pose block that is not SE3, a non-finite point or pixel, a loss with
-    /// a scale that is not positive, or a point that does not project at
-    /// the initial values.
+    /// chain block that is not SE3 or a rig chain through one block twice,
+    /// a point block that is not a Euclidean block of 3 values, a
+    /// non-finite point or pixel, a loss with a scale that is not positive,
+    /// or a point that does not project at the initial values.
     pub fn add_reprojection(
         &mut self,
         camera: CameraId,
-        camera_se3_target: BlockId,
-        point: Pt3,
+        chain: PoseChain,
+        point: TargetPoint,
         pixel: Pt2,
+        noise: PixelNoise,
         loss: RobustLoss,
     ) -> Result<(), Error> {
         let index = self.residuals.len();
         let fail = |what: String| Error::invalid_input(format!("residual {index}: {what}"));
         let cam = self.camera(camera).map_err(|e| fail(e.to_string()))?;
-        let pose = self
-            .index(camera_se3_target)
+        let (ir_chain, poses) = match chain {
+            PoseChain::Pose(pose) => (ReprojChain::SinglePose, vec![pose]),
+            PoseChain::Rig {
+                cam_se3_rig,
+                rig_se3_target,
+            } => (ReprojChain::Rig, vec![cam_se3_rig, rig_se3_target]),
+        };
+        let poses = poses
+            .into_iter()
+            .map(|b| self.index(b))
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|e| fail(e.to_string()))?;
-        if self.blocks[pose].manifold != Manifold::Se3 {
+        if let Some(&p) = poses
+            .iter()
+            .find(|&&p| self.blocks[p].manifold != Manifold::Se3)
+        {
             return Err(fail(format!(
                 "the pose block {} is not SE3",
-                self.blocks[pose].name
+                self.blocks[p].name
             )));
         }
-        let (pw, uv) = ([point.x, point.y, point.z], [pixel.x, pixel.y]);
-        if pw.iter().chain(&uv).any(|v| !v.is_finite()) {
-            return Err(fail("the point and pixel must be finite".into()));
+        if poses.len() == 2 && poses[0] == poses[1] {
+            return Err(fail(format!(
+                "the rig chain reads block {} twice",
+                self.blocks[poses[0]].name
+            )));
+        }
+        let point_block = match point {
+            TargetPoint::Known(p) => {
+                if ![p.x, p.y, p.z].iter().all(|v| v.is_finite()) {
+                    return Err(fail("the point must be finite".into()));
+                }
+                None
+            }
+            TargetPoint::Block(b) => {
+                let b = self.index(b).map_err(|e| fail(e.to_string()))?;
+                let block = &self.blocks[b];
+                if block.manifold != Manifold::Euclidean || block.values.len() != 3 {
+                    return Err(fail(format!(
+                        "the point block {} is not a Euclidean block of 3 values",
+                        block.name
+                    )));
+                }
+                Some(b)
+            }
+        };
+        let uv = [pixel.x, pixel.y];
+        if !uv.iter().all(|v| v.is_finite()) {
+            return Err(fail("the pixel must be finite".into()));
         }
         loss.validate().map_err(|e| fail(e.to_string()))?;
+        let sqrt_info = match noise {
+            PixelNoise::Estimated => ReprojSqrtInfo::IDENTITY,
+            PixelNoise::Stated(covariance) => ReprojSqrtInfo::Stated {
+                upper: covariance.sqrt_information(),
+            },
+        };
+
         let spec = self.cameras[cam].spec;
         let mut blocks: Vec<usize> = self.cameras[cam].blocks.iter().map(|b| b.index).collect();
-        blocks.push(pose);
+        blocks.extend(&poses);
+        blocks.extend(point_block);
         let values: Vec<DVector<f64>> = blocks
             .iter()
             .map(|&i| self.blocks[i].values.clone())
             .collect();
-        let chain = ReprojChain::SinglePose;
-        let sqrt_info = ReprojSqrtInfo::IDENTITY;
+        let target = match point {
+            TargetPoint::Known(p) => p,
+            TargetPoint::Block(_) => {
+                let v = &values[values.len() - 1];
+                Pt3::new(v[0], v[1], v[2])
+            }
+        };
         // The projection is total (a pinhole clamps the depth), so a point
         // outside its domain has a finite residual that means nothing.
-        let p_camera = se3(&self.blocks[pose].values).transform_point(&point);
+        let pose = |i: usize| se3(&self.blocks[poses[i]].values);
+        let camera_se3_target = match ir_chain {
+            ReprojChain::Rig => pose(0) * pose(1),
+            _ => pose(0),
+        };
+        let p_camera = camera_se3_target.transform_point(&target);
         // The projection's block follows the intrinsics when it has one.
         let projection = if spec.projection.dim() > 0 {
             values[1].as_slice()
         } else {
             &[]
         };
-        let at_initial = reproj_residual(spec, &chain, &values, pw, uv, &sqrt_info);
+        let pw = [target.x, target.y, target.z];
+        let factor = match point {
+            TargetPoint::Known(_) => FactorKind::ReprojPoint {
+                model: spec,
+                chain: ir_chain,
+                pw,
+                uv,
+                sqrt_info,
+            },
+            TargetPoint::Block(_) => FactorKind::ReprojFreePoint {
+                model: spec,
+                chain: ir_chain,
+                uv,
+                sqrt_info,
+            },
+        };
+        let at_initial = match point {
+            TargetPoint::Known(_) => reproj_residual(spec, &ir_chain, &values, pw, uv, &sqrt_info),
+            TargetPoint::Block(_) => {
+                reproj_free_point_residual(spec, &ir_chain, &values, uv, &sqrt_info)
+            }
+        };
         if !spec.projection.in_domain(projection, &p_camera.coords)
             || at_initial.iter().any(|v| !v.is_finite())
         {
@@ -627,17 +766,24 @@ impl Problem {
             )));
         }
         self.residuals.push(Term {
-            factor: FactorKind::ReprojPoint {
-                model: spec,
-                chain,
-                pw,
-                uv,
-                sqrt_info,
-            },
+            factor,
             blocks,
             loss,
         });
         Ok(())
+    }
+
+    /// Whether a residual's noise is estimated from its family's scatter: a
+    /// residual the solve weighs as if that noise were 1 in its unit.
+    fn has_estimated_noise(&self) -> bool {
+        self.residuals.iter().any(|term| match &term.factor {
+            FactorKind::ReprojPoint { sqrt_info, .. }
+            | FactorKind::ReprojFreePoint { sqrt_info, .. } => {
+                !matches!(sqrt_info, ReprojSqrtInfo::Stated { .. })
+            }
+            FactorKind::Custom(custom) => matches!(custom.noise, CustomNoise::Family(_)),
+            _ => false,
+        })
     }
 
     fn check_name(&self, name: &str) -> Result<(), Error> {
@@ -706,17 +852,38 @@ impl Problem {
         format!("#{index}")
     }
 
-    /// The IR and its initial values.
-    fn lower(&self) -> (ProblemIR, HashMap<String, DVector<f64>>) {
+    /// The IR and its initial values; with `free_consider`, the
+    /// coordinates of a calibration added with [`Use::Consider`] are free,
+    /// so its linearization has their columns.
+    fn lower(&self, free_consider: bool) -> (ProblemIR, HashMap<String, DVector<f64>>) {
         let mut ir = ProblemIR::new();
         let mut initial = HashMap::with_capacity(self.blocks.len());
+        let consider: &[(usize, usize)] = match &self.calibration {
+            Some(c) if free_consider && c.usage == Use::Consider => &c.coordinates,
+            _ => &[],
+        };
         for (index, block) in self.blocks.iter().enumerate() {
             let name = Self::ir_name(index);
+            let free: Vec<usize> = consider
+                .iter()
+                .filter(|&&(b, _)| b == index)
+                .map(|&(_, i)| i)
+                .collect();
+            let fixed = if free.is_empty() {
+                block.fixed.clone()
+            } else if block.manifold == Manifold::Euclidean {
+                let held: Vec<usize> = (0..block.values.len())
+                    .filter(|i| !free.contains(i))
+                    .collect();
+                FixedMask::fix_indices(&held)
+            } else {
+                FixedMask::all_free()
+            };
             ir.add_param_block(
                 &name,
                 block.values.len(),
                 block.manifold.ir(),
-                block.fixed.clone(),
+                fixed,
                 (!block.bounds.is_empty()).then(|| block.bounds.clone()),
             );
             initial.insert(name, block.values.clone());
@@ -879,6 +1046,49 @@ impl Solution {
     }
 }
 
+/// Add the share of a [`Use::Consider`] calibration to the covariance
+/// `estimate` of a solve at `params` (see [`covariance::consider_share`]).
+fn add_consider_share(
+    problem: &Problem,
+    calibration: &Calibration,
+    sigma: &nalgebra::DMatrix<f64>,
+    params: &HashMap<String, DVector<f64>>,
+    estimate: &mut covariance::CovarianceEstimate,
+) -> Result<(), Error> {
+    if calibration.coordinates.is_empty() || estimate.coordinates.is_empty() {
+        return Ok(());
+    }
+    let (ir, _) = problem.lower(true);
+    let raw = backend::raw_linearization(&ir, params)?
+        .ok_or_else(|| Error::numerical("the consider linearization has no columns"))?;
+    let consider: Vec<Coordinate> = calibration
+        .coordinates
+        .iter()
+        .map(|&(block, index)| Coordinate { block, index })
+        .collect();
+    let (coordinates, share) = covariance::consider_share(&ir, params, &raw, &consider, sigma)?;
+    let at: HashMap<Coordinate, usize> = estimate
+        .coordinates
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| (c, i))
+        .collect();
+    let rows = coordinates
+        .iter()
+        .map(|c| {
+            at.get(c).copied().ok_or_else(|| {
+                Error::numerical(format!("coordinate {c:?} is missing from the covariance"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for (a, &ra) in rows.iter().enumerate() {
+        for (b, &rb) in rows.iter().enumerate() {
+            estimate.matrix[(ra, rb)] += share[(a, b)];
+        }
+    }
+    Ok(())
+}
+
 /// Solve `problem` from its initial values.
 ///
 /// # Errors
@@ -886,22 +1096,48 @@ impl Solution {
 /// [`Error::InvalidInput`] for a problem with a residual you wrote and the
 /// factrs backend; [`Error::Numerical`] when the solve fails.
 pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Error> {
-    let (ir, initial) = problem.lower();
+    let calibration = problem.calibration.as_ref();
+    if calibration.is_some_and(|c| c.usage == Use::Prior) {
+        if options.backend == SolverBackend::Factrs {
+            return Err(Error::invalid_input(
+                "a calibration added with Use::Prior runs on the tiny-solver backend only",
+            ));
+        }
+        if problem.has_estimated_noise() {
+            return Err(Error::invalid_input(
+                "a calibration added with Use::Prior is weighed by its covariance, so every \
+                 residual's noise is stated too (PixelNoise::Stated, Noise::Known)",
+            ));
+        }
+    }
+    let (ir, initial) = problem.lower(false);
     let opts = BackendSolveOptions {
         backend: options.backend,
         max_iters: options.max_iters,
         ..BackendSolveOptions::default()
     };
-    let solution = backend::solve(&ir, &initial, &opts)?;
+    let mut solution = backend::solve(&ir, &initial, &opts)?;
     let labels = problem.labels();
     let unread = problem.unread_coordinates(&labels);
-    let uncertainty = if unread.is_empty() {
-        uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels)
-    } else {
+    let uncertainty = if !unread.is_empty() {
         Uncertainty::Unavailable {
             reason: UncertaintyUnavailable::RankDeficient {
                 unobservable: unread,
             },
+        }
+    } else {
+        let consider = calibration.filter(|c| c.usage == Use::Consider);
+        match (consider, &mut solution.uncertainty) {
+            (Some(c), ParamUncertainty::Available(estimate)) => match &c.sigma {
+                Some(sigma) => {
+                    add_consider_share(problem, c, sigma, &solution.params, estimate)?;
+                    uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels)
+                }
+                None => Uncertainty::Unavailable {
+                    reason: UncertaintyUnavailable::CalibrationWithoutCovariance,
+                },
+            },
+            _ => uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
         }
     };
     let values = (0..problem.blocks.len())

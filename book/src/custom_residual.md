@@ -74,7 +74,9 @@ computes them):
 ```rust
 use vision_calibration::core::CameraFix;
 use vision_calibration::optim::RobustLoss;
-use vision_calibration::optim::problem::{Noise, Problem, SolveOptions, solve};
+use vision_calibration::optim::problem::{
+    Noise, PixelNoise, PoseChain, Problem, SolveOptions, TargetPoint, solve,
+};
 
 let mut problem = Problem::new();
 let cam = problem.add_camera(&camera, &CameraFix::default())?;
@@ -82,7 +84,14 @@ let mut views = Vec::new();
 for (v, (pose, pixels)) in poses.iter().zip(&pixels).enumerate() {
     let pose = problem.add_pose(format!("view{v}"), pose)?;
     for (point, pixel) in board.iter().zip(pixels) {
-        problem.add_reprojection(cam, pose, *point, *pixel, RobustLoss::None)?;
+        problem.add_reprojection(
+            cam,
+            PoseChain::Pose(pose),
+            TargetPoint::Known(*point),
+            *pixel,
+            PixelNoise::Estimated,
+            RobustLoss::None,
+        )?;
     }
     views.push(pose);
 }
@@ -100,9 +109,9 @@ let board_pose = solution.pose(views[0]).unwrap();
 
 `add_camera` lays out the camera's blocks from its model, holding what the
 `CameraFix` names, just as a workflow's config does (by default `k3` for
-Brown–Conrady). `add_reprojection` takes a point in the target frame, the
-`camera_se3_target` pose block that moves it into the camera frame, and its
-observed pixel.
+Brown–Conrady). `add_reprojection` takes the chain that moves a point into
+the camera frame (here one `camera_se3_target` pose block), the point in
+the target frame, its observed pixel and that pixel's noise.
 
 ## Noise: what the covariance needs to know
 
@@ -118,7 +127,9 @@ gets it in one of two ways:
   residuals' σ is. A family needs enough residuals to estimate a spread.
   It is never pooled with the library's own residuals.
 
-The reprojection residuals form the reprojection family, in pixels.
+The reprojection residuals of `PixelNoise::Estimated` form the reprojection
+family, in pixels; `PixelNoise::Stated` gives a pixel a known covariance
+instead.
 
 An estimated family enters the solve in its own unit, unweighted. The
 covariance accounts for whatever weights the solve used, so it stays right.

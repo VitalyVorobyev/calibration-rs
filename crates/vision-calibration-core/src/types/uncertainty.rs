@@ -73,6 +73,10 @@ pub enum UncertaintyUnavailable {
     NoRedundancy,
     /// The result was produced or stored without uncertainty.
     NotComputed,
+    /// The result depends on a calibration that has no covariance, so a
+    /// covariance from the result's own observations would leave out the
+    /// calibration's share.
+    CalibrationWithoutCovariance,
 }
 
 /// The covariance of a result's estimated parameters.

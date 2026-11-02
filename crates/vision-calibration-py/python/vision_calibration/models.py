@@ -1626,8 +1626,9 @@ class ParameterUncertainty:
 
     When :attr:`available` is false, :attr:`reason` says why
     (``"not_converged"``, ``"rank_deficient"``, ``"at_bound"``,
-    ``"no_redundancy"`` or ``"not_computed"``) and :attr:`reason_labels` names
-    the parameters involved.
+    ``"no_redundancy"``, ``"not_computed"`` or
+    ``"calibration_without_covariance"``) and :attr:`reason_labels` names the
+    parameters involved.
     """
 
     available: bool

@@ -279,7 +279,8 @@ impl CameraSpecLayout for CameraModelSpec {
     }
 }
 
-/// Pose chain of a [`FactorKind::ReprojPoint`] factor, carried as data.
+/// Pose chain of a [`FactorKind::ReprojPoint`] or
+/// [`FactorKind::ReprojFreePoint`] factor, carried as data.
 ///
 /// The chain selects how the target-frame point reaches the camera frame and
 /// which parameter blocks follow the camera blocks. Per-view measured robot
@@ -291,6 +292,9 @@ pub enum ReprojChain {
     /// Blocks: `[extrinsics, pose]` (rig extrinsics).
     /// `P_camera = extr^-1 * pose * P_target`.
     TwoSe3,
+    /// Blocks: `[cam_se3_rig, rig_se3_target]`.
+    /// `P_camera = cam_se3_rig * rig_se3_target * P_target`.
+    Rig,
     /// Blocks: `[extrinsics, handeye, target]` (hand-eye).
     ///
     /// The measured robot pose enters as data; the transform chain depends on
@@ -325,6 +329,7 @@ impl ReprojChain {
         match self {
             ReprojChain::SinglePose => vec![se3("camera_se3_target")],
             ReprojChain::TwoSe3 => vec![se3("extrinsics"), se3("pose")],
+            ReprojChain::Rig => vec![se3("cam_se3_rig"), se3("rig_se3_target")],
             ReprojChain::Handeye { .. } => {
                 vec![se3("extrinsics"), se3("handeye"), se3("target")]
             }
@@ -428,9 +433,10 @@ impl LaserChain {
 /// `e = u_obs − u_proj`, and `LᵀL` is the information the objective gives
 /// the point.
 ///
-/// Within one problem every reprojection factor is isotropic or every one
-/// is whitened ([`ProblemIR::validate`]): the two are different noise
-/// families, pixels and dimensionless.
+/// Within one problem every reprojection factor of estimated noise is
+/// isotropic or every one is whitened ([`ProblemIR::validate`]): the two are
+/// different noise families, pixels and dimensionless. A
+/// [`Stated`](Self::Stated) residual is in neither family.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ReprojSqrtInfo {
     /// No stated covariance: `L = scale · I`, a residual in pixels (times
@@ -442,6 +448,14 @@ pub enum ReprojSqrtInfo {
     /// `L` from the point's stated covariance, `LᵀL = Σ⁻¹`, times `√w` for
     /// any family weight `w`: a whitened, dimensionless residual.
     Whitened {
+        /// `[l₀₀, l₀₁, l₁₁]` of `L = [[l₀₀, l₀₁], [0, l₁₁]]`, px⁻¹.
+        upper: [f64; 3],
+    },
+    /// `L` from a stated covariance taken as exact, `LᵀL = Σ⁻¹`: a whitened
+    /// residual of unit variance, which the covariance counts as known
+    /// information rather than pooling it into a family whose noise level
+    /// is estimated.
+    Stated {
         /// `[l₀₀, l₀₁, l₁₁]` of `L = [[l₀₀, l₀₁], [0, l₁₁]]`, px⁻¹.
         upper: [f64; 3],
     },
@@ -473,10 +487,14 @@ impl ReprojSqrtInfo {
             Self::Whitened { upper } => Self::Whitened {
                 upper: upper.map(|l| l * s),
             },
+            Self::Stated { upper } => Self::Stated {
+                upper: upper.map(|l| l * s),
+            },
         }
     }
 
-    /// Whether the residual is whitened by a stated covariance.
+    /// Whether the residual is in the whitened family: whitened by a
+    /// stated covariance known up to a common factor the solve estimates.
     pub fn is_whitened(&self) -> bool {
         matches!(self, Self::Whitened { .. })
     }
@@ -491,6 +509,9 @@ impl ReprojSqrtInfo {
             }
             Self::Whitened {
                 upper: [l00, l01, l11],
+            }
+            | Self::Stated {
+                upper: [l00, l01, l11],
             } => {
                 let l00 = T::from_f64(l00).unwrap();
                 let l01 = T::from_f64(l01).unwrap();
@@ -503,7 +524,9 @@ impl ReprojSqrtInfo {
     fn is_finite(&self) -> bool {
         match self {
             Self::Isotropic { scale } => scale.is_finite() && *scale >= 0.0,
-            Self::Whitened { upper } => upper.iter().all(|l| l.is_finite()),
+            Self::Whitened { upper } | Self::Stated { upper } => {
+                upper.iter().all(|l| l.is_finite())
+            }
         }
     }
 }
@@ -542,6 +565,23 @@ pub enum FactorKind {
         chain: ReprojChain,
         /// Target-frame point coordinates.
         pw: [f64; 3],
+        /// Observed pixel coordinates.
+        uv: [f64; 2],
+        /// Square-root information of the pixel error.
+        sqrt_info: ReprojSqrtInfo,
+    },
+    /// Reprojection of a point that is estimated: as
+    /// [`ReprojPoint`](Self::ReprojPoint), with the target-frame point the
+    /// last parameter block (a Euclidean 3-vector) instead of data.
+    ///
+    /// Parameters: the camera blocks implied by `model`, the chain blocks
+    /// of `chain` ([`ReprojChain::SinglePose`] or [`ReprojChain::Rig`]),
+    /// then the point.
+    ReprojFreePoint {
+        /// Camera model descriptor.
+        model: CameraModelSpec,
+        /// Pose chain from the point's frame to the camera.
+        chain: ReprojChain,
         /// Observed pixel coordinates.
         uv: [f64; 2],
         /// Square-root information of the pixel error.
@@ -613,7 +653,7 @@ impl FactorKind {
     /// Residual dimension implied by the factor.
     pub fn residual_dim(&self) -> usize {
         match self {
-            FactorKind::ReprojPoint { .. } => 2,
+            FactorKind::ReprojPoint { .. } | FactorKind::ReprojFreePoint { .. } => 2,
             FactorKind::LaserPointToPlane { .. } | FactorKind::LaserLineDistance { .. } => 1,
             FactorKind::Se3TangentPrior { .. } => 6,
             FactorKind::Custom(custom) => custom.factor.dim(),
@@ -624,6 +664,7 @@ impl FactorKind {
     pub fn name(&self) -> &'static str {
         match self {
             FactorKind::ReprojPoint { .. } => "ReprojPoint",
+            FactorKind::ReprojFreePoint { .. } => "ReprojFreePoint",
             FactorKind::LaserPointToPlane { .. } => "LaserPointToPlane",
             FactorKind::LaserLineDistance { .. } => "LaserLineDistance",
             FactorKind::Se3TangentPrior { .. } => "Se3TangentPrior",
@@ -638,6 +679,16 @@ impl FactorKind {
             FactorKind::ReprojPoint { model, chain, .. } => {
                 let mut slots = model.param_slots();
                 slots.extend(chain.param_slots());
+                slots
+            }
+            FactorKind::ReprojFreePoint { model, chain, .. } => {
+                let mut slots = model.param_slots();
+                slots.extend(chain.param_slots());
+                slots.push(ParamSlotSpec {
+                    dim: 3,
+                    manifold: ManifoldKind::Euclidean,
+                    role: "point",
+                });
                 slots
             }
             FactorKind::LaserPointToPlane { model, chain, .. }
@@ -832,17 +883,27 @@ impl ProblemIR {
         let (mut whitened, mut isotropic) = (0usize, 0usize);
         for (r_idx, residual) in self.residuals.iter().enumerate() {
             residual.loss.validate()?;
-            if let FactorKind::ReprojPoint { sqrt_info, .. } = &residual.factor {
+            if let FactorKind::ReprojFreePoint { chain, .. } = &residual.factor
+                && !matches!(chain, ReprojChain::SinglePose | ReprojChain::Rig)
+            {
+                return Err(Error::invalid_input(format!(
+                    "residual {r_idx}: a free point reprojects through a single pose or a \
+                     rig chain, not {chain:?}"
+                )));
+            }
+            if let FactorKind::ReprojPoint { sqrt_info, .. }
+            | FactorKind::ReprojFreePoint { sqrt_info, .. } = &residual.factor
+            {
                 if !sqrt_info.is_finite() {
                     return Err(Error::invalid_input(format!(
                         "residual {r_idx}: reprojection sqrt_info {sqrt_info:?} is not finite \
                          (or has a negative scale)"
                     )));
                 }
-                if sqrt_info.is_whitened() {
-                    whitened += 1;
-                } else {
-                    isotropic += 1;
+                match sqrt_info {
+                    ReprojSqrtInfo::Whitened { .. } => whitened += 1,
+                    ReprojSqrtInfo::Isotropic { .. } => isotropic += 1,
+                    ReprojSqrtInfo::Stated { .. } => {}
                 }
             }
             if residual.residual_dim != residual.factor.residual_dim() {
@@ -913,7 +974,8 @@ impl ProblemIR {
         self.residuals.iter().any(|r| {
             matches!(
                 r.factor,
-                FactorKind::ReprojPoint { sqrt_info, .. } if sqrt_info.is_whitened()
+                FactorKind::ReprojPoint { sqrt_info, .. }
+                | FactorKind::ReprojFreePoint { sqrt_info, .. } if sqrt_info.is_whitened()
             )
         })
     }
@@ -992,6 +1054,7 @@ mod tests {
         vec![
             ReprojChain::SinglePose,
             ReprojChain::TwoSe3,
+            ReprojChain::Rig,
             ReprojChain::Handeye {
                 base_se3_gripper: robot,
                 mode: HandeyeMode::EyeInHand,
@@ -1067,7 +1130,7 @@ mod tests {
                 let layout = factor.param_layout();
                 let chain_blocks = match chain {
                     ReprojChain::SinglePose => 1,
-                    ReprojChain::TwoSe3 => 2,
+                    ReprojChain::TwoSe3 | ReprojChain::Rig => 2,
                     ReprojChain::Handeye { .. } => 3,
                     ReprojChain::HandeyeRobotDelta { .. } => 4,
                 };
