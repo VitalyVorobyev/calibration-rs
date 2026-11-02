@@ -22,6 +22,7 @@ them; layouts, commands and component wiring go to rustdoc or
 - [0006 — Layered crate architecture](0006-layered-crate-architecture.md)
 - [0007 — Session framework with external step functions](0007-session-framework.md)
 - [0024 — One API vocabulary](0024-api-vocabulary.md)
+- [0027 — A public optimization extension](0027-public-optimization-extension.md)
 
 ## Models and numerics
 
