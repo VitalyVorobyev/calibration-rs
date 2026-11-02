@@ -1,8 +1,10 @@
 # Release Runbook
 
-The procedure for cutting a `calibration-rs` release. Pre-1.0, breaking
-changes are batched into a minor (`0.x.0`) bump rather than spread across
-patch releases.
+The procedure for cutting a `calibration-rs` release. Which number to bump
+is AGENTS.md §8: before 1.0, a release that breaks the public API, a JSON
+schema or the meaning of a result is a minor (`0.x.0`), and every other
+release, additive features included, is a patch (`0.x.y`). Breaking changes
+are batched into one minor rather than spread across several.
 
 ## 1. Procedure
 
@@ -79,14 +81,20 @@ for c in vision-calibration-core vision-geometry vision-calibration-dataset \
 done
 ```
 
-From 1.0 on, check every published crate against its last release before a
-patch or minor tag (`cargo install cargo-semver-checks`); a reported break
-needs a major version. Items marked `#[doc(hidden)]` are workspace-internal
-and exempt.
+Check every published crate against its last release
+(`cargo install cargo-semver-checks`). The tool reads the new version from
+the manifests and applies Cargo's rules, under which `0.x.0 → 0.x.y` must be
+compatible: a reported break in a patch means the release must be a minor
+(from 1.0, a major). Items marked `#[doc(hidden)]` are workspace-internal and
+exempt. `release.yml` runs the same command before publishing and stops the
+release on a break.
 
 ```bash
 cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py
 ```
+
+A crate not yet on crates.io has no baseline; exclude it here and in
+`release.yml` until its first release.
 
 Also confirm on crates.io, once per crate in §2, that the crate exists and has
 a Trusted Publisher entry (§4). There is no CLI for this.

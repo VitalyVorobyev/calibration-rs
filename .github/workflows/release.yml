@@ -38,6 +38,22 @@ jobs:
       - name: Tests (release)
         run: cargo test --workspace --all-targets --all-features --release
 
+      # The version rule (AGENTS.md §8): a patch release must not break the
+      # public API of any published crate. cargo-semver-checks compares each
+      # crate with its last crates.io release under Cargo's rules (before 1.0,
+      # 0.x.0 -> 0.x.y must be compatible). A crate not yet on crates.io has
+      # no baseline: exclude it until its first release.
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+
+      - name: Semver check against the last release
+        run: >-
+          cargo semver-checks --workspace
+          --exclude vision-calibration-bench
+          --exclude vision-calibration-py
+
   publish-crates:
     name: Publish crates.io
     needs: prepare-release

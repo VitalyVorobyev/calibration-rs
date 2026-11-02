@@ -65,6 +65,8 @@ jobs:
 
       - name: Cargo doc
         if: matrix.os == 'ubuntu-latest'
+        env:
+          RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --no-deps --workspace
 
   msrv:

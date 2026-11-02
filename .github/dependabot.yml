@@ -11,7 +11,7 @@
 #     in the root `Cargo.toml`). Bot PRs would mostly be un-mergeable noise.
 #     Advisories are covered by `.github/workflows/audit.yml` instead, which
 #     is the check that actually matters.
-#   * The desktop app uses bun (AGENTS.md §10) and dependabot does not
+#   * The desktop app uses bun (AGENTS.md §12) and dependabot does not
 #     understand `app/bun.lock`.
 version: 2
 updates:
@@ -30,5 +30,5 @@ updates:
       # Dependabot reads that `1.93` as a version pin and proposes bumping it,
       # which would move the gate off our MSRV while leaving the step named "Install Rust 1.93"
       # and the job named "MSRV (1.93)" — a gate that lies about what it
-      # checks. Bump the MSRV by hand (AGENTS.md §6).
+      # checks. Bump the MSRV by hand (AGENTS.md §7).
       - dependency-name: "dtolnay/rust-toolchain"

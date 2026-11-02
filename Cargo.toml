@@ -23,7 +23,7 @@ resolver = "2"
 [workspace.package]
 version = "0.12.0"
 edition = "2024"
-# MSRV policy: AGENTS.md §6.
+# MSRV policy: AGENTS.md §7.
 rust-version = "1.93"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
