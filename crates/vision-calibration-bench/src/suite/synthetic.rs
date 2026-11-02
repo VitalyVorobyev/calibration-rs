@@ -9,10 +9,10 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, ensure};
+use vision_calibration::core::CameraParams;
 
 use super::truth::Truth;
 use super::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput};
-use crate::solver::metrics::CameraParamsSet;
 use crate::solver::scenes::{Preset, Problem, Scene, SceneData, scene_specs};
 
 /// The scene with id `scene_id` (as `calib-bench solver` names it, e.g.
@@ -111,21 +111,22 @@ fn truth(scene: &Scene) -> Truth {
     Truth { parameters, poses }
 }
 
-/// A camera's parameters by their unprefixed covariance labels.
-fn camera_values(c: &CameraParamsSet) -> Vec<(&'static str, f64)> {
-    let mut out = vec![
-        ("fx", c.k.fx),
-        ("fy", c.k.fy),
-        ("cx", c.k.cx),
-        ("cy", c.k.cy),
-        ("k1", c.dist.k1),
-        ("k2", c.dist.k2),
-        ("k3", c.dist.k3),
-        ("p1", c.dist.p1),
-        ("p2", c.dist.p2),
-    ];
-    if let Some(sensor) = c.sensor {
-        out.extend([("tilt_x", sensor.tilt_x), ("tilt_y", sensor.tilt_y)]);
+/// A camera's parameters by their unprefixed covariance labels: the
+/// intrinsics, then each model slot's values under its kind's parameter
+/// names.
+fn camera_values(c: &CameraParams) -> Vec<(&'static str, f64)> {
+    let k = c.intrinsics;
+    let mut out = vec![("fx", k.fx), ("fy", k.fy), ("cx", k.cx), ("cy", k.cy)];
+    out.extend(
+        c.distortion
+            .kind()
+            .param_names()
+            .iter()
+            .copied()
+            .zip(c.distortion.values()),
+    );
+    if let Some(sensor) = c.sensor.kind() {
+        out.extend(sensor.param_names().iter().copied().zip(c.sensor.values()));
     }
     out
 }
@@ -151,6 +152,13 @@ mod tests {
         let (_, truth) = synthesize("laserline_device/pinhole/small/n0.1/clean").unwrap();
         assert!(truth.parameters.contains_key("fx"));
         assert!(truth.parameters.contains_key("plane.d"));
+    }
+
+    #[test]
+    fn a_fisheye_scene_names_its_model_coefficients() {
+        let (_, truth) = synthesize("planar_intrinsics/fisheye/small/n0.1/clean").unwrap();
+        assert!(truth.parameters.contains_key("k4"));
+        assert!(!truth.parameters.contains_key("p1"));
     }
 
     #[test]

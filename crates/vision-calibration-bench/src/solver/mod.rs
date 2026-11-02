@@ -1,7 +1,7 @@
 //! Solver benchmark: performance and quality of the non-linear solve across
 //! all problem types on synthetic ground-truth scenes.
 //!
-//! - [`scenes`]: the deterministic scene matrix (problem × sensor × scale ×
+//! - [`scenes`]: the deterministic scene matrix (problem × camera × scale ×
 //!   pixel noise × outliers) and its generators. Pixel noise is uniform with
 //!   the stated per-axis standard deviation; contaminated scenes displace 5 %
 //!   of the target observations by 10–30 px and solve under Huber or Cauchy
@@ -391,7 +391,7 @@ mod tests {
     use super::*;
     use metrics::QualityMetrics;
     use record::{RunStatus, SolverTiming, TimingSample};
-    use scenes::{OutlierSpec, Scale, SensorKind};
+    use scenes::{CameraKind, OutlierSpec, Scale};
     use vision_calibration::optim::RobustLoss;
 
     fn record(optimize_ms: f64, objective: f64, focal_rel: f64) -> SolverRunRecord {
@@ -402,7 +402,7 @@ mod tests {
         SolverRunRecord {
             scene: SceneSpec {
                 problem: Problem::PlanarIntrinsics,
-                sensor: SensorKind::Pinhole,
+                camera: CameraKind::Pinhole,
                 scale: Scale::Small,
                 noise_px: 0.1,
                 outliers: OutlierSpec::None,

@@ -21,6 +21,13 @@
 # `root` directory is the dataset root). `fetch/<id>.sha256` lists the files
 # with their SHA-256. An image entry without `fetch` is downloaded by hand
 # from `source_url`.
+#
+# `corners` freezes an entry from the corner files its publisher released
+# instead of from detection on the images: `format` (`opencv_storage`, the
+# `cv::FileStorage` XML of OpenCV's calibration tests, nodes `image_0`,
+# `image_1`, ...), the `problem` (`planar_intrinsics` or `rig_extrinsics`),
+# the `object` file of target points and, per camera, its `points` file and
+# `image_size`. The files are fetched like images.
 
 suite_version = "2026.1"
 
@@ -65,6 +72,55 @@ citation = "Tabb, A. and Ahmad Yousef, K. M. (2017). Solving the robot-world han
 source_url = "https://doi.org/10.15482/USDA.ADC/1340592"
 manifest = "../data/DS8/dataset.toml"
 fetch = { kind = "zip", url = "https://ndownloader.figshare.com/files/44531219", root = "DS8" }
+
+# Fisheye entries: OpenCV's own fisheye test set, frozen from the corner
+# files OpenCV publishes with the images (`corners`), so calibration-rs and
+# OpenCV calibrate exactly the same points.
+
+[[entry]]
+id = "opencv_fisheye_left"
+description = "Fisheye (Kannala-Brandt) planar intrinsics, left camera of OpenCV's fisheye stereo test set: 34 views of an 8x6 chessboard (24.4 mm), 1280x800"
+licence = "NOASSERTION"
+citation = "OpenCV test data (opencv_extra), testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY: the stereo fisheye set of the cv::fisheye calibration tests. https://github.com/opencv/opencv_extra"
+source_url = "https://github.com/opencv/opencv_extra/tree/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY"
+fetch = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv_extra/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY/" }
+config = { camera = { model = { projection = "equidistant", distortion = "kannala_brandt4" } } }
+
+[entry.corners]
+format = "opencv_storage"
+problem = "planar_intrinsics"
+object = "object.xml"
+cameras = [{ id = "left", points = "left.xml", image_size = [1280, 800] }]
+
+[[entry]]
+id = "opencv_fisheye_right"
+description = "Fisheye (Kannala-Brandt) planar intrinsics, right camera of the same set"
+licence = "NOASSERTION"
+citation = "OpenCV test data (opencv_extra), testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY: the stereo fisheye set of the cv::fisheye calibration tests. https://github.com/opencv/opencv_extra"
+source_url = "https://github.com/opencv/opencv_extra/tree/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY"
+fetch = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv_extra/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY/" }
+config = { camera = { model = { projection = "equidistant", distortion = "kannala_brandt4" } } }
+
+[entry.corners]
+format = "opencv_storage"
+problem = "planar_intrinsics"
+object = "object.xml"
+cameras = [{ id = "right", points = "right.xml", image_size = [1280, 800] }]
+
+[[entry]]
+id = "opencv_fisheye_stereo"
+description = "Rig extrinsics of the fisheye stereo pair, from the same 34 synchronised views"
+licence = "NOASSERTION"
+citation = "OpenCV test data (opencv_extra), testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY: the stereo fisheye set of the cv::fisheye calibration tests. https://github.com/opencv/opencv_extra"
+source_url = "https://github.com/opencv/opencv_extra/tree/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY"
+fetch = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv_extra/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY/" }
+config = { camera = { model = { projection = "equidistant", distortion = "kannala_brandt4" } } }
+
+[entry.corners]
+format = "opencv_storage"
+problem = "rig_extrinsics"
+object = "object.xml"
+cameras = [{ id = "left", points = "left.xml", image_size = [1280, 800] }, { id = "right", points = "right.xml", image_size = [1280, 800] }]
 
 # Synthetic entries: scenes of the solver benchmark (`calib-bench solver`),
 # frozen with their ground truth in `truth/<id>.json`. Each is also checked

@@ -36,20 +36,30 @@ pub fn image_source(
     let manifest = suite.root.join(manifest);
     let data_root = match images {
         None => manifest.parent().unwrap_or(Path::new(".")).to_path_buf(),
-        Some(images) => {
-            ensure!(
-                entry.fetch.is_some(),
-                "entry {id:?} cannot be fetched, so its images are not in {}; \
-                 read it without --images",
-                images.display()
-            );
-            let dir = fetch::entry_dir(images, id);
-            fetch::verify(&dir, &fetch::read_fetch_list(suite, id)?)
-                .with_context(|| format!("run `suite fetch --only {id}` first"))?;
-            dir
-        }
+        Some(images) => fetched_dir(suite, entry, images)?,
     };
     Ok((manifest, data_root))
+}
+
+/// The directory of entry `entry` in the `suite fetch` cache `images`,
+/// after checking every file of its fetch list.
+///
+/// # Errors
+///
+/// Fails when the entry has no fetch source, or its cached files are
+/// missing or changed.
+pub fn fetched_dir(suite: &Suite, entry: &SuiteEntry, images: &Path) -> Result<PathBuf> {
+    let id = &entry.id;
+    ensure!(
+        entry.fetch.is_some(),
+        "entry {id:?} cannot be fetched, so its images are not in {}; \
+         read it without --images",
+        images.display()
+    );
+    let dir = fetch::entry_dir(images, id);
+    fetch::verify(&dir, &fetch::read_fetch_list(suite, id)?)
+        .with_context(|| format!("run `suite fetch --only {id}` first"))?;
+    Ok(dir)
 }
 
 /// The image entries of `suite` named in `only` (all of them when it is

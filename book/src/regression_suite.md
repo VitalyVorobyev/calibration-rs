@@ -16,6 +16,9 @@ plain JSON, other calibration tools can run on exactly the same data.
 | `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | None stated |
 | `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | None stated |
 | `ds8` | `rig_handeye` | Three cameras on a Denso arm, 33 of 42 poses with a complete 10×14 chessboard (52 mm) | U.S. public domain |
+| `opencv_fisheye_left` | `planar_intrinsics` | Kannala-Brandt fisheye: 34 views of an 8×6 chessboard (24.4 mm), 1280×800, left camera | None stated |
+| `opencv_fisheye_right` | `planar_intrinsics` | The same 34 views, right camera | None stated |
+| `opencv_fisheye_stereo` | `rig_extrinsics` | Both fisheye cameras together | None stated |
 | `synth_planar` | `planar_intrinsics` | Synthetic: 20 views of a 13×9 board, 0.5 px noise | CC0 |
 | `synth_scheimpflug` | `planar_intrinsics` | Synthetic: a tilted (Scheimpflug) sensor, 20 views, 0.5 px noise | CC0 |
 | `synth_handeye` | `single_cam_handeye` | Synthetic: eye-in-hand, 20 robot stations, 0.5 px noise | CC0 |
@@ -40,6 +43,14 @@ The real-image entries come from their publishers:
   robot-world hand-eye(s) calibration problem with iterative methods*,
   Machine Vision and Applications 28 (2017); the images are published at
   <https://doi.org/10.15482/USDA.ADC/1340592> in the U.S. public domain.
+- The fisheye entries use `calib-3_stereo_from_JY`, the stereo fisheye set
+  of OpenCV's own `fisheye` calibration tests, from OpenCV's test data
+  repository <https://github.com/opencv/opencv_extra>
+  (`testdata/cv/cameracalibration/fisheye/`), which states no licence for
+  it. The set ships the chessboard corners with the images, and the
+  entries are frozen from those corners, so calibration-rs and OpenCV
+  calibrate the same points (see
+  [Fisheye Calibration: OpenCV's Test Set](fisheye_walkthrough.md)).
 
 `regression/suite.toml` records each entry's licence (an SPDX identifier,
 `NOASSERTION` where the publisher states none), citation and source.
@@ -99,11 +110,12 @@ Two more subcommands maintain the suite:
   reference results. Run it when a change is meant to move the results, and
   review the diff of `results/` like any other code change.
 - `suite freeze` re-extracts an entry's observations from the images its
-  dataset manifest names (built with `--features tier-b`), or regenerates a
-  synthetic entry's observations and truth from its scene, and rewrites
+  dataset manifest names (built with `--features tier-b`), reads them from
+  the corner files the publisher released, or regenerates a synthetic
+  entry's observations and truth from its scene, and rewrites
   `SHA256SUMS`. Observations change only when the detector does. The images
   are read from the manifest's folder, or with `--images <dir>` from the
-  cache `suite fetch` fills (below).
+  cache `suite fetch` fills (below); corner files only from that cache.
 
 ## Fetching the images
 
@@ -137,10 +149,16 @@ the same.
 | `kuka_1` | The 30 images and the robot poses of `Datasets/kuka_1` in the RWHE-Calib repository, at a pinned commit |
 | `ds8` | `DS8.zip` of the Ag Data Commons record; the images as published (RGB TIFF for the two JAI cameras, colour JPEG for the third) |
 | `stereo_left`, `stereo_right`, `stereo_rig` | Not fetched: Kaggle needs an account. `suite fetch` prints the dataset page; unpack the download into `data/stereo/` |
+| `opencv_fisheye_left`, `opencv_fisheye_right`, `opencv_fisheye_stereo` | The corner files (`left.xml`, `right.xml`, `object.xml`) of `calib-3_stereo_from_JY` in `opencv_extra`, at a pinned commit |
 
 `suite.toml` gives each fetchable entry a `fetch` source: `files`, each file
 downloaded from a `base_url` followed by its path, or `zip`, one archive
-whose `root` folder is the dataset's. A scheduled CI job fetches the images
+whose `root` folder is the dataset's. An entry frozen from published corners
+names them under `corners`: the file `format` (`opencv_storage`, the
+`cv::FileStorage` XML of OpenCV's calibration tests, one node `image_<i>`
+per view), the `problem` (`planar_intrinsics` or `rig_extrinsics`), the
+`object` file of target points and, per camera, its `points` file and
+`image_size`, which corner files do not record. A scheduled CI job fetches the images
 from the publishers every week, re-freezes these entries and fails when the
 observations no longer match `SHA256SUMS`.
 
@@ -231,7 +249,8 @@ another tool's output:
   same pixel convention as the observations.
 - **Distortion** `dist` holds the Brown-Conrady coefficients by name; OpenCV's
   five-element `distCoeffs` is `(k1, k2, p1, p2, k3)` of the same model. Most
-  configs fix `k3 = 0`.
+  configs fix `k3 = 0`. A fisheye camera's `KannalaBrandt4` coefficients
+  `k1 … k4` are the four elements of `cv::fisheye`'s `D`.
 - **Reprojection error**: `mean_reproj_error` and `per_cam_reproj_errors` are
   the mean Euclidean distance in pixels between observed and reprojected
   points. OpenCV's `calibrateCamera` returns the root-mean-square distance,
@@ -261,6 +280,8 @@ cargo run --release -p vision-calibration-bench --bin calib-bench -- suite compa
 | `single_cam_handeye` | `calibrateCameraExtended`, then `calibrateRobotWorldHandEye` (Shah) |
 | `rig_extrinsics` | `calibrateCameraExtended` per camera, then `stereoCalibrate` with `CALIB_FIX_INTRINSIC`, or refining the intrinsics when the entry does |
 | `rig_handeye` | per camera as for `single_cam_handeye`; the rig frame is camera 0's |
+| `planar_intrinsics` with a fisheye camera | `fisheye.calibrate` with `CALIB_RECOMPUTE_EXTRINSIC`, `CALIB_CHECK_COND` and `CALIB_FIX_SKEW`, the flags of OpenCV's own fisheye tests |
+| `rig_extrinsics` with fisheye cameras | `fisheye.stereoCalibrate` with the same flags, intrinsics refined with the rig |
 
 OpenCV has no laser-plane calibration, so the laser entries have no
 comparison. `suite compare` sets each result against our reference:
@@ -276,6 +297,9 @@ our σ:
 | `stereo_right` | opencv 4.12.0 | 8 | 0.00σ (`cy`) | 0.00σ | 2.205–2.205 | 0.2442 / 0.2442 px | — |
 | `stereo_rig` | opencv 4.12.0 | 22 | 3.74σ (`cam1.cam_se3_rig.tz`) | 0.60σ | — | — | — |
 | `ds8` | opencv 4.12.0 | 36 | 3.75σ (`cam2.p2`) | 0.40σ | 1.720–6.631 | — | — |
+| `opencv_fisheye_left` | opencv 4.12.0 | 8 | 0.01σ (`k3`) | 0.00σ | — | 0.2227 / 0.2227 px | — |
+| `opencv_fisheye_right` | opencv 4.12.0 | 8 | 0.00σ (`k2`) | 0.00σ | — | 0.2366 / 0.2366 px | — |
+| `opencv_fisheye_stereo` | opencv 4.12.0 | 22 | 0.00σ (`cam1.k3`) | 0.00σ | — | — | — |
 | `synth_planar` | opencv 4.12.0 | 8 | 0.00σ (`cx`) | 0.00σ | 1.592–1.592 | 0.6570 / 0.6570 px | 1.17σ / 1.17σ |
 | `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
 | `synth_handeye` | opencv 4.12.0 | 20 | 10.09σ (`base_se3_target.tx`) | 1.82σ | 0.303–0.631 | 0.6645 / 0.7521 px | 1.20σ / 10.46σ |
@@ -315,6 +339,10 @@ Reading it:
   alone and camera 0's hand-eye alone, while ours refines all three cameras
   with the rig and the hand-eye, so the difference includes what the joint
   solve moves.
+- On OpenCV's fisheye set the two libraries agree within 0.01σ, on each
+  camera alone and on the stereo pair, where both refine the intrinsics
+  with the rig; OpenCV's results are the values its own tests expect.
+  `cv::fisheye` reports no standard deviations, so there is no σ ratio.
 
 ## Drift tolerance
 
@@ -332,7 +360,7 @@ solver backends agree within 0.02σ on every entry.
 ## Adding an entry
 
 A synthetic entry names a scene of the solver benchmark's full matrix under
-`synthetic`, by its id `<problem>/<sensor>/<scale>/n<σ>/<clean|huber|cauchy>`
+`synthetic`, by its id `<problem>/<camera>/<scale>/n<σ>/<clean|huber|cauchy>`
 (as `calib-bench solver run --preset full` reports them), with the config the
 scene needs, and carries the CC0 licence. Run `suite freeze --only <id>` and
 `suite bless --only <id>` and commit the observation, truth and result files
@@ -352,3 +380,8 @@ with `SHA256SUMS`. For an entry with images:
    manifest's folder). `suite fetch --only <id>` and `suite freeze --only
    <id> --images target/suite-images` must then reproduce the observation
    file.
+
+When the publisher releases the target corners with the images, as OpenCV
+does for its test sets, the entry can name them under `corners` instead of a
+dataset manifest; it then needs a `fetch` source whose list holds the corner
+files.

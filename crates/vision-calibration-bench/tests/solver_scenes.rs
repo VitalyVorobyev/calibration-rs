@@ -1,20 +1,22 @@
 //! One small scene per problem type through the real pipeline, on both solver
 //! backends: the record is `Ok`, the objective is finite, ground-truth errors
 //! are small, a second run reproduces the record bit for bit (timing aside),
-//! and the two backends end at the same final cost.
+//! and the two backends end at the same final cost. Every problem runs with a
+//! pinhole and with a fisheye camera, under the same bounds.
 
 use vision_calibration::optim::{RobustLoss, SolverBackend};
 use vision_calibration_bench::solver::metrics::GtErrors;
 use vision_calibration_bench::solver::record::{RunStatus, SolverRunRecord};
 use vision_calibration_bench::solver::run_scene;
 use vision_calibration_bench::solver::scenes::{
-    OUTLIER_FRACTION, OUTLIER_LOSS_SCALE, OutlierSpec, Problem, Scale, SceneSpec, SensorKind,
+    CameraKind, OUTLIER_FRACTION, OUTLIER_LOSS_SCALE, OutlierSpec, Preset, Problem, Scale,
+    SceneSpec, scene_specs,
 };
 
-fn small(problem: Problem, sensor: SensorKind) -> SceneSpec {
+fn small(problem: Problem, camera: CameraKind) -> SceneSpec {
     SceneSpec {
         problem,
-        sensor,
+        camera,
         scale: Scale::Small,
         noise_px: 0.1,
         outliers: OutlierSpec::None,
@@ -78,39 +80,66 @@ fn check_on(
     first
 }
 
+/// The ground-truth bounds of a problem's small clean scene with a pinhole
+/// or fisheye camera.
+fn problem_bounds(problem: Problem, gt: &GtErrors) {
+    match problem {
+        Problem::PlanarIntrinsics => {}
+        Problem::SingleCamHandeye => {
+            assert!(gt.handeye_rot_deg.unwrap() < 1.0);
+            assert!(gt.handeye_trans_mm.unwrap() < 20.0);
+        }
+        Problem::LaserlineDevice => {
+            assert!(gt.laser_normal_deg.unwrap() < 1.0);
+            assert!(gt.laser_distance_mm.unwrap() < 10.0);
+        }
+        Problem::RigExtrinsics => {
+            assert!(gt.rig_rot_deg.unwrap() < 1.0);
+            assert!(gt.rig_trans_mm.unwrap() < 30.0);
+        }
+        Problem::RigHandeye => {
+            assert!(gt.handeye_rot_deg.unwrap() < 1.0);
+            assert!(gt.rig_rot_deg.unwrap() < 1.0);
+        }
+        Problem::RigLaserlineDevice => {
+            assert!(gt.laser_normal_deg.unwrap() < 1.0);
+            assert!(gt.focal_rel.is_none(), "upstream geometry is frozen");
+        }
+        Problem::RigHandeyeLaserline => {
+            assert!(gt.handeye_rot_deg.unwrap() < 1.0);
+            assert!(gt.laser_normal_deg.unwrap() < 2.0);
+        }
+    }
+}
+
+/// Check the small clean pinhole scene of `problem`.
+fn check_pinhole(problem: Problem) {
+    check(small(problem, CameraKind::Pinhole), |gt| {
+        problem_bounds(problem, gt)
+    });
+}
+
 #[test]
 fn planar_intrinsics() {
-    check(
-        small(Problem::PlanarIntrinsics, SensorKind::Pinhole),
-        |_| {},
-    );
+    check_pinhole(Problem::PlanarIntrinsics);
 }
 
 #[test]
 fn planar_intrinsics_scheimpflug() {
     check(
-        small(Problem::PlanarIntrinsics, SensorKind::Scheimpflug),
+        small(Problem::PlanarIntrinsics, CameraKind::Scheimpflug),
         |gt| assert!(gt.sensor_tilt_deg.unwrap() < 1.0),
     );
 }
 
 #[test]
 fn single_cam_handeye() {
-    check(
-        small(Problem::SingleCamHandeye, SensorKind::Pinhole),
-        |gt| {
-            assert!(gt.handeye_rot_deg.unwrap() < 1.0);
-            assert!(gt.handeye_trans_mm.unwrap() < 20.0);
-        },
-    );
+    check_pinhole(Problem::SingleCamHandeye);
 }
 
 #[test]
 fn laserline_device() {
-    check(small(Problem::LaserlineDevice, SensorKind::Pinhole), |gt| {
-        assert!(gt.laser_normal_deg.unwrap() < 1.0);
-        assert!(gt.laser_distance_mm.unwrap() < 10.0);
-    });
+    check_pinhole(Problem::LaserlineDevice);
 }
 
 /// 5 % of the corners displaced 10–30 px, under either robust loss: the
@@ -132,7 +161,7 @@ fn laserline_device_with_outliers() {
                 fraction: OUTLIER_FRACTION,
             },
             loss,
-            ..small(Problem::LaserlineDevice, SensorKind::Pinhole)
+            ..small(Problem::LaserlineDevice, CameraKind::Pinhole)
         };
         let id = spec.id();
         let rec = check(spec, |gt| {
@@ -150,16 +179,13 @@ fn laserline_device_with_outliers() {
 
 #[test]
 fn rig_extrinsics_pinhole() {
-    check(small(Problem::RigExtrinsics, SensorKind::Pinhole), |gt| {
-        assert!(gt.rig_rot_deg.unwrap() < 1.0);
-        assert!(gt.rig_trans_mm.unwrap() < 30.0);
-    });
+    check_pinhole(Problem::RigExtrinsics);
 }
 
 #[test]
 fn rig_extrinsics_scheimpflug() {
     check(
-        small(Problem::RigExtrinsics, SensorKind::Scheimpflug),
+        small(Problem::RigExtrinsics, CameraKind::Scheimpflug),
         |gt| {
             assert!(gt.sensor_tilt_deg.unwrap() < 3.0);
             assert!(gt.rig_rot_deg.unwrap() < 3.0);
@@ -169,32 +195,47 @@ fn rig_extrinsics_scheimpflug() {
 
 #[test]
 fn rig_handeye() {
-    check(small(Problem::RigHandeye, SensorKind::Pinhole), |gt| {
-        assert!(gt.handeye_rot_deg.unwrap() < 1.0);
-        assert!(gt.rig_rot_deg.unwrap() < 1.0);
-    });
+    check_pinhole(Problem::RigHandeye);
 }
 
 #[test]
 fn rig_laserline_device() {
-    check(
-        small(Problem::RigLaserlineDevice, SensorKind::Pinhole),
-        |gt| {
-            assert!(gt.laser_normal_deg.unwrap() < 1.0);
-            assert!(gt.focal_rel.is_none(), "upstream geometry is frozen");
-        },
-    );
+    check_pinhole(Problem::RigLaserlineDevice);
 }
 
 #[test]
 fn rig_handeye_laserline() {
-    check(
-        small(Problem::RigHandeyeLaserline, SensorKind::Pinhole),
-        |gt| {
-            assert!(gt.handeye_rot_deg.unwrap() < 1.0);
-            assert!(gt.laser_normal_deg.unwrap() < 2.0);
-        },
-    );
+    check_pinhole(Problem::RigHandeyeLaserline);
+}
+
+/// Every fisheye scene of the matrix (Kannala-Brandt, corners up to 50–60°
+/// off-axis, laser workflows on the point-to-plane residual) under its
+/// problem's pinhole bounds, plus the distortion coefficients. The scenes
+/// run in parallel.
+#[test]
+fn fisheye_matrix() {
+    let specs: Vec<SceneSpec> = scene_specs(Preset::Quick)
+        .into_iter()
+        .filter(|s| s.camera == CameraKind::Fisheye)
+        .collect();
+    let problems: Vec<Problem> = specs.iter().map(|s| s.problem).collect();
+    assert_eq!(problems, Problem::ALL, "a fisheye scene for every problem");
+    std::thread::scope(|scope| {
+        for spec in specs {
+            scope.spawn(move || {
+                let problem = spec.problem;
+                check(spec, |gt| {
+                    problem_bounds(problem, gt);
+                    if let Some(d) = gt.distortion_abs {
+                        assert!(d < 0.05, "distortion error {d}");
+                    }
+                    if let Some(pp) = gt.principal_point_px {
+                        assert!(pp < 1.0, "principal point error {pp} px");
+                    }
+                });
+            });
+        }
+    });
 }
 
 #[test]
@@ -204,7 +245,7 @@ fn contaminated_scene_is_scored_against_its_outliers() {
             fraction: OUTLIER_FRACTION,
         },
         loss: RobustLoss::Cauchy { scale: 1.0 },
-        ..small(Problem::PlanarIntrinsics, SensorKind::Pinhole)
+        ..small(Problem::PlanarIntrinsics, CameraKind::Pinhole)
     };
     let rec = run_scene(&spec, 1, SolverBackend::TinySolver);
     assert_eq!(rec.status, RunStatus::Ok);
@@ -219,7 +260,7 @@ fn contaminated_scene_is_scored_against_its_outliers() {
 #[test]
 fn unsupported_combination_is_recorded_as_error() {
     let rec = run_scene(
-        &small(Problem::SingleCamHandeye, SensorKind::Scheimpflug),
+        &small(Problem::SingleCamHandeye, CameraKind::Scheimpflug),
         1,
         SolverBackend::TinySolver,
     );

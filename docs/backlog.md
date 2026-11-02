@@ -30,8 +30,8 @@ need their measurement first and stay opt-in until it is in.
 A versioned public suite for regression and for comparison with other
 libraries. Image-free observations live in the repository and gate every PR.
 Real-image entries are fetched from their publishers, not archived by us:
-`kuka_1` (RWHE-Calib) and `stereo` (Kaggle) state no licence; DS8 is U.S.
-public domain. Synthetic entries need no images. Comparison tools must run
+`kuka_1` (RWHE-Calib), `stereo` (Kaggle) and the OpenCV fisheye set
+(`opencv_extra`) state no licence; DS8 is U.S. public domain. Synthetic entries need no images. Comparison tools must run
 on Linux, macOS and Windows. `stereo_charuco` stays local-only, as do the
 private sets.
 
@@ -44,10 +44,9 @@ private sets.
   then name the fetch command).
 - [ ] DATA-MORE - More public entries, each after a licence check: the other
   RWHE-Calib sets (`kuka_2`, `kuka_3`), Tabb's DS1–DS7 (U.S. public domain,
-  same record as DS8), OpenCV's sample stereo chessboards (Apache-2.0), and
-  a fisheye set for CAM-KB.
+  same record as DS8) and OpenCV's sample stereo chessboards (Apache-2.0).
 
-## Camera models (CAM-KB in Phase 1, the rest in Phase 2)
+## Camera models (Phase 2)
 
 Each model ships with:
 - a math note;
@@ -57,18 +56,6 @@ Each model ships with:
 
 Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 
-- [ ] CAM-KB - (Phase 1) Calibrate Kannala-Brandt fisheye cameras
-  (`Equidistant` + `KannalaBrandt4`) in every workflow, so a second real
-  projection exercises the API 1.0 freezes. The workflows initialize and
-  calibrate one (bearing-based initializer), and the analysis (projection
-  uncertainty, information, next-view planning, the intrinsic floor) works
-  on rays beyond 90°. Left: *data and comparison.* A suite entry from
-  OpenCV's own fisheye test set (`opencv_extra` `calib-3_stereo_from_JY`,
-  34 stereo pairs, corner files included; no licence stated, so fetched at
-  a pinned commit), compared against `cv::fisheye::calibrate` and
-  `stereoCalibrate`; synthetic matrix across every problem type, laser
-  workflows included; a book walkthrough. The initializer alone already
-  lands within 0.3 % of OpenCV's left-camera focal length on it.
 - [ ] CAM-EUCM-DS - Enhanced unified (EUCM) and double-sphere projections,
   with their closed-form unprojection and validity regions.
 - [ ] CAM-TELECENTRIC - Telecentric (affine/orthographic) projection for
@@ -138,7 +125,7 @@ takes or returns a covariance. Open with an ADR on the BA layering:
 ## Book (alongside)
 
 - [~] BOOK-WASM - Parked until after v1.0: large, and not the adoption lever
-  (BOOK-RESULTS and CAM-KB are). Reopen after D4-RELEASE. A
+  (BOOK-RESULTS is). Reopen after D4-RELEASE. A
   `vision-calibration-wasm` crate (wasm-bindgen over the
   facade, `publish = false` at first), built by `publish-docs.yml` with a
   bun bundle loaded through mdBook `additional-js`. The app can use the same
@@ -226,7 +213,7 @@ were. What is left reorganizes them around the project.
   and differentiation through the SE(3) retraction. Next lever: an analytic
   `ReprojPoint` Jacobian, checked against autodiff in tests.
 - [ ] BENCH-COMPARE - Extend the external comparisons: the OpenCV harness to
-  fisheye (CAM-KB) and stereo rectification; `camera-intrinsic-calibration`
+  stereo rectification; `camera-intrinsic-calibration`
   (Rust, cross-platform) for the KB4 and EUCM models on the same
   observations; PoseLib and pycolmap for MVG; a Ceres timing harness where
   it builds on all three platforms.

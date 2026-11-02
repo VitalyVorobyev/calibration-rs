@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "backend": "tiny_solver",
   "git_sha": "ca7e290901eb19cc882af45280e7db767a0bb9bb",
   "timestamp_unix_secs": "1791229928",
@@ -9,7 +9,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -63,7 +63,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -125,7 +125,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -187,7 +187,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -241,7 +241,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -303,7 +303,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -365,7 +365,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -419,7 +419,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -481,7 +481,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -543,7 +543,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -597,7 +597,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -659,7 +659,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -721,7 +721,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -775,7 +775,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -837,7 +837,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -899,7 +899,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -953,7 +953,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -1015,7 +1015,7 @@
     {
       "scene": {
         "problem": "planar_intrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -1077,7 +1077,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -1131,7 +1131,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -1193,7 +1193,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -1255,7 +1255,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -1309,7 +1309,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -1371,7 +1371,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -1433,7 +1433,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -1487,7 +1487,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -1549,7 +1549,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -1611,7 +1611,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -1665,7 +1665,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -1727,7 +1727,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -1789,7 +1789,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -1843,7 +1843,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -1905,7 +1905,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -1967,7 +1967,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -2021,7 +2021,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -2083,7 +2083,7 @@
     {
       "scene": {
         "problem": "scheimpflug_intrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -2145,7 +2145,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -2199,7 +2199,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -2261,7 +2261,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -2323,7 +2323,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -2377,7 +2377,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -2439,7 +2439,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -2501,7 +2501,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -2555,7 +2555,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -2617,7 +2617,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -2679,7 +2679,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -2733,7 +2733,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -2795,7 +2795,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -2857,7 +2857,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -2911,7 +2911,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -2973,7 +2973,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -3035,7 +3035,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -3089,7 +3089,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -3151,7 +3151,7 @@
     {
       "scene": {
         "problem": "single_cam_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -3213,7 +3213,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -3267,7 +3267,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -3329,7 +3329,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -3391,7 +3391,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -3445,7 +3445,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -3507,7 +3507,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -3569,7 +3569,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -3623,7 +3623,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -3685,7 +3685,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -3747,7 +3747,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -3801,7 +3801,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -3863,7 +3863,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -3925,7 +3925,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -3979,7 +3979,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -4041,7 +4041,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -4103,7 +4103,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -4157,7 +4157,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -4219,7 +4219,7 @@
     {
       "scene": {
         "problem": "laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -4281,7 +4281,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -4335,7 +4335,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -4397,7 +4397,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -4459,7 +4459,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -4513,7 +4513,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -4575,7 +4575,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -4637,7 +4637,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -4691,7 +4691,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -4753,7 +4753,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -4815,7 +4815,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -4869,7 +4869,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -4931,7 +4931,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -4993,7 +4993,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -5047,7 +5047,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -5109,7 +5109,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -5171,7 +5171,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -5225,7 +5225,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -5287,7 +5287,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -5349,7 +5349,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -5403,7 +5403,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -5465,7 +5465,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -5527,7 +5527,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -5581,7 +5581,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -5643,7 +5643,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -5705,7 +5705,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -5759,7 +5759,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -5821,7 +5821,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -5883,7 +5883,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -5937,7 +5937,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -5999,7 +5999,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -6061,7 +6061,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -6115,7 +6115,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -6177,7 +6177,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -6239,7 +6239,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -6293,7 +6293,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -6355,7 +6355,7 @@
     {
       "scene": {
         "problem": "rig_extrinsics",
-        "sensor": "scheimpflug",
+        "camera": "scheimpflug",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -6417,7 +6417,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -6471,7 +6471,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -6533,7 +6533,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -6595,7 +6595,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -6649,7 +6649,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -6711,7 +6711,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -6773,7 +6773,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -6827,7 +6827,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -6889,7 +6889,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -6951,7 +6951,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -7005,7 +7005,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -7067,7 +7067,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -7129,7 +7129,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -7183,7 +7183,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -7245,7 +7245,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -7307,7 +7307,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -7361,7 +7361,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -7423,7 +7423,7 @@
     {
       "scene": {
         "problem": "rig_handeye",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -7485,7 +7485,7 @@
     {
       "scene": {
         "problem": "rig_laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -7536,7 +7536,7 @@
     {
       "scene": {
         "problem": "rig_laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -7587,7 +7587,7 @@
     {
       "scene": {
         "problem": "rig_laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -7638,7 +7638,7 @@
     {
       "scene": {
         "problem": "rig_laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -7689,7 +7689,7 @@
     {
       "scene": {
         "problem": "rig_laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -7740,7 +7740,7 @@
     {
       "scene": {
         "problem": "rig_laserline_device",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -7791,7 +7791,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
@@ -7845,7 +7845,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -7907,7 +7907,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.1,
         "outliers": {
@@ -7969,7 +7969,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
@@ -8023,7 +8023,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -8085,7 +8085,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "small",
         "noise_px": 0.5,
         "outliers": {
@@ -8147,7 +8147,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
@@ -8201,7 +8201,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -8263,7 +8263,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": {
@@ -8325,7 +8325,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
@@ -8379,7 +8379,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -8441,7 +8441,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": {
@@ -8503,7 +8503,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
@@ -8557,7 +8557,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -8619,7 +8619,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.1,
         "outliers": {
@@ -8681,7 +8681,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
@@ -8735,7 +8735,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {
@@ -8797,7 +8797,7 @@
     {
       "scene": {
         "problem": "rig_handeye_laserline",
-        "sensor": "pinhole",
+        "camera": "pinhole",
         "scale": "large",
         "noise_px": 0.5,
         "outliers": {

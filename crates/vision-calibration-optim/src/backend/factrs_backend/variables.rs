@@ -16,8 +16,9 @@ use nalgebra::DVector;
 use crate::backend::s2;
 
 /// Dimensions a fused vector variable may take: the camera models' sizes
-/// (`4 + distortion + sensor`) and the 6-D robot-pose correction.
-pub(super) const VECTOR_DIMS: [usize; 10] = [4, 5, 6, 7, 9, 11, 12, 13, 14, 15];
+/// (`4 + projection + distortion + sensor`, every one from 4 to 15) and the
+/// 6-D robot-pose correction.
+pub(super) const VECTOR_DIMS: [usize; 12] = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 /// Run `$body` with `$N` bound to the `usize` constant equal to `$n`, one of
 /// [`VECTOR_DIMS`]; `$fallback` handles any other value.
@@ -40,8 +41,16 @@ macro_rules! with_vector_dim {
                 const $N: usize = 7;
                 $body
             }
+            8 => {
+                const $N: usize = 8;
+                $body
+            }
             9 => {
                 const $N: usize = 9;
+                $body
+            }
+            10 => {
+                const $N: usize = 10;
                 $body
             }
             11 => {
@@ -191,6 +200,29 @@ mod tests {
                 );
                 assert_eq!(moved.normal.as_slice(), expected.as_slice());
                 assert_eq!(moved.distance, -0.33 + d[2]);
+            }
+        }
+    }
+
+    /// Every camera model fuses into a vector variable the backend can
+    /// build.
+    #[test]
+    fn every_camera_model_has_a_vector_dim() {
+        use vision_calibration_core::{DistortionKind, ProjectionKind, SensorKind};
+        for projection in ProjectionKind::ALL {
+            for distortion in DistortionKind::ALL {
+                for sensor in SensorKind::ALL {
+                    let dim = 4
+                        + projection.param_names().len()
+                        + distortion.param_names().len()
+                        + sensor.param_names().len();
+                    assert!(
+                        VECTOR_DIMS.contains(&dim),
+                        "{projection:?} {distortion:?} {sensor:?}: dim {dim}"
+                    );
+                    let built = with_vector_dim!(dim, N => N, _ => 0);
+                    assert_eq!(built, dim);
+                }
             }
         }
     }

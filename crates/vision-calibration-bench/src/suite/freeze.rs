@@ -1,6 +1,7 @@
-//! Freeze an entry: run detection on the images its dataset manifest names
-//! and write the resulting [`ObservationSet`]. The images are read from the
-//! manifest's directory, or from the cache `suite fetch` fills.
+//! Freeze an entry: run detection on the images its dataset manifest names,
+//! or read the corner files its publisher released, and write the resulting
+//! [`ObservationSet`]. The images are read from the manifest's directory, or
+//! from the cache `suite fetch` fills; corner files only from that cache.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +13,7 @@ use vision_calibration_pipeline::dataset_runner::{
     build_rig_handeye_input, build_single_cam_handeye_input,
 };
 
-use super::datasets::image_source;
+use super::datasets::{fetched_dir, image_source};
 use super::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput, Suite};
 
 /// Build the observations of the dataset manifest at `manifest_path`
@@ -105,13 +106,16 @@ fn first_per_camera(view_paths: &[Vec<Option<PathBuf>>], cameras: usize) -> Vec<
 ///
 /// The images are read from the dataset manifest's directory, or, with
 /// `images`, from the entry's directory in that `suite fetch` cache, after
-/// checking every file of its fetch list.
+/// checking every file of its fetch list. An entry with published corners
+/// is read from that cache only.
 ///
 /// # Errors
 ///
-/// Fails when the entry has no dataset manifest, when `images` is given
-/// for an entry without a fetch source or its cached files are missing or
-/// changed, or see [`freeze_manifest`].
+/// Fails when the entry has neither a dataset manifest nor published
+/// corners, when `images` is given for an entry without a fetch source,
+/// when its cached files are missing or changed (or, for corners, `images`
+/// is not given), or see [`freeze_manifest`] and
+/// [`PublishedCorners::observations`](super::corners::PublishedCorners::observations).
 pub fn freeze_entry(
     suite: &Suite,
     id: &str,
@@ -124,8 +128,21 @@ pub fn freeze_entry(
         .iter()
         .find(|e| e.id == id)
         .with_context(|| format!("no suite entry {id:?}"))?;
-    let (manifest, data_root) = image_source(suite, entry, images)?;
-    let set = freeze_manifest(&manifest, &data_root, cache_dir)?;
+    let set = match &entry.corners {
+        Some(corners) => {
+            let images = images.with_context(|| {
+                format!(
+                    "entry {id:?} is frozen from its publisher's corner files: run \
+                     `suite fetch --only {id}` and pass --images"
+                )
+            })?;
+            corners.observations(&fetched_dir(suite, entry, images)?)?
+        }
+        None => {
+            let (manifest, data_root) = image_source(suite, entry, images)?;
+            freeze_manifest(&manifest, &data_root, cache_dir)?
+        }
+    };
     super::write_compact(&suite.observations_path(id), &set)?;
     suite.write_checksums()?;
     Ok(set)

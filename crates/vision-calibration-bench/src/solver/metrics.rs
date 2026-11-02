@@ -7,23 +7,12 @@
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
-use vision_calibration::core::{BrownConrady5, FxFyCxCy, Iso3, Real, ScheimpflugParams};
+use vision_calibration::core::{CameraParams, Iso3, SensorParams};
 use vision_calibration::optim::{LaserPlane, RobustLoss};
 use vision_calibration_core::PerFeatureResiduals;
 use vision_calibration_core::synthetic::poses::pose_error;
 
 use super::scenes::OutlierRef;
-
-/// One camera's intrinsics, distortion and (for tilted sensors) tilt.
-#[derive(Debug, Clone, Copy)]
-pub struct CameraParamsSet {
-    /// Pinhole intrinsics.
-    pub k: FxFyCxCy<Real>,
-    /// Brown-Conrady distortion.
-    pub dist: BrownConrady5<Real>,
-    /// Scheimpflug tilt, `None` for a plain pinhole sensor.
-    pub sensor: Option<ScheimpflugParams>,
-}
 
 /// The model parameters a scene is judged on: either the ground truth that
 /// generated the data or the solver's estimate.
@@ -32,7 +21,7 @@ pub struct CameraParamsSet {
 #[derive(Debug, Clone, Default)]
 pub struct ModelParams {
     /// Per-camera parameters (empty when the problem does not estimate them).
-    pub cameras: Vec<CameraParamsSet>,
+    pub cameras: Vec<CameraParams>,
     /// Rig extrinsics `cam_se3_rig`, reference camera at index 0.
     pub cam_se3_rig: Vec<Iso3>,
     /// Hand-eye transform (`gripper_se3_camera` / `gripper_se3_rig`).
@@ -52,7 +41,9 @@ pub struct GtErrors {
     pub focal_rel: Option<f64>,
     /// Max over cameras of the principal-point distance, pixels.
     pub principal_point_px: Option<f64>,
-    /// Max over cameras of `|Δ|` for `k1, k2, k3, p1, p2`.
+    /// Max over cameras of `|Δ|` for every distortion coefficient
+    /// (`k1, k2, k3, p1, p2` of Brown-Conrady, `k1 … k4` of
+    /// Kannala-Brandt).
     pub distortion_abs: Option<f64>,
     /// Max over cameras of the Scheimpflug tilt error `hypot(Δtilt_x, Δtilt_y)`, degrees.
     pub sensor_tilt_deg: Option<f64>,
@@ -78,25 +69,30 @@ impl GtErrors {
 
         let cams: Vec<_> = est.cameras.iter().zip(&gt.cameras).collect();
         out.focal_rel = max_of(cams.iter().map(|(e, g)| {
-            ((e.k.fx - g.k.fx).abs() / g.k.fx).max((e.k.fy - g.k.fy).abs() / g.k.fy)
+            let (e, g) = (e.intrinsics, g.intrinsics);
+            ((e.fx - g.fx).abs() / g.fx).max((e.fy - g.fy).abs() / g.fy)
         }));
-        out.principal_point_px = max_of(
-            cams.iter()
-                .map(|(e, g)| (e.k.cx - g.k.cx).hypot(e.k.cy - g.k.cy)),
-        );
+        out.principal_point_px = max_of(cams.iter().map(|(e, g)| {
+            let (e, g) = (e.intrinsics, g.intrinsics);
+            (e.cx - g.cx).hypot(e.cy - g.cy)
+        }));
+        // Both sides have the scene's distortion model, so the coefficients
+        // pair up in order.
         out.distortion_abs = max_of(cams.iter().map(|(e, g)| {
-            [
-                e.dist.k1 - g.dist.k1,
-                e.dist.k2 - g.dist.k2,
-                e.dist.k3 - g.dist.k3,
-                e.dist.p1 - g.dist.p1,
-                e.dist.p2 - g.dist.p2,
-            ]
-            .iter()
-            .fold(0.0_f64, |m, d| m.max(d.abs()))
+            e.distortion
+                .values()
+                .iter()
+                .zip(g.distortion.values())
+                .fold(0.0_f64, |m, (e, g)| m.max((e - g).abs()))
         }));
         out.sensor_tilt_deg = max_of(cams.iter().filter_map(|(e, g)| {
-            let (es, gs) = (e.sensor?, g.sensor?);
+            let (
+                SensorParams::Scheimpflug { params: es },
+                SensorParams::Scheimpflug { params: gs },
+            ) = (&e.sensor, &g.sensor)
+            else {
+                return None;
+            };
             Some(
                 (es.tilt_x - gs.tilt_x)
                     .hypot(es.tilt_y - gs.tilt_y)
@@ -273,6 +269,7 @@ fn rms(sum_sq: f64, n: usize) -> f64 {
 mod tests {
     use super::*;
     use nalgebra::Vector3;
+    use vision_calibration::core::{BrownConrady5, DistortionParams, FxFyCxCy, ProjectionParams};
     use vision_calibration_core::synthetic::poses::make_iso;
     use vision_calibration_core::{PerFeatureResiduals, TargetFeatureResidual};
 
@@ -311,16 +308,19 @@ mod tests {
         assert!(ang > 1.0 && ang < 10.0);
     }
 
-    fn cam(fx: f64) -> CameraParamsSet {
-        CameraParamsSet {
-            k: FxFyCxCy {
+    fn cam(fx: f64) -> CameraParams {
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 {
+                params: BrownConrady5::default(),
+            },
+            sensor: SensorParams::Identity,
+            intrinsics: FxFyCxCy {
                 fx,
                 fy: fx,
                 cx: 640.0,
                 cy: 480.0,
             },
-            dist: BrownConrady5::default(),
-            sensor: None,
         }
     }
 
@@ -337,7 +337,7 @@ mod tests {
             base_se3_target: None,
         };
         let mut est = gt.clone();
-        est.cameras[1].k.fx = 1010.0;
+        est.cameras[1].intrinsics.fx = 1010.0;
         est.cam_se3_rig[1] = make_iso((0.0, 0.1, 0.0), (-0.1, 0.0, 0.002));
         let e = GtErrors::between(&est, &gt);
         assert!((e.focal_rel.unwrap() - 0.01).abs() < 1e-12);

@@ -233,6 +233,11 @@ pub(super) fn compile(
             let cam_ids = &ids[..n_cam];
             let dims: Vec<usize> = cam_ids.iter().map(|&id| ir.params[id].dim).collect();
             let total: usize = dims.iter().sum();
+            if !VECTOR_DIMS.contains(&total) {
+                return Err(Error::invalid_input(format!(
+                    "factrs backend: unsupported camera parameter size {total}"
+                )));
+            }
             let offsets: Vec<usize> = dims
                 .iter()
                 .scan(0, |acc, &d| {
