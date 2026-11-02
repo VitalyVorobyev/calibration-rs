@@ -22,7 +22,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, Protocol, TypeVar, cast
 
-from .models import Camera, Pose, _camera_from_payload
+from .models import (
+    _DISTORTION_TAG_BY_TYPE,
+    Camera,
+    Pose,
+    _camera_from_payload,
+    _distortion_to_payload,
+)
 
 __all__ = [
     "CalibrationSession",
@@ -115,11 +121,14 @@ def _payload(value: Any) -> Any:
 
 def _seed_payload(fields: Mapping[str, Any]) -> dict[str, Any]:
     """The payload of a manual-init seed: unset (``None``) fields are left out,
-    dataclasses become their payloads, lists convert element-wise."""
+    dataclasses become their payloads (a distortion model its type-tagged
+    payload), lists convert element-wise."""
 
     def convert(value: Any) -> Any:
         if isinstance(value, (list, tuple)):
             return [convert(v) for v in value]
+        if type(value) in _DISTORTION_TAG_BY_TYPE:
+            return _distortion_to_payload(value)
         return _payload(value)
 
     return {name: convert(value) for name, value in fields.items() if value is not None}

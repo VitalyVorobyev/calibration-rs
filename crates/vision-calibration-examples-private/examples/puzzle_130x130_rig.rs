@@ -111,13 +111,15 @@ fn main() -> Result<()> {
     // the Scheimpflug tilts rather than drifting cy to compensate. Principal
     // point is set to the tile center; focal length is a rough prior.
     let initial_k = build_initial_intrinsics(tile_w, tile_h);
-    let initial_dist = BrownConrady5 {
-        k1: 0.0,
-        k2: 0.0,
-        k3: 0.0,
-        p1: 0.0,
-        p2: 0.0,
-        iters: 8,
+    let initial_dist = DistortionParams::BrownConrady5 {
+        params: BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        },
     };
     let per_cam_intrinsics_seed = vec![initial_k; NUM_CAMERAS];
     let per_cam_distortion_seed = vec![initial_dist; NUM_CAMERAS];

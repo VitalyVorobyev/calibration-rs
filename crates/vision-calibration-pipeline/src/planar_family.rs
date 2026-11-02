@@ -117,13 +117,13 @@ pub(crate) fn estimate_target_pose(
 
 /// Manual seeds of one camera's linear bootstrap; a `None` field is
 /// auto-fitted.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct CameraSeed {
     /// Intrinsics; seeding them skips Zhang's method.
     pub intrinsics: Option<FxFyCxCy<Real>>,
-    /// Brown-Conrady coefficients, embedded into the camera's distortion
-    /// model (zero when the intrinsics are seeded and this is not).
-    pub distortion: Option<BrownConrady5<Real>>,
+    /// Distortion in the camera's own model ([`check_distortion_seed`]),
+    /// used as given; zero when the intrinsics are seeded and this is not.
+    pub distortion: Option<DistortionParams>,
     /// Sensor tilt; a non-zero tilt needs a Scheimpflug camera
     /// ([`check_sensor_seed`]).
     pub sensor: Option<ScheimpflugParams>,
@@ -136,6 +136,28 @@ pub(crate) struct CameraBootstrap {
     pub camera: CameraParams,
     /// Per-view target poses (`cam_se3_target`), one per dataset view.
     pub poses: Vec<Iso3>,
+}
+
+/// Check a distortion seed is a distortion of `model`'s kind: a seed is a
+/// value in the camera's own model, never converted.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming `field` when the seed's kind differs from
+/// the camera's configured distortion.
+pub(crate) fn check_distortion_seed(
+    seed: &DistortionParams,
+    model: CameraModelSpec,
+    field: &str,
+) -> Result<(), Error> {
+    if seed.kind() != model.distortion {
+        return Err(Error::invalid_input(format!(
+            "{field}: the seed is a {:?} distortion; the camera's distortion model is {:?}",
+            seed.kind(),
+            model.distortion
+        )));
+    }
+    Ok(())
 }
 
 /// Check a tilt seed fits `model`: a non-zero tilt needs a Scheimpflug
@@ -165,7 +187,8 @@ pub(crate) fn check_sensor_seed(
 /// planar views, by the initializer of the model's projection:
 /// [`bootstrap_pinhole`] or [`bootstrap_fisheye`].
 ///
-/// The caller checks the tilt seed against the model ([`check_sensor_seed`]).
+/// The caller checks the tilt and distortion seeds against the model
+/// ([`check_sensor_seed`], [`check_distortion_seed`]).
 ///
 /// # Errors
 ///
@@ -194,7 +217,8 @@ pub(crate) fn bootstrap_camera(
 /// tilted variant that also sweeps the tilt (a seeded tilt replaces the
 /// sweep) — then per-view poses. The linear stage fits Brown-Conrady
 /// coefficients, embedded into the model's distortion (extra coefficients
-/// start at zero).
+/// start at zero); a distortion seed replaces the result as given and feeds
+/// no linear step.
 ///
 /// # Errors
 ///
@@ -235,9 +259,6 @@ fn bootstrap_pinhole(
                         "Scheimpflug intrinsics initialization failed for camera {cam_idx}: {e}"
                     ))
                 })?;
-            if let Some(distortion) = seed.distortion {
-                init.camera.dist = distortion;
-            }
             if let Some(sensor) = seed.sensor {
                 init.sensor = sensor;
             }
@@ -245,22 +266,23 @@ fn bootstrap_pinhole(
         }
         other => return Err(unsupported_sensor(other)),
     };
-    Ok(CameraBootstrap {
-        camera: camera_params(&camera, sensor, model)?,
-        poses,
-    })
+    let mut camera = camera_params(&camera, sensor, model)?;
+    if let Some(distortion) = &seed.distortion {
+        camera.distortion = distortion.clone();
+    }
+    Ok(CameraBootstrap { camera, poses })
 }
 
 /// Linear bootstrap of an untilted equidistant (fisheye) camera: seeded
-/// intrinsics with zero distortion, or the bearing-based initializer
-/// ([`estimate_equidistant_intrinsics`]), whose Kannala-Brandt `k1`, `k2`
-/// are embedded into the model's distortion by name; per-view poses from
-/// bearings.
+/// intrinsics with the seeded distortion (zero without one), or the
+/// bearing-based initializer ([`estimate_equidistant_intrinsics`]), whose
+/// Kannala-Brandt `k1`, `k2` are embedded into the model's distortion by
+/// name and replaced by a distortion seed; per-view poses from the bearings
+/// of the pixels back-projected through the full camera.
 ///
 /// # Errors
 ///
-/// - [`Error::InvalidInput`] for a tilted sensor or a distortion seed (it
-///   holds Brown-Conrady coefficients of a pinhole camera).
+/// - [`Error::InvalidInput`] for a tilted sensor.
 /// - [`Error::Numerical`] when the initializer or a pose recovery fails.
 fn bootstrap_fisheye(
     cam_idx: usize,
@@ -272,12 +294,6 @@ fn bootstrap_fisheye(
     if model.sensor != SensorKind::Identity {
         return Err(unsupported_sensor(model.sensor));
     }
-    if seed.distortion.is_some() {
-        return Err(Error::invalid_input(format!(
-            "camera {cam_idx}: a distortion seed holds Brown-Conrady coefficients of a pinhole \
-             camera; an equidistant camera takes none"
-        )));
-    }
     let fisheye_camera = |intrinsics, k1, k2| CameraParams {
         projection: ProjectionParams::Equidistant,
         distortion: embed_coefficients(&[("k1", k1), ("k2", k2)], model.distortion),
@@ -285,7 +301,10 @@ fn bootstrap_fisheye(
         intrinsics,
     };
     if let Some(intrinsics) = seed.intrinsics {
-        let camera = fisheye_camera(intrinsics, 0.0, 0.0);
+        let mut camera = fisheye_camera(intrinsics, 0.0, 0.0);
+        if let Some(distortion) = &seed.distortion {
+            camera.distortion = distortion.clone();
+        }
         let poses = bearing_poses(cam_idx, dataset, &camera)?;
         return Ok(CameraBootstrap { camera, poses });
     }
@@ -294,8 +313,12 @@ fn bootstrap_fisheye(
             "fisheye intrinsics initialization failed for camera {cam_idx}: {e}"
         ))
     })?;
+    let mut camera = fisheye_camera(init.intrinsics, init.distortion.k1, init.distortion.k2);
+    if let Some(distortion) = &seed.distortion {
+        camera.distortion = distortion.clone();
+    }
     Ok(CameraBootstrap {
-        camera: fisheye_camera(init.intrinsics, init.distortion.k1, init.distortion.k2),
+        camera,
         poses: init.poses,
     })
 }
@@ -350,8 +373,8 @@ fn camera_params(
     })
 }
 
-/// The seeded intrinsics and distortion (zero distortion unless seeded), or
-/// Zhang's method with a seeded distortion replacing the fitted one.
+/// The seeded intrinsics (zero distortion), or Zhang's method; the caller
+/// applies a distortion seed to the result.
 fn seeded_or_fitted_camera(
     cam_idx: usize,
     seed: &CameraSeed,
@@ -359,15 +382,14 @@ fn seeded_or_fitted_camera(
     init_opts: IterativeIntrinsicsOptions,
 ) -> Result<PinholeCamera, Error> {
     if let Some(k) = seed.intrinsics {
-        return Ok(make_pinhole_camera(k, seed.distortion.unwrap_or_default()));
+        return Ok(make_pinhole_camera(k, BrownConrady5::default()));
     }
     let bootstrap = estimate_intrinsics_iterative(dataset, init_opts).map_err(|e| {
         Error::numerical(format!(
             "intrinsics estimation failed for camera {cam_idx}: {e}"
         ))
     })?;
-    let dist = seed.distortion.unwrap_or(bootstrap.dist);
-    Ok(make_pinhole_camera(bootstrap.k, dist))
+    Ok(make_pinhole_camera(bootstrap.k, bootstrap.dist))
 }
 
 fn estimate_camera_poses(

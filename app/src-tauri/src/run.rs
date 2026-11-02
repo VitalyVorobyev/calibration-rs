@@ -1064,7 +1064,7 @@ mod tests {
             .map(|_| json!({"fx": 2000.0, "fy": 2000.0, "cx": 360.0, "cy": 270.0}))
             .collect();
         let distortion: Vec<_> = (0..6)
-            .map(|_| json!({"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
+            .map(|_| json!({"type": "brown_conrady5", "k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
             .collect();
         let sensors: Vec<_> = (0..6)
             .map(|_| json!({"tilt_x": 0.0, "tilt_y": 0.0}))

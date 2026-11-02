@@ -52,8 +52,8 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind, FrameRef,
-    FxFyCxCy, ImageManifest, Iso3, PixelRect, Pt2, RigDataset, RigView, RigViewObs,
+    BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind,
+    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, Iso3, PixelRect, Pt2, RigDataset, RigView, RigViewObs,
     ScheimpflugParams, SensorKind,
 };
 use vision_calibration_examples_private::{
@@ -637,13 +637,15 @@ fn build_intrinsics_seed(
     tile_w: u32,
     tile_h: u32,
 ) -> Result<IntrinsicsManualInit> {
-    let zero_dist = BrownConrady5 {
-        k1: 0.0,
-        k2: 0.0,
-        k3: 0.0,
-        p1: 0.0,
-        p2: 0.0,
-        iters: 8,
+    let zero_dist = DistortionParams::BrownConrady5 {
+        params: BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        },
     };
     let mut intrinsics = vec![generic_intrinsics(tile_w, tile_h); NUM_CAMERAS];
     let mut distortion = vec![zero_dist; NUM_CAMERAS];
@@ -670,13 +672,15 @@ fn build_intrinsics_seed(
                     cx: cam.cx,
                     cy: cam.cy,
                 };
-                distortion[i] = BrownConrady5 {
-                    k1: cam.k1,
-                    k2: cam.k2,
-                    k3: 0.0,
-                    p1: 0.0,
-                    p2: 0.0,
-                    iters: 8,
+                distortion[i] = DistortionParams::BrownConrady5 {
+                    params: BrownConrady5 {
+                        k1: cam.k1,
+                        k2: cam.k2,
+                        k3: 0.0,
+                        p1: 0.0,
+                        p2: 0.0,
+                        iters: 8,
+                    },
                 };
                 sensors[i] = ScheimpflugParams {
                     tilt_x: cam.tau_x,

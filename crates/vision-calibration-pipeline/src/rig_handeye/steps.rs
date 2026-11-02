@@ -1833,8 +1833,8 @@ mod tests {
     use super::*;
     use nalgebra::{Rotation3, Translation3};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, RigDataset, RigView,
-        RigViewObs, make_pinhole_camera,
+        BrownConrady5, CorrespondenceView, DistortionParams, FxFyCxCy, PinholeCamera, Pt2, Pt3,
+        RigDataset, RigView, RigViewObs, make_pinhole_camera,
     };
     use vision_calibration_optim::RobotPoseMeta;
 
@@ -2068,8 +2068,10 @@ mod tests {
                         },
                     ]),
                     per_cam_distortion: Some(vec![
-                        BrownConrady5::default(),
-                        BrownConrady5::default(),
+                        DistortionParams::BrownConrady5 {
+                            params: BrownConrady5::default(),
+                        };
+                        2
                     ]),
                     per_cam_sensors: None,
                 }),

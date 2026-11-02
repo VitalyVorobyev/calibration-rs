@@ -2313,13 +2313,15 @@ pub mod tier_b {
             n
         ]);
         seed.per_cam_distortion = Some(vec![
-            BrownConrady5 {
-                k1: 0.0,
-                k2: 0.0,
-                k3: 0.0,
-                p1: 0.0,
-                p2: 0.0,
-                iters: 8,
+            DistortionParams::BrownConrady5 {
+                params: BrownConrady5 {
+                    k1: 0.0,
+                    k2: 0.0,
+                    k3: 0.0,
+                    p1: 0.0,
+                    p2: 0.0,
+                    iters: 8,
+                },
             };
             n
         ]);

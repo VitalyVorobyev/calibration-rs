@@ -1369,7 +1369,7 @@ fn scheimpflug_rig_nominal_seed(entry: &BenchEntry) -> ManualInitSeed {
     let distortion: Vec<_> = entry
         .cameras
         .iter()
-        .map(|_| serde_json::json!({"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
+        .map(|_| serde_json::json!({"type": "brown_conrady5", "k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
         .collect();
     let sensors: Vec<_> = entry
         .cameras

@@ -289,13 +289,12 @@ fn division1_pipeline_round_trip() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rider: a manual Brown-Conrady seed combined with a non-BC5 model embeds
-// (k1,k2,k3,p1,p2) and zeroes the extras; the fit must still converge and the
-// init log must carry the warning.
+// Rider: a manual seed in the camera's own non-BC5 model is used as given; the
+// fit must still converge. A seed of another kind is a typed error.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn manual_bc5_seed_with_extended_model_warns_and_converges() {
+fn manual_rational8_seed_is_used_as_given_and_converges() {
     let dist_gt = RationalPolynomial {
         k1: -0.12,
         k2: 0.04,
@@ -311,33 +310,31 @@ fn manual_bc5_seed_with_extended_model_warns_and_converges() {
     let dataset = make_dataset(&cam_gt, &gt_poses());
 
     let mut manual = near_gt_manual();
-    manual.distortion = Some(BrownConrady5 {
-        k1: -0.08,
-        ..BrownConrady5::default()
-    });
+    let seed = DistortionParams::from_values(
+        DistortionKind::Rational8,
+        &[-0.08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    )
+    .unwrap();
+    manual.distortion = Some(seed.clone());
 
-    let (export, session) = run_pipeline(
+    let (export, mut session) = run_pipeline(
         &dataset,
         DistortionKind::Rational8,
         Some(Vec::new()),
         manual,
     );
     let rms = reproj_rms(&export, &dataset);
-    println!("[manual-BC5 + Rational8] rms={rms:.4e} px");
+    println!("[manual Rational8 seed] rms={rms:.4e} px");
     assert!(
         rms < 1e-2,
         "manual-seed + Rational8 reproj RMS too large: {rms:.4e}"
     );
 
-    let warned = session.log().iter().any(|e| {
-        e.notes
-            .as_deref()
-            .is_some_and(|n| n.contains("manual Brown-Conrady distortion seed"))
-    });
-    assert!(
-        warned,
-        "init log must warn about manual BC5 seed + non-BC5 model"
+    assert_eq!(
+        session.export().unwrap().params.camera.distortion.kind(),
+        DistortionKind::Rational8
     );
+    assert!(rms.is_finite());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

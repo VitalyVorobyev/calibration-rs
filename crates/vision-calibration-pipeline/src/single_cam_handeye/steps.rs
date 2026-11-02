@@ -30,8 +30,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real, RigView, RigViewObs,
-    ScheimpflugParams, SensorKind, View,
+    CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real, RigView,
+    RigViewObs, ScheimpflugParams, SensorKind, View,
 };
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_optim::{
@@ -39,7 +39,9 @@ use vision_calibration_optim::{
     PlanarIntrinsicsParams, RobotPoseMeta, optimize_handeye,
 };
 
-use crate::planar_family::{CameraSeed, bootstrap_camera, check_sensor_seed, optimize_camera};
+use crate::planar_family::{
+    CameraSeed, bootstrap_camera, check_distortion_seed, check_sensor_seed, optimize_camera,
+};
 use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
@@ -63,8 +65,9 @@ use crate::common::{
 /// Partial-seed semantics mirror `IntrinsicsManualInit`: when `intrinsics` is seeded
 /// but `target_poses` is `None`, poses are recovered from per-view homographies
 /// using the manual intrinsics. When intrinsics are seeded and distortion is not,
-/// distortion starts at zero. A distortion seed holds Brown-Conrady
-/// coefficients, embedded into the camera's distortion model. `sensor` seeds
+/// distortion starts at zero. A distortion seed's kind must equal the
+/// camera's configured distortion kind (a typed error otherwise) and is used
+/// as given. `sensor` seeds
 /// the tilt of a Scheimpflug camera (a seeded tilt replaces the tilt sweep);
 /// an untilted camera takes only a zero tilt.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -72,8 +75,8 @@ use crate::common::{
 pub struct IntrinsicsManualInit {
     /// Manual intrinsics seed.
     pub intrinsics: Option<FxFyCxCy<Real>>,
-    /// Manual Brown-Conrady distortion seed.
-    pub distortion: Option<BrownConrady5<Real>>,
+    /// Manual distortion seed, of the kind `camera.model.distortion` names.
+    pub distortion: Option<DistortionParams>,
     /// Manual sensor tilt seed (Scheimpflug camera; zero otherwise).
     pub sensor: Option<ScheimpflugParams>,
     /// Manual per-view target poses (`camera_se3_target`).
@@ -207,6 +210,12 @@ pub fn step_intrinsics_init_with_seed(
 
     if let Some(sensor) = &manual.sensor
         && let Err(e) = check_sensor_seed(model, sensor, "sensor")
+    {
+        session.log_failure("intrinsics_init", e.to_string());
+        return Err(e);
+    }
+    if let Some(distortion) = &manual.distortion
+        && let Err(e) = check_distortion_seed(distortion, model, "distortion")
     {
         session.log_failure("intrinsics_init", e.to_string());
         return Err(e);

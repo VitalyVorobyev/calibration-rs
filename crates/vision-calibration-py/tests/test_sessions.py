@@ -178,6 +178,22 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             session.step_init_with_seed(seed)
 
+    def test_a_distortion_seed_is_a_model_of_the_cameras_kind(self) -> None:
+        intrinsics = vc.PinholeIntrinsics(fx=800.0, fy=780.0, cx=640.0, cy=360.0)
+        session = vc.PlanarIntrinsicsSession()
+        session.set_input(self.dataset)
+        distortion = vc.BrownConradyDistortion(k1=-0.01, k2=0.0, k3=0.0, p1=0.0, p2=0.0, iters=8)
+        init = session.step_init_with_seed(
+            planar_intrinsics.IntrinsicsManualInit(intrinsics=intrinsics, distortion=distortion)
+        )
+        self.assertEqual(init.camera.distortion, distortion)
+
+        wrong = vc.KannalaBrandt4Distortion(k1=0.0, k2=0.0, k3=0.0, k4=0.0, iters=8)
+        with self.assertRaisesRegex(ValueError, "distortion"):
+            session.step_init_with_seed(
+                planar_intrinsics.IntrinsicsManualInit(intrinsics=intrinsics, distortion=wrong)
+            )
+
 
 class SingleCamHandeyeSessionTest(unittest.TestCase):
     def test_stages_match_the_one_shot_run(self) -> None:

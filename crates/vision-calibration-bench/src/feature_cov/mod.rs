@@ -349,7 +349,7 @@ fn camera_route(entry: &BenchEntry, spec: &DatasetSpec, camera: usize) -> Result
                 seed.distortion = m
                     .per_cam_distortion
                     .as_ref()
-                    .and_then(|v| v.get(camera).copied());
+                    .and_then(|v| v.get(camera).cloned());
                 seed.sensor = m
                     .per_cam_sensors
                     .as_ref()

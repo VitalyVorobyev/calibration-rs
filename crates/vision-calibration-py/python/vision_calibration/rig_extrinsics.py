@@ -21,8 +21,8 @@ from .common import (
     RigOptimizeOptions,
 )
 from .models import (
-    BrownConradyDistortion,
     Camera,
+    Distortion,
     PinholeIntrinsics,
     Pose,
     RigExtrinsicsConfig,
@@ -61,13 +61,14 @@ class IntrinsicsManualInit:
     a field left ``None`` is estimated.
 
     Seeded intrinsics skip the per-camera linear fit (distortion then starts
-    at zero unless seeded too). The distortion seed is Brown-Conrady,
-    embedded into each camera's model. ``per_cam_sensors`` seeds the tilt of
+    at zero unless seeded too). Each distortion seed is a model of its
+    camera's own distortion kind and is used as given; another kind is an
+    error. ``per_cam_sensors`` seeds the tilt of
     each Scheimpflug camera; an untilted camera takes only a zero tilt.
     """
 
     per_cam_intrinsics: list[PinholeIntrinsics] | None = None
-    per_cam_distortion: list[BrownConradyDistortion] | None = None
+    per_cam_distortion: list[Distortion] | None = None
     per_cam_sensors: list[ScheimpflugSensor] | None = None
 
     def to_payload(self) -> dict[str, Any]:

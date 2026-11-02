@@ -7,7 +7,7 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, FeatureResidualHistogram, FxFyCxCy, Iso3, PerFeatureResiduals,
+    CameraParams, DistortionParams, FeatureResidualHistogram, FxFyCxCy, Iso3, PerFeatureResiduals,
     Real, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
     compute_rig_target_residuals,
 };
@@ -100,8 +100,8 @@ impl RigHandeyeConfig {
 pub struct IntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's method per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
-    /// Per-camera distortion seeds.
-    pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
+    /// Per-camera distortion seeds, each of the kind its camera's model names.
+    pub per_cam_distortion: Option<Vec<DistortionParams>>,
     /// Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
     /// others).
     #[serde(default)]

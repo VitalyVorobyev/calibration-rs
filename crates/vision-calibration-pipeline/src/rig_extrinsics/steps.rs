@@ -6,7 +6,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, FxFyCxCy, Iso3, NoMeta, Real, ScheimpflugParams, View,
+    CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta, Real, ScheimpflugParams, View,
 };
 use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_optim::{
@@ -43,9 +43,9 @@ use crate::common::{
 /// `per_cam_distortion` follows the same convention as `IntrinsicsManualInit`: when
 /// intrinsics are seeded but distortion is not, distortion defaults to zeros. When
 /// intrinsics are auto-init'd, the bootstrap fitted distortion is used unless
-/// distortion is seeded explicitly. The seed is Brown-Conrady, the model the
-/// linear stage fits; for a camera with another distortion model its
-/// `k1, k2, k3, p1, p2` are embedded and the extra coefficients start at zero.
+/// distortion is seeded explicitly. Each seed is a value in its camera's own
+/// distortion model: its kind must equal that camera's configured distortion
+/// kind (a typed error otherwise) and it is used as given.
 ///
 /// `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor
 /// (a seeded tilt skips the tilt sweep of the linear stage); a camera with an
@@ -57,8 +57,8 @@ use crate::common::{
 pub struct IntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
-    /// Per-camera distortion seeds.
-    pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
+    /// Per-camera distortion seeds, each of the kind its camera's model names.
+    pub per_cam_distortion: Option<Vec<DistortionParams>>,
     /// Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
     /// others).
     #[serde(default)]

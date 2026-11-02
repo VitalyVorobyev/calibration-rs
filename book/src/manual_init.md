@@ -82,10 +82,7 @@ let rig_se3_target_a = rig_init_a.initial_rig_se3_target.clone(); // per-view T_
 let per_cam_k: Vec<_> = cameras_a.iter().map(|c| c.intrinsics).collect();
 let per_cam_dist: Vec<BrownConrady5<f64>> = cameras_a
     .iter()
-    .map(|c| match c.distortion {
-        DistortionParams::BrownConrady5 { params } => params,
-        _ => BrownConrady5::default(),
-    })
+    .map(|c| c.distortion.clone())
     .collect();
 ```
 
@@ -115,7 +112,9 @@ On the stereo dataset the replay reproduces the first run exactly (`|Δ reproj| 
 
 ### Partial seeding
 
-When intrinsics are seeded but distortion is not, distortion starts at `BrownConrady5::default()` (zeros): the automatic distortion fit is coupled to the iterative intrinsics estimation and does not run when intrinsics are seeded.
+When intrinsics are seeded but distortion is not, distortion starts at zero in the camera's distortion model: the automatic distortion fit is coupled to the iterative intrinsics estimation and does not run when intrinsics are seeded.
+
+A distortion seed is a `DistortionParams` of the camera's own model: its kind must equal `camera.model.distortion` (a Kannala-Brandt seed for a fisheye camera, a Rational seed for a rational one). It is used as given, never converted; a seed of another kind is a typed error naming the field, raised before any work. In JSON it is the tagged form `{"type": "brown_conrady5", "k1": -0.1, ...}`.
 
 When intrinsics are seeded but poses are not, the poses are recovered from the per-view homographies using the **seeded** intrinsics, not automatically estimated ones. This keeps the geometric chain consistent with the seed.
 
@@ -124,10 +123,12 @@ When intrinsics are seeded but poses are not, the poses are recovered from the p
 For a rig whose cameras share one optical design:
 
 ```rust
-use vision_calibration::core::{BrownConrady5, FxFyCxCy};
+use vision_calibration::core::{BrownConrady5, DistortionParams, FxFyCxCy};
 
 let datasheet_k = FxFyCxCy { fx: 1800.0, fy: 1800.0, cx: 360.0, cy: 270.0 };
-let nominal_distortion = BrownConrady5 { k1: -0.1, ..Default::default() };
+let nominal_distortion = DistortionParams::BrownConrady5 {
+    params: BrownConrady5 { k1: -0.1, ..Default::default() },
+};
 
 let mut seed = IntrinsicsManualInit::default();
 seed.per_cam_intrinsics = Some(vec![datasheet_k; num_cameras]);
@@ -168,7 +169,7 @@ init = session.step_intrinsics_init_all_with_seed(seed)
 print(session.log[-1].notes)  # the init log names the manual and the estimated parts
 ```
 
-A seed that does not fit the camera model (a tilt for an untilted camera, one rig pose without the other) raises `ValueError`.
+Distortion seeds are the distortion dataclasses of the camera model (`BrownConradyDistortion`, `KannalaBrandt4Distortion`, …). A seed that does not fit the camera model (a tilt for an untilted camera, a distortion of another kind, one rig pose without the other) raises `ValueError`.
 
 ## See Also
 

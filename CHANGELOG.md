@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `SensorParams`. New models can then arrive in a minor release; a
   `match` on one of them needs a wildcard arm.
 
+- **Distortion seeds are values in the camera's own model.**
+  `IntrinsicsManualInit::distortion`, `DeviceManualInit::distortion` and the
+  rig seeds' `per_cam_distortion` hold `DistortionParams` (they were
+  `BrownConrady5`), and a seed's kind must equal the camera's configured
+  `model.distortion`: another kind is an `InvalidInput` naming the field,
+  raised before any work. A seed is used as given, no longer embedded into
+  another model, so a Kannala-Brandt seed now works on a fisheye camera.
+  Rust: `seed.distortion = Some(DistortionParams::BrownConrady5 { params })`.
+  Python: the seed fields take any `Distortion` dataclass
+  (`vc.BrownConradyDistortion(...)`, `vc.KannalaBrandt4Distortion(...)`);
+  JSON seeds carry the tag, `{"type": "brown_conrady5", "k1": ...}`.
+
 ### Added
 
 - **Fisheye camera model.** `ProjectionKind::Equidistant` (the normalized
@@ -48,8 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `planar_pose::estimate_planar_pose_from_bearings` (a board pose from
     any central camera's bearings, including points beyond 90°).
   - Configuration errors: an equidistant camera with a Scheimpflug
-    sensor, a distortion seed for one (seeds hold a pinhole camera's
-    Brown-Conrady coefficients), and the `LineDistNormalized` laser
+    sensor, and the `LineDistNormalized` laser
     residual on a projection that bends lines (use `PointToPlane`).
 - Each camera-model slot converts to and from its values in
   `param_names()` order: `ProjectionParams`, `DistortionParams` and
