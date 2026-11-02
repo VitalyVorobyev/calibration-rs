@@ -22,7 +22,7 @@ vision-calibration (facade: re-exports only)       vision-calibration-py
     |       +-- vision-calibration-optim    (non-linear refinement)
     |       +-- vision-calibration-linear   (closed-form solvers)
     |       +-- vision-geometry             (deterministic two-view solvers)
-    +-- vision-mvg (N-view pipelines over vision-geometry)
+    +-- vision-mvg (N-view pipelines over vision-geometry and optim)
     +-- vision-calibration-core (types, camera models, RANSAC, linalg)
 ```
 
@@ -36,8 +36,10 @@ vision-calibration (facade: re-exports only)       vision-calibration-py
 - **Geometry is two crates.** `vision-geometry` holds deterministic solvers
   only: no robust loops, no domain policy. `vision-mvg` holds the pipelines
   over them: robust estimation, pose recovery, N-view triangulation, bundle
-  adjustment (behind `refine`), rectification and dense stereo. `linear`
-  uses `vision-geometry` instead of keeping parallel copies.
+  adjustment, rectification and dense stereo. `linear` uses
+  `vision-geometry` instead of keeping parallel copies. `vision-mvg` refines
+  and propagates covariance through optim's public problem builder only
+  ([ADR 0028](0028-measurements-from-a-calibration.md)).
 - **`detect` exchanges plain arrays**, so detector crates may use a
   different nalgebra than the solver stack. Its boundary is typed: a closed
   `DetectorConfig` enum (one variant per detector) reading an 8-bit
