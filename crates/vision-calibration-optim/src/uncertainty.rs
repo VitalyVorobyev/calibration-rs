@@ -161,23 +161,28 @@ pub(crate) fn labelled(
             })
             .collect(),
         fixed: fixed_labels(ir, labels),
-        noise: noise
-            .iter()
-            .map(|f| ResidualNoise {
-                kind: f.family,
-                level: if f.whitened {
-                    NoiseLevel::Sigma0(f.sigma)
-                } else {
-                    NoiseLevel::Sigma(f.sigma)
-                },
-                count: f.num_residuals,
-                camera: None,
-            })
-            .collect(),
+        noise: residual_noise(noise),
         num_residuals: estimate.num_residuals,
         dof: estimate.dof,
         view_scatter: estimate.view_scatter,
     })
+}
+
+/// The noise levels of a solve's residual families, as results report them.
+pub(crate) fn residual_noise(noise: &[FamilyNoise]) -> Vec<ResidualNoise> {
+    noise
+        .iter()
+        .map(|f| ResidualNoise {
+            kind: f.family.clone(),
+            level: if f.whitened {
+                NoiseLevel::Sigma0(f.sigma)
+            } else {
+                NoiseLevel::Sigma(f.sigma)
+            },
+            count: f.num_residuals,
+            camera: None,
+        })
+        .collect()
 }
 
 /// Labels in first-seen order, without repeats.

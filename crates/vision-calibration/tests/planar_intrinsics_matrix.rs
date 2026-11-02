@@ -198,3 +198,58 @@ fn planar_intrinsics_recovers_gt_across_grid_and_noise() {
         }
     }
 }
+
+/// A single-camera export is a rig of one: the identity pose, the camera and
+/// the export's uncertainty.
+#[test]
+fn planar_export_is_a_rig_of_one() {
+    use vision_calibration::common::CalibratedCameras;
+
+    let camera = Camera::new(
+        Pinhole,
+        BrownConrady5 {
+            k1: -0.2,
+            k2: 0.05,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        },
+        IdentitySensor,
+        FxFyCxCy {
+            fx: 800.0,
+            fy: 810.0,
+            cx: 366.0,
+            cy: 263.0,
+        },
+    );
+    let views = planar::project_views_noisy(
+        &camera,
+        &board(),
+        &poses(),
+        &UniformPixelNoise {
+            seed: 42,
+            max_abs_px: 0.1,
+        },
+    )
+    .expect("all board points projectable")
+    .into_iter()
+    .map(View::without_meta)
+    .collect();
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session
+        .set_input(PlanarDataset::new(views).expect("dataset"))
+        .expect("input");
+    step_init(&mut session, None).expect("init");
+    step_optimize(&mut session, None).expect("optimize");
+    let export = session.export().expect("export");
+
+    let rig = export.calibrated_rig().expect("rig");
+    assert_eq!(rig.num_cameras(), 1);
+    assert_eq!(rig.cam_se3_rig(), &[Iso3::identity()]);
+    assert_eq!(
+        rig.cameras()[0].intrinsics.fx,
+        export.params.camera.intrinsics.fx
+    );
+    assert_eq!(rig.uncertainty(), export.parameter_uncertainty());
+}

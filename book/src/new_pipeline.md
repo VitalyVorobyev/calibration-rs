@@ -1,6 +1,6 @@
 # Adding a New Pipeline Problem Type
 
-This chapter is a guide for contributors working inside the `vision-calibration-pipeline` crate. `ProblemType` is sealed, so new problem types are added to the crate itself rather than from downstream code. The laserline device module (`laserline_device/`) is a good template.
+This chapter is a guide for contributors working inside the `vision-calibration-pipeline` crate. `ProblemType` is sealed, so new problem types are added to the crate itself rather than from downstream code; to build a pipeline of your own from your own crate, see [Compose Your Own Pipeline](compose_pipeline.md). The laserline device module (`laserline_device/`) is a good template.
 
 ## Module Structure
 

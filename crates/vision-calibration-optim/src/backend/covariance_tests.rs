@@ -13,7 +13,8 @@ use vision_calibration_core::{
 };
 
 use crate::backend::covariance::{
-    Coordinate, CovarianceEstimate, ParamUncertainty, UnavailableReason,
+    Coordinate, CovarianceEstimate, NullStepMoments, ParamUncertainty, UnavailableReason,
+    null_quantile,
 };
 use crate::backend::{BackendSolveOptions, SolverBackend, solve};
 use crate::ir::{
@@ -481,4 +482,67 @@ fn se3_vec(pose: &Iso3) -> DVector<f64> {
     let q: UnitQuaternion<f64> = pose.rotation;
     let t: Vector3<f64> = pose.translation.vector;
     DVector::from_row_slice(&[q.i, q.j, q.k, q.w, t.x, t.y, t.z])
+}
+
+/// The view-scatter null's trace identities against the steps' covariance
+/// assembled in full: blocks `F_v (W_v − W_v²) F_v` on the diagonal and
+/// `−A_u A_v` between views, for leverages whose eigenvalues include a 1
+/// (a direction only one view observes, inflation 1).
+#[test]
+fn null_step_moments_match_the_assembled_covariance() {
+    let (s, views) = (3, 4);
+    let mut rng = Lcg(7);
+    let mut null = NullStepMoments::new(s);
+    let mut b_blocks = Vec::new();
+    let mut a_blocks = Vec::new();
+    for v in 0..views {
+        let raw = DMatrix::from_fn(s, s, |_, _| rng.gaussian());
+        let u = raw.qr().q();
+        let mut leverage = DVector::from_fn(s, |_, _| 0.9 * rng.next());
+        if v == 0 {
+            leverage[1] = 1.0;
+        }
+        let inflation = leverage.map(|l: f64| if l < 1.0 { 1.0 / (1.0 - l) } else { 1.0 });
+        null.add_view(&u, &leverage, &inflation);
+        let diag = |g: &dyn Fn(f64, f64) -> f64| {
+            let d = DVector::from_fn(s, |i, _| g(leverage[i], inflation[i]));
+            &u * DMatrix::from_diagonal(&d) * u.transpose()
+        };
+        b_blocks.push(diag(&|l, f| f * f * l * (1.0 - l)));
+        a_blocks.push(diag(&|l, f| f * l));
+    }
+    let n = s * views;
+    let mut c = DMatrix::<f64>::zeros(n, n);
+    for u in 0..views {
+        for v in 0..views {
+            let block = if u == v {
+                b_blocks[u].clone()
+            } else {
+                -(&a_blocks[u] * &a_blocks[v])
+            };
+            c.view_mut((u * s, v * s), (s, s)).copy_from(&block);
+        }
+    }
+    let c2 = &c * &c;
+    let dense = [c.trace(), c2.trace(), (&c2 * &c).trace()];
+    for (j, (got, want)) in null.traces().iter().zip(dense).enumerate() {
+        assert!(
+            (got - want).abs() <= 1e-10 * want.abs().max(1.0),
+            "tr C^{}: {got} against {want}",
+            j + 1
+        );
+    }
+}
+
+/// For `C` a projection of rank `k`, `zᵀ z` is χ²_k and the three-moment
+/// fit is exact: the quantile is χ²_k's (Wilson–Hilferty's, within 0.1 % of
+/// the tabulated 97.5 % point 20.483 for k = 10).
+#[test]
+fn null_quantile_of_a_projection_is_chi_square() {
+    let q = null_quantile([10.0, 10.0, 10.0]);
+    assert!((q - 20.483).abs() < 0.02, "{q}");
+    // A scaled, shifted χ² is recovered too: `2 χ²_10` has traces
+    // `[20, 40, 80]` (each eigenvalue 2).
+    let scaled = null_quantile([20.0, 40.0, 80.0]);
+    assert!((scaled - 2.0 * q).abs() < 1e-9, "{scaled}");
 }

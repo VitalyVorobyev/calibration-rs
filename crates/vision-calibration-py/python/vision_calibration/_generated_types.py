@@ -1868,7 +1868,18 @@ class RankedRobotPose(TypedDict):
     """
 
 
-ResidualKind: TypeAlias = Literal["reprojection", "laser_plane", "laser_line"]
+class ResidualKind_Custom(TypedDict):
+    """A residual family of a problem built with the optimization crate's
+    `problem` builder, by its name; its unit is that of the residual.
+    """
+
+    custom: str
+
+
+ResidualKind: TypeAlias = (
+    Literal["reprojection", "laser_plane", "laser_line"]
+    | ResidualKind_Custom
+)
 """A kind of residual, which sets its unit.
 
 - ``"reprojection"``: Target reprojection error, pixels.
@@ -3358,6 +3369,7 @@ __all__ = [
     "RankedCandidate",
     "RankedRobotPose",
     "ResidualKind",
+    "ResidualKind_Custom",
     "ResidualNoise",
     "RigConfig",
     "RigExtrinsicsConfig",

@@ -13,16 +13,18 @@
 //!    recovers `(R, t̂)` up to the known sign fourfold.
 //! 2. Estimated-`F` epipolar residual: `fundamental_8point` on noiseless pixel
 //!    correspondences yields `|x₂ᵀ F x₁| / ‖F‖ ≈ 0`.
-//! 3. Triangulate → reproject round trip: `triangulate_nview` on noiseless
+//! 3. Triangulate → reproject round trip: `triangulate` on noiseless
 //!    metric cameras reprojects back onto the observations.
 
 #![allow(missing_docs)]
 
-use nalgebra::Rotation3;
-use vision_calibration_core::{FxFyCxCy, Mat3, Pt2, Pt3, Vec3};
-use vision_geometry::camera_matrix::Mat34;
+use nalgebra::{Rotation3, Translation3, UnitQuaternion};
+use vision_calibration_core::{
+    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Uncertainty, Vec3,
+    make_pinhole_camera, pinhole_camera_params,
+};
 use vision_geometry::epipolar::{decompose_essential, fundamental_8point};
-use vision_mvg::triangulation::triangulate_nview;
+use vision_mvg::triangulation::{RigObservation, triangulate};
 
 fn skew(v: &Vec3) -> Mat3 {
     Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
@@ -173,34 +175,37 @@ fn triangulate_reproject_roundtrip() {
         fy: 800.0,
         cx: 640.0,
         cy: 360.0,
-    }
-    .k_matrix();
+    };
+    let camera = pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default()));
     let world = scene();
 
     for (rot, t) in pose_grid() {
-        let r = *rot.matrix();
-        let mut p1 = Mat34::zeros();
-        p1.fixed_view_mut::<3, 3>(0, 0).copy_from(&k);
-        let mut p2 = Mat34::zeros();
-        p2.fixed_view_mut::<3, 3>(0, 0).copy_from(&(k * r));
-        p2.set_column(3, &(k * t));
+        let cam1_se3_rig = Iso3::from_parts(
+            Translation3::from(t),
+            UnitQuaternion::from_rotation_matrix(&rot),
+        );
+        let rig = CalibratedRig::new(
+            vec![camera.clone(), camera.clone()],
+            vec![Iso3::identity(), cam1_se3_rig],
+            Uncertainty::default(),
+        )
+        .unwrap();
 
         for pw in &world {
-            let x1 = p1 * nalgebra::Vector4::new(pw.x, pw.y, pw.z, 1.0);
-            let x2 = p2 * nalgebra::Vector4::new(pw.x, pw.y, pw.z, 1.0);
-            if x1.z <= 1e-6 || x2.z <= 1e-6 {
+            let (Some(u1), Some(u2)) = (
+                rig.model(0).unwrap().project_point(pw),
+                rig.model(1).unwrap().project_point(&(cam1_se3_rig * pw)),
+            ) else {
                 continue;
-            }
-            let u1 = Pt2::new(x1.x / x1.z, x1.y / x1.z);
-            let u2 = Pt2::new(x2.x / x2.z, x2.y / x2.z);
+            };
+            let track = vec![RigObservation::new(0, 0, u1), RigObservation::new(0, 1, u2)];
 
-            let tp = triangulate_nview(&[p1, p2], &[u1, u2]).unwrap();
+            let tp = triangulate(&rig, &[Iso3::identity()], &[track])
+                .unwrap()
+                .remove(0);
             // Round-trip: reprojection error is ~0 and the 3D point matches GT.
-            assert!(
-                tp.reprojection_error < 1e-6,
-                "reprojection error {:.3e}",
-                tp.reprojection_error
-            );
+            let reproj = tp.reprojection_error.expect("projects in both cameras");
+            assert!(reproj < 1e-6, "reprojection error {reproj:.3e}");
             assert!(tp.in_front);
             assert!(
                 (tp.point - pw).norm() < 1e-6,

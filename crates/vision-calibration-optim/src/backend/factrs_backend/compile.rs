@@ -194,6 +194,16 @@ pub(super) fn compile(
     initial: &HashMap<String, DVector<f64>>,
 ) -> Result<Compiled, Error> {
     ir.validate()?;
+    if ir
+        .residuals
+        .iter()
+        .any(|r| matches!(r.factor, FactorKind::Custom(_)))
+    {
+        return Err(Error::invalid_input(
+            "a residual defined outside the library runs on the tiny-solver backend only: \
+             factrs fixes each variable's size at compile time",
+        ));
+    }
     let init: Vec<&DVector<f64>> = ir
         .params
         .iter()
@@ -227,6 +237,7 @@ pub(super) fn compile(
             | FactorKind::LaserPointToPlane { model, .. }
             | FactorKind::LaserLineDistance { model, .. } => model.num_cam_blocks(),
             FactorKind::Se3TangentPrior { .. } => 0,
+            FactorKind::Custom(_) => unreachable!("custom residuals are rejected above"),
         };
         let mut vars = Vec::with_capacity(6);
         if n_cam > 0 {

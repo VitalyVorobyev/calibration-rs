@@ -1,6 +1,9 @@
 //! Backend-independent intermediate representation of optimization problems.
 
+mod custom;
 mod types;
+
+pub(crate) use custom::{CustomFactor, CustomNoise, CustomResidual};
 
 pub use types::{
     Bound, CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandeyeMode, LaserChain,

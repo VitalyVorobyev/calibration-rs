@@ -6,80 +6,62 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 match the ROADMAP; each says its phase. Dependencies are named as
 `Needs: <ID>`. Phase 1b tracks are listed in the order they run.
 
-## Extension API — EXT (Phase 1b)
-
-A user builds their own pipeline from the facade. Today the optimization IR,
-the factors and the backends are private and `ProblemType` is sealed, so a
-new residual or problem needs a fork.
-
-- [ ] EXT-ADR - ADR for the public optimization extension:
-  - a user residual trait with a generic `eval<T: RealField>`, bridged to an
-    object-safe trait behind `FactorKind::Custom`;
-  - a public IR builder subset (parameter blocks, manifolds, `FixedMask`,
-    robust losses);
-  - a public solve returning the solution and the covariance over labelled
-    blocks, reusing the existing covariance estimator;
-  - user residuals run on tiny-solver; on factrs they are a typed error;
-  - `ProblemType` stays sealed: composition goes through public building
-    blocks, with the closed-form initializers re-exported on the facade.
-- [ ] EXT-FACTOR - Implement it, with a downstream test crate that uses only
-  the facade, Python where it applies, and a book chapter "Your own
-  residual" (worked example: a known-distance constraint). Needs: EXT-ADR.
-- [ ] EXT-COMPOSE - A book chapter "Compose your own pipeline": closed-form
-  init → IR → solve → σ from the public pieces. The contributor chapters on
-  new problem types say they are for contributors. Needs: EXT-FACTOR.
-
 ## Multiple-view geometry — MVG (Phase 1b)
 
-Measurements from a calibrated system with error bars. Today MVG takes a
-bare `K` (no distortion, fisheye or Scheimpflug), takes and returns no
-covariance, runs BA on tiny-solver outside the optimization IR, and has no
-Python binding and no real-data demonstration.
+Measurements from a calibrated system with error bars, designed in ADR
+0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
+and propagates the calibration's covariance as consider parameters. Today
+MVG takes a `CalibratedRig` and pixels in its closed-form steps, but
+returns no covariance, runs BA and the rectification on a bare `K` and its
+own tiny-solver problem, and has no Python binding and no real-data
+demonstration.
 
-- [ ] MVG-ADR - ADR for the MVG layering and uncertainty:
-  - BA and covariance-bearing refinement move to `optim` on the EXT API;
-    the facade keeps the `mvg` paths; `vision-mvg` keeps the deterministic
-    pipelines and drops its tiny-solver dependency;
-  - MVG takes calibrated cameras (`CameraParams`, rig exports);
-  - σ propagation from measurement noise and the calibration's covariance,
-    keeping the cross-covariance a shared calibration induces;
-  - gauge and scale anchoring for BA.
-  Needs: EXT-ADR.
-- [ ] MVG-CAMERA-IN - MVG APIs take the composable camera and rig exports
-  instead of a bare `K`, so every camera model works (bearings through the
-  camera's own unprojection). Remove the duplicate triangulator and
-  `refine_point` between `vision-geometry` and `vision-mvg`; align names
-  with ADR 0024. Needs: MVG-ADR.
-- [ ] MVG-OBS - Observations carry a 2×2 covariance. Add Mahalanobis
-  reprojection and covariance-weighted Sampson residuals.
-- [ ] MVG-TRI-COV - N-view triangulation returns each point's covariance,
-  from two sources:
-  - measurement noise;
-  - calibration noise: the export's covariance through the projection
-    Jacobian.
+- [ ] MVG-PROBLEM - `optim::problem` for measurements (ADR 0028):
+  - `add_calibrated_rig(&CalibratedRig, Use::{Consider, Prior})`; Consider
+    keeps the calibration fixed and adds `S Σ_c Sᵀ` to the covariance,
+    Prior holds it by its whitened covariance;
+  - reprojection of a point block, and through a rig chain;
+  - whitened reprojection for a stated 2×2 covariance.
 
-  Derived quantities (distances, angles, plane fits) propagate σ jointly
-  and keep the cross-covariance the shared calibration induces between
-  points. Gate: Monte-Carlo over pixel noise and calibration samples.
-  Needs: MVG-OBS.
-- [ ] MVG-BA - Bundle adjustment on the optimization IR through the EXT API:
-  - the composable camera model, not `K` only;
-  - robust losses and optional intrinsics refinement;
-  - gauge options (fixed datum or inner constraints);
-  - covariance through the existing sandwich.
+  Gate: in the "Compose Your Own Pipeline" setup, Consider's σ(depth)
+  matches the scatter when the calibration images are redrawn (the joint
+  solve states 2.53 mm, ratio 0.91), Monte-Carlo within 20 %.
+- [ ] MVG-OBS - An observation's noise is stated: a 2×2 covariance per
+  observation, one σ, or the calibration's reprojection noise level, with
+  no implicit default. Covariance-weighted Sampson residuals. Needs:
+  MVG-PROBLEM.
+- [ ] MVG-TRI-COV - N-view triangulation refined through the problem
+  builder returns each point's covariance from its observations' noise
+  and the calibration's (consider), with the cross-covariance between the
+  points of one call. `vision-mvg` takes the `optim` dependency here. The
+  nonlinear refinement of triangulated points (removed with `refine_point`
+  in MVG-CAMERA-IN, which left the linear estimate) returns through the
+  problem builder. Gate: Monte-Carlo over pixel noise and redrawn
+  calibrations. Needs: MVG-OBS.
+- [ ] MVG-BA - Bundle adjustment through the problem builder, replacing
+  the current `bundle_adjust`:
+  - a `CalibratedRig`, Consider or Prior (refining the cameras);
+  - robust losses;
+  - an explicit gauge: the first rig pose fixed, the scale from the rig's
+    extrinsics or a stated distance, else `InvalidInput` before any work;
+  - covariance in that gauge.
 
-  It replaces the current `bundle_adjust`. Gate: synthetic-GT matrix and
-  Monte-Carlo σ. Needs: EXT-FACTOR, MVG-CAMERA-IN.
+  `vision-mvg` drops its tiny-solver dependency and `refine` feature;
+  homography refinement moves onto the builder. Gate: synthetic-GT matrix
+  and Monte-Carlo σ. Needs: MVG-PROBLEM.
 - [ ] MVG-STEREO - Stereo from a calibration:
-  - rectification straight from a rig export, any supported camera model;
+  - rectification straight from a `CalibratedRig`, any supported camera
+    model (maps through each camera's unprojection);
   - the disparity-to-depth matrix;
   - depth σ from disparity σ and the calibration;
   - a point cloud with per-point covariance.
   The app's Depth workspace then uses it instead of its own conversion.
 - [ ] MVG-METROLOGY - A measurement API (point, distance, angle, plane fit)
-  with joint σ, used by `../vision-metrology` (cross-repo). Needs:
-  MVG-TRI-COV.
-- [ ] MVG-PNP-COV - Object pose from PnP with its covariance.
+  with joint σ, propagated by dual-number Jacobians over the points' joint
+  covariance (a plane fit holds the points as consider parameters), used
+  by `../vision-metrology` (cross-repo). Needs: MVG-TRI-COV.
+- [ ] MVG-PNP-COV - Object pose from PnP with its covariance, the
+  calibration's included (consider). Needs: MVG-OBS.
 - [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
   and the laser-plane covariance. Needs: MVG-TRI-COV.
 - [ ] MVG-PY - Python bindings for the MVG surface.

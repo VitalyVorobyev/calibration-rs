@@ -255,6 +255,11 @@ fn every_problem_follows_the_vocabulary() {
     let _: fn(&mut Rld, Option<rld::PlaneOptimizeOptions>) -> Result<(), Error> =
         rld::step_optimize;
 
+    // The joint rig laser problem has no steps; its seeded runner takes the
+    // warm start's `JointManualInit`.
+    type Rhl = session::CalibrationSession<rhl::RigHandeyeLaserlineProblem>;
+    let _: fn(&mut Rhl, rhl::JointManualInit) -> Result<(), Error> = rhl::run_calibration_with_seed;
+
     // Shared step options are one type, reachable only from `common`.
     let _: common::IntrinsicsInitOptions = common::IntrinsicsInitOptions::default();
     let _: common::RigInitOptions = common::RigInitOptions::default();
@@ -283,7 +288,9 @@ fn mvg_module_surface_compiles() {
     let _ = mvg::pose_recovery::recover_relative_pose;
     let _ = mvg::robust::recover_relative_pose_robust;
     let _ = mvg::RansacOptions::new(1.0e-3);
-    let _ = mvg::triangulation::triangulate_nview;
+    let _ = mvg::triangulation::triangulate;
+    let _: Option<mvg::triangulation::RigObservation> = None;
+    let _: Option<vision_calibration::core::CalibratedRig> = None;
     let _ = mvg::rectification::rectify_stereo_pair;
     let _ = mvg::homography::decompose_homography;
     let _ = mvg::dense::match_block;

@@ -1,6 +1,7 @@
 //! Step runner for joint rig hand-eye laserline calibration.
 
 use crate::Error;
+use crate::common::ExportKind;
 use crate::rig_handeye::{
     RigHandeyeExport, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
 };
@@ -9,15 +10,55 @@ use crate::rig_laserline_device::{
     run_calibration as run_rig_laserline_calibration,
 };
 use crate::session::CalibrationSession;
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraModelSpec, CameraParams};
 use vision_calibration_optim::{
-    BackendSolveOptions, HandeyeMode, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
-    optimize_rig_handeye_laserline,
+    BackendSolveOptions, HandeyeMode, LaserPlane, RigHandeyeLaserlineParams,
+    RigHandeyeLaserlineSolveOptions, optimize_rig_handeye_laserline,
 };
 
-use super::problem::{RigHandeyeLaserlineProblem, joint_fix, joint_fix_extrinsics};
+use super::problem::{
+    RigHandeyeLaserlineConfig, RigHandeyeLaserlineInput, RigHandeyeLaserlineProblem, joint_fix,
+    joint_fix_extrinsics,
+};
+
+/// Manual seeds for the warm start of the joint solve.
+///
+/// The joint solve starts from a rig hand-eye calibration (cameras,
+/// `cam_se3_rig`, the hand-eye transform and the target reference pose) and
+/// one laser plane per camera. Each field replaces one warm-start stage:
+///
+/// - `rig_handeye` — a rig hand-eye result of the same views, for example
+///   from an earlier [`crate::rig_handeye`] run on this input. The `handeye`
+///   stage is skipped and its export used as is: cameras, extrinsics,
+///   hand-eye transform, target reference pose, per-view `rig_se3_target`
+///   and robot-pose corrections. It must have one camera per input camera,
+///   each in the model `handeye.camera` / `handeye.camera_overrides`
+///   configure, one `rig_se3_target` per view (and one robot-pose correction
+///   per view, if it has corrections), and the configured
+///   `handeye_init.handeye_mode` with its hand-eye transform and target
+///   reference pose.
+/// - `planes_cam` — one laser plane per camera, each in its camera's frame
+///   (a design value, say). The `laserline_init` stage refines these
+///   instead of fitting its starting planes linearly.
+///
+/// A field left `None` runs its stage as [`run_calibration`] does.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct JointManualInit {
+    /// Rig hand-eye result to start from instead of running the `handeye`
+    /// stage.
+    pub rig_handeye: Option<RigHandeyeExport>,
+    /// Per-camera laser planes (camera frame) the `laserline_init` stage
+    /// starts from.
+    pub planes_cam: Option<Vec<LaserPlane>>,
+}
 
 /// Run the full joint rig hand-eye laserline pipeline.
+///
+/// The same as [`run_calibration_with_seed`] with an empty seed: runs rig
+/// hand-eye, fits the laser planes against its frozen geometry, then refines
+/// everything jointly.
 ///
 /// # Errors
 ///
@@ -25,17 +66,53 @@ use super::problem::{RigHandeyeLaserlineProblem, joint_fix, joint_fix_extrinsics
 pub fn run_calibration(
     session: &mut CalibrationSession<RigHandeyeLaserlineProblem>,
 ) -> Result<(), Error> {
+    run_calibration_with_seed(session, JointManualInit::default())
+}
+
+/// Run the joint rig hand-eye laserline pipeline from manual seeds.
+///
+/// A seeded field replaces its warm-start stage (see [`JointManualInit`]);
+/// the others run as in [`run_calibration`]. The joint solve is the same.
+///
+/// # Errors
+///
+/// - [`Error::InvalidInput`] when the seed does not fit the input or the
+///   config (camera count or models, view count, hand-eye mode, plane
+///   count), raised before any solve.
+/// - Any error of a warm-start stage or of the joint optimization.
+pub fn run_calibration_with_seed(
+    session: &mut CalibrationSession<RigHandeyeLaserlineProblem>,
+    manual: JointManualInit,
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
     let config = session.config.clone();
     let mode = config.handeye.handeye_init.handeye_mode;
 
-    let mut handeye_session =
-        CalibrationSession::<RigHandeyeProblem>::with_description("joint_warmstart_handeye");
-    handeye_session.set_input(input.handeye_dataset())?;
-    handeye_session.set_config(config.handeye.clone())?;
-    run_rig_handeye_calibration(&mut handeye_session)?;
-    let rig_export = handeye_session.export()?;
+    if let Err(err) = check_manual_init(&input, &config, &manual) {
+        session.log_failure("joint_optimize", err.to_string());
+        return Err(err);
+    }
+    let mut seeded = Vec::new();
+    if manual.rig_handeye.is_some() {
+        seeded.push("rig_handeye");
+    }
+    if manual.planes_cam.is_some() {
+        seeded.push("planes_cam");
+    }
+
+    let rig_export = match manual.rig_handeye {
+        Some(export) => export,
+        None => {
+            let mut handeye_session = CalibrationSession::<RigHandeyeProblem>::with_description(
+                "joint_warmstart_handeye",
+            );
+            handeye_session.set_input(input.handeye_dataset())?;
+            handeye_session.set_config(config.handeye.clone())?;
+            run_rig_handeye_calibration(&mut handeye_session)?;
+            handeye_session.export()?
+        }
+    };
 
     let laserline_dataset = input.laserline_dataset()?;
     let upstream = rig_export.to_upstream_calibration(rig_export.rig_se3_target.clone())?;
@@ -44,7 +121,7 @@ pub fn run_calibration(
     laser_session.set_input(RigLaserlineDeviceInput {
         dataset: laserline_dataset.clone(),
         upstream,
-        initial_planes_cam: None,
+        initial_planes_cam: manual.planes_cam,
     })?;
     laser_session.set_config(config.laserline_init.clone())?;
     run_rig_laserline_calibration(&mut laser_session)?;
@@ -86,13 +163,118 @@ pub fn run_calibration(
     let estimate =
         optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)?;
     session.set_output(estimate.clone());
-    session.log_success_with_notes(
-        "joint_optimize",
-        format!(
-            "mean_reproj={:.3}px, final_cost={:.3e}",
-            estimate.mean_reproj_error_px, estimate.report.final_cost
-        ),
+    let mut notes = format!(
+        "mean_reproj={:.3}px, final_cost={:.3e}",
+        estimate.mean_reproj_error_px, estimate.report.final_cost
     );
+    if !seeded.is_empty() {
+        notes.push_str(&format!(" (manual: {})", seeded.join(", ")));
+    }
+    session.log_success_with_notes("joint_optimize", notes);
+    Ok(())
+}
+
+/// How far from 1 a seeded plane normal's length may be: rounding in a
+/// normal written out to JSON or computed in Python, not a scale.
+const UNIT_NORMAL_TOLERANCE: f64 = 1e-9;
+
+/// Check that a seed fits the input and the config.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming the first mismatch.
+fn check_manual_init(
+    input: &RigHandeyeLaserlineInput,
+    config: &RigHandeyeLaserlineConfig,
+    manual: &JointManualInit,
+) -> Result<(), Error> {
+    let n_cams = input.num_cameras;
+    let n_views = input.num_views();
+    if let Some(export) = &manual.rig_handeye {
+        let fail = |what: String| Err(Error::invalid_input(format!("seed rig_handeye: {what}")));
+        if export.kind != ExportKind::RigHandeye {
+            return fail(format!(
+                "export kind {:?}, expected RigHandeye",
+                export.kind
+            ));
+        }
+        if export.cameras.len() != n_cams || export.cam_se3_rig.len() != n_cams {
+            return fail(format!(
+                "{} cameras / {} cam_se3_rig, expected {n_cams} (the input's cameras)",
+                export.cameras.len(),
+                export.cam_se3_rig.len()
+            ));
+        }
+        for (i, camera) in export.cameras.iter().enumerate() {
+            let configured = config.handeye.camera_for(i).model;
+            if camera.spec() != Some(configured) {
+                return fail(format!(
+                    "camera {i} is a {:?}, the config's handeye.camera is {configured:?}",
+                    camera.spec()
+                ));
+            }
+        }
+        if export.rig_se3_target.len() != n_views {
+            return fail(format!(
+                "{} rig_se3_target poses, expected {n_views} (the input's views)",
+                export.rig_se3_target.len()
+            ));
+        }
+        if let Some(deltas) = &export.robot_deltas
+            && deltas.len() != n_views
+        {
+            return fail(format!(
+                "{} robot_deltas, expected {n_views} (the input's views)",
+                deltas.len()
+            ));
+        }
+        let mode = config.handeye.handeye_init.handeye_mode;
+        if export.handeye_mode != mode {
+            return fail(format!(
+                "handeye_mode {:?}, the config's handeye.handeye_init.handeye_mode is {mode:?}",
+                export.handeye_mode
+            ));
+        }
+        let (handeye, target_ref) = match mode {
+            HandeyeMode::EyeInHand => (export.gripper_se3_rig, export.base_se3_target),
+            HandeyeMode::EyeToHand => (export.rig_se3_base, export.gripper_se3_target),
+        };
+        if handeye.is_none() || target_ref.is_none() {
+            return fail(format!(
+                "{mode:?} export lacks its hand-eye transform or target reference pose"
+            ));
+        }
+    }
+    if let Some(planes) = &manual.planes_cam {
+        if planes.len() != n_cams {
+            return Err(Error::invalid_input(format!(
+                "seed planes_cam: {} planes, expected {n_cams} (one per camera)",
+                planes.len()
+            )));
+        }
+        if let Some(i) = planes
+            .iter()
+            .position(|p| !(p.distance.is_finite() && p.normal.iter().all(|c| c.is_finite())))
+        {
+            return Err(Error::invalid_input(format!(
+                "seed planes_cam: plane {i} is not finite"
+            )));
+        }
+        // `distance` is a distance only for a unit normal, so a normal of
+        // another length is rejected, not rescaled: rescaling the normal
+        // alone would move the plane. (A deserialized plane is not
+        // renormalized.)
+        if let Some(i) = planes
+            .iter()
+            .position(|p| (p.normal.norm() - 1.0).abs() > UNIT_NORMAL_TOLERANCE)
+        {
+            return Err(Error::invalid_input(format!(
+                "seed planes_cam: plane {i} normal has length {}, not 1; divide the normal \
+                 and the distance by its length",
+                planes[i].normal.norm()
+            )));
+        }
+    }
     Ok(())
 }
 

@@ -6,11 +6,12 @@ use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveRe
 use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
 use crate::factors::reprojection_model::reproj_residual;
 use crate::ir::{
-    CameraModelSpec, FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR, ReprojChain,
-    ReprojSqrtInfo, RobustLoss,
+    CameraModelSpec, CustomFactor, FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR,
+    ReprojChain, ReprojSqrtInfo, RobustLoss,
 };
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
+use num_dual::DualDVec64;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tiny_solver::factors::Factor;
@@ -437,6 +438,25 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::Custom(custom) => {
+            Ok((Box::new(TinyCustomFactor(Arc::clone(&custom.factor))), loss))
+        }
+    }
+}
+
+/// A residual defined outside this crate, evaluated through its
+/// object-safe form at the two scalar types tiny-solver linearizes with.
+struct TinyCustomFactor(Arc<dyn CustomFactor>);
+
+impl Factor<f64> for TinyCustomFactor {
+    fn residual_func(&self, params: &[DVector<f64>]) -> DVector<f64> {
+        self.0.eval_f64(params)
+    }
+}
+
+impl Factor<DualDVec64> for TinyCustomFactor {
+    fn residual_func(&self, params: &[DVector<DualDVec64>]) -> DVector<DualDVec64> {
+        self.0.eval_dual(params)
     }
 }
 

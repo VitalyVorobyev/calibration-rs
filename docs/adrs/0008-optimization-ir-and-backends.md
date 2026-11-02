@@ -27,18 +27,31 @@ Problems are built as a `ProblemIR`, pure data with no derivative concepts:
 
 ```rust
 pub enum FactorKind {
-    ReprojPoint       { model: CameraModelDesc, chain: ReprojChain, pw, uv, w },
-    LaserPointToPlane { model: CameraModelDesc, chain: LaserChain, laser_pixel, w },
-    LaserLineDistance { model: CameraModelDesc, chain: LaserChain, laser_pixel, w },
-    Se3TangentPrior   { sqrt_info },
+    ReprojPoint       { model: CameraModelSpec, chain: ReprojChain, pw, uv, sqrt_info },
+    LaserPointToPlane { model: CameraModelSpec, chain: LaserChain, laser_pixel, w },
+    LaserLineDistance { model: CameraModelSpec, chain: LaserChain, laser_pixel, w },
+    Se3TangentPrior   { sqrt_info, residual_sigma },
+    Custom(CustomResidual),
 }
 ```
 
-`CameraModelDesc { projection, distortion, sensor }` names each stage's kind;
+`CameraModelSpec { projection, distortion, sensor }` names each stage's kind;
 every kind reports its parameter `dim()`. A factor's parameter layout is
 derived from the descriptor and chain (`FactorKind::param_layout`), never
 hand-listed, and `ProblemIR::validate` checks blocks against it. Fix masks
 stay on parameter blocks.
+
+### Residuals from outside the crate
+
+`Custom` carries a residual written against the public `Residual` trait
+(ADR 0027) as an `Arc<dyn CustomFactor>`: the trait's generic `eval`,
+monomorphized in the user's crate behind an object-safe form that evaluates
+at `f64` and at tiny-solver's dual numbers. Its layout is the block
+dimensions it declares, on any manifold (it reads stored values), and it
+carries its noise model: a named family, estimated as the built-in families
+are, or whitened known information, counted as a prior. `PartialEq`
+compares the factor by pointer. Only tiny-solver evaluates it; the factrs
+backend rejects an IR that holds one before any work.
 
 ### Monomorphized kernels
 
@@ -87,7 +100,8 @@ single `RobustLoss::rho` / `rho_prime` definition on both backends.
 - The default backend changes only on a measured comparison and the
   maintainer's decision.
 - A new factor kind needs a kernel, a factor on each backend and a parity
-  case. The `FactorKind` enum grows per residual family, not per model.
+  case. The `FactorKind` enum grows per residual family, not per model; a
+  residual a user needs comes through `Custom` and adds no variant.
 - nalgebra and faer versions are pinned jointly by both backends; an
   upgrade moves both.
 - About 70 residual monomorphizations make the optim crate's debug build

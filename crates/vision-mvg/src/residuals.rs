@@ -4,7 +4,7 @@
 //! homography explains a pair of corresponding points.
 
 use crate::types::Correspondence2D;
-use vision_calibration_core::{Mat3, Real, from_homogeneous, to_homogeneous};
+use vision_calibration_core::{Mat3, Real, Vec3, from_homogeneous, to_homogeneous};
 
 /// Algebraic epipolar residual: `x₂ᵀ F x₁`.
 ///
@@ -106,6 +106,30 @@ pub fn epipolar_line_distance(f: &Mat3, c: &Correspondence2D) -> (Real, Real) {
     };
 
     (d1, d2)
+}
+
+/// First-order angular epipolar error of a bearing pair, in radians.
+///
+/// The Sampson distance on the sphere: with unit bearings `b1`, `b2` and an
+/// essential matrix `E` (`b2ᵀ E b1 = 0`),
+///
+/// `e² = (b2ᵀ E b1)² / (‖(I − b1 b1ᵀ) Eᵀ b2‖² + ‖(I − b2 b2ᵀ) E b1‖²)`.
+///
+/// It is the angle by which the two rays would have to move to meet the
+/// epipolar constraint, to first order, and does not change with the scale of
+/// `E`. Returns `INFINITY` when the denominator vanishes (relative to `‖E‖²`),
+/// i.e. a bearing at an epipole, where the constraint carries no information.
+pub(crate) fn angular_epipolar_error(e: &Mat3, b1: &Vec3, b2: &Vec3) -> Real {
+    let e_b1 = e * b1;
+    let et_b2 = e.transpose() * b2;
+    let num = b2.dot(&e_b1);
+    let g1 = et_b2 - b1 * b1.dot(&et_b2);
+    let g2 = e_b1 - b2 * b2.dot(&e_b1);
+    let denom = g1.norm_squared() + g2.norm_squared();
+    if !denom.is_finite() || denom <= Real::EPSILON * e.norm_squared() {
+        return Real::INFINITY;
+    }
+    (num * num / denom).sqrt()
 }
 
 /// Symmetric transfer error for a homography.
@@ -230,5 +254,29 @@ mod tests {
         let bad = Correspondence2D::new(Pt2::new(0.5, 0.5), Pt2::new(-0.3, 0.8));
         let d = sampson_distance(&e, &bad);
         assert!(d > 1e-3, "expected nonzero Sampson for bad correspondence");
+    }
+
+    #[test]
+    fn angular_epipolar_error_is_zero_on_exact_bearings_and_scale_invariant() {
+        let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.02);
+        let t = Vec3::new(0.3, 0.05, 0.01);
+        let e = skew(&t) * rot.matrix();
+        // One point behind the first camera.
+        let world = [Pt3::new(0.1, 0.2, 2.0), Pt3::new(-1.5, 0.3, -0.8)];
+        for pw in &world {
+            let b1 = pw.coords.normalize();
+            let b2 = (rot * pw + t).coords.normalize();
+            assert!(angular_epipolar_error(&e, &b1, &b2) < 1e-12);
+
+            // A bearing moved by an angle δ is penalized by at most δ (the
+            // first-order distance is the smallest move that fixes the pair).
+            let delta = 1e-3;
+            let axis = b2.cross(&Vec3::new(0.3, -0.5, 0.8)).normalize();
+            let moved = Rotation3::from_scaled_axis(axis * delta) * b2;
+            let err = angular_epipolar_error(&e, &b1, &moved);
+            assert!(err > 0.0 && err <= delta * (1.0 + 1e-6), "err {err}");
+            let err_scaled = angular_epipolar_error(&(e * 40.0), &b1, &moved);
+            assert!((err - err_scaled).abs() < 1e-12 * err.max(1.0));
+        }
     }
 }

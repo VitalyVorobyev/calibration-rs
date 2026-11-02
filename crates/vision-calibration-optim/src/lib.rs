@@ -20,7 +20,10 @@
 //! - the input types of the laser and hand-eye problems ([`RobotPoseMeta`],
 //!   [`LaserlineView`], [`RigLaserlineView`], …) and the [`LaserPlane`];
 //! - projection uncertainty ([`projection_uncertainty`]) and the residual
-//!   helpers the analysis reports use.
+//!   helpers the analysis reports use;
+//! - [`problem`]: a least-squares problem of your own, with residuals you
+//!   write and the library's reprojection residual, solved with its
+//!   covariance.
 //!
 //! The solve entry points (`optimize_*`) and their option structs are public
 //! for the workspace's own crates but hidden from these docs and outside the
@@ -56,6 +59,7 @@ mod factors;
 mod information;
 mod ir;
 mod params;
+pub mod problem;
 mod problems;
 mod projection;
 mod uncertainty;

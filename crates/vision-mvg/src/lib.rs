@@ -2,40 +2,61 @@
 //!
 //! This crate provides tools for two-view and multi-view geometry:
 //!
-//! - **Types**: [`Correspondence2D`], [`TriangulatedPoint`], matrix type aliases
+//! - **Types**: [`Correspondence2D`] (a pair of pixels), [`TriangulatedPoint`], matrix type aliases
 //! - **Residuals**: algebraic, Sampson, geometric epipolar residuals and
 //!   symmetric transfer error for homographies
 //! - **Degeneracy**: pure-rotation, planar-scene and poor-baseline detection
 //! - **Pose recovery**: [`recover_relative_pose`] — end-to-end calibrated 2-view pose
-//! - **Triangulation**: two-view and N-view triangulation with diagnostics
+//! - **Triangulation**: [`triangulation::triangulate`] — N-view triangulation of
+//!   pixel tracks from a calibration, with diagnostics
 //!
 //! # Low-level solvers (re-exported from `vision-geometry`)
 //!
 //! The following building-block solvers are re-exported for convenience:
 //!
-//! - [`essential_5point`] — 5-point essential matrix estimation
+//! - [`essential_5point`] — 5-point essential matrix estimation on bearings
 //! - [`fundamental_8point`], [`fundamental_7point`] — fundamental matrix estimation
 //! - [`decompose_essential`] — essential matrix → candidate (R, t) pairs
 //! - [`dlt_homography`] — normalized DLT homography estimation
-//! - [`triangulate_point_linear`] — linear DLT triangulation
+//! - [`triangulate_point_linear`] — linear DLT triangulation of bearings
 //!
 //! # Coordinate conventions
 //!
-//! All calibrated functions expect **normalized camera coordinates** (after
-//! applying `K⁻¹` to pixel coordinates). Pose outputs follow the `T_C_W`
-//! convention: transform from world into camera frame.
+//! Pixels in, bearings inside. The calibrated functions take a
+//! [`CalibratedRig`](vision_calibration_core::CalibratedRig) (the cameras, where
+//! each sits in the rig, and the uncertainty of their parameters) and the
+//! observed **pixels**. Each pixel is unprojected through its camera's own
+//! model into a *bearing*, a unit ray, and the closed-form steps work on
+//! bearings, so every camera model is served, including a fisheye that sees
+//! beyond 90° from its axis, where normalized coordinates do not exist.
+//!
+//! Poses are named `<frame>_se3_<frame>` and map the right frame into the left:
+//! `second_se3_first` takes first-camera coordinates to second-camera
+//! coordinates; `cam_se3_world` takes the world into a camera.
 //!
 //! # Example
 //!
-//! Two views of twelve points: the relative pose comes back with its
-//! translation known up to scale, and the points triangulated:
+//! Two views of twelve points through a camera with lens distortion: the
+//! relative pose comes back with its translation known up to scale, and the
+//! points triangulated:
 //!
 //! ```
 //! use nalgebra::Rotation3;
-//! use vision_calibration_core::{Pt2, Pt3, Vec3};
+//! use vision_calibration_core::{
+//!     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Pt3, Uncertainty, Vec3,
+//!     make_pinhole_camera, pinhole_camera_params,
+//! };
 //! use vision_mvg::{Correspondence2D, recover_relative_pose};
 //!
-//! // The second camera, 20 cm to the right and turned 0.1 rad toward the scene.
+//! // One 800 px camera with barrel distortion, moved between two captures.
+//! let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 480.0 };
+//! let distortion = BrownConrady5 { k1: -0.2, iters: 30, ..Default::default() };
+//! let rig = CalibratedRig::single(
+//!     pinhole_camera_params(&make_pinhole_camera(k, distortion)),
+//!     Uncertainty::default(),
+//! )?;
+//!
+//! // The second view: 20 cm to the right and turned 0.1 rad toward the scene.
 //! let r = Rotation3::from_euler_angles(0.0, -0.1, 0.0).into_inner();
 //! let t = Vec3::new(-0.2, 0.0, 0.0);
 //! let scene: Vec<Pt3> = (0..12)
@@ -44,18 +65,24 @@
 //!         Pt3::new((0.7 * a).sin(), 0.5 * (1.3 * a).cos(), 2.0 + 0.1 * a)
 //!     })
 //!     .collect();
-//! let normalized = |p: Vec3| Pt2::new(p.x / p.z, p.y / p.z);
-//! let corrs: Vec<Correspondence2D> = scene
+//! let model = rig.model(0).unwrap();
+//! let matches: Vec<Correspondence2D> = scene
 //!     .iter()
-//!     .map(|p| Correspondence2D::new(normalized(p.coords), normalized(r * p.coords + t)))
+//!     .map(|p| {
+//!         Correspondence2D::new(
+//!             model.project_point_c(&p.coords).unwrap(),
+//!             model.project_point_c(&(r * p.coords + t)).unwrap(),
+//!         )
+//!     })
 //!     .collect();
 //!
-//! let pose = recover_relative_pose(&corrs)?;
-//! assert!((pose.t.normalize() - t.normalize()).norm() < 1e-6);
+//! let pose = recover_relative_pose(&rig, [0, 0], &matches)?;
+//! assert!((pose.second_se3_first.translation.vector - t.normalize()).norm() < 1e-6);
 //! assert_eq!(pose.points.len(), 12);
 //! # Ok::<(), vision_mvg::MvgError>(())
 //! ```
 
+mod bearing;
 #[cfg(feature = "refine")]
 pub mod bundle_adjust;
 mod cheirality;
@@ -69,6 +96,8 @@ pub mod rectification;
 pub mod refine;
 pub mod residuals;
 pub mod robust;
+#[cfg(test)]
+mod test_support;
 pub mod triangulation;
 pub mod types;
 

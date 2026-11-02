@@ -239,6 +239,20 @@ fn rig_extrinsics_recovers_gt_across_grid_and_noise() {
             let label = format!("{} noise={noise_px}px", cell.label);
 
             assert_eq!(export.cam_se3_rig.len(), 2, "{label}: camera count");
+            {
+                // The export as a calibration value keeps cameras, extrinsics
+                // and uncertainty as exported.
+                use vision_calibration::common::CalibratedCameras;
+                let rig = export.calibrated_rig().expect("rig");
+                assert_eq!(rig.num_cameras(), 2, "{label}");
+                assert_eq!(rig.cam_se3_rig(), export.cam_se3_rig.as_slice(), "{label}");
+                assert_eq!(
+                    rig.cameras()[1].intrinsics.fx,
+                    export.cameras[1].intrinsics.fx,
+                    "{label}"
+                );
+                assert_eq!(rig.uncertainty(), &export.uncertainty, "{label}");
+            }
             assert!(
                 export
                     .cameras

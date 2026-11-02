@@ -1561,6 +1561,9 @@ class ResidualNoise:
     """
 
     kind: str
+    """``"reprojection"``, ``"laser_plane"`` or ``"laser_line"``; for a
+    residual family a Rust program defined (JSON ``{"custom": name}``), its
+    name."""
     sigma: float
     count: int
     camera: int | None = None
@@ -1575,8 +1578,9 @@ class ResidualNoise:
     def from_payload(cls, payload: Mapping[str, Any]) -> "ResidualNoise":
         camera = payload.get("camera")
         whitened = "sigma0" in payload
+        kind = payload["kind"]
         return cls(
-            kind=str(payload["kind"]),
+            kind=str(kind["custom"] if isinstance(kind, Mapping) else kind),
             sigma=float(payload["sigma0" if whitened else "sigma"]),
             count=int(payload["count"]),
             camera=None if camera is None else int(camera),

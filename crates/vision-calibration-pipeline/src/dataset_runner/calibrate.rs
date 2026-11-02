@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vision_calibration_core::{CameraParams, Uncertainty};
+use vision_calibration_core::{CameraParams, Iso3, Uncertainty};
 use vision_calibration_dataset::{DatasetSpec, Topology};
 
 use super::{
@@ -146,6 +146,10 @@ impl CalibrationExport {
 impl CalibratedCameras for CalibrationExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras().camera_params()
+    }
+
+    fn cam_se3_rig(&self) -> Vec<Iso3> {
+        self.cameras().cam_se3_rig()
     }
 
     fn parameter_uncertainty(&self) -> &Uncertainty {

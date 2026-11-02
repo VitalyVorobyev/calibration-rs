@@ -1,26 +1,58 @@
 //! Essential matrix estimation using the 5-point algorithm and a linear solver.
 //!
 //! Implements Nistér's minimal solver for essential matrices from five
-//! point correspondences in normalized coordinates, and a linear (≥5-point)
-//! overdetermined solver for use in RANSAC refit on large inlier sets.
+//! bearing correspondences, and a linear (≥8-point) overdetermined solver for
+//! use in RANSAC refit on large inlier sets. Bearings are rays from each
+//! camera's own unprojection, so the solvers serve every camera model.
 
 use super::polynomial::build_polynomial_system;
 use crate::math::dlt_rank_ok;
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, SMatrix, linalg::Schur};
 use vision_calibration_core::linalg::{mat3_from_svd_row, mat3_from_vec, null_space};
-use vision_calibration_core::{Mat3, Pt2, Real};
+use vision_calibration_core::{Mat3, Real, Vec3};
 
-/// 5-point algorithm for the essential matrix in normalized coordinates.
+/// Row of the epipolar design matrix for one bearing pair, `b2ᵀ E b1 = 0` with
+/// `E` in row-major order. Each bearing is normalized to unit length first.
+fn design_row(b1: &Vec3, b2: &Vec3) -> Result<[Real; 9]> {
+    let norm = |b: &Vec3| -> Result<Vec3> {
+        let n = b.norm();
+        if n.is_finite() && n > 0.0 {
+            Ok(b / n)
+        } else {
+            Err(GeometryError::degenerate(
+                "essential-matrix bearing is zero or not finite",
+            ))
+        }
+    };
+    let q1 = norm(b1)?;
+    let q2 = norm(b2)?;
+    Ok([
+        q2.x * q1.x,
+        q2.x * q1.y,
+        q2.x * q1.z,
+        q2.y * q1.x,
+        q2.y * q1.y,
+        q2.y * q1.z,
+        q2.z * q1.x,
+        q2.z * q1.y,
+        q2.z * q1.z,
+    ])
+}
+
+/// 5-point algorithm for the essential matrix on bearings.
 ///
-/// The inputs must be **calibrated** (e.g. apply `K⁻¹` to pixel points).
-/// Returns up to ten candidate essential matrices that satisfy the cubic
+/// `b1[i]` and `b2[i]` are the bearings (rays in each camera's frame, any
+/// nonzero length) of point `i` in the two views, so the returned `E` satisfies
+/// `b2ᵀ E b1 = 0`. Bearings come from a camera's unprojection; for a pinhole,
+/// `(x, y, 1)` of the normalized coordinates is one. Returns up to ten candidate essential matrices that satisfy the cubic
 /// constraints; choose the physically valid one by cheirality or by
 /// reprojection error against additional correspondences.
 ///
 /// Unlike fundamental matrix solvers, this does **not** apply Hartley
 /// normalization — calibrated coordinates are already well-conditioned.
-pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
+pub fn essential_5point(b1: &[Vec3], b2: &[Vec3]) -> Result<Vec<Mat3>> {
+    let (pts1, pts2) = (b1, b2);
     if pts1.len() != pts2.len() {
         return Err(GeometryError::CountMismatch {
             expected: pts1.len(),
@@ -35,21 +67,10 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     }
 
     let mut a = DMatrix::<Real>::zeros(5, 9);
-    for (i, (p1, p2)) in pts1.iter().zip(pts2.iter()).enumerate() {
-        let x = p1.x;
-        let y = p1.y;
-        let xp = p2.x;
-        let yp = p2.y;
-
-        a[(i, 0)] = xp * x;
-        a[(i, 1)] = xp * y;
-        a[(i, 2)] = xp;
-        a[(i, 3)] = yp * x;
-        a[(i, 4)] = yp * y;
-        a[(i, 5)] = yp;
-        a[(i, 6)] = x;
-        a[(i, 7)] = y;
-        a[(i, 8)] = 1.0;
+    for (i, (q1, q2)) in pts1.iter().zip(pts2.iter()).enumerate() {
+        for (c, v) in design_row(q1, q2)?.into_iter().enumerate() {
+            a[(i, c)] = v;
+        }
     }
 
     let mut a_work = a.clone();
@@ -150,8 +171,8 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 
 /// Linear (≥8-point) essential matrix estimator for overdetermined systems.
 ///
-/// Inputs are **calibrated / normalized camera coordinates** (i.e. apply `K⁻¹`
-/// first). Requires `pts1.len() == pts2.len() >= 8`.
+/// Inputs are **bearings** (see [`essential_5point`]); `E` satisfies
+/// `b2ᵀ E b1 = 0`. Requires `b1.len() == b2.len() >= 8`.
 ///
 /// **Why ≥8?** The 9-column epipolar design matrix has 9 unknowns. Its null
 /// space is 1-dimensional only when `rank(A) == 8`, which requires at least 8
@@ -162,7 +183,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 ///
 /// The algorithm:
 /// 1. Build the 9-column epipolar design matrix `A` (same as the 8-point
-///    fundamental method, but operating on calibrated coords that are already
+///    fundamental method, but operating on unit bearings that are already
 ///    well-conditioned, so Hartley normalization is omitted).
 /// 2. Solve for the null-space vector (right singular vector of smallest
 ///    singular value) → reshape to 3×3 matrix `E_raw`.
@@ -174,7 +195,8 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 ///    → `E = U diag(1,1,0) Vᵀ`.
 ///
 /// Returns the projected essential matrix, or `Err` if the SVD fails.
-pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
+pub fn essential_linear(b1: &[Vec3], b2: &[Vec3]) -> Result<Mat3> {
+    let (pts1, pts2) = (b1, b2);
     if pts1.len() != pts2.len() {
         return Err(GeometryError::CountMismatch {
             expected: pts1.len(),
@@ -190,21 +212,10 @@ pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
 
     let n = pts1.len();
     let mut a = DMatrix::<Real>::zeros(n, 9);
-    for (i, (p1, p2)) in pts1.iter().zip(pts2.iter()).enumerate() {
-        let x = p1.x;
-        let y = p1.y;
-        let xp = p2.x;
-        let yp = p2.y;
-
-        a[(i, 0)] = xp * x;
-        a[(i, 1)] = xp * y;
-        a[(i, 2)] = xp;
-        a[(i, 3)] = yp * x;
-        a[(i, 4)] = yp * y;
-        a[(i, 5)] = yp;
-        a[(i, 6)] = x;
-        a[(i, 7)] = y;
-        a[(i, 8)] = 1.0;
+    for (i, (q1, q2)) in pts1.iter().zip(pts2.iter()).enumerate() {
+        for (c, v) in design_row(q1, q2)?.into_iter().enumerate() {
+            a[(i, c)] = v;
+        }
     }
 
     // Solve `A e = 0` via `AᵀA` symmetric eigen (see [`null_space`]); `AᵀA` is
@@ -245,7 +256,7 @@ pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
 mod tests {
     use super::*;
     use nalgebra::Rotation3;
-    use vision_calibration_core::{Pt3, Vec3};
+    use vision_calibration_core::Pt3;
 
     #[test]
     fn essential_5point_fits_minimal_set() {
@@ -263,11 +274,12 @@ mod tests {
         let mut pts1 = Vec::new();
         let mut pts2 = Vec::new();
         for pw in world {
+            // Bearings are the camera-frame points themselves (any length).
             let pc1 = pw.coords;
             let pc2 = rot * pw + t;
 
-            pts1.push(Pt2::new(pc1.x / pc1.z, pc1.y / pc1.z));
-            pts2.push(Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z));
+            pts1.push(pc1);
+            pts2.push(pc2.coords);
         }
 
         let sols = essential_5point(&pts1, &pts2).unwrap();
@@ -277,9 +289,7 @@ mod tests {
         for e in &sols {
             let mut err = 0.0;
             for (p1, p2) in pts1.iter().zip(pts2.iter()) {
-                let x = nalgebra::Vector3::new(p1.x, p1.y, 1.0);
-                let xp = nalgebra::Vector3::new(p2.x, p2.y, 1.0);
-                let val = xp.transpose() * e * x;
+                let val = p2.normalize().transpose() * e * p1.normalize();
                 err += val[0].abs();
             }
             best = best.min(err);
@@ -312,7 +322,7 @@ mod tests {
         rot: &Rotation3<Real>,
         t: &Vec3,
         n_pts: usize,
-    ) -> (Vec<Pt2>, Vec<Pt2>) {
+    ) -> (Vec<Vec3>, Vec<Vec3>) {
         use vision_calibration_core::Pt3;
 
         // Use a reproducible set of world points.
@@ -327,15 +337,15 @@ mod tests {
             })
             .collect();
 
-        let pts1: Vec<Pt2> = world
+        let pts1: Vec<Vec3> = world
             .iter()
-            .map(|pw| Pt2::new(pw.x / pw.z, pw.y / pw.z))
+            .map(|pw| Vec3::new(pw.x / pw.z, pw.y / pw.z, 1.0))
             .collect();
-        let pts2: Vec<Pt2> = world
+        let pts2: Vec<Vec3> = world
             .iter()
             .map(|pw| {
                 let pc2 = rot * pw + t;
-                Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z)
+                Vec3::new(pc2.x / pc2.z, pc2.y / pc2.z, 1.0)
             })
             .collect();
 
@@ -357,9 +367,7 @@ mod tests {
 
         let mut max_residual: Real = 0.0;
         for (p1, p2) in pts1.iter().zip(pts2.iter()) {
-            let x1 = nalgebra::Vector3::new(p1.x, p1.y, 1.0);
-            let x2 = nalgebra::Vector3::new(p2.x, p2.y, 1.0);
-            let val = (x2.transpose() * e * x1)[0].abs() / e_norm;
+            let val = (p2.normalize().transpose() * e * p1.normalize())[0].abs() / e_norm;
             if val > max_residual {
                 max_residual = val;
             }
@@ -405,7 +413,7 @@ mod tests {
     #[test]
     fn essential_linear_rejects_coincident_rays() {
         // All 8 ray pairs identical → the 9-column design matrix is rank 1.
-        let p = Pt2::new(0.1, 0.2);
+        let p = Vec3::new(0.1, 0.2, 1.0);
         let pts = vec![p; 8];
         assert!(
             essential_linear(&pts, &pts).is_err(),
@@ -420,10 +428,13 @@ mod tests {
     #[test]
     fn essential_linear_rejects_collinear_rays() {
         // All 8 calibrated points on the line y = 0 (horizontal image line).
-        let pts1: Vec<Pt2> = (0..8)
-            .map(|i| Pt2::new(i as Real * 0.05 - 0.175, 0.0))
+        let pts1: Vec<Vec3> = (0..8)
+            .map(|i| Vec3::new(i as Real * 0.05 - 0.175, 0.0, 1.0))
             .collect();
-        let pts2: Vec<Pt2> = pts1.iter().map(|p| Pt2::new(p.x + 0.01, 0.0)).collect();
+        let pts2: Vec<Vec3> = pts1
+            .iter()
+            .map(|p| Vec3::new(p.x + 0.01, 0.0, 1.0))
+            .collect();
         assert!(
             essential_linear(&pts1, &pts2).is_err(),
             "collinear ray pairs must return Err"
@@ -434,14 +445,47 @@ mod tests {
     fn essential_linear_rejects_too_few_points() {
         // The linear solver requires ≥8 correspondences (1-D null space).
         // 7 points leave a ≥2-D null space → must be rejected.
-        let pts = vec![Pt2::new(0.0, 0.0); 7];
+        let pts = vec![Vec3::new(0.0, 0.0, 1.0); 7];
         assert!(essential_linear(&pts, &pts).is_err());
     }
 
     #[test]
     fn essential_linear_rejects_mismatched_lengths() {
-        let p1 = vec![Pt2::new(0.0, 0.0); 6];
-        let p2 = vec![Pt2::new(0.0, 0.0); 5];
+        let p1 = vec![Vec3::new(0.0, 0.0, 1.0); 6];
+        let p2 = vec![Vec3::new(0.0, 0.0, 1.0); 5];
         assert!(essential_linear(&p1, &p2).is_err());
+    }
+
+    /// Bearings need not lie in front of the camera: a wide-angle scene with
+    /// `z ≤ 0` components is solved to the same accuracy, and the bearing
+    /// length is irrelevant.
+    #[test]
+    fn essential_5point_handles_bearings_beyond_90_degrees() {
+        let rot = Rotation3::from_euler_angles(0.2, -0.1, 0.3);
+        let t = Vec3::new(0.5, 0.1, -0.2);
+        // Points all around the first camera, several with z < 0.
+        let world = [
+            Pt3::new(1.5, 0.2, -0.5),
+            Pt3::new(-1.0, 0.8, 0.3),
+            Pt3::new(0.4, -1.4, -0.9),
+            Pt3::new(-1.2, -0.3, -1.1),
+            Pt3::new(0.2, 1.1, 1.6),
+        ];
+        let pts1: Vec<Vec3> = world.iter().map(|p| p.coords * 3.0).collect();
+        let pts2: Vec<Vec3> = world.iter().map(|p| (rot * p + t).coords * 0.2).collect();
+        assert!(pts1.iter().filter(|b| b.z < 0.0).count() >= 2);
+
+        let sols = essential_5point(&pts1, &pts2).unwrap();
+        let best = sols
+            .iter()
+            .map(|e| {
+                pts1.iter()
+                    .zip(&pts2)
+                    .map(|(a, b)| (b.normalize().transpose() * e * a.normalize())[0].abs())
+                    .sum::<Real>()
+                    / e.norm()
+            })
+            .fold(Real::INFINITY, Real::min);
+        assert!(best < 1e-8, "5-point residual {best}");
     }
 }

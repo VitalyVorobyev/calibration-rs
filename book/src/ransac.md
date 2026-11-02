@@ -96,7 +96,7 @@ RANSAC is used with several models in calibration-rs:
 | Homography | 4 | Forward transfer error, pixels | `dlt_homography_ransac` |
 | Homography (two-view) | 4 | Symmetric transfer error, unit of the points | `mvg::robust::estimate_homography` |
 | Fundamental matrix | 8 | Sampson distance, unit of the points | `fundamental_8point_ransac` |
-| Essential matrix | 5 | Sampson distance, normalized image plane | `mvg::robust::estimate_essential`, `recover_relative_pose_robust` |
+| Essential matrix | 5 | Angular epipolar error on bearings, radians | `mvg::robust::estimate_essential`, `recover_relative_pose_robust` |
 | PnP (DLT) | 6 | Reprojection error, pixels | `dlt_ransac` |
 
 ## Deterministic Seeding

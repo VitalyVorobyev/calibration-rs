@@ -98,7 +98,8 @@ fn session_from_json<P: ProblemType>(json: &str) -> PyResult<CalibrationSession<
 /// Stamp out the session class of one problem type.
 ///
 /// `steps` take optional step options; `seeded` steps also take the manual
-/// init seed. Every name resolves in the problem's facade module, which the
+/// init seed; `seeded_runs` (optional) are pipeline functions that take only
+/// a seed. Every name resolves in the problem's facade module, which the
 /// invocation glob-imports.
 macro_rules! session_class {
     (
@@ -106,6 +107,7 @@ macro_rules! session_class {
         $class:ident = $name:literal, $problem:ty;
         steps { $( $step:ident ( $opts:ty ) -> $res:ty ; )* }
         seeded { $( $sstep:ident ( $seed:ty , $sopts:ty ) -> $sres:ty ; )* }
+        $( seeded_runs { $( $rstep:ident ( $rseed:ty ) ; )* } )?
     ) => {
         $(#[$doc])*
         #[pyclass(module = "vision_calibration._vision_calibration", name = $name)]
@@ -222,6 +224,15 @@ macro_rules! session_class {
                     to_py(py, &result)
                 }
             )*
+
+            $( $(
+                fn $rstep(&mut self, py: Python<'_>, seed: &Bound<'_, PyAny>) -> PyResult<()> {
+                    let seed: $rseed = parse_checked(seed, "seed")?;
+                    let inner = &mut self.inner;
+                    py.detach(|| $rstep(inner, seed))
+                        .map_err(|err| calib_err(concat!(stringify!($rstep), " failed"), err))
+                }
+            )* )?
         }
     };
 }
@@ -366,6 +377,9 @@ pub(crate) mod rig_handeye_laserline {
         RigHandeyeLaserlineSession = "RigHandeyeLaserlineSession", RigHandeyeLaserlineProblem;
         steps {}
         seeded {}
+        seeded_runs {
+            run_calibration_with_seed(JointManualInit);
+        }
     }
 }
 

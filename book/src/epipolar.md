@@ -1,6 +1,6 @@
 # Epipolar Geometry
 
-Epipolar geometry describes the geometric relationship between two views of the same scene. It is encoded in the **fundamental matrix** $F$ (for pixel coordinates) or the **essential matrix** $E$ (for normalized coordinates). These matrices are central to stereo vision, visual odometry, and structure from motion.
+Epipolar geometry describes the geometric relationship between two views of the same scene. It is encoded in the **fundamental matrix** $F$ (for pixel coordinates) or the **essential matrix** $E$ (for calibrated bearings). These matrices are central to stereo vision, visual odometry, and structure from motion.
 
 ## Fundamental Matrix
 
@@ -55,9 +55,9 @@ This cubic has 1 or 3 real roots, each giving a candidate $F$.
 
 ### Problem Statement
 
-**Given**: $N$ point correspondences in **normalized coordinates** $\{(\hat{\mathbf{p}}_i, \hat{\mathbf{p}}'_i)\}$ where $\hat{\mathbf{p}} = K^{-1} [\mathbf{p}, 1]^T$.
+**Given**: $N$ point correspondences as **bearings** $\{(\mathbf{b}_i, \mathbf{b}'_i)\}$, the unit rays from each camera's own unprojection of the observed pixel. For a pinhole, $(x, y, 1)$ of the normalized coordinates $K^{-1}[\mathbf{p}, 1]^T$ is a bearing; a fisheye's bearing may point more than 90° from its axis.
 
-**Find**: Essential matrix $E$ satisfying $\hat{\mathbf{p}}'^T E \hat{\mathbf{p}} = 0$.
+**Find**: Essential matrix $E$ satisfying $\mathbf{b}'^T E \mathbf{b} = 0$.
 
 **Properties of $E$**:
 - $E = [t]_\times R$ where $R$ is the relative rotation and $\mathbf{t}$ is the translation direction
@@ -109,7 +109,7 @@ Both solvers have RANSAC wrappers for outlier rejection:
 let (F, inliers) = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
 ```
 
-Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`essential_5point`) returns multiple candidates and is used directly.
+Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`essential_5point`) returns multiple candidates and is used directly; the calibrated `mvg::robust::estimate_essential` wraps it in RANSAC on bearings.
 
 > **OpenCV equivalence**: `cv::findFundamentalMat` (8-point and 7-point), `cv::findEssentialMat` (5-point with RANSAC).
 

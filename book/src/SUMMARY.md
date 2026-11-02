@@ -132,11 +132,23 @@
 
 ---
 
-# Reference and Development
+# Extending the Library
 
-- [Regression Suite](regression_suite.md)
-- [Adding a New Optimization Problem](new_problem.md)
-- [Adding a New Pipeline Problem Type](new_pipeline.md)
+- [Your Own Residual](custom_residual.md)
+- [Compose Your Own Pipeline](compose_pipeline.md)
+
+---
+
+# Reference
+
 - [Synthetic Data Generation](synthetic.md)
 - [Data Types Quick Reference](types_reference.md)
 - [References and Further Reading](references.md)
+
+---
+
+# Contributing to the Library
+
+- [Adding a New Optimization Problem](new_problem.md)
+- [Adding a New Pipeline Problem Type](new_pipeline.md)
+- [Regression Suite](regression_suite.md)

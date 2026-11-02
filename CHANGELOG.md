@@ -19,7 +19,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   images differ in size. A `match` on `RunError` needs the new arm; Python's
   `RunError.kind` is `"image_size_mismatch"`.
 
+- **`ResidualKind` has a `Custom(String)` variant** and is no longer
+  `Copy`: a noise level of a residual family of your own (see
+  `optim::problem` below). A `match` on `ResidualKind` needs the new arm,
+  and code that copied a kind clones it. In JSON a custom family is
+  `{"custom": "<name>"}`; the built-in kinds are unchanged.
+
+- **Multiple-view geometry takes a calibration and pixels** (breaking, in
+  `vision-mvg`, `vision-geometry` and the facade's `mvg`). Closed-form steps
+  work on bearings, the unit rays of each camera's own unprojection, so
+  every camera model works, including a fisheye beyond 90° from its axis:
+  - `recover_relative_pose(&corrs)` is
+    `recover_relative_pose(&rig, [camera0, camera1], &matches)`, and
+    `Correspondence2D` holds a pair of **pixels**, not normalized
+    coordinates. The same for `robust::estimate_essential` and
+    `robust::recover_relative_pose_robust`, which take the rig, the two
+    camera indices, the matches and the options (`[0, 0]` for one moving
+    camera). `RelativePose` and `RobustRelativePose` return
+    `second_se3_first: Iso3` (unit translation) instead of `r` and `t`;
+    `RelativePose` also carries `scene: SceneDiagnostics`.
+  - **The RANSAC threshold of `estimate_essential` and
+    `recover_relative_pose_robust` is in radians**, the first-order angular
+    epipolar error, no longer a Sampson distance on the normalized plane:
+    a pixel threshold `t` is about `t / f` radians for a focal length of
+    `f` px (`1e-3` is about 0.8 px at `f = 800`). `inlier_rms` is in
+    radians too.
+  - `triangulation::triangulate_nview`, `triangulate_two_view` and
+    `triangulate_point_two_view` are `triangulation::triangulate(&rig,
+    &rig_se3_world, &tracks)`, with `RigObservation { capture, camera,
+    pixel }` tracks; for one stereo capture pass `&[Iso3::identity()]`.
+    `TriangulatedPoint::reprojection_error` is an `Option` in pixels
+    through each camera's model (`None` when the point does not project),
+    `parallax_deg` is the largest angle between two observing rays and
+    `in_front` means ahead along every bearing. The estimate is the linear
+    triangulation; there is no Gauss-Newton polish.
+  - `triangulation::triangulate_point_linear` takes poses and bearings
+    (`&[Iso3]` world to camera, `&[Vec3]`) instead of projection matrices
+    and image points. `triangulate_point` and both `refine_point`s are
+    removed.
+  - `essential_5point` and `essential_linear` take bearings (`&[Vec3]`,
+    `b2ᵀ E b1 = 0`); for a pinhole, pass `(x, y, 1)` of the normalized
+    coordinates.
+  - `degeneracy::analyze_scene` is gone; `RelativePose::scene` carries its
+    `SceneDiagnostics`, with depth measured along the first camera's
+    bearing.
+  Rectification, bundle adjustment and the homography and fundamental
+  estimators are unchanged. A type that implements `CalibratedCameras`
+  implements the new required `cam_se3_rig`.
+
 ### Added
+
+- `core::CalibratedRig` is a calibration as a value: the cameras, each
+  camera's `cam_se3_rig` and the joint parameter uncertainty. Every export
+  with cameras produces one with `CalibratedCameras::calibrated_rig`, and
+  `CalibratedCameras::cam_se3_rig` gives the extrinsics (the identity for a
+  single camera). The multiple-view functions take it.
+- `optim::problem` builds and solves a least-squares problem of your own
+  (Rust): parameter blocks (vectors, SE(3) poses, unit vectors) with fixed
+  components, bounds and labels; residuals you write once with a generic
+  `eval` (the `Residual` trait), differentiated exactly by dual numbers;
+  and the library's reprojection residual through a camera of any model
+  (`add_camera`, `add_reprojection`). Each residual states its noise, known
+  (`Noise::Known(σ)`, weighed by it) or estimated per named family. `solve`
+  returns each block's value, the noise of each family and the parameter
+  covariance, labelled as the workflows' results are, so
+  `projection_uncertainty` reads a camera solved this way. Every input is
+  checked as it is added. The book's "Your Own Residual" chapter adds a
+  measured distance to a planar calibration.
+- `init` gathers the closed-form initializers on the facade: Zhang's
+  intrinsics (with distortion), a board's pose from its homography, PnP,
+  hand-eye (Tsai–Lenz) and a plane through points.
+- `optim::SolveReport` is on the facade.
 
 - `vcal`, the command line (`cargo install vision-calibration-cli`; the
   Python package installs it too): `vcal init <folder>` drafts the
@@ -68,6 +138,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rig, hand-eye, target), with robot pose corrections marginalized under
   the result's robot pose error; candidates ranked by the reduction of
   `ln det Σ`. Python: `vc.predict_with_robot_poses`, `vc.rank_robot_poses`.
+- `rig_handeye_laserline::run_calibration_with_seed` starts the joint rig
+  laser solve from a `JointManualInit`: a rig hand-eye export of the same
+  views (an earlier `rig_handeye` run, so a staged calibration need not
+  solve the rig twice) and/or one laser plane per camera (a design value).
+  A seed that does not fit the input or the config is an `InvalidInput`
+  error raised before any solve; with an empty seed it is
+  `run_calibration`. Python: `RigHandeyeLaserlineSession.run_calibration_with_seed`
+  and `rig_handeye_laserline.JointManualInit`.
 
 ### Changed
 
@@ -75,8 +153,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python) fetch the `kuka_1` sample instead of reading the repository's Git
   LFS images.
 
+### Fixed
+
+- **`view_scatter` scales fewer covariances of data that fit the noise
+  model.** Its significance threshold came from a scaled χ² fitted to two
+  moments of the jackknife statistic, which is skewed when few views carry
+  the information; the threshold now fits three (Pearson). On synthetic
+  two-camera rigs at 6–24 views it fired on 3.0 % of clean solves (3.75 %
+  at eight views or fewer) against the intended 2.5 %; it now fires on
+  2.3 % (2.75 %). A false alarm at six views can scale a covariance by 12
+  or more. Estimates are unchanged; the regression suite's results are
+  unchanged.
+
 ### Documentation
 
+- A "Compose Your Own Pipeline" chapter builds a measurement from the
+  public pieces: closed-form starting values, one problem holding a
+  calibration and the pose of a part, and the part's σ with the
+  calibration's uncertainty in it. A camera held fixed at its calibrated
+  values states σ about 2.5 times too small. The book's chapters on adding
+  a problem type or a residual to the library are now under "Contributing
+  to the Library".
 - A "The Command Line" chapter walks through `vcal` on a sample dataset,
   and "The Calibration Report" describes the HTML report.
 - A "Capturing Calibration Images" chapter says how to capture: how many

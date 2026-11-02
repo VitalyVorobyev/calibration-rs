@@ -83,12 +83,20 @@ sets more than that, so the covariance is scaled by a measured factor
   `A_v = F_v W_v`. `E[Σ_J]` exceeds `Σ` where a few views carry most of the
   information (Efron–Stein), by the known `Σ cᵢ`.
 - **Factor.** `k = 1 + (V−1)/V · (tr(Σ⁻¹ Σ_J) − Σ cᵢ) / s`: mean 1 under the
-  noise model, the excess otherwise. The sum of the squared whitened steps
-  has mean `Σ cᵢ` and variance `2 Σ cᵢ² + 4 Σ_{u<v} ‖A_u A_v‖²_F`; taken as
-  a scaled χ² (Satterthwaite, Wilson–Hilferty quantile), the covariance is
-  scaled by `k` only above its 97.5 % point.
+  noise model, the excess otherwise. The steps' joint covariance is
+  `C = B − a aᵀ` (`B` block-diagonal in `F_v² W_v`, `a` the `A_v` stacked),
+  and the sum of their squared norms has the cumulants `tr C = Σ cᵢ`,
+  `2 tr C²` and `8 tr C³`, each from `s × s` products per view. Taken as a
+  shifted, scaled χ² with those three (Pearson; Wilson–Hilferty quantile),
+  the covariance is scaled by `k` only above its 97.5 % point. With few views
+  the sum is skewed, and a two-moment (Satterthwaite) fit underestimated
+  its tail.
 - **Null check** (8 views, 300 clean runs): `k` mean 0.98, standard
-  deviation 0.61 against 0.59 predicted; scaled in 3.7 % of runs.
+  deviation 0.61 against 0.59 predicted; scaled in 3.7 % of runs with the
+  two-moment fit. Two-camera rigs with exactly modelled noise (the
+  rig-extrinsics solve, and the hand-eye with corrected robot poses), 6–24
+  views, 2400 runs: scaled in 3.0 % with two moments, 2.3 % with three
+  (eight views or fewer: 3.75 % and 2.75 %).
 - **Honesty.** Split-half `r` (mean `z²/2` of the projection difference
   between calibrations from disjoint halves, 21 splits; 1 when honest):
 

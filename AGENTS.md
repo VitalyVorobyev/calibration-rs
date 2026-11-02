@@ -29,7 +29,7 @@ The workspace is a strict layered DAG ([ADR 0006](docs/adrs/0006-layered-crate-a
 | `vision-geometry` | core | deterministic two-view solvers |
 | `vision-calibration-linear` | core, geometry | closed-form / linear initialization |
 | `vision-calibration-optim` | core | NLLS IR, factors, robust kernels, solver backends, covariance |
-| `vision-mvg` | core, geometry | MVG pipelines: robust pose, triangulation, BA, rectification, dense stereo |
+| `vision-mvg` | core, geometry, optim | MVG pipelines: robust pose, triangulation, BA, rectification, dense stereo |
 | `vision-calibration-dataset` | — | `DatasetSpec` manifest, validator, folder sniffer |
 | `vision-calibration-detect` | — | target detectors (`DetectorConfig`), detection cache; plain arrays at its boundary |
 | `vision-calibration-pipeline` | core, linear, optim, geometry, dataset, detect | sessions, problem types, `dataset_runner`, analysis |
@@ -202,7 +202,10 @@ All published crates and the PyPI package share one version.
   test across every problem type, the Python class and a book chapter.
 * **A residual (factor)** — a `FactorKind` variant in optim, its generic
   residual, and an arm in both backends and the covariance family map; the
-  book's "Adding a New Optimization Problem" chapter walks through it.
+  book's "Adding a New Optimization Problem" chapter walks through it. A
+  residual a user needs is not a variant: it comes through the public
+  `optim::problem` builder ([ADR 0027](docs/adrs/0027-public-optimization-extension.md),
+  the book's "Your Own Residual").
 * **An MVG pipeline** — `vision-mvg`, within the scope ceiling of ADR 0006
   (geometry over calibrated rigs, no SfM).
 

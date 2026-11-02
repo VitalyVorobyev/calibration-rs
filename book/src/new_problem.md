@@ -1,6 +1,6 @@
 # Adding a New Optimization Problem
 
-This chapter walks through adding a new optimization problem to `vision-calibration-optim`, following the pattern established by the planar intrinsics implementation.
+This chapter is for contributors working inside `vision-calibration-optim`: it walks through adding a new optimization problem to the crate, following the pattern established by the planar intrinsics implementation. To solve a problem of your own from your own crate, see [Your Own Residual](custom_residual.md) and [Compose Your Own Pipeline](compose_pipeline.md).
 
 ## Overview
 

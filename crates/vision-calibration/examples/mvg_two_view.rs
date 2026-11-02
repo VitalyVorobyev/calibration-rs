@@ -4,8 +4,9 @@
 //! walks the facade-exposed MVG surface end-to-end on a synthetic calibrated stereo pair
 //! with known ground truth:
 //!
-//! 1. relative pose recovery (5-point + cheirality) — `mvg::pose_recovery`
-//! 2. two-view triangulation (returned by step 1)   — `mvg::types`
+//! 1. relative pose recovery (5-point + cheirality) on pixels, through the
+//!    cameras' models — `mvg::pose_recovery`
+//! 2. triangulation of the matches (returned by step 1) — `mvg::types`
 //! 3. bundle adjustment (with `--features refine`)   — `mvg::bundle_adjust`
 //! 4. Scheimpflug-aware stereo rectification         — `mvg::rectification`
 //!
@@ -15,7 +16,10 @@
 //! ```
 
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
-use vision_calibration::core::{Iso3, Pt2, Pt3};
+use vision_calibration::core::{
+    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Pt2, Pt3, Uncertainty, make_pinhole_camera,
+    pinhole_camera_params,
+};
 use vision_calibration::mvg::{
     pose_recovery::recover_relative_pose,
     rectification::{RectifyCamera, RectifyOptions, rectify_stereo_pair},
@@ -66,9 +70,23 @@ fn main() {
     let gt = ground_truth_pose();
     let points = scene();
 
-    // Project the scene into both cameras. Camera 0 is the world frame; a point
-    // in camera 1 is `gt * p`. Pose recovery wants normalized coordinates;
-    // rectification wants pixels.
+    // The calibration: one camera, which both captures share.
+    let rig = CalibratedRig::single(
+        pinhole_camera_params(&make_pinhole_camera(
+            FxFyCxCy {
+                fx: k[(0, 0)],
+                fy: k[(1, 1)],
+                cx: k[(0, 2)],
+                cy: k[(1, 2)],
+            },
+            BrownConrady5::default(),
+        )),
+        Uncertainty::default(),
+    )
+    .expect("rig");
+
+    // Project the scene into both views. Camera 0 is the world frame; a point
+    // in camera 1 is `gt * p`. Pose recovery takes the matched pixels.
     let mut corrs = Vec::new();
     let mut px0 = Vec::new();
     let mut px1 = Vec::new();
@@ -78,10 +96,10 @@ fn main() {
         if c0.z <= 0.0 || c1.z <= 0.0 {
             continue;
         }
-        let (n0, n1) = (normalize(&c0), normalize(&c1));
-        corrs.push(Correspondence2D::new(n0, n1));
-        px0.push(to_pixel(&k, &n0));
-        px1.push(to_pixel(&k, &n1));
+        let (u0, u1) = (to_pixel(&k, &normalize(&c0)), to_pixel(&k, &normalize(&c1)));
+        corrs.push(Correspondence2D::new(u0, u1));
+        px0.push(u0);
+        px1.push(u1);
     }
     println!(
         "scene: {} correspondences visible in both views",
@@ -90,9 +108,20 @@ fn main() {
 
     // 1 + 2. Relative pose recovery (5-point + cheirality) also triangulates the
     // inlier correspondences. Translation is recovered up to scale (unit length).
-    let rel = recover_relative_pose(&corrs).expect("recover relative pose");
-    let rot_err = (rel.r - gt.rotation.to_rotation_matrix().into_inner()).norm();
-    let t_dot = rel.t.dot(&gt.translation.vector.normalize()).abs();
+    let rel = recover_relative_pose(&rig, [0, 0], &corrs).expect("recover relative pose");
+    let rot_err = (rel
+        .second_se3_first
+        .rotation
+        .to_rotation_matrix()
+        .into_inner()
+        - gt.rotation.to_rotation_matrix().into_inner())
+    .norm();
+    let t_dot = rel
+        .second_se3_first
+        .translation
+        .vector
+        .dot(&gt.translation.vector.normalize())
+        .abs();
     println!(
         "1. pose recovery : rotation Δ = {rot_err:.2e}, |t·t_gt| = {t_dot:.6}, \
          {} points triangulated",

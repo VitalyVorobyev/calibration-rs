@@ -2,23 +2,28 @@
 //!
 //! Provides RANSAC-based estimators that work with [`Correspondence2D`]:
 //!
-//! - [`estimate_essential`]: 5-point algorithm + Sampson distance
+//! - [`estimate_essential`]: 5-point algorithm on bearings + angular epipolar error
 //! - [`estimate_homography`]: 4-point DLT + symmetric transfer error
-//! - [`recover_relative_pose_robust`]: full pipeline from correspondences to pose
+//! - [`recover_relative_pose_robust`]: full pipeline from matched pixels to pose
 
+use crate::bearing::bearings;
+use crate::pose_recovery::iso_from_rt;
 use crate::residuals;
 use crate::types::Correspondence2D;
 use crate::{MvgError, Result};
-use vision_calibration_core::{Estimator, Mat3, RansacOptions, Real, ransac_fit};
+use vision_calibration_core::{
+    CalibratedRig, Estimator, Iso3, Mat3, RansacOptions, Real, Vec3, ransac_fit,
+};
 
 /// Result of robust essential matrix estimation.
 #[derive(Debug, Clone)]
 pub struct EssentialEstimate {
-    /// The estimated essential matrix.
+    /// The estimated essential matrix: `b2ᵀ E b1 = 0` on the bearings of
+    /// matched pixels.
     pub essential: Mat3,
-    /// Indices of inlier correspondences.
+    /// Indices of inlier matches.
     pub inliers: Vec<usize>,
-    /// RMS Sampson distance over inliers.
+    /// RMS angular epipolar error over inliers, in radians.
     pub inlier_rms: Real,
 }
 
@@ -36,24 +41,30 @@ pub struct HomographyEstimate {
 /// Result of robust relative pose recovery.
 #[derive(Debug, Clone)]
 pub struct RobustRelativePose {
-    /// Rotation from camera 1 to camera 2.
-    pub r: Mat3,
-    /// Unit translation direction from camera 1 to camera 2.
-    pub t: vision_calibration_core::Vec3,
-    /// The essential matrix used.
+    /// Pose of the first camera's frame in the second's (`second_se3_first`),
+    /// with a unit-norm translation: the scale is not observable.
+    pub second_se3_first: Iso3,
+    /// The essential matrix used: `b2ᵀ E b1 = 0` on the bearings.
     pub essential: Mat3,
-    /// Indices of inlier correspondences.
+    /// Indices of inlier matches.
     pub inliers: Vec<usize>,
-    /// RMS Sampson distance over inliers.
+    /// RMS angular epipolar error over inliers, in radians.
     pub inlier_rms: Real,
 }
 
 // --- Essential matrix RANSAC estimator ---
 
+/// The unit bearings of one match, in the two cameras' frames.
+#[derive(Debug, Clone, Copy)]
+struct BearingPair {
+    b1: Vec3,
+    b2: Vec3,
+}
+
 struct EssentialEstimator;
 
 impl Estimator for EssentialEstimator {
-    type Datum = Correspondence2D;
+    type Datum = BearingPair;
     type Model = Mat3;
 
     const MIN_SAMPLES: usize = 5;
@@ -61,37 +72,38 @@ impl Estimator for EssentialEstimator {
     fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model> {
         let n = sample_indices.len();
 
-        // Shared helper: pick the candidate E that minimises the total Sampson
-        // distance over *all* sample_indices (not just the 5 used to construct
-        // the candidates).  Used for both the minimal and the 6-7 point paths.
+        // Shared helper: pick the candidate E that minimises the total angular
+        // epipolar error over *all* sample_indices (not just the 5 used to
+        // construct the candidates).  Used for both the minimal and the 6-7
+        // point paths.
         let best_of = |candidates: Vec<Mat3>| -> Option<Mat3> {
+            let total = |e: &Mat3| -> Real {
+                sample_indices
+                    .iter()
+                    .map(|&i| residuals::angular_epipolar_error(e, &data[i].b1, &data[i].b2))
+                    .sum()
+            };
             candidates.into_iter().min_by(|a, b| {
-                let sa: Real = sample_indices
-                    .iter()
-                    .map(|&i| residuals::sampson_distance(a, &data[i]))
-                    .sum();
-                let sb: Real = sample_indices
-                    .iter()
-                    .map(|&i| residuals::sampson_distance(b, &data[i]))
-                    .sum();
-                sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+                total(a)
+                    .partial_cmp(&total(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
         };
 
         if n >= 8 {
             // Overdetermined case (refit on inliers): the linear solver has a
             // 1-dimensional null space and projects onto the essential manifold.
-            let pts1: Vec<_> = sample_indices.iter().map(|&i| data[i].pt1).collect();
-            let pts2: Vec<_> = sample_indices.iter().map(|&i| data[i].pt2).collect();
-            vision_geometry::epipolar::essential_linear(&pts1, &pts2).ok()
+            let b1: Vec<_> = sample_indices.iter().map(|&i| data[i].b1).collect();
+            let b2: Vec<_> = sample_indices.iter().map(|&i| data[i].b2).collect();
+            vision_geometry::epipolar::essential_linear(&b1, &b2).ok()
         } else if n >= 5 {
             // Minimal or near-minimal case (5, 6, or 7 points): use the 5-point
-            // solver on the first five correspondences, then score all candidates
+            // solver on the first five matches, then score all candidates
             // against the full sample_indices set to pick the best one.
             // RANSAC guarantees n >= MIN_SAMPLES == 5, so n < 5 is unreachable.
-            let pts1: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].pt1).collect();
-            let pts2: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].pt2).collect();
-            let candidates = vision_geometry::epipolar::essential_5point(&pts1, &pts2).ok()?;
+            let b1: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].b1).collect();
+            let b2: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].b2).collect();
+            let candidates = vision_geometry::epipolar::essential_5point(&b1, &b2).ok()?;
             best_of(candidates)
         } else {
             None
@@ -99,19 +111,19 @@ impl Estimator for EssentialEstimator {
     }
 
     fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
-        residuals::sampson_distance(model, datum)
+        residuals::angular_epipolar_error(model, &datum.b1, &datum.b2)
     }
 
     fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
-        // Check if any 3 points are nearly collinear in either image.
+        // Three coplanar first-camera rays (a vanishing triple product of their
+        // bearings) make the sample degenerate.
         if sample_indices.len() < 3 {
             return false;
         }
-        let p0 = data[sample_indices[0]].pt1;
-        let p1 = data[sample_indices[1]].pt1;
-        let p2 = data[sample_indices[2]].pt1;
-        let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-        area.abs() < 1e-9
+        let b0 = data[sample_indices[0]].b1;
+        let b1 = data[sample_indices[1]].b1;
+        let b2 = data[sample_indices[2]].b1;
+        b0.dot(&b1.cross(&b2)).abs() < 1e-9
     }
 }
 
@@ -151,36 +163,60 @@ impl Estimator for HomographyEstimator {
     }
 }
 
-/// Estimate an essential matrix from correspondences using RANSAC.
+/// The matches as bearing pairs through the rig cameras `cameras`.
+fn bearing_pairs(
+    rig: &CalibratedRig,
+    cameras: [usize; 2],
+    matches: &[Correspondence2D],
+) -> Result<Vec<BearingPair>> {
+    let b1 = bearings(rig, cameras[0], matches.iter().map(|c| c.pt1))?;
+    let b2 = bearings(rig, cameras[1], matches.iter().map(|c| c.pt2))?;
+    Ok(b1
+        .into_iter()
+        .zip(b2)
+        .map(|(b1, b2)| BearingPair { b1, b2 })
+        .collect())
+}
+
+/// Estimate an essential matrix from matched pixels using RANSAC.
 ///
-/// Uses the 5-point algorithm as the minimal solver and Sampson distance
-/// as the residual metric. Input points must be in **normalized camera
-/// coordinates**.
+/// `matches[i].pt1` is a pixel of rig camera `cameras[0]` in the first
+/// capture and `matches[i].pt2` of `cameras[1]` in the second (`[0, 0]` for one
+/// moving camera). Pixels are unprojected through each camera's own model into
+/// bearings; the 5-point algorithm is the minimal solver and the first-order
+/// angular epipolar error the residual.
 ///
-/// **Threshold unit:** `opts.thresh` is compared with the (non-squared)
-/// Sampson distance on the normalized image plane, so it is unitless like the
-/// coordinates. A pixel threshold `t` corresponds to `t / f` for a focal
-/// length `f` in pixels (`1.0e-3` is about 0.8 px at `f = 800`). A pixel-scale
-/// value such as `2.0` accepts every match.
+/// **Threshold unit:** `opts.thresh` is compared with that angular error in
+/// **radians**, not pixels. A pixel threshold `t` is about `t / f` radians for a
+/// focal length `f` in pixels near the image centre (`1.0e-3` rad is about
+/// 0.8 px at `f = 800`). A pixel-scale value such as `2.0` accepts every match.
 ///
 /// # Errors
 ///
 /// [`MvgError::Core`] if `opts.thresh` is not finite and positive,
-/// [`MvgError::InsufficientData`] for fewer than 5 correspondences and
-/// [`MvgError::NoConsensus`] if no model reaches `opts.min_inliers`.
+/// [`MvgError::InsufficientData`] for fewer than 5 matches,
+/// [`MvgError::InvalidInput`] for a camera index out of range or a pixel with no
+/// finite viewing ray, and [`MvgError::NoConsensus`] if no model reaches
+/// `opts.min_inliers`.
 pub fn estimate_essential(
-    corrs: &[Correspondence2D],
+    rig: &CalibratedRig,
+    cameras: [usize; 2],
+    matches: &[Correspondence2D],
     opts: &RansacOptions,
 ) -> Result<EssentialEstimate> {
     opts.validate()?;
-    if corrs.len() < 5 {
+    if matches.len() < 5 {
         return Err(MvgError::InsufficientData {
             need: 5,
-            got: corrs.len(),
+            got: matches.len(),
         });
     }
+    let pairs = bearing_pairs(rig, cameras, matches)?;
+    essential_from_pairs(&pairs, opts)
+}
 
-    let result = ransac_fit::<EssentialEstimator>(corrs, opts);
+fn essential_from_pairs(pairs: &[BearingPair], opts: &RansacOptions) -> Result<EssentialEstimate> {
+    let result = ransac_fit::<EssentialEstimator>(pairs, opts);
     if !result.success {
         return Err(MvgError::NoConsensus);
     }
@@ -232,35 +268,46 @@ pub fn estimate_homography(
     })
 }
 
-/// Recover relative pose robustly from correspondences.
+/// Recover relative pose robustly from matched pixels.
 ///
 /// Combines essential matrix RANSAC with decomposition and cheirality
-/// selection. Input points must be in **normalized camera coordinates**.
+/// selection, with the arguments of [`estimate_essential`] (the rig, the
+/// camera of each capture and the matches). The returned `second_se3_first` has
+/// a unit-norm translation.
 ///
 /// **Threshold unit:** as for [`estimate_essential`], `opts.thresh` is the
-/// Sampson distance on the normalized image plane (`t / f` for a pixel
-/// threshold `t` and focal length `f` in pixels).
+/// angular epipolar error in radians (about `t / f` for a pixel threshold `t`
+/// and focal length `f` in pixels).
 ///
 /// # Errors
 ///
 /// The errors of [`estimate_essential`], plus the cheirality errors of the
 /// pose decomposition.
 pub fn recover_relative_pose_robust(
-    corrs: &[Correspondence2D],
+    rig: &CalibratedRig,
+    cameras: [usize; 2],
+    matches: &[Correspondence2D],
     opts: &RansacOptions,
 ) -> Result<RobustRelativePose> {
-    let est = estimate_essential(corrs, opts)?;
+    opts.validate()?;
+    if matches.len() < 5 {
+        return Err(MvgError::InsufficientData {
+            need: 5,
+            got: matches.len(),
+        });
+    }
+    let pairs = bearing_pairs(rig, cameras, matches)?;
+    let est = essential_from_pairs(&pairs, opts)?;
 
-    // Use only inlier correspondences for cheirality disambiguation,
-    // so outliers don't corrupt the positive-depth vote.
-    let inlier_corrs: Vec<_> = est.inliers.iter().map(|&i| corrs[i]).collect();
-    let (pts1, pts2) = Correspondence2D::split(&inlier_corrs);
+    // Use only inliers for cheirality disambiguation, so outliers don't
+    // corrupt the positive-depth vote.
+    let b1: Vec<Vec3> = est.inliers.iter().map(|&i| pairs[i].b1).collect();
+    let b2: Vec<Vec3> = est.inliers.iter().map(|&i| pairs[i].b2).collect();
 
-    let (r, t) = crate::cheirality::recover_pose_from_essential(&est.essential, &pts1, &pts2)?;
+    let (r, t) = crate::cheirality::recover_pose_from_essential(&est.essential, &b1, &b2)?;
 
     Ok(RobustRelativePose {
-        r,
-        t,
+        second_se3_first: iso_from_rt(&r, &t),
         essential: est.essential,
         inliers: est.inliers,
         inlier_rms: est.inlier_rms,
@@ -270,14 +317,24 @@ pub fn recover_relative_pose_robust(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{Lcg, iso, pinhole_rig, pixel_of};
     use nalgebra::Rotation3;
-    use vision_calibration_core::{Pt2, Pt3, Vec3};
+    use vision_calibration_core::{Pt2, Pt3};
 
-    fn make_stereo_corrs_with_outliers() -> (Vec<Correspondence2D>, Mat3, Vec3) {
-        let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
-        let r = *rot.matrix();
-        let t = Vec3::new(0.3, 0.01, 0.005);
+    /// The ground-truth pose of the second view.
+    fn gt_pose() -> Iso3 {
+        iso(0.05, -0.03, 0.02, Vec3::new(0.3, 0.01, 0.005))
+    }
 
+    fn rig() -> CalibratedRig {
+        // Distortion makes the pixel path matter.
+        pinhole_rig(-0.15)
+    }
+
+    /// 15 noise-free matches of an 800 px camera plus 3 gross outliers.
+    fn stereo_matches_with_outliers() -> Vec<Correspondence2D> {
+        let rig = rig();
+        let gt = gt_pose();
         let world = [
             Pt3::new(0.5, 0.3, 3.0),
             Pt3::new(-0.4, 0.2, 4.0),
@@ -295,39 +352,39 @@ mod tests {
             Pt3::new(-0.1, -0.3, 5.2),
             Pt3::new(0.5, -0.2, 4.3),
         ];
-
-        let mut corrs: Vec<_> = world
+        let mut matches: Vec<_> = world
             .iter()
-            .map(|pw| {
-                let pc1 = pw.coords;
-                let pc2 = r * pw.coords + t;
+            .map(|p| {
                 Correspondence2D::new(
-                    Pt2::new(pc1.x / pc1.z, pc1.y / pc1.z),
-                    Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z),
+                    pixel_of(&rig, 0, &p.coords),
+                    pixel_of(&rig, 0, &(gt * p).coords),
                 )
             })
             .collect();
+        // Add outliers.
+        matches.push(Correspondence2D::new(
+            Pt2::new(700.0, 500.0),
+            Pt2::new(100.0, 90.0),
+        ));
+        matches.push(Correspondence2D::new(
+            Pt2::new(400.0, 520.0),
+            Pt2::new(900.0, 100.0),
+        ));
+        matches.push(Correspondence2D::new(
+            Pt2::new(660.0, 400.0),
+            Pt2::new(300.0, 700.0),
+        ));
+        matches
+    }
 
-        // Add outliers (20%).
-        corrs.push(Correspondence2D::new(
-            Pt2::new(0.1, 0.2),
-            Pt2::new(5.0, -3.0),
-        ));
-        corrs.push(Correspondence2D::new(
-            Pt2::new(-0.3, 0.1),
-            Pt2::new(-2.0, 4.0),
-        ));
-        corrs.push(Correspondence2D::new(
-            Pt2::new(0.05, -0.15),
-            Pt2::new(1.5, 1.5),
-        ));
-
-        (corrs, r, t)
+    fn rotation_error_deg(a: &Iso3, b: &Iso3) -> f64 {
+        a.rotation.angle_to(&b.rotation).to_degrees()
     }
 
     #[test]
     fn essential_ransac_with_outliers() {
-        let (corrs, r_gt, t_gt) = make_stereo_corrs_with_outliers();
+        let rig = rig();
+        let matches = stereo_matches_with_outliers();
 
         let opts = RansacOptions {
             max_iters: 500,
@@ -338,29 +395,29 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let est = estimate_essential(&corrs, &opts).unwrap();
+        let est = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
         assert!(
             est.inliers.len() >= 12,
             "expected ≥12 inliers, got {}",
             est.inliers.len()
         );
+        assert!(est.inliers.iter().all(|&i| i < 15), "an outlier survived");
+        assert!(est.inlier_rms < 1e-3);
 
         // Verify decomposition recovers pose (using inliers only).
-        let inlier_corrs: Vec<_> = est.inliers.iter().map(|&i| corrs[i]).collect();
-        let (pts1, pts2) = Correspondence2D::split(&inlier_corrs);
+        let pairs = bearing_pairs(&rig, [0, 0], &matches).unwrap();
+        let b1: Vec<_> = est.inliers.iter().map(|&i| pairs[i].b1).collect();
+        let b2: Vec<_> = est.inliers.iter().map(|&i| pairs[i].b2).collect();
         let (r_est, t_est) =
-            crate::cheirality::recover_pose_from_essential(&est.essential, &pts1, &pts2).unwrap();
-
-        let r_diff = r_est.transpose() * r_gt;
-        let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
-        let ang_deg = cos_theta.acos().to_degrees();
-        assert!(ang_deg < 2.0, "rotation error too large: {} deg", ang_deg);
-
-        let cos_t = t_est.normalize().dot(&t_gt.normalize()).abs();
+            crate::cheirality::recover_pose_from_essential(&est.essential, &b1, &b2).unwrap();
+        let est_pose = iso_from_rt(&r_est, &t_est);
+        assert!(rotation_error_deg(&est_pose, &gt_pose()) < 0.1);
+        let cos_t = t_est
+            .normalize()
+            .dot(&gt_pose().translation.vector.normalize());
         assert!(
-            (cos_t - 1.0).abs() < 0.01,
-            "translation direction error: cos = {}",
-            cos_t
+            (cos_t - 1.0).abs() < 1e-3,
+            "translation direction: cos = {cos_t}"
         );
     }
 
@@ -368,68 +425,77 @@ mod tests {
     /// the inliers keep indices `0..15`.
     fn thirty_percent_outliers() -> (Vec<Correspondence2D>, usize) {
         const N_IN: usize = 15;
-        let (mut corrs, _, _) = make_stereo_corrs_with_outliers();
-        corrs.truncate(N_IN);
-        // Deterministic LCG in [-1, 1).
-        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
-        let mut next = || {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            ((state >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-        };
+        let mut matches = stereo_matches_with_outliers();
+        matches.truncate(N_IN);
+        let mut rng = Lcg(0x9E37_79B9_7F4A_7C15);
         for _ in 0..6 {
-            let (a, b, c, d) = (next(), next(), next(), next());
-            corrs.push(Correspondence2D::new(Pt2::new(a, b), Pt2::new(c, d)));
+            let mut px = || Pt2::new(640.0 + 400.0 * rng.next(), 480.0 + 300.0 * rng.next());
+            let (a, b) = (px(), px());
+            matches.push(Correspondence2D::new(a, b));
         }
-        (corrs, N_IN)
+        (matches, N_IN)
     }
 
     #[test]
-    fn essential_ransac_rejects_outliers_at_normalized_threshold() {
-        let (corrs, n_in) = thirty_percent_outliers();
+    fn essential_ransac_rejects_outliers_at_angular_threshold() {
+        let rig = rig();
+        let (matches, n_in) = thirty_percent_outliers();
         let opts = RansacOptions {
             max_iters: 2000,
             min_inliers: 8,
             seed: 7,
             ..RansacOptions::new(1.0e-3)
         };
-        let est = estimate_essential(&corrs, &opts).unwrap();
+        let est = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
         assert_eq!(est.inliers.len(), n_in, "inlier count");
         assert!(est.inliers.iter().all(|&i| i < n_in), "an outlier survived");
 
-        // A pixel-scale threshold on the normalized plane accepts everything.
+        // A pixel-scale threshold read as radians accepts everything.
         let loose = RansacOptions {
             max_iters: 50,
             min_inliers: 8,
             seed: 7,
             ..RansacOptions::new(2.0)
         };
-        let est = estimate_essential(&corrs, &loose).unwrap();
-        assert_eq!(est.inliers.len(), corrs.len());
+        let est = estimate_essential(&rig, [0, 0], &matches, &loose).unwrap();
+        assert_eq!(est.inliers.len(), matches.len());
     }
 
     #[test]
     fn ransac_threshold_must_be_finite_and_positive() {
-        let (corrs, _) = thirty_percent_outliers();
+        let rig = rig();
+        let (matches, _) = thirty_percent_outliers();
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             let opts = RansacOptions::new(bad);
             assert!(
-                matches!(estimate_essential(&corrs, &opts), Err(MvgError::Core(_))),
+                matches!(
+                    estimate_essential(&rig, [0, 0], &matches, &opts),
+                    Err(MvgError::Core(_))
+                ),
                 "essential accepted thresh {bad}"
             );
             assert!(
-                matches!(estimate_homography(&corrs, &opts), Err(MvgError::Core(_))),
+                matches!(estimate_homography(&matches, &opts), Err(MvgError::Core(_))),
                 "homography accepted thresh {bad}"
             );
             assert!(
                 matches!(
-                    recover_relative_pose_robust(&corrs, &opts),
+                    recover_relative_pose_robust(&rig, [0, 0], &matches, &opts),
                     Err(MvgError::Core(_))
                 ),
                 "pose accepted thresh {bad}"
             );
         }
+    }
+
+    #[test]
+    fn camera_index_out_of_range_is_invalid_input() {
+        let (matches, _) = thirty_percent_outliers();
+        let opts = RansacOptions::new(1e-3);
+        assert!(matches!(
+            estimate_essential(&rig(), [0, 1], &matches, &opts),
+            Err(MvgError::InvalidInput { .. })
+        ));
     }
 
     #[test]
@@ -497,7 +563,8 @@ mod tests {
 
     #[test]
     fn recover_pose_robust_with_outliers() {
-        let (corrs, r_gt, t_gt) = make_stereo_corrs_with_outliers();
+        let rig = rig();
+        let matches = stereo_matches_with_outliers();
 
         let opts = RansacOptions {
             max_iters: 500,
@@ -508,26 +575,23 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let result = recover_relative_pose_robust(&corrs, &opts).unwrap();
+        let result = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts).unwrap();
 
-        let r_diff = result.r.transpose() * r_gt;
-        let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
-        let ang_deg = cos_theta.acos().to_degrees();
-        assert!(ang_deg < 2.0, "rotation error: {} deg", ang_deg);
-
-        let cos_t = result.t.normalize().dot(&t_gt.normalize()).abs();
+        assert!(rotation_error_deg(&result.second_se3_first, &gt_pose()) < 0.1);
+        let t = result.second_se3_first.translation.vector;
+        assert!((t.norm() - 1.0).abs() < 1e-12);
+        let cos_t = t.dot(&gt_pose().translation.vector.normalize());
         assert!(
-            (cos_t - 1.0).abs() < 0.01,
-            "translation direction error: cos = {}",
-            cos_t
+            (cos_t - 1.0).abs() < 1e-3,
+            "translation direction: cos = {cos_t}"
         );
-
         assert!(result.inliers.len() >= 12);
     }
 
     #[test]
     fn essential_ransac_deterministic_with_same_seed() {
-        let (corrs, _, _) = make_stereo_corrs_with_outliers();
+        let rig = rig();
+        let matches = stereo_matches_with_outliers();
 
         let opts = RansacOptions {
             max_iters: 200,
@@ -538,8 +602,8 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let r1 = estimate_essential(&corrs, &opts).unwrap();
-        let r2 = estimate_essential(&corrs, &opts).unwrap();
+        let r1 = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
+        let r2 = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
 
         assert_eq!(r1.inliers, r2.inliers);
         assert!((r1.inlier_rms - r2.inlier_rms).abs() < 1e-15);
@@ -551,16 +615,10 @@ mod tests {
     /// old code called `essential_5point` with all inliers → `Err` → silent
     /// no-op (model tied to a single 5-point sample).  The fix routes the
     /// overdetermined case to `essential_linear`, which accepts any ≥5 points.
-    ///
-    /// We verify:
-    /// 1. `estimate_essential` succeeds and produces ≥12 inliers.
-    /// 2. The refit model satisfies the epipolar constraint on all inliers with
-    ///    a tighter RMS than the 5-point-only baseline would allow on noisy data.
     #[test]
     fn essential_ransac_refit_on_inliers_uses_linear_solver() {
-        let (corrs, r_gt, t_gt) = make_stereo_corrs_with_outliers();
-        let n_corrs = corrs.len();
-        assert!(n_corrs > 5, "test fixture must have >5 correspondences");
+        let rig = rig();
+        let matches = stereo_matches_with_outliers();
 
         let opts_refit = RansacOptions {
             max_iters: 500,
@@ -571,9 +629,8 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let est = estimate_essential(&corrs, &opts_refit).expect("RANSAC with refit must succeed");
-
-        // Must have recovered a good majority of the 15 clean inliers.
+        let est = estimate_essential(&rig, [0, 0], &matches, &opts_refit)
+            .expect("RANSAC with refit must succeed");
         assert!(
             est.inliers.len() >= 12,
             "expected ≥12 inliers after refit, got {}",
@@ -581,44 +638,27 @@ mod tests {
         );
 
         // The refit model must be geometrically valid: decompose and check pose.
-        let inlier_corrs: Vec<_> = est.inliers.iter().map(|&i| corrs[i]).collect();
-        let (pts1, pts2) = crate::types::Correspondence2D::split(&inlier_corrs);
+        let pairs = bearing_pairs(&rig, [0, 0], &matches).unwrap();
+        let b1: Vec<_> = est.inliers.iter().map(|&i| pairs[i].b1).collect();
+        let b2: Vec<_> = est.inliers.iter().map(|&i| pairs[i].b2).collect();
         let (r_est, t_est) =
-            crate::cheirality::recover_pose_from_essential(&est.essential, &pts1, &pts2)
+            crate::cheirality::recover_pose_from_essential(&est.essential, &b1, &b2)
                 .expect("pose decomposition must succeed");
-
-        let r_diff = r_est.transpose() * r_gt;
-        let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
-        let ang_deg = cos_theta.acos().to_degrees();
-        assert!(
-            ang_deg < 2.0,
-            "rotation error after refit: {} deg (expected < 2 deg)",
-            ang_deg
-        );
-
-        let cos_t = t_est.normalize().dot(&t_gt.normalize()).abs();
-        assert!(
-            (cos_t - 1.0).abs() < 0.02,
-            "translation direction error after refit: cos_t = {} (expected ~1.0)",
-            cos_t
-        );
+        assert!(rotation_error_deg(&iso_from_rt(&r_est, &t_est), &gt_pose()) < 0.1);
+        let cos_t = t_est
+            .normalize()
+            .dot(&gt_pose().translation.vector.normalize());
+        assert!((cos_t - 1.0).abs() < 1e-3, "cos_t = {cos_t}");
     }
 
-    /// Test that the 6-/7-point dispatch path in `EssentialEstimator::fit`
-    /// produces a valid essential matrix.
-    ///
-    /// We synthesise 7 calibrated correspondences from a known (R, t), call
-    /// `fit` directly with 7 indices, and verify:
-    ///   1. `fit` returns `Some` (not `None`).
-    ///   2. The epipolar residual `|x2ᵀ E x1|` is near-zero on all 7 points.
-    ///   3. The result lies on the essential manifold: singular values ≈ (σ, σ, 0).
+    /// The 6-/7-point dispatch path in `EssentialEstimator::fit` produces a
+    /// valid essential matrix on bearings, including ones beyond 90° off the
+    /// axis.
     #[test]
     fn essential_fit_7pts_uses_5point_scored_on_all() {
         let rot = Rotation3::from_euler_angles(0.08, -0.04, 0.15);
-        let r = *rot.matrix();
         let t = Vec3::new(0.25, 0.05, 0.01);
 
-        // Build 7 clean calibrated correspondences.
         let world = [
             Pt3::new(0.4, 0.2, 3.0),
             Pt3::new(-0.3, 0.1, 4.0),
@@ -626,32 +666,25 @@ mod tests {
             Pt3::new(-0.2, -0.3, 2.8),
             Pt3::new(0.1, 0.4, 4.5),
             Pt3::new(0.3, -0.4, 5.0),
-            Pt3::new(-0.4, 0.3, 3.2),
+            Pt3::new(-0.4, 0.3, -3.2),
         ];
 
-        let corrs: Vec<Correspondence2D> = world
+        let pairs: Vec<BearingPair> = world
             .iter()
-            .map(|pw| {
-                let pc1 = pw.coords;
-                let pc2 = r * pw.coords + t;
-                Correspondence2D::new(
-                    Pt2::new(pc1.x / pc1.z, pc1.y / pc1.z),
-                    Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z),
-                )
+            .map(|pw| BearingPair {
+                b1: pw.coords.normalize(),
+                b2: (rot * pw.coords + t).normalize(),
             })
             .collect();
 
         let indices: Vec<usize> = (0..7).collect();
         let e =
-            EssentialEstimator::fit(&corrs, &indices).expect("fit with 7 points must return Some");
+            EssentialEstimator::fit(&pairs, &indices).expect("fit with 7 points must return Some");
 
-        // 1. Epipolar residual near zero for all 7 points.
-        let e_norm = e.norm();
-        assert!(e_norm > 0.0, "fit returned zero matrix");
-        for c in &corrs {
-            let x1 = nalgebra::Vector3::new(c.pt1.x, c.pt1.y, 1.0);
-            let x2 = nalgebra::Vector3::new(c.pt2.x, c.pt2.y, 1.0);
-            let res = (x2.transpose() * e * x1)[0].abs() / e_norm;
+        // 1. Angular epipolar error near zero for all 7 points.
+        assert!(e.norm() > 0.0, "fit returned zero matrix");
+        for p in &pairs {
+            let res = residuals::angular_epipolar_error(&e, &p.b1, &p.b2);
             assert!(res < 1e-5, "epipolar residual too large: {:.3e}", res);
         }
 
