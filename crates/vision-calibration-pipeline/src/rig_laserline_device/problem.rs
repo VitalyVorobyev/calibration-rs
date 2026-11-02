@@ -13,7 +13,7 @@ use vision_calibration_optim::{
     compute_rig_laserline_feature_residuals,
 };
 
-use crate::common::config::SolverConfig;
+use crate::common::config::{SolverConfig, check_laser_residual};
 use crate::common::{ExportDiagnostics, ExportKind};
 use crate::rig_family::rig_camera_models;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
@@ -259,7 +259,16 @@ impl ProblemType for RigLaserlineDeviceProblem {
         Ok(())
     }
 
-    fn validate_input_config(_input: &Self::Input, _config: &Self::Config) -> Result<(), Error> {
+    fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
+        for (i, camera) in input.upstream.cameras.iter().enumerate() {
+            if let Some(model) = camera.spec() {
+                check_laser_residual(
+                    config.laser_residual_type,
+                    model,
+                    &format!("laser_residual_type (camera {i})"),
+                )?;
+            }
+        }
         Ok(())
     }
 

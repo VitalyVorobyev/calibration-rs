@@ -9,15 +9,16 @@
 
 use vision_calibration_core::{
     BrownConrady5, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
-    DistortionParams, FxFyCxCy, Iso3, Mat3, PinholeCamera, PlanarDataset, ProjectionParams, Pt2,
-    Real, ScheimpflugParams, SensorKind, SensorParams, make_pinhole_camera,
+    DistortionParams, FxFyCxCy, Iso3, Mat3, PinholeCamera, PlanarDataset, ProjectionKind,
+    ProjectionParams, Pt2, Real, ScheimpflugParams, SensorKind, SensorParams, make_pinhole_camera,
 };
 
 use crate::Error;
-use crate::common::config::{CameraConfig, SolverConfig};
+use crate::common::config::{CameraConfig, CameraInitOptions, SolverConfig};
 use vision_calibration_linear::prelude::{
-    IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
-    estimate_planar_pose_from_h,
+    EquidistantInitOptions, IterativeIntrinsicsOptions, dlt_homography,
+    estimate_equidistant_intrinsics, estimate_intrinsics_iterative,
+    estimate_planar_pose_from_bearings, estimate_planar_pose_from_h,
 };
 use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
@@ -161,19 +162,45 @@ pub(crate) fn check_sensor_seed(
 }
 
 /// Linear bootstrap of camera `cam_idx` (named in errors) of `model` from its
-/// planar views: seeded or auto-fitted intrinsics — Zhang's method, or for a
-/// Scheimpflug sensor without seeded intrinsics the tilted variant that also
-/// sweeps the tilt (a seeded tilt replaces the sweep) — then per-view poses.
-/// The linear stage fits Brown-Conrady coefficients, embedded into the
-/// model's distortion (extra coefficients start at zero).
+/// planar views, by the initializer of the model's projection:
+/// [`bootstrap_pinhole`] or [`bootstrap_fisheye`].
 ///
 /// The caller checks the tilt seed against the model ([`check_sensor_seed`]).
 ///
 /// # Errors
 ///
+/// [`Error::InvalidInput`] for a model without an initializer;
+/// otherwise those of the initializer.
+pub(crate) fn bootstrap_camera(
+    cam_idx: usize,
+    model: CameraModelSpec,
+    dataset: &PlanarDataset,
+    seed: &CameraSeed,
+    init_opts: CameraInitOptions,
+) -> Result<CameraBootstrap, Error> {
+    match model.projection {
+        ProjectionKind::Pinhole => {
+            bootstrap_pinhole(cam_idx, model, dataset, seed, init_opts.pinhole)
+        }
+        ProjectionKind::Equidistant => {
+            bootstrap_fisheye(cam_idx, model, dataset, seed, init_opts.fisheye)
+        }
+        other => Err(unsupported_projection(other)),
+    }
+}
+
+/// Linear bootstrap of a pinhole camera: seeded or auto-fitted intrinsics —
+/// Zhang's method, or for a Scheimpflug sensor without seeded intrinsics the
+/// tilted variant that also sweeps the tilt (a seeded tilt replaces the
+/// sweep) — then per-view poses. The linear stage fits Brown-Conrady
+/// coefficients, embedded into the model's distortion (extra coefficients
+/// start at zero).
+///
+/// # Errors
+///
 /// [`Error::Numerical`] when Zhang's method, the tilted linear init, a
 /// homography or a pose recovery fails.
-pub(crate) fn bootstrap_camera(
+fn bootstrap_pinhole(
     cam_idx: usize,
     model: CameraModelSpec,
     dataset: &PlanarDataset,
@@ -222,6 +249,89 @@ pub(crate) fn bootstrap_camera(
         camera: camera_params(&camera, sensor, model)?,
         poses,
     })
+}
+
+/// Linear bootstrap of an untilted equidistant (fisheye) camera: seeded
+/// intrinsics with zero distortion, or the bearing-based initializer
+/// ([`estimate_equidistant_intrinsics`]), whose Kannala-Brandt `k1`, `k2`
+/// are embedded into the model's distortion by name; per-view poses from
+/// bearings.
+///
+/// # Errors
+///
+/// - [`Error::InvalidInput`] for a tilted sensor or a distortion seed (it
+///   holds Brown-Conrady coefficients of a pinhole camera).
+/// - [`Error::Numerical`] when the initializer or a pose recovery fails.
+fn bootstrap_fisheye(
+    cam_idx: usize,
+    model: CameraModelSpec,
+    dataset: &PlanarDataset,
+    seed: &CameraSeed,
+    opts: EquidistantInitOptions,
+) -> Result<CameraBootstrap, Error> {
+    if model.sensor != SensorKind::Identity {
+        return Err(unsupported_sensor(model.sensor));
+    }
+    if seed.distortion.is_some() {
+        return Err(Error::invalid_input(format!(
+            "camera {cam_idx}: a distortion seed holds Brown-Conrady coefficients of a pinhole \
+             camera; an equidistant camera takes none"
+        )));
+    }
+    let fisheye_camera = |intrinsics, k1, k2| CameraParams {
+        projection: ProjectionParams::Equidistant,
+        distortion: embed_coefficients(&[("k1", k1), ("k2", k2)], model.distortion),
+        sensor: SensorParams::Identity,
+        intrinsics,
+    };
+    if let Some(intrinsics) = seed.intrinsics {
+        let camera = fisheye_camera(intrinsics, 0.0, 0.0);
+        let poses = bearing_poses(cam_idx, dataset, &camera)?;
+        return Ok(CameraBootstrap { camera, poses });
+    }
+    let init = estimate_equidistant_intrinsics(dataset, opts).map_err(|e| {
+        Error::numerical(format!(
+            "fisheye intrinsics initialization failed for camera {cam_idx}: {e}"
+        ))
+    })?;
+    Ok(CameraBootstrap {
+        camera: fisheye_camera(init.intrinsics, init.distortion.k1, init.distortion.k2),
+        poses: init.poses,
+    })
+}
+
+/// Per-view target poses of a central camera from the bearings of its
+/// back-projected pixels.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] if the camera does not build;
+/// [`Error::Numerical`] naming the view whose pose recovery fails.
+pub(crate) fn bearing_poses(
+    cam_idx: usize,
+    dataset: &PlanarDataset,
+    camera: &CameraParams,
+) -> Result<Vec<Iso3>, Error> {
+    let model = camera
+        .build()
+        .map_err(|e| Error::invalid_input(format!("camera {cam_idx}: {e}")))?;
+    dataset
+        .views
+        .iter()
+        .enumerate()
+        .map(|(local_idx, view)| {
+            let (board, pixels) = board_and_pixel_points(&view.obs);
+            let bearings: Vec<_> = pixels
+                .iter()
+                .map(|p| model.backproject_pixel(p).direction)
+                .collect();
+            estimate_planar_pose_from_bearings(&board, &bearings).map_err(|e| {
+                Error::numerical(format!(
+                    "pose estimation failed for cam {cam_idx} view {local_idx}: {e}"
+                ))
+            })
+        })
+        .collect()
 }
 
 /// The parameters of a camera of `model` from its linear-init values:
@@ -339,23 +449,51 @@ pub(crate) fn embed_distortion(
     bc5: &BrownConrady5<Real>,
     kind: DistortionKind,
 ) -> DistortionParams {
-    if kind == DistortionKind::BrownConrady5 {
-        return DistortionParams::BrownConrady5 { params: *bc5 };
+    convert_distortion(&DistortionParams::BrownConrady5 { params: *bc5 }, kind)
+}
+
+/// `distortion` as a distortion of `kind`: itself when it is one, else each
+/// coefficient of `kind` taken from the one of the same name (`k1`, `p1`,
+/// …), and zero where `distortion` has none.
+pub(crate) fn convert_distortion(
+    distortion: &DistortionParams,
+    kind: DistortionKind,
+) -> DistortionParams {
+    if distortion.kind() == kind {
+        return distortion.clone();
     }
+    let names = distortion.kind().param_names();
+    let values = distortion.values();
+    let named: Vec<(&str, Real)> = names.iter().copied().zip(values).collect();
+    embed_coefficients(&named, kind)
+}
+
+/// The distortion of `kind` with each coefficient named in `values` set,
+/// and every other one zero.
+pub(crate) fn embed_coefficients(
+    values: &[(&str, Real)],
+    kind: DistortionKind,
+) -> DistortionParams {
     let values: Vec<Real> = kind
         .param_names()
         .iter()
-        .map(|name| match *name {
-            "k1" => bc5.k1,
-            "k2" => bc5.k2,
-            "k3" => bc5.k3,
-            "p1" => bc5.p1,
-            "p2" => bc5.p2,
-            _ => 0.0,
+        .map(|name| {
+            values
+                .iter()
+                .find(|(n, _)| n == name)
+                .map_or(0.0, |(_, v)| *v)
         })
         .collect();
     DistortionParams::from_values(kind, &values)
         .expect("one value per parameter name, so the dimension matches")
+}
+
+/// The error for a projection kind the planar workflows have no
+/// initializer for.
+pub(crate) fn unsupported_projection(kind: ProjectionKind) -> Error {
+    Error::invalid_input(format!(
+        "planar calibration has no initializer for the {kind:?} projection"
+    ))
 }
 
 /// The sensor of a planar camera of `kind`, tilted by `tilt` when it is a

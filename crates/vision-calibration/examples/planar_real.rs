@@ -55,16 +55,20 @@ fn main() -> Result<()> {
     println!("--- Step 1: Initialization ---");
     let init = step_init(&mut session, None)?;
 
-    let init_k = &init.intrinsics;
-    let init_dist = &init.distortion;
+    let init_k = &init.camera.intrinsics;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
     );
-    println!(
-        "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}\n",
-        init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2
-    );
+    let distortion = &init.camera.distortion;
+    let coefficients: Vec<String> = distortion
+        .kind()
+        .param_names()
+        .iter()
+        .zip(distortion.values())
+        .map(|(name, value)| format!("{name}={value:.4}"))
+        .collect();
+    println!("  Distortion: {}\n", coefficients.join(", "));
 
     println!("--- Step 2: Optimization ---");
     let opt = step_optimize(&mut session, None)?;

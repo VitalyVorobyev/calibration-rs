@@ -137,7 +137,7 @@ let input = session.require_input()?;  // Returns error if no input
 
 // Intermediate results: the typed value returned by each step
 let init = step_init(&mut session, None)?;
-println!("Init fx={:.1}", init.intrinsics.fx);
+println!("Init fx={:.1}", init.camera.intrinsics.fx);
 
 // Output (available after optimize)
 let output = session.require_output()?;
@@ -163,7 +163,7 @@ session.set_input(dataset)  # a PlanarIntrinsicsInput, or its payload dict
 session.set_config(vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(max_iters=50)))
 
 init = session.step_init(vc.IntrinsicsInitOptions(iterations=3))
-print(f"Init fx={init.intrinsics.fx:.1f}")
+print(f"Init fx={init.camera.intrinsics.fx:.1f}")
 session.step_optimize()
 result = session.export(notes="first pass")  # a PlanarIntrinsicsExport
 

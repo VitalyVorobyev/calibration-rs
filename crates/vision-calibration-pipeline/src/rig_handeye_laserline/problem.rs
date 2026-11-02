@@ -1,7 +1,7 @@
 //! [`ProblemType`] implementation for joint rig hand-eye laserline calibration.
 
 use crate::Error;
-use crate::common::config::{RobotPoseConfig, SolverConfig};
+use crate::common::config::{RobotPoseConfig, SolverConfig, check_laser_residual};
 use crate::common::{ExportDiagnostics, ExportKind};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
@@ -335,6 +335,18 @@ impl ProblemType for RigHandeyeLaserlineProblem {
         let models: Vec<CameraModelSpec> = (0..input.num_cameras)
             .map(|i| config.handeye.camera_for(i).model)
             .collect();
+        for (i, &model) in models.iter().enumerate() {
+            check_laser_residual(
+                config.laserline_init.laser_residual_type,
+                model,
+                &format!("laserline_init.laser_residual_type (camera {i})"),
+            )?;
+            check_laser_residual(
+                config.joint_optimize.laser_residual_type,
+                model,
+                &format!("joint_optimize.laser_residual_type (camera {i})"),
+            )?;
+        }
         joint_fix(&config.joint_optimize, &models).map(|_| ())
     }
 

@@ -16,9 +16,12 @@
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraFix, CameraModelSpec, ProjectionKind, SensorKind};
-use vision_calibration_linear::prelude::{DistortionFitOptions, IterativeIntrinsicsOptions};
+use vision_calibration_linear::prelude::{
+    DistortionFitOptions, EquidistantInitOptions, IterativeIntrinsicsOptions,
+};
 use vision_calibration_optim::{
-    BackendSolveOptions, DistortionKind, HandeyeMode, RobustLoss, SolverBackend,
+    BackendSolveOptions, DistortionKind, HandeyeMode, LaserlineResidualType, RobustLoss,
+    SolverBackend,
 };
 
 /// Fixed iteration count for the inner Brown-Conrady distortion fit loop.
@@ -183,18 +186,48 @@ pub(crate) fn validate_rig_cameras(
     Ok(())
 }
 
-/// Check the workflows have an initializer for `model`'s projection: the
-/// linear initializers are pinhole-based (homographies), so a camera of
-/// another projection is rejected before any work rather than solved as a
-/// pinhole.
+/// Check the workflows have an initializer for `model`: Zhang's method for
+/// a pinhole camera (untilted or Scheimpflug), the bearing-based fisheye
+/// initializer for an untilted equidistant one. Any other combination is
+/// rejected before any work rather than initialized as something it is not.
 fn check_projection(field: &str, model: CameraModelSpec) -> Result<(), crate::Error> {
-    match model.projection {
-        ProjectionKind::Pinhole => Ok(()),
-        other => Err(crate::Error::invalid_input(format!(
-            "{field}.model: the {other:?} projection has no initializer in the calibration \
-             workflows yet; they calibrate pinhole cameras"
+    match (model.projection, model.sensor) {
+        (ProjectionKind::Pinhole, _) | (ProjectionKind::Equidistant, SensorKind::Identity) => {
+            Ok(())
+        }
+        (ProjectionKind::Equidistant, sensor) => Err(crate::Error::invalid_input(format!(
+            "{field}.model: the workflows have no initializer for an equidistant camera with \
+             a {sensor:?} sensor"
+        ))),
+        (other, _) => Err(crate::Error::invalid_input(format!(
+            "{field}.model: the workflows have no initializer for the {other:?} projection"
         ))),
     }
+}
+
+/// Check the laser residual `residual` (the config field `field`) fits a
+/// camera of `model`: the line-distance residual measures how far a laser
+/// pixel lies from the laser line's image, which is a straight line only
+/// under a projection that images lines as lines.
+///
+/// # Errors
+///
+/// [`crate::Error::InvalidInput`] naming the field for a line-distance
+/// residual on any other projection.
+pub(crate) fn check_laser_residual(
+    residual: LaserlineResidualType,
+    model: CameraModelSpec,
+    field: &str,
+) -> Result<(), crate::Error> {
+    if residual == LaserlineResidualType::LineDistNormalized && !model.projection.preserves_lines()
+    {
+        return Err(crate::Error::invalid_input(format!(
+            "{field}: the line-distance laser residual needs straight laser lines in the \
+             image, which the {:?} projection bends; use PointToPlane",
+            model.projection
+        )));
+    }
+    Ok(())
 }
 
 /// Check every override names a camera of a rig of `num_cameras`.
@@ -290,28 +323,73 @@ impl IntrinsicsInitConfig {
     /// - the pair is fitted only when both terms are free, since the linear
     ///   fit has no single-term option.
     pub(crate) fn distortion_fit_opts(&self, camera: &CameraConfig) -> DistortionFitOptions {
-        let default = camera.model.default_fix();
-        let held = |list: &Option<Vec<String>>, default: Option<Vec<String>>, name: &str| {
-            list.clone()
-                .or(default)
-                .is_some_and(|l| l.iter().any(|h| h == name))
-        };
-        let distortion = camera.model.distortion.param_names();
-        let free = |n: &str| {
-            distortion.contains(&n) && !held(&camera.fix.distortion, default.distortion.clone(), n)
-        };
-        let estimates_tilt = camera
-            .model
-            .sensor
-            .param_names()
-            .iter()
-            .any(|n| !held(&camera.fix.sensor, default.sensor.clone(), n));
+        let free = |n: &str| camera.fits_distortion_term(n);
         DistortionFitOptions {
             fix_k3: self.fix_k3 || !free("k3"),
-            fix_tangential: estimates_tilt || !(free("p1") && free("p2")),
+            fix_tangential: camera.estimates_tilt() || !(free("p1") && free("p2")),
             iters: DISTORTION_FIT_ITERS,
         }
     }
+
+    /// The per-camera linear-init options for `camera`: Zhang's method with
+    /// its distortion fit ([`Self::iterative_opts`]) for a pinhole camera,
+    /// and the Kannala-Brandt coefficients the fisheye initializer fits —
+    /// `k1`, `k2` unless the camera holds them.
+    pub(crate) fn camera_init_opts(
+        &self,
+        iterations_override: Option<usize>,
+        camera: &CameraConfig,
+    ) -> CameraInitOptions {
+        CameraInitOptions {
+            pinhole: self.iterative_opts(iterations_override, camera),
+            fisheye: EquidistantInitOptions::new(
+                camera.fits_distortion_term("k1"),
+                camera.fits_distortion_term("k2"),
+            ),
+        }
+    }
+}
+
+/// One camera's linear-init options, per initializer; the camera's
+/// projection picks which applies.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CameraInitOptions {
+    /// Zhang's method and the Brown-Conrady fit (pinhole projection).
+    pub pinhole: IterativeIntrinsicsOptions,
+    /// The bearing-based fisheye initializer (equidistant projection).
+    pub fisheye: EquidistantInitOptions,
+}
+
+impl CameraConfig {
+    /// Whether a linear stage may fit distortion term `name`: the model has
+    /// it and its fix list (the model's default when unset) does not hold it.
+    /// A term the non-linear solves hold keeps its initial value, so a
+    /// linearly fitted one would stay at that fit rather than at zero.
+    pub(crate) fn fits_distortion_term(&self, name: &str) -> bool {
+        self.model.distortion.param_names().contains(&name)
+            && !held(
+                &self.fix.distortion,
+                self.model.default_fix().distortion,
+                name,
+            )
+    }
+
+    /// Whether the non-linear solves estimate a sensor tilt.
+    fn estimates_tilt(&self) -> bool {
+        let default = self.model.default_fix().sensor;
+        self.model
+            .sensor
+            .param_names()
+            .iter()
+            .any(|n| !held(&self.fix.sensor, default.clone(), n))
+    }
+}
+
+/// Whether a fix list (`default` when unset) holds `name`.
+fn held(list: &Option<Vec<String>>, default: Option<Vec<String>>, name: &str) -> bool {
+    list.clone()
+        .or(default)
+        .is_some_and(|l| l.iter().any(|h| h == name))
 }
 
 /// Non-linear solve stage options shared across problem types.
@@ -603,22 +681,68 @@ mod tests {
     /// A projection without a linear initializer is rejected before any
     /// work, never solved as a pinhole.
     #[test]
-    fn a_projection_without_an_initializer_is_rejected() {
+    fn only_a_model_with_an_initializer_is_accepted() {
         let fisheye = CameraModelSpec::new(
             ProjectionKind::Equidistant,
             DistortionKind::KannalaBrandt4,
             SensorKind::Identity,
         );
-        let err = CameraConfig::new(fisheye)
+        assert!(CameraConfig::new(fisheye).validate().is_ok());
+
+        let tilted_fisheye = CameraModelSpec {
+            sensor: SensorKind::Scheimpflug,
+            ..fisheye
+        };
+        let err = CameraConfig::new(tilted_fisheye)
             .validate()
             .unwrap_err()
             .to_string();
-        assert!(err.contains("Equidistant"), "{err}");
-        let overrides = vec![CameraOverride::new(1, fisheye)];
+        assert!(
+            err.contains("equidistant") && err.contains("Scheimpflug"),
+            "{err}"
+        );
+        let overrides = vec![CameraOverride::new(1, tilted_fisheye)];
         let err = validate_rig_cameras(&CameraConfig::default(), &overrides)
             .unwrap_err()
             .to_string();
         assert!(err.contains("camera_overrides[0]"), "{err}");
+    }
+
+    #[test]
+    fn the_fisheye_init_fits_the_coefficients_the_camera_frees() {
+        let mut camera = CameraConfig::new(CameraModelSpec::new(
+            ProjectionKind::Equidistant,
+            DistortionKind::KannalaBrandt4,
+            SensorKind::Identity,
+        ));
+        let init = IntrinsicsInitConfig::default();
+        let opts = init.camera_init_opts(None, &camera).fisheye;
+        assert_eq!((opts.fit_k1, opts.fit_k2), (true, true));
+        camera.fix.distortion = Some(vec!["k2".into()]);
+        let opts = init.camera_init_opts(None, &camera).fisheye;
+        assert_eq!((opts.fit_k1, opts.fit_k2), (true, false));
+        camera.model.distortion = DistortionKind::None;
+        let opts = init.camera_init_opts(None, &camera).fisheye;
+        assert_eq!((opts.fit_k1, opts.fit_k2), (false, false));
+    }
+
+    #[test]
+    fn a_fisheye_laser_needs_the_point_to_plane_residual() {
+        let fisheye = CameraModelSpec::new(
+            ProjectionKind::Equidistant,
+            DistortionKind::KannalaBrandt4,
+            SensorKind::Identity,
+        );
+        let line = LaserlineResidualType::LineDistNormalized;
+        let err = check_laser_residual(line, fisheye, "laser_residual_type")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("laser_residual_type") && err.contains("PointToPlane"),
+            "{err}"
+        );
+        assert!(check_laser_residual(LaserlineResidualType::PointToPlane, fisheye, "f").is_ok());
+        assert!(check_laser_residual(line, CameraConfig::default().model, "f").is_ok());
     }
 
     #[test]

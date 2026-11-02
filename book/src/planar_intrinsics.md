@@ -162,7 +162,7 @@ session.update_config(|c| {
 // Run pipeline
 // Inspect initialization
 let init = step_init(&mut session, None)?;
-println!("Init fx={:.1}, fy={:.1}", init.intrinsics.fx, init.intrinsics.fy);
+println!("Init fx={:.1}, fy={:.1}", init.camera.intrinsics.fx, init.camera.intrinsics.fy);
 
 step_optimize(&mut session, None)?;
 

@@ -50,3 +50,31 @@ def planar_calibration_dataset(n_views: int = 10) -> vc.PlanarIntrinsicsInput:
             p2.append((640.0 + 800.0 * pc[0] / pc[2], 360.0 + 780.0 * pc[1] / pc[2]))
         views.append(vc.PlanarView(observation=vc.Observation(points_3d=p3, points_2d=p2)))
     return vc.PlanarIntrinsicsInput(views=views)
+
+
+def fisheye_calibration_dataset() -> vc.PlanarIntrinsicsInput:
+    """Deterministic fisheye views (equidistant, fx=fy=300, cx=640, cy=400,
+    no distortion) of a 9x7 board at 0.03 m, some points beyond 90° off-axis.
+    """
+    board = [(i * 0.03, j * 0.03, 0.0) for i in range(9) for j in range(7)]
+    poses = [
+        ((0.0, 0.0, 0.0), (-0.12, -0.09, 0.3)),
+        ((0.4, 0.0, 0.1), (-0.3, -0.1, 0.25)),
+        ((-0.4, 0.0, -0.1), (0.05, -0.1, 0.25)),
+        ((0.0, 0.5, 0.2), (-0.1, -0.3, 0.2)),
+        ((0.0, -0.5, -0.2), (-0.1, 0.1, 0.2)),
+        ((0.0, 1.4, 0.0), (0.25, -0.09, 0.05)),
+        ((1.3, 0.0, 0.0), (-0.12, 0.2, 0.05)),
+    ]
+    views: list[vc.PlanarView] = []
+    for angles, t in poses:
+        R = euler_rot_xyz(*angles)
+        p3, p2 = [], []
+        for pt in board:
+            x, y, z = transform_point(R, list(t), list(pt))
+            rho = math.hypot(x, y)
+            scale = math.atan2(rho, z) / rho if rho > 0.0 else 1.0 / z
+            p3.append(pt)
+            p2.append((640.0 + 300.0 * scale * x, 400.0 + 300.0 * scale * y))
+        views.append(vc.PlanarView(observation=vc.Observation(points_3d=p3, points_2d=p2)))
+    return vc.PlanarIntrinsicsInput(views=views)

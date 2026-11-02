@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `camera.sensor` (`IdentitySensor` or `ScheimpflugSensor`) where code
   tested the class.
 
+- **Planar intrinsics: `IntrinsicsInitResult` is `{ camera, poses }`**, as
+  in the other workflows: `camera` is the initial `CameraParams` in the
+  configured model, replacing the `intrinsics`, Brown-Conrady `distortion`
+  and `sensor` fields (`init.camera.intrinsics.fx` for
+  `init.intrinsics.fx`). Python's `planar_intrinsics.IntrinsicsInitResult`
+  likewise carries a `Camera`.
+
 - **The camera-model enums are `#[non_exhaustive]`**: `ProjectionKind`,
   `DistortionKind`, `SensorKind`, `ProjectionParams`, `DistortionParams`
   and `SensorParams`. New models can then arrive in a minor release; a
@@ -26,12 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fisheye camera model.** `ProjectionKind::Equidistant` (the normalized
   radius is the incidence angle, so rays beyond 90° project) and
   `DistortionKind::KannalaBrandt4` (`r_d = r (1 + k1 r² + … + k4 r⁸)`).
-  Together they are the Kannala-Brandt model of OpenCV's `fisheye` module;
-  `KannalaBrandt4` on a pinhole camera calibrates in every workflow. The
-  workflows reject an equidistant camera with a configuration error until
-  they have an initializer for it. Python: `EquidistantProjection`,
-  `KannalaBrandt4Distortion`; `CameraModel` projects and back-projects such
-  cameras.
+  Together they are the Kannala-Brandt model of OpenCV's `fisheye` module.
+  Python: `EquidistantProjection`, `KannalaBrandt4Distortion`;
+  `CameraModel` projects and back-projects such cameras.
+  - Every workflow that calibrates a camera calibrates an equidistant one
+    from scratch, a rig per camera. Its linear stage is a new
+    bearing-based initializer instead of Zhang's method: no focal length
+    or image size is needed. On OpenCV's own fisheye test set it lands
+    within 0.3 % of OpenCV's focal length and about 1 px of its principal
+    point before refinement.
+  - `vision-calibration-linear` has the pieces:
+    `equidistant_init::estimate_equidistant_intrinsics` (focal length,
+    principal point, `k1`, `k2` and poses from planar views) and
+    `planar_pose::estimate_planar_pose_from_bearings` (a board pose from
+    any central camera's bearings, including points beyond 90°).
+  - Configuration errors: an equidistant camera with a Scheimpflug
+    sensor, a distortion seed for one (seeds hold a pinhole camera's
+    Brown-Conrady coefficients), and the `LineDistNormalized` laser
+    residual on a projection that bends lines (use `PointToPlane`).
 - Each camera-model slot converts to and from its values in
   `param_names()` order: `ProjectionParams`, `DistortionParams` and
   `SensorParams` have `kind()`, `values()` and `from_values(kind, &values)`,

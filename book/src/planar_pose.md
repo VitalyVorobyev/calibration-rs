@@ -84,3 +84,26 @@ In the planar intrinsics calibration pipeline, pose estimation is applied to eve
 2. Estimate $K$ from all homographies (Zhang's method)
 3. **Decompose each $H_k$** to get pose $T_{C,B}^{(k)}$
 4. Use poses as initial values for non-linear optimization
+
+## Pose from bearings
+
+A fisheye camera's board-to-pixel map is not a homography, but its
+back-projected pixels are still directions from one centre. With bearings
+$\mathbf{b}_i$ (any length, any direction — points beside or behind the
+image plane included), the board-to-bearing map is the homography
+$H \propto [\mathbf{r}_1\ \mathbf{r}_2\ \mathbf{t}]$ itself, with no $K$:
+
+$$\mathbf{b}_i \times H \tilde{\mathbf{p}}_i = \mathbf{0}$$
+
+Each point gives three rows (rank two) of a linear system in the nine
+entries of $H$, solved on Hartley-normalized board points. The scale makes
+$\mathbf{r}_1$, $\mathbf{r}_2$ unit length, and the sign is the one that
+points $H\tilde{\mathbf{p}}_i$ along $\mathbf{b}_i$ — not $t_z > 0$, which
+fails for a board beside the camera.
+
+```rust
+let pose = estimate_planar_pose_from_bearings(&board_xy, &bearings)?;
+```
+
+For a pinhole camera, the bearings of undistorted pixels give the same
+pose as the homography decomposition.

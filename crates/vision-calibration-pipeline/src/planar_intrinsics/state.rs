@@ -4,13 +4,10 @@
 //! computed during the calibration pipeline (homographies, initial estimates, etc.).
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{
-    BrownConrady5, CameraModelSpec, CameraParams, FxFyCxCy, Iso3, Mat3, ProjectionParams, Real,
-    ScheimpflugParams,
-};
+use vision_calibration_core::{CameraModelSpec, CameraParams, Iso3, Mat3};
 use vision_calibration_optim::PlanarIntrinsicsParams;
 
-use crate::planar_family::{embed_distortion, planar_sensor};
+use crate::planar_family::convert_distortion;
 
 /// Intermediate state for planar intrinsics calibration.
 ///
@@ -26,29 +23,23 @@ pub(crate) struct PlanarState {
     // From homography computation
     // ─────────────────────────────────────────────────────────────────────────
     /// Homographies for each view (board_2d -> pixel_2d). Set by the
-    /// untilted initialization; the tilted one estimates its own.
+    /// untilted pinhole initialization; the others estimate none.
     pub homographies: Option<Vec<Mat3>>,
 
     // ─────────────────────────────────────────────────────────────────────────
     // From initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial intrinsics estimate (fx, fy, cx, cy).
-    pub initial_intrinsics: Option<FxFyCxCy<Real>>,
-
-    /// Initial distortion estimate.
+    /// Initial camera.
     ///
-    /// Always Brown-Conrady coefficients: this is the linear-init seed. The
-    /// distortion **model** lives in the config, not in state, so a
-    /// `set_config(model)` between init and optimize is honoured;
-    /// `step_optimize` embeds these coefficients into the configured model.
-    pub initial_distortion: Option<BrownConrady5<Real>>,
+    /// Its distortion holds the linear stage's coefficients (Brown-Conrady
+    /// for a pinhole camera), not necessarily in the configured model: the
+    /// distortion **model** lives in the config, so a `set_config(model)`
+    /// between init and optimize is honoured — [`Self::initial_params`]
+    /// converts the coefficients by name. A change of projection or sensor
+    /// needs a new init.
+    pub initial_camera: Option<CameraParams>,
 
-    /// Initial sensor tilt; set exactly when the camera has a Scheimpflug
-    /// sensor.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub initial_sensor: Option<ScheimpflugParams>,
-
-    /// Whether `initial_sensor` was a user-provided tilt seed (vs
+    /// Whether the initial sensor tilt was a user-provided seed (vs
     /// auto-estimated). When `true`, the optimization trusts that tilt basin
     /// directly instead of running the cold-start multi-start tilt sweep.
     #[serde(default)]
@@ -73,11 +64,11 @@ pub(crate) struct PlanarState {
 impl PlanarState {
     /// Check if initialization has been run.
     ///
-    /// Initialization is considered complete when both initial intrinsics
+    /// Initialization is considered complete when both the initial camera
     /// and initial poses are available.
     #[cfg(test)]
     pub fn is_initialized(&self) -> bool {
-        self.initial_intrinsics.is_some() && self.initial_poses.is_some()
+        self.initial_camera.is_some() && self.initial_poses.is_some()
     }
 
     /// Check if optimization has been run.
@@ -86,25 +77,24 @@ impl PlanarState {
         self.final_cost.is_some()
     }
 
-    /// Initial parameters for optimizing a camera of `model`.
-    ///
-    /// The Brown-Conrady linear-init coefficients are embedded into
-    /// `model.distortion` (extra coefficients start at zero); the sensor is
-    /// the initial tilt for a Scheimpflug model.
+    /// Initial parameters for optimizing a camera of `model`: the initial
+    /// camera with its distortion converted into `model.distortion` (extra
+    /// coefficients start at zero).
     ///
     /// Returns `None` if initialization hasn't been run.
     pub fn initial_params(&self, model: CameraModelSpec) -> Option<PlanarIntrinsicsParams> {
         let poses = self.initial_poses.clone()?;
-        let intrinsics = self.initial_intrinsics?;
-        let distortion = self.initial_distortion.unwrap_or_default();
-        let sensor = planar_sensor(model.sensor, self.initial_sensor).ok()?;
-        let camera = CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: embed_distortion(&distortion, model.distortion),
-            sensor,
-            intrinsics,
-        };
+        let mut camera = self.initial_camera.clone()?;
+        camera.distortion = convert_distortion(&camera.distortion, model.distortion);
         PlanarIntrinsicsParams::new(camera, poses).ok()
+    }
+
+    /// Whether the initial camera has the projection and sensor of `model`,
+    /// so [`Self::initial_params`] applies to it.
+    pub fn initialized_for(&self, model: CameraModelSpec) -> bool {
+        self.initial_camera.as_ref().is_some_and(|c| {
+            c.projection.kind() == model.projection && c.sensor.kind() == Some(model.sensor)
+        })
     }
 
     /// Clear optimization results, keeping initialization.
@@ -124,11 +114,36 @@ impl PlanarState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::Iso3;
-    use vision_calibration_core::{DistortionKind, DistortionParams, SensorKind, SensorParams};
+    use vision_calibration_core::{
+        BrownConrady5, DistortionKind, DistortionParams, FxFyCxCy, ProjectionParams,
+        ScheimpflugParams, SensorKind, SensorParams,
+    };
 
     fn pinhole_bc5() -> CameraModelSpec {
         CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity)
+    }
+
+    fn camera(sensor: SensorParams) -> CameraParams {
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 {
+                params: BrownConrady5 {
+                    k1: -0.1,
+                    k2: 0.05,
+                    k3: 0.0,
+                    p1: 0.001,
+                    p2: -0.001,
+                    iters: 8,
+                },
+            },
+            sensor,
+            intrinsics: FxFyCxCy {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 320.0,
+                cy: 240.0,
+            },
+        }
     }
 
     #[test]
@@ -140,23 +155,15 @@ mod tests {
 
     #[test]
     fn is_initialized_requires_both() {
-        let intrinsics = FxFyCxCy {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 320.0,
-            cy: 240.0,
-        };
-
         let state = PlanarState {
-            initial_intrinsics: Some(intrinsics),
+            initial_camera: Some(camera(SensorParams::Identity)),
             ..Default::default()
         };
         assert!(!state.is_initialized()); // missing poses
 
         let state = PlanarState {
-            initial_intrinsics: Some(intrinsics),
             initial_poses: Some(vec![Iso3::identity()]),
-            ..Default::default()
+            ..state
         };
         assert!(state.is_initialized());
     }
@@ -180,58 +187,36 @@ mod tests {
     }
 
     #[test]
-    fn initial_params_with_default_distortion() {
+    fn initial_params_convert_the_distortion_into_the_model() {
+        let tilt = ScheimpflugParams {
+            tilt_x: 0.1,
+            tilt_y: -0.02,
+        };
         let state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-            }),
+            initial_camera: Some(camera(SensorParams::Scheimpflug { params: tilt })),
             initial_poses: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
+        let tilted = CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Scheimpflug);
+        assert!(state.initialized_for(tilted));
+        assert!(!state.initialized_for(pinhole_bc5()));
 
-        let params = state.initial_params(pinhole_bc5());
-        assert!(params.is_some());
-        let params = params.unwrap();
+        let params = state.initial_params(tilted).unwrap();
         assert_eq!(params.camera_se3_target.len(), 1);
-        assert!(matches!(params.camera.sensor, SensorParams::Identity));
-
-        // A Scheimpflug model carries the initial tilt; an extended
-        // distortion embeds the Brown-Conrady seed.
-        let tilted = PlanarState {
-            initial_sensor: Some(ScheimpflugParams {
-                tilt_x: 0.1,
-                tilt_y: -0.02,
-            }),
-            ..state
-        };
-        let params = tilted
-            .initial_params(CameraModelSpec::pinhole(
-                DistortionKind::Rational8,
-                SensorKind::Scheimpflug,
-            ))
-            .unwrap();
         assert!(matches!(
             params.camera.sensor,
             SensorParams::Scheimpflug { params } if params.tilt_x == 0.1
         ));
-        assert!(matches!(
-            params.camera.distortion,
-            DistortionParams::Rational { .. }
-        ));
+        let DistortionParams::Rational { params } = params.camera.distortion else {
+            panic!("a rational distortion");
+        };
+        assert_eq!((params.k1, params.p2, params.k4), (-0.1, -0.001, 0.0));
     }
 
     #[test]
     fn clear_optimization_keeps_init() {
         let mut state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-            }),
+            initial_camera: Some(camera(SensorParams::Identity)),
             initial_poses: Some(vec![Iso3::identity()]),
             final_cost: Some(0.001),
             mean_reproj_error: Some(0.5),
@@ -251,12 +236,7 @@ mod tests {
     #[test]
     fn clear_removes_everything() {
         let mut state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-            }),
+            initial_camera: Some(camera(SensorParams::Identity)),
             initial_poses: Some(vec![Iso3::identity()]),
             final_cost: Some(0.001),
             ..Default::default()
@@ -271,20 +251,7 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let state = PlanarState {
-            initial_intrinsics: Some(FxFyCxCy {
-                fx: 800.0,
-                fy: 780.0,
-                cx: 320.0,
-                cy: 240.0,
-            }),
-            initial_distortion: Some(BrownConrady5 {
-                k1: -0.1,
-                k2: 0.05,
-                k3: 0.0,
-                p1: 0.001,
-                p2: -0.001,
-                iters: 8,
-            }),
+            initial_camera: Some(camera(SensorParams::Identity)),
             initial_poses: Some(vec![Iso3::identity(), Iso3::identity()]),
             final_cost: Some(0.001),
             mean_reproj_error: Some(0.5),
@@ -297,8 +264,9 @@ mod tests {
 
         assert!(restored.is_initialized());
         assert!(restored.is_optimized());
-        assert_eq!(restored.initial_intrinsics.unwrap().fx, 800.0);
-        assert_eq!(restored.initial_distortion.unwrap().k1, -0.1);
+        let camera = restored.initial_camera.unwrap();
+        assert_eq!(camera.intrinsics.fx, 800.0);
+        assert_eq!(camera.distortion.values()[0], -0.1);
         assert_eq!(restored.initial_poses.unwrap().len(), 2);
         assert_eq!(restored.final_cost.unwrap(), 0.001);
         assert_eq!(restored.mean_reproj_error.unwrap(), 0.5);

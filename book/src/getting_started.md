@@ -141,7 +141,7 @@ The runner above is a session run in one call. The session gives the steps, thei
 session = vc.PlanarIntrinsicsSession()
 session.set_input(dataset)
 init = session.step_init()                 # linear initialization
-print(f"init fx={init.intrinsics.fx:.1f}")
+print(f"init fx={init.camera.intrinsics.fx:.1f}")
 session.step_optimize()                    # non-linear refinement
 result = session.export()                  # the same PlanarIntrinsicsExport
 

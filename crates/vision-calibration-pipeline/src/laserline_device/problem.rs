@@ -8,13 +8,14 @@ use vision_calibration_core::{
     PerFeatureResiduals, Uncertainty, build_feature_histogram,
     compute_planar_target_residuals_views,
 };
-use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     LaserlineDataset, LaserlineEstimate, LaserlineParams, LaserlineResidualType,
     LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
 };
 
-use crate::common::config::{CameraConfig, IntrinsicsInitConfig, SolverConfig};
+use crate::common::config::{
+    CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig, check_laser_residual,
+};
 use crate::common::{ExportDiagnostics, ExportKind};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -118,12 +119,12 @@ impl LaserlineDeviceConfig {
     /// estimates ([`Self::effective_fix`]): with the tilt estimated, the
     /// default list holds the tangential terms, which trade off against it;
     /// with the tilt held, they are free.
-    pub(crate) fn init_opts(&self) -> IterativeIntrinsicsOptions {
+    pub(crate) fn init_opts(&self) -> CameraInitOptions {
         let camera = CameraConfig {
             model: self.camera.model,
             fix: self.effective_fix(),
         };
-        self.init.iterative_opts(None, &camera)
+        self.init.camera_init_opts(None, &camera)
     }
 
     /// The fix lists the bundle adjustment applies. A held tilt (see
@@ -252,7 +253,12 @@ impl ProblemType for LaserlineDeviceProblem {
         if config.optimize.laser_weight <= 0.0 {
             return Err(Error::invalid_input("laser_weight must be positive"));
         }
-        config.camera.validate_single_camera()
+        config.camera.validate_single_camera()?;
+        check_laser_residual(
+            config.optimize.laser_residual_type,
+            config.camera.model,
+            "optimize.laser_residual_type",
+        )
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -554,8 +560,9 @@ mod tests {
     #[test]
     fn the_linear_stage_fits_only_what_the_bundle_adjustment_estimates() {
         use vision_calibration_core::DistortionKind;
-        let tangential_held =
-            |config: &LaserlineDeviceConfig| config.init_opts().distortion_opts.fix_tangential;
+        let tangential_held = |config: &LaserlineDeviceConfig| {
+            config.init_opts().pinhole.distortion_opts.fix_tangential
+        };
         // A frontal camera: free by default, held when its fix list holds them.
         let mut config = LaserlineDeviceConfig::default();
         assert!(!tangential_held(&config));

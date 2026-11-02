@@ -1,11 +1,13 @@
-//! Planar pose estimation from a homography.
+//! Planar pose estimation from a homography or from bearing vectors.
 //!
-//! Decomposes a plane-induced homography into a pose `T_C_B` given intrinsics
-//! `K`, assuming the board lies on `Z = 0` in its own coordinates.
+//! Recovers the pose `T_C_B` of a board lying on `Z = 0` in its own
+//! coordinates: from a plane-induced homography and pinhole intrinsics `K`,
+//! or from the bearings of any central camera.
 
 use crate::Error;
-use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
-use vision_calibration_core::{Iso3, Mat3, Real};
+use nalgebra::{Matrix3, Rotation3, SMatrix, SVector, Translation3, UnitQuaternion, Vector3};
+use vision_calibration_core::linalg::normalize_points_2d;
+use vision_calibration_core::{Iso3, Mat3, Pt2, Real};
 
 /// Linear pose initialisation from a homography and intrinsics.
 ///
@@ -93,6 +95,112 @@ impl PlanarPoseSolver {
     }
 }
 
+/// Estimate the pose of a planar board (`Z = 0`) from the camera's bearing
+/// vectors to its points: a direct linear transform on `b × H p = 0`, then
+/// the decomposition `H ∝ [r1 r2 t]`.
+///
+/// `board` holds each point's board coordinates, `bearings` the direction
+/// from the camera centre to it (any length, any direction — points beside
+/// or behind the camera, as a fisheye lens sees them, are fine). Any
+/// central camera gives bearings by back-projecting its pixels, so this is
+/// the pose seed of every central projection; for a pinhole camera it
+/// equals [`estimate_planar_pose_from_h`] on undistorted pixels.
+///
+/// Returns `T_C_B`, mapping board coordinates into camera coordinates.
+///
+/// # Errors
+///
+/// - [`Error::InvalidInput`] if the slices differ in length or a bearing is
+///   zero or not finite.
+/// - [`Error::InsufficientData`] for fewer than four points.
+/// - [`Error::Singular`] when the points are collinear or the system is
+///   otherwise degenerate.
+pub fn estimate_planar_pose_from_bearings(
+    board: &[Pt2],
+    bearings: &[Vector3<Real>],
+) -> Result<Iso3, Error> {
+    if board.len() != bearings.len() {
+        return Err(Error::invalid_input(format!(
+            "{} board points but {} bearings",
+            board.len(),
+            bearings.len()
+        )));
+    }
+    if board.len() < 4 {
+        return Err(Error::InsufficientData {
+            need: 4,
+            got: board.len(),
+        });
+    }
+    let unit: Vec<Vector3<Real>> = bearings
+        .iter()
+        .map(|b| {
+            let norm = b.norm();
+            if norm > 0.0 && norm.is_finite() {
+                Ok(b / norm)
+            } else {
+                Err(Error::invalid_input("a bearing is zero or not finite"))
+            }
+        })
+        .collect::<Result<_, _>>()?;
+    let (normalized, t_board) = normalize_points_2d(board).ok_or(Error::Singular)?;
+
+    // Normal equations of the stacked rows of `[b]× (H p̃)`, with `h` the
+    // row-major entries of H: the null vector is the eigenvector of the
+    // smallest eigenvalue.
+    let mut ata = SMatrix::<Real, 9, 9>::zeros();
+    for (p, b) in normalized.iter().zip(&unit) {
+        let p = Vector3::new(p.x, p.y, 1.0);
+        let mut rows = [[0.0; 9]; 3];
+        for k in 0..3 {
+            // Row `i` of `[b]× H p̃` is `Σ_j [b]×(i, j) · (h_j · p̃)`.
+            let skew = [[0.0, -b.z, b.y], [b.z, 0.0, -b.x], [-b.y, b.x, 0.0]];
+            for (j, coef) in skew[k].iter().enumerate() {
+                for m in 0..3 {
+                    rows[k][3 * j + m] = coef * p[m];
+                }
+            }
+        }
+        for row in &rows {
+            let r = SVector::<Real, 9>::from_row_slice(row);
+            ata += r * r.transpose();
+        }
+    }
+    let eigen = ata.symmetric_eigen();
+    let (min_idx, _) = eigen
+        .eigenvalues
+        .iter()
+        .enumerate()
+        .min_by(|a, b| a.1.total_cmp(b.1))
+        .ok_or(Error::Singular)?;
+    let h = eigen.eigenvectors.column(min_idx);
+    let h_norm = Matrix3::new(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
+    let hmtx = h_norm * t_board;
+
+    let h1 = hmtx.column(0).into_owned();
+    let h2 = hmtx.column(1).into_owned();
+    let scale = 0.5 * (h1.norm() + h2.norm());
+    if scale.is_nan() || scale <= 1e-12 {
+        return Err(Error::Singular);
+    }
+    // The sign that puts the board along its bearings, not opposite them.
+    let alignment: Real = board
+        .iter()
+        .zip(&unit)
+        .map(|(p, b)| b.dot(&(hmtx * Vector3::new(p.x, p.y, 1.0))))
+        .sum();
+    let lambda = alignment.signum() / scale;
+    let r1 = h1 * lambda;
+    let r2 = h2 * lambda;
+    let t_vec = hmtx.column(2) * lambda;
+    let r3 = r1.cross(&r2);
+    if r3.norm() <= 1e-12 {
+        return Err(Error::Singular);
+    }
+    let r_orth = crate::math::project_to_so3(&Matrix3::from_columns(&[r1, r2, r3]))?;
+    Ok(build_iso(r_orth, t_vec))
+}
+
 fn build_iso(r_orth: Matrix3<Real>, t_vec: Vector3<Real>) -> Iso3 {
     let rot = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r_orth));
     let trans = Translation3::from(t_vec);
@@ -149,5 +257,38 @@ mod tests {
         let r_diff = r_est.transpose() * r_mat;
         let angle = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0).acos();
         assert!(angle < 1e-3, "rotation error too large: {}", angle);
+    }
+
+    #[test]
+    fn planar_pose_from_bearings_recovers_a_board_beside_and_behind_the_camera() {
+        // A board lying across the camera's side: its points range from
+        // in front (z > 0) to behind (z < 0) the image plane.
+        let rot = Rotation3::from_euler_angles(0.2, 1.4, -0.3);
+        let t = Vector3::new(0.25, -0.1, 0.02);
+        let pose = Isometry3::from_parts(Translation3::from(t), rot.into());
+        let board: Vec<Pt2> = (0..6)
+            .flat_map(|i| (0..5).map(move |j| Pt2::new(i as Real * 0.04, j as Real * 0.04)))
+            .collect();
+        let bearings: Vec<Vector3<Real>> = board
+            .iter()
+            .map(|p| {
+                let p_c = pose.transform_point(&nalgebra::Point3::new(p.x, p.y, 0.0));
+                // Bearings of arbitrary length, as back-projection gives them.
+                p_c.coords * (1.0 + p.x)
+            })
+            .collect();
+        assert!(bearings.iter().any(|b| b.z < 0.0) && bearings.iter().any(|b| b.z > 0.0));
+
+        let est = estimate_planar_pose_from_bearings(&board, &bearings).unwrap();
+        assert!((est.translation.vector - t).norm() < 1e-9);
+        assert!(est.rotation.angle_to(&pose.rotation) < 1e-9);
+    }
+
+    #[test]
+    fn planar_pose_from_bearings_rejects_collinear_points() {
+        let board: Vec<Pt2> = (0..6).map(|i| Pt2::new(i as Real * 0.1, 0.0)).collect();
+        let bearings: Vec<Vector3<Real>> =
+            board.iter().map(|p| Vector3::new(p.x, 0.0, 1.0)).collect();
+        assert!(estimate_planar_pose_from_bearings(&board, &bearings).is_err());
     }
 }

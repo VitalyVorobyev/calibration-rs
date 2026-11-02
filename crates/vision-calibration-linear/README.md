@@ -10,9 +10,9 @@ non-linear refinement in `vision-calibration-optim` or `vision-calibration-pipel
 
 | Category | Algorithms |
 |----------|------------|
-| **Intrinsics** | Zhang's method, iterative with distortion, Scheimpflug-tilt initialization |
+| **Intrinsics** | Zhang's method, iterative with distortion, Scheimpflug-tilt initialization, Kannala-Brandt fisheye from bearings |
 | **Pose (PnP)** | DLT, P3P, EPnP, DLT in RANSAC |
-| **Planar pose** | Pose from homography + intrinsics |
+| **Planar pose** | Pose from homography + intrinsics, or from bearing vectors (any central camera) |
 | **Rig** | Multi-camera extrinsics initialization |
 | **Hand-eye** | Tsai-Lenz (AX=XB), eye-in-hand and eye-to-hand |
 | **Laserline** | Multi-view laser plane fitting |
@@ -29,6 +29,7 @@ These solvers are **initialization-grade**. Regression tests validate:
 |-----------|----------|-------|
 | Zhang intrinsics | fx/fy ~5%, cx/cy ~8px | No distortion |
 | Iterative intrinsics | fx/fy ~10-40% | With distortion |
+| Fisheye intrinsics | fx/fy ~1%, cx/cy ~1px | Kannala-Brandt, beyond 90° |
 | Planar pose | R <0.05 rad, t <5 units | Square = 30 units |
 
 Thresholds are intentionally loose for stable initialization.
@@ -64,9 +65,10 @@ let (pose, inliers) = PnpSolver::dlt_ransac(&world, &image, &k, &RansacOptions::
 |--------|-------------|
 | `scheimpflug_init` | Tilt-aware intrinsics initialization |
 | `zhang_intrinsics` | Zhang's closed-form intrinsics |
+| `equidistant_init` | Kannala-Brandt fisheye intrinsics from bearings |
 | `iterative_intrinsics` | Iterative K + distortion estimation |
 | `distortion_fit` | Distortion from homography residuals |
-| `planar_pose` | Pose from homography + K |
+| `planar_pose` | Pose from homography + K, or from bearings |
 | `pnp` | DLT, P3P, EPnP, RANSAC |
 | `extrinsics` | Multi-camera rig initialization |
 | `handeye` | Tsai-Lenz hand-eye |

@@ -105,7 +105,7 @@ where
             distortion: seeds.per_cam_distortion.as_ref().map(|s| s[cam_idx]),
             sensor: seeds.per_cam_sensors.as_ref().map(|s| s[cam_idx]),
         };
-        let init_opts = init.iterative_opts(iterations, &camera_configs[cam_idx]);
+        let init_opts = init.camera_init_opts(iterations, &camera_configs[cam_idx]);
         let camera_bootstrap =
             bootstrap_camera(cam_idx, *model, &planar_dataset, &seed, init_opts)?;
 

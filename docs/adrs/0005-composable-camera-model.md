@@ -36,9 +36,9 @@ pixel = K(sensor(distortion(projection(p_c))))
 The code has the `Pinhole` and `Equidistant` projections, all six
 distortion kinds and both sensors. `Eucm`, `DoubleSphere` and `Telecentric`
 are the design's planned kinds (backlog CAM-EUCM-DS, CAM-TELECENTRIC); the
-sections on them below are what those tasks implement. The workflows'
-equidistant initializer is backlog CAM-KB; until it lands, camera
-validation rejects a projection without one.
+sections on them below are what those tasks implement. Camera validation
+rejects a model without an initializer (an equidistant camera with a
+Scheimpflug sensor).
 
 - **The projection takes the point, not a direction.**
   - Central projections use only its direction.
@@ -149,8 +149,17 @@ gives the runtime-polymorphic form.
 
 Each projection kind names its linear initializer:
 - `Pinhole`: Zhang plus the distortion fit.
+- `Equidistant`: a search over focal length, principal point and the
+  first two Kannala-Brandt coefficients, each candidate scored by pixel
+  error through per-view poses recovered from bearings
+  (`b × H p = 0`, which holds beyond 90°). It needs no image size.
 - `Telecentric`: affine factorization.
-- Central wide-angle kinds: their own initializer.
+- Other central wide-angle kinds: their own initializer; the bearing pose
+  serves all of them.
+
+Seeds hold a pinhole camera's values (Brown-Conrady distortion), so a
+distortion seed for another projection is a typed error until seeds take
+the camera's own model.
 
 A kind without an initializer requires a seed (ADR 0011). That is a typed
 error at validation, never a silent fallback.
