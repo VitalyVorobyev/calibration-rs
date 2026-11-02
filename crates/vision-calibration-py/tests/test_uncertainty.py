@@ -34,6 +34,12 @@ class ParameterUncertaintyParsingTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             u.std_dev("k3")
 
+    def test_a_custom_family_is_read_by_its_name(self) -> None:
+        payload = _available_payload()
+        payload["noise"].append({"kind": {"custom": "range"}, "sigma": 1e-4, "count": 3})
+        u = vc.ParameterUncertainty.from_payload(payload)
+        self.assertEqual([n.kind for n in u.noise], ["reprojection", "range"])
+
     def test_unavailable_payload_keeps_the_reason(self) -> None:
         u = vc.ParameterUncertainty.from_payload(
             {

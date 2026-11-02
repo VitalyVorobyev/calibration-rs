@@ -893,6 +893,19 @@
           "const": "laser_line",
           "description": "Laser line distance in the image, pixels.",
           "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A residual family of a problem built with the optimization crate's\n`problem` builder, by its name; its unit is that of the residual.",
+          "properties": {
+            "custom": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custom"
+          ],
+          "type": "object"
         }
       ]
     },

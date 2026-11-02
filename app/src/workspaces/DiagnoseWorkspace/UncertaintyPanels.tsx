@@ -5,6 +5,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   correlationMatrix,
   parameterRows,
+  residualKindName,
+  residualKindUnit,
   unavailableText,
   type ParameterRow,
 } from "../../lib/uncertainty";
@@ -141,14 +143,14 @@ function ParametersPanel({ cov }: { cov: ParameterCovariance }) {
         )}
         {cov.noise.map((n) => (
           <p
-            key={`${n.kind}-${n.camera ?? "all"}`}
+            key={`${residualKindName(n.kind)}-${n.camera ?? "all"}`}
             className="font-mono text-[11px] text-fg-muted"
           >
-            {n.kind.replace("_", " ")}
+            {residualKindName(n.kind)}
             {n.camera != null ? ` · cam ${n.camera}` : ""}
             {"sigma0" in n
               ? ` noise σ̂₀ ≈ ${formatSigma(n.sigma0)} × stated`
-              : ` noise σ ≈ ${formatSigma(n.sigma)}${n.kind === "laser_plane" ? " m" : " px"}`}{" "}
+              : ` noise σ ≈ ${formatSigma(n.sigma)}${residualKindUnit(n.kind)}`}{" "}
             ({n.count})
           </p>
         ))}

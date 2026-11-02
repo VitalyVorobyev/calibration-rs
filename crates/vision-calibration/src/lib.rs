@@ -75,7 +75,9 @@
 //! ## Foundation Crates (Advanced Users)
 //!
 //! - [`core`] - Math types, camera models, RANSAC primitives
-//! - [`optim`] - Non-linear least-squares optimization
+//! - [`optim`] - Non-linear least-squares optimization, and
+//!   [`optim::problem`] for a problem of your own
+//! - [`init`] - Closed-form initial values (Zhang, PnP, hand-eye, planes)
 //! - `synthetic` (feature `synthetic`) - Synthetic data generation for tests
 //!   and examples
 //!
@@ -567,9 +569,16 @@ pub mod optim {
     pub use vision_calibration_optim::LaserlineResidualType;
     /// Robust loss (M-estimator) selector for optimization.
     pub use vision_calibration_optim::RobustLoss;
+    /// A solve's final cost and iteration count.
+    pub use vision_calibration_optim::SolveReport;
     /// Solver backend selector — the `backend` field of
     /// [`common::config::SolverConfig`](crate::common::config::SolverConfig).
     pub use vision_calibration_optim::SolverBackend;
+    /// Your own least-squares problem: parameter blocks, residuals you
+    /// write (generic over the scalar type, for exact Jacobians) and the
+    /// library's reprojection residual, solved with the covariance of the
+    /// result.
+    pub use vision_calibration_optim::problem;
     /// Projection uncertainty of a calibrated camera: the type and the
     /// function that computes it from a camera and its parameter covariance
     /// (every export offers it through
@@ -577,6 +586,39 @@ pub mod optim {
     pub use vision_calibration_optim::{
         ProjectionUncertainty, camera_parameters, projection_uncertainty,
     };
+}
+
+/// Closed-form initial values, to start a problem of your own from (see
+/// [`optim::problem`]); the calibration workflows run them in their `init`
+/// steps.
+///
+/// Each returns this module's [`Error`](init::Error), which `?` converts
+/// into [`crate::Error`]. Plane homographies come from
+/// [`mvg::dlt_homography`].
+pub mod init {
+    /// The error the initializers return.
+    pub use vision_calibration_linear::Error;
+    /// Distortion-fit options of [`estimate_intrinsics_iterative`].
+    pub use vision_calibration_linear::distortion_fit::DistortionFitOptions;
+    /// Hand-eye from robot and camera poses (Tsai–Lenz): eye-in-hand
+    /// `gripper_se3_camera`, and eye-to-hand `gripper_se3_target`.
+    pub use vision_calibration_linear::handeye::{
+        estimate_gripper_se3_target_dlt, estimate_handeye_dlt,
+    };
+    /// Pinhole intrinsics and Brown–Conrady distortion from three or more
+    /// views of a plane: Zhang's method alternated with a distortion fit.
+    pub use vision_calibration_linear::iterative_intrinsics::{
+        IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
+    };
+    /// A plane through 3D points, such as laser points in the camera frame.
+    pub use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LinearPlaneEstimate};
+    /// A target's pose from its plane homography and the intrinsics.
+    pub use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
+    /// Camera pose from 3D–2D correspondences: DLT, P3P, EPnP, and DLT in
+    /// RANSAC.
+    pub use vision_calibration_linear::pnp;
+    /// Zhang's pinhole intrinsics from three or more plane homographies.
+    pub use vision_calibration_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
 }
 
 /// Deterministic synthetic data generation for testing (feature `synthetic`).

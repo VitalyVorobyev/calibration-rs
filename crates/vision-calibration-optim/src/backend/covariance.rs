@@ -6,7 +6,8 @@
 //! terms alone, so both backends report the same covariance.
 //!
 //! The estimate is Huber's asymptotic covariance of an M-estimator, pooled
-//! per residual family `f` (reprojection, laser plane, laser line):
+//! per residual family `f` (reprojection, laser plane, laser line, or a
+//! family of residuals defined outside the library):
 //!
 //! ```text
 //! Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + B_p
@@ -19,8 +20,9 @@
 //! the curvature of the objective the solver minimized and `G` the scatter
 //! of its gradient, so the sandwich holds for the weights the solve used,
 //! with priors as known information. `σᵢ` is a prior's residual standard
-//! deviation: 1 for a prior in its own unit, the pixel noise for a
-//! robot-pose prior weighed against the reprojection residuals. With one family and no priors it is
+//! deviation: 1 for a prior in its own unit or a whitened residual of known
+//! noise, the pixel noise for a robot-pose prior weighed against the
+//! reprojection residuals. With one family and no priors it is
 //! `σ_f² A_f⁻¹`, `σ_f² = s_f / κ_f²`, and without a robust loss the classical
 //! `Σ‖r‖² / (m − n) · (JᵀJ)⁻¹`. With a loss, the outliers' bounded influence
 //! enters as it scatters the estimate: the IRLS form `σ̂² (JᵀWJ)⁻¹`
@@ -49,7 +51,7 @@ use nalgebra::{DMatrix, DVector, SymmetricEigen, Vector3};
 
 use crate::backend::normal_equations::NormalEquations;
 use crate::backend::s2;
-use crate::ir::{FactorKind, ManifoldKind, ProblemIR};
+use crate::ir::{CustomNoise, FactorKind, ManifoldKind, ProblemIR};
 use vision_calibration_core::ResidualKind;
 
 /// `H` is rank-deficient when its unit-diagonal form has an eigenvalue below
@@ -86,14 +88,19 @@ pub(crate) struct RawLinearization {
     pub columns: Vec<Vec<Option<usize>>>,
 }
 
-/// The residual kind (one noise level each) of a factor; `None` for a
-/// prior.
-fn residual_kind(factor: &FactorKind) -> Option<ResidualKind> {
+/// How a factor's noise enters: the residual family (one noise level each)
+/// it is pooled into, or, for known information such as a prior, the
+/// standard deviation of each of its scalar residuals.
+fn noise_role(factor: &FactorKind) -> Result<&ResidualKind, f64> {
     match factor {
-        FactorKind::ReprojPoint { .. } => Some(ResidualKind::Reprojection),
-        FactorKind::LaserPointToPlane { .. } => Some(ResidualKind::LaserPlane),
-        FactorKind::LaserLineDistance { .. } => Some(ResidualKind::LaserLine),
-        FactorKind::Se3TangentPrior { .. } => None,
+        FactorKind::ReprojPoint { .. } => Ok(&ResidualKind::Reprojection),
+        FactorKind::LaserPointToPlane { .. } => Ok(&ResidualKind::LaserPlane),
+        FactorKind::LaserLineDistance { .. } => Ok(&ResidualKind::LaserLine),
+        FactorKind::Se3TangentPrior { residual_sigma, .. } => Err(*residual_sigma),
+        FactorKind::Custom(custom) => match &custom.noise {
+            CustomNoise::Family(family) => Ok(family),
+            CustomNoise::Whitened => Err(1.0),
+        },
     }
 }
 
@@ -328,10 +335,10 @@ fn coordinates_at_bounds(
 }
 
 /// One residual block: its rows, family, squared norm and loss weights.
-struct BlockTerms {
+struct BlockTerms<'ir> {
     rows: std::ops::Range<usize>,
     /// `None` for a prior.
-    family: Option<ResidualKind>,
+    family: Option<&'ir ResidualKind>,
     /// A prior's residual variance, `residual_sigma²`; 1 for an
     /// observation, whose variance its family's moments carry.
     prior_variance: f64,
@@ -342,20 +349,20 @@ struct BlockTerms {
 }
 
 /// Every residual block's terms. Rows are the IR's residual blocks in order.
-fn residual_blocks(ir: &ProblemIR, residual: &Mat<f64>) -> Vec<BlockTerms> {
+fn residual_blocks<'ir>(ir: &'ir ProblemIR, residual: &Mat<f64>) -> Vec<BlockTerms<'ir>> {
     let mut out = Vec::with_capacity(ir.residuals.len());
     let mut start = 0;
     for block in &ir.residuals {
         let rows = start..start + block.residual_dim;
         start = rows.end;
         let s: f64 = rows.clone().map(|r| residual[(r, 0)].powi(2)).sum();
-        let prior_variance = match block.factor {
-            FactorKind::Se3TangentPrior { residual_sigma, .. } => residual_sigma * residual_sigma,
-            _ => 1.0,
+        let (family, prior_variance) = match noise_role(&block.factor) {
+            Ok(family) => (Some(family), 1.0),
+            Err(sigma) => (None, sigma * sigma),
         };
         out.push(BlockTerms {
             rows,
-            family: residual_kind(&block.factor),
+            family,
             prior_variance,
             s,
             rho1: block.loss.rho_prime(s),
@@ -371,20 +378,20 @@ fn residual_blocks(ir: &ProblemIR, residual: &Mat<f64>) -> Vec<BlockTerms> {
 }
 
 /// One residual family and its pooled moments.
-struct Group {
-    family: ResidualKind,
+struct Group<'ir> {
+    family: &'ir ResidualKind,
     /// `κ = E[ψ′]`.
     kappa: f64,
     /// `s = E[ψ²] · m / (m − n)`.
     s: f64,
 }
 
-struct Moments {
-    groups: Vec<Group>,
+struct Moments<'ir> {
+    groups: Vec<Group<'ir>>,
 }
 
-impl Moments {
-    fn group(&self, family: ResidualKind) -> &Group {
+impl Moments<'_> {
+    fn group(&self, family: &ResidualKind) -> &Group<'_> {
         self.groups
             .iter()
             .find(|g| g.family == family)
@@ -409,9 +416,9 @@ impl Moments {
 /// `ψ = ρ′ r` and `ψ′` the trace of `ρ′ I + 2ρ″ r rᵀ` per scalar residual,
 /// with `E[ψ²]` scaled by `m / (m − n)` for the degrees of freedom the fit
 /// absorbs.
-fn family_moments(blocks: &[BlockTerms], dof_scale: f64) -> Moments {
+fn family_moments<'ir>(blocks: &[BlockTerms<'ir>], dof_scale: f64) -> Moments<'ir> {
     // (family, Σψ², Σψ′, scalar residuals)
-    let mut sums: Vec<(ResidualKind, f64, f64, usize)> = Vec::new();
+    let mut sums: Vec<(&'ir ResidualKind, f64, f64, usize)> = Vec::new();
     for block in blocks {
         let Some(family) = block.family else {
             continue;
@@ -471,7 +478,7 @@ fn weighted_normal(
 /// `σ̂` per residual family present, from the median absolute scalar
 /// residual.
 fn family_noise(blocks: &[BlockTerms], residual: &Mat<f64>, whitened: bool) -> Vec<FamilyNoise> {
-    let mut by_family: Vec<(ResidualKind, Vec<f64>)> = Vec::new();
+    let mut by_family: Vec<(&ResidualKind, Vec<f64>)> = Vec::new();
     for block in blocks {
         let Some(family) = block.family else {
             continue;
@@ -498,10 +505,10 @@ fn family_noise(blocks: &[BlockTerms], residual: &Mat<f64>, whitened: bool) -> V
                 upper
             };
             FamilyNoise {
-                family,
+                family: family.clone(),
                 num_residuals: values.len(),
                 sigma: MAD_TO_SIGMA * median,
-                whitened: whitened && family == ResidualKind::Reprojection,
+                whitened: whitened && *family == ResidualKind::Reprojection,
             }
         })
         .collect()

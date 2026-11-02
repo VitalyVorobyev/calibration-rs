@@ -202,7 +202,10 @@ All published crates and the PyPI package share one version.
   test across every problem type, the Python class and a book chapter.
 * **A residual (factor)** — a `FactorKind` variant in optim, its generic
   residual, and an arm in both backends and the covariance family map; the
-  book's "Adding a New Optimization Problem" chapter walks through it.
+  book's "Adding a New Optimization Problem" chapter walks through it. A
+  residual a user needs is not a variant: it comes through the public
+  `optim::problem` builder ([ADR 0027](docs/adrs/0027-public-optimization-extension.md),
+  the book's "Your Own Residual").
 * **An MVG pipeline** — `vision-mvg`, within the scope ceiling of ADR 0006
   (geometry over calibrated rigs, no SfM).
 

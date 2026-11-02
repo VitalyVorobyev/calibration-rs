@@ -200,7 +200,7 @@ impl NoiseLevel {
 }
 
 /// A kind of residual, which sets its unit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ResidualKind {
@@ -210,6 +210,9 @@ pub enum ResidualKind {
     LaserPlane,
     /// Laser line distance in the image, pixels.
     LaserLine,
+    /// A residual family of a problem built with the optimization crate's
+    /// `problem` builder, by its name; its unit is that of the residual.
+    Custom(String),
 }
 
 #[cfg(test)]

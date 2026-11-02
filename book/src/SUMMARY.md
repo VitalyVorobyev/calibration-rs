@@ -132,6 +132,12 @@
 
 ---
 
+# Extending the Library
+
+- [Your Own Residual](custom_residual.md)
+
+---
+
 # Reference and Development
 
 - [Regression Suite](regression_suite.md)

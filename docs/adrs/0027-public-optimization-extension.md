@@ -20,17 +20,21 @@ solve, and every internal type would become semver-bound.
 blocks and residuals and lowers to the private `ProblemIR` when solved; the
 IR, `FactorKind` and the backends stay private.
 
-- **Blocks.** `add_block(name, initial, Manifold)` returns a `BlockId`.
-  `Manifold` is `Euclidean`, `Se3` (stored `[qx, qy, qz, qw, tx, ty, tz]`,
-  ADR 0009) or `UnitVector` (S², stored `[x, y, z]`). A block is fixed whole,
-  or, if Euclidean, per component; Euclidean components take bounds. Names
-  are unique; each coordinate has a label (given, or `name.i`, an SE3 block's
-  `name.rx … name.tz`, a unit vector's `name.nx … name.nz`).
+- **Blocks.** `add_block(name, initial, Manifold)` returns a `BlockId`
+  (`add_pose` takes an `Iso3`). `Manifold` is `Euclidean`, `Se3` (stored
+  `[qx, qy, qz, qw, tx, ty, tz]`, ADR 0009) or `UnitVector` (S², stored
+  `[x, y, z]`). A block is fixed whole, or, if Euclidean, per component;
+  Euclidean components take bounds. Names are unique (`cam<i>` is kept for
+  cameras); each coordinate is labelled `name.<coordinate>`, the coordinate
+  given by `set_labels` or `i`, an SE3 block's `rx … tz`, a unit vector's
+  `nx … nz`. A `BlockId` carries its problem, so one from another problem
+  is an error, not a different block.
 - **Every input is checked when added.** A residual's block count and
   dimensions against what it declares, and its value at the initial blocks
   (length and finiteness), are checked in `add_residual`; an error names
   the residual and block. A problem that was built is one the solve can
-  run.
+  run. Lowering names IR blocks by position, so no name a user picks takes
+  on the meaning the IR reads into names (a per-view `pose/<i>`).
 
 ### User residuals: a generic `eval`, bridged once
 
@@ -46,10 +50,13 @@ pub trait Residual: Send + Sync + 'static {
 built-in kernels (ADR 0008); finite differences are not offered. The trait
 is not object-safe and need not be: an internal generic adapter turns any
 `R: Residual` into the object-safe factor the backend stores, behind a
-private `FactorKind::Custom(Arc<dyn CustomFactor>)`. Helpers convert block
-storage generically (`se3::<T>(&block) -> Isometry3<T>`, unit vectors). A
-residual must not panic; a non-finite value at a step is a rejected step,
-as for any factor.
+private `FactorKind::Custom(CustomResidual)` that holds an
+`Arc<dyn CustomFactor>` and the noise model. `se3::<T>(&block) ->
+Isometry3<T>` reads a pose block at any scalar type; a unit vector is its
+stored `[x, y, z]`. A residual must not panic; a non-finite value at a
+step is a rejected step, as for any factor, and so is a value of the wrong
+length (the adapter turns it into `NaN`s, since the backend sizes its rows
+by `dim`).
 
 `add_residual(residual, &[BlockId], RobustLoss, Noise)` attaches it.
 
@@ -62,31 +69,54 @@ as known information. Each user residual says which it is:
   residuals of the family named `family`, which is pooled like the
   built-in families (reprojection, laser plane, laser line), never with
   them;
-- `Noise::Known(σ)`: a prior; its information is known, with residual
-  standard deviation σ (1 for a whitened residual).
+- `Noise::Known(σ)`: known information, like a prior. The adapter divides
+  the residual by σ, so the solve weighs it by its precision, and the
+  covariance counts it as a prior of unit residual variance. (Scaling only
+  the covariance would leave the solve weighing, say, a 0.2 mm range in
+  metres against pixels, where it barely moves anything.)
 
-The estimator's family key widens from `ResidualKind` to a family identity
-that includes user names; the view-scatter scaling is unchanged.
+An estimated family enters the solve unweighted, in its own unit: its σ is
+unknown until the solve ends. The sandwich covariance holds for the
+weights the solve used, so it stays right; a user who wants a family to
+count divides its residual by an expected σ.
+
+`ResidualKind` gains `Custom(String)` (losing `Copy`), and the estimator
+keys families by `&ResidualKind`, so a user family is pooled on its own and
+reported in `ResidualNoise` like a built-in one. The view-scatter scaling
+(ADR 0026) is not applied to a user problem: it reads views from IR block
+names, which lowering does not produce, so a user problem's covariance
+treats residuals as independent. Grouping blocks into views can come with a
+need.
+
+A free block that no residual reads has no columns in tiny-solver's
+Jacobian and would drop out of the covariance unnoticed; `solve` reports
+it as `RankDeficient` instead.
 
 ### Built-in residuals through typed constructors
 
 The library's kernels join a user problem only through constructors that
-establish their invariants: `add_camera(&CameraParams, fix)` lays out the
-camera's blocks from its `CameraModelSpec` and labels them with the names of
-`camera_parameters`, and `add_reprojection(&camera, pose, point, pixel,
-sqrt_info, loss)` adds the reprojection residual through one SE3 pose. More
-chains (rig, hand-eye, laser) are added as constructors when a need is
-shown; the IR's chain enums stay private.
+establish their invariants: `add_camera(&CameraParams, &CameraFix)` lays out the
+camera's blocks from its `CameraModelSpec` and labels them as the
+workflows' results do (`fx`, or `cam<i>.fx` with several cameras), so
+`projection_uncertainty` reads them; `add_reprojection(camera,
+camera_se3_target, point, pixel, loss)` adds the reprojection residual
+through one SE3 pose, checking that the point is in the projection's domain
+at the initial values (the projection itself is total, so a point behind a
+pinhole camera has a finite, meaningless residual). Stated per-point
+covariances (whitened reprojection) and more chains (rig, hand-eye, laser)
+are added as constructors when a need is shown; the IR's chain enums stay
+private.
 
 ### One solve, with the covariance
 
 `solve(&Problem, &SolveOptions) -> Result<Solution, Error>` runs the shared
-LM loop. `Solution` holds each block's value by name, the `SolveReport`,
-each family's noise level and the `Uncertainty` (`ParameterCovariance` over
-the free coordinates' labels, or the typed reason it is unavailable), the
-same types the exports carry, so `projection_uncertainty` and the analysis
-functions read a user camera's covariance. `SolveOptions` is the public
-form of the options the problem types' `SolverConfig` lowers to.
+LM loop. `Solution` holds each block's value (`value`, `pose`, `camera` by
+id), the `SolveReport`, each family's noise level and the `Uncertainty`
+(`ParameterCovariance` over the free coordinates' labels, or the typed
+reason it is unavailable), the same types the exports carry, so
+`projection_uncertainty` and the analysis functions read a user camera's
+covariance. `SolveOptions` holds the backend and the iteration budget; the
+stopping thresholds are the workflows'.
 
 ### Backends
 
@@ -98,17 +128,21 @@ before any work. Built-in constructors run on both.
 ### `ProblemType` stays sealed
 
 A workflow is composed from public pieces: the closed-form initializers,
-re-exported on the facade as `vision_calibration::init` (Zhang, PnP,
-homography, hand-eye, laser plane), then a `Problem`, `solve` and the
-analysis functions. The session framework, its steps and the export
+re-exported on the facade as `vision_calibration::init` (Zhang with
+distortion, pose from a homography, PnP, hand-eye, a plane through points;
+the homography DLT is already `mvg::dlt_homography`), then a `Problem`,
+`solve` and the analysis functions. The session framework, its steps and the export
 contract stay the library's own.
 
 ## Consequences
 
-- New public, semver-bound surface: `Problem`, `BlockId`, `Manifold`,
-  `Residual`, `Noise`, `SolveOptions`, `Solution` and the `init` re-exports;
-  the enums and option structs are `#[non_exhaustive]`.
+- New public, semver-bound surface: `Problem`, `BlockId`, `CameraId`,
+  `Manifold`, `Residual`, `Noise`, `se3`, `SolveOptions`, `Solution`,
+  `SolveReport` on the facade, and the `init` re-exports; the enums and
+  option structs are `#[non_exhaustive]`.
 - `FactorKind` gains `Custom`; its `PartialEq` compares that arm by pointer.
+- `ResidualKind` gains `Custom(String)` and is no longer `Copy`: a break of
+  the public API and of the export schemas (a new variant).
 - A user residual is monomorphized in the user's crate, not ours.
 - Python stays Rust-only here (recorded in the binding parity check): a
   Python residual would be a per-evaluation callback that cannot take dual

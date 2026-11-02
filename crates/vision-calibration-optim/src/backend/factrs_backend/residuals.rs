@@ -355,6 +355,9 @@ pub(super) fn build_factor(
 ) -> Result<Factor, Error> {
     let robust = IrRobustCost(loss);
     match factor {
+        FactorKind::Custom(_) => Err(Error::invalid_input(
+            "a residual defined outside the library runs on the tiny-solver backend only",
+        )),
         FactorKind::Se3TangentPrior { sqrt_info, .. } => Ok(FactorBuilder::new1_unchecked(
             TangentPrior {
                 sqrt_info: *sqrt_info,

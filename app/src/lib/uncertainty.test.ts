@@ -6,6 +6,8 @@ import {
   displayUnit,
   exportUncertainty,
   parameterRows,
+  residualKindName,
+  residualKindUnit,
   unavailableText,
 } from "./uncertainty";
 
@@ -82,5 +84,15 @@ describe("unavailableText", () => {
     expect(
       unavailableText({ kind: "rank_deficient", unobservable: ["cx", "tilt_y"] }),
     ).toBe("The data does not determine: cx, tilt_y.");
+  });
+});
+
+describe("residualKindName", () => {
+  it("names built-in and custom families with their units", () => {
+    expect(residualKindName("laser_plane")).toBe("laser plane");
+    expect(residualKindUnit("laser_plane")).toBe(" m");
+    expect(residualKindUnit("reprojection")).toBe(" px");
+    expect(residualKindName({ custom: "range" })).toBe("range");
+    expect(residualKindUnit({ custom: "range" })).toBe("");
   });
 });
