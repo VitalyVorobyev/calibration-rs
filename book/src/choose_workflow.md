@@ -67,9 +67,11 @@ ChArUco board, a PuzzleBoard or a ring grid
 ([Calibration Targets and Detection](detection.md)). Measure the square or
 ring pitch of the printed board; the calibration's scale comes from it.
 
-- **Views.** At least 3 per camera for any workflow to run; 10 to 30 for a
-  result worth keeping. Tilt the board around both axes, vary the distance,
-  and cover the corners of the image, where distortion is largest.
+- **Views.** At least 3 per camera for any workflow to run; 15 to 30 for a
+  result worth keeping. Tilt the board 15–30° about both of its axes, make
+  it a third to a half of the image wide, and move it into the corners of
+  the image, where distortion is largest. [Capturing Calibration
+  Images](capture.md) measures what each of these buys.
 - **Rigs.** Every camera needs its own 3 or more views of the board, and the
   rig's cameras need views in which they see the board at the same time, so
   the board links them.

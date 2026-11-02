@@ -9,6 +9,7 @@
 # Getting Started
 
 - [Getting Started](getting_started.md)
+- [Capturing Calibration Images](capture.md)
 - [Stereo Rig with Real Data](stereo_real_data.md)
 
 ---

@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- A "Capturing Calibration Images" chapter says how to capture: how many
+  views, how much tilt and in which directions, how large the board should
+  be in the image and where to place it, with the uncertainty each choice
+  buys, measured by the new `capture_planning` example.
 - Getting Started has a real-image quickstart, in Rust and Python: draft
   the manifest from a folder, describe the board, calibrate, and read the
   σ and the verdict, or start from a fetched sample dataset.

@@ -11,9 +11,6 @@ match the ROADMAP; each says its phase. Dependencies are named as
 A newcomer reaches a result on their own images from the book alone,
 installing only from crates.io or PyPI.
 
-- [ ] USE-CAPTURE - A capture-guidance chapter before calibration: how many
-  views, which poses and tilts, coverage of the image corners, built on
-  `analysis::next_view` and the projection-σ map.
 
 ## Command-line tool — CLI (Phase 1b)
 
@@ -114,6 +111,25 @@ Python binding and no real-data demonstration.
 
 ## Correctness — CORRECT (Phase 1b)
 
+- [ ] CAL-LASERPLANE-UNIT - `LaserPlane`'s normal is a `Unit<Vector3>`
+  that nalgebra deserializes without renormalizing, and `LaserPlane::new`
+  normalizes the normal without rescaling the distance, which moves a plane
+  given with a non-unit normal. Only the joint solve's seed check (#256)
+  rejects such a plane; `RigLaserlineDeviceInput::initial_planes_cam`,
+  `PlaneManualInit` and the laser exports read back from JSON do not. Make
+  `LaserPlane` validate at construction and on deserialize (one fallible
+  constructor that divides both by the norm, or rejects), and drop the
+  per-call checks. Gate: a non-unit plane cannot be built or deserialized.
+- [ ] CAL-INIT-DEGENERATE - Planar initialization fails on a degenerate
+  capture with `numerical failure: invalid sign for lambda; check
+  homographies`, which tells the user nothing. The `capture_planning`
+  example reproduces it: views all fronto-parallel, or all tilted the same
+  way (parallel board planes). Tilting about one axis only passes init and
+  returns σ(fx) ≈ 96 px instead. Detect the degeneracy from the homographies
+  before Zhang's solve (rank of the constraint system, or the spread of the
+  board normals) and return a typed error that names the fix: tilt the board
+  about both of its axes. Gate: both cases above return it, a good capture
+  is unaffected.
 - [ ] CAL-CHESSBOARD-TURN - A plain chessboard in a rig loses most views of
   a hand-held capture. The dataset runner rejects every view whose board is
   seen turned by 90° (`TurnedChessboard`), and cannot tell a 180° turn at
