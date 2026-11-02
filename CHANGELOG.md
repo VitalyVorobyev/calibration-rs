@@ -146,6 +146,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python) fetch the `kuka_1` sample instead of reading the repository's Git
   LFS images.
 
+### Fixed
+
+- **`view_scatter` scales fewer covariances of data that fit the noise
+  model.** Its significance threshold came from a scaled χ² fitted to two
+  moments of the jackknife statistic, which is skewed when few views carry
+  the information; the threshold now fits three (Pearson). On synthetic
+  two-camera rigs at 6–24 views it fired on 3.0 % of clean solves (3.75 %
+  at eight views or fewer) against the intended 2.5 %; it now fires on
+  2.3 % (2.75 %). A false alarm at six views can scale a covariance by 12
+  or more. Estimates are unchanged; the regression suite's results are
+  unchanged.
+
 ### Documentation
 
 - A "Compose Your Own Pipeline" chapter builds a measurement from the
