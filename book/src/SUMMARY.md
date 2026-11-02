@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](introduction.md)
+[Choose Your Workflow](choose_workflow.md)
 [Architecture Overview](architecture.md)
 
 ---

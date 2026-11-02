@@ -11,11 +11,6 @@ match the ROADMAP; each says its phase. Dependencies are named as
 A newcomer reaches a result on their own images from the book alone,
 installing only from crates.io or PyPI.
 
-- [ ] USE-CHOOSER - A "Choose your workflow" chapter right after the
-  Introduction: setup → problem type → camera model (Scheimpflug and
-  fisheye are camera values, not workflows), and how many views of what.
-  The Introduction names the Python, app and Rust routes before the maths
-  prerequisites.
 - [ ] USE-QUICKSTART-REAL - A real-image quickstart in `getting_started.md`,
   Rust and Python side by side: sniff a folder, review the manifest,
   calibrate, read the verdicts and σ. The Rust path shows the manifest and
