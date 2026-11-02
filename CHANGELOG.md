@@ -7,8 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `dataset_runner::calibrate_dataset` runs a dataset manifest end to end in
+  Rust, as `calibrate_dataset` already did in Python: the manifest's
+  topology picks the workflow. `CalibrationConfig` carries the
+  configuration of any workflow and `CalibrationExport` the export of any
+  workflow; `CalibrationExport` implements `CalibratedCameras`, so `assess`
+  and the other analyses take it directly.
+- The `calibrate_folder` example calibrates a folder of your own images:
+  it drafts the manifest, then detects, calibrates and prints each
+  camera's parameters with their σ and the quality verdict.
+
 ### Documentation
 
+- Getting Started has a real-image quickstart, in Rust and Python: draft
+  the manifest from a folder, describe the board, calibrate, and read the
+  σ and the verdict.
 - The book opens with a "Choose Your Workflow" chapter that maps a
   hardware setup to a workflow, a camera model and a capture plan, and the
   Introduction names the app, Python and Rust routes first.

@@ -11,10 +11,6 @@ match the ROADMAP; each says its phase. Dependencies are named as
 A newcomer reaches a result on their own images from the book alone,
 installing only from crates.io or PyPI.
 
-- [ ] USE-QUICKSTART-REAL - A real-image quickstart in `getting_started.md`,
-  Rust and Python side by side: sniff a folder, review the manifest,
-  calibrate, read the verdicts and σ. The Rust path shows the manifest and
-  the dataset runner with the feature flags it needs.
 - [ ] USE-SAMPLE-DATA - Sample data without a checkout. Move the suite's
   fetch-and-checksum code from `calib-bench` into
   `vision-calibration-dataset` behind a `fetch` feature, expose it to

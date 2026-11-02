@@ -3,7 +3,11 @@
 //! per-problem `*Config` and produces the existing `*Input` IR by
 //! running detection (cached) on the per-camera images.
 //!
-//! Converters:
+//! [`calibrate_dataset`] runs a manifest end to end: it picks the converter
+//! and the problem type by the manifest's topology and returns the export as
+//! a [`CalibrationExport`].
+//!
+//! Converters, for a run driven step by step:
 //! - [`build_planar_input`] — `PlanarIntrinsics` (any camera model)
 //!   (both consume a `PlanarDataset`).
 //! - [`build_rig_extrinsics_input`] — `RigExtrinsics` (`RigDataset<NoMeta>`).
@@ -53,6 +57,7 @@ use vision_calibration_detect::{
     ImageNoise, PuzzleboardConfig, RinggridConfig, validate_charuco_layout,
 };
 
+mod calibrate;
 mod handeye;
 mod laser;
 mod pairing;
@@ -61,6 +66,10 @@ mod poses;
 mod rig;
 mod view_filter;
 
+pub use calibrate::{
+    CalibrateDatasetError, CalibrationConfig, CalibrationExport, DatasetCalibration,
+    calibrate_dataset,
+};
 pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
 pub use laser::{
     LaserPixelExtractor, LaserlineRunResult, RigHandeyeLaserlineRunResult, RigLaserlineRunResult,

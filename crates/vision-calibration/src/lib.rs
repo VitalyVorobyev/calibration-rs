@@ -526,18 +526,23 @@ pub mod dataset {
 /// per-problem config into the existing `*Input` IR by running (cached)
 /// detection on the per-camera images.
 ///
+/// [`calibrate_dataset`](dataset_runner::calibrate_dataset) runs a manifest
+/// end to end, whatever its topology.
+///
 /// Re-exported from the pipeline crate's `dataset_runner` module — see that
 /// module's doc comment for the full list of `build_*_input` converters and
 /// the ask-user-on-ambiguity contract that
 /// [`RunError::AskUser`](dataset_runner::RunError::AskUser) implements.
 pub mod dataset_runner {
     pub use vision_calibration_pipeline::dataset_runner::{
-        CovarianceFault, Detection, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult,
+        CalibrateDatasetError, CalibrationConfig, CalibrationExport, CovarianceFault,
+        DatasetCalibration, Detection, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult,
         PairedViews, PlanarRunResult, RejectReason, RejectedDetection,
         RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,
         build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
         build_rig_handeye_input, build_rig_handeye_laserline_input,
-        build_rig_laserline_device_input, build_single_cam_handeye_input, detect_target,
+        build_rig_laserline_device_input, build_single_cam_handeye_input, calibrate_dataset,
+        detect_target,
     };
 }
 

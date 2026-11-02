@@ -158,6 +158,7 @@ Runnable end-to-end, on synthetic and real data:
 ```bash
 cargo run -p vision-calibration --example planar_synthetic       # planar intrinsics, synthetic
 cargo run -p vision-calibration --example planar_real            # planar intrinsics, real images
+cargo run -p vision-calibration --example calibrate_folder -- <folder> <w> <h>  # your own images, any workflow
 cargo run -p vision-calibration --example stereo_session         # stereo rig extrinsics
 cargo run -p vision-calibration --example manual_init            # stereo rig, seeded initialization
 cargo run -p vision-calibration --example handeye_synthetic      # single-camera hand-eye

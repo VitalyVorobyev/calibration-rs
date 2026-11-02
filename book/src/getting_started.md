@@ -1,6 +1,6 @@
 # Getting Started
 
-This chapter calibrates a camera end to end from synthetic data, once in Rust and once in Python. The two programs do the same thing: describe a planar board seen from several poses, run the two-step calibration (linear initialization, then non-linear refinement), and print the intrinsics and the reprojection error.
+This chapter calibrates a camera twice, each time in Rust and in Python. The first run uses synthetic data: a planar board seen from several poses, the two-step calibration (linear initialization, then non-linear refinement), and the intrinsics and reprojection error it recovers. The second run, [Calibrate Your Own Images](#calibrate-your-own-images), starts from a folder of board images and ends with the camera, the uncertainty of each parameter and a quality verdict.
 
 Both interfaces drive the same solvers and expose the same workflow: a session per problem type with its step functions, and a one-call runner per workflow (`run_calibration` in Rust; `run_planar_intrinsics`, `run_rig_extrinsics`, ... in Python). The Rust program below steps through a session; the Python program uses the runner, and [Step by Step in Python](#step-by-step-in-python) shows the session.
 
@@ -131,7 +131,7 @@ print(f"fx={k.fx:.1f}, fy={k.fy:.1f}, cx={k.cx:.1f}, cy={k.cy:.1f}")
 print(f"Mean reprojection error: {result.mean_reproj_error:.4f} px")
 ```
 
-Real data replaces step 2 in both languages: detect the board corners in each image and pair every corner with its position on the board. [Planar Intrinsics with Real Data](planar_real_data.md) shows the detection step by hand; [Calibration Targets and Detection](detection.md) covers the detectors the library ships, and [The Dataset Manifest](manifest.md) runs a folder of images (`vc.calibrate_dataset` in Python).
+Real data replaces step 2 in both languages: detect the board corners in each image and pair every corner with its position on the board. [Calibrate Your Own Images](#calibrate-your-own-images) below does that for a folder of images; [Planar Intrinsics with Real Data](planar_real_data.md) shows the detection step by hand.
 
 ### Step by Step in Python
 
@@ -149,9 +149,157 @@ cam = vc.CameraModel(result.camera)        # project with the calibrated camera
 print(cam.project([0.0, 0.0, 1.0]))        # the principal point
 ```
 
+## Calibrate Your Own Images
+
+A folder of photographs of a calibration board is enough to start. The program below takes three steps. It drafts a *dataset manifest* that describes the folder, waits for you to fill in what only you know, and then detects the board, calibrates and judges the result. It works for any [workflow](choose_workflow.md): the manifest's `topology` picks it.
+
+### 1. Draft the manifest
+
+The folder sniffer reads file and folder names, never image content. It groups images into cameras, finds a robot-pose file if there is one and picks the topology. What it cannot know, the board above all, it leaves as a placeholder and lists under `_unresolved`. For a folder of board images from one camera, the draft is:
+
+```json
+{
+  "version": 1,
+  "topology": "planar_intrinsics",
+  "cameras": [{ "id": "cam0", "images": { "kind": "glob", "pattern": "*.png" } }],
+  "target": { "kind": "chessboard", "rows": 0, "cols": 0, "square_size_m": 0.0 },
+  "_unresolved": ["target"]
+}
+```
+
+### 2. Fill in what only you know
+
+Describe the board and delete `_unresolved`. For a chessboard, `rows` and `cols` count the inner corners, where four squares meet, and `square_size_m` is the measured side of a printed square in metres:
+
+```json
+"target": { "kind": "chessboard", "rows": 7, "cols": 11, "square_size_m": 0.03 }
+```
+
+The calibration refuses a manifest whose `_unresolved` list is not empty, so a placeholder never reaches a result. ChArUco boards, PuzzleBoards and ring grids are described in [Calibration Targets and Detection](detection.md), and robot poses and the other fields in [The Dataset Manifest](manifest.md).
+
+### 3. Calibrate and judge
+
+#### Rust
+
+```toml
+[dependencies]
+vision-calibration = "0.12"
+anyhow = "1"
+serde_json = "1"
+```
+
+The real-image route needs no feature flags: detection, the manifest and the dataset runner are part of the default build.
+
+```rust
+use std::path::PathBuf;
+
+use anyhow::{Result, bail};
+use vision_calibration::analysis::{CheckStatus, QualityThresholds, assess};
+use vision_calibration::common::CalibratedCameras;
+use vision_calibration::core::Uncertainty;
+use vision_calibration::dataset::{DatasetSpec, sniff_folder};
+use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
+use vision_calibration::detect::FsDetectionCache;
+
+fn main() -> Result<()> {
+    let dir = PathBuf::from("my_board_images");
+    let image_size = [1024, 576]; // width, height in pixels
+
+    // 1. Draft the manifest and stop until it is filled in.
+    let manifest = dir.join("dataset.json");
+    if !manifest.exists() {
+        let draft = sniff_folder(&dir)?;
+        std::fs::write(&manifest, serde_json::to_string_pretty(&draft)?)?;
+        bail!("fill in {:?} in {}, delete `_unresolved`", draft.unresolved, manifest.display());
+    }
+
+    // 2. Detect (cached for the next run) and calibrate.
+    let spec = DatasetSpec::from_path(&manifest)?;
+    let cache = FsDetectionCache::new(dir.join(".detections"));
+    let run = calibrate_dataset(&spec, &dir, None, Detection::Cached(&cache), None)?;
+    println!("{} of {} views used", run.usable_views, run.total_views);
+
+    // 3. The camera and the uncertainty of its parameters.
+    let export = &run.export;
+    let k = &export.camera_params()[0].intrinsics;
+    println!("fx={:.2} fy={:.2} cx={:.2} cy={:.2}", k.fx, k.fy, k.cx, k.cy);
+    if let Uncertainty::Available(cov) = export.parameter_uncertainty() {
+        for label in ["fx", "fy", "cx", "cy"] {
+            println!("  σ({label}) = {:.3} px", cov.std_dev(label).unwrap_or(f64::NAN));
+        }
+    }
+
+    // 4. The verdict, and the checks that did not pass.
+    let report = assess(export, &[image_size], &QualityThresholds::default())?;
+    println!("verdict: {:?}", report.verdict);
+    for check in report.checks.iter().filter(|c| c.status != CheckStatus::Pass) {
+        println!("  {:?} {:?}: {}", check.kind, check.status, check.message);
+    }
+
+    // 5. Keep the export: JSON with a published schema.
+    std::fs::write(dir.join("calibration.json"), serde_json::to_string_pretty(export)?)?;
+    Ok(())
+}
+```
+
+`calibrate_dataset` reads the manifest's `topology` and runs that workflow with its default configuration; pass `Some(CalibrationConfig::...)` to change it (see [Configuring a Run](#configuring-a-run)). Its result holds the export, which every analysis accepts whichever workflow produced it, and the detections it left out with the reason for each. The library ships this program, generalized to several cameras, as the `calibrate_folder` example:
+
+```bash
+cargo run --release -p vision-calibration --example calibrate_folder -- my_board_images 1024 576
+```
+
+#### Python
+
+```python
+import json
+import sys
+from pathlib import Path
+
+import vision_calibration as vc
+
+folder = Path("my_board_images")
+manifest = folder / "dataset.json"
+
+# 1. Draft the manifest and stop until it is filled in.
+if not manifest.exists():
+    draft = vc.sniff_folder(folder)
+    manifest.write_text(json.dumps(draft, indent=2))
+    sys.exit(f"fill in {draft['_unresolved']} in {manifest}, delete _unresolved")
+
+# 2. Detect (cached for the next run) and calibrate.
+cache = vc.FsDetectionCache(folder / ".detections")
+result = vc.calibrate_dataset(manifest, cache=cache)
+
+# 3. The camera and the uncertainty of its parameters.
+k, u = result.camera.intrinsics, result.uncertainty
+print(f"fx={k.fx:.2f} ± {u.std_dev('fx'):.3f}  fy={k.fy:.2f} ± {u.std_dev('fy'):.3f}")
+print(f"cx={k.cx:.2f} ± {u.std_dev('cx'):.3f}  cy={k.cy:.2f} ± {u.std_dev('cy'):.3f}")
+
+# 4. The verdict, and the checks that did not pass.
+report = vc.assess(result, image_sizes=[(1024, 576)])
+print("verdict:", report.verdict)
+for check in report.checks:
+    if check.status != "pass":
+        print(" ", check.kind, check.status, check.message)
+```
+
+### Reading the output
+
+On the 20 left-camera images of the stereo set in [Stereo Rig with Real Data](stereo_real_data.md) (a 7×11 chessboard with 30 mm squares, 1024×576 pixels), both programs print the same numbers; the Python program's output is:
+
+```text
+fx=713.85 ± 7.672  fy=724.67 ± 7.821
+cx=523.41 ± 1.688  cy=285.95 ± 1.433
+verdict: warn
+  variance_factor not_applicable no expected feature noise was stated (expected_feature_noise_px)
+  projection_sigma warn projection σ up to 7.065 px over the 1024×576 image (centre 1.665 px, corners 7.065 px)
+```
+
+Read it from the bottom up. The verdict is `warn`, not `pass`: where a ray lands in the image is uncertain by up to 7 px in the corners, against 1.7 px in the centre. The views did not cover the image corners well enough to pin the focal length down to better than about 1 % (σ(fx) ≈ 7.7 px). More views with the board near the corners and tilted would shrink it; [Planning the Next View](uncertainty_next_view.md) ranks candidate poses by how much each would help. The variance check is not applicable until you state the detector's noise (`expected_feature_noise_px`). [Judging a Result](quality.md) explains every check, and [Reading the Covariance](uncertainty_reading.md) the σ.
+
 ## Configuring a Run
 
-Every workflow has a `*Config` type with the same grouped shape (`solver`, `camera`, `init`, ...). Rust updates it on the session; Python passes it to the runner or to the session's `set_config`.
+Every workflow has a `*Config` type with the same grouped shape (`solver`, `camera`, `init`, ...). Rust updates it on the session or hands it to `calibrate_dataset` wrapped in `CalibrationConfig`; Python passes it to the runner, to `calibrate_dataset` or to the session's `set_config`.
 
 ### Rust
 
@@ -166,6 +314,18 @@ session.update_config(|c| {
 run_calibration(&mut session)?; // the same two steps in one call
 ```
 
+From a manifest, the configuration names its workflow, and a configuration for a different topology than the manifest's is an error raised before any image is read:
+
+```rust
+use vision_calibration::dataset_runner::{CalibrationConfig, Detection, calibrate_dataset};
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
+
+let mut config = PlanarIntrinsicsConfig::default();
+config.solver.max_iters = 80;
+let config = CalibrationConfig::PlanarIntrinsics(config);
+let run = calibrate_dataset(&spec, &dir, Some(config), Detection::Cached(&cache), None)?;
+```
+
 ### Python
 
 ```python
@@ -173,6 +333,7 @@ config = vc.PlanarIntrinsicsConfig(
     solver=vc.SolverConfig(max_iters=80, robust_loss=vc.robust_huber(1.0)),
 )
 result = vc.run_planar_intrinsics(dataset, config)
+result = vc.calibrate_dataset("my_board_images/dataset.json", config)  # from a manifest
 ```
 
 ## What Happens in Each Step
@@ -205,4 +366,4 @@ After optimization, expect under 2% error on intrinsics and under 1 px mean repr
 - [Planar Intrinsics Calibration](planar_intrinsics.md): the full mathematical treatment of this workflow.
 - [Parameter Uncertainty](uncertainty.md): every result carries the covariance of its parameters.
 - [Architecture Overview](architecture.md): how the crates fit together.
-- [The Dataset Manifest](manifest.md): run a calibration from a folder of images without writing detection code.
+- [The Dataset Manifest](manifest.md): every field of the manifest, robot poses and image pairing included.
