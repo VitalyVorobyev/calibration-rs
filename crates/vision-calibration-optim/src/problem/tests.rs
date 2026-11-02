@@ -16,7 +16,7 @@ use crate::problems::planar_intrinsics::{
 use crate::projection::projection_uncertainty;
 
 /// A deterministic standard normal draw for `key`.
-fn gauss(key: u64) -> f64 {
+pub(super) fn gauss(key: u64) -> f64 {
     let mix = |mut z: u64| {
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
@@ -88,7 +88,7 @@ fn covariance(solution: &Solution) -> &vision_calibration_core::ParameterCovaria
         .expect("covariance available")
 }
 
-fn assert_close(a: f64, b: f64, rel: f64, what: &str) {
+pub(super) fn assert_close(a: f64, b: f64, rel: f64, what: &str) {
     assert!(
         (a - b).abs() <= rel * b.abs().max(1e-300),
         "{what}: {a} vs {b}"
@@ -381,14 +381,14 @@ fn a_user_residual_on_factrs_is_a_typed_error() {
 }
 
 /// Board corners, eight views of them and a camera with radial distortion.
-struct Scene {
-    camera: CameraParams,
-    board: Vec<Pt3>,
-    poses: Vec<Iso3>,
-    pixels: Vec<Vec<Pt2>>,
+pub(super) struct Scene {
+    pub(super) camera: CameraParams,
+    pub(super) board: Vec<Pt3>,
+    pub(super) poses: Vec<Iso3>,
+    pub(super) pixels: Vec<Vec<Pt2>>,
 }
 
-fn scene(noise: f64) -> Scene {
+pub(super) fn scene(noise: f64) -> Scene {
     let camera = CameraParams {
         projection: ProjectionParams::Pinhole,
         distortion: DistortionParams::BrownConrady5 {
@@ -458,7 +458,14 @@ fn a_planar_problem_matches_the_library_planar_solve() {
         let pose = problem.add_pose(format!("pose{v}"), pose).unwrap();
         for (point, pixel) in scene.board.iter().zip(pixels) {
             problem
-                .add_reprojection(camera, pose, *point, *pixel, RobustLoss::None)
+                .add_reprojection(
+                    camera,
+                    PoseChain::Pose(pose),
+                    TargetPoint::Known(*point),
+                    *pixel,
+                    PixelNoise::Estimated,
+                    RobustLoss::None,
+                )
                 .unwrap();
         }
     }
@@ -556,7 +563,14 @@ fn a_user_residual_joins_the_reprojection_residuals() {
             first.get_or_insert(pose);
             for (point, pixel) in scene.board.iter().zip(pixels) {
                 problem
-                    .add_reprojection(camera, pose, *point, *pixel, RobustLoss::None)
+                    .add_reprojection(
+                        camera,
+                        PoseChain::Pose(pose),
+                        TargetPoint::Known(*point),
+                        *pixel,
+                        PixelNoise::Estimated,
+                        RobustLoss::None,
+                    )
                     .unwrap();
             }
         }
@@ -621,13 +635,27 @@ fn several_cameras_are_labelled_by_index() {
     let behind = Pt3::new(0.0, 0.0, -2.0);
     assert!(
         problem
-            .add_reprojection(b, pose, behind, Pt2::new(0.0, 0.0), RobustLoss::None)
+            .add_reprojection(
+                b,
+                PoseChain::Pose(pose),
+                TargetPoint::Known(behind),
+                Pt2::new(0.0, 0.0),
+                PixelNoise::Estimated,
+                RobustLoss::None,
+            )
             .is_err_and(|e| e.to_string().contains("does not project"))
     );
     for camera in [a, b] {
         for (point, pixel) in scene.board.iter().zip(&scene.pixels[0]) {
             problem
-                .add_reprojection(camera, pose, *point, *pixel, RobustLoss::None)
+                .add_reprojection(
+                    camera,
+                    PoseChain::Pose(pose),
+                    TargetPoint::Known(*point),
+                    *pixel,
+                    PixelNoise::Estimated,
+                    RobustLoss::None,
+                )
                 .unwrap();
         }
     }
@@ -644,9 +672,10 @@ fn several_cameras_are_labelled_by_index() {
         problem
             .add_reprojection(
                 other,
-                pose,
-                scene.board[0],
+                PoseChain::Pose(pose),
+                TargetPoint::Known(scene.board[0]),
                 scene.pixels[0][0],
+                PixelNoise::Estimated,
                 RobustLoss::None
             )
             .is_err()

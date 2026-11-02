@@ -7,8 +7,8 @@ mod common;
 
 use common::{Truth, depth_variance, observe_board, project, scatter_over_stated, truth};
 use vision_calibration::core::{
-    CameraFix, CameraParams, CorrespondenceView, Iso3, PlanarDataset, Pt2, Pt3, View,
-    pinhole_camera_params,
+    CalibratedRig, CameraFix, CameraParams, CorrespondenceView, Iso3, PlanarDataset, Pt2, Pt3,
+    View, pinhole_camera_params,
 };
 use vision_calibration::init::{
     IterativeIntrinsicsOptions, estimate_intrinsics_iterative, estimate_planar_pose_from_h, pnp,
@@ -17,7 +17,8 @@ use vision_calibration::mvg::dlt_homography;
 use vision_calibration::nalgebra::{Translation3, UnitQuaternion, Vector3};
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::{
-    BlockId, CameraId, Problem, Solution, SolveOptions, solve,
+    BlockId, CameraId, PixelNoise, PoseChain, Problem, Solution, SolveOptions, TargetPoint, Use,
+    solve,
 };
 
 /// The view index the part's pixels are drawn under, apart from the board's.
@@ -92,7 +93,14 @@ fn build(
             let pose = problem.add_pose(format!("view{v}"), pose).unwrap();
             for (point, pixel) in c.board.iter().zip(pixels) {
                 problem
-                    .add_reprojection(cam, pose, *point, *pixel, RobustLoss::None)
+                    .add_reprojection(
+                        cam,
+                        PoseChain::Pose(pose),
+                        TargetPoint::Known(*point),
+                        *pixel,
+                        PixelNoise::Estimated,
+                        RobustLoss::None,
+                    )
                     .unwrap();
             }
         }
@@ -101,7 +109,14 @@ fn build(
         let pose = problem.add_pose("part", m.pose).unwrap();
         for (point, pixel) in m.fiducials.iter().zip(m.pixels) {
             problem
-                .add_reprojection(cam, pose, *point, *pixel, RobustLoss::None)
+                .add_reprojection(
+                    cam,
+                    PoseChain::Pose(pose),
+                    TargetPoint::Known(*point),
+                    *pixel,
+                    PixelNoise::Estimated,
+                    RobustLoss::None,
+                )
                 .unwrap();
         }
         pose
@@ -174,9 +189,42 @@ fn a_measurement_starts_from_the_closed_form_initializers() -> anyhow::Result<()
     Ok(())
 }
 
+/// The part measured through a calibration added as consider parameters:
+/// its pose and the variance of its depth.
+fn measure_with(
+    rig: &CalibratedRig,
+    fiducials: &[Pt3],
+    pixels: &[Pt2],
+    start: &Iso3,
+) -> (f64, f64) {
+    let mut problem = Problem::new();
+    let blocks = problem.add_calibrated_rig(rig, Use::Consider).unwrap();
+    let pose = problem.add_pose("part", start).unwrap();
+    for (point, pixel) in fiducials.iter().zip(pixels) {
+        problem
+            .add_reprojection(
+                blocks.camera(0).unwrap(),
+                PoseChain::Pose(pose),
+                TargetPoint::Known(*point),
+                *pixel,
+                PixelNoise::Estimated,
+                RobustLoss::None,
+            )
+            .unwrap();
+    }
+    let solution = solve(&problem, &SolveOptions::default()).unwrap();
+    let cov = solution.uncertainty.covariance().unwrap();
+    (
+        solution.pose(pose).unwrap().translation.z,
+        depth_variance(cov, "part", start),
+    )
+}
+
 /// Over repeated noise in the calibration images and in the measurement,
-/// the joint solve's σ of the part's depth matches the scatter of the
-/// depths; a camera held fixed at its calibrated values understates it.
+/// the σ of the part's depth matches the scatter of the depths when the
+/// calibration's uncertainty is in it: solved jointly, or measured with the
+/// calibration as consider parameters. A camera held fixed at its
+/// calibrated values understates it.
 #[test]
 fn the_joint_sigma_carries_the_calibration_and_a_fixed_camera_does_not() {
     let truth = truth();
@@ -186,6 +234,7 @@ fn the_joint_sigma_carries_the_calibration_and_a_fixed_camera_does_not() {
     let runs = 120;
     let (mut joint, mut joint_var) = (Vec::new(), Vec::new());
     let (mut fixed, mut fixed_var) = (Vec::new(), Vec::new());
+    let (mut consider, mut consider_var) = (Vec::new(), Vec::new());
     for seed in 0..runs {
         let seed = seed + 200;
         let pixels = observe_board(&truth, seed);
@@ -208,23 +257,42 @@ fn the_joint_sigma_carries_the_calibration_and_a_fixed_camera_does_not() {
         joint_var.push(depth_variance(cov, "part", &part_pose));
 
         // The calibration first, then the measurement with the camera fixed.
-        let calibrated = build(&truth.camera, &CameraFix::default(), board, None).camera();
+        let calibration = build(&truth.camera, &CameraFix::default(), board, None);
+        let calibrated = calibration.camera();
         let solved = build(&calibrated, &CameraFix::all(spec), None, measured);
         let cov = solved.solution.uncertainty.covariance().unwrap();
         fixed.push(solved.part().translation.z);
         fixed_var.push(depth_variance(cov, "part", &part_pose));
+
+        // The calibration first, then the measurement with its uncertainty
+        // as consider parameters.
+        let rig = CalibratedRig::single(calibrated, calibration.solution.uncertainty).unwrap();
+        let (depth, var) = measure_with(&rig, &part, &part_pixels, &part_pose);
+        consider.push(depth);
+        consider_var.push(var);
     }
     let joint_ratio = scatter_over_stated(&joint, &joint_var);
     let fixed_ratio = scatter_over_stated(&fixed, &fixed_var);
+    let consider_ratio = scatter_over_stated(&consider, &consider_var);
     let rms = |v: &[f64]| (v.iter().sum::<f64>() / v.len() as f64).sqrt() * 1e3;
     eprintln!(
         "depth σ: joint {:.3} mm (scatter/stated {joint_ratio:.2}), \
+         consider {:.3} mm (scatter/stated {consider_ratio:.2}), \
          fixed camera {:.3} mm (scatter/stated {fixed_ratio:.2})",
         rms(&joint_var),
+        rms(&consider_var),
         rms(&fixed_var),
     );
     // The sample standard deviation of 120 draws is within ±20 % of the true
     // one at about 3σ.
     assert!((joint_ratio - 1.0).abs() < 0.2, "joint {joint_ratio:.3}");
+    assert!(
+        (consider_ratio - 1.0).abs() < 0.2,
+        "consider {consider_ratio:.3}"
+    );
+    // A consider measurement is the fixed camera's estimate.
+    for (a, b) in consider.iter().zip(&fixed) {
+        assert!((a - b).abs() < 1e-9, "{a} vs {b}");
+    }
     assert!(fixed_ratio > 2.0, "fixed camera {fixed_ratio:.3}");
 }

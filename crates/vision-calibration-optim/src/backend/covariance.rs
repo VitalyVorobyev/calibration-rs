@@ -12,7 +12,7 @@
 //! ```text
 //! Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + B_p
 //! A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ,   B_p = Σ_priors σᵢ² JᵢᵀJᵢ
-//! κ_f = E_f[ψ′],   s_f = E_f[ψ²] · m / (m − n)
+//! κ_f = E_f[ψ′],   s_f = E_f[ψ²] · m_obs / (m − n)
 //! ```
 //!
 //! with `ψ = ρ′ r` the residual's influence and `ψ′ = tr(ρ′ I + 2ρ″ r rᵀ)`
@@ -22,7 +22,10 @@
 //! with priors as known information. `σᵢ` is a prior's residual standard
 //! deviation: 1 for a prior in its own unit or a whitened residual of known
 //! noise, the pixel noise for a robot-pose prior weighed against the
-//! reprojection residuals. With one family and no priors it is
+//! reprojection residuals. `m` counts every scalar residual and `m_obs` the
+//! observations' (the families'): a prior holds the coordinates it is over,
+//! so its rows and those coordinates leave the observations their `m − n`
+//! degrees of freedom. With one family and no priors it is
 //! `σ_f² A_f⁻¹`, `σ_f² = s_f / κ_f²`, and without a robust loss the classical
 //! `Σ‖r‖² / (m − n) · (JᵀJ)⁻¹`. With a loss, the outliers' bounded influence
 //! enters as it scatters the estimate: the IRLS form `σ̂² (JᵀWJ)⁻¹`
@@ -49,9 +52,10 @@ use faer::linalg::solvers::Solve;
 use faer::sparse::{SparseColMat, SparseColMatRef};
 use nalgebra::{DMatrix, DVector, SymmetricEigen, Vector3};
 
+use crate::Error;
 use crate::backend::normal_equations::NormalEquations;
 use crate::backend::s2;
-use crate::ir::{CustomNoise, FactorKind, ManifoldKind, ProblemIR};
+use crate::ir::{CustomNoise, FactorKind, ManifoldKind, ProblemIR, ReprojSqrtInfo};
 use vision_calibration_core::ResidualKind;
 
 /// `H` is rank-deficient when its unit-diagonal form has an eigenvalue below
@@ -93,7 +97,11 @@ pub(crate) struct RawLinearization {
 /// standard deviation of each of its scalar residuals.
 fn noise_role(factor: &FactorKind) -> Result<&ResidualKind, f64> {
     match factor {
-        FactorKind::ReprojPoint { .. } => Ok(&ResidualKind::Reprojection),
+        FactorKind::ReprojPoint { sqrt_info, .. }
+        | FactorKind::ReprojFreePoint { sqrt_info, .. } => match sqrt_info {
+            ReprojSqrtInfo::Stated { .. } => Err(1.0),
+            _ => Ok(&ResidualKind::Reprojection),
+        },
         FactorKind::LaserPointToPlane { .. } => Ok(&ResidualKind::LaserPlane),
         FactorKind::LaserLineDistance { .. } => Ok(&ResidualKind::LaserLine),
         FactorKind::Se3TangentPrior { residual_sigma, .. } => Err(*residual_sigma),
@@ -228,8 +236,10 @@ pub(crate) fn estimate(
     if m_obs > 0 && m <= n {
         return ParamUncertainty::Unavailable(UnavailableReason::NoRedundancy);
     }
+    // The observations' scatter has `m − n` degrees of freedom: each
+    // prior row holds one coordinate.
     let dof_scale = if m_obs > 0 {
-        m as f64 / (m - n) as f64
+        m_obs as f64 / (m - n) as f64
     } else {
         1.0
     };
@@ -295,6 +305,70 @@ pub(crate) fn estimate(
         dof: m.saturating_sub(n),
         view_scatter,
     }))
+}
+
+/// The share of the covariance that parameters held fixed in the solve
+/// bring in, for a solution that would move with them ("consider"
+/// parameters).
+///
+/// `ir` is the solved IR with the consider coordinates `consider` free and
+/// `raw` its loss-free linearization at the solution `params`. With `H`
+/// the Gauss–Newton matrix weighted as [`estimate`] weights it (each
+/// family's `κ`, priors at 1) over the other free coordinates `x`, and
+/// `H_xc` its block against the consider coordinates, the solution moves
+/// with them as `S = ∂x̂/∂c = −H⁻¹ H_xc`, and their covariance `sigma_c`
+/// adds `S Σ_c Sᵀ` to `x`'s. Returns `x`'s coordinates, as [`estimate`]
+/// reports them, and that addition.
+///
+/// # Errors
+///
+/// [`Error::Numerical`] when `H` over `x` is not positive definite or a
+/// consider coordinate has no column.
+pub(crate) fn consider_share(
+    ir: &ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+    raw: &RawLinearization,
+    consider: &[Coordinate],
+    sigma_c: &DMatrix<f64>,
+) -> Result<(Vec<Coordinate>, DMatrix<f64>), Error> {
+    debug_assert_eq!(sigma_c.nrows(), consider.len());
+    let column = |c: &Coordinate| raw.columns[c.block].get(c.index).copied().flatten();
+    let c_cols = consider
+        .iter()
+        .map(|c| {
+            column(c).ok_or_else(|| {
+                Error::numerical(format!("consider coordinate {c:?} has no Jacobian column"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let x: Vec<(Coordinate, usize)> = raw
+        .columns
+        .iter()
+        .enumerate()
+        .flat_map(|(block, cols)| {
+            cols.iter()
+                .enumerate()
+                .filter_map(move |(index, col)| col.map(|c| (Coordinate { block, index }, c)))
+        })
+        .filter(|(c, _)| !consider.contains(c))
+        .collect();
+
+    let blocks = residual_blocks(ir, &raw.residual);
+    // `κ` does not depend on the degrees of freedom.
+    let moments = family_moments(&blocks, 1.0);
+    let mut normal = NormalEquations::new(raw.jacobian.symbolic())
+        .expect("a linearization's pattern plans a normal matrix");
+    let h = weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| moments.kappa(b));
+    let h = dense_symmetric(&normal, &h, raw.jacobian.ncols());
+    let h_xx = DMatrix::from_fn(x.len(), x.len(), |a, b| h[(x[a].1, x[b].1)]);
+    let h_xc = DMatrix::from_fn(x.len(), c_cols.len(), |a, b| h[(x[a].1, c_cols[b])]);
+    let s = -h_xx
+        .cholesky()
+        .ok_or_else(|| Error::numerical("the Gauss–Newton matrix is not positive definite"))?
+        .solve(&h_xc);
+    let share = &s * sigma_c * s.transpose();
+    let coordinates: Vec<Coordinate> = x.iter().map(|&(c, _)| c).collect();
+    Ok(to_ambient(ir, params, &coordinates, &share))
 }
 
 /// The noise level of each residual family in `raw`'s residuals; empty

@@ -3210,6 +3210,15 @@ class UncertaintyUnavailable_AtBound(TypedDict):
     """Labels of the parameters on a bound."""
 
 
+class UncertaintyUnavailable_CalibrationWithoutCovariance(TypedDict):
+    """The result depends on a calibration that has no covariance, so a
+    covariance from the result's own observations would leave out the
+    calibration's share.
+    """
+
+    kind: Literal["calibration_without_covariance"]
+
+
 class UncertaintyUnavailable_NoRedundancy(TypedDict):
     """No more observations than estimated parameters."""
 
@@ -3244,6 +3253,7 @@ UncertaintyUnavailable: TypeAlias = (
     | UncertaintyUnavailable_AtBound
     | UncertaintyUnavailable_NoRedundancy
     | UncertaintyUnavailable_NotComputed
+    | UncertaintyUnavailable_CalibrationWithoutCovariance
 )
 """Why a result has no covariance."""
 
@@ -3429,6 +3439,7 @@ __all__ = [
     "Uncertainty",
     "UncertaintyUnavailable",
     "UncertaintyUnavailable_AtBound",
+    "UncertaintyUnavailable_CalibrationWithoutCovariance",
     "UncertaintyUnavailable_NoRedundancy",
     "UncertaintyUnavailable_NotComputed",
     "UncertaintyUnavailable_NotConverged",

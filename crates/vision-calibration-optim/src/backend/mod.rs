@@ -114,6 +114,16 @@ pub trait OptimBackend {
     ) -> Result<BackendSolution, Error>;
 }
 
+/// The loss-free residual and Jacobian of `ir` at `params`, with each IR
+/// block's columns; `None` when every coordinate is fixed. The tiny-solver
+/// engine linearizes every factor kind, whichever backend solved.
+pub(crate) fn raw_linearization(
+    ir: &ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+) -> Result<Option<covariance::RawLinearization>, Error> {
+    TinySolverBackend.raw_linearization(ir, params)
+}
+
 /// Solve `ir` from `initial` with the backend `opts.backend` selects.
 ///
 /// This is the backend-agnostic entry point every problem uses.

@@ -4,7 +4,7 @@ use crate::backend::lm::{self, LinearizationEngine, LmSolution};
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
 use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
-use crate::factors::reprojection_model::reproj_residual;
+use crate::factors::reprojection_model::{reproj_free_point_residual, reproj_residual};
 use crate::ir::{
     CameraModelSpec, CustomFactor, FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR,
     ReprojChain, ReprojSqrtInfo, RobustLoss,
@@ -408,6 +408,20 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::ReprojFreePoint {
+            model,
+            chain,
+            uv,
+            sqrt_info,
+        } => {
+            let factor = TinyReprojFreePointFactor {
+                model: *model,
+                chain: *chain,
+                uv: *uv,
+                sqrt_info: *sqrt_info,
+            };
+            Ok((Box::new(factor), loss))
+        }
         FactorKind::LaserPointToPlane {
             model,
             chain,
@@ -479,6 +493,22 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojFactor {
             self.uv,
             &self.sqrt_info,
         );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojFreePointFactor {
+    model: CameraModelSpec,
+    chain: ReprojChain,
+    uv: [f64; 2],
+    sqrt_info: ReprojSqrtInfo,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojFreePointFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        let r =
+            reproj_free_point_residual(self.model, &self.chain, params, self.uv, &self.sqrt_info);
         DVector::from_row_slice(r.as_slice())
     }
 }

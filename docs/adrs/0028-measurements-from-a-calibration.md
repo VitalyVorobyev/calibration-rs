@@ -107,7 +107,23 @@ adds its cameras and extrinsics as blocks:
 - **`Use::Prior`**: the calibration's parameters are free, held by a
   Gaussian prior `L⁻¹(c − c₀)` with `Σ_c = L Lᵀ` (whitened, unit
   variance, like `Noise::Known`). This is for bundle adjustment that
-  refines the cameras with the new observations.
+  refines the cameras with the new observations. The prior weighs in
+  units of its covariance, so every other residual's noise must be stated
+  too: the solve weighs a residual of estimated noise as if its σ were 1
+  in its unit, which at 0.3 px makes pixels count 11 times too little
+  against the prior. `solve` refuses the mix.
+
+A problem holds one calibrated rig, so its parameters keep the labels of
+the calibration's export (`fx`, `cam1.k1`, `cam1.cam_se3_rig.rx`).
+
+The consider share is computed after the solve: the problem is linearized
+once more with the consider coordinates free, `H` and `H_xc` are weighted
+as the sandwich weights them (each family's `κ`, priors at 1), and
+`S Σ_c Sᵀ` is added to the observations' covariance. With priors in a
+problem, a family's noise level is scaled by `m_obs / (m − n)`: a prior
+holds the coordinates it is over, so its rows add no degrees of freedom to
+the observations' (before this, `m / (m − n)` overstated a Prior-held
+measurement's σ̂² 1.6-fold).
 
 Parameters the calibration held fixed have no covariance and stay fixed
 in either use. A calibration without a covariance can still be added
@@ -122,12 +138,19 @@ Own Pipeline" is no longer the only exact route.
 
 ### Constructors the measurements need
 
-`optim::problem` also gains, as typed constructors (ADR 0027):
+`optim::problem` also gains, as typed constructors (ADR 0027), one
+`add_reprojection(camera, PoseChain, TargetPoint, pixel, PixelNoise,
+loss)`:
 
-- reprojection of a **point block** (a free 3D point), next to the
-  constant point it takes today;
-- reprojection through a **rig chain**: `cam_se3_rig · rig_se3_world`;
-- a **whitened reprojection** for an observation's 2×2 covariance.
+- reprojection of a **point block** (a free 3D point,
+  `TargetPoint::Block`), next to the constant point
+  (`TargetPoint::Known`); in the IR a `ReprojFreePoint` factor;
+- reprojection through a **rig chain** (`PoseChain::Rig`):
+  `cam_se3_rig · rig_se3_world`, a `ReprojChain::Rig` storing
+  `cam_se3_rig` itself, so its tangent is the one the exports report;
+- a **whitened reprojection** for an observation's 2×2 covariance
+  (`PixelNoise::Stated`): known information, like `Noise::Known`, not a
+  family whose noise level is estimated.
 
 ### Gauge and scale in bundle adjustment
 

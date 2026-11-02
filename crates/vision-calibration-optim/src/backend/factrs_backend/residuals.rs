@@ -23,7 +23,7 @@ use super::robust::IrRobustCost;
 use super::variables::{PlaneVar, se3_to_ir};
 use crate::Error;
 use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
-use crate::factors::reprojection_model::reproj_residual;
+use crate::factors::reprojection_model::{reproj_free_point_residual, reproj_residual};
 use crate::ir::{CameraModelSpec, FactorKind, LaserChain, ReprojChain, ReprojSqrtInfo, RobustLoss};
 
 /// Size of the fused camera variable of a camera model.
@@ -49,7 +49,7 @@ impl<T: Numeric> IrBlocks<T> for PlaneVar<T> {
     }
 }
 
-impl<T: Numeric> IrBlocks<T> for VectorVar<6, T> {
+impl<const D: usize, T: Numeric> IrBlocks<T> for VectorVar<D, T> {
     fn push_blocks(&self, out: &mut Vec<DVector<T>>) {
         out.push(DVector::from_column_slice(self.0.as_slice()));
     }
@@ -101,6 +101,27 @@ impl Reproj {
             self.uv,
             &self.sqrt_info,
         );
+        DVector::from_column_slice(r.as_slice())
+    }
+}
+
+/// A free-point reprojection factor's data.
+#[derive(Clone, Debug)]
+struct ReprojFree {
+    model: CameraModelSpec,
+    chain: ReprojChain,
+    uv: [f64; 2],
+    sqrt_info: ReprojSqrtInfo,
+}
+
+impl ReprojFree {
+    fn model(&self) -> CameraModelSpec {
+        self.model
+    }
+
+    fn eval<T: RealField>(&self, params: &[DVector<T>]) -> VectorX<T> {
+        let r =
+            reproj_free_point_residual(self.model, &self.chain, params, self.uv, &self.sqrt_info);
         DVector::from_column_slice(r.as_slice())
     }
 }
@@ -237,6 +258,22 @@ camera_residual! {
     ReprojTwoSe3: Residual3 { residual3, residual3_values, residual3_jacobian },
     Reproj, out = 2,
     chain = [V2 extrinsics: SE3, V3 pose: SE3]
+}
+
+camera_residual! {
+    /// Reprojection of an estimated point, `[camera, camera_se3_target,
+    /// point]`.
+    ReprojFreePose: Residual3 { residual3, residual3_values, residual3_jacobian },
+    ReprojFree, out = 2,
+    chain = [V2 pose: SE3, V3 point: VectorVar<3>]
+}
+
+camera_residual! {
+    /// Reprojection of an estimated point, `[camera, cam_se3_rig,
+    /// rig_se3_target, point]`.
+    ReprojFreeRig: Residual4 { residual4, residual4_values, residual4_jacobian },
+    ReprojFree, out = 2,
+    chain = [V2 rig: SE3, V3 pose: SE3, V4 point: VectorVar<3>]
 }
 
 camera_residual! {
@@ -391,7 +428,7 @@ pub(super) fn build_factor(
                         )
                         .robust(robust)
                         .build(),
-                        ReprojChain::TwoSe3 => FactorBuilder::new3_unchecked(
+                        ReprojChain::TwoSe3 | ReprojChain::Rig => FactorBuilder::new3_unchecked(
                             ReprojTwoSe3::<N, { N + 12 }>::new(payload),
                             keys[0],
                             keys[1],
@@ -415,6 +452,46 @@ pub(super) fn build_factor(
                             keys[2],
                             keys[3],
                             keys[4],
+                        )
+                        .robust(robust)
+                        .build(),
+                    }
+                }};
+            }
+            dispatch_camera_dim!(camera_dim(*model), mk)
+        }
+        FactorKind::ReprojFreePoint {
+            model,
+            chain,
+            uv,
+            sqrt_info,
+        } => {
+            let payload = ReprojFree {
+                model: *model,
+                chain: *chain,
+                uv: *uv,
+                sqrt_info: *sqrt_info,
+            };
+            macro_rules! mk {
+                ($n:literal) => {{
+                    const N: usize = $n;
+                    match chain {
+                        ReprojChain::Rig => FactorBuilder::new4_unchecked(
+                            ReprojFreeRig::<N, { N + 15 }>::new(payload),
+                            keys[0],
+                            keys[1],
+                            keys[2],
+                            keys[3],
+                        )
+                        .robust(robust)
+                        .build(),
+                        // The IR admits a free point through a single pose
+                        // or a rig only.
+                        _ => FactorBuilder::new3_unchecked(
+                            ReprojFreePose::<N, { N + 9 }>::new(payload),
+                            keys[0],
+                            keys[1],
+                            keys[2],
                         )
                         .robust(robust)
                         .build(),
