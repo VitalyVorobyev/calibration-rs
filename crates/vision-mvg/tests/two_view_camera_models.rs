@@ -101,15 +101,15 @@ fn cloud_ahead() -> Vec<Pt3> {
 }
 
 /// Rotation error (deg) and translation-direction error (deg).
+///
+/// Both angles come from `atan2`, which stays exact near zero; an `acos` of
+/// a cosine cannot resolve angles below about 1e-6° (one ulp off 1).
 fn pose_errors(est: &Iso3, gt: &Iso3) -> (f64, f64) {
-    let rot = est.rotation.angle_to(&gt.rotation).to_degrees();
-    let cos = est
-        .translation
-        .vector
-        .normalize()
-        .dot(&gt.translation.vector.normalize())
-        .clamp(-1.0, 1.0);
-    (rot, cos.acos().to_degrees())
+    let q = (est.rotation.inverse() * gt.rotation).into_inner();
+    let rot = 2.0 * q.imag().norm().atan2(q.scalar().abs());
+    let (a, b) = (est.translation.vector, gt.translation.vector);
+    let tdir = a.cross(&b).norm().atan2(a.dot(&b));
+    (rot.to_degrees(), tdir.to_degrees())
 }
 
 fn median(mut v: Vec<f64>) -> f64 {
