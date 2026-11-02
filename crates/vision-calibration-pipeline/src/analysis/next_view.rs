@@ -55,6 +55,11 @@ use vision_calibration_optim::{
 };
 
 use crate::Error;
+
+mod rig;
+pub use rig::{
+    PredictedRigUncertainty, RankedRobotPose, predict_with_robot_poses, rank_robot_poses,
+};
 // A candidate seeing fewer points than a planar view needs adds nothing.
 use crate::planar_intrinsics::{MIN_VIEW_POINTS, PlanarIntrinsicsExport};
 

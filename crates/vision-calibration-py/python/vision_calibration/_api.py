@@ -23,10 +23,12 @@ from .models import (
     PlanarIntrinsicsExport,
     PlanarIntrinsicsInput,
     Pose,
+    PredictedRigUncertainty,
     PredictedUncertainty,
     ProjectionUncertainty,
     QualityReport,
     RankedCandidate,
+    RankedRobotPose,
     QualityThresholds,
     RigExtrinsicsConfig,
     RigExtrinsicsInput,
@@ -519,7 +521,7 @@ def html_report(
 Point3 = tuple[float, float, float] | Sequence[float]
 
 
-def _planar_export(result: PlanarIntrinsicsExport | Mapping[str, Any]) -> dict[str, Any]:
+def _export_payload(result: Any) -> dict[str, Any]:
     export = result if isinstance(result, Mapping) else result.export
     if not export:
         raise ValueError("the result carries no export; it was not produced by this library")
@@ -571,7 +573,7 @@ def predict_with_views(
     payload = cast(
         Mapping[str, Any],
         _native.predict_with_views(
-            _planar_export(result),
+            _export_payload(result),
             _poses_payload(candidates),
             _points_payload(target_points),
             list(image_size),
@@ -595,13 +597,88 @@ def rank_candidates(
     payload = cast(
         list[Any],
         _native.rank_candidates(
-            _planar_export(result),
+            _export_payload(result),
             _poses_payload(candidates),
             _points_payload(target_points),
             list(image_size),
         ),
     )
     return [RankedCandidate.from_payload(cast(Mapping[str, Any], r)) for r in payload]
+
+
+def predict_with_robot_poses(
+    result: RigHandeyeExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Point3],
+    image_sizes: Sequence[tuple[int, int]],
+) -> PredictedRigUncertainty:
+    """The covariance a rig hand-eye calibration would have with views at more
+    robot poses, predicted without a re-solve.
+
+    Each candidate is a ``base_se3_gripper`` robot pose. Every camera sees the
+    target through the result's chain at that pose (the points behind it or
+    outside its image are dropped, and a camera that keeps fewer than four adds
+    nothing). The view's information about every estimated parameter (the
+    cameras, the rig, the hand-eye and the target) is added to the result's, on
+    the pixel noise scale the result's covariance implies. A result that
+    corrected its robot poses corrects the candidate's too, under its robot pose
+    error.
+
+    Parameters
+    ----------
+    result:
+        A rig hand-eye result, or its export JSON loaded as a dict.
+    candidates:
+        Candidate robot poses (``base_se3_gripper``), all added together.
+    target_points:
+        The target's points in its own frame, metres.
+    image_sizes:
+        ``(width, height)`` of each camera's images, pixels.
+
+    Raises
+    ------
+    ValueError
+        If the result has no covariance, ``candidates`` or ``target_points`` is
+        empty, ``image_sizes`` does not give one size per camera, or the result
+        cannot be planned from (observations whitened by stated per-point
+        covariances, a missing hand-eye or target pose).
+    TypeError
+        If the result is not a rig hand-eye result.
+    """
+    payload = cast(
+        Mapping[str, Any],
+        _native.predict_with_robot_poses(
+            _export_payload(result),
+            _poses_payload(candidates),
+            _points_payload(target_points),
+            [list(size) for size in image_sizes],
+        ),
+    )
+    return PredictedRigUncertainty.from_payload(payload)
+
+
+def rank_robot_poses(
+    result: RigHandeyeExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Point3],
+    image_sizes: Sequence[tuple[int, int]],
+) -> list[RankedRobotPose]:
+    """Candidate robot poses of a rig hand-eye calibration, each added alone,
+    ranked from the largest reduction of ``ln det Σ`` (the log-volume of the
+    whole covariance) to the smallest; ties keep the candidates' order.
+
+    Parameters and errors as :func:`predict_with_robot_poses`.
+    """
+    payload = cast(
+        list[Any],
+        _native.rank_robot_poses(
+            _export_payload(result),
+            _poses_payload(candidates),
+            _points_payload(target_points),
+            [list(size) for size in image_sizes],
+        ),
+    )
+    return [RankedRobotPose.from_payload(cast(Mapping[str, Any], r)) for r in payload]
 
 
 def candidate_poses(

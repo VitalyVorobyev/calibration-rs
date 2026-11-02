@@ -1960,6 +1960,72 @@ class RankedCandidate:
 
 
 
+
+@dataclass(slots=True)
+class PredictedRigUncertainty:
+    """The covariance a rig hand-eye calibration is predicted to have with views
+    at candidate robot poses added, from
+    :func:`~vision_calibration.predict_with_robot_poses`.
+
+    ``covariance`` has the result's labels, fixed list and noise levels; it
+    predicts no per-view blocks. ``projection`` is each camera's predicted
+    projection uncertainty over its image. ``visible_points`` gives, per
+    candidate and per camera, the target points that land in the image (a
+    camera that sees fewer than four adds nothing), and ``effective_noise_px``
+    the pixel σ the result's covariance implies, which scales the candidates'
+    information.
+    """
+
+    covariance: ParameterUncertainty
+    projection: list[ProjectionUncertainty]
+    visible_points: list[list[int]]
+    effective_noise_px: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PredictedRigUncertainty":
+        covariance = dict(cast(Mapping[str, Any], payload["covariance"]))
+        covariance["status"] = "available"
+        return cls(
+            covariance=ParameterUncertainty.from_payload(covariance),
+            projection=[
+                ProjectionUncertainty.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["projection"])
+            ],
+            visible_points=[
+                [int(v) for v in cast(list[Any], per_camera)]
+                for per_camera in cast(list[Any], payload["visible_points"])
+            ],
+            effective_noise_px=float(payload["effective_noise_px"]),
+        )
+
+
+@dataclass(slots=True)
+class RankedRobotPose:
+    """One candidate robot pose scored by :func:`~vision_calibration.rank_robot_poses`."""
+
+    #: The candidate's position in the list that was ranked.
+    index: int
+    #: Per camera, the target points that land in its image; a camera that sees
+    #: fewer than four adds nothing.
+    visible_points: list[int]
+    #: ``ln det Σ − ln det Σ′``: the reduction of the covariance's log-volume.
+    log_det_reduction: float
+    #: The largest projection σ over every camera's image with this view added,
+    #: pixels.
+    max_projection_sigma_px: float
+    #: The current largest projection σ minus ``max_projection_sigma_px``, pixels.
+    projection_sigma_reduction_px: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RankedRobotPose":
+        return cls(
+            index=int(payload["index"]),
+            visible_points=[int(v) for v in cast(list[Any], payload["visible_points"])],
+            log_det_reduction=float(payload["log_det_reduction"]),
+            max_projection_sigma_px=float(payload["max_projection_sigma_px"]),
+            projection_sigma_reduction_px=float(payload["projection_sigma_reduction_px"]),
+        )
+
 class _ExportResiduals:
     """The typed per-feature residuals of a result's export JSON."""
 
