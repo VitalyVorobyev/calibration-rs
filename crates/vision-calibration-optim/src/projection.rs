@@ -144,10 +144,8 @@ pub fn projection_covariance_at(
     Ok(pixels
         .iter()
         .map(|&[u, v]| {
-            let guess = start
-                .backproject_pixel(&Pt2::new(u, v))
-                .point_at_unit_depth()?;
-            let j = model.jacobian(Vector2::new(u, v), Vector2::new(guess.x, guess.y))?;
+            let guess = start.backproject_pixel(&Pt2::new(u, v)).direction;
+            let j = model.jacobian(Vector2::new(u, v), guess)?;
             Some(&j * &theta_covariance * j.transpose())
         })
         .collect())
@@ -245,26 +243,38 @@ impl CameraVector {
         }))
     }
 
-    /// `∂q/∂θ` at the ray through `pixel`, found by Newton steps from
-    /// `guess` on the `z = 1` plane; `None` when the steps do not reach it.
-    fn jacobian(&self, pixel: Vector2<f64>, guess: Vector2<f64>) -> Option<OMatrix<f64, U2, Dyn>> {
+    /// `∂q/∂θ` at the ray through `pixel`, found by Newton steps from the
+    /// direction `guess`; `None` when the steps do not reach it.
+    fn jacobian(&self, pixel: Vector2<f64>, guess: Vector3<f64>) -> Option<OMatrix<f64, U2, Dyn>> {
         node_jacobian(self.model, &self.theta, pixel, guess)
     }
 }
 
+/// `∂q/∂θ` at the ray through `pixel`. The ray is `d + a e₁ + b e₂` on the
+/// plane tangent to the unit sphere at the guessed direction `d`, so a ray
+/// at or beyond 90° from the optical axis (a fisheye lens) is as well
+/// parametrized as one near it. `∂q/∂θ` holds the ray fixed, so it does
+/// not depend on that choice.
 fn node_jacobian(
     model: CameraModelSpec,
     theta: &DVector<f64>,
     pixel: Vector2<f64>,
-    guess: Vector2<f64>,
+    guess: Vector3<f64>,
 ) -> Option<OMatrix<f64, U2, Dyn>> {
     let n = theta.len();
-    // Variables: θ, then the ray's point (x, y) on the z = 1 plane.
+    let d = guess.try_normalize(0.0)?;
+    // Any unit vector not parallel to `d` spans the tangent plane with it.
+    let helper = if d.x.abs() < 0.9 {
+        Vector3::x()
+    } else {
+        Vector3::y()
+    };
+    let e1 = d.cross(&helper).normalize();
+    let basis = [d, e1, d.cross(&e1)];
+    // Variables: θ, then the ray's tangent-plane coordinates (a, b).
     let mut x = theta.clone().resize_vertically(n + 2, 0.0);
-    x[n] = guess.x;
-    x[n + 1] = guess.y;
     for _ in 0..MAX_NEWTON_STEPS {
-        let (q, j) = jacobian(|v: DVector<DualDVec64>| project(model, &v, n), &x);
+        let (q, j) = jacobian(|v: DVector<DualDVec64>| project(model, &v, n, &basis), &x);
         let miss = pixel - q;
         if !miss.iter().all(|v| v.is_finite()) {
             return None;
@@ -279,17 +289,25 @@ fn node_jacobian(
     None
 }
 
-/// The pixel of the ray `(v[n], v[n + 1], 1)` for camera parameters `v[..n]`
-/// (`[intrinsics, projection, distortion, sensor]`, concatenated).
-fn project(model: CameraModelSpec, v: &DVector<DualDVec64>, n: usize) -> SVector<DualDVec64, 2> {
+/// The pixel of the ray `d + v[n] e₁ + v[n + 1] e₂` (`basis = [d, e₁, e₂]`)
+/// for camera parameters `v[..n]` (`[intrinsics, projection, distortion,
+/// sensor]`, concatenated).
+fn project(
+    model: CameraModelSpec,
+    v: &DVector<DualDVec64>,
+    n: usize,
+    basis: &[Vector3<f64>; 3],
+) -> SVector<DualDVec64, 2> {
     let all = v.as_slice();
     let (intrinsics, rest) = all.split_at(4);
     let (projection, rest) = rest.split_at(model.projection.dim());
     let (distortion, rest) = rest.split_at(model.distortion.dim());
     let sensor = &rest[..model.sensor.dim()];
     let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
-    let one = DualDVec64::from_re(1.0);
-    let ray = Vector3::new(v[n].clone(), v[n + 1].clone(), one);
+    let [d, e1, e2] = basis;
+    let ray = Vector3::from_fn(|i, _| {
+        DualDVec64::from_re(d[i]) + v[n].clone() * e1[i] + v[n + 1].clone() * e2[i]
+    });
     let (u, w) = camera.project(&ray);
     SVector::<DualDVec64, 2>::new(u, w)
 }
@@ -411,6 +429,60 @@ mod tests {
     }
 
     #[test]
+    fn a_fisheye_ray_beyond_ninety_degrees_has_an_exact_jacobian() {
+        use vision_calibration_core::DistortionKind;
+        let kind = DistortionKind::KannalaBrandt4;
+        let params = CameraParams {
+            projection: ProjectionParams::Equidistant,
+            distortion: DistortionParams::from_values(kind, &[-0.02, 0.002, -0.0001, 0.0]).unwrap(),
+            sensor: SensorParams::Identity,
+            intrinsics: FxFyCxCy {
+                fx: 300.0,
+                fy: 302.0,
+                cx: 640.0,
+                cy: 400.0,
+            },
+        };
+        let model = CameraVector::new(&params).unwrap();
+        let built = params.build().unwrap();
+        // About 107° off-axis.
+        let pixel = Vector2::new(1180.0, 430.0);
+        let ray = built
+            .backproject_pixel(&Pt2::new(pixel.x, pixel.y))
+            .direction;
+        assert!(ray.z < 0.0, "{ray}");
+        let exact = model.jacobian(pixel, ray).unwrap();
+
+        let theta = model.theta.clone();
+        let project = |theta: &DVector<f64>| {
+            let camera = CameraParams {
+                distortion: DistortionParams::from_values(kind, &theta.as_slice()[4..]).unwrap(),
+                intrinsics: FxFyCxCy {
+                    fx: theta[0],
+                    fy: theta[1],
+                    cx: theta[2],
+                    cy: theta[3],
+                },
+                ..params.clone()
+            };
+            let q = camera.build().unwrap().project_point_c(&ray).unwrap();
+            Vector2::new(q.x, q.y)
+        };
+        for k in 0..theta.len() {
+            let h = 1e-6 * theta[k].abs().max(1.0);
+            let (mut plus, mut minus) = (theta.clone(), theta.clone());
+            plus[k] += h;
+            minus[k] -= h;
+            let numeric = (project(&plus) - project(&minus)) / (2.0 * h);
+            let column = exact.column(k);
+            assert!(
+                (column - numeric).norm() < 1e-5 * column.norm().max(1.0),
+                "parameter {k}: exact {column} numeric {numeric}"
+            );
+        }
+    }
+
+    #[test]
     fn exact_jacobian_matches_central_differences() {
         for sensor in [
             SensorParams::Identity,
@@ -427,11 +499,8 @@ mod tests {
             let pixel = Vector2::new(600.0, 40.0);
             let guess = built
                 .backproject_pixel(&Pt2::new(pixel.x, pixel.y))
-                .point_at_unit_depth()
-                .unwrap();
-            let exact = model
-                .jacobian(pixel, Vector2::new(guess.x, guess.y))
-                .unwrap();
+                .direction;
+            let exact = model.jacobian(pixel, guess).unwrap();
             // Recover the ray Newton converged to, then difference there.
             let ray = built
                 .backproject_pixel(&Pt2::new(pixel.x, pixel.y))

@@ -60,18 +60,15 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 - [ ] CAM-KB - (Phase 1) Calibrate Kannala-Brandt fisheye cameras
   (`Equidistant` + `KannalaBrandt4`) in every workflow, so a second real
   projection exercises the API 1.0 freezes. The workflows initialize and
-  calibrate one (bearing-based initializer). Left, in order:
-  1. *Wide-angle consumers.* Projection uncertainty, next-view planning and
-     the information matrix assume rays on `z = 1` (`point_at_unit_depth`,
-     `z > 0` filters); give them unit-direction rays. The analysis pose
-     seed (`analysis/mod.rs`, homography or EPnP) should use bearings.
-  2. *Data and comparison.* A suite entry from OpenCV's own fisheye test set
-     (`opencv_extra` `calib-3_stereo_from_JY`, 34 stereo pairs, corner files
-     included; no licence stated, so fetched at a pinned commit), compared
-     against `cv::fisheye::calibrate` and `stereoCalibrate`; synthetic
-     matrix across every problem type, laser workflows included; a book
-     walkthrough. The initializer alone already lands within 0.3 % of
-     OpenCV's left-camera focal length on it.
+  calibrate one (bearing-based initializer), and the analysis (projection
+  uncertainty, information, next-view planning, the intrinsic floor) works
+  on rays beyond 90°. Left: *data and comparison.* A suite entry from
+  OpenCV's own fisheye test set (`opencv_extra` `calib-3_stereo_from_JY`,
+  34 stereo pairs, corner files included; no licence stated, so fetched at
+  a pinned commit), compared against `cv::fisheye::calibrate` and
+  `stereoCalibrate`; synthetic matrix across every problem type, laser
+  workflows included; a book walkthrough. The initializer alone already
+  lands within 0.3 % of OpenCV's left-camera focal length on it.
 - [ ] CAM-EUCM-DS - Enhanced unified (EUCM) and double-sphere projections,
   with their closed-form unprojection and validity regions.
 - [ ] CAM-TELECENTRIC - Telecentric (affine/orthographic) projection for

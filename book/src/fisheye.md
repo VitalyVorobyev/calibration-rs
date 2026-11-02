@@ -79,6 +79,10 @@ config.camera.model = CameraModelSpec::new(
 );
 ```
 
+The analysis tools — projection uncertainty, next-view planning, the
+information matrix and the reprojection report — follow the camera's rays,
+so they cover the whole fisheye image, beyond 90° included.
+
 Some combinations have no initializer and are configuration errors:
 
 - an equidistant camera with a Scheimpflug sensor;

@@ -323,3 +323,55 @@ fn rig_handeye() {
         assert_recovered(camera, "export");
     }
 }
+
+/// With noisy corners the calibration has a covariance: its projection
+/// uncertainty reaches rays beyond 90°, and next-view planning proposes and
+/// ranks candidates across the whole fisheye image.
+#[test]
+fn wide_angle_analysis() {
+    use vision_calibration_pipeline::analysis::{CandidateGrid, candidate_poses, rank_candidates};
+    use vision_calibration_pipeline::common::CalibratedCameras;
+
+    let views = board_poses()
+        .iter()
+        .enumerate()
+        .map(|(v, p)| {
+            let mut obs = view(p);
+            for (i, px) in obs.points_2d.iter_mut().enumerate() {
+                // Deterministic ±0.1 px pattern.
+                px.x += 0.1 * ((7 * i + 3 * v) % 5) as Real / 2.0 - 0.1;
+                px.y += 0.1 * ((5 * i + 11 * v) % 3) as Real - 0.1;
+            }
+            View::without_meta(obs)
+        })
+        .collect();
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session
+        .set_input(PlanarDataset::new(views).unwrap())
+        .unwrap();
+    let mut config = session.config.clone();
+    config.camera = CameraConfig::new(model());
+    session.set_config(config).unwrap();
+    vision_calibration_pipeline::planar_intrinsics::run_calibration(&mut session).unwrap();
+    let export = session.export().unwrap();
+
+    let image_size = [1280, 800];
+    let map = export.projection_uncertainty(0, image_size).unwrap();
+    // A node on the left edge, 640 px from the centre: about 130° off-axis.
+    let row = map.rows / 2;
+    let edge = map.sigma[row * map.columns].expect("a ray reaches the image edge");
+    assert!(
+        edge.is_finite() && edge > map.center,
+        "edge {edge} centre {}",
+        map.center
+    );
+
+    let board: Vec<Pt3> = (0..63)
+        .map(|i| Pt3::new((i % 9) as Real * 0.03, (i / 9) as Real * 0.03, 0.0))
+        .collect();
+    let grid = CandidateGrid::new(0.3, 0.3, [4, 3]);
+    let candidates = candidate_poses(&export.params.camera, &board, image_size, &grid).unwrap();
+    assert_eq!(candidates.len(), 4 * 3 * 5);
+    let ranked = rank_candidates(&export, &candidates, &board, image_size).unwrap();
+    assert!(!ranked.is_empty());
+}

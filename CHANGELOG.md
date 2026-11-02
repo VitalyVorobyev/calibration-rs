@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     principal point, `k1`, `k2` and poses from planar views) and
     `planar_pose::estimate_planar_pose_from_bearings` (a board pose from
     any central camera's bearings, including points beyond 90°).
+  - The analysis tools handle rays at and beyond 90° from the axis:
+    projection uncertainty, `view_information`, next-view candidates and
+    ranking, and the per-view pose of the reprojection report (now seeded
+    from the camera's bearings instead of a pinhole homography).
   - Configuration errors: an equidistant camera with a Scheimpflug
     sensor, and the `LineDistNormalized` laser
     residual on a projection that bends lines (use `PointToPlane`).

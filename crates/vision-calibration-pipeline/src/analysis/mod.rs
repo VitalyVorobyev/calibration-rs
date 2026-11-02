@@ -62,15 +62,15 @@
 
 use serde::{Deserialize, Serialize};
 
-use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector6};
+use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector3, Vector6};
 
 use vision_calibration_core::{
-    CameraParams, CameraProject, FxFyCxCy, Iso3, Pt2, Pt3, RigDataset, TargetFeatureResidual, View,
+    Camera, CameraParams, CameraProject, DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3,
+    ProjectionModel, Pt2, Pt3, RigDataset, SensorModel, TargetFeatureResidual, View,
     compute_rig_target_residuals,
 };
-use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
+use vision_calibration_linear::planar_pose::estimate_planar_pose_from_bearings;
 use vision_calibration_linear::pnp::PnpSolver;
-use vision_geometry::homography::dlt_homography;
 
 mod next_view;
 pub use next_view::{
@@ -484,7 +484,7 @@ fn intrinsic_floor_rig<C, M>(
     dataset: &RigDataset<M>,
 ) -> Vec<TargetFeatureResidual>
 where
-    C: CameraProject,
+    C: FloorCamera,
 {
     let mut out = Vec::new();
     for (cam_idx, cam) in cameras.iter().enumerate() {
@@ -517,12 +517,13 @@ where
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Solve the per-view board pose `camera_se3_target` (`T_C_W`) for one
-/// `(camera, view)`: an EPnP seed (algebraic) refined by a pose-only Gauss-Newton
-/// minimization of reprojection error through the *full* calibrated camera model,
-/// so the intrinsic level is a genuine per-view reprojection minimum rather than
-/// the slightly looser DLT/EPnP solution.
+/// `(camera, view)`: a linear seed (from bearings for a planar target, EPnP
+/// otherwise) refined by a pose-only Gauss-Newton minimization of reprojection
+/// error through the *full* calibrated camera model, so the intrinsic level is
+/// a genuine per-view reprojection minimum rather than the looser linear
+/// solution.
 ///
-/// Returns `None` when there are fewer than four corners or EPnP fails.
+/// Returns `None` when there are fewer than four corners or the seed fails.
 fn intrinsic_floor_view<C>(
     camera: &C,
     k: &FxFyCxCy<f64>,
@@ -530,25 +531,46 @@ fn intrinsic_floor_view<C>(
     obs_2d: &[Pt2],
 ) -> Option<Iso3>
 where
-    C: CameraProject,
+    C: FloorCamera,
 {
     if obs_3d.len() < 4 || obs_3d.len() != obs_2d.len() {
         return None;
     }
     // Seed the pose. Calibration targets are planar (Z = 0 in the board frame),
     // and for coplanar points EPnP's control-point construction is degenerate —
-    // so for a planar target we decompose a plane-induced homography instead
-    // (`H = K[r1 r2 t]`). EPnP is kept as the fallback for a rare non-planar
-    // target. Either seed is then polished by the pose-only refinement below.
+    // so for a planar target the seed comes from the bearings of the pixels
+    // back-projected through the full camera (any central projection, rays
+    // beyond 90° included). EPnP is kept as the fallback for a rare
+    // non-planar target. Either seed is then polished by the pose-only
+    // refinement below.
     let max_z = obs_3d.iter().fold(0.0_f64, |m, p| m.max(p.z.abs()));
     let seed = if max_z < 1e-6 {
         let world2d: Vec<Pt2> = obs_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
-        let h = dlt_homography(&world2d, obs_2d).ok()?;
-        estimate_planar_pose_from_h(&k.k_matrix(), &h).ok()?
+        let bearings: Vec<Vector3<f64>> = obs_2d.iter().map(|p| camera.bearing(p)).collect();
+        estimate_planar_pose_from_bearings(&world2d, &bearings).ok()?
     } else {
         PnpSolver::epnp(obs_3d, obs_2d, k).ok()?
     };
     Some(refine_pose_only(camera, &seed, obs_3d, obs_2d))
+}
+
+/// A camera the intrinsic floor can seed a pose with: it projects and
+/// back-projects.
+trait FloorCamera: CameraProject {
+    /// The direction of the ray through `pixel`, camera frame.
+    fn bearing(&self, pixel: &Pt2) -> Vector3<f64>;
+}
+
+impl<P, D, Sm, K> FloorCamera for Camera<f64, P, D, Sm, K>
+where
+    P: ProjectionModel<f64>,
+    D: DistortionModel<f64>,
+    Sm: SensorModel<f64>,
+    K: IntrinsicsModel<f64>,
+{
+    fn bearing(&self, pixel: &Pt2) -> Vector3<f64> {
+        self.backproject_pixel(pixel).direction
+    }
 }
 
 /// Pose-only Gauss-Newton refinement of `camera_se3_target` (`T_C_W`).
@@ -665,7 +687,7 @@ fn intrinsic_floor_single_cam<C, M>(
     cam_idx: usize,
 ) -> Vec<TargetFeatureResidual>
 where
-    C: CameraProject,
+    C: FloorCamera,
 {
     let mut out = Vec::new();
     for (view_idx, view) in views.iter().enumerate() {
@@ -687,7 +709,7 @@ fn intrinsic_floor_handeye<C>(
     cam_idx: usize,
 ) -> Vec<TargetFeatureResidual>
 where
-    C: CameraProject,
+    C: FloorCamera,
 {
     let mut out = Vec::new();
     for (view_idx, view) in views.iter().enumerate() {
