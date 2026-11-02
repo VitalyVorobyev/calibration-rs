@@ -775,12 +775,17 @@ fn to_ambient(
 /// `k` is noisy with few views (a standard deviation of about 0.6 with
 /// eight), so the covariance is scaled only when `k` is significant: above
 /// its distribution under the noise model at [`SCATTER_SIGNIFICANCE`].
-/// There the whitened steps are jointly Gaussian, each with the covariance
-/// `F_v (W_v − W_v²) F_v` (`F_v = (I − W_v)⁻¹`) and between views `−A_u A_v`
-/// (`A_v = F_v W_v`; the scores sum to zero at the solution), so the sum of
-/// their squares has a known mean and variance and is taken as a scaled χ²
-/// (Satterthwaite). Scaling by every `k > 1` would inflate the covariance
-/// of data that fit the noise model.
+/// There the whitened steps are jointly Gaussian (see [`NullStepMoments`]),
+/// so the sum of their squares is a weighted sum of χ²₁ terms with known
+/// cumulants, taken as a shifted, scaled χ² with the same first three
+/// (Pearson). With few views a handful of leverages dominate and that sum
+/// is skewed: a two-moment fit (Satterthwaite) underestimates its upper
+/// tail. On synthetic two-camera rigs with exactly modelled noise (the
+/// rig-extrinsics solve, and the hand-eye solve with corrected robot
+/// poses), it scaled 3.75 % of the solves with eight views or fewer, and
+/// three moments 2.75 % (2400 solves over 6–24 views: 3.0 % and 2.3 %).
+/// Scaling by every `k > 1` would inflate the covariance of data that fit
+/// the noise model.
 ///
 /// `None` when `k` is not significantly above 1, fewer than [`MIN_VIEWS`]
 /// views carry residuals, no free coordinate is shared, a residual reads
@@ -886,12 +891,7 @@ fn view_scatter(
     let l = marginal.cholesky()?.inverse().cholesky()?.l();
     let l_inv = l.try_inverse()?;
     let mut jackknife = DMatrix::<f64>::zeros(s, s);
-    // Under the noise model: the eigenvalues `fᵢ² λᵢ (1 − λᵢ)` of each
-    // view's whitened step covariance, and `Σ_v A_v²` and `Σ_v ‖A_v²‖²` for
-    // the whitened steps `A_v = F_v W_v` (`F_v = (I − W_v)⁻¹`).
-    let mut own_variance: Vec<f64> = Vec::new();
-    let mut squares = DMatrix::<f64>::zeros(s, s);
-    let mut fourth = 0.0;
+    let mut null = NullStepMoments::new(s);
     for slot in 0..views.len() {
         let j = &jac[slot];
         let weighted = DMatrix::from_fn(j.nrows(), j.ncols(), |r, c| kappa[slot][r] * j[(r, c)]);
@@ -925,15 +925,8 @@ fn view_scatter(
             }
         });
         let u = &eigen.eigenvectors;
-        let mut step_squared = eigen.eigenvalues.clone();
-        for (i, (&lambda, &f)) in eigen.eigenvalues.iter().zip(inflation.iter()).enumerate() {
-            let lambda = lambda.clamp(0.0, 1.0);
-            own_variance.push(f * f * lambda * (1.0 - lambda));
-            step_squared[i] = (f * lambda).powi(2);
-        }
-        let step_squared = u * DMatrix::from_diagonal(&step_squared) * u.transpose();
-        fourth += step_squared.norm_squared();
-        squares += step_squared;
+        let leverage = eigen.eigenvalues.map(|lambda| lambda.clamp(0.0, 1.0));
+        null.add_view(u, &leverage, &inflation);
         let delta = l_inv.transpose()
             * u
             * DMatrix::from_diagonal(&inflation)
@@ -947,20 +940,101 @@ fn view_scatter(
 
     let model = DMatrix::from_fn(s, s, |a, b| sigma[(shared[a], shared[b])]);
     let k = model.cholesky()?.solve(&jackknife).trace() / s as f64;
-    // Under the noise model the whitened steps are jointly Gaussian with
-    // covariances `F_v (W_v − W_v²) F_v` (eigenvalues above) and, between
-    // views, `−A_u A_v`: the scores sum to zero at the solution. The sum of
-    // their squares has the mean and variance below (the cross terms
-    // `2 Σ_{u≠v} ‖A_u A_v‖²`, with `‖A_u A_v‖² = tr(A_u² A_v²)`) and is
-    // close to a scaled χ² (Satterthwaite).
-    let mean: f64 = own_variance.iter().sum();
-    let variance: f64 = own_variance.iter().map(|c| 2.0 * c * c).sum::<f64>()
-        + 2.0 * (squares.norm_squared() - fourth);
+    // `k` is `factor` times the sum of the squared whitened steps, whose
+    // mean under the noise model is `tr C`.
+    let traces = null.traces();
     let factor = (v - 1.0) / v / s as f64;
-    let k = 1.0 + k - factor * mean;
-    let dof = 2.0 * mean * mean / variance;
-    let threshold = 1.0 + factor * (variance / (2.0 * mean) * chi_square_quantile(dof) - mean);
+    let k = 1.0 + k - factor * traces[0];
+    let threshold = 1.0 + factor * (null_quantile(traces) - traces[0]);
     (k.is_finite() && k > threshold).then_some(k)
+}
+
+/// The joint covariance `C` of the views' whitened jackknife steps under
+/// the noise model, through the traces of its first three powers.
+///
+/// View `v`'s whitened score at the solution is `z̃_v = z_v − W_v Σ_u z_u`
+/// (the scores sum to zero there), with independent `z_v ~ N(0, W_v)` and
+/// `Σ_v W_v = I`, and its step is `F_v z̃_v` (`F_v = (I − W_v)⁻¹`, 1 where
+/// a leverage is 1). So the steps have the covariances
+/// `F_v (W_v − W_v²) F_v` and, between views, `−A_u A_v` (`A_v = F_v W_v`):
+/// `C = B − a aᵀ`, with `B` block-diagonal in `B_v = F_v² W_v` and `a` the
+/// `A_v` stacked. Every `B_v` and `A_v` shares `W_v`'s eigenvectors, so with
+/// `M = Σ_v A_v²` and `P_j = Σ_v A_v B_vʲ A_v` (all `s × s`):
+///
+/// - `tr C = Σ_v tr B_v − tr M`,
+/// - `tr C² = Σ_v tr B_v² − 2 tr P₁ + tr M²`,
+/// - `tr C³ = Σ_v tr B_v³ − 3 tr P₂ + 3 tr(P₁ M) − tr M³`.
+pub(crate) struct NullStepMoments {
+    /// `Σ_v tr B_vʲ`, `j = 1, 2, 3`.
+    b: [f64; 3],
+    m: DMatrix<f64>,
+    p1: DMatrix<f64>,
+    p2: DMatrix<f64>,
+}
+
+impl NullStepMoments {
+    pub(crate) fn new(s: usize) -> Self {
+        Self {
+            b: [0.0; 3],
+            m: DMatrix::zeros(s, s),
+            p1: DMatrix::zeros(s, s),
+            p2: DMatrix::zeros(s, s),
+        }
+    }
+
+    /// Adds a view whose whitened leverage `W_v` has the eigenvectors `u`
+    /// and eigenvalues `leverage` (in [0, 1]), with the step inflations
+    /// `inflation` (`1 / (1 − λ)`, or 1 where `λ` is 1).
+    pub(crate) fn add_view(
+        &mut self,
+        u: &DMatrix<f64>,
+        leverage: &DVector<f64>,
+        inflation: &DVector<f64>,
+    ) {
+        let n = leverage.len();
+        let mut m = DVector::zeros(n);
+        let mut p1 = DVector::zeros(n);
+        let mut p2 = DVector::zeros(n);
+        for i in 0..n {
+            let (lambda, f) = (leverage[i], inflation[i]);
+            let a = f * lambda;
+            let b = f * f * lambda;
+            self.b[0] += b;
+            self.b[1] += b * b;
+            self.b[2] += b * b * b;
+            m[i] = a * a;
+            p1[i] = a * a * b;
+            p2[i] = a * a * b * b;
+        }
+        let ut = u.transpose();
+        self.m += u * DMatrix::from_diagonal(&m) * &ut;
+        self.p1 += u * DMatrix::from_diagonal(&p1) * &ut;
+        self.p2 += u * DMatrix::from_diagonal(&p2) * &ut;
+    }
+
+    /// `[tr C, tr C², tr C³]`.
+    pub(crate) fn traces(&self) -> [f64; 3] {
+        let m2 = &self.m * &self.m;
+        [
+            self.b[0] - self.m.trace(),
+            self.b[1] - 2.0 * self.p1.trace() + m2.trace(),
+            self.b[2] - 3.0 * self.p2.trace() + 3.0 * (&self.p1 * &self.m).trace()
+                - (&m2 * &self.m).trace(),
+        ]
+    }
+}
+
+/// The upper [`SCATTER_SIGNIFICANCE`] quantile of `Q = zᵀ z` for
+/// `z ~ N(0, C)`, from `traces = [tr C, tr C², tr C³]`: `Q`'s cumulants are
+/// `tr C`, `2 tr C²` and `8 tr C³`, and `β + α χ²_d` has the same three with
+/// `α = tr C³ / tr C²`, `d = (tr C²)³ / (tr C³)²` and `β = tr C − α d`
+/// (Pearson's approximation; exact when `C` is a projection). Not finite
+/// when `C` is zero.
+pub(crate) fn null_quantile(traces: [f64; 3]) -> f64 {
+    let [c1, c2, c3] = traces;
+    let alpha = c3 / c2;
+    let dof = c2 * c2 * c2 / (c3 * c3);
+    c1 - alpha * dof + alpha * chi_square_quantile(dof)
 }
 
 /// The upper [`SCATTER_SIGNIFICANCE`] quantile of χ² with `dof` degrees
