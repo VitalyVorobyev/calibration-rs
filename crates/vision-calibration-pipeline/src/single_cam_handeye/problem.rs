@@ -197,24 +197,50 @@ pub struct SingleCamHandeyeExport {
 ///
 /// # Example
 ///
-/// ```no_run
+/// A camera on the gripper views a static board from eight robot stations.
+/// Each view pairs the board observation with the robot's
+/// `base_se3_gripper`:
+///
+/// ```
+/// use vision_calibration_pipeline::common::RobotPoseMeta;
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::single_cam_handeye::{
-///     SingleCamHandeyeProblem, step_intrinsics_init, step_intrinsics_optimize,
-///     step_handeye_init, step_handeye_optimize,
+///     SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
+///     step_handeye_init, step_handeye_optimize, step_intrinsics_init,
+///     step_intrinsics_optimize,
 /// };
+/// # use vision_calibration_core::synthetic::{planar, poses};
+/// # use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
 /// # fn main() -> anyhow::Result<()> {
-/// # let input = unimplemented!();
+/// # let camera = make_pinhole_camera(
+/// #     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+/// #     BrownConrady5::default(),
+/// # );
+/// # let gripper_se3_camera = poses::make_iso((0.1, -0.05, 0.02), (0.05, -0.03, 0.1));
+/// # let base_se3_target = poses::make_iso((0.0, 0.0, 0.0), (-0.1, -0.1, 1.0));
+/// # let board = planar::grid_points(6, 5, 0.05);
+/// # let stations = poses::robot_stations(8, 7);
+/// # let observe = |base_se3_gripper: &vision_calibration_core::Iso3| {
+/// #     let cam_se3_target = (base_se3_gripper * gripper_se3_camera).inverse() * base_se3_target;
+/// #     planar::project_view_all(&camera, &cam_se3_target, &board)
+/// # };
 ///
+/// let mut views = Vec::new();
+/// for base_se3_gripper in stations {
+///     let board_view = observe(&base_se3_gripper)?;
+///     views.push(SingleCamHandeyeView::new(board_view, RobotPoseMeta { base_se3_gripper }));
+/// }
 /// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
-/// session.set_input(input)?;
+/// session.set_input(SingleCamHandeyeInput::new(views)?)?;
 ///
 /// step_intrinsics_init(&mut session, None)?;
 /// step_intrinsics_optimize(&mut session, None)?;
-/// step_handeye_init(&mut session, None)?;
-/// step_handeye_optimize(&mut session, None)?;
+/// step_handeye_init(&mut session, None)?; // linear (Tsai-Lenz)
+/// step_handeye_optimize(&mut session, None)?; // joint bundle adjustment
 ///
 /// let export = session.export()?;
+/// let estimate = export.gripper_se3_camera.expect("an eye-in-hand export");
+/// assert!((estimate.translation.vector - gripper_se3_camera.translation.vector).norm() < 1e-4);
 /// # Ok(())
 /// # }
 /// ```

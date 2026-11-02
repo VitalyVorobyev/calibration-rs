@@ -41,6 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The book opens with a "Choose Your Workflow" chapter that maps a
   hardware setup to a workflow, a camera model and a capture plan, and the
   Introduction names the app, Python and Rust routes first.
+- Every published crate's documentation opens with an example that runs
+  as a test: the facade and pipeline calibrate synthetic views, and each
+  problem type (`PlanarIntrinsicsProblem`, `SingleCamHandeyeProblem`,
+  `LaserlineDeviceProblem`, `RigExtrinsicsProblem`, `RigHandeyeProblem`)
+  carries a complete example that recovers its synthetic ground truth. The
+  lower crates show one of their own tools each: Zhang's method, PnP, a
+  homography, two-view relative pose, chessboard detection, the sample
+  catalogue and the covariance labels. docs.rs builds the facade with its
+  `synthetic`, `refine` and `fetch` features.
+- Each crate's README says which crate a reader wants: the facade, unless
+  they need one building block on its own.
 
 ## [0.12.0] - 2026-11-02
 

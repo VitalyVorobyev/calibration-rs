@@ -28,25 +28,32 @@
 //!   camera frame.
 //!
 //! # Example
-//! ```no_run
+//!
+//! Zhang's method recovers the intrinsics from the homographies of three or
+//! more views of a plane:
+//!
+//! ```
+//! use vision_calibration_core::synthetic::{planar, poses};
+//! use vision_calibration_core::{BrownConrady5, FxFyCxCy, Pt2, make_pinhole_camera};
+//! use vision_calibration_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
 //! use vision_geometry::homography::dlt_homography;
-//! use vision_calibration_core::Pt2;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
-//! let world = vec![
-//!     Pt2::new(0.0, 0.0),
-//!     Pt2::new(1.0, 0.0),
-//!     Pt2::new(1.0, 1.0),
-//!     Pt2::new(0.0, 1.0),
-//! ];
-//! let image = vec![
-//!     Pt2::new(120.0, 200.0),
-//!     Pt2::new(220.0, 198.0),
-//!     Pt2::new(225.0, 300.0),
-//!     Pt2::new(118.0, 302.0),
-//! ];
+//! let truth = FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 };
+//! let camera = make_pinhole_camera(truth, BrownConrady5::default());
+//! let board = planar::grid_points(8, 6, 0.04);
+//! let specs = poses::seeded_board_pose_specs(6, 0.35, 3);
+//! let mut homographies = Vec::new();
+//! for pose in poses::centered_board_poses(&specs, (0.14, 0.10), 0.6) {
+//!     let view = planar::project_view_all(&camera, &pose, &board)?;
+//!     let on_board: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
+//!     homographies.push(dlt_homography(&on_board, &view.points_2d)?);
+//! }
 //!
-//! let h = dlt_homography(&world, &image).expect("homography failed");
-//! println!("H = {h}");
+//! let k = estimate_intrinsics_from_homographies(&homographies)?;
+//! assert!((k.fx - truth.fx).abs() < 1e-6 && (k.cy - truth.cy).abs() < 1e-6);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Non-linear refinement and full pipelines live in `vision-calibration-optim` and

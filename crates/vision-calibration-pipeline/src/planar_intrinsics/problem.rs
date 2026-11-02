@@ -40,22 +40,40 @@ pub type PlanarIntrinsicsInput = PlanarDataset;
 ///
 /// # Example
 ///
-/// ```no_run
+/// Eight synthetic views of an 8×6 board (40 mm pitch) seen by a known
+/// camera, calibrated step by step:
+///
+/// ```
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::planar_intrinsics::{
-///     PlanarIntrinsicsProblem, PlanarIntrinsicsConfig,
-///     step_init, step_optimize,
+///     PlanarIntrinsicsProblem, step_filter, step_init, step_optimize,
 /// };
+/// # use vision_calibration_core::synthetic::{planar, poses};
+/// # use vision_calibration_core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
 /// # fn main() -> anyhow::Result<()> {
-/// # let dataset = unimplemented!();
+/// # let truth = make_pinhole_camera(
+/// #     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+/// #     BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
+/// # );
+/// # let board = planar::grid_points(8, 6, 0.04);
+/// # let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
+/// # let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
+/// # let views = planar::project_views_all(&truth, &board, &poses)?;
+/// # let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 ///
 /// let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 /// session.set_input(dataset)?;
 ///
+/// step_init(&mut session, None)?; // Zhang's method, closed form
+/// step_optimize(&mut session, None)?; // non-linear refinement
+/// // Optional: drop outlier points, which clears the solution, then solve again.
+/// step_filter(&mut session, None)?;
 /// step_init(&mut session, None)?;
 /// step_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
+/// let k = export.params.camera.intrinsics;
+/// assert!((k.fx - 800.0).abs() < 1e-3 && (k.cy - 360.0).abs() < 1e-3);
 /// # Ok(())
 /// # }
 /// ```

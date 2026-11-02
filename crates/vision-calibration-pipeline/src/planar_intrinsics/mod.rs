@@ -1,34 +1,9 @@
 //! Planar intrinsics calibration (Zhang's method with distortion).
 //!
-//! This module provides multiple APIs for planar intrinsics calibration:
-//!
-//! ## Session API
-//!
-//! The session API uses a mutable state container with step functions.
-//!
-//! ```no_run
-//! use vision_calibration_pipeline::session::CalibrationSession;
-//! use vision_calibration_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblem, PlanarIntrinsicsConfig,
-//!     step_init, step_optimize, run_calibration,
-//! };
-//! # fn main() -> anyhow::Result<()> {
-//! # let dataset = unimplemented!();
-//!
-//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-//! session.set_input(dataset)?;
-//!
-//! // Option 1: Step-by-step
-//! step_init(&mut session, None)?;
-//! step_optimize(&mut session, None)?;
-//!
-//! // Option 2: Pipeline function
-//! // run_calibration(&mut session)?;
-//!
-//! let export = session.export()?;
-//! # Ok(())
-//! # }
-//! ```
+//! A [`CalibrationSession`](crate::session::CalibrationSession) over
+//! [`PlanarIntrinsicsProblem`] runs the steps `step_init` → `step_optimize`
+//! (optionally `step_filter` and a second solve), or all of them through
+//! `run_calibration`; [`PlanarIntrinsicsProblem`] has a runnable example.
 
 // Session API
 mod problem;

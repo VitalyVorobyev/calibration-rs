@@ -15,6 +15,22 @@
 //! are never guessed: the field is left empty and its path is recorded in
 //! [`DatasetSpec::unresolved`], and the runner refuses the manifest until
 //! that list is empty.
+//!
+//! # Example
+//!
+//! The [`samples`] catalogue holds real datasets with ready manifests; each
+//! manifest names its images, target and workflow:
+//!
+//! ```
+//! use vision_calibration_dataset::{Topology, samples};
+//!
+//! let sample = samples::sample("opencv_left")?;
+//! let spec = sample.manifest();
+//! assert_eq!(spec.topology, Topology::PlanarIntrinsics);
+//! assert!(spec.unresolved.is_empty());
+//! println!("{}: {} ({})", sample.id, sample.description, sample.licence);
+//! # Ok::<(), vision_calibration_dataset::samples::FetchError>(())
+//! ```
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

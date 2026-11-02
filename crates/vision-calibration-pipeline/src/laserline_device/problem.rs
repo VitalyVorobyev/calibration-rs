@@ -22,6 +22,59 @@ use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 use super::state::LaserlineDeviceState;
 
 /// Laserline device calibration problem (single camera + laser plane).
+///
+/// Each view pairs the board observation with the laser-stripe pixels on the
+/// board. Here a plane tilted 17° about the y axis crosses the optical axis
+/// at 0.5 m, and six board poses spread the stripe across it:
+///
+/// ```
+/// use vision_calibration_core::View;
+/// use vision_calibration_pipeline::laserline_device::{
+///     LaserlineDeviceProblem, LaserlineMeta, run_calibration,
+/// };
+/// use vision_calibration_pipeline::session::CalibrationSession;
+/// # use vision_calibration_core::synthetic::{laser, noise::UniformPixelNoise, planar, poses};
+/// # use vision_calibration_core::{BrownConrady5, FxFyCxCy, Iso3, Vec3, make_pinhole_camera};
+/// # fn main() -> anyhow::Result<()> {
+/// # let camera = make_pinhole_camera(
+/// #     FxFyCxCy { fx: 900.0, fy: 900.0, cx: 640.0, cy: 360.0 },
+/// #     BrownConrady5::default(),
+/// # );
+/// # let normal = Vec3::new(0.3, 0.0, 1.0).normalize();
+/// # let distance = -normal.z * 0.5;
+/// # let board = planar::grid_points(9, 7, 0.03);
+/// # let extent = laser::BoardExtent::from_grid(9, 7, 0.03);
+/// # let spec = poses::BoardPoseSpec::new;
+/// # let board_poses = poses::centered_board_poses(&[
+/// #     spec(0.00, 0.00, 0.00, 0.000),
+/// #     spec(0.12, -0.05, 0.35, -0.012),
+/// #     spec(-0.10, 0.09, -0.40, 0.010),
+/// #     spec(0.06, 0.14, 0.60, 0.014),
+/// #     spec(-0.13, -0.07, -0.25, -0.014),
+/// #     spec(0.09, -0.15, 0.45, 0.008),
+/// # ], (0.12, 0.09), 0.5);
+/// # let no_noise = UniformPixelNoise { seed: 0, max_abs_px: 0.0 };
+/// # let observe = |i: usize, cam_se3_target: &Iso3| -> anyhow::Result<_> {
+/// #     let corners = planar::project_view_all(&camera, cam_se3_target, &board)?;
+/// #     let stripe = laser::laser_stripe_pixels(&camera, cam_se3_target, &normal, distance, &extent, i, &no_noise);
+/// #     Ok((corners, stripe))
+/// # };
+///
+/// let mut views = Vec::new();
+/// for (i, cam_se3_target) in board_poses.iter().enumerate() {
+///     let (corners, laser_pixels) = observe(i, cam_se3_target)?;
+///     let meta = LaserlineMeta { laser_pixels, laser_weights: Vec::new() };
+///     views.push(View::new(corners, meta));
+/// }
+/// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+/// session.set_input(views)?;
+/// run_calibration(&mut session)?;
+///
+/// let plane = session.export()?.params.plane;
+/// assert!(plane.normal.dot(&normal).abs() > 1.0 - 1e-6);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct LaserlineDeviceProblem;
 

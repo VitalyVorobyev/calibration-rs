@@ -37,23 +37,33 @@
 //!
 //! # Example
 //!
-//! ```no_run
-//! use vision_calibration_core::{CorrespondenceView, PlanarDataset, Pt2, Pt3, View};
-//! use vision_calibration_linear::iterative_intrinsics::{estimate_intrinsics_iterative, IterativeIntrinsicsOptions};
+//! ```
+//! use vision_calibration_core::{PlanarDataset, View};
+//! use vision_calibration_linear::iterative_intrinsics::{
+//!     IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
+//! };
+//! # use vision_calibration_core::synthetic::{planar, poses};
+//! # use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let truth = make_pinhole_camera(
+//! #     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+//! #     BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
+//! # );
+//! # let board = planar::grid_points(8, 6, 0.04);
+//! # let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
+//! # let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
+//! # let views = planar::project_views_all(&truth, &board, &poses)?;
 //!
-//! let points_3d = vec![Pt3::new(0.0, 0.0, 0.0) /* ... board points */];
-//! let points_2d = vec![Pt2::new(320.0, 240.0) /* ... distorted pixels */];
-//! let obs = CorrespondenceView::new(points_3d, points_2d)?;
-//! let dataset = PlanarDataset::new(vec![View::without_meta(obs)])?;
+//! // Eight views of a planar board, seen through a lens with radial distortion.
+//! let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
+//! let camera = estimate_intrinsics_iterative(&dataset, IterativeIntrinsicsOptions::default())?;
 //!
-//! let opts = IterativeIntrinsicsOptions::default();
-//! let camera = estimate_intrinsics_iterative(&dataset, opts)?;
-//!
-//! println!("Intrinsics: fx={}, fy={}, cx={}, cy={}",
-//!          camera.k.fx, camera.k.fy,
-//!          camera.k.cx, camera.k.cy);
-//! println!("Distortion: k1={}, k2={}", camera.dist.k1, camera.dist.k2);
-//! # Ok::<(), vision_calibration_linear::Error>(())
+//! println!("fx={:.1} fy={:.1} cx={:.1} cy={:.1}", camera.k.fx, camera.k.fy, camera.k.cx, camera.k.cy);
+//! println!("k1={:.4} k2={:.4}", camera.dist.k1, camera.dist.k2);
+//! // A starting point for non-linear refinement: within a few percent.
+//! assert!((camera.k.fx - 800.0).abs() < 0.05 * 800.0);
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::{

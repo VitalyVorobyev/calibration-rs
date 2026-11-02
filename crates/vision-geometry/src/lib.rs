@@ -19,6 +19,27 @@
 //! - Essential matrix solvers expect **calibrated/normalized coordinates**
 //!   (i.e., after applying `K⁻¹` to pixel points).
 //! - Pose outputs follow the `T_C_W` convention: transform from world into camera frame.
+//!
+//! # Example
+//!
+//! ```
+//! use vision_calibration_core::Pt2;
+//! use vision_geometry::homography::dlt_homography;
+//!
+//! // A unit square on the target and where its corners land in the image.
+//! let target = [Pt2::new(0.0, 0.0), Pt2::new(1.0, 0.0), Pt2::new(1.0, 1.0), Pt2::new(0.0, 1.0)];
+//! let image = [
+//!     Pt2::new(120.0, 200.0),
+//!     Pt2::new(220.0, 198.0),
+//!     Pt2::new(225.0, 300.0),
+//!     Pt2::new(118.0, 302.0),
+//! ];
+//!
+//! let h = dlt_homography(&target, &image)?;
+//! let centre = h * nalgebra::Vector3::new(0.5, 0.5, 1.0);
+//! println!("the square's centre lands at ({:.1}, {:.1})", centre.x / centre.z, centre.y / centre.z);
+//! # Ok::<(), vision_geometry::GeometryError>(())
+//! ```
 
 pub mod camera_matrix;
 pub mod epipolar;

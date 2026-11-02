@@ -14,6 +14,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+features = ["synthetic", "refine", "fetch"]
+
 [features]
 default = []
 # Enable the nonlinear-refinement surface of the `mvg` module (tiny-solver):

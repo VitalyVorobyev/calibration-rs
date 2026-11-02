@@ -24,19 +24,31 @@ use super::types::{ExportRecord, LogEntry, SessionMetadata};
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```
 /// use vision_calibration_pipeline::session::CalibrationSession;
-/// use vision_calibration_pipeline::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+/// use vision_calibration_pipeline::planar_intrinsics::{
+///     PlanarIntrinsicsProblem, run_calibration,
+/// };
+/// # use vision_calibration_core::synthetic::planar;
+/// # use vision_calibration_core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
 /// # fn main() -> anyhow::Result<()> {
-/// # let dataset = unimplemented!();
+/// # let truth = make_pinhole_camera(
+/// #     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+/// #     BrownConrady5::default(),
+/// # );
+/// # let board = planar::grid_points(8, 6, 0.04);
+/// # let poses = planar::poses_yaw_y_z(6, -0.2, 0.08, 0.5, 0.05);
+/// # let views = planar::project_views_all(&truth, &board, &poses)?;
+/// # let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 ///
 /// let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 /// session.set_input(dataset)?;
+/// run_calibration(&mut session)?;
 ///
-/// step_init(&mut session, None)?;
-/// step_optimize(&mut session, None)?;
-///
-/// let export = session.export()?;
+/// // A session, with its input, state and results, round-trips through JSON.
+/// let json = session.to_json()?;
+/// let restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json)?;
+/// assert!(restored.output().is_some());
 /// # Ok(())
 /// # }
 /// ```

@@ -5,6 +5,9 @@ ringgrid) plus a content-addressed [`DetectionCache`] keyed on
 `(image_content_hash, detector_name, canonical_config_hash)`. The cache
 makes solver iteration sub-second on a cache hit.
 
+Most users want [`vision-calibration`](https://crates.io/crates/vision-calibration) instead, which re-exports this crate as
+`vision_calibration::detect` and runs it from a dataset manifest.
+
 A `DetectorConfig` selects the detector and carries its typed config, and
 detects in an 8-bit grayscale `GrayImageView`. Each detector is gated by its
 own cargo feature (all on by `default`): `chessboard` and `charuco` (via

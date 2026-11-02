@@ -5,37 +5,8 @@
 //! They serve every camera model the config names; a tilted (Scheimpflug)
 //! sensor adds its own initialization and a staged solve, described at
 //! [`step_init_with_seed`] and [`step_optimize`].
-//!
-//! # Example
-//!
-//! ```no_run
-//! use vision_calibration_pipeline::session::CalibrationSession;
-//! use vision_calibration_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblem, step_init, step_optimize, step_filter,
-//!     IntrinsicsFilterOptions,
-//! };
-//! # fn main() -> anyhow::Result<()> {
-//! # let dataset = unimplemented!();
-//!
-//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-//! session.set_input(dataset)?;
-//!
-//! // Run initialization
-//! step_init(&mut session, None)?;
-//!
-//! // Run optimization
-//! step_optimize(&mut session, None)?;
-//!
-//! // Optionally filter outliers and re-run
-//! step_filter(&mut session, None)?;
-//! step_init(&mut session, None)?;
-//! step_optimize(&mut session, None)?;
-//!
-//! // Export result
-//! let export = session.export()?;
-//! # Ok(())
-//! # }
-//! ```
+//! [`PlanarIntrinsicsProblem`](super::PlanarIntrinsicsProblem) has a
+//! runnable example of the sequence.
 
 use crate::Error;
 use serde::{Deserialize, Serialize};

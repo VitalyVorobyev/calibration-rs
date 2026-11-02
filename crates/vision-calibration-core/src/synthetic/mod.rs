@@ -15,7 +15,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```
 //! use vision_calibration_core::{synthetic::planar, BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole};
 //!
 //! let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };

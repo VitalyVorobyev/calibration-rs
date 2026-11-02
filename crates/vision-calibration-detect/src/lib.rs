@@ -5,9 +5,30 @@
 //! detector: chessboard, ChArUco, PuzzleBoard, coded ring grid) and detects
 //! it in an 8-bit grayscale [`GrayImageView`]:
 //!
-//! ```ignore
-//! let config = DetectorConfig::Chessboard(ChessboardConfig { rows: 7, cols: 11, square_size_m: 0.03, chess_corners: None });
+//! ```
+//! use vision_calibration_detect::{ChessboardConfig, DetectorConfig, GrayImageView};
+//!
+//! // A 10×8-square chessboard of 24 px squares on a white margin: 9×7
+//! // interior corners.
+//! let (width, height, square) = (300_u32, 252_u32, 24_u32);
+//! let pixels: Vec<u8> = (0..width * height)
+//!     .map(|i| {
+//!         let (x, y) = ((i % width) as i64 - 30, (i / width) as i64 - 30);
+//!         let inside = (0..240).contains(&x) && (0..192).contains(&y);
+//!         let dark = inside && (x / square as i64 + y / square as i64) % 2 == 0;
+//!         if dark { 20 } else { 235 }
+//!     })
+//!     .collect();
+//!
+//! let config = DetectorConfig::Chessboard(ChessboardConfig {
+//!     rows: 7,
+//!     cols: 9,
+//!     square_size_m: 0.03,
+//!     chess_corners: None,
+//! });
 //! let features = config.detect(GrayImageView::new(width, height, &pixels)?)?;
+//! assert_eq!(features.len(), 63);
+//! # Ok::<(), vision_calibration_detect::DetectError>(())
 //! ```
 //!
 //! Each [`Feature`] pairs a pixel with its point on the target, in metres.

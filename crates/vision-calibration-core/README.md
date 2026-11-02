@@ -2,6 +2,9 @@
 
 Core math types, camera models, and RANSAC primitives for `calibration-rs`.
 
+Most users want [`vision-calibration`](https://crates.io/crates/vision-calibration) instead, which re-exports these types as
+`vision_calibration::core`; this crate is one of its building blocks.
+
 This crate provides the foundational building blocks used by all other crates in the workspace.
 
 ## Features

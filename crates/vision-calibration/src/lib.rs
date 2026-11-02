@@ -15,28 +15,42 @@
 //!
 //! # Quick Start
 //!
-//! ```no_run
-//! # fn main() -> anyhow::Result<()> {
-//! # let dataset = unimplemented!();
-//! use vision_calibration::prelude::*;
-//! use vision_calibration::planar_intrinsics::{step_init, step_optimize};
+//! Eight synthetic views of an 8×6 board (40 mm pitch) calibrate a camera
+//! (the `synthetic` module needs the `synthetic` feature):
 //!
-//! // Create calibration session
+//! ```
+//! use vision_calibration::planar_intrinsics::{step_init, step_optimize};
+//! use vision_calibration::prelude::*;
+//! use vision_calibration::synthetic::{planar, poses};
+//! # fn main() -> anyhow::Result<()> {
+//!
+//! let truth = make_pinhole_camera(
+//!     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+//!     BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
+//! );
+//! let board = planar::grid_points(8, 6, 0.04);
+//! let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
+//! let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
+//! let views = planar::project_views_all(&truth, &board, &poses)?;
+//! let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
+//!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //! session.set_input(dataset)?;
+//! step_init(&mut session, None)?; // Zhang's method, closed form
+//! step_optimize(&mut session, None)?; // non-linear refinement
+//! // or both at once: vision_calibration::planar_intrinsics::run_calibration
 //!
-//! // Option 1: Step-by-step (recommended for inspection)
-//! step_init(&mut session, None)?;
-//! step_optimize(&mut session, None)?;
-//!
-//! // Option 2: Pipeline function (convenience)
-//! // vision_calibration::planar_intrinsics::run_calibration(&mut session)?;
-//!
-//! // Export results
-//! let result = session.export()?;
+//! let export = session.export()?;
+//! assert!((export.params.camera.intrinsics.fx - 800.0).abs() < 1e-3);
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! On real images, a [`dataset::DatasetSpec`] manifest names the images, the
+//! target and the workflow, and
+//! [`calibrate_dataset`](dataset_runner::calibrate_dataset) detects the target
+//! and runs the workflow; [`dataset::samples`] lists sample datasets with
+//! ready manifests. Each problem type below has a runnable example.
 //!
 //! # Module Organization
 //!
@@ -62,7 +76,8 @@
 //!
 //! - [`core`] - Math types, camera models, RANSAC primitives
 //! - [`optim`] - Non-linear least-squares optimization
-//! - [`synthetic`] - Synthetic data generation for testing
+//! - `synthetic` (feature `synthetic`) - Synthetic data generation for tests
+//!   and examples
 //!
 //! # Session API
 //!
@@ -193,20 +208,7 @@ pub mod device_seed {
 ///    sensor)
 /// 3. `step_filter` (optional) - Remove outliers by reprojection error
 ///
-/// # Example
-/// ```no_run
-/// # fn main() -> anyhow::Result<()> {
-/// # let dataset = unimplemented!();
-/// use vision_calibration::prelude::*;
-/// use vision_calibration::planar_intrinsics::{step_init, step_optimize, run_calibration};
-///
-/// let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-/// session.set_input(dataset)?;
-/// run_calibration(&mut session)?;
-/// let result = session.export()?;
-/// # Ok(())
-/// # }
-/// ```
+/// [`PlanarIntrinsicsProblem`](crate::planar_intrinsics::PlanarIntrinsicsProblem) has a runnable example.
 pub mod planar_intrinsics {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::planar_intrinsics::{
@@ -240,22 +242,7 @@ pub mod planar_intrinsics {
 /// 3. `step_handeye_init` - Tsai-Lenz linear estimation
 /// 4. `step_handeye_optimize` - Bundle adjustment
 ///
-/// # Example
-/// ```no_run
-/// # fn main() -> anyhow::Result<()> {
-/// # let input = unimplemented!();
-/// use vision_calibration::prelude::*;
-/// use vision_calibration::single_cam_handeye::{
-///     run_calibration, SingleCamHandeyeInput, SingleCamHandeyeProblem
-/// };
-///
-/// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
-/// session.set_input(input)?;
-/// run_calibration(&mut session)?;
-/// let result = session.export()?;
-/// # Ok(())
-/// # }
-/// ```
+/// [`SingleCamHandeyeProblem`](crate::single_cam_handeye::SingleCamHandeyeProblem) has a runnable example.
 pub mod single_cam_handeye {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::single_cam_handeye::{
@@ -285,22 +272,7 @@ pub mod single_cam_handeye {
 /// 1. `step_init` - Iterative intrinsics + linear laser plane init
 /// 2. `step_optimize` - Joint bundle adjustment
 ///
-/// # Example
-/// ```no_run
-/// # fn main() -> anyhow::Result<()> {
-/// # let input = unimplemented!();
-/// use vision_calibration::prelude::*;
-/// use vision_calibration::laserline_device::{
-///     run_calibration, LaserlineDeviceInput, LaserlineDeviceProblem
-/// };
-///
-/// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-/// session.set_input(input)?;
-/// run_calibration(&mut session)?;
-/// let result = session.export()?;
-/// # Ok(())
-/// # }
-/// ```
+/// [`LaserlineDeviceProblem`](crate::laserline_device::LaserlineDeviceProblem) has a runnable example.
 pub mod laserline_device {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::laserline_device::{
@@ -337,22 +309,7 @@ pub mod laserline_device {
 /// 3. `step_rig_init` - Linear estimation of camera-to-rig transforms
 /// 4. `step_rig_optimize` - Joint bundle adjustment
 ///
-/// # Example
-/// ```no_run
-/// # fn main() -> anyhow::Result<()> {
-/// # let input = unimplemented!();
-/// use vision_calibration::prelude::*;
-/// use vision_calibration::rig_extrinsics::{
-///     run_calibration, RigExtrinsicsInput, RigExtrinsicsProblem
-/// };
-///
-/// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-/// session.set_input(input)?;
-/// run_calibration(&mut session)?;
-/// let result = session.export()?;
-/// # Ok(())
-/// # }
-/// ```
+/// [`RigExtrinsicsProblem`](crate::rig_extrinsics::RigExtrinsicsProblem) has a runnable example.
 pub mod rig_extrinsics {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_extrinsics::{
@@ -389,20 +346,7 @@ pub mod rig_extrinsics {
 /// 5. `step_handeye_init` - Tsai-Lenz linear estimation
 /// 6. `step_handeye_optimize` - Hand-eye bundle adjustment
 ///
-/// # Example
-/// ```no_run
-/// # fn main() -> anyhow::Result<()> {
-/// # let input = unimplemented!();
-/// use vision_calibration::prelude::*;
-/// use vision_calibration::rig_handeye::{run_calibration, RigHandeyeInput, RigHandeyeProblem};
-///
-/// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
-/// session.set_input(input)?;
-/// run_calibration(&mut session)?;
-/// let result = session.export()?;
-/// # Ok(())
-/// # }
-/// ```
+/// [`RigHandeyeProblem`](crate::rig_handeye::RigHandeyeProblem) has a runnable example.
 pub mod rig_handeye {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_handeye::{
@@ -652,11 +596,8 @@ pub mod synthetic {
 // Prelude (Quick Start)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Minimal re-exports for planar "hello world" calibration.
-///
-/// ```no_run
-/// use vision_calibration::prelude::*;
-/// ```
+/// Minimal re-exports for planar "hello world" calibration; the crate-level
+/// quick start uses them.
 pub mod prelude {
     /// Session framework for calibration workflows.
     pub use vision_calibration_pipeline::session::CalibrationSession;

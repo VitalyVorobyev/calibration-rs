@@ -11,11 +11,6 @@ match the ROADMAP; each says its phase. Dependencies are named as
 A newcomer reaches a result on their own images from the book alone,
 installing only from crates.io or PyPI.
 
-- [ ] USE-DOCSRS - Runnable crate-level examples on docs.rs (the
-  `synthetic` feature; docs.rs builds the facade with `synthetic`, `refine`
-  and `fetch`) for the facade and every published crate; no
-  `unimplemented!()` placeholders. Crate READMEs say which crate a reader
-  wants.
 - [ ] USE-CAPTURE - A capture-guidance chapter before calibration: how many
   views, which poses and tilts, coverage of the image corners, built on
   `analysis::next_view` and the projection-σ map.
