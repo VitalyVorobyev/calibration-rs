@@ -23,6 +23,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+pub use vision_calibration_dataset::samples::{FetchSource, parse_checksums, safe_relative_path};
 
 pub use super::corners::PublishedCorners;
 
@@ -92,31 +93,6 @@ pub struct SuiteEntry {
     /// Drift tolerance against the reference result.
     #[serde(default)]
     pub tolerance: Tolerance,
-}
-
-/// How the files of an image entry are downloaded from their publisher.
-///
-/// Every file named in the entry's `fetch/<id>.sha256` is placed at that
-/// path, relative to the dataset root the manifest's paths resolve
-/// against.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum FetchSource {
-    /// Each file downloaded on its own, from `base_url` followed by its
-    /// path.
-    Files {
-        /// URL prefix, ending in `/`.
-        base_url: String,
-    },
-    /// One ZIP archive holding the files.
-    Zip {
-        /// URL of the archive.
-        url: String,
-        /// Directory of the archive that is the dataset root; `""` when
-        /// the files sit at the top of the archive.
-        #[serde(default)]
-        root: String,
-    },
 }
 
 /// Allowed difference between a number in a result and in its reference:
@@ -333,32 +309,6 @@ impl Suite {
     }
 }
 
-/// Turn a `/`-separated relative path from a fetch list, a corner source
-/// or an archive into a path that stays inside the directory it is joined
-/// to.
-///
-/// # Errors
-///
-/// Fails on an empty path, an absolute path, a drive or `\` separator, a
-/// NUL byte, and an empty, `.` or `..` component.
-pub fn safe_relative_path(name: &str) -> Result<PathBuf> {
-    ensure!(!name.is_empty(), "empty path");
-    ensure!(
-        !name.contains(['\\', ':', '\0']),
-        "{name:?}: paths use `/` and no drive or NUL"
-    );
-    ensure!(!name.starts_with('/'), "{name:?} is an absolute path");
-    let mut path = PathBuf::new();
-    for part in name.split('/') {
-        ensure!(
-            !part.is_empty() && part != "." && part != "..",
-            "{name:?} has an empty, `.` or `..` component"
-        );
-        path.push(part);
-    }
-    Ok(path)
-}
-
 /// Lowercase hex SHA-256 of `bytes`.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
@@ -367,29 +317,6 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         write!(hex, "{byte:02x}").expect("writing to a String");
     }
     hex
-}
-
-/// Parse `sha256sum` output: `<64 hex>  <path>` (text mode) or
-/// `<64 hex> *<path>` (binary mode) per line.
-pub(crate) fn parse_checksums(text: &str) -> Result<BTreeMap<String, String>> {
-    let mut sums = BTreeMap::new();
-    for (n, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let (hex, rest) = line
-            .split_once(' ')
-            .with_context(|| format!("line {}: expected `<sha256>  <path>`", n + 1))?;
-        let path = rest.strip_prefix(' ').or_else(|| rest.strip_prefix('*'));
-        let path = path.with_context(|| format!("line {}: expected two spaces", n + 1))?;
-        ensure!(
-            hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()),
-            "line {}: {hex:?} is not a SHA-256 digest",
-            n + 1
-        );
-        sums.insert(path.to_string(), hex.to_ascii_lowercase());
-    }
-    Ok(sums)
 }
 
 #[cfg(test)]
@@ -402,46 +329,6 @@ mod tests {
             sha256_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
-    }
-
-    #[test]
-    fn parses_text_and_binary_mode_lines() {
-        let hex = "a".repeat(64);
-        let sums =
-            parse_checksums(&format!("{hex}  observations/a.json\n{hex} *b.json\n")).unwrap();
-        assert_eq!(sums["observations/a.json"], hex);
-        assert_eq!(sums["b.json"], hex);
-    }
-
-    #[test]
-    fn rejects_malformed_checksum_lines() {
-        assert!(parse_checksums("abc  x.json").is_err());
-        assert!(parse_checksums(&format!("{}x.json", "a".repeat(64))).is_err());
-    }
-
-    #[test]
-    fn safe_paths_stay_inside_their_directory() {
-        assert_eq!(
-            safe_relative_path("images/camera0/a.png").unwrap(),
-            Path::new("images").join("camera0").join("a.png")
-        );
-        for unsafe_name in [
-            "",
-            "/etc/passwd",
-            "../a.png",
-            "images/../../a.png",
-            "images/./a.png",
-            "images//a.png",
-            "images/",
-            "C:/a.png",
-            "images\\a.png",
-            "a\0.png",
-        ] {
-            assert!(
-                safe_relative_path(unsafe_name).is_err(),
-                "{unsafe_name:?} accepted"
-            );
-        }
     }
 
     #[test]

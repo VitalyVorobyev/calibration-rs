@@ -3422,7 +3422,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "toml",
- "ureq",
  "vision-calibration",
  "vision-calibration-core",
  "vision-calibration-dataset",
@@ -3431,7 +3430,6 @@ dependencies = [
  "vision-calibration-optim",
  "vision-calibration-pipeline",
  "vision-metrology",
- "zip",
 ]
 
 [[package]]
@@ -3455,8 +3453,11 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "toml",
+ "ureq",
+ "zip",
 ]
 
 [[package]]

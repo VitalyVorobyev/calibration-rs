@@ -3,21 +3,20 @@
 Python counterpart of:
 `crates/vision-calibration/examples/planar_real.rs`
 
-Uses the 30 images of `data/kuka_1/` (a 17x28 chessboard with 20 mm squares).
-The images are stored with Git LFS; run `git lfs pull` first if they are
-pointer files in your checkout.
+Uses the 30 images of the `kuka_1` sample (a 17x28 chessboard with 20 mm
+squares), downloaded on the first run into the sample cache
+(`VISION_CALIBRATION_DATA` overrides where).
 """
 
 from __future__ import annotations
 
 import vision_calibration as vc
 
-from _common import repo_root
 from handeye_session import detect_observation, parse_square_size_m
 
 
 def load_dataset() -> vc.PlanarIntrinsicsInput:
-    data_dir = repo_root() / "data" / "kuka_1"
+    data_dir = vc.samples.fetch("kuka_1").parent
     square_size_m = parse_square_size_m(data_dir / "squaresize.txt")
 
     views: list[vc.PlanarView] = []

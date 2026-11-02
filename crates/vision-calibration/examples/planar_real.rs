@@ -9,9 +9,9 @@
 //!
 //! Run with: `cargo run -p vision-calibration --example planar_real --release`
 //!
-//! Dataset: the 30 images of `data/kuka_1/` (a 17×28 chessboard with 20 mm
-//! squares, 1928×1208 px). The images are stored with Git LFS; run
-//! `git lfs pull` first if they are pointer files in your checkout.
+//! Dataset: the 30 images of the `kuka_1` sample (a 17×28 chessboard with
+//! 20 mm squares, 1928×1208 px), downloaded on the first run into the
+//! sample cache (`VISION_CALIBRATION_DATA` overrides where).
 
 #[path = "support/handeye_io.rs"]
 mod handeye_io;
@@ -20,6 +20,7 @@ use anyhow::Result;
 use std::io::{self, Write};
 use std::path::Path;
 use vision_calibration::core::{DistortionParams, NoiseLevel, Uncertainty};
+use vision_calibration::dataset::samples;
 use vision_calibration::planar_intrinsics::{
     IntrinsicsFilterOptions, run_calibration_with_filtering, step_init, step_optimize,
 };
@@ -28,16 +29,15 @@ use vision_calibration::prelude::*;
 fn main() -> Result<()> {
     println!("=== Planar Intrinsics Calibration (Real Images) ===\n");
 
-    let data_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("the facade crate lives two levels below the repository root")
-        .join("data/kuka_1");
+    let manifest = samples::fetch("kuka_1", &samples::default_cache_dir()?)?;
+    let data_dir = manifest
+        .parent()
+        .expect("a fetched manifest sits in its sample's directory");
     println!("Dataset: {}", data_dir.display());
 
     // Detect chessboard corners in all images
     println!("Detecting chessboard corners...");
-    let views = load_views(&data_dir)?;
+    let views = load_views(data_dir)?;
     println!("Loaded {} views\n", views.len());
 
     if views.len() < 3 {

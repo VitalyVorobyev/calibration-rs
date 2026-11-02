@@ -1,0 +1,21 @@
+# Planar intrinsics: the left camera of OpenCV's stereo calibration sample
+# (`samples/data/left01.jpg`–`left14.jpg`, no `left10`).
+#
+# 13 views, 640×480 grayscale, of a chessboard with 6×9 interior corners.
+# OpenCV does not publish the printed square size, so the board is declared
+# with squares of 1: the intrinsics do not depend on it, and the board poses
+# come out in units of one square.
+
+version = 1
+topology = "planar_intrinsics"
+description = "OpenCV stereo sample, left camera, chessboard 6x9"
+
+[[cameras]]
+id = "left"
+images = { kind = "glob", pattern = "left*.jpg" }
+
+[target]
+kind = "chessboard"
+rows = 6
+cols = 9
+square_size_m = 1.0

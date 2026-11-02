@@ -9,7 +9,7 @@
 //! subclass carrying the field, prompt and suggestions.
 
 use pyo3::create_exception;
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use vision_calibration::dataset::SniffError as RustSniffError;
 use vision_calibration::dataset_runner::RunError as RustRunError;
@@ -32,6 +32,23 @@ create_exception!(
     PyRuntimeError,
     "A dataset folder could not be sniffed. `kind` is `\"not_a_directory\"`, `\"no_cameras\"` or `\"io\"`."
 );
+
+create_exception!(
+    vision_calibration,
+    SampleFetchError,
+    PyOSError,
+    "A sample dataset could not be downloaded or verified: the publisher could not be reached, a file did not match its checksum, or the cache could not be written."
+);
+
+/// Map a sample-fetch error: an unknown sample id is a `ValueError`, the
+/// rest `SampleFetchError`.
+pub(crate) fn fetch_err(err: vision_calibration::dataset::samples::FetchError) -> PyErr {
+    use vision_calibration::dataset::samples::FetchError;
+    match err {
+        FetchError::UnknownSample { .. } => PyValueError::new_err(err.to_string()),
+        other => SampleFetchError::new_err(other.to_string()),
+    }
+}
 
 /// Map a calibration error: input problems are `ValueError`, the rest
 /// `RuntimeError`. `context` prefixes the message.

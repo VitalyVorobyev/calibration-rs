@@ -21,6 +21,7 @@
 
 mod device_spec;
 mod load;
+pub mod samples;
 mod sniff;
 mod spec;
 mod validator;

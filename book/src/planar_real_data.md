@@ -4,12 +4,10 @@ This chapter walks through the `planar_real` example, which calibrates a camera 
 
 ## Dataset
 
-The example uses the images in `data/kuka_1/`:
+The example uses the images of the `kuka_1` sample, which it downloads on the first run ([sample datasets](getting_started.md#no-images-at-hand-a-sample-dataset)):
 
 - **Pattern**: 17×28 chessboard, 20 mm squares (the size is read from `squaresize.txt`)
 - **Images**: 30 PNG files `01.png` … `30.png`, 1928×1208 px
-
-The images are stored with Git LFS. If they are small text pointer files in your checkout, run `git lfs pull` first.
 
 ## Workflow
 

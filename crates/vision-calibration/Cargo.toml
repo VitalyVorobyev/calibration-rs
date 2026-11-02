@@ -27,6 +27,9 @@ schemars = ["vision-calibration-pipeline/schemars"]
 # The `synthetic` module: deterministic synthetic calibration data (target
 # grids, poses, noise) for tests, examples and benchmarks.
 synthetic = ["vision-calibration-core/synthetic"]
+# `dataset::samples::fetch`: downloads a sample dataset from its publisher
+# and verifies it (adds an HTTPS client).
+fetch = ["vision-calibration-dataset/fetch"]
 
 [dependencies]
 nalgebra = { workspace = true }
@@ -38,8 +41,9 @@ vision-calibration-optim.workspace = true
 vision-calibration-pipeline.workspace = true
 
 [dev-dependencies]
-# The examples and integration tests build their data with `synthetic`.
-vision-calibration = { path = ".", features = ["synthetic"] }
+# The examples and integration tests build their data with `synthetic`; the
+# real-image examples fetch a sample dataset.
+vision-calibration = { path = ".", features = ["synthetic", "fetch"] }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

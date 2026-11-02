@@ -297,6 +297,44 @@ verdict: warn
 
 Read it from the bottom up. The verdict is `warn`, not `pass`: where a ray lands in the image is uncertain by up to 7 px in the corners, against 1.7 px in the centre. The views did not cover the image corners well enough to pin the focal length down to better than about 1 % (σ(fx) ≈ 7.7 px). More views with the board near the corners and tilted would shrink it; [Planning the Next View](uncertainty_next_view.md) ranks candidate poses by how much each would help. The variance check is not applicable until you state the detector's noise (`expected_feature_noise_px`). [Judging a Result](quality.md) explains every check, and [Reading the Covariance](uncertainty_reading.md) the σ.
 
+### No images at hand: a sample dataset
+
+The library downloads real calibration datasets with a manifest already filled in. Each one comes from its publisher at a pinned revision, every file is checked against its SHA-256, and a second fetch reuses the cache:
+
+| Sample | Workflow | Data | Licence |
+|---|---|---|---|
+| `opencv_left` | planar intrinsics | 13 views of a 6×9 chessboard, 640×480, OpenCV's stereo sample | Apache-2.0 |
+| `opencv_fisheye_stereo` | rig extrinsics, fisheye | 34 views of a 6×8 chessboard, 1280×800, OpenCV's fisheye test set | none stated |
+| `kuka_1` | single-camera hand-eye | 30 views of a 17×28 chessboard and the robot poses | none stated |
+| `ds8` | rig hand-eye | three cameras on a robot arm, 42 poses of a 10×14 chessboard | US public domain |
+
+Each sample carries the citation its publisher asks for (`citation` in the catalogue). In Rust, fetching needs the `fetch` feature, which adds an HTTPS client:
+
+```toml
+vision-calibration = { version = "0.12", features = ["fetch"] }
+```
+
+```rust
+use vision_calibration::dataset::{DatasetSpec, samples};
+use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
+
+fn main() -> anyhow::Result<()> {
+    let manifest = samples::fetch("opencv_left", &samples::default_cache_dir()?)?;
+    let spec = DatasetSpec::from_path(&manifest)?;
+    let dir = manifest.parent().expect("the manifest sits in the sample's folder");
+    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None)?;
+    println!("{} of {} views used", run.usable_views, run.total_views);
+    Ok(())
+}
+```
+
+```python
+manifest = vc.samples.fetch("opencv_left")
+result = vc.calibrate_dataset(manifest)
+```
+
+The cache is `vision-calibration` in the platform's cache directory; the `VISION_CALIBRATION_DATA` environment variable, or a directory passed to `fetch`, puts it elsewhere. The example program above runs on a fetched sample's folder as on your own. The fisheye sample needs a fisheye camera model in its configuration ([Fisheye Projection](fisheye.md)).
+
 ## Configuring a Run
 
 Every workflow has a `*Config` type with the same grouped shape (`solver`, `camera`, `init`, ...). Rust updates it on the session or hands it to `calibrate_dataset` wrapped in `CalibrationConfig`; Python passes it to the runner, to `calibrate_dataset` or to the session's `set_config`.

@@ -1,0 +1,28 @@
+# Rig extrinsics of a fisheye stereo pair: OpenCV's fisheye calibration test
+# set (`testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY` in
+# `opencv_extra`).
+#
+# 34 synchronised views, 1280×800, of a chessboard with 6×8 interior corners
+# of 24.4 mm. Calibrate it with a fisheye camera model: the equidistant
+# projection with Kannala-Brandt distortion.
+
+version = 1
+topology = "rig_extrinsics"
+description = "OpenCV fisheye stereo test set, chessboard 6x8 24.4mm"
+
+[[cameras]]
+id = "left"
+images = { kind = "glob", pattern = "left/*.jpg" }
+
+[[cameras]]
+id = "right"
+images = { kind = "glob", pattern = "right/*.jpg" }
+
+[target]
+kind = "chessboard"
+rows = 6
+cols = 8
+square_size_m = 0.0244
+
+[pose_pairing]
+kind = "by_index"

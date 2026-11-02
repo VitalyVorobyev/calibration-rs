@@ -99,6 +99,13 @@
 "dataset::LaserScanAxis" = "types.LaserScanAxis"
 "dataset::PosePairing" = "types.PosePairing"
 "dataset::SniffError" = "SniffError"
+"dataset::samples" = [
+    "samples.Sample",
+    "samples.SampleFetchError",
+    "samples.cache_dir",
+    "samples.catalogue",
+    "samples.fetch",
+]
 "dataset::TargetSpec" = "types.TargetSpec"
 "dataset::Topology" = "types.Topology"
 "dataset::sniff_folder" = "sniff_folder"

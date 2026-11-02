@@ -18,12 +18,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `calibrate_folder` example calibrates a folder of your own images:
   it drafts the manifest, then detects, calibrates and prints each
   camera's parameters with their σ and the quality verdict.
+- Sample datasets without a source checkout: `dataset::samples` lists real
+  calibration datasets with a ready manifest (`opencv_left`,
+  `opencv_fisheye_stereo`, `kuka_1`, `ds8`), each with its licence and
+  citation, and `samples::fetch` (feature `fetch`) downloads one from its
+  publisher at a pinned revision, verifies every file's SHA-256 and returns
+  the manifest's path. Python: `vc.samples.fetch(id)`,
+  `vc.samples.catalogue()`. The cache defaults to the platform's cache
+  directory; `VISION_CALIBRATION_DATA` moves it.
+
+### Changed
+
+- The real-image examples (`planar_real`, `handeye_session`, Rust and
+  Python) fetch the `kuka_1` sample instead of reading the repository's Git
+  LFS images.
 
 ### Documentation
 
 - Getting Started has a real-image quickstart, in Rust and Python: draft
   the manifest from a folder, describe the board, calibrate, and read the
-  σ and the verdict.
+  σ and the verdict, or start from a fetched sample dataset.
 - The book opens with a "Choose Your Workflow" chapter that maps a
   hardware setup to a workflow, a camera model and a capture plan, and the
   Introduction names the app, Python and Rust routes first.

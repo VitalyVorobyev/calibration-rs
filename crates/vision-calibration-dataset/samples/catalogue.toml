@@ -1,0 +1,45 @@
+# The sample datasets `samples::fetch` downloads.
+#
+# Each sample is downloaded from its publisher, at a pinned revision, into
+# `<cache>/<id>/`. `<id>/files.sha256` lists every file the sample's
+# manifest reads, by its path under the dataset root, with its SHA-256;
+# `<id>/dataset.toml` is the manifest written next to them.
+#
+# `licence` is an SPDX identifier; `NOASSERTION` marks data whose publisher
+# states no licence, used with the attribution its authors ask for.
+#
+# `source` is where the files come from: `files` (each file from `base_url`
+# followed by its path) or `zip` (one archive, whose `root` directory is the
+# dataset root).
+
+[[sample]]
+id = "opencv_left"
+description = "Planar intrinsics: 13 views of a 6x9 chessboard, the left camera of OpenCV's stereo sample (640x480)"
+licence = "Apache-2.0"
+citation = "OpenCV, samples/data/left01.jpg to left14.jpg. https://github.com/opencv/opencv"
+source_url = "https://github.com/opencv/opencv/tree/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data"
+source = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data/" }
+
+[[sample]]
+id = "opencv_fisheye_stereo"
+description = "Fisheye stereo rig: 34 synchronised views of a 6x8 chessboard (24.4 mm), OpenCV's fisheye test set (1280x800); calibrate with the equidistant projection and Kannala-Brandt distortion"
+licence = "NOASSERTION"
+citation = "OpenCV test data (opencv_extra), testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY. https://github.com/opencv/opencv_extra"
+source_url = "https://github.com/opencv/opencv_extra/tree/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY"
+source = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv_extra/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY/" }
+
+[[sample]]
+id = "kuka_1"
+description = "Single-camera hand-eye, eye-in-hand: 30 views of a 17x28 chessboard (20 mm) from a KUKA arm, with the robot poses"
+licence = "NOASSERTION"
+citation = "Ali, I., Suominen, O., Gotchev, A. and Ruiz Morales, E. (2019). Methods for Simultaneous Robot-World-Hand-Eye Calibration: A Comparative Study. Sensors 19(12), 2837. https://doi.org/10.3390/s19122837"
+source_url = "https://github.com/ihtishamaliktk/RWHE-Calib/tree/610a412fdfe32850cc619359f121a2b063563a3e/Datasets/kuka_1"
+source = { kind = "files", base_url = "https://raw.githubusercontent.com/ihtishamaliktk/RWHE-Calib/610a412fdfe32850cc619359f121a2b063563a3e/Datasets/kuka_1/" }
+
+[[sample]]
+id = "ds8"
+description = "Rig hand-eye: three cameras on a Denso arm, 42 poses of a 10x14 chessboard (52 mm), with the robot poses"
+licence = "LicenseRef-US-Government-Public-Domain"
+citation = "Tabb, A. and Ahmad Yousef, K. M. (2017). Solving the robot-world hand-eye(s) calibration problem with iterative methods. Machine Vision and Applications 28, 569-590. Data: https://doi.org/10.15482/USDA.ADC/1340592"
+source_url = "https://doi.org/10.15482/USDA.ADC/1340592"
+source = { kind = "zip", url = "https://ndownloader.figshare.com/files/44531219", root = "DS8" }
