@@ -8,13 +8,17 @@ in `vision-mvg` (`pose_recovery`, `cheirality`, `triangulation`, `degeneracy`,
 
 ## Model
 
-Two pinhole views of a rigid scene. Pixels are made calibrated by
-`x = K⁻¹ u` (`pixel_to_normalized`, ADR 0009 conventions), so `x₁, x₂` are
-normalized (`z = 1`) rays. Relative pose `(R, t)` maps camera 1 into camera 2:
-`X_c2 = R·X_c1 + t` (`t` up to scale).
+Two views of a rigid scene through calibrated cameras (ADR 0028). The calibrated
+functions take a `CalibratedRig` and **pixels**; each pixel becomes a unit
+**bearing** `b` through its camera's own model (`backproject_pixel`,
+normalized), so every camera model works, including a fisheye beyond 90° from
+its axis, where `z = 1` normalized coordinates do not exist. For a pinhole,
+`(x, y, 1)` of `K⁻¹ u` is a bearing. Relative pose `second_se3_first = (R, t)`
+maps camera 1 into camera 2 (ADR 0009/0024): `X_c2 = R·X_c1 + t` (`t` up to
+scale, unit in the result).
 
-- **Epipolar constraint** (calibrated): `x₂ᵀ E x₁ = 0`, `E = [t]× R`, rank 2,
-  singular values `(σ, σ, 0)`.
+- **Epipolar constraint** (calibrated, on bearings): `b₂ᵀ E b₁ = 0`,
+  `E = [t]× R`, rank 2, singular values `(σ, σ, 0)`.
 - **Fundamental** (pixels): `u₂ᵀ F u₁ = 0`, `F = K₂⁻ᵀ E K₁⁻¹`, rank 2.
 - **Homography** (planar scene *or* pure rotation): `x₂ ~ H x₁`,
   `H = R + t nᵀ/d` (`homography_from_pose_and_plane`).
@@ -34,8 +38,10 @@ normalized (`z = 1`) rays. Relative pose `(R, t)` maps camera 1 into camera 2:
 - **Essential, 5-point** (`essential_5point`, Nistér): a **4-D** null space
   spans `E₁..E₄`; the ten cubic constraints (`build_polynomial_system`) are
   reduced by Gauss-Jordan elimination to a `10×10` action matrix whose real
-  eigenvalues (Schur decomposition) yield up to ten candidate `E`. Calibrated coordinates are
-  already `O(1)`, so **no Hartley normalization**.
+  eigenvalues (Schur decomposition) yield up to ten candidate `E`. Unit bearings
+  are already `O(1)`, so **no Hartley normalization**. The design row of a pair
+  is the Kronecker product `b₂ ⊗ b₁` (each normalized first); the earlier
+  normalized-coordinate row is its `z = 1` case.
 - **Essential, linear ≥8-point** (`essential_linear`): 1-D null space, then
   projection onto the essential manifold (singular values → `(σ, σ, 0)`).
   Used for the RANSAC refit on inlier sets.
@@ -66,47 +72,63 @@ whereas `AᵀA` is `k×k` (`k ≤ 12`) and converges in a few sweeps. The
 candidates `{R₁, R₂} × {+t, −t}` (`R₁ = U W Vᵀ`, `R₂ = U Wᵀ Vᵀ`,
 `t = ±u₃`), with a raw-`σ` guard on the input (`σ₀ < 1e-10` or
 `σ₁/σ₀ < 0.1` ⇒ `Err` — rank-1 / zero `E`). Only one candidate places
-triangulated points in front of **both** cameras; `cheirality::select_pose`
-counts positive-depth points (`cheirality_count`) and picks the winner.
+the points ahead along **both** bearings; `cheirality::select_pose` counts
+them (`cheirality_count`) and picks the winner. A candidate `(R, t)` with
+`p₂ = R p₁ + t` and `p₁ = λ₁ b₁`, `p₂ = λ₂ b₂` solves the `3×2` least squares
+`[R b₁, −b₂] [λ₁, λ₂]ᵀ = −t`; the point is in front iff `λ₁ > 0` and
+`λ₂ > 0`. This is a ray test, not a sign test on `z`, so it holds beyond 90°.
 
 `recover_relative_pose` (`pose_recovery`) samples up to 20 evenly-spaced
 5-point subsets (deterministic, input-order independent), decomposes and
 cheirality-selects each candidate `E`, keeps the one with the most
-positive-depth points (ties broken by mean Sampson distance over **all**
-correspondences), then triangulates with the chosen pose. The robust variant
+cheirality inliers (ties broken by the mean angular epipolar error over
+**all** matches), then triangulates with the chosen pose. The robust variant
 (`recover_relative_pose_robust` → `estimate_essential`) runs 5-point +
-Sampson inside `ransac_fit`, refits inliers with `essential_linear`, and
-disambiguates cheirality on inliers only.
+the angular epipolar error inside `ransac_fit`, refits inliers with
+`essential_linear`, and disambiguates cheirality on inliers only.
 
 ## Cost
 
-The solvers minimize algebraic / Sampson error. Sampson distance
-(`residuals::sampson_distance`) is the RANSAC residual for `E`/`F`;
-symmetric transfer error serves `H`. Triangulation refinement
-(`vision_geometry::triangulation::refine_point`, Gauss-Newton on the 3
-point coordinates, ≤ 10 iterations) minimizes `Σ_i ‖π(P_i, X) − x_i‖²` — the
-maximum-likelihood point under isotropic Gaussian image noise — from the DLT
-seed. No midpoint or optimal (Hartley–Sturm) triangulator exists; DLT seed +
-reprojection GN is the path. (The `refine` feature of `vision-mvg` adds
-LM refinement of homographies and points and bundle adjustment; not covered
-here.)
+The solvers minimize algebraic / first-order error. The RANSAC residual for
+`E` is the angular (Sampson-on-the-sphere) epipolar error, in **radians**,
+
+`e² = (b₂ᵀ E b₁)² / (‖(I − b₁b₁ᵀ) Eᵀ b₂‖² + ‖(I − b₂b₂ᵀ) E b₁‖²)`,
+
+the angle by which the two rays must move to meet the constraint to first
+order; it is invariant to the scale of `E` and returns `∞` at an epipole
+(vanishing denominator). A pixel threshold `t` is about `t / f` radians. The
+pixel residuals (`residuals::sampson_distance` on `F`, symmetric transfer on
+`H`) are unchanged and serve the uncalibrated estimators. Triangulation is the
+linear DLT only: no midpoint or optimal (Hartley–Sturm) triangulator exists, and
+the Gauss-Newton `refine_point` that polished the DLT seed was removed with the
+duplicate `vision-mvg` one. The nonlinear refinement against pixels returns
+through the public problem builder (MVG-TRI-COV, ADR 0028), where the camera
+model and the calibration's covariance are available.
 
 ## Triangulation and its failure modes
 
-`triangulate_point_linear` builds the `2N×4` DLT, solves it via `null_space`,
-guards rank with `dlt_rank_ok`, and rejects a point at infinity (`w ≈ 0`).
-`triangulate_point` appends `refine_point`; `triangulate_nview` adds
-diagnostics (RMS reprojection, **widest** pairwise parallax, all-view
-cheirality). Failure modes:
+`vision_geometry::triangulation::triangulate_point_linear(cam_se3_world,
+bearings)` stacks the three rows of `[b]× P` (rank 2, `P = [R | t]`) of every
+view into a `3N×4` DLT, solves it via `null_space`, guards rank with
+`dlt_rank_ok`, and rejects a point at infinity (`w ≈ 0`).
+`vision_mvg::triangulation::triangulate` builds the bearings from pixels
+through a `CalibratedRig` (camera `i` at capture `k` sees the world through
+`cam_se3_rig[i] · rig_se3_world[k]`) and adds diagnostics: RMS pixel
+reprojection through each camera's model (`None` if the point does not
+project), the **widest** pairwise parallax between rays from the camera centres,
+and `in_front` (`b · p_cam > 0` for every bearing). It is all-or-nothing and
+names the failing track. Failure modes:
 
 - **Zero / low parallax** (narrow baseline or far points): rays are nearly
   parallel and the DLT's boundary singular value collapses; `dlt_rank_ok`
   rejects the exactly-degenerate case, and near-degenerate points have depth
   variance `∝ 1/parallax` (quantified below).
 - **Point on the baseline / near the epipole**: the viewing rays are
-  collinear ⇒ rank-deficient ⇒ rejected per point.
-  `triangulate_two_view_partial` skips such points instead of failing the
-  whole set (used by `analyze_scene`).
+  collinear ⇒ rank-deficient ⇒ rejected per point; `triangulate` fails the
+  call naming the track, and `RelativePose` fails the call naming the match.
+  `degeneracy::analyze_scene` (now `pub(crate)`, computed into
+  `RelativePose::scene`) takes the points that triangulated, and measures depth
+  along the first camera's bearing (`‖p‖` in its frame), not `z`.
 - **Identical cameras** (zero baseline): rejected
   (`triangulation_rejects_identical_cameras`).
 
@@ -137,7 +159,7 @@ unobservable from two views; the remaining scale must come from context (a
 known baseline, frozen extrinsics, or bundle adjustment against metric
 structure). The matrix test therefore reports rotation and translation
 *direction* for pose recovery, and gives the triangulation cells the true
-metric cameras.
+metric rig.
 
 ## Noise sensitivity
 
@@ -153,6 +175,11 @@ Matrix test (42-point non-coplanar cloud, `f ≈ 800`, uniform per-axis noise
 - **Exact data**: rotation / t-direction `< 1e-3°`, reprojection
   `~1e-13 px`, 3D error `~1e-15`.
 
+With the linear triangulation alone (no Gauss-Newton polish) the median 3D
+errors at 0.5 px are `9.3e-3` (wide) → `7.0e-2` (narrow), within 3 % of the
+polished values the table above was measured with; pose errors are unchanged
+(the pose pipeline is the same, on bearings).
+
 Parameter errors scale ~linearly in `a`; translation direction and depth
 additionally scale ~`1/parallax`.
 
@@ -162,6 +189,11 @@ additionally scale ~`1/parallax`.
   baseline/parallax regimes (`wide-sideways`, `wide-rotated`, `medium`,
   `narrow`) × noise `{0, 0.2, 0.5} px`; per cell asserts rotation,
   translation direction, reprojection and 3D error, scaled to the noise.
+- **Camera-model tests**: `crates/vision-mvg/tests/two_view_camera_models.rs`
+  — a Brown–Conrady camera (`k₁ = −0.2`) from raw distorted pixels (noiseless
+  `1e-9` relative in 3D, `1e-7°` in pose; 0.3 px noise within the matrix
+  bounds) and an equidistant + Kannala–Brandt fisheye rig with a third of the
+  points beyond 90° off the first camera's axis.
 - **Property tests**: `crates/vision-mvg/tests/two_view_properties.rs` —
   over a pose grid: `E = [t]× R` annihilates GT correspondences and
   decomposes to the GT pose; estimated-`F` epipolar residual `< 1e-6`;

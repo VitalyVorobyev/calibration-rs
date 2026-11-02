@@ -439,10 +439,10 @@ pub mod rig_handeye_laserline {
 /// [`analysis`], not here — see that module's doc comment.
 pub mod core {
     pub use vision_calibration_core::{
-        BrownConrady5, Camera, CameraFix, CameraModel, CameraModelSpec, CameraParams,
-        CorrespondenceView, DistortionKind, DistortionParams, Division, Equidistant, FrameKind,
-        FrameRef, FxFyCxCy, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4, Mat3, NoMeta,
-        NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
+        BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel, CameraModelSpec,
+        CameraParams, CorrespondenceView, DistortionKind, DistortionParams, Division, Equidistant,
+        FrameKind, FrameRef, FxFyCxCy, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4, Mat3,
+        NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
         PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Real,
         ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs, ScheimpflugParams,
         SensorKind, SensorModel, SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable,

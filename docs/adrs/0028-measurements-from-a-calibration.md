@@ -56,8 +56,9 @@ from a calibration:
   single camera is a rig of one;
 - the calibration's `Uncertainty`, joint over every camera's parameters
   and the extrinsics, with the labels the exports use (`fx`, `cam1.k1`,
-  `cam1.cam_se3_rig.rx`);
-- the reprojection noise level (`ResidualNoise`) of the calibration.
+  `cam1.cam_se3_rig.rx`). The reprojection noise level of the calibration
+  (its `noise` entry) is read from that covariance, not carried as a
+  separate field.
 
 Every export with cameras produces one (`CalibratedCameras::calibrated_rig`
 in the pipeline). MVG functions take a `&CalibratedRig`, never a bare `K`.

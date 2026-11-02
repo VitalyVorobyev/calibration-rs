@@ -6,12 +6,12 @@ It is aimed at someone who already has calibrated cameras (for example from [Ste
 
 ## Conventions
 
-Everything in `mvg` operates on **calibrated** observations, and two coordinate conventions matter:
+The calibrated functions take a **`CalibratedRig`**: the cameras, where each sits in the rig (`cam_se3_rig`, the reference camera's the identity) and the uncertainty of their parameters. A single camera is a rig of one. Observations are **pixels**; two conventions matter:
 
-- **Normalized image coordinates** are pixels after applying $K^{-1}$. Relative-pose recovery and triangulation work here, so the geometry is independent of the specific intrinsics.
-- **Pixel coordinates** are what bundle adjustment and rectification consume (they fold $K$ back in).
+- **Pixels in, bearings inside.** Each pixel is unprojected through its own camera's model into a *bearing*, a unit ray, and the closed-form steps (the 5-point essential matrix, cheirality, the linear triangulation) work on bearings. Distortion, fisheye and tilted sensors need no separate undistortion, and a fisheye point more than 90° from the optical axis, which has no normalized coordinates, is an ordinary bearing.
+- **Rectification and bundle adjustment still consume pixels** of undistorted pinhole cameras (they fold $K$ back in).
 
-Poses follow the project convention: `T_C1_C0` (`cam1_se3_cam0`) maps a point from camera 0's frame into camera 1's frame, $p_{c1} = R\,p_{c0} + t$. Bundle adjustment poses are `T_C_W`: world to camera.
+Poses are named `<frame>_se3_<frame>` and map the right frame into the left: `second_se3_first` takes a point from the first camera's frame into the second's, $p_2 = R\,p_1 + t$, and a world-to-camera pose is `cam_se3_world`.
 
 ## The Surface
 
@@ -19,7 +19,7 @@ In dependency order:
 
 ```text
 mvg::pose_recovery   recover_relative_pose  ← 5-point + cheirality (also triangulates)
-mvg::triangulation   triangulate_nview      ← N-view DLT with diagnostics
+mvg::triangulation   triangulate            ← N-view DLT on bearings, with diagnostics
 mvg::bundle_adjust   bundle_adjust          ← joint poses + structure (feature `refine`)
 mvg::rectification   rectify_stereo_pair    ← rectifying homographies (Scheimpflug-aware)
 mvg::dense           match_block            ← block matching and semi-global matching
@@ -54,16 +54,24 @@ The `refine` cargo feature enables bundle adjustment (it pulls in the `tiny-solv
 
 ## From a Calibration to MVG Inputs
 
-A rig calibration provides what rectification and triangulation need. From a `RigExtrinsicsExport`, `cameras[i]` (a `CameraParams`: intrinsics and, for a tilted camera, its sensor) builds each camera's intrinsic matrix, and the relative pose is **composed** from the two cameras' extrinsics:
+Every export with cameras gives its calibration as a `CalibratedRig`, with the cameras' parameters, their poses in the rig and the uncertainty of the estimated parameters (labelled as in the export: `fx` for one camera, `cam1.k1` and `cam1.cam_se3_rig.rx` in a rig):
 
 ```rust
-// cam_se3_rig[i] is T_Ci_R (camera i ← rig), so:
-let cam1_se3_cam0 = export.cam_se3_rig[right] * export.cam_se3_rig[left].inverse();
+use vision_calibration::common::CalibratedCameras;
+
+let rig = export.calibrated_rig()?;
+// rig.cameras(), rig.cam_se3_rig(), rig.uncertainty(), rig.model(i)
 ```
 
-A single `cam_se3_rig[i]` equals the relative pose only in the special case where the left camera is the reference frame (`cam_se3_rig[left]` is the identity). Compose explicitly for any other pair or `reference_camera_idx`.
+`cam_se3_rig[i]` is the pose of the rig frame in camera `i` (`T_Ci_R`). The relative pose of two cameras of a rig is **composed**:
 
-Pixels from the real cameras must be **undistorted** first for the stages that expect it (rectification); the MVG tools work on the ideal pinhole model and leave lens distortion to the calibrated camera.
+```rust
+let cam1_se3_cam0 = rig.cam_se3_rig()[1] * rig.cam_se3_rig()[0].inverse();
+```
+
+A single `cam_se3_rig[i]` equals the relative pose only in the special case where camera 0 is the reference frame (its pose is the identity). The reference camera need not be camera 0.
+
+Pose recovery and triangulation take the pixels as detected, through the rig's camera models. Rectification takes pixels of an undistorted pinhole model, so undistort first for that stage.
 
 ## In the Desktop App
 

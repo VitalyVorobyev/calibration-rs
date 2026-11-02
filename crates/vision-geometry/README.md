@@ -17,7 +17,7 @@ linear triangulation, and camera matrix decomposition.
 | `math` | Hartley normalization and small linear-algebra helpers |
 | `epipolar` | Fundamental and essential matrix estimation and decomposition |
 | `homography` | Normalized DLT homography estimation with optional RANSAC |
-| `triangulation` | Linear DLT triangulation from multiple views |
+| `triangulation` | Linear DLT triangulation of bearings from multiple views |
 | `camera_matrix` | Camera matrix estimation and RQ decomposition |
 
 ## Coordinate Conventions

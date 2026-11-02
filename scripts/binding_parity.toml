@@ -320,6 +320,7 @@
 "analysis::single_cam_handeye_report" = "reprojection by constraint level (intrinsic, rig, hand-eye), a diagnostic of the benchmark harness; not bound"
 "common::CalibratedCameras" = "trait over the exports; Python's projection_uncertainty and assess take any export directly"
 "common::calibrated_cameras" = "reads an export JSON into CalibratedCameras; Python's projection_uncertainty and assess take any export directly"
+"core::CalibratedRig" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "core::IdentitySensor" = "a camera-model component; Python builds whole cameras from CameraParams as a CameraModel"
 "core::Mat3" = "math alias; Python passes floats, tuples and numpy arrays"
 "core::Pinhole" = "a camera-model component; Python builds whole cameras from CameraParams as a CameraModel"

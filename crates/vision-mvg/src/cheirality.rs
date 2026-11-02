@@ -5,50 +5,47 @@
 //! cameras. These functions count and select the correct pose.
 
 use crate::{MvgError, Result};
-use vision_calibration_core::{Mat3, Pt2, Vec3};
-use vision_geometry::camera_matrix::Mat34;
-use vision_geometry::triangulation::triangulate_point_linear;
+use vision_calibration_core::{Mat3, Vec3};
 
-/// Count the number of points that are in front of both cameras.
+/// Count the matches whose point lies ahead along both bearings.
 ///
-/// Camera 1 is at the origin with `P₁ = [I | 0]`. Camera 2 has rotation
-/// `r` and translation `t`, giving `P₂ = [R | t]`. Points are in
-/// **normalized camera coordinates**.
-pub fn cheirality_count(r: &Mat3, t: &Vec3, pts1: &[Pt2], pts2: &[Pt2]) -> usize {
-    let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-    let mut p2 = Mat34::zeros();
-    p2.fixed_view_mut::<3, 3>(0, 0).copy_from(r);
-    p2.set_column(3, t);
-
-    let mut count = 0;
-    for (q1, q2) in pts1.iter().zip(pts2.iter()) {
-        let Ok(pt3) = triangulate_point_linear(&[p1, p2], &[*q1, *q2]) else {
-            continue;
-        };
-
-        // Depth in camera 1: z coordinate directly (camera is at origin).
-        let z1 = pt3.z;
-
-        // Depth in camera 2: z component of R * X + t.
-        let z2 = (r.row(2) * pt3.coords)[0] + t.z;
-
-        if z1 > 0.0 && z2 > 0.0 {
-            count += 1;
-        }
-    }
-
-    count
+/// A candidate `(r, t)` maps the first camera's frame into the second's:
+/// `p2 = r p1 + t`. A point seen along the unit bearings `b1` and `b2` is
+/// `p1 = λ1 b1`, `p2 = λ2 b2`, so `λ1 r b1 − λ2 b2 = −t`; the least-squares
+/// `λ` of this 3×2 system decide, and the point is in front iff both are
+/// positive. This holds beyond 90° from the optical axis, where depth along `z`
+/// means nothing. A pair of parallel rays (no solution) does not count.
+pub fn cheirality_count(r: &Mat3, t: &Vec3, b1: &[Vec3], b2: &[Vec3]) -> usize {
+    b1.iter()
+        .zip(b2.iter())
+        .filter(|(q1, q2)| {
+            let rq1 = r * **q1;
+            // Normal equations of [r q1, -q2] [λ1, λ2]ᵀ = -t.
+            let a11 = rq1.dot(&rq1);
+            let a12 = -rq1.dot(q2);
+            let a22 = q2.dot(q2);
+            let det = a11 * a22 - a12 * a12;
+            if det <= 1e-12 * a11 * a22 {
+                return false;
+            }
+            let c1 = -rq1.dot(t);
+            let c2 = q2.dot(t);
+            let lambda1 = (c1 * a22 - a12 * c2) / det;
+            let lambda2 = (a11 * c2 - a12 * c1) / det;
+            lambda1 > 0.0 && lambda2 > 0.0
+        })
+        .count()
 }
 
-/// Select the correct (R, t) from candidate poses by cheirality.
+/// Select the correct (R, t) from candidate poses by cheirality on bearings.
 ///
 /// Returns the pose that places the most points in front of both cameras,
 /// along with the number of points passing the cheirality check. Returns
 /// `None` if no candidate has any valid points.
 pub fn select_pose(
     candidates: &[(Mat3, Vec3)],
-    pts1: &[Pt2],
-    pts2: &[Pt2],
+    pts1: &[Vec3],
+    pts2: &[Vec3],
 ) -> Option<(Mat3, Vec3, usize)> {
     let mut best: Option<(Mat3, Vec3, usize)> = None;
 
@@ -69,7 +66,7 @@ pub fn select_pose(
 ///
 /// Returns `Err` if the point slices have different lengths, if there are no
 /// correspondences, or if every candidate pose fails the cheirality check.
-pub fn recover_pose_from_essential(e: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<(Mat3, Vec3)> {
+pub fn recover_pose_from_essential(e: &Mat3, pts1: &[Vec3], pts2: &[Vec3]) -> Result<(Mat3, Vec3)> {
     if pts1.len() != pts2.len() {
         return Err(MvgError::CountMismatch {
             expected: pts1.len(),
@@ -95,7 +92,7 @@ mod tests {
         Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
     }
 
-    fn make_stereo_data() -> (Mat3, Vec3, Vec<Pt2>, Vec<Pt2>) {
+    fn make_stereo_data() -> (Mat3, Vec3, Vec<Vec3>, Vec<Vec3>) {
         let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
         let r = *rot.matrix();
         let t = Vec3::new(0.3, 0.01, 0.005);
@@ -116,8 +113,8 @@ mod tests {
         for pw in &world {
             let pc1 = pw.coords;
             let pc2 = r * pw.coords + t;
-            pts1.push(Pt2::new(pc1.x / pc1.z, pc1.y / pc1.z));
-            pts2.push(Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z));
+            pts1.push(pc1.normalize());
+            pts2.push(pc2.normalize());
         }
 
         (r, t, pts1, pts2)
@@ -169,14 +166,14 @@ mod tests {
         let e = skew(&t) * r;
         // Give pts2 one extra point — lengths differ by 1.
         let mut pts2_long = pts2.clone();
-        pts2_long.push(Pt2::new(0.0, 0.0));
+        pts2_long.push(Vec3::new(0.0, 0.0, 1.0));
         assert!(
             recover_pose_from_essential(&e, &pts1, &pts2_long).is_err(),
             "mismatched lengths must return Err"
         );
         // Symmetric: pts1 longer.
         let mut pts1_long = pts1.clone();
-        pts1_long.push(Pt2::new(0.0, 0.0));
+        pts1_long.push(Vec3::new(0.0, 0.0, 1.0));
         assert!(
             recover_pose_from_essential(&e, &pts1_long, &pts2).is_err(),
             "mismatched lengths must return Err"
@@ -208,5 +205,27 @@ mod tests {
 
         let cos_t = t_est.normalize().dot(&t.normalize());
         assert!((cos_t.abs() - 1.0).abs() < 1e-6);
+    }
+
+    /// A point behind the first camera (`z < 0`) is still "in front" along its
+    /// bearing: cheirality is decided by the rays, not by the sign of `z`.
+    #[test]
+    fn cheirality_counts_points_beyond_90_degrees() {
+        let rot = Rotation3::from_euler_angles(0.0, 0.4, 0.0);
+        let r = *rot.matrix();
+        let t = Vec3::new(0.5, 0.0, 0.0);
+        let world = [
+            Pt3::new(-2.0, 0.3, -1.0),
+            Pt3::new(1.5, -0.2, -0.5),
+            Pt3::new(0.5, 0.5, 2.0),
+        ];
+        let b1: Vec<Vec3> = world.iter().map(|p| p.coords.normalize()).collect();
+        let b2: Vec<Vec3> = world
+            .iter()
+            .map(|p| (r * p.coords + t).normalize())
+            .collect();
+        assert!(b1.iter().filter(|b| b.z < 0.0).count() >= 2);
+        assert_eq!(cheirality_count(&r, &t, &b1, &b2), 3);
+        assert_eq!(cheirality_count(&r, &(-t), &b1, &b2), 0);
     }
 }

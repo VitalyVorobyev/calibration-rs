@@ -4,7 +4,6 @@
 //! optimization with analytic residuals.
 //!
 //! - [`refine_homography`]: minimize symmetric transfer error
-//! - [`refine_point`]: minimize reprojection error for a single 3D point
 
 use crate::{MvgError, Result};
 use nalgebra::DVector;
@@ -12,8 +11,7 @@ use tiny_solver::LevenbergMarquardtOptimizer;
 use tiny_solver::factors::Factor;
 use tiny_solver::optimizer::{Optimizer, OptimizerOptions};
 use tiny_solver::problem::Problem;
-use vision_calibration_core::{Mat3, Pt2, Pt3, Real};
-use vision_geometry::camera_matrix::Mat34;
+use vision_calibration_core::{Mat3, Pt2, Real};
 
 // ---------------------------------------------------------------------------
 // Homography refinement
@@ -126,89 +124,11 @@ pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Ma
     Ok(h)
 }
 
-// ---------------------------------------------------------------------------
-// 3D point refinement
-// ---------------------------------------------------------------------------
-
-/// Factor for reprojection error of a 3D point in one view.
-struct ReprojectionFactor {
-    /// 3×4 projection matrix.
-    p: [Real; 12],
-    /// Observed 2D point.
-    obs: Pt2,
-}
-
-impl<T: nalgebra::RealField> Factor<T> for ReprojectionFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        debug_assert_eq!(params.len(), 1);
-        let pt = &params[0]; // [x, y, z]
-
-        let x = pt[0].clone();
-        let y = pt[1].clone();
-        let z = pt[2].clone();
-
-        let p = |i: usize| T::from_f64(self.p[i]).unwrap();
-
-        let px = p(0) * x.clone() + p(1) * y.clone() + p(2) * z.clone() + p(3);
-        let py = p(4) * x.clone() + p(5) * y.clone() + p(6) * z.clone() + p(7);
-        let pw = p(8) * x + p(9) * y + p(10) * z + p(11);
-
-        let u_obs = T::from_f64(self.obs.x).unwrap();
-        let v_obs = T::from_f64(self.obs.y).unwrap();
-
-        DVector::from_vec(vec![px / pw.clone() - u_obs, py / pw - v_obs])
-    }
-}
-
-/// Refine a single 3D point by minimizing reprojection error across views.
-///
-/// `cameras` are 3×4 projection matrices, `observations` are the
-/// corresponding 2D observations. `init` is the initial 3D point estimate.
-pub fn refine_point(cameras: &[Mat34], observations: &[Pt2], init: &Pt3) -> Result<Pt3> {
-    if cameras.len() != observations.len() || cameras.is_empty() {
-        return Err(MvgError::invalid_input(
-            "cameras and observations must have equal non-zero length",
-        ));
-    }
-
-    let mut problem = Problem::new();
-
-    for (cam, obs) in cameras.iter().zip(observations.iter()) {
-        let mut p = [0.0; 12];
-        for r in 0..3 {
-            for c in 0..4 {
-                p[r * 4 + c] = cam[(r, c)];
-            }
-        }
-        let factor = ReprojectionFactor { p, obs: *obs };
-        problem.add_residual_block(2, &["point"], Box::new(factor), None);
-    }
-
-    let mut initial = std::collections::HashMap::new();
-    initial.insert(
-        "point".to_string(),
-        DVector::from_vec(vec![init.x, init.y, init.z]),
-    );
-
-    let opts = OptimizerOptions {
-        max_iteration: 30,
-        ..Default::default()
-    };
-
-    let optimizer = LevenbergMarquardtOptimizer::default();
-    let result = optimizer
-        .optimize(&problem, &initial, Some(opts))
-        .ok_or_else(|| MvgError::not_converged("point refinement failed to converge"))?;
-
-    let pt = &result["point"];
-    Ok(Pt3::new(pt[0], pt[1], pt[2]))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use nalgebra::Rotation3;
-    use vision_calibration_core::Vec3;
+    use vision_calibration_core::{Pt3, Vec3};
 
     #[test]
     fn refine_homography_improves_estimate() {
@@ -247,45 +167,6 @@ mod tests {
         // Refined should be closer to GT.
         let err_init = (h_init - h_gt).norm();
         let err_refined = (h_refined - h_gt).norm();
-        assert!(
-            err_refined < err_init,
-            "refinement did not improve: init={:.6}, refined={:.6}",
-            err_init,
-            err_refined
-        );
-        assert!(
-            err_refined < 1e-3,
-            "refined error too large: {}",
-            err_refined
-        );
-    }
-
-    #[test]
-    fn refine_point_improves_estimate() {
-        let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-        let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
-        let r = *rot.matrix();
-        let t = Vec3::new(0.3, 0.01, 0.005);
-        let mut p2 = Mat34::zeros();
-        p2.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
-        p2.set_column(3, &t);
-
-        let pt_gt = Pt3::new(0.2, -0.1, 4.0);
-
-        // Project to get observations.
-        let h1 = nalgebra::Vector4::new(pt_gt.x, pt_gt.y, pt_gt.z, 1.0);
-        let x1 = p1 * h1;
-        let x2 = p2 * h1;
-        let obs1 = Pt2::new(x1.x / x1.z, x1.y / x1.z);
-        let obs2 = Pt2::new(x2.x / x2.z, x2.y / x2.z);
-
-        // Perturbed initial.
-        let init = Pt3::new(pt_gt.x + 0.1, pt_gt.y - 0.05, pt_gt.z + 0.2);
-
-        let refined = refine_point(&[p1, p2], &[obs1, obs2], &init).unwrap();
-
-        let err_init = (init - pt_gt).norm();
-        let err_refined = (refined - pt_gt).norm();
         assert!(
             err_refined < err_init,
             "refinement did not improve: init={:.6}, refined={:.6}",

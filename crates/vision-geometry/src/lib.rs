@@ -9,15 +9,16 @@
 //!
 //! - [`epipolar`] — Fundamental and essential matrix estimation, decomposition
 //! - [`homography`] — Normalized DLT homography estimation with optional RANSAC
-//! - [`triangulation`] — N-view triangulation: linear DLT + Gauss-Newton
-//!   reprojection refinement
+//! - [`triangulation`] — N-view linear (DLT) triangulation from bearings
 //! - [`camera_matrix`] — Camera projection matrix estimation and RQ decomposition
 //!
 //! # Coordinate Conventions
 //!
 //! - Fundamental matrix solvers accept **pixel coordinates**.
-//! - Essential matrix solvers expect **calibrated/normalized coordinates**
-//!   (i.e., after applying `K⁻¹` to pixel points).
+//! - Essential matrix solvers and triangulation take **bearings**: rays in each
+//!   camera's frame, from the camera's own unprojection (any nonzero length).
+//!   A pinhole's `(x, y, 1)` of normalized coordinates is one; a fisheye's
+//!   bearing may point more than 90° off the axis.
 //! - Pose outputs follow the `T_C_W` convention: transform from world into camera frame.
 //!
 //! # Example
