@@ -34,9 +34,10 @@ Derivation, identifiability and the Monte-Carlo gates are in
   profiled out. Its excess over its own expectation under the noise model
   (known from the views' leverages), pooled over the shared coordinates,
   gives `k`, which has mean 1 when the noise model holds. When `k` is above
-  its null distribution's 97.5 % point (a scaled χ² with the exact mean and
-  variance, the views' steps correlated), the whole covariance is scaled by
-  `k`, keeping the model's shape, and `k` is reported as `view_scatter`.
+  its null distribution's 97.5 % point (a shifted, scaled χ² with the exact
+  first three cumulants, the views' steps correlated), the whole covariance
+  is scaled by `k`, keeping the model's shape, and `k` is reported as
+  `view_scatter`.
   Derivation: `docs/notes/uncertainty.md`.
 - A view is a residual's per-view parameter block (`pose/`, `target/`,
   `rig_pose/`, `robot_delta/<view>`). From six views up.
