@@ -650,6 +650,10 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;
     m.add("SniffError", m.py().get_type::<errors::SniffError>())?;
+    m.add(
+        "SampleFetchError",
+        m.py().get_type::<errors::SampleFetchError>(),
+    )?;
     m.add_class::<camera::PyCameraModel>()?;
     session::register(m)?;
     dataset::register(m)?;

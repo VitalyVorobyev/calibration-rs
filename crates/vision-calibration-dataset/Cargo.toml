@@ -14,10 +14,17 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+features = ["fetch"]
+
 [features]
 schemars = ["dep:schemars"]
 # Builds the `generate-manifest` binary.
 cli = []
+# `samples::fetch`: downloads a sample dataset from its publisher over HTTPS
+# (pure-Rust TLS, the same on every platform), unpacks a published ZIP
+# archive (deflate only) and verifies every file's SHA-256.
+fetch = ["dep:sha2", "dep:ureq", "dep:zip"]
 
 [dependencies]
 serde = { workspace = true }
@@ -25,6 +32,9 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 schemars = { workspace = true, optional = true }
 toml = "1"
+sha2 = { version = "0.11", optional = true }
+ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

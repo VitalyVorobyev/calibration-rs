@@ -2,6 +2,9 @@
 
 Python counterpart of:
 `crates/vision-calibration/examples/handeye_session.rs`
+
+Uses the `kuka_1` sample, downloaded on the first run into the sample cache
+(`VISION_CALIBRATION_DATA` overrides where).
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ import numpy as np
 from PIL import Image
 import vision_calibration as vc
 
-from _common import quat_xyzw_from_rot, repo_root
+from _common import quat_xyzw_from_rot
 
 BOARD_ROWS = 17
 BOARD_COLS = 28
@@ -78,9 +81,8 @@ def detect_observation(path: Path, square_size_m: float) -> vc.Observation | Non
 
 
 def load_dataset() -> vc.SingleCamHandeyeInput:
-    data_dir = repo_root() / "data/kuka_1"
-    if not data_dir.exists():
-        raise FileNotFoundError(f"dataset not found: {data_dir}")
+    # Downloaded on the first run; later runs reuse the sample cache.
+    data_dir = vc.samples.fetch("kuka_1").parent
 
     square_size_m = parse_square_size_m(data_dir / "squaresize.txt")
     robot_poses = parse_robot_poses(data_dir / "RobotPosesVec.txt")

@@ -7,12 +7,14 @@ use std::path::{Path, PathBuf};
 use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use serde::Serialize;
-use vision_calibration::dataset::{DatasetSpec, LaserExtractionSpec, sniff_folder as rust_sniff};
+use vision_calibration::dataset::{
+    DatasetSpec, LaserExtractionSpec, samples, sniff_folder as rust_sniff,
+};
 use vision_calibration::dataset_runner::{self as runner, Detection, LaserPixelExtractor};
 use vision_calibration::detect::GrayImageView;
 
 use crate::detect::PyFsDetectionCache;
-use crate::errors::{run_err, sniff_err};
+use crate::errors::{fetch_err, run_err, sniff_err};
 use crate::parse_payload;
 use crate::session::to_py;
 use crate::validation::value_err;
@@ -125,6 +127,53 @@ fn convert<T: Send>(
 pub(crate) fn sniff_folder(py: Python<'_>, root: PathBuf) -> PyResult<Py<PyAny>> {
     let spec = rust_sniff(&root).map_err(|err| sniff_err(py, err))?;
     to_py(py, &spec)
+}
+
+/// The sample datasets: one dict per sample (`id`, `description`, `licence`,
+/// `citation`, `source_url`).
+#[pyfunction]
+pub(crate) fn sample_catalogue(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    #[derive(Serialize)]
+    struct Entry<'a> {
+        id: &'a str,
+        description: &'a str,
+        licence: &'a str,
+        citation: &'a str,
+        source_url: &'a str,
+    }
+    let entries: Vec<Entry<'_>> = samples::catalogue()
+        .iter()
+        .map(|s| Entry {
+            id: &s.id,
+            description: &s.description,
+            licence: &s.licence,
+            citation: &s.citation,
+            source_url: &s.source_url,
+        })
+        .collect();
+    to_py(py, &entries)
+}
+
+/// Download the sample `id` into `cache` (the default cache directory when
+/// `None`), verify it and return the path of its manifest.
+#[pyfunction]
+#[pyo3(signature = (id, cache=None))]
+pub(crate) fn fetch_sample(
+    py: Python<'_>,
+    id: String,
+    cache: Option<PathBuf>,
+) -> PyResult<PathBuf> {
+    let cache = match cache {
+        Some(dir) => dir,
+        None => samples::default_cache_dir().map_err(fetch_err)?,
+    };
+    py.detach(|| samples::fetch(&id, &cache)).map_err(fetch_err)
+}
+
+/// The directory samples are fetched into when no cache is given.
+#[pyfunction]
+pub(crate) fn sample_cache_dir() -> PyResult<PathBuf> {
+    samples::default_cache_dir().map_err(fetch_err)
 }
 
 /// Read a manifest file (TOML or JSON) and return its `DatasetSpec` payload.
@@ -256,6 +305,9 @@ laser_converter!(build_rig_handeye_laserline_input);
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sniff_folder, m)?)?;
     m.add_function(wrap_pyfunction!(load_manifest, m)?)?;
+    m.add_function(wrap_pyfunction!(sample_catalogue, m)?)?;
+    m.add_function(wrap_pyfunction!(fetch_sample, m)?)?;
+    m.add_function(wrap_pyfunction!(sample_cache_dir, m)?)?;
     m.add_function(wrap_pyfunction!(build_planar_input, m)?)?;
     m.add_function(wrap_pyfunction!(build_single_cam_handeye_input, m)?)?;
     m.add_function(wrap_pyfunction!(build_rig_extrinsics_input, m)?)?;

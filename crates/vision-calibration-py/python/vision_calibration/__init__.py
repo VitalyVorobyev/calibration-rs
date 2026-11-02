@@ -26,6 +26,7 @@ from . import (
     rig_handeye,
     rig_handeye_laserline,
     rig_laserline_device,
+    samples,
     session,
     single_cam_handeye,
 )

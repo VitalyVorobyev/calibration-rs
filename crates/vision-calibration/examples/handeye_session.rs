@@ -8,7 +8,8 @@
 //! 5. Initialize hand-eye transform (Tsai-Lenz)
 //! 6. Optimize hand-eye (bundle adjustment with robot pose priors)
 //!
-//! Dataset: Uses `data/kuka_1/` containing:
+//! Dataset: the `kuka_1` sample, downloaded on the first run into the sample
+//! cache (`VISION_CALIBRATION_DATA` overrides where):
 //! - 30 images (01.png to 30.png)
 //! - Robot poses (RobotPosesVec.txt)
 //! - Board square size (squaresize.txt)
@@ -20,8 +21,8 @@ mod handeye_io;
 
 use anyhow::Result;
 use std::io::{self, Write};
-use std::path::PathBuf;
 use vision_calibration::common::RobotPoseMeta;
+use vision_calibration::dataset::samples;
 use vision_calibration::optim::HandeyeMode;
 use vision_calibration::prelude::*;
 use vision_calibration::single_cam_handeye::{
@@ -34,16 +35,11 @@ use crate::handeye_io::DatasetSummary;
 fn main() -> Result<()> {
     println!("=== Single-Camera Hand-Eye Calibration (KUKA Dataset) ===\n");
 
-    // Dataset path
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let data_path = repo_root.join("data/kuka_1");
-
-    if !data_path.exists() {
-        anyhow::bail!(
-            "Dataset not found at {}\nPlease ensure the KUKA dataset is available.",
-            data_path.display()
-        );
-    }
+    // Download the sample on the first run; later runs reuse the cache.
+    let manifest = samples::fetch("kuka_1", &samples::default_cache_dir()?)?;
+    let data_path = manifest
+        .parent()
+        .expect("a fetched manifest sits in its sample's directory");
 
     println!("Dataset: {}", data_path.display());
 
@@ -52,7 +48,7 @@ fn main() -> Result<()> {
     let board_params = handeye_io::kuka_chessboard_params();
 
     let (samples, summary) = handeye_io::load_kuka_dataset_with_progress(
-        &data_path,
+        data_path,
         &board_params,
         |current, total| {
             print!("\r  Processing image {current}/{total}...");

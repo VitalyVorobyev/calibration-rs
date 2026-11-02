@@ -1,0 +1,49 @@
+# Rig hand-eye: dataset 8 of "Data from: Solving the Robot-World Hand-Eye(s)
+# Calibration Problem with Iterative Methods" (Tabb and Ahmad Yousef).
+#
+# Three cameras on a Denso VS-6577GM-B arm, 42 poses: two JAI BB-500
+# (1228×1029, RGB TIFF) and the colour camera of a Creative Senz3D
+# (640×480, JPEG). `robot_cali.txt` holds the pose count, then one 4×4
+# matrix per pose: the robot base in the gripper frame, in millimetres. The
+# board has 10×14 interior corners of 52 mm.
+#
+# Only complete boards are kept (`min_features_per_view = 140`): a plain
+# chessboard labels its corners from the detection's own top-left corner,
+# so a board missing a corner would shift the shared target frame.
+
+version = 1
+topology = "rig_handeye"
+description = "DS8: 3-camera rig hand-eye, chessboard 10x14 52mm"
+
+[[cameras]]
+id = "camera0"
+images = { kind = "glob", pattern = "images/camera0/*.tiff" }
+
+[[cameras]]
+id = "camera1"
+images = { kind = "glob", pattern = "images/camera1/*.tiff" }
+
+[[cameras]]
+id = "camera2"
+images = { kind = "glob", pattern = "images/camera2/*.jpg" }
+
+[target]
+kind = "chessboard"
+rows = 10
+cols = 14
+square_size_m = 0.052
+
+[detector]
+min_features_per_view = 140
+
+[robot_poses]
+path = "robot_cali.txt"
+format = "counted4x4"
+
+[pose_pairing]
+kind = "by_index"
+
+[pose_convention]
+transform = "t_tcp_base"
+rotation_format = "matrix4x4_row_major"
+translation_units = "mm"

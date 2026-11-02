@@ -100,9 +100,13 @@ A manifest that leaves a convention open raises `AskUserError` (a `RunError`)
 naming the field to set; other runner failures raise `RunError` with a `kind`.
 
 ```python
+manifest = vc.samples.fetch("kuka_1")       # a sample dataset, downloaded once
 cache = vc.FsDetectionCache("cache/kuka_1")
-result = vc.calibrate_dataset("data/kuka_1/dataset.toml", cache=cache)
+result = vc.calibrate_dataset(manifest, cache=cache)
 ```
+
+`vc.samples.catalogue()` lists the sample datasets with their licence and
+citation.
 
 The laser topologies take a `laser_extractor`: any object with a `name` and an
 `extract(image, spec)` method returning the laser line's `(N, 2)` pixels.

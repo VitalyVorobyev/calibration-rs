@@ -514,8 +514,11 @@ pub mod core {
 /// converters that turn a manifest into the per-problem `*Input` types.
 /// [`sniff_folder`](dataset::sniff_folder) heuristically infers a
 /// `DatasetSpec` from a dataset folder (used by the `generate-manifest` CLI
-/// and the diagnose app's "Sniff folder" command).
+/// and the diagnose app's "Sniff folder" command). [`samples`](dataset::samples)
+/// lists real sample datasets with ready manifests and, with the `fetch`
+/// feature, downloads them.
 pub mod dataset {
+    pub use vision_calibration_dataset::samples;
     pub use vision_calibration_dataset::{
         CameraSource, DatasetSpec, DetectorSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis,
         ManifestError, PosePairing, SniffError, TargetSpec, Topology, sniff_folder,

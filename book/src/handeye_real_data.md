@@ -4,7 +4,7 @@ This chapter walks through the `handeye_session` example, which performs eye-in-
 
 ## Dataset
 
-Located at `data/kuka_1/`:
+The `kuka_1` sample, which the example downloads on the first run ([sample datasets](getting_started.md#no-images-at-hand-a-sample-dataset)):
 
 - **Images**: 30 PNG files (`01.png` through `30.png`)
 - **Robot poses**: `RobotPosesVec.txt` — one row-major $4 \times 4$ homogeneous matrix per line (16 whitespace-separated values), each the pose $T_{B,G}$ of the gripper in the robot base frame, in metres. Image `NN.png` pairs with pose row `NN`.
@@ -77,7 +77,7 @@ The example reports:
 2. Per-step results (initialization, optimization)
 3. Final calibrated parameters (intrinsics, distortion, hand-eye transform, target pose)
 
-Output on `data/kuka_1/` (30 chessboard views, eye-in-hand, the default mode), abridged:
+Output on `kuka_1` (30 chessboard views, eye-in-hand, the default mode), abridged:
 
 ```text
 --- Step 2: Intrinsics Optimization ---

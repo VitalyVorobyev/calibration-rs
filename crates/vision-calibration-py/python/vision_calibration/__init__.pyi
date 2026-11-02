@@ -90,6 +90,7 @@ from . import rig_extrinsics as rig_extrinsics
 from . import rig_handeye as rig_handeye
 from . import rig_handeye_laserline as rig_handeye_laserline
 from . import rig_laserline_device as rig_laserline_device
+from . import samples as samples
 from . import session as session
 from . import single_cam_handeye as single_cam_handeye
 from .camera import CameraModel as CameraModel
