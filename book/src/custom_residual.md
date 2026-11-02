@@ -68,7 +68,8 @@ Here the board's distance in the first view joins a planar calibration.
 `camera`, `poses`, `board` and `pixels` are the starting values and the
 observations, from the closed-form initializers in
 [`init`](https://docs.rs/vision-calibration/latest/vision_calibration/init/)
-or a workflow's result:
+or a workflow's result ([Compose Your Own Pipeline](compose_pipeline.md)
+computes them):
 
 ```rust
 use vision_calibration::core::CameraFix;

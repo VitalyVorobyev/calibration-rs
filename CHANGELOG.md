@@ -101,6 +101,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- A "Compose Your Own Pipeline" chapter builds a measurement from the
+  public pieces: closed-form starting values, one problem holding a
+  calibration and the pose of a part, and the part's σ with the
+  calibration's uncertainty in it. A camera held fixed at its calibrated
+  values states σ about 2.5 times too small. The book's chapters on adding
+  a problem type or a residual to the library are now under "Contributing
+  to the Library".
 - A "The Command Line" chapter walks through `vcal` on a sample dataset,
   and "The Calibration Report" describes the HTML report.
 - A "Capturing Calibration Images" chapter says how to capture: how many
