@@ -452,6 +452,58 @@ fn assess(
     Ok(output.unbind())
 }
 
+/// A calibration export as one self-contained HTML page: the verdict and its
+/// checks, each camera's parameters with σ, and the residual and
+/// projection-σ figures.
+///
+/// Parameters
+/// ----------
+/// export:
+///     A calibration export (any problem type; its `kind` field selects it).
+/// image_sizes:
+///     ``[[width, height], ...]`` per camera, pixels, or `None`.
+/// title:
+///     The page's heading; `None` for "Calibration report".
+/// camera_names:
+///     Each camera's name, in camera order.
+/// thresholds:
+///     Serde payload of `QualityThresholds`; `None` for the defaults.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If a threshold is out of range or `image_sizes` does not give one size
+///     per camera.
+/// TypeError
+///     If `export` is not a calibration export or a payload has the wrong
+///     shape.
+#[pyfunction(signature = (export, image_sizes=None, title=None, camera_names=None, thresholds=None))]
+fn html_report(
+    export: &Bound<'_, PyAny>,
+    image_sizes: Option<&Bound<'_, PyAny>>,
+    title: Option<String>,
+    camera_names: Option<Vec<String>>,
+    thresholds: Option<&Bound<'_, PyAny>>,
+) -> PyResult<String> {
+    use vision_calibration::analysis::ReportOptions;
+
+    let mut options = ReportOptions::default();
+    options.title = title.unwrap_or_default();
+    options.camera_names = camera_names.unwrap_or_default();
+    options.thresholds = parse_optional_payload(thresholds, "thresholds")?.unwrap_or_default();
+    let image_sizes: Vec<[u32; 2]> =
+        parse_optional_payload(image_sizes, "image_sizes")?.unwrap_or_default();
+    let export: serde_json::Value = parse_payload(export, "export")?;
+    let export = vision_calibration::common::calibrated_cameras(export)
+        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))?;
+    vision_calibration::analysis::html_report(export.as_ref(), &image_sizes, &options).map_err(
+        |err| match &err {
+            vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
+            _ => runtime_err(err.to_string()),
+        },
+    )
+}
+
 /// A pipeline error as a Python exception: an input the caller can fix (a
 /// precondition, too little data, no covariance) is a `ValueError`; a
 /// numerical failure a `RuntimeError`.
@@ -643,6 +695,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
     m.add_function(wrap_pyfunction!(projection_uncertainty, m)?)?;
     m.add_function(wrap_pyfunction!(assess, m)?)?;
+    m.add_function(wrap_pyfunction!(html_report, m)?)?;
     m.add_function(wrap_pyfunction!(predict_with_views, m)?)?;
     m.add_function(wrap_pyfunction!(rank_candidates, m)?)?;
     m.add_function(wrap_pyfunction!(candidate_poses, m)?)?;

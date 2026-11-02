@@ -16,7 +16,7 @@ The Rust crate and the Python package install the same program.
 |---|---|
 | `vcal init <folder>` | drafts `<folder>/dataset.toml` from the file names |
 | `vcal check <manifest>` | checks the manifest and its images, without detecting |
-| `vcal run <manifest>` | detects, calibrates, writes `calibration.json` and `quality.json` |
+| `vcal run <manifest>` | detects, calibrates, writes `calibration.json` and `quality.json` (`--report` adds `report.html`) |
 | `vcal sample list` | lists the sample datasets |
 | `vcal sample fetch <id>` | downloads a sample dataset and prints its manifest's path |
 
@@ -82,7 +82,9 @@ its reason, such as a chessboard whose corners do not reach every edge of the
 board.
 
 `calibration.json` is the workflow's export, the same JSON the library and
-the desktop app write, and `quality.json` is the quality report. `-o <dir>`
+the desktop app write, and `quality.json` is the quality report. `--report`
+adds `report.html`, all of it as one page with the residual and
+projection-σ figures ([The Calibration Report](report.md)). `-o <dir>`
 writes them elsewhere. Detections are cached in `.detections` next to the
 manifest, so a second run skips detection; `--redetect` detects again.
 

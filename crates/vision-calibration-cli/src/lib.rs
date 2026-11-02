@@ -4,6 +4,7 @@
 //! vcal init <folder>              draft <folder>/dataset.toml from the file names
 //! vcal check <manifest>           check a manifest and its images, without detecting
 //! vcal run <manifest> [-o <dir>]  detect, calibrate, write calibration.json and quality.json
+//!                                 (--report adds report.html)
 //! vcal sample list                list the sample datasets
 //! vcal sample fetch <id>          download a sample dataset; prints its manifest's path
 //! ```
@@ -34,7 +35,9 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use serde_json::Value;
-use vision_calibration::analysis::{CheckStatus, QualityThresholds, Verdict, assess};
+use vision_calibration::analysis::{
+    CheckStatus, QualityThresholds, ReportOptions, Verdict, assess, html_report,
+};
 use vision_calibration::common::CalibratedCameras;
 use vision_calibration::core::Uncertainty;
 use vision_calibration::dataset::{DatasetSpec, Topology, samples, sniff_folder};
@@ -99,7 +102,8 @@ enum Command {
         manifest: PathBuf,
     },
     /// Detect the target, calibrate, and write the export
-    /// (`calibration.json`) and the quality report (`quality.json`).
+    /// (`calibration.json`), the quality report (`quality.json`) and, with
+    /// `--report`, a page to read (`report.html`).
     Run {
         /// The manifest (TOML or JSON).
         manifest: PathBuf,
@@ -118,6 +122,11 @@ enum Command {
         /// (`.detections` next to the manifest).
         #[arg(long)]
         redetect: bool,
+        /// Also write `report.html`: the verdict, each camera's parameters
+        /// with σ, and the residual and projection-σ figures, in one page
+        /// that opens offline.
+        #[arg(long)]
+        report: bool,
     },
     /// List or download the sample datasets.
     Sample {
@@ -170,7 +179,14 @@ where
             out,
             config,
             redetect,
-        } => calibrate(&manifest, out.as_deref(), config.as_deref(), redetect),
+            report,
+        } => calibrate(
+            &manifest,
+            out.as_deref(),
+            config.as_deref(),
+            redetect,
+            report,
+        ),
         Command::Sample { command } => sample(command).map(|()| 0),
     };
     outcome.unwrap_or_else(|err| {
@@ -255,6 +271,7 @@ fn calibrate(
     out: Option<&Path>,
     config: Option<&Path>,
     redetect: bool,
+    html: bool,
 ) -> Result<u8> {
     let (spec, base) = load(manifest)?;
     let config = config
@@ -340,6 +357,20 @@ fn calibrate(
         export_path.display(),
         report_path.display()
     );
+    if html {
+        let mut options = ReportOptions::default();
+        let what = spec
+            .description
+            .clone()
+            .unwrap_or_else(|| manifest.display().to_string());
+        options.title = format!("{}: {what}", name(&spec.topology));
+        options.camera_names = spec.cameras.iter().map(|c| c.id.clone()).collect();
+        let page = html_report(export, &run.image_sizes, &options)?;
+        let page_path = out.join("report.html");
+        std::fs::write(&page_path, page)
+            .with_context(|| format!("writing {}", page_path.display()))?;
+        say!("wrote {}", page_path.display());
+    }
     Ok(if report.verdict == Verdict::Fail {
         VERDICT_FAIL
     } else {

@@ -121,5 +121,33 @@ class AssessTest(unittest.TestCase):
         self.assertEqual(len(payload), 7)
 
 
+class HtmlReportTest(unittest.TestCase):
+    def test_a_result_renders_as_one_page(self) -> None:
+        result = _planar_result()
+        page = vc.html_report(
+            result, image_sizes=[(1280, 1024)], title="Bench <A>", camera_names=["left"]
+        )
+        self.assertTrue(page.startswith("<!doctype html>"))
+        self.assertIn("<title>Bench &lt;A&gt;</title>", page)
+        self.assertIn("Camera 0 (left)", page)
+        # Histogram, error by region, per view, projection σ.
+        self.assertEqual(page.count("<svg"), 4)
+        self.assertNotIn("<script", page)
+        # The export JSON renders the same page as the result.
+        self.assertEqual(
+            page,
+            vc.html_report(
+                result.export,
+                image_sizes=[(1280, 1024)],
+                title="Bench <A>",
+                camera_names=["left"],
+            ),
+        )
+
+    def test_one_size_per_camera(self) -> None:
+        with self.assertRaises(ValueError):
+            vc.html_report(_planar_result(), image_sizes=[(640, 480), (640, 480)])
+
+
 if __name__ == "__main__":
     unittest.main()

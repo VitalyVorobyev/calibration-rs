@@ -9,6 +9,12 @@
 //! pass / warn / fail [`Verdict`]; see [`QualityThresholds`] for the limits
 //! and their defaults.
 //!
+//! # Report
+//!
+//! [`html_report`] renders a result as one self-contained HTML page: the
+//! verdict and its checks, each camera's parameters with their σ, and the
+//! residual and projection-σ figures.
+//!
 //! # Next-view planning
 //!
 //! [`predict_with_views`] predicts the covariance a planar calibration would
@@ -77,6 +83,8 @@ pub use next_view::{
     CandidateGrid, PredictedUncertainty, RankedCandidate, candidate_poses, predict_with_views,
     rank_candidates,
 };
+mod report;
+pub use report::{ReportOptions, html_report};
 mod quality;
 pub use quality::{
     CheckKind, CheckStatus, Measurement, QualityCheck, QualityReport, QualityThresholds, Unit,

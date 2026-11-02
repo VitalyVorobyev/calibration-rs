@@ -454,6 +454,64 @@ def assess(
     return QualityReport.from_payload(payload)
 
 
+def html_report(
+    result: CalibrationResult | Mapping[str, Any],
+    image_sizes: list[tuple[int, int]] | None = None,
+    *,
+    title: str | None = None,
+    camera_names: Sequence[str] | None = None,
+    thresholds: QualityThresholds | None = None,
+) -> str:
+    """A calibration result as one self-contained HTML page.
+
+    The page holds the :func:`assess` verdict with every check and, per
+    camera, its model, each parameter with its σ, the reprojection-error
+    statistics, and four figures: the error histogram, the mean error by
+    image region, the mean error per view and the projection-σ map. It loads
+    nothing from elsewhere, so it opens offline; the same result gives the
+    same page.
+
+    Parameters
+    ----------
+    result:
+        A calibration result, or an export JSON loaded as a dict.
+    image_sizes:
+        ``(width, height)`` of each camera's images, pixels, in camera order,
+        as :func:`assess` takes them. Without a camera's size the
+        projection-σ map is left out.
+    title:
+        The page's heading; ``None`` for "Calibration report".
+    camera_names:
+        Each camera's name, in camera order, e.g. a manifest's camera ids.
+    thresholds:
+        The quality checks' limits; ``None`` for the defaults.
+
+    Raises
+    ------
+    ValueError
+        If a threshold is out of range or ``image_sizes`` does not give one
+        size per camera.
+
+    Example
+    -------
+    >>> page = vc.html_report(result, image_sizes=[(1280, 960)], title="Left camera")
+    >>> Path("report.html").write_text(page, encoding="utf-8")
+    """
+    export = result if isinstance(result, Mapping) else result.export
+    if not export:
+        raise ValueError("the result carries no export; it was not produced by this library")
+    return cast(
+        str,
+        _native.html_report(
+            dict(export),
+            None if image_sizes is None else [list(size) for size in image_sizes],
+            title,
+            None if camera_names is None else list(camera_names),
+            None if thresholds is None else thresholds.to_payload(),
+        ),
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Next-view planning
 # ─────────────────────────────────────────────────────────────────────────────

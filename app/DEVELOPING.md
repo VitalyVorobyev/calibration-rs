@@ -61,7 +61,8 @@ render react-router `Link`s through `asChild`.
 
 A project folder holds `calibration-project.json` (`{"version": 1,
 "dataset": "<dir>"}`), `dataset.json` and `runs/<name>/`
-(`manifest.json`, `config.json`, `export.json`, `diagnostics.json`). The
+(`manifest.json`, `config.json`, `export.json`, `diagnostics.json`, and
+`report.html` from the library's `analysis::html_report`). The
 backend commands are `create_project`, `open_project`,
 `save_project_manifest` and `save_project_run`; each rejects with a
 `ProjectError { kind, message }` (generated type). `project/projectStore.ts`

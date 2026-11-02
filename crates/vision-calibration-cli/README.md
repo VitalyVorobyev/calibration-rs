@@ -22,7 +22,8 @@ vcal run "$(vcal sample fetch opencv_left)" -o out
 
 `run` prints each camera's parameters with their σ and the quality verdict,
 and writes the calibration export (`calibration.json`) and the quality report
-(`quality.json`). `-c <file>` changes the workflow's default configuration
+(`quality.json`); `--report` adds `report.html`, the result as one page with
+its figures. `-c <file>` changes the workflow's default configuration
 (TOML or JSON). The exit status is 0 when done, 1 on an error, 2 on a wrong
 command line and 3 when `run` finished but the verdict is fail.
 

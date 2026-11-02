@@ -228,7 +228,8 @@ pub fn save_manifest(dir: &Path, manifest: &serde_json::Value) -> Result<(), Pro
 }
 
 /// Save `record` as `runs/<name>/`. The export's image root is rebased onto
-/// the run folder, so the saved `export.json` opens on its own.
+/// the run folder, so the saved `export.json` opens on its own; `report.html`
+/// beside it is the run as a page to read or share ([`write_report`]).
 pub fn save_run(dir: &Path, name: &str, record: RunRecord) -> Result<RunSummary, ProjectError> {
     validate_run_name(name)?;
     let info = open(dir)?;
@@ -248,6 +249,7 @@ pub fn save_run(dir: &Path, name: &str, record: RunRecord) -> Result<RunSummary,
     write_json(&run_dir.join("config.json"), &record.config)?;
     write_json(&run_dir.join("export.json"), &export)?;
     write_json(&run_dir.join("diagnostics.json"), &record.diagnostics)?;
+    write_report(&run_dir, name, &record.manifest, &export, &dataset_dir)?;
     Ok(RunSummary {
         name: name.to_owned(),
         diagnostics: Some(record.diagnostics),
@@ -353,6 +355,44 @@ fn path_string(path: &Path) -> String {
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ProjectError> {
     let text = std::fs::read_to_string(path).map_err(|e| ProjectError::io(path, e))?;
     serde_json::from_str(&text).map_err(|e| ProjectError::parse(path, e))
+}
+
+/// Write `report.html` into `run_dir`: the library's report of `export`, with
+/// the manifest's camera ids and each camera's image size read from the
+/// dataset's images. A camera whose size cannot be read leaves the sizes out,
+/// and the page then has no projection-σ map; a payload that is not a
+/// calibration export (no cameras to report) writes no page.
+fn write_report(
+    run_dir: &Path,
+    name: &str,
+    manifest: &serde_json::Value,
+    export: &serde_json::Value,
+    dataset_dir: &Path,
+) -> Result<(), ProjectError> {
+    use vision_calibration::analysis::{ReportOptions, html_report};
+    use vision_calibration::dataset::DatasetSpec;
+    use vision_calibration::dataset_runner::camera_image_sizes;
+
+    let Ok(cameras) = vision_calibration::common::calibrated_cameras(export.clone()) else {
+        return Ok(());
+    };
+    let spec = serde_json::from_value::<DatasetSpec>(manifest.clone()).ok();
+    let image_sizes = spec
+        .as_ref()
+        .and_then(|spec| camera_image_sizes(spec, dataset_dir).ok())
+        .unwrap_or_default();
+    let mut options = ReportOptions::default();
+    options.title = match spec.as_ref().and_then(|s| s.description.as_deref()) {
+        Some(description) => format!("{name}: {description}"),
+        None => name.to_owned(),
+    };
+    options.camera_names = spec
+        .map(|s| s.cameras.into_iter().map(|c| c.id).collect())
+        .unwrap_or_default();
+    let page = html_report(cameras.as_ref(), &image_sizes, &options)
+        .map_err(|e| ProjectError::new(ProjectErrorKind::Io, format!("run report: {e}")))?;
+    let path = run_dir.join("report.html");
+    std::fs::write(&path, page).map_err(|e| ProjectError::io(&path, e))
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<(), ProjectError> {
@@ -550,6 +590,77 @@ mod tests {
         assert_eq!(path_string(&images), info.dataset_dir);
         let config: serde_json::Value = read_json(&run_dir.join("config.json")).unwrap();
         assert_eq!(config, json!({ "max_iters": 50 }));
+    }
+
+    /// A planar calibration of synthetic views, as its export JSON.
+    fn planar_export() -> serde_json::Value {
+        use vision_calibration::core::{
+            BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera,
+        };
+        use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
+        use vision_calibration::session::CalibrationSession;
+        use vision_calibration::synthetic::{planar, poses};
+
+        let camera = make_pinhole_camera(
+            FxFyCxCy {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+            },
+            BrownConrady5::default(),
+        );
+        let board = planar::grid_points(8, 6, 0.03);
+        let specs = poses::seeded_board_pose_specs(8, 0.3, 7);
+        let poses = poses::centered_board_poses(&specs, (0.105, 0.075), 0.6);
+        let views = planar::project_views_all(&camera, &board, &poses)
+            .unwrap()
+            .into_iter()
+            .map(View::without_meta)
+            .collect();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session
+            .set_input(PlanarDataset::new(views).unwrap())
+            .unwrap();
+        run_calibration(&mut session).unwrap();
+        serde_json::to_value(session.export().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_saved_run_carries_its_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manifest = json!({
+            "version": 1,
+            "topology": "planar_intrinsics",
+            "description": "bench camera",
+            "cameras": [{ "id": "left", "images": { "kind": "glob", "pattern": "*.png" } }],
+            "target": { "kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.03 },
+        });
+        create(tmp.path(), tmp.path(), &manifest).unwrap();
+        let mut run = record(tmp.path());
+        run.manifest = manifest;
+        run.export = planar_export();
+        save_run(tmp.path(), "a", run).unwrap();
+        let page = std::fs::read_to_string(tmp.path().join(RUNS_DIR).join("a").join("report.html"))
+            .unwrap();
+        assert!(page.contains("<title>a: bench camera</title>"));
+        assert!(page.contains("Camera 0 (left)"));
+        // No images to size: no projection-σ map, the other three figures.
+        assert_eq!(page.matches("<svg").count(), 3);
+    }
+
+    #[test]
+    fn a_run_without_a_calibration_export_has_no_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        create(tmp.path(), tmp.path(), &manifest()).unwrap();
+        save_run(tmp.path(), "a", record(tmp.path())).unwrap();
+        assert!(
+            !tmp.path()
+                .join(RUNS_DIR)
+                .join("a")
+                .join("report.html")
+                .exists()
+        );
     }
 
     #[test]
