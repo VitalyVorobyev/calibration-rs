@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-03
+
 ### Migration
 
 - **`generate-manifest` is `vcal init`.** The dataset crate's
@@ -344,132 +346,11 @@ existing models are unchanged; their reported uncertainties change.
   block has a size it had no variable for. It now covers every camera
   model, and an unsupported block size is an error, not a panic.
 
-## [0.11.0] - 2026-11-01
-
-Minor release: the public API is cut down to what a calibration needs before
-it is frozen for 1.0. Every change below is breaking; the numbers a
-calibration produces are unchanged. Exports put residuals and image
-manifests in a `diagnostics` group, detectors take typed configs and 8-bit
-image views, manifests load in one call, synthetic data needs a feature,
-and the low-level solve API is no longer documented API.
-
-### Migration
-
-- **Internal helpers leave the public API.** Nothing in the calibration
-  workflows used them.
-  - `vision_calibration_linear::handeye::{build_all_pairs, MotionPair}` are
-    removed; the hand-eye initializers form their motion pairs internally.
-  - `LaserPlane::{to_dvec, from_dvec, normal_to_dvec, distance_to_dvec,
-    from_split_dvec}` are removed from the public API; build a plane with
-    `LaserPlane::new` and read `normal` / `distance`.
-  - `vision_mvg::cheirality` (and `mvg::cheirality` on the facade) is
-    private: `recover_relative_pose` and `recover_relative_pose_robust` pick
-    the pose. `degeneracy::{detect_pure_rotation, detect_planar_scene,
-    detect_poor_baseline}` and `triangulation::triangulate_two_view_partial`
-    are gone; `degeneracy::analyze_scene` reports the same verdicts.
-  - The session types are reached only as `session::X`; the `calibsession`,
-    `problem_type` and `types` submodules are private.
-  - The detection cache types are reached only at the crate root of
-    `vision-calibration-detect`; the `cache` module and `hash_image_bytes`
-    are private (`CacheKey::from_inputs` hashes the image).
-- **One import path per type.**
-  - The shared step options (`IntrinsicsInitOptions`,
-    `IntrinsicsOptimizeOptions`, `RigInitOptions`, `RigOptimizeOptions`,
-    `HandeyeInitOptions`, `HandeyeOptimizeOptions`) are imported from
-    `common` only; the problem modules no longer re-export them. Step
-    results and manual seeds stay per problem.
-  - Types shared by several workflows moved to `common`: `RobotPoseMeta`,
-    `RigLaserlineView`, `HandeyeEstimate` and `HandeyeParams`. The facade's
-    `optim` module no longer carries input types; `LaserlineMeta` and
-    `LaserlineView` are in `laserline_device`.
-  - `single_cam_handeye::HandeyeMeta` is removed: a single-camera hand-eye
-    view is `View<RobotPoseMeta>`, the type the rig workflows use. The JSON
-    is unchanged (`{"base_se3_gripper": …}`).
-  - `prelude::run_planar_intrinsics` is removed; call
-    `planar_intrinsics::run_calibration`.
-  - The facade's `linear` and `geometry` modules are removed. The two-view
-    solvers (`dlt_homography`, `essential_5point`, `fundamental_8point`,
-    `decompose_essential`, `triangulate_point_linear`, `dlt_camera_matrix`,
-    `decompose_camera_matrix`, `Mat34`, …) are at the root of `mvg`; the
-    closed-form initializers are used through the `vision-calibration-linear`
-    and `vision-geometry` crates directly.
-  - `vision_calibration_core::coordinate_utils` is private; its four
-    functions stay at the crate root.
-- **Exports separate the result from its diagnostics (JSON).** Every
-  `*Export` has a `diagnostics` group (`common::ExportDiagnostics`) holding
-  `per_feature_residuals` and `image_manifest`; the two top-level fields are
-  gone. Read `export.diagnostics.per_feature_residuals` and set
-  `export.diagnostics.image_manifest`. `CalibratedCameras::feature_residuals()`
-  and `images()` become `diagnostics()`. Python results keep their
-  `per_feature_residuals` property.
-- **`PlanarIntrinsicsExport` drops `report`** (Python: `final_cost`). The
-  solve's cost and iteration count stay on the session output
-  (`PlanarIntrinsicsEstimate::report`).
-- **`LaserlineDeviceExport` matches the other exports.** `estimate` is
-  replaced by `params` (camera, laser plane, target poses) and a top-level
-  `uncertainty`; `export.estimate.params.plane` becomes `export.params.plane`.
-  Python's `LaserlineDeviceExport` follows (`result.params`,
-  `result.uncertainty`), and `LaserlineEstimate` is removed.
-- **`PlanarIntrinsicsParams` loses its accessors.** `intrinsics()` and
-  `poses()` duplicated the public fields, and `distortion()` returned
-  `None` for any non-Brown-Conrady model (and zeros for no distortion). Read
-  `params.camera.intrinsics`, `params.camera_se3_target`, and match
-  `params.camera.distortion`.
-- **Manifests load in one call, and the runner takes a detection mode.**
-  `DatasetSpec::from_path` reads a TOML or JSON manifest (errors are
-  `ManifestError`). The `build_*_input` converters take a `Detection` in
-  place of `cache, force_redetect`: `Detection::Cached(&cache)` for
-  `(&cache, false)`, `Detection::Refresh(&cache)` for `(&cache, true)`, and
-  the new `Detection::Uncached` for a run without a cache. The laser
-  converters take it before the extractor:
-  `build_laserline_device_input(&spec, dir, Detection::Cached(&cache), &extractor)`.
-- **Synthetic data is a feature.** `vision_calibration::synthetic` (and
-  `vision_calibration_core::synthetic`) need the new `synthetic` feature:
-  `vision-calibration = { version = "…", features = ["synthetic"] }`.
-- **The low-level solve API is workspace-internal.** The
-  `vision-calibration-optim` entry points (`optimize_*`,
-  `evaluate_rig_handeye_laserline`), their option structs
-  (`*SolveOptions`, `BackendSolveOptions`, `CameraBounds`,
-  `ScheimpflugStagedInitOptions`) and helpers (`view_information`,
-  `with_leading_radial`, `projection_covariance_at`, `apply_robot_delta`)
-  stay callable but are hidden from the docs and outside the semver
-  promise, as are core's `FixedParams` and `INTRINSICS_PARAM_NAMES`.
-  `planar_intrinsics::PlanarIntrinsicsSolveOptions` is no longer
-  re-exported, and the configs' `init_opts()`, `solve_opts()`,
-  `backend_options()`, `iterative_opts()` and `distortion_fit_opts()` are
-  private. Calibrate through the step functions; set the solver on the
-  config (`config.solver.backend`, `config.solver.max_iters`).
-- **Detectors are a typed enum.** `DetectorConfig` (one variant per
-  detector, carrying `ChessboardConfig`, `CharucoConfig`,
-  `PuzzleboardConfig` or `RinggridConfig`) replaces the sealed `Detector`
-  trait and the `ChessboardDetector`, `CharucoDetector`,
-  `PuzzleboardDetector` and `RinggridDetector` types:
-  `ChessboardDetector.detect_json(&image, &json)` becomes
-  `DetectorConfig::Chessboard(cfg).detect(view)`. Detectors read an 8-bit
-  grayscale `GrayImageView` (`GrayImageView::new(width, height, &pixels)`)
-  instead of an `image::DynamicImage`; so do
-  `dataset_runner::detect_target` and `LaserPixelExtractor::extract`.
-  `CacheKey::for_detector(bytes, &detector, &json)` becomes
-  `CacheKey::for_detection(bytes, &config, roi)`, `CacheKey::from_inputs`
-  takes any serializable config, and `CacheError::Serde` carries a message.
-  `DetectError::Config` is gone (configs are typed). A manifest
-  `detector.chess_corners` override on a PuzzleBoard or ring-grid target is
-  now rejected up front. Cached detections are recomputed once. Neither
-  `image` nor `serde_json` appears in the detector API any more.
-- **Session bookkeeping is read-only.** `session::current_timestamp` is
-  private, as are the constructors of `SessionMetadata`, `LogEntry` and
-  `ExportRecord`; read them through `metadata()`, `log()` and `exports`.
-
-### Added
-
-- **`vision_calibration::nalgebra`** re-exports the linear-algebra crate the
-  math types are built on, so callers can name its types in the matching
-  version.
-
 ## Older releases
 
 Earlier releases are archived verbatim under [`docs/changelog/`](docs/changelog/), one file per version:
 
+- [`0.11.0`](docs/changelog/0.11.0.md) - 2026-11-01
 - [`0.10.0`](docs/changelog/0.10.0.md) - 2026-10-31
 - [`0.9.0`](docs/changelog/0.9.0.md) - 2026-09-29
 - [`0.8.3`](docs/changelog/0.8.3.md) - 2026-09-28
