@@ -20,6 +20,7 @@ In dependency order:
 ```text
 mvg::pose_recovery   recover_relative_pose  ← 5-point + cheirality (also triangulates)
 mvg::triangulation   triangulate            ← N-view DLT on bearings, refined, with covariance
+mvg::pose            estimate_pose          ← object pose from known points, RANSAC in σ, with covariance
 mvg::bundle_adjust   bundle_adjust          ← capture poses + points together, with covariance
 mvg::metrology       distance, fit_plane, ...  ← measurements with σ from the points' joint covariance
 mvg::rectification   rectify                ← rectified pair from a calibration, Q, points with σ
@@ -32,10 +33,11 @@ Further modules: `mvg::degeneracy` (pure rotation, planar scene and poor baselin
 The chapters of this part follow the pipeline:
 
 1. [Pose Recovery and Triangulation](mvg_pose.md): relative pose from correspondences, with RANSAC for outliers.
-2. [Bundle Adjustment](mvg_bundle_adjust.md): refining poses and structure together, with a stated gauge and the calibration's uncertainty.
-3. [Measurements with Uncertainty](mvg_metrology.md): distances, angles and plane fits over triangulated points, each with the σ from the points' joint covariance.
-4. [Stereo from a Calibration](mvg_rectification.md): rows that line up for any camera model, the disparity-to-depth matrix and the uncertainty of the points.
-5. [Dense Stereo](mvg_dense.md): per-pixel disparity by block matching or semi-global matching.
+2. [Object Pose with Uncertainty](mvg_object_pose.md): the pose of a known object from its pixels in one or several cameras, with RANSAC in σ and the calibration's share in the covariance.
+3. [Bundle Adjustment](mvg_bundle_adjust.md): refining poses and structure together, with a stated gauge and the calibration's uncertainty.
+4. [Measurements with Uncertainty](mvg_metrology.md): distances, angles and plane fits over triangulated points, each with the σ from the points' joint covariance.
+5. [Stereo from a Calibration](mvg_rectification.md): rows that line up for any camera model, the disparity-to-depth matrix and the uncertainty of the points.
+6. [Dense Stereo](mvg_dense.md): per-pixel disparity by block matching or semi-global matching.
 
 ## The Companion Example
 

@@ -5944,6 +5944,7 @@ dependencies = [
  "vision-calibration-linear",
  "vision-calibration-optim",
  "vision-calibration-pipeline",
+ "vision-geometry",
  "vision-mvg",
 ]
 

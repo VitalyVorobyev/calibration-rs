@@ -38,7 +38,7 @@ The foundation layer providing:
 
 ### vision-geometry
 
-Deterministic two-view solvers, all free functions in per-topic modules:
+Deterministic two-view and pose solvers, all free functions in per-topic modules:
 
 | Module | Functions |
 |--------|-----------|
@@ -46,8 +46,9 @@ Deterministic two-view solvers, all free functions in per-topic modules:
 | `epipolar` | `fundamental_8point`, `essential_5point` |
 | `triangulation` | `triangulate_point_linear` |
 | `camera_matrix` | `dlt_camera_matrix` |
+| `pnp` | `dlt`, `p3p`, `epnp`, `dlt_ransac` |
 
-The facade re-exports the main solvers at the root of its `mvg` module (`vision_calibration::mvg::dlt_homography`, …); the full set is in the `vision-geometry` crate.
+The facade re-exports the main solvers at the root of its `mvg` module (`vision_calibration::mvg::dlt_homography`, …) and the PnP solvers as `init::pnp`; the full set is in the `vision-geometry` crate.
 
 ### vision-mvg
 
@@ -67,7 +68,6 @@ Closed-form initialization solvers (the two-view solvers live in `vision-geometr
 | Distortion fit | $K$ + homographies | Brown-Conrady coefficients |
 | Iterative intrinsics | Observations | Joint $K$ + distortion |
 | Planar pose | $K$ + homography | SE(3) pose |
-| P3P / DLT PnP | 3D-2D + $K$ | SE(3) pose |
 | Tsai-Lenz hand-eye | Robot + camera motions | Hand-eye SE(3) |
 | Rig extrinsics | Per-camera poses | Camera-to-rig SE(3) |
 | Laser plane | Laser pixels + target poses | Plane (normal + distance) |

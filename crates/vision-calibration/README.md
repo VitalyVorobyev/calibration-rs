@@ -15,11 +15,11 @@ building blocks, published so it can depend on them:
 | `vision-calibration` | everything below, as one API: workflows, dataset manifests, detection, camera models, MVG |
 | `vision-calibration-pipeline` | the calibration workflows and the session API |
 | `vision-calibration-core` | math types, camera models, synthetic data |
-| `vision-calibration-linear` | closed-form initialization (Zhang, PnP, hand-eye, laser plane) |
+| `vision-calibration-linear` | closed-form initialization (Zhang, hand-eye, laser plane) |
 | `vision-calibration-optim` | non-linear least squares and parameter covariance |
 | `vision-calibration-dataset` | the dataset manifest and the sample datasets |
 | `vision-calibration-detect` | calibration-target detectors and the detection cache |
-| `vision-geometry`, `vision-mvg` | two-view solvers; multiple-view geometry over calibrated cameras |
+| `vision-geometry`, `vision-mvg` | two-view and PnP solvers; multiple-view geometry over calibrated cameras |
 | `vision-calibration-cli` | the `vcal` program: calibrate a folder of images without code |
 
 From Python, install the `vision-calibration` package from PyPI instead.

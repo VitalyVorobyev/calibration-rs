@@ -537,8 +537,8 @@ pub mod mvg {
         fundamental_8point, triangulate_point_linear,
     };
     pub use vision_mvg::{
-        MvgError, bundle_adjust, degeneracy, dense, error, homography, metrology, pose_recovery,
-        rectification, residuals, robust, triangulation, types,
+        MvgError, bundle_adjust, degeneracy, dense, error, homography, metrology, pose,
+        pose_recovery, rectification, residuals, robust, triangulation, types,
     };
 }
 
@@ -610,11 +610,11 @@ pub mod init {
     pub use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LinearPlaneEstimate};
     /// A target's pose from its plane homography and the intrinsics.
     pub use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
-    /// Camera pose from 3D–2D correspondences: DLT, P3P, EPnP, and DLT in
-    /// RANSAC.
-    pub use vision_calibration_linear::pnp;
     /// Zhang's pinhole intrinsics from three or more plane homographies.
     pub use vision_calibration_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
+    /// Camera pose from 3D–2D correspondences: DLT, P3P, EPnP, and DLT in
+    /// RANSAC.
+    pub use vision_geometry::pnp;
 }
 
 /// Deterministic synthetic data generation for testing (feature `synthetic`).

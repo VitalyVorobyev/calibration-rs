@@ -4,7 +4,7 @@
 //! pixel reprojection error as the residual metric.
 
 use super::dlt;
-use crate::Error;
+use crate::GeometryError;
 use vision_calibration_core::{
     Camera, Estimator, FxFyCxCy, IdentitySensor, Iso3, NoDistortion, Pinhole, Pt2, Pt3,
     RansacOptions, Real, ransac_fit,
@@ -22,13 +22,13 @@ pub fn dlt_ransac(
     image: &[Pt2],
     k: &FxFyCxCy<Real>,
     opts: &RansacOptions,
-) -> Result<(Iso3, Vec<usize>), Error> {
-    opts.validate().map_err(|e| Error::InvalidInput {
+) -> Result<(Iso3, Vec<usize>), GeometryError> {
+    opts.validate().map_err(|e| GeometryError::InvalidInput {
         reason: e.to_string(),
     })?;
     let n = world.len();
     if n < 6 || image.len() != n {
-        return Err(Error::InsufficientData { need: 6, got: n });
+        return Err(GeometryError::InsufficientData { need: 6, got: n });
     }
 
     #[derive(Clone)]
@@ -83,7 +83,7 @@ pub fn dlt_ransac(
 
     let res = ransac_fit::<PnpEst>(&data, opts);
     if !res.success {
-        return Err(Error::numerical(
+        return Err(GeometryError::numerical(
             "ransac failed to find a consensus PnP solution",
         ));
     }

@@ -19,6 +19,9 @@
 //! - **Measurements**: [`metrology`] — distances, angles, plane fits and
 //!   point-to-plane distances over triangulated points, each with the σ from
 //!   the points' joint covariance
+//! - **Object pose**: [`pose::estimate_pose`] — the pose of a known object from its
+//!   pixels in one or several rig cameras, with optional RANSAC in σ and the
+//!   pose's covariance (the calibration's share included)
 //! - **Bundle adjustment**: [`bundle_adjust()`](bundle_adjust::bundle_adjust) — capture poses and points
 //!   refined together from a calibration, with a stated gauge (capture 0 and
 //!   a [`Scale`]), robust losses and the joint covariance; the calibration
@@ -108,6 +111,7 @@ pub mod dense;
 pub mod error;
 pub mod homography;
 pub mod metrology;
+pub mod pose;
 pub mod pose_recovery;
 pub mod rectification;
 pub mod refine;

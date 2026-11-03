@@ -6,7 +6,8 @@
 //!
 //! Hartley & Zisserman, *Multiple View Geometry in Computer Vision*, 2nd ed.
 
-use vision_calibration_core::Real;
+use crate::GeometryError;
+use vision_calibration_core::{Mat3, Real};
 
 /// Check that a homogeneous DLT system has a well-defined null space.
 ///
@@ -55,6 +56,33 @@ pub(crate) fn dlt_rank_ok(
         return false;
     };
     sv_boundary / sv0 >= rel_tol
+}
+
+/// Project a 3×3 matrix onto the rotation group SO(3) via polar decomposition.
+///
+/// Returns the nearest (Frobenius) rotation `R = U Vᵀ` from the SVD
+/// `M = U Σ Vᵀ`, with the sign of `U`'s last column flipped if needed to force
+/// `det(R) = +1`. The SVD is a fixed 3×3, so it cannot trigger the dense-matrix
+/// hang that the null-space helper guards against.
+///
+/// # Errors
+///
+/// Returns [`GeometryError::Singular`] if the SVD factors are unavailable (a
+/// non-finite input matrix).
+pub(crate) fn project_to_so3(m: &Mat3) -> Result<Mat3, GeometryError> {
+    let svd = m.svd(true, true);
+    let u = svd.u.ok_or(GeometryError::Singular)?;
+    let v_t = svd.v_t.ok_or(GeometryError::Singular)?;
+    let mut r = u * v_t;
+    if r.determinant() < 0.0 {
+        let mut u_fixed = u;
+        let last = u_fixed.ncols() - 1;
+        for row in 0..u_fixed.nrows() {
+            u_fixed[(row, last)] = -u_fixed[(row, last)];
+        }
+        r = u_fixed * v_t;
+    }
+    Ok(r)
 }
 
 #[cfg(test)]

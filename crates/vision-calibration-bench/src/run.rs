@@ -1772,7 +1772,7 @@ pub mod tier_b {
                 )
                 .with_context(|| format!("planar pose seed failed for view {view_idx}"))?
             } else {
-                vision_calibration_linear::pnp::PnpSolver::epnp(obs_3d, obs_2d, k)
+                vision_calibration::init::pnp::epnp(obs_3d, obs_2d, k)
                     .with_context(|| format!("EPnP seed failed for view {view_idx}"))?
             };
             poses.push(pose);
