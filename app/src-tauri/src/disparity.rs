@@ -1,10 +1,11 @@
 //! Server-side dense stereo matching for the Depth workspace.
 //!
 //! Given a synchronized stereo pair and the loaded rig calibration, this
-//! rectifies the pair, dense-matches it
-//! ([`vision_calibration::mvg::dense::match_block`], block or semi-global), and
-//! returns colormapped PNG data URLs plus quality metrics. Math lives here, not
-//! in the frontend, so rectification + distortion use the canonical
+//! rectifies the pair from the calibration
+//! ([`vision_calibration::mvg::rectification::rectify`], any camera model),
+//! dense-matches it ([`vision_calibration::mvg::dense::match_block`], block or
+//! semi-global), and returns colormapped PNG data URLs plus quality metrics.
+//! Math lives here, not in the frontend, so rectification uses the canonical
 //! [`vision_calibration`] models — the same reason the epipolar overlay is
 //! server-side.
 
@@ -15,12 +16,10 @@ use base64::Engine;
 use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use vision_calibration::core::{
-    BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3, Mat3, Pt2, SensorParams, Vec3,
-    distort_to_pixel, pixel_to_normalized,
-};
+use vision_calibration::common::calibrated_cameras;
+use vision_calibration::core::{Iso3, Pt2, Vec3};
 use vision_calibration::mvg::dense::{BlockMatchOptions, DisparityMap, GrayImage, match_block};
-use vision_calibration::mvg::rectification::{RectifyCamera, RectifyOptions, rectify_stereo_pair};
+use vision_calibration::mvg::rectification::{RectifyOptions, StereoRectification, rectify};
 
 use crate::export_cache::ExportCache;
 
@@ -121,28 +120,16 @@ fn compute(
     }
     let s = params.downscale.max(1);
 
-    let cam_se3_rig: Vec<Iso3> = serde_json::from_value(
-        export
-            .get("cam_se3_rig")
-            .ok_or("export has no `cam_se3_rig` (rig exports only)")?
-            .clone(),
-    )
-    .map_err(|e| format!("cam_se3_rig decode: {e}"))?;
-    let n_cams = export
-        .get("cameras")
-        .and_then(|v| v.as_array())
-        .map(|a| a.len())
-        .ok_or("export has no `cameras` array")?;
+    let rig = calibrated_cameras(export.clone())
+        .map_err(|e| format!("calibration decode: {e}"))?
+        .calibrated_rig()
+        .map_err(|e| format!("calibration decode: {e}"))?;
+    let n_cams = rig.num_cameras();
     if cam_a >= n_cams || cam_b >= n_cams || cam_a == cam_b {
         return Err(format!(
             "invalid camera pair (cam_a={cam_a}, cam_b={cam_b}, num_cameras={n_cams})"
         ));
     }
-
-    let (k_a, dist_a) = parse_camera(export, cam_a, s as f64)?;
-    let (k_b, dist_b) = parse_camera(export, cam_b, s as f64)?;
-    // Left = cam_a (reference); right = cam_b. T_Cb_Ca composes the two extrinsics.
-    let cam1_se3_cam0 = cam_se3_rig[cam_b] * cam_se3_rig[cam_a].inverse();
 
     // Nominal board depth in the reference frame (for the disparity search).
     let z_board = export
@@ -152,23 +139,23 @@ fn compute(
         .filter(|z| z.is_finite() && *z > 0.05)
         .unwrap_or(1.0);
 
-    let left = load_gray_downscaled(path_a, s)?;
-    let right = load_gray_downscaled(path_b, s)?;
-    let (w, h) = (left.width, left.height);
+    // Rectify the full-resolution images straight into the matching size:
+    // `scale` shrinks the rectified intrinsics, so the output is 1/s of the
+    // source. The source is prefiltered by the same factor to avoid aliasing.
+    let left_src = load_gray(path_a)?;
+    let right_src = load_gray(path_b)?;
+    let (w, h) = (left_src.width / s, left_src.height / s);
+    if w == 0 || h == 0 {
+        return Err("image too small for the chosen downscale".to_string());
+    }
+    let mut rect_opts = RectifyOptions::default();
+    rect_opts.scale = 1.0 / s as f64;
+    let rect = rectify(&rig, [cam_a, cam_b], &rect_opts).map_err(|e| format!("rectify: {e}"))?;
+    let rect_left = rect.rectify_image(0, &box_filter(&left_src, s), w, h);
+    let rect_right = rect.rectify_image(1, &box_filter(&right_src, s), w, h);
 
-    let rect = rectify_stereo_pair(
-        &RectifyCamera::pinhole(k_a),
-        &RectifyCamera::pinhole(k_b),
-        &cam1_se3_cam0,
-        &RectifyOptions::default(),
-    )
-    .map_err(|e| format!("rectify: {e}"))?;
-
-    let rect_left = remap(&left, &rect.h_left, &k_a, &dist_a, w, h);
-    let rect_right = remap(&right, &rect.h_right, &k_b, &dist_b, w, h);
-
-    let f_rect = rect.k_rect[(0, 0)];
-    let disp_nominal = (f_rect * rect.baseline / z_board) as f32;
+    let f_rect = rect.k_rect().fx;
+    let disp_nominal = (f_rect * rect.baseline() / z_board) as f32;
     let min_d = (disp_nominal * 0.6).round().max(0.0) as i32;
     let num_d = (disp_nominal * 0.85).round().max(16.0) as i32;
 
@@ -192,8 +179,7 @@ fn compute(
     let (plane_rms, plane_inliers) = planarity_rms(&disp);
 
     // Reproject to metric depth + a 3D point cloud (reference-camera frame).
-    let (point_cloud, depth) =
-        reproject(&disp, &rect_left, &rect.k_rect, &rect.r_rect, rect.baseline);
+    let (point_cloud, depth) = reproject(&disp, &rect_left, &rect);
 
     Ok(DisparityResult {
         rectified_pair_png: pair_with_epilines_url(&rect_left, &rect_right)?,
@@ -208,119 +194,67 @@ fn compute(
         disp_max: hi,
         plane_rms,
         plane_inliers,
-        baseline_m: rect.baseline,
+        baseline_m: rect.baseline(),
         semi_global: params.semi_global,
     })
 }
 
 // ---------------------------------------------------------------------------
-// Calibration parsing
+// Image loading
 // ---------------------------------------------------------------------------
 
-/// Parse camera `idx`'s intrinsics (scaled for a `scale`× downscale) + distortion.
-fn parse_camera(
-    export: &serde_json::Value,
-    idx: usize,
-    scale: f64,
-) -> Result<(Mat3, BrownConrady5<f64>), String> {
-    let cam = export
-        .get("cameras")
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.get(idx))
-        .ok_or("camera index out of range")?;
-    let params: CameraParams =
-        serde_json::from_value(cam.clone()).map_err(|e| format!("camera decode: {e}"))?;
-    // Stereo rectification here is a pinhole + Brown-Conrady pipeline; a tilted
-    // sensor or another lens model would be silently mis-rectified, so refuse it.
-    if !matches!(params.sensor, SensorParams::Identity) {
-        return Err(format!(
-            "camera {idx} has a tilted sensor; depth needs untilted cameras"
-        ));
-    }
-    let DistortionParams::BrownConrady5 { params: dist } = params.distortion else {
-        return Err(format!(
-            "camera {idx} does not use Brown-Conrady distortion; depth supports only that model"
-        ));
-    };
-    let k: FxFyCxCy<f64> = params.intrinsics;
-    // Distortion coefficients are in normalized coordinates, so they survive the
-    // image downscale unchanged; only K scales.
-    let mat = Matrix3::new(
-        k.fx / scale,
-        0.0,
-        k.cx / scale,
-        0.0,
-        k.fy / scale,
-        k.cy / scale,
-        0.0,
-        0.0,
-        1.0,
-    );
-    Ok((mat, dist))
-}
-
-// ---------------------------------------------------------------------------
-// Image loading / rectifying remap
-// ---------------------------------------------------------------------------
-
-fn load_gray_downscaled(path: &Path, factor: usize) -> Result<GrayImage, String> {
+fn load_gray(path: &Path) -> Result<GrayImage, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let img = image::load_from_memory(&bytes)
         .map_err(|e| format!("decode {}: {e}", path.display()))?
         .to_luma8();
-    let (fw, fh) = (img.width() as usize, img.height() as usize);
-    let (w, h) = (fw / factor, fh / factor);
-    if w == 0 || h == 0 {
-        return Err("image too small for the chosen downscale".to_string());
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    Ok(GrayImage::new(w, h, img.into_raw()))
+}
+
+/// A separable box filter of side `factor` (the anti-aliasing prefilter of a
+/// `factor`× reduction); the image keeps its size. `factor == 1` is a copy.
+fn box_filter(src: &GrayImage, factor: usize) -> GrayImage {
+    if factor <= 1 {
+        return src.clone();
     }
-    let mut data = vec![0u8; w * h];
-    for oy in 0..h {
-        for ox in 0..w {
-            let mut acc = 0u32;
-            for dy in 0..factor {
-                for dx in 0..factor {
-                    acc += img
-                        .get_pixel((ox * factor + dx) as u32, (oy * factor + dy) as u32)
-                        .0[0] as u32;
+    let (w, h) = (src.width, src.height);
+    // The window of pixel `x` is `[x - lo, x - lo + factor)`, clipped to the image.
+    let lo = factor / 2;
+    let pass = |input: &[f32], horizontal: bool| -> Vec<f32> {
+        let mut out = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let (mut acc, mut n) = (0f32, 0f32);
+                for k in 0..factor {
+                    let (xx, yy) = if horizontal {
+                        ((x + k).checked_sub(lo), Some(y))
+                    } else {
+                        (Some(x), (y + k).checked_sub(lo))
+                    };
+                    if let (Some(xx), Some(yy)) = (xx, yy)
+                        && xx < w
+                        && yy < h
+                    {
+                        acc += input[yy * w + xx];
+                        n += 1.0;
+                    }
                 }
+                out[y * w + x] = acc / n;
             }
-            data[oy * w + ox] = (acc / (factor * factor) as u32) as u8;
         }
-    }
-    Ok(GrayImage::new(w, h, data))
-}
-
-/// Resample a source image into the rectified frame (undistort + rectify).
-fn remap(
-    src: &GrayImage,
-    h_rect: &Mat3,
-    k: &Mat3,
-    dist: &BrownConrady5<f64>,
-    out_w: usize,
-    out_h: usize,
-) -> GrayImage {
-    let h_inv = h_rect.try_inverse().unwrap_or_else(Matrix3::identity);
-    let mut data = vec![0u8; out_w * out_h];
-    for yr in 0..out_h {
-        for xr in 0..out_w {
-            let p = h_inv * Vec3::new(xr as f64, yr as f64, 1.0);
-            if p.z.abs() < 1e-12 {
-                continue;
-            }
-            let undist = Pt2::new(p.x / p.z, p.y / p.z);
-            let nrm = pixel_to_normalized(undist, k);
-            let src_px = distort_to_pixel(nrm, k, dist);
-            data[yr * out_w + xr] = sample(src, src_px.x, src_px.y);
-        }
-    }
-    GrayImage::new(out_w, out_h, data)
-}
-
-fn sample(img: &GrayImage, x: f64, y: f64) -> u8 {
-    if x < 0.0 || y < 0.0 || x > (img.width - 1) as f64 || y > (img.height - 1) as f64 {
-        return 0;
-    }
-    img.bilinear(x, y).round().clamp(0.0, 255.0) as u8
+        out
+    };
+    let gray: Vec<f32> = src.data.iter().map(|&v| f32::from(v)).collect();
+    let blurred = pass(&pass(&gray, true), false);
+    GrayImage::new(
+        w,
+        h,
+        blurred
+            .iter()
+            .map(|v| v.round().clamp(0.0, 255.0) as u8)
+            .collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -391,28 +325,19 @@ fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
 // Reprojection (disparity → metric depth + point cloud)
 // ---------------------------------------------------------------------------
 
-/// Reproject the disparity map to metric depth and a 3D point cloud through the
-/// rectified pinhole: `Z = f·B / d`, `X = (x−cx)·Z/fx`, `Y = (y−cy)·Z/fy`.
-/// The triangulated point lives in the **rectified** frame; `r_rect` (camera-0
-/// direction → rectified frame) is inverted to express cloud points in the
-/// reference camera's frame, matching the 3D view's axes gizmo. The depth map
-/// stays rectified-frame `Z` — it is indexed by rectified pixels. Returns the
-/// (grid-subsampled) point cloud and a per-pixel depth map (`NaN` where
-/// disparity is invalid).
+/// Reproject the disparity map to metric depth and a 3D point cloud through
+/// the rectification: the depth map holds the rectified-frame `Z = f·B / d`
+/// (it is indexed by rectified pixels), the cloud the points of
+/// [`StereoRectification::point`] in the reference (left) camera's frame,
+/// matching the 3D view's axes gizmo. Returns the (grid-subsampled) point
+/// cloud and a per-pixel depth map (`NaN` where disparity is invalid).
 fn reproject(
     disp: &DisparityMap,
     rect_left: &GrayImage,
-    k_rect: &Mat3,
-    r_rect: &Mat3,
-    baseline: f64,
+    rect: &StereoRectification,
 ) -> (PointCloud, Vec<f32>) {
     let (w, h) = (disp.width, disp.height);
-    let fx = k_rect[(0, 0)] as f32;
-    let fy = k_rect[(1, 1)] as f32;
-    let cx = k_rect[(0, 2)] as f32;
-    let cy = k_rect[(1, 2)] as f32;
-    let b = baseline as f32;
-    let cam_from_rect = r_rect.transpose();
+    let f_b = (rect.k_rect().fx * rect.baseline()) as f32;
 
     let mut depth = vec![f32::NAN; w * h];
     // Grid subsample so the rendered cloud stays under MAX_POINTS.
@@ -425,22 +350,14 @@ fn reproject(
             if !(d.is_finite() && d > 0.0) {
                 continue;
             }
-            let z = fx * b / d;
-            depth[y * w + x] = z;
+            depth[y * w + x] = f_b / d;
             if x % step == 0 && y % step == 0 {
-                let p_rect = Vec3::new(
-                    ((x as f32 - cx) * z / fx) as f64,
-                    ((y as f32 - cy) * z / fy) as f64,
-                    z as f64,
-                );
-                let p_cam = cam_from_rect * p_rect;
-                positions.push(p_cam.x as f32);
-                positions.push(p_cam.y as f32);
-                positions.push(p_cam.z as f32);
+                let Some(p) = rect.point(&Pt2::new(x as f64, y as f64), f64::from(d)) else {
+                    continue;
+                };
+                positions.extend([p.x as f32, p.y as f32, p.z as f32]);
                 let g = rect_left.get(x, y) as f32 / 255.0;
-                colors.push(g);
-                colors.push(g);
-                colors.push(g);
+                colors.extend([g, g, g]);
             }
         }
     }

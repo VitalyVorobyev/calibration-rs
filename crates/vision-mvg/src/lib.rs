@@ -12,6 +12,10 @@
 //!   pixel tracks from a calibration, refined on stated pixel noise, with
 //!   diagnostics and the points' joint covariance (the calibration's share
 //!   included)
+//! - **Stereo**: [`rectify`] — rectification of two rig cameras from the
+//!   calibration for any camera model, the disparity-to-depth matrix, points
+//!   with the covariance of their disparity, and measurements that carry the
+//!   calibration's uncertainty
 //! - **Bundle adjustment**: [`bundle_adjust()`](bundle_adjust::bundle_adjust) — capture poses and points
 //!   refined together from a calibration, with a stated gauge (capture 0 and
 //!   a [`Scale`]), robust losses and the joint covariance; the calibration
@@ -119,7 +123,7 @@ pub use homography::{
     homography_transfer, homography_transfer_inverse,
 };
 pub use pose_recovery::{RelativePose, recover_relative_pose};
-pub use rectification::{RectifyCamera, RectifyOptions, StereoRectification, rectify_stereo_pair};
+pub use rectification::{RectifiedMatch, RectifyOptions, StereoRectification, rectify};
 pub use robust::{
     EssentialEstimate, HomographyEstimate, RobustRelativePose, estimate_essential,
     estimate_homography, recover_relative_pose_robust,

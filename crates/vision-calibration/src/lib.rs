@@ -521,9 +521,10 @@ pub mod detect {
 /// camera-matrix DLT, linear triangulation) at the module root, plus
 /// calibrated relative-pose recovery, robust (RANSAC) estimation, degeneracy
 /// checks, N-view triangulation, bundle adjustment from a calibration,
-/// homography decomposition, Scheimpflug-aware stereo rectification, and pure-Rust dense
-/// stereo matching — reached via the owning module, e.g.
-/// `vision_calibration::mvg::rectification::rectify_stereo_pair` or
+/// homography decomposition, stereo rectification from a calibration (any camera
+/// model, with the disparity-to-depth matrix and the uncertainty of the points),
+/// and pure-Rust dense stereo matching — reached via the owning module, e.g.
+/// `vision_calibration::mvg::rectification::rectify` or
 /// `vision_calibration::mvg::dense::match_block`.
 pub mod mvg {
     /// RANSAC settings taken by the robust estimators in [`robust`].

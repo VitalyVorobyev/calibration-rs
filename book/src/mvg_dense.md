@@ -9,8 +9,8 @@ The matcher scores each pixel and each candidate disparity with the zero-mean no
 ```rust
 use vision_calibration::mvg::dense::{match_block, BlockMatchOptions, GrayImage};
 
-// `left` / `right` are rectified grayscale images: resample each source image
-// through its rectifying homography first.
+// `left` / `right` are rectified grayscale images: `rect.rectify_image(0, ..)`
+// and `rect.rectify_image(1, ..)` of the raw pair (see Stereo from a Calibration).
 let disp = match_block(&left, &right, &BlockMatchOptions {
     min_disparity: 0,
     num_disparities: 64,   // search [min, min + num)
@@ -42,7 +42,7 @@ Semi-global matching is strictly additive: block matching stays the default. In 
 
 ## Disparity to Depth
 
-For a rectified pair with shared focal length $f$ (pixels) and baseline $b$, a disparity $d$ gives depth $Z = f\,b / d$. `StereoRectification` carries `k_rect` (with $f$) and `baseline`. The desktop app's Depth workspace performs this conversion and renders depth and a reprojected point cloud (see [Inspecting Results](app_inspect.md#depth)).
+For a rectified pair with shared focal length $f$ (pixels) and baseline $b$, a disparity $d$ gives depth $Z = f\,b / d$. `StereoRectification` converts for you (`point`, the matrix `disparity_to_depth`, and the disparity's covariance; see [Stereo from a Calibration](mvg_rectification.md)). The desktop app's Depth workspace uses it and renders depth and a reprojected point cloud (see [Inspecting Results](app_inspect.md#depth)).
 
 ## Try It
 

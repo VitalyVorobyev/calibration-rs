@@ -292,7 +292,9 @@ fn mvg_module_surface_compiles() {
     let _: Option<mvg::triangulation::RigObservation> = None;
     let _: Option<mvg::triangulation::Triangulation> = None;
     let _: Option<vision_calibration::core::CalibratedRig> = None;
-    let _ = mvg::rectification::rectify_stereo_pair;
+    let _ = mvg::rectification::rectify;
+    let _: Option<mvg::rectification::RectifyOptions> = None;
+    let _: Option<mvg::rectification::RectifiedMatch> = None;
     let _ = mvg::homography::decompose_homography;
     let _ = mvg::dense::match_block;
     let _: Option<mvg::rectification::StereoRectification> = None;
@@ -306,25 +308,27 @@ fn mvg_module_surface_compiles() {
 
 #[test]
 fn mvg_rectification_runs_through_facade() {
-    use nalgebra::{Matrix3, Translation3, UnitQuaternion};
-    use vision_calibration::core::Iso3;
-    use vision_calibration::mvg::rectification::{
-        RectifyCamera, RectifyOptions, rectify_stereo_pair,
+    use vision_calibration::core::{
+        BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Uncertainty, make_pinhole_camera,
+        pinhole_camera_params,
     };
+    use vision_calibration::mvg::rectification::{RectifyOptions, rectify};
 
-    let k = Matrix3::new(800.0, 0.0, 320.0, 0.0, 800.0, 240.0, 0.0, 0.0, 1.0);
-    let pose = Iso3::from_parts(
-        Translation3::new(-1.0, 0.0, 0.0),
-        UnitQuaternion::identity(),
-    );
-    let rect = rectify_stereo_pair(
-        &RectifyCamera::pinhole(k),
-        &RectifyCamera::pinhole(k),
-        &pose,
-        &RectifyOptions::default(),
+    let k = FxFyCxCy {
+        fx: 800.0,
+        fy: 800.0,
+        cx: 320.0,
+        cy: 240.0,
+    };
+    let camera = pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default()));
+    let rig = CalibratedRig::new(
+        vec![camera.clone(), camera],
+        vec![Iso3::identity(), Iso3::translation(-1.0, 0.0, 0.0)],
+        Uncertainty::default(),
     )
-    .expect("rectify a trivial pinhole pair");
-    assert!((rect.baseline - 1.0).abs() < 1e-12);
+    .expect("a two-camera rig");
+    let rect = rectify(&rig, [0, 1], &RectifyOptions::default()).expect("rectify a pinhole pair");
+    assert!((rect.baseline() - 1.0).abs() < 1e-12);
 }
 
 #[test]

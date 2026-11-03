@@ -67,6 +67,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     RMS distance (`√2 σ` for isotropic noise); `initial_rms` and
     `per_camera_rms` are gone.
   - Under-observed points are an error now: a track needs two observations.
+- **Stereo rectification works from the calibration** (breaking, in
+  `vision-mvg` and the facade's `mvg`). `rectification::rectify(&rig,
+  [left, right], &RectifyOptions)` replaces
+  `rectify_stereo_pair(&RectifyCamera, &RectifyCamera, &cam1_se3_cam0, &opts)`;
+  `RectifyCamera` is removed.
+  - The cameras come from a `CalibratedRig`, and **raw pixels go in**: there
+    is no separate undistortion, and every camera model works, a Scheimpflug
+    sensor through its own model instead of a tilt homography.
+  - `StereoRectification` has accessors in place of fields:
+    `rectify_left`/`rectify_right` are `rectified_pixel(side, raw)`,
+    `baseline` is `baseline()`, `k_rect` (a matrix) is `k_rect()` (an
+    `FxFyCxCy`), `r_rect` is `rect_r_cam(side)`. `RectifyOptions::k_rect` is
+    an `Option<FxFyCxCy>` and `RectifyOptions` gained `scale`; set the fields
+    on `RectifyOptions::default()`.
+  - A rectification with a zero baseline or an invalid `scale` or `k_rect` is
+    an error before any work; the Scheimpflug tilt limit is gone with the
+    homography.
 - **The `refine` features are removed** from `vision-mvg` and the facade, with
   the `tiny-solver` dependency of `vision-mvg`: bundle adjustment and
   `refine::refine_homography` are always available, and run on the problem
@@ -89,6 +106,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameters, which a camera taken as exact leaves out (depth σ 3.2 times too
   small in the book's stereo example). A rig without a covariance gives
   refined points and an uncertainty that says so.
+- Stereo from a calibration, in `mvg::rectification`:
+  `StereoRectification::rectify_image` resamples a raw image into the
+  rectified frame; `disparity_to_depth` is the matrix `Q`; `point` gives the
+  3D point of a rectified pixel and disparity in the left camera's frame;
+  `disparity_covariance` its covariance from the disparity's σ (the scatter of
+  the depth over the stated σ is 0.97 to 1.06 over 2000 draws);
+  and `triangulate` measures matches with the covariance of the calibration
+  included (scatter over stated 0.95 over 60 calibrations; the σ from the
+  observations alone is 3.2 times too small). The desktop app's Depth
+  workspace uses it, so depth works for every camera model, not only
+  untilted Brown-Conrady cameras.
 - `PointCovariance::isotropic(sigma_px)`: the covariance of one σ on both
   axes.
 - `CalibratedRig::reprojection_noise(camera)`: the calibration's reprojection

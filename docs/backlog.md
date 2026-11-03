@@ -34,13 +34,6 @@ real-data demonstration.
   a residual of your own over a rotation and a unit-vector block. It returns
   the covariance of the relative pose (gauge |t| = 1) on the way, which
   MVG-TWO-VIEW lists.
-- [ ] MVG-STEREO - Stereo from a calibration:
-  - rectification straight from a `CalibratedRig`, any supported camera
-    model (maps through each camera's unprojection);
-  - the disparity-to-depth matrix;
-  - depth σ from disparity σ and the calibration;
-  - a point cloud with per-point covariance.
-  The app's Depth workspace then uses it instead of its own conversion.
 - [ ] MVG-METROLOGY - A measurement API (point, distance, angle, plane fit)
   with joint σ, propagated by dual-number Jacobians over the points' joint
   covariance (a plane fit holds the points as consider parameters), used
@@ -49,6 +42,9 @@ real-data demonstration.
   calibration's included (consider).
 - [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
   and the laser-plane covariance.
+- [ ] MVG-DENSE-COV - The calibration's share in a dense cloud's per-point
+  covariance (today: disparity share; the calibrated σ goes through
+  `StereoRectification::triangulate` for selected matches).
 - [ ] MVG-PY - Python bindings for the MVG surface.
 - [ ] MVG-DEMO - A book walk-through plus Rust and Python examples on the
   fetchable samples (`opencv_fisheye_stereo`, a pinhole stereo pair once
@@ -218,7 +214,7 @@ were. What is left reorganizes them around the project.
   - **Diagnose:** residuals, the quality report, uncertainty and run
     comparison.
   - **Use:** undistort and rectify, epipolar, depth, and measurement
-    with σ (from MVG-STEREO and MVG-METROLOGY).
+    with σ (from MVG-METROLOGY, on the stereo of `StereoRectification`).
   - Also covers empty states and the fail-fast error surfaces. Gate: a
     frontend review with no high-severity findings.
 - [ ] APP-DIST - Bundle the presets, so installers run without a source
