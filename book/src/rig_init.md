@@ -42,6 +42,14 @@ Then average across views:
 
 $$T_{R, C_k} = \text{average}\left(\left\{ \hat{T}_{R, C_k}^{(v)} \right\}_v\right)$$
 
+### Cameras That Never See the Board With the Reference
+
+A camera does not need a view in common with the reference camera. Two cameras are *linked* when they see the board in the same view, and the cameras are placed outward from the reference through these links: first every camera linked to the reference, then every camera linked to one of those, and so on. A camera $j$ reached through camera $i$ takes
+
+$$T_{R, C_j} = T_{R, C_i} \cdot \text{average}\left(\left\{ T_{C_i, T}^{(v)} \cdot \left(T_{C_j, T}^{(v)}\right)^{-1} \right\}_v\right)$$
+
+over the views $v$ the two share. Each camera takes a path with the fewest links, and among those the neighbour it shares the most views with, so a camera that does share views with the reference is placed from them directly. A ring of cameras where only neighbours overlap calibrates this way. A camera no chain of shared views reaches is an error that names it: add views in which it and an already placed camera both see the board.
+
 ### Quaternion Hemisphere Correction
 
 Quaternions have a double-cover of SO(3): both $\mathbf{q}$ and $-\mathbf{q}$ represent the same rotation. Before averaging, all quaternions are flipped to the same hemisphere as the first:
