@@ -11,11 +11,11 @@ use std::fs;
 use std::path::Path;
 use vision_calibration::rig_handeye::RigHandeyeExport;
 use vision_calibration_core::{
-    CameraModel, CameraParams, DistortionParams, Iso3, Pt2, Real, SensorParams,
+    CameraModel, CameraParams, DistortionParams, Iso3, LaserPlane, Pt2, Real, SensorParams,
 };
 use vision_calibration_examples_private::PoseEntry;
 use vision_calibration_optim::{
-    HandeyeMode, LaserPlane, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams,
+    HandeyeMode, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams,
     RigHandeyeLaserlinePerCamStats,
 };
 

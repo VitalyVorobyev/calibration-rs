@@ -3216,9 +3216,10 @@ class UncertaintyUnavailable_AtBound(TypedDict):
 
 
 class UncertaintyUnavailable_CalibrationWithoutCovariance(TypedDict):
-    """The result depends on a calibration that has no covariance, so a
-    covariance from the result's own observations would leave out the
-    calibration's share.
+    """The result depends on a calibration that has no covariance, or none
+    for the cameras it uses (a laser calibration that held the cameras'
+    intrinsics fixed), so a covariance from the result's own observations
+    would leave out the calibration's share.
     """
 
     kind: Literal["calibration_without_covariance"]

@@ -16,7 +16,7 @@
 //! the camera pose absorbs part of it, so the figure is conservative for
 //! such uses; it is exact for a camera whose pose is held at its estimate.
 
-use nalgebra::{DVector, Dyn, Matrix2, OMatrix, SVector, U2, Vector2, Vector3};
+use nalgebra::{DVector, Dyn, Matrix2, Matrix2x3, OMatrix, SVector, U2, Vector2, Vector3};
 use num_dual::{DualDVec64, jacobian};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraParams, INTRINSICS_PARAM_NAMES, ParameterCovariance, Pt2};
@@ -176,8 +176,107 @@ fn major_axis_sigma(c: &Matrix2<f64>) -> f64 {
     (mean + half_diff.hypot(off)).max(0.0).sqrt()
 }
 
+/// A camera's projection of a camera-frame point and its exact derivatives,
+/// for first-order error propagation through the forward model.
+///
+/// The derivatives are forward-mode (dual numbers) through the same camera
+/// kernels the solver projects with, so they are exact to rounding, for every
+/// camera model and a point at any angle from the axis (a fisheye sees
+/// beyond 90°).
+///
+/// ```
+/// use nalgebra::Vector3;
+/// use vision_calibration_core::{
+///     BrownConrady5, FxFyCxCy, make_pinhole_camera, pinhole_camera_params,
+/// };
+/// use vision_calibration_optim::CameraJacobian;
+///
+/// let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 320.0, cy: 240.0 };
+/// let camera = pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default()));
+/// let jacobian = CameraJacobian::new(&camera)?;
+/// let at = jacobian.project(&Vector3::new(0.1, 0.0, 1.0)).unwrap();
+/// // A pinhole: u = fx x/z + cx, so ∂u/∂x = fx / z and ∂u/∂cx = 1.
+/// assert!((at.pixel.x - 400.0).abs() < 1e-9);
+/// assert!((at.d_point[(0, 0)] - 800.0).abs() < 1e-9);
+/// let cx = jacobian.labels().iter().position(|l| *l == "cx").unwrap();
+/// assert!((at.d_params[(0, cx)] - 1.0).abs() < 1e-12);
+/// # Ok::<(), vision_calibration_optim::Error>(())
+/// ```
+#[derive(Debug, Clone)]
+pub struct CameraJacobian(CameraVector);
+
+/// A point's pixel and its derivatives; see [`CameraJacobian::project`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct ProjectedPoint {
+    /// The pixel the point projects to.
+    pub pixel: Pt2,
+    /// `∂pixel/∂point`, pixels per metre of the camera-frame point.
+    pub d_point: Matrix2x3<f64>,
+    /// `∂pixel/∂θ`: one column per camera parameter, in the order of
+    /// [`CameraJacobian::labels`].
+    pub d_params: OMatrix<f64, U2, Dyn>,
+}
+
+impl CameraJacobian {
+    /// The derivatives of `camera`'s projection.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] for a camera with a general sensor
+    /// homography, which the solver does not estimate.
+    pub fn new(camera: &CameraParams) -> Result<Self, Error> {
+        CameraVector::new(camera).map(Self)
+    }
+
+    /// The camera's parameters by their covariance label (`fx` … `cy`, the
+    /// distortion coefficients by name, `tilt_x` and `tilt_y`), in the
+    /// order of [`ProjectedPoint::d_params`]'s columns.
+    pub fn labels(&self) -> &[&'static str] {
+        &self.0.labels
+    }
+
+    /// The pixel of the camera-frame `point` and its derivatives; `None`
+    /// when the point has no finite projection or derivative.
+    pub fn project(&self, point: &Vector3<f64>) -> Option<ProjectedPoint> {
+        let n = self.0.theta.len();
+        let mut x = self.0.theta.clone().resize_vertically(n + 3, 0.0);
+        for k in 0..3 {
+            x[n + k] = point[k];
+        }
+        let model = self.0.model;
+        let (q, j) = jacobian(|v: DVector<DualDVec64>| project_point(model, &v, n), &x);
+        if !(q.iter().all(|v| v.is_finite()) && j.iter().all(|v| v.is_finite())) {
+            return None;
+        }
+        Some(ProjectedPoint {
+            pixel: Pt2::new(q[0], q[1]),
+            d_point: j.fixed_columns::<3>(n).into_owned(),
+            d_params: j.columns(0, n).into_owned(),
+        })
+    }
+}
+
+/// The pixel of the point `v[n..n + 3]` for camera parameters `v[..n]`.
+fn project_point(
+    model: CameraModelSpec,
+    v: &DVector<DualDVec64>,
+    n: usize,
+) -> SVector<DualDVec64, 2> {
+    let all = v.as_slice();
+    let (intrinsics, rest) = all.split_at(4);
+    let (projection, rest) = rest.split_at(model.projection.dim());
+    let (distortion, rest) = rest.split_at(model.distortion.dim());
+    let sensor = &rest[..model.sensor.dim()];
+    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
+    let point = Vector3::new(v[n].clone(), v[n + 1].clone(), v[n + 2].clone());
+    let (u, w) = camera.project(&point);
+    SVector::<DualDVec64, 2>::new(u, w)
+}
+
 /// A camera's parameters as one vector `θ`, in the solver's block order:
 /// intrinsics, projection, distortion, sensor.
+#[derive(Debug, Clone)]
 pub(crate) struct CameraVector {
     pub(crate) model: CameraModelSpec,
     pub(crate) theta: DVector<f64>,
@@ -480,6 +579,113 @@ mod tests {
                 "parameter {k}: exact {column} numeric {numeric}"
             );
         }
+    }
+
+    /// Every camera model: `CameraJacobian` against central differences of
+    /// the core camera model, in the parameters and in the point.
+    #[test]
+    fn camera_jacobian_matches_central_differences_for_every_model() {
+        use vision_calibration_core::{DistortionKind, ProjectionKind, SensorKind};
+        let values = |names: &[&str]| -> Vec<f64> {
+            names
+                .iter()
+                .map(|name| match *name {
+                    "k1" => -0.08,
+                    "k2" => 0.02,
+                    "p1" => 0.0004,
+                    "p2" => -0.0003,
+                    "lambda" => -0.1,
+                    "tilt_x" => 0.03,
+                    "tilt_y" => -0.02,
+                    _ => 0.0,
+                })
+                .collect()
+        };
+        let point = Vector3::new(0.12, -0.07, 0.9);
+        let mut checked = 0;
+        for projection in ProjectionKind::ALL {
+            for distortion in DistortionKind::ALL {
+                for sensor in SensorKind::ALL {
+                    let params = CameraParams {
+                        projection: ProjectionParams::from_values(projection, &[]).unwrap(),
+                        distortion: DistortionParams::from_values(
+                            distortion,
+                            &values(distortion.param_names()),
+                        )
+                        .unwrap(),
+                        sensor: SensorParams::from_values(sensor, &values(sensor.param_names()))
+                            .unwrap(),
+                        intrinsics: FxFyCxCy {
+                            fx: 640.0,
+                            fy: 650.0,
+                            cx: 320.0,
+                            cy: 240.0,
+                        },
+                    };
+                    let rebuild = |blocks: &[Vec<f64>; 4]| CameraParams {
+                        projection: ProjectionParams::from_values(projection, &blocks[1]).unwrap(),
+                        distortion: DistortionParams::from_values(distortion, &blocks[2]).unwrap(),
+                        sensor: SensorParams::from_values(sensor, &blocks[3]).unwrap(),
+                        intrinsics: FxFyCxCy {
+                            fx: blocks[0][0],
+                            fy: blocks[0][1],
+                            cx: blocks[0][2],
+                            cy: blocks[0][3],
+                        },
+                    };
+                    let pixel_of = |camera: &CameraParams, p: &Vector3<f64>| {
+                        let q = camera.build().unwrap().project_point_c(p).unwrap();
+                        Vector2::new(q.x, q.y)
+                    };
+                    let jacobian = CameraJacobian::new(&params).unwrap();
+                    let at = jacobian.project(&point).unwrap();
+                    assert!(
+                        (Vector2::new(at.pixel.x, at.pixel.y) - pixel_of(&params, &point)).norm()
+                            < 1e-9
+                    );
+
+                    // Parameters: perturb the flat vector block by block.
+                    let blocks = params.blocks();
+                    let mut column = 0;
+                    for (b, block) in blocks.iter().enumerate() {
+                        for i in 0..block.len() {
+                            let h = 1e-6 * block[i].abs().max(1.0);
+                            let (mut plus, mut minus) = (blocks.clone(), blocks.clone());
+                            plus[b][i] += h;
+                            minus[b][i] -= h;
+                            let numeric = (pixel_of(&rebuild(&plus), &point)
+                                - pixel_of(&rebuild(&minus), &point))
+                                / (2.0 * h);
+                            let exact = at.d_params.column(column);
+                            assert!(
+                                (exact - numeric).norm() < 1e-5 * exact.norm().max(1.0),
+                                "{projection:?} {distortion:?} {sensor:?} {}: {exact} vs {numeric}",
+                                jacobian.labels()[column]
+                            );
+                            column += 1;
+                        }
+                    }
+                    assert_eq!(column, jacobian.labels().len());
+
+                    // The point.
+                    for k in 0..3 {
+                        let h = 1e-6;
+                        let (mut plus, mut minus) = (point, point);
+                        plus[k] += h;
+                        minus[k] -= h;
+                        let numeric =
+                            (pixel_of(&params, &plus) - pixel_of(&params, &minus)) / (2.0 * h);
+                        let exact = at.d_point.column(k);
+                        assert!(
+                            (exact - numeric).norm() < 1e-5 * exact.norm().max(1.0),
+                            "{projection:?} {distortion:?} {sensor:?} point {k}: {exact} vs {numeric}"
+                        );
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 24);
     }
 
     #[test]

@@ -26,7 +26,7 @@ use crate::ir::{
 use crate::params::camera::{
     CameraBlockInput, add_camera_blocks, camera_block_values, unpack_camera,
 };
-use crate::params::laser_plane::LaserPlane;
+use crate::params::laser_plane::{distance_to_dvec, normal_to_dvec, plane_from_split_dvec};
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use crate::problems::handeye::{RobotPoseMeta, apply_robot_delta};
 use crate::problems::laserline_bundle::LaserlineResidualType;
@@ -37,6 +37,7 @@ use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use vision_calibration_core::LaserPlane;
 #[cfg(test)]
 use vision_calibration_core::UncertaintyUnavailable;
 use vision_calibration_core::{
@@ -369,7 +370,7 @@ pub fn optimize_rig_handeye_laserline(
                 .get(&format!("plane_d/{cam_idx}"))
                 .unwrap()
                 .as_view();
-            LaserPlane::from_split_dvec(normal_v, dist_v)
+            plane_from_split_dvec(normal_v, dist_v)
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
@@ -449,16 +450,8 @@ fn compute_stats(
     let extr_dvecs: Vec<DVector<f64>> = params.cam_to_rig.iter().map(iso3_to_se3_dvec).collect();
     let handeye_dv = iso3_to_se3_dvec(&params.handeye);
     let target_ref_dv = iso3_to_se3_dvec(&params.target_ref);
-    let plane_n_dvecs: Vec<DVector<f64>> = params
-        .planes_cam
-        .iter()
-        .map(|p| p.normal_to_dvec())
-        .collect();
-    let plane_d_dvecs: Vec<DVector<f64>> = params
-        .planes_cam
-        .iter()
-        .map(|p| p.distance_to_dvec())
-        .collect();
+    let plane_n_dvecs: Vec<DVector<f64>> = params.planes_cam.iter().map(normal_to_dvec).collect();
+    let plane_d_dvecs: Vec<DVector<f64>> = params.planes_cam.iter().map(distance_to_dvec).collect();
 
     let mut per_cam_reproj_sum = vec![0.0f64; dataset.num_cameras];
     let mut per_cam_reproj_count = vec![0usize; dataset.num_cameras];
@@ -751,11 +744,11 @@ fn build_ir(
         let key_n = format!("plane_n/{cam_idx}");
         let id_n = ir.add_param_block(&key_n, 3, ManifoldKind::S2, fixed_n, None);
         plane_n_ids.push(id_n);
-        initial_map.insert(key_n, initial.planes_cam[cam_idx].normal_to_dvec());
+        initial_map.insert(key_n, normal_to_dvec(&initial.planes_cam[cam_idx]));
         let key_d = format!("plane_d/{cam_idx}");
         let id_d = ir.add_param_block(&key_d, 1, ManifoldKind::Euclidean, fixed_d, None);
         plane_d_ids.push(id_d);
-        initial_map.insert(key_d, initial.planes_cam[cam_idx].distance_to_dvec());
+        initial_map.insert(key_d, distance_to_dvec(&initial.planes_cam[cam_idx]));
     }
 
     // 8. Residuals per view.

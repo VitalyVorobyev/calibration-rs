@@ -3,8 +3,9 @@
 //! Maps observed laser pixels into 3D points using an upstream rig hand-eye
 //! calibration together with per-camera laser planes.
 
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{Iso3, Pt2, Pt3, Vec3};
-use vision_calibration_optim::{HandeyeMode, LaserPlane};
+use vision_calibration_optim::HandeyeMode;
 
 use crate::Error;
 use crate::rig_handeye::RigHandeyeExport;

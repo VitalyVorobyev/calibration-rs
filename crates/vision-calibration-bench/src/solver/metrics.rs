@@ -7,8 +7,9 @@
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
+use vision_calibration::core::LaserPlane;
 use vision_calibration::core::{CameraParams, Iso3, SensorParams};
-use vision_calibration::optim::{LaserPlane, RobustLoss};
+use vision_calibration::optim::RobustLoss;
 use vision_calibration_core::PerFeatureResiduals;
 use vision_calibration_core::synthetic::poses::pose_error;
 

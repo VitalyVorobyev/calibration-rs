@@ -20,6 +20,7 @@ In dependency order:
 ```text
 mvg::pose_recovery   recover_relative_pose  ← 5-point + cheirality (also triangulates)
 mvg::triangulation   triangulate            ← N-view DLT on bearings, refined, with covariance
+mvg::laser           triangulate_laser      ← laser pixels on a known plane, with covariance
 mvg::pose            estimate_pose          ← object pose from known points, RANSAC in σ, with covariance
 mvg::bundle_adjust   bundle_adjust          ← capture poses + points together, with covariance
 mvg::metrology       distance, fit_plane, ...  ← measurements with σ from the points' joint covariance

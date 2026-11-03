@@ -21,7 +21,8 @@ or QR linear solvers.
 The documented items are the vocabulary and results the sessions hand to
 callers: `RobustLoss`, `SolverBackend`, `HandeyeMode`, each problem's
 `*Estimate` and `*Params` with its `SolveReport`, the laser and hand-eye input
-types, `LaserPlane`, and projection uncertainty.
+types, and projection uncertainty. The laser plane they use is
+`vision_calibration_core::LaserPlane`.
 
 The `problem` module builds a least-squares problem of your own: parameter
 blocks, residuals you write once for every scalar type (exact Jacobians by

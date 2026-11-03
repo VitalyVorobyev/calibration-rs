@@ -131,6 +131,55 @@ names the failing track. Failure modes:
 - **Identical cameras** (zero baseline): rejected
   (`triangulation_rejects_identical_cameras`).
 
+## Laser points
+
+A laser-line pixel `u` seen by rig camera `k` lies on the viewing ray and on
+the camera's laser plane `nᵀp + d = 0`, which fixes one point. The point
+solves `F(p; u, θ, n, d) = [π(p; θ) − u; nᵀp + d] = 0` (`vision_mvg::laser`):
+the ray's intersection `p = t b`, `t = −d / (nᵀb)`, is the start, polished by
+Newton steps on `F` to 1e-9 px so the forward model holds exactly (Brown–
+Conrady undistortion is iterative; the forward projection is closed form).
+`t ≤ 0` (the plane behind the camera) and `|nᵀb| ≤ 1e-9` (a grazing ray) are
+typed errors; the incidence `asin|nᵀb|` is reported. Rays beyond 90° from the
+axis (a fisheye) need nothing special: `p` is a 3-vector throughout.
+
+First order, with `A = [∂π/∂p; nᵀ]` (3×3, camera frame):
+
+```text
+∂p/∂u = A⁻¹ [I₂; 0]      ∂p/∂θ = −A⁻¹ [∂π/∂θ; 0]
+∂p/∂n = −A⁻¹ [0; pᵀ]     ∂p/∂d = −A⁻¹ [0; 1]
+```
+
+`q = R p + t` (`rig_se3_cam = (R, t)`) is the rig-frame point. The camera's
+extrinsic is perturbed as `cam_se3_rig · Exp(ω, v)` (the tangent of the
+export's covariance), which moves `q` by `[q]ₓ ω − v`. With the calibration's
+covariance `Σ_c` over the coordinates it lists (camera `θ`, plane, extrinsic,
+all with their correlations) and the pixels' stated `Σ_u`,
+
+```text
+Σ_q = J_c Σ_c J_cᵀ + blockdiag(J_u Σ_u J_uᵀ)
+```
+
+over all points of a call (the calibration is shared, so they are
+correlated). The plane's normal enters through its three components; its
+covariance is rank 2 (⟂ `n`), so the unconstrained derivative is exact to
+first order. The σ is conditional on what the calibration held fixed, and the
+pixel noise is the laser-peak detector's, stated. Cost `O(N² |c|)`, `3N×3N`
+memory.
+
+**Evidence.** The derivatives against central differences (camera fields,
+renormalised plane, camera 1's extrinsic tangent, pixel) agree to 3e-8
+relative. Monte Carlo in parameter space (4000 draws of the camera, plane and
+extrinsic from a synthetic `Σ_c` with camera-plane correlations, a rank-2
+plane block, and fresh pixels): per-point 3×3 sample against stated, relative
+Frobenius error 0.015–0.036 (gate 0.08), a cross block 0.021 (gate 0.1); the
+pixel-only variant 0.013–0.034; dropping the camera×plane cross terms moves
+the stated σ by 0.23. End to end (`tests/laser_uncertainty.rs`, 300
+calibrations of a laserline device from 0.3 px pixels, eight plane points at
+0.1 px): depth scatter over stated σ 1.02 (gate 0.85–1.15), the length between
+two points 0.99 (gate 0.8–1.25); the σ from the pixels alone is 0.017 mm
+against 4.7 mm.
+
 ## Identifiability and degeneracies
 
 - **Pure rotation** (`t = 0`): `E = 0` — `decompose_essential` rejects it;

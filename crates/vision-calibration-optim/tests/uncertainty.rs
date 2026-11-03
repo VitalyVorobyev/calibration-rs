@@ -11,17 +11,16 @@ use nalgebra::{DMatrix, DVector, Matrix2, Translation3, UnitQuaternion, Vector2,
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
     BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionParams, FxFyCxCy,
-    Iso3, NoMeta, ParameterCovariance, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3,
-    RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams, Uncertainty, Vec2, View,
-    make_pinhole_camera, pinhole_camera_params,
+    Iso3, LaserPlane, NoMeta, ParameterCovariance, PinholeCamera, PlanarDataset, ProjectionParams,
+    Pt2, Pt3, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams, Uncertainty, Vec2,
+    View, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
-    LaserPlane, LaserlineMeta, LaserlineParams, LaserlineSolveOptions, LaserlineView,
-    PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
-    RigExtrinsicsSolveOptions, RobotPoseMeta, RobustLoss, apply_robot_delta, optimize_handeye,
-    optimize_laserline, optimize_planar_intrinsics, optimize_rig_extrinsics,
-    projection_uncertainty,
+    LaserlineMeta, LaserlineParams, LaserlineSolveOptions, LaserlineView, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobotPoseMeta,
+    RobustLoss, apply_robot_delta, optimize_handeye, optimize_laserline,
+    optimize_planar_intrinsics, optimize_rig_extrinsics, projection_uncertainty,
 };
 
 const RUNS: u64 = 200;

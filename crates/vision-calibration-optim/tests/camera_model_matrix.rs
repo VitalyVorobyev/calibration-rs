@@ -8,11 +8,11 @@
 use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
     CameraModel, CameraParams, CorrespondenceView, DistortionKind, DistortionParams, FxFyCxCy,
-    Iso3, Pt2, Pt3, Real, RigView, RigViewObs, SensorKind, SensorParams, View,
+    Iso3, LaserPlane, Pt2, Pt3, Real, RigView, RigViewObs, SensorKind, SensorParams, View,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
-    LaserPlane, LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions,
+    LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions,
     RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
     RigLaserlineDataset, RigLaserlineSolveOptions, RigLaserlineUpstream, RigLaserlineView,
     RobotPoseMeta, optimize_handeye, optimize_laserline, optimize_rig_handeye_laserline,

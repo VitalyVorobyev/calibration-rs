@@ -114,3 +114,35 @@ Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3
 A rig exported without a covariance still gives refined points, and the uncertainty says why it has none rather than reporting the observations' share alone.
 
 **Why the calibration's share matters.** Take a stereo pair calibrated from eight views at 0.3 px noise, and ten points 0.6 to 0.8 m ahead measured with 0.3 px noise. Over 60 repeated calibrations the depth of a point scatters by 6.7 mm (root mean square of the reported σ: 6.7 mm, scatter over reported 0.95). The σ from the observations' noise alone is 2.1 mm, and the scatter is 3.2 times it: a camera taken as exact would report error bars three times too small.
+
+## Laser Points with σ
+
+A laser line seen by a calibrated camera, with its plane known, gives a 3D point per line pixel: the viewing ray meets the plane. `mvg::laser::triangulate_laser` takes the rig, which carries each camera's laser plane (an export of a laser workflow gives such a rig from `calibrated_rig()`), and the laser pixels with their stated noise:
+
+```rust
+use vision_calibration::core::{PointCovariance, Pt2};
+use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
+use vision_calibration::mvg::metrology::{PointSet, distance};
+
+// The laser-peak detector's noise, 0.1 px.
+let noise = PointCovariance::isotropic(0.1)?;
+let observations: Vec<LaserObservation> = laser_pixels
+    .iter()
+    .map(|&pixel: &Pt2| LaserObservation::new(0, pixel, noise))
+    .collect();
+let found = triangulate_laser(&rig, &observations)?;
+println!("{:?} seen at {:.0}°", found.points[0].point, found.points[0].incidence_deg);
+
+// The joint covariance feeds the measurements.
+let set = PointSet::from_laser_triangulation(&found)?;
+let length = distance(&set, 0, observations.len() - 1)?;
+println!("{:.3} m ± {:.3} mm", length.value, length.sigma * 1e3);
+```
+
+The points are in the rig frame (the single camera's own frame for a laserline device). The pixel goes through its camera's model, so distortion, fisheye (beyond 90° from the axis) and tilted sensors need no separate undistortion; a ray parallel to the plane, or meeting it behind the camera, is an error that names the observation. `incidence_deg` is the angle between the ray and the plane: depth is ill-determined as it nears zero.
+
+**The covariance** has two sources, as for triangulation: the pixels' noise, and the calibration's, here the camera's parameters, the laser plane and the camera's pose in the rig, *with their correlations* as the calibration estimated them together. Each pixel fixes its point through $\pi(p;\theta) = u$ and $n^\top p + d = 0$, so the point moves with the pixel, the camera, the plane and the pose by the implicit-function derivatives of those two equations, computed exactly from the camera model. Every point of a call shares the calibration, so the points are correlated and `cross_covariance(i, j)` gives the block between two. The covariance is conditional on what the calibration held fixed (a plane or camera it did not estimate counts as exact), and the pixel noise is the detector's, stated by you. The cost grows as the square of the number of points times the number of calibration parameters, with a dense covariance over the coordinates.
+
+A rig whose covariance lists none of an observing camera's intrinsics, distortion or sensor parameters (a laser plane fitted with the cameras held fixed) gives points whose uncertainty says it is unavailable, rather than a σ from the pixels alone. A rig without a covariance does the same.
+
+**Why the calibration's share matters.** Take a laserline device calibrated from six views at 0.3 px noise, and eight points of the plane 0.4 to 0.6 m ahead measured with 0.1 px noise. Over 300 repeated calibrations the depth of a point scatters by 1.02 times the reported σ (4.7 mm, root mean square), and the length between the first and last point by 0.99 times the σ that `metrology` derives from the joint covariance. The σ from the pixels alone is 0.017 mm: a plane and camera taken as exact would report error bars hundreds of times too small.

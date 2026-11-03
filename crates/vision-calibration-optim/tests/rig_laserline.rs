@@ -8,12 +8,12 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Unit, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy, Pinhole,
-    ProjectionParams, Pt3, Real, ScheimpflugParams, SensorParams,
+    BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy,
+    LaserPlane, Pinhole, ProjectionParams, Pt3, Real, ScheimpflugParams, SensorParams,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, LaserPlane, RigLaserlineDataset, RigLaserlineSolveOptions,
-    RigLaserlineUpstream, RigLaserlineView, optimize_rig_laserline,
+    BackendSolveOptions, RigLaserlineDataset, RigLaserlineSolveOptions, RigLaserlineUpstream,
+    RigLaserlineView, optimize_rig_laserline,
 };
 
 fn make_target_points() -> Vec<Pt3> {

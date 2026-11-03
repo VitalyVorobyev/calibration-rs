@@ -1265,7 +1265,7 @@
           "type": "object"
         },
         {
-          "description": "The result depends on a calibration that has no covariance, so a\ncovariance from the result's own observations would leave out the\ncalibration's share.",
+          "description": "The result depends on a calibration that has no covariance, or none\nfor the cameras it uses (a laser calibration that held the cameras'\nintrinsics fixed), so a covariance from the result's own observations\nwould leave out the calibration's share.",
           "properties": {
             "kind": {
               "const": "calibration_without_covariance",

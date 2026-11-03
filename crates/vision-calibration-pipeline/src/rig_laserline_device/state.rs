@@ -1,7 +1,7 @@
 //! Intermediate state for rig laserline calibration.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_optim::LaserPlane;
+use vision_calibration_core::LaserPlane;
 
 /// Intermediate state for rig laserline calibration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

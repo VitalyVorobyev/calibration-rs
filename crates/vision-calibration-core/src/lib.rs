@@ -106,10 +106,10 @@ pub use models::{FixedParams, INTRINSICS_PARAM_NAMES};
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
     CalibratedRig, CorrespondenceView, FeatureResidualHistogram, FrameKind, FrameRef,
-    ImageManifest, LaserFeatureResidual, LaserLineTrace, NoiseLevel, ParameterCovariance,
-    PerFeatureResiduals, PixelRect, PointCovariance, REPROJECTION_HISTOGRAM_EDGES_PX,
-    ReprojectionStats, ResidualKind, ResidualNoise, TargetFeatureResidual, Uncertainty,
-    UncertaintyUnavailable, ViewCovariance, stated_covariance,
+    ImageManifest, LaserFeatureResidual, LaserLineTrace, LaserPlane, NoiseLevel,
+    ParameterCovariance, PerFeatureResiduals, PixelRect, PointCovariance,
+    REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, ResidualKind, ResidualNoise,
+    TargetFeatureResidual, Uncertainty, UncertaintyUnavailable, ViewCovariance, stated_covariance,
 };
 pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 

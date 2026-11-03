@@ -25,8 +25,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   equation `n · p + d = 0` with any nonzero `n` and divides both by `|n|`.
   The fields are private: read them with `normal()` and `distance()`.
 
+- **`LaserPlane` moved to `vision_calibration::core`** (breaking). It is
+  no longer in `vision_calibration::optim`; import it from `core`. Its JSON
+  is unchanged, and so is every export.
+- **`UncertaintyUnavailable::CalibrationWithoutCovariance` also means a
+  calibration whose covariance omits the cameras a result uses** (a laser
+  calibration that held the cameras' intrinsics fixed), not only one without
+  a covariance.
+
 ### Added
 
+- **`mvg::laser`: laser points with their covariance.**
+  `triangulate_laser` takes a `CalibratedRig` that carries each camera's laser
+  plane and the laser pixels (each with its stated noise), and returns the
+  points in the rig frame with the joint covariance of the pixels, the
+  camera, the plane and the camera's extrinsic (their correlations
+  included), exact to first order. `PointSet::from_laser_triangulation`
+  feeds it to the measurements. `CalibratedRig::with_laser_planes` attaches
+  the planes; the laser workflows' exports (`laserline_device`,
+  `rig_laserline_device`, `rig_handeye_laserline`) give a rig with their
+  planes from `calibrated_rig()`.
 - **`mvg::pose`: the pose of a known object with its covariance.**
   `estimate_pose` takes known object points with their pixels in one or
   several rig cameras (each with its stated noise) and returns the pose in the

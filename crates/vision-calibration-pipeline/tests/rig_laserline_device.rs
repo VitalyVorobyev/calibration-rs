@@ -5,10 +5,12 @@
 //! laser-plane recovery within tight tolerance.
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Unit, Vector3};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
 };
-use vision_calibration_optim::{LaserPlane, RigLaserlineDataset, RigLaserlineView};
+use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineView};
+use vision_calibration_pipeline::common::CalibratedCameras;
 use vision_calibration_pipeline::rig_laserline_device::{
     RigLaserlineDeviceExport, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
     RigUpstreamCalibration, run_calibration,
@@ -208,6 +210,12 @@ fn pipeline_converges_rig_laserline() {
         let d_err = (gt.distance() - got.distance()).abs();
         assert!(ang < 0.01, "cam{cam_idx} normal error {ang:.4} rad");
         assert!(d_err < 0.01, "cam{cam_idx} distance error {d_err:.4}");
+    }
+
+    // The export's calibration carries each camera's plane.
+    let rig = export.calibrated_rig().unwrap();
+    for (i, plane) in export.laser_planes_cam.iter().enumerate() {
+        assert_eq!(rig.laser_plane(i).unwrap().distance(), plane.distance());
     }
 
     // Reprojection stats present.

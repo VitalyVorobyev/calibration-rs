@@ -35,6 +35,7 @@
 //! ```
 
 use crate::bundle_adjust::BundleAdjustment;
+use crate::laser::LaserTriangulation;
 use crate::triangulation::Triangulation;
 use crate::{MvgError, Result};
 use nalgebra::{DMatrix, DVector, RealField, SMatrix, SVector, SymmetricEigen, Vector3};
@@ -133,6 +134,13 @@ impl PointSet {
     pub fn from_triangulation(triangulation: &Triangulation) -> Result<Self> {
         let points = triangulation.points.iter().map(|p| p.point).collect();
         Self::from_uncertainty(points, &triangulation.uncertainty)
+    }
+
+    /// The points of a laser triangulation (rig frame) with their joint
+    /// covariance. As for [`from_triangulation`](Self::from_triangulation).
+    pub fn from_laser_triangulation(laser: &LaserTriangulation) -> Result<Self> {
+        let points = laser.points.iter().map(|p| p.point).collect();
+        Self::from_uncertainty(points, &laser.uncertainty)
     }
 
     /// The points of a bundle adjustment with their joint covariance, in the

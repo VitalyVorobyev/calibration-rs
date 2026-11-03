@@ -23,12 +23,13 @@ use crate::ir::{
 use crate::params::camera::{
     CameraBlockInput, add_camera_blocks, camera_block_values, camera_spec, unpack_camera,
 };
-use crate::params::laser_plane::LaserPlane;
+use crate::params::laser_plane::{distance_to_dvec, normal_to_dvec, plane_from_split_dvec};
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use crate::uncertainty;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
     CameraFix, CameraModel, CameraModelSpec, CameraParams, Iso3, Pt2, Uncertainty, View,
 };
@@ -244,8 +245,8 @@ pub fn compute_laserline_stats(
     }
 
     let camera = LaserCameraModel::new(&params.camera)?;
-    let plane_normal = params.plane.normal_to_dvec();
-    let plane_distance = params.plane.distance_to_dvec();
+    let plane_normal = normal_to_dvec(&params.plane);
+    let plane_distance = distance_to_dvec(&params.plane);
 
     let mut per_view_reproj_errors = Vec::with_capacity(dataset.len());
     let mut per_view_laser_errors = Vec::with_capacity(dataset.len());
@@ -430,8 +431,8 @@ impl LaserCameraModel {
     ) {
         let (pose, camera) = slot;
         let pose_vec = iso3_to_se3_dvec(cam_se3_target);
-        let normal = plane.normal_to_dvec();
-        let distance = plane.distance_to_dvec();
+        let normal = normal_to_dvec(plane);
+        let distance = distance_to_dvec(plane);
         let mut points = Vec::with_capacity(pixels.len());
         for (feature, px) in pixels.iter().enumerate() {
             let point = target_plane_point(&self.camera, cam_se3_target, px);
@@ -590,7 +591,7 @@ fn extract_solution(
         .get(&distance_name)
         .ok_or_else(|| Error::numerical(format!("missing {} in solution", distance_name)))?;
 
-    let plane = LaserPlane::from_split_dvec(plane_normal.as_view(), plane_distance.as_view())?;
+    let plane = plane_from_split_dvec(plane_normal.as_view(), plane_distance.as_view())?;
 
     let labels: Vec<_> = ir
         .params
@@ -722,8 +723,8 @@ fn build_laserline_ir(
         distance_fixed,
         None,
     );
-    initial_map.insert(normal_name.to_owned(), initial.plane.normal_to_dvec());
-    initial_map.insert(distance_name.to_owned(), initial.plane.distance_to_dvec());
+    initial_map.insert(normal_name.to_owned(), normal_to_dvec(&initial.plane));
+    initial_map.insert(distance_name.to_owned(), distance_to_dvec(&initial.plane));
 
     // Add residual blocks
     for (view_idx, view) in dataset.iter().enumerate() {

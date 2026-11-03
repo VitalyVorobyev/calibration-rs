@@ -11,10 +11,11 @@ use crate::rig_laserline_device::{
 };
 use crate::session::CalibrationSession;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{CameraModelSpec, CameraParams};
 use vision_calibration_optim::{
-    BackendSolveOptions, HandeyeMode, LaserPlane, RigHandeyeLaserlineParams,
-    RigHandeyeLaserlineSolveOptions, optimize_rig_handeye_laserline,
+    BackendSolveOptions, HandeyeMode, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
+    optimize_rig_handeye_laserline,
 };
 
 use super::problem::{

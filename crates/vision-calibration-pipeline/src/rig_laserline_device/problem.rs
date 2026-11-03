@@ -3,13 +3,14 @@
 use crate::Error;
 use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraParams, FeatureResidualHistogram, Iso3, NoMeta, PerFeatureResiduals, RigDataset, RigView,
     RigViewObs, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    LaserPlane, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
+    LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
     compute_rig_laserline_feature_residuals,
 };
 
