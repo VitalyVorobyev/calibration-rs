@@ -6057,6 +6057,7 @@ version = "0.14.0"
 dependencies = [
  "nalgebra 0.34.2",
  "num-dual 0.12.1",
+ "serde",
  "thiserror 2.0.21",
  "vision-calibration-core",
  "vision-calibration-optim",

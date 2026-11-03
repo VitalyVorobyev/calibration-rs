@@ -13,6 +13,7 @@ use crate::bearing::{bearing, camera_model};
 use crate::types::TriangulatedPoint;
 use crate::{MvgError, Result};
 use nalgebra::SMatrix;
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CalibratedRig, CameraModel, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Uncertainty,
     UncertaintyUnavailable, Vec3,
@@ -26,7 +27,7 @@ use vision_geometry::triangulation::triangulate_point_linear;
 
 /// One pixel of a point: seen by rig camera `camera` at capture `capture`,
 /// with its noise.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RigObservation {
     /// Index into the capture poses (`rig_se3_world`) the call takes.
     pub capture: usize,
@@ -56,7 +57,7 @@ impl RigObservation {
 }
 
 /// The points of one [`triangulate`] call and their joint uncertainty.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct Triangulation {
     /// One point per track, in the world frame, refined, with its

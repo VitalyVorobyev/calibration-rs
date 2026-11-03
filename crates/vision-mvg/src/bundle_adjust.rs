@@ -29,6 +29,7 @@
 use crate::triangulation::{RigObservation, sub_covariance, track_views, with_context};
 use crate::{MvgError, Result};
 use nalgebra::{DVector, Matrix6, RealField};
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CalibratedRig, Iso3, Mat3, ParameterCovariance, Pt3, Real, Uncertainty,
 };
@@ -39,7 +40,7 @@ use vision_calibration_optim::{RobustLoss, SolveReport};
 
 /// How the reconstruction's scale is fixed. There is no default: reprojection
 /// error alone cannot tell a large scene far away from a small one near.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Scale {
     /// The rig's extrinsics fix it: the baseline between two cameras with

@@ -20,6 +20,15 @@ let disp = match_block(&left, &right, &BlockMatchOptions {
 // disp.get(x, y) is x_left − x_right in pixels, or NaN where the matcher abstains.
 ```
 
+```python
+from vision_calibration import mvg
+
+left = rect.rectify_image(0, raw_left, 640, 480)     # (H, W) uint8 arrays
+right = rect.rectify_image(1, raw_right, 640, 480)
+disp = mvg.match_block(left, right, mvg.BlockMatchOptions(num_disparities=64, block_size=9))
+# disp is a (H, W) float32 array: x_left − x_right in pixels, NaN where the matcher abstains.
+```
+
 `GrayImage::new(width, height, data)` wraps row-major 8-bit pixels. The options and their defaults:
 
 | Option | Default | Meaning |

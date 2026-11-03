@@ -12,6 +12,7 @@ mod camera;
 mod dataset;
 mod detect;
 mod errors;
+mod mvg;
 mod session;
 mod validation;
 use validation::{reject_non_finite, value_err};
@@ -826,5 +827,6 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     session::register(m)?;
     dataset::register(m)?;
     detect::register(m)?;
+    mvg::register(m)?;
     Ok(())
 }

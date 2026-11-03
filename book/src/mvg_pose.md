@@ -18,6 +18,20 @@ let rel = recover_relative_pose(&rig, [0, 0], &matches)?;
 // rel.scene            : parallax, pure-rotation and planarity diagnostics
 ```
 
+In Python the same call takes the calibration result itself, and the matches are `mvg.PixelMatch` values:
+
+```python
+import vision_calibration as vc
+from vision_calibration import mvg
+
+noise = mvg.reprojection_noise(result, camera=0)   # the calibration's own level
+matches = [mvg.PixelMatch(p1, noise, p2, noise) for p1, p2 in pixel_pairs]
+rel = mvg.recover_relative_pose(result, (0, 1), matches)
+rel.second_se3_first   # 4x4 numpy matrix, unit translation
+rel.points             # list of TriangulatedPoint
+rel.scene              # SceneDiagnostics
+```
+
 ### Stating the Pixel Noise
 
 Every pixel of a `PixelMatch` carries its covariance (a `PointCovariance`, px²). The noise is stated, never guessed, and there are three ways to state it:
@@ -76,11 +90,18 @@ let robust = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts)?;
 // robust.second_se3_first, robust.essential, robust.inliers (indices), robust.inlier_rms
 ```
 
+```python
+ransac = mvg.RansacOptions(thresh=3.0, min_inliers=12)    # thresh in σ of the stated noise
+robust = mvg.recover_relative_pose_robust(result, (0, 1), matches, ransac)
+estimate = mvg.estimate_essential(result, (0, 1), matches, ransac)
+robust.inliers, robust.inlier_rms
+```
+
 **The threshold is in σ**: the residual is the weighted Sampson error above, so `3.0` keeps about 99.7 % of the inliers when the noise is Gaussian and as stated, independent of the focal length and of the camera model. The stated noise is the scale: understating the pixel noise by a factor of two doubles every residual and rejects good matches. There is no default threshold: `RansacOptions::new(thresh)` requires one, and a threshold that is not finite and positive is an error. The run is deterministic for a given `seed` field.
 
 `RansacOptions` is defined in `vision-calibration-core`, which the facade does not re-export; add that crate to your dependencies to name it.
 
-`estimate_essential` returns the essential matrix with its inlier indices and the RMS of the weighted Sampson error over the inliers (in σ, about 1 when the stated noise describes the pixels); `estimate_homography` does the same for a homography (4-point DLT with symmetric transfer error, on plain image points). `recover_relative_pose_robust` selects the inliers first and disambiguates the four decompositions of the essential matrix with cheirality on the inliers only, so outliers cannot corrupt the positive-depth vote.
+`estimate_essential` returns the essential matrix with its inlier indices and the RMS of the weighted Sampson error over the inliers (in σ, about 1 when the stated noise describes the pixels); `estimate_homography` does the same for a homography (4-point DLT with symmetric transfer error, on plain image points). In Python, `mvg.estimate_homography(correspondences, mvg.RansacOptions(thresh=...))` takes an `(N, 2, 2)` array (or a list of `((x1, y1), (x2, y2))`) and returns the `homography` `(3, 3)`, `inliers` and `inlier_rms`; its threshold is in pixels. `recover_relative_pose_robust` selects the inliers first and disambiguates the four decompositions of the essential matrix with cheirality on the inliers only, so outliers cannot corrupt the positive-depth vote.
 
 ## Triangulating Points from N Views
 
@@ -103,6 +124,19 @@ if let Some(cov) = found.point_covariance(0) {
     // The 3×3 covariance in m²; the depth's σ along the world z axis.
     println!("σ_z = {:.2} mm", cov[(2, 2)].sqrt() * 1e3);
 }
+```
+
+```python
+import numpy as np
+
+noise = vc.PointCovariance.isotropic(0.3)   # stated per pixel
+track = [
+    mvg.RigObservation(0, 0, pixel_in_camera_0, noise),
+    mvg.RigObservation(0, 1, pixel_in_camera_1, noise),
+]
+found = mvg.triangulate(result, np.eye(4), [track])   # rig_se3_world: (4, 4) or (K, 4, 4)
+found.points[0].point, found.points[0].parallax_deg
+cov = found.point_covariance(0)                       # (3, 3) in m², or None
 ```
 
 Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]`, so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track.
@@ -137,6 +171,14 @@ println!("{:?} seen at {:.0}°", found.points[0].point, found.points[0].incidenc
 let set = PointSet::from_laser_triangulation(&found)?;
 let length = distance(&set, 0, observations.len() - 1)?;
 println!("{:.3} m ± {:.3} mm", length.value, length.sigma * 1e3);
+```
+
+```python
+observations = [mvg.LaserObservation(0, px, noise) for px in laser_pixels]
+found = mvg.triangulate_laser(result, observations)   # a laser calibration's result
+points = mvg.PointSet.from_laser_triangulation(found)
+length = mvg.distance(points, 0, len(observations) - 1)
+print(f"{length.value:.3f} m ± {length.sigma * 1e3:.3f} mm")
 ```
 
 The points are in the rig frame (the single camera's own frame for a laserline device). The pixel goes through its camera's model, so distortion, fisheye (beyond 90° from the axis) and tilted sensors need no separate undistortion; a ray parallel to the plane, or meeting it behind the camera, is an error that names the observation. `incidence_deg` is the angle between the ray and the plane: depth is ill-determined as it nears zero.

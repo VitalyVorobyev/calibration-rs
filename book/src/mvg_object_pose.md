@@ -24,6 +24,25 @@ if let Some(cov) = pose.pose_covariance() {
 }
 ```
 
+```python
+import vision_calibration as vc
+from vision_calibration import mvg
+
+noise = vc.PointCovariance.isotropic(0.3)   # stated per pixel
+observations = [
+    mvg.PoseObservation(camera=0, object=p, pixel=px, noise=noise)
+    for p, px in zip(board, pixels)
+]
+pose = mvg.estimate_pose(result, observations)
+pose.rig_se3_object        # 4x4 numpy matrix
+pose.pose_covariance()     # 6x6 over [rx ry rz tx ty tz], rad and m; None if unavailable
+
+# RANSAC in σ and a robust loss for outliers:
+robust = mvg.estimate_pose(
+    result, observations, ransac=mvg.RansacOptions(thresh=3.0), loss=vc.robust_huber(2.0)
+)
+```
+
 An observation names the rig camera that saw the point (`camera`), so a rig of several cameras that see the same object contributes all of them to one pose. `pose.inliers` indexes the observations the pose used (all of them without RANSAC), and `pose.reprojection_rms_px` is the RMS pixel error over those.
 
 ## Steps

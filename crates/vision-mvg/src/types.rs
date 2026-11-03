@@ -4,6 +4,7 @@
 //! estimation: [`Correspondence2D`] for the uncalibrated estimators and
 //! [`PixelMatch`] for the calibrated two-view functions.
 
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{Mat3, PointCovariance, Pt2, Pt3, Real};
 
 /// Essential matrix (3×3, rank-2, encodes calibrated epipolar geometry).
@@ -56,7 +57,7 @@ impl Correspondence2D {
 /// [`PointCovariance::isotropic`] (one σ) or
 /// [`CalibratedRig::reprojection_noise`](vision_calibration_core::CalibratedRig::reprojection_noise)
 /// (the calibration's level).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PixelMatch {
     /// The pixel in the first camera.
     pub pt1: Pt2,
@@ -81,7 +82,7 @@ impl PixelMatch {
 }
 
 /// A triangulated 3D point with quality diagnostics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TriangulatedPoint {
     /// Reconstructed 3D position, in the frame the triangulation's poses
     /// define (the world frame, or the first camera's frame for a relative

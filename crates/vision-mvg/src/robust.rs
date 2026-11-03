@@ -14,12 +14,13 @@ use crate::residuals;
 use crate::types::{Correspondence2D, PixelMatch};
 use crate::{MvgError, Result};
 use nalgebra::Matrix2;
+use serde::Serialize;
 use vision_calibration_core::{
     CalibratedRig, Estimator, Iso3, Mat3, RansacOptions, Real, Vec3, ransac_fit,
 };
 
 /// Result of robust essential matrix estimation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EssentialEstimate {
     /// The estimated essential matrix: `b2ᵀ E b1 = 0` on the bearings of
     /// matched pixels.
@@ -43,7 +44,7 @@ pub struct HomographyEstimate {
 }
 
 /// Result of robust relative pose recovery.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RobustRelativePose {
     /// Pose of the first camera's frame in the second's (`second_se3_first`),
     /// with a unit-norm translation: the scale is not observable.

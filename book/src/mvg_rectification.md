@@ -18,6 +18,22 @@ let right = rect.rectified_pixel(1, &raw_right).unwrap();
 let disparity = left.x - right.x; // positive for a point ahead of the pair
 ```
 
+```python
+from vision_calibration import mvg
+
+rect = mvg.rectify(result, (0, 1))               # k_rect=..., scale=... as RectifyOptions
+left = rect.rectified_pixel(0, raw_left)         # (x, y), or None
+right = rect.rectified_pixel(1, raw_right)
+disparity = left[0] - right[0]                   # positive for a point ahead of the pair
+point = rect.point(left, disparity)              # (3,) in the left camera's frame
+cov = rect.disparity_covariance(left, disparity, sigma_d=0.2)   # (3, 3), m²
+q = rect.disparity_to_depth()                    # (4, 4)
+rectified = rect.rectify_image(0, raw_image, 640, 480)   # (480, 640) uint8
+found = rect.triangulate(result, [(left, disparity)], noise)  # with the calibration's σ
+```
+
+`StereoRectification` is an opaque object in Python: it is rebuilt from a calibration with `mvg.rectify`, not saved. Images are `(H, W)` uint8 numpy arrays.
+
 `cameras = [left, right]` names two different cameras of the rig (any pair: the reference camera need not be one of them). `RectifyOptions` has two settings. By default the rectified intrinsics are the mean of the two cameras' `fx`, `fy`, `cx`, `cy`, multiplied by `scale` (1 by default; 0.5 gives a half-size rectified image); `k_rect` sets them explicitly. Both rectified cameras share them, which is what aligns the rows.
 
 | Method | Meaning |

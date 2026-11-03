@@ -43,6 +43,8 @@ let X = triangulate_point_linear(&cam_se3_world, &bearings)?;
 
 Where `cam_se3_world` holds each view's `Iso3` pose and `bearings` the matching rays (any nonzero length). The calibrated entry point, `mvg::triangulation::triangulate`, builds the bearings from pixels through a `CalibratedRig`, refines the points and adds diagnostics and covariance; see [Pose Recovery and Triangulation](mvg_pose.md).
 
+In Python, `vision_calibration.mvg.triangulate` is the calibrated entry point; the raw linear solver is Rust only (numpy and OpenCV cover linear algebra on plain arrays).
+
 Deterministic two-view solvers, all free functions in per-topic modules:
 
 | Module | Functions |
