@@ -88,9 +88,10 @@ fn synthetic_laserline_calibration_smoke_test() {
     let target_center = Pt3::new(2.0 * grid_spacing, 2.0 * grid_spacing, 0.0);
     let target_center_cam = poses[0].transform_point(&target_center);
     let laser_plane = LaserPlane::new(
-        laser_normal,
+        (laser_normal).normalize(),
         -laser_normal_unit.dot(&target_center_cam.coords),
-    );
+    )
+    .unwrap();
 
     // Generate synthetic observations
     let mut views = Vec::new();
@@ -111,9 +112,9 @@ fn synthetic_laserline_calibration_smoke_test() {
 
         // Generate laser pixels from the laser/target plane intersection line.
         let mut laser_pixels = Vec::new();
-        let n_c = laser_plane.normal.as_ref();
+        let n_c = &laser_plane.normal().into_inner();
         let n_t = pose.rotation.inverse_transform_vector(n_c);
-        let d_t = n_c.dot(&pose.translation.vector) + laser_plane.distance;
+        let d_t = n_c.dot(&pose.translation.vector) + laser_plane.distance();
 
         let dir = Vector3::new(n_t.y, -n_t.x, 0.0);
         let dir_norm = dir.norm();
@@ -194,9 +195,10 @@ fn synthetic_laserline_calibration_smoke_test() {
 
     // Perturb laser plane
     let plane_init = LaserPlane::new(
-        laser_plane.normal.as_ref() * 1.2 + Vector3::new(0.05, -0.03, 0.02),
-        laser_plane.distance * 1.1,
-    );
+        (&laser_plane.normal().into_inner() * 1.2 + Vector3::new(0.05, -0.03, 0.02)).normalize(),
+        laser_plane.distance() * 1.1,
+    )
+    .unwrap();
 
     let initial = LaserlineParams::new(
         bc_camera(
@@ -246,7 +248,7 @@ fn synthetic_laserline_calibration_smoke_test() {
     assert!(fy_error < 0.06, "fy error {:.3}% > 6%", fy_error * 100.0);
 
     // Check laser plane converged (within 5 degrees)
-    let normal_dot = result.params.plane.normal.dot(&laser_plane.normal);
+    let normal_dot = result.params.plane.normal().dot(&laser_plane.normal());
     let normal_angle_deg = normal_dot.abs().acos().to_degrees();
 
     println!("Laser plane normal angle error: {:.2}°", normal_angle_deg);
@@ -315,9 +317,10 @@ fn synthetic_laserline_line_dist_normalized_converges() {
     let target_center = Pt3::new(2.0 * grid_spacing, 2.0 * grid_spacing, 0.0);
     let target_center_cam = poses[0].transform_point(&target_center);
     let laser_plane = LaserPlane::new(
-        laser_normal,
+        (laser_normal).normalize(),
         -laser_normal_unit.dot(&target_center_cam.coords),
-    );
+    )
+    .unwrap();
 
     let mut views = Vec::new();
     let mut used_poses = Vec::new();
@@ -334,9 +337,9 @@ fn synthetic_laserline_line_dist_normalized_converges() {
         }
 
         let mut laser_pixels = Vec::new();
-        let n_c = laser_plane.normal.as_ref();
+        let n_c = &laser_plane.normal().into_inner();
         let n_t = pose.rotation.inverse_transform_vector(n_c);
-        let d_t = n_c.dot(&pose.translation.vector) + laser_plane.distance;
+        let d_t = n_c.dot(&pose.translation.vector) + laser_plane.distance();
 
         let dir = Vector3::new(n_t.y, -n_t.x, 0.0);
         let dir_norm = dir.norm();
@@ -414,9 +417,10 @@ fn synthetic_laserline_line_dist_normalized_converges() {
         .collect();
 
     let plane_init = LaserPlane::new(
-        laser_plane.normal.as_ref() * 1.2 + Vector3::new(0.05, -0.03, 0.02),
-        laser_plane.distance * 1.1,
-    );
+        (&laser_plane.normal().into_inner() * 1.2 + Vector3::new(0.05, -0.03, 0.02)).normalize(),
+        laser_plane.distance() * 1.1,
+    )
+    .unwrap();
 
     let initial = LaserlineParams::new(
         bc_camera(intrinsics_init, distortion_init, SensorParams::Identity),
@@ -453,7 +457,7 @@ fn synthetic_laserline_line_dist_normalized_converges() {
     assert!(fx_error < 0.06, "fx error {:.3}% > 6%", fx_error * 100.0);
     assert!(fy_error < 0.06, "fy error {:.3}% > 6%", fy_error * 100.0);
 
-    let normal_dot = result.params.plane.normal.dot(&laser_plane.normal);
+    let normal_dot = result.params.plane.normal().dot(&laser_plane.normal());
     let normal_angle_deg = normal_dot.abs().acos().to_degrees();
 
     println!(
@@ -528,9 +532,10 @@ fn compare_point_plane_vs_line_dist() {
     let target_center = Pt3::new(2.0 * grid_spacing, 2.0 * grid_spacing, 0.0);
     let target_center_cam = poses[0].transform_point(&target_center);
     let laser_plane = LaserPlane::new(
-        laser_normal,
+        (laser_normal).normalize(),
         -laser_normal_unit.dot(&target_center_cam.coords),
-    );
+    )
+    .unwrap();
 
     let mut views = Vec::new();
     let mut used_poses = Vec::new();
@@ -547,9 +552,9 @@ fn compare_point_plane_vs_line_dist() {
         }
 
         let mut laser_pixels = Vec::new();
-        let n_c = laser_plane.normal.as_ref();
+        let n_c = &laser_plane.normal().into_inner();
         let n_t = pose.rotation.inverse_transform_vector(n_c);
-        let d_t = n_c.dot(&pose.translation.vector) + laser_plane.distance;
+        let d_t = n_c.dot(&pose.translation.vector) + laser_plane.distance();
 
         let dir = Vector3::new(n_t.y, -n_t.x, 0.0);
         let dir_norm = dir.norm();
@@ -625,9 +630,10 @@ fn compare_point_plane_vs_line_dist() {
         .collect();
 
     let plane_init = LaserPlane::new(
-        laser_plane.normal.as_ref() * 1.2 + Vector3::new(0.05, -0.03, 0.02),
-        laser_plane.distance * 1.1,
-    );
+        (&laser_plane.normal().into_inner() * 1.2 + Vector3::new(0.05, -0.03, 0.02)).normalize(),
+        laser_plane.distance() * 1.1,
+    )
+    .unwrap();
 
     let initial = LaserlineParams::new(
         bc_camera(intrinsics_init, distortion_init, SensorParams::Identity),
@@ -684,16 +690,16 @@ fn compare_point_plane_vs_line_dist() {
     let normal_angle_point = result_point
         .params
         .plane
-        .normal
-        .dot(&laser_plane.normal)
+        .normal()
+        .dot(&laser_plane.normal())
         .abs()
         .acos()
         .to_degrees();
     let normal_angle_line = result_line
         .params
         .plane
-        .normal
-        .dot(&laser_plane.normal)
+        .normal()
+        .dot(&laser_plane.normal())
         .abs()
         .acos()
         .to_degrees();

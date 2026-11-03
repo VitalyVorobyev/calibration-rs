@@ -474,7 +474,7 @@ impl LaserCameraModel {
 
         let target_normal = cam_se3_target.rotation * Vector3::z_axis().into_inner();
         let target_d = -target_normal.dot(&cam_se3_target.translation.vector);
-        let laser_normal = plane.normal.into_inner();
+        let laser_normal = plane.normal().into_inner();
         let direction = laser_normal.cross(&target_normal);
         if direction.norm() < 1.0e-12 {
             return None;
@@ -482,7 +482,7 @@ impl LaserCameraModel {
         let direction = direction.normalize();
         let origin = line_origin(
             &laser_normal,
-            plane.distance,
+            plane.distance(),
             &target_normal,
             target_d,
             &direction,
@@ -631,8 +631,8 @@ fn extract_solution(
 /// let result = optimize_laserline(&dataset, &initial, &opts, &backend_opts)?;
 /// println!(
 ///     "Laser plane: normal={:?}, distance={}",
-///     result.params.plane.normal,
-///     result.params.plane.distance
+///     result.params.plane.normal(),
+///     result.params.plane.distance()
 /// );
 /// ```
 pub fn optimize_laserline(
@@ -841,7 +841,8 @@ mod tests {
             iters: 8,
         };
         let poses = vec![Iso3::identity()];
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 0.0, 1.0)).normalize(), -0.5).unwrap();
         let initial = LaserlineParams::new(
             bc_camera(intrinsics, distortion, SensorParams::Identity),
             poses,
@@ -888,7 +889,8 @@ mod tests {
             cx: 512.0,
             cy: 384.0,
         };
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 0.0, 1.0)).normalize(), -0.5).unwrap();
         let opts = LaserlineSolveOptions::default();
 
         let untilted = LaserlineParams::new(
@@ -950,7 +952,8 @@ mod tests {
             nalgebra::Translation3::new(0.0, 0.0, 1.0),
             nalgebra::UnitQuaternion::identity(),
         );
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 1.0, 0.0), -0.1);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 1.0, 0.0)).normalize(), -0.1).unwrap();
         let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
 
         // Generate laser pixels by projecting line points to image space.
@@ -1054,14 +1057,15 @@ mod tests {
             nalgebra::UnitQuaternion::from_euler_angles(0.4, 0.05, 0.0),
         );
         // A laser plane cutting the target along a line near the image's top.
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.94, -0.34), 0.05);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 0.94, -0.34)).normalize(), 0.05).unwrap();
         let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
         let target_normal = cam_se3_target.rotation * nalgebra::Vector3::z();
         let target_d = -target_normal.dot(&cam_se3_target.translation.vector);
-        let direction = plane.normal.cross(&target_normal).normalize();
+        let direction = plane.normal().cross(&target_normal).normalize();
         let origin = line_origin(
-            &plane.normal,
-            plane.distance,
+            &plane.normal(),
+            plane.distance(),
             &target_normal,
             target_d,
             &direction,
@@ -1126,7 +1130,8 @@ mod tests {
         };
         let distortion = BrownConrady5::default();
         let sensor = ScheimpflugParams::default();
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 0.0, 1.0)).normalize(), -0.5).unwrap();
 
         let target_view = CorrespondenceView::new(
             vec![Pt3::new(0.0, 0.0, 0.0); 4],
@@ -1190,7 +1195,8 @@ mod tests {
             iters: 8,
         };
         let poses = vec![Iso3::identity()];
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 0.0, 1.0)).normalize(), -0.5).unwrap();
         let initial = LaserlineParams::new(
             bc_camera(intrinsics, distortion, SensorParams::Identity),
             poses,

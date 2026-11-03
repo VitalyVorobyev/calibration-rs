@@ -53,7 +53,11 @@ fn make_laser_plane(poses: &[Iso3]) -> LaserPlane {
     let laser_normal = Vector3::new(0.1, 0.05, 0.99).normalize();
     let target_center = Pt3::new(0.075, 0.06, 0.0);
     let target_center_cam = poses[0].transform_point(&target_center);
-    LaserPlane::new(laser_normal, -laser_normal.dot(&target_center_cam.coords))
+    LaserPlane::new(
+        (laser_normal).normalize(),
+        -laser_normal.dot(&target_center_cam.coords),
+    )
+    .unwrap()
 }
 
 fn laser_pixels_for_view<Sm>(
@@ -64,9 +68,9 @@ fn laser_pixels_for_view<Sm>(
 where
     Sm: SensorModel<f64>,
 {
-    let n_c = plane.normal.as_ref();
+    let n_c = &plane.normal().into_inner();
     let n_t = pose.rotation.inverse_transform_vector(n_c);
-    let d_t = n_c.dot(&pose.translation.vector) + plane.distance;
+    let d_t = n_c.dot(&pose.translation.vector) + plane.distance();
 
     let dir = Vector3::new(n_t.y, -n_t.x, 0.0);
     let dir_norm = dir.norm();
@@ -202,7 +206,7 @@ fn pipeline_converges_pinhole() {
     assert!(fx_err < 0.05, "fx error too large: {:.3}%", fx_err * 100.0);
     assert!(fy_err < 0.05, "fy error too large: {:.3}%", fy_err * 100.0);
 
-    let normal_dot = params.plane.normal.dot(&plane_gt.normal);
+    let normal_dot = params.plane.normal().dot(&plane_gt.normal());
     assert!(normal_dot.is_finite(), "plane normal dot is not finite");
     let normal_angle = normal_dot.abs().min(1.0).acos().to_degrees();
     assert!(

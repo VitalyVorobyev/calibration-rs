@@ -87,8 +87,13 @@ fn truth(scene: &Scene) -> Truth {
         }
     }
     for (i, plane) in gt.planes_cam.iter().enumerate() {
-        let n = plane.normal.into_inner();
-        for (name, value) in [("nx", n.x), ("ny", n.y), ("nz", n.z), ("d", plane.distance)] {
+        let n = plane.normal().into_inner();
+        for (name, value) in [
+            ("nx", n.x),
+            ("ny", n.y),
+            ("nz", n.z),
+            ("d", plane.distance()),
+        ] {
             parameters.insert(format!("{}plane.{name}", prefix(i)), value);
         }
     }

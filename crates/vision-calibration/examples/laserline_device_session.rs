@@ -53,7 +53,11 @@ fn make_laser_plane(poses: &[Iso3]) -> LaserPlane {
     let laser_normal = Vector3::new(0.1, 0.05, 0.99).normalize();
     let target_center = Pt3::new(0.075, 0.06, 0.0);
     let target_center_cam = poses[0].transform_point(&target_center);
-    LaserPlane::new(laser_normal, -laser_normal.dot(&target_center_cam.coords))
+    LaserPlane::new(
+        (laser_normal).normalize(),
+        -laser_normal.dot(&target_center_cam.coords),
+    )
+    .unwrap()
 }
 
 fn laser_pixels_for_view<Sm: SensorModel<f64>>(
@@ -61,9 +65,9 @@ fn laser_pixels_for_view<Sm: SensorModel<f64>>(
     plane: &LaserPlane,
     camera: &Camera<f64, Pinhole, BrownConrady5<f64>, Sm, FxFyCxCy<f64>>,
 ) -> Vec<Pt2> {
-    let n_c = plane.normal.as_ref();
+    let n_c = &plane.normal().into_inner();
     let n_t = pose.rotation.inverse_transform_vector(n_c);
-    let d_t = n_c.dot(&pose.translation.vector) + plane.distance;
+    let d_t = n_c.dot(&pose.translation.vector) + plane.distance();
 
     let dir = Vector3::new(n_t.y, -n_t.x, 0.0);
     let dir_norm = dir.norm();

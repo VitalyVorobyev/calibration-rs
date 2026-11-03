@@ -74,14 +74,14 @@ pub fn pixel_to_gripper_point(
 
     // Intersect with laser plane (in rig frame): n · (o + t d) + d_plane = 0.
     let plane = &laser_planes_rig[cam_idx];
-    let n = plane.normal.into_inner();
+    let n = plane.normal().into_inner();
     let denom = n.dot(&dir_rig);
     if denom.abs() < 1e-12 {
         return Err(Error::Numerical(
             "ray is parallel to laser plane; no intersection".to_string(),
         ));
     }
-    let t = -(n.dot(&origin_rig) + plane.distance) / denom;
+    let t = -(n.dot(&origin_rig) + plane.distance()) / denom;
     let p_rig: Vec3 = origin_rig + t * dir_rig;
 
     // Map rig-frame point into the gripper frame. The chain depends on mode:

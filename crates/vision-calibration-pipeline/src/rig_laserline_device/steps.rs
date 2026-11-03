@@ -97,7 +97,8 @@ pub fn step_init_with_seed(
             (None, None) => {
                 let mut planes = Vec::with_capacity(input.dataset.num_cameras);
                 for cam_idx in 0..input.dataset.num_cameras {
-                    let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2);
+                    let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2)
+                        .expect("a unit normal and a finite distance");
                     let plane = linear_plane_init(input, cam_idx).unwrap_or(default_plane);
                     planes.push(plane);
                 }
@@ -143,10 +144,7 @@ fn linear_plane_init(
         });
     }
     let estimate = LaserlinePlaneSolver::from_views(&views, &camera).ok()?;
-    Some(LaserPlane::new(
-        estimate.normal.into_inner(),
-        estimate.distance,
-    ))
+    LaserPlane::new(estimate.normal.into_inner(), estimate.distance).ok()
 }
 
 /// Optimize per-camera laser planes and express them in rig frame.

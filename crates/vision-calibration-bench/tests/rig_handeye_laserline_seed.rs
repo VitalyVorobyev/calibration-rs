@@ -119,7 +119,13 @@ fn design_planes(f: &Fixture) -> Vec<LaserPlane> {
     f.truth
         .planes_cam
         .iter()
-        .map(|p| LaserPlane::new(tilt * p.normal.into_inner(), p.distance + 0.005))
+        .map(|p| {
+            LaserPlane::new(
+                (tilt * p.normal().into_inner()).normalize(),
+                p.distance() + 0.005,
+            )
+            .unwrap()
+        })
         .collect()
 }
 
@@ -215,24 +221,6 @@ fn a_seed_that_does_not_fit_is_invalid_input_before_any_solve() {
             with_export(&|e| e.gripper_se3_rig = None),
         ),
         ("planes", seed(None, Some(planes[..1].to_vec()))),
-        (
-            "not finite",
-            seed(None, {
-                let mut p = planes.clone();
-                p[1].distance = f64::NAN;
-                Some(p)
-            }),
-        ),
-        (
-            "not 1",
-            seed(None, {
-                // A plane as JSON or Python can deliver it: the normal is not
-                // renormalized on the way in.
-                let mut p = planes.clone();
-                p[0].normal = nalgebra::Unit::new_unchecked(2.0 * p[0].normal.into_inner());
-                Some(p)
-            }),
-        ),
     ];
     for (what, bad) in cases {
         let mut s = session(&f);

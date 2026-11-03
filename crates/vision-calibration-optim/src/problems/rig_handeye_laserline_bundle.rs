@@ -965,13 +965,15 @@ mod tests {
         // Per-camera laser planes in cam frame — tilted w.r.t. z axis.
         let planes_cam_gt = vec![
             LaserPlane::new(
-                Unit::new_normalize(Vector3::new(0.1, 0.0, 1.0)).into_inner(),
+                (Unit::new_normalize(Vector3::new(0.1, 0.0, 1.0)).into_inner()).normalize(),
                 -0.30,
-            ),
+            )
+            .unwrap(),
             LaserPlane::new(
-                Unit::new_normalize(Vector3::new(-0.05, 0.05, 1.0)).into_inner(),
+                (Unit::new_normalize(Vector3::new(-0.05, 0.05, 1.0)).into_inner()).normalize(),
                 -0.35,
-            ),
+            )
+            .unwrap(),
         ];
 
         let params_gt = RigHandeyeLaserlineParams {
@@ -1028,8 +1030,8 @@ mod tests {
 
                 let d_target_cam = -n_target_cam.dot(&p_cam_org.coords);
                 let plane_c = &planes_cam_gt[cam_idx];
-                let n_laser = plane_c.normal.into_inner();
-                let d_laser = plane_c.distance;
+                let n_laser = plane_c.normal().into_inner();
+                let d_laser = plane_c.distance();
 
                 let v = n_laser.cross(&n_target_cam);
                 let v_norm = v.norm();

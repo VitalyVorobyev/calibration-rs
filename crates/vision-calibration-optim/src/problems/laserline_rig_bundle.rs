@@ -465,8 +465,8 @@ mod tests {
         // Ground-truth laser planes in rig frame: intersect target plane (z=d in cam frame)
         // but are distinct per camera. Planes pass through y=0 with slight tilt.
         let planes_rig_gt = [
-            LaserPlane::new(Vector3::new(0.0, 1.0, 0.1), -0.0),
-            LaserPlane::new(Vector3::new(0.0, 1.0, -0.1), -0.0),
+            LaserPlane::new((Vector3::new(0.0, 1.0, 0.1)).normalize(), -0.0).unwrap(),
+            LaserPlane::new((Vector3::new(0.0, 1.0, -0.1)).normalize(), -0.0).unwrap(),
         ];
         // Convert to each camera's frame for synthetic pixel generation.
         let planes_cam_gt: Vec<LaserPlane> = planes_rig_gt
@@ -503,8 +503,8 @@ mod tests {
                 // Synthetic laser pixels: intersect the GT plane with the target plane (z=0 in
                 // target frame) along x ∈ [-0.04, 0.04], solve y, project.
                 let plane = &planes_cam_gt[cam_idx];
-                let n = plane.normal.into_inner();
-                let d = plane.distance;
+                let n = plane.normal().into_inner();
+                let d = plane.distance();
                 let rot = cam_se3_target.rotation.to_rotation_matrix();
                 let trans = cam_se3_target.translation.vector;
                 // Point in camera frame = R * (x, y, 0) + t. The laser plane
@@ -555,12 +555,9 @@ mod tests {
         let initial_planes_cam = planes_cam_gt
             .iter()
             .map(|p| {
-                let n = p.normal.into_inner();
+                let n = p.normal().into_inner();
                 let perturbed = Unit::new_normalize(Vector3::new(n.x + 0.05, n.y, n.z));
-                LaserPlane {
-                    normal: perturbed,
-                    distance: p.distance + 0.01,
-                }
+                LaserPlane::new(perturbed.into_inner(), p.distance() + 0.01).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -602,9 +599,9 @@ mod tests {
 
         // Compare recovered rig-frame planes with ground truth.
         for (cam_idx, (gt, got)) in planes_rig_gt.iter().zip(&est.laser_planes_rig).enumerate() {
-            let n_dot = gt.normal.dot(&got.normal);
+            let n_dot = gt.normal().dot(&got.normal());
             let ang = n_dot.abs().min(1.0).acos();
-            let d_err = (gt.distance - got.distance).abs();
+            let d_err = (gt.distance() - got.distance()).abs();
             println!("camera {cam_idx}: plane ang={ang:.3e} d_err={d_err:.3e}");
             assert!(ang < 5e-3, "cam{cam_idx} normal error too large: {ang}");
             assert!(

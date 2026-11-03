@@ -129,15 +129,15 @@ fn observe(model: &CameraModel, cam_se3_target: &Iso3) -> CorrespondenceView {
 fn laser_plane() -> LaserPlane {
     let normal = Vector3::new(0.1, 0.9, 0.3).normalize();
     let centre = board_poses()[0].transform_point(&Pt3::new(0.12, 0.09, 0.0));
-    LaserPlane::new(normal, -normal.dot(&centre.coords))
+    LaserPlane::new((normal).normalize(), -normal.dot(&centre.coords)).unwrap()
 }
 
 /// Laser pixels of `plane` (camera frame) on the board at `cam_se3_target`,
 /// projected by `model`.
 fn laser_pixels(model: &CameraModel, cam_se3_target: &Iso3, plane: &LaserPlane) -> Vec<Pt2> {
     // The plane in target coordinates, `n_t · p + d_t = 0`.
-    let n_t = cam_se3_target.rotation.inverse() * plane.normal.into_inner();
-    let d_t = plane.distance + plane.normal.dot(&cam_se3_target.translation.vector);
+    let n_t = cam_se3_target.rotation.inverse() * plane.normal().into_inner();
+    let d_t = plane.distance() + plane.normal().dot(&cam_se3_target.translation.vector);
     (0..41)
         .filter_map(|i| {
             let x = i as Real * 0.006;
@@ -161,8 +161,8 @@ fn tight() -> BackendSolveOptions {
 }
 
 fn plane_errors(a: &LaserPlane, b: &LaserPlane) -> (Real, Real) {
-    let angle = a.normal.dot(&b.normal).abs().min(1.0).acos();
-    (angle, (a.distance - b.distance).abs())
+    let angle = a.normal().dot(&b.normal()).abs().min(1.0).acos();
+    (angle, (a.distance() - b.distance()).abs())
 }
 
 /// A tilt with zero distortion is a principal-point shift and a pose
@@ -258,9 +258,10 @@ fn laserline_solves_every_camera_model() {
                     camera(kind, &sensor, perturbed_k()),
                     poses.clone(),
                     LaserPlane::new(
-                        plane.normal.into_inner() + Vector3::new(0.02, -0.01, 0.01),
-                        plane.distance + 0.005,
-                    ),
+                        (plane.normal().into_inner() + Vector3::new(0.02, -0.01, 0.01)).normalize(),
+                        plane.distance() + 0.005,
+                    )
+                    .unwrap(),
                 )
                 .unwrap();
                 let opts = LaserlineSolveOptions {
@@ -350,9 +351,10 @@ fn rig_scene(kind: DistortionKind, sensor: &SensorParams) -> RigScene {
 
 fn perturbed_plane(plane: &LaserPlane) -> LaserPlane {
     LaserPlane::new(
-        plane.normal.into_inner() + Vector3::new(0.02, -0.01, 0.01),
-        plane.distance + 0.005,
+        (plane.normal().into_inner() + Vector3::new(0.02, -0.01, 0.01)).normalize(),
+        plane.distance() + 0.005,
     )
+    .unwrap()
 }
 
 #[test]

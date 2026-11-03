@@ -151,7 +151,7 @@ fn linear_plane_init(
 
     let estimate = LaserlinePlaneSolver::from_views(&views, camera)
         .map_err(|e| Error::numerical(format!("laser plane init failed: {e}")))?;
-    let plane = LaserPlane::new(estimate.normal.into_inner(), estimate.distance);
+    let plane = LaserPlane::new(estimate.normal.into_inner(), estimate.distance)?;
     Ok((plane, estimate.rmse))
 }
 
