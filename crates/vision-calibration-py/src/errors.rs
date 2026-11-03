@@ -2,7 +2,8 @@
 //! error types.
 //!
 //! The calibration error (`vision_calibration::Error`) keeps the package's
-//! established style: invalid input → `ValueError`, everything else →
+//! established style: invalid input, a capture whose views do not determine
+//! the intrinsics included, → `ValueError`; everything else →
 //! `RuntimeError`. The manifest runner's `RunError` and the folder sniffer's
 //! `SniffError` are typed exceptions that carry the Rust variant as `kind`,
 //! so a caller can branch on it; the runner's ask-user ambiguity is its own
@@ -50,15 +51,19 @@ pub(crate) fn fetch_err(err: vision_calibration::dataset::samples::FetchError) -
     }
 }
 
-/// Map a calibration error: input problems are `ValueError`, the rest
-/// `RuntimeError`. `context` prefixes the message.
+/// Map a calibration error: input problems, views that do not determine the
+/// intrinsics among them, are `ValueError`, the rest `RuntimeError`.
+/// `context` prefixes the message.
 pub(crate) fn calib_err(context: &str, err: vision_calibration::Error) -> PyErr {
     use vision_calibration::Error;
     let message = format!("{context}: {err}");
     match err {
         Error::InvalidInput { .. }
         | Error::InsufficientData { .. }
-        | Error::NotAvailable { .. } => PyValueError::new_err(message),
+        | Error::NotAvailable { .. }
+        | Error::Linear(vision_calibration::init::Error::DegenerateViews { .. }) => {
+            PyValueError::new_err(message)
+        }
         _ => PyRuntimeError::new_err(message),
     }
 }

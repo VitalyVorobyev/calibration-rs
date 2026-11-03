@@ -73,7 +73,8 @@ but they do not make up for a poor tilt or a small board.
 The focal length is measured by perspective: how the board's far edge
 shrinks against its near edge. A board facing the camera squarely shows
 none, and its distance and the focal length trade off exactly, so the
-initialization fails. A few degrees leave the focal length tens of pixels
+initialization fails (see [When the views cannot work](#when-the-views-cannot-work)).
+A few degrees leave the focal length tens of pixels
 uncertain. From about 15° on it is well determined, and more tilt helps
 little. Past 30° a large board no longer fits in the image when it sits
 near a corner, and views are lost: here only 4 of 16 survive at 40°.
@@ -88,8 +89,9 @@ near a corner, and views are lost: here only 4 of 16 survive at 40°.
 
 Views tilted the same way are parallel planes and tell the camera nothing
 more than one of them; the initialization fails. Tilting about the board's
-horizontal axis only determines the vertical focal length, and leaves the
-horizontal one almost free. Turn the board about both axes.
+horizontal axis, both ways, gives two board orientations: they determine
+the vertical focal length and leave the horizontal one almost free. Turn
+the board about both axes.
 
 ### Board size in the image
 
@@ -146,6 +148,39 @@ print(f"σ centre {p.center:.2f} px, worst {p.max:.2f} px")
 For a single camera, `rank_candidates` then says which board pose to take
 next: it predicts, without a re-solve, how much each candidate view would
 reduce the worst projection σ ([Planning the Next View](uncertainty_next_view.md)).
+
+## When the views cannot work
+
+When the board planes are parallel in every view, fronto-parallel or tilted
+the same way throughout, no calibration can recover the focal length, and
+the initialization stops before any solve with an error that says so and
+names the fix:
+
+```text
+the 16 views do not determine the camera intrinsics: ...; tilt the board
+about both of its axes, by 15° to 30°, from view to view
+```
+
+The initialization measures how far the board orientations spread across
+the views, as seen through a camera whose focal length is the image extent
+the corners cover, and rejects a spread under 1°. A spread of a few degrees
+still initializes, with the large σ the tables above show. With strong lens
+distortion, parallel boards no longer look parallel, and the same error
+comes from Zhang's method finding no camera that fits the views.
+
+In Rust it is a typed error to match on; in Python it is a `ValueError`
+with the same message:
+
+```rust
+use vision_calibration::{Error, init};
+
+match run_calibration(&mut session) {
+    Err(Error::Linear(init::Error::DegenerateViews { .. })) => {
+        println!("recapture: tilt the board about both of its axes");
+    }
+    other => other?,
+}
+```
 
 ## The image itself
 

@@ -71,11 +71,11 @@ use crate::{
     distortion_fit::{
         DistortionFitOptions, DistortionView, MetaHomography, estimate_distortion_from_homographies,
     },
-    zhang_intrinsics::PlanarIntrinsicsLinearInit,
+    zhang_intrinsics::{PlanarIntrinsicsLinearInit, check_board_orientations},
 };
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, DistortionModel, Mat3, PinholeCamera, PlanarDataset, Pt2, Real, Vec3,
+    BrownConrady5, DistortionModel, FxFyCxCy, Mat3, PinholeCamera, PlanarDataset, Pt2, Real, Vec3,
     make_pinhole_camera,
 };
 use vision_geometry::homography::dlt_homography;
@@ -131,10 +131,18 @@ impl Default for IterativeIntrinsicsOptions {
 ///
 /// # Errors
 ///
-/// - `NotEnoughViews`: Fewer than 3 views provided
-/// - `ZhangFailed`: Zhang intrinsics estimation failed (e.g., degenerate homographies)
-/// - `DistortionFailed`: Distortion estimation failed (e.g., insufficient radial diversity)
-/// - `HomographyFailed`: Homography computation failed
+/// - [`Error::InsufficientData`]: fewer than 3 views, or fewer than 3 whose
+///   homography is well posed.
+/// - [`Error::DegenerateViews`]: the board planes are parallel in every view,
+///   to within 1° (all fronto-parallel, or all tilted the same way), or
+///   Zhang's method finds no camera that fits the views. The spread is
+///   measured through a camera with square pixels whose focal length is the
+///   image extent the views cover, so it reads the perspective the views
+///   show.
+/// - [`Error::Singular`]: the linear solve fails on non-finite input.
+///
+/// A failure of a later distortion iteration is not an error: the last
+/// estimate that succeeded is returned.
 ///
 /// # Complexity
 ///
@@ -164,6 +172,12 @@ pub fn estimate_intrinsics_iterative(
         dlt_homography(&target_points_2d[i], &dataset.views[i].obs.points_2d)
     })?;
     let homographies_iter0: Vec<Mat3> = pairs0.iter().map(|(_, h)| *h).collect();
+    // Parallel boards leave `K` undetermined, and with noisy corners Zhang's
+    // solve can return an arbitrary camera instead of failing: reject them
+    // first, measured at the image extent the views cover.
+    if let Some(reference) = observed_reference(dataset) {
+        check_board_orientations(&homographies_iter0, &reference)?;
+    }
 
     let mut current_intrinsics =
         PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
@@ -246,6 +260,30 @@ pub fn estimate_intrinsics_iterative(
     Ok(make_pinhole_camera(current_intrinsics, current_distortion))
 }
 
+/// A reference camera for the board-orientation check: square pixels, the
+/// principal point at the centre of the observed points' bounding box and
+/// a focal length equal to its larger side. `None` without finite points
+/// spanning a non-zero extent.
+fn observed_reference(dataset: &PlanarDataset) -> Option<FxFyCxCy<Real>> {
+    let (mut lo, mut hi) = (
+        Pt2::new(Real::INFINITY, Real::INFINITY),
+        Pt2::new(Real::NEG_INFINITY, Real::NEG_INFINITY),
+    );
+    for p in dataset.views.iter().flat_map(|v| v.obs.points_2d.iter()) {
+        if p.x.is_finite() && p.y.is_finite() {
+            lo = Pt2::new(lo.x.min(p.x), lo.y.min(p.y));
+            hi = Pt2::new(hi.x.max(p.x), hi.y.max(p.y));
+        }
+    }
+    let extent = (hi.x - lo.x).max(hi.y - lo.y);
+    (extent.is_finite() && extent > 0.0).then(|| FxFyCxCy {
+        fx: extent,
+        fy: extent,
+        cx: 0.5 * (lo.x + hi.x),
+        cy: 0.5 * (lo.y + hi.y),
+    })
+}
+
 /// Minimum number of well-posed views Zhang's linear init needs.
 const MIN_VALID_VIEWS: usize = 3;
 
@@ -290,8 +328,11 @@ fn undistort_pixels_to_pixels(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Translation3, UnitQuaternion};
-    use vision_calibration_core::synthetic::planar::{grid_points, project_views_all};
+    use nalgebra::{Rotation3, Translation3, UnitQuaternion};
+    use vision_calibration_core::synthetic::noise::UniformPixelNoise;
+    use vision_calibration_core::synthetic::planar::{
+        grid_points, project_views_all, project_views_noisy,
+    };
     use vision_calibration_core::{FxFyCxCy, Iso3, View};
 
     fn make_ground_truth() -> (FxFyCxCy<Real>, BrownConrady5<Real>) {
@@ -432,5 +473,178 @@ mod tests {
         }
 
         (total_sq / total_n as Real).sqrt()
+    }
+
+    /// A capture of a 12 × 9 board of 30 mm squares, 0.65 m away, centred on
+    /// the four image quadrants and the centre in turn and turned in its
+    /// plane from view to view, through a 1000 px camera with `k1` radial
+    /// distortion and ±0.35 px uniform corner noise. View `k` has the
+    /// orientation `tilt(k)`.
+    fn capture(k1: Real, tilt: impl Fn(usize) -> Rotation3<Real>) -> PlanarDataset {
+        let camera = make_pinhole_camera(
+            FxFyCxCy {
+                fx: 1000.0,
+                fy: 1000.0,
+                cx: 640.0,
+                cy: 480.0,
+            },
+            BrownConrady5 {
+                k1,
+                ..BrownConrady5::default()
+            },
+        );
+        let board = grid_points(12, 9, 0.03);
+        let centre = Vec3::new(0.165, 0.12, 0.0);
+        let offsets = [
+            (-0.3, -0.22),
+            (0.3, -0.22),
+            (-0.3, 0.22),
+            (0.3, 0.22),
+            (0.0, 0.0),
+        ];
+        let poses: Vec<Iso3> = (0..10)
+            .map(|k| {
+                let (x, y) = offsets[k % offsets.len()];
+                let spin = Rotation3::from_euler_angles(0.0, 0.0, (17.0 * k as Real).to_radians());
+                let rotation = UnitQuaternion::from_rotation_matrix(&(tilt(k) * spin));
+                let distance = 0.65 + 0.03 * (k / 5) as Real;
+                let at = Vec3::new(x, y, 1.0).normalize() * distance - rotation * centre;
+                Iso3::from_parts(Translation3::from(at), rotation)
+            })
+            .collect();
+        let noise = UniformPixelNoise {
+            seed: 7,
+            max_abs_px: 0.35,
+        };
+        let views = project_views_noisy(&camera, &board, &poses, &noise).unwrap();
+        PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).unwrap()
+    }
+
+    fn about(x_deg: Real, y_deg: Real) -> Rotation3<Real> {
+        Rotation3::from_euler_angles(x_deg.to_radians(), y_deg.to_radians(), 0.0)
+    }
+
+    /// Tilted by `deg` about +x, +y, −x and −y in turn.
+    fn turning(deg: Real) -> impl Fn(usize) -> Rotation3<Real> {
+        move |k| match k % 4 {
+            0 => about(deg, 0.0),
+            1 => about(0.0, deg),
+            2 => about(-deg, 0.0),
+            _ => about(0.0, -deg),
+        }
+    }
+
+    fn init(dataset: &PlanarDataset) -> Result<PinholeCamera, Error> {
+        estimate_intrinsics_iterative(dataset, IterativeIntrinsicsOptions::default())
+    }
+
+    #[test]
+    fn parallel_boards_are_degenerate_views() {
+        type Orientation = fn(usize) -> Rotation3<Real>;
+        let parallel: [(&str, Orientation); 2] = [
+            ("fronto-parallel", |_| Rotation3::identity()),
+            ("all tilted 20° about +x", |_| about(20.0, 0.0)),
+        ];
+        for k1 in [0.0, -0.15] {
+            for (name, tilt) in parallel {
+                let err = init(&capture(k1, tilt)).expect_err(name);
+                assert!(
+                    matches!(err, Error::DegenerateViews { views: 10, .. }),
+                    "{name}, k1 = {k1}: {err:?}"
+                );
+                assert!(
+                    err.to_string()
+                        .contains("tilt the board about both of its axes"),
+                    "{err}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn spread_check_catches_parallel_boards_zhang_would_misread() {
+        // Without distortion, the corner noise alone decides Zhang's
+        // solution for parallel boards: it returns a camera (fx ≈ 54 000 px
+        // for the fronto-parallel capture). The spread check rejects them
+        // first, at the noise level of the board orientations.
+        for tilt in [|_| Rotation3::identity(), |_| about(20.0, 0.0)] {
+            let dataset = capture(0.0, tilt);
+            let homographies: Vec<Mat3> = dataset
+                .views
+                .iter()
+                .map(|v| dlt_homography(&v.obs.planar_points(), &v.obs.points_2d).unwrap())
+                .collect();
+            assert!(PlanarIntrinsicsLinearInit::from_homographies(&homographies).is_ok());
+            match init(&dataset) {
+                Err(Error::DegenerateViews {
+                    spread_deg: Some(spread),
+                    ..
+                }) => assert!(spread < 0.25, "spread {spread}°"),
+                other => panic!("expected a measured spread, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn small_tilts_on_either_side_of_the_threshold() {
+        // Measured through the observed-extent reference (≈ 1.2 × the focal
+        // length here), a 0.5° tilt reads ≈ 0.6° and a 3° tilt ≈ 3.6°.
+        assert!(matches!(
+            init(&capture(0.0, turning(0.5))),
+            Err(Error::DegenerateViews {
+                spread_deg: Some(_),
+                ..
+            })
+        ));
+        let camera = init(&capture(0.0, turning(3.0))).expect("3° tilts initialize");
+        assert!(
+            (camera.k.fx - 1000.0).abs() < 0.05 * 1000.0,
+            "fx {}",
+            camera.k.fx
+        );
+    }
+
+    #[test]
+    fn good_capture_is_unaffected() {
+        for k1 in [0.0, -0.15] {
+            let camera = init(&capture(k1, turning(20.0))).expect("good capture");
+            assert!(
+                (camera.k.fx - 1000.0).abs() < 0.05 * 1000.0,
+                "fx {}",
+                camera.k.fx
+            );
+            assert!(
+                (camera.k.fy - 1000.0).abs() < 0.05 * 1000.0,
+                "fy {}",
+                camera.k.fy
+            );
+        }
+    }
+
+    #[test]
+    fn tilts_about_one_axis_both_ways_pass_init_undetermined() {
+        // Two board orientations (±20° about x) give Zhang's general solve
+        // four constraints on its five unknowns: not parallel boards, so not
+        // rejected, but the horizontal focal length is left to the noise and
+        // the distortion. Refinement then reports it through its σ.
+        for k1 in [0.0, -0.15] {
+            let camera = init(&capture(k1, |k| {
+                about(if k % 2 == 0 { 20.0 } else { -20.0 }, 0.0)
+            }))
+            .expect("two orientations pass init");
+            assert!(
+                (camera.k.fx - 1000.0).abs() > 0.1 * 1000.0,
+                "fx {}",
+                camera.k.fx
+            );
+        }
+        // A third tilt about the same axis determines the camera.
+        let three = |k: usize| about([-20.0, 5.0, 25.0][k % 3], 0.0);
+        let camera = init(&capture(0.0, three)).expect("three orientations");
+        assert!(
+            (camera.k.fx - 1000.0).abs() < 0.01 * 1000.0,
+            "fx {}",
+            camera.k.fx
+        );
     }
 }

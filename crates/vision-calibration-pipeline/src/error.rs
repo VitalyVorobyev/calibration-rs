@@ -73,6 +73,18 @@ impl Error {
         Self::Numerical(msg.into())
     }
 
+    /// A linear initializer's failure, as [`Error::Numerical`] prefixed by
+    /// `context` — except views that do not determine the intrinsics
+    /// ([`LinearError::DegenerateViews`]), which stay typed as
+    /// [`Error::Linear`] so that a caller can tell a capture to redo from a
+    /// solver failure.
+    pub(crate) fn linear_init(context: impl std::fmt::Display, err: LinearError) -> Self {
+        match err {
+            err @ LinearError::DegenerateViews { .. } => Self::Linear(err),
+            other => Self::numerical(format!("{context}: {other}")),
+        }
+    }
+
     /// Construct an [`Error::NotAvailable`] for a named resource.
     pub(crate) fn not_available(resource: &'static str) -> Self {
         Self::NotAvailable { resource }

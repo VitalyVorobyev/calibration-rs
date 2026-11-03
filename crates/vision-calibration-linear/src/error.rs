@@ -1,6 +1,7 @@
 //! Typed error enum for `vision-calibration-linear`.
 
 use vision_calibration_core::Error as CoreError;
+use vision_calibration_core::Real;
 use vision_calibration_core::linalg::MathError;
 use vision_geometry::GeometryError;
 
@@ -31,6 +32,22 @@ pub enum Error {
     /// A numerical operation failed unexpectedly.
     #[error("numerical failure: {0}")]
     Numerical(String),
+
+    /// The views do not determine the camera intrinsics: the board planes
+    /// are parallel in every view (all fronto-parallel, or all tilted the
+    /// same way), or Zhang's method finds no camera that fits them. Tilting
+    /// the board about both of its axes, from view to view, fixes it.
+    #[error("{}", degenerate_views_message(*views, *spread_deg))]
+    DegenerateViews {
+        /// Number of views given.
+        views: usize,
+        /// The largest angle, in degrees, between a view's board plane and
+        /// the views' mean plane, when that spread is what rejected the
+        /// views; `None` when Zhang's solution is no camera. Measured
+        /// through a camera with square pixels whose focal length is the
+        /// image extent the views cover.
+        spread_deg: Option<Real>,
+    },
 
     /// No motion pairs survived the min-rotation / axis-parallel filters
     /// during hand-eye initialization.
@@ -74,4 +91,21 @@ impl Error {
     pub(crate) fn numerical(msg: impl Into<String>) -> Self {
         Self::Numerical(msg.into())
     }
+}
+
+/// The message of [`Error::DegenerateViews`].
+fn degenerate_views_message(views: usize, spread_deg: Option<Real>) -> String {
+    let evidence = match spread_deg {
+        Some(spread) => format!(
+            "the board planes are parallel to within {spread:.2}°, as when the board is \
+             fronto-parallel or tilted the same way in every view"
+        ),
+        None => "Zhang's method finds no camera that fits them, as when the board planes \
+                 are parallel (the board fronto-parallel or tilted the same way in every view)"
+            .to_owned(),
+    };
+    format!(
+        "the {views} views do not determine the camera intrinsics: {evidence}; \
+         tilt the board about both of its axes, by 15° to 30°, from view to view"
+    )
 }

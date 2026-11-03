@@ -97,13 +97,30 @@ $$c_y = v_0$$
 
 ### Validity Checks
 
-The extraction can fail when:
+$B = \mu K^{-T} K^{-1}$ is definite, so the extraction fails when:
 
-- $B_{11} B_{22} - B_{12}^2 \approx 0$ (degenerate: insufficient view diversity)
-- $|B_{11}| \approx 0$
+- $B_{11} B_{22} - B_{12}^2$ is not positive, or $|B_{11}| \approx 0$
 - $\lambda$ and $B_{11}$ have different signs (negative focal length squared)
 
-These cases indicate that the input homographies do not sufficiently constrain the intrinsics, typically because the views are too similar (e.g., all near-frontal).
+Either way no camera fits the homographies, and the solve returns
+`DegenerateViews`: the views do not constrain the intrinsics, typically
+because the board planes are parallel in every view (all fronto-parallel, or
+all tilted the same way).
+
+### Parallel Boards
+
+A board's vanishing line is $\mathbf{h}_1 \times \mathbf{h}_2 \propto K^{-T} \mathbf{r}_3$,
+so parallel boards share one vanishing line and give every view the same two
+constraints: $V$ has rank 2. With noisy corners the solve can then return an
+arbitrary $K$ rather than fail. The dataset-level initializer
+(`estimate_intrinsics_iterative`) therefore checks the views first: it takes
+$K_0^T (\mathbf{h}_1 \times \mathbf{h}_2)$ as each board's normal, with $K_0$ a
+square-pixel camera centred on the observed corners whose focal length is
+their extent, and returns `DegenerateViews` when no normal lies more than 1°
+from the mean plane. Parallel boards read zero through any $K_0$, up to the
+corner noise (about 0.15° for a board 40 % of the image wide and 0.2 px of
+noise); a focal length of the image extent reads the perspective the views
+show, which is what the constraints feed on.
 
 ## Minimum Number of Views
 
@@ -113,7 +130,7 @@ These cases indicate that the input homographies do not sufficiently constrain t
 
 ## Practical Considerations
 
-**View diversity**: The views should include significant rotation around both axes. Pure translations or rotations around a single axis lead to degenerate configurations where some intrinsic parameters are undetermined.
+**View diversity**: The views should include significant rotation around both axes. Pure translations leave the board planes parallel, and the intrinsics undetermined. Two orientations only, such as tilts about one axis both ways, give four constraints for the five unknowns, and leave one focal length nearly free; three distinct tilts about one axis determine the camera.
 
 **Distortion**: Zhang's method assumes distortion-free observations. When applied to distorted pixels, the estimated $K$ is biased. The [Iterative Intrinsics](iterative_intrinsics.md) chapter addresses this with an alternating refinement scheme.
 

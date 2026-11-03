@@ -53,10 +53,34 @@ autodiff-generic (ADR 0008).
 - **View count**: each homography gives 2 constraints on `ω`. The linear
   solve estimates all 5 DOF of the general `K` (skew included, then
   discarded), so it needs ≥ 3 views. The pipeline requires ≥ 3 views.
-- **Plane-orientation diversity**: constraints from views whose plane
-  normals are (near-)parallel are (near-)dependent — a pose set that only
-  translates, or only rotates about the optical axis, leaves `ω` rank
-  deficient. This is why the matrix test's pose set mixes pitch and yaw.
+- **Plane-orientation diversity**: each view's two constraints depend only
+  on its plane's circular points, i.e. its normal (in-plane rotation and
+  translation add nothing). One normal for all views (fronto-parallel, or
+  all tilted the same way) leaves `V` rank 2; two distinct normals rank 4
+  (one focal length free: tilts about one axis both ways); three distinct
+  normals, even about a single axis, determine `ω`. This is why the matrix
+  test's pose set mixes pitch and yaw.
+- **Parallel-board detection** (`DegenerateViews`). Two checks, because
+  neither alone covers the case. (1) Before the solve,
+  `estimate_intrinsics_iterative` measures the board-orientation spread —
+  the largest angle between a normal `K₀ᵀ(h1 × h2)` and the mean plane —
+  through a reference `K₀` (square pixels, centred on the observed corners'
+  bounding box, focal = its larger side) and rejects < 1°. Parallel planes
+  read zero through any `K₀`; the extent focal reads the *apparent*
+  perspective, which is what Zhang's constraints feed on (a telephoto needs
+  more tilt). Without it, noisy parallel boards return an arbitrary `K`
+  (fx ≈ 54 000 px fronto-parallel, (2914, 150) all tilted 20°, pinhole,
+  ±0.35 px). (2) Radial distortion mimics tilt at second order across a
+  board (an off-centre fronto-parallel board at `k1 = −0.15` reads ≈ 10°),
+  so on distorted data the spread cannot separate parallel boards from a
+  3° capture (11°); there, Zhang's conic is not definite (`λ/B11 ≤ 0`) and
+  the solve itself returns `DegenerateViews`. The homographies alone carry
+  no image extent, so `estimate_intrinsics_from_homographies` has only
+  check (2). Not caught: two orientations (rank 4) pass init with a wrong
+  focal length (±20° about x: fx 1374 px pinhole, 258 px at `k1 = −0.15`,
+  truth 1000) and refine to a σ(fx) of ≈ 96 px (`capture_planning`); a
+  zero-skew Zhang (b12 = 0, 5 unknowns) would not fix it, since fx is
+  unobservable from those two orientations to first order.
 - **Fronto-parallel bias**: with little perspective foreshortening, focal
   length trades off against target distance (`fx·z` nearly constant per
   view); expect inflated focal variance, not a wrong minimum.
@@ -98,6 +122,14 @@ reprojection < 1e-4 px.
   `stereo_right` gated at ≤ 0.4 px per camera, with committed Fit
   baselines.
 - **Regression suite**: `stereo_left`, `stereo_right`, `synth_planar`.
+- **Degenerate captures**: `iterative_intrinsics` unit tests (parallel
+  boards fronto-parallel and tilted 20°, pinhole and `k1 = −0.15`; tilts of
+  0.5° (spread 0.79°, rejected) and 3° (4.28°, fx 1047 px); ±x and three
+  tilts about x), `zhang_intrinsics` unit tests (spread = tilt through the
+  true `K`, zero for parallel boards through any `K₀`, threshold either
+  side), pipeline `tests/degenerate_capture.rs` (plain and Scheimpflug).
+  Spread margin on the regression suite's planar inits: smallest 8.7°
+  (`stereo_left`/`stereo_right`), the rest 15–34°.
 - **Related**: ADR 0011 (the Scheimpflug sibling's seeded route — the
   tilt↔focal↔distortion trade-off that makes from-scratch init fragile
   there does not arise in the frontal planar family).
