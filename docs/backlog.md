@@ -70,10 +70,7 @@ functions return no covariance.
   homography residual per corner, in squares) and drop the outlier, or reject
   the detection; report the fault upstream. Gate: both detections are kept
   whole with correct labels in either declaration, or rejected with a reason.
-- [ ] CAL-RIG-GRAPH - Rig initialization chained through a camera
-  co-visibility graph. Today `linear/src/extrinsics.rs` errors when a
-  camera never shares a view with the reference camera. Gate: a synthetic
-  four-camera ring where only neighbours overlap.
+
 - [ ] CAL-HANDEYE-SOLVERS - Linear hand-eye initializers beyond Tsai-Lenz
   (`linear/src/handeye.rs`): dual-quaternion (Daniilidis), Park-Martin, and
   a robot-world AX=ZB solver (Shah). Gate: a synthetic comparison of basin

@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A rig camera no longer needs a view in common with the reference
+  camera.** Rig initialization places the cameras through their
+  co-visibility graph (two cameras are linked when they see the board in the
+  same view), each along the shortest chain of shared views, so a ring of
+  cameras where only neighbours overlap calibrates. A camera that shares
+  views with the reference is placed from them as before, so existing rigs
+  give the same result. A camera no chain reaches is an `InvalidInput` that
+  names it.
 - **A rig keeps a chessboard seen turned.** In every rig topology the dataset
   runner turns each camera's chessboard labels to agree with the other
   cameras of the view, instead of dropping every view where the board is

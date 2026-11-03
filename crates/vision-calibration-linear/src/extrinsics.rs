@@ -79,10 +79,23 @@ fn average_isometries(poses: &[Iso3]) -> Result<Iso3, Error> {
 /// `ref_cam_idx` defines the rig frame by enforcing
 /// `cam_to_rig[ref_cam_idx] = Identity` (rig frame = reference camera frame).
 ///
+/// A camera need not share a view with the reference camera: the cameras are
+/// chained through their co-visibility graph (two cameras are linked when
+/// they see the target in the same view). Each camera is reached from the
+/// reference along a path with the fewest links, and among those through
+/// the neighbour it shares the most views with (then the lowest index), so
+/// a camera that shares views with the reference is always estimated from
+/// them directly. Each link's relative pose is the average over the views
+/// its two cameras share.
+///
 /// Returns `ExtrinsicPoses { cam_to_rig, rig_from_target }`.
 ///
-/// Returns an error if there is not enough overlap (no views where both cameras
-/// see the target, or a view with no valid camera poses).
+/// # Errors
+///
+/// [`Error::InvalidInput`] when a camera shares no view with the reference
+/// camera, directly or through other cameras (the message names the
+/// cameras that cannot be reached), or a view has no valid camera poses;
+/// [`Error::InsufficientData`] for no views or no cameras.
 pub fn estimate_extrinsics_from_cam_target_poses(
     cam_se3_target: &[Vec<Option<Iso3>>],
     ref_cam_idx: usize,
@@ -116,40 +129,63 @@ pub fn estimate_extrinsics_from_cam_target_poses(
 
     // 1) Estimate cam_to_rig (camera -> rig), with rig = reference camera frame.
     //
-    // For overlapping views:
-    //   T_R_Ci = T_R_T * T_T_Ci
-    //         = T_R_T * (T_Ci_T)^(-1)
-    //         = T_R_Cref * T_Cref_T * (T_Ci_T)^(-1)
-    //         = T_Cref_T * (T_Ci_T)^(-1)         (since rig = Cref and T_R_Cref = I)
-    //         = T_Cref_Ci
-    let mut cam_to_rig: Vec<Iso3> = Vec::with_capacity(num_cameras);
-
-    for cam_idx in 0..num_cameras {
-        if cam_idx == ref_cam_idx {
-            cam_to_rig.push(Iso3::identity());
-            continue;
-        }
-
-        let mut candidates: Vec<Iso3> = Vec::new();
-
-        for view in cam_se3_target {
-            if let (Some(ct_cam), Some(ct_ref)) = (&view[cam_idx], &view[ref_cam_idx]) {
-                // T_R_Ci = T_Cref_Ci = T_Cref_T * (T_Ci_T)^(-1)
-                let x = ct_ref * ct_cam.inverse();
-                candidates.push(x);
+    // Two cameras i, j seeing the target in one view give their relative
+    // pose T_Ci_Cj = T_Ci_T * (T_Cj_T)^(-1). The cameras are reached from the
+    // reference breadth-first through this co-visibility graph, so every
+    // camera takes a path with the fewest links; among the cameras of the
+    // previous layer, a camera's parent is the one it shares the most views
+    // with (ties: the lowest index). Then T_R_Cj = T_R_Ci * T_Ci_Cj.
+    let shared = |i: usize, j: usize| {
+        cam_se3_target
+            .iter()
+            .filter(|view| view[i].is_some() && view[j].is_some())
+            .count()
+    };
+    let mut cam_to_rig: Vec<Option<Iso3>> = vec![None; num_cameras];
+    cam_to_rig[ref_cam_idx] = Some(Iso3::identity());
+    let mut layer = vec![ref_cam_idx];
+    while !layer.is_empty() {
+        let mut next = Vec::new();
+        for cam_idx in 0..num_cameras {
+            if cam_to_rig[cam_idx].is_some() {
+                continue;
             }
+            // The parent in this layer sharing the most views (lowest index on ties).
+            let Some((parent, _)) = layer
+                .iter()
+                .map(|&p| (p, shared(p, cam_idx)))
+                .filter(|&(_, n)| n > 0)
+                .min_by_key(|&(p, n)| (std::cmp::Reverse(n), p))
+            else {
+                continue;
+            };
+            let candidates: Vec<Iso3> = cam_se3_target
+                .iter()
+                .filter_map(|view| match (&view[parent], &view[cam_idx]) {
+                    // T_Cparent_Ccam = T_Cparent_T * (T_Ccam_T)^(-1)
+                    (Some(ct_parent), Some(ct_cam)) => Some(ct_parent * ct_cam.inverse()),
+                    _ => None,
+                })
+                .collect();
+            let parent_se3_cam = average_isometries(&candidates)?;
+            let rig_se3_parent =
+                cam_to_rig[parent].expect("a camera of the current layer is placed");
+            cam_to_rig[cam_idx] = Some(rig_se3_parent * parent_se3_cam);
+            next.push(cam_idx);
         }
-
-        if candidates.is_empty() {
-            return Err(Error::invalid_input(format!(
-                "no overlapping views between camera {} and reference {}",
-                cam_idx, ref_cam_idx
-            )));
-        }
-
-        let avg = average_isometries(&candidates)?;
-        cam_to_rig.push(avg);
+        layer = next;
     }
+    let unreached: Vec<usize> = (0..num_cameras)
+        .filter(|&c| cam_to_rig[c].is_none())
+        .collect();
+    if !unreached.is_empty() {
+        return Err(Error::invalid_input(format!(
+            "camera(s) {unreached:?} share no view with reference camera {ref_cam_idx}, \
+             directly or through other cameras: a camera's rig pose needs a view in \
+             which it and an already placed camera both see the target"
+        )));
+    }
+    let cam_to_rig: Vec<Iso3> = cam_to_rig.into_iter().flatten().collect();
 
     // 2) Estimate rig_from_target (target -> rig) for each view by averaging over cameras.
     //
@@ -263,6 +299,91 @@ mod tests {
             assert!(dt < 1e-10, "view {} translation error {}", v, dt);
             assert!(ang < 1e-10, "view {} rotation error {}", v, ang);
         }
+    }
+
+    /// Four cameras on a ring where each sees the target only in the views it
+    /// shares with its two neighbours: camera 2 never shares a view with the
+    /// reference and is reached through camera 1 or 3.
+    fn ring(views_per_pair: usize) -> (Vec<Iso3>, Vec<Iso3>, Vec<Vec<Option<Iso3>>>) {
+        let cam_to_rig_gt: Vec<Iso3> = (0..4)
+            .map(|c| {
+                let a = c as Real * std::f64::consts::FRAC_PI_2;
+                make_iso(
+                    (0.0, a, 0.02 * c as Real),
+                    (0.3 * a.sin(), 0.01 * c as Real, 0.3 * (1.0 - a.cos())),
+                )
+            })
+            .collect();
+        let mut rig_from_target_gt = Vec::new();
+        let mut cam_se3_target = Vec::new();
+        for pair in 0..4 {
+            let (a, b) = (pair, (pair + 1) % 4);
+            for k in 0..views_per_pair {
+                let t = make_iso(
+                    (0.05 * k as Real, 0.1 * pair as Real, -0.03 * k as Real),
+                    (
+                        0.02 * k as Real,
+                        -0.01 * pair as Real,
+                        1.0 + 0.05 * k as Real,
+                    ),
+                );
+                let mut view = vec![None; 4];
+                for c in [a, b] {
+                    view[c] = Some(cam_to_rig_gt[c].inverse() * t);
+                }
+                rig_from_target_gt.push(t);
+                cam_se3_target.push(view);
+            }
+        }
+        (cam_to_rig_gt, rig_from_target_gt, cam_se3_target)
+    }
+
+    #[test]
+    fn a_ring_where_only_neighbours_overlap_is_chained_through_the_graph() {
+        let (cam_to_rig_gt, rig_from_target_gt, cam_se3_target) = ring(3);
+        // Camera 2 shares no view with camera 0.
+        assert!(
+            cam_se3_target
+                .iter()
+                .all(|v| !(v[0].is_some() && v[2].is_some()))
+        );
+        let est = estimate_extrinsics_from_cam_target_poses(&cam_se3_target, 0).unwrap();
+        for (c, gt) in cam_to_rig_gt.iter().enumerate() {
+            let rel = gt.inverse() * est.cam_to_rig[c];
+            assert!(rel.translation.vector.norm() < 1e-10, "camera {c}: {rel:?}");
+            assert!(rel.rotation.angle() < 1e-10, "camera {c}: {rel:?}");
+        }
+        for (v, gt) in rig_from_target_gt.iter().enumerate() {
+            let rel = gt.inverse() * est.rig_from_target[v];
+            assert!(rel.translation.vector.norm() < 1e-10, "view {v}");
+            assert!(rel.rotation.angle() < 1e-10, "view {v}");
+        }
+        // Any camera can be the reference.
+        let from_2 = estimate_extrinsics_from_cam_target_poses(&cam_se3_target, 2).unwrap();
+        let rel = cam_to_rig_gt[2].inverse() * cam_to_rig_gt[0];
+        let got = from_2.cam_to_rig[0];
+        assert!((got.translation.vector - rel.translation.vector).norm() < 1e-10);
+    }
+
+    #[test]
+    fn a_camera_no_path_reaches_is_named() {
+        let (_, _, mut cam_se3_target) = ring(2);
+        // Cut camera 3 off: drop its observations from every view, then cut
+        // camera 2's link to camera 1 so cameras 2 and 3 form their own island.
+        for view in &mut cam_se3_target {
+            if view[1].is_some() && view[2].is_some() {
+                view[2] = None;
+            }
+            if view[3].is_some() && view[0].is_some() {
+                view[3] = None;
+            }
+        }
+        let err = estimate_extrinsics_from_cam_target_poses(&cam_se3_target, 0).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("[2, 3]") && msg.contains("reference camera 0"),
+            "{msg}"
+        );
     }
 
     #[test]

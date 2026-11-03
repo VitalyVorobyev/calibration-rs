@@ -455,7 +455,64 @@ fn rig_extrinsics_rejects_disconnected_covisibility_graph() {
     let err = step_rig_init(&mut session, None).expect_err("disconnected graph must fail rig init");
     let msg = err.to_string();
     assert!(
-        msg.contains("overlap"),
-        "error should report the missing co-visibility overlap, got: {msg}"
+        msg.contains("share no view") && msg.contains("[1]"),
+        "error should name the camera no co-visible view reaches, got: {msg}"
     );
+}
+
+/// Four cameras on a ring where each view is seen by two neighbours only
+/// (0–1, 1–2, 2–3, 3–0): camera 2 never shares a view with the reference
+/// camera 0. The rig initialization chains it through camera 1 or 3, and the
+/// full workflow recovers every camera's extrinsics.
+#[test]
+fn a_ring_where_only_neighbours_overlap_calibrates() {
+    let [a, b] = rig_cameras();
+    let cameras = [a.clone(), b.clone(), a, b];
+    let cam_se3_rig: Vec<Iso3> = (0..4)
+        .map(|c| {
+            make_iso(
+                (0.0, 0.03 * c as f64, 0.01 * c as f64),
+                (-0.1 * c as f64, 0.0, 0.0),
+            )
+        })
+        .collect();
+    let board = board();
+    let rig_poses = rig_poses();
+    // Exact data recovers the truth; at 0.1 px the tolerances are the matrix
+    // cells' above (rotation 0.03·σ + 5e-4 rad, translation 0.085·σ + 1e-3 m).
+    for (noise_px, rot_tol, trans_tol) in [(0.0, 1e-6, 1e-6), (0.1, 3.5e-3, 9.5e-3)] {
+        let full = build_rig_dataset(&cameras, &cam_se3_rig, &board, &rig_poses, 7, noise_px);
+        // Four copies of the poses, one per neighbouring pair; each copy keeps
+        // only that pair's two cameras.
+        let mut views = Vec::new();
+        for pair in 0..4 {
+            let keep = [pair, (pair + 1) % 4];
+            for view in &full.views {
+                let mut view = view.clone();
+                for (c, obs) in view.obs.cameras.iter_mut().enumerate() {
+                    if !keep.contains(&c) {
+                        *obs = None;
+                    }
+                }
+                views.push(view);
+            }
+        }
+        assert!(
+            views
+                .iter()
+                .all(|v| !(v.obs.cameras[0].is_some() && v.obs.cameras[2].is_some()))
+        );
+        let input = RigDataset::new(views, 4).expect("valid rig dataset");
+        let export = solve(input, 0);
+        for (c, gt) in cam_se3_rig.iter().enumerate() {
+            // Gauge: rig = camera 0, so compare T_Cc_C0.
+            let est = export.cam_se3_rig[c] * export.cam_se3_rig[0].inverse();
+            let truth = gt * cam_se3_rig[0].inverse();
+            let (dt, dr) = pose_error(&est, &truth);
+            assert!(
+                dt < trans_tol && dr < rot_tol,
+                "{noise_px} px, camera {c}: {dt} m / {dr} rad"
+            );
+        }
+    }
 }
