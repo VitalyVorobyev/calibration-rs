@@ -1,9 +1,10 @@
 //! Core types for multiple-view geometry.
 //!
-//! Provides type aliases for geometric matrices and the [`Correspondence2D`]
-//! struct that serves as the primary input type for MVG estimation.
+//! Provides type aliases for geometric matrices and the input types of MVG
+//! estimation: [`Correspondence2D`] for the uncalibrated estimators and
+//! [`PixelMatch`] for the calibrated two-view functions.
 
-use vision_calibration_core::{Mat3, Pt2, Pt3, Real};
+use vision_calibration_core::{Mat3, PointCovariance, Pt2, Pt3, Real};
 
 /// Essential matrix (3×3, rank-2, encodes calibrated epipolar geometry).
 pub type EssentialMatrix = Mat3;
@@ -14,11 +15,9 @@ pub type FundamentalMatrix = Mat3;
 /// Homography matrix (3×3, invertible projective transform between planes).
 pub type HomographyMatrix = Mat3;
 
-/// A pair of corresponding **pixels** observed in two views.
-///
-/// For the calibrated functions, `pt1` is a pixel of the first camera and `pt2`
-/// of the second, the two cameras the call names. The uncalibrated estimators
-/// (fundamental matrix, homography) take them as plain image coordinates.
+/// A pair of corresponding points observed in two views, as plain image
+/// coordinates, for the uncalibrated estimators (fundamental matrix,
+/// homography). The calibrated functions take [`PixelMatch`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Correspondence2D {
     /// Point observed in the first view.
@@ -44,6 +43,40 @@ impl Correspondence2D {
             pts2.push(c.pt2);
         }
         (pts1, pts2)
+    }
+}
+
+/// A pair of matched pixels with their stated noise, for the calibrated
+/// two-view functions.
+///
+/// `pt1` is a pixel of the first camera and `pt2` of the second, the two
+/// cameras the call names. Each pixel's covariance states its measurement
+/// noise, and the functions weigh the epipolar constraint by it. Build a
+/// covariance with [`PointCovariance::new`] (per observation),
+/// [`PointCovariance::isotropic`] (one σ) or
+/// [`CalibratedRig::reprojection_noise`](vision_calibration_core::CalibratedRig::reprojection_noise)
+/// (the calibration's level).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PixelMatch {
+    /// The pixel in the first camera.
+    pub pt1: Pt2,
+    /// Its covariance, px².
+    pub noise1: PointCovariance,
+    /// The pixel in the second camera.
+    pub pt2: Pt2,
+    /// Its covariance, px².
+    pub noise2: PointCovariance,
+}
+
+impl PixelMatch {
+    /// A match of `pt1` (with covariance `noise1`) to `pt2` (with `noise2`).
+    pub fn new(pt1: Pt2, noise1: PointCovariance, pt2: Pt2, noise2: PointCovariance) -> Self {
+        Self {
+            pt1,
+            noise1,
+            pt2,
+            noise2,
+        }
     }
 }
 

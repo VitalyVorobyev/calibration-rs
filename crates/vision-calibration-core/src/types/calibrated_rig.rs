@@ -1,7 +1,7 @@
 //! A calibration as a value: what a measurement needs from it.
 
 use crate::models::{CameraModel, CameraParams};
-use crate::types::Uncertainty;
+use crate::types::{NoiseLevel, PointCovariance, ResidualKind, Uncertainty};
 use crate::{Error, Iso3};
 
 /// What a measurement needs from a calibration: the cameras, where each sits
@@ -97,11 +97,68 @@ impl CalibratedRig {
     pub fn uncertainty(&self) -> &Uncertainty {
         &self.uncertainty
     }
+
+    /// The pixel noise of camera `camera`'s reprojections, as estimated by the
+    /// calibration: an isotropic [`PointCovariance`] of the calibration's
+    /// reprojection `σ̂` for that camera (or the one level shared by every
+    /// camera).
+    ///
+    /// It states the noise of observations made with this calibration's
+    /// detector and optics; pass it to the functions that weigh pixels by
+    /// their covariance.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] for a camera out of range; for a calibration
+    /// without a covariance (it has no noise level; state the pixel noise with
+    /// [`PointCovariance::isotropic`] or [`PointCovariance::new`]); for a
+    /// calibration with no reprojection noise level; and for one whose
+    /// reprojections were whitened by stated per-point covariances, whose
+    /// level `σ̂₀` is dimensionless and says nothing about a pixel `σ`.
+    pub fn reprojection_noise(&self, camera: usize) -> Result<PointCovariance, Error> {
+        if camera >= self.num_cameras() {
+            return Err(Error::invalid_input(format!(
+                "camera {camera} out of range: the rig has {} cameras",
+                self.num_cameras()
+            )));
+        }
+        let covariance = match &self.uncertainty {
+            Uncertainty::Available(c) => c,
+            Uncertainty::Unavailable { reason } => {
+                return Err(Error::invalid_input(format!(
+                    "the calibration has no covariance ({reason:?}), so it has no noise \
+                     level; state the pixel noise instead"
+                )));
+            }
+        };
+        let reprojection = |c: Option<usize>| {
+            covariance
+                .noise
+                .iter()
+                .find(|n| n.kind == ResidualKind::Reprojection && n.camera == c)
+        };
+        let entry = reprojection(Some(camera))
+            .or_else(|| reprojection(None))
+            .ok_or_else(|| {
+                Error::invalid_input(format!(
+                    "the calibration has no reprojection noise level for camera {camera}; \
+                     state the pixel noise instead"
+                ))
+            })?;
+        match entry.level {
+            NoiseLevel::Sigma(sigma) => PointCovariance::isotropic(sigma),
+            NoiseLevel::Sigma0(s0) => Err(Error::invalid_input(format!(
+                "the calibration's reprojections were whitened by stated covariances \
+                 (σ̂₀ = {s0}), so it has no pixel σ to reuse; state the pixel noise instead"
+            ))),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{ParameterCovariance, ResidualNoise};
     use crate::{DistortionParams, FxFyCxCy, ProjectionParams, SensorParams};
     use nalgebra::{Translation3, UnitQuaternion};
 
@@ -171,5 +228,69 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("camera 1"), "{err}");
+    }
+
+    fn rig_with(noise: Vec<ResidualNoise>) -> CalibratedRig {
+        let cov = ParameterCovariance {
+            labels: vec![],
+            covariance: vec![],
+            views: vec![],
+            fixed: vec![],
+            noise,
+            num_residuals: 10,
+            dof: 5,
+            view_scatter: None,
+        };
+        CalibratedRig::new(
+            vec![pinhole(800.0), pinhole(800.0)],
+            vec![Iso3::identity(), Iso3::identity()],
+            Uncertainty::Available(cov),
+        )
+        .unwrap()
+    }
+
+    fn level(level: NoiseLevel, camera: Option<usize>) -> ResidualNoise {
+        ResidualNoise {
+            kind: ResidualKind::Reprojection,
+            level,
+            count: 10,
+            camera,
+        }
+    }
+
+    #[test]
+    fn reprojection_noise_uses_the_camera_entry_then_the_shared_one() {
+        let rig = rig_with(vec![
+            level(NoiseLevel::Sigma(0.5), None),
+            level(NoiseLevel::Sigma(0.2), Some(1)),
+        ]);
+        let shared = rig.reprojection_noise(0).unwrap();
+        assert_eq!(shared, PointCovariance::isotropic(0.5).unwrap());
+        let own = rig.reprojection_noise(1).unwrap();
+        assert_eq!(own, PointCovariance::isotropic(0.2).unwrap());
+    }
+
+    #[test]
+    fn reprojection_noise_errors() {
+        let rig = rig_with(vec![level(NoiseLevel::Sigma(0.5), None)]);
+        let err = rig.reprojection_noise(2).unwrap_err();
+        assert!(err.to_string().contains("out of range"), "{err}");
+
+        let none = CalibratedRig::single(pinhole(800.0), Uncertainty::default()).unwrap();
+        let err = none.reprojection_noise(0).unwrap_err();
+        assert!(err.to_string().contains("NotComputed"), "{err}");
+
+        let missing = rig_with(vec![ResidualNoise {
+            kind: ResidualKind::LaserPlane,
+            level: NoiseLevel::Sigma(1e-4),
+            count: 3,
+            camera: None,
+        }]);
+        let err = missing.reprojection_noise(0).unwrap_err();
+        assert!(err.to_string().contains("no reprojection noise"), "{err}");
+
+        let whitened = rig_with(vec![level(NoiseLevel::Sigma0(1.1), None)]);
+        let err = whitened.reprojection_noise(0).unwrap_err();
+        assert!(err.to_string().contains("whitened"), "{err}");
     }
 }

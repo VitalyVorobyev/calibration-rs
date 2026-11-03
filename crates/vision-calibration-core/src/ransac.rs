@@ -35,11 +35,10 @@ pub struct RansacOptions {
     /// The residual is a non-squared distance whose unit is fixed by the
     /// estimator, not by this crate: pixels for the PnP and homography
     /// estimators of `vision-calibration-linear` and `vision-geometry`, the
-    /// unit of the input points for the fundamental-matrix estimator, and the
-    /// normalized image plane for the essential-matrix estimators of
-    /// `vision-mvg`. A pixel threshold `t` becomes `t / f` on the normalized
-    /// plane for a focal length `f` in pixels. Each estimator's documentation
-    /// states its unit. Must be finite and positive.
+    /// unit of the input points for the fundamental-matrix estimator, and
+    /// multiples of the stated pixel noise (σ) for the essential-matrix
+    /// estimators of `vision-mvg`. Each estimator's documentation states its
+    /// unit. Must be finite and positive.
     pub thresh: f64,
     /// Minimum number of inliers required to accept a model.
     pub min_inliers: usize,

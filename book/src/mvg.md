@@ -9,6 +9,7 @@ It is aimed at someone who already has calibrated cameras (for example from [Ste
 The calibrated functions take a **`CalibratedRig`**: the cameras, where each sits in the rig (`cam_se3_rig`, the reference camera's the identity) and the uncertainty of their parameters. A single camera is a rig of one. Observations are **pixels**; two conventions matter:
 
 - **Pixels in, bearings inside.** Each pixel is unprojected through its own camera's model into a *bearing*, a unit ray, and the closed-form steps (the 5-point essential matrix, cheirality, the linear triangulation) work on bearings. Distortion, fisheye and tilted sensors need no separate undistortion, and a fisheye point more than 90° from the optical axis, which has no normalized coordinates, is an ordinary bearing.
+- **Stated noise.** The calibrated two-view functions take `PixelMatch`es: two pixels with their covariances (`PointCovariance::new`, `isotropic`, or `rig.reprojection_noise(camera)`). Their residual is the epipolar constraint over its first-order σ, so RANSAC thresholds are in σ, not radians or pixels.
 - **Rectification and bundle adjustment still consume pixels** of undistorted pinhole cameras (they fold $K$ back in).
 
 Poses are named `<frame>_se3_<frame>` and map the right frame into the left: `second_se3_first` takes a point from the first camera's frame into the second's, $p_2 = R\,p_1 + t$, and a world-to-camera pose is `cam_se3_world`.

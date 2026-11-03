@@ -4,13 +4,13 @@ Given matched pixels in two calibrated views, `recover_relative_pose` finds the 
 
 ## Recovering the Relative Pose
 
-Input is the rig, the camera of each view and a list of `Correspondence2D`, pairs of **pixels**: `pt1` in rig camera `cameras[0]` at the first capture, `pt2` in rig camera `cameras[1]` at the second (`[0, 0]` for one camera that moved). Each pixel is unprojected through its camera's model into a bearing, so a distorted lens or a fisheye needs no undistortion first. The function runs the 5-point algorithm on several evenly spaced subsets of the correspondences, scores each candidate essential matrix by its angular epipolar error and by cheirality over **all** correspondences, keeps the pose for which the most points lie ahead along both bearings, and triangulates:
+Input is the rig, the camera of each view and a list of `PixelMatch`, pairs of **pixels** with their stated noise: `pt1` in rig camera `cameras[0]` at the first capture, `pt2` in rig camera `cameras[1]` at the second (`[0, 0]` for one camera that moved). Each pixel is unprojected through its camera's model into a bearing, so a distorted lens or a fisheye needs no undistortion first. The function runs the 5-point algorithm on several evenly spaced subsets of the correspondences, scores each candidate essential matrix by its covariance-weighted Sampson error (below) and by cheirality over **all** correspondences, keeps the pose for which the most points lie ahead along both bearings, and triangulates:
 
 ```rust
 use vision_calibration::mvg::pose_recovery::recover_relative_pose;
-use vision_calibration::mvg::types::Correspondence2D;
+use vision_calibration::mvg::types::PixelMatch;
 
-let matches: Vec<Correspondence2D> = /* (pixel in the first view, pixel in the second) */;
+let matches: Vec<PixelMatch> = /* (pixel and its covariance in the first view, the same in the second) */;
 let rel = recover_relative_pose(&rig, [0, 0], &matches)?;
 // rel.second_se3_first : pose of the first camera's frame in the second's, unit translation
 // rel.essential        : b2ᵀ E b1 = 0 on the bearings
@@ -18,7 +18,34 @@ let rel = recover_relative_pose(&rig, [0, 0], &matches)?;
 // rel.scene            : parallax, pure-rotation and planarity diagnostics
 ```
 
-At least 5 correspondences are required. The translation is recovered **up to scale**: two bare views contain no metric anchor, so `rel.second_se3_first` has a unit-norm translation. Fix the scale with a known baseline (for a calibrated rig, the extrinsics already carry it) or a known 3D distance.
+### Stating the Pixel Noise
+
+Every pixel of a `PixelMatch` carries its covariance (a `PointCovariance`, px²). The noise is stated, never guessed, and there are three ways to state it:
+
+```rust
+use vision_calibration::core::PointCovariance;
+
+// Per observation: a detector's own 2×2 covariance, elongated or correlated.
+let cov = PointCovariance::new(0.25, 0.08, 0.09)?;
+// One σ for every pixel, in pixels.
+let iso = PointCovariance::isotropic(0.5)?;
+// The calibration's level: the reprojection σ̂ it measured on its own data.
+let level = rig.reprojection_noise(0)?;   // camera 0 of the rig
+let m = PixelMatch::new(pt1, level, pt2, iso);
+```
+
+`reprojection_noise` is an error when the calibration has no covariance, no reprojection level for that camera, or a level that is the dimensionless $\hat\sigma_0$ of residuals whitened by stated covariances; state the noise instead.
+
+The functions work on bearings, so each pixel covariance $\Sigma_k$ is mapped onto its bearing through the camera model's projection Jacobian: $m_k = J_k \Sigma_k J_k^\top$ with $J_k = \partial b / \partial\,\text{pixel}$ (computed by central differences of the model's forward projection, so every distortion and fisheye model is served). For a bearing pair $(b_1, b_2)$ and an essential matrix $E$, the **covariance-weighted Sampson error** is the epipolar constraint over its first-order standard deviation:
+
+$$
+e = \frac{|b_2^\top E\, b_1|}{\sqrt{g_1^\top m_1 g_1 + g_2^\top m_2 g_2}},\qquad
+g_1 = (I - b_1 b_1^\top) E^\top b_2,\quad g_2 = (I - b_2 b_2^\top) E\, b_1 .
+$$
+
+It is dimensionless, in σ, and does not change with the scale of $E$.
+
+At least 5 matches are required. The translation is recovered **up to scale**: two bare views contain no metric anchor, so `rel.second_se3_first` has a unit-norm translation. Fix the scale with a known baseline (for a calibrated rig, the extrinsics already carry it) or a known 3D distance.
 
 Each entry of `rel.points` is a `TriangulatedPoint`:
 
@@ -43,17 +70,17 @@ use vision_calibration::mvg::robust::{estimate_essential, recover_relative_pose_
 
 let opts = RansacOptions {
     min_inliers: 12,
-    ..RansacOptions::new(1.0e-3)   // angular epipolar error, in radians
+    ..RansacOptions::new(3.0)   // weighted Sampson error, in σ of the stated noise
 };
 let robust = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts)?;
 // robust.second_se3_first, robust.essential, robust.inliers (indices), robust.inlier_rms
 ```
 
-**The threshold is in radians**: the residual is the first-order angle by which the two bearings would have to move to satisfy the epipolar constraint. A pixel threshold $t$ is about $t / f$ radians for a focal length $f$ in pixels near the image centre: `1.0e-3` is about 0.8 px for a focal length of 800 px. A pixel-scale value such as 2.0 is far too loose for residuals on this scale and would accept every match. There is no default threshold: `RansacOptions::new(thresh)` requires one, and a threshold that is not finite and positive is an error. The run is deterministic for a given `seed` field.
+**The threshold is in σ**: the residual is the weighted Sampson error above, so `3.0` keeps about 99.7 % of the inliers when the noise is Gaussian and as stated, independent of the focal length and of the camera model. The stated noise is the scale: understating the pixel noise by a factor of two doubles every residual and rejects good matches. There is no default threshold: `RansacOptions::new(thresh)` requires one, and a threshold that is not finite and positive is an error. The run is deterministic for a given `seed` field.
 
 `RansacOptions` is defined in `vision-calibration-core`, which the facade does not re-export; add that crate to your dependencies to name it.
 
-`estimate_essential` returns the essential matrix with its inlier indices and the RMS angular error over the inliers (in radians); `estimate_homography` does the same for a homography (4-point DLT with symmetric transfer error, on plain image points). `recover_relative_pose_robust` selects the inliers first and disambiguates the four decompositions of the essential matrix with cheirality on the inliers only, so outliers cannot corrupt the positive-depth vote.
+`estimate_essential` returns the essential matrix with its inlier indices and the RMS of the weighted Sampson error over the inliers (in σ, about 1 when the stated noise describes the pixels); `estimate_homography` does the same for a homography (4-point DLT with symmetric transfer error, on plain image points). `recover_relative_pose_robust` selects the inliers first and disambiguates the four decompositions of the essential matrix with cheirality on the inliers only, so outliers cannot corrupt the positive-depth vote.
 
 ## Triangulating Points from N Views
 

@@ -2,7 +2,8 @@
 //!
 //! This crate provides tools for two-view and multi-view geometry:
 //!
-//! - **Types**: [`Correspondence2D`] (a pair of pixels), [`TriangulatedPoint`], matrix type aliases
+//! - **Types**: [`PixelMatch`] (a pair of pixels with their noise), [`Correspondence2D`]
+//!   (a pair of plain points), [`TriangulatedPoint`], matrix type aliases
 //! - **Residuals**: algebraic, Sampson, geometric epipolar residuals and
 //!   symmetric transfer error for homographies
 //! - **Degeneracy**: pure-rotation, planar-scene and poor-baseline detection
@@ -43,10 +44,10 @@
 //! ```
 //! use nalgebra::Rotation3;
 //! use vision_calibration_core::{
-//!     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Pt3, Uncertainty, Vec3,
+//!     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, PointCovariance, Pt3, Uncertainty, Vec3,
 //!     make_pinhole_camera, pinhole_camera_params,
 //! };
-//! use vision_mvg::{Correspondence2D, recover_relative_pose};
+//! use vision_mvg::{PixelMatch, recover_relative_pose};
 //!
 //! // One 800 px camera with barrel distortion, moved between two captures.
 //! let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 480.0 };
@@ -66,12 +67,16 @@
 //!     })
 //!     .collect();
 //! let model = rig.model(0).unwrap();
-//! let matches: Vec<Correspondence2D> = scene
+//! // Each pixel is detected to about half a pixel.
+//! let noise = PointCovariance::isotropic(0.5)?;
+//! let matches: Vec<PixelMatch> = scene
 //!     .iter()
 //!     .map(|p| {
-//!         Correspondence2D::new(
+//!         PixelMatch::new(
 //!             model.project_point_c(&p.coords).unwrap(),
+//!             noise,
 //!             model.project_point_c(&(r * p.coords + t)).unwrap(),
+//!             noise,
 //!         )
 //!     })
 //!     .collect();
@@ -119,7 +124,8 @@ pub use robust::{
     estimate_homography, recover_relative_pose_robust,
 };
 pub use types::{
-    Correspondence2D, EssentialMatrix, FundamentalMatrix, HomographyMatrix, TriangulatedPoint,
+    Correspondence2D, EssentialMatrix, FundamentalMatrix, HomographyMatrix, PixelMatch,
+    TriangulatedPoint,
 };
 
 // Re-export low-level solvers from vision-geometry.

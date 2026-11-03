@@ -287,7 +287,7 @@ fn mvg_module_surface_compiles() {
     // Lock the key re-exported paths (multiple-view geometry pipelines).
     let _ = mvg::pose_recovery::recover_relative_pose;
     let _ = mvg::robust::recover_relative_pose_robust;
-    let _ = mvg::RansacOptions::new(1.0e-3);
+    let _ = mvg::RansacOptions::new(3.0);
     let _ = mvg::triangulation::triangulate;
     let _: Option<mvg::triangulation::RigObservation> = None;
     let _: Option<vision_calibration::core::CalibratedRig> = None;
@@ -298,6 +298,7 @@ fn mvg_module_surface_compiles() {
     let _: Option<mvg::dense::DisparityMap> = None;
     let _: Option<mvg::dense::BlockMatchOptions> = None;
     let _: Option<mvg::types::Correspondence2D> = None;
+    let _: Option<mvg::types::PixelMatch> = None;
     let _: Option<mvg::MvgError> = None;
     let _: Option<mvg::error::Result<()>> = None;
 }

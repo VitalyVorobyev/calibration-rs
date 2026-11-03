@@ -1,16 +1,19 @@
 //! Robust estimation using RANSAC for epipolar and homography models.
 //!
-//! Provides RANSAC-based estimators that work with [`Correspondence2D`]:
+//! Provides RANSAC-based estimators that work with [`PixelMatch`] (calibrated)
+//! and [`Correspondence2D`] (homography):
 //!
-//! - [`estimate_essential`]: 5-point algorithm on bearings + angular epipolar error
+//! - [`estimate_essential`]: 5-point algorithm on bearings + covariance-weighted
+//!   Sampson error
 //! - [`estimate_homography`]: 4-point DLT + symmetric transfer error
 //! - [`recover_relative_pose_robust`]: full pipeline from matched pixels to pose
 
-use crate::bearing::bearings;
+use crate::bearing::{bearing_with_jacobian, camera_model};
 use crate::pose_recovery::iso_from_rt;
 use crate::residuals;
-use crate::types::Correspondence2D;
+use crate::types::{Correspondence2D, PixelMatch};
 use crate::{MvgError, Result};
+use nalgebra::Matrix2;
 use vision_calibration_core::{
     CalibratedRig, Estimator, Iso3, Mat3, RansacOptions, Real, Vec3, ransac_fit,
 };
@@ -23,7 +26,8 @@ pub struct EssentialEstimate {
     pub essential: Mat3,
     /// Indices of inlier matches.
     pub inliers: Vec<usize>,
-    /// RMS angular epipolar error over inliers, in radians.
+    /// RMS of the weighted Sampson error over inliers, in σ: about 1 when the
+    /// stated pixel noise describes the pixels.
     pub inlier_rms: Real,
 }
 
@@ -48,17 +52,147 @@ pub struct RobustRelativePose {
     pub essential: Mat3,
     /// Indices of inlier matches.
     pub inliers: Vec<usize>,
-    /// RMS angular epipolar error over inliers, in radians.
+    /// RMS of the weighted Sampson error over inliers, in σ: about 1 when the
+    /// stated pixel noise describes the pixels.
     pub inlier_rms: Real,
 }
 
 // --- Essential matrix RANSAC estimator ---
 
-/// The unit bearings of one match, in the two cameras' frames.
+/// The unit bearings of one match, in the two cameras' frames, with the
+/// covariances of the bearings (3×3, rank 2) their pixels' noise maps to.
 #[derive(Debug, Clone, Copy)]
-struct BearingPair {
-    b1: Vec3,
-    b2: Vec3,
+pub(crate) struct BearingPair {
+    pub(crate) b1: Vec3,
+    pub(crate) b2: Vec3,
+    pub(crate) m1: Mat3,
+    pub(crate) m2: Mat3,
+}
+
+impl BearingPair {
+    /// The weighted Sampson error of `e` on this pair, in σ.
+    pub(crate) fn error(&self, e: &Mat3) -> Real {
+        residuals::weighted_sampson_error(e, &self.b1, &self.b2, &self.m1, &self.m2)
+    }
+
+    /// The epipolar constraint of `e` on this pair and its first-order σ.
+    fn constraint_sigma(&self, e: &Mat3) -> Option<(Real, Real)> {
+        residuals::epipolar_constraint_sigma(e, &self.b1, &self.b2, &self.m1, &self.m2)
+    }
+}
+
+/// Gauss-Newton iterations of [`refine_essential`]; it converges in a few.
+const REFINE_MAX_ITERS: usize = 30;
+
+/// `E` polished on the essential manifold: the minimizer, from `e`, of the
+/// sum of squared weighted Sampson errors of `data[indices]`.
+///
+/// The linear (8-point) solution is not that minimizer: noise in the design
+/// matrix biases it, the more so when the two cameras' angular noise differs
+/// (a fisheye matched with a pinhole) or the stated covariances are
+/// anisotropic, and its error then shows as an inlier RMS well above 1 σ.
+/// The refinement parametrizes `E = [t]× R` with `R ← R exp([δω]×)` and the
+/// unit `t` moved in its tangent plane (5 degrees of freedom), holds each
+/// constraint's σ at the current estimate within a step, and takes damped
+/// Gauss-Newton steps (Levenberg-Marquardt) with analytic Jacobians. `None`
+/// when `e` does not decompose or no step lowers the cost.
+fn refine_essential(e: &Mat3, data: &[BearingPair], indices: &[usize]) -> Option<Mat3> {
+    use nalgebra::{Matrix5, Rotation3, Vector5};
+
+    let skew = |v: &Vec3| Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0);
+    let essential = |r: &Mat3, t: &Vec3| skew(t) * r;
+    let cost = |e: &Mat3| -> Real {
+        indices
+            .iter()
+            .map(|&i| match data[i].constraint_sigma(e) {
+                Some((g, sigma)) => (g / sigma).powi(2),
+                None => 0.0,
+            })
+            .sum()
+    };
+    // An orthonormal basis of the plane perpendicular to the unit `t`.
+    let tangent = |t: &Vec3| -> (Vec3, Vec3) {
+        let helper = if t.x.abs() < 0.9 {
+            Vec3::x()
+        } else {
+            Vec3::y()
+        };
+        let a = t.cross(&helper).normalize();
+        (a, t.cross(&a))
+    };
+
+    let (mut r, t0) = *vision_geometry::epipolar::decompose_essential(e)
+        .ok()?
+        .first()?;
+    let mut t = t0.normalize();
+    let mut current = cost(&essential(&r, &t));
+    let start = current;
+    let mut lambda = 1e-3;
+
+    for _ in 0..REFINE_MAX_ITERS {
+        let e_now = essential(&r, &t);
+        let (ta, tb) = tangent(&t);
+        let mut h = Matrix5::<Real>::zeros();
+        let mut b = Vector5::<Real>::zeros();
+        for &i in indices {
+            let p = &data[i];
+            let Some((g, sigma)) = p.constraint_sigma(&e_now) else {
+                continue;
+            };
+            // g = b2ᵀ [t]× R b1: ∂g/∂δω = −b2ᵀ [t]× R [b1]×, ∂g/∂t = (R b1 × b2)ᵀ.
+            let d_omega = -(p.b2.transpose() * skew(&t) * r * skew(&p.b1));
+            let d_t = (r * p.b1).cross(&p.b2);
+            let row = Vector5::new(
+                d_omega[0],
+                d_omega[1],
+                d_omega[2],
+                d_t.dot(&ta),
+                d_t.dot(&tb),
+            ) / sigma;
+            h += row * row.transpose();
+            b += row * (g / sigma);
+        }
+
+        let mut accepted = false;
+        while lambda < 1e12 {
+            let mut damped = h;
+            for k in 0..5 {
+                damped[(k, k)] += lambda * h[(k, k)].max(Real::EPSILON);
+            }
+            let Some(step) = damped.cholesky().map(|c| c.solve(&(-b))) else {
+                lambda *= 10.0;
+                continue;
+            };
+            let r_new =
+                r * Rotation3::from_scaled_axis(Vec3::new(step[0], step[1], step[2])).into_inner();
+            let t_new = (t + ta * step[3] + tb * step[4]).normalize();
+            let trial = cost(&essential(&r_new, &t_new));
+            if trial.is_finite() && trial < current {
+                let small = step.norm() < 1e-12 || current - trial <= 1e-12 * current;
+                r = r_new;
+                t = t_new;
+                current = trial;
+                lambda = (lambda * 0.1).max(1e-9);
+                accepted = !small;
+                break;
+            }
+            lambda *= 10.0;
+        }
+        if !accepted {
+            break;
+        }
+    }
+    (current < start).then(|| essential(&r, &t))
+}
+
+/// `E` fitted to every pair of `inliers`: the linear solution, polished on
+/// the essential manifold by [`refine_essential`]. Run after the consensus
+/// search, not inside it: a least-squares refit of a candidate's inliers can
+/// lean towards a borderline outlier and then count it, so the search scores
+/// minimal-sample models.
+fn refit_inliers(data: &[BearingPair], inliers: &[usize]) -> Option<Mat3> {
+    let e = EssentialEstimator::fit(data, inliers)?;
+    Some(refine_essential(&e, data, inliers).unwrap_or(e))
 }
 
 struct EssentialEstimator;
@@ -72,17 +206,13 @@ impl Estimator for EssentialEstimator {
     fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model> {
         let n = sample_indices.len();
 
-        // Shared helper: pick the candidate E that minimises the total angular
-        // epipolar error over *all* sample_indices (not just the 5 used to
+        // Shared helper: pick the candidate E that minimises the total weighted
+        // Sampson error over *all* sample_indices (not just the 5 used to
         // construct the candidates).  Used for both the minimal and the 6-7
         // point paths.
         let best_of = |candidates: Vec<Mat3>| -> Option<Mat3> {
-            let total = |e: &Mat3| -> Real {
-                sample_indices
-                    .iter()
-                    .map(|&i| residuals::angular_epipolar_error(e, &data[i].b1, &data[i].b2))
-                    .sum()
-            };
+            let total =
+                |e: &Mat3| -> Real { sample_indices.iter().map(|&i| data[i].error(e)).sum() };
             candidates.into_iter().min_by(|a, b| {
                 total(a)
                     .partial_cmp(&total(b))
@@ -111,7 +241,7 @@ impl Estimator for EssentialEstimator {
     }
 
     fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
-        residuals::angular_epipolar_error(model, &datum.b1, &datum.b2)
+        datum.error(model)
     }
 
     fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
@@ -163,19 +293,37 @@ impl Estimator for HomographyEstimator {
     }
 }
 
+/// The bearing of `pixel` with the covariance its pixel noise maps to.
+fn bearing_and_covariance(
+    model: &vision_calibration_core::CameraModel,
+    pixel: &vision_calibration_core::Pt2,
+    noise: &vision_calibration_core::PointCovariance,
+    index: usize,
+) -> Result<(Vec3, Mat3)> {
+    let (b, j) = bearing_with_jacobian(model, pixel, index)?;
+    let sigma = Matrix2::new(noise.xx(), noise.xy(), noise.xy(), noise.yy());
+    Ok((b, j * sigma * j.transpose()))
+}
+
 /// The matches as bearing pairs through the rig cameras `cameras`.
-fn bearing_pairs(
+pub(crate) fn bearing_pairs(
     rig: &CalibratedRig,
     cameras: [usize; 2],
-    matches: &[Correspondence2D],
+    matches: &[PixelMatch],
 ) -> Result<Vec<BearingPair>> {
-    let b1 = bearings(rig, cameras[0], matches.iter().map(|c| c.pt1))?;
-    let b2 = bearings(rig, cameras[1], matches.iter().map(|c| c.pt2))?;
-    Ok(b1
-        .into_iter()
-        .zip(b2)
-        .map(|(b1, b2)| BearingPair { b1, b2 })
-        .collect())
+    let (model1, model2) = (
+        camera_model(rig, cameras[0])?,
+        camera_model(rig, cameras[1])?,
+    );
+    matches
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let (b1, m1) = bearing_and_covariance(model1, &m.pt1, &m.noise1, i)?;
+            let (b2, m2) = bearing_and_covariance(model2, &m.pt2, &m.noise2, i)?;
+            Ok(BearingPair { b1, b2, m1, m2 })
+        })
+        .collect()
 }
 
 /// Estimate an essential matrix from matched pixels using RANSAC.
@@ -183,13 +331,21 @@ fn bearing_pairs(
 /// `matches[i].pt1` is a pixel of rig camera `cameras[0]` in the first
 /// capture and `matches[i].pt2` of `cameras[1]` in the second (`[0, 0]` for one
 /// moving camera). Pixels are unprojected through each camera's own model into
-/// bearings; the 5-point algorithm is the minimal solver and the first-order
-/// angular epipolar error the residual.
+/// bearings; the 5-point algorithm is the minimal solver and the
+/// covariance-weighted Sampson error the residual: the epipolar constraint
+/// divided by its first-order standard deviation, with each pixel's stated
+/// covariance mapped onto its bearing through the camera model's projection
+/// Jacobian. The consensus model is then refitted to its inliers, linearly
+/// and then on the essential manifold to the least squares of that error,
+/// and the inliers re-selected until they settle: the result is the
+/// estimate of its own inliers, not of the best minimal sample.
 ///
-/// **Threshold unit:** `opts.thresh` is compared with that angular error in
-/// **radians**, not pixels. A pixel threshold `t` is about `t / f` radians for a
-/// focal length `f` in pixels near the image centre (`1.0e-3` rad is about
-/// 0.8 px at `f = 800`). A pixel-scale value such as `2.0` accepts every match.
+/// **Threshold unit:** `opts.thresh` is in **σ**, dimensionless, and does not
+/// depend on the focal length or the camera model: with Gaussian noise as
+/// stated, `3.0` keeps about 99.7 % of the inliers. The stated noise is the
+/// scale: a pixel noise understated by a factor of two doubles every residual.
+/// `inlier_rms` of the result is the RMS of the same error over the inliers,
+/// about 1 when the stated noise describes the pixels.
 ///
 /// # Errors
 ///
@@ -201,7 +357,7 @@ fn bearing_pairs(
 pub fn estimate_essential(
     rig: &CalibratedRig,
     cameras: [usize; 2],
-    matches: &[Correspondence2D],
+    matches: &[PixelMatch],
     opts: &RansacOptions,
 ) -> Result<EssentialEstimate> {
     opts.validate()?;
@@ -220,13 +376,46 @@ fn essential_from_pairs(pairs: &[BearingPair], opts: &RansacOptions) -> Result<E
     if !result.success {
         return Err(MvgError::NoConsensus);
     }
+    let mut essential = result.model.expect("success guarantees model");
+    let mut inliers = result.inliers;
+
+    // The consensus set came from a model fitted to an earlier, smaller set:
+    // refit on it and re-select the inliers until the set settles, so the
+    // result is the refined model of its own inliers.
+    for _ in 0..FINAL_REFITS {
+        let Some(next) = refit_inliers(pairs, &inliers) else {
+            break;
+        };
+        let next_inliers: Vec<usize> = (0..pairs.len())
+            .filter(|&i| pairs[i].error(&next) <= opts.thresh)
+            .collect();
+        if next_inliers.len() < inliers.len().max(opts.min_inliers) {
+            break;
+        }
+        let settled = next_inliers == inliers;
+        essential = next;
+        inliers = next_inliers;
+        if settled {
+            break;
+        }
+    }
+    let inlier_rms = (inliers
+        .iter()
+        .map(|&i| pairs[i].error(&essential).powi(2))
+        .sum::<Real>()
+        / inliers.len() as Real)
+        .sqrt();
 
     Ok(EssentialEstimate {
-        essential: result.model.expect("success guarantees model"),
-        inliers: result.inliers,
-        inlier_rms: result.inlier_rms,
+        essential,
+        inliers,
+        inlier_rms,
     })
 }
+
+/// Refit-and-reselect rounds after the consensus search; the inlier set
+/// settles in one or two.
+const FINAL_REFITS: usize = 5;
 
 /// Estimate a homography from correspondences using RANSAC.
 ///
@@ -275,9 +464,8 @@ pub fn estimate_homography(
 /// camera of each capture and the matches). The returned `second_se3_first` has
 /// a unit-norm translation.
 ///
-/// **Threshold unit:** as for [`estimate_essential`], `opts.thresh` is the
-/// angular epipolar error in radians (about `t / f` for a pixel threshold `t`
-/// and focal length `f` in pixels).
+/// **Threshold unit:** as for [`estimate_essential`], `opts.thresh` and
+/// `inlier_rms` are in σ of the stated pixel noise.
 ///
 /// # Errors
 ///
@@ -286,7 +474,7 @@ pub fn estimate_homography(
 pub fn recover_relative_pose_robust(
     rig: &CalibratedRig,
     cameras: [usize; 2],
-    matches: &[Correspondence2D],
+    matches: &[PixelMatch],
     opts: &RansacOptions,
 ) -> Result<RobustRelativePose> {
     opts.validate()?;
@@ -317,7 +505,7 @@ pub fn recover_relative_pose_robust(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{Lcg, iso, pinhole_rig, pixel_of};
+    use crate::test_support::{Lcg, iso, match_of, pinhole_rig, pixel_of};
     use nalgebra::Rotation3;
     use vision_calibration_core::{Pt2, Pt3};
 
@@ -332,7 +520,7 @@ mod tests {
     }
 
     /// 15 noise-free matches of an 800 px camera plus 3 gross outliers.
-    fn stereo_matches_with_outliers() -> Vec<Correspondence2D> {
+    fn stereo_matches_with_outliers() -> Vec<PixelMatch> {
         let rig = rig();
         let gt = gt_pose();
         let world = [
@@ -355,25 +543,16 @@ mod tests {
         let mut matches: Vec<_> = world
             .iter()
             .map(|p| {
-                Correspondence2D::new(
+                match_of(
                     pixel_of(&rig, 0, &p.coords),
                     pixel_of(&rig, 0, &(gt * p).coords),
                 )
             })
             .collect();
         // Add outliers.
-        matches.push(Correspondence2D::new(
-            Pt2::new(700.0, 500.0),
-            Pt2::new(100.0, 90.0),
-        ));
-        matches.push(Correspondence2D::new(
-            Pt2::new(400.0, 520.0),
-            Pt2::new(900.0, 100.0),
-        ));
-        matches.push(Correspondence2D::new(
-            Pt2::new(660.0, 400.0),
-            Pt2::new(300.0, 700.0),
-        ));
+        matches.push(match_of(Pt2::new(700.0, 500.0), Pt2::new(100.0, 90.0)));
+        matches.push(match_of(Pt2::new(400.0, 520.0), Pt2::new(900.0, 100.0)));
+        matches.push(match_of(Pt2::new(660.0, 400.0), Pt2::new(300.0, 700.0)));
         matches
     }
 
@@ -388,7 +567,7 @@ mod tests {
 
         let opts = RansacOptions {
             max_iters: 500,
-            thresh: 0.001,
+            thresh: 3.0,
             min_inliers: 10,
             confidence: 0.99,
             seed: 42,
@@ -402,7 +581,7 @@ mod tests {
             est.inliers.len()
         );
         assert!(est.inliers.iter().all(|&i| i < 15), "an outlier survived");
-        assert!(est.inlier_rms < 1e-3);
+        assert!(est.inlier_rms < 1e-3, "inlier rms {} σ", est.inlier_rms);
 
         // Verify decomposition recovers pose (using inliers only).
         let pairs = bearing_pairs(&rig, [0, 0], &matches).unwrap();
@@ -423,7 +602,7 @@ mod tests {
 
     /// The 15 noise-free inliers of the fixture plus 6 gross outliers (29 %);
     /// the inliers keep indices `0..15`.
-    fn thirty_percent_outliers() -> (Vec<Correspondence2D>, usize) {
+    fn thirty_percent_outliers() -> (Vec<PixelMatch>, usize) {
         const N_IN: usize = 15;
         let mut matches = stereo_matches_with_outliers();
         matches.truncate(N_IN);
@@ -431,31 +610,31 @@ mod tests {
         for _ in 0..6 {
             let mut px = || Pt2::new(640.0 + 400.0 * rng.next(), 480.0 + 300.0 * rng.next());
             let (a, b) = (px(), px());
-            matches.push(Correspondence2D::new(a, b));
+            matches.push(match_of(a, b));
         }
         (matches, N_IN)
     }
 
     #[test]
-    fn essential_ransac_rejects_outliers_at_angular_threshold() {
+    fn essential_ransac_rejects_outliers_at_sigma_threshold() {
         let rig = rig();
         let (matches, n_in) = thirty_percent_outliers();
         let opts = RansacOptions {
             max_iters: 2000,
             min_inliers: 8,
             seed: 7,
-            ..RansacOptions::new(1.0e-3)
+            ..RansacOptions::new(3.0)
         };
         let est = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
         assert_eq!(est.inliers.len(), n_in, "inlier count");
         assert!(est.inliers.iter().all(|&i| i < n_in), "an outlier survived");
 
-        // A pixel-scale threshold read as radians accepts everything.
+        // A threshold of 1e5 σ accepts everything.
         let loose = RansacOptions {
             max_iters: 50,
             min_inliers: 8,
             seed: 7,
-            ..RansacOptions::new(2.0)
+            ..RansacOptions::new(1.0e5)
         };
         let est = estimate_essential(&rig, [0, 0], &matches, &loose).unwrap();
         assert_eq!(est.inliers.len(), matches.len());
@@ -474,8 +653,12 @@ mod tests {
                 ),
                 "essential accepted thresh {bad}"
             );
+            let plain: Vec<_> = matches
+                .iter()
+                .map(|m| Correspondence2D::new(m.pt1, m.pt2))
+                .collect();
             assert!(
-                matches!(estimate_homography(&matches, &opts), Err(MvgError::Core(_))),
+                matches!(estimate_homography(&plain, &opts), Err(MvgError::Core(_))),
                 "homography accepted thresh {bad}"
             );
             assert!(
@@ -491,7 +674,7 @@ mod tests {
     #[test]
     fn camera_index_out_of_range_is_invalid_input() {
         let (matches, _) = thirty_percent_outliers();
-        let opts = RansacOptions::new(1e-3);
+        let opts = RansacOptions::new(3.0);
         assert!(matches!(
             estimate_essential(&rig(), [0, 1], &matches, &opts),
             Err(MvgError::InvalidInput { .. })
@@ -568,7 +751,7 @@ mod tests {
 
         let opts = RansacOptions {
             max_iters: 500,
-            thresh: 0.001,
+            thresh: 3.0,
             min_inliers: 10,
             confidence: 0.99,
             seed: 42,
@@ -595,7 +778,7 @@ mod tests {
 
         let opts = RansacOptions {
             max_iters: 200,
-            thresh: 0.001,
+            thresh: 3.0,
             min_inliers: 10,
             confidence: 0.99,
             seed: 123,
@@ -622,7 +805,7 @@ mod tests {
 
         let opts_refit = RansacOptions {
             max_iters: 500,
-            thresh: 0.001,
+            thresh: 3.0,
             min_inliers: 10,
             confidence: 0.99,
             seed: 77,
@@ -674,6 +857,8 @@ mod tests {
             .map(|pw| BearingPair {
                 b1: pw.coords.normalize(),
                 b2: (rot * pw.coords + t).normalize(),
+                m1: Mat3::identity() * 1e-6,
+                m2: Mat3::identity() * 1e-6,
             })
             .collect();
 
@@ -681,10 +866,10 @@ mod tests {
         let e =
             EssentialEstimator::fit(&pairs, &indices).expect("fit with 7 points must return Some");
 
-        // 1. Angular epipolar error near zero for all 7 points.
+        // 1. Weighted Sampson error near zero for all 7 points.
         assert!(e.norm() > 0.0, "fit returned zero matrix");
         for p in &pairs {
-            let res = residuals::angular_epipolar_error(&e, &p.b1, &p.b2);
+            let res = p.error(&e);
             assert!(res < 1e-5, "epipolar residual too large: {:.3e}", res);
         }
 
@@ -697,5 +882,78 @@ mod tests {
             sv
         );
         assert!(sv[2] / s_avg < 1e-4, "sv[2] not near zero: {:?}", sv);
+    }
+
+    /// Monte Carlo: with pixels drawn from the stated covariances (a fisheye
+    /// with an anisotropic, correlated one; a pinhole with an isotropic one),
+    /// the weighted Sampson error at the true `E` has an RMS of 1 σ, and it
+    /// halves when every stated σ is doubled.
+    #[test]
+    fn weighted_error_at_the_true_essential_matrix_is_one_sigma() {
+        use crate::test_support::{fisheye_params, pinhole_params};
+        use vision_calibration_core::{PointCovariance, Uncertainty};
+
+        let cam1_se3_rig = iso(0.02, -0.12, 0.03, Vec3::new(-0.5, 0.05, 0.1));
+        let rig = CalibratedRig::new(
+            vec![fisheye_params(), pinhole_params(-0.2)],
+            vec![Iso3::identity(), cam1_se3_rig],
+            Uncertainty::default(),
+        )
+        .unwrap();
+        let truth = [
+            PointCovariance::new(0.25, 0.08, 0.09).unwrap(),
+            PointCovariance::isotropic(0.4).unwrap(),
+        ];
+        let mut rng = Lcg(0xC0FFEE);
+        let mut uniform = || (rng.next() + 1.0) * 0.5 * (1.0 - 1e-12) + 5e-13;
+        let mut normal = || {
+            let (u, v) = (uniform(), uniform());
+            (-2.0 * u.ln()).sqrt() * (2.0 * std::f64::consts::PI * v).cos()
+        };
+        let mut offset = |c: &PointCovariance| {
+            let l00 = c.xx().sqrt();
+            let l10 = c.xy() / l00;
+            let l11 = (c.yy() - l10 * l10).sqrt();
+            let (a, b) = (normal(), normal());
+            Pt2::new(l00 * a, l10 * a + l11 * b)
+        };
+
+        let mut obs = Vec::new();
+        for i in 0..4000 {
+            let z = 3.0 + 5.0 * (f64::from(i) * 0.618_034).fract();
+            let x = z * (0.6 * ((f64::from(i) * 0.371).fract() - 0.5));
+            let y = z * (0.5 * ((f64::from(i) * 0.713).fract() - 0.5));
+            let p = Pt3::new(x, y, z);
+            let (m0, m1) = (rig.model(0).unwrap(), rig.model(1).unwrap());
+            if let (Some(u1), Some(u2)) =
+                (m0.project_point(&p), m1.project_point(&(cam1_se3_rig * p)))
+            {
+                obs.push((u1 + offset(&truth[0]).coords, u2 + offset(&truth[1]).coords));
+            }
+        }
+        assert!(obs.len() >= 3000, "{} matches", obs.len());
+
+        let t = cam1_se3_rig.translation.vector;
+        let skew = Mat3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0);
+        let e = skew * cam1_se3_rig.rotation.to_rotation_matrix().into_inner();
+
+        let rms_at_true_e = |scale: f64| -> f64 {
+            let state = |c: &PointCovariance| {
+                let s2 = scale * scale;
+                PointCovariance::new(c.xx() * s2, c.xy() * s2, c.yy() * s2).unwrap()
+            };
+            let matches: Vec<_> = obs
+                .iter()
+                .map(|&(a, b)| PixelMatch::new(a, state(&truth[0]), b, state(&truth[1])))
+                .collect();
+            let pairs = bearing_pairs(&rig, [0, 1], &matches).unwrap();
+            let sum: Real = pairs.iter().map(|p| p.error(&e).powi(2)).sum();
+            (sum / pairs.len() as Real).sqrt()
+        };
+        let rms = rms_at_true_e(1.0);
+        let half = rms_at_true_e(2.0);
+        eprintln!("RMS at the true E: {rms:.4} sigma; with doubled stated sigma {half:.4}");
+        assert!((0.95..=1.05).contains(&rms), "RMS {rms} sigma");
+        assert!((half / rms - 0.5).abs() < 1e-9, "{half} vs {rms}");
     }
 }

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **Calibrated two-view functions take pixels with their noise** (breaking, in
+  `vision-mvg` and the facade's `mvg`). `robust::estimate_essential`,
+  `robust::recover_relative_pose_robust` and
+  `pose_recovery::recover_relative_pose` take `&[PixelMatch]` instead of
+  `&[Correspondence2D]`: two pixels, each with its `PointCovariance`.
+  `Correspondence2D` stays for the fundamental-matrix and homography
+  estimators.
+  - The residual is the covariance-weighted Sampson error: the epipolar
+    constraint over its first-order standard deviation, with each pixel's
+    covariance mapped onto its bearing through the camera model. The RANSAC
+    `thresh` and `inlier_rms` of the essential-matrix functions are in **σ**
+    of the stated noise instead of radians; `3.0` keeps about 99.7 % of the
+    inliers of Gaussian noise, at any focal length.
+  - The essential matrix is the least-squares fit of that error to its
+    inliers (a linear fit polished on the essential manifold), no longer
+    the best five-point sample, so `inlier_rms` is about 1 when the stated
+    noise describes the pixels, and estimates change.
+  - Migrate with
+    `PixelMatch::new(pt1, PointCovariance::isotropic(0.5)?, pt2, PointCovariance::isotropic(0.5)?)`
+    (state the σ your detector reaches), and a radian threshold `t` becomes
+    about `t · f / σ` in σ for focal length `f` px and pixel noise `σ` px
+    (`1.0e-3` rad at `f = 800` and `σ = 0.5` is about `1.6`).
+
+### Added
+
+- `PointCovariance::isotropic(sigma_px)`: the covariance of one σ on both
+  axes.
+- `CalibratedRig::reprojection_noise(camera)`: the calibration's reprojection
+  noise level as a `PointCovariance`, or an error naming why the calibration
+  has none to give.
+
 ## [0.13.0] - 2026-11-03
 
 ### Migration
