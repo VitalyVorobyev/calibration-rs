@@ -16,9 +16,8 @@ two-view functions take matches with their stated noise (`PixelMatch`), and
 triangulation refines the points and returns their covariance, the
 calibration's share included, and bundle adjustment refines capture poses
 and points through the builder (Consider or Prior, robust losses, an explicit
-gauge, covariance). The rectification still runs on a bare `K`, the two-view
-functions return no covariance, and there is no Python binding and no
-real-data demonstration.
+gauge, covariance). The rectification still runs on a bare `K`, and the two-view
+functions return no covariance.
 
 - [ ] MVG-BA-PRIOR - Bundle adjustment with `Use::Prior` states the
   refined cameras about 8 % too precisely: in
@@ -46,11 +45,6 @@ real-data demonstration.
   robot pose is stated exact or with its sigma. Replaces the pipeline's
   `pixel_to_gripper_point`, which returns a point without σ (delete it).
   Gate: Monte-Carlo over hand-eye calibrations, as `laser_uncertainty.rs`.
-- [ ] MVG-DEMO - A book walk-through plus Rust and Python examples on the
-  fetchable samples (`opencv_fisheye_stereo`, a pinhole stereo pair once
-  CAL-CHESSBOARD-TURN lands): calibrate, triangulate the board corners of
-  held-out views, measure known square lengths with σ, and compare the
-  predicted σ with the actual error on the known geometry.
 
 ## Correctness — CORRECT (Phase 1b)
 
@@ -85,7 +79,8 @@ real-data demonstration.
   cameras of one view, not across views: relabel each view's detections to
   a common orientation per view (from the cameras' relative geometry or the
   board's asymmetry) instead of rejecting them. Gate: the OpenCV pair
-  calibrates as a rig from all 13 views; then add it to the samples.
+  calibrates as a rig from all 13 views; then add it to the samples and run
+  the board-measurement example (`measure_board`) on it as a pinhole pair.
 
 - [ ] CAL-RIG-GRAPH - Rig initialization chained through a camera
   co-visibility graph. Today `linear/src/extrinsics.rs` errors when a

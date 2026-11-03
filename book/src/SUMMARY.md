@@ -71,6 +71,7 @@
 - [Measurements with Uncertainty](mvg_metrology.md)
 - [Stereo from a Calibration](mvg_rectification.md)
 - [Dense Stereo](mvg_dense.md)
+- [Measuring a Board with a Stereo Calibration](mvg_measure_board.md)
 
 ---
 
