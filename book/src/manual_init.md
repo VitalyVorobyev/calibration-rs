@@ -1,6 +1,6 @@
 # Seeding with Prior Knowledge
 
-By default every workflow initializes itself with the closed-form solvers described in [Why Linear Initialization Matters](linear_overview.md): Zhang's method for intrinsics, a DLT for rig extrinsics, Tsai-Lenz for hand-eye. That is the right behaviour when the data is well conditioned. In industrial settings you often have better priors:
+By default every workflow initializes itself with the closed-form solvers described in [Why Linear Initialization Matters](linear_overview.md): Zhang's method for intrinsics, a DLT for rig extrinsics, Tsai-Lenz (or another closed-form method) for hand-eye. That is the right behaviour when the data is well conditioned. In industrial settings you often have better priors:
 
 - datasheet focal lengths or principal points;
 - factory-measured Scheimpflug tilts;

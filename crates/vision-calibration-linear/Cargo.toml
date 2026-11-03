@@ -14,6 +14,10 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# `schemars::JsonSchema` on the types that appear in workflow configs.
+schemars = ["dep:schemars", "vision-calibration-core/schemars"]
+
 [dependencies]
 vision-calibration-core = { workspace = true }
 vision-geometry = { workspace = true }
@@ -21,6 +25,7 @@ nalgebra = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 vision-calibration-core = { workspace = true, features = ["synthetic", "test-utils"] }

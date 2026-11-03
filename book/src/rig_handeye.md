@@ -39,7 +39,7 @@ Same as [Rig Extrinsics](rig_extrinsics.md): initialize camera-to-rig transforms
 
 ### Step 5: Hand-Eye Initialization (`step_handeye_init`)
 
-Uses Tsai-Lenz with the rig's reference camera poses and robot poses:
+Uses the closed-form method of `handeye_init.method` (Tsai-Lenz by default; see [Hand-Eye Linear](handeye_linear.md)) with the rig's poses and the robot poses:
 1. Extract relative camera motions from rig-to-target poses
 2. Extract relative robot motions from base-to-gripper poses
 3. Solve $AX = XB$ for $X = T_{G,R}$ (`gripper_se3_rig`)
@@ -64,7 +64,7 @@ pub struct RigHandeyeConfig {
     pub camera: CameraConfig,               // camera model + fix lists shared by every camera
     pub camera_overrides: Vec<CameraOverride>, // per-camera replacement of `camera`
     pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics, refine_sensor
-    pub handeye_init: HandeyeInitConfig,    // handeye_mode, min_motion_angle_deg
+    pub handeye_init: HandeyeInitConfig,    // handeye_mode, method, min_motion_angle_deg
     pub solver: SolverConfig,               // max_iters, verbosity, robust_loss
     pub handeye_optimize: HandeyeOptimizeConfig, // robot_poses, refine_cam_se3_rig, refine_sensor
 }

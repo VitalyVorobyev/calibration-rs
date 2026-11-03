@@ -2,7 +2,8 @@
 
 Family: robot-mounted-camera calibration (`SingleCamHandeyeProblem`; the
 hand-eye axis of `RigHandeyeProblem`). Linear `AX = XB` initialization in
-`vision-calibration-linear::handeye` (Tsai–Lenz, all pairs); pipeline in
+`vision-calibration-linear::handeye` (Tsai–Lenz, Park–Martin, Daniilidis,
+Shah); pipeline in
 `vision-calibration-pipeline::single_cam_handeye`; joint bundle adjustment in
 `vision-calibration-optim::problems::handeye` (`optimize_handeye`).
 
@@ -35,35 +36,113 @@ rotations** (common at real robot stations) and returns the wrong axis. The
 linear solver's own matrix→quaternion conversions use the non-iterative
 `from_matrix_unchecked`.
 
-## Initialization (Tsai–Lenz, all pairs)
+## Initialization (closed form, four methods)
 
-For every view pair `(i, j)` the solver forms the gripper motion
-`A = T_B_G_i^{-1} · T_B_G_j` and the observation motion `B = S_i^{-1} · S_j`,
-where the stream `S` is `target_se3_camera` (EyeInHand,
-`estimate_handeye_dlt`) or `camera_se3_target` (EyeToHand,
-`estimate_gripper_se3_target_dlt`); both call `tsai_lenz_allpairs`. The
-rotations of `A` and `B` are projected to SO(3) (`math::project_to_so3`).
-Each pair is a constraint `A · X = X · B`, split into
+Both modes are the robot-world equation `A_i X = Z B_i` with `A_i = T_B_G_i`
+(`linear::handeye`, `estimate_eye_in_hand` / `estimate_eye_to_hand`, both
+taking `camera_se3_target` per view):
+
+| mode | `B_i` | `X` | `Z` |
+|---|---|---|---|
+| EyeInHand | `T_T_C_i` | `gripper_se3_camera` | `base_se3_target` |
+| EyeToHand | `T_C_T_i` | `gripper_se3_target` | `base_se3_camera` (returned inverted, `camera_se3_base`) |
+
+For the rig the observer is the rig frame (`rig_se3_target`), and EyeToHand's
+`camera_se3_base` is the rig's `T_R_B`. `HandeyeMethod` selects the solver
+(`handeye_init.method`, per-step `HandeyeInitOptions::method`; default
+`tsai_lenz`, unchanged results).
+
+**Motion pairs** (Tsai–Lenz, Park–Martin, Daniilidis). For every view pair
+`(i, j)`: `A = A_i^{-1} A_j`, `B = B_i^{-1} B_j`, rotations projected to
+SO(3) (`math::project_to_so3`); then `A X = X B`, i.e.
 
 ```
 R_A R_X = R_X R_B                 (rotation)
 (R_A − I) t_X = R_X t_B − t_A     (translation)
 ```
 
-Rotation is solved in quaternions: each pair contributes
-`[L(q_A) − R(q_B)] q_X = 0` (left/right multiplication matrices); stacking all
-pairs gives a `4N×4` system whose null vector — from the `AᵀA` symmetric
-eigendecomposition (`math::null_space`), not a dense SVD — is `q_X`.
-Translation stacks the `(R_A − I)` blocks against `R_X t_B − t_A` (`3N×3`)
-and solves ridge normal equations (`math::ridge_lstsq`, `λ = 1e-12`).
+- **Tsai–Lenz** (the default; strictly the separable quaternion form of
+  Tsai–Lenz's two-stage solution): each pair contributes
+  `[L(q_A) − R(q_B)] q_X = 0`; the `4N×4` stack's null vector (`AᵀA`
+  symmetric eigen, `linalg::null_space`) is `q_X`. Translation by ridge
+  normal equations (`math::ridge_lstsq`, `λ = 1e-12`).
+- **Park–Martin**: `α = log R_A = R_X log R_B = R_X β`; `R_X` is the
+  rotation nearest to `Σ α βᵀ` (orthogonal Procrustes with the det fix — the
+  `(MᵀM)^{-1/2}Mᵀ` of the paper, made proper). Weighs a pair by its angle²
+  (Tsai–Lenz by `sin²(θ/2)`). Same translation solve.
+- **Daniilidis**: dual quaternions `q̌ = q + ε ½ t q`; each pair gives the
+  `6×8` block `[[a−b, [a+b]×, 0, 0], [a'−b', [a'+b']×, a−b, [a+b]×]]` on
+  `(q_X, q'_X)` (vector parts; scalar parts assumed equal — the screw
+  congruence, dropped under noise). The two smallest eigenvectors of the
+  `8×8` normal matrix span the solution; `λ₁v₁ + λ₂v₂` is fixed by
+  `|q| = 1` and `q·q' = 0` — the zero directions `√μ₂ e₁ ± √(−μ₁) e₂` of the
+  2×2 form, the larger-`|q|` root taken; if noise makes the form definite,
+  its smallest-|μ| eigenvector, then `q'` orthogonalized. Translations are
+  divided by their RMS first so the dual rows weigh like the real ones.
+- `Z` is closed through the first view (`Z = A_0 X B_0^{-1}`), as before —
+  the default's results do not move.
 
-Pair and set conditioning: pairs whose smaller rotation angle (of `A` or
-`B`) is below `min_motion_angle_deg` (default **5°**) are dropped. There is
-no per-pair `A`/`B` axis test — `A` and `B` share their axis whenever `R_X`
-is the identity or rotates about that axis, and such pairs are informative.
-Instead the pair set must contain robot rotation axes spanning ≥ 2
-directions (`robot_axes_span_two_directions`, `|â₁ × â₂| ≥ 1e-3`), else the
-init fails with `NoValidMotionPairs`.
+**Shah** (absolute poses, no pairs): `R_A R_X = R_Z R_B` is linear in
+`(vec R_X, vec R_Z)` — `[I ⊗ R_A, −R_Bᵀ ⊗ I]`, a `9N×18` stack whose null
+vector is scaled to `det R_X = 1` and both halves projected to SO(3); then
+`[R_A, −I](t_X; t_Z) = R_Z t_B − t_A` by least squares. `Z` is estimated over
+all views, so it seeds the bundle adjustment's target (EyeInHand) or base
+(EyeToHand) pose directly; a seeded `X` still closes `Z` through view 0.
+
+**Quaternion sign.** `q_A q_X = q_X q_B` needs `q_A`, `q_B` with the same
+sign of their (equal) scalar parts. nalgebra's matrix→quaternion picks the
+sign by branch, which for rotations past 120° depends on the axis; every
+quaternion is now taken with `w ≥ 0` (`quat_of`). Before, such a pair entered
+Tsai–Lenz as `q_A q_X = −q_X q_B`: harmless when the other pairs outnumber it
+(the true `q_X` stays an eigenvector), but three views with 137° and 172°
+pairs returned a rotation 180° off
+(`every_method_recovers_motions_past_120_degrees` fails without the fix).
+Data whose pairs all rotate less than 120° gives bit-identical results.
+
+**Conditioning.** Pairs whose smaller rotation angle (of `A` or `B`) is below
+`min_motion_angle_deg` (default **5°**) are dropped. There is no per-pair
+`A`/`B` axis test — `A` and `B` share their axis whenever `R_X` is the
+identity or rotates about that axis, and such pairs are informative. The pair
+set must contain robot rotation axes spanning ≥ 2 directions
+(`robot_axes_span_two_directions`, `|â₁ × â₂| ≥ 1e-3`), else
+`NoValidMotionPairs` — for every method, Shah's included: with all relative
+robot rotations about one axis `n`, `(Rot(n, φ) R_X, R_A0 Rot(n, φ) R_A0ᵀ R_Z)`
+solves `AX = ZB` for every `φ`. Non-finite poses are `InvalidInput`.
+
+## Method comparison under rotation-poor motion
+
+`handeye_init_comparison.rs` (`handeye_methods_comparison_table`, ignored;
+run in release with `--ignored --nocapture`, ~4 min): eye-in-hand, known
+intrinsics (fixed), random X (≤ ~30°, 10 cm), ten stations viewing the board
+from directions spread `±{2, 5, 15, 45}°` per axis at ~0.6 m, optionally four
+translation-only stations; noise low (0.1 px, exact robot) or high (0.5 px,
+robot ±0.05° / ±0.3 mm per axis); `min_motion_angle_deg = 1°`; 100 trials per
+cell, both backends, robot poses fixed (plus ±2°/±5° high with them refined,
+25 trials). Basin: the refinement from the method's init ends within 1 σ of
+the refinement from the truth (σ the reference's own hand-eye std).
+
+Findings (median init errors in the book chapter's table):
+
+- **Basin: 100 % everywhere**, both backends, refined or fixed robot poses.
+  Worst final offset 0.82 σ (±15°, low noise) — the LM stopping tolerance,
+  identical across methods: two refinements of the same problem stop ~1e-5
+  of the cost apart, which at low noise is a large fraction of a small σ. The
+  init method does not decide convergence on this model, even at ±2° / high
+  noise (init off by 1.3–2.5°, 3–4 cm).
+- **Accuracy**: Tsai–Lenz ≡ Park–Martin (to 0.001°, 0.01 mm). Daniilidis
+  halves the rotation error at ±2° (0.24° vs 0.45° low, 1.30° vs 2.37°
+  high) but has the larger translation / target error at ±2° high (39 vs
+  35 mm, 36 vs 27 mm) and is slightly worse from ±15° on (0.33° vs 0.22°).
+  Shah's X = Tsai's; its Z (over all views) wins under noise with rich
+  motion (0.39 vs 0.59 mm at ±45° high).
+- **Translation-only stations** help every method 5–30 %.
+- **Default filter**: at ±2° and 5°, 91/100 captures are `NoValidMotionPairs`
+  for every method.
+- **Decision**: default stays `tsai_lenz` — no method dominates and the basin
+  is method-independent. Measured, not changed.
+- Side finding: the hand-eye BA with robot-pose refinement costs ~350 ms for
+  10 views × 63 points (two weighted solves plus covariance), ~20× the plain
+  solve; the table runs with fixed robot poses for that reason.
 
 ## Cost
 
@@ -158,10 +237,16 @@ estimated `gripper_se3_target` recovers to ~0.1 mm, while `camera_se3_base`
   `single_cam_handeye_base_frame_gauge_invariance` (refinement off).
 - **Robot-pose ingestion**: `matrix4x4_rotation_roundtrips_exact_180_degree`
   (`dataset_runner::poses`).
-- **Linear init**: `handeye_dlt_recovers_ground_truth`,
-  `handeye_dlt_recovers_an_identity_rotation_mount`,
-  `handeye_dlt_recovers_a_mount_rotated_about_a_motion_axis`
-  (`vision-calibration-linear::handeye`).
+- **Linear init** (`vision-calibration-linear::handeye`, every method):
+  `every_method_recovers_exact_eye_in_hand` / `_eye_to_hand`,
+  `_an_identity_rotation_mount`, `_a_mount_rotated_about_a_motion_axis`,
+  `_motions_past_120_degrees` (the sign fix);
+  `every_method_rejects_motions_about_a_single_axis`,
+  `_translation_only_motion`; `invalid_input_is_a_typed_error`;
+  `rotation_poor_noisy_motion_stays_finite`.
+- **Method comparison**: `crates/vision-calibration/tests/handeye_init_comparison.rs`
+  — `handeye_methods_gate` (every run, both backends) and the ignored
+  `handeye_methods_comparison_table` (the table above).
 - **Acceptance gates**: `calib-bench accept` — `kuka_1` (single-camera,
   ≤ 0.25 px) and `ds8` (rig hand-eye, ≤ 0.45 px), with committed Fit
   baselines.

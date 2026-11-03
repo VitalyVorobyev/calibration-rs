@@ -214,6 +214,29 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         reference = _run_single_cam_handeye_raw(payload)
         self.assertEqual(result.gripper_se3_camera, reference.gripper_se3_camera)
 
+    def test_every_closed_form_method_reaches_the_same_refinement(self) -> None:
+        refined = {}
+        for method in ("tsai_lenz", "park_martin", "daniilidis", "shah"):
+            session = vc.SingleCamHandeyeSession()
+            session.set_input(observation("synth_handeye"))
+            session.step_intrinsics_init()
+            session.step_intrinsics_optimize()
+            init = session.step_handeye_init(vc.HandeyeInitOptions(method=method))
+            self.assertIsNotNone(init.gripper_se3_camera)
+            refined[method] = session.step_handeye_optimize().mean_reproj_error
+        for method, err in refined.items():
+            self.assertAlmostEqual(err, refined["tsai_lenz"], places=4, msg=method)
+
+    def test_the_method_is_a_config_field(self) -> None:
+        config = vc.SingleCamHandeyeConfig(handeye_init=vc.HandeyeInitConfig(method="shah"))
+        self.assertEqual(config.to_payload()["handeye_init"]["method"], "shah")
+        session = vc.SingleCamHandeyeSession()
+        session.set_config(config)
+        session.set_input(observation("synth_handeye"))
+        session.step_intrinsics_init()
+        session.step_intrinsics_optimize()
+        self.assertIsNotNone(session.step_handeye_init().base_se3_target)
+
     def test_seeding_the_hand_eye_with_its_estimate_keeps_it(self) -> None:
         session = vc.SingleCamHandeyeSession()
         session.set_input(observation("synth_handeye"))

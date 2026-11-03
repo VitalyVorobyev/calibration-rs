@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the old message; `estimate_intrinsics_from_homographies`
   returns it in place of `Error::Numerical` and of the `Error::Singular` of
   an indefinite solution.
+- **The hand-eye initializers take a method and return both transforms**
+  (breaking). `init::estimate_handeye_dlt(robot, target_se3_camera, deg)`
+  is now `init::estimate_eye_in_hand(HandeyeMethod::TsaiLenz, robot,
+  camera_se3_target, deg)?.gripper_se3_camera` — note the target poses,
+  not their inverses — and `init::estimate_gripper_se3_target_dlt(robot,
+  camera_se3_target, deg)` is `init::estimate_eye_to_hand(HandeyeMethod::TsaiLenz,
+  robot, camera_se3_target, deg)?.gripper_se3_target`. The estimates also
+  carry the fixed transform at the other end of the chain
+  (`base_se3_target`, `camera_se3_base`). `HandeyeInit` of
+  `vision-calibration-linear` is gone.
 - **`RunError::NoWholeChessboardViews` has an `ambiguous` count**
   (breaking): the views of the camera dropped because the board's turn could
   not be matched with the view's other cameras. Code that destructures the
@@ -58,10 +68,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hand-eye initialization methods.** `handeye_init.method` (Python
+  `HandeyeInitConfig.method`, and per step `HandeyeInitOptions.method`)
+  picks the closed-form solver of every hand-eye workflow: `tsai_lenz` (the
+  default, unchanged), `park_martin`, `daniilidis` (dual quaternions) or
+  `shah` (`AX = ZB` from the absolute poses, which also estimates the target
+  pose — eye-in-hand — or the camera pose — eye-to-hand — over all views
+  instead of through the first one). A config without the field reads as
+  before. On synthetic captures with robot rotations from ±45° down to ±2°
+  (and noise up to 0.5 px and 0.05° / 0.3 mm of robot error) the bundle
+  adjustment converged from every method's estimate; Daniilidis is the most
+  accurate rotation at ±2°, Shah the most accurate target pose under noise,
+  and no method is better everywhere, so the default stays Tsai-Lenz. The
+  book's hand-eye initialization chapter has the comparison.
 - **Sample `opencv_stereo`**: both cameras of OpenCV's stereo calibration
   sample (13 views of a 6×9 chessboard, 640×480, Apache-2.0), as a rig.
 - The `measure_board` examples (Rust and Python) take the sample to measure:
   `opencv_fisheye_stereo` (the default) or `opencv_stereo`, a pinhole pair.
+
+### Fixed
+
+- **Hand-eye initialization with motions past 120°.** A pair of views whose
+  relative rotation exceeds 120° could enter the linear rotation solve with
+  the wrong quaternion sign; from few views the initial hand-eye rotation
+  came out 180° off. Data whose relative rotations stay below 120° gives the
+  same result as before.
 
 ## [0.15.0] - 2026-11-03
 

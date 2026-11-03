@@ -70,11 +70,6 @@ functions return no covariance.
   homography residual per corner, in squares) and drop the outlier, or reject
   the detection; report the fault upstream. Gate: both detections are kept
   whole with correct labels in either declaration, or rejected with a reason.
-
-- [ ] CAL-HANDEYE-SOLVERS - Linear hand-eye initializers beyond Tsai-Lenz
-  (`linear/src/handeye.rs`): dual-quaternion (Daniilidis), Park-Martin, and
-  a robot-world AX=ZB solver (Shah). Gate: a synthetic comparison of basin
-  and accuracy under rotation-poor motion.
 - [ ] LIB-PROGRESS - An iteration observer and a cancellation token through
   the optimization loop and the pipeline steps. Today the app reports
   three coarse stages and cannot stop a running solve. Python maps
@@ -233,6 +228,11 @@ were. What is left reorganizes them around the project.
   `features = ["rayon"]` (off, nothing runs in parallel); take its Jacobian
   as a faer-0.23 view (NALGEBRA-035); rerun `calib-bench solver` for both
   backends.
+- [ ] PERF-ROBOT-REFINE - A single-camera hand-eye refinement with robot-pose
+  refinement on takes about 350 ms for 10 views × 63 points, about 20× the
+  same solve without it (two weighted solves plus covariance; measured in
+  `vision-calibration/tests/handeye_init_comparison.rs`). Profile it and cut
+  the repeated work; results stay bit-identical.
 - [ ] PERF-ANALYTIC - Close the gap to Ceres. Planar intrinsics against Ceres
   2.2 at matched tolerances is 7–9× slower on 12 threads and about 21× on
   one (2.6× and 4.5× with the O-TINYSOLVER-PERF changes). What remains is

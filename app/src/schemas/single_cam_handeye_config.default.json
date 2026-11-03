@@ -9,6 +9,7 @@
   },
   "handeye_init": {
     "handeye_mode": "EyeInHand",
+    "method": "tsai_lenz",
     "min_motion_angle_deg": 5.0
   },
   "intrinsics": {

@@ -16,6 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraFix, CameraModelSpec, ProjectionKind, SensorKind};
+use vision_calibration_linear::handeye::HandeyeMethod;
 use vision_calibration_linear::prelude::{
     DistortionFitOptions, EquidistantInitOptions, IterativeIntrinsicsOptions,
 };
@@ -531,7 +532,7 @@ impl RobotPoseConfig {
     }
 }
 
-/// Hand-eye linear-initialization stage options (Tsai-Lenz DLT).
+/// Hand-eye linear-initialization stage options.
 ///
 /// Shared by every hand-eye problem's `handeye_init` config group.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -541,7 +542,20 @@ impl RobotPoseConfig {
 pub struct HandeyeInitConfig {
     /// Hand-eye mode: `EyeInHand` or `EyeToHand`.
     pub handeye_mode: HandeyeMode,
-    /// Minimum motion angle (degrees) for linear hand-eye initialization.
+    /// The closed-form solver of the initialization: `tsai_lenz` (default),
+    /// `park_martin`, `daniilidis` or `shah`. They differ in the accuracy of
+    /// the starting point, not in where the bundle adjustment ends: on
+    /// synthetic captures with robot rotations down to ±2° it converged from
+    /// each. `daniilidis` is the most accurate rotation when the robot
+    /// rotates by only a few degrees; `shah` estimates the fixed target
+    /// (eye-in-hand) or camera (eye-to-hand) pose over all views, where the
+    /// others close it through the first view.
+    #[serde(default)]
+    pub method: HandeyeMethod,
+    /// Minimum rotation (degrees) between two views, in the robot and in the
+    /// camera, for the pair to enter the linear solve; the pairs that clear
+    /// it must rotate the robot about two non-parallel axes. Positive.
+    /// Default 5°: smaller rotations amplify noise into the translation.
     pub min_motion_angle_deg: f64,
 }
 
@@ -549,6 +563,7 @@ impl Default for HandeyeInitConfig {
     fn default() -> Self {
         Self {
             handeye_mode: HandeyeMode::EyeInHand,
+            method: HandeyeMethod::TsaiLenz,
             min_motion_angle_deg: 5.0,
         }
     }
@@ -667,7 +682,18 @@ mod tests {
     fn handeye_init_config_default() {
         let cfg = HandeyeInitConfig::default();
         assert_eq!(cfg.handeye_mode, HandeyeMode::EyeInHand);
+        assert_eq!(cfg.method, HandeyeMethod::TsaiLenz);
         assert!((cfg.min_motion_angle_deg - 5.0).abs() < 1e-15);
+        // A config written before `method` existed still reads.
+        let old: HandeyeInitConfig =
+            serde_json::from_str(r#"{"handeye_mode": "EyeToHand", "min_motion_angle_deg": 3.0}"#)
+                .unwrap();
+        assert_eq!(old.method, HandeyeMethod::TsaiLenz);
+        let shah: HandeyeInitConfig = serde_json::from_str(
+            r#"{"handeye_mode": "EyeInHand", "method": "shah", "min_motion_angle_deg": 5.0}"#,
+        )
+        .unwrap();
+        assert_eq!(shah.method, HandeyeMethod::Shah);
     }
 
     #[test]
