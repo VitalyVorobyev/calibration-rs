@@ -51,7 +51,7 @@ The facade re-exports the main solvers at the root of its `mvg` module (`vision_
 
 ### vision-mvg
 
-N-view geometry on top of `vision-geometry`: calibrated relative-pose recovery, N-view triangulation, bundle adjustment (with the `refine` feature), Scheimpflug-aware stereo rectification, and dense stereo matching. Facade path: `vision_calibration::mvg`.
+N-view geometry on top of `vision-geometry`: calibrated relative-pose recovery, N-view triangulation, bundle adjustment from a calibration, Scheimpflug-aware stereo rectification, and dense stereo matching. Facade path: `vision_calibration::mvg`.
 
 ### vision-calibration-dataset and vision-calibration-detect
 

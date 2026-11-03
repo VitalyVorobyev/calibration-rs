@@ -51,13 +51,6 @@ pub enum MvgError {
     #[error("no valid pose: all candidates fail cheirality")]
     NoValidPose,
 
-    /// A nonlinear refinement did not converge.
-    #[error("refinement did not converge: {reason}")]
-    NotConverged {
-        /// Human-readable description of what failed to converge.
-        reason: String,
-    },
-
     /// A numerical operation failed unexpectedly (e.g. an SVD).
     #[error("numerical failure: {0}")]
     Numerical(String),
@@ -91,16 +84,6 @@ impl MvgError {
     /// Convenience constructor for [`MvgError::Degenerate`].
     pub(crate) fn degenerate(reason: impl Into<String>) -> Self {
         Self::Degenerate {
-            reason: reason.into(),
-        }
-    }
-
-    /// Convenience constructor for [`MvgError::NotConverged`].
-    ///
-    /// Convergence failures only arise in the feature-gated nonlinear refinement.
-    #[cfg(feature = "refine")]
-    pub(crate) fn not_converged(reason: impl Into<String>) -> Self {
-        Self::NotConverged {
             reason: reason.into(),
         }
     }

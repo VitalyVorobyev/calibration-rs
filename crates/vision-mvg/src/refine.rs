@@ -1,37 +1,34 @@
-//! Nonlinear refinement of geometric estimates.
-//!
-//! Feature-gated behind `refine`. Uses tiny-solver for Levenberg-Marquardt
-//! optimization with analytic residuals.
+//! Nonlinear refinement of geometric estimates, through the problem builder
+//! of `vision-calibration-optim`.
 //!
 //! - [`refine_homography`]: minimize symmetric transfer error
 
 use crate::{MvgError, Result};
-use nalgebra::DVector;
-use tiny_solver::LevenbergMarquardtOptimizer;
-use tiny_solver::factors::Factor;
-use tiny_solver::optimizer::{Optimizer, OptimizerOptions};
-use tiny_solver::problem::Problem;
+use nalgebra::{DVector, RealField};
 use vision_calibration_core::{Mat3, Pt2, Real};
+use vision_calibration_optim::RobustLoss;
+use vision_calibration_optim::problem::{Manifold, Noise, Problem, Residual, SolveOptions, solve};
 
-// ---------------------------------------------------------------------------
-// Homography refinement
-// ---------------------------------------------------------------------------
-
-/// Factor for symmetric transfer error of a single correspondence under H.
-struct HomographyTransferFactor {
+/// The symmetric transfer error of one correspondence under H: the four
+/// pixel residuals of `H·p1 − p2` and `H⁻¹·p2 − p1`.
+struct HomographyTransfer {
     pt1: Pt2,
     pt2: Pt2,
 }
 
-impl<T: nalgebra::RealField> Factor<T> for HomographyTransferFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        debug_assert_eq!(params.len(), 1);
-        let h = &params[0]; // 9 elements, row-major
+impl Residual for HomographyTransfer {
+    fn dim(&self) -> usize {
+        4
+    }
 
-        let x1 = T::from_f64(self.pt1.x).unwrap();
-        let y1 = T::from_f64(self.pt1.y).unwrap();
-        let x2 = T::from_f64(self.pt2.x).unwrap();
-        let y2 = T::from_f64(self.pt2.y).unwrap();
+    fn block_dims(&self) -> Vec<usize> {
+        vec![9]
+    }
+
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        let h = &blocks[0]; // 9 elements, row-major
+        let c = |v: Real| T::from_f64(v).unwrap();
+        let (x1, y1, x2, y2) = (c(self.pt1.x), c(self.pt1.y), c(self.pt2.x), c(self.pt2.y));
 
         // Forward: H * [x1, y1, 1]
         let fx = h[0].clone() * x1.clone() + h[1].clone() * y1.clone() + h[2].clone();
@@ -40,10 +37,8 @@ impl<T: nalgebra::RealField> Factor<T> for HomographyTransferFactor {
         let dx_fwd = fx / fw.clone() - x2.clone();
         let dy_fwd = fy / fw - y2.clone();
 
-        // Inverse: H^-1 * [x2, y2, 1] via adjugate (avoids explicit inverse).
-        // For a 3×3 matrix, adjugate columns are cross products of pairs of rows.
-        // H^-1 = adj(H) / det(H). Since we only care about the projected point,
-        // we can use adj(H) directly (det cancels in homogeneous division).
+        // Inverse: H^-1 * [x2, y2, 1] via the adjugate (the determinant
+        // cancels in the homogeneous division).
         let a00 = h[4].clone() * h[8].clone() - h[5].clone() * h[7].clone();
         let a01 = h[2].clone() * h[7].clone() - h[1].clone() * h[8].clone();
         let a02 = h[1].clone() * h[5].clone() - h[2].clone() * h[4].clone();
@@ -68,7 +63,17 @@ impl<T: nalgebra::RealField> Factor<T> for HomographyTransferFactor {
 /// Refine a homography by minimizing symmetric transfer error.
 ///
 /// Takes an initial estimate `h_init` and correspondences `(pts1, pts2)`,
-/// returns the refined homography.
+/// returns the refined homography, scaled so `h[2,2] = 1` where that entry is
+/// not zero. A homography is defined up to scale: the solve fixes the entry
+/// of `h_init` that is largest in magnitude, so the refinement has no scale
+/// freedom. The residuals are in the units of the points and weigh equally.
+///
+/// # Errors
+///
+/// [`MvgError::InsufficientData`] for fewer than 4 correspondences,
+/// [`MvgError::CountMismatch`] for different numbers of points,
+/// [`MvgError::InvalidInput`] for a non-finite or all-zero `h_init`, and
+/// [`MvgError::Numerical`] when the solve fails to run.
 pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     if pts1.len() < 4 {
         return Err(MvgError::InsufficientData {
@@ -82,45 +87,61 @@ pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Ma
             got: pts2.len(),
         });
     }
-
-    let mut problem = Problem::new();
-
-    for (p1, p2) in pts1.iter().zip(pts2.iter()) {
-        let factor = HomographyTransferFactor { pt1: *p1, pt2: *p2 };
-        problem.add_residual_block(4, &["h"], Box::new(factor), None);
-    }
-
-    let mut initial = std::collections::HashMap::new();
-    let h_vec: Vec<Real> = (0..3)
+    // Row-major, scaled so the largest-magnitude entry is +-1 (kept fixed).
+    let mut h_vec: Vec<Real> = (0..3)
         .flat_map(|r| (0..3).map(move |c| (r, c)))
         .map(|(r, c)| h_init[(r, c)])
         .collect();
-    initial.insert("h".to_string(), DVector::from_vec(h_vec));
-
-    let opts = OptimizerOptions {
-        max_iteration: 50,
-        ..Default::default()
-    };
-
-    let optimizer = LevenbergMarquardtOptimizer::default();
-    let result = optimizer
-        .optimize(&problem, &initial, Some(opts))
-        .ok_or_else(|| MvgError::not_converged("homography refinement failed to converge"))?;
-
-    let h_opt = &result["h"];
-    let mut h = Mat3::zeros();
-    for r in 0..3 {
-        for c in 0..3 {
-            h[(r, c)] = h_opt[r * 3 + c];
-        }
+    if h_vec.iter().any(|v| !v.is_finite()) {
+        return Err(MvgError::invalid_input(
+            "the initial homography is not finite",
+        ));
     }
+    let (anchor, largest) = h_vec.iter().enumerate().fold((0, 0.0_f64), |best, (i, v)| {
+        if v.abs() > best.1 { (i, v.abs()) } else { best }
+    });
+    if largest == 0.0 {
+        return Err(MvgError::invalid_input(
+            "the initial homography is all zero",
+        ));
+    }
+    for v in &mut h_vec {
+        *v /= largest;
+    }
+
+    let numerical = |e: vision_calibration_optim::Error| {
+        MvgError::numerical(format!("homography refinement: {e}"))
+    };
+    let mut problem = Problem::new();
+    let block = problem
+        .add_block("h", &h_vec, Manifold::Euclidean)
+        .map_err(numerical)?;
+    problem
+        .fix_components(block, &[anchor])
+        .map_err(numerical)?;
+    for (p1, p2) in pts1.iter().zip(pts2) {
+        problem
+            .add_residual(
+                HomographyTransfer { pt1: *p1, pt2: *p2 },
+                &[block],
+                RobustLoss::None,
+                Noise::Known(1.0),
+            )
+            .map_err(numerical)?;
+    }
+    let mut options = SolveOptions::default();
+    options.max_iters = 50;
+    let solution = solve(&problem, &options).map_err(numerical)?;
+    let values = solution
+        .value(block)
+        .ok_or_else(|| MvgError::numerical("homography refinement: no solution block"))?;
+    let mut h = Mat3::from_row_slice(values);
 
     // Normalize so h[2,2] = 1.
     let s = h[(2, 2)];
     if s.abs() > f64::EPSILON {
         h /= s;
     }
-
     Ok(h)
 }
 

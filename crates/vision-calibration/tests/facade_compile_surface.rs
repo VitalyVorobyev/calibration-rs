@@ -327,9 +327,10 @@ fn mvg_rectification_runs_through_facade() {
     assert!((rect.baseline - 1.0).abs() < 1e-12);
 }
 
-#[cfg(feature = "refine")]
 #[test]
-fn mvg_bundle_adjust_reachable_under_refine() {
-    // The `refine` facade feature surfaces frozen-intrinsics bundle adjustment.
+fn mvg_bundle_adjust_reachable() {
     let _ = vision_calibration::mvg::bundle_adjust::bundle_adjust;
+    let _ = vision_calibration::mvg::bundle_adjust::BundleAdjustOptions::new(
+        vision_calibration::mvg::bundle_adjust::Scale::Rig,
+    );
 }

@@ -1,54 +1,79 @@
 # Bundle Adjustment
 
-`bundle_adjust` jointly refines all camera **poses** and the 3D **structure** to minimize reprojection error, holding the per-camera intrinsics frozen. It is the final polish of an already initialized reconstruction (for example the output of [pose recovery](mvg_pose.md)), not a structure-from-motion pipeline: there is no feature matching, pose-graph optimization or loop closure.
+`bundle_adjust` jointly refines the **capture poses** of a rig and the 3D **points** it observed, minimizing the reprojection error of the stated pixel noise. It is the polish of an already initialized reconstruction (for example the output of [pose recovery](mvg_pose.md) and [triangulation](mvg_pose.md)), not a structure-from-motion pipeline: there is no feature matching, pose-graph optimization or loop closure.
 
-It lives behind the `refine` feature, which pulls in the `tiny-solver` Levenberg-Marquardt backend:
-
-```toml
-[dependencies]
-vision-calibration = { version = "0.13", features = ["refine"] }
-```
+The cameras come from a `CalibratedRig`, so every camera model works (a fisheye beside a pinhole, distortion, tilted sensors) with no separate undistortion, and the result carries the joint covariance of what it refined, the calibration's uncertainty included. It runs on the same problem builder as [your own residuals](custom_residual.md); bundle adjustment is always available, with no cargo feature.
 
 ## Usage
 
 ```rust
-use vision_calibration::mvg::bundle_adjust::{
-    BundleAdjustmentOptions, BundleObservation, bundle_adjust,
-};
+use vision_calibration::mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
+use vision_calibration::mvg::triangulation::RigObservation;
 
-// intrinsics:  &[Mat3], one K per camera (frozen)
-// observations: pixel measurements, each naming the camera and the point
-// init_poses:  &[Iso3], T_C_W per camera
-// init_points: &[Pt3], one world point each
-let observations = vec![BundleObservation::new(0, 0, pixel_cam0_pt0) /* , ... */];
+// rig:           CalibratedRig, the cameras and where each sits in the rig
+// rig_se3_world: &[Iso3], the initial pose of the rig at each capture (world → rig)
+// points:        &[Pt3], the initial world points
+// tracks:        Vec<Vec<RigObservation>>, tracks[i] observes points[i]
+let tracks = vec![vec![RigObservation::new(0, 0, pixel, noise) /* , ... */]];
 
-let res = bundle_adjust(
-    &intrinsics,
-    &observations,
-    &init_poses,
-    &init_points,
-    &BundleAdjustmentOptions::default(),
-)?;
-println!("RMS {:.3} → {:.3} px", res.initial_rms, res.final_rms);
+let opts = BundleAdjustOptions::new(Scale::Rig);
+let adjusted = bundle_adjust(&rig, &rig_se3_world, &points, &tracks, &opts)?;
+
+println!("RMS {:.3} px", adjusted.reprojection_rms_px);
+let cov = adjusted.point_covariance(0); // Option<Mat3>, m²
+let pose = adjusted.pose_covariance(1); // Option<Matrix6>, capture 1
 ```
 
-`BundleObservation::new(cam, point, pixel)` records that camera `cam` saw world point `point` at the pixel `pixel`; the indices refer to the `intrinsics`/`init_poses` slices and the `init_points` slice. Observations are **pixel** coordinates: the frozen $K$ of each camera projects the camera-frame ray to pixels. Poses are `T_C_W`, mapping a world point into the camera frame.
+The observations are the ones [`triangulate`](mvg_pose.md) takes: `RigObservation::new(capture, camera, pixel, noise)`, grouped into tracks, with the noise of each pixel stated as a `PointCovariance`. A pixel is weighted by its covariance, and the stated noise is also what the result's covariance is built from. The result carries the refined `rig_se3_world` and `points`, the `rig` (the given one, or the refined one under a prior), the `uncertainty`, the solver's `report` and the RMS reprojection distance in pixels (`√2 σ` for isotropic noise of `σ` per axis).
 
-The result carries the refined `poses` and `points` (cameras and points without observations come back unchanged), the RMS reprojection error before and after (`initial_rms`, `final_rms`) and `per_camera_rms`. In the companion example an initial reprojection error of about 18 px collapses to numerical zero on noise-free data.
-
-## Errors
-
-`bundle_adjust` returns an `MvgError` when the number of intrinsics and poses disagree (`CountMismatch`), when there are no observations (`InsufficientData`), when an observation names a camera or point out of range (`InvalidInput`), or when the optimizer returns no solution (`NotConverged`). Points should be observed in at least two views for their depth to be well constrained; under-observed points are admitted (the solver's damping leaves them near their initial value) so partially observed data does not fail outright.
+Everything is checked before any solve, and a mistake is an `MvgError::InvalidInput` naming the track, point or capture: points and tracks that do not pair up, a track with fewer than two observations, an index out of range, a non-finite start, fewer than two captures (or one capture seen by one camera, where there is nothing to adjust), and a gauge the data cannot fix.
 
 ## The Gauge
 
-A reconstruction from images alone has a seven-degree-of-freedom similarity gauge: a world rotation, translation and scale cannot be seen by reprojection error.
+Reprojection error cannot see the world frame or the scale of a reconstruction: moving or rescaling every capture and point together changes no pixel. So both are **stated**:
 
-- `BundleAdjustmentOptions::fix_first_camera` (on by default) holds the lowest-index camera that has observations fixed, which removes the six rigid degrees of freedom. Disable it only when an external prior already pins the world frame; otherwise the reconstruction drifts along those directions, which the solver's damping merely regularizes.
-- The remaining **global scale** cannot be observed while the structure is free: scaling every point depth and every free-camera translation leaves all projections unchanged. Anchor the scale externally (a known baseline, a known 3D distance) for metric output. In practice the damping keeps it near the initial reconstruction.
+- **Frame.** Capture 0 is fixed at the pose given: the world frame is capture 0's rig frame as given. It must have observations. Every other capture and every point is refined relative to it, and capture 0 has no covariance.
+- **Scale.** `Scale` has no default, because a silent scale would put a wrong metric answer in every result.
+  - `Scale::Rig` takes it from the rig's extrinsics: the baseline between two cameras that see points in the same capture. It needs a rig of two or more cameras whose centres differ, and some capture seen by two of them.
+  - `Scale::Distance { points: [a, b], distance, sigma }` takes it from a stated distance between two points (metres), as a residual of its own weighed by `sigma`. This is the way for one moving camera, which sees only up to scale.
 
-`max_iterations` (default 100) bounds the Levenberg-Marquardt iterations.
+A scale the data cannot fix, such as `Scale::Rig` with one camera or with two cameras at one centre, is an error that names the alternative.
+
+The covariance is in this gauge. Under `Scale::Rig` the uncertainty of the baseline is part of it; under `Scale::Distance` the stated `sigma` is.
+
+## The Calibration: Consider or Prior
+
+`BundleAdjustOptions::calibration` chooses how the rig's uncertainty enters:
+
+- **`Use::Consider`** (the default). The cameras and extrinsics stay at their values, and their covariance is propagated into the capture poses' and points': the result is the one a fixed camera gives, with the covariance of one that is not exact. Every point and capture shares the calibration, so they are correlated (`point_covariance(i)` is a block of a dense joint covariance). A rig without a covariance still adjusts, and its uncertainty says why it has none.
+- **`Use::Prior`**. The cameras and extrinsics are refined too, held by a Gaussian prior with the calibration's covariance, so the new observations sharpen them. It needs a rig with a covariance. The result's `rig` is the refined rig, with its covariance after the adjustment (labels of the cameras and extrinsics only, as a calibration export has them), and can be passed to `triangulate` or to another adjustment.
+
+## Noise and Robust Losses
+
+`BundleAdjustOptions::loss` puts a robust loss on every reprojection (`RobustLoss::Huber`, `Cauchy`, `Arctan`). Because the residuals are whitened by their stated noise, the loss scale is in σ units: `Huber { scale: 2.0 }` is quadratic up to two σ. A loss changes the estimate and not the covariance, which takes every residual at its stated variance.
+
+On a stereo rig with 4 captures of 30 points and 5 % of the observations 25 to 60 px off, the points' RMS error was 1.0 cm on clean data, 32 cm with no loss, 1.6 cm with Huber and 1.2 cm with Cauchy.
+
+## Reading σ
+
+`adjusted.uncertainty` is the joint covariance of the free parameters, with the labels `capture{k}.rx … tz` for the capture poses (a right-perturbation tangent, `T·Exp(δ)`: rotation in radians, translation in metres in the pose's own frame), `p{i}.x/.y/.z` for the points, and under `Use::Prior` the cameras' own. `point_covariance(i)` and `pose_covariance(k)` slice it. A capture or point that no connected observation constrains makes it unavailable, with the unobservable parameters named; so does a solve that stops on its iteration budget (`max_iters`, 100 by default).
+
+The covariance is dense, so its cost grows with the cube of the parameter count: for thousands of points, adjust a window of captures.
+
+### How it was checked
+
+Over repeated draws of the pixel noise, with a calibration of negligible covariance, the scatter of the points and of capture 1's pose against the reported σ was within 3 % over 300 trials, for all three coordinates of the points and all six components of the pose.
+
+With a real calibration in the loop, each trial calibrated a stereo rig from freshly noisy board views and adjusted three captures of ten points. Over 300 such calibrations:
+
+| | scatter / stated |
+|---|---|
+| `Use::Consider`, point depth | 1.00 |
+| `Use::Consider`, capture 1 translation (x, y, z) | 1.11, 0.98, 0.97 |
+| `Use::Prior`, refined `fx` (cameras 0, 1) | 1.10, 1.08 |
+
+A second set of calibrations gave 0.97, (0.95, 1.04, 0.95) and (1.08, 1.08). Under `Use::Prior` each camera's σ(`fx`) after the adjustment was no larger than the calibration's (7.9 px before, 7.6 px after, on average): three captures of ten close points add little to a calibration of eight board views. Stated σ is trustworthy to about 10 % in these runs, and a little optimistic for the refined intrinsics.
 
 ## Relation to Calibration
 
-Calibration workflows such as the rig extrinsics refine intrinsics, distortion and poses together, against a known target. `bundle_adjust` is the complement for scenes without a known target: the points are unknowns, the intrinsics are given.
+Calibration workflows such as the rig extrinsics refine intrinsics, distortion and poses together, against a known target. `bundle_adjust` is the complement for scenes without a known target: the points are unknowns, and the cameras are given, with their uncertainty.

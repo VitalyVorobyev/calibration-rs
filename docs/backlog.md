@@ -14,22 +14,21 @@ and propagates the calibration's covariance as consider parameters. Today
 MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
 two-view functions take matches with their stated noise (`PixelMatch`), and
 triangulation refines the points and returns their covariance, the
-calibration's share included. Bundle adjustment and the rectification still
-run on a bare `K` and their own tiny-solver problem, the two-view functions
-return no covariance, and there is no Python binding and no real-data
-demonstration.
+calibration's share included, and bundle adjustment refines capture poses
+and points through the builder (Consider or Prior, robust losses, an explicit
+gauge, covariance). The rectification still runs on a bare `K`, the two-view
+functions return no covariance, and there is no Python binding and no
+real-data demonstration.
 
-- [ ] MVG-BA - Bundle adjustment through the problem builder, replacing
-  the current `bundle_adjust`:
-  - a `CalibratedRig`, Consider or Prior (refining the cameras);
-  - robust losses;
-  - an explicit gauge: the first rig pose fixed, the scale from the rig's
-    extrinsics or a stated distance, else `InvalidInput` before any work;
-  - covariance in that gauge.
-
-  `vision-mvg` drops its tiny-solver dependency and `refine` feature;
-  homography refinement moves onto the builder. Gate: synthetic-GT matrix
-  and Monte-Carlo σ.
+- [ ] MVG-BA-PRIOR - Bundle adjustment with `Use::Prior` states the
+  refined cameras about 8 % too precisely: in
+  `vision-calibration/tests/bundle_adjust_uncertainty.rs` the refined `fx`
+  scatter over its stated σ is 1.08–1.10 on two independent seed sets of
+  300 calibrations (standard error about 4 %), and the scatter after BA
+  (about 8.2 px) exceeds the calibration's own (7.7 px) although the stated
+  σ drops 7.9 → 7.55 px. `Use::Consider` is exact (depth 0.999). Find the
+  cause (prior weighting, the scale gauge through refined extrinsics, or a
+  second-order term) and tighten the gate to [0.9, 1.1].
 - [ ] MVG-E-REFINE - Move estimate_essential's local Gauss-Newton polish
   (weighted Sampson error on the essential manifold) onto the problem builder:
   a residual of your own over a rotation and a unit-vector block. It returns
