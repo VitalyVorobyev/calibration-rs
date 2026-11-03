@@ -20,8 +20,8 @@
 
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{
-    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Uncertainty, Vec3,
-    make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Uncertainty,
+    Vec3, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_geometry::epipolar::{decompose_essential, fundamental_8point};
 use vision_mvg::triangulation::{RigObservation, triangulate};
@@ -170,6 +170,7 @@ fn fundamental_8point_epipolar_residual_is_tight() {
 /// the GT point.
 #[test]
 fn triangulate_reproject_roundtrip() {
+    let px_noise = PointCovariance::isotropic(0.5).unwrap();
     let k = FxFyCxCy {
         fx: 820.0,
         fy: 800.0,
@@ -198,10 +199,14 @@ fn triangulate_reproject_roundtrip() {
             ) else {
                 continue;
             };
-            let track = vec![RigObservation::new(0, 0, u1), RigObservation::new(0, 1, u2)];
+            let track = vec![
+                RigObservation::new(0, 0, u1, px_noise),
+                RigObservation::new(0, 1, u2, px_noise),
+            ];
 
             let tp = triangulate(&rig, &[Iso3::identity()], &[track])
                 .unwrap()
+                .points
                 .remove(0);
             // Round-trip: reprojection error is ~0 and the 3D point matches GT.
             let reproj = tp.reprojection_error.expect("projects in both cameras");

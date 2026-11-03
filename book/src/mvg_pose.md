@@ -84,19 +84,33 @@ let robust = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts)?;
 
 ## Triangulating Points from N Views
 
-`mvg::triangulation::triangulate` takes the rig, the pose of the rig at each capture (`rig_se3_world`) and, for each point, a track of observations: the pixel, the rig camera that saw it and the capture. It returns a `TriangulatedPoint` per track in the world frame, with the same diagnostics:
+`mvg::triangulation::triangulate` takes the rig, the pose of the rig at each capture (`rig_se3_world`, taken as exact) and, for each point, a track of observations: the pixel, its noise, the rig camera that saw it and the capture. It returns a `Triangulation`: a `TriangulatedPoint` per track in the world frame, with the same diagnostics, and the joint covariance of the points.
 
 ```rust
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
-use vision_calibration::core::{Iso3, Pt2};
+use vision_calibration::core::{Iso3, PointCovariance};
 
-// One stereo capture: the rig frame is the world frame.
+// One stereo capture: the rig frame is the world frame. Each pixel is
+// stated to 0.3 px.
+let noise = PointCovariance::isotropic(0.3)?;
 let track = vec![
-    RigObservation::new(0, 0, pixel_in_camera_0),
-    RigObservation::new(0, 1, pixel_in_camera_1),
+    RigObservation::new(0, 0, pixel_in_camera_0, noise),
+    RigObservation::new(0, 1, pixel_in_camera_1, noise),
 ];
 let found = triangulate(&rig, &[Iso3::identity()], &[track])?;
-println!("{:?} parallax {:.2}°", found[0].point, found[0].parallax_deg);
+println!("{:?} parallax {:.2}°", found.points[0].point, found.points[0].parallax_deg);
+if let Some(cov) = found.point_covariance(0) {
+    // The 3×3 covariance in m²; the depth's σ along the world z axis.
+    println!("σ_z = {:.2} mm", cov[(2, 2)].sqrt() * 1e3);
+}
 ```
 
-Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]`, so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track. The estimate is the linear algorithm of [Linear Triangulation](triangulation.md) on bearings, with no reprojection polish; its failure modes are described there.
+Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]`, so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track.
+
+**The estimate.** The linear algorithm of [Linear Triangulation](triangulation.md) on bearings starts each point; all the points are then refined together on the reprojection error, each pixel weighted by its stated covariance (a general `PointCovariance`, an isotropic σ, or `rig.reprojection_noise(camera)` for the calibration's own noise level). The noise is stated because a point seen twice leaves one degree of freedom, too few to estimate a noise level from.
+
+**The covariance** has two sources. The first is the observations' noise. The second is the calibration's: the rig's cameras and extrinsics enter as *consider* parameters, held at their values while their covariance is propagated into the points'. Every point of a call shares the calibration's error, so the points are correlated: `cross_covariance(i, j)` gives the 3×3 block between two points, and a distance or an angle between points needs it. The points are solved in one problem and the covariance is dense over all coordinates, so the cost grows as the cube of the number of points; for thousands of points, call per group of points that need a joint covariance.
+
+A rig exported without a covariance still gives refined points, and the uncertainty says why it has none rather than reporting the observations' share alone.
+
+**Why the calibration's share matters.** Take a stereo pair calibrated from eight views at 0.3 px noise, and ten points 0.6 to 0.8 m ahead measured with 0.3 px noise. Over 60 repeated calibrations the depth of a point scatters by 6.7 mm (root mean square of the reported σ: 6.7 mm, scatter over reported 0.95). The σ from the observations' noise alone is 2.1 mm, and the scatter is 3.2 times it: a camera taken as exact would report error bars three times too small.

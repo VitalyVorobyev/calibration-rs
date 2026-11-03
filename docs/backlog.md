@@ -12,22 +12,13 @@ Measurements from a calibrated system with error bars, designed in ADR
 0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
 and propagates the calibration's covariance as consider parameters. Today
 MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
-two-view functions take matches with their stated noise (`PixelMatch`),
-but returns no covariance, runs BA and the rectification on a bare `K` and its
-own tiny-solver problem, and has no Python binding and no real-data
+two-view functions take matches with their stated noise (`PixelMatch`), and
+triangulation refines the points and returns their covariance, the
+calibration's share included. Bundle adjustment and the rectification still
+run on a bare `K` and their own tiny-solver problem, the two-view functions
+return no covariance, and there is no Python binding and no real-data
 demonstration.
 
-- [ ] MVG-TRI-COV - N-view triangulation refined through the problem
-  builder returns each point's covariance from its observations' noise
-  and the calibration's (consider), with the cross-covariance between the
-  points of one call. `RigObservation` gains its stated noise
-  (`PointCovariance`, as `PixelMatch` carries it) here. `vision-mvg`
-  takes the `optim` dependency here. The nonlinear refinement of
-  triangulated points (removed with `refine_point` in MVG-CAMERA-IN, which
-  left the linear estimate) returns through the problem builder, and the
-  essential-matrix polish of `estimate_essential` (a local Gauss-Newton on
-  the weighted Sampson error, added in MVG-OBS) moves onto it. Gate: Monte-Carlo over pixel noise and redrawn
-  calibrations.
 - [ ] MVG-BA - Bundle adjustment through the problem builder, replacing
   the current `bundle_adjust`:
   - a `CalibratedRig`, Consider or Prior (refining the cameras);
@@ -39,6 +30,11 @@ demonstration.
   `vision-mvg` drops its tiny-solver dependency and `refine` feature;
   homography refinement moves onto the builder. Gate: synthetic-GT matrix
   and Monte-Carlo σ.
+- [ ] MVG-E-REFINE - Move estimate_essential's local Gauss-Newton polish
+  (weighted Sampson error on the essential manifold) onto the problem builder:
+  a residual of your own over a rotation and a unit-vector block. It returns
+  the covariance of the relative pose (gauge |t| = 1) on the way, which
+  MVG-TWO-VIEW lists.
 - [ ] MVG-STEREO - Stereo from a calibration:
   - rectification straight from a `CalibratedRig`, any supported camera
     model (maps through each camera's unprojection);
@@ -49,11 +45,11 @@ demonstration.
 - [ ] MVG-METROLOGY - A measurement API (point, distance, angle, plane fit)
   with joint σ, propagated by dual-number Jacobians over the points' joint
   covariance (a plane fit holds the points as consider parameters), used
-  by `../vision-metrology` (cross-repo). Needs: MVG-TRI-COV.
+  by `../vision-metrology` (cross-repo).
 - [ ] MVG-PNP-COV - Object pose from PnP with its covariance, the
   calibration's included (consider).
 - [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
-  and the laser-plane covariance. Needs: MVG-TRI-COV.
+  and the laser-plane covariance.
 - [ ] MVG-PY - Python bindings for the MVG surface.
 - [ ] MVG-DEMO - A book walk-through plus Rust and Python examples on the
   fetchable samples (`opencv_fisheye_stereo`, a pinhole stereo pair once
@@ -195,8 +191,7 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 - [ ] BOOK-WASM - A `vision-calibration-wasm` crate (wasm-bindgen over the
   facade, `publish = false` at first), built by `publish-docs.yml` with a
   bun bundle loaded through mdBook `additional-js`. The app can use the
-  same build for per-frame math. Needs: MVG-TRI-COV (the first demos show
-  it).
+  same build for per-frame math.
 - [ ] BOOK-DEMOS - Interactive pages running the library in the browser,
   first:
   - triangulation σ against baseline, from a calibration's covariance;

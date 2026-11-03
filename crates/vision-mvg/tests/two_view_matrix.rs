@@ -218,15 +218,17 @@ fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
             let terr = tdir_err_deg(&pose.second_se3_first.translation.vector, &cell.t);
 
             // --- (2) Metric triangulation with the true cameras ---
+            let px_noise = PointCovariance::isotropic(0.5).unwrap();
             let mut reproj_px = Vec::new();
             let mut err3d = Vec::new();
             for ((u1, u2), pw) in px1.iter().zip(px2.iter()).zip(kept_world.iter()) {
                 let track = vec![
-                    RigObservation::new(0, 0, *u1),
-                    RigObservation::new(0, 1, *u2),
+                    RigObservation::new(0, 0, *u1, px_noise),
+                    RigObservation::new(0, 1, *u2, px_noise),
                 ];
                 let tp = triangulate(&rig, &[Iso3::identity()], &[track])
                     .unwrap_or_else(|e| panic!("{label}: triangulation failed: {e:?}"))
+                    .points
                     .remove(0);
                 assert!(tp.in_front, "{label}: triangulated point behind a camera");
                 reproj_px.push(tp.reprojection_error.expect("projects in both cameras"));

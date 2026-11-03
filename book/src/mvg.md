@@ -20,7 +20,7 @@ In dependency order:
 
 ```text
 mvg::pose_recovery   recover_relative_pose  ← 5-point + cheirality (also triangulates)
-mvg::triangulation   triangulate            ← N-view DLT on bearings, with diagnostics
+mvg::triangulation   triangulate            ← N-view DLT on bearings, refined, with covariance
 mvg::bundle_adjust   bundle_adjust          ← joint poses + structure (feature `refine`)
 mvg::rectification   rectify_stereo_pair    ← rectifying homographies (Scheimpflug-aware)
 mvg::dense           match_block            ← block matching and semi-global matching

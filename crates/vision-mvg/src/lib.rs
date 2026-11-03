@@ -9,7 +9,9 @@
 //! - **Degeneracy**: pure-rotation, planar-scene and poor-baseline detection
 //! - **Pose recovery**: [`recover_relative_pose`] — end-to-end calibrated 2-view pose
 //! - **Triangulation**: [`triangulation::triangulate`] — N-view triangulation of
-//!   pixel tracks from a calibration, with diagnostics
+//!   pixel tracks from a calibration, refined on stated pixel noise, with
+//!   diagnostics and the points' joint covariance (the calibration's share
+//!   included)
 //!
 //! # Low-level solvers (re-exported from `vision-geometry`)
 //!

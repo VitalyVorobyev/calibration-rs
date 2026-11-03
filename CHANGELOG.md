@@ -31,9 +31,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (state the σ your detector reaches), and a radian threshold `t` becomes
     about `t · f / σ` in σ for focal length `f` px and pixel noise `σ` px
     (`1.0e-3` rad at `f = 800` and `σ = 0.5` is about `1.6`).
+- **Triangulation states its noise and returns a `Triangulation`** (breaking, in
+  `vision-mvg` and the facade's `mvg`). `RigObservation::new` takes the
+  pixel's `PointCovariance` as a fourth argument
+  (`PointCovariance::isotropic(sigma)?`, or `rig.reprojection_noise(camera)?`
+  for the calibration's noise level). `triangulate` returns a `Triangulation`
+  whose `points` is the old vector, and the points are now refined on the
+  reprojection error (weighted by the stated noise) instead of left at the
+  linear estimate, so their values change. `vision-mvg` depends on
+  `vision-calibration-optim`.
 
 ### Added
 
+- `Triangulation`, from `triangulate`: the joint covariance of the points
+  (`uncertainty`, labels `p{i}.x`, `p{i}.y`, `p{i}.z`), with
+  `point_covariance(i)` and `cross_covariance(i, j)`. It includes the
+  calibration's share, the rig's cameras and extrinsics entering as consider
+  parameters, which a camera taken as exact leaves out (depth σ 3.2 times too
+  small in the book's stereo example). A rig without a covariance gives
+  refined points and an uncertainty that says so.
 - `PointCovariance::isotropic(sigma_px)`: the covariance of one σ on both
   axes.
 - `CalibratedRig::reprojection_noise(camera)`: the calibration's reprojection
