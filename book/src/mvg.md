@@ -21,7 +21,7 @@ In dependency order:
 ```text
 mvg::pose_recovery   recover_relative_pose  ← 5-point + cheirality (also triangulates)
 mvg::triangulation   triangulate            ← N-view DLT on bearings, refined, with covariance
-mvg::bundle_adjust   bundle_adjust          ← joint poses + structure (feature `refine`)
+mvg::bundle_adjust   bundle_adjust          ← capture poses + points together, with covariance
 mvg::rectification   rectify_stereo_pair    ← rectifying homographies (Scheimpflug-aware)
 mvg::dense           match_block            ← block matching and semi-global matching
 mvg::robust          *_robust               ← RANSAC wrappers for outlier-laden data
@@ -32,7 +32,7 @@ Further modules: `mvg::degeneracy` (pure rotation, planar scene and poor baselin
 The chapters of this part follow the pipeline:
 
 1. [Pose Recovery and Triangulation](mvg_pose.md): relative pose from correspondences, with RANSAC for outliers.
-2. [Bundle Adjustment](mvg_bundle_adjust.md): refining poses and structure together.
+2. [Bundle Adjustment](mvg_bundle_adjust.md): refining poses and structure together, with a stated gauge and the calibration's uncertainty.
 3. [Stereo Rectification](mvg_rectification.md): rows that line up, for pinhole and Scheimpflug cameras.
 4. [Dense Stereo](mvg_dense.md): per-pixel disparity by block matching or semi-global matching.
 
@@ -41,17 +41,15 @@ The chapters of this part follow the pipeline:
 The `mvg_two_view` example builds a synthetic calibrated stereo pair with known ground truth and runs pose recovery, bundle adjustment and rectification:
 
 ```bash
-cargo run -p vision-calibration --example mvg_two_view --features refine
+cargo run -p vision-calibration --example mvg_two_view
 ```
 
 ```text
 scene: 36 correspondences visible in both views
 1. pose recovery : rotation Δ = 2.43e-15, |t·t_gt| = 1.000000, 36 points triangulated
-3. bundle adjust : RMS 18.1423 → 0.0000 px over 2 cameras, 36 points
+3. bundle adjust : RMS 0.0000 px over 2 captures, 36 points; worst point error 1.75e-7 m
 4. rectification : baseline = 0.610, max row disagreement = 1.14e-13 px
 ```
-
-The `refine` cargo feature enables bundle adjustment (it pulls in the `tiny-solver` backend); everything else is available by default.
 
 ## From a Calibration to MVG Inputs
 

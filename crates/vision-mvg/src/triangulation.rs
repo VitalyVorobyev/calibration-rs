@@ -12,6 +12,7 @@
 use crate::bearing::{bearing, camera_model};
 use crate::types::TriangulatedPoint;
 use crate::{MvgError, Result};
+use nalgebra::SMatrix;
 use vision_calibration_core::{
     CalibratedRig, CameraModel, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Uncertainty,
     UncertaintyUnavailable, Vec3,
@@ -82,17 +83,29 @@ impl Triangulation {
     /// call, so it correlates them. `None` as for
     /// [`point_covariance`](Self::point_covariance).
     pub fn cross_covariance(&self, i: usize, j: usize) -> Option<Mat3> {
-        let c = self.uncertainty.covariance()?;
-        let at = |p: usize| -> Option<[usize; 3]> {
-            Some([
-                c.index(&format!("p{p}.x"))?,
-                c.index(&format!("p{p}.y"))?,
-                c.index(&format!("p{p}.z"))?,
-            ])
-        };
-        let (rows, cols) = (at(i)?, at(j)?);
-        Some(Mat3::from_fn(|r, s| c.covariance[rows[r]][cols[s]]))
+        let axes = |p: usize| ["x", "y", "z"].map(|a| format!("p{p}.{a}"));
+        sub_covariance(&self.uncertainty, axes(i), axes(j))
     }
+}
+
+/// The block of the joint covariance with rows `rows` and columns `cols`
+/// (labels); `None` when the uncertainty is unavailable or a label is not in
+/// it.
+pub(crate) fn sub_covariance<const N: usize>(
+    uncertainty: &Uncertainty,
+    rows: [String; N],
+    cols: [String; N],
+) -> Option<SMatrix<Real, N, N>> {
+    let c = uncertainty.covariance()?;
+    let at = |labels: &[String; N]| -> Option<[usize; N]> {
+        let mut index = [0; N];
+        for (slot, label) in index.iter_mut().zip(labels) {
+            *slot = c.index(label)?;
+        }
+        Some(index)
+    };
+    let (rows, cols) = (at(&rows)?, at(&cols)?);
+    Some(SMatrix::from_fn(|r, s| c.covariance[rows[r]][cols[s]]))
 }
 
 /// Triangulate each track (the observations of one point) in the world frame,
@@ -282,7 +295,7 @@ fn refine_error_in(context: &str, e: vision_calibration_optim::Error) -> MvgErro
 }
 
 /// The views of one track, with their bearings.
-fn track_views<'a>(
+pub(crate) fn track_views<'a>(
     rig: &'a CalibratedRig,
     rig_se3_world: &[Iso3],
     track: &[RigObservation],

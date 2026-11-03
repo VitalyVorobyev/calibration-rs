@@ -369,7 +369,7 @@ mod tests {
         let pin = |line: &str| snippet.captures(line).map(|c| c[2].to_string());
         assert_eq!(pin(r#"vision-calibration = "0.8""#).as_deref(), Some("0.8"));
         assert_eq!(
-            pin(r#"vision-mvg = { version = "0.9", features = ["refine"] }"#).as_deref(),
+            pin(r#"vision-mvg = { version = "0.9", features = ["synthetic"] }"#).as_deref(),
             Some("0.9")
         );
         assert_eq!(pin(r#"nalgebra = "0.34""#), None);

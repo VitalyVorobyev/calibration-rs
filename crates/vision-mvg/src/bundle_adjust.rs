@@ -1,836 +1,598 @@
-//! Multi-view bundle adjustment with **frozen intrinsics**.
+//! Bundle adjustment from a calibration, with the covariance of what it refines.
 //!
-//! Feature-gated behind `refine`. Jointly refines camera **poses** and 3D
-//! **structure** by minimizing reprojection error across all views, using
-//! tiny-solver's Levenberg-Marquardt optimizer with analytic residuals.
+//! Jointly refines the capture poses of a rig and the 3D points on the
+//! reprojection error of the stated pixel noise, through the public problem
+//! builder of `vision-calibration-optim`. The cameras come from a
+//! [`CalibratedRig`] and enter in one of two ways ([`Use`]): as **consider**
+//! parameters (they stay at their values and their covariance is carried into
+//! the result's) or under a **prior** (they are refined too, held by their own
+//! covariance). Every reprojection can carry a robust loss.
 //!
-//! Per-camera intrinsics `K` are held constant (baked into each reprojection
-//! factor, not exposed as parameter blocks); only the extrinsic poses and the
-//! world points move. This respects this crate's scope: no
-//! structure-from-motion, no pose-graph optimization, no loop closure — just a
-//! final joint refinement over an already-initialized reconstruction.
+//! # The gauge
 //!
-//! # Conventions
+//! Reprojection error does not fix the world frame or the scale of a
+//! reconstruction, so both are stated:
 //!
-//! - Poses are `T_C_W` ([`Iso3`]): they map a world point into the camera
-//!   frame (`p_cam = R · p_world + t`).
-//! - Observations are **pixel** coordinates; the frozen `K` projects the
-//!   camera-frame ray to pixels.
-//! - The reconstruction carries a 7-DOF similarity gauge freedom. Fixing the
-//!   first observed camera ([`BundleAdjustmentOptions::fix_first_camera`], on by
-//!   default) removes the 6-DOF rigid part (world-frame rotation + translation). The
-//!   remaining 1-DOF **global scale** cannot be observed from reprojection error
-//!   alone when structure is free — uniformly scaling all point depths and all
-//!   free-camera translations leaves every projection unchanged. Anchor scale
-//!   externally (e.g. a known baseline) for metric output; in practice LM
-//!   damping keeps it near the initial reconstruction.
+//! - **Frame.** Capture 0 is fixed: the world frame is capture 0's rig frame
+//!   as given. Every other capture pose and every point is refined relative
+//!   to it.
+//! - **Scale.** [`Scale`] has no default. [`Scale::Rig`] takes it from the
+//!   rig's extrinsics (the baseline between two cameras that see the same
+//!   capture); [`Scale::Distance`] from a stated distance between two points.
+//!   A call without a workable scale is an [`MvgError::InvalidInput`] before
+//!   any work, never a silent choice.
+//!
+//! The covariance is in that gauge: capture 0 has none, and the scale's
+//! uncertainty (the rig's under [`Scale::Rig`], the stated σ under
+//! [`Scale::Distance`]) is part of it.
 
+use crate::triangulation::{RigObservation, sub_covariance, track_views, with_context};
 use crate::{MvgError, Result};
-use nalgebra::{DVector, Quaternion, Translation3, UnitQuaternion, Vector3};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tiny_solver::LevenbergMarquardtOptimizer;
-use tiny_solver::factors::Factor;
-use tiny_solver::manifold::se3::SE3Manifold;
-use tiny_solver::optimizer::{Optimizer, OptimizerOptions};
-use tiny_solver::problem::Problem;
-use vision_calibration_core::{Iso3, Mat3, Pt2, Pt3, Real};
+use nalgebra::{DVector, Matrix6, RealField};
+use vision_calibration_core::{
+    CalibratedRig, Iso3, Mat3, ParameterCovariance, Pt3, Real, Uncertainty,
+};
+use vision_calibration_optim::problem::{
+    BlockId, Manifold, Noise, PixelNoise, Problem, Residual, SolveOptions, TargetPoint, Use, solve,
+};
+use vision_calibration_optim::{RobustLoss, SolveReport};
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/// A single image observation: camera `cam` saw world point `point` at `pixel`.
-///
-/// Indices reference the `intrinsics`/`init_poses` slices (`cam`) and the
-/// `init_points` slice (`point`) passed to [`bundle_adjust`].
+/// How the reconstruction's scale is fixed. There is no default: reprojection
+/// error alone cannot tell a large scene far away from a small one near.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BundleObservation {
-    /// Index of the observing camera.
-    pub cam: usize,
-    /// Index of the observed 3D point.
-    pub point: usize,
-    /// Observed pixel coordinate.
-    pub pixel: Pt2,
+#[non_exhaustive]
+pub enum Scale {
+    /// The rig's extrinsics fix it: the baseline between two cameras with
+    /// distinct centres that observe points in the same capture. Needs a rig
+    /// of two or more cameras.
+    Rig,
+    /// A stated distance between two of the points.
+    Distance {
+        /// Indices of the two points in `points` (distinct).
+        points: [usize; 2],
+        /// Their distance, metres (positive).
+        distance: Real,
+        /// The σ of that distance, metres (positive): a distance weighs in
+        /// the solution as much as its precision says.
+        sigma: Real,
+    },
 }
 
-impl BundleObservation {
-    /// Create a new observation.
-    pub fn new(cam: usize, point: usize, pixel: Pt2) -> Self {
-        Self { cam, point, pixel }
-    }
+/// Options of [`bundle_adjust`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct BundleAdjustOptions {
+    /// How the calibration enters: [`Use::Consider`] (the cameras stay
+    /// fixed, their covariance is carried into the result's) or
+    /// [`Use::Prior`] (the cameras are refined, held by their covariance;
+    /// needs a rig with one).
+    pub calibration: Use,
+    /// Robust loss on every reprojection, its scale in σ units (the
+    /// residuals are whitened by their stated noise). The covariance takes
+    /// the residuals at their stated variance.
+    pub loss: RobustLoss,
+    /// The scale gauge.
+    pub scale: Scale,
+    /// Most Levenberg-Marquardt iterations; a solve that stops on this
+    /// budget has no covariance.
+    pub max_iters: usize,
 }
 
-/// Tuning knobs for [`bundle_adjust`].
-#[derive(Debug, Clone, Copy)]
-pub struct BundleAdjustmentOptions {
-    /// Levenberg-Marquardt iteration ceiling.
-    pub max_iterations: usize,
-    /// Hold the first observed camera's pose fixed to remove the rigid gauge
-    /// freedom.
-    ///
-    /// On by default. The anchor is the lowest-index camera that actually has
-    /// observations (camera 0 in the usual fully-observed case) — fixing an
-    /// unobserved camera would not pin the gauge of the optimized component.
-    /// Fixing it removes the 6-DOF world-frame rotation and translation, but
-    /// **not** global scale (a 1-DOF gauge that reprojection cannot constrain
-    /// while structure is free). Disable only when an external prior already
-    /// pins the world frame; otherwise the reconstruction drifts along the 6
-    /// rigid gauge directions, which LM damping merely regularizes rather than
-    /// removes.
-    pub fix_first_camera: bool,
-}
-
-impl Default for BundleAdjustmentOptions {
-    fn default() -> Self {
+impl BundleAdjustOptions {
+    /// Consider the calibration, no robust loss, 100 iterations, and the
+    /// given scale.
+    pub fn new(scale: Scale) -> Self {
         Self {
-            max_iterations: 100,
-            fix_first_camera: true,
+            calibration: Use::Consider,
+            loss: RobustLoss::None,
+            scale,
+            max_iters: 100,
         }
     }
 }
 
-/// Outcome of [`bundle_adjust`].
+/// The result of [`bundle_adjust`].
 #[derive(Debug, Clone)]
-pub struct BundleAdjustmentResult {
-    /// Refined camera poses (`T_C_W`), one per input camera, in input order.
-    ///
-    /// Cameras with no observations are returned unchanged from `init_poses`.
-    pub poses: Vec<Iso3>,
-    /// Refined world points, one per input point, in input order.
-    ///
-    /// Points with no observations are returned unchanged from `init_points`.
+#[non_exhaustive]
+pub struct BundleAdjustment {
+    /// The refined capture poses (world → rig), in the order given.
+    /// `rig_se3_world[0]` is the given one (the gauge); a capture without
+    /// observations is returned as given.
+    pub rig_se3_world: Vec<Iso3>,
+    /// The refined points, in the world frame, in the order given.
     pub points: Vec<Pt3>,
-    /// Root-mean-square reprojection error (pixels) before optimization.
-    pub initial_rms: Real,
-    /// Root-mean-square reprojection error (pixels) after optimization.
-    pub final_rms: Real,
-    /// Per-camera RMS reprojection error (pixels) after optimization.
-    ///
-    /// One entry per input camera; cameras with no observations report `0.0`.
-    pub per_camera_rms: Vec<Real>,
+    /// The rig: the given one under [`Use::Consider`], the refined one under
+    /// [`Use::Prior`], with the covariance of its cameras and extrinsics after
+    /// the adjustment (it can be fed to [`triangulate`](crate::triangulation::triangulate)
+    /// or to another adjustment).
+    pub rig: CalibratedRig,
+    /// The joint covariance of the free parameters: capture poses
+    /// (`capture{k}.rx` … `tz`, the right-perturbation tangent), points
+    /// (`p{i}.x`, `.y`, `.z`) and, under [`Use::Prior`], the cameras. In the
+    /// gauge above, the calibration's share included; or why it is
+    /// unavailable.
+    pub uncertainty: Uncertainty,
+    /// The solve's final cost and iteration count.
+    pub report: SolveReport,
+    /// RMS reprojection error over every observation, pixels, at the
+    /// solution: the root of the mean squared distance between a pixel and
+    /// its point's projection (`√2 σ` for isotropic noise of `σ` per axis).
+    pub reprojection_rms_px: Real,
 }
 
-/// Jointly refine camera poses and 3D structure by minimizing reprojection
-/// error, holding per-camera intrinsics frozen.
+impl BundleAdjustment {
+    /// Point `i`'s 3×3 covariance, m²; `None` when the uncertainty is
+    /// unavailable or `i` is out of range.
+    pub fn point_covariance(&self, i: usize) -> Option<Mat3> {
+        let axes = |p: usize| ["x", "y", "z"].map(|a| format!("p{p}.{a}"));
+        sub_covariance(&self.uncertainty, axes(i), axes(i))
+    }
+
+    /// Capture `k`'s 6×6 pose covariance over its right-perturbation tangent
+    /// `[rx ry rz tx ty tz]` (`T·Exp(δ)`), in rad and m. `None` for capture 0
+    /// (fixed), for a capture without observations, when `k` is out of range
+    /// or when the uncertainty is unavailable.
+    pub fn pose_covariance(&self, k: usize) -> Option<Matrix6<Real>> {
+        let axes =
+            |k: usize| ["rx", "ry", "rz", "tx", "ty", "tz"].map(|a| format!("capture{k}.{a}"));
+        sub_covariance(&self.uncertainty, axes(k), axes(k))
+    }
+}
+
+/// `|a − b| − d` over two point blocks: the stated distance.
+struct PointDistance {
+    distance: Real,
+}
+
+impl Residual for PointDistance {
+    fn dim(&self) -> usize {
+        1
+    }
+
+    fn block_dims(&self) -> Vec<usize> {
+        vec![3, 3]
+    }
+
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        let d = (0..3)
+            .map(|i| blocks[0][i].clone() - blocks[1][i].clone())
+            .fold(T::zero(), |s, v| s + v.clone() * v)
+            .sqrt();
+        DVector::from_element(1, d - T::from_f64(self.distance).unwrap())
+    }
+}
+
+/// Refine the capture poses and the points of a reconstruction on the
+/// reprojection error, each pixel weighted by its stated noise, and give the
+/// joint covariance.
 ///
-/// # Arguments
+/// `tracks[i]` holds the observations of `points[i]` (the initial point, in
+/// the world frame); `rig_se3_world[k]` is the initial pose of the rig at
+/// capture `k` (world → rig frame), as for
+/// [`triangulate`](crate::triangulation::triangulate). Capture 0 is fixed and
+/// defines the world frame; `opts.scale` fixes the scale (see the
+/// [module docs](self)). The initial values come from pose recovery and
+/// triangulation, or from any other reconstruction.
 ///
-/// - `intrinsics`: frozen `K` matrix per camera (`intrinsics.len()` == number
-///   of cameras == `init_poses.len()`).
-/// - `observations`: flat list of `(cam, point, pixel)` measurements.
-/// - `init_poses`: initial `T_C_W` per camera.
-/// - `init_points`: initial world-point positions.
-/// - `opts`: tuning knobs (see [`BundleAdjustmentOptions`]).
+/// The covariance has the observations' stated noise and the calibration's
+/// uncertainty as sources. Under [`Use::Consider`] the cameras and extrinsics
+/// stay at their values and the rig's covariance is propagated into the
+/// poses' and points'; under [`Use::Prior`] they are refined, held by that
+/// covariance, so the observations sharpen them (`BundleAdjustment::rig`).
+/// The covariance is dense over every free parameter, so the cost grows as
+/// the cube of the parameter count: for thousands of points, adjust a
+/// window of captures. A capture or point that no connected observation
+/// constrains makes the covariance unavailable, with the unobservable
+/// parameters named.
 ///
-/// Points should be observed in at least two views for their depth to be
-/// well-constrained; under-observed points are still admitted (LM damping
-/// leaves them near their initial value) so partially-observed datasets do not
-/// fail outright.
+/// ```
+/// use vision_calibration_core::{
+///     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, PointCovariance, Pt3, Uncertainty, Vec3,
+///     make_pinhole_camera, pinhole_camera_params,
+/// };
+/// use vision_mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
+/// use vision_mvg::triangulation::RigObservation;
+///
+/// // A stereo rig: camera 1 sits 10 cm to the right of camera 0.
+/// let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 320.0, cy: 240.0 };
+/// let camera = pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default()));
+/// let rig = CalibratedRig::new(
+///     vec![camera.clone(), camera],
+///     vec![Iso3::identity(), Iso3::translation(-0.1, 0.0, 0.0)],
+///     Uncertainty::default(),
+/// )?;
+///
+/// // Two captures (the rig moves 0.3 m sideways) of six points, pixels stated to 0.3 px.
+/// let truth_poses = [Iso3::identity(), Iso3::translation(-0.3, 0.0, 0.0)];
+/// let truth: Vec<Pt3> = (0..6)
+///     .map(|i| Pt3::new(0.1 * f64::from(i) - 0.25, 0.05 * f64::from(i % 3), 2.0 + 0.2 * f64::from(i)))
+///     .collect();
+/// let noise = PointCovariance::isotropic(0.3)?;
+/// let tracks: Vec<Vec<RigObservation>> = truth
+///     .iter()
+///     .map(|p| {
+///         let mut track = Vec::new();
+///         for (capture, pose) in truth_poses.iter().enumerate() {
+///             for camera in 0..2 {
+///                 let in_camera = rig.cam_se3_rig()[camera] * pose * p;
+///                 let pixel = rig.model(camera).unwrap().project_point(&in_camera).unwrap();
+///                 track.push(RigObservation::new(capture, camera, pixel, noise));
+///             }
+///         }
+///         track
+///     })
+///     .collect();
+///
+/// // Start 2 cm off and adjust; the rig's baseline fixes the scale.
+/// let start: Vec<Pt3> = truth.iter().map(|p| p + Vec3::new(0.02, -0.02, 0.02)).collect();
+/// let initial = [Iso3::identity(), Iso3::translation(-0.31, 0.01, 0.0)];
+/// let opts = BundleAdjustOptions::new(Scale::Rig);
+/// let adjusted = bundle_adjust(&rig, &initial, &start, &tracks, &opts)?;
+/// assert!((adjusted.points[0] - truth[0]).norm() < 1e-6);
+/// assert!(adjusted.reprojection_rms_px < 1e-3);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 ///
 /// # Errors
 ///
-/// - [`MvgError::CountMismatch`] if `intrinsics.len() != init_poses.len()`.
-/// - [`MvgError::InsufficientData`] if there are no observations.
-/// - [`MvgError::InvalidInput`] if any observation indexes a camera or point
-///   out of range.
-/// - [`MvgError::NotConverged`] if the optimizer fails to return a solution.
+/// [`MvgError::InvalidInput`], naming the item and before any solve, for
+/// different numbers of points and tracks; a track with fewer than 2
+/// observations; a camera or capture index out of range; a non-finite
+/// initial pose or point; a pixel without a finite viewing ray; capture 0
+/// without observations; fewer than two observed captures (or one seen by a
+/// single camera), where there is nothing to adjust; a [`Scale`] the data
+/// cannot fix (see its variants) or with invalid numbers;
+/// [`Use::Prior`] with a rig without a covariance; and a problem the
+/// builder rejects, such as an initial point that does not project.
+/// [`MvgError::Numerical`] when the solve fails to run. A solve that stops
+/// short of convergence is not an error: the result stands and its
+/// uncertainty says [`UncertaintyUnavailable::NotConverged`](vision_calibration_core::UncertaintyUnavailable::NotConverged).
 pub fn bundle_adjust(
-    intrinsics: &[Mat3],
-    observations: &[BundleObservation],
-    init_poses: &[Iso3],
-    init_points: &[Pt3],
-    opts: &BundleAdjustmentOptions,
-) -> Result<BundleAdjustmentResult> {
-    let n_cams = init_poses.len();
-    let n_points = init_points.len();
+    rig: &CalibratedRig,
+    rig_se3_world: &[Iso3],
+    points: &[Pt3],
+    tracks: &[Vec<RigObservation>],
+    opts: &BundleAdjustOptions,
+) -> Result<BundleAdjustment> {
+    let observed = validate(rig, rig_se3_world, points, tracks, opts)?;
 
-    if intrinsics.len() != n_cams {
-        return Err(MvgError::CountMismatch {
-            expected: n_cams,
-            got: intrinsics.len(),
-        });
-    }
-    if observations.is_empty() {
-        return Err(MvgError::InsufficientData { need: 1, got: 0 });
-    }
-    for obs in observations {
-        if obs.cam >= n_cams || obs.point >= n_points {
-            return Err(MvgError::invalid_input(format!(
-                "observation references camera {} / point {} but there are {n_cams} cameras and {n_points} points",
-                obs.cam, obs.point
-            )));
-        }
-    }
-
-    // Pre-flatten the frozen intrinsics (row-major) once.
-    let k_flat: Vec<[Real; 9]> = intrinsics.iter().map(flatten_k).collect();
-
-    // --- Build the problem ---------------------------------------------------
     let mut problem = Problem::new();
-    let mut cam_used = vec![false; n_cams];
-    let mut point_used = vec![false; n_points];
+    let blocks = problem
+        .add_calibrated_rig(rig, opts.calibration)
+        .map_err(builder_error)?;
 
-    for obs in observations {
-        let factor = ReprojectionFactor {
-            k: k_flat[obs.cam],
-            obs: obs.pixel,
-        };
-        problem.add_residual_block(
-            2,
-            &[&pose_key(obs.cam), &point_key(obs.point)],
-            Box::new(factor),
-            None,
-        );
-        cam_used[obs.cam] = true;
-        point_used[obs.point] = true;
+    // One pose block per observed capture; capture 0 is the gauge.
+    let mut captures: Vec<Option<BlockId>> = vec![None; rig_se3_world.len()];
+    for (k, pose) in rig_se3_world.iter().enumerate() {
+        if !observed[k] {
+            continue;
+        }
+        let id = problem
+            .add_pose(format!("capture{k}"), pose)
+            .map_err(builder_error)?;
+        if k == 0 {
+            problem.fix(id).map_err(builder_error)?;
+        }
+        captures[k] = Some(id);
     }
 
-    // Anchor the gauge on the first *observed* camera (usually camera 0). Using
-    // the lowest observed index — not a hard-coded camera 0 — keeps the anchor
-    // inside the optimized component: a camera with no observations shares no
-    // residual with the observed poses, so fixing it would leave their rigid
-    // gauge free. (Validity of the single-anchor recipe assumes a connected
-    // observation graph, which is the normal case.)
-    let anchor = if opts.fix_first_camera {
-        cam_used.iter().position(|&used| used)
-    } else {
-        None
+    let mut point_blocks = Vec::with_capacity(points.len());
+    for (i, (point, track)) in points.iter().zip(tracks).enumerate() {
+        let block = problem
+            .add_block(
+                format!("p{i}"),
+                &[point.x, point.y, point.z],
+                Manifold::Euclidean,
+            )
+            .map_err(builder_error)?;
+        problem
+            .set_labels(block, &["x", "y", "z"])
+            .map_err(builder_error)?;
+        for obs in track {
+            // Indices were validated.
+            let (Some(camera), Some(capture)) = (blocks.camera(obs.camera), captures[obs.capture])
+            else {
+                return Err(MvgError::numerical(format!(
+                    "track {i}: camera {} or capture {} missing from the problem",
+                    obs.camera, obs.capture
+                )));
+            };
+            let Some(chain) = blocks.chain(obs.camera, capture) else {
+                return Err(MvgError::numerical(format!(
+                    "track {i}: no chain for camera {}",
+                    obs.camera
+                )));
+            };
+            problem
+                .add_reprojection(
+                    camera,
+                    chain,
+                    TargetPoint::Block(block),
+                    obs.pixel,
+                    PixelNoise::Stated(obs.noise),
+                    opts.loss,
+                )
+                .map_err(|e| with_context(&format!("track {i}"), builder_error(e)))?;
+        }
+        point_blocks.push(block);
+    }
+    if let Scale::Distance {
+        points: [a, b],
+        distance,
+        sigma,
+    } = opts.scale
+    {
+        problem
+            .add_residual(
+                PointDistance { distance },
+                &[point_blocks[a], point_blocks[b]],
+                RobustLoss::None,
+                Noise::Known(sigma),
+            )
+            .map_err(builder_error)?;
+    }
+
+    // `SolveOptions` is non-exhaustive: start from its default.
+    let mut solve_options = SolveOptions::default();
+    solve_options.max_iters = opts.max_iters;
+    let solution = solve(&problem, &solve_options).map_err(builder_error)?;
+
+    let refined_poses: Vec<Iso3> = rig_se3_world
+        .iter()
+        .zip(&captures)
+        .map(|(initial, block)| block.and_then(|b| solution.pose(b)).unwrap_or(*initial))
+        .collect();
+    let refined_points = point_blocks
+        .iter()
+        .zip(points)
+        .map(|(&b, initial)| {
+            solution
+                .value(b)
+                .map_or(*initial, |v| Pt3::new(v[0], v[1], v[2]))
+        })
+        .collect::<Vec<_>>();
+
+    let (out_rig, uncertainty) = match opts.calibration {
+        Use::Prior => {
+            let cameras = (0..rig.num_cameras())
+                .map(|k| {
+                    blocks
+                        .camera(k)
+                        .and_then(|id| solution.camera(id))
+                        .ok_or_else(|| {
+                            MvgError::numerical(format!("camera {k} missing from the solution"))
+                        })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let extrinsics = rig
+                .cam_se3_rig()
+                .iter()
+                .enumerate()
+                .map(|(k, given)| {
+                    blocks
+                        .cam_se3_rig(k)
+                        .and_then(|b| solution.pose(b))
+                        .unwrap_or(*given)
+                })
+                .collect();
+            let refined = CalibratedRig::new(
+                cameras,
+                extrinsics,
+                calibration_share(&solution.uncertainty),
+            )?;
+            (refined, solution.uncertainty)
+        }
+        _ => (rig.clone(), solution.uncertainty),
     };
 
-    // Seed initial values and attach manifolds to the free pose blocks.
-    let mut initial: HashMap<String, DVector<Real>> = HashMap::new();
-    for (i, pose) in init_poses.iter().enumerate() {
-        if !cam_used[i] {
-            continue;
-        }
-        initial.insert(pose_key(i), DVector::from_vec(iso3_to_block(pose)));
-
-        if anchor == Some(i) {
-            // Gauge fix: do *not* attach the SE3 manifold; fix all seven raw
-            // components so the block contributes zero columns (the proven
-            // recipe from the optim tiny-solver backend).
-            for idx in 0..7 {
-                problem.fix_variable(&pose_key(i), idx);
-            }
-        } else {
-            problem.set_variable_manifold(&pose_key(i), Arc::new(SE3Manifold));
-        }
-    }
-    for (j, pt) in init_points.iter().enumerate() {
-        if !point_used[j] {
-            continue;
-        }
-        initial.insert(point_key(j), DVector::from_vec(vec![pt.x, pt.y, pt.z]));
-    }
-
-    let initial_rms = reprojection_rms(&k_flat, observations, init_poses, init_points).0;
-
-    let optimizer = LevenbergMarquardtOptimizer::default();
-    let result = optimizer
-        .optimize(
-            &problem,
-            &initial,
-            Some(OptimizerOptions {
-                max_iteration: opts.max_iterations,
-                ..Default::default()
-            }),
-        )
-        .ok_or_else(|| MvgError::not_converged("bundle adjustment failed to converge"))?;
-
-    // --- Read back the refined state ----------------------------------------
-    let mut poses = init_poses.to_vec();
-    for (i, pose) in poses.iter_mut().enumerate() {
-        if let Some(block) = result.get(&pose_key(i)) {
-            *pose = block_to_iso3(block);
-        }
-    }
-    let mut points = init_points.to_vec();
-    for (j, pt) in points.iter_mut().enumerate() {
-        if let Some(block) = result.get(&point_key(j)) {
-            *pt = Pt3::new(block[0], block[1], block[2]);
-        }
-    }
-
-    let (final_rms, per_camera_rms) =
-        reprojection_rms_per_camera(&k_flat, observations, &poses, &points, n_cams);
-
-    Ok(BundleAdjustmentResult {
-        poses,
-        points,
-        initial_rms,
-        final_rms,
-        per_camera_rms,
+    let reprojection_rms_px = reprojection_rms(&out_rig, &refined_poses, &refined_points, tracks)?;
+    Ok(BundleAdjustment {
+        rig_se3_world: refined_poses,
+        points: refined_points,
+        rig: out_rig,
+        uncertainty,
+        report: solution.report,
+        reprojection_rms_px,
     })
 }
 
-// ---------------------------------------------------------------------------
-// Reprojection factor
-// ---------------------------------------------------------------------------
-
-/// Reprojection error of one world point in one view under a frozen `K`.
-///
-/// Parameter blocks: `[pose (SE3, 7), point (3)]`.
-struct ReprojectionFactor {
-    /// Frozen intrinsics, row-major.
-    k: [Real; 9],
-    /// Observed pixel.
-    obs: Pt2,
-}
-
-impl<T: nalgebra::RealField> Factor<T> for ReprojectionFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        debug_assert_eq!(params.len(), 2);
-        let pose = &params[0]; // [qx, qy, qz, qw, tx, ty, tz]
-        let point = &params[1]; // [x, y, z]
-
-        let (rot, t) = se3_from_block(pose);
-        let pw = Vector3::new(point[0].clone(), point[1].clone(), point[2].clone());
-        let (u, v) = project_pinhole(&self.k, &rot, &t, &pw);
-
-        let u_obs = T::from_f64(self.obs.x).unwrap();
-        let v_obs = T::from_f64(self.obs.y).unwrap();
-        DVector::from_vec(vec![u - u_obs, v - v_obs])
+/// Everything checked before the problem is built. Returns which captures
+/// have observations.
+fn validate(
+    rig: &CalibratedRig,
+    rig_se3_world: &[Iso3],
+    points: &[Pt3],
+    tracks: &[Vec<RigObservation>],
+    opts: &BundleAdjustOptions,
+) -> Result<Vec<bool>> {
+    if points.len() != tracks.len() {
+        return Err(MvgError::invalid_input(format!(
+            "{} points but {} tracks: tracks[i] observes points[i]",
+            points.len(),
+            tracks.len()
+        )));
     }
-}
-
-/// Project a world point through `T_C_W` and a frozen pinhole `K`.
-///
-/// Generic over the scalar so the same path serves both the autodiff factor
-/// and the `f64` RMS bookkeeping. The full 3×3 `K` is applied to the
-/// normalized ray, so a non-standard bottom row degrades gracefully (for a
-/// canonical pinhole `K` the homogeneous `w` is exactly 1).
-fn project_pinhole<T: nalgebra::RealField>(
-    k: &[Real; 9],
-    rot: &UnitQuaternion<T>,
-    t: &Vector3<T>,
-    pw: &Vector3<T>,
-) -> (T, T) {
-    let pc = rot.transform_vector(pw) + t;
-    let xn = pc.x.clone() / pc.z.clone();
-    let yn = pc.y.clone() / pc.z.clone();
-    let kf = |i: usize| T::from_f64(k[i]).unwrap();
-    let u = kf(0) * xn.clone() + kf(1) * yn.clone() + kf(2);
-    let v = kf(3) * xn.clone() + kf(4) * yn.clone() + kf(5);
-    let w = kf(6) * xn + kf(7) * yn + kf(8);
-    (u / w.clone(), v / w)
-}
-
-/// Decode an SE3 parameter block `[qx, qy, qz, qw, tx, ty, tz]`.
-///
-/// Mirrors the optim crate's `se3_from_block` (kept private there).
-fn se3_from_block<T: nalgebra::RealField>(v: &DVector<T>) -> (UnitQuaternion<T>, Vector3<T>) {
-    debug_assert_eq!(v.len(), 7, "SE3 block must have 7 params");
-    let q = UnitQuaternion::from_quaternion(Quaternion::new(
-        v[3].clone(),
-        v[0].clone(),
-        v[1].clone(),
-        v[2].clone(),
-    ));
-    let t = Vector3::new(v[4].clone(), v[5].clone(), v[6].clone());
-    (q, t)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn pose_key(i: usize) -> String {
-    format!("pose_{i}")
-}
-
-fn point_key(j: usize) -> String {
-    format!("point_{j}")
-}
-
-fn flatten_k(k: &Mat3) -> [Real; 9] {
-    let mut out = [0.0; 9];
-    for r in 0..3 {
-        for c in 0..3 {
-            out[r * 3 + c] = k[(r, c)];
+    for (k, pose) in rig_se3_world.iter().enumerate() {
+        let finite = pose.translation.vector.iter().all(|v| v.is_finite())
+            && pose.rotation.coords.iter().all(|v| v.is_finite());
+        if !finite {
+            return Err(MvgError::invalid_input(format!(
+                "capture {k}: the initial pose is not finite"
+            )));
         }
     }
-    out
-}
-
-/// Encode an [`Iso3`] (`T_C_W`) as `[qx, qy, qz, qw, tx, ty, tz]`.
-fn iso3_to_block(pose: &Iso3) -> Vec<Real> {
-    let q = pose.rotation.coords; // (i, j, k, w)
-    let t = pose.translation.vector;
-    vec![q[0], q[1], q[2], q[3], t.x, t.y, t.z]
-}
-
-/// Decode `[qx, qy, qz, qw, tx, ty, tz]` back into an [`Iso3`].
-fn block_to_iso3(v: &DVector<Real>) -> Iso3 {
-    let rot = UnitQuaternion::from_quaternion(Quaternion::new(v[3], v[0], v[1], v[2]));
-    let trans = Translation3::new(v[4], v[5], v[6]);
-    Iso3::from_parts(trans, rot)
-}
-
-/// Total RMS reprojection error (pixels) and the squared-error sum / count.
-fn reprojection_rms(
-    k_flat: &[[Real; 9]],
-    observations: &[BundleObservation],
-    poses: &[Iso3],
-    points: &[Pt3],
-) -> (Real, usize) {
-    let mut sum_sq = 0.0;
-    for obs in observations {
-        let (du, dv) = residual_xy(
-            &k_flat[obs.cam],
-            &poses[obs.cam],
-            &points[obs.point],
-            obs.pixel,
-        );
-        sum_sq += du * du + dv * dv;
+    for (i, p) in points.iter().enumerate() {
+        if !p.coords.iter().all(|v| v.is_finite()) {
+            return Err(MvgError::invalid_input(format!(
+                "point {i}: the initial point is not finite"
+            )));
+        }
     }
-    let n = observations.len();
-    let rms = if n == 0 {
-        0.0
-    } else {
-        (sum_sq / n as Real).sqrt()
-    };
-    (rms, n)
+    let mut observed = vec![false; rig_se3_world.len()];
+    for (i, track) in tracks.iter().enumerate() {
+        // Track length, index ranges and a finite viewing ray per pixel.
+        track_views(rig, rig_se3_world, track)
+            .map_err(|e| with_context(&format!("track {i}"), e))?;
+        for obs in track {
+            observed[obs.capture] = true;
+        }
+    }
+    if !observed.first().copied().unwrap_or(false) {
+        return Err(MvgError::invalid_input(
+            "capture 0 has no observations, but it defines the world frame",
+        ));
+    }
+    let captures = observed.iter().filter(|&&o| o).count();
+    if captures < 2 {
+        let mut cameras: Vec<usize> = tracks.iter().flatten().map(|o| o.camera).collect();
+        cameras.sort_unstable();
+        cameras.dedup();
+        if cameras.len() < 2 {
+            return Err(MvgError::invalid_input(
+                "one capture seen by one camera: there is nothing to adjust, which needs at \
+                 least two captures or two cameras",
+            ));
+        }
+    }
+    if opts.calibration == Use::Prior && rig.uncertainty().covariance().is_none() {
+        return Err(MvgError::invalid_input(
+            "Use::Prior needs a rig with a covariance; use Use::Consider for one without",
+        ));
+    }
+    match opts.scale {
+        Scale::Rig => check_rig_scale(rig, tracks)?,
+        Scale::Distance {
+            points: [a, b],
+            distance,
+            sigma,
+        } => {
+            if a >= points.len() || b >= points.len() {
+                return Err(MvgError::invalid_input(format!(
+                    "Scale::Distance: points {a} and {b} must be in range: {} points given",
+                    points.len()
+                )));
+            }
+            if a == b {
+                return Err(MvgError::invalid_input(format!(
+                    "Scale::Distance: a distance needs two distinct points, got {a} twice"
+                )));
+            }
+            if !(distance.is_finite() && distance > 0.0 && sigma.is_finite() && sigma > 0.0) {
+                return Err(MvgError::invalid_input(format!(
+                    "Scale::Distance: distance {distance} and sigma {sigma} must be finite and \
+                     positive"
+                )));
+            }
+            if (points[a] - points[b]).norm() == 0.0 {
+                return Err(MvgError::invalid_input(format!(
+                    "Scale::Distance: the initial points {a} and {b} coincide"
+                )));
+            }
+        }
+    }
+    Ok(observed)
 }
 
-/// Total RMS plus per-camera RMS (pixels).
-fn reprojection_rms_per_camera(
-    k_flat: &[[Real; 9]],
-    observations: &[BundleObservation],
-    poses: &[Iso3],
-    points: &[Pt3],
-    n_cams: usize,
-) -> (Real, Vec<Real>) {
-    let mut sum_sq = 0.0;
-    let mut per_cam_sq = vec![0.0; n_cams];
-    let mut per_cam_n = vec![0usize; n_cams];
-    for obs in observations {
-        let (du, dv) = residual_xy(
-            &k_flat[obs.cam],
-            &poses[obs.cam],
-            &points[obs.point],
-            obs.pixel,
-        );
-        let e = du * du + dv * dv;
-        sum_sq += e;
-        per_cam_sq[obs.cam] += e;
-        per_cam_n[obs.cam] += 1;
+/// `Scale::Rig` needs a capture in which two cameras with distinct centres
+/// both observe points.
+fn check_rig_scale(rig: &CalibratedRig, tracks: &[Vec<RigObservation>]) -> Result<()> {
+    let hint = "state a Scale::Distance instead";
+    if rig.num_cameras() < 2 {
+        return Err(MvgError::invalid_input(format!(
+            "Scale::Rig needs a rig of two or more cameras; {hint}"
+        )));
     }
-    let total = if observations.is_empty() {
-        0.0
-    } else {
-        (sum_sq / observations.len() as Real).sqrt()
-    };
-    let per_camera_rms = per_cam_sq
+    let centre = |c: usize| rig.cam_se3_rig()[c].inverse().translation.vector;
+    let mut seen: Vec<(usize, usize)> = tracks
         .iter()
-        .zip(per_cam_n.iter())
-        .map(|(&s, &n)| if n == 0 { 0.0 } else { (s / n as Real).sqrt() })
+        .flatten()
+        .map(|o| (o.capture, o.camera))
         .collect();
-    (total, per_camera_rms)
-}
-
-/// Single-observation reprojection residual `(Δu, Δv)` in pixels.
-fn residual_xy(k: &[Real; 9], pose: &Iso3, point: &Pt3, pixel: Pt2) -> (Real, Real) {
-    let (u, v) = project_pinhole(k, &pose.rotation, &pose.translation.vector, &point.coords);
-    (u - pixel.x, v - pixel.y)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use nalgebra::{Rotation3, Vector3 as V3};
-
-    /// Pinhole intrinsics used across the synthetic scene.
-    fn intrinsics() -> Mat3 {
-        Mat3::new(600.0, 0.0, 320.0, 0.0, 600.0, 240.0, 0.0, 0.0, 1.0)
-    }
-
-    /// Deterministic pseudo-random value in `[-1, 1]` (avoids a `rand` dep).
-    fn jitter(seed: usize) -> Real {
-        ((seed.wrapping_mul(2_654_435_761) % 1000) as Real) / 500.0 - 1.0
-    }
-
-    fn pose(euler: (Real, Real, Real), t: (Real, Real, Real)) -> Iso3 {
-        let rot = Rotation3::from_euler_angles(euler.0, euler.1, euler.2);
-        Iso3::from_parts(Translation3::new(t.0, t.1, t.2), UnitQuaternion::from(rot))
-    }
-
-    /// Three ground-truth `T_C_W` poses; camera 0 is the identity (world frame
-    /// anchor) so a `fix_first_camera` run is pinned to ground truth.
-    fn gt_poses() -> Vec<Iso3> {
-        vec![
-            Iso3::identity(),
-            pose((0.03, 0.05, -0.02), (-1.0, 0.1, 0.2)),
-            pose((-0.04, -0.06, 0.03), (0.9, -0.15, -0.1)),
-        ]
-    }
-
-    /// A 4×4 lattice of world points with depth variation (so pose and depth
-    /// are both observable). All points sit well in front of every camera.
-    fn gt_points() -> Vec<Pt3> {
-        let mut pts = Vec::new();
-        for i in 0..4 {
-            for j in 0..4 {
-                let x = -0.6 + 0.4 * i as Real;
-                let y = -0.6 + 0.4 * j as Real;
-                let z = 4.5 + 0.3 * ((i + j) % 3) as Real;
-                pts.push(Pt3::new(x, y, z));
-            }
-        }
-        pts
-    }
-
-    fn project_gt(k: &Mat3, p: &Iso3, pt: &Pt3) -> Pt2 {
-        let (u, v) = project_pinhole(
-            &flatten_k(k),
-            &p.rotation,
-            &p.translation.vector,
-            &pt.coords,
-        );
-        Pt2::new(u, v)
-    }
-
-    /// Every point seen by every camera (noiseless unless `noise_px > 0`).
-    fn observe(k: &Mat3, poses: &[Iso3], points: &[Pt3], noise_px: Real) -> Vec<BundleObservation> {
-        let mut obs = Vec::new();
-        let mut s = 0usize;
-        for (c, pose) in poses.iter().enumerate() {
-            for (p, pt) in points.iter().enumerate() {
-                let mut pix = project_gt(k, pose, pt);
-                if noise_px > 0.0 {
-                    pix.x += noise_px * jitter(s);
-                    pix.y += noise_px * jitter(s + 1);
-                }
-                s += 2;
-                obs.push(BundleObservation::new(c, p, pix));
-            }
-        }
-        obs
-    }
-
-    fn perturb_pose(p: &Iso3, seed: usize) -> Iso3 {
-        let delta = pose(
-            (
-                0.02 * jitter(seed),
-                -0.03 * jitter(seed + 1),
-                0.015 * jitter(seed + 2),
-            ),
-            (
-                0.08 * jitter(seed + 3),
-                -0.05 * jitter(seed + 4),
-                0.06 * jitter(seed + 5),
-            ),
-        );
-        p * delta
-    }
-
-    fn perturb_points(points: &[Pt3]) -> Vec<Pt3> {
-        points
+    seen.sort_unstable();
+    seen.dedup();
+    let fixes_scale = seen.iter().enumerate().any(|(n, &(k, a))| {
+        seen[n + 1..]
             .iter()
-            .enumerate()
-            .map(|(j, pt)| pt + 0.12 * V3::new(jitter(3 * j), jitter(3 * j + 1), jitter(3 * j + 2)))
-            .collect()
+            .take_while(|&&(k2, _)| k2 == k)
+            .any(|&(_, b)| (centre(a) - centre(b)).norm() > 1e-9)
+    });
+    if fixes_scale {
+        Ok(())
+    } else {
+        Err(MvgError::invalid_input(format!(
+            "Scale::Rig needs a capture observed by two cameras with distinct centres; {hint}"
+        )))
     }
+}
 
-    /// Scale factor that maps a fixed-camera-0 estimate onto ground truth.
-    ///
-    /// With camera 0 at the origin, the only residual gauge is global scale;
-    /// camera 1's baseline length fixes it.
-    fn gt_scale(res: &BundleAdjustmentResult, gt: &[Iso3]) -> Real {
-        gt[1].translation.vector.norm() / res.poses[1].translation.vector.norm()
-    }
-
-    #[test]
-    fn converges_to_ground_truth_noiseless() {
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        let obs = observe(&k, &poses, &points, 0.0);
-        let intr = vec![k; poses.len()];
-
-        // Camera 0 stays at GT (fixed); cameras 1..N and all points perturbed.
-        let mut init_poses = poses.clone();
-        init_poses[1] = perturb_pose(&poses[1], 11);
-        init_poses[2] = perturb_pose(&poses[2], 23);
-        let init_points = perturb_points(&points);
-
-        let res = bundle_adjust(
-            &intr,
-            &obs,
-            &init_poses,
-            &init_points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap();
-
-        assert!(
-            res.final_rms < res.initial_rms,
-            "rms did not drop: init={}, final={}",
-            res.initial_rms,
-            res.final_rms
-        );
-        // LM stops at its default error-decrease floor (~1e-5 px residual);
-        // that is convergence for any practical purpose.
-        assert!(
-            res.final_rms < 1e-3,
-            "final rms too large: {}",
-            res.final_rms
-        );
-
-        // Recovery is exact only up to the unobservable global scale; remove it
-        // via camera 1's baseline, then GT must be recovered to machine slop.
-        let f = gt_scale(&res, &poses);
-        assert!(
-            (f - 1.0).abs() < 0.05,
-            "scale drifted unexpectedly far: {f}"
-        );
-        for (i, (got, want)) in res.poses.iter().zip(poses.iter()).enumerate() {
-            let dt = (f * got.translation.vector - want.translation.vector).norm();
-            let dr = got.rotation.angle_to(&want.rotation); // rotation is scale-invariant
-            assert!(
-                dt < 1e-3 && dr < 1e-4,
-                "camera {i} not recovered: dt={dt}, dr={dr}"
-            );
-        }
-        for (j, (got, want)) in res.points.iter().zip(points.iter()).enumerate() {
-            let d = (f * got.coords - want.coords).norm();
-            assert!(d < 1e-3, "point {j} not recovered: d={d}");
-        }
-        assert!(res.per_camera_rms.iter().all(|&r| r < 1e-3));
-    }
-
-    #[test]
-    fn perfect_init_does_not_diverge() {
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        let obs = observe(&k, &poses, &points, 0.0);
-        let intr = vec![k; poses.len()];
-
-        let res = bundle_adjust(
-            &intr,
-            &obs,
-            &poses,
-            &points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap();
-
-        assert!(
-            res.final_rms < 1e-9,
-            "perfect init drifted: {}",
-            res.final_rms
-        );
-        for (got, want) in res.poses.iter().zip(poses.iter()) {
-            assert!((got.translation.vector - want.translation.vector).norm() < 1e-6);
-            assert!(got.rotation.angle_to(&want.rotation) < 1e-6);
+/// The RMS distance, in pixels, between each observation and its point
+/// projected at the solution.
+fn reprojection_rms(
+    rig: &CalibratedRig,
+    rig_se3_world: &[Iso3],
+    points: &[Pt3],
+    tracks: &[Vec<RigObservation>],
+) -> Result<Real> {
+    let mut sum = 0.0;
+    let mut count = 0_usize;
+    for (i, (point, track)) in points.iter().zip(tracks).enumerate() {
+        for obs in track {
+            let in_camera = rig.cam_se3_rig()[obs.camera] * rig_se3_world[obs.capture] * point;
+            let model = rig.model(obs.camera).expect("camera index was validated");
+            let pixel = model.project_point(&in_camera).ok_or_else(|| {
+                MvgError::numerical(format!(
+                    "track {i}: the adjusted point does not project in camera {}",
+                    obs.camera
+                ))
+            })?;
+            sum += (pixel - obs.pixel).norm_squared();
+            count += 1;
         }
     }
+    Ok((sum / count as Real).sqrt())
+}
 
-    #[test]
-    fn handles_pixel_noise() {
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        let obs = observe(&k, &poses, &points, 0.3); // ~0.3 px deterministic noise
-        let intr = vec![k; poses.len()];
+/// The part of an adjustment's uncertainty that belongs to the calibration:
+/// the cameras' and extrinsics' labels, without capture poses and points.
+fn calibration_share(uncertainty: &Uncertainty) -> Uncertainty {
+    let Some(c) = uncertainty.covariance() else {
+        return uncertainty.clone();
+    };
+    let is_calibration = |label: &str| {
+        let head = label.split('.').next().unwrap_or("");
+        let numbered = |prefix: &str| {
+            head.strip_prefix(prefix)
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        };
+        !(numbered("capture") || numbered("p"))
+    };
+    let keep: Vec<usize> = (0..c.labels.len())
+        .filter(|&i| is_calibration(&c.labels[i]))
+        .collect();
+    Uncertainty::Available(ParameterCovariance {
+        labels: keep.iter().map(|&i| c.labels[i].clone()).collect(),
+        covariance: keep
+            .iter()
+            .map(|&i| keep.iter().map(|&j| c.covariance[i][j]).collect())
+            .collect(),
+        views: Vec::new(),
+        fixed: c
+            .fixed
+            .iter()
+            .filter(|l| is_calibration(l))
+            .cloned()
+            .collect(),
+        noise: c.noise.clone(),
+        num_residuals: c.num_residuals,
+        dof: c.dof,
+        view_scatter: c.view_scatter,
+    })
+}
 
-        let mut init_poses = poses.clone();
-        init_poses[1] = perturb_pose(&poses[1], 5);
-        init_poses[2] = perturb_pose(&poses[2], 17);
-        let init_points = perturb_points(&points);
-
-        let res = bundle_adjust(
-            &intr,
-            &obs,
-            &init_poses,
-            &init_points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap();
-
-        assert!(
-            res.final_rms < res.initial_rms,
-            "rms did not drop under noise: init={}, final={}",
-            res.initial_rms,
-            res.final_rms
-        );
-        assert!(
-            res.final_rms < 0.5,
-            "final rms above noise band: {}",
-            res.final_rms
-        );
-        // Up to the scale gauge, poses land near GT (noise perturbs the optimum
-        // only slightly).
-        let f = gt_scale(&res, &poses);
-        for (g, w) in res.poses.iter().skip(1).zip(poses.iter().skip(1)) {
-            assert!((f * g.translation.vector - w.translation.vector).norm() < 0.02);
-            assert!(g.rotation.angle_to(&w.rotation) < 0.01);
-        }
-    }
-
-    #[test]
-    fn without_gauge_fix_still_reduces_error() {
-        // Exercises the SE3-manifold path on camera 0 (no fixing).
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        let obs = observe(&k, &poses, &points, 0.0);
-        let intr = vec![k; poses.len()];
-
-        let mut init_poses = poses.clone();
-        init_poses[1] = perturb_pose(&poses[1], 31);
-        init_poses[2] = perturb_pose(&poses[2], 41);
-        let init_points = perturb_points(&points);
-
-        let res = bundle_adjust(
-            &intr,
-            &obs,
-            &init_poses,
-            &init_points,
-            &BundleAdjustmentOptions {
-                max_iterations: 100,
-                fix_first_camera: false,
-            },
-        )
-        .unwrap();
-
-        // Without a gauge anchor the frame can drift, but the reprojection
-        // residual must still collapse.
-        assert!(res.final_rms < res.initial_rms);
-        assert!(
-            res.final_rms < 1e-4,
-            "final rms too large: {}",
-            res.final_rms
-        );
-    }
-
-    #[test]
-    fn gauge_anchors_first_observed_camera_when_camera0_unobserved() {
-        // Regression: with `fix_first_camera` on but camera 0 unobserved, the
-        // anchor must fall on the first *observed* camera, else no pose is fixed
-        // and the rigid gauge stays free.
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        // Only cameras 1 and 2 observe anything; camera 0 sees nothing.
-        let obs: Vec<_> = observe(&k, &poses, &points, 0.0)
-            .into_iter()
-            .filter(|o| o.cam != 0)
-            .collect();
-        let intr = vec![k; poses.len()];
-
-        // Anchor (camera 1) starts at GT; camera 2 and the points are perturbed.
-        let mut init_poses = poses.clone();
-        init_poses[2] = perturb_pose(&poses[2], 7);
-        let init_points = perturb_points(&points);
-
-        let res = bundle_adjust(
-            &intr,
-            &obs,
-            &init_poses,
-            &init_points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap();
-
-        // Camera 1 is the first observed camera → held exactly fixed at its init.
-        let anchor_dt = (res.poses[1].translation.vector - init_poses[1].translation.vector).norm();
-        let anchor_dr = res.poses[1].rotation.angle_to(&init_poses[1].rotation);
-        assert!(
-            anchor_dt < 1e-12 && anchor_dr < 1e-12,
-            "anchor camera was not held fixed: dt={anchor_dt}, dr={anchor_dr}"
-        );
-        // Unobserved camera 0 passes through unchanged.
-        assert_eq!(res.poses[0], poses[0]);
-        // The observed component still converges, and camera 2's rotation
-        // (scale-invariant) is recovered.
-        assert!(res.final_rms < 1e-3, "did not converge: {}", res.final_rms);
-        let dr2 = res.poses[2].rotation.angle_to(&poses[2].rotation);
-        assert!(dr2 < 1e-4, "camera 2 rotation not recovered: {dr2}");
-    }
-
-    #[test]
-    fn unobserved_entities_pass_through() {
-        let k = intrinsics();
-        let poses = gt_poses();
-        let mut points = gt_points();
-        // Add an extra point that nobody observes.
-        let orphan = Pt3::new(99.0, 99.0, 99.0);
-        points.push(orphan);
-        let obs = observe(&k, &poses, &points[..points.len() - 1], 0.0);
-        let intr = vec![k; poses.len()];
-
-        let init_points = points.clone();
-        let res = bundle_adjust(
-            &intr,
-            &obs,
-            &poses,
-            &init_points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap();
-
-        // The orphan point is returned unchanged.
-        assert_eq!(*res.points.last().unwrap(), orphan);
-    }
-
-    #[test]
-    fn rejects_count_mismatch() {
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        let obs = observe(&k, &poses, &points, 0.0);
-        let intr = vec![k; poses.len() - 1]; // one too few
-
-        let err = bundle_adjust(
-            &intr,
-            &obs,
-            &poses,
-            &points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap_err();
-        assert!(matches!(err, MvgError::CountMismatch { .. }), "got {err:?}");
-    }
-
-    #[test]
-    fn rejects_empty_observations() {
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        let intr = vec![k; poses.len()];
-
-        let err = bundle_adjust(
-            &intr,
-            &[],
-            &poses,
-            &points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap_err();
-        assert!(
-            matches!(err, MvgError::InsufficientData { .. }),
-            "got {err:?}"
-        );
-    }
-
-    #[test]
-    fn rejects_out_of_range_index() {
-        let k = intrinsics();
-        let poses = gt_poses();
-        let points = gt_points();
-        let intr = vec![k; poses.len()];
-        let bad = vec![BundleObservation::new(0, points.len(), Pt2::new(1.0, 1.0))];
-
-        let err = bundle_adjust(
-            &intr,
-            &bad,
-            &poses,
-            &points,
-            &BundleAdjustmentOptions::default(),
-        )
-        .unwrap_err();
-        assert!(matches!(err, MvgError::InvalidInput { .. }), "got {err:?}");
+/// An input the builder or the solve rejects is invalid input; its message says why.
+fn builder_error(e: vision_calibration_optim::Error) -> MvgError {
+    match e {
+        vision_calibration_optim::Error::InvalidInput { reason } => MvgError::invalid_input(reason),
+        other => MvgError::numerical(format!("bundle adjustment: {other}")),
     }
 }

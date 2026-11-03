@@ -520,14 +520,11 @@ pub mod detect {
 /// two-view solvers (essential and fundamental matrix, homography DLT,
 /// camera-matrix DLT, linear triangulation) at the module root, plus
 /// calibrated relative-pose recovery, robust (RANSAC) estimation, degeneracy
-/// checks, N-view triangulation, homography
-/// decomposition, Scheimpflug-aware stereo rectification, and pure-Rust dense
+/// checks, N-view triangulation, bundle adjustment from a calibration,
+/// homography decomposition, Scheimpflug-aware stereo rectification, and pure-Rust dense
 /// stereo matching — reached via the owning module, e.g.
 /// `vision_calibration::mvg::rectification::rectify_stereo_pair` or
 /// `vision_calibration::mvg::dense::match_block`.
-///
-/// With the `refine` feature, `vision_calibration::mvg::bundle_adjust` adds
-/// frozen-intrinsics bundle adjustment (tiny-solver).
 pub mod mvg {
     /// RANSAC settings taken by the robust estimators in [`robust`].
     pub use vision_calibration_core::RansacOptions;
@@ -538,12 +535,9 @@ pub mod mvg {
         fundamental_8point, triangulate_point_linear,
     };
     pub use vision_mvg::{
-        MvgError, degeneracy, dense, error, homography, pose_recovery, rectification, residuals,
-        robust, triangulation, types,
+        MvgError, bundle_adjust, degeneracy, dense, error, homography, pose_recovery,
+        rectification, residuals, robust, triangulation, types,
     };
-
-    #[cfg(feature = "refine")]
-    pub use vision_mvg::bundle_adjust;
 }
 
 /// Non-linear optimization vocabulary.

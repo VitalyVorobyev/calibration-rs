@@ -15,13 +15,10 @@ repository.workspace = true
 workspace = true
 
 [package.metadata.docs.rs]
-features = ["synthetic", "refine", "fetch"]
+features = ["synthetic", "fetch"]
 
 [features]
 default = []
-# Enable the nonlinear-refinement surface of the `mvg` module (tiny-solver):
-# `vision_calibration::mvg::bundle_adjust`.
-refine = ["vision-mvg/refine"]
 # Forward `schemars::JsonSchema` derives on the config + `*Export` types
 # (ADR 0014). Consumed by the diagnose app's schema emitter to generate
 # TypeScript from the Rust types. Off by default so library

@@ -12,6 +12,10 @@
 //!   pixel tracks from a calibration, refined on stated pixel noise, with
 //!   diagnostics and the points' joint covariance (the calibration's share
 //!   included)
+//! - **Bundle adjustment**: [`bundle_adjust()`](bundle_adjust::bundle_adjust) — capture poses and points
+//!   refined together from a calibration, with a stated gauge (capture 0 and
+//!   a [`Scale`]), robust losses and the joint covariance; the calibration
+//!   enters as consider parameters or under a prior
 //!
 //! # Low-level solvers (re-exported from `vision-geometry`)
 //!
@@ -90,7 +94,6 @@
 //! ```
 
 mod bearing;
-#[cfg(feature = "refine")]
 pub mod bundle_adjust;
 mod cheirality;
 pub mod degeneracy;
@@ -99,7 +102,6 @@ pub mod error;
 pub mod homography;
 pub mod pose_recovery;
 pub mod rectification;
-#[cfg(feature = "refine")]
 pub mod refine;
 pub mod residuals;
 pub mod robust;
@@ -109,10 +111,7 @@ pub mod triangulation;
 pub mod types;
 
 // Re-export core types for convenience.
-#[cfg(feature = "refine")]
-pub use bundle_adjust::{
-    BundleAdjustmentOptions, BundleAdjustmentResult, BundleObservation, bundle_adjust,
-};
+pub use bundle_adjust::{BundleAdjustOptions, BundleAdjustment, Scale, bundle_adjust};
 pub use dense::{BlockMatchOptions, DisparityMap, GrayImage, match_block};
 pub use error::{MvgError, Result};
 pub use homography::{

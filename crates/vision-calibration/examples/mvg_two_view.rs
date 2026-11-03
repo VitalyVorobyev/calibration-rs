@@ -7,12 +7,12 @@
 //! 1. relative pose recovery (5-point + cheirality) on pixels, through the
 //!    cameras' models — `mvg::pose_recovery`
 //! 2. triangulation of the matches (returned by step 1) — `mvg::types`
-//! 3. bundle adjustment (with `--features refine`)   — `mvg::bundle_adjust`
+//! 3. bundle adjustment from the calibration          — `mvg::bundle_adjust`
 //! 4. Scheimpflug-aware stereo rectification         — `mvg::rectification`
 //!
 //! Run:
 //! ```bash
-//! cargo run -p vision-calibration --example mvg_two_view --features refine
+//! cargo run -p vision-calibration --example mvg_two_view
 //! ```
 
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
@@ -135,11 +135,9 @@ fn main() {
         "translation direction not recovered: {t_dot}"
     );
 
-    // 3. Bundle adjustment jointly refines poses + structure (frozen intrinsics).
-    #[cfg(feature = "refine")]
-    bundle_adjust_demo(&k, &gt, &points);
-    #[cfg(not(feature = "refine"))]
-    println!("3. bundle adjust : skipped — re-run with `--features refine`");
+    // 3. Bundle adjustment jointly refines the second capture's pose and the
+    // structure, with the calibration held fixed.
+    bundle_adjust_demo(&rig, &k, &gt, &points, noise);
 
     // 4. Rectify the calibrated pair so corresponding points share an image row.
     let rect = rectify_stereo_pair(
@@ -163,60 +161,79 @@ fn main() {
     println!("\nAll stages recovered ground truth. ✔");
 }
 
-/// Perturb the second camera + the structure, then bundle-adjust back to ground
-/// truth. Camera 0 (the reference) anchors the rigid gauge.
-#[cfg(feature = "refine")]
-fn bundle_adjust_demo(k: &Matrix3<f64>, gt: &Iso3, points: &[Pt3]) {
-    use vision_calibration::mvg::bundle_adjust::{
-        BundleAdjustmentOptions, BundleObservation, bundle_adjust,
-    };
+/// Perturb the second capture and the structure, then bundle-adjust back to
+/// ground truth. Capture 0 (the first view) is the world frame; the scale is
+/// the stated distance between two scene points.
+fn bundle_adjust_demo(
+    rig: &CalibratedRig,
+    k: &Matrix3<f64>,
+    gt: &Iso3,
+    points: &[Pt3],
+    noise: PointCovariance,
+) {
+    use vision_calibration::mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
+    use vision_calibration::mvg::triangulation::RigObservation;
 
+    // Every point seen by the rig's one camera at both captures.
     let poses_gt = [Iso3::identity(), *gt];
-    let intr = [*k, *k];
+    let tracks: Vec<Vec<RigObservation>> = points
+        .iter()
+        .map(|p| {
+            poses_gt
+                .iter()
+                .enumerate()
+                .map(|(capture, pose)| {
+                    let pixel = to_pixel(k, &normalize(&(pose * p).coords));
+                    RigObservation::new(capture, 0, pixel, noise)
+                })
+                .collect()
+        })
+        .collect();
 
-    // Every point seen by both cameras (pixel observations).
-    let mut obs = Vec::new();
-    for (j, p) in points.iter().enumerate() {
-        for (cam, pose) in poses_gt.iter().enumerate() {
-            let c = (pose * p).coords;
-            if c.z > 0.0 {
-                obs.push(BundleObservation::new(cam, j, to_pixel(k, &normalize(&c))));
-            }
-        }
-    }
-
-    // Perturb camera 1 and the points; camera 0 stays at ground truth as the anchor.
-    let mut init_poses = poses_gt;
-    init_poses[1] = *gt
-        * Iso3::from_parts(
+    // Perturb capture 1 and the points; capture 0 stays as the world frame.
+    let init_poses = [
+        Iso3::identity(),
+        *gt * Iso3::from_parts(
             Translation3::new(0.05, -0.03, 0.04),
             UnitQuaternion::from(Rotation3::from_euler_angles(0.01, -0.015, 0.008)),
-        );
+        ),
+    ];
     let init_points: Vec<Pt3> = points
         .iter()
         .enumerate()
         .map(|(i, p)| p + 0.1 * Vector3::new((i % 3) as f64 - 1.0, (i % 2) as f64 - 0.5, 0.2))
         .collect();
 
-    let res = bundle_adjust(
-        &intr,
-        &obs,
+    // One moving camera sees only up to scale: state the distance between two
+    // points (known to a millimetre).
+    let scale = Scale::Distance {
+        points: [0, 35],
+        distance: (points[0] - points[35]).norm(),
+        sigma: 1e-3,
+    };
+    let adjusted = bundle_adjust(
+        rig,
         &init_poses,
         &init_points,
-        &BundleAdjustmentOptions::default(),
+        &tracks,
+        &BundleAdjustOptions::new(scale),
     )
     .expect("bundle adjust");
+    let worst = adjusted
+        .points
+        .iter()
+        .zip(points)
+        .map(|(a, b)| (a - b).norm())
+        .fold(0.0_f64, f64::max);
     println!(
-        "3. bundle adjust : RMS {:.4} → {:.4} px over {} cameras, {} points",
-        res.initial_rms,
-        res.final_rms,
-        res.poses.len(),
-        res.points.len()
+        "3. bundle adjust : RMS {:.4} px over {} captures, {} points; worst point error {worst:.2e} m",
+        adjusted.reprojection_rms_px,
+        adjusted.rig_se3_world.len(),
+        adjusted.points.len()
     );
     assert!(
-        res.final_rms < 0.1 && res.final_rms < res.initial_rms,
-        "bundle adjustment did not converge: {} → {}",
-        res.initial_rms,
-        res.final_rms
+        adjusted.reprojection_rms_px < 0.1 && worst < 1e-2,
+        "bundle adjustment did not converge: rms {}, worst {worst}",
+        adjusted.reprojection_rms_px
     );
 }

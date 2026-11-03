@@ -41,8 +41,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   linear estimate, so their values change. `vision-mvg` depends on
   `vision-calibration-optim`.
 
+- **Bundle adjustment takes a calibration and states its gauge** (breaking, in
+  `vision-mvg` and the facade's `mvg`). `bundle_adjust(&rig, &rig_se3_world,
+  &points, &tracks, &opts)` replaces
+  `bundle_adjust(&intrinsics, &observations, &init_poses, &init_points, &opts)`:
+  - Cameras come from a `CalibratedRig`, not a `K` per camera, so every
+    camera model works. What was a camera is now a **capture** of the rig:
+    `init_poses` (`T_C_W` per camera) become `rig_se3_world` (world → rig per
+    capture), and a rig of several cameras shares each capture's pose.
+  - `BundleObservation::new(cam, point, pixel)` is gone: observations are the
+    triangulation's `RigObservation::new(capture, camera, pixel, noise)`
+    grouped into `tracks`, `tracks[i]` observing `points[i]`. The pixel noise
+    is stated (`PointCovariance::isotropic(sigma)?`) and weighs each pixel.
+  - The gauge is explicit. Capture 0 is always fixed (the old
+    `fix_first_camera` is gone: it fixed the lowest observed camera, and
+    could be switched off), and the scale must be stated in
+    `BundleAdjustOptions::new(Scale::Rig)` or
+    `Scale::Distance { points, distance, sigma }`; there is no default. A
+    scale the data cannot fix is an `InvalidInput` before any solve.
+  - `BundleAdjustmentOptions { max_iterations, fix_first_camera }` is
+    `BundleAdjustOptions { calibration, loss, scale, max_iters }`, and
+    `BundleAdjustmentResult { poses, points, initial_rms, final_rms,
+    per_camera_rms }` is `BundleAdjustment { rig_se3_world, points, rig,
+    uncertainty, report, reprojection_rms_px }`. `reprojection_rms_px` is the
+    RMS distance (`√2 σ` for isotropic noise); `initial_rms` and
+    `per_camera_rms` are gone.
+  - Under-observed points are an error now: a track needs two observations.
+- **The `refine` features are removed** from `vision-mvg` and the facade, with
+  the `tiny-solver` dependency of `vision-mvg`: bundle adjustment and
+  `refine::refine_homography` are always available, and run on the problem
+  builder. Drop `features = ["refine"]` from your manifest.
+  `MvgError::NotConverged` is removed with the last refinement that raised it.
+
 ### Added
 
+- `bundle_adjust` gives the joint covariance of the capture poses and the
+  points in its gauge (`BundleAdjustment::point_covariance`,
+  `pose_covariance`), with the calibration's share: the rig's cameras and
+  extrinsics enter as consider parameters (`Use::Consider`) or are refined
+  under a prior with their covariance (`Use::Prior`, the refined rig in
+  `BundleAdjustment::rig`). Every reprojection can carry a robust loss
+  (`BundleAdjustOptions::loss`).
 - `Triangulation`, from `triangulate`: the joint covariance of the points
   (`uncertainty`, labels `p{i}.x`, `p{i}.y`, `p{i}.z`), with
   `point_covariance(i)` and `cross_covariance(i, j)`. It includes the
