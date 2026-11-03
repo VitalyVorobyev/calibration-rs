@@ -6057,6 +6057,7 @@ dependencies = [
  "nalgebra 0.34.2",
  "thiserror 2.0.21",
  "vision-calibration-core",
+ "vision-calibration-optim",
  "vision-geometry",
 ]
 

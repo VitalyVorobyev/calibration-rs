@@ -25,7 +25,7 @@ Click a frustum to select a camera and see its intrinsics and its pose relative 
 
 ## Depth
 
-`⌘4`: pick two cameras and a pose from a loaded rig export and click compute. The app rectifies the pair ([Stereo Rectification](mvg_rectification.md)), runs block matching or semi-global matching ([Dense Stereo](mvg_dense.md)) and gives you rectified, disparity, overlay, depth and 3D point-cloud views. Toggle semi-global aggregation to fill in the low-texture regions that plain block matching leaves blank. It needs a stereo rig export (two cameras with extrinsics), the same gate as Epipolar.
+`⌘4`: pick two cameras and a pose from a loaded rig export and click compute. The app rectifies the pair ([Stereo from a Calibration](mvg_rectification.md)), runs block matching or semi-global matching ([Dense Stereo](mvg_dense.md)) and gives you rectified, disparity, overlay, depth and 3D point-cloud views. Toggle semi-global aggregation to fill in the low-texture regions that plain block matching leaves blank. It needs a stereo rig export (two cameras with extrinsics), the same gate as Epipolar.
 
 ## Walkthrough: Load an Export into Diagnose
 

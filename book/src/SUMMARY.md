@@ -67,7 +67,7 @@
 - [Multiple-View Geometry](mvg.md)
 - [Pose Recovery and Triangulation](mvg_pose.md)
 - [Bundle Adjustment](mvg_bundle_adjust.md)
-- [Stereo Rectification](mvg_rectification.md)
+- [Stereo from a Calibration](mvg_rectification.md)
 - [Dense Stereo](mvg_dense.md)
 
 ---

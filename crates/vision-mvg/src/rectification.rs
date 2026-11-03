@@ -1,473 +1,575 @@
-//! Scheimpflug-aware stereo rectification.
+//! Stereo from a calibration: rectification, disparity to depth, and the
+//! uncertainty of the points.
 //!
-//! Computes rectifying homographies for a calibrated stereo pair so that
-//! corresponding points fall on the **same image row** — the precondition for
-//! 1-D disparity search. Unlike the textbook (Fusiello / Bouguet) construction,
-//! this handles **Scheimpflug** cameras whose sensor plane is tilted relative to
-//! the optical axis.
+//! [`rectify`] turns two cameras of a [`CalibratedRig`] into two virtual
+//! pinholes that share one set of intrinsics and an orientation whose x axis is
+//! the baseline, so matching pixels lie on one image row. The maps go through
+//! each camera's own unprojection and projection: raw pixels go in and any
+//! camera model works (lens distortion, a fisheye, a tilted sensor), with no
+//! separate undistortion step.
 //!
-//! # Why the tilt is "free"
+//! On the rectified pair a match is a left pixel `(x, y)` and a disparity
+//! `d = x_left − x_right > 0`. [`StereoRectification::point`] gives the 3D
+//! point, [`StereoRectification::disparity_to_depth`] the matrix `Q` that does
+//! it for a whole map, and [`StereoRectification::disparity_covariance`] the
+//! covariance that the disparity's noise alone gives it.
+//! [`StereoRectification::triangulate`] gives measurements that also carry the
+//! calibration's uncertainty.
 //!
-//! In this project's camera model a pixel is formed as
+//! # Frames
 //!
-//! ```text
-//! pixel = K · H_tilt · x_n            (homogeneous, then dehomogenize)
-//! ```
+//! Two frames appear. [`point`](StereoRectification::point) and
+//! [`disparity_covariance`](StereoRectification::disparity_covariance) are in
+//! the **left camera's frame** (`cameras[0]`), as a dense point cloud is.
+//! [`triangulate`](StereoRectification::triangulate) works on the rig, so its
+//! points are in the **rig frame**.
 //!
-//! where `x_n` is the undistorted normalized projection of the viewing ray and
-//! `H_tilt` is the Scheimpflug sensor homography
-//! ([`ScheimpflugParams::compile`]). The tilt is therefore just another
-//! projective factor on the normalized plane. Pre-multiplying each camera's
-//! unprojection by `H_tilt⁻¹` collapses a Scheimpflug camera to an **equivalent
-//! frontal pinhole** in `x_n`:
+//! # Rectified geometry
 //!
-//! ```text
-//! x_n = H_tilt⁻¹ · K⁻¹ · pixel
-//! ```
-//!
-//! Standard rectification then applies to the frontal-equivalent cameras. Each
-//! rectifying homography is
-//!
-//! ```text
-//! H_left  = K_rect · R_rect          · H_tilt0⁻¹ · K0⁻¹
-//! H_right = K_rect · (R_rect · Rᵀ)   · H_tilt1⁻¹ · K1⁻¹
-//! ```
-//!
-//! with `R = R_C1_C0` the inter-camera rotation and `R_rect` the common rectified
-//! orientation whose x-axis is the baseline. When the tilt is zero
-//! `H_tilt⁻¹ = I` and this reduces exactly to standard pinhole rectification.
-//!
-//! # Conventions and caveats
-//!
-//! - Inputs are **undistorted** pixel coordinates — remove lens distortion
-//!   (e.g. [`BrownConrady5::undistort`](vision_calibration_core::BrownConrady5)
-//!   in normalized space) before applying these maps. The rectifying homography
-//!   is the *rotation* part of rectification; distortion is handled separately,
-//!   exactly as OpenCV splits `initUndistortRectifyMap`.
-//! - The relative pose is `cam1_se3_cam0` (`T_C1_C0`): it maps a point from
-//!   camera 0's frame into camera 1's frame. For a
-//!   `RigExtrinsicsExport` with camera 0 as the reference this is simply
-//!   `cam_se3_rig[1]`.
-//! - Camera 0 is treated as the left/reference camera; its frame is the world
-//!   frame of the rectification.
+//! With `B` the baseline, `(fx, fy, cx, cy)` the rectified intrinsics and
+//! `R₀` the rotation from the left camera into the rectified frame, a point
+//! `P` of the rectified frame projects to `x_l = fx X/Z + cx` on the left and
+//! `x_r = fx (X − B)/Z + cx` on the right, both on row `y = fy Y/Z + cy`.
+//! Hence `d = fx B/Z`, and a disparity error `δd` moves the point along its
+//! viewing ray: `δP = −P δd/d`.
 
+use crate::bearing::{bearing, camera_model};
+use crate::dense::GrayImage;
+use crate::triangulation::{RigObservation, Triangulation, triangulate};
 use crate::{MvgError, Result};
-use nalgebra::{Matrix3, Vector3};
-use vision_calibration_core::{Iso3, Mat3, Pt2, Real, ScheimpflugParams, Vec3};
+use nalgebra::Matrix4;
+use vision_calibration_core::{
+    CalibratedRig, CameraModel, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Vec3,
+};
 
 /// Numerical floor for "this vector is effectively zero".
 const EPS: Real = 1e-12;
-/// Largest Scheimpflug tilt (radians) we accept before declaring the sensor
-/// homography degenerate (~80°; physical tilts are a few degrees).
-const MAX_TILT_RAD: Real = 1.4;
 
-/// Frozen calibration of one camera in the stereo pair.
-#[derive(Clone, Copy, Debug)]
-pub struct RectifyCamera {
-    /// Intrinsic matrix `K`.
-    pub k: Mat3,
-    /// Scheimpflug sensor tilt. Use [`ScheimpflugParams::default`] (zero tilt)
-    /// for an ordinary pinhole camera.
-    pub tilt: ScheimpflugParams,
+/// How to rectify.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct RectifyOptions {
+    /// The rectified pinhole's intrinsics. `None` takes the mean of the two
+    /// cameras' `fx`, `fy`, `cx`, `cy`, multiplied by [`scale`](Self::scale).
+    pub k_rect: Option<FxFyCxCy<Real>>,
+    /// Scale of the default rectified intrinsics: 1 keeps the cameras' mean
+    /// focal length, 0.5 gives a rectified image of half the size. Finite and
+    /// positive; ignored when [`k_rect`](Self::k_rect) is set.
+    pub scale: Real,
 }
 
-impl RectifyCamera {
-    /// A pinhole camera (no sensor tilt).
-    pub fn pinhole(k: Mat3) -> Self {
+impl Default for RectifyOptions {
+    fn default() -> Self {
         Self {
-            k,
-            tilt: ScheimpflugParams::default(),
+            k_rect: None,
+            scale: 1.0,
         }
     }
+}
 
-    /// A Scheimpflug camera with the given tilt.
-    pub fn scheimpflug(k: Mat3, tilt: ScheimpflugParams) -> Self {
-        Self { k, tilt }
+/// A match on the rectified pair: the left rectified pixel and its disparity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RectifiedMatch {
+    /// The pixel in the rectified left image.
+    pub left: Pt2,
+    /// `x_left − x_right`, in pixels; positive for a point ahead of the pair.
+    pub disparity: Real,
+}
+
+impl RectifiedMatch {
+    /// A match at rectified left pixel `left` with disparity `disparity`.
+    pub fn new(left: Pt2, disparity: Real) -> Self {
+        Self { left, disparity }
     }
 }
 
-/// Options controlling the shared rectified intrinsics.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct RectifyOptions {
-    /// Explicit shared rectified intrinsics `K_rect`. When `None` (the default)
-    /// the two input cameras' focal lengths and principal points are averaged
-    /// (with zero skew). Both rectified cameras must share `K_rect` for rows to
-    /// align, so this is a single matrix rather than one per camera.
-    pub k_rect: Option<Mat3>,
-}
-
-/// Rectifying maps for a stereo pair.
-#[derive(Clone, Debug)]
+/// A rectified stereo pair of rig cameras: two virtual pinholes sharing one
+/// set of intrinsics and an orientation whose x axis is the baseline, so
+/// matches lie on one row. Built by [`rectify`].
+#[derive(Debug, Clone)]
 pub struct StereoRectification {
-    /// Homography mapping **undistorted** left (camera 0) pixels to rectified
-    /// pixels.
-    pub h_left: Mat3,
-    /// Homography mapping **undistorted** right (camera 1) pixels to rectified
-    /// pixels.
-    pub h_right: Mat3,
-    /// The shared rectified intrinsics actually used.
-    pub k_rect: Mat3,
-    /// Common rectified orientation: maps a direction in camera 0's frame into
-    /// the rectified frame (rows are the new x/y/z axes).
-    pub r_rect: Mat3,
-    /// Baseline length `‖t‖` between the two optical centres (calibration units).
-    pub baseline: Real,
+    cameras: [usize; 2],
+    models: [CameraModel; 2],
+    k_rect: FxFyCxCy<Real>,
+    /// Rotation from camera `side`'s frame into the rectified frame.
+    rect_r_cam: [Mat3; 2],
+    baseline: Real,
+    /// What the rectification was built from, to check a rig against.
+    num_cameras: usize,
+    cam_se3_rig: [Iso3; 2],
 }
 
-impl StereoRectification {
-    /// Apply the left rectifying homography to an undistorted pixel.
-    pub fn rectify_left(&self, px: &Pt2) -> Pt2 {
-        apply_homography(&self.h_left, px)
-    }
-
-    /// Apply the right rectifying homography to an undistorted pixel.
-    pub fn rectify_right(&self, px: &Pt2) -> Pt2 {
-        apply_homography(&self.h_right, px)
-    }
-}
-
-/// Compute Scheimpflug-aware rectifying homographies for a calibrated stereo
-/// pair.
+/// Rectify cameras `cameras = [left, right]` of `rig`.
 ///
-/// `left` / `right` carry each camera's intrinsics and Scheimpflug tilt;
-/// `cam1_se3_cam0` is the relative pose `T_C1_C0` (camera 0 → camera 1).
+/// The rectified orientation has its x axis along the baseline (from the left
+/// camera's centre to the right's), its y axis perpendicular to x and to the
+/// left optical axis, and z = x × y. A baseline along the optical axis
+/// (forward stereo) takes the y axis from the left camera's y instead.
+///
+/// ```
+/// use vision_calibration_core::{
+///     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Pt3, Uncertainty, make_pinhole_camera,
+///     pinhole_camera_params,
+/// };
+/// use vision_mvg::rectification::{RectifyOptions, rectify};
+///
+/// // A stereo pair, camera 1 12 cm to the right of camera 0, with barrel distortion.
+/// let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 320.0, cy: 240.0 };
+/// let distortion = BrownConrady5 { k1: -0.1, iters: 30, ..Default::default() };
+/// let camera = pinhole_camera_params(&make_pinhole_camera(k, distortion));
+/// let rig = CalibratedRig::new(
+///     vec![camera.clone(), camera],
+///     vec![Iso3::identity(), Iso3::translation(-0.12, 0.0, 0.0)],
+///     Uncertainty::default(),
+/// )?;
+/// let rect = rectify(&rig, [0, 1], &RectifyOptions::default())?;
+///
+/// // A point 1.5 m ahead: its raw pixels share a row once rectified, and the
+/// // disparity gives its position back.
+/// let p = Pt3::new(0.1, -0.05, 1.5);
+/// let raw = |i: usize| rig.model(i).unwrap().project_point(&(rig.cam_se3_rig()[i] * p)).unwrap();
+/// let (left, right) = (
+///     rect.rectified_pixel(0, &raw(0)).unwrap(),
+///     rect.rectified_pixel(1, &raw(1)).unwrap(),
+/// );
+/// assert!((left.y - right.y).abs() < 1e-9);
+/// let found = rect.point(&left, left.x - right.x).unwrap();
+/// assert!((found - p).norm() < 1e-9);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 ///
 /// # Errors
 ///
-/// - [`MvgError::Degenerate`] if the baseline is ~zero (coincident centres) or a
-///   Scheimpflug tilt is out of range (≳ 80°, where the sensor homography
-///   degenerates).
-/// - [`MvgError::Numerical`] if an intrinsic matrix is not invertible.
-pub fn rectify_stereo_pair(
-    left: &RectifyCamera,
-    right: &RectifyCamera,
-    cam1_se3_cam0: &Iso3,
+/// [`MvgError::InvalidInput`] for equal or out-of-range camera indices, or a
+/// `scale` or `k_rect` that is not finite and positive;
+/// [`MvgError::Degenerate`] for coincident camera centres.
+pub fn rectify(
+    rig: &CalibratedRig,
+    cameras: [usize; 2],
     opts: &RectifyOptions,
 ) -> Result<StereoRectification> {
-    // Inter-camera rotation R = R_C1_C0 and translation t = t_C1_C0.
-    let r = *cam1_se3_cam0.rotation.to_rotation_matrix().matrix();
-    let t = cam1_se3_cam0.translation.vector;
-    let baseline = t.norm();
-    if baseline < EPS {
+    let [a, b] = cameras;
+    if a == b {
+        return Err(MvgError::invalid_input(format!(
+            "a stereo pair needs two different cameras, got {a} twice"
+        )));
+    }
+    let models = [camera_model(rig, a)?.clone(), camera_model(rig, b)?.clone()];
+    let (ka, kb) = (rig.cameras()[a].intrinsics, rig.cameras()[b].intrinsics);
+
+    let k_rect = match opts.k_rect {
+        Some(k) => k,
+        None => {
+            if !(opts.scale.is_finite() && opts.scale > 0.0) {
+                return Err(MvgError::invalid_input(format!(
+                    "rectification scale must be finite and positive, got {}",
+                    opts.scale
+                )));
+            }
+            let mean = |p: Real, q: Real| 0.5 * (p + q) * opts.scale;
+            FxFyCxCy {
+                fx: mean(ka.fx, kb.fx),
+                fy: mean(ka.fy, kb.fy),
+                cx: mean(ka.cx, kb.cx),
+                cy: mean(ka.cy, kb.cy),
+            }
+        }
+    };
+    let valid = [k_rect.fx, k_rect.fy, k_rect.cx, k_rect.cy]
+        .iter()
+        .all(|v| v.is_finite())
+        && k_rect.fx > 0.0
+        && k_rect.fy > 0.0;
+    if !valid {
+        return Err(MvgError::invalid_input(
+            "the rectified intrinsics must be finite with positive focal lengths",
+        ));
+    }
+
+    // The right camera's frame in the left's: p_left = left_se3_right · p_right.
+    let cam_se3_rig = [rig.cam_se3_rig()[a], rig.cam_se3_rig()[b]];
+    let left_se3_right = cam_se3_rig[0] * cam_se3_rig[1].inverse();
+    let r_left_right = *left_se3_right.rotation.to_rotation_matrix().matrix();
+    // The right camera's centre in the left frame is the translation.
+    let centre = left_se3_right.translation.vector;
+    let baseline = centre.norm();
+    if !(baseline.is_finite() && baseline > EPS) {
         return Err(MvgError::degenerate(
             "zero baseline: the two optical centres coincide",
         ));
     }
 
-    // Camera-1 centre expressed in camera-0's frame: c1 = -Rᵀ t (camera-0 centre
-    // is the origin). The rectified x-axis points along the baseline c1 - c0.
-    let c1 = -(r.transpose() * t);
-    let v1 = c1 / c1.norm();
-
-    // y-axis ⟂ to the baseline and the original (camera-0) optical axis z.
-    let z = Vec3::new(0.0, 0.0, 1.0);
-    let mut v2 = z.cross(&v1);
-    if v2.norm() < EPS {
-        // Baseline parallel to the optical axis (forward stereo): fall back to a
-        // different seed so the cross product is well-defined.
-        v2 = Vec3::new(0.0, 1.0, 0.0).cross(&v1);
+    let x = centre / baseline;
+    let mut y = Vec3::z().cross(&x);
+    if y.norm() < EPS {
+        // The baseline lies along the optical axis (forward stereo): seed with
+        // the left camera's y axis so the cross product is defined.
+        y = Vec3::y().cross(&x);
     }
-    let v2 = v2 / v2.norm();
-    let v3 = v1.cross(&v2);
-    let r_rect = Matrix3::from_rows(&[v1.transpose(), v2.transpose(), v3.transpose()]);
-
-    let k0_inv = left
-        .k
-        .try_inverse()
-        .ok_or_else(|| MvgError::numerical("left camera matrix K is not invertible"))?;
-    let k1_inv = right
-        .k
-        .try_inverse()
-        .ok_or_else(|| MvgError::numerical("right camera matrix K is not invertible"))?;
-    let h_tilt0_inv = tilt_inverse(&left.tilt)?;
-    let h_tilt1_inv = tilt_inverse(&right.tilt)?;
-
-    let k_rect = opts
-        .k_rect
-        .unwrap_or_else(|| average_intrinsics(&left.k, &right.k));
-
-    let h_left = k_rect * r_rect * h_tilt0_inv * k0_inv;
-    let h_right = k_rect * (r_rect * r.transpose()) * h_tilt1_inv * k1_inv;
+    let y = y / y.norm();
+    let z = x.cross(&y);
+    let rect_r_left = Mat3::from_rows(&[x.transpose(), y.transpose(), z.transpose()]);
 
     Ok(StereoRectification {
-        h_left,
-        h_right,
+        cameras,
+        models,
         k_rect,
-        r_rect,
+        rect_r_cam: [rect_r_left, rect_r_left * r_left_right],
         baseline,
+        num_cameras: rig.num_cameras(),
+        cam_se3_rig,
     })
 }
 
-/// Inverse of a Scheimpflug sensor homography, with a range guard so we never
-/// trip [`ScheimpflugParams::compile`]'s internal panic on a singular tilt.
-fn tilt_inverse(p: &ScheimpflugParams) -> Result<Mat3> {
-    if p.tilt_x.abs() >= MAX_TILT_RAD || p.tilt_y.abs() >= MAX_TILT_RAD {
-        return Err(MvgError::degenerate(format!(
-            "Scheimpflug tilt out of range: (tilt_x={}, tilt_y={})",
-            p.tilt_x, p.tilt_y
-        )));
+impl StereoRectification {
+    /// The rig cameras `[left, right]`.
+    pub fn cameras(&self) -> [usize; 2] {
+        self.cameras
     }
-    Ok(p.compile().h_inv)
+
+    /// The rectified pinhole's intrinsics, shared by both images.
+    pub fn k_rect(&self) -> FxFyCxCy<Real> {
+        self.k_rect
+    }
+
+    /// The distance between the two camera centres, in the rig's length unit
+    /// (metres for a calibration in metres).
+    pub fn baseline(&self) -> Real {
+        self.baseline
+    }
+
+    /// The rotation from camera `side` (0 = left = `cameras()[0]`, 1 = right)
+    /// into the rectified frame.
+    ///
+    /// # Panics
+    ///
+    /// When `side` is not 0 or 1.
+    pub fn rect_r_cam(&self, side: usize) -> Mat3 {
+        self.rect_r_cam[side]
+    }
+
+    /// The rectified pixel of a raw pixel of camera `side`; `None` when its
+    /// ray has no finite bearing or points behind the rectified image plane.
+    ///
+    /// # Panics
+    ///
+    /// When `side` is not 0 or 1.
+    pub fn rectified_pixel(&self, side: usize, raw: &Pt2) -> Option<Pt2> {
+        let b = bearing(&self.models[side], raw, 0).ok()?;
+        let v = self.rect_r_cam[side] * b;
+        if !v.z.is_finite() || v.z <= 0.0 {
+            return None;
+        }
+        let k = &self.k_rect;
+        let p = Pt2::new(k.fx * v.x / v.z + k.cx, k.fy * v.y / v.z + k.cy);
+        (p.x.is_finite() && p.y.is_finite()).then_some(p)
+    }
+
+    /// The raw pixel of camera `side` that a rectified pixel comes from (the
+    /// remapping direction); `None` outside the camera's projection domain.
+    ///
+    /// # Panics
+    ///
+    /// When `side` is not 0 or 1.
+    pub fn raw_pixel(&self, side: usize, rectified: &Pt2) -> Option<Pt2> {
+        let k = &self.k_rect;
+        let ray = Vec3::new(
+            (rectified.x - k.cx) / k.fx,
+            (rectified.y - k.cy) / k.fy,
+            1.0,
+        );
+        let p = self.models[side].project_point_c(&(self.rect_r_cam[side].transpose() * ray))?;
+        (p.x.is_finite() && p.y.is_finite()).then_some(p)
+    }
+
+    /// The rectified image of camera `side`: `width × height` pixels sampled
+    /// bilinearly from the raw image `src`, 0 where the source has no pixel.
+    ///
+    /// The output size is free; with `scale` in [`RectifyOptions`] it is the
+    /// source size times `scale`. The source is sampled, not filtered: a
+    /// large reduction aliases, so reduce the source first or keep `scale`
+    /// near 1.
+    ///
+    /// # Panics
+    ///
+    /// When `side` is not 0 or 1.
+    pub fn rectify_image(
+        &self,
+        side: usize,
+        src: &GrayImage,
+        width: usize,
+        height: usize,
+    ) -> GrayImage {
+        let mut data = vec![0u8; width * height];
+        let (w, h) = (src.width as Real, src.height as Real);
+        for y in 0..height {
+            for x in 0..width {
+                let Some(raw) = self.raw_pixel(side, &Pt2::new(x as Real, y as Real)) else {
+                    continue;
+                };
+                if raw.x >= 0.0 && raw.y >= 0.0 && raw.x <= w - 1.0 && raw.y <= h - 1.0 {
+                    data[y * width + x] =
+                        src.bilinear(raw.x, raw.y).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+        GrayImage::new(width, height, data)
+    }
+
+    /// The 4×4 disparity-to-depth matrix `Q`: `Q·[x, y, d, 1]ᵀ`, dehomogenized,
+    /// is the point in the **rectified left frame** (OpenCV's convention, with
+    /// `d = x_left − x_right > 0`).
+    ///
+    /// [`point`](Self::point) additionally rotates it into the left camera's
+    /// frame.
+    pub fn disparity_to_depth(&self) -> Matrix4<Real> {
+        let k = &self.k_rect;
+        let aspect = k.fx / k.fy;
+        Matrix4::new(
+            1.0,
+            0.0,
+            0.0,
+            -k.cx,
+            0.0,
+            aspect,
+            0.0,
+            -k.cy * aspect,
+            0.0,
+            0.0,
+            0.0,
+            k.fx,
+            0.0,
+            0.0,
+            1.0 / self.baseline,
+            0.0,
+        )
+    }
+
+    /// The point at rectified left pixel `left` and disparity `disparity`, in
+    /// the **left camera's frame**; `None` for `disparity ≤ 0` or a value
+    /// that is not finite.
+    pub fn point(&self, left: &Pt2, disparity: Real) -> Option<Pt3> {
+        self.rectified_point(left, disparity)
+            .map(|p| Pt3::from(self.rect_r_cam[0].transpose() * p))
+    }
+
+    /// The point in the rectified left frame (`Z = fx B/d`).
+    fn rectified_point(&self, left: &Pt2, disparity: Real) -> Option<Vec3> {
+        if !(disparity.is_finite() && disparity > 0.0 && left.x.is_finite() && left.y.is_finite()) {
+            return None;
+        }
+        let k = &self.k_rect;
+        let z = k.fx * self.baseline / disparity;
+        Some(Vec3::new(
+            (left.x - k.cx) * z / k.fx,
+            (left.y - k.cy) * z / k.fy,
+            z,
+        ))
+    }
+
+    /// The covariance, m², of [`point`](Self::point) that a disparity noise of
+    /// `sigma_d` pixels alone gives it, in the left camera's frame: first
+    /// order through `Q`, with the rectified row and column exact. It has rank
+    /// 1, along the viewing ray, and its depth σ is `Z² σ_d/(fx B)`.
+    ///
+    /// It does not include the calibration's uncertainty (see
+    /// [`triangulate`](Self::triangulate)). `None` where `point` is, or for a
+    /// `sigma_d` that is negative or not finite.
+    pub fn disparity_covariance(&self, left: &Pt2, disparity: Real, sigma_d: Real) -> Option<Mat3> {
+        if !(sigma_d.is_finite() && sigma_d >= 0.0) {
+            return None;
+        }
+        // δP = −P δd/d, so Σ = (σ_d/d)² P Pᵀ.
+        let p = self.point(left, disparity)?.coords;
+        Some(p * p.transpose() * (sigma_d / disparity).powi(2))
+    }
+
+    /// Measurements from matches on the rectified pair, with the
+    /// calibration's uncertainty.
+    ///
+    /// Each match is mapped back to the raw pixels of the two cameras (the
+    /// right one on the left's row) and triangulated with
+    /// [`triangulate()`](crate::triangulation::triangulate()) as one stereo
+    /// capture: the points are in the **rig frame**, refined on the
+    /// reprojection error of the stated `pixel_noise` of each raw pixel, and
+    /// the covariance is joint over the points with the calibration's share
+    /// included.
+    ///
+    /// `rig` must be the one this rectification was built from.
+    ///
+    /// # Errors
+    ///
+    /// [`MvgError::InvalidInput`] when `rig` differs from the one rectified,
+    /// or a match has no raw pixel in a camera; otherwise the errors of
+    /// [`triangulate()`](crate::triangulation::triangulate()), whose messages
+    /// number the matches as tracks.
+    pub fn triangulate(
+        &self,
+        rig: &CalibratedRig,
+        matches: &[RectifiedMatch],
+        pixel_noise: PointCovariance,
+    ) -> Result<Triangulation> {
+        let [a, b] = self.cameras;
+        let same_rig = rig.num_cameras() == self.num_cameras
+            && rig
+                .cam_se3_rig()
+                .get(a)
+                .zip(rig.cam_se3_rig().get(b))
+                .is_some_and(|(pa, pb)| {
+                    same_pose(pa, &self.cam_se3_rig[0]) && same_pose(pb, &self.cam_se3_rig[1])
+                });
+        if !same_rig {
+            return Err(MvgError::invalid_input(
+                "the rig is not the one this rectification was built from",
+            ));
+        }
+        let tracks = matches
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let right = Pt2::new(m.left.x - m.disparity, m.left.y);
+                let missing = |side: usize| {
+                    MvgError::invalid_input(format!(
+                        "match {i}: no raw pixel in camera {} for rectified pixel ({}, {}) \
+                         with disparity {}",
+                        self.cameras[side], m.left.x, m.left.y, m.disparity
+                    ))
+                };
+                let raw_left = self.raw_pixel(0, &m.left).ok_or_else(|| missing(0))?;
+                let raw_right = self.raw_pixel(1, &right).ok_or_else(|| missing(1))?;
+                Ok(vec![
+                    RigObservation::new(0, a, raw_left, pixel_noise),
+                    RigObservation::new(0, b, raw_right, pixel_noise),
+                ])
+            })
+            .collect::<Result<Vec<_>>>()?;
+        triangulate(rig, &[Iso3::identity()], &tracks)
+    }
 }
 
-/// Average two intrinsic matrices (focal lengths + principal points), forcing
-/// the structural zeros and `K[2,2] = 1`.
-fn average_intrinsics(a: &Mat3, b: &Mat3) -> Mat3 {
-    Matrix3::new(
-        0.5 * (a[(0, 0)] + b[(0, 0)]),
-        0.0,
-        0.5 * (a[(0, 2)] + b[(0, 2)]),
-        0.0,
-        0.5 * (a[(1, 1)] + b[(1, 1)]),
-        0.5 * (a[(1, 2)] + b[(1, 2)]),
-        0.0,
-        0.0,
-        1.0,
-    )
-}
-
-/// Apply a homography to a pixel and dehomogenize.
-fn apply_homography(h: &Mat3, px: &Pt2) -> Pt2 {
-    let v = h * Vector3::new(px.x, px.y, 1.0);
-    Pt2::new(v.x / v.z, v.y / v.z)
+/// Whether two poses are the same to rounding.
+fn same_pose(a: &Iso3, b: &Iso3) -> bool {
+    (a.to_homogeneous() - b.to_homogeneous()).abs().max() <= 1e-12
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Rotation3, Translation3, UnitQuaternion};
-    use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole, Pt3};
+    use crate::test_support::{iso, pinhole_params};
+    use vision_calibration_core::Uncertainty;
 
-    type ScheimpflugCamera = Camera<
-        Real,
-        Pinhole,
-        BrownConrady5<Real>,
-        vision_calibration_core::HomographySensor<Real>,
-        FxFyCxCy<Real>,
-    >;
-
-    fn no_distortion() -> BrownConrady5<Real> {
-        BrownConrady5 {
-            k1: 0.0,
-            k2: 0.0,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 5,
-        }
-    }
-
-    fn intr(fx: Real, fy: Real, cx: Real, cy: Real) -> FxFyCxCy<Real> {
-        FxFyCxCy { fx, fy, cx, cy }
-    }
-
-    /// Build the full Scheimpflug projection camera (zero distortion) used to
-    /// generate synthetic observations through the *real* core model.
-    fn scheimpflug_camera(k: &FxFyCxCy<Real>, tilt: ScheimpflugParams) -> ScheimpflugCamera {
-        Camera::new(Pinhole, no_distortion(), tilt.compile(), *k)
-    }
-
-    /// A frontal pinhole projection camera (identity sensor).
-    fn pinhole_camera(
-        k: &FxFyCxCy<Real>,
-    ) -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCy<Real>> {
-        Camera::new(Pinhole, no_distortion(), IdentitySensor, *k)
-    }
-
-    fn relative_pose(euler: (Real, Real, Real), t: (Real, Real, Real)) -> Iso3 {
-        let rot = Rotation3::from_euler_angles(euler.0, euler.1, euler.2);
-        Iso3::from_parts(Translation3::new(t.0, t.1, t.2), UnitQuaternion::from(rot))
-    }
-
-    /// A spread of 3D points, all comfortably in front of both cameras.
-    fn scene_points() -> Vec<Pt3> {
-        let mut pts = Vec::new();
-        for i in 0..5 {
-            for j in 0..5 {
-                let x = -0.5 + 0.25 * i as Real;
-                let y = -0.5 + 0.25 * j as Real;
-                let z = 4.0 + 0.4 * ((i * 3 + j) % 4) as Real;
-                pts.push(Pt3::new(x, y, z));
-            }
-        }
-        pts
-    }
-
-    /// Project every point into both cameras (camera 1 sees `R·p + t`), keeping
-    /// only points in front of both. Returns the rectified-row check inputs.
-    fn project_pair<C0, C1>(cam0: &C0, cam1: &C1, pose: &Iso3, pts: &[Pt3]) -> Vec<(Pt2, Pt2)>
-    where
-        C0: ProjectLike,
-        C1: ProjectLike,
-    {
-        let r = *pose.rotation.to_rotation_matrix().matrix();
-        let t = pose.translation.vector;
-        let mut out = Vec::new();
-        for p in pts {
-            let p0 = Vector3::new(p.x, p.y, p.z);
-            let p1 = r * p0 + t;
-            if let (Some(a), Some(b)) = (cam0.project(&p0), cam1.project(&p1)) {
-                out.push((a, b));
-            }
-        }
-        out
-    }
-
-    /// Minimal projection abstraction so the two concrete `Camera<...>` types can
-    /// share `project_pair`.
-    trait ProjectLike {
-        fn project(&self, p_c: &Vector3<Real>) -> Option<Pt2>;
-    }
-    impl<Sm> ProjectLike for Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCy<Real>>
-    where
-        Sm: vision_calibration_core::SensorModel<Real>,
-    {
-        fn project(&self, p_c: &Vector3<Real>) -> Option<Pt2> {
-            self.project_point_c(p_c)
-        }
-    }
-
-    fn max_row_disagreement(pairs: &[(Pt2, Pt2)], rect: &StereoRectification) -> Real {
-        pairs
-            .iter()
-            .map(|(a, b)| {
-                let ra = rect.rectify_left(a);
-                let rb = rect.rectify_right(b);
-                (ra.y - rb.y).abs()
-            })
-            .fold(0.0, Real::max)
+    fn rig(baseline: Real) -> CalibratedRig {
+        CalibratedRig::new(
+            vec![pinhole_params(-0.1), pinhole_params(-0.1)],
+            vec![
+                Iso3::identity(),
+                iso(0.0, 0.02, 0.0, Vec3::new(-baseline, 0.0, 0.0)),
+            ],
+            Uncertainty::default(),
+        )
+        .unwrap()
     }
 
     #[test]
-    fn scheimpflug_pair_rows_align() {
-        let k0 = intr(800.0, 810.0, 320.0, 240.0);
-        let k1 = intr(790.0, 805.0, 318.0, 242.0);
-        let tilt0 = ScheimpflugParams {
-            tilt_x: 0.09,
-            tilt_y: -0.04,
-        };
-        let tilt1 = ScheimpflugParams {
-            tilt_x: -0.06,
-            tilt_y: 0.05,
-        };
-        let pose = relative_pose((0.02, 0.04, -0.01), (-1.0, 0.05, 0.1));
-
-        let cam0 = scheimpflug_camera(&k0, tilt0);
-        let cam1 = scheimpflug_camera(&k1, tilt1);
-        let pairs = project_pair(&cam0, &cam1, &pose, &scene_points());
-        assert!(pairs.len() >= 20, "too few visible points: {}", pairs.len());
-
-        let rect = rectify_stereo_pair(
-            &RectifyCamera::scheimpflug(k0.k_matrix(), tilt0),
-            &RectifyCamera::scheimpflug(k1.k_matrix(), tilt1),
-            &pose,
-            &RectifyOptions::default(),
+    fn baseline_and_default_intrinsics() {
+        let rect = rectify(&rig(0.12), [0, 1], &RectifyOptions::default()).unwrap();
+        // Camera 1's centre is R^T(-t) away; rotation does not change the norm.
+        assert!((rect.baseline() - 0.12).abs() < 1e-12);
+        let k = rect.k_rect();
+        assert_eq!((k.fx, k.fy, k.cx, k.cy), (800.0, 790.0, 640.0, 480.0));
+        let half = rectify(
+            &rig(0.12),
+            [0, 1],
+            &RectifyOptions {
+                scale: 0.5,
+                ..Default::default()
+            },
         )
         .unwrap();
-
-        let max_dv = max_row_disagreement(&pairs, &rect);
-        assert!(max_dv < 1e-6, "rows not aligned: max |Δv| = {max_dv}");
-    }
-
-    #[test]
-    fn zero_tilt_matches_standard_rectification() {
-        // With zero tilt the Scheimpflug path must coincide with plain pinhole
-        // rectification (H_tilt⁻¹ = I) and still row-align.
-        let k0 = intr(800.0, 800.0, 320.0, 240.0);
-        let k1 = intr(800.0, 800.0, 320.0, 240.0);
-        let pose = relative_pose((0.0, 0.03, 0.0), (-1.2, 0.0, 0.0));
-
-        let cam0 = pinhole_camera(&k0);
-        let cam1 = pinhole_camera(&k1);
-        let pairs = project_pair(&cam0, &cam1, &pose, &scene_points());
-
-        let rect = rectify_stereo_pair(
-            &RectifyCamera::pinhole(k0.k_matrix()),
-            &RectifyCamera::pinhole(k1.k_matrix()),
-            &pose,
-            &RectifyOptions::default(),
-        )
-        .unwrap();
-
-        // A pinhole RectifyCamera and a zero-tilt Scheimpflug one must produce
-        // identical maps.
-        let rect_via_tilt = rectify_stereo_pair(
-            &RectifyCamera::scheimpflug(k0.k_matrix(), ScheimpflugParams::default()),
-            &RectifyCamera::scheimpflug(k1.k_matrix(), ScheimpflugParams::default()),
-            &pose,
-            &RectifyOptions::default(),
-        )
-        .unwrap();
-        assert!((rect.h_left - rect_via_tilt.h_left).abs().max() < 1e-12);
-        assert!((rect.h_right - rect_via_tilt.h_right).abs().max() < 1e-12);
-
-        let max_dv = max_row_disagreement(&pairs, &rect);
-        assert!(max_dv < 1e-6, "rows not aligned: max |Δv| = {max_dv}");
-    }
-
-    #[test]
-    fn baseline_is_recovered() {
-        let k = intr(800.0, 800.0, 320.0, 240.0);
-        let pose = relative_pose((0.01, 0.0, 0.0), (-0.8, 0.3, 0.2));
-        let rect = rectify_stereo_pair(
-            &RectifyCamera::pinhole(k.k_matrix()),
-            &RectifyCamera::pinhole(k.k_matrix()),
-            &pose,
-            &RectifyOptions::default(),
-        )
-        .unwrap();
-        let expected = (0.8f64 * 0.8 + 0.3 * 0.3 + 0.2 * 0.2).sqrt();
-        assert!((rect.baseline - expected).abs() < 1e-12);
+        assert_eq!(half.k_rect().fx, 400.0);
     }
 
     #[test]
     fn explicit_k_rect_is_used() {
-        let k = intr(800.0, 800.0, 320.0, 240.0);
-        let pose = relative_pose((0.0, 0.0, 0.0), (-1.0, 0.0, 0.0));
-        let k_rect = intr(1000.0, 1000.0, 256.0, 256.0).k_matrix();
-        let rect = rectify_stereo_pair(
-            &RectifyCamera::pinhole(k.k_matrix()),
-            &RectifyCamera::pinhole(k.k_matrix()),
-            &pose,
-            &RectifyOptions {
-                k_rect: Some(k_rect),
-            },
+        let k = FxFyCxCy {
+            fx: 1000.0,
+            fy: 1000.0,
+            cx: 256.0,
+            cy: 256.0,
+        };
+        let opts = RectifyOptions {
+            k_rect: Some(k),
+            scale: f64::NAN, // ignored
+        };
+        let rect = rectify(&rig(0.1), [0, 1], &opts).unwrap();
+        let got = rect.k_rect();
+        assert_eq!((got.fx, got.fy, got.cx, got.cy), (k.fx, k.fy, k.cx, k.cy));
+    }
+
+    #[test]
+    fn rejects_bad_inputs() {
+        let r = rig(0.1);
+        let opts = RectifyOptions::default();
+        let invalid = |e: MvgError| matches!(e, MvgError::InvalidInput { .. });
+        assert!(invalid(rectify(&r, [0, 0], &opts).unwrap_err()));
+        assert!(invalid(rectify(&r, [0, 2], &opts).unwrap_err()));
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let bad = RectifyOptions {
+                scale,
+                ..Default::default()
+            };
+            assert!(invalid(rectify(&r, [0, 1], &bad).unwrap_err()), "{scale}");
+        }
+        let bad_k = RectifyOptions {
+            k_rect: Some(FxFyCxCy {
+                fx: 0.0,
+                fy: 800.0,
+                cx: 0.0,
+                cy: 0.0,
+            }),
+            ..Default::default()
+        };
+        assert!(invalid(rectify(&r, [0, 1], &bad_k).unwrap_err()));
+        let err = rectify(&rig(0.0), [0, 1], &opts).unwrap_err();
+        assert!(matches!(err, MvgError::Degenerate { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn forward_baseline_is_defined() {
+        // Camera 1 sits straight ahead of camera 0 along its optical axis.
+        let rig = CalibratedRig::new(
+            vec![pinhole_params(0.0), pinhole_params(0.0)],
+            vec![Iso3::identity(), Iso3::translation(0.0, 0.0, -0.3)],
+            Uncertainty::default(),
         )
         .unwrap();
-        assert!((rect.k_rect - k_rect).abs().max() < 1e-15);
+        let rect = rectify(&rig, [0, 1], &RectifyOptions::default()).unwrap();
+        let r = rect.rect_r_cam(0);
+        assert!((r * r.transpose() - Mat3::identity()).abs().max() < 1e-12);
+        assert!((r.determinant() - 1.0).abs() < 1e-12);
     }
 
     #[test]
-    fn rejects_zero_baseline() {
-        let k = intr(800.0, 800.0, 320.0, 240.0);
-        let pose = relative_pose((0.05, 0.0, 0.0), (0.0, 0.0, 0.0));
-        let err = rectify_stereo_pair(
-            &RectifyCamera::pinhole(k.k_matrix()),
-            &RectifyCamera::pinhole(k.k_matrix()),
-            &pose,
-            &RectifyOptions::default(),
-        )
-        .unwrap_err();
-        assert!(matches!(err, MvgError::Degenerate { .. }), "got {err:?}");
+    fn q_agrees_with_point() {
+        let rect = rectify(&rig(0.12), [0, 1], &RectifyOptions::default()).unwrap();
+        let (left, d) = (Pt2::new(701.0, 410.5), 37.25);
+        let h = rect.disparity_to_depth() * nalgebra::Vector4::new(left.x, left.y, d, 1.0);
+        let in_rect = Vec3::new(h.x / h.w, h.y / h.w, h.z / h.w);
+        let p = rect.point(&left, d).unwrap();
+        let expected = rect.rect_r_cam(0).transpose() * in_rect;
+        assert!((p.coords - expected).norm() < 1e-12 * expected.norm());
+        for bad in [0.0, -3.0, f64::NAN] {
+            assert!(rect.point(&left, bad).is_none());
+        }
     }
 
     #[test]
-    fn rejects_extreme_tilt() {
-        let k = intr(800.0, 800.0, 320.0, 240.0);
-        let pose = relative_pose((0.0, 0.0, 0.0), (-1.0, 0.0, 0.0));
-        let err = rectify_stereo_pair(
-            &RectifyCamera::scheimpflug(
-                k.k_matrix(),
-                ScheimpflugParams {
-                    tilt_x: 1.5,
-                    tilt_y: 0.0,
-                },
-            ),
-            &RectifyCamera::pinhole(k.k_matrix()),
-            &pose,
-            &RectifyOptions::default(),
-        )
-        .unwrap_err();
-        assert!(matches!(err, MvgError::Degenerate { .. }), "got {err:?}");
+    fn triangulate_rejects_another_rig() {
+        let rect = rectify(&rig(0.12), [0, 1], &RectifyOptions::default()).unwrap();
+        let m = [RectifiedMatch::new(Pt2::new(640.0, 480.0), 40.0)];
+        let noise = PointCovariance::isotropic(0.3).unwrap();
+        let err = rect.triangulate(&rig(0.2), &m, noise).unwrap_err();
+        assert!(matches!(err, MvgError::InvalidInput { .. }), "{err:?}");
+        assert!(rect.triangulate(&rig(0.12), &m, noise).is_ok());
     }
 }

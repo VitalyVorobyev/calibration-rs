@@ -8,7 +8,7 @@
 use vision_calibration::common::CalibratedCameras;
 use vision_calibration::core::{
     BrownConrady5, CalibratedRig, CameraParams, CorrespondenceView, FxFyCxCy, Iso3, NoMeta,
-    ParameterCovariance, PinholeCamera, Pt2, Pt3, RigDataset, RigView, RigViewObs,
+    ParameterCovariance, PinholeCamera, Pt2, Pt3, RigDataset, RigView, RigViewObs, Uncertainty,
     make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration::rig_extrinsics::{
@@ -232,4 +232,20 @@ pub fn stereo_test_points() -> Vec<Pt3> {
             )
         })
         .collect()
+}
+
+/// The same calibration with its covariance shrunk to nothing: the σ of the
+/// observations alone.
+pub fn without_calibration_share(rig: &CalibratedRig) -> CalibratedRig {
+    let mut covariance = rig.uncertainty().covariance().expect("covariance").clone();
+    let n = covariance.labels.len();
+    covariance.covariance = (0..n)
+        .map(|i| (0..n).map(|j| if i == j { 1e-20 } else { 0.0 }).collect())
+        .collect();
+    CalibratedRig::new(
+        rig.cameras().to_vec(),
+        rig.cam_se3_rig().to_vec(),
+        Uncertainty::Available(covariance),
+    )
+    .unwrap()
 }

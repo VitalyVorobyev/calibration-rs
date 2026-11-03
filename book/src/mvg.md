@@ -10,7 +10,6 @@ The calibrated functions take a **`CalibratedRig`**: the cameras, where each sit
 
 - **Pixels in, bearings inside.** Each pixel is unprojected through its own camera's model into a *bearing*, a unit ray, and the closed-form steps (the 5-point essential matrix, cheirality, the linear triangulation) work on bearings. Distortion, fisheye and tilted sensors need no separate undistortion, and a fisheye point more than 90° from the optical axis, which has no normalized coordinates, is an ordinary bearing.
 - **Stated noise.** The calibrated two-view functions take `PixelMatch`es: two pixels with their covariances (`PointCovariance::new`, `isotropic`, or `rig.reprojection_noise(camera)`). Their residual is the epipolar constraint over its first-order σ, so RANSAC thresholds are in σ, not radians or pixels.
-- **Rectification and bundle adjustment still consume pixels** of undistorted pinhole cameras (they fold $K$ back in).
 
 Poses are named `<frame>_se3_<frame>` and map the right frame into the left: `second_se3_first` takes a point from the first camera's frame into the second's, $p_2 = R\,p_1 + t$, and a world-to-camera pose is `cam_se3_world`.
 
@@ -22,7 +21,7 @@ In dependency order:
 mvg::pose_recovery   recover_relative_pose  ← 5-point + cheirality (also triangulates)
 mvg::triangulation   triangulate            ← N-view DLT on bearings, refined, with covariance
 mvg::bundle_adjust   bundle_adjust          ← capture poses + points together, with covariance
-mvg::rectification   rectify_stereo_pair    ← rectifying homographies (Scheimpflug-aware)
+mvg::rectification   rectify                ← rectified pair from a calibration, Q, points with σ
 mvg::dense           match_block            ← block matching and semi-global matching
 mvg::robust          *_robust               ← RANSAC wrappers for outlier-laden data
 ```
@@ -33,7 +32,7 @@ The chapters of this part follow the pipeline:
 
 1. [Pose Recovery and Triangulation](mvg_pose.md): relative pose from correspondences, with RANSAC for outliers.
 2. [Bundle Adjustment](mvg_bundle_adjust.md): refining poses and structure together, with a stated gauge and the calibration's uncertainty.
-3. [Stereo Rectification](mvg_rectification.md): rows that line up, for pinhole and Scheimpflug cameras.
+3. [Stereo from a Calibration](mvg_rectification.md): rows that line up for any camera model, the disparity-to-depth matrix and the uncertainty of the points.
 4. [Dense Stereo](mvg_dense.md): per-pixel disparity by block matching or semi-global matching.
 
 ## The Companion Example
@@ -70,7 +69,7 @@ let cam1_se3_cam0 = rig.cam_se3_rig()[1] * rig.cam_se3_rig()[0].inverse();
 
 A single `cam_se3_rig[i]` equals the relative pose only in the special case where camera 0 is the reference frame (its pose is the identity). The reference camera need not be camera 0.
 
-Pose recovery and triangulation take the pixels as detected, through the rig's camera models. Rectification takes pixels of an undistorted pinhole model, so undistort first for that stage.
+Pose recovery, triangulation, bundle adjustment and rectification all take the pixels as detected, through the rig's camera models.
 
 ## In the Desktop App
 

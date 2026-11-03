@@ -14,26 +14,10 @@ mod common;
 
 use common::{
     PIXEL_SIGMA, calibrated_stereo_rig, scatter_over_stated, stereo_cameras, stereo_noisy_pixel,
-    stereo_test_points,
+    stereo_test_points, without_calibration_share,
 };
-use vision_calibration::core::{CalibratedRig, Iso3, PointCovariance, Uncertainty};
+use vision_calibration::core::{Iso3, PointCovariance};
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
-
-/// The same calibration with its covariance shrunk to nothing: the σ of the
-/// observations alone.
-fn without_calibration_share(rig: &CalibratedRig) -> CalibratedRig {
-    let mut covariance = rig.uncertainty().covariance().expect("covariance").clone();
-    let n = covariance.labels.len();
-    covariance.covariance = (0..n)
-        .map(|i| (0..n).map(|j| if i == j { 1e-20 } else { 0.0 }).collect())
-        .collect();
-    CalibratedRig::new(
-        rig.cameras().to_vec(),
-        rig.cam_se3_rig().to_vec(),
-        Uncertainty::Available(covariance),
-    )
-    .unwrap()
-}
 
 #[test]
 fn the_calibrations_share_is_in_the_triangulated_depth_sigma() {

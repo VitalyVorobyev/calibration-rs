@@ -1,4 +1,4 @@
-//! Scheimpflug-aware stereo rectification validated against the `scheimpflug_rig_ref`
+//! Stereo rectification of a Scheimpflug rig validated against the `scheimpflug_rig_ref`
 //! reference oracle.
 //!
 //! The `scheimpflug_rig_ref` `artifacts.json` (the customer's "QUICK" oracle) calibrates a
@@ -6,17 +6,14 @@
 //! a genuine tilted sensor (`τx ≈ -5°`, small `τy`) and the cameras sit on a ring
 //! converging on a central puzzle_board — a real, asymmetric multi-view geometry.
 //!
-//! This harness validates [`vision_mvg::rectification::rectify_stereo_pair`] on
+//! This harness validates [`vision_mvg::rectification::rectify`] on
 //! that real calibration. For each pair `(cam0, cam_b)` it:
 //!
 //! 1. Reads the oracle `K`, Scheimpflug tilt, and `camera_se3_sensor` extrinsics.
-//! 2. Builds the Scheimpflug-aware rectifying homographies.
-//! 3. Projects a synthetic 3-D cloud through **both** cameras using the real
-//!    pinhole + Scheimpflug-tilt model at the oracle's K and tilt, with lens
-//!    distortion omitted — the rectification contract takes *undistorted*
-//!    pixels (the Brown-Conrady model itself is validated separately by
-//!    `scheimpflug_rig_ref_reproj`).
-//! 4. Applies the rectifying maps and measures how far apart the rectified rows
+//! 2. Builds the two-camera rig (pinhole + Brown-Conrady + Scheimpflug tilt) and
+//!    rectifies it from the calibration.
+//! 3. Projects a synthetic 3-D cloud through **both** cameras' full models.
+//! 4. Rectifies the raw pixels and measures how far apart the rectified rows
 //!    of corresponding points are (`|Δv|`, pixels).
 //!
 //! A correct rectification drives `|Δv|` to numerical zero for every
@@ -38,11 +35,14 @@ use anyhow::{Context, Result};
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 use std::path::PathBuf;
 
-use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, Iso3, Mat3, Pinhole, Pt2, Pt3};
-use vision_calibration_examples_private::{
-    RefIntrinsic, ScheimpflugCamera, load_ref_artifacts, split_opencv_distortion,
+use vision_calibration_core::{
+    CalibratedRig, CameraParams, DistortionParams, FxFyCxCy, Iso3, ProjectionParams, Pt2, Pt3,
+    SensorParams, Uncertainty,
 };
-use vision_mvg::rectification::{RectifyCamera, RectifyOptions, rectify_stereo_pair};
+use vision_calibration_examples_private::{
+    RefIntrinsic, load_ref_artifacts, split_opencv_distortion,
+};
+use vision_mvg::rectification::{RectifyOptions, rectify};
 
 /// Per-camera tile size (the 4320×540 strip splits into 6 × 720×540).
 const TILE_W: f64 = 720.0;
@@ -77,24 +77,21 @@ fn main() -> Result<()> {
 
     // Camera 0 is the reference (left); rectify it against every other camera.
     let cam0_ext = iso_from_4x4_mm(&art.extrinsic[0].camera_se3_sensor);
-    let left_rect = rectify_camera(&art.intrinsic[0])?;
-    let left_cam = ideal_camera(&art.intrinsic[0])?;
+    let left_params = camera_params(&art.intrinsic[0])?;
 
     for b in 1..art.num_cameras {
         let cam_b_ext = iso_from_4x4_mm(&art.extrinsic[b].camera_se3_sensor);
         // cam_b_se3_cam0 = T_Cb_S · T_C0_S⁻¹
         let cam_b_se3_cam0 = cam_b_ext * cam0_ext.inverse();
 
-        let right_rect = rectify_camera(&art.intrinsic[b])?;
-        let right_cam = ideal_camera(&art.intrinsic[b])?;
-
-        let rect = rectify_stereo_pair(
-            &left_rect,
-            &right_rect,
-            &cam_b_se3_cam0,
-            &RectifyOptions::default(),
-        )
-        .with_context(|| format!("rectify pair (0, {b})"))?;
+        let right_params = camera_params(&art.intrinsic[b])?;
+        let rig = CalibratedRig::new(
+            vec![left_params.clone(), right_params],
+            vec![Iso3::identity(), cam_b_se3_cam0],
+            Uncertainty::default(),
+        )?;
+        let rect = rectify(&rig, [0, 1], &RectifyOptions::default())
+            .with_context(|| format!("rectify pair (0, {b})"))?;
 
         // Project a cloud at the working distance through both cameras.
         let mut sum_dv = 0.0;
@@ -103,15 +100,20 @@ fn main() -> Result<()> {
         for p0 in working_cloud() {
             let p_b = cam_b_se3_cam0 * p0;
             let (Some(px0), Some(pxb)) = (
-                left_cam.project_point_c(&p0.coords),
-                right_cam.project_point_c(&p_b.coords),
+                rig.model(0).and_then(|m| m.project_point(&p0)),
+                rig.model(1).and_then(|m| m.project_point(&p_b)),
             ) else {
                 continue;
             };
             if !in_tile(&px0) || !in_tile(&pxb) {
                 continue;
             }
-            let dv = (rect.rectify_left(&px0).y - rect.rectify_right(&pxb).y).abs();
+            let (Some(rl), Some(rr)) =
+                (rect.rectified_pixel(0, &px0), rect.rectified_pixel(1, &pxb))
+            else {
+                continue;
+            };
+            let dv = (rl.y - rr.y).abs();
             sum_dv += dv;
             max_dv = max_dv.max(dv);
             n += 1;
@@ -124,7 +126,7 @@ fn main() -> Result<()> {
         println!(
             "{:<8} {:>9.3}m {:>8} {:>12.2e} {:>12.2e}{}",
             format!("0–{b}"),
-            rect.baseline,
+            rect.baseline(),
             n,
             mean_dv,
             max_dv,
@@ -147,37 +149,22 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Build a [`RectifyCamera`] (K + Scheimpflug tilt) from an oracle intrinsics block.
-fn rectify_camera(intr: &RefIntrinsic) -> Result<RectifyCamera> {
+/// The camera (K, lens distortion and Scheimpflug tilt) of an oracle intrinsics
+/// block. Raw pixels go through the whole model, distortion included.
+fn camera_params(intr: &RefIntrinsic) -> Result<CameraParams> {
     let m = &intr.matrix;
-    let k = Mat3::new(
-        m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2],
-    );
-    let (_dist, tilt) = split_opencv_distortion(&intr.distortion)?;
-    Ok(RectifyCamera::scheimpflug(k, tilt))
-}
-
-/// Build a distortion-free pinhole + Scheimpflug-tilt camera at the oracle's K
-/// and tilt. Projecting through this yields the **undistorted** pixels that the
-/// rectification maps expect; lens distortion is intentionally omitted here.
-fn ideal_camera(intr: &RefIntrinsic) -> Result<ScheimpflugCamera> {
-    let m = &intr.matrix;
-    let k = FxFyCxCy {
-        fx: m[0][0],
-        fy: m[1][1],
-        cx: m[0][2],
-        cy: m[1][2],
-    };
-    let (_dist, tilt) = split_opencv_distortion(&intr.distortion)?;
-    let no_distortion = BrownConrady5 {
-        k1: 0.0,
-        k2: 0.0,
-        k3: 0.0,
-        p1: 0.0,
-        p2: 0.0,
-        iters: 5,
-    };
-    Ok(Camera::new(Pinhole, no_distortion, tilt.compile(), k))
+    let (distortion, tilt) = split_opencv_distortion(&intr.distortion)?;
+    Ok(CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 { params: distortion },
+        sensor: SensorParams::Scheimpflug { params: tilt },
+        intrinsics: FxFyCxCy {
+            fx: m[0][0],
+            fy: m[1][1],
+            cx: m[0][2],
+            cy: m[1][2],
+        },
+    })
 }
 
 /// A spread of 3-D points (camera-0 frame, metres) near the rig's working

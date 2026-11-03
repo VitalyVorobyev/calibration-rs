@@ -8,7 +8,7 @@
 //!    cameras' models — `mvg::pose_recovery`
 //! 2. triangulation of the matches (returned by step 1) — `mvg::types`
 //! 3. bundle adjustment from the calibration          — `mvg::bundle_adjust`
-//! 4. Scheimpflug-aware stereo rectification         — `mvg::rectification`
+//! 4. stereo rectification from the calibration      — `mvg::rectification`
 //!
 //! Run:
 //! ```bash
@@ -22,7 +22,7 @@ use vision_calibration::core::{
 };
 use vision_calibration::mvg::{
     pose_recovery::recover_relative_pose,
-    rectification::{RectifyCamera, RectifyOptions, rectify_stereo_pair},
+    rectification::{RectifyOptions, rectify},
     types::PixelMatch,
 };
 
@@ -139,22 +139,30 @@ fn main() {
     // structure, with the calibration held fixed.
     bundle_adjust_demo(&rig, &k, &gt, &points, noise);
 
-    // 4. Rectify the calibrated pair so corresponding points share an image row.
-    let rect = rectify_stereo_pair(
-        &RectifyCamera::pinhole(k),
-        &RectifyCamera::pinhole(k),
-        &gt,
-        &RectifyOptions::default(),
+    // 4. Rectify the calibrated pair so corresponding points share an image
+    // row. The pair is the two cameras of a rig, camera 1 at pose `gt`; raw
+    // pixels go in, whatever the camera model.
+    let stereo = CalibratedRig::new(
+        vec![rig.cameras()[0].clone(), rig.cameras()[0].clone()],
+        vec![Iso3::identity(), gt],
+        Uncertainty::default(),
     )
-    .expect("rectify stereo pair");
+    .expect("stereo rig");
+    let rect = rectify(&stereo, [0, 1], &RectifyOptions::default()).expect("rectify stereo pair");
     let max_dv = px0
         .iter()
         .zip(&px1)
-        .map(|(a, b)| (rect.rectify_left(a).y - rect.rectify_right(b).y).abs())
+        .map(|(a, b)| {
+            let (l, r) = (
+                rect.rectified_pixel(0, a).expect("left"),
+                rect.rectified_pixel(1, b).expect("right"),
+            );
+            (l.y - r.y).abs()
+        })
         .fold(0.0_f64, f64::max);
     println!(
         "4. rectification : baseline = {:.3}, max row disagreement = {max_dv:.2e} px",
-        rect.baseline
+        rect.baseline()
     );
     assert!(max_dv < 1e-9, "rectified rows not aligned: {max_dv}");
 
