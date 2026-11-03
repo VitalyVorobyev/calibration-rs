@@ -1102,6 +1102,10 @@ class LaserPlane(TypedDict):
 
     The plane equation is: n̂ · p + d = 0
     where p is a point in camera coordinates.
+
+    A plane is valid by construction: its normal has unit length (within
+    `1e-9`) and every value is finite, and a plane read from JSON is checked
+    the same way.
     """
 
     distance: float

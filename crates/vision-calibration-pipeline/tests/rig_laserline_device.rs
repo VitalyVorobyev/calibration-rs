@@ -76,8 +76,8 @@ fn make_dataset() -> (
 
     // GT laser planes in rig frame.
     let planes_rig_gt = vec![
-        LaserPlane::new(Vector3::new(0.0, 1.0, 0.1), -0.0),
-        LaserPlane::new(Vector3::new(0.0, 1.0, -0.1), -0.0),
+        LaserPlane::new((Vector3::new(0.0, 1.0, 0.1)).normalize(), -0.0).unwrap(),
+        LaserPlane::new((Vector3::new(0.0, 1.0, -0.1)).normalize(), -0.0).unwrap(),
     ];
     // Per-camera GT planes in camera frame.
     let planes_cam_gt: Vec<LaserPlane> = planes_rig_gt
@@ -109,8 +109,8 @@ fn make_dataset() -> (
 
             // Laser pixels by intersecting GT plane with target plane (z=0).
             let plane = &planes_cam_gt[cam_idx];
-            let n = plane.normal.into_inner();
-            let d = plane.distance;
+            let n = plane.normal().into_inner();
+            let d = plane.distance();
             let rot = cam_se3_target.rotation.to_rotation_matrix();
             let trans = cam_se3_target.translation.vector;
             let r_col0: Vector3<f64> = rot.matrix().column(0).into_owned();
@@ -175,12 +175,9 @@ fn pipeline_converges_rig_laserline() {
         )
         .map(|(p_rig, c2r)| {
             let p_cam = p_rig.transform_by(&c2r.inverse());
-            let n = p_cam.normal.into_inner();
+            let n = p_cam.normal().into_inner();
             let perturbed = Unit::new_normalize(Vector3::new(n.x + 0.05, n.y, n.z));
-            LaserPlane {
-                normal: perturbed,
-                distance: p_cam.distance + 0.01,
-            }
+            LaserPlane::new(perturbed.into_inner(), p_cam.distance() + 0.01).unwrap()
         })
         .collect();
 
@@ -206,9 +203,9 @@ fn pipeline_converges_rig_laserline() {
         .zip(&export.laser_planes_rig)
         .enumerate()
     {
-        let n_dot = gt.normal.dot(&got.normal);
+        let n_dot = gt.normal().dot(&got.normal());
         let ang = n_dot.abs().min(1.0).acos();
-        let d_err = (gt.distance - got.distance).abs();
+        let d_err = (gt.distance() - got.distance()).abs();
         assert!(ang < 0.01, "cam{cam_idx} normal error {ang:.4} rad");
         assert!(d_err < 0.01, "cam{cam_idx} distance error {d_err:.4}");
     }
@@ -311,9 +308,9 @@ fn pinhole_upstream_converges_rig_laserline() {
         .zip(&result.laser_planes_rig)
         .enumerate()
     {
-        let n_dot = gt.normal.dot(&got.normal);
+        let n_dot = gt.normal().dot(&got.normal());
         let ang = n_dot.abs().min(1.0).acos();
-        let d_err = (gt.distance - got.distance).abs();
+        let d_err = (gt.distance() - got.distance()).abs();
         assert!(ang < 0.01, "cam{cam_idx} normal error {ang:.4} rad");
         assert!(d_err < 0.01, "cam{cam_idx} distance error {d_err:.4}");
     }

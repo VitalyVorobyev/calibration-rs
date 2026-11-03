@@ -127,7 +127,7 @@ fn happy_path_eye_in_hand() {
     // Note: we must NOT use a point with y=0 projected through y=0 plane — the
     // resulting ray would have zero y-component and be parallel to the plane.
     let rig_cal = make_eye_in_hand_export();
-    let plane = LaserPlane::new(Vector3::new(0.0, 1.0, 0.0), -0.1);
+    let plane = LaserPlane::new((Vector3::new(0.0, 1.0, 0.0)).normalize(), -0.1).unwrap();
 
     // Known 3D point on the plane (in rig = cam frame, since identity).
     let p_rig = Pt3::new(0.05, 0.1, 0.3);
@@ -170,7 +170,7 @@ fn happy_path_eye_in_hand() {
 #[test]
 fn cam_idx_out_of_range_returns_invalid_input() {
     let rig_cal = make_eye_in_hand_export(); // 1 camera
-    let plane = LaserPlane::new(Vector3::new(0.0, 1.0, 0.0), 0.0);
+    let plane = LaserPlane::new((Vector3::new(0.0, 1.0, 0.0)).normalize(), 0.0).unwrap();
     let pixel = Pt2::new(320.0, 240.0);
 
     let result = pixel_to_gripper_point(1, pixel, &rig_cal, &[plane], None);
@@ -189,7 +189,7 @@ fn ray_parallel_to_plane_returns_numerical_error() {
     let rig_cal = make_eye_in_hand_export();
     // Plane normal = [1, 0, 0]; a pixel at the principal point maps to a ray
     // direction [0, 0, 1] in camera frame. dot([1,0,0], [0,0,1]) = 0 → parallel.
-    let plane = LaserPlane::new(Vector3::new(1.0, 0.0, 0.0), 0.0);
+    let plane = LaserPlane::new((Vector3::new(1.0, 0.0, 0.0)).normalize(), 0.0).unwrap();
     let pixel = Pt2::new(320.0, 240.0); // principal point
 
     let result = pixel_to_gripper_point(0, pixel, &rig_cal, &[plane], None);
@@ -206,7 +206,7 @@ fn ray_parallel_to_plane_returns_numerical_error() {
 #[test]
 fn eye_to_hand_missing_pose_returns_invalid_input() {
     let rig_cal = make_eye_to_hand_export();
-    let plane = LaserPlane::new(Vector3::new(0.0, 1.0, 0.0), 0.0);
+    let plane = LaserPlane::new((Vector3::new(0.0, 1.0, 0.0)).normalize(), 0.0).unwrap();
     let pixel = Pt2::new(320.0, 220.0); // slightly above principal point
 
     // base_se3_gripper = None in EyeToHand mode must return an error.
@@ -226,7 +226,7 @@ fn eye_to_hand_happy_path() {
     let rig_cal = make_eye_to_hand_export();
     // rig_se3_base = identity, base_se3_gripper = identity → p_gripper = p_rig.
     // Use the same y=0.1 plane to avoid degenerate parallel-ray geometry.
-    let plane = LaserPlane::new(Vector3::new(0.0, 1.0, 0.0), -0.1);
+    let plane = LaserPlane::new((Vector3::new(0.0, 1.0, 0.0)).normalize(), -0.1).unwrap();
     let p_rig = Pt3::new(0.05, 0.1, 0.3);
     let fx = 600.0_f64;
     let fy = 600.0_f64;

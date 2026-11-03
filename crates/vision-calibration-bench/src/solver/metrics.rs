@@ -157,15 +157,15 @@ fn max_of(values: impl Iterator<Item = f64>) -> Option<f64> {
 /// `(n, d)` and `(-n, -d)` name the same plane, so the estimate is sign-aligned
 /// to the ground truth before comparing.
 pub fn plane_error(est: &LaserPlane, gt: &LaserPlane) -> (f64, f64) {
-    let (mut n, mut d) = (est.normal.into_inner(), est.distance);
-    let n_gt = gt.normal.into_inner();
+    let (mut n, mut d) = (est.normal().into_inner(), est.distance());
+    let n_gt = gt.normal().into_inner();
     if n.dot(&n_gt) < 0.0 {
         n = -n;
         d = -d;
     }
     // atan2 keeps full precision for nearly parallel normals, unlike acos.
     let angle = n.cross(&n_gt).norm().atan2(n.dot(&n_gt)).to_degrees();
-    (angle, (d - gt.distance).abs() * 1e3)
+    (angle, (d - gt.distance()).abs() * 1e3)
 }
 
 /// Robust-loss value `ρ(s)` at squared residual `s`, in the Ceres convention
@@ -296,14 +296,14 @@ mod tests {
 
     #[test]
     fn plane_error_is_sign_aligned() {
-        let gt = LaserPlane::new(Vector3::new(0.3, 0.0, 1.0), -0.5);
-        let flipped = LaserPlane::new(-Vector3::new(0.3, 0.0, 1.0), 0.5);
+        let gt = LaserPlane::new((Vector3::new(0.3, 0.0, 1.0)).normalize(), -0.5).unwrap();
+        let flipped = LaserPlane::new((-Vector3::new(0.3, 0.0, 1.0)).normalize(), 0.5).unwrap();
         let (ang, dist) = plane_error(&flipped, &gt);
         assert!(ang < 1e-6 && dist < 1e-9, "{ang} {dist}");
-        let shifted = LaserPlane::new(Vector3::new(0.3, 0.0, 1.0), -0.501);
+        let shifted = LaserPlane::new((Vector3::new(0.3, 0.0, 1.0)).normalize(), -0.501).unwrap();
         let (_, dist) = plane_error(&shifted, &gt);
         assert!((dist - 1.0).abs() < 1e-9);
-        let tilted = LaserPlane::new(Vector3::new(0.3, 0.1, 1.0), -0.5);
+        let tilted = LaserPlane::new((Vector3::new(0.3, 0.1, 1.0)).normalize(), -0.5).unwrap();
         let (ang, _) = plane_error(&tilted, &gt);
         assert!(ang > 1.0 && ang < 10.0);
     }

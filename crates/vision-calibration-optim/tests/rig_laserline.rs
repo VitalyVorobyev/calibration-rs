@@ -76,8 +76,8 @@ fn stereo_rig_laserline_recovers_planes() {
 
     // GT laser planes in rig frame (distinct per camera).
     let planes_rig_gt = [
-        LaserPlane::new(Vector3::new(0.0, 1.0, 0.1), -0.0),
-        LaserPlane::new(Vector3::new(0.0, 1.0, -0.1), -0.0),
+        LaserPlane::new((Vector3::new(0.0, 1.0, 0.1)).normalize(), -0.0).unwrap(),
+        LaserPlane::new((Vector3::new(0.0, 1.0, -0.1)).normalize(), -0.0).unwrap(),
     ];
     // Convert to camera frames.
     let planes_cam_gt: Vec<LaserPlane> = planes_rig_gt
@@ -110,8 +110,8 @@ fn stereo_rig_laserline_recovers_planes() {
 
             // Laser pixels: intersect GT plane with target plane (z=0).
             let plane = &planes_cam_gt[cam_idx];
-            let n = plane.normal.into_inner();
-            let d = plane.distance;
+            let n = plane.normal().into_inner();
+            let d = plane.distance();
             let rot = cam_se3_target.rotation.to_rotation_matrix();
             let trans = cam_se3_target.translation.vector;
             let r_col0: Vector3<f64> = rot.matrix().column(0).into_owned();
@@ -158,12 +158,9 @@ fn stereo_rig_laserline_recovers_planes() {
     let initial_planes_cam: Vec<LaserPlane> = planes_cam_gt
         .iter()
         .map(|p| {
-            let n = p.normal.into_inner();
+            let n = p.normal().into_inner();
             let perturbed = Unit::new_normalize(Vector3::new(n.x + 0.05, n.y, n.z));
-            LaserPlane {
-                normal: perturbed,
-                distance: p.distance + 0.01,
-            }
+            LaserPlane::new(perturbed.into_inner(), p.distance() + 0.01).unwrap()
         })
         .collect();
 
@@ -188,12 +185,12 @@ fn stereo_rig_laserline_recovers_planes() {
 
     // Verify per-camera rig-frame plane recovery.
     for (cam_idx, (gt, got)) in planes_rig_gt.iter().zip(&est.laser_planes_rig).enumerate() {
-        let n_dot = gt.normal.dot(&got.normal);
+        let n_dot = gt.normal().dot(&got.normal());
         let ang_rad = n_dot.abs().min(1.0).acos();
         let ang_deg = ang_rad.to_degrees();
-        let d_err = (gt.distance - got.distance).abs();
-        let d_rel = if gt.distance.abs() > 1e-9 {
-            d_err / gt.distance.abs()
+        let d_err = (gt.distance() - got.distance()).abs();
+        let d_rel = if gt.distance().abs() > 1e-9 {
+            d_err / gt.distance().abs()
         } else {
             d_err
         };

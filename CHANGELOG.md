@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **`LaserPlane` is valid by construction** (breaking, `optim::LaserPlane`).
+  `LaserPlane::new(normal, distance)` returns a `Result` and rejects a
+  normal that is not of unit length (within `1e-9`) or a value that is not
+  finite, instead of normalizing the normal and keeping the distance, which
+  moved a plane given with a normal of another length. JSON is validated the
+  same way on the way in (exports written by the library are unchanged and
+  read back as before). `LaserPlane::from_coefficients(n, d)` takes a plane
+  equation `n · p + d = 0` with any nonzero `n` and divides both by `|n|`.
+  The fields are private: read them with `normal()` and `distance()`.
+
 ### Added
 
 - **`mvg::metrology`: measurements with joint σ.** `PointSet` (points and their

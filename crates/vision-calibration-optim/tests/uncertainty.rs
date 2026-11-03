@@ -724,7 +724,11 @@ fn robot_pose_priors_monte_carlo(max_abs_px: f64, rot_sigma: f64, trans_sigma: f
 /// A laser sheet beside the camera, crossing the optical axis at 0.5 m.
 fn laser_plane_truth() -> LaserPlane {
     let normal = Vector3::new(0.5, 0.04, 0.1).normalize();
-    LaserPlane::new(normal, -normal.dot(&Vector3::new(0.1, 0.0, 0.0)))
+    LaserPlane::new(
+        (normal).normalize(),
+        -normal.dot(&Vector3::new(0.1, 0.0, 0.0)),
+    )
+    .unwrap()
 }
 
 /// The laser line on the board at `camera_se3_target`: points of the board's
@@ -737,8 +741,8 @@ fn laser_pixels(
     stream: usize,
 ) -> Vec<Pt2> {
     // The laser plane in target coordinates, `n_t · p + d_t = 0`.
-    let n_t = camera_se3_target.rotation.inverse() * plane.normal.into_inner();
-    let d_t = plane.distance + plane.normal.dot(&camera_se3_target.translation.vector);
+    let n_t = camera_se3_target.rotation.inverse() * plane.normal().into_inner();
+    let d_t = plane.distance() + plane.normal().dot(&camera_se3_target.translation.vector);
     (0..60)
         .filter_map(|i| {
             let y = -0.08 + 0.16 * i as f64 / 59.0;
@@ -756,12 +760,12 @@ fn laser_pixels(
 
 /// The labelled value of a laserline parameter pack.
 fn laserline_value(params: &LaserlineParams, label: &str) -> f64 {
-    let n = params.plane.normal;
+    let n = params.plane.normal();
     match label {
         "plane.nx" => n.x,
         "plane.ny" => n.y,
         "plane.nz" => n.z,
-        "plane.d" => params.plane.distance,
+        "plane.d" => params.plane.distance(),
         camera_label => camera_error(&pinhole_truth(0.0, 0.0), &params.camera, camera_label),
     }
 }

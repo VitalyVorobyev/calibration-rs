@@ -651,7 +651,7 @@
       "type": "object"
     },
     "LaserPlane": {
-      "description": "Laser plane in camera frame: unit normal + signed distance.\n\nThe plane equation is: n̂ · p + d = 0\nwhere p is a point in camera coordinates.",
+      "description": "Laser plane in camera frame: unit normal + signed distance.\n\nThe plane equation is: n̂ · p + d = 0\nwhere p is a point in camera coordinates.\n\nA plane is valid by construction: its normal has unit length (within\n`1e-9`) and every value is finite, and a plane read from JSON is checked\nthe same way.",
       "properties": {
         "distance": {
           "description": "Signed distance from camera origin",

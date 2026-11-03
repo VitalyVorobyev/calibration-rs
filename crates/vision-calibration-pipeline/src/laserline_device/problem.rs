@@ -71,7 +71,7 @@ use super::state::LaserlineDeviceState;
 /// run_calibration(&mut session)?;
 ///
 /// let plane = session.export()?.params.plane;
-/// assert!(plane.normal.dot(&normal).abs() > 1.0 - 1e-6);
+/// assert!(plane.normal().dot(&normal).abs() > 1.0 - 1e-6);
 /// # Ok(())
 /// # }
 /// ```
@@ -399,7 +399,8 @@ mod tests {
             Pt3::new(0.0, 0.05, 0.0),
             Pt3::new(0.05, 0.05, 0.0),
         ];
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 1.0, 0.0), -0.1);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 1.0, 0.0)).normalize(), -0.1).unwrap();
 
         let mut views = Vec::new();
         let mut poses = Vec::new();
@@ -545,7 +546,8 @@ mod tests {
                 laser_weights: Vec::new(),
             },
         )];
-        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -1.0);
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 0.0, 1.0)).normalize(), -1.0).unwrap();
         let params = LaserlineParams::new(
             bc_camera(
                 intrinsics,

@@ -789,8 +789,8 @@ impl Builder {
                         laser_stripe_pixels(
                             camera,
                             &(t_c_r * rig_se3_target),
-                            plane.normal.as_ref(),
-                            plane.distance,
+                            plane.normal().as_ref(),
+                            plane.distance(),
                             &self.extent,
                             0,
                             &silent,
@@ -824,8 +824,8 @@ impl Builder {
                 laser_stripe_pixels(
                     &synth,
                     pose,
-                    plane.normal.as_ref(),
-                    plane.distance,
+                    plane.normal().as_ref(),
+                    plane.distance(),
                     &self.extent,
                     view,
                     &noise,
@@ -873,7 +873,7 @@ fn transpose(per_cam: Vec<Vec<CorrespondenceView>>) -> Vec<Vec<CorrespondenceVie
 /// Laser plane in a camera frame crossing the optical axis at depth `z0`.
 fn plane_at(normal: Vector3<f64>, z0: f64) -> LaserPlane {
     let n = normal.normalize();
-    LaserPlane::new(n, -n.z * z0)
+    LaserPlane::new(n, -n.z * z0).expect("a normalized normal and a finite offset")
 }
 
 impl Scene {
@@ -1303,7 +1303,7 @@ fn planes_through_target(
                 .map(|k| d_mean + 0.005 * f64::from(k))
                 .max_by_key(|&d| (coverage(d), -((d - d_mean).abs() * 1e6) as i64))
                 .expect("non-empty scan");
-            Ok(LaserPlane::new(n, best))
+            Ok(LaserPlane::new(n, best)?)
         })
         .collect()
 }

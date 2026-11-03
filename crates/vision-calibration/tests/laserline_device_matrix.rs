@@ -81,8 +81,8 @@ fn laser_pixels_for_view(
     laser::laser_stripe_pixels(
         camera,
         cam_se3_target,
-        plane.normal.as_ref(),
-        plane.distance,
+        plane.normal().as_ref(),
+        plane.distance(),
         &board,
         view_idx,
         noise,
@@ -159,8 +159,8 @@ fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
             "backends disagree on {name}: {x} vs {y}"
         );
     }
-    let dn = a.plane.normal.angle(&b.plane.normal);
-    let dd = (a.plane.distance - b.plane.distance).abs();
+    let dn = a.plane.normal().angle(&b.plane.normal());
+    let dd = (a.plane.distance() - b.plane.distance()).abs();
     assert!(dn <= 1e-5 && dd <= 1e-5, "plane {dn} rad / {dd} m");
     tiny
 }
@@ -189,7 +189,7 @@ fn laserline_device_recovers_plane_across_grid_and_noise() {
         let n_gt = n_raw.normalize();
         for &z0 in &depths {
             let d_gt = -n_gt.z * z0;
-            let plane_gt = LaserPlane::new(n_gt, d_gt);
+            let plane_gt = LaserPlane::new((n_gt).normalize(), d_gt).unwrap();
             let poses = poses(z0);
 
             for &noise_px in &noise_levels {
@@ -210,8 +210,8 @@ fn laserline_device_recovers_plane_across_grid_and_noise() {
                 let plane = &export.params.plane;
 
                 // Align to the GT sign (the S2 double cover: (n, d) ≡ (−n, −d)).
-                let mut n_est = plane.normal.into_inner();
-                let mut d_est = plane.distance;
+                let mut n_est = plane.normal().into_inner();
+                let mut d_est = plane.distance();
                 if n_est.dot(&n_gt) < 0.0 {
                     n_est = -n_est;
                     d_est = -d_est;
@@ -301,7 +301,7 @@ fn point_to_plane_residual_is_se3_invariant() {
             continue;
         }
         let d = uniform(&mut s, -2.0, 2.0);
-        let plane = LaserPlane::new(n, d);
+        let plane = LaserPlane::new((n).normalize(), d).unwrap();
         let p = Pt3::new(
             uniform(&mut s, -1.0, 1.0),
             uniform(&mut s, -1.0, 1.0),
@@ -355,8 +355,8 @@ fn plane_sign_flip_is_a_gauge() {
             uniform(&mut s, -1.0, 1.0),
             uniform(&mut s, -1.0, 1.0),
         );
-        let plane = LaserPlane::new(n, d);
-        let flipped = LaserPlane::new(-n, -d);
+        let plane = LaserPlane::new((n).normalize(), d).unwrap();
+        let flipped = LaserPlane::new((-n).normalize(), -d).unwrap();
         let a = plane.point_distance(&p);
         let b = flipped.point_distance(&p);
         assert!(

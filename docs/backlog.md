@@ -52,15 +52,6 @@ real-data demonstration.
 
 ## Correctness — CORRECT (Phase 1b)
 
-- [ ] CAL-LASERPLANE-UNIT - `LaserPlane`'s normal is a `Unit<Vector3>`
-  that nalgebra deserializes without renormalizing, and `LaserPlane::new`
-  normalizes the normal without rescaling the distance, which moves a plane
-  given with a non-unit normal. Only the joint solve's seed check (#256)
-  rejects such a plane; `RigLaserlineDeviceInput::initial_planes_cam`,
-  `PlaneManualInit` and the laser exports read back from JSON do not. Make
-  `LaserPlane` validate at construction and on deserialize (one fallible
-  constructor that divides both by the norm, or rejects), and drop the
-  per-call checks. Gate: a non-unit plane cannot be built or deserialized.
 - [ ] CAL-INIT-DEGENERATE - Planar initialization fails on a degenerate
   capture with `numerical failure: invalid sign for lambda; check
   homographies`, which tells the user nothing. The `capture_planning`
