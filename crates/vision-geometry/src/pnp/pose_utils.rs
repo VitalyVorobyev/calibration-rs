@@ -3,7 +3,7 @@
 //! Provides helper functions for computing camera poses from world-camera
 //! point correspondences, used by minimal solvers like P3P and EPnP.
 
-use crate::Error;
+use crate::GeometryError;
 use nalgebra::{Isometry3, Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{Iso3, Mat3, Pt3, Real, Vec3};
 
@@ -12,9 +12,9 @@ use vision_calibration_core::{Iso3, Mat3, Pt3, Real, Vec3};
 /// Uses the Kabsch algorithm (SVD-based rotation alignment followed by
 /// translation computation). Returns `T_C_W`: the transform from world
 /// coordinates to camera coordinates.
-pub(super) fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3, Error> {
+pub(super) fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3, GeometryError> {
     if world.len() != camera.len() || world.len() < 3 {
-        return Err(Error::invalid_input(
+        return Err(GeometryError::invalid_input(
             "degenerate 3d point configuration for normalization",
         ));
     }

@@ -10,6 +10,7 @@
 //! - [`epipolar`] — Fundamental and essential matrix estimation, decomposition
 //! - [`homography`] — Normalized DLT homography estimation with optional RANSAC
 //! - [`triangulation`] — N-view linear (DLT) triangulation from bearings
+//! - [`pnp`] — Perspective-n-Point pose solvers (DLT, EPnP, P3P, DLT + RANSAC)
 //! - [`camera_matrix`] — Camera projection matrix estimation and RQ decomposition
 //!
 //! # Coordinate Conventions
@@ -47,6 +48,7 @@ pub mod epipolar;
 pub mod error;
 pub mod homography;
 mod math;
+pub mod pnp;
 pub mod triangulation;
 
 // Items are reached through their owning module — `epipolar::fundamental_8point`,

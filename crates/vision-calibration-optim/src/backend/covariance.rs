@@ -322,8 +322,11 @@ pub(crate) fn estimate(
 ///
 /// # Errors
 ///
-/// [`Error::Numerical`] when `H` over `x` is not positive definite or a
-/// consider coordinate has no column.
+/// [`Error::Numerical`] when `H` over `x` is not positive definite.
+///
+/// A consider coordinate no residual depends on (a camera of the rig that
+/// observes nothing in this problem) has no column: the solution does not
+/// move with it and it adds nothing.
 pub(crate) fn consider_share(
     ir: &ProblemIR,
     params: &HashMap<String, DVector<f64>>,
@@ -333,14 +336,7 @@ pub(crate) fn consider_share(
 ) -> Result<(Vec<Coordinate>, DMatrix<f64>), Error> {
     debug_assert_eq!(sigma_c.nrows(), consider.len());
     let column = |c: &Coordinate| raw.columns[c.block].get(c.index).copied().flatten();
-    let c_cols = consider
-        .iter()
-        .map(|c| {
-            column(c).ok_or_else(|| {
-                Error::numerical(format!("consider coordinate {c:?} has no Jacobian column"))
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let c_cols: Vec<Option<usize>> = consider.iter().map(column).collect();
     let x: Vec<(Coordinate, usize)> = raw
         .columns
         .iter()
@@ -361,7 +357,9 @@ pub(crate) fn consider_share(
     let h = weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| moments.kappa(b));
     let h = dense_symmetric(&normal, &h, raw.jacobian.ncols());
     let h_xx = DMatrix::from_fn(x.len(), x.len(), |a, b| h[(x[a].1, x[b].1)]);
-    let h_xc = DMatrix::from_fn(x.len(), c_cols.len(), |a, b| h[(x[a].1, c_cols[b])]);
+    let h_xc = DMatrix::from_fn(x.len(), c_cols.len(), |a, b| {
+        c_cols[b].map_or(0.0, |col| h[(x[a].1, col)])
+    });
     let s = -h_xx
         .cholesky()
         .ok_or_else(|| Error::numerical("the Gauss–Newton matrix is not positive definite"))?

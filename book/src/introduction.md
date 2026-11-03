@@ -56,7 +56,7 @@ Readers familiar with OpenCV's calibration module will find analogous functional
 | OpenCV | calibration-rs |
 |--------|---------------|
 | `cv::calibrateCamera` | Planar intrinsics pipeline (Zhang init + bundle adjustment) |
-| `cv::solvePnP` | `PnpSolver::p3p()`, `PnpSolver::dlt()` |
+| `cv::solvePnP` | `pnp::p3p()`, `pnp::dlt()` |
 | `cv::findHomography` | `dlt_homography()`, `dlt_homography_ransac()` |
 | `cv::findFundamentalMat` | `fundamental_8point()` |
 | `cv::findEssentialMat` | `essential_5point()` |

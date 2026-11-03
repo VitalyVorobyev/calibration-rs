@@ -76,7 +76,7 @@ use vision_calibration_core::{
     compute_rig_target_residuals,
 };
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_bearings;
-use vision_calibration_linear::pnp::PnpSolver;
+use vision_geometry::pnp;
 
 mod next_view;
 pub use next_view::{
@@ -558,7 +558,7 @@ where
         let bearings: Vec<Vector3<f64>> = obs_2d.iter().map(|p| camera.bearing(p)).collect();
         estimate_planar_pose_from_bearings(&world2d, &bearings).ok()?
     } else {
-        PnpSolver::epnp(obs_3d, obs_2d, k).ok()?
+        pnp::epnp(obs_3d, obs_2d, k).ok()?
     };
     Some(refine_pose_only(camera, &seed, obs_3d, obs_2d))
 }

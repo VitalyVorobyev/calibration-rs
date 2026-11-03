@@ -5,7 +5,7 @@
 //! candidate poses that must be disambiguated.
 
 use super::pose_utils::pose_from_points;
-use crate::Error;
+use crate::GeometryError;
 use nalgebra::Vector3;
 use vision_calibration_core::linalg::solve_quartic_real;
 use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real};
@@ -31,19 +31,19 @@ fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if `world` and `image` are not both
-/// of length 3, or [`Error::Singular`] if the intrinsics `k` are
+/// Returns [`GeometryError::InvalidInput`] if `world` and `image` are not both
+/// of length 3, or [`GeometryError::Singular`] if the intrinsics `k` are
 /// non-invertible or the points are collinear (quartic has no real roots).
-pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>, Error> {
+pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>, GeometryError> {
     if world.len() != image.len() || world.len() != 3 {
-        return Err(Error::invalid_input(format!(
+        return Err(GeometryError::invalid_input(format!(
             "invalid number of correspondences: expected 3, got {}",
             world.len().max(image.len())
         )));
     }
 
     let kmtx: Mat3 = k.k_matrix();
-    let k_inv = kmtx.try_inverse().ok_or(Error::Singular)?;
+    let k_inv = kmtx.try_inverse().ok_or(GeometryError::Singular)?;
 
     let mut bearings = Vec::with_capacity(3);
     for pi in image {
@@ -56,7 +56,7 @@ pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>
     let c = (world[0] - world[1]).norm(); // AB
 
     if a <= Real::EPSILON || b <= Real::EPSILON || c <= Real::EPSILON {
-        return Err(Error::invalid_input(
+        return Err(GeometryError::invalid_input(
             "degenerate 3d point configuration for normalization",
         ));
     }
@@ -99,7 +99,7 @@ pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>
 
     let roots = solve_quartic_real(coeffs[4], coeffs[3], coeffs[2], coeffs[1], coeffs[0]);
     if roots.is_empty() {
-        return Err(Error::numerical(
+        return Err(GeometryError::numerical(
             "failed to solve the P3P polynomial system",
         ));
     }
@@ -137,7 +137,7 @@ pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>
     }
 
     if solutions.is_empty() {
-        return Err(Error::numerical(
+        return Err(GeometryError::numerical(
             "failed to solve the P3P polynomial system",
         ));
     }

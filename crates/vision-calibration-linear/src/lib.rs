@@ -12,18 +12,15 @@
 //! - Tilt-aware Scheimpflug planar intrinsics initialization
 //! - Equidistant (fisheye) planar intrinsics initialization from bearings
 //! - Planar pose from homography + intrinsics, or from bearing vectors
-//! - Camera pose (PnP): DLT, P3P, EPnP, and DLT-in-RANSAC
 //! - Multi-camera rig extrinsics and hand-eye calibration
 //! - Laserline plane estimation (SVD-based from ray-plane intersections)
 //!
 //! Two-view geometric solvers (homography, fundamental/essential matrix,
-//! camera matrix DLT and RQ decomposition, linear triangulation) now live in
-//! the `vision-geometry` crate.
+//! camera matrix DLT and RQ decomposition, linear triangulation) and the PnP
+//! pose solvers live in the `vision-geometry` crate.
 //!
 //! # Coordinate conventions
 //! - Most solvers accept **pixel coordinates** directly.
-//! - P3P/EPnP expect **calibrated** image points; these
-//!   functions take intrinsics or assume input is already normalized.
 //! - Pose outputs are `T_C_W`: transform from world/board coordinates into the
 //!   camera frame.
 //!
@@ -72,7 +69,6 @@ pub mod iterative_intrinsics;
 pub mod laserline;
 pub mod math;
 pub mod planar_pose;
-pub mod pnp;
 pub mod scheimpflug_init;
 pub mod zhang_intrinsics;
 

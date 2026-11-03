@@ -77,6 +77,13 @@ impl From<MathError> for GeometryError {
 }
 
 impl GeometryError {
+    /// Convenience constructor for [`GeometryError::InvalidInput`].
+    pub(crate) fn invalid_input(reason: impl Into<String>) -> Self {
+        Self::InvalidInput {
+            reason: reason.into(),
+        }
+    }
+
     /// Convenience constructor for [`GeometryError::Degenerate`].
     pub(crate) fn degenerate(reason: impl Into<String>) -> Self {
         Self::Degenerate {

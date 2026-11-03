@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **The PnP solvers moved to `vision-geometry`** (breaking, for users of
+  `vision-calibration-linear`). `vision_calibration_linear::pnp` is now
+  `vision_geometry::pnp`, with the crate's `GeometryError`; the facade's
+  `init::pnp` is unchanged. `PnpSolver`, a struct whose associated functions
+  repeated the free functions, is removed: call `pnp::dlt`, `pnp::p3p`,
+  `pnp::epnp` and `pnp::dlt_ransac` directly.
 - **`LaserPlane` is valid by construction** (breaking, `optim::LaserPlane`).
   `LaserPlane::new(normal, distance)` returns a `Result` and rejects a
   normal that is not of unit length (within `1e-9`) or a value that is not
@@ -21,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`mvg::pose`: the pose of a known object with its covariance.**
+  `estimate_pose` takes known object points with their pixels in one or
+  several rig cameras (each with its stated noise) and returns the pose in the
+  rig frame, the inliers and the 6x6 covariance of the pose
+  (`ObjectPose::pose_covariance`), the calibration's share included. The
+  closed-form start comes from the camera with the most observations; with
+  `PoseOptions::ransac` it is P3P inside a RANSAC whose threshold is in σ of
+  the stated noise (the same for every camera model); the refinement uses
+  every inlier of every camera.
 - **`mvg::metrology`: measurements with joint σ.** `PointSet` (points and their
   joint covariance, from `triangulate`, `bundle_adjust` or your own), then
   `distance`, `angle`, `fit_plane` and `point_to_plane`, each returning its
@@ -28,6 +43,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross terms included, by dual-number Jacobians. A plane fit carries the
   covariance of its normal (in a stated tangent basis) and distance, and
   `point_to_plane` is joint with the plane that it measures against.
+
+### Fixed
+
+- **EPnP** returned points behind the camera for some shallow objects (the
+  sign of its null vector was arbitrary); it now returns the pose with the
+  points ahead. Points on a plane (a calibration board) are solved from the
+  plane's homography, where the control-point formulation had no solution, and
+  collinear points are a `Degenerate` error.
+- **A rig's unobserved camera in a considered calibration.** Solving a problem
+  that adds a calibrated rig as consider parameters failed with a missing
+  Jacobian column when some camera of the rig had no observation in it; such a
+  camera now adds nothing to the covariance.
 
 ## [0.14.0] - 2026-11-03
 

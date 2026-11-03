@@ -14,6 +14,7 @@ already-calibrated cameras.
   and homography estimation
 - N-view triangulation of pixel tracks from a calibration, refined on stated pixel noise, with diagnostics and the points' covariance (the calibration's share included)
 - Measurements with σ: distances, angles, plane fits and point-to-plane distances over triangulated points, propagated through the points' joint covariance with dual numbers
+- Object pose from known 3D points seen by one or several rig cameras, with optional RANSAC in σ of the stated noise and the pose's covariance (the calibration's share included)
 - Bundle adjustment of capture poses and points from a calibration, with a stated gauge (capture 0 and a scale), robust losses and the joint covariance, the calibration as consider parameters or under a prior
 - Stereo from a calibration: rectification of two rig cameras of any model (raw pixels in), the disparity-to-depth matrix, points with the covariance of their disparity, and measurements that carry the calibration's uncertainty
 - Dense stereo: block matching and semi-global matching

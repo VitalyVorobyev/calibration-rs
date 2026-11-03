@@ -4,7 +4,7 @@
 //! homogeneous equations. The rotation matrix is projected onto SO(3)
 //! via SVD decomposition.
 
-use crate::Error;
+use crate::GeometryError;
 use crate::math::project_to_so3;
 use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::linalg::{mat34_from_vec, null_space};
@@ -20,16 +20,16 @@ use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 ///
 /// # Errors
 ///
-/// Returns [`Error::InsufficientData`] if fewer than 6 correspondences are given,
-/// [`Error::Singular`] if normalization or SVD fails.
-pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Error> {
+/// Returns [`GeometryError::InsufficientData`] if fewer than 6 correspondences are given,
+/// [`GeometryError::Singular`] if normalization or SVD fails.
+pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, GeometryError> {
     let n = world.len();
     if n < 6 || image.len() != n {
-        return Err(Error::InsufficientData { need: 6, got: n });
+        return Err(GeometryError::InsufficientData { need: 6, got: n });
     }
 
     let kmtx: Mat3 = k.k_matrix();
-    let k_inv = kmtx.try_inverse().ok_or(Error::Singular)?;
+    let k_inv = kmtx.try_inverse().ok_or(GeometryError::Singular)?;
 
     let mut cx = 0.0;
     let mut cy = 0.0;
@@ -53,7 +53,7 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Err
     }
     mean_dist /= n_real;
     if mean_dist <= Real::EPSILON {
-        return Err(Error::Singular);
+        return Err(GeometryError::Singular);
     }
 
     let scale = (3.0_f64).sqrt() / mean_dist;

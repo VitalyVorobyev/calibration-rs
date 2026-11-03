@@ -99,6 +99,8 @@ let (pose, inliers) = dlt_ransac(
 
 The DLT PnP solver uses `MIN_SAMPLES = 6` with RANSAC. P3P (`p3p()`) returns up to 4 candidates and is intended for manual disambiguation (e.g., using a 4th point), not as a RANSAC estimator.
 
+These solvers take pixels and a pinhole $K$ and return a pose without an uncertainty. For a pose from any camera model, RANSAC in units of the stated pixel noise and the covariance of the pose, see [Object Pose with Uncertainty](mvg_object_pose.md).
+
 ## Comparison
 
 | Solver | Min. points | Solutions | Strengths |

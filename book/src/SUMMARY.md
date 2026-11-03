@@ -66,6 +66,7 @@
 
 - [Multiple-View Geometry](mvg.md)
 - [Pose Recovery and Triangulation](mvg_pose.md)
+- [Object Pose with Uncertainty](mvg_object_pose.md)
 - [Bundle Adjustment](mvg_bundle_adjust.md)
 - [Measurements with Uncertainty](mvg_metrology.md)
 - [Stereo from a Calibration](mvg_rectification.md)

@@ -34,8 +34,6 @@ real-data demonstration.
   a residual of your own over a rotation and a unit-vector block. It returns
   the covariance of the relative pose (gauge |t| = 1) on the way, which
   MVG-TWO-VIEW lists.
-- [ ] MVG-PNP-COV - Object pose from PnP with its covariance, the
-  calibration's included (consider).
 - [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
   and the laser-plane covariance.
 - [ ] MVG-DENSE-COV - The calibration's share in a dense cloud's per-point

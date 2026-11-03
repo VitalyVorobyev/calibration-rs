@@ -40,36 +40,19 @@ Thresholds are intentionally loose for stable initialization.
 ## Coordinate Conventions
 
 - **Poses**: `T_C_W` (transform from world/board into camera frame)
-- **PnP solvers**: Accept pixel coordinates + intrinsics (normalize internally)
 
 ## Usage
 
 ```rust
-use vision_calibration_core::{FxFyCxCy, Iso3, Pt2, Pt3, RansacOptions};
-use vision_calibration_linear::pnp::PnpSolver;
+use nalgebra::{DMatrix, DVector};
+use vision_calibration_linear::math::ridge_lstsq;
 
 fn main() -> Result<(), vision_calibration_linear::Error> {
-    let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
-    // Twelve target points (target frame) and a camera 0.6 m away.
-    let world: Vec<Pt3> = (0..12)
-        .map(|i| Pt3::new(0.1 * f64::from(i % 4), 0.1 * f64::from(i / 4), 0.05 * f64::from(i * 7 % 5)))
-        .collect();
-    let truth = Iso3::translation(-0.15, -0.1, 0.6); // T_C_W
-    let image: Vec<Pt2> = world
-        .iter()
-        .map(|p| {
-            let c = truth * p;
-            Pt2::new(k.fx * c.x / c.z + k.cx, k.fy * c.y / c.z + k.cy)
-        })
-        .collect();
-
-    // Direct DLT (all points); the pose is T_C_W
-    let pose = PnpSolver::dlt(&world, &image, &k)?;
-    assert!((pose.translation.vector - truth.translation.vector).norm() < 1e-6);
-
-    // DLT inside RANSAC for outlier rejection (threshold in pixels)
-    let (_pose, inliers) = PnpSolver::dlt_ransac(&world, &image, &k, &RansacOptions::new(2.0))?;
-    assert_eq!(inliers.len(), world.len());
+    // Fit y = 2x + 1 through exact samples with the normal equations.
+    let a = DMatrix::from_fn(8, 2, |i, j| if j == 0 { i as f64 } else { 1.0 });
+    let b = DVector::from_fn(8, |i, _| 2.0 * i as f64 + 1.0);
+    let x = ridge_lstsq(&a, &b, 0.0)?;
+    assert!((x[0] - 2.0).abs() < 1e-9 && (x[1] - 1.0).abs() < 1e-9);
     Ok(())
 }
 ```
@@ -84,7 +67,6 @@ fn main() -> Result<(), vision_calibration_linear::Error> {
 | `iterative_intrinsics` | Iterative K + distortion estimation |
 | `distortion_fit` | Distortion from homography residuals |
 | `planar_pose` | Pose from homography + K, or from bearings |
-| `pnp` | DLT, P3P, EPnP, RANSAC |
 | `extrinsics` | Multi-camera rig initialization |
 | `handeye` | Tsai-Lenz hand-eye |
 | `laserline` | Laser plane estimation |
