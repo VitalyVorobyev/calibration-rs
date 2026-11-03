@@ -3390,7 +3390,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vision-calibration"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "calib-targets",
@@ -3410,7 +3410,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-bench"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3435,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-cli"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3449,7 +3449,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-core"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "nalgebra 0.34.2",
@@ -3463,7 +3463,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-dataset"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "schemars",
  "serde",
@@ -3477,7 +3477,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-detect"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "calib-targets",
  "image",
@@ -3491,7 +3491,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-linear"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "criterion",
  "log",
@@ -3505,7 +3505,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-optim"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "criterion",
  "factrs",
@@ -3525,7 +3525,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-pipeline"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "calib-targets",
@@ -3548,7 +3548,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-py"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "numpy",
@@ -3564,7 +3564,7 @@ dependencies = [
 
 [[package]]
 name = "vision-geometry"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "nalgebra 0.34.2",
  "thiserror 2.0.21",
@@ -3586,7 +3586,7 @@ dependencies = [
 
 [[package]]
 name = "vision-mvg"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "nalgebra 0.34.2",
  "thiserror 2.0.21",
