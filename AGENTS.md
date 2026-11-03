@@ -55,7 +55,7 @@ Run before opening a PR; CI runs the same:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
 cargo xtask check-docs                    # user-facing docs (§9)
 cargo xtask emit-schemas --check          # when config, input, export or suite-file types change
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration

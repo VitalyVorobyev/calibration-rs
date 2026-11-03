@@ -1,9 +1,9 @@
 //! Download an image entry's files from their publisher into a local cache.
 //!
-//! An entry's [`FetchSource`] (in `suite.toml`) says where the files are
-//! published; its fetch list (`fetch/<id>.sha256`, in `sha256sum` format)
-//! names every file the dataset manifest reads, by its path under the
-//! dataset root, with its SHA-256. [`fetch_entry`] downloads the files into
+//! An entry's [`FetchSource`](vision_calibration_dataset::samples::FetchSource)
+//! (in `suite.toml`) says where the files are published; its fetch list
+//! (`fetch/<id>.sha256`, in `sha256sum` format) names every file the dataset
+//! manifest reads, by its path under the dataset root, with its SHA-256. [`fetch_entry`] downloads the files into
 //! [`entry_dir`] and verifies each one; files already there and matching
 //! their checksum are not downloaded again. `suite freeze --images <cache>`
 //! then reads the entry's images from the cache instead of the manifest's
