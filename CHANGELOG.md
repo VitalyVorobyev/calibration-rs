@@ -23,6 +23,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the old message; `estimate_intrinsics_from_homographies`
   returns it in place of `Error::Numerical` and of the `Error::Singular` of
   an indefinite solution.
+- **`RunError::NoWholeChessboardViews` has an `ambiguous` count**
+  (breaking): the views of the camera dropped because the board's turn could
+  not be matched with the view's other cameras. Code that destructures the
+  variant names the new field, or ends the pattern with `..`.
+
+### Changed
+
+- **A rig keeps a chessboard seen turned.** In every rig topology the dataset
+  runner turns each camera's chessboard labels to agree with the other
+  cameras of the view, instead of dropping every view where the board is
+  seen turned by 90°. The labelling is picked from the board's direction in
+  each image and the cameras' relative turn, which the views they share
+  establish (the board's motion through both images tells a camera mounted
+  turned or upside down); a detection whose turn cannot be told is dropped
+  with the new reason `RejectReason::AmbiguousChessboardTurn` (Python
+  `"ambiguous_chessboard_turn"`). OpenCV's stereo sample, whose 6×9 board is
+  turned in most views, now calibrates as a rig from all 13 views instead of
+  4. Where the target is fixed through the views (hand-eye and the laser
+  rigs), the frame is the one camera 0 labels: a board camera 0 sees turned
+  is still dropped, and a camera that disagrees with camera 0 is turned to
+  agree. Data whose cameras already labelled alike gives the same input as
+  before.
+- A partial chessboard that also overflows the declared extent is now
+  dropped as `PartialChessboard` rather than `TurnedChessboard`.
+
+### Added
+
+- **Sample `opencv_stereo`**: both cameras of OpenCV's stereo calibration
+  sample (13 views of a 6×9 chessboard, 640×480, Apache-2.0), as a rig.
+- The `measure_board` examples (Rust and Python) take the sample to measure:
+  `opencv_fisheye_stereo` (the default) or `opencv_stereo`, a pinhole pair.
 
 ## [0.15.0] - 2026-11-03
 

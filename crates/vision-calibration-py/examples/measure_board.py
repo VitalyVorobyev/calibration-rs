@@ -3,16 +3,20 @@
 Python counterpart of:
 `crates/vision-calibration/examples/measure_board.rs`
 
-Calibrates the fisheye stereo pair of OpenCV's own test set on half of its
-views, triangulates the chessboard corners of the other half, and measures the
-distances between corners of a row or column. The board's squares are 24.4 mm,
-so every distance has a known truth, and the example compares the error with
-the sigma the library states, with and without the calibration's share in it.
+Calibrates a stereo sample on half of its views, triangulates the chessboard
+corners of the other half, and measures the distances between corners of a row
+or column. The board's squares have a known size, so every distance has a
+known truth, and the example compares the error with the sigma the library
+states, with and without the calibration's share in it.
 
-The sample is downloaded from its publisher on the first run (set
-`VISION_CALIBRATION_DATA` to choose the cache directory).
+Two samples can be measured: OpenCV's fisheye stereo test set (the default;
+24.4 mm squares, calibrated with a fisheye model) and OpenCV's pinhole stereo
+sample (`opencv_stereo`, whose square size is not published, so its lengths
+are in squares). The sample is downloaded from its publisher on the first run
+(set `VISION_CALIBRATION_DATA` to choose the cache directory).
 
     python measure_board.py
+    python measure_board.py opencv_stereo
 """
 
 from __future__ import annotations
@@ -27,6 +31,19 @@ import vision_calibration as vc
 from vision_calibration import dataset_runner, mvg, samples
 
 MAX_SQUARES = 7  # longest distance measured, in squares
+
+# The samples this example measures: the square size its manifest declares,
+# metres; the camera model it is calibrated with (None: the default pinhole
+# model with Brown-Conrady distortion); and the unit its lengths are printed
+# in, with metres per unit and decimals.
+SAMPLES = {
+    "opencv_fisheye_stereo": (
+        0.0244,
+        vc.CameraModelSpec(projection="equidistant", distortion="kannala_brandt4"),
+        ("mm", 1e-3, 3),
+    ),
+    "opencv_stereo": (1.0, None, ("squares", 1.0, 4)),
+}
 
 
 def without_calibration_share(result: vc.RigExtrinsicsExport) -> dict:
@@ -104,9 +121,12 @@ def summarize(views):
 
 
 def main() -> None:
-    # 1. The sample: 34 stereo views of a 6x8-corner chessboard, 24.4 mm squares.
-    manifest = samples.fetch("opencv_fisheye_stereo")
-    square = 0.0244
+    # 1. The sample: synchronised stereo views of a chessboard of known size.
+    sample = sys.argv[1] if len(sys.argv) > 1 else "opencv_fisheye_stereo"
+    if sample not in SAMPLES:
+        sys.exit(f"measure_board measures {' or '.join(SAMPLES)}, not {sample!r}")
+    square, model, (unit, unit_m, decimals) = SAMPLES[sample]
+    manifest = samples.fetch(sample)
     cache = vc.FsDetectionCache(manifest.parent / ".detections")
     run = dataset_runner.build_rig_extrinsics_input(manifest, cache=cache)
     print(f"{run.usable_views} of {run.total_views} views usable")
@@ -117,8 +137,7 @@ def main() -> None:
     calibration, held_out = views[0::2], views[1::2]
     print(f"{len(calibration)} calibration views, {len(held_out)} held out")
 
-    # 3. Calibrate the rig with the fisheye model (equidistant projection,
-    #    Kannala-Brandt distortion).
+    # 3. Calibrate the rig with the sample's camera model.
     def observation(camera):
         if camera is None:
             return None
@@ -134,7 +153,8 @@ def main() -> None:
         ],
     )
     config = vc.RigExtrinsicsConfig()
-    config.camera.model = vc.CameraModelSpec(projection="equidistant", distortion="kannala_brandt4")
+    if model is not None:
+        config.camera.model = model
     result = vc.run_rig_extrinsics(dataset, config)
     scatter = result.uncertainty.view_scatter
     print(
@@ -158,20 +178,22 @@ def main() -> None:
     plane_rms = np.mean([rms for _, rms in with_share])
     print(
         f"{len(with_share)} of {len(held_out)} held-out views measured "
-        f"(both cameras need the board); board planarity rms {plane_rms * 1e3:.3f} mm"
+        f"(both cameras need the board); board planarity rms "
+        f"{plane_rms / unit_m:.{decimals}f} {unit}"
     )
 
     # 5. Error against the sigma the library states, per length.
     full, only = summarize(with_share), summarize(without_share)
     print(
         "\nsquares  pairs  mean err   rms err  mean sigma   z rms | "
-        "sigma without calibration: mean sigma   z rms   (mm)"
+        f"sigma without calibration: mean sigma   z rms   ({unit})"
     )
+    p = decimals
     for k, (n, mean_err, rms_err, mean_sigma, z) in full.items():
         o = only[k]
         print(
-            f"{k:7}  {n:5}  {mean_err * 1e3:+8.3f}  {rms_err * 1e3:8.3f}  "
-            f"{mean_sigma * 1e3:10.3f}  {z:6.2f} | {o[3] * 1e3:41.3f}  {o[4]:6.2f}"
+            f"{k:7}  {n:5}  {mean_err / unit_m:+8.{p}f}  {rms_err / unit_m:8.{p}f}  "
+            f"{mean_sigma / unit_m:10.{p}f}  {z:6.2f} | {o[3] / unit_m:41.{p}f}  {o[4]:6.2f}"
         )
 
 

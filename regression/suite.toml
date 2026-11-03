@@ -73,6 +73,15 @@ source_url = "https://doi.org/10.15482/USDA.ADC/1340592"
 manifest = "../data/DS8/dataset.toml"
 fetch = { kind = "zip", url = "https://ndownloader.figshare.com/files/44531219", root = "DS8" }
 
+[[entry]]
+id = "opencv_stereo"
+description = "Rig extrinsics of OpenCV's pinhole stereo sample: 13 views of a 6x9 chessboard (squares of 1), turned by 90 degrees in most views, 640x480"
+licence = "Apache-2.0"
+citation = "OpenCV, samples/data/left01.jpg to left14.jpg and right01.jpg to right14.jpg. https://github.com/opencv/opencv"
+source_url = "https://github.com/opencv/opencv/tree/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data"
+manifest = "../data/opencv_stereo/dataset.toml"
+fetch = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data/" }
+
 # Fisheye entries: OpenCV's own fisheye test set, frozen from the corner
 # files OpenCV publishes with the images (`corners`), so calibration-rs and
 # OpenCV calibrate exactly the same points.

@@ -21,6 +21,14 @@ source_url = "https://github.com/opencv/opencv/tree/d195a5ad7eb52aafc3585e494a9a
 source = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data/" }
 
 [[sample]]
+id = "opencv_stereo"
+description = "Stereo rig: 13 synchronised views of a 6x9 chessboard, mostly turned by 90 degrees, OpenCV's stereo sample (640x480)"
+licence = "Apache-2.0"
+citation = "OpenCV, samples/data/left01.jpg to left14.jpg and right01.jpg to right14.jpg. https://github.com/opencv/opencv"
+source_url = "https://github.com/opencv/opencv/tree/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data"
+source = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data/" }
+
+[[sample]]
 id = "opencv_fisheye_stereo"
 description = "Fisheye stereo rig: 34 synchronised views of a 6x8 chessboard (24.4 mm), OpenCV's fisheye test set (1280x800); calibrate with the equidistant projection and Kannala-Brandt distortion"
 licence = "NOASSERTION"

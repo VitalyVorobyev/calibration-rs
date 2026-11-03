@@ -162,10 +162,18 @@ class _LaserAdapter:
         return np.ascontiguousarray(points.reshape(-1, 2))
 
 
-RejectReason = Literal["too_few_features", "partial_chessboard", "turned_chessboard", "other"]
+RejectReason = Literal[
+    "too_few_features",
+    "partial_chessboard",
+    "turned_chessboard",
+    "ambiguous_chessboard_turn",
+    "other",
+]
 """Why the runner left a detection out: fewer features than the per-view
-floor, or (where views share one target frame) a plain chessboard that does
-not reach every edge of the board or is seen turned by 90°."""
+floor, or, for a plain chessboard where views share one target frame, a
+board that does not reach every edge, a board seen turned by 90° where the
+target is fixed through the views (hand-eye), or a rig camera whose turn of
+the board cannot be matched with the view's other cameras."""
 
 
 @dataclass(frozen=True, slots=True)

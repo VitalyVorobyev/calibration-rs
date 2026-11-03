@@ -144,7 +144,14 @@ mod tests {
         let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
         assert_eq!(
             ids,
-            ["kuka_1", "stereo_left", "stereo_right", "stereo_rig", "ds8"]
+            [
+                "kuka_1",
+                "stereo_left",
+                "stereo_right",
+                "stereo_rig",
+                "ds8",
+                "opencv_stereo"
+            ]
         );
         let ds8 = &entries[4];
         assert_eq!(ds8.problem, ProblemKind::RigHandeye);

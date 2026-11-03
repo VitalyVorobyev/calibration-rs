@@ -394,10 +394,11 @@ mod tests {
                 camera_id,
                 partial,
                 turned,
+                ambiguous,
                 total,
             } => assert_eq!(
-                (camera_id.as_str(), partial, turned, total),
-                ("cam0", 1, 0, 2)
+                (camera_id.as_str(), partial, turned, ambiguous, total),
+                ("cam0", 1, 0, 0, 2)
             ),
             other => panic!("expected NoWholeChessboardViews, got {other:?}"),
         }
