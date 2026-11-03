@@ -37,7 +37,6 @@ real-data demonstration.
 - [ ] MVG-DENSE-COV - The calibration's share in a dense cloud's per-point
   covariance (today: disparity share; the calibrated σ goes through
   `StereoRectification::triangulate` for selected matches).
-- [ ] MVG-PY - Python bindings for the MVG surface.
 - [ ] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
   (a cross-repo change).
 - [ ] MVG-HANDEYE-FRAME - Laser and triangulated points in the gripper or

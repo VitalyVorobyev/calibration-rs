@@ -20,6 +20,7 @@ from . import (
     dataset_runner,
     detect,
     laserline_device,
+    mvg,
     planar_intrinsics,
     residuals,
     rig_extrinsics,

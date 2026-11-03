@@ -40,13 +40,14 @@ use crate::triangulation::Triangulation;
 use crate::{MvgError, Result};
 use nalgebra::{DMatrix, DVector, RealField, SMatrix, SVector, SymmetricEigen, Vector3};
 use num_dual::{DualDVec64, DualSVec64, gradient, jacobian};
+use serde::Serialize;
 use vision_calibration_core::{Mat3, Pt3, Real, Uncertainty, Vec3};
 
 /// The smallest scatter eigenvalue ratio below which points count as collinear.
 const COLLINEAR_RATIO: Real = 1e-12;
 
 /// A measured scalar and its standard deviation, in the measurement's unit.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[non_exhaustive]
 pub struct Scalar {
     /// The measured value.
@@ -418,7 +419,7 @@ impl PlaneFrame {
 
 /// A plane `n · x = d` (unit `n`, `d` in metres) fitted to points, with its
 /// covariance.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[non_exhaustive]
 pub struct PlaneFit {
     /// The unit normal, oriented so that `distance >= 0`.

@@ -20,7 +20,21 @@ let height = point_to_plane(&set, &board.indices, 49)?;
 println!("{:.4} m ± {:.4} m", length.value, length.sigma);
 ```
 
-`PointSet::new(points, covariance)` takes any points with a 3N × 3N covariance (rows ordered `x, y, z` per point), and `PointSet::independent` takes one 3 × 3 covariance per point when the errors are not correlated. `from_triangulation` and `from_bundle_adjustment` read the covariance out of the result and fail with an `InvalidInput` naming the point (and the reason, when the whole uncertainty is unavailable) if a point has none.
+```python
+from vision_calibration import mvg
+
+found = mvg.triangulate(result, np.eye(4), tracks)
+points = mvg.PointSet.from_triangulation(found)
+
+length = mvg.distance(points, 0, 7)                 # Scalar(value, sigma), metres
+corner = mvg.angle(points, 3, 0, 24)                # the angle at point 0, radians
+board = mvg.fit_plane(points, all_corners)          # normal, distance, covariance, rms
+height = mvg.point_to_plane(points, board, 49)
+
+print(f"{length.value:.4f} m ± {length.sigma:.4f} m")
+```
+
+`PointSet::new(points, covariance)` takes any points with a 3N × 3N covariance (rows ordered `x, y, z` per point), and `PointSet::independent` takes one 3 × 3 covariance per point when the errors are not correlated. `from_triangulation` and `from_bundle_adjustment` read the covariance out of the result and fail with an `InvalidInput` naming the point (and the reason, when the whole uncertainty is unavailable) if a point has none. In Python, `mvg.PointSet(points, covariance)` takes an `(N, 3)` array and a `(3N, 3N)` one, and `from_triangulation`, `from_laser_triangulation` and `from_bundle_adjustment` raise `ValueError` in the same cases.
 
 ## Why the Joint Covariance
 

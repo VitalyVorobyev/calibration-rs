@@ -76,6 +76,27 @@ A single `cam_se3_rig[i]` equals the relative pose only in the special case wher
 
 Pose recovery, triangulation, bundle adjustment and rectification all take the pixels as detected, through the rig's camera models.
 
+## In Python
+
+`vision_calibration.mvg` measures with a calibration. Each function takes the calibration **result** (what a `run_*` function or a session returns, or an export loaded as a dict) and builds the rig from it, so there is no rig object to construct. Poses are `4x4` numpy matrices with the same naming as above, and every σ and covariance is a numpy array:
+
+```python
+import numpy as np
+import vision_calibration as vc
+from vision_calibration import mvg
+
+noise = mvg.reprojection_noise(result, camera=0)
+tracks = [[mvg.RigObservation(0, 0, px0, noise), mvg.RigObservation(0, 1, px1, noise)]
+          for px0, px1 in pixel_pairs]
+found = mvg.triangulate(result, np.eye(4), tracks)
+length = mvg.distance(mvg.PointSet.from_triangulation(found), 0, 1)
+print(f"{length.value:.4f} m ± {length.sigma:.4f} m")
+```
+
+The chapters of this part show the Python call beside the Rust one. An input the caller can fix (an index out of range, too few matches, a calibration without a covariance where one is needed) raises `ValueError`; a degenerate geometry or a failed numerical step raises `RuntimeError`.
+
+The closed-form building blocks (the 5-point and 8-point solvers, the DLT homography and camera matrix, homography decomposition and transfer, the epipolar residuals) are Rust only: Python measures through the calibrated functions above, and numpy and OpenCV cover raw linear algebra.
+
 ## In the Desktop App
 
 The app's [Epipolar](app_inspect.md#epipolar) and [Depth](app_inspect.md#depth) workspaces run the same code on a calibrated rig export: epipolar lines between two cameras, and rectification plus dense matching with disparity, depth and point-cloud views.

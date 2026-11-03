@@ -24,6 +24,24 @@ let cov = adjusted.point_covariance(0); // Option<Mat3>, m²
 let pose = adjusted.pose_covariance(1); // Option<Matrix6>, capture 1
 ```
 
+```python
+import numpy as np
+from vision_calibration import mvg
+
+# rig_se3_world: (K, 4, 4) initial capture poses; points: (N, 3) initial points;
+# tracks[i] is a list of mvg.RigObservation of points[i].
+adjusted = mvg.bundle_adjust(result, rig_se3_world, points, tracks, scale="rig")
+# or fix the scale by a stated distance between points 0 and 1: 0.250 m, σ 0.1 mm
+adjusted = mvg.bundle_adjust(
+    result, rig_se3_world, points, tracks, scale=("distance", (0, 1), 0.250, 1e-4)
+)
+adjusted.reprojection_rms_px
+adjusted.point_covariance(0)    # (3, 3) in m², or None
+adjusted.pose_covariance(1)     # (6, 6), capture 1 (capture 0 is the gauge: None)
+```
+
+`calibration="consider"` (the default) or `"prior"`, `loss=vc.robust_huber(...)` and `max_iters` are the remaining options; the refined cameras are in `adjusted.cameras` and `adjusted.cam_se3_rig`.
+
 The observations are the ones [`triangulate`](mvg_pose.md) takes: `RigObservation::new(capture, camera, pixel, noise)`, grouped into tracks, with the noise of each pixel stated as a `PointCovariance`. A pixel is weighted by its covariance, and the stated noise is also what the result's covariance is built from. The result carries the refined `rig_se3_world` and `points`, the `rig` (the given one, or the refined one under a prior), the `uncertainty`, the solver's `report` and the RMS reprojection distance in pixels (`√2 σ` for isotropic noise of `σ` per axis).
 
 Everything is checked before any solve, and a mistake is an `MvgError::InvalidInput` naming the track, point or capture: points and tracks that do not pair up, a track with fewer than two observations, an index out of range, a non-finite start, fewer than two captures (or one capture seen by one camera, where there is nothing to adjust), and a gauge the data cannot fix.

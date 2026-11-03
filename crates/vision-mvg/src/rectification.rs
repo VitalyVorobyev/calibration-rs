@@ -38,6 +38,7 @@ use crate::dense::GrayImage;
 use crate::triangulation::{RigObservation, Triangulation, triangulate};
 use crate::{MvgError, Result};
 use nalgebra::Matrix4;
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CalibratedRig, CameraModel, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Vec3,
 };
@@ -68,7 +69,7 @@ impl Default for RectifyOptions {
 }
 
 /// A match on the rectified pair: the left rectified pixel and its disparity.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RectifiedMatch {
     /// The pixel in the rectified left image.
     pub left: Pt2,

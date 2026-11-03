@@ -13,10 +13,11 @@ use crate::triangulation::{ViewRay, triangulate_views, with_context};
 use crate::types::{EssentialMatrix, PixelMatch, TriangulatedPoint};
 use crate::{MvgError, Result};
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
+use serde::Serialize;
 use vision_calibration_core::{CalibratedRig, Iso3, Mat3, Real, Vec3};
 
 /// Result of relative pose recovery.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RelativePose {
     /// Pose of the first camera's frame in the second's (`second_se3_first`).
     ///

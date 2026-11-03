@@ -156,6 +156,26 @@ Labels are parameter names such as `"fx"`, `"k1"` or `"tilt_x"` (rig results
 prefix a camera, `"cam1.fx"`). The book's Uncertainty part explains how to read
 these numbers, the unavailable reasons and the rig caveats.
 
+## Multiple-view geometry
+
+`vision_calibration.mvg` measures with a calibration: it takes a calibration
+result and returns triangulated points, object poses, bundle adjustments and
+laser points with their covariance (the calibration's share included),
+distances, angles and plane fits with their σ, stereo rectification and dense
+block matching. Poses are `4x4` numpy matrices and every σ is a numpy array.
+
+```python
+import numpy as np
+from vision_calibration import mvg
+
+noise = mvg.reprojection_noise(result, camera=0)
+tracks = [[mvg.RigObservation(0, 0, px0, noise), mvg.RigObservation(0, 1, px1, noise)]
+          for px0, px1 in pixel_pairs]
+found = mvg.triangulate(result, np.eye(4), tracks)
+length = mvg.distance(mvg.PointSet.from_triangulation(found), 0, 1)
+print(f"{length.value:.4f} m +- {length.sigma:.4f} m")
+```
+
 ## Runnable Python examples
 
 Workflow examples live in `crates/vision-calibration-py/examples/` and mirror the

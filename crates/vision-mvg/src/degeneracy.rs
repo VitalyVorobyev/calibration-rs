@@ -8,6 +8,7 @@
 //! - **Poor baseline**: near-parallel rays produce unreliable depth
 
 use crate::types::TriangulatedPoint;
+use serde::Serialize;
 use vision_calibration_core::Real;
 
 /// Pure-rotation parallax threshold in degrees.
@@ -18,7 +19,7 @@ use vision_calibration_core::Real;
 const PURE_ROTATION_PARALLAX_DEG: Real = 0.1;
 
 /// Diagnostics about a two-view scene configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SceneDiagnostics {
     /// Median parallax angle in degrees across triangulated points.
     pub median_parallax_deg: Real,

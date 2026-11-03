@@ -35,6 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`vision_calibration.mvg`: the multiple-view geometry surface in Python.**
+  Triangulation, object pose, bundle adjustment, laser points, two-view
+  pose recovery, measurements (`PointSet`, `distance`, `angle`, `fit_plane`,
+  `point_to_plane`), stereo rectification and block matching take a
+  calibration result and return the Rust results with their covariances as
+  numpy arrays; poses are `4x4` matrices. The Rust MVG input types
+  (`PixelMatch`, `RigObservation`, `PoseObservation`, `LaserObservation`,
+  `RectifiedMatch`, `Scale`) now implement `Serialize` and `Deserialize`, and
+  the result types (`Triangulation`, `ObjectPose`, `RelativePose`,
+  `EssentialEstimate`, `RobustRelativePose`, `PlaneFit`, `Scalar`,
+  `LaserTriangulation` and their parts) implement `Serialize`.
 - **`mvg::laser`: laser points with their covariance.**
   `triangulate_laser` takes a `CalibratedRig` that carries each camera's laser
   plane and the laser pixels (each with its stated noise), and returns the

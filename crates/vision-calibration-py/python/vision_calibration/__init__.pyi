@@ -86,6 +86,7 @@ from . import dataset as dataset
 from . import dataset_runner as dataset_runner
 from . import detect as detect
 from . import laserline_device as laserline_device
+from . import mvg as mvg
 from . import planar_intrinsics as planar_intrinsics
 from . import residuals as residuals
 from . import rig_extrinsics as rig_extrinsics

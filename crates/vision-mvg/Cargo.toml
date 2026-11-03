@@ -19,6 +19,7 @@ vision-calibration-core = { workspace = true }
 vision-geometry = { workspace = true }
 vision-calibration-optim = { workspace = true }
 nalgebra = { workspace = true }
+serde = { workspace = true }
 num-dual = { workspace = true }
 thiserror = { workspace = true }
 

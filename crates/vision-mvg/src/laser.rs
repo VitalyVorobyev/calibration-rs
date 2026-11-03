@@ -35,6 +35,7 @@ use crate::bearing::{bearing, camera_model};
 use crate::triangulation::{sub_covariance, with_context};
 use crate::{MvgError, Result};
 use nalgebra::{DMatrix, Matrix2, Matrix3, Vector2, Vector3};
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CalibratedRig, Mat3, ParameterCovariance, PointCovariance, Pt2, Pt3, Real, Uncertainty,
     UncertaintyUnavailable,
@@ -51,7 +52,7 @@ const MAX_STEPS: usize = 5;
 const MIN_INCIDENCE_SINE: Real = 1e-9;
 
 /// One pixel of the laser line, seen by rig camera `camera`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LaserObservation {
     /// Index of the rig camera that saw the line; it needs a laser plane
     /// ([`CalibratedRig::with_laser_planes`]).
@@ -75,7 +76,7 @@ impl LaserObservation {
 }
 
 /// A 3D point of the laser line.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct LaserPoint {
     /// The point in the rig frame, metres.
     pub point: Pt3,
@@ -88,7 +89,7 @@ pub struct LaserPoint {
 }
 
 /// The points of one [`triangulate_laser`] call and their joint uncertainty.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct LaserTriangulation {
     /// One point per observation, in the rig frame.
