@@ -234,6 +234,7 @@ pub(super) fn compile(
         let slots = residual.factor.param_layout();
         let n_cam = match &residual.factor {
             FactorKind::ReprojPoint { model, .. }
+            | FactorKind::ReprojFreePoint { model, .. }
             | FactorKind::LaserPointToPlane { model, .. }
             | FactorKind::LaserLineDistance { model, .. } => model.num_cam_blocks(),
             FactorKind::Se3TangentPrior { .. } => 0,

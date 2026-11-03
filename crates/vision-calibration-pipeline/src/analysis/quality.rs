@@ -502,6 +502,11 @@ fn observability(uncertainty: &Uncertainty) -> QualityCheck {
             UncertaintyUnavailable::NotComputed => {
                 QualityCheck::not_applicable(kind, None, "the result carries no uncertainty")
             }
+            UncertaintyUnavailable::CalibrationWithoutCovariance => QualityCheck::not_applicable(
+                kind,
+                None,
+                "the result depends on a calibration without covariance",
+            ),
         },
     }
 }
@@ -914,6 +919,9 @@ fn no_covariance(uncertainty: &Uncertainty) -> String {
         UncertaintyUnavailable::AtBound { .. } => "a parameter ended on a bound",
         UncertaintyUnavailable::NoRedundancy => "there is no redundancy",
         UncertaintyUnavailable::NotComputed => "none was computed",
+        UncertaintyUnavailable::CalibrationWithoutCovariance => {
+            "the calibration it depends on has none"
+        }
     };
     format!("the result has no parameter covariance: {why}")
 }

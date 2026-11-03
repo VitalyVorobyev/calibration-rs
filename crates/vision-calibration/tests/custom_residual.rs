@@ -17,7 +17,8 @@ use vision_calibration::mvg::dlt_homography;
 use vision_calibration::nalgebra::{DVector, RealField};
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::{
-    BlockId, CameraId, Noise, Problem, Residual, Solution, SolveOptions, se3, solve,
+    BlockId, CameraId, Noise, PixelNoise, PoseChain, Problem, Residual, Solution, SolveOptions,
+    TargetPoint, se3, solve,
 };
 
 /// A measured distance from the camera centre to the board's origin: the
@@ -80,7 +81,14 @@ fn refine(
         let pose = problem.add_pose(format!("view{v}"), pose).unwrap();
         for (point, pixel) in board.iter().zip(pixels) {
             problem
-                .add_reprojection(cam, pose, *point, *pixel, RobustLoss::None)
+                .add_reprojection(
+                    cam,
+                    PoseChain::Pose(pose),
+                    TargetPoint::Known(*point),
+                    *pixel,
+                    PixelNoise::Estimated,
+                    RobustLoss::None,
+                )
                 .unwrap();
         }
         blocks.push(pose);

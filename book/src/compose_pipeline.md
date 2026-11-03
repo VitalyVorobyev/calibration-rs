@@ -68,29 +68,93 @@ has its own pose block:
 ```rust
 use vision_calibration::core::{CameraFix, pinhole_camera_params};
 use vision_calibration::optim::RobustLoss;
-use vision_calibration::optim::problem::{Problem, SolveOptions, solve};
+use vision_calibration::optim::problem::{
+    PixelNoise, PoseChain, Problem, SolveOptions, TargetPoint, solve,
+};
 
 let mut problem = Problem::new();
 let cam = problem.add_camera(&pinhole_camera_params(&start), &CameraFix::default())?;
 for (v, (pose, pixels)) in board_poses.iter().zip(&board_pixels).enumerate() {
     let pose = problem.add_pose(format!("view{v}"), pose)?;
     for (point, pixel) in board.iter().zip(pixels) {
-        problem.add_reprojection(cam, pose, *point, *pixel, RobustLoss::None)?;
+        problem.add_reprojection(
+            cam,
+            PoseChain::Pose(pose),
+            TargetPoint::Known(*point),
+            *pixel,
+            PixelNoise::Estimated,
+            RobustLoss::None,
+        )?;
     }
 }
 let part = problem.add_pose("part", &part_start)?;
 for (point, pixel) in fiducials.iter().zip(&part_pixels) {
-    problem.add_reprojection(cam, part, *point, *pixel, RobustLoss::None)?;
+    problem.add_reprojection(
+        cam,
+        PoseChain::Pose(part),
+        TargetPoint::Known(*point),
+        *pixel,
+        PixelNoise::Estimated,
+        RobustLoss::None,
+    )?;
 }
 
 let solution = solve(&problem, &SolveOptions::default())?;
 let camera_se3_part = solution.pose(part).unwrap();
 ```
 
+Each reprojection names how its point reaches the camera (`PoseChain`:
+one pose, or a camera of a rig), the point (`TargetPoint`: a known point
+such as a board corner, or a block being estimated) and the pixel's noise
+(`PixelNoise`: estimated from the scatter of the problem's reprojections,
+or a stated covariance).
+
 The board pixels determine the camera. The part's pixels determine its
 pose through that camera. Its covariance block then holds both sources:
 the noise of the part's own pixels, and the uncertainty of the camera,
 which comes from the board pixels.
+
+## A calibration you have as a result
+
+A calibration's result carries its cameras and their covariance, without
+the board pixels it came from. `add_calibrated_rig` adds it to a problem
+with that covariance:
+
+```rust
+use vision_calibration::core::CalibratedRig;
+use vision_calibration::optim::problem::Use;
+
+let rig: CalibratedRig = export.calibrated_rig()?;
+let mut problem = Problem::new();
+let blocks = problem.add_calibrated_rig(&rig, Use::Consider)?;
+let part = problem.add_pose("part", &part_start)?;
+for (point, pixel) in fiducials.iter().zip(&part_pixels) {
+    problem.add_reprojection(
+        blocks.camera(0).unwrap(),
+        PoseChain::Pose(part),
+        TargetPoint::Known(*point),
+        *pixel,
+        PixelNoise::Estimated,
+        RobustLoss::None,
+    )?;
+}
+let solution = solve(&problem, &SolveOptions::default())?;
+```
+
+Every calibration result has `calibrated_rig()`. The calibration enters in
+one of two ways:
+- **`Use::Consider`**: the cameras stay fixed at their calibrated values,
+  so the estimate is the one a fixed camera gives. The covariance adds the
+  calibration's share, `S Σ_c Sᵀ`, with `Σ_c` the calibration's covariance
+  and `S` how the estimate moves with the calibration. This is the use for
+  a measurement.
+- **`Use::Prior`**: the cameras are free, held by a prior with the
+  calibration's covariance, so the new observations refine them too. The
+  prior is weighed by its covariance, so every pixel's noise is stated
+  (`PixelNoise::Stated`).
+
+For a rig of several cameras, `blocks.chain(camera, rig_se3_target)` is the
+chain from a target posed in the rig frame to one camera.
 
 ## The measurement's σ
 
@@ -112,24 +176,24 @@ the part's image, the depth's σ was:
 | | stated σ(depth) | actual scatter / stated σ |
 |---|---|---|
 | one problem, as above | 2.53 mm | 0.91 |
+| calibrate first, then measure with `Use::Consider` | 2.54 mm | 0.91 |
 | calibrate first, then measure with the camera fixed | 0.91 mm | 2.52 |
 
-The depth estimates are nearly the same both ways and scatter by 2.3 mm. Only the
-stated σ differs.
+The depth estimates are nearly the same every way and scatter by 2.3 mm.
+Only the stated σ differs.
 
 A camera held fixed is treated as exact, so the σ counts only the part's
 16 pixel coordinates. At half a metre, the calibration's uncertainty in the
 focal length dominates: the depth scales with it. Fixing the camera states
 σ about 2.5 times too small.
 
-## When to solve jointly
+## Measuring well
 
-- **Several measurements with one calibration.** Put them all in the
+- **Several measurements with one calibration.** Put them all in one
   problem. Their covariance then includes the correlation that the shared
-  camera induces between them.
-- **The calibration's observations are needed.** A camera that you have
-  only as a result, its values and covariance, cannot enter a problem
-  with that covariance. Fixed, it gives the understated σ above.
+  calibration induces between them; two separate solves lose it.
+- **A calibration as a result.** Add it with `Use::Consider`, not as a
+  fixed camera: fixed, it gives the understated σ above.
 - **Outliers.** A measurement image with false detections takes a robust
   loss on its reprojections (see [Robust Loss Functions](robust_loss.md)).
 

@@ -67,7 +67,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         env:
           RUSTDOCFLAGS: "-D warnings"
-        run: cargo doc --no-deps --workspace
+        run: cargo doc --no-deps --workspace --all-features
 
   msrv:
     name: MSRV (1.93)

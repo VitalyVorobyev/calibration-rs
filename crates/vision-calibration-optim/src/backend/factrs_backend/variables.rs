@@ -4,7 +4,8 @@
 //!   `VectorVar<N>`;
 //! - an SE3 block is a factrs [`SE3`];
 //! - a laser plane (unit normal ⊕ distance) is a [`PlaneVar`];
-//! - a robot-pose correction is a `VectorVar<6>`.
+//! - a robot-pose correction is a `VectorVar<6>`, an estimated point a
+//!   `VectorVar<3>`.
 
 use std::fmt;
 
@@ -15,16 +16,20 @@ use nalgebra::DVector;
 
 use crate::backend::s2;
 
-/// Dimensions a fused vector variable may take: the camera models' sizes
-/// (`4 + projection + distortion + sensor`, every one from 4 to 15) and the
-/// 6-D robot-pose correction.
-pub(super) const VECTOR_DIMS: [usize; 12] = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+/// Dimensions a vector variable may take: a 3-D point, the camera models'
+/// sizes (`4 + projection + distortion + sensor`, every one from 4 to 15)
+/// and the 6-D robot-pose correction.
+pub(super) const VECTOR_DIMS: [usize; 13] = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 /// Run `$body` with `$N` bound to the `usize` constant equal to `$n`, one of
 /// [`VECTOR_DIMS`]; `$fallback` handles any other value.
 macro_rules! with_vector_dim {
     ($n:expr, $N:ident => $body:expr, _ => $fallback:expr) => {
         match $n {
+            3 => {
+                const $N: usize = 3;
+                $body
+            }
             4 => {
                 const $N: usize = 4;
                 $body

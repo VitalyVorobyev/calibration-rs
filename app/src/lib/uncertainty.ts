@@ -92,6 +92,8 @@ export function unavailableText(reason: UncertaintyUnavailable): string {
       return "There are no more observations than estimated parameters.";
     case "not_computed":
       return "The export was written without uncertainty.";
+    case "calibration_without_covariance":
+      return "The calibration this result depends on has no covariance.";
   }
 }
 

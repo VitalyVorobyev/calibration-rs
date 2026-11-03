@@ -111,6 +111,15 @@ pub(crate) fn reproj_chain_transform<T: RealField>(
         T::from_f64(pw[1]).unwrap(),
         T::from_f64(pw[2]).unwrap(),
     );
+    chain_transform(chain, blocks, pw_t)
+}
+
+/// [`reproj_chain_transform`] of a point at any scalar type.
+fn chain_transform<T: RealField>(
+    chain: &ReprojChain,
+    blocks: &[DVector<T>],
+    pw_t: Vector3<T>,
+) -> Vector3<T> {
     match chain {
         ReprojChain::SinglePose => {
             debug_assert!(blocks.len() == 1, "SinglePose chain expects 1 block");
@@ -123,6 +132,13 @@ pub(crate) fn reproj_chain_transform<T: RealField>(
             let (pose_q, pose_t) = se3_from_block(&blocks[1]);
             let p_rig = pose_q.transform_vector(&pw_t) + pose_t;
             extr_q.inverse_transform_vector(&(p_rig - extr_t))
+        }
+        ReprojChain::Rig => {
+            debug_assert!(blocks.len() == 2, "Rig chain expects 2 blocks");
+            let (cam_q, cam_t) = se3_from_block(&blocks[0]);
+            let (rig_q, rig_t) = se3_from_block(&blocks[1]);
+            let p_rig = rig_q.transform_vector(&pw_t) + rig_t;
+            cam_q.transform_vector(&p_rig) + cam_t
         }
         ReprojChain::Handeye {
             base_se3_gripper,
@@ -202,6 +218,29 @@ pub(crate) fn reproj_residual<T: RealField>(
     let p_camera = reproj_chain_transform(chain, chain_blocks, pw);
     let (u_proj, v_proj) = camera.project(&p_camera);
 
+    let u_meas = T::from_f64(uv[0]).unwrap();
+    let v_meas = T::from_f64(uv[1]).unwrap();
+    let [r0, r1] = sqrt_info.apply(u_meas - u_proj, v_meas - v_proj);
+    SVector::<T, 2>::new(r0, r1)
+}
+
+/// Reprojection residual of a point that is a parameter block: `params` is
+/// the camera blocks of `model`, the chain blocks, then the point
+/// `[x, y, z]` in the target frame.
+pub(crate) fn reproj_free_point_residual<T: RealField>(
+    model: CameraModelSpec,
+    chain: &ReprojChain,
+    params: &[DVector<T>],
+    uv: [f64; 2],
+    sqrt_info: &ReprojSqrtInfo,
+) -> SVector<T, 2> {
+    let (camera, blocks) = CameraBlocks::split(model, params);
+    let (point, chain_blocks) = blocks
+        .split_last()
+        .expect("a free-point reprojection ends with its point block");
+    let pw_t = Vector3::new(point[0].clone(), point[1].clone(), point[2].clone());
+    let p_camera = chain_transform(chain, chain_blocks, pw_t);
+    let (u_proj, v_proj) = camera.project(&p_camera);
     let u_meas = T::from_f64(uv[0]).unwrap();
     let v_meas = T::from_f64(uv[1]).unwrap();
     let [r0, r1] = sqrt_info.apply(u_meas - u_proj, v_meas - v_proj);

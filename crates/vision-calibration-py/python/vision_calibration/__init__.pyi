@@ -39,8 +39,10 @@ from .models import (
     QualityReport,
     QualityThresholds,
     CandidateGrid,
+    PredictedRigUncertainty,
     PredictedUncertainty,
     RankedCandidate,
+    RankedRobotPose,
     PlanarIntrinsicsExport,
     PlanarIntrinsicsInput,
     PlanarView,
@@ -270,6 +272,22 @@ def rank_candidates(
     target_points: Sequence[Sequence[float]],
     image_size: tuple[int, int],
 ) -> list[RankedCandidate]: ...
+
+
+def predict_with_robot_poses(
+    result: RigHandeyeExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Sequence[float]],
+    image_sizes: Sequence[tuple[int, int]],
+) -> PredictedRigUncertainty: ...
+
+
+def rank_robot_poses(
+    result: RigHandeyeExport | Mapping[str, Any],
+    candidates: Sequence[Pose | Mapping[str, Any]],
+    target_points: Sequence[Sequence[float]],
+    image_sizes: Sequence[tuple[int, int]],
+) -> list[RankedRobotPose]: ...
 
 
 def candidate_poses(

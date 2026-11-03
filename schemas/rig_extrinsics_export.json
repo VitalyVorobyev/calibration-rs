@@ -1200,6 +1200,19 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "The result depends on a calibration that has no covariance, so a\ncovariance from the result's own observations would leave out the\ncalibration's share.",
+          "properties": {
+            "kind": {
+              "const": "calibration_without_covariance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
