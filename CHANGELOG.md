@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-03
+
 ### Migration
 
 - **Calibrated two-view functions take pixels with their noise** (breaking, in
@@ -350,122 +352,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each crate's README says which crate a reader wants: the facade, unless
   they need one building block on its own.
 
-## [0.12.0] - 2026-11-02
-
-Minor release: Kannala-Brandt fisheye cameras calibrate in every workflow
-and agree with OpenCV's `fisheye` module on its own test set, and stated
-uncertainties match real-image scatter. Breaking: the camera-model enums
-are `#[non_exhaustive]`, seeds and the planar init result take the camera's
-own model, and Python has one `Camera` class. Calibration estimates of
-existing models are unchanged; their reported uncertainties change.
-
-### Migration
-
-- **Python: one `Camera` class.** `PinholeCamera` and
-  `PinholeScheimpflugCamera` are replaced by `Camera(intrinsics, distortion,
-  projection=PinholeProjection(), sensor=IdentitySensor())`, which carries
-  any model per slot. Results report every camera as a `Camera`; check
-  `camera.sensor` (`IdentitySensor` or `ScheimpflugSensor`) where code
-  tested the class.
-
-- **Planar intrinsics: `IntrinsicsInitResult` is `{ camera, poses }`**, as
-  in the other workflows: `camera` is the initial `CameraParams` in the
-  configured model, replacing the `intrinsics`, Brown-Conrady `distortion`
-  and `sensor` fields (`init.camera.intrinsics.fx` for
-  `init.intrinsics.fx`). Python's `planar_intrinsics.IntrinsicsInitResult`
-  likewise carries a `Camera`.
-
-- **The camera-model enums are `#[non_exhaustive]`**: `ProjectionKind`,
-  `DistortionKind`, `SensorKind`, `ProjectionParams`, `DistortionParams`
-  and `SensorParams`. New models can then arrive in a minor release; a
-  `match` on one of them needs a wildcard arm.
-
-- **Distortion seeds are values in the camera's own model.**
-  `IntrinsicsManualInit::distortion`, `DeviceManualInit::distortion` and the
-  rig seeds' `per_cam_distortion` hold `DistortionParams` (they were
-  `BrownConrady5`), and a seed's kind must equal the camera's configured
-  `model.distortion`: another kind is an `InvalidInput` naming the field,
-  raised before any work. A seed is used as given, no longer embedded into
-  another model, so a Kannala-Brandt seed now works on a fisheye camera.
-  Rust: `seed.distortion = Some(DistortionParams::BrownConrady5 { params })`.
-  Python: the seed fields take any `Distortion` dataclass
-  (`vc.BrownConradyDistortion(...)`, `vc.KannalaBrandt4Distortion(...)`);
-  JSON seeds carry the tag, `{"type": "brown_conrady5", "k1": ...}`.
-
-### Added
-
-- `vision_calibration::optim::LaserlineResidualType`, the type of the laser
-  workflows' `laser_residual_type` config field (a fisheye camera takes
-  `PointToPlane`).
-- **Fisheye camera model.** `ProjectionKind::Equidistant` (the normalized
-  radius is the incidence angle, so rays beyond 90° project) and
-  `DistortionKind::KannalaBrandt4` (`r_d = r (1 + k1 r² + … + k4 r⁸)`).
-  Together they are the Kannala-Brandt model of OpenCV's `fisheye` module.
-  Python: `EquidistantProjection`, `KannalaBrandt4Distortion`;
-  `CameraModel` projects and back-projects such cameras.
-  - Every workflow that calibrates a camera calibrates an equidistant one
-    from scratch, a rig per camera. Its linear stage is a new
-    bearing-based initializer instead of Zhang's method: no focal length
-    or image size is needed. On OpenCV's own fisheye test set it lands
-    within 0.3 % of OpenCV's focal length and about 1 px of its principal
-    point before refinement.
-  - `vision-calibration-linear` has the pieces:
-    `equidistant_init::estimate_equidistant_intrinsics` (focal length,
-    principal point, `k1`, `k2` and poses from planar views) and
-    `planar_pose::estimate_planar_pose_from_bearings` (a board pose from
-    any central camera's bearings, including points beyond 90°).
-  - The analysis tools handle rays at and beyond 90° from the axis:
-    projection uncertainty, `view_information`, next-view candidates and
-    ranking, and the per-view pose of the reprojection report (now seeded
-    from the camera's bearings instead of a pinhole homography).
-  - Configuration errors: an equidistant camera with a Scheimpflug
-    sensor, and the `LineDistNormalized` laser
-    residual on a projection that bends lines (use `PointToPlane`).
-- Each camera-model slot converts to and from its values in
-  `param_names()` order: `ProjectionParams`, `DistortionParams` and
-  `SensorParams` have `kind()`, `values()` and `from_values(kind, &values)`,
-  and `DistortionParams::with_values` replaces the coefficients but keeps
-  the model's settings. `CameraParams::blocks()` gives all four slots'
-  values (intrinsics, projection, distortion, sensor). `ProjectionKind::ALL`,
-  `DistortionKind::ALL` and `SensorKind::ALL` list the supported models.
-- **Fisheye comparison with OpenCV.** The regression suite has
-  `opencv_fisheye_left`, `opencv_fisheye_right` and `opencv_fisheye_stereo`,
-  OpenCV's own fisheye stereo test set (34 pairs, 1280×800), frozen from the
-  corners OpenCV publishes with it: a suite entry can name a publisher's
-  `cv::FileStorage` corner files under `corners`, fetched and checksummed
-  like images. calibration-rs and `cv::fisheye::calibrate` /
-  `stereoCalibrate` agree within 0.01σ. The book walks through the
-  calibration, and the `fisheye_opencv` example runs it. The solver
-  benchmark's scene matrix has a fisheye camera for every problem type,
-  laser workflows included, tested against its ground truth on both
-  solver backends.
-
-### Changed
-
-- **`view_scatter` is measured by leaving out one view at a time, and set
-  only when it is significant.** Estimates are unchanged; reported
-  uncertainties change.
-  - The old measure was biased low when a few views carry most of the
-    information. On the public real-image cameras, calibrations from
-    disjoint halves of the views still differed by 1.4–3.4 times the
-    stated variance; now they differ by 0.7–1.5 times, 1.0 on average.
-  - On real images `view_scatter`, and with it the covariance, grows by
-    about 10–40 %.
-  - On data that fit the noise model, `view_scatter` is now `None` and the
-    covariance unscaled. Before, it was scaled whenever the noisy measure
-    exceeded 1. It is `None` whenever the excess is within the measure's
-    own sampling noise.
-
-### Fixed
-
-- The factrs backend panicked on a Kannala-Brandt camera, whose parameter
-  block has a size it had no variable for. It now covers every camera
-  model, and an unsupported block size is an error, not a panic.
-
 ## Older releases
 
 Earlier releases are archived verbatim under [`docs/changelog/`](docs/changelog/), one file per version:
 
+- [`0.12.0`](docs/changelog/0.12.0.md) - 2026-11-02
 - [`0.11.0`](docs/changelog/0.11.0.md) - 2026-11-01
 - [`0.10.0`](docs/changelog/0.10.0.md) - 2026-10-31
 - [`0.9.0`](docs/changelog/0.9.0.md) - 2026-09-29
