@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`rig_handeye_laserline` takes one camera**: a single laser head on a
+  robot, calibrated as a rig of one, with its camera, laser plane and
+  hand-eye in one solve. Its `rig_handeye` warm start accepts one camera for
+  this, and the dataset manifest's `rig_handeye_laserline` topology takes one
+  or more. Zero cameras is still `InsufficientData`.
+
 - `core::CalibratedRig` is a calibration as a value: the cameras, each
   camera's `cam_se3_rig` and the joint parameter uncertainty. Every export
   with cameras produces one with `CalibratedCameras::calibrated_rig`, and

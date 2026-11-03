@@ -729,7 +729,7 @@
       "type": "array"
     },
     "cameras": {
-      "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (a single-camera topology requires exactly\none entry, a rig topology at least two).",
+      "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (a single-camera topology requires exactly\none entry, a rig topology at least two, `rig_handeye_laserline` at\nleast one).",
       "items": {
         "$ref": "#/$defs/CameraSource"
       },

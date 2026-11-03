@@ -50,7 +50,7 @@ Paths are relative to the directory that holds the manifest unless they are abso
 | `rig_extrinsics` | `RigExtrinsicsProblem` | 2 or more | no | no |
 | `rig_handeye` | `RigHandeyeProblem` | 2 or more | required | no |
 | `rig_laserline_device` | `RigLaserlineDeviceProblem` | 2 or more | required | required |
-| `rig_handeye_laserline` | `RigHandeyeLaserlineProblem` | 2 or more | required | required |
+| `rig_handeye_laserline` | `RigHandeyeLaserlineProblem` | 1 or more | required | required |
 
 A field that the topology does not use is an error, not something silently ignored: `laser`, `upstream_calibration` and per-camera `laser_images` are rejected on the non-laser topologies, and `upstream_calibration` is also rejected on `laserline_device` and `rig_handeye_laserline`, which calibrate their own upstream geometry. `rig_laserline_device` is a second stage that needs `upstream_calibration`, the path to a frozen rig hand-eye export; see [Laser Datasets](manifest_laser.md).
 

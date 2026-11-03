@@ -348,7 +348,8 @@ class _DatasetSpecRequired(TypedDict):
     cameras: list[CameraSource]
     """Per-camera image sources. Length must match the topology's
     expected camera count (a single-camera topology requires exactly
-    one entry, a rig topology at least two).
+    one entry, a rig topology at least two, `rig_handeye_laserline` at
+    least one).
     """
 
     target: TargetSpec

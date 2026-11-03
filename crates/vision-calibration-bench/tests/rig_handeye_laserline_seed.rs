@@ -3,7 +3,8 @@
 //! seed is `run_calibration`, a rig hand-eye warm start computed separately
 //! reproduces it bit for bit, seeded laser planes recover the truth within
 //! the unseeded bounds, and a seed that does not fit the input or the config
-//! is an `InvalidInput` raised before any solve.
+//! is an `InvalidInput` raised before any solve. With one camera of the rig
+//! (a triangulation head) the solve recovers that camera's truth.
 
 use nalgebra::{Rotation3, Vector3};
 use vision_calibration::Error;
@@ -258,4 +259,58 @@ fn a_seed_that_does_not_fit_is_invalid_input_before_any_solve() {
     };
     assert!(reason.contains("camera 0"), "{reason}");
     assert!(!s.has_output());
+}
+
+/// `f` with only camera 0 and its laser: one camera carrying its laser on a
+/// robot. Camera 0 is the rig frame, so the truth's hand-eye is that camera's.
+fn head(f: &Fixture) -> Fixture {
+    let mut input = f.input.clone();
+    input.num_cameras = 1;
+    for v in &mut input.views {
+        v.obs.cameras.truncate(1);
+        v.obs.laser_pixels.truncate(1);
+    }
+    let mut truth = f.truth.clone();
+    truth.cameras.truncate(1);
+    truth.cam_se3_rig.truncate(1);
+    truth.planes_cam.truncate(1);
+    Fixture {
+        input,
+        config: f.config.clone(),
+        truth,
+    }
+}
+
+#[test]
+fn one_camera_carrying_its_laser_recovers_its_truth() {
+    let f = head(&fixture());
+    let mut s = session(&f);
+    run_calibration(&mut s).unwrap();
+    let export = s.export().unwrap();
+    assert_eq!(export.cameras.len(), 1);
+    assert_eq!(export.laser_planes_cam.len(), 1);
+    assert_recovers_truth(&f, &export);
+
+    // A seeded warm start: the one-camera rig hand-eye, and a design plane.
+    let staged = seeded(
+        &f,
+        seed(
+            Some(rig_handeye_warm_start(&f)),
+            Some(design_planes(&f)[..1].to_vec()),
+        ),
+    );
+    assert_recovers_truth(&f, &staged);
+
+    // No camera at all is still refused.
+    let mut none = f.input.clone();
+    none.num_cameras = 0;
+    for v in &mut none.views {
+        v.obs.cameras.clear();
+        v.obs.laser_pixels.clear();
+    }
+    let mut s = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
+    assert!(matches!(
+        s.set_input(none).unwrap_err(),
+        Error::InsufficientData { need: 1, got: 0 }
+    ));
 }

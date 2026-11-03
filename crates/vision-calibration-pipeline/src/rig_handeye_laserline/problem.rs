@@ -294,11 +294,9 @@ impl ProblemType for RigHandeyeLaserlineProblem {
         if input.views.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
         }
-        if input.num_cameras < 2 {
-            return Err(Error::InsufficientData {
-                need: 2,
-                got: input.num_cameras,
-            });
+        // One camera carrying its laser (a triangulation head) is a rig of one.
+        if input.num_cameras == 0 {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
         }
         for (view_idx, view) in input.views.iter().enumerate() {
             if view.obs.cameras.len() != input.num_cameras

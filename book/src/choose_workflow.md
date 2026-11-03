@@ -31,6 +31,7 @@ for triangulation.
 | One camera and a laser line projector mounted together | [Laserline device](laserline.md) | `laserline_device` | `run_laserline_device` |
 | A rig on a robot with one laser per camera, rig already calibrated | [Rig laserline device](scheimpflug_laser_rigs.md) | `rig_laserline_device` | `run_rig_laserline_device` |
 | The same rig with the rig, hand-eye and laser planes in one solve | [Rig hand-eye laserline](scheimpflug_laser_rigs.md) | `rig_handeye_laserline` | `run_rig_handeye_laserline` |
+| One camera and its laser on a robot, with the camera, plane and hand-eye in one solve | [Rig hand-eye laserline](scheimpflug_laser_rigs.md#one-camera) (a rig of one) | `rig_handeye_laserline` | `run_rig_handeye_laserline` |
 
 Each workflow also calibrates the intrinsics of every camera it uses: a rig
 does not need a planar-intrinsics run per camera first. The hand-eye
@@ -41,6 +42,12 @@ says which.
 The two rig laser workflows differ in staging. `rig_laserline_device` fits
 the laser planes against a rig hand-eye result you computed earlier and
 keep fixed; `rig_handeye_laserline` estimates everything at once.
+
+A single laser head on a robot can be calibrated in two workflows, the
+laserline device and then the single-camera hand-eye. If you do this, hold the
+first workflow's camera fixed in the second. The laser plane is in that
+camera's frame, and a hand-eye found with a re-estimated camera does not
+compose with it. `rig_handeye_laserline` with one camera avoids the question.
 
 ## 3. Which camera model
 
