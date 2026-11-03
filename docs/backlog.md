@@ -34,10 +34,6 @@ real-data demonstration.
   a residual of your own over a rotation and a unit-vector block. It returns
   the covariance of the relative pose (gauge |t| = 1) on the way, which
   MVG-TWO-VIEW lists.
-- [ ] MVG-METROLOGY - A measurement API (point, distance, angle, plane fit)
-  with joint σ, propagated by dual-number Jacobians over the points' joint
-  covariance (a plane fit holds the points as consider parameters), used
-  by `../vision-metrology` (cross-repo).
 - [ ] MVG-PNP-COV - Object pose from PnP with its covariance, the
   calibration's included (consider).
 - [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
@@ -46,12 +42,13 @@ real-data demonstration.
   covariance (today: disparity share; the calibrated σ goes through
   `StereoRectification::triangulate` for selected matches).
 - [ ] MVG-PY - Python bindings for the MVG surface.
+- [ ] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
+  (a cross-repo change).
 - [ ] MVG-DEMO - A book walk-through plus Rust and Python examples on the
   fetchable samples (`opencv_fisheye_stereo`, a pinhole stereo pair once
   CAL-CHESSBOARD-TURN lands): calibrate, triangulate the board corners of
   held-out views, measure known square lengths with σ, and compare the
   predicted σ with the actual error on the known geometry.
-  Needs: MVG-METROLOGY.
 
 ## Correctness — CORRECT (Phase 1b)
 
@@ -214,7 +211,7 @@ were. What is left reorganizes them around the project.
   - **Diagnose:** residuals, the quality report, uncertainty and run
     comparison.
   - **Use:** undistort and rectify, epipolar, depth, and measurement
-    with σ (from MVG-METROLOGY, on the stereo of `StereoRectification`).
+    with σ (from `mvg::metrology`, on the stereo of `StereoRectification`).
   - Also covers empty states and the fail-fast error surfaces. Gate: a
     frontend review with no high-severity findings.
 - [ ] APP-DIST - Bundle the presets, so installers run without a source
