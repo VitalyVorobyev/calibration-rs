@@ -2,9 +2,10 @@
 //! the ones that do not.
 //!
 //! Every converter applies the same [`ViewFilter`]: a per-view feature
-//! floor, plus — for a plain chessboard in a topology whose views share one
-//! target frame — the rule that the detection spans the whole board in its
-//! declared orientation.
+//! floor, plus — for a plain chessboard in a topology whose labels must
+//! agree beyond one image — the rule that the detection spans the whole
+//! board. A rig's whole-board detections are then matched across the
+//! cameras of each view (`board_turn`).
 
 use std::path::PathBuf;
 
@@ -24,10 +25,18 @@ pub enum RejectReason {
     /// the board. The detector labels a view from its own top-left corner,
     /// so a partial board would move the shared target frame.
     PartialChessboard,
-    /// A plain chessboard seen turned by 90°: its corners span `rows`
-    /// across and `cols` down instead of the declared `cols` across and
-    /// `rows` down, so its labels are a rotation of the board's.
+    /// A plain chessboard seen turned by 90° where the target frame is fixed
+    /// through the views (hand-eye, and the laser rigs). Its corners span
+    /// `rows` across and `cols` down instead of the declared `cols` across
+    /// and `rows` down, as camera 0 sees the board, so its labels are a
+    /// rotation of the fixed frame's.
     TurnedChessboard,
+    /// A plain chessboard in a rig view whose turn relative to the view's
+    /// other cameras cannot be told: the board's direction in this image
+    /// is not within the tolerance of any of its candidate labellings, or
+    /// the camera's turn relative to the other cameras is not consistent
+    /// across the views they share.
+    AmbiguousChessboardTurn,
 }
 
 impl std::fmt::Display for RejectReason {
@@ -38,6 +47,9 @@ impl std::fmt::Display for RejectReason {
                 "the chessboard's corners do not reach every edge of the board"
             }
             Self::TurnedChessboard => "the chessboard is seen turned by 90°",
+            Self::AmbiguousChessboardTurn => {
+                "the chessboard's turn relative to the view's other cameras is ambiguous"
+            }
         })
     }
 }
@@ -54,18 +66,45 @@ pub struct RejectedDetection {
     pub reason: RejectReason,
 }
 
-/// Whether the views of `topology` share one target frame — across views
-/// (a target fixed relative to the robot base or gripper) or across the
-/// cameras of one view (a rig).
-///
-/// Planar intrinsics and the single-camera laserline device estimate one
-/// target pose per view from that view's corners alone; any consistent
-/// in-plane relabelling of a view only changes that view's pose.
-fn shares_target_frame(topology: Topology) -> bool {
+/// What a plain chessboard's labels must agree with in a topology.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LabelScope {
+    /// Nothing beyond the image: planar intrinsics and the single-camera
+    /// laserline device estimate one target pose per view from that view's
+    /// corners alone, and any consistent relabelling of a view only
+    /// changes that view's pose.
+    Image,
+    /// The other cameras of the same view: rig extrinsics estimates one
+    /// target pose per view, seen by every camera of the view.
+    View,
+    /// One target frame through every view: hand-eye fixes the target
+    /// relative to the robot base or gripper, and the rig laserline
+    /// device takes its per-view target poses from an upstream
+    /// calibration.
+    Fixed,
+}
+
+impl LabelScope {
+    fn of(topology: Topology) -> Self {
+        match topology {
+            Topology::PlanarIntrinsics | Topology::LaserlineDevice => Self::Image,
+            Topology::RigExtrinsics => Self::View,
+            Topology::SingleCamHandeye
+            | Topology::RigHandeye
+            | Topology::RigLaserlineDevice
+            | Topology::RigHandeyeLaserline => Self::Fixed,
+        }
+    }
+}
+
+/// Whether `topology` has more than one camera per view, so that a
+/// chessboard's labels are matched across the cameras of a view.
+fn is_rig(topology: Topology) -> bool {
     match topology {
-        Topology::PlanarIntrinsics | Topology::LaserlineDevice => false,
-        Topology::SingleCamHandeye
-        | Topology::RigExtrinsics
+        Topology::PlanarIntrinsics | Topology::LaserlineDevice | Topology::SingleCamHandeye => {
+            false
+        }
+        Topology::RigExtrinsics
         | Topology::RigHandeye
         | Topology::RigLaserlineDevice
         | Topology::RigHandeyeLaserline => true,
@@ -74,48 +113,61 @@ fn shares_target_frame(topology: Topology) -> bool {
 
 /// The declared interior-corner grid of a plain chessboard.
 #[derive(Debug, Clone, Copy)]
-struct ChessboardGrid {
-    rows: u32,
-    cols: u32,
-    square_size_m: f64,
+pub(super) struct ChessboardGrid {
+    /// Interior corners down the board.
+    pub(super) rows: u32,
+    /// Interior corners across the board.
+    pub(super) cols: u32,
+    /// Edge length of one square, metres.
+    pub(super) square_size_m: f64,
+}
+
+/// How a whole-board detection's labels lie on the declared board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BoardExtent {
+    /// `cols` corners across the image and `rows` down, as declared.
+    Declared,
+    /// `rows` across and `cols` down: the board seen turned by 90°.
+    Turned,
 }
 
 impl ChessboardGrid {
-    /// Whether a detection's labels place the board's own frame.
+    /// How a detection's labels place the board, or why they do not.
     ///
     /// The detector labels each view on its own: `(0, 0)` is the
-    /// detection's top-left corner, `u` runs across the image and `v` down,
-    /// and a corner at `(u, v)` sits at `(u, v) · square_size_m` in the
-    /// target frame. Those labels are the board's own exactly when the
-    /// detection reaches every edge of the board as declared: `u` spans
-    /// `0..cols` and `v` spans `0..rows`. Interior corners the detector
-    /// missed do not move the frame.
-    ///
-    /// Labels beyond the declared extent come from a board seen turned by
-    /// 90°, the only overflow the detector keeps. A square board seen
-    /// turned, or any board seen turned by 180°, spans the declared extent
-    /// too; nothing in the labels tells it apart, so those views must be
-    /// avoided at capture.
-    fn check(&self, features: &[Feature]) -> Result<(), RejectReason> {
-        let Some((min_u, max_u, min_v, max_v)) = self.label_extent(features) else {
+    /// detection's top-left corner, `u` runs across the image and `v`
+    /// down, and a corner at `(u, v)` sits at `(u, v) · square_size_m` in
+    /// the target frame. Those labels are the board's own, up to a turn of
+    /// the board in its plane, exactly when the detection reaches every
+    /// edge of the board: `u` spans `0..cols` and `v` spans `0..rows` as
+    /// declared, or `0..rows` and `0..cols` when the board is seen turned
+    /// by 90°. Interior corners the detector missed do not move the frame.
+    pub(super) fn extent(&self, features: &[Feature]) -> Result<BoardExtent, RejectReason> {
+        let Some(extent) = self.label_extent(features) else {
             return Err(RejectReason::PartialChessboard);
         };
-        let (last_u, last_v) = (i64::from(self.cols) - 1, i64::from(self.rows) - 1);
-        if max_u > last_u || max_v > last_v {
-            Err(RejectReason::TurnedChessboard)
-        } else if (min_u, max_u, min_v, max_v) == (0, last_u, 0, last_v) {
-            Ok(())
+        let (cols, rows) = (i64::from(self.cols), i64::from(self.rows));
+        if extent == (0, cols - 1, 0, rows - 1) {
+            Ok(BoardExtent::Declared)
+        } else if extent == (0, rows - 1, 0, cols - 1) {
+            Ok(BoardExtent::Turned)
         } else {
             Err(RejectReason::PartialChessboard)
         }
     }
 
-    /// `(min u, max u, min v, max v)` of the labels, recovered from the
-    /// target-frame positions; `None` for an empty detection.
-    fn label_extent(&self, features: &[Feature]) -> Option<(i64, i64, i64, i64)> {
+    /// The integer label `(u, v)` of a feature, recovered from its
+    /// target-frame position.
+    pub(super) fn label(&self, feature: &Feature) -> (i64, i64) {
         let label = |metres: f64| (metres / self.square_size_m).round() as i64;
+        (label(feature.world_xyz[0]), label(feature.world_xyz[1]))
+    }
+
+    /// `(min u, max u, min v, max v)` of the labels; `None` for an empty
+    /// detection.
+    fn label_extent(&self, features: &[Feature]) -> Option<(i64, i64, i64, i64)> {
         features.iter().fold(None, |extent, f| {
-            let (u, v) = (label(f.world_xyz[0]), label(f.world_xyz[1]));
+            let (u, v) = self.label(f);
             Some(match extent {
                 None => (u, u, v, v),
                 Some((u0, u1, v0, v1)) => (u0.min(u), u1.max(u), v0.min(v), v1.max(v)),
@@ -128,9 +180,12 @@ impl ChessboardGrid {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ViewFilter {
     min_features: usize,
-    /// Set for a plain chessboard in a topology whose views share one
-    /// target frame.
-    whole_board: Option<ChessboardGrid>,
+    /// Set for a plain chessboard in a topology whose labels must agree
+    /// beyond one image.
+    whole_board: Option<(ChessboardGrid, LabelScope)>,
+    /// Whether the topology is a rig, whose turned detections are matched
+    /// across the cameras of each view rather than rejected here.
+    rig: bool,
 }
 
 impl ViewFilter {
@@ -141,30 +196,51 @@ impl ViewFilter {
             .and_then(|d| d.min_features_per_view)
             .unwrap_or(4)
             .max(4);
+        let scope = LabelScope::of(spec.topology);
         let whole_board = match spec.target {
             TargetSpec::Chessboard {
                 rows,
                 cols,
                 square_size_m,
-            } if shares_target_frame(spec.topology) => Some(ChessboardGrid {
-                rows,
-                cols,
-                square_size_m,
-            }),
+            } if scope != LabelScope::Image => Some((
+                ChessboardGrid {
+                    rows,
+                    cols,
+                    square_size_m,
+                },
+                scope,
+            )),
             _ => None,
         };
         Self {
             min_features,
             whole_board,
+            rig: is_rig(spec.topology),
         }
     }
 
     /// `Ok` when the detection is kept, otherwise why it is not.
+    ///
+    /// A rig's chessboard detection that passes is whole but may be seen
+    /// turned; [`Self::rig_chessboard`] says how to match it with the
+    /// view's other cameras.
     pub(super) fn check(&self, features: &[Feature]) -> Result<(), RejectReason> {
         if features.len() < self.min_features {
             return Err(RejectReason::TooFewFeatures);
         }
-        self.whole_board.map_or(Ok(()), |grid| grid.check(features))
+        let Some((grid, _)) = self.whole_board else {
+            return Ok(());
+        };
+        match grid.extent(features)? {
+            BoardExtent::Turned if !self.rig => Err(RejectReason::TurnedChessboard),
+            _ => Ok(()),
+        }
+    }
+
+    /// For a plain chessboard in a rig topology, the board and what its
+    /// labels must agree with: the input to `board_turn::match_rig_labels`.
+    pub(super) fn rig_chessboard(&self) -> Option<(ChessboardGrid, LabelScope)> {
+        self.whole_board.filter(|_| self.rig)
     }
 }
 
@@ -183,15 +259,17 @@ pub(super) fn no_usable_views(
             .filter(|r| r.camera == camera && r.reason == reason)
             .count()
     };
-    let (partial, turned) = (
+    let (partial, turned, ambiguous) = (
         count(RejectReason::PartialChessboard),
         count(RejectReason::TurnedChessboard),
+        count(RejectReason::AmbiguousChessboardTurn),
     );
-    if partial + turned > 0 {
+    if partial + turned + ambiguous > 0 {
         RunError::NoWholeChessboardViews {
             camera_id,
             partial,
             turned,
+            ambiguous,
             total,
         }
     } else {
@@ -233,8 +311,11 @@ mod tests {
     }
 
     #[test]
-    fn a_complete_upright_board_is_kept() {
-        assert_eq!(grid().check(&labels(14, 10, &[])), Ok(()));
+    fn a_complete_upright_board_is_declared() {
+        assert_eq!(
+            grid().extent(&labels(14, 10, &[])),
+            Ok(BoardExtent::Declared)
+        );
     }
 
     #[test]
@@ -242,36 +323,33 @@ mod tests {
         // An interior corner and the top-left corner itself: the rest of
         // row 0 and column 0 still pin the labels.
         let features = labels(14, 10, &[(5, 5), (0, 0)]);
-        assert_eq!(grid().check(&features), Ok(()));
+        assert_eq!(grid().extent(&features), Ok(BoardExtent::Declared));
     }
 
     #[test]
     fn a_partial_board_is_rejected() {
         // The right-most two columns are out of view.
         assert_eq!(
-            grid().check(&labels(12, 10, &[])),
+            grid().extent(&labels(12, 10, &[])),
             Err(RejectReason::PartialChessboard)
         );
         // The bottom row is out of view.
         assert_eq!(
-            grid().check(&labels(14, 9, &[])),
+            grid().extent(&labels(14, 9, &[])),
             Err(RejectReason::PartialChessboard)
         );
-        assert_eq!(grid().check(&[]), Err(RejectReason::PartialChessboard));
+        // Partly, and overflowing the declared 10 rows.
+        assert_eq!(
+            grid().extent(&labels(8, 12, &[])),
+            Err(RejectReason::PartialChessboard)
+        );
+        assert_eq!(grid().extent(&[]), Err(RejectReason::PartialChessboard));
     }
 
     #[test]
-    fn a_turned_board_is_rejected() {
+    fn a_whole_turned_board_is_told_by_its_extent() {
         // Seen turned by 90°, the 10 × 14 board spans 10 across, 14 down.
-        assert_eq!(
-            grid().check(&labels(10, 14, &[])),
-            Err(RejectReason::TurnedChessboard)
-        );
-        // Partly, but still overflowing the declared 10 rows.
-        assert_eq!(
-            grid().check(&labels(8, 12, &[])),
-            Err(RejectReason::TurnedChessboard)
-        );
+        assert_eq!(grid().extent(&labels(10, 14, &[])), Ok(BoardExtent::Turned));
     }
 
     #[test]
@@ -281,7 +359,7 @@ mod tests {
             cols: 9,
             square_size_m: SQUARE,
         };
-        assert_eq!(square.check(&labels(9, 9, &[])), Ok(()));
+        assert_eq!(square.extent(&labels(9, 9, &[])), Ok(BoardExtent::Declared));
     }
 
     fn spec(topology: Topology, target: TargetSpec) -> DatasetSpec {
@@ -310,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn only_shared_frame_topologies_require_the_whole_board() {
+    fn only_topologies_that_share_labels_require_the_whole_board() {
         let partial = labels(12, 10, &[]);
         for topology in [Topology::PlanarIntrinsics, Topology::LaserlineDevice] {
             let filter = ViewFilter::for_spec(&spec(topology, chessboard()));
@@ -340,6 +418,25 @@ mod tests {
         };
         let filter = ViewFilter::for_spec(&spec(Topology::RigHandeye, target));
         assert_eq!(filter.check(&labels(4, 3, &[])), Ok(()));
+    }
+
+    #[test]
+    fn a_turned_board_is_rejected_by_single_camera_hand_eye_only() {
+        let turned = labels(10, 14, &[]);
+        let filter = ViewFilter::for_spec(&spec(Topology::SingleCamHandeye, chessboard()));
+        assert_eq!(filter.check(&turned), Err(RejectReason::TurnedChessboard));
+        assert!(filter.rig_chessboard().is_none());
+        // A rig matches it with the view's other cameras instead.
+        for (topology, scope) in [
+            (Topology::RigExtrinsics, LabelScope::View),
+            (Topology::RigHandeye, LabelScope::Fixed),
+            (Topology::RigLaserlineDevice, LabelScope::Fixed),
+            (Topology::RigHandeyeLaserline, LabelScope::Fixed),
+        ] {
+            let filter = ViewFilter::for_spec(&spec(topology, chessboard()));
+            assert_eq!(filter.check(&turned), Ok(()), "{topology:?}");
+            assert_eq!(filter.rig_chessboard().map(|(_, s)| s), Some(scope));
+        }
     }
 
     #[test]

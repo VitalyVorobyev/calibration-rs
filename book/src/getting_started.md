@@ -312,6 +312,7 @@ The library downloads real calibration datasets with a manifest already filled i
 | Sample | Workflow | Data | Licence |
 |---|---|---|---|
 | `opencv_left` | planar intrinsics | 13 views of a 6×9 chessboard, 640×480, OpenCV's stereo sample | Apache-2.0 |
+| `opencv_stereo` | rig extrinsics | both cameras of the same stereo sample, the board turned by 90° in most views | Apache-2.0 |
 | `opencv_fisheye_stereo` | rig extrinsics, fisheye | 34 views of a 6×8 chessboard, 1280×800, OpenCV's fisheye test set | none stated |
 | `kuka_1` | single-camera hand-eye | 30 views of a 17×28 chessboard and the robot poses | none stated |
 | `ds8` | rig hand-eye | three cameras on a robot arm, 42 poses of a 10×14 chessboard | US public domain |

@@ -145,6 +145,54 @@ per-camera independent noise streams):
   the `0.765·a ≈ 0.23 px` floor: per-camera noise cannot be absorbed into
   per-view freedom.
 
+## Chessboard labels across the cameras of a view
+
+The cost above needs each physical corner to carry the same target point in
+every camera of a view. Coded targets give that; a plain chessboard does not:
+`calib-targets` labels each image on its own, `+u` along the board axis
+nearest the image `+x`, `+v` nearest `+y`, `(0, 0)` where they start. A
+whole-board detection is the board lattice up to a turn `g ∈ C₂` (rectangular)
+or `C₄` (square), so two cameras of one view agree only while they see the
+board turned alike. The dataset runner (`dataset_runner/board_turn.rs`)
+matches them; the target pose stays per view, so a view's frame is free and
+only the cross-camera agreement matters.
+
+- **Board direction.** An affine fit `x ≈ A·(u, v) + b` per detection;
+  `θ(g)` is the image angle of `A`'s `+u` column after turning the labels by
+  `g` (`θ(g·½turn) = θ(g) + π` exactly under the affine model).
+- **Relative turn `φ_c`.** For a rigid rig, `θ_c − θ_0` per shared view is
+  near-constant (the relative roll as the board shows it). Modulo the
+  symmetry `P` (`π` or `π/2`) it is the mean of the largest set of views within
+  `P/4` of one another, required to be a strict majority. The multiple of `P`
+  comes from the board centre's tracks: a 2D Procrustes rotation between the
+  centres in the two images over the shared views (needs ≥ 3 views, RMS spread
+  ≥ one square in both images, coherence `|Σ(p·q, p×q)| / Σ|p||q| ≥ 0.7`, and
+  agreement with the folded value within `P/4`; coherent disagreement leaves
+  `φ_c` unknown). Without usable motion the multiple nearest 0 is taken: the
+  cameras are assumed mounted the same way up, which is what the detector's
+  own labelling assumed before.
+- **Per view.** The anchor is the view's first camera (labels turned onto the
+  declared extent, identity for a declared board); every other camera takes
+  the candidate nearest `θ_anchor − φ_anchor + φ_c` when within `P/4` and the
+  runner-up is at least `P/2` away, else `AmbiguousChessboardTurn`. Where the
+  target frame is fixed through views (hand-eye, laser rigs), camera 0 anchors
+  every view it sees and must see the board as declared (`TurnedChessboard`
+  otherwise); a view camera 0 misses is anchored by the first camera whose
+  predicted camera-0 direction `θ − φ` is within 45° of `+x`.
+- **Unturned labels are bit-identical**, so data whose cameras already agreed
+  freezes to the same observations: re-freezing `ds8` and `kuka_1` with the
+  rule gives byte-identical files, and `stereo_rig` the same bytes as the code
+  before it.
+
+**Limitation.** A camera mounted upside down (or a quarter turn, square
+board) relative to camera 0 is only recognised from the board's motion. A
+capture whose board stays put in both images (a robot rotating the camera
+about the board centre) falls back to the same-way-up assumption and labels
+such a camera half a turn off. Resolving it without motion needs the 3D
+relative pose: per-camera Zhang intrinsics, the per-view poses from the
+homographies, and the candidate set that makes `T_c_0` constant over the
+views. Not built: no dataset has needed it.
+
 ## Evidence
 
 - **Matrix test**: `crates/vision-calibration/tests/rig_extrinsics_matrix.rs`
@@ -162,5 +210,19 @@ per-camera independent noise streams):
   camera) with a committed Fit baseline.
 - **Regression suite**: `stereo_rig`, `synth_rig` (intrinsics refined in
   the rig BA).
+- **Chessboard turns**: `board_turn.rs` unit tests (cameras alike, rolled by
+  a quarter / half turn for rectangular and square boards, a view that no
+  rigid rig can produce → ambiguous, fixed-frame anchors, determinism); the
+  rendered end-to-end `tests/rig_turned_chessboard.rs` (a 6×8 board through
+  every quarter turn, camera 1 alike or upside down, real detector, both
+  backends: camera 1 within 3 mm / 0.5°; before the rule every turned view was
+  rejected). Real data: sample `opencv_stereo` (6×9, turned in 9 of 13 views)
+  uses 13 of 13 views (24 of 26 detections; `left12`, `right07` are partial
+  detections) against 4 before; fx 534.30 ± 0.80 / 537.54 ± 0.80 px against
+  `planar_intrinsics` 534.11 ± 0.93 / 537.83 ± 0.91; baseline 3.327 ± 0.005
+  squares. With rows and cols swapped in the manifest the same rig diverges
+  (σ(fx) ≈ 43 px): the detector then returns `left12` and `right07` as whole
+  boards whose labels include a spurious corner and miss a real column, a
+  detector fault the extent check cannot see.
 - **Related**: ADR 0013 (`rig_family` sensor axis; pinhole ↔ Scheimpflug),
   ADR 0009 (`frame_se3_frame` / SE(3) storage).

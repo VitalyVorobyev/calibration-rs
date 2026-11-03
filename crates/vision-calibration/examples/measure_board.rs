@@ -1,17 +1,21 @@
 //! Measure a board of known size with a stereo calibration, error bars included.
 //!
-//! Calibrates the fisheye stereo pair of OpenCV's own test set on half of its
-//! views, triangulates the chessboard corners of the other half, and measures
-//! the distances between corners of a row or column. The board's squares are
-//! 24.4 mm, so every distance has a known truth, and the example compares the
-//! error with the σ the library states, with and without the calibration's
-//! share in it.
+//! Calibrates a stereo sample on half of its views, triangulates the
+//! chessboard corners of the other half, and measures the distances between
+//! corners of a row or column. The board's squares have a known size, so
+//! every distance has a known truth, and the example compares the error with
+//! the σ the library states, with and without the calibration's share in it.
 //!
-//! The sample is downloaded from its publisher on the first run (set
-//! `VISION_CALIBRATION_DATA` to choose the cache directory).
+//! Two samples can be measured: OpenCV's fisheye stereo test set (the
+//! default; 24.4 mm squares, calibrated with a fisheye model) and OpenCV's
+//! pinhole stereo sample (`opencv_stereo`, whose square size is not
+//! published, so its lengths are in squares). The sample is downloaded from
+//! its publisher on the first run (set `VISION_CALIBRATION_DATA` to choose
+//! the cache directory).
 //!
 //! ```bash
 //! cargo run --release -p vision-calibration --features fetch --example measure_board
+//! cargo run --release -p vision-calibration --features fetch --example measure_board -- opencv_stereo
 //! ```
 
 #[path = "support/board_measure.rs"]
@@ -33,9 +37,53 @@ use vision_calibration::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsProblem, run_calibration,
 };
 
+/// A stereo sample this example measures: the camera model it is calibrated
+/// with, and the unit its lengths are printed in.
+struct Sample {
+    id: &'static str,
+    model: CameraModelSpec,
+    unit: &'static str,
+    /// Metres per printed unit.
+    unit_m: f64,
+    /// Decimals the lengths are printed with.
+    decimals: usize,
+}
+
+fn sample(id: &str) -> Result<Sample> {
+    match id {
+        // Fisheye lenses: the equidistant projection with Kannala-Brandt
+        // distortion. 24.4 mm squares.
+        "opencv_fisheye_stereo" => Ok(Sample {
+            id: "opencv_fisheye_stereo",
+            model: CameraModelSpec::new(
+                ProjectionKind::Equidistant,
+                DistortionKind::KannalaBrandt4,
+                SensorKind::Identity,
+            ),
+            unit: "mm",
+            unit_m: 1e-3,
+            decimals: 3,
+        }),
+        // Pinhole lenses with Brown-Conrady distortion, the default model.
+        // The board is declared with squares of 1.
+        "opencv_stereo" => Ok(Sample {
+            id: "opencv_stereo",
+            model: CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
+            unit: "squares",
+            unit_m: 1.0,
+            decimals: 4,
+        }),
+        other => anyhow::bail!(
+            "measure_board measures opencv_fisheye_stereo or opencv_stereo, not {other:?}"
+        ),
+    }
+}
+
 fn main() -> Result<()> {
-    // 1. The sample: 34 stereo views of a 6×8-corner chessboard, 24.4 mm squares.
-    let manifest = samples::fetch("opencv_fisheye_stereo", &samples::default_cache_dir()?)?;
+    // 1. The sample: synchronised stereo views of a chessboard of known size.
+    let id = std::env::args().nth(1);
+    let sample = sample(id.as_deref().unwrap_or("opencv_fisheye_stereo"))?;
+    let manifest = samples::fetch(sample.id, &samples::default_cache_dir()?)?;
     let dir = manifest
         .parent()
         .context("a fetched manifest sits in its sample's directory")?;
@@ -63,14 +111,9 @@ fn main() -> Result<()> {
         held_out.len()
     );
 
-    // 3. Calibrate the rig with the fisheye model (equidistant projection,
-    //    Kannala-Brandt distortion).
+    // 3. Calibrate the rig with the sample's camera model.
     let mut config = RigExtrinsicsConfig::default();
-    config.camera.model = CameraModelSpec::new(
-        ProjectionKind::Equidistant,
-        DistortionKind::KannalaBrandt4,
-        SensorKind::Identity,
-    );
+    config.camera.model = sample.model;
     let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
     session.set_config(config)?;
     session.set_input(calibration)?;
@@ -109,19 +152,22 @@ fn main() -> Result<()> {
     let plane_rms: f64 = with.iter().map(|v| v.plane_rms).sum::<f64>() / with.len() as f64;
     println!(
         "{} of {} held-out views measured (both cameras need the board); corners shared per view: {}..{}; \
-         board planarity rms {:.3} mm",
+         board planarity rms {:.p$} {}",
         with.len(),
         held_out.len(),
         with.iter().map(|v| v.corners).min().unwrap_or(0),
         with.iter().map(|v| v.corners).max().unwrap_or(0),
-        plane_rms * 1e3
+        plane_rms / sample.unit_m,
+        sample.unit,
+        p = sample.decimals,
     );
 
     // 5. Error against the σ the library states, per length.
     let full = summarize(&with)?;
     let only = summarize(&without)?;
     println!(
-        "\nsquares  pairs  mean err   rms err  mean σ   z rms | σ without calibration: mean σ   z rms   (mm)"
+        "\nsquares  pairs  mean err   rms err  mean σ   z rms | σ without calibration: mean σ   z rms   ({})",
+        sample.unit
     );
     for k in 1..=MAX_SQUARES {
         let (f, o) = (&full[k - 1], &only[k - 1]);
@@ -129,14 +175,15 @@ fn main() -> Result<()> {
             continue;
         }
         println!(
-            "{k:7}  {:5}  {:+8.3}  {:8.3}  {:6.3}  {:6.2} | {:35.3}  {:6.2}",
+            "{k:7}  {:5}  {:+8.p$}  {:8.p$}  {:6.p$}  {:6.2} | {:35.p$}  {:6.2}",
             f.n,
-            f.mean_error() * 1e3,
-            f.rms_error() * 1e3,
-            f.mean_sigma() * 1e3,
+            f.mean_error() / sample.unit_m,
+            f.rms_error() / sample.unit_m,
+            f.mean_sigma() / sample.unit_m,
             f.z_rms(),
-            o.mean_sigma() * 1e3,
+            o.mean_sigma() / sample.unit_m,
             o.z_rms(),
+            p = sample.decimals,
         );
     }
     Ok(())

@@ -241,6 +241,7 @@ fn reject_reason_name(reason: runner::RejectReason) -> &'static str {
         runner::RejectReason::TooFewFeatures => "too_few_features",
         runner::RejectReason::PartialChessboard => "partial_chessboard",
         runner::RejectReason::TurnedChessboard => "turned_chessboard",
+        runner::RejectReason::AmbiguousChessboardTurn => "ambiguous_chessboard_turn",
         // `RejectReason` is `#[non_exhaustive]`; a reason added upstream
         // shows as "other" until it is named here.
         _ => "other",

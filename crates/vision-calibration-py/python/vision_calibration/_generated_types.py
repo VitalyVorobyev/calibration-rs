@@ -3017,12 +3017,14 @@ class TargetSpec_Chessboard(TypedDict):
     A plain chessboard has no markers: each view is labelled from the
     detection's own top-left corner. Where views share one target frame
     (single-camera hand-eye and every rig topology) the runner therefore
-    keeps a view only when its corners reach every edge of the board,
-    `cols` across and `rows` down; partial or turned views are dropped.
-    The board must also appear the same way up in every image — a board
-    seen upside down, or a square board seen turned by 90°, labels
-    consistently and cannot be told apart. Use a ChArUco or PuzzleBoard
-    target to calibrate a shared frame from partial views.
+    keeps a view only when its corners reach every edge of the board.
+    In a rig, each camera's labels are turned to agree with the other
+    cameras of the view, so a board seen turned is kept. Where the target
+    is fixed through the views (hand-eye), the board must appear the same
+    way up in every image of camera 0 (`cols` across and `rows` down);
+    a board seen turned by 90° is dropped, and one seen upside down, or a
+    square board seen turned by 90°, cannot be told apart. Use a ChArUco
+    or PuzzleBoard target to calibrate a shared frame from partial views.
     """
 
     cols: int

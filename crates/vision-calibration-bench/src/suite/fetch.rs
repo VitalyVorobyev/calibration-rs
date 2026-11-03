@@ -220,6 +220,7 @@ mod tests {
         for (id, manifest) in [
             ("kuka_1", "data/kuka_1/dataset.toml"),
             ("ds8", "data/DS8/dataset.toml"),
+            ("opencv_stereo", "data/opencv_stereo/dataset.toml"),
         ] {
             let sample = samples::sample(id).unwrap();
             let entry = suite.manifest.entries.iter().find(|e| e.id == id).unwrap();

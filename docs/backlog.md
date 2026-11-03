@@ -58,20 +58,18 @@ functions return no covariance.
   laser point's σ carry the whole calibration. Gate: the laser-point
   Monte-Carlo of `laser_uncertainty.rs` on this export (scatter over stated
   depth σ in [0.85, 1.15]).
-- [ ] CAL-CHESSBOARD-TURN - A plain chessboard in a rig loses most views of
-  a hand-held capture. The dataset runner rejects every view whose board is
-  seen turned by 90° (`TurnedChessboard`), and cannot tell a 180° turn at
-  all, because the detector labels each image from its own top-left corner.
-  On OpenCV's stereo sample (`samples/data/left*.jpg`, `right*.jpg`, a 6×9
-  board turned in most views) `rig_extrinsics` keeps 4 of 13 views; with
-  rows and cols swapped it keeps 9 and diverges (σ(fx) ≈ 65 px), while
-  `planar_intrinsics` uses all 13. A rig needs labels that agree across the
-  cameras of one view, not across views: relabel each view's detections to
-  a common orientation per view (from the cameras' relative geometry or the
-  board's asymmetry) instead of rejecting them. Gate: the OpenCV pair
-  calibrates as a rig from all 13 views; then add it to the samples and run
-  the board-measurement example (`measure_board`) on it as a pinhole pair.
-
+- [ ] CAL-CHESSBOARD-OUTLIER - A chessboard detection with an off-lattice
+  corner passes the whole-board check with wrong labels. On OpenCV's stereo
+  sample `calib-targets` 0.16.1 labels `left12` and `right07` with one
+  spurious corner beside the board (`left12`: `(0, 8)` at x = 130 px, the
+  board's first column at x ≈ 199 px), which shifts the board's labels by a
+  column. Declared 6×9, the detector's extent filter then cuts the board to
+  36 corners (dropped as partial); declared 9×6, the spurious corner fakes
+  the missing edge, both detections pass as whole, and the rig diverges
+  (σ(fx) ≈ 43 px). Check each whole-board detection's fit to its lattice (a
+  homography residual per corner, in squares) and drop the outlier, or reject
+  the detection; report the fault upstream. Gate: both detections are kept
+  whole with correct labels in either declaration, or rejected with a reason.
 - [ ] CAL-RIG-GRAPH - Rig initialization chained through a camera
   co-visibility graph. Today `linear/src/extrinsics.rs` errors when a
   camera never shares a view with the reference camera. Gate: a synthetic
@@ -130,8 +128,8 @@ Windows. `stereo_charuco` stays local-only, as do the private sets.
   the `planar_real`/`handeye_session` examples and the LFS-image unit tests
   then name the fetch command).
 - [ ] DATA-MORE - More public entries, each after a licence check: the other
-  RWHE-Calib sets (`kuka_2`, `kuka_3`), Tabb's DS1–DS7 (U.S. public domain,
-  same record as DS8) and OpenCV's sample stereo chessboards (Apache-2.0).
+  RWHE-Calib sets (`kuka_2`, `kuka_3`) and Tabb's DS1–DS7 (U.S. public
+  domain, same record as DS8).
 
 ## Camera models (Phase 2)
 

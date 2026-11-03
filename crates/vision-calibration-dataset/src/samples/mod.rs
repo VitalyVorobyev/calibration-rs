@@ -215,6 +215,7 @@ macro_rules! embed {
 
 const EMBEDDED: &[Embedded] = &[
     embed!("opencv_left"),
+    embed!("opencv_stereo"),
     embed!("opencv_fisheye_stereo"),
     embed!("kuka_1"),
     embed!("ds8"),

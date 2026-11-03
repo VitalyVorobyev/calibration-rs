@@ -12,15 +12,17 @@
 
 use std::path::{Path, PathBuf};
 
-use vision_calibration_core::{CorrespondenceView, NoMeta, RigDataset, RigView, RigViewObs};
+use vision_calibration_core::{NoMeta, RigDataset, RigView, RigViewObs};
 use vision_calibration_dataset::{DatasetSpec, Topology, validate};
+use vision_calibration_detect::Feature;
 use vision_calibration_optim::RobotPoseMeta;
 
+use super::board_turn::match_rig_labels;
 use super::pairing::pair_views;
 use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
 use super::{
-    Detection, RejectedDetection, RunError, detect_features, expand_camera_images, features_to_obs,
-    pattern_repr, target_to_detector_config,
+    Detection, RejectReason, RejectedDetection, RunError, detect_features, expand_camera_images,
+    features_to_obs, pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -155,18 +157,15 @@ pub(super) fn build_rig_core(
     let total_views = paired.paths.len();
 
     let filter = ViewFilter::for_spec(spec);
-    let mut rejected: Vec<RejectedDetection> = Vec::new();
-    let mut views: Vec<(RigViewObs, String)> = Vec::new();
-    let mut view_paths: Vec<Vec<Option<PathBuf>>> = Vec::new();
-    let mut per_camera_usable = vec![0usize; spec.cameras.len()];
-
-    for (paths, token) in paired.paths.iter().zip(&paired.tokens) {
-        let mut cameras: Vec<Option<CorrespondenceView>> = Vec::with_capacity(paths.len());
-        let mut kept_paths: Vec<Option<PathBuf>> = Vec::with_capacity(paths.len());
+    let mut rejected: Vec<(usize, RejectedDetection)> = Vec::new();
+    // detected[view][camera]: the features of each detection the filter
+    // keeps.
+    let mut detected: Vec<Vec<Option<Vec<Feature>>>> = Vec::with_capacity(total_views);
+    for (view, paths) in paired.paths.iter().enumerate() {
+        let mut cameras = Vec::with_capacity(paths.len());
         for (cam_idx, maybe_path) in paths.iter().enumerate() {
             let Some(path) = maybe_path else {
                 cameras.push(None);
-                kept_paths.push(None);
                 continue;
             };
             let (features, _cache_hit) = detect_features(
@@ -175,26 +174,55 @@ pub(super) fn build_rig_core(
                 path,
                 detection,
             )?;
-            if let Err(reason) = filter.check(&features) {
-                rejected.push(RejectedDetection {
-                    camera: cam_idx,
-                    path: path.clone(),
-                    reason,
-                });
-                cameras.push(None);
-                kept_paths.push(None);
-                continue;
+            match filter.check(&features) {
+                Ok(()) => cameras.push(Some(features)),
+                Err(reason) => {
+                    rejected.push((view, rejection(cam_idx, path, reason)));
+                    cameras.push(None);
+                }
             }
-            per_camera_usable[cam_idx] += 1;
-            cameras.push(Some(features_to_obs(&features)));
-            kept_paths.push(Some(path.clone()));
         }
+        detected.push(cameras);
+    }
+    // A plain chessboard's labels are matched across the cameras of each
+    // view, which needs every view at hand.
+    if let Some((grid, scope)) = filter.rig_chessboard() {
+        for (view, camera, reason) in match_rig_labels(&grid, scope, &mut detected) {
+            let path = paired.paths[view][camera]
+                .as_ref()
+                .expect("a matched detection has an image");
+            rejected.push((view, rejection(camera, path, reason)));
+        }
+        // In view order, and by camera within a view.
+        rejected.sort_by_key(|(view, r)| (*view, r.camera));
+    }
+    let rejected: Vec<RejectedDetection> = rejected.into_iter().map(|(_, r)| r).collect();
+
+    let mut views: Vec<(RigViewObs, String)> = Vec::new();
+    let mut view_paths: Vec<Vec<Option<PathBuf>>> = Vec::new();
+    let mut per_camera_usable = vec![0usize; spec.cameras.len()];
+    for ((cameras, paths), token) in detected.iter().zip(&paired.paths).zip(&paired.tokens) {
         if cameras.iter().all(Option::is_none) {
             // No camera saw the target in this view — drop it (still
             // counted in total_views).
             continue;
         }
-        views.push((RigViewObs { cameras }, token.clone()));
+        let mut obs = Vec::with_capacity(cameras.len());
+        let mut kept_paths = Vec::with_capacity(cameras.len());
+        for (cam_idx, (features, path)) in cameras.iter().zip(paths).enumerate() {
+            match features {
+                Some(features) => {
+                    per_camera_usable[cam_idx] += 1;
+                    obs.push(Some(features_to_obs(features)));
+                    kept_paths.push(path.clone());
+                }
+                None => {
+                    obs.push(None);
+                    kept_paths.push(None);
+                }
+            }
+        }
+        views.push((RigViewObs { cameras: obs }, token.clone()));
         view_paths.push(kept_paths);
     }
 
@@ -213,6 +241,14 @@ pub(super) fn build_rig_core(
         total_views,
         rejected,
     })
+}
+
+fn rejection(camera: usize, path: &Path, reason: RejectReason) -> RejectedDetection {
+    RejectedDetection {
+        camera,
+        path: path.to_path_buf(),
+        reason,
+    }
 }
 
 /// Attach one robot pose to every kept view (matching logic shared
@@ -466,17 +502,13 @@ mod tests {
     }
 
     #[test]
-    fn partial_and_turned_chessboards_are_dropped_and_counted() {
+    fn partial_chessboards_are_dropped_and_turned_ones_matched() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        for view in ["a", "b", "c"] {
-            seed_image(
-                tmp.path(),
-                &cache,
-                &format!("cam0/{view}.png"),
-                board_features(),
-            );
+        for (view, features) in [("a", board_features()), ("b", board_features())] {
+            seed_image(tmp.path(), &cache, &format!("cam0/{view}.png"), features);
         }
+        seed_image(tmp.path(), &cache, "cam0/c.png", turned_board());
         seed_image(tmp.path(), &cache, "cam1/a.png", board_features());
         // Bottom two rows out of view: labelled from its own top-left
         // corner, this would still be a 6 × 7 board in the frame.
@@ -488,23 +520,64 @@ mod tests {
         ]);
         let result =
             build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
-        // Every view keeps cam0; cam1 only in the first.
+        // Every view keeps cam0; cam1 loses its partial board only.
         assert_eq!(result.input.num_views(), 3);
         assert!(result.input.views[0].obs.cameras[1].is_some());
         assert!(result.input.views[1].obs.cameras[1].is_none());
-        assert!(result.input.views[2].obs.cameras[1].is_none());
         let rejected: Vec<_> = result
             .rejected
             .iter()
             .map(|r| (r.camera, r.reason, r.path.ends_with("cam1/b.png")))
             .collect();
+        assert_eq!(rejected, vec![(1, RejectReason::PartialChessboard, true)]);
+        // Both cameras saw the board turned alike: turned onto the declared
+        // 6 × 9 extent, with the same labels.
+        let turned = &result.input.views[2].obs.cameras;
+        let (left, right) = (turned[0].as_ref().unwrap(), turned[1].as_ref().unwrap());
+        assert_eq!(left.points_3d, right.points_3d);
+        let max = left
+            .points_3d
+            .iter()
+            .fold([0.0f64; 2], |m, p| [m[0].max(p.x), m[1].max(p.y)]);
+        assert!((max[0] - 5.0 * 0.025).abs() < 1e-12 && (max[1] - 8.0 * 0.025).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_turned_chessboard_is_rejected_where_the_frame_is_fixed() {
+        // Rig hand-eye fixes the target through the views; camera 0 sees
+        // the board turned by 90° in the second view, so neither camera's
+        // detection of it places the frame.
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        for cam in ["cam0", "cam1"] {
+            seed_image(
+                tmp.path(),
+                &cache,
+                &format!("{cam}/a.png"),
+                board_features(),
+            );
+            seed_image(tmp.path(), &cache, &format!("{cam}/b.png"), turned_board());
+        }
+        let mut spec = rig_spec(&[
+            vec!["cam0/a.png", "cam0/b.png"],
+            vec!["cam1/a.png", "cam1/b.png"],
+        ]);
+        spec.topology = Topology::RigHandeye;
+        let filter = ViewFilter::for_spec(&spec);
+        let (grid, scope) = filter.rig_chessboard().unwrap();
+        let mut detected: Vec<Vec<Option<Vec<Feature>>>> = vec![
+            vec![Some(board_features()), Some(board_features())],
+            vec![Some(turned_board()), Some(turned_board())],
+        ];
+        let rejected = match_rig_labels(&grid, scope, &mut detected);
         assert_eq!(
             rejected,
             vec![
-                (1, RejectReason::PartialChessboard, true),
-                (1, RejectReason::TurnedChessboard, false),
+                (1, 0, RejectReason::TurnedChessboard),
+                (1, 1, RejectReason::TurnedChessboard),
             ]
         );
+        assert!(detected[0].iter().all(Option::is_some));
     }
 
     #[test]
@@ -526,10 +599,11 @@ mod tests {
                 camera_id,
                 partial,
                 turned,
+                ambiguous,
                 total,
             } => assert_eq!(
-                (camera_id.as_str(), partial, turned, total),
-                ("cam1", 1, 0, 2)
+                (camera_id.as_str(), partial, turned, ambiguous, total),
+                ("cam1", 1, 0, 0, 2)
             ),
             other => panic!("expected NoWholeChessboardViews, got {other:?}"),
         }

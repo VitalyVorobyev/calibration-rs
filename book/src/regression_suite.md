@@ -16,6 +16,7 @@ plain JSON, other calibration tools can run on exactly the same data.
 | `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | None stated |
 | `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | None stated |
 | `ds8` | `rig_handeye` | Three cameras on a Denso arm, 33 of 42 poses with a complete 10×14 chessboard (52 mm) | U.S. public domain |
+| `opencv_stereo` | `rig_extrinsics` | OpenCV's pinhole stereo sample: 13 views of a 6×9 chessboard (squares of 1) turned by 90° in most views, 640×480 | Apache-2.0 |
 | `opencv_fisheye_left` | `planar_intrinsics` | Kannala-Brandt fisheye: 34 views of an 8×6 chessboard (24.4 mm), 1280×800, left camera | None stated |
 | `opencv_fisheye_right` | `planar_intrinsics` | The same 34 views, right camera | None stated |
 | `opencv_fisheye_stereo` | `rig_extrinsics` | Both fisheye cameras together | None stated |
@@ -43,6 +44,10 @@ The real-image entries come from their publishers:
   robot-world hand-eye(s) calibration problem with iterative methods*,
   Machine Vision and Applications 28 (2017); the images are published at
   <https://doi.org/10.15482/USDA.ADC/1340592> in the U.S. public domain.
+- `opencv_stereo` is the stereo calibration sample of OpenCV
+  (`samples/data/left*.jpg`, `right*.jpg` in <https://github.com/opencv/opencv>),
+  under OpenCV's Apache-2.0 licence. OpenCV does not publish the printed
+  square size, so the board is declared with squares of 1.
 - The fisheye entries use `calib-3_stereo_from_JY`, the stereo fisheye set
   of OpenCV's own `fisheye` calibration tests, from OpenCV's test data
   repository <https://github.com/opencv/opencv_extra>
@@ -148,6 +153,7 @@ the same.
 |-------|-----------------|
 | `kuka_1` | The 30 images and the robot poses of `Datasets/kuka_1` in the RWHE-Calib repository, at a pinned commit |
 | `ds8` | `DS8.zip` of the Ag Data Commons record; the images as published (RGB TIFF for the two JAI cameras, colour JPEG for the third) |
+| `opencv_stereo` | The 26 images of `samples/data` in the OpenCV repository, at a pinned commit |
 | `stereo_left`, `stereo_right`, `stereo_rig` | Not fetched: Kaggle needs an account. `suite fetch` prints the dataset page; unpack the download into `data/stereo/` |
 | `opencv_fisheye_left`, `opencv_fisheye_right`, `opencv_fisheye_stereo` | The corner files (`left.xml`, `right.xml`, `object.xml`) of `calib-3_stereo_from_JY` in `opencv_extra`, at a pinned commit |
 

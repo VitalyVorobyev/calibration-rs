@@ -30,15 +30,22 @@
 //!   manifest's `detector.min_features_per_view`) is left out;
 //! - in a topology whose views share one target frame (single-camera
 //!   hand-eye and every rig topology), a plain chessboard detection is kept
-//!   only when it spans the whole board as declared: corners on every edge,
-//!   `cols` across and `rows` down. The detector labels a view from its own
-//!   top-left corner, so a partial board, or a board seen turned by 90°,
-//!   would move the shared frame. Self-identifying targets (ChArUco,
-//!   PuzzleBoard, ring grid) label partial views absolutely and are kept.
+//!   only when it spans the whole board: corners on every edge. The
+//!   detector labels a view from its own top-left corner, so a partial
+//!   board would move the shared frame. Self-identifying targets (ChArUco,
+//!   PuzzleBoard, ring grid) label partial views absolutely and are kept;
+//! - in a rig, each camera's whole-board chessboard labels are turned to
+//!   agree with the other cameras of the view, from the board's direction
+//!   in each image and the cameras' relative turn, which the views they
+//!   share establish. A detection whose turn cannot be matched is left out
+//!   ([`RejectReason::AmbiguousChessboardTurn`]);
+//! - where the target frame is fixed through the views (hand-eye and the
+//!   laser rigs), the frame is the one camera 0 labels, and a board camera
+//!   0 sees turned by 90° is left out ([`RejectReason::TurnedChessboard`]).
 //!
 //! A camera left with no usable view is an error before any solve:
-//! [`RunError::NoWholeChessboardViews`] when the whole-board rule rejected
-//! any of its views, [`RunError::InsufficientUsableViews`] otherwise.
+//! [`RunError::NoWholeChessboardViews`] when a chessboard rule rejected any
+//! of its views, [`RunError::InsufficientUsableViews`] otherwise.
 //!
 //! Any ambiguity that cannot be auto-resolved at
 //! conversion time is surfaced as a [`RunError::AskUser`] event so
@@ -59,6 +66,7 @@ use vision_calibration_detect::{
     ImageNoise, PuzzleboardConfig, RinggridConfig, validate_charuco_layout,
 };
 
+mod board_turn;
 mod calibrate;
 mod handeye;
 mod laser;
@@ -284,28 +292,33 @@ pub enum RunError {
     },
 
     /// Every view of a camera was rejected, at least one of them because a
-    /// plain chessboard was not seen whole in its declared orientation.
+    /// plain chessboard detection could not be given the shared labels.
     ///
     /// The views of this topology share one target frame, and a plain
     /// chessboard detection labels its corners from its own top-left
-    /// corner, so only a detection that reaches every edge of the board,
-    /// seen as declared (`cols` corners across, `rows` down), places that
-    /// frame. A target with coded corners (ChArUco, PuzzleBoard) is labelled
-    /// absolutely in partial views.
+    /// corner, so only a detection that reaches every edge of the board
+    /// places that frame, and in a rig only one whose turn matches the
+    /// view's other cameras. A target with coded corners (ChArUco,
+    /// PuzzleBoard) is labelled absolutely in partial views.
     #[error(
-        "camera {camera_id:?}: no view shows the whole chessboard as declared \
-         ({partial} partial, {turned} turned by 90°, of {total}); views of this \
-         topology share one target frame, which a plain chessboard places only \
-         when every edge of it is detected — capture the whole board, or use a \
-         ChArUco or PuzzleBoard target for partial views"
+        "camera {camera_id:?}: no view shows the whole chessboard with labels the \
+         other views agree with ({partial} partial, {turned} turned by 90°, \
+         {ambiguous} with an ambiguous turn, of {total}); views of this topology \
+         share one target frame, which a plain chessboard places only when every \
+         edge of it is detected — capture the whole board, or use a ChArUco or \
+         PuzzleBoard target for partial views"
     )]
     NoWholeChessboardViews {
         /// Camera id.
         camera_id: String,
         /// Views rejected because the board was partly out of view.
         partial: usize,
-        /// Views rejected because the board was seen turned by 90°.
+        /// Views rejected because the board was seen turned by 90° where the
+        /// target frame is fixed through the views.
         turned: usize,
+        /// Views rejected because the board's turn relative to the view's
+        /// other cameras could not be told.
+        ambiguous: usize,
         /// Total number of views attempted.
         total: usize,
     },

@@ -9,6 +9,8 @@ cargo run --release -p vision-calibration --features fetch --example measure_boa
 python crates/vision-calibration-py/examples/measure_board.py
 ```
 
+Both take a sample id: `opencv_stereo` runs the same procedure on a pinhole pair ([below](#a-pinhole-pair)).
+
 ## Procedure
 
 1. **Fetch and detect.** `dataset::samples::fetch` downloads the sample; the dataset runner detects the board in every image and returns 34 usable rig views, each holding both cameras' detections.
@@ -65,6 +67,29 @@ A 7-square length is 170.8 mm: the RMS error of 0.77 mm is 0.45 %, and the state
 The calibration reports `view_scatter` 12.2: the variance of its shared parameters across the views is 12 times what independent corner noise predicts, measured by leaving out one view at a time, and its covariance is already scaled by it (see [Judging a Result](quality.md)). That scaling is where the calibration's 17 % at seven squares comes from; with the covariance as the corner noise alone predicts, the share would be a small fraction of that and the σ would sit near the observations-only column, z 1.17 at seven squares.
 
 The real-data picture is therefore this: the fisheye model fits these images to a few tenths of a pixel, not to the detector's accuracy, so a σ built from independent corner noise understates what the calibration does not know. The scatter-corrected covariance the library reports closes that gap for long lengths here, and leaves the short ones conservative.
+
+## A Pinhole Pair
+
+The same procedure runs on OpenCV's pinhole stereo sample (`opencv_stereo`, pinned at `opencv` revision `d195a5ad7eb5`): 13 synchronised views, 640 × 480 pixels, of a chessboard with 6 × 9 corners, seen turned by 90 degrees in most views. OpenCV does not publish the printed square size, so the sample declares squares of 1 and every length below is in squares. The cameras are calibrated with the default model, pinhole with Brown-Conrady distortion.
+
+```bash
+cargo run --release -p vision-calibration --features fetch --example measure_board -- opencv_stereo
+python crates/vision-calibration-py/examples/measure_board.py opencv_stereo
+```
+
+Run on 2026-11-03. All 13 views are usable; in two of them one camera's detection misses part of the board and is dropped, so those views carry one camera. 7 views calibrate (5 with both cameras) and 6 are held out, all 6 measured with all 54 corners. The calibration has a mean reprojection error of 0.199 px, a stated pixel noise σ̂ of 0.146 px in both cameras and a view scatter of 4.17. The triangulated corners lie 0.013 squares RMS from their best-fit plane.
+
+| squares | pairs | mean error | RMS error | mean σ | z RMS | mean σ, observations only | z RMS, observations only |
+|---|---|---|---|---|---|---|---|
+| 1 | 558 | −0.0009 | 0.0096 | 0.0103 | 0.85 | 0.0102 | 0.86 |
+| 2 | 468 | −0.0021 | 0.0111 | 0.0107 | 1.00 | 0.0103 | 1.04 |
+| 3 | 378 | −0.0043 | 0.0125 | 0.0113 | 1.15 | 0.0107 | 1.22 |
+| 4 | 288 | −0.0067 | 0.0153 | 0.0122 | 1.30 | 0.0113 | 1.40 |
+| 5 | 198 | −0.0101 | 0.0177 | 0.0133 | 1.41 | 0.0120 | 1.54 |
+| 6 | 108 | −0.0138 | 0.0203 | 0.0147 | 1.51 | 0.0130 | 1.69 |
+| 7 | 72 | −0.0123 | 0.0202 | 0.0160 | 1.40 | 0.0139 | 1.59 |
+
+Here the σ is honest for short lengths and too small for long ones: z RMS 0.85 at one square, 1.4 to 1.5 from five squares on. The mean error is negative and grows with the length, from −0.0009 squares at one square to −0.0138 at six (−0.23 %): the held-out boards come out slightly small, a scale error of the reconstruction that every corner pair of a view shares, and noise on single corners does not produce it. The calibration's share adds 1 % to the σ of one square and 15 % to that of seven, and lowers the long lengths' z from about 1.6 to 1.4 without closing the gap. Two features of the run are consistent with a scale the calibration states too tightly: it rests on 7 views, two of them seen by one camera, and the rig calibrated from all 13 views has a baseline of 3.327 ± 0.005 squares against 3.338 from these 7, a difference of about two of the 13-view σ. Six held-out views are a small sample, so the table supports the order of the σ, not its second digit.
 
 ## What to Take from It
 
