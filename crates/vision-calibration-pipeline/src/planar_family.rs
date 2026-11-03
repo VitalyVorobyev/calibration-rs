@@ -44,11 +44,8 @@ pub(crate) fn bootstrap_planar_intrinsics(
     init_opts: IterativeIntrinsicsOptions,
 ) -> Result<PlanarBootstrap, Error> {
     let homographies = estimate_view_homographies(dataset)?;
-    let camera = estimate_intrinsics_iterative(dataset, init_opts).map_err(|e| {
-        Error::numerical(format!(
-            "iterative planar intrinsics estimation failed: {e}"
-        ))
-    })?;
+    let camera = estimate_intrinsics_iterative(dataset, init_opts)
+        .map_err(|e| Error::linear_init("iterative planar intrinsics estimation failed", e))?;
     let poses = recover_planar_poses_from_homographies(&homographies, &camera.k)?;
 
     Ok(PlanarBootstrap {
@@ -222,8 +219,11 @@ pub(crate) fn bootstrap_camera(
 ///
 /// # Errors
 ///
-/// [`Error::Numerical`] when Zhang's method, the tilted linear init, a
-/// homography or a pose recovery fails.
+/// [`Error::Linear`] with [`DegenerateViews`] when the views do not
+/// determine the intrinsics; [`Error::Numerical`] when Zhang's method, the
+/// tilted linear init, a homography or a pose recovery fails otherwise.
+///
+/// [`DegenerateViews`]: vision_calibration_linear::Error::DegenerateViews
 fn bootstrap_pinhole(
     cam_idx: usize,
     model: CameraModelSpec,
@@ -255,9 +255,12 @@ fn bootstrap_pinhole(
             }
             let mut init = estimate_scheimpflug_intrinsics_iterative(dataset, scheimpflug_opts)
                 .map_err(|e| {
-                    Error::numerical(format!(
-                        "Scheimpflug intrinsics initialization failed for camera {cam_idx}: {e}"
-                    ))
+                    Error::linear_init(
+                        format!(
+                            "Scheimpflug intrinsics initialization failed for camera {cam_idx}"
+                        ),
+                        e,
+                    )
                 })?;
             if let Some(sensor) = seed.sensor {
                 init.sensor = sensor;
@@ -385,9 +388,10 @@ fn seeded_or_fitted_camera(
         return Ok(make_pinhole_camera(k, BrownConrady5::default()));
     }
     let bootstrap = estimate_intrinsics_iterative(dataset, init_opts).map_err(|e| {
-        Error::numerical(format!(
-            "intrinsics estimation failed for camera {cam_idx}: {e}"
-        ))
+        Error::linear_init(
+            format!("intrinsics estimation failed for camera {cam_idx}"),
+            e,
+        )
     })?;
     Ok(make_pinhole_camera(bootstrap.k, bootstrap.dist))
 }

@@ -11,17 +11,23 @@
 //! Every plan is projected with 0.2 px corner noise and calibrated. A view
 //! whose board leaves the image is dropped, as a chessboard detector would
 //! drop it. The table reports the stated σ of fx, cx and k1, and the
-//! projection σ at the image centre and its largest over the image.
+//! projection σ at the image centre and its largest over the image. A plan
+//! whose board planes are all parallel (fronto-parallel, or tilted the same
+//! way in every view) cannot determine the intrinsics, and its
+//! initialization fails with an error that says to tilt the board about
+//! both of its axes.
 //!
 //! Run with: `cargo run --release -p vision-calibration --example capture_planning`
 
 use anyhow::Result;
+use vision_calibration::Error;
 use vision_calibration::analysis::{CandidateGrid, candidate_poses};
 use vision_calibration::common::CalibratedCameras;
 use vision_calibration::core::{
     BrownConrady5, CameraParams, FxFyCxCy, Iso3, PinholeCamera, PlanarDataset, Pt3, View,
     make_pinhole_camera, pinhole_camera_params,
 };
+use vision_calibration::init;
 use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::noise::UniformPixelNoise;
@@ -164,16 +170,19 @@ impl Study<'_> {
 
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         let outcome = PlanarDataset::new(inside)
-            .map_err(anyhow::Error::from)
-            .and_then(|dataset| Ok(session.set_input(dataset)?))
-            .and_then(|()| Ok(run_calibration(&mut session)?))
-            .and_then(|()| Ok(session.export()?));
+            .map_err(Error::from)
+            .and_then(|dataset| session.set_input(dataset))
+            .and_then(|()| run_calibration(&mut session))
+            .and_then(|()| session.export());
         let export = match outcome {
             Ok(export) => export,
-            Err(error) => {
-                println!("  {label:<20} {used:>5}   fails: {error}");
+            // Parallel board planes: the views cannot determine the
+            // intrinsics, and the error says how to fix the capture.
+            Err(Error::Linear(init::Error::DegenerateViews { .. })) => {
+                println!("  {label:<20} {used:>5}   fails: tilt the board about both of its axes");
                 return Ok(());
             }
+            Err(error) => return Err(error.into()),
         };
         let Some(covariance) = export.parameter_uncertainty().covariance() else {
             let uncertainty = export.parameter_uncertainty();

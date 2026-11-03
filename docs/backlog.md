@@ -58,16 +58,6 @@ functions return no covariance.
   laser point's σ carry the whole calibration. Gate: the laser-point
   Monte-Carlo of `laser_uncertainty.rs` on this export (scatter over stated
   depth σ in [0.85, 1.15]).
-- [ ] CAL-INIT-DEGENERATE - Planar initialization fails on a degenerate
-  capture with `numerical failure: invalid sign for lambda; check
-  homographies`, which tells the user nothing. The `capture_planning`
-  example reproduces it: views all fronto-parallel, or all tilted the same
-  way (parallel board planes). Tilting about one axis only passes init and
-  returns σ(fx) ≈ 96 px instead. Detect the degeneracy from the homographies
-  before Zhang's solve (rank of the constraint system, or the spread of the
-  board normals) and return a typed error that names the fix: tilt the board
-  about both of its axes. Gate: both cases above return it, a good capture
-  is unaffected.
 - [ ] CAL-CHESSBOARD-TURN - A plain chessboard in a rig loses most views of
   a hand-held capture. The dataset runner rejects every view whose board is
   seen turned by 90° (`TurnedChessboard`), and cannot tell a 180° turn at

@@ -552,9 +552,7 @@ fn init_tilted(
                 ..Default::default()
             },
         )
-        .map_err(|e| {
-            Error::numerical(format!("scheimpflug intrinsics initialization failed: {e}"))
-        })?;
+        .map_err(|e| Error::linear_init("scheimpflug intrinsics initialization failed", e))?;
 
         let dist = match manual.distortion {
             Some(d) => {

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **A capture whose board planes are parallel is a typed error**
+  (breaking). `init::Error` (the linear initializers' error) gains
+  `DegenerateViews { views, spread_deg }`. The planar initialization of
+  every pinhole workflow returns it, as `Error::Linear(DegenerateViews)`,
+  when the board planes are parallel in every view (all fronto-parallel, or
+  all tilted the same way): the board orientations spread less than 1°
+  across the views, or Zhang's method finds no camera that fits them. It
+  replaced `Error::Numerical("…invalid sign for lambda; check
+  homographies")` and, for parallel boards with little distortion, an
+  arbitrary focal length. Its message names the fix: tilt the board about
+  both of its axes. Python raises it as a `ValueError`. Match on the variant
+  instead of the old message; `estimate_intrinsics_from_homographies`
+  returns it in place of `Error::Numerical` and of the `Error::Singular` of
+  an indefinite solution.
+
 ## [0.15.0] - 2026-11-03
 
 ### Migration

@@ -5,7 +5,7 @@
 //! non-linear refinement.
 
 use crate::Error;
-use nalgebra::DMatrix;
+use nalgebra::{DMatrix, Vector3};
 use vision_calibration_core::{FxFyCxCy, Mat3, Real};
 
 /// Build the 6-vector v_ij(H) as in Zhang's method.
@@ -24,6 +24,82 @@ fn v_ij(hmtx: &Mat3, i: usize, j: usize) -> nalgebra::SVector<Real, 6> {
     ])
 }
 
+/// Smallest spread of the board orientations, in degrees, that the planar
+/// initialization accepts ([`check_board_orientations`]).
+///
+/// Parallel boards measure a spread at the level of the corner noise: about
+/// 0.15° for a board 40 % of the image wide with 0.2 px noise. A capture
+/// tilted by 3° still initializes, with a focal length uncertain by ±4 %,
+/// and real captures spread over 8° or more. Below 1° the focal length is
+/// uncertain by tens of percent at best and Zhang's solution is noise.
+pub(crate) const MIN_BOARD_ORIENTATION_SPREAD_DEG: Real = 1.0;
+
+/// The spread of the board orientations across views, in radians: the
+/// largest angle between a view's board plane and their mean plane.
+///
+/// A homography `H = K [r1 r2 t]` maps the board's line at infinity to its
+/// vanishing line `h1 × h2 ∝ K⁻ᵀ r3`, so `Kᵀ (h1 × h2)` is the board normal
+/// `r3`. `reference` stands in for the unknown `K`. Parallel boards share
+/// one vanishing line, so their spread is zero through any reference, up to
+/// noise; for tilted boards, a reference focal length equal to the image
+/// extent the views cover measures the perspective the views show, which is
+/// what Zhang's constraints feed on. Normals are compared as lines (`n` and
+/// `−n` alike), so the sign of `H` does not matter.
+///
+/// Returns `None` when fewer than two views give a finite normal.
+pub(crate) fn board_orientation_spread(
+    homographies: &[Mat3],
+    reference: &FxFyCxCy<Real>,
+) -> Option<Real> {
+    let kt = reference.k_matrix().transpose();
+    let normals: Vec<Vector3<Real>> = homographies
+        .iter()
+        .filter_map(|h| {
+            let n = kt * h.column(0).cross(&h.column(1));
+            let norm = n.norm();
+            (norm.is_finite() && norm > 0.0).then(|| n / norm)
+        })
+        .collect();
+    if normals.len() < 2 {
+        return None;
+    }
+    // The mean plane: the dominant eigenvector of the normals' scatter.
+    let scatter = normals
+        .iter()
+        .fold(Mat3::zeros(), |acc, n| acc + n * n.transpose());
+    let eigen = scatter.symmetric_eigen();
+    let mean = eigen
+        .eigenvectors
+        .column(eigen.eigenvalues.imax())
+        .into_owned();
+    normals
+        .iter()
+        .map(|n| n.cross(&mean).norm().atan2(n.dot(&mean).abs()))
+        .reduce(Real::max)
+}
+
+/// Reject views whose boards are parallel: a board orientation spread
+/// ([`board_orientation_spread`], through `reference`) below
+/// [`MIN_BOARD_ORIENTATION_SPREAD_DEG`].
+///
+/// # Errors
+///
+/// [`Error::DegenerateViews`] with the measured spread.
+pub(crate) fn check_board_orientations(
+    homographies: &[Mat3],
+    reference: &FxFyCxCy<Real>,
+) -> Result<(), Error> {
+    match board_orientation_spread(homographies, reference).map(Real::to_degrees) {
+        Some(spread_deg) if spread_deg < MIN_BOARD_ORIENTATION_SPREAD_DEG => {
+            Err(Error::DegenerateViews {
+                views: homographies.len(),
+                spread_deg: Some(spread_deg),
+            })
+        }
+        _ => Ok(()),
+    }
+}
+
 /// High-level linear initialisation of intrinsics for planar calibration.
 ///
 /// This implements the closed-form solution proposed by Zhengyou Zhang for
@@ -34,13 +110,13 @@ pub struct PlanarIntrinsicsLinearInit;
 /// Estimate camera intrinsics `K` from a set of plane homographies `H_k`.
 ///
 /// Uses Zhang's closed-form solution (no distortion). Requires at least three
-/// homographies with sufficiently diverse viewpoints.
+/// homographies of boards at different orientations.
 ///
 /// # Errors
 ///
 /// Returns [`Error::InsufficientData`] if fewer than 3 homographies are given,
-/// [`Error::Singular`] if SVD fails or the configuration is degenerate, or
-/// [`Error::Numerical`] if the recovered lambda has the wrong sign.
+/// [`Error::Singular`] if the linear solve fails on non-finite input, or
+/// [`Error::DegenerateViews`] if the solution is no camera.
 pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCy<Real>, Error> {
     PlanarIntrinsicsLinearInit::from_homographies(hmtxs)
 }
@@ -51,13 +127,24 @@ impl PlanarIntrinsicsLinearInit {
     /// Each homography maps points from **board coordinates** (assumed to be
     /// on `Z = 0`) into image coordinates.
     ///
-    /// At least three views with sufficiently rich geometry are required.
+    /// At least three views are required, of boards at different
+    /// orientations: parallel boards (all fronto-parallel, or all tilted the
+    /// same way) give every view the same two constraints on `K`.
+    ///
+    /// The solve recovers the conic `B = K⁻ᵀ K⁻¹` up to scale, and fails when
+    /// it is not definite: no camera fits the homographies. With parallel
+    /// boards and noisy corners it can instead return an arbitrary `K`; the
+    /// dataset-level [`estimate_intrinsics_iterative`] rejects those views
+    /// before the solve, from the spread of the board orientations, which
+    /// needs the image extent the homographies do not carry.
+    ///
+    /// [`estimate_intrinsics_iterative`]: crate::iterative_intrinsics::estimate_intrinsics_iterative
     ///
     /// # Errors
     ///
     /// Returns [`Error::InsufficientData`] if fewer than 3 homographies are given,
-    /// [`Error::Singular`] if SVD fails or the configuration is degenerate, or
-    /// [`Error::Numerical`] if the recovered lambda has the wrong sign.
+    /// [`Error::Singular`] if the linear solve fails on non-finite input, or
+    /// [`Error::DegenerateViews`] if the solution is no camera.
     pub fn from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCy<Real>, Error> {
         if hmtxs.len() < 3 {
             return Err(Error::InsufficientData {
@@ -104,24 +191,28 @@ impl PlanarIntrinsicsLinearInit {
         // The general solve recovers a skew γ (needed for u0); it is
         // discarded because the camera model has no skew term.
 
+        // `B = μ K⁻ᵀ K⁻¹` is definite: `B11 B22 − B12²` positive and
+        // `λ = μ` of the sign of `B11`. A `B` that is not has no camera
+        // behind it: the views leave it undetermined (parallel boards) or
+        // fit no camera at all (distortion or noise larger than the
+        // perspective the views show).
+        let degenerate = Error::DegenerateViews {
+            views: m,
+            spread_deg: None,
+        };
         let denom = b11 * b22 - b12 * b12;
         let denom_norm = b11 * b11 + b22 * b22;
-        let denom_rel = if denom_norm > 0.0 {
-            denom.abs() / denom_norm
-        } else {
-            0.0
-        };
-        if denom_rel <= 1e-6 || b11.abs() <= 1e-12 {
-            return Err(Error::Singular);
+        let definite_2x2 = denom_norm > 0.0 && denom / denom_norm > 1e-6;
+        if !definite_2x2 || b11.abs() <= 1e-12 {
+            return Err(degenerate);
         }
 
         let v0 = (b12 * b13 - b11 * b23) / denom;
         let lambda = b33 - (b13 * b13 + v0 * (b12 * b13 - b11 * b23)) / b11;
 
-        if lambda.signum() != b11.signum() {
-            return Err(Error::numerical(
-                "invalid sign for lambda; check homographies",
-            ));
+        let definite = lambda / b11 > 0.0;
+        if !definite {
+            return Err(degenerate);
         }
 
         let alpha = (lambda / b11).sqrt();
@@ -201,5 +292,119 @@ mod tests {
         assert!((intr_est.fy - intr_gt.fy).abs() < 5.0, "fy mismatch");
         assert!((intr_est.cx - intr_gt.cx).abs() < 10.0, "cx mismatch");
         assert!((intr_est.cy - intr_gt.cy).abs() < 10.0, "cy mismatch");
+    }
+
+    /// Exact homographies of boards that all share the orientation `tilt`,
+    /// turned in their plane and moved from view to view: parallel planes.
+    fn parallel_homographies(kmtx: &Mat3, tilt: Rotation3<Real>) -> Vec<Mat3> {
+        (0..6)
+            .map(|k| {
+                let spin = Rotation3::from_euler_angles(0.0, 0.0, 0.4 * k as Real);
+                let t = Vector3::new(0.08 * (k % 3) as Real - 0.1, 0.05 * (k % 2) as Real, 1.0);
+                synthetic_homography(kmtx, tilt * spin, t + 0.1 * k as Real * Vector3::z())
+            })
+            .collect()
+    }
+
+    /// Exact homographies of boards tilted by `tilt_rad` about +x, +y, −x
+    /// and −y in turn: normals `tilt_rad` from the optical axis, around it.
+    fn tilted_homographies(kmtx: &Mat3, tilt_rad: Real) -> Vec<Mat3> {
+        let axes = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)];
+        axes.iter()
+            .enumerate()
+            .map(|(k, &(ax, ay))| {
+                let rot = Rotation3::from_euler_angles(ax * tilt_rad, ay * tilt_rad, 0.0)
+                    * Rotation3::from_euler_angles(0.0, 0.0, 0.3 * k as Real);
+                synthetic_homography(kmtx, rot, Vector3::new(0.05 * ax, 0.05 * ay, 1.0))
+            })
+            .collect()
+    }
+
+    fn spread_deg(hmtxs: &[Mat3], reference: &FxFyCxCy<Real>) -> Real {
+        board_orientation_spread(hmtxs, reference)
+            .expect("finite normals")
+            .to_degrees()
+    }
+
+    #[test]
+    fn parallel_boards_have_no_spread_through_any_reference() {
+        let (intr, kmtx) = make_kmtx();
+        let wrong = FxFyCxCy {
+            fx: 2500.0,
+            fy: 2500.0,
+            cx: 100.0,
+            cy: 900.0,
+        };
+        for tilt in [
+            Rotation3::identity(),
+            Rotation3::from_euler_angles(0.35, 0.0, 0.0),
+            Rotation3::from_euler_angles(0.2, -0.3, 0.0),
+        ] {
+            let hmtxs = parallel_homographies(&kmtx, tilt);
+            for reference in [&intr, &wrong] {
+                assert!(spread_deg(&hmtxs, reference) < 1e-9);
+                assert!(matches!(
+                    check_board_orientations(&hmtxs, reference),
+                    Err(Error::DegenerateViews {
+                        views: 6,
+                        spread_deg: Some(_)
+                    })
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn spread_is_the_tilt_through_the_true_camera() {
+        let (intr, kmtx) = make_kmtx();
+        for tilt_deg in [0.5, 3.0, 20.0] {
+            let mut hmtxs = tilted_homographies(&kmtx, Real::to_radians(tilt_deg));
+            // Neither the sign nor the scale of a homography matters.
+            hmtxs[1] *= -3.0;
+            let spread = spread_deg(&hmtxs, &intr);
+            assert!(
+                (spread - tilt_deg).abs() < 1e-6 * tilt_deg,
+                "{spread} vs {tilt_deg}"
+            );
+        }
+    }
+
+    #[test]
+    fn check_rejects_spreads_below_the_threshold_only() {
+        let (intr, kmtx) = make_kmtx();
+        let below = tilted_homographies(&kmtx, Real::to_radians(0.8));
+        match check_board_orientations(&below, &intr) {
+            Err(Error::DegenerateViews {
+                views: 4,
+                spread_deg: Some(spread),
+            }) => assert!((spread - 0.8).abs() < 1e-6),
+            other => panic!("expected DegenerateViews, got {other:?}"),
+        }
+        let above = tilted_homographies(&kmtx, Real::to_radians(1.25));
+        assert!(check_board_orientations(&above, &intr).is_ok());
+    }
+
+    #[test]
+    fn parallel_boards_have_no_camera() {
+        let (_, kmtx) = make_kmtx();
+        for tilt in [
+            Rotation3::identity(),
+            Rotation3::from_euler_angles(0.35, 0.0, 0.0),
+        ] {
+            let err = estimate_intrinsics_from_homographies(&parallel_homographies(&kmtx, tilt))
+                .expect_err("parallel boards determine no camera");
+            assert!(matches!(
+                err,
+                Error::DegenerateViews {
+                    views: 6,
+                    spread_deg: None
+                }
+            ));
+            assert!(
+                err.to_string()
+                    .contains("tilt the board about both of its axes"),
+                "{err}"
+            );
+        }
     }
 }
