@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`measure_board` example and book chapter.** Rust and Python examples calibrate
+  the fisheye stereo sample on half of its views, triangulate the board
+  corners of the other half and compare the distance errors with the stated
+  σ, with and without the calibration's share; the chapter "Measuring a
+  Board with a Stereo Calibration" gives the measured table and discusses it.
 - **`vision_calibration.mvg`: the multiple-view geometry surface in Python.**
   Triangulation, object pose, bundle adjustment, laser points, two-view
   pose recovery, measurements (`PointSet`, `distance`, `angle`, `fit_plane`,
