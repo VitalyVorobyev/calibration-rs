@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`mvg::metrology`: measurements with joint σ.** `PointSet` (points and their
+  joint covariance, from `triangulate`, `bundle_adjust` or your own), then
+  `distance`, `angle`, `fit_plane` and `point_to_plane`, each returning its
+  value with a standard deviation (`Scalar`) from the points' joint covariance,
+  cross terms included, by dual-number Jacobians. A plane fit carries the
+  covariance of its normal (in a stated tangent basis) and distance, and
+  `point_to_plane` is joint with the plane that it measures against.
+
 ## [0.14.0] - 2026-11-03
 
 ### Migration

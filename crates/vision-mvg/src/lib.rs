@@ -16,6 +16,9 @@
 //!   calibration for any camera model, the disparity-to-depth matrix, points
 //!   with the covariance of their disparity, and measurements that carry the
 //!   calibration's uncertainty
+//! - **Measurements**: [`metrology`] — distances, angles, plane fits and
+//!   point-to-plane distances over triangulated points, each with the σ from
+//!   the points' joint covariance
 //! - **Bundle adjustment**: [`bundle_adjust()`](bundle_adjust::bundle_adjust) — capture poses and points
 //!   refined together from a calibration, with a stated gauge (capture 0 and
 //!   a [`Scale`]), robust losses and the joint covariance; the calibration
@@ -104,6 +107,7 @@ pub mod degeneracy;
 pub mod dense;
 pub mod error;
 pub mod homography;
+pub mod metrology;
 pub mod pose_recovery;
 pub mod rectification;
 pub mod refine;

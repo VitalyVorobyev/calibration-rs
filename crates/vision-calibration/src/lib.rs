@@ -521,6 +521,7 @@ pub mod detect {
 /// camera-matrix DLT, linear triangulation) at the module root, plus
 /// calibrated relative-pose recovery, robust (RANSAC) estimation, degeneracy
 /// checks, N-view triangulation, bundle adjustment from a calibration,
+/// measurements with joint σ (distance, angle, plane fit),
 /// homography decomposition, stereo rectification from a calibration (any camera
 /// model, with the disparity-to-depth matrix and the uncertainty of the points),
 /// and pure-Rust dense stereo matching — reached via the owning module, e.g.
@@ -536,7 +537,7 @@ pub mod mvg {
         fundamental_8point, triangulate_point_linear,
     };
     pub use vision_mvg::{
-        MvgError, bundle_adjust, degeneracy, dense, error, homography, pose_recovery,
+        MvgError, bundle_adjust, degeneracy, dense, error, homography, metrology, pose_recovery,
         rectification, residuals, robust, triangulation, types,
     };
 }

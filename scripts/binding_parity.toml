@@ -370,6 +370,7 @@
 "mvg::dense" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::error" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::homography" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
+"mvg::metrology" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::pose_recovery" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::rectification" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
 "mvg::residuals" = "the multiple-view-geometry surface; its Python bindings are backlog item MVG-PY"
