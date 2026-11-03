@@ -29,11 +29,11 @@ Solve via the smallest eigenvector of $A^T A$ (the smallest-singular direction):
 
 ## Limitations
 
-- **No uncertainty modeling**: The DLT minimizes algebraic error, not geometric (reprojection) error
+- **Algebraic error**: The DLT minimizes algebraic error, not geometric (reprojection) error, and carries no covariance
 - **Baseline sensitivity**: For small baselines (nearly parallel views), the triangulation is poorly conditioned — small pixel errors lead to large depth errors
 - **Outlier sensitivity**: A single incorrect correspondence corrupts the result; no robustness mechanism
 
-For high-accuracy 3D reconstruction, triangulation should be followed by bundle adjustment that jointly optimizes points and cameras to minimize reprojection error.
+For accurate points, refine them on the reprojection error with their noise stated: the calibrated entry point, `mvg::triangulation::triangulate`, does so, and returns the points' covariance with the calibration's share (see [Pose Recovery and Triangulation](mvg_pose.md)). The linear estimate is its starting point.
 
 ## API
 
@@ -41,7 +41,7 @@ For high-accuracy 3D reconstruction, triangulation should be followed by bundle 
 let X = triangulate_point_linear(&cam_se3_world, &bearings)?;
 ```
 
-Where `cam_se3_world` holds each view's `Iso3` pose and `bearings` the matching rays (any nonzero length). The calibrated entry point, `mvg::triangulation::triangulate`, builds the bearings from pixels through a `CalibratedRig` and adds diagnostics; see [Pose Recovery and Triangulation](mvg_pose.md).
+Where `cam_se3_world` holds each view's `Iso3` pose and `bearings` the matching rays (any nonzero length). The calibrated entry point, `mvg::triangulation::triangulate`, builds the bearings from pixels through a `CalibratedRig`, refines the points and adds diagnostics and covariance; see [Pose Recovery and Triangulation](mvg_pose.md).
 
 Deterministic two-view solvers, all free functions in per-topic modules:
 

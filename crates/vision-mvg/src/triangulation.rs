@@ -1,18 +1,30 @@
-//! Triangulation from a calibration, with quality diagnostics.
+//! Triangulation from a calibration, refined, with the covariance of the points.
 //!
-//! Pixels become bearings through each rig camera's own model, the linear
-//! (DLT) triangulator of `vision-geometry` solves for the point, and the
+//! Pixels become bearings through each rig camera's own model and the linear
+//! (DLT) triangulator of `vision-geometry` starts every point. The points are
+//! then refined together on the reprojection error of the stated pixel noise,
+//! through the public problem builder of `vision-calibration-optim`, with the
+//! rig's calibration as consider parameters: the result carries the joint
+//! covariance of the points, the calibration's uncertainty included. The
 //! diagnostics report the reprojection error in pixels, the parallax and
 //! whether the point lies ahead of every observing camera.
 
 use crate::bearing::{bearing, camera_model};
 use crate::types::TriangulatedPoint;
 use crate::{MvgError, Result};
-use vision_calibration_core::{CalibratedRig, CameraModel, Iso3, Pt2, Pt3, Real, Vec3};
+use vision_calibration_core::{
+    CalibratedRig, CameraModel, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Uncertainty,
+    UncertaintyUnavailable, Vec3,
+};
+use vision_calibration_optim::RobustLoss;
+use vision_calibration_optim::problem::{
+    BlockId, Manifold, PixelNoise, Problem, SolveOptions, TargetPoint, Use, solve,
+};
 use vision_geometry::GeometryError;
 use vision_geometry::triangulation::triangulate_point_linear;
 
-/// One pixel of a point: seen by rig camera `camera` at capture `capture`.
+/// One pixel of a point: seen by rig camera `camera` at capture `capture`,
+/// with its noise.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RigObservation {
     /// Index into the capture poses (`rig_se3_world`) the call takes.
@@ -21,34 +33,98 @@ pub struct RigObservation {
     pub camera: usize,
     /// The observed pixel.
     pub pixel: Pt2,
+    /// The pixel's covariance, px²: [`PointCovariance::new`] for a general
+    /// one, [`PointCovariance::isotropic`] for one σ, or
+    /// [`CalibratedRig::reprojection_noise`] for the calibration's noise
+    /// level. It is stated, not estimated: a point seen twice leaves no
+    /// redundancy to estimate it from.
+    pub noise: PointCovariance,
 }
 
 impl RigObservation {
-    /// An observation of a point by rig camera `camera` at capture `capture`.
-    pub fn new(capture: usize, camera: usize, pixel: Pt2) -> Self {
+    /// An observation of a point by rig camera `camera` at capture `capture`,
+    /// with the covariance `noise` of its pixel.
+    pub fn new(capture: usize, camera: usize, pixel: Pt2, noise: PointCovariance) -> Self {
         Self {
             capture,
             camera,
             pixel,
+            noise,
         }
     }
 }
 
-/// Triangulate each track (the observations of one point) in the world frame.
+/// The points of one [`triangulate`] call and their joint uncertainty.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct Triangulation {
+    /// One point per track, in the world frame, refined, with its
+    /// diagnostics.
+    pub points: Vec<TriangulatedPoint>,
+    /// The joint covariance of every refined point's coordinates, m², with
+    /// the labels `p{i}.x`, `p{i}.y`, `p{i}.z` for track `i`: from the
+    /// observations' stated noise plus the calibration's share. Or why it is
+    /// unavailable; a rig without a covariance gives
+    /// [`UncertaintyUnavailable::CalibrationWithoutCovariance`].
+    pub uncertainty: Uncertainty,
+}
+
+impl Triangulation {
+    /// Point `i`'s 3×3 covariance, m²; `None` when the uncertainty is
+    /// unavailable, `i` is out of range or the point was not refined (see
+    /// [`triangulate`]).
+    pub fn point_covariance(&self, i: usize) -> Option<Mat3> {
+        self.cross_covariance(i, i)
+    }
+
+    /// The 3×3 cross-covariance of points `i` and `j` (rows `i`, columns
+    /// `j`), m²: the calibration's uncertainty is shared by every point of the
+    /// call, so it correlates them. `None` as for
+    /// [`point_covariance`](Self::point_covariance).
+    pub fn cross_covariance(&self, i: usize, j: usize) -> Option<Mat3> {
+        let c = self.uncertainty.covariance()?;
+        let at = |p: usize| -> Option<[usize; 3]> {
+            Some([
+                c.index(&format!("p{p}.x"))?,
+                c.index(&format!("p{p}.y"))?,
+                c.index(&format!("p{p}.z"))?,
+            ])
+        };
+        let (rows, cols) = (at(i)?, at(j)?);
+        Some(Mat3::from_fn(|r, s| c.covariance[rows[r]][cols[s]]))
+    }
+}
+
+/// Triangulate each track (the observations of one point) in the world frame,
+/// refine the points and give their joint covariance.
 ///
 /// `rig_se3_world[k]` is the pose of the rig at capture `k` (world → rig
-/// frame). Camera `i` at capture `k` sees the world through
+/// frame), taken as exact. Camera `i` at capture `k` sees the world through
 /// `rig.cam_se3_rig()[i] * rig_se3_world[k]`. Every pixel is unprojected
 /// through its camera's own model, so distortion, fisheye and tilted sensors
-/// need no separate undistortion, and the estimate is the linear (DLT)
-/// triangulation of the resulting bearings.
+/// need no separate undistortion. The linear (DLT) triangulation of the
+/// bearings starts each point; all points are then refined together on the
+/// reprojection error, each pixel weighted by its stated noise.
 ///
 /// For one stereo capture pass `&[Iso3::identity()]`: the rig frame is the
 /// world frame and the points come out in the rig frame.
 ///
+/// The covariance has two sources: the observations' noise, and the rig's
+/// calibration, which enters as consider parameters (its parameters stay at
+/// their values and its covariance is propagated into the points'). Every
+/// point shares the calibration's uncertainty, so the points are correlated
+/// ([`Triangulation::cross_covariance`]) and are solved in one problem. The
+/// covariance is dense over the 3N coordinates, so the cost grows as N³: for
+/// thousands of points, call per group of points that need a joint
+/// covariance.
+///
+/// A track whose linear estimate lies behind an observing camera, or does not
+/// project in it, is not refined: it keeps the linear point, its diagnostics
+/// say so (`in_front`, `reprojection_error`), and it has no covariance.
+///
 /// ```
 /// use vision_calibration_core::{
-///     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Pt2, Pt3, Uncertainty, Vec3,
+///     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, PointCovariance, Pt3, Uncertainty,
 ///     make_pinhole_camera, pinhole_camera_params,
 /// };
 /// use vision_mvg::triangulation::{RigObservation, triangulate};
@@ -63,8 +139,9 @@ impl RigObservation {
 ///     Uncertainty::default(),
 /// )?;
 ///
-/// // A point 2 m ahead, and the pixels the two cameras see it at.
+/// // A point 2 m ahead, and the pixels the two cameras see it at, 0.3 px noise.
 /// let point = Pt3::new(0.05, -0.02, 2.0);
+/// let noise = PointCovariance::isotropic(0.3)?;
 /// let pixel = |camera: usize| {
 ///     rig.model(camera)
 ///         .unwrap()
@@ -72,14 +149,17 @@ impl RigObservation {
 ///         .unwrap()
 /// };
 /// let track = vec![
-///     RigObservation::new(0, 0, pixel(0)),
-///     RigObservation::new(0, 1, pixel(1)),
+///     RigObservation::new(0, 0, pixel(0), noise),
+///     RigObservation::new(0, 1, pixel(1), noise),
 /// ];
 ///
 /// let found = triangulate(&rig, &[Iso3::identity()], &[track])?;
-/// assert!((found[0].point - point).norm() < 1e-9);
-/// assert!(found[0].in_front);
-/// # Ok::<(), vision_mvg::MvgError>(())
+/// assert!((found.points[0].point - point).norm() < 1e-6);
+/// assert!(found.points[0].in_front);
+/// // This rig has no covariance, so neither do the points; one with a
+/// // covariance gives `found.point_covariance(0)`, a 3×3 matrix in m².
+/// assert!(found.point_covariance(0).is_none());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
 /// # Errors
@@ -87,27 +167,126 @@ impl RigObservation {
 /// All-or-nothing: a track with fewer than 2 observations, a camera or
 /// capture index out of range, a pixel without a finite viewing ray or a
 /// degenerate (zero-parallax) system is an error whose message names the
-/// track by its index in `tracks`.
+/// track by its index in `tracks`; so is a refinement that fails to run. A
+/// refinement that stops short of convergence is not an error: the points are
+/// returned as they stand and the uncertainty says
+/// [`UncertaintyUnavailable::NotConverged`].
 pub fn triangulate(
     rig: &CalibratedRig,
     rig_se3_world: &[Iso3],
     tracks: &[Vec<RigObservation>],
-) -> Result<Vec<TriangulatedPoint>> {
-    tracks
-        .iter()
-        .enumerate()
-        .map(|(i, track)| {
-            triangulate_track(rig, rig_se3_world, track)
-                .map_err(|e| with_context(&format!("track {i}"), e))
+) -> Result<Triangulation> {
+    let mut starts = Vec::with_capacity(tracks.len());
+    for (i, track) in tracks.iter().enumerate() {
+        let views = track_views(rig, rig_se3_world, track)
+            .map_err(|e| with_context(&format!("track {i}"), e))?;
+        let linear =
+            triangulate_views(&views).map_err(|e| with_context(&format!("track {i}"), e))?;
+        starts.push((views, linear));
+    }
+
+    // The problem: the calibration (considered), the capture poses (exact),
+    // one free point per refinable track.
+    let mut problem = Problem::new();
+    let blocks = problem
+        .add_calibrated_rig(rig, Use::Consider)
+        .map_err(refine_error)?;
+    let mut captures: Vec<Option<BlockId>> = vec![None; rig_se3_world.len()];
+    let mut point_blocks: Vec<Option<BlockId>> = Vec::with_capacity(tracks.len());
+    for (i, (track, (_, linear))) in tracks.iter().zip(&starts).enumerate() {
+        if !(linear.in_front && linear.reprojection_error.is_some()) {
+            point_blocks.push(None);
+            continue;
+        }
+        let at = &linear.point;
+        let block = problem
+            .add_block(format!("p{i}"), &[at.x, at.y, at.z], Manifold::Euclidean)
+            .map_err(refine_error)?;
+        problem
+            .set_labels(block, &["x", "y", "z"])
+            .map_err(refine_error)?;
+        for obs in track {
+            let capture = match captures[obs.capture] {
+                Some(id) => id,
+                None => {
+                    let id = problem
+                        .add_pose(
+                            format!("capture{}", obs.capture),
+                            &rig_se3_world[obs.capture],
+                        )
+                        .map_err(refine_error)?;
+                    problem.fix(id).map_err(refine_error)?;
+                    captures[obs.capture] = Some(id);
+                    id
+                }
+            };
+            // The camera and chain exist: `track_views` checked the index.
+            let camera = blocks.camera(obs.camera);
+            let chain = blocks.chain(obs.camera, capture);
+            let (Some(camera), Some(chain)) = (camera, chain) else {
+                return Err(MvgError::numerical(format!(
+                    "track {i}: camera {} missing from the problem",
+                    obs.camera
+                )));
+            };
+            problem
+                .add_reprojection(
+                    camera,
+                    chain,
+                    TargetPoint::Block(block),
+                    obs.pixel,
+                    PixelNoise::Stated(obs.noise),
+                    RobustLoss::None,
+                )
+                .map_err(|e| refine_error_in(&format!("track {i}"), e))?;
+        }
+        point_blocks.push(Some(block));
+    }
+
+    if point_blocks.iter().all(Option::is_none) {
+        let points = starts.into_iter().map(|(_, p)| p).collect();
+        return Ok(Triangulation {
+            points,
+            uncertainty: Uncertainty::Unavailable {
+                reason: UncertaintyUnavailable::NotComputed,
+            },
+        });
+    }
+    let solution = solve(&problem, &SolveOptions::default()).map_err(refine_error)?;
+
+    let points = starts
+        .into_iter()
+        .zip(&point_blocks)
+        .map(|((views, linear), block)| {
+            let refined = block
+                .and_then(|b| solution.value(b))
+                .map(|v| Pt3::new(v[0], v[1], v[2]));
+            match refined {
+                Some(point) => diagnose(&views, point),
+                None => linear,
+            }
         })
-        .collect()
+        .collect();
+    Ok(Triangulation {
+        points,
+        uncertainty: solution.uncertainty,
+    })
 }
 
-fn triangulate_track(
-    rig: &CalibratedRig,
+fn refine_error(e: vision_calibration_optim::Error) -> MvgError {
+    MvgError::numerical(format!("refining the points: {e}"))
+}
+
+fn refine_error_in(context: &str, e: vision_calibration_optim::Error) -> MvgError {
+    MvgError::numerical(format!("{context}: refining the points: {e}"))
+}
+
+/// The views of one track, with their bearings.
+fn track_views<'a>(
+    rig: &'a CalibratedRig,
     rig_se3_world: &[Iso3],
     track: &[RigObservation],
-) -> Result<TriangulatedPoint> {
+) -> Result<Vec<ViewRay<'a>>> {
     if track.len() < 2 {
         return Err(MvgError::invalid_input(format!(
             "has {} observation(s); triangulation needs at least 2",
@@ -132,7 +311,7 @@ fn triangulate_track(
             bearing: bearing(model, &obs.pixel, j)?,
         });
     }
-    triangulate_views(&views)
+    Ok(views)
 }
 
 /// Prefix the message of an error with the item it concerns.
@@ -166,7 +345,11 @@ pub(crate) fn triangulate_views(views: &[ViewRay<'_>]) -> Result<TriangulatedPoi
     let poses: Vec<Iso3> = views.iter().map(|v| v.cam_se3_world).collect();
     let bearings: Vec<Vec3> = views.iter().map(|v| v.bearing).collect();
     let point = triangulate_point_linear(&poses, &bearings)?;
+    Ok(diagnose(views, point))
+}
 
+/// The diagnostics of `point` against the views that observed it.
+fn diagnose(views: &[ViewRay<'_>], point: Pt3) -> TriangulatedPoint {
     let mut in_front = true;
     let mut sq_sum = 0.0;
     let mut projects = true;
@@ -179,13 +362,14 @@ pub(crate) fn triangulate_views(views: &[ViewRay<'_>]) -> Result<TriangulatedPoi
         }
     }
     let reprojection_error = projects.then(|| (sq_sum / views.len() as Real).sqrt());
+    let poses: Vec<Iso3> = views.iter().map(|v| v.cam_se3_world).collect();
 
-    Ok(TriangulatedPoint {
+    TriangulatedPoint {
         point,
         reprojection_error,
         parallax_deg: max_parallax_deg(&poses, &point),
         in_front,
-    })
+    }
 }
 
 /// The largest angle, in degrees, between two rays from camera centres to the
@@ -215,6 +399,10 @@ mod tests {
     use crate::test_support::{Lcg, fisheye_params, iso, pinhole_params, pixel_of};
     use vision_calibration_core::Uncertainty;
 
+    fn noise() -> PointCovariance {
+        PointCovariance::isotropic(0.5).unwrap()
+    }
+
     fn stereo_rig(k1: f64) -> CalibratedRig {
         CalibratedRig::new(
             vec![pinhole_params(k1), pinhole_params(k1)],
@@ -233,7 +421,7 @@ mod tests {
         for (k, rig_pose) in rig_se3_world.iter().enumerate() {
             for (c, cam_pose) in rig.cam_se3_rig().iter().enumerate() {
                 let p_cam = (cam_pose * rig_pose * world).coords;
-                obs.push(RigObservation::new(k, c, pixel_of(rig, c, &p_cam)));
+                obs.push(RigObservation::new(k, c, pixel_of(rig, c, &p_cam), noise()));
             }
         }
         obs
@@ -248,8 +436,8 @@ mod tests {
             .map(|p| track(&rig, &[Iso3::identity()], p))
             .collect();
         let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
-        assert_eq!(found.len(), 2);
-        for (f, p) in found.iter().zip(&world) {
+        assert_eq!(found.points.len(), 2);
+        for (f, p) in found.points.iter().zip(&world) {
             assert!((f.point - p).norm() < 1e-9);
             assert!(f.in_front);
             assert!(f.reprojection_error.unwrap() < 1e-8);
@@ -269,8 +457,8 @@ mod tests {
         ];
         let world = Pt3::new(0.15, -0.1, 2.5);
         let found = triangulate(&rig, &captures, &[track(&rig, &captures, &world)]).unwrap();
-        assert!((found[0].point - world).norm() < 1e-9);
-        assert!(found[0].reprojection_error.unwrap() < 1e-7);
+        assert!((found.points[0].point - world).norm() < 1e-9);
+        assert!(found.points[0].reprojection_error.unwrap() < 1e-7);
     }
 
     /// With pixel noise the diagnostics report it: the reprojection RMS is of
@@ -290,9 +478,9 @@ mod tests {
             o.pixel.y += 0.3 * rng.next();
         }
         let found = triangulate(&rig, &captures, &[noisy]).unwrap();
-        let err = found[0].reprojection_error.unwrap();
+        let err = found.points[0].reprojection_error.unwrap();
         assert!(err > 0.01 && err < 0.5, "reprojection {err}");
-        assert!((found[0].point - world).norm() < 0.1);
+        assert!((found.points[0].point - world).norm() < 0.1);
     }
 
     /// Diverging rays put the point behind both cameras: not in front, and a
@@ -308,12 +496,12 @@ mod tests {
         // 1 m to its right, sees it right of centre: the rays diverge and
         // meet behind both cameras.
         let track = vec![
-            RigObservation::new(0, 0, Pt2::new(600.0, 480.0)),
-            RigObservation::new(1, 0, Pt2::new(720.0, 480.0)),
+            RigObservation::new(0, 0, Pt2::new(600.0, 480.0), noise()),
+            RigObservation::new(1, 0, Pt2::new(720.0, 480.0), noise()),
         ];
         let found = triangulate(&rig, &captures, &[track]).unwrap();
-        assert!(!found[0].in_front);
-        assert!(found[0].reprojection_error.is_none());
+        assert!(!found.points[0].in_front);
+        assert!(found.points[0].reprojection_error.is_none());
     }
 
     /// A fisheye rig sees points beyond 90° from the axis: the bearing
@@ -341,7 +529,7 @@ mod tests {
             .map(|p| track(&rig, &[Iso3::identity()], p))
             .collect();
         let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
-        for (f, p) in found.iter().zip(&world) {
+        for (f, p) in found.points.iter().zip(&world) {
             assert!((f.point - p).norm() < 1e-9, "{:?} vs {p:?}", f.point);
             assert!(f.in_front);
             assert!(f.reprojection_error.unwrap() < 1e-7);

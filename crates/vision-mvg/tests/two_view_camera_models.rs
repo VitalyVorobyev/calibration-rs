@@ -128,6 +128,7 @@ fn distorted_pinhole_noiseless_recovers_pose_and_points() {
     let gt = pose(0.05, -0.08, 0.03, Vec3::new(0.8, 0.05, 0.10));
     let rig = stereo(distorted_pinhole(), gt);
     let world = cloud_ahead();
+    let px_noise = PointCovariance::isotropic(0.5).unwrap();
 
     let matches: Vec<_> = world
         .iter()
@@ -143,13 +144,13 @@ fn distorted_pinhole_noiseless_recovers_pose_and_points() {
         .iter()
         .map(|p| {
             vec![
-                RigObservation::new(0, 0, pixel(&rig, 0, p)),
-                RigObservation::new(0, 1, pixel(&rig, 1, p)),
+                RigObservation::new(0, 0, pixel(&rig, 0, p), px_noise),
+                RigObservation::new(0, 1, pixel(&rig, 1, p), px_noise),
             ]
         })
         .collect();
     let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
-    for (f, p) in found.iter().zip(&world) {
+    for (f, p) in found.points.iter().zip(&world) {
         let rel_err = (f.point - p).norm() / p.coords.norm();
         assert!(rel_err < 1e-9, "relative error {rel_err}");
         assert!(f.reprojection_error.unwrap() < 1e-6);
@@ -161,6 +162,7 @@ fn distorted_pinhole_with_pixel_noise_stays_within_the_noise_floor() {
     let gt = pose(0.05, -0.08, 0.03, Vec3::new(0.8, 0.05, 0.10));
     let rig = stereo(distorted_pinhole(), gt);
     let world = cloud_ahead();
+    let px_noise = PointCovariance::isotropic(0.5).unwrap();
     let noise = UniformPixelNoise {
         seed: 0xB1AB,
         max_abs_px: 0.3,
@@ -174,8 +176,8 @@ fn distorted_pinhole_with_pixel_noise_stays_within_the_noise_floor() {
         let q1 = pixel(&rig, 1, p) + n1;
         matches.push(matched(q0, q1));
         tracks.push(vec![
-            RigObservation::new(0, 0, q0),
-            RigObservation::new(0, 1, q1),
+            RigObservation::new(0, 0, q0, px_noise),
+            RigObservation::new(0, 1, q1, px_noise),
         ]);
     }
     let rel = recover_relative_pose(&rig, [0, 1], &matches).unwrap();
@@ -188,6 +190,7 @@ fn distorted_pinhole_with_pixel_noise_stays_within_the_noise_floor() {
     let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
     let err3d = median(
         found
+            .points
             .iter()
             .zip(&world)
             .map(|(f, p)| (f.point - p).norm())
@@ -196,6 +199,7 @@ fn distorted_pinhole_with_pixel_noise_stays_within_the_noise_floor() {
     assert!(err3d < 0.04 * 0.3, "median 3D error {err3d}");
     let reproj = median(
         found
+            .points
             .iter()
             .map(|f| f.reprojection_error.unwrap())
             .collect(),
@@ -226,6 +230,7 @@ fn fisheye_rig_recovers_points_and_pose_beyond_90_degrees() {
     let cam1_se3_rig = pose(0.02, -0.12, 0.03, Vec3::new(-0.35, 0.04, 0.06));
     let rig = stereo(fisheye(), cam1_se3_rig);
     let world = cloud_all_around();
+    let px_noise = PointCovariance::isotropic(0.5).unwrap();
     let behind = world.iter().filter(|p| p.z < 0.0).count();
     assert!(
         behind >= 8,
@@ -238,13 +243,13 @@ fn fisheye_rig_recovers_points_and_pose_beyond_90_degrees() {
         .iter()
         .map(|p| {
             vec![
-                RigObservation::new(0, 0, pixel(&rig, 0, p)),
-                RigObservation::new(0, 1, pixel(&rig, 1, p)),
+                RigObservation::new(0, 0, pixel(&rig, 0, p), px_noise),
+                RigObservation::new(0, 1, pixel(&rig, 1, p), px_noise),
             ]
         })
         .collect();
     let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
-    for (f, p) in found.iter().zip(&world) {
+    for (f, p) in found.points.iter().zip(&world) {
         let rel_err = (f.point - p).norm() / p.coords.norm();
         assert!(rel_err < 1e-9, "{p:?}: relative error {rel_err}");
         assert!(f.in_front, "{p:?}");

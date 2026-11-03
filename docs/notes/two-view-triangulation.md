@@ -98,12 +98,11 @@ the angle by which the two rays must move to meet the constraint to first
 order; it is invariant to the scale of `E` and returns `∞` at an epipole
 (vanishing denominator). A pixel threshold `t` is about `t / f` radians. The
 pixel residuals (`residuals::sampson_distance` on `F`, symmetric transfer on
-`H`) are unchanged and serve the uncalibrated estimators. Triangulation is the
-linear DLT only: no midpoint or optimal (Hartley–Sturm) triangulator exists, and
-the Gauss-Newton `refine_point` that polished the DLT seed was removed with the
-duplicate `vision-mvg` one. The nonlinear refinement against pixels returns
-through the public problem builder (MVG-TRI-COV, ADR 0028), where the camera
-model and the calibration's covariance are available.
+`H`) are unchanged and serve the uncalibrated estimators. The linear DLT is
+the seed of `vision-mvg`'s `triangulate`, which refines the points against
+pixels through the public problem builder (ADR 0028), where the camera model
+and the calibration's covariance are available; no midpoint or optimal
+(Hartley–Sturm) triangulator exists.
 
 ## Triangulation and its failure modes
 

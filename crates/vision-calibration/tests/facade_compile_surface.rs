@@ -290,6 +290,7 @@ fn mvg_module_surface_compiles() {
     let _ = mvg::RansacOptions::new(3.0);
     let _ = mvg::triangulation::triangulate;
     let _: Option<mvg::triangulation::RigObservation> = None;
+    let _: Option<mvg::triangulation::Triangulation> = None;
     let _: Option<vision_calibration::core::CalibratedRig> = None;
     let _ = mvg::rectification::rectify_stereo_pair;
     let _ = mvg::homography::decompose_homography;

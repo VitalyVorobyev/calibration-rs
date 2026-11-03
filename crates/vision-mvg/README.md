@@ -12,7 +12,7 @@ already-calibrated cameras.
 
 - Relative pose recovery with cheirality disambiguation, and robust essential
   and homography estimation
-- N-view triangulation of pixel tracks from a calibration, with diagnostics
+- N-view triangulation of pixel tracks from a calibration, refined on stated pixel noise, with diagnostics and the points' covariance (the calibration's share included)
 - Bundle adjustment (behind the `refine` feature)
 - Scheimpflug-aware stereo rectification
 - Dense stereo: block matching and semi-global matching
