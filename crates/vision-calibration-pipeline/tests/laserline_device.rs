@@ -1,11 +1,13 @@
 #![allow(missing_docs)]
 
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraModelSpec, CorrespondenceView, DistortionKind, FxFyCxCy, Iso3,
     Pinhole, Pt2, Pt3, ScheimpflugParams, SensorKind, SensorModel, SensorParams, View,
 };
-use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineView};
+use vision_calibration_optim::{LaserlineMeta, LaserlineView};
+use vision_calibration_pipeline::common::CalibratedCameras;
 use vision_calibration_pipeline::common::config::CameraConfig;
 use vision_calibration_pipeline::laserline_device::{
     DeviceManualInit, LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceProblem,
@@ -199,6 +201,13 @@ fn pipeline_converges_pinhole() {
 
     let json = serde_json::to_string(&export).unwrap();
     let _: LaserlineDeviceExport = serde_json::from_str(&json).unwrap();
+    // The plane was held fixed, so the covariance does not list it; it is
+    // still the rig's plane, exact.
+    let rig = export.calibrated_rig().unwrap();
+    assert_eq!(
+        rig.laser_plane(0).unwrap().distance(),
+        params.plane.distance()
+    );
 
     assert!(matches!(params.camera.sensor, SensorParams::Identity));
     let fx_err = (params.camera.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
@@ -255,6 +264,14 @@ fn pipeline_converges_scheimpflug() {
         export.mean_reproj_error
     );
     assert_tilt(&export, sensor_gt);
+
+    // The export's calibration carries its laser plane, with the covariance
+    // that lists it.
+    let rig = export.calibrated_rig().unwrap();
+    assert_eq!(
+        rig.laser_plane(0).unwrap().distance(),
+        export.params.plane.distance()
+    );
 
     // Default: a laserline device's mount tilt is held at its seed, as is
     // an explicit hold.

@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 
 use nalgebra::Matrix2;
 use vision_calibration_core::{
-    CalibratedRig, CameraParams, Iso3, ParameterCovariance, Uncertainty,
+    CalibratedRig, CameraParams, Iso3, LaserPlane, ParameterCovariance, Uncertainty,
 };
 use vision_calibration_optim::{
     Error as OptimError, ProjectionUncertainty, camera_parameters, projection_covariance_at,
@@ -39,20 +39,34 @@ pub trait CalibratedCameras {
     /// images behind the observations when the export records them.
     fn diagnostics(&self) -> &ExportDiagnostics;
 
+    /// Each camera's laser plane in its own frame, in camera order; empty
+    /// for an export without a laser.
+    fn laser_planes_cam(&self) -> Vec<LaserPlane> {
+        Vec::new()
+    }
+
     /// The calibration as a value a measurement takes: the cameras, their
-    /// poses in the rig and the uncertainty of the estimated parameters
-    /// (labelled as in [`parameter_uncertainty`](Self::parameter_uncertainty)).
+    /// poses in the rig, their laser planes (for a laser export) and the
+    /// uncertainty of the estimated parameters (labelled as in
+    /// [`parameter_uncertainty`](Self::parameter_uncertainty)).
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidInput`] when a camera's parameters do not build a model.
+    /// [`Error::InvalidInput`] when a camera's parameters do not build a model
+    /// or the covariance does not list a laser plane in full.
     fn calibrated_rig(&self) -> Result<CalibratedRig, Error> {
-        CalibratedRig::new(
+        let rig = CalibratedRig::new(
             self.camera_params(),
             self.cam_se3_rig(),
             self.parameter_uncertainty().clone(),
         )
-        .map_err(|e| Error::invalid_input(e.to_string()))
+        .map_err(|e| Error::invalid_input(e.to_string()))?;
+        let planes = self.laser_planes_cam();
+        if planes.is_empty() {
+            return Ok(rig);
+        }
+        rig.with_laser_planes(planes.into_iter().map(Some).collect())
+            .map_err(|e| Error::invalid_input(e.to_string()))
     }
 
     /// The value of the camera parameter a covariance label names (`fx`,
@@ -218,6 +232,10 @@ impl CalibratedCameras for LaserlineDeviceExport {
         vec![self.params.camera.clone()]
     }
 
+    fn laser_planes_cam(&self) -> Vec<LaserPlane> {
+        vec![self.params.plane.clone()]
+    }
+
     fn cam_se3_rig(&self) -> Vec<Iso3> {
         vec![Iso3::identity()]
     }
@@ -272,6 +290,10 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
         self.cameras.clone()
     }
 
+    fn laser_planes_cam(&self) -> Vec<LaserPlane> {
+        self.laser_planes_cam.clone()
+    }
+
     fn cam_se3_rig(&self) -> Vec<Iso3> {
         self.cam_se3_rig.clone()
     }
@@ -290,6 +312,10 @@ impl CalibratedCameras for RigHandeyeLaserlineExport {
         self.cameras.clone()
     }
 
+    fn laser_planes_cam(&self) -> Vec<LaserPlane> {
+        self.laser_planes_cam.clone()
+    }
+
     fn cam_se3_rig(&self) -> Vec<Iso3> {
         self.cam_se3_rig.clone()
     }
@@ -300,5 +326,114 @@ impl CalibratedCameras for RigHandeyeLaserlineExport {
 
     fn diagnostics(&self) -> &ExportDiagnostics {
         &self.diagnostics
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use vision_calibration_core::{
+        BrownConrady5, FxFyCxCy, ParameterCovariance, make_pinhole_camera, pinhole_camera_params,
+    };
+
+    fn camera() -> serde_json::Value {
+        let k = FxFyCxCy {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 320.0,
+            cy: 240.0,
+        };
+        serde_json::to_value(pinhole_camera_params(&make_pinhole_camera(
+            k,
+            BrownConrady5::default(),
+        )))
+        .unwrap()
+    }
+
+    fn pose() -> serde_json::Value {
+        serde_json::to_value(Iso3::identity()).unwrap()
+    }
+
+    fn plane(d: f64) -> serde_json::Value {
+        json!({"normal": [0.0, 0.6, 0.8], "distance": d})
+    }
+
+    fn covariance(labels: &[&str]) -> Uncertainty {
+        let n = labels.len();
+        Uncertainty::Available(ParameterCovariance {
+            labels: labels.iter().map(|l| l.to_string()).collect(),
+            covariance: (0..n)
+                .map(|i| (0..n).map(|j| f64::from(u8::from(i == j))).collect())
+                .collect(),
+            views: vec![],
+            fixed: vec![],
+            noise: vec![],
+            num_residuals: 10,
+            dof: 5,
+            view_scatter: None,
+        })
+    }
+
+    const PLANES: [&str; 8] = [
+        "cam0.plane.nx",
+        "cam0.plane.ny",
+        "cam0.plane.nz",
+        "cam0.plane.d",
+        "cam1.plane.nx",
+        "cam1.plane.ny",
+        "cam1.plane.nz",
+        "cam1.plane.d",
+    ];
+
+    /// Each laser export's rig carries its planes (in the camera frames); a
+    /// planar export's carries none.
+    #[test]
+    fn laser_exports_attach_their_planes_to_the_rig() {
+        let uncertainty = serde_json::to_value(covariance(&PLANES)).unwrap();
+
+        let rig_laser: RigLaserlineDeviceExport = serde_json::from_value(json!({
+            "kind": "rig_laserline_device",
+            "laser_planes_rig": [plane(-0.3), plane(-0.4)],
+            "laser_planes_cam": [plane(-0.3), plane(-0.4)],
+            "per_camera_stats": [],
+            "cameras": [camera(), camera()],
+            "cam_se3_rig": [pose(), pose()],
+            "rig_se3_target": [],
+            "mean_reproj_error": 0.1,
+            "per_cam_reproj_errors": [0.1, 0.1],
+            "uncertainty": uncertainty,
+        }))
+        .unwrap();
+        let rig = rig_laser.calibrated_rig().unwrap();
+        assert_eq!(rig.laser_plane(0).unwrap().distance(), -0.3);
+        assert_eq!(rig.laser_plane(1).unwrap().distance(), -0.4);
+
+        let handeye: RigHandeyeLaserlineExport = serde_json::from_value(json!({
+            "kind": "rig_handeye_laserline",
+            "laser_planes_rig": [plane(-0.3), plane(-0.4)],
+            "laser_planes_cam": [plane(-0.3), plane(-0.4)],
+            "per_camera_stats": [],
+            "cameras": [camera(), camera()],
+            "cam_se3_rig": [pose(), pose()],
+            "rig_se3_target": [],
+            "handeye_mode": "EyeInHand",
+            "mean_reproj_error": 0.1,
+            "per_cam_reproj_errors": [0.1, 0.1],
+            "uncertainty": serde_json::to_value(covariance(&PLANES)).unwrap(),
+        }))
+        .unwrap();
+        let rig = handeye.calibrated_rig().unwrap();
+        assert_eq!(rig.laser_plane(1).unwrap().distance(), -0.4);
+
+        // A plane the covariance lists in part is not guessed around; one it
+        // does not list was held fixed and stays exact.
+        let mut partial = rig_laser.clone();
+        partial.uncertainty = covariance(&PLANES[..6]);
+        let err = partial.calibrated_rig().unwrap_err();
+        assert!(err.to_string().contains("whole or held"), "{err}");
+        let mut held = rig_laser.clone();
+        held.uncertainty = covariance(&PLANES[..4]);
+        assert!(held.calibrated_rig().unwrap().laser_plane(1).is_some());
     }
 }

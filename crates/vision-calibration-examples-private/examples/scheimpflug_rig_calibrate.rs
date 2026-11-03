@@ -54,13 +54,13 @@ use vision_calibration::{
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind,
     DistortionParams, FrameRef, FxFyCxCy, ImageManifest, Iso3, PixelRect, Pt2, RigDataset, RigView, RigViewObs,
-    ScheimpflugParams, SensorKind,
+    LaserPlane, ScheimpflugParams, SensorKind,
 };
 use vision_calibration_examples_private::{
     PoseEntry, camera_parts, detect_charuco, detect_laser, load_gray, load_poses, split_horizontal,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandeyeMode, LaserPlane, LaserlineResidualType,
+    BackendSolveOptions, HandeyeMode, LaserlineResidualType,
     RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams, RigHandeyeLaserlineView,
     RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
     evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,

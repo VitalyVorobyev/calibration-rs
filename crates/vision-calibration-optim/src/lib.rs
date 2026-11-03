@@ -18,7 +18,7 @@
 //!   [`HandeyeEstimate`], [`LaserlineEstimate`], …) with their
 //!   [`SolveReport`];
 //! - the input types of the laser and hand-eye problems ([`RobotPoseMeta`],
-//!   [`LaserlineView`], [`RigLaserlineView`], …) and the [`LaserPlane`];
+//!   [`LaserlineView`], [`RigLaserlineView`], …) and the laser plane ([`vision_calibration_core::LaserPlane`]);
 //! - projection uncertainty ([`projection_uncertainty`]) and the residual
 //!   helpers the analysis reports use;
 //! - [`problem`]: a least-squares problem of your own, with residuals you
@@ -75,7 +75,6 @@ pub use error::Error;
 // below, which is what every consumer in this workspace does.
 pub use crate::backend::{SolveReport, SolverBackend};
 pub use crate::ir::{DistortionKind, HandeyeMode, RobustLoss};
-pub use crate::params::laser_plane::LaserPlane;
 pub use crate::problems::RobotPoseSigma;
 pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};
 
@@ -143,7 +142,7 @@ pub use crate::problems::scheimpflug_intrinsics::{
     ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
 };
 #[doc(hidden)]
-pub use crate::projection::projection_covariance_at;
+pub use crate::projection::{CameraJacobian, ProjectedPoint, projection_covariance_at};
 
 #[cfg(test)]
 mod tests;

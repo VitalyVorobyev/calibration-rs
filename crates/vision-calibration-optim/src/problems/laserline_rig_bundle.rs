@@ -29,7 +29,6 @@
 use crate::Error;
 use crate::backend::BackendSolveOptions;
 use crate::params::camera::camera_spec;
-use crate::params::laser_plane::LaserPlane;
 use crate::problems::laserline_bundle::{
     LaserCameraModel, LaserResidualRecords, LaserlineMeta, LaserlineParams, LaserlineResidualType,
     LaserlineSolveOptions, LaserlineStats, LaserlineView, compute_laserline_stats,
@@ -37,6 +36,7 @@ use crate::problems::laserline_bundle::{
 };
 use crate::uncertainty;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
     CameraFix, CameraParams, CorrespondenceView, Iso3, Pt2, Uncertainty, View,
 };

@@ -360,11 +360,12 @@ impl ProblemType for LaserlineDeviceProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vision_calibration_core::LaserPlane;
     use vision_calibration_core::{
         BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy, Iso3,
         Pinhole, ProjectionParams, Pt2, Pt3, ScheimpflugParams, SensorParams, View,
     };
-    use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineParams, SolveReport};
+    use vision_calibration_optim::{LaserlineMeta, LaserlineParams, SolveReport};
 
     fn bc_camera(
         intrinsics: FxFyCxCy<f64>,

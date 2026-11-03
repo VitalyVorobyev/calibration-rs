@@ -6,6 +6,7 @@ use crate::common::{ExportDiagnostics, ExportKind};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraFix, CameraModelSpec, CameraParams, FeatureResidualHistogram, Iso3, NoMeta,
@@ -13,10 +14,9 @@ use vision_calibration_core::{
     build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    HandeyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
-    RigHandeyeLaserlineEstimate, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView,
-    RigLaserlineDataset, RobotPoseSigma, RobustLoss, apply_robot_delta,
-    compute_rig_laserline_feature_residuals,
+    HandeyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset, RigHandeyeLaserlineEstimate,
+    RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView, RigLaserlineDataset, RobotPoseSigma,
+    RobustLoss, apply_robot_delta, compute_rig_laserline_feature_residuals,
 };
 
 use crate::rig_family::rig_camera_models;

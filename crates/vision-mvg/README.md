@@ -13,6 +13,7 @@ already-calibrated cameras.
 - Relative pose recovery with cheirality disambiguation, and robust essential
   and homography estimation
 - N-view triangulation of pixel tracks from a calibration, refined on stated pixel noise, with diagnostics and the points' covariance (the calibration's share included)
+- Laser points: laser-line pixels on a camera's known plane, in the rig frame, with the covariance of the pixels, the camera, the plane and the extrinsic
 - Measurements with σ: distances, angles, plane fits and point-to-plane distances over triangulated points, propagated through the points' joint covariance with dual numbers
 - Object pose from known 3D points seen by one or several rig cameras, with optional RANSAC in σ of the stated noise and the pose's covariance (the calibration's share included)
 - Bundle adjustment of capture poses and points from a calibration, with a stated gauge (capture 0 and a scale), robust losses and the joint covariance, the calibration as consider parameters or under a prior

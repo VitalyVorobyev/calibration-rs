@@ -5,6 +5,8 @@
 // Each test binary that includes this module uses a part of it.
 #![allow(dead_code)]
 
+pub mod laser;
+
 use vision_calibration::common::CalibratedCameras;
 use vision_calibration::core::{
     BrownConrady5, CalibratedRig, CameraParams, CorrespondenceView, FxFyCxCy, Iso3, NoMeta,
@@ -242,10 +244,18 @@ pub fn without_calibration_share(rig: &CalibratedRig) -> CalibratedRig {
     covariance.covariance = (0..n)
         .map(|i| (0..n).map(|j| if i == j { 1e-20 } else { 0.0 }).collect())
         .collect();
-    CalibratedRig::new(
+    let bare = CalibratedRig::new(
         rig.cameras().to_vec(),
         rig.cam_se3_rig().to_vec(),
         Uncertainty::Available(covariance),
     )
-    .unwrap()
+    .unwrap();
+    let planes: Vec<_> = (0..rig.num_cameras())
+        .map(|i| rig.laser_plane(i).cloned())
+        .collect();
+    if planes.iter().any(Option::is_some) {
+        bare.with_laser_planes(planes).unwrap()
+    } else {
+        bare
+    }
 }

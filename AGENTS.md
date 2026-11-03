@@ -25,7 +25,7 @@ The workspace is a strict layered DAG ([ADR 0006](docs/adrs/0006-layered-crate-a
 
 | Crate | May depend on | Holds |
 |---|---|---|
-| `vision-calibration-core` | — | math aliases, `linalg` numerics, camera models, RANSAC, synthetic generators |
+| `vision-calibration-core` | — | math aliases, `linalg` numerics, camera models, RANSAC, synthetic generators, calibration value types (`CalibratedRig`, `LaserPlane`) |
 | `vision-geometry` | core | deterministic two-view solvers |
 | `vision-calibration-linear` | core, geometry | closed-form / linear initialization |
 | `vision-calibration-optim` | core | NLLS IR, factors, robust kernels, solver backends, covariance |

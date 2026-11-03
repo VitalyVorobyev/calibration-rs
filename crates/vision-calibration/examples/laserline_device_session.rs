@@ -1,5 +1,6 @@
 //! Example: single laserline device calibration (camera + laser plane).
 
+use vision_calibration::core::LaserPlane;
 use vision_calibration::core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, Pt2, Pt3,
     ScheimpflugParams, SensorModel, View,
@@ -8,7 +9,6 @@ use vision_calibration::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceProblem, run_calibration,
 };
 use vision_calibration::laserline_device::{LaserlineMeta, LaserlineView};
-use vision_calibration::optim::LaserPlane;
 use vision_calibration::prelude::*;
 
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};

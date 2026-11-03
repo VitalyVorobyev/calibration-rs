@@ -2,6 +2,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
     CameraModel, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta,
     PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
@@ -10,7 +11,7 @@ use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
 use vision_calibration_optim::{
-    LaserPlane, LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, compute_laserline_stats,
+    LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, compute_laserline_stats,
     optimize_laserline,
 };
 

@@ -1,7 +1,7 @@
 //! A calibration as a value: what a measurement needs from it.
 
 use crate::models::{CameraModel, CameraParams};
-use crate::types::{NoiseLevel, PointCovariance, ResidualKind, Uncertainty};
+use crate::types::{LaserPlane, NoiseLevel, PointCovariance, ResidualKind, Uncertainty};
 use crate::{Error, Iso3};
 
 /// What a measurement needs from a calibration: the cameras, where each sits
@@ -16,11 +16,17 @@ use crate::{Error, Iso3};
 /// cameras' parameters and the extrinsics, with the labels of the export it
 /// came from: `fx` for one camera; `cam1.k1` and `cam1.cam_se3_rig.rx` in a
 /// rig.
+///
+/// A rig from a laser calibration also carries the laser plane of each
+/// camera ([`with_laser_planes`](Self::with_laser_planes)), in that camera's
+/// own frame; their labels in the uncertainty are `plane.nx`, `plane.ny`,
+/// `plane.nz` and `plane.d` (`cam1.plane.nx` in a rig).
 #[derive(Debug, Clone)]
 pub struct CalibratedRig {
     cameras: Vec<CameraParams>,
     models: Vec<CameraModel>,
     cam_se3_rig: Vec<Iso3>,
+    laser_planes: Vec<Option<LaserPlane>>,
     uncertainty: Uncertainty,
 }
 
@@ -59,8 +65,72 @@ impl CalibratedRig {
             cameras,
             models,
             cam_se3_rig,
+            laser_planes: Vec::new(),
             uncertainty,
         })
+    }
+
+    /// The same rig with a laser plane per camera: `planes[i]` is camera
+    /// `i`'s plane in its own frame, or `None` for a camera without a laser.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] for a number of planes other than the number
+    /// of cameras, and for a plane the calibration's covariance (when it has
+    /// one) lists in part: its four labels are `plane.nx`, `plane.ny`,
+    /// `plane.nz`, `plane.d` (with the `cam<i>.` prefix in a rig of two or
+    /// more cameras, as the camera parameters have), and a plane is estimated
+    /// whole or held fixed. A plane the covariance does not list at all was
+    /// held fixed and counts as exact.
+    pub fn with_laser_planes(mut self, planes: Vec<Option<LaserPlane>>) -> Result<Self, Error> {
+        if planes.len() != self.num_cameras() {
+            return Err(Error::invalid_input(format!(
+                "{} laser planes for {} cameras",
+                planes.len(),
+                self.num_cameras()
+            )));
+        }
+        if let Some(covariance) = self.uncertainty.covariance() {
+            for (i, plane) in planes.iter().enumerate() {
+                if plane.is_none() {
+                    continue;
+                }
+                let labels = Self::plane_labels(i, self.num_cameras() > 1);
+                let listed = labels
+                    .iter()
+                    .filter(|l| covariance.index(l).is_some())
+                    .count();
+                if listed != 0 && listed != labels.len() {
+                    return Err(Error::invalid_input(format!(
+                        "camera {i}'s laser plane is in the calibration's covariance in part \
+                         (the labels {}); a plane is estimated whole or held fixed",
+                        labels.join(", ")
+                    )));
+                }
+            }
+        }
+        self.laser_planes = planes;
+        Ok(self)
+    }
+
+    /// The covariance labels of camera `camera`'s laser plane:
+    /// `plane.nx`, `plane.ny`, `plane.nz`, `plane.d`, prefixed `cam<camera>.`
+    /// in a rig of several cameras.
+    #[doc(hidden)]
+    pub fn plane_labels(camera: usize, multi_camera: bool) -> [String; 4] {
+        ["nx", "ny", "nz", "d"].map(|c| {
+            if multi_camera {
+                format!("cam{camera}.plane.{c}")
+            } else {
+                format!("plane.{c}")
+            }
+        })
+    }
+
+    /// Camera `camera`'s laser plane, in its own frame; `None` for a camera
+    /// out of range or without a laser plane.
+    pub fn laser_plane(&self, camera: usize) -> Option<&LaserPlane> {
+        self.laser_planes.get(camera)?.as_ref()
     }
 
     /// A rig of one camera, which defines the rig frame (identity pose).
@@ -202,6 +272,73 @@ mod tests {
         assert_eq!(rig.num_cameras(), 2);
         assert_eq!(rig.cameras()[1].intrinsics.fx, 900.0);
         assert_eq!(rig.cam_se3_rig()[1], pose);
+    }
+
+    fn plane() -> LaserPlane {
+        LaserPlane::new(nalgebra::Vector3::new(0.0, 0.6, 0.8), -0.4).unwrap()
+    }
+
+    fn covariance_with(labels: Vec<String>) -> Uncertainty {
+        let n = labels.len();
+        Uncertainty::Available(ParameterCovariance {
+            covariance: (0..n)
+                .map(|i| (0..n).map(|j| f64::from(u8::from(i == j))).collect())
+                .collect(),
+            labels,
+            views: vec![],
+            fixed: vec![],
+            noise: vec![],
+            num_residuals: 10,
+            dof: 5,
+            view_scatter: None,
+        })
+    }
+
+    #[test]
+    fn laser_planes_attach_per_camera_and_are_checked() {
+        let cameras = vec![pinhole(800.0), pinhole(800.0)];
+        let poses = vec![Iso3::identity(), Iso3::identity()];
+        let rig =
+            CalibratedRig::new(cameras.clone(), poses.clone(), Uncertainty::default()).unwrap();
+        assert!(rig.laser_plane(0).is_none());
+        let rig = rig.with_laser_planes(vec![None, Some(plane())]).unwrap();
+        assert!(rig.laser_plane(0).is_none());
+        assert_eq!(rig.laser_plane(1).unwrap().distance(), -0.4);
+        assert!(rig.laser_plane(2).is_none());
+
+        // Wrong number of planes.
+        let bare =
+            CalibratedRig::new(cameras.clone(), poses.clone(), Uncertainty::default()).unwrap();
+        assert!(bare.with_laser_planes(vec![Some(plane())]).is_err());
+
+        // A covariance lists the plane of camera 1 in full or not at all.
+        let labels = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let full = covariance_with(labels(&[
+            "cam1.plane.nx",
+            "cam1.plane.ny",
+            "cam1.plane.nz",
+            "cam1.plane.d",
+        ]));
+        let ok = CalibratedRig::new(cameras.clone(), poses.clone(), full).unwrap();
+        assert!(ok.with_laser_planes(vec![None, Some(plane())]).is_ok());
+        let partial = covariance_with(labels(&["cam1.plane.nx", "cam1.plane.d"]));
+        let rig = CalibratedRig::new(cameras.clone(), poses.clone(), partial).unwrap();
+        let err = rig
+            .with_laser_planes(vec![None, Some(plane())])
+            .unwrap_err();
+        assert!(err.to_string().contains("whole or held"), "{err}");
+        // A plane held fixed is not listed at all.
+        let held = covariance_with(labels(&["cam1.fx"]));
+        let rig = CalibratedRig::new(cameras, poses, held).unwrap();
+        assert!(rig.with_laser_planes(vec![None, Some(plane())]).is_ok());
+
+        // One camera: no prefix.
+        let single = CalibratedRig::single(
+            pinhole(800.0),
+            covariance_with(labels(&["plane.nx", "plane.ny", "plane.nz", "plane.d"])),
+        )
+        .unwrap();
+        assert!(single.with_laser_planes(vec![Some(plane())]).is_ok());
     }
 
     #[test]

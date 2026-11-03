@@ -186,6 +186,36 @@ numbers. This lives in `vision-mvg`, next to the measurements. A plane fit
 is a small problem of its own; its covariance holds the points'
 uncertainty as consider parameters.
 
+### Laser points: the plane is part of the calibration
+
+A laser pixel on a known plane is one 3D point: the viewing ray's
+intersection with the plane. `CalibratedRig` carries each camera's laser
+plane (`with_laser_planes`, in that camera's frame, `Option` per camera),
+so a laser point's covariance has the same three sources as a triangulated
+one: the pixel, the camera, and the plane, and the plane and camera
+parameters are correlated in the calibration's covariance (they were
+estimated in one solve). `LaserPlane` moves to core with the rig, its
+serialized form unchanged; the facade path is `core::LaserPlane` alone.
+
+The point is the implicit function `F(p; u, θ, n, d) = [π(p; θ) − u;
+nᵀp + d] = 0`, so its first-order covariance is closed form from the
+exact derivatives of the forward projection (`CameraJacobian` in optim,
+the same dual-number kernels as the solver): `∂p/∂x = −A⁻¹ ∂F/∂x` with
+`A = [∂π/∂p; nᵀ]`. The calibration's covariance enters as `J_c Σ_c J_cᵀ`
+over the coordinates the covariance lists (camera, plane, and the camera's
+extrinsic, whole or held), the pixels' as `J_u Σ_u J_uᵀ`. Points of one
+call share the calibration, so the joint covariance is dense and the
+cross-covariance feeds `metrology`.
+
+Rejected: the builder route (`Use::Consider` with a laser-plane residual).
+A single point has one residual per axis and zero degrees of freedom left,
+and the builder's consider share is computed from a Gauss-Newton system
+that is exactly determined here; the closed form is the same linear
+algebra without a solver, and exact. Revisit when a measurement mixes
+laser pixels with redundant observations of the same point (a point seen
+by a camera and by the laser), where a joint solve has something to
+adjust.
+
 ### What the σ promises
 
 Each propagated σ is gated by Monte-Carlo, redrawing both the calibration
@@ -205,8 +235,9 @@ on real data.
   - point-block and rig-chain reprojection;
   - whitened reprojection.
 - ADR 0027's "more chains are added when a need is shown" is that need.
-- Core gains `CalibratedRig`; the pipeline's `CalibratedCameras` gains
-  `calibrated_rig`.
+- Core gains `CalibratedRig` and `LaserPlane` (moved from optim); the
+  pipeline's `CalibratedCameras` gains `calibrated_rig` and, for the laser
+  exports, `laser_planes_cam`.
 - Every MVG function that takes `K` changes signature to take a
   `CalibratedRig`: a breaking release.
 - MVG results carry covariances. Bundle adjustment needs an explicit

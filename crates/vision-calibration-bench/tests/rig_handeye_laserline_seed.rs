@@ -9,8 +9,9 @@
 use nalgebra::{Rotation3, Vector3};
 use vision_calibration::Error;
 use vision_calibration::common::ExportKind;
+use vision_calibration::core::LaserPlane;
 use vision_calibration::core::{RigDataset, RigView, RigViewObs};
-use vision_calibration::optim::{HandeyeMode, LaserPlane, RobustLoss};
+use vision_calibration::optim::{HandeyeMode, RobustLoss};
 use vision_calibration::rig_handeye::{
     RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem, run_calibration as run_rig_handeye,
 };

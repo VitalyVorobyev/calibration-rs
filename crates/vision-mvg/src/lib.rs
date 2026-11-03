@@ -12,6 +12,9 @@
 //!   pixel tracks from a calibration, refined on stated pixel noise, with
 //!   diagnostics and the points' joint covariance (the calibration's share
 //!   included)
+//! - **Laser points**: [`laser::triangulate_laser`] — laser-line pixels on a
+//!   camera's known laser plane, with the covariance of the pixels, the camera,
+//!   the plane and the extrinsic
 //! - **Stereo**: [`rectify`] — rectification of two rig cameras from the
 //!   calibration for any camera model, the disparity-to-depth matrix, points
 //!   with the covariance of their disparity, and measurements that carry the
@@ -110,6 +113,7 @@ pub mod degeneracy;
 pub mod dense;
 pub mod error;
 pub mod homography;
+pub mod laser;
 pub mod metrology;
 pub mod pose;
 pub mod pose_recovery;

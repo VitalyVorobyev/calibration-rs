@@ -316,8 +316,8 @@ fn pixel_to_gripper_point(
     laser_planes_rig: &Bound<'_, PyAny>,
     base_se3_gripper: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
+    use vision_calibration::core::LaserPlane;
     use vision_calibration::core::{Iso3, Pt2};
-    use vision_calibration::optim::LaserPlane;
     use vision_calibration::rig_handeye::RigHandeyeExport;
 
     reject_non_finite("pixel", pixel)?;

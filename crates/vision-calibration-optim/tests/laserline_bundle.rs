@@ -5,11 +5,11 @@
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraFix, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy,
-    IdentitySensor, Iso3, Pinhole, ProjectionParams, Pt2, Pt3, Real, ScheimpflugParams,
+    IdentitySensor, Iso3, LaserPlane, Pinhole, ProjectionParams, Pt2, Pt3, Real, ScheimpflugParams,
     SensorParams, View,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, LaserPlane, LaserlineMeta, LaserlineParams, LaserlineResidualType,
+    BackendSolveOptions, LaserlineMeta, LaserlineParams, LaserlineResidualType,
     LaserlineSolveOptions, optimize_laserline,
 };
 

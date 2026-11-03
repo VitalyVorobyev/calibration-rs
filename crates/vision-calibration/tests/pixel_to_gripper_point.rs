@@ -7,10 +7,9 @@
 use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
 use vision_calibration::{
     core::{
-        BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3, ProjectionParams, Pt2, Pt3,
-        ScheimpflugParams, SensorParams,
+        BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3, LaserPlane,
+        ProjectionParams, Pt2, Pt3, ScheimpflugParams, SensorParams,
     },
-    optim::LaserPlane,
     rig_handeye::RigHandeyeExport,
     rig_laserline_device::pixel_to_gripper_point,
 };

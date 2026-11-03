@@ -3,12 +3,12 @@
 use crate::Error;
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::LaserPlane;
 use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, LaserPlane, RigLaserlineSolveOptions, RigLaserlineUpstream,
-    optimize_rig_laserline,
+    BackendSolveOptions, RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
 };
 
 use crate::session::CalibrationSession;

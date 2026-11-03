@@ -441,13 +441,13 @@ pub mod core {
     pub use vision_calibration_core::{
         BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel, CameraModelSpec,
         CameraParams, CorrespondenceView, DistortionKind, DistortionParams, Division, Equidistant,
-        FrameKind, FrameRef, FxFyCxCy, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4, Mat3,
-        NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
-        PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Real,
-        ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs, ScheimpflugParams,
-        SensorKind, SensorModel, SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable,
-        Vec2, Vec3, View, ViewCovariance, distort_to_pixel, make_pinhole_camera,
-        pinhole_camera_params, pixel_to_normalized,
+        FrameKind, FrameRef, FxFyCxCy, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4,
+        LaserPlane, Mat3, NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera,
+        PixelRect, PlanarDataset, PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3,
+        RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs,
+        ScheimpflugParams, SensorKind, SensorModel, SensorParams, ThinPrism, Uncertainty,
+        UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
+        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].
@@ -520,7 +520,8 @@ pub mod detect {
 /// two-view solvers (essential and fundamental matrix, homography DLT,
 /// camera-matrix DLT, linear triangulation) at the module root, plus
 /// calibrated relative-pose recovery, robust (RANSAC) estimation, degeneracy
-/// checks, N-view triangulation, bundle adjustment from a calibration,
+/// checks, N-view triangulation, laser points on a known plane, bundle
+/// adjustment from a calibration,
 /// measurements with joint σ (distance, angle, plane fit),
 /// homography decomposition, stereo rectification from a calibration (any camera
 /// model, with the disparity-to-depth matrix and the uncertainty of the points),
@@ -537,7 +538,7 @@ pub mod mvg {
         fundamental_8point, triangulate_point_linear,
     };
     pub use vision_mvg::{
-        MvgError, bundle_adjust, degeneracy, dense, error, homography, metrology, pose,
+        MvgError, bundle_adjust, degeneracy, dense, error, homography, laser, metrology, pose,
         pose_recovery, rectification, residuals, robust, triangulation, types,
     };
 }
@@ -558,8 +559,6 @@ pub mod optim {
     pub use vision_calibration_optim::Error;
     /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
     pub use vision_calibration_optim::HandeyeMode;
-    /// Laser-plane parameter type.
-    pub use vision_calibration_optim::LaserPlane;
     /// The laser residual of the laser workflows' configs
     /// (`laser_residual_type`): a fisheye camera takes `PointToPlane`.
     pub use vision_calibration_optim::LaserlineResidualType;

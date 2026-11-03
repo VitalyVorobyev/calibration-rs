@@ -34,14 +34,19 @@ real-data demonstration.
   a residual of your own over a rotation and a unit-vector block. It returns
   the covariance of the relative pose (gauge |t| = 1) on the way, which
   MVG-TWO-VIEW lists.
-- [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
-  and the laser-plane covariance.
 - [ ] MVG-DENSE-COV - The calibration's share in a dense cloud's per-point
   covariance (today: disparity share; the calibrated σ goes through
   `StereoRectification::triangulate` for selected matches).
 - [ ] MVG-PY - Python bindings for the MVG surface.
 - [ ] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
   (a cross-repo change).
+- [ ] MVG-HANDEYE-FRAME - Laser and triangulated points in the gripper or
+  base frame, with the hand-eye's covariance in their σ: `CalibratedRig`
+  carries the hand-eye pose (eye-in-hand or eye-to-hand) with its
+  covariance, the points' rig-frame covariance gains its share, and the
+  robot pose is stated exact or with its sigma. Replaces the pipeline's
+  `pixel_to_gripper_point`, which returns a point without σ (delete it).
+  Gate: Monte-Carlo over hand-eye calibrations, as `laser_uncertainty.rs`.
 - [ ] MVG-DEMO - A book walk-through plus Rust and Python examples on the
   fetchable samples (`opencv_fisheye_stereo`, a pinhole stereo pair once
   CAL-CHESSBOARD-TURN lands): calibrate, triangulate the board corners of
@@ -50,6 +55,16 @@ real-data demonstration.
 
 ## Correctness — CORRECT (Phase 1b)
 
+- [ ] CAL-RIGLASER-CONSIDER - `rig_laserline_device` fits each camera's laser
+  plane with the upstream rig calibration held exact, so its plane covariance
+  is conditional on it and carries no camera or camera×plane terms:
+  `triangulate_laser` on its rig reports the calibration as unavailable.
+  `RigUpstreamCalibration` gains the upstream `Uncertainty`; the workflow
+  propagates it into the planes as consider parameters, keeps the cameras'
+  covariance in the export's, and with the camera×plane cross terms lets a
+  laser point's σ carry the whole calibration. Gate: the laser-point
+  Monte-Carlo of `laser_uncertainty.rs` on this export (scatter over stated
+  depth σ in [0.85, 1.15]).
 - [ ] CAL-INIT-DEGENERATE - Planar initialization fails on a degenerate
   capture with `numerical failure: invalid sign for lambda; check
   homographies`, which tells the user nothing. The `capture_planning`
