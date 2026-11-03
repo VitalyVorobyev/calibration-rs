@@ -10,11 +10,17 @@ use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
     BrownConrady5, CalibratedRig, CameraParams, DistortionParams, FxFyCxCy, Iso3, KannalaBrandt4,
-    ProjectionParams, Pt2, Pt3, SensorParams, Uncertainty, Vec3, make_pinhole_camera,
-    pinhole_camera_params,
+    PointCovariance, ProjectionParams, Pt2, Pt3, SensorParams, Uncertainty, Vec3,
+    make_pinhole_camera, pinhole_camera_params,
 };
 use vision_mvg::triangulation::{RigObservation, triangulate};
-use vision_mvg::{Correspondence2D, recover_relative_pose};
+use vision_mvg::{PixelMatch, recover_relative_pose};
+
+/// A match of two pixels, each detected to a stated 0.5 px.
+fn matched(pt1: Pt2, pt2: Pt2) -> PixelMatch {
+    let noise = PointCovariance::isotropic(0.5).unwrap();
+    PixelMatch::new(pt1, noise, pt2, noise)
+}
 
 fn pose(rx: f64, ry: f64, rz: f64, t: Vec3) -> Iso3 {
     Iso3::from_parts(
@@ -125,7 +131,7 @@ fn distorted_pinhole_noiseless_recovers_pose_and_points() {
 
     let matches: Vec<_> = world
         .iter()
-        .map(|p| Correspondence2D::new(pixel(&rig, 0, p), pixel(&rig, 1, p)))
+        .map(|p| matched(pixel(&rig, 0, p), pixel(&rig, 1, p)))
         .collect();
     let rel = recover_relative_pose(&rig, [0, 1], &matches).unwrap();
     let (rot, tdir) = pose_errors(&rel.second_se3_first, &gt);
@@ -166,7 +172,7 @@ fn distorted_pinhole_with_pixel_noise_stays_within_the_noise_floor() {
         let (n0, n1) = (noise.sample(0, j), noise.sample(1, j));
         let q0 = pixel(&rig, 0, p) + n0;
         let q1 = pixel(&rig, 1, p) + n1;
-        matches.push(Correspondence2D::new(q0, q1));
+        matches.push(matched(q0, q1));
         tracks.push(vec![
             RigObservation::new(0, 0, q0),
             RigObservation::new(0, 1, q1),
@@ -248,7 +254,7 @@ fn fisheye_rig_recovers_points_and_pose_beyond_90_degrees() {
     // Relative pose from the same pixels: rotation and translation direction.
     let matches: Vec<_> = world
         .iter()
-        .map(|p| Correspondence2D::new(pixel(&rig, 0, p), pixel(&rig, 1, p)))
+        .map(|p| matched(pixel(&rig, 0, p), pixel(&rig, 1, p)))
         .collect();
     let rel = recover_relative_pose(&rig, [0, 1], &matches).unwrap();
     let (rot, tdir) = pose_errors(&rel.second_se3_first, &cam1_se3_rig);

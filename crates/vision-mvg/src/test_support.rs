@@ -1,9 +1,10 @@
 //! Cameras and rigs shared by the crate's unit tests.
 
+use crate::PixelMatch;
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{
     BrownConrady5, CalibratedRig, CameraParams, DistortionParams, FxFyCxCy, Iso3, KannalaBrandt4,
-    ProjectionParams, Pt2, SensorParams, Uncertainty, Vec3, make_pinhole_camera,
+    PointCovariance, ProjectionParams, Pt2, SensorParams, Uncertainty, Vec3, make_pinhole_camera,
     pinhole_camera_params,
 };
 
@@ -82,4 +83,10 @@ impl Lcg {
             .wrapping_add(1442695040888963407);
         ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
     }
+}
+
+/// A match of two pixels with an isotropic noise of 0.5 px each.
+pub(crate) fn match_of(pt1: Pt2, pt2: Pt2) -> PixelMatch {
+    let noise = PointCovariance::isotropic(0.5).expect("0.5 px is a valid noise");
+    PixelMatch::new(pt1, noise, pt2, noise)
 }

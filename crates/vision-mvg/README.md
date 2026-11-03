@@ -32,27 +32,31 @@ already-calibrated cameras.
 ```rust
 use nalgebra::Rotation3;
 use vision_calibration_core::{
-    BrownConrady5, CalibratedRig, FxFyCxCy, Pt3, Uncertainty, Vec3, make_pinhole_camera,
-    pinhole_camera_params,
+    BrownConrady5, CalibratedRig, FxFyCxCy, PointCovariance, Pt3, Uncertainty, Vec3,
+    make_pinhole_camera, pinhole_camera_params,
 };
-use vision_mvg::{Correspondence2D, recover_relative_pose};
+use vision_mvg::{PixelMatch, recover_relative_pose};
 
 // One calibrated camera, moved between two captures.
 let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 480.0 };
 let camera = pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default()));
 let rig = CalibratedRig::single(camera, Uncertainty::default())?;
 
-// Matched pixels (at least 5): here projected from a synthetic scene.
+// Matched pixels (at least 5), each with its stated noise: here projected
+// from a synthetic scene and detected to about half a pixel.
+let noise = PointCovariance::isotropic(0.5)?;
 let model = rig.model(0).unwrap();
 let r = Rotation3::from_euler_angles(0.0, -0.1, 0.0).into_inner();
 let t = Vec3::new(-0.2, 0.0, 0.0);
-let matches: Vec<Correspondence2D> = (0..8)
+let matches: Vec<PixelMatch> = (0..8)
     .map(|i| {
         let a = f64::from(i);
         let p = Pt3::new((0.7 * a).sin(), 0.5 * (1.3 * a).cos(), 2.0 + 0.1 * a);
-        Correspondence2D::new(
+        PixelMatch::new(
             model.project_point_c(&p.coords).unwrap(),
+            noise,
             model.project_point_c(&(r * p.coords + t)).unwrap(),
+            noise,
         )
     })
     .collect();
@@ -62,6 +66,15 @@ println!("second_se3_first = {:?}", pose.second_se3_first);
 println!("scene: {:?}", pose.scene);
 # Ok::<(), vision_mvg::MvgError>(())
 ```
+
+The pixel noise is stated, never assumed: every `PixelMatch` carries the
+covariance of each of its pixels, and the calibrated functions weigh the
+epipolar constraint by it. Build a covariance per observation with
+`PointCovariance::new(xx, xy, yy)`, from one σ with
+`PointCovariance::isotropic(sigma_px)`, or take the calibration's own level
+with `rig.reprojection_noise(camera)?`. RANSAC thresholds and `inlier_rms` of
+the essential-matrix functions are in σ of that noise (3.0 keeps about 99.7 %
+of the inliers), whatever the focal length or camera model.
 
 ## See Also
 

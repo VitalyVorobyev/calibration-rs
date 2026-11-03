@@ -25,11 +25,17 @@
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
-    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Uncertainty, Vec3,
-    make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Uncertainty,
+    Vec3, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_mvg::triangulation::{RigObservation, triangulate};
-use vision_mvg::{Correspondence2D, recover_relative_pose};
+use vision_mvg::{PixelMatch, recover_relative_pose};
+
+/// A match of two pixels, each detected to a stated 0.5 px.
+fn matched(pt1: Pt2, pt2: Pt2) -> PixelMatch {
+    let noise = PointCovariance::isotropic(0.5).unwrap();
+    PixelMatch::new(pt1, noise, pt2, noise)
+}
 
 /// Shared intrinsics for both views (a 1280×720-ish pinhole).
 fn intrinsics() -> FxFyCxCy<f64> {
@@ -192,7 +198,7 @@ fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
                 let n2 = noise.sample(1, j);
                 let q1 = Pt2::new(u1.x + n1.x, u1.y + n1.y);
                 let q2 = Pt2::new(u2.x + n2.x, u2.y + n2.y);
-                corrs.push(Correspondence2D::new(q1, q2));
+                corrs.push(matched(q1, q2));
                 px1.push(q1);
                 px2.push(q2);
                 kept_world.push(*pw);

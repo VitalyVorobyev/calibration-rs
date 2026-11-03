@@ -11,23 +11,23 @@ match the ROADMAP; each says its phase. Dependencies are named as
 Measurements from a calibrated system with error bars, designed in ADR
 0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
 and propagates the calibration's covariance as consider parameters. Today
-MVG takes a `CalibratedRig` and pixels in its closed-form steps, but
-returns no covariance, runs BA and the rectification on a bare `K` and its
+MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
+two-view functions take matches with their stated noise (`PixelMatch`),
+but returns no covariance, runs BA and the rectification on a bare `K` and its
 own tiny-solver problem, and has no Python binding and no real-data
 demonstration.
 
-- [ ] MVG-OBS - An observation's noise is stated: a 2×2 covariance per
-  observation, one σ, or the calibration's reprojection noise level, with
-  no implicit default (the problem builder's `PixelNoise::Stated` carries
-  it). Covariance-weighted Sampson residuals.
 - [ ] MVG-TRI-COV - N-view triangulation refined through the problem
   builder returns each point's covariance from its observations' noise
   and the calibration's (consider), with the cross-covariance between the
-  points of one call. `vision-mvg` takes the `optim` dependency here. The
-  nonlinear refinement of triangulated points (removed with `refine_point`
-  in MVG-CAMERA-IN, which left the linear estimate) returns through the
-  problem builder. Gate: Monte-Carlo over pixel noise and redrawn
-  calibrations. Needs: MVG-OBS.
+  points of one call. `RigObservation` gains its stated noise
+  (`PointCovariance`, as `PixelMatch` carries it) here. `vision-mvg`
+  takes the `optim` dependency here. The nonlinear refinement of
+  triangulated points (removed with `refine_point` in MVG-CAMERA-IN, which
+  left the linear estimate) returns through the problem builder, and the
+  essential-matrix polish of `estimate_essential` (a local Gauss-Newton on
+  the weighted Sampson error, added in MVG-OBS) moves onto it. Gate: Monte-Carlo over pixel noise and redrawn
+  calibrations.
 - [ ] MVG-BA - Bundle adjustment through the problem builder, replacing
   the current `bundle_adjust`:
   - a `CalibratedRig`, Consider or Prior (refining the cameras);
@@ -51,7 +51,7 @@ demonstration.
   covariance (a plane fit holds the points as consider parameters), used
   by `../vision-metrology` (cross-repo). Needs: MVG-TRI-COV.
 - [ ] MVG-PNP-COV - Object pose from PnP with its covariance, the
-  calibration's included (consider). Needs: MVG-OBS.
+  calibration's included (consider).
 - [ ] MVG-LASER-COV - Laser-triangulated 3D points with σ from the camera
   and the laser-plane covariance. Needs: MVG-TRI-COV.
 - [ ] MVG-PY - Python bindings for the MVG surface.

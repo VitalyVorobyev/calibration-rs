@@ -5,12 +5,12 @@
 //! Pixels become bearings through the rig cameras' own models first, so every
 //! camera model works, including a fisheye beyond 90° from its axis.
 
-use crate::bearing::{bearings, camera_model};
+use crate::bearing::camera_model;
 use crate::cheirality;
 use crate::degeneracy::{SceneDiagnostics, analyze_scene};
-use crate::residuals;
+use crate::robust::bearing_pairs;
 use crate::triangulation::{ViewRay, triangulate_views, with_context};
-use crate::types::{Correspondence2D, EssentialMatrix, TriangulatedPoint};
+use crate::types::{EssentialMatrix, PixelMatch, TriangulatedPoint};
 use crate::{MvgError, Result};
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{CalibratedRig, Iso3, Mat3, Real, Vec3};
@@ -54,7 +54,7 @@ pub(crate) fn iso_from_rt(r: &Mat3, t: &Vec3) -> Iso3 {
 /// This is a convenience function that:
 /// 1. Samples multiple 5-point subsets from the matches to generate
 ///    essential matrix candidates
-/// 2. For each candidate E, scores it by angular epipolar error and cheirality
+/// 2. For each candidate E, scores it by weighted Sampson error and cheirality
 ///    over **all** matches
 /// 3. Selects the pose with the most points passing cheirality
 /// 4. Triangulates all matches with the selected pose
@@ -71,15 +71,16 @@ pub(crate) fn iso_from_rt(r: &Mat3, t: &Vec3) -> Iso3 {
 pub fn recover_relative_pose(
     rig: &CalibratedRig,
     cameras: [usize; 2],
-    matches: &[Correspondence2D],
+    matches: &[PixelMatch],
 ) -> Result<RelativePose> {
     let n = matches.len();
     if n < 5 {
         return Err(MvgError::InsufficientData { need: 5, got: n });
     }
 
-    let b1 = bearings(rig, cameras[0], matches.iter().map(|c| c.pt1))?;
-    let b2 = bearings(rig, cameras[1], matches.iter().map(|c| c.pt2))?;
+    let pairs = bearing_pairs(rig, cameras, matches)?;
+    let b1: Vec<Vec3> = pairs.iter().map(|p| p.b1).collect();
+    let b2: Vec<Vec3> = pairs.iter().map(|p| p.b2).collect();
 
     // Generate essential matrix candidates from multiple 5-point subsets.
     // Use evenly-spaced subsets to avoid dependence on input ordering.
@@ -119,13 +120,8 @@ pub fn recover_relative_pose(
     let mut best_residual = Real::INFINITY;
 
     for e in &all_candidates {
-        // Score this E by the mean angular epipolar error over all matches.
-        let mean_error: Real = b1
-            .iter()
-            .zip(&b2)
-            .map(|(q1, q2)| residuals::angular_epipolar_error(e, q1, q2))
-            .sum::<Real>()
-            / n as Real;
+        // Score this E by the mean weighted Sampson error (σ) over all matches.
+        let mean_error: Real = pairs.iter().map(|p| p.error(e)).sum::<Real>() / n as Real;
 
         let decompositions = vision_geometry::epipolar::decompose_essential(e)?;
         if let Some((r, t, count)) = cheirality::select_pose(&decompositions, &b1, &b2) {
@@ -187,7 +183,7 @@ pub fn recover_relative_pose(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{fisheye_params, iso, pinhole_rig, pixel_of};
+    use crate::test_support::{fisheye_params, iso, match_of, pinhole_rig, pixel_of};
     use vision_calibration_core::{CalibratedRig, Pt3, Uncertainty};
 
     /// Eight points well-spread in depth and position.
@@ -208,11 +204,11 @@ mod tests {
         a.rotation.angle_to(&b.rotation).to_degrees()
     }
 
-    fn matches(rig: &CalibratedRig, pose: &Iso3, scene: &[Pt3]) -> Vec<Correspondence2D> {
+    fn matches(rig: &CalibratedRig, pose: &Iso3, scene: &[Pt3]) -> Vec<PixelMatch> {
         scene
             .iter()
             .map(|p| {
-                Correspondence2D::new(
+                match_of(
                     pixel_of(rig, 0, &p.coords),
                     pixel_of(rig, 0, &(pose * p).coords),
                 )
@@ -290,7 +286,7 @@ mod tests {
         let matches: Vec<_> = world
             .iter()
             .map(|p| {
-                Correspondence2D::new(
+                match_of(
                     pixel_of(&rig, 0, &p.coords),
                     pixel_of(&rig, 1, &(gt * p).coords),
                 )

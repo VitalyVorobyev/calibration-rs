@@ -81,6 +81,31 @@ impl PointCovariance {
         Ok(cov)
     }
 
+    /// The isotropic covariance of a pixel with standard deviation `sigma`
+    /// px on each axis, uncorrelated: `[[σ², 0], [0, σ²]]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] unless `sigma` is finite and positive.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vision_calibration_core::PointCovariance;
+    ///
+    /// let cov = PointCovariance::isotropic(0.5).unwrap();
+    /// assert_eq!((cov.xx(), cov.xy(), cov.yy()), (0.25, 0.0, 0.25));
+    /// assert!(PointCovariance::isotropic(0.0).is_err());
+    /// ```
+    pub fn isotropic(sigma: f64) -> Result<Self, Error> {
+        if !(sigma.is_finite() && sigma > 0.0) {
+            return Err(Error::invalid_input(format!(
+                "a pixel noise σ must be finite and positive, got {sigma} px"
+            )));
+        }
+        Self::new(sigma * sigma, 0.0, sigma * sigma)
+    }
+
     /// Variance along the image `u` axis, px².
     pub fn xx(&self) -> f64 {
         self.xx

@@ -17,13 +17,13 @@
 
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 use vision_calibration::core::{
-    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Pt2, Pt3, Uncertainty, make_pinhole_camera,
-    pinhole_camera_params,
+    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, PointCovariance, Pt2, Pt3, Uncertainty,
+    make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration::mvg::{
     pose_recovery::recover_relative_pose,
     rectification::{RectifyCamera, RectifyOptions, rectify_stereo_pair},
-    types::Correspondence2D,
+    types::PixelMatch,
 };
 
 /// Shared pinhole intrinsics for both cameras.
@@ -87,6 +87,8 @@ fn main() {
 
     // Project the scene into both views. Camera 0 is the world frame; a point
     // in camera 1 is `gt * p`. Pose recovery takes the matched pixels.
+    // Each pixel is detected to about a quarter of a pixel.
+    let noise = PointCovariance::isotropic(0.25).expect("valid noise");
     let mut corrs = Vec::new();
     let mut px0 = Vec::new();
     let mut px1 = Vec::new();
@@ -97,7 +99,7 @@ fn main() {
             continue;
         }
         let (u0, u1) = (to_pixel(&k, &normalize(&c0)), to_pixel(&k, &normalize(&c1)));
-        corrs.push(Correspondence2D::new(u0, u1));
+        corrs.push(PixelMatch::new(u0, noise, u1, noise));
         px0.push(u0);
         px1.push(u1);
     }
