@@ -217,6 +217,7 @@ and the σ tolerance.
 | Next-view prediction | 6 tilted views of a 9 × 7 board over the central part of a 1280 × 960 image, 0.1–0.3 px Gaussian noise, 5 seeds; Brown-Conrady, division, Scheimpflug; best-, median-, worst-ranked candidate and best three (`analysis/next_view/tests.rs`) | predicted σ per parameter and max projection σ against the re-solve at the current σ_eff, within 10 % on average; best candidate's real reduction above the worst one's | σ 0.5 %, 0.1 %, 2.1 % (worst case 13.5 %); max projection σ 0.5 %, 0.0 %, 1.2 %; best above worst in all 15 scenes |
 | Robot pose prediction | two-camera rig (Brown-Conrady), 9 × 7 board, 6 base robot poses, 0.2 px Gaussian noise, robot error 2e-4 rad / 0.2 mm where corrected; eye-in-hand and eye-to-hand, robot poses exact or corrected, 3 seeds; best-, median-, worst-ranked of 12 candidates and best three (`analysis/next_view/rig/tests.rs`) | predicted σ per parameter against the re-solve at the current σ_eff, within 10 % on average; best candidate's real `ln det` reduction above the worst one's | σ 0.1–1.2 % on average (worst parameter 9.6 %); best above worst in 12/12 scenes; the rebuilt information reproduces the solver's covariance to 1e-6 with exact robot poses, 0.05 in correlation with corrected ones |
 | Whitened reprojection | planar and 2-camera rig, per-point covariances 0.1–1 px, anisotropy up to 4:1, 1000 runs (see "Per-point covariance") | σ̂₀ within 5 % of 1; σ within ±10 %; normalized RMS within ±10 %; within-2σ 95.4 ± 2 %; RMSE below the uniform solve | σ̂₀ 0.976, 0.986; σ 0.96–1.04; RMSE 0.31–0.41 of uniform |
+| Bundle adjustment, calibration as prior | stereo rig calibrated per run from 8 views of an 8×6 board that fill the image (tilts ≤ 0.5 rad), 0.3 px Gaussian; 3 captures of 40 points at 0.3 px; `Use::Prior`, 500 runs (`vision-calibration/tests/bundle_adjust_uncertainty.rs`) | refined `fx` scatter/stated within ±10 % (3 standard errors); refined-rig NEES/22 within ±10 % | `fx` 0.95, 0.95 (second seed set 0.94, 0.96); NEES/22 1.004 (0.995); calibration NEES/22 0.993 |
 | Backend parity | planar, with and without Huber | tiny-solver vs factrs `Σ` within 1e-6 relative | pass |
 | Backend parity, whitened factor | every camera model × chain, `L` upper triangular with an off-diagonal term (`backend/parity_tests.rs`) | residual, Jacobian and cost equal in both backends | pass |
 | Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
@@ -267,6 +268,48 @@ The numbers behind design choices that ADR 0026 states without them.
   projection map folded over. The prediction is first order: for refining a
   calibration that already determines the camera roughly.
 
+### Calibration priors in bundle adjustment
+
+A refined camera under `Use::Prior` scattered 8–10 % more than its stated σ,
+and more than the calibration's own `fx` (8.2 against 7.7 px), with the
+stereo calibration's views centred and tilted by at most 0.2 rad. The
+measurements that located the cause, 300 runs each unless stated:
+
+- **The calibration's joint error.** Every one of its 22 parameters
+  scattered as stated (0.98–1.09), but NEES/22 was 1.64: along two
+  combinations, camera 1's yaw against `cx₀ − cx₁` (and its pitch against
+  `cy₀ − cy₁`), the whitened error variance was 9.0 and 6.1 (2.5–3× in σ),
+  with no bias. These views barely separate the principal point from the
+  camera's rotation (σ(cx) 5.1 px, σ(ry) 9.2 mrad).
+- **Not the covariance.** A finite-difference Jacobian of the same problem
+  gives the reported covariance up to the σ̂ factor (generalized eigenvalues
+  0.96–1.02, equal across all 22), and an independent rig adjustment built
+  with the public problem builder, started from the truth, lands on the
+  workflow's estimate (whitened distance 0.01–0.04) with the same NEES.
+- **Second order.** The same problem at 0.3× and 0.1× the pixel noise has
+  NEES/22 1.05 and 1.00, top eigenvalue 1.8 and 1.5 (the sampling edge for
+  22 dimensions over 300 runs is 1.62): the excess is the second-order
+  terms of large, cancelling errors (`δfx·δry`), whose variance grows as σ⁴
+  against the first order's σ².
+- **The prior is exact in the linear regime.** With the prior drawn exactly
+  from `N(truth, Σ)` (1000 runs), the refined `fx` still scattered 1.11×
+  its σ with this `Σ`; with `Σ` scaled by 0.01 the ratio was 1.00 and the
+  posterior NEES over all 64 parameters (points, captures, rig) 1.005, at
+  the scene's noise and at a tenth of it. Prior weighting, the whitening
+  `L⁻¹(c − c₀)`, the SE3 tangent and the scale gauge are right; the size of
+  the calibration's errors is what breaks the Gaussian.
+- **The fix is the calibration.** Views that fill the image with tilts up to
+  0.5 rad give σ(cx) 3.9 px, σ(ry) 3.2 mrad and NEES/22 1.016, top
+  eigenvalue at the sampling edge; the refined `fx` then scatters 0.94–0.96×
+  its σ and the refined rig's NEES/22 is 1.00. The test uses those views;
+  its scene went from ten points to forty so that the adjustment sharpens
+  the rig measurably (σ of `k2` and of camera 1's `ty`, `tz` down 23–36 %),
+  which ten points did not.
+- **View-scatter false alarms.** On these exact-noise synthetic runs the
+  view-scatter test fired in 9 of 500 calibrations, each inflating the
+  covariance about 4.8×. That overstates the calibrations' `fx` σ by about
+  3 % on average, which the refined `fx` ratios (0.94–0.96) inherit.
+
 ## Limitations
 
 - **Conditional covariance**: staged problems whose final stage holds earlier
@@ -275,6 +318,10 @@ The numbers behind design choices that ADR 0026 states without them.
   not modelled, and neither is robot-pose noise beyond the correction priors.
 - **First order only**: strongly non-linear directions (wide-angle
   distortion at the image edge) are approximated by their linearization.
+  So are the combinations a weak calibration pins down from large,
+  cancelling errors: centred, mildly tilted views put a stereo calibration's
+  error at 2.5–3× its σ along two of them, which a consumer that takes the
+  whole covariance as a Gaussian (a bundle-adjustment prior) inherits.
 - **Projection σ is camera-frame**: it includes the principal-point error a
   re-estimated camera pose would absorb. On `stereo_rig` with the intrinsics
   refined in the rig solve it is 0.74 px at the centre (σ(cx) 0.75) and

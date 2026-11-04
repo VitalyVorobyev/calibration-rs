@@ -82,15 +82,20 @@ The covariance is dense, so its cost grows with the cube of the parameter count:
 
 Over repeated draws of the pixel noise, with a calibration of negligible covariance, the scatter of the points and of capture 1's pose against the reported σ was within 3 % over 300 trials, for all three coordinates of the points and all six components of the pose.
 
-With a real calibration in the loop, each trial calibrated a stereo rig from freshly noisy board views and adjusted three captures of ten points. Over 300 such calibrations:
+With a real calibration in the loop, each trial calibrated a stereo rig from freshly noisy board views (eight views spread over the image, tilted up to 0.5 rad) and adjusted three captures of forty points. Over 500 such calibrations:
 
 | | scatter / stated |
 |---|---|
-| `Use::Consider`, point depth | 1.00 |
-| `Use::Consider`, capture 1 translation (x, y, z) | 1.11, 0.98, 0.97 |
-| `Use::Prior`, refined `fx` (cameras 0, 1) | 1.10, 1.08 |
+| `Use::Consider`, point depth | 0.95 |
+| `Use::Consider`, capture 1 translation (x, y, z) | 0.98, 1.06, 0.96 |
+| `Use::Prior`, refined `fx` (cameras 0, 1) | 0.95, 0.95 |
+| `Use::Prior`, refined rig, NEES per parameter (22) | 1.00 |
 
-A second set of calibrations gave 0.97, (0.95, 1.04, 0.95) and (1.08, 1.08). Under `Use::Prior` each camera's σ(`fx`) after the adjustment was no larger than the calibration's (7.9 px before, 7.6 px after, on average): three captures of ten close points add little to a calibration of eight board views. Stated σ is trustworthy to about 10 % in these runs, and a little optimistic for the refined intrinsics.
+A second set of calibrations gave 0.94, (0.96, 0.92, 0.97), (0.94, 0.96) and 0.99. The NEES (the error weighed by the whole covariance) checks every direction of the refined rig at once, not only each parameter's own σ. Under `Use::Prior` each camera's σ(`fx`) after the adjustment was no larger than the calibration's (2.8 px before, 2.7 px after, on average); the scene sharpens the distortion and camera 1's pose in the rig more, by a quarter to a third of their σ.
+
+### A Weak Calibration as a Prior
+
+A prior takes the calibration's covariance as a Gaussian, which is exact to first order. A calibration from board views bunched in the middle of the image and tilted by at most 0.2 rad hardly tells a camera's principal point from its rotation in the rig (σ(cx) ≈ 5 px, σ of camera 1's yaw ≈ 9 mrad). Their large errors cancel in the combinations the views do pin down, and through second-order terms they still reach them: along two such combinations the calibration's error was 2.5 to 3 times its stated σ, although every parameter's own σ was right. The refined cameras inherit it: their σ comes out 10 to 25 % optimistic. At a tenth of the pixel noise, or with views that fill the image and tilt further, the calibration's error matches its covariance and so does the refined rig's. Before refining a calibration with `Use::Prior`, give it views that cover the image.
 
 ## Relation to Calibration
 

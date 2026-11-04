@@ -19,15 +19,6 @@ and points through the builder (Consider or Prior, robust losses, an explicit
 gauge, covariance). The rectification still runs on a bare `K`, and the two-view
 functions return no covariance.
 
-- [ ] MVG-BA-PRIOR - Bundle adjustment with `Use::Prior` states the
-  refined cameras about 8 % too precisely: in
-  `vision-calibration/tests/bundle_adjust_uncertainty.rs` the refined `fx`
-  scatter over its stated σ is 1.08–1.10 on two independent seed sets of
-  300 calibrations (standard error about 4 %), and the scatter after BA
-  (about 8.2 px) exceeds the calibration's own (7.7 px) although the stated
-  σ drops 7.9 → 7.55 px. `Use::Consider` is exact (depth 0.999). Find the
-  cause (prior weighting, the scale gauge through refined extrinsics, or a
-  second-order term) and tighten the gate to [0.9, 1.1].
 - [ ] MVG-PROGRESS - The multiple-view-geometry solves (`bundle_adjust`,
   `triangulate`, `estimate_pose`) build their `SolveOptions` internally and
   take no `RunControl`, so they report no iterations and cannot be
@@ -88,6 +79,18 @@ need their measurement first and stay opt-in until it is in.
   covariance, so a ring-grid one would only be a report. Reopen if a
   ring-grid weighting study is wanted, or if the view scatter on ring-grid
   data needs the detector's term.
+- [ ] UQ-NONLINEAR - A weak capture leaves a calibration where the
+  first-order covariance holds per parameter but not jointly: the stereo rig
+  of the facade's Monte-Carlo tests (centred boards, tilts up to 0.2 rad)
+  states every parameter's σ within 10 % yet scatters 2.5-3× its σ along two
+  combinations (camera 1's yaw with the principal points; NEES/22 1.64,
+  falling to 1.00 at a tenth of the pixel noise). Find a cheap indicator of
+  that regime from the result (e.g. the curvature of the cost along the
+  covariance's weakest directions, or a second-order term of the
+  estimate), add it to the quality report as a check, and recommend views
+  that leave it. Then move the five Monte-Carlo tests still calibrating on
+  the weak views (pose, triangulation, stereo, metrology, board measure) to
+  the spread views and update the book's numbers.
 - [ ] UQ-CROSS-FRAME - Projection uncertainty across the reference-frame
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
   which results do not carry.
