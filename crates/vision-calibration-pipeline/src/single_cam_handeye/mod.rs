@@ -12,7 +12,7 @@
 //!    for a Scheimpflug sensor, the linear tilt sweep (or a tilt seed)
 //! 2. **Intrinsics optimization**: Non-linear refinement of camera parameters
 //!    (the staged tilt multi-start for a Scheimpflug sensor without a seed)
-//! 3. **Hand-eye initialization**: Tsai-Lenz linear estimation from pose pairs
+//! 3. **Hand-eye initialization**: closed-form estimation (`handeye_init.method`)
 //! 4. **Hand-eye optimization**: Bundle adjustment with optional robot pose refinement
 //!
 //! [`SingleCamHandeyeProblem`] has a runnable example; `run_calibration`

@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from typing import Any
 
+from ._generated_types import HandeyeMethod
+
 __all__ = [
     "HandeyeInitOptions",
     "HandeyeOptimizeOptions",
@@ -56,6 +58,9 @@ class IntrinsicsOptimizeOptions(_StepOptions):
 class HandeyeInitOptions(_StepOptions):
     """Options of a hand-eye initialization step."""
 
+    method: HandeyeMethod | None = None
+    """Closed-form solver: ``"tsai_lenz"``, ``"park_martin"``,
+    ``"daniilidis"`` or ``"shah"``."""
     min_motion_angle_deg: float | None = None
     """Minimum rotation between robot poses used by the linear hand-eye
     solve, degrees."""

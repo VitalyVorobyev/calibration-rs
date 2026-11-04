@@ -18,6 +18,7 @@ workspace = true
 schemars = [
     "dep:schemars",
     "vision-calibration-core/schemars",
+    "vision-calibration-linear/schemars",
     "vision-calibration-optim/schemars",
 ]
 

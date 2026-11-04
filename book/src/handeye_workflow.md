@@ -47,13 +47,15 @@ Runs planar intrinsics bundle adjustment to refine $K$, distortion, and per-view
 
 ### Step 3: Hand-Eye Initialization (`step_handeye_init`)
 
-Uses the Tsai-Lenz linear method (see [Hand-Eye Linear](handeye_linear.md)):
+Solves the hand-eye and the target pose in closed form with the method of
+`handeye_init.method`: Tsai-Lenz by default, or Park-Martin, Daniilidis or
+Shah (see [Hand-Eye Linear](handeye_linear.md)):
 
 1. Compute relative motions from robot poses and camera poses
 2. Filter pairs by rotation magnitude (reject small rotations)
-3. Estimate rotation via quaternion SVD
-4. Estimate translation via linear least squares
-5. Estimate $T_{B,T}$ from the hand-eye and camera poses
+3. Estimate the hand-eye rotation and translation
+4. Estimate $T_{B,T}$: through the first view, or over all views with Shah's
+   method, which estimates it together with the hand-eye
 
 ### Step 4: Hand-Eye Optimization (`step_handeye_optimize`)
 
@@ -141,7 +143,8 @@ pub struct SingleCamHandeyeConfig {
 
     // Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
     pub handeye_init: HandeyeInitConfig,
-    // { handeye_mode: HandeyeMode, min_motion_angle_deg: f64 = 5.0 }
+    // { handeye_mode: HandeyeMode, method: HandeyeMethod = TsaiLenz,
+    //   min_motion_angle_deg: f64 = 5.0 }
 
     // Non-linear solve stage settings.
     pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }

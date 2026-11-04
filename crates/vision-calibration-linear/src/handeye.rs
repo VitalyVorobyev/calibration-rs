@@ -1,50 +1,158 @@
-//! Hand-eye calibration (AX = XB) using Tsai–Lenz.
+//! Closed-form hand-eye calibration from robot poses and camera poses.
 //!
-//! Provides a linear initialization from paired pose streams, returning the
-//! rigid transform between the gripper and camera frames.
+//! Every view `i` pairs a measured robot pose `T_B_G_i` (`base_se3_gripper`)
+//! with the pose of a planar target seen by a camera, `T_C_T_i`
+//! (`camera_se3_target`). Two rigid transforms are unknown and constant over
+//! the views:
+//!
+//! - **eye-in-hand** (camera on the gripper): `gripper_se3_camera` and
+//!   `base_se3_target`, with `T_B_G_i · T_G_C = T_B_T · T_T_C_i`;
+//! - **eye-to-hand** (target on the gripper, camera fixed):
+//!   `gripper_se3_target` and `camera_se3_base`, with
+//!   `T_B_G_i · T_G_T = T_B_C · T_C_T_i`.
+//!
+//! Both are the robot-world equation `A_i X = Z B_i` with `A_i = T_B_G_i`.
+//! [`estimate_eye_in_hand`] and [`estimate_eye_to_hand`] solve it with one of
+//! four closed-form methods ([`HandeyeMethod`]). Three eliminate `Z` by
+//! forming relative motions between view pairs, `A_ij X = X B_ij`, and close
+//! `Z` through the first view; Shah's method solves for `X` and `Z` together
+//! from the absolute poses.
 
 use crate::Error;
 use log::debug;
 use nalgebra::{
-    DMatrix, DVector, Isometry3, Matrix3, Quaternion, Translation3, Unit, UnitQuaternion, Vector3,
+    DMatrix, DVector, Isometry3, Matrix2, Matrix3, Matrix4, Quaternion, SMatrix, SVector,
+    Translation3, Unit, UnitQuaternion, Vector3, Vector4,
 };
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{Iso3, Real};
 
-/// Motion pair for Tsai–Lenz AX = XB:
-/// - `A`: relative motion from the robot pose stream (e.g. base->gripper).
-/// - `B`: relative motion from the observation pose stream (e.g. target->camera).
-#[derive(Debug, Clone, Copy)]
-struct MotionPair {
-    /// Relative rotation from robot motion stream (`A`).
-    rot_a: Matrix3<Real>,
-    /// Relative rotation from observation motion stream (`B`).
-    rot_b: Matrix3<Real>,
-    /// Relative translation from robot motion stream (`A`).
-    tra_a: Vector3<Real>,
-    /// Relative translation from observation motion stream (`B`).
-    tra_b: Vector3<Real>,
+/// The closed-form solver of a hand-eye initialization.
+///
+/// All four need robot rotations about at least two non-parallel axes; they
+/// differ in how they weigh the views and in what they estimate jointly.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum HandeyeMethod {
+    /// Tsai and Lenz (1989): over every pair of views, the rotation from the
+    /// quaternion form of `R_A R_X = R_X R_B`, then the translation by least
+    /// squares. The default.
+    #[default]
+    TsaiLenz,
+    /// Park and Martin (1994): the rotation that best aligns the rotation
+    /// vectors (axis · angle) of the camera motions with the robot's, then
+    /// the translation by least squares. Weights a pair by its angle.
+    ParkMartin,
+    /// Daniilidis (1999): rotation and translation together, from the dual
+    /// quaternions of the motion pairs.
+    Daniilidis,
+    /// Shah (2013): the hand-eye transform and the fixed transform at the
+    /// other end of the chain together, from the absolute poses (`AX = ZB`)
+    /// instead of motion pairs, rotation first (Kronecker form) and then
+    /// translation.
+    Shah,
 }
 
-/// Linear hand–eye initialisation using the Tsai–Lenz formulation.
-#[derive(Debug, Clone, Copy)]
-pub struct HandeyeInit;
+/// The eye-in-hand initialization: a camera on the gripper, a fixed target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct EyeInHandEstimate {
+    /// The camera in the gripper frame (`T_G_C`).
+    pub gripper_se3_camera: Iso3,
+    /// The target in the robot base frame (`T_B_T`).
+    pub base_se3_target: Iso3,
+}
 
-/// Every pose pair whose rotation in both streams reaches `min_angle_deg`.
+/// The eye-to-hand initialization: a target on the gripper, a fixed camera.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct EyeToHandEstimate {
+    /// The target in the gripper frame (`T_G_T`).
+    pub gripper_se3_target: Iso3,
+    /// The robot base in the camera frame (`T_C_B`).
+    pub camera_se3_base: Iso3,
+}
+
+/// Eye-in-hand initialization from robot poses and target poses.
 ///
-/// There is no per-pair A/B axis test: A and B share their rotation axis
-/// whenever the hand-eye rotation is the identity (a camera bolted square to
-/// the flange) or rotates about that axis, and such pairs are perfectly
-/// informative.
-fn build_all_pairs(
+/// `base_se3_gripper[i]` and `camera_se3_target[i]` are the robot pose and
+/// the observed target pose of view `i`. View pairs whose rotation, in either
+/// the robot or the camera, is below `min_motion_angle_deg` carry too little
+/// rotation to use: the motion-pair methods drop them, and every method
+/// requires the remaining ones to rotate the robot about two non-parallel
+/// axes. The motion-pair methods derive `base_se3_target` from the first
+/// view; Shah's method estimates it over all views.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] if the pose counts differ or a pose is not
+/// finite, [`Error::InsufficientData`] for fewer than 2 views,
+/// [`Error::NoValidMotionPairs`] if the motions do not determine the
+/// transforms, [`Error::Singular`] if a linear solve fails.
+pub fn estimate_eye_in_hand(
+    method: HandeyeMethod,
     base_se3_gripper: &[Iso3],
-    stream_b: &[Iso3],
-    min_angle_deg: Real,
-) -> Result<Vec<MotionPair>, Error> {
-    if base_se3_gripper.len() != stream_b.len() {
+    camera_se3_target: &[Iso3],
+    min_motion_angle_deg: Real,
+) -> Result<EyeInHandEstimate, Error> {
+    check_poses(base_se3_gripper, camera_se3_target)?;
+    // T_B_G_i · T_G_C = T_B_T · T_T_C_i: the stream B_i is T_T_C_i.
+    let target_se3_camera: Vec<Iso3> = camera_se3_target.iter().map(|t| t.inverse()).collect();
+    let (x, z) = solve_ax_zb(
+        method,
+        base_se3_gripper,
+        &target_se3_camera,
+        min_motion_angle_deg,
+    )?;
+    let base_se3_target = z.unwrap_or_else(|| base_se3_gripper[0] * x * camera_se3_target[0]);
+    Ok(EyeInHandEstimate {
+        gripper_se3_camera: x,
+        base_se3_target,
+    })
+}
+
+/// Eye-to-hand initialization from robot poses and target poses.
+///
+/// The arguments and the motion filter are those of
+/// [`estimate_eye_in_hand`]. The motion-pair methods derive
+/// `camera_se3_base` from the first view; Shah's method estimates it over
+/// all views.
+///
+/// # Errors
+///
+/// As [`estimate_eye_in_hand`].
+pub fn estimate_eye_to_hand(
+    method: HandeyeMethod,
+    base_se3_gripper: &[Iso3],
+    camera_se3_target: &[Iso3],
+    min_motion_angle_deg: Real,
+) -> Result<EyeToHandEstimate, Error> {
+    check_poses(base_se3_gripper, camera_se3_target)?;
+    // T_B_G_i · T_G_T = T_B_C · T_C_T_i: the stream B_i is T_C_T_i.
+    let (x, z) = solve_ax_zb(
+        method,
+        base_se3_gripper,
+        camera_se3_target,
+        min_motion_angle_deg,
+    )?;
+    let camera_se3_base = match z {
+        Some(base_se3_camera) => base_se3_camera.inverse(),
+        None => camera_se3_target[0] * (base_se3_gripper[0] * x).inverse(),
+    };
+    Ok(EyeToHandEstimate {
+        gripper_se3_target: x,
+        camera_se3_base,
+    })
+}
+
+fn check_poses(base_se3_gripper: &[Iso3], stream: &[Iso3]) -> Result<(), Error> {
+    if base_se3_gripper.len() != stream.len() {
         return Err(Error::invalid_input(format!(
-            "inconsistent hand-eye input sizes: base {} vs other {}",
+            "inconsistent hand-eye input sizes: {} robot poses vs {} target poses",
             base_se3_gripper.len(),
-            stream_b.len()
+            stream.len()
         )));
     }
     if base_se3_gripper.len() < 2 {
@@ -53,62 +161,109 @@ fn build_all_pairs(
             got: base_se3_gripper.len(),
         });
     }
-
-    let num_poses = base_se3_gripper.len();
-    let min_angle = min_angle_deg * std::f64::consts::PI / 180.0;
-
-    let mut pairs = Vec::with_capacity(num_poses * (num_poses - 1) / 2);
-
-    for i in 0..(num_poses - 1) {
-        for j in (i + 1)..num_poses {
-            let pair = make_motion_pair(
-                &base_se3_gripper[i],
-                &stream_b[i],
-                &base_se3_gripper[j],
-                &stream_b[j],
-            )?;
-
-            if is_good_pair(&pair, min_angle) {
-                pairs.push(pair);
-            } else {
-                debug!("skipping pair ({},{})", i, j);
-            }
-        }
+    let finite = |p: &Iso3| {
+        p.translation.vector.iter().all(|v| v.is_finite())
+            && p.rotation.coords.iter().all(|v| v.is_finite())
+    };
+    if !base_se3_gripper.iter().chain(stream).all(finite) {
+        return Err(Error::invalid_input("a hand-eye input pose is not finite"));
     }
-
-    if pairs.is_empty() {
-        return Err(Error::NoValidMotionPairs);
-    }
-
-    Ok(pairs)
+    Ok(())
 }
 
-fn tsai_lenz_allpairs(
+/// Solve `A_i X = Z B_i` for `X`, and for `Z` when the method estimates it.
+fn solve_ax_zb(
+    method: HandeyeMethod,
     base_se3_gripper: &[Iso3],
-    stream_b: &[Iso3],
+    stream: &[Iso3],
     min_angle_deg: Real,
-) -> Result<Iso3, Error> {
-    // What the solve needs is a well-posed *set* of pairs.
-    let pairs = build_all_pairs(base_se3_gripper, stream_b, min_angle_deg)?;
+) -> Result<(Iso3, Option<Iso3>), Error> {
+    // What the solve needs is a well-posed *set* of pairs; the same set gates
+    // Shah's method, whose rotation is undetermined under the same condition.
+    let pairs = build_all_pairs(base_se3_gripper, stream, min_angle_deg)?;
     if !robot_axes_span_two_directions(&pairs, 1e-3) {
         return Err(Error::NoValidMotionPairs);
     }
+    match method {
+        HandeyeMethod::TsaiLenz => {
+            let rot_x = rotation_tsai_lenz(&pairs)?;
+            Ok((with_pair_translation(&pairs, rot_x)?, None))
+        }
+        HandeyeMethod::ParkMartin => {
+            let rot_x = rotation_park_martin(&pairs)?;
+            Ok((with_pair_translation(&pairs, rot_x)?, None))
+        }
+        HandeyeMethod::Daniilidis => Ok((daniilidis(&pairs)?, None)),
+        HandeyeMethod::Shah => {
+            let (x, z) = shah(base_se3_gripper, stream)?;
+            Ok((x, Some(z)))
+        }
+    }
+}
 
-    let rot_x = estimate_rotation_allpairs_weighted(&pairs)?;
-    let g_tra = estimate_translation_allpairs_weighted(&pairs, &rot_x)?;
+// ---------- motion pairs ----------
 
-    let rot =
-        UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(rot_x));
-    let trans = Translation3::from(g_tra);
-    Ok(Isometry3::from_parts(trans, rot))
+/// Motion pair of `A X = X B`: `A = A_i⁻¹ A_j` (robot), `B = B_i⁻¹ B_j`
+/// (observation stream).
+#[derive(Debug, Clone, Copy)]
+struct MotionPair {
+    rot_a: Matrix3<Real>,
+    rot_b: Matrix3<Real>,
+    tra_a: Vector3<Real>,
+    tra_b: Vector3<Real>,
+}
+
+/// Every view pair whose rotation in both streams reaches `min_angle_deg`.
+///
+/// There is no per-pair A/B axis test: A and B share their rotation axis
+/// whenever the hand-eye rotation is the identity (a camera bolted square to
+/// the flange) or rotates about that axis, and such pairs are perfectly
+/// informative.
+fn build_all_pairs(
+    base_se3_gripper: &[Iso3],
+    stream: &[Iso3],
+    min_angle_deg: Real,
+) -> Result<Vec<MotionPair>, Error> {
+    let num_poses = base_se3_gripper.len();
+    let min_angle = min_angle_deg * std::f64::consts::PI / 180.0;
+    let mut pairs = Vec::with_capacity(num_poses * (num_poses - 1) / 2);
+    for i in 0..(num_poses - 1) {
+        for j in (i + 1)..num_poses {
+            let affine_a = base_se3_gripper[i].inverse() * base_se3_gripper[j];
+            let affine_b = stream[i].inverse() * stream[j];
+            let pair = MotionPair {
+                rot_a: crate::math::project_to_so3(
+                    affine_a.rotation.to_rotation_matrix().matrix(),
+                )?,
+                rot_b: crate::math::project_to_so3(
+                    affine_b.rotation.to_rotation_matrix().matrix(),
+                )?,
+                tra_a: affine_a.translation.vector,
+                tra_b: affine_b.translation.vector,
+            };
+            let min_rot = log_so3(&pair.rot_a).norm().min(log_so3(&pair.rot_b).norm());
+            if min_rot >= min_angle {
+                pairs.push(pair);
+            } else {
+                debug!(
+                    "skipping pair ({i},{j}): rotation {:.3} deg",
+                    min_rot.to_degrees()
+                );
+            }
+        }
+    }
+    if pairs.is_empty() {
+        return Err(Error::NoValidMotionPairs);
+    }
+    Ok(pairs)
 }
 
 /// Whether the robot motions of `pairs` rotate about at least two axes that
 /// are not parallel (sine of the angle between them ≥ `eps`).
 ///
-/// This is Tsai–Lenz's condition for a unique solution: with every rotation
-/// axis parallel, the rotation of X about that axis and the translation along
-/// it are unobservable.
+/// This is the condition for a unique solution: with every rotation axis
+/// parallel, the rotation of X about that axis and the translation along it
+/// are unobservable, in `AX = XB` and in `AX = ZB` alike.
 fn robot_axes_span_two_directions(pairs: &[MotionPair], eps: Real) -> bool {
     let axes: Vec<Vector3<Real>> = pairs
         .iter()
@@ -122,186 +277,256 @@ fn robot_axes_span_two_directions(pairs: &[MotionPair], eps: Real) -> bool {
     axes.iter().any(|a| first.cross(a).norm() >= eps)
 }
 
-/// Build a single motion pair from two pose samples.
+/// The unit quaternion of a rotation, with a non-negative scalar part.
 ///
-/// `base_se3_gripper_*`: `T_B_G`
-///
-/// `stream_b_*` is the per-sample pose stream used to build the `B` motions:
-/// `B = stream_b_a^{-1} * stream_b_b`. Depending on the problem setup, this can
-/// be either:
-/// - Eye-in-hand: `target_se3_camera` (`T_T_C`)
-/// - Eye-to-hand: `camera_se3_target` (`T_C_T`)
-///
-/// A = base_se3_gripper_a^{-1} * base_se3_gripper_b
-/// B = stream_b_a^{-1} * stream_b_b
-fn make_motion_pair(
-    base_se3_gripper_a: &Iso3,
-    stream_b_a: &Iso3,
-    base_se3_gripper_b: &Iso3,
-    stream_b_b: &Iso3,
-) -> Result<MotionPair, Error> {
-    let affine_a = base_se3_gripper_a.inverse() * base_se3_gripper_b;
-    let affine_b = stream_b_a.inverse() * stream_b_b;
-
-    let rot_a = crate::math::project_to_so3(affine_a.rotation.to_rotation_matrix().matrix())?;
-    let rot_b = crate::math::project_to_so3(affine_b.rotation.to_rotation_matrix().matrix())?;
-    let tra_a = affine_a.translation.vector;
-    let tra_b = affine_b.translation.vector;
-
-    Ok(MotionPair {
-        rot_a,
-        rot_b,
-        tra_a,
-        tra_b,
-    })
+/// `q` and `-q` are the same rotation, but `q_A q_X = q_X q_B` holds only
+/// when `q_A` and `q_B` carry the same sign of their (equal) scalar parts.
+/// nalgebra's conversion leaves the sign to its branch choice, which for
+/// rotations past 120° depends on the axis, so the two of a pair can
+/// disagree.
+fn quat_of(r: &Matrix3<Real>) -> UnitQuaternion<Real> {
+    let q = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(*r));
+    if q.w < 0.0 {
+        UnitQuaternion::new_unchecked(-q.into_inner())
+    } else {
+        q
+    }
 }
 
-/// Whether a motion pair rotates by at least `min_angle` in both chains.
-fn is_good_pair(pair: &MotionPair, min_angle: Real) -> bool {
-    let min_rot = log_so3(&pair.rot_a).norm().min(log_so3(&pair.rot_b).norm());
+// ---------- rotation, then translation (Tsai–Lenz, Park–Martin) ----------
 
-    if min_rot < min_angle {
-        debug!(
-            "motion pair rejected: small rotation {:.3} deg",
-            min_rot * 180.0 / std::f64::consts::PI
-        );
-        return false;
+/// Rotation of `R_A R_X = R_X R_B` from the stacked quaternion constraints
+/// `[L(q_A) − R(q_B)] q_X = 0`.
+fn rotation_tsai_lenz(pairs: &[MotionPair]) -> Result<Matrix3<Real>, Error> {
+    fn quat_left(q: &UnitQuaternion<Real>) -> Matrix4<Real> {
+        let (w, x, y, z) = (q.w, q.i, q.j, q.k);
+        Matrix4::new(w, -x, -y, -z, x, w, -z, y, y, z, w, -x, z, -y, x, w)
     }
-    true
-}
-
-// ---------- weighted Tsai–Lenz rotation over all pairs ----------
-
-fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> Result<Matrix3<Real>, Error> {
-    fn quat_left(q: &UnitQuaternion<Real>) -> nalgebra::Matrix4<Real> {
-        let w = q.w;
-        let (x, y, z) = (q.i, q.j, q.k);
-        nalgebra::Matrix4::new(w, -x, -y, -z, x, w, -z, y, y, z, w, -x, z, -y, x, w)
+    fn quat_right(q: &UnitQuaternion<Real>) -> Matrix4<Real> {
+        let (w, x, y, z) = (q.w, q.i, q.j, q.k);
+        Matrix4::new(w, -x, -y, -z, x, w, z, -y, y, -z, w, x, z, y, -x, w)
     }
 
-    fn quat_right(q: &UnitQuaternion<Real>) -> nalgebra::Matrix4<Real> {
-        let w = q.w;
-        let (x, y, z) = (q.i, q.j, q.k);
-        nalgebra::Matrix4::new(w, -x, -y, -z, x, w, z, -y, y, -z, w, x, z, y, -x, w)
-    }
-
-    let num_pairs = pairs.len();
-    let mut m = DMatrix::<Real>::zeros(4 * num_pairs, 4);
-
+    let mut m = DMatrix::<Real>::zeros(4 * pairs.len(), 4);
     for (idx, p) in pairs.iter().enumerate() {
-        let qa = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(
-            p.rot_a,
-        ));
-        let qb = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(
-            p.rot_b,
-        ));
-
-        let row_start = 4 * idx;
-        m.view_mut((row_start, 0), (4, 4))
+        let (qa, qb) = (quat_of(&p.rot_a), quat_of(&p.rot_b));
+        m.view_mut((4 * idx, 0), (4, 4))
             .copy_from(&(quat_left(&qa) - quat_right(&qb)));
     }
-
     // Smallest right-singular vector of the `4N×4` system via `AᵀA` symmetric
-    // eigen (see `math::null_space`) — avoids nalgebra's hang-prone dense SVD.
+    // eigen — avoids nalgebra's hang-prone dense SVD.
     let q_vec = vision_calibration_core::linalg::null_space(&m)?.vector;
-
     let q = Quaternion::new(q_vec[0], q_vec[1], q_vec[2], q_vec[3]).normalize();
     Ok(UnitQuaternion::from_quaternion(q)
         .to_rotation_matrix()
         .into_inner())
 }
 
-// ---------- weighted Tsai–Lenz translation over all pairs ----------
+/// Rotation of `R_A = R_X R_B R_Xᵀ` from the rotation vectors: `α = R_X β`
+/// for `α = log R_A`, `β = log R_B`, so `R_X` is the rotation nearest to
+/// `Σ α βᵀ` (orthogonal Procrustes).
+fn rotation_park_martin(pairs: &[MotionPair]) -> Result<Matrix3<Real>, Error> {
+    let mut h = Matrix3::<Real>::zeros();
+    for p in pairs {
+        h += log_so3(&p.rot_a) * log_so3(&p.rot_b).transpose();
+    }
+    crate::math::project_to_so3(&h)
+}
 
-fn estimate_translation_allpairs_weighted(
-    pairs: &[MotionPair],
-    rot_x: &Matrix3<Real>,
-) -> Result<Vector3<Real>, Error> {
-    let num_pairs = pairs.len() as i32;
-    let mut mat_c = DMatrix::<Real>::zeros(3 * num_pairs as usize, 3);
-    let mut vec_w = DVector::<Real>::zeros(3 * num_pairs as usize);
-
-    for idx in 0..num_pairs {
-        let p = &pairs[idx as usize];
-
-        let rot_a = &p.rot_a;
-        let tran_a = &p.tra_a;
-        let tran_b = &p.tra_b;
-        let weight = 1.0;
-
+/// `X` from its rotation and the stacked translation constraints
+/// `(R_A − I) t_X = R_X t_B − t_A`.
+fn with_pair_translation(pairs: &[MotionPair], rot_x: Matrix3<Real>) -> Result<Iso3, Error> {
+    let mut mat_c = DMatrix::<Real>::zeros(3 * pairs.len(), 3);
+    let mut vec_w = DVector::<Real>::zeros(3 * pairs.len());
+    for (idx, p) in pairs.iter().enumerate() {
         mat_c
-            .view_mut((3 * idx as usize, 0), (3, 3))
-            .copy_from(&(weight * (rot_a - Matrix3::identity())));
-
+            .view_mut((3 * idx, 0), (3, 3))
+            .copy_from(&(p.rot_a - Matrix3::identity()));
         vec_w
-            .rows_mut(3 * idx as usize, 3)
-            .copy_from(&(weight * (rot_x * tran_b - tran_a)));
+            .rows_mut(3 * idx, 3)
+            .copy_from(&(rot_x * p.tra_b - p.tra_a));
     }
-
-    let ridge = 1e-12;
-    ridge_llsq(&mat_c, &vec_w, ridge)
+    let t = crate::math::ridge_lstsq(&mat_c, &vec_w, 1e-12)?;
+    Ok(iso_from(rot_x, Vector3::new(t[0], t[1], t[2])))
 }
 
-/// Main linear hand–eye init: Tsai–Lenz with all pairs.
-///
-/// `base_se3_gripper`: gripper poses in base frame.
-/// `target_se3_camera`: camera poses in target frame (`T_T_C`).
-///
-/// Returns `X = ^G T_C` (gripper -> camera).
-///
-/// # Errors
-///
-/// Returns [`Error::InvalidInput`] if pose counts differ, [`Error::InsufficientData`]
-/// if fewer than 2 poses are supplied, [`Error::NoValidMotionPairs`] if no motion
-/// pair survives filtering, or [`Error::Singular`] if the linear solve fails.
-pub fn estimate_handeye_dlt(
-    base_se3_gripper: &[Iso3],
-    target_se3_camera: &[Iso3],
-    min_angle_deg: Real,
-) -> Result<Iso3, Error> {
-    HandeyeInit::tsai_lenz(base_se3_gripper, target_se3_camera, min_angle_deg)
+fn iso_from(rot: Matrix3<Real>, t: Vector3<Real>) -> Iso3 {
+    let rot =
+        UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(rot));
+    Isometry3::from_parts(Translation3::from(t), rot)
 }
 
-/// Linear EyeToHand initialization of a fixed target in the gripper frame.
-///
-/// `base_se3_gripper`: gripper poses in base frame (`T_B_G`).
-/// `camera_se3_target`: target poses in camera frame (`T_C_T`).
-///
-/// Returns `X = gripper_se3_target` (`T_G_T`).
-///
-/// # Errors
-///
-/// Returns [`Error::InvalidInput`] if pose counts differ, [`Error::InsufficientData`]
-/// if fewer than 2 poses are supplied, [`Error::NoValidMotionPairs`] if no motion
-/// pair survives filtering, or [`Error::Singular`] if the linear solve fails.
-pub fn estimate_gripper_se3_target_dlt(
-    base_se3_gripper: &[Iso3],
-    camera_se3_target: &[Iso3],
-    min_angle_deg: Real,
-) -> Result<Iso3, Error> {
-    tsai_lenz_allpairs(base_se3_gripper, camera_se3_target, min_angle_deg)
-}
+// ---------- Daniilidis: dual quaternions ----------
 
-impl HandeyeInit {
-    /// Tsai–Lenz hand–eye initialisation over all motion pairs.
-    ///
-    /// `min_angle_deg` controls the minimum motion magnitude used to build
-    /// pairs; this helps reject ill-conditioned data.
-    /// # Errors
-    ///
-    /// Returns [`Error::InvalidInput`] if pose counts differ, [`Error::InsufficientData`]
-    /// if fewer than 2 poses are supplied, [`Error::NoValidMotionPairs`] if no motion
-    /// pair survives filtering, or [`Error::Singular`] if the linear solve fails.
-    pub fn tsai_lenz(
-        base_se3_gripper: &[Iso3],
-        target_se3_camera: &[Iso3],
-        min_angle_deg: Real,
-    ) -> Result<Iso3, Error> {
-        tsai_lenz_allpairs(base_se3_gripper, target_se3_camera, min_angle_deg)
+/// `X` from the dual-quaternion form of `A X = X B`.
+///
+/// With `q̌ = q + ε q'`, `q' = ½ t q`, each pair gives six linear equations
+/// in the eight entries of `(q_X, q'_X)`:
+///
+/// ```text
+/// [ a − b    [a + b]×    0       0      ] (q_X )
+/// [ a' − b'  [a' + b']×  a − b   [a + b]×] (q'_X) = 0
+/// ```
+///
+/// (`a`, `b`, `a'`, `b'` the vector parts of the pair's real and dual
+/// quaternions, sign-matched so their scalar parts agree). The solution is
+/// the two-dimensional null space `λ₁ v₁ + λ₂ v₂` of the stack, fixed by the
+/// unit-norm and `q · q' = 0` constraints. Translations are divided by their
+/// RMS first so the dual rows weigh like the real ones; the solution is
+/// rescaled after.
+fn daniilidis(pairs: &[MotionPair]) -> Result<Iso3, Error> {
+    let rms = (pairs
+        .iter()
+        .map(|p| p.tra_a.norm_squared() + p.tra_b.norm_squared())
+        .sum::<Real>()
+        / (2 * pairs.len()) as Real)
+        .sqrt();
+    let scale = if rms > 0.0 && rms.is_finite() {
+        rms
+    } else {
+        1.0
+    };
+
+    let mut normal = SMatrix::<Real, 8, 8>::zeros();
+    for p in pairs {
+        // Both scalar parts cos(θ/2) ≥ 0 (ambiguous only at θ = 180°).
+        let (qa, qb) = (quat_of(&p.rot_a), quat_of(&p.rot_b));
+        let dual = |t: &Vector3<Real>, q: &UnitQuaternion<Real>| {
+            Quaternion::from_imag(0.5 * t / scale) * q.into_inner()
+        };
+        let (qa_d, qb_d) = (dual(&p.tra_a, &qa), dual(&p.tra_b, &qb));
+        let (a, b) = (qa.imag(), qb.imag());
+        let (ad, bd) = (qa_d.imag(), qb_d.imag());
+
+        let mut s = SMatrix::<Real, 6, 8>::zeros();
+        s.fixed_view_mut::<3, 1>(0, 0).copy_from(&(a - b));
+        s.fixed_view_mut::<3, 3>(0, 1)
+            .copy_from(&(a + b).cross_matrix());
+        s.fixed_view_mut::<3, 1>(3, 0).copy_from(&(ad - bd));
+        s.fixed_view_mut::<3, 3>(3, 1)
+            .copy_from(&(ad + bd).cross_matrix());
+        s.fixed_view_mut::<3, 1>(3, 4).copy_from(&(a - b));
+        s.fixed_view_mut::<3, 3>(3, 5)
+            .copy_from(&(a + b).cross_matrix());
+        normal += s.transpose() * s;
     }
+    if normal.iter().any(|v| !v.is_finite()) {
+        return Err(Error::Singular);
+    }
+    let eigen = normal.symmetric_eigen();
+    let mut order: [usize; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
+    order.sort_by(|&i, &j| eigen.eigenvalues[i].total_cmp(&eigen.eigenvalues[j]));
+    let v1: SVector<Real, 8> = eigen.eigenvectors.column(order[0]).into_owned();
+    let v2: SVector<Real, 8> = eigen.eigenvectors.column(order[1]).into_owned();
+    let (u1, w1) = (v1.fixed_rows::<4>(0), v1.fixed_rows::<4>(4));
+    let (u2, w2) = (v2.fixed_rows::<4>(0), v2.fixed_rows::<4>(4));
+
+    // q · q' = 0 for q = λ₁u₁ + λ₂u₂, q' = λ₁w₁ + λ₂w₂ is the quadratic form
+    // λᵀ C λ = 0. Its zero directions are √μ₂ e₁ ± √(−μ₁) e₂ for the
+    // eigenpairs (μ₁ ≤ μ₂, e₁, e₂) of C; noise can make C definite, and then
+    // the direction where |λᵀ C λ| is smallest is taken and q' orthogonalized.
+    let c12 = 0.5 * (u1.dot(&w2) + u2.dot(&w1));
+    let c = Matrix2::new(u1.dot(&w1), c12, c12, u2.dot(&w2));
+    let ce = c.symmetric_eigen();
+    let (lo, hi) = if ce.eigenvalues[0] <= ce.eigenvalues[1] {
+        (0, 1)
+    } else {
+        (1, 0)
+    };
+    let (mu_lo, mu_hi) = (ce.eigenvalues[lo], ce.eigenvalues[hi]);
+    let (e_lo, e_hi) = (ce.eigenvectors.column(lo), ce.eigenvectors.column(hi));
+    let candidates: Vec<nalgebra::Vector2<Real>> = if mu_lo <= 0.0 && mu_hi >= 0.0 {
+        let (p, n) = (mu_hi.sqrt(), (-mu_lo).sqrt());
+        vec![p * e_lo + n * e_hi, p * e_lo - n * e_hi]
+    } else if mu_lo.abs() <= mu_hi.abs() {
+        vec![e_lo.into_owned()]
+    } else {
+        vec![e_hi.into_owned()]
+    };
+    let q_of = |l: &nalgebra::Vector2<Real>| -> Vector4<Real> { l[0] * u1 + l[1] * u2 };
+    let best = candidates
+        .iter()
+        .max_by(|a, b| q_of(a).norm_squared().total_cmp(&q_of(b).norm_squared()))
+        .ok_or(Error::Singular)?;
+    let q_vec = q_of(best);
+    let q_norm = q_vec.norm();
+    if !q_norm.is_finite() || q_norm <= 1e-12 {
+        return Err(Error::Singular);
+    }
+    let q_vec = q_vec / q_norm;
+    let qd_vec: Vector4<Real> = (best[0] * w1 + best[1] * w2) / q_norm;
+    let qd_vec = qd_vec - q_vec * q_vec.dot(&qd_vec);
+
+    // nalgebra stores quaternions as (i, j, k, w); the solve's order is (w, i, j, k).
+    let q =
+        UnitQuaternion::from_quaternion(Quaternion::new(q_vec[0], q_vec[1], q_vec[2], q_vec[3]));
+    let qd = Quaternion::new(qd_vec[0], qd_vec[1], qd_vec[2], qd_vec[3]);
+    // q' = ½ t q  ⇒  t = 2 q' q*.
+    let t = (qd * q.conjugate().into_inner()).imag() * (2.0 * scale);
+    if t.iter().any(|v| !v.is_finite()) {
+        return Err(Error::Singular);
+    }
+    Ok(Isometry3::from_parts(Translation3::from(t), q))
 }
 
-/// log: SO(3) -> so(3) as a 3-vector (axis * angle)
+// ---------- Shah: AX = ZB from the absolute poses ----------
+
+/// `X` and `Z` of `A_i X = Z B_i`.
+///
+/// Rotation: `R_A R_X = R_Z R_B` is linear in `(vec R_X, vec R_Z)`,
+/// `[I ⊗ R_A, −R_Bᵀ ⊗ I] (vec R_X; vec R_Z) = 0` (column-major `vec`); the
+/// null vector is scaled to `det R_X = 1` and both blocks are projected onto
+/// SO(3). Translation: `[R_A, −I] (t_X; t_Z) = R_Z t_B − t_A`, by least
+/// squares.
+fn shah(base_se3_gripper: &[Iso3], stream: &[Iso3]) -> Result<(Iso3, Iso3), Error> {
+    let n = base_se3_gripper.len();
+    let rotations = |p: &Iso3| p.rotation.to_rotation_matrix().into_inner();
+
+    let mut k = DMatrix::<Real>::zeros(9 * n, 18);
+    for (i, (a, b)) in base_se3_gripper.iter().zip(stream).enumerate() {
+        let (ra, rb) = (rotations(a), rotations(b));
+        // (I ⊗ R_A): block (c, c) = R_A. (R_Bᵀ ⊗ I): block (r, c) = R_B[(c, r)] I.
+        for blk in 0..3 {
+            k.view_mut((9 * i + 3 * blk, 3 * blk), (3, 3))
+                .copy_from(&ra);
+        }
+        for r in 0..3 {
+            for c in 0..3 {
+                let v = -rb[(c, r)];
+                for d in 0..3 {
+                    k[(9 * i + 3 * r + d, 9 + 3 * c + d)] = v;
+                }
+            }
+        }
+    }
+    let v = vision_calibration_core::linalg::null_space(&k)?.vector;
+    let unvec = |off: usize| Matrix3::from_fn(|r, c| v[off + 3 * c + r]);
+    let (mx, mz) = (unvec(0), unvec(9));
+    let det = mx.determinant();
+    if !det.is_finite() || det.abs() <= 1e-12 {
+        return Err(Error::Singular);
+    }
+    let alpha = det.signum() / det.abs().cbrt();
+    let rot_x = crate::math::project_to_so3(&(alpha * mx))?;
+    let rot_z = crate::math::project_to_so3(&(alpha * mz))?;
+
+    let mut c = DMatrix::<Real>::zeros(3 * n, 6);
+    let mut d = DVector::<Real>::zeros(3 * n);
+    for (i, (a, b)) in base_se3_gripper.iter().zip(stream).enumerate() {
+        c.view_mut((3 * i, 0), (3, 3)).copy_from(&rotations(a));
+        c.view_mut((3 * i, 3), (3, 3))
+            .copy_from(&(-Matrix3::<Real>::identity()));
+        d.rows_mut(3 * i, 3)
+            .copy_from(&(rot_z * b.translation.vector - a.translation.vector));
+    }
+    let t = crate::math::ridge_lstsq(&c, &d, 1e-12)?;
+    Ok((
+        iso_from(rot_x, Vector3::new(t[0], t[1], t[2])),
+        iso_from(rot_z, Vector3::new(t[3], t[4], t[5])),
+    ))
+}
+
+/// log: SO(3) → so(3) as a 3-vector (axis · angle).
 fn log_so3(r: &Matrix3<Real>) -> Vector3<Real> {
     let rot = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(*r));
     let angle = rot.angle();
@@ -314,86 +539,32 @@ fn log_so3(r: &Matrix3<Real>) -> Vector3<Real> {
     axis.into_inner() * angle
 }
 
-/// Ridge-regularized least squares:
-/// min ||A x - b||^2 + λ ||x||^2
-fn ridge_llsq(a: &DMatrix<Real>, b: &DVector<Real>, lambda: Real) -> Result<Vector3<Real>, Error> {
-    // Solved via the normal equations `(AᵀA + λI) x = Aᵀ b` (see
-    // [`crate::math::ridge_lstsq`]) — algebraically identical to the augmented
-    // `[A; √λ I]` least-squares but without a dense SVD that can hang on a tall
-    // design matrix.
-    assert_eq!(
-        a.ncols(),
-        3,
-        "ridge_llsq (hand-eye translation solve) expects a 3-column design matrix"
-    );
-    let x = crate::math::ridge_lstsq(a, b, lambda)?;
-    Ok(Vector3::new(x[0], x[1], x[2]))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use nalgebra::Rotation3;
 
+    const METHODS: [HandeyeMethod; 4] = [
+        HandeyeMethod::TsaiLenz,
+        HandeyeMethod::ParkMartin,
+        HandeyeMethod::Daniilidis,
+        HandeyeMethod::Shah,
+    ];
+
     fn make_iso(angles: (Real, Real, Real), t: (Real, Real, Real)) -> Iso3 {
         let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
-        let tr = Translation3::new(t.0, t.1, t.2);
-        Isometry3::from_parts(tr, rot.into())
+        Isometry3::from_parts(Translation3::new(t.0, t.1, t.2), rot.into())
     }
 
-    /// Compare two SE(3) poses via translation norm + rotation angle
+    /// (Δtranslation, Δrotation angle) between two poses.
     fn pose_error(a: &Iso3, b: &Iso3) -> (Real, Real) {
         let dt = (a.translation.vector - b.translation.vector).norm();
-
-        let r_a = a.rotation.to_rotation_matrix();
-        let r_b = b.rotation.to_rotation_matrix();
-        let r_diff = r_a.transpose() * r_b;
-        let trace = r_diff.matrix().trace();
-        let cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0);
-        let angle = cos_theta.acos();
-
-        (dt, angle)
+        (dt, a.rotation.angle_to(&b.rotation))
     }
 
-    #[test]
-    fn handeye_dlt_recovers_ground_truth() {
-        // Ground-truth hand-eye (gripper -> camera) and base->target
-        let x_gt = make_iso((0.2, -0.1, 0.05), (0.1, -0.05, 0.2)); // ^G T_C
-        let y_gt = make_iso((-0.1, 0.05, 0.2), (-0.2, 0.1, 1.0)); // ^B T_T
-
-        // Generate synthetic poses
-        let num_poses = 6;
-        let mut base_se3_gripper = Vec::with_capacity(num_poses);
-        let mut target_se3_camera = Vec::with_capacity(num_poses);
-
-        for k in 0..num_poses {
-            let kf = k as Real;
-            // Some mildly varying robot poses (base->gripper)
-            let bg = make_iso(
-                (0.05 * kf, -0.03 * kf, 0.02 * kf),
-                (0.1 * kf, -0.05 * kf, 0.8 + 0.05 * kf),
-            );
-            base_se3_gripper.push(bg);
-
-            // From ^B T_G * X = Y ^C T_T  =>  ^C T_T = Y^{-1} ^B T_G X
-            let ct = y_gt.inverse() * bg * x_gt;
-            target_se3_camera.push(ct);
-        }
-
-        let x_est = estimate_handeye_dlt(&base_se3_gripper, &target_se3_camera, 1.0).unwrap();
-
-        let (dt, ang) = pose_error(&x_est, &x_gt);
-        println!("handeye dt = {}, ang = {} rad", dt, ang);
-
-        // Tolerances can be relaxed if you later add noise.
-        assert!(dt < 1e-6, "translation error too large: {}", dt);
-        assert!(ang < 1e-6, "rotation error too large: {}", ang);
-    }
-
-    /// Synthetic eye-in-hand streams: robot poses rotating about several
-    /// axes, and `target_se3_camera = Y⁻¹ · base_se3_gripper · X`.
-    fn streams(x: &Iso3, y: &Iso3, poses: &[Iso3]) -> Vec<Iso3> {
-        poses.iter().map(|bg| y.inverse() * bg * x).collect()
+    /// Eye-in-hand views: `T_C_T_i = (T_B_G_i · X)⁻¹ · Z`.
+    fn eye_in_hand_views(x: &Iso3, z: &Iso3, robot: &[Iso3]) -> Vec<Iso3> {
+        robot.iter().map(|bg| (bg * x).inverse() * z).collect()
     }
 
     fn varied_robot_poses() -> Vec<Iso3> {
@@ -412,56 +583,216 @@ mod tests {
             .collect()
     }
 
+    fn assert_recovers(method: HandeyeMethod, x: &Iso3, z: &Iso3, robot: &[Iso3], tol: Real) {
+        let cams = eye_in_hand_views(x, z, robot);
+        let est = estimate_eye_in_hand(method, robot, &cams, 1.0).unwrap();
+        let (dt, dr) = pose_error(&est.gripper_se3_camera, x);
+        assert!(
+            dt < tol && dr < tol,
+            "{method:?}: X off by {dt} m, {dr} rad"
+        );
+        let (dt, dr) = pose_error(&est.base_se3_target, z);
+        assert!(
+            dt < tol && dr < tol,
+            "{method:?}: Z off by {dt} m, {dr} rad"
+        );
+    }
+
+    #[test]
+    fn every_method_recovers_exact_eye_in_hand() {
+        let x = make_iso((0.2, -0.1, 0.05), (0.1, -0.05, 0.2));
+        let z = make_iso((-0.1, 0.05, 0.2), (-0.2, 0.1, 1.0));
+        for method in METHODS {
+            assert_recovers(method, &x, &z, &varied_robot_poses(), 1e-9);
+        }
+    }
+
+    #[test]
+    fn every_method_recovers_exact_eye_to_hand() {
+        // T_C_T_i = T_C_B · T_B_G_i · T_G_T.
+        let gripper_se3_target = make_iso((0.3, 0.1, -0.2), (0.0, 0.05, 0.12));
+        let camera_se3_base = make_iso((2.6, -0.1, 0.3), (0.2, -0.1, 1.4));
+        let robot = varied_robot_poses();
+        let cams: Vec<Iso3> = robot
+            .iter()
+            .map(|bg| camera_se3_base * bg * gripper_se3_target)
+            .collect();
+        for method in METHODS {
+            let est = estimate_eye_to_hand(method, &robot, &cams, 1.0).unwrap();
+            let (dt, dr) = pose_error(&est.gripper_se3_target, &gripper_se3_target);
+            assert!(
+                dt < 1e-9 && dr < 1e-9,
+                "{method:?}: X off by {dt} m, {dr} rad"
+            );
+            let (dt, dr) = pose_error(&est.camera_se3_base, &camera_se3_base);
+            assert!(
+                dt < 1e-9 && dr < 1e-9,
+                "{method:?}: Z off by {dt} m, {dr} rad"
+            );
+        }
+    }
+
     /// A camera mounted square to the flange (identity rotation, pure offset)
     /// makes every pair's A and B axes parallel, which is not degenerate: a
     /// per-pair parallel-axis filter would reject them all.
     #[test]
-    fn handeye_dlt_recovers_an_identity_rotation_mount() {
-        let x_gt = make_iso((0.0, 0.0, 0.0), (0.04, 0.0, 0.03));
-        let y_gt = make_iso((0.0, 0.0, 0.3), (0.45, 0.15, 0.0));
-        let robot = varied_robot_poses();
-        let cams = streams(&x_gt, &y_gt, &robot);
-        let x_est = estimate_handeye_dlt(&robot, &cams, 1.0).unwrap();
-        let (dt, ang) = pose_error(&x_est, &x_gt);
-        assert!(dt < 1e-9 && ang < 1e-9, "dt {dt}, angle {ang}");
-        let y_est = estimate_gripper_se3_target_dlt(
-            &robot,
-            &robot
-                .iter()
-                .map(|bg| (y_gt.inverse() * bg * x_gt).inverse())
-                .collect::<Vec<_>>(),
-            1.0,
-        );
-        assert!(y_est.is_ok());
+    fn every_method_recovers_an_identity_rotation_mount() {
+        let x = make_iso((0.0, 0.0, 0.0), (0.04, 0.0, 0.03));
+        let z = make_iso((0.0, 0.0, 0.3), (0.45, 0.15, 0.0));
+        for method in METHODS {
+            assert_recovers(method, &x, &z, &varied_robot_poses(), 1e-9);
+        }
     }
 
     /// Also when X rotates about an axis some robot motions share.
     #[test]
-    fn handeye_dlt_recovers_a_mount_rotated_about_a_motion_axis() {
-        let x_gt = make_iso((0.0, 0.0, 0.7), (0.02, -0.01, 0.05));
-        let y_gt = make_iso((0.1, -0.05, 0.2), (-0.2, 0.1, 1.0));
+    fn every_method_recovers_a_mount_rotated_about_a_motion_axis() {
+        let x = make_iso((0.0, 0.0, 0.7), (0.02, -0.01, 0.05));
+        let z = make_iso((0.1, -0.05, 0.2), (-0.2, 0.1, 1.0));
         let mut robot = varied_robot_poses();
         // Two poses differing by a pure rotation about z: their pair's A and B
         // axes coincide.
         robot.push(robot[0] * make_iso((0.0, 0.0, 0.5), (0.0, 0.0, 0.0)));
-        let cams = streams(&x_gt, &y_gt, &robot);
-        let x_est = estimate_handeye_dlt(&robot, &cams, 1.0).unwrap();
-        let (dt, ang) = pose_error(&x_est, &x_gt);
-        assert!(dt < 1e-9 && ang < 1e-9, "dt {dt}, angle {ang}");
+        for method in METHODS {
+            assert_recovers(method, &x, &z, &robot, 1e-9);
+        }
     }
 
-    /// Every robot motion about one axis leaves X underdetermined: rejected.
+    /// Relative rotations past 120°, where nalgebra may hand the two
+    /// quaternions of a pair opposite signs. Before the signs were matched,
+    /// such a pair entered the quaternion solves as `q_A q_X = −q_X q_B`:
+    /// Tsai–Lenz returned a rotation 180° off from three views, and
+    /// Daniilidis was off from five.
     #[test]
-    fn handeye_dlt_rejects_motions_about_a_single_axis() {
-        let x_gt = make_iso((0.2, -0.1, 0.05), (0.1, -0.05, 0.2));
-        let y_gt = make_iso((-0.1, 0.05, 0.2), (-0.2, 0.1, 1.0));
+    fn every_method_recovers_motions_past_120_degrees() {
+        let x = make_iso((0.4, -0.3, 0.9), (0.05, 0.02, 0.1));
+        let z = make_iso((0.2, 0.1, -0.4), (0.3, -0.2, 0.9));
+        let robot = [
+            make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.8)),
+            make_iso((2.3, 0.4, -0.3), (0.1, 0.0, 0.7)),
+            make_iso((-0.5, 2.4, 0.6), (-0.1, 0.1, 0.9)),
+            make_iso((0.7, -0.6, 2.5), (0.0, -0.1, 0.8)),
+            make_iso((-2.2, -0.8, 1.9), (0.05, 0.05, 0.75)),
+        ];
+        for views in [3, 5] {
+            for method in METHODS {
+                assert_recovers(method, &x, &z, &robot[..views], 1e-9);
+            }
+        }
+    }
+
+    /// Every robot motion about one axis leaves X underdetermined: rejected
+    /// by every method.
+    #[test]
+    fn every_method_rejects_motions_about_a_single_axis() {
+        let x = make_iso((0.2, -0.1, 0.05), (0.1, -0.05, 0.2));
+        let z = make_iso((-0.1, 0.05, 0.2), (-0.2, 0.1, 1.0));
         let robot: Vec<Iso3> = (0..6)
             .map(|k| make_iso((0.0, 0.0, 0.3 * k as Real), (0.1, 0.0, 0.8)))
             .collect();
-        let cams = streams(&x_gt, &y_gt, &robot);
-        assert!(matches!(
-            estimate_handeye_dlt(&robot, &cams, 1.0),
-            Err(Error::NoValidMotionPairs)
-        ));
+        let cams = eye_in_hand_views(&x, &z, &robot);
+        for method in METHODS {
+            assert!(
+                matches!(
+                    estimate_eye_in_hand(method, &robot, &cams, 1.0),
+                    Err(Error::NoValidMotionPairs)
+                ),
+                "{method:?}"
+            );
+        }
+    }
+
+    /// Pure translations carry no rotation: every pair is below the angle
+    /// filter, a typed error rather than a NaN.
+    #[test]
+    fn every_method_rejects_translation_only_motion() {
+        let x = make_iso((0.2, -0.1, 0.05), (0.1, -0.05, 0.2));
+        let z = make_iso((-0.1, 0.05, 0.2), (-0.2, 0.1, 1.0));
+        let robot: Vec<Iso3> = (0..6)
+            .map(|k| make_iso((0.1, 0.2, 0.3), (0.1 * k as Real, 0.02, 0.8)))
+            .collect();
+        let cams = eye_in_hand_views(&x, &z, &robot);
+        for method in METHODS {
+            assert!(
+                matches!(
+                    estimate_eye_in_hand(method, &robot, &cams, 1.0),
+                    Err(Error::NoValidMotionPairs)
+                ),
+                "{method:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_input_is_a_typed_error() {
+        let robot = varied_robot_poses();
+        let cams = eye_in_hand_views(&Iso3::identity(), &Iso3::identity(), &robot);
+        for method in METHODS {
+            assert!(matches!(
+                estimate_eye_in_hand(method, &robot[..3], &cams, 1.0),
+                Err(Error::InvalidInput { .. })
+            ));
+            assert!(matches!(
+                estimate_eye_to_hand(method, &robot[..1], &cams[..1], 1.0),
+                Err(Error::InsufficientData { need: 2, got: 1 })
+            ));
+            let mut bad = cams.clone();
+            bad[2].translation.vector.x = Real::NAN;
+            assert!(matches!(
+                estimate_eye_in_hand(method, &robot, &bad, 1.0),
+                Err(Error::InvalidInput { .. })
+            ));
+        }
+    }
+
+    /// Small rotations with noise: every method returns a finite estimate
+    /// (worse, not NaN) once the motions clear the angle filter.
+    #[test]
+    fn rotation_poor_noisy_motion_stays_finite() {
+        let x = make_iso((0.2, -0.1, 0.05), (0.1, -0.05, 0.2));
+        let z = make_iso((-0.1, 0.05, 0.2), (-0.2, 0.1, 1.0));
+        let robot: Vec<Iso3> = (0..10)
+            .map(|k| {
+                let kf = k as Real;
+                make_iso(
+                    (
+                        0.03 * (kf * 1.7).sin(),
+                        0.03 * (kf * 2.3).cos(),
+                        0.03 * kf.sin(),
+                    ),
+                    (0.05 * kf.cos(), 0.04 * kf.sin(), 0.8),
+                )
+            })
+            .collect();
+        let cams: Vec<Iso3> = eye_in_hand_views(&x, &z, &robot)
+            .iter()
+            .enumerate()
+            .map(|(k, c)| {
+                let kf = k as Real;
+                make_iso(
+                    (1e-3 * kf.sin(), -1e-3 * kf.cos(), 5e-4),
+                    (1e-3 * kf.cos(), 0.0, -1e-3 * kf.sin()),
+                ) * c
+            })
+            .collect();
+        for method in METHODS {
+            let est = estimate_eye_in_hand(method, &robot, &cams, 0.5).unwrap();
+            let p = est.gripper_se3_camera;
+            assert!(
+                p.translation.vector.iter().all(|v| v.is_finite())
+                    && p.rotation.coords.iter().all(|v| v.is_finite()),
+                "{method:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn method_serde_is_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&HandeyeMethod::ParkMartin).unwrap(),
+            "\"park_martin\""
+        );
+        let m: HandeyeMethod = serde_json::from_str("\"tsai_lenz\"").unwrap();
+        assert_eq!(m, HandeyeMethod::default());
     }
 }

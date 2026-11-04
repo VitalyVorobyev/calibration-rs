@@ -117,7 +117,7 @@
 - [Epipolar Geometry](epipolar.md)
 - [Camera Matrix and RQ Decomposition](camera_matrix.md)
 - [Linear Triangulation](triangulation.md)
-- [Hand-Eye Calibration (Tsai-Lenz)](handeye_linear.md)
+- [Hand-Eye Initialization](handeye_linear.md)
 - [Multi-Camera Rig Initialization](rig_init.md)
 - [Laser Plane Initialization](laser_init.md)
 - [Polynomial Solvers](polynomial.md)

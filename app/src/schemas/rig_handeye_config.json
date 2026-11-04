@@ -458,14 +458,19 @@
     },
     "HandeyeInitConfig": {
       "additionalProperties": false,
-      "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
+      "description": "Hand-eye linear-initialization stage options.\n\nShared by every hand-eye problem's `handeye_init` config group.",
       "properties": {
         "handeye_mode": {
           "$ref": "#/$defs/HandeyeMode",
           "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
         },
+        "method": {
+          "$ref": "#/$defs/HandeyeMethod",
+          "default": "tsai_lenz",
+          "description": "The closed-form solver of the initialization: `tsai_lenz` (default),\n`park_martin`, `daniilidis` or `shah`. They differ in the accuracy of\nthe starting point, not in where the bundle adjustment ends: on\nsynthetic captures with robot rotations down to ±2° it converged from\neach. `daniilidis` is the most accurate rotation when the robot\nrotates by only a few degrees; `shah` estimates the fixed target\n(eye-in-hand) or camera (eye-to-hand) pose over all views, where the\nothers close it through the first view."
+        },
         "min_motion_angle_deg": {
-          "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
+          "description": "Minimum rotation (degrees) between two views, in the robot and in the\ncamera, for the pair to enter the linear solve; the pairs that clear\nit must rotate the robot about two non-parallel axes. Positive.\nDefault 5°: smaller rotations amplify noise into the translation.",
           "format": "double",
           "type": "number"
         }
@@ -475,6 +480,31 @@
         "min_motion_angle_deg"
       ],
       "type": "object"
+    },
+    "HandeyeMethod": {
+      "description": "The closed-form solver of a hand-eye initialization.\n\nAll four need robot rotations about at least two non-parallel axes; they\ndiffer in how they weigh the views and in what they estimate jointly.",
+      "oneOf": [
+        {
+          "const": "tsai_lenz",
+          "description": "Tsai and Lenz (1989): over every pair of views, the rotation from the\nquaternion form of `R_A R_X = R_X R_B`, then the translation by least\nsquares. The default.",
+          "type": "string"
+        },
+        {
+          "const": "park_martin",
+          "description": "Park and Martin (1994): the rotation that best aligns the rotation\nvectors (axis · angle) of the camera motions with the robot's, then\nthe translation by least squares. Weights a pair by its angle.",
+          "type": "string"
+        },
+        {
+          "const": "daniilidis",
+          "description": "Daniilidis (1999): rotation and translation together, from the dual\nquaternions of the motion pairs.",
+          "type": "string"
+        },
+        {
+          "const": "shah",
+          "description": "Shah (2013): the hand-eye transform and the fixed transform at the\nother end of the chain together, from the absolute poses (`AX = ZB`)\ninstead of motion pairs, rotation first (Kronecker form) and then\ntranslation.",
+          "type": "string"
+        }
+      ]
     },
     "HandeyeMode": {
       "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",

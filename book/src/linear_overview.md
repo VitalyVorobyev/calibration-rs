@@ -40,7 +40,7 @@ Linear initialization eliminates this problem by computing a reasonable estimate
 | 5-point essential | $E$ matrix | Action matrix eigenvalues | [Epipolar](epipolar.md) |
 | Camera matrix DLT | $P = K[R\|t]$ | SVD + RQ decomposition | [Camera Matrix](camera_matrix.md) |
 | Triangulation | 3D point | SVD nullspace | [Triangulation](triangulation.md) |
-| Tsai-Lenz | Hand-eye $T_{G,C}$ | Quaternion + linear LS | [Hand-Eye](handeye_linear.md) |
+| Hand-eye (Tsai-Lenz, Park-Martin, Daniilidis, Shah) | Hand-eye $T_{G,C}$ and target $T_{B,T}$ | Quaternion / rotation-vector / dual-quaternion / Kronecker + linear LS | [Hand-Eye](handeye_linear.md) |
 | Rig extrinsics | $T_{R,C}$ per camera | SE(3) averaging | [Rig Init](rig_init.md) |
 | Laser plane | Plane normal + distance | SVD on covariance | [Laser Init](laser_init.md) |
 

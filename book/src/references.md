@@ -22,6 +22,12 @@
 
 - **Tsai, R.Y. & Lenz, R.K.** (1989). "A New Technique for Fully Autonomous and Efficient 3D Robotics Hand/Eye Calibration." *IEEE Transactions on Robotics and Automation*, 5(3), 345-358. — The Tsai-Lenz method for solving AX=XB.
 
+- **Park, F.C. & Martin, B.J.** (1994). "Robot Sensor Calibration: Solving AX=XB on the Euclidean Group." *IEEE Transactions on Robotics and Automation*, 10(5), 717-721. — Rotation from the Lie-algebra (rotation-vector) alignment.
+
+- **Daniilidis, K.** (1999). "Hand-Eye Calibration Using Dual Quaternions." *The International Journal of Robotics Research*, 18(3), 286-298. — Rotation and translation together.
+
+- **Shah, M.** (2013). "Solving the Robot-World/Hand-Eye Calibration Problem Using the Kronecker Product." *Journal of Mechanisms and Robotics*, 5(3), 031007. — AX=ZB from absolute poses.
+
 ## Robust Estimation
 
 - **Fischler, M.A. & Bolles, R.C.** (1981). "Random Sample Consensus: A Paradigm for Model Fitting with Applications to Image Analysis and Automated Cartography." *Communications of the ACM*, 24(6), 381-395. — The original RANSAC paper.

@@ -16,6 +16,7 @@ from ._generated_types import (
     DistortionKind,
     ProjectionKind,
     SensorKind,
+    HandeyeMethod,
     HandeyeMode,
     LaserlineResidualType,
     RobustLoss,
@@ -148,14 +149,24 @@ class RobotPoseSigma:
 
 @dataclass(slots=True)
 class HandeyeInitConfig:
-    """Shared hand-eye linear-initialization settings (Tsai-Lenz DLT)."""
+    """Shared hand-eye linear-initialization settings.
+
+    ``method`` picks the closed-form solver: ``"tsai_lenz"`` (default),
+    ``"park_martin"``, ``"daniilidis"`` or ``"shah"``; ``shah`` also
+    estimates the fixed target (eye-in-hand) or camera (eye-to-hand) pose
+    over all views. ``min_motion_angle_deg`` is the smallest rotation between
+    two views, in the robot and in the camera, for the pair to enter the
+    solve.
+    """
 
     handeye_mode: HandeyeMode = "EyeInHand"
+    method: HandeyeMethod = "tsai_lenz"
     min_motion_angle_deg: float = 5.0
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "handeye_mode": self.handeye_mode,
+            "method": self.method,
             "min_motion_angle_deg": float(self.min_motion_angle_deg),
         }
 

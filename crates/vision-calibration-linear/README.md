@@ -17,7 +17,7 @@ non-linear refinement in `vision-calibration-optim` or `vision-calibration-pipel
 | **Pose (PnP)** | DLT, P3P, EPnP, DLT in RANSAC |
 | **Planar pose** | Pose from homography + intrinsics, or from bearing vectors (any central camera) |
 | **Rig** | Multi-camera extrinsics initialization |
-| **Hand-eye** | Tsai-Lenz (AX=XB), eye-in-hand and eye-to-hand |
+| **Hand-eye** | Tsai-Lenz, Park-Martin, Daniilidis (AX=XB) and Shah (AX=ZB), eye-in-hand and eye-to-hand |
 | **Laserline** | Multi-view laser plane fitting |
 
 Two-view solvers (homography DLT, fundamental/essential matrices, camera matrix,
@@ -68,7 +68,7 @@ fn main() -> Result<(), vision_calibration_linear::Error> {
 | `distortion_fit` | Distortion from homography residuals |
 | `planar_pose` | Pose from homography + K, or from bearings |
 | `extrinsics` | Multi-camera rig initialization |
-| `handeye` | Tsai-Lenz hand-eye |
+| `handeye` | Hand-eye: Tsai-Lenz, Park-Martin, Daniilidis, Shah |
 | `laserline` | Laser plane estimation |
 
 ## See Also

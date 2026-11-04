@@ -73,6 +73,8 @@ pub struct IntrinsicsOptimizeOptions {
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct HandeyeInitOptions {
+    /// Override the closed-form solver.
+    pub method: Option<vision_calibration_linear::handeye::HandeyeMethod>,
     /// Override minimum motion angle (degrees).
     pub min_motion_angle_deg: Option<f64>,
 }

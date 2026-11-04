@@ -12,7 +12,7 @@ use vision_calibration_core::{
     CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real, RigView,
     RigViewObs, ScheimpflugParams, SensorKind, View,
 };
-use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
+use vision_calibration_linear::handeye::{estimate_eye_in_hand, estimate_eye_to_hand};
 use vision_calibration_optim::{
     BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
     PlanarIntrinsicsParams, RobotPoseMeta, optimize_handeye,
@@ -370,24 +370,24 @@ pub fn step_intrinsics_optimize(
 }
 
 /// Initialize the hand-eye stage from any combination of manual seeds and
-/// auto-estimation (Tsai-Lenz DLT).
+/// auto-estimation (the closed-form solver of `handeye_init.method`).
 ///
 /// This is the load-bearing handeye-stage init. [`step_handeye_init`] is a thin
 /// delegate with `HandeyeManualInit::default()`.
 ///
-/// Mode-aware behavior — `session.config.handeye_mode` selects which seed fields
-/// are consumed:
-/// - `EyeInHand`: `gripper_se3_camera` (auto: Tsai-Lenz DLT) and `base_se3_target`
-///   (auto: derived from `gripper_se3_camera × target_pose[0] × robot_pose[0]`).
-/// - `EyeToHand`: `gripper_se3_target` (auto: DLT) and `camera_se3_base` (auto:
-///   derived from the seed/DLT result and the first observation).
+/// Mode-aware behavior — `session.config.handeye_init.handeye_mode` selects which
+/// seed fields are consumed:
+/// - `EyeInHand`: `gripper_se3_camera` and `base_se3_target`, both from the
+///   linear solve when not seeded; a seeded `gripper_se3_camera` closes
+///   `base_se3_target` through the first view.
+/// - `EyeToHand`: `gripper_se3_target` and `camera_se3_base`, likewise.
 ///
 /// Fields irrelevant to the active mode are ignored.
 ///
 /// # Errors
 ///
 /// - Input not set, intrinsics optimization not run.
-/// - DLT auto-init fails (when not seeded).
+/// - The linear solve fails (when not seeded).
 pub fn step_handeye_init_with_seed(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     manual: HandeyeManualInit,
@@ -407,6 +407,7 @@ pub fn step_handeye_init_with_seed(
     let min_angle = opts
         .min_motion_angle_deg
         .unwrap_or(config.handeye_init.min_motion_angle_deg);
+    let method = opts.method.unwrap_or(config.handeye_init.method);
 
     let robot_poses: Vec<Iso3> = input
         .views
@@ -430,20 +431,19 @@ pub fn step_handeye_init_with_seed(
 
     let (log_pose, log_label, result) = match config.handeye_init.handeye_mode {
         HandeyeMode::EyeInHand => {
-            let gripper_se3_camera = match manual.gripper_se3_camera {
+            let (gripper_se3_camera, estimated_target) = match manual.gripper_se3_camera {
                 Some(t) => {
                     manual_fields.push("gripper_se3_camera");
-                    t
+                    (t, None)
                 }
                 None => {
                     auto_fields.push("gripper_se3_camera");
-                    let target_se3_camera: Vec<Iso3> =
-                        cam_se3_target.iter().map(|t| t.inverse()).collect();
-                    estimate_handeye_dlt(&robot_poses, &target_se3_camera, min_angle)
+                    let e = estimate_eye_in_hand(method, &robot_poses, &cam_se3_target, min_angle)
                         .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
                         .map_err(|e| {
                             Error::numerical(format!("linear hand-eye estimation failed: {e}"))
-                        })?
+                        })?;
+                    (e.gripper_se3_camera, Some(e.base_se3_target))
                 }
             };
 
@@ -454,7 +454,9 @@ pub fn step_handeye_init_with_seed(
                 }
                 None => {
                     auto_fields.push("base_se3_target");
-                    robot_poses[0] * gripper_se3_camera * cam_se3_target[0]
+                    // A seeded hand-eye closes the chain through the first view.
+                    estimated_target
+                        .unwrap_or_else(|| robot_poses[0] * gripper_se3_camera * cam_se3_target[0])
                 }
             };
 
@@ -473,20 +475,21 @@ pub fn step_handeye_init_with_seed(
             )
         }
         HandeyeMode::EyeToHand => {
-            let gripper_se3_target = match manual.gripper_se3_target {
+            let (gripper_se3_target, estimated_base) = match manual.gripper_se3_target {
                 Some(t) => {
                     manual_fields.push("gripper_se3_target");
-                    t
+                    (t, None)
                 }
                 None => {
                     auto_fields.push("gripper_se3_target");
-                    estimate_gripper_se3_target_dlt(&robot_poses, &cam_se3_target, min_angle)
+                    let e = estimate_eye_to_hand(method, &robot_poses, &cam_se3_target, min_angle)
                         .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
                         .map_err(|e| {
                             Error::numerical(format!(
                                 "linear gripper->target estimation failed: {e}"
                             ))
-                        })?
+                        })?;
+                    (e.gripper_se3_target, Some(e.camera_se3_base))
                 }
             };
 
@@ -497,8 +500,11 @@ pub fn step_handeye_init_with_seed(
                 }
                 None => {
                     auto_fields.push("camera_se3_base");
-                    // T_C_T = T_C_B * T_B_G * T_G_T  =>  T_C_B = T_C_T * (T_B_G * T_G_T)^-1
-                    cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
+                    // A seeded hand-eye closes the chain through the first view:
+                    // T_C_T = T_C_B * T_B_G * T_G_T => T_C_B = T_C_T * (T_B_G * T_G_T)^-1.
+                    estimated_base.unwrap_or_else(|| {
+                        cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
+                    })
                 }
             };
 
@@ -532,7 +538,8 @@ pub fn step_handeye_init_with_seed(
     Ok(result)
 }
 
-/// Initialize the hand-eye transform using full auto-init (Tsai-Lenz DLT).
+/// Initialize the hand-eye transform using full auto-init (the closed-form
+/// solver of `handeye_init.method`).
 ///
 /// Convenience wrapper around [`step_handeye_init_with_seed`] with default seeds.
 pub fn step_handeye_init(

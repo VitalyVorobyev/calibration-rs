@@ -782,17 +782,57 @@ class FxFyCxCy(TypedDict):
     """Focal length in pixels along Y."""
 
 
-class HandeyeInitConfig(TypedDict):
-    """Hand-eye linear-initialization stage options (Tsai-Lenz DLT).
-
-    Shared by every hand-eye problem's `handeye_init` config group.
-    """
+class _HandeyeInitConfigRequired(TypedDict):
+    """The keys of `HandeyeInitConfig` that every payload has."""
 
     handeye_mode: HandeyeMode
     """Hand-eye mode: `EyeInHand` or `EyeToHand`."""
 
     min_motion_angle_deg: float
-    """Minimum motion angle (degrees) for linear hand-eye initialization."""
+    """Minimum rotation (degrees) between two views, in the robot and in the
+    camera, for the pair to enter the linear solve; the pairs that clear
+    it must rotate the robot about two non-parallel axes. Positive.
+    Default 5°: smaller rotations amplify noise into the translation.
+    """
+
+
+class HandeyeInitConfig(_HandeyeInitConfigRequired, total=False):
+    """Hand-eye linear-initialization stage options.
+
+    Shared by every hand-eye problem's `handeye_init` config group.
+    """
+
+    method: HandeyeMethod
+    """The closed-form solver of the initialization: `tsai_lenz` (default),
+    `park_martin`, `daniilidis` or `shah`. They differ in the accuracy of
+    the starting point, not in where the bundle adjustment ends: on
+    synthetic captures with robot rotations down to ±2° it converged from
+    each. `daniilidis` is the most accurate rotation when the robot
+    rotates by only a few degrees; `shah` estimates the fixed target
+    (eye-in-hand) or camera (eye-to-hand) pose over all views, where the
+    others close it through the first view.
+    """
+
+
+HandeyeMethod: TypeAlias = Literal["tsai_lenz", "park_martin", "daniilidis", "shah"]
+"""The closed-form solver of a hand-eye initialization.
+
+All four need robot rotations about at least two non-parallel axes; they
+differ in how they weigh the views and in what they estimate jointly.
+
+- ``"tsai_lenz"``: Tsai and Lenz (1989): over every pair of views, the rotation from the
+  quaternion form of `R_A R_X = R_X R_B`, then the translation by least
+  squares. The default.
+- ``"park_martin"``: Park and Martin (1994): the rotation that best aligns the rotation
+  vectors (axis · angle) of the camera motions with the robot's, then
+  the translation by least squares. Weights a pair by its angle.
+- ``"daniilidis"``: Daniilidis (1999): rotation and translation together, from the dual
+  quaternions of the motion pairs.
+- ``"shah"``: Shah (2013): the hand-eye transform and the fixed transform at the
+  other end of the chain together, from the absolute poses (`AX = ZB`)
+  instead of motion pairs, rotation first (Kronecker form) and then
+  translation.
+"""
 
 
 HandeyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
@@ -2783,7 +2823,7 @@ class _SingleCamHandeyeConfigRequired(TypedDict):
     """The keys of `SingleCamHandeyeConfig` that every payload has."""
 
     handeye_init: HandeyeInitConfig
-    """Hand-eye linear-initialization stage settings (Tsai-Lenz DLT)."""
+    """Hand-eye linear-initialization stage settings."""
 
     intrinsics: IntrinsicsInitConfig
     """Per-camera linear-initialization stage settings. The linear stage
@@ -3333,6 +3373,7 @@ __all__ = [
     "FrameRef",
     "FxFyCxCy",
     "HandeyeInitConfig",
+    "HandeyeMethod",
     "HandeyeMode",
     "HandeyeOptimizeConfig",
     "ImageManifest",

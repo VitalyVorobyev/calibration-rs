@@ -12,7 +12,7 @@
 //! 2. **Intrinsics optimization**: Non-linear refinement of each camera's parameters
 //! 3. **Rig initialization**: Linear estimation of camera-to-rig transforms
 //! 4. **Rig optimization**: Bundle adjustment jointly optimizing extrinsics and rig poses
-//! 5. **Hand-eye initialization**: Tsai-Lenz linear estimation from pose pairs
+//! 5. **Hand-eye initialization**: closed-form estimation (`handeye_init.method`)
 //! 6. **Hand-eye optimization**: Bundle adjustment with optional robot pose refinement
 //!
 //! [`RigHandeyeProblem`] has a runnable example; `run_calibration` runs the

@@ -94,7 +94,7 @@ pub struct SingleCamHandeyeConfig {
     #[serde(default)]
     pub camera: CameraConfig,
 
-    /// Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
+    /// Hand-eye linear-initialization stage settings.
     pub handeye_init: HandeyeInitConfig,
 
     /// Non-linear solve stage settings.
@@ -235,7 +235,7 @@ pub struct SingleCamHandeyeExport {
 ///
 /// step_intrinsics_init(&mut session, None)?;
 /// step_intrinsics_optimize(&mut session, None)?;
-/// step_handeye_init(&mut session, None)?; // linear (Tsai-Lenz)
+/// step_handeye_init(&mut session, None)?; // closed-form (Tsai-Lenz by default)
 /// step_handeye_optimize(&mut session, None)?; // joint bundle adjustment
 ///
 /// let export = session.export()?;

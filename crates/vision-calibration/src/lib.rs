@@ -595,10 +595,13 @@ pub mod init {
     pub use vision_calibration_linear::Error;
     /// Distortion-fit options of [`estimate_intrinsics_iterative`].
     pub use vision_calibration_linear::distortion_fit::DistortionFitOptions;
-    /// Hand-eye from robot and camera poses (Tsai–Lenz): eye-in-hand
-    /// `gripper_se3_camera`, and eye-to-hand `gripper_se3_target`.
+    /// Hand-eye from robot poses and target poses, eye-in-hand or
+    /// eye-to-hand, by one of four closed-form methods (Tsai–Lenz,
+    /// Park–Martin, Daniilidis, Shah); [`HandeyeMethod`]
+    /// is also the `method` of the workflows' `handeye_init` config.
     pub use vision_calibration_linear::handeye::{
-        estimate_gripper_se3_target_dlt, estimate_handeye_dlt,
+        EyeInHandEstimate, EyeToHandEstimate, HandeyeMethod, estimate_eye_in_hand,
+        estimate_eye_to_hand,
     };
     /// Pinhole intrinsics and Brown–Conrady distortion from three or more
     /// views of a plane: Zhang's method alternated with a distortion fit.
