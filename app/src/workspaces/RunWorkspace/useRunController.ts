@@ -10,7 +10,7 @@ import { runExportPath } from "../../project/projectApi";
 import { useProject } from "../../project/projectStore";
 import { useStore } from "../../store";
 import { topologyOf, useRunSetup } from "../../store/runSetup";
-import { newRunId, statusFromResponse, type RunStatus } from "./runStatus";
+import { newRunId, statusFromResponse, withProgress, type RunStatus } from "./runStatus";
 
 /** How long the success banner shows before the hand-off to Diagnose. */
 const HANDOFF_MS = 600;
@@ -41,6 +41,8 @@ export function useRunController(): RunController {
       kind: "running",
       runId,
       stage: null,
+      report: null,
+      step: null,
       startedAt: Date.now(),
       cancelRequested: false,
     });
@@ -50,11 +52,13 @@ export function useRunController(): RunController {
         manifest,
         config,
         manifestDir,
-        onProgress: (stage) =>
+        onProgress: (progress) =>
           // Only advance the stage if this run is still the active one
           // (a stale channel message must not resurrect a finished run).
           setStatus((prev) =>
-            prev.kind === "running" && prev.runId === runId ? { ...prev, stage } : prev,
+            prev.kind === "running" && prev.runId === runId
+              ? withProgress(prev, progress)
+              : prev,
           ),
       });
       if (response.kind !== "ok") {

@@ -13,11 +13,13 @@ use vision_calibration::dataset::{
 use vision_calibration::dataset_runner::{self as runner, Detection, LaserPixelExtractor};
 use vision_calibration::detect::GrayImageView;
 
+use crate::control::PyRunControl;
 use crate::detect::PyFsDetectionCache;
 use crate::errors::{fetch_err, run_err, sniff_err};
 use crate::parse_payload;
 use crate::session::to_py;
 use crate::validation::value_err;
+use vision_calibration::control::RunControl;
 
 fn load_manifest_file(path: &Path) -> PyResult<DatasetSpec> {
     DatasetSpec::from_path(path).map_err(|err| value_err(err.to_string()))
@@ -100,13 +102,17 @@ impl LaserPixelExtractor for PyLaserExtractor {
 }
 
 /// Run a converter with the GIL released: against the given cache, refreshing
-/// it when `force_redetect` is set, or with no cache at all.
+/// it when `force_redetect` is set, or with no cache at all; reporting to
+/// `progress` and stopping on Ctrl-C (see [`PyRunControl`]).
 fn convert<T: Send>(
     py: Python<'_>,
     cache: Option<PyRef<'_, PyFsDetectionCache>>,
     force_redetect: bool,
-    build: impl FnOnce(Detection<'_>) -> Result<T, runner::RunError> + Send,
+    progress: Option<Py<PyAny>>,
+    build: impl FnOnce(Detection<'_>, &RunControl) -> Result<T, runner::RunError> + Send,
 ) -> PyResult<T> {
+    let control = PyRunControl::new(progress);
+    let run = control.control();
     let result = match &cache {
         Some(cache) => {
             let cache = cache.inner();
@@ -115,11 +121,11 @@ fn convert<T: Send>(
             } else {
                 Detection::Cached(cache)
             };
-            py.detach(|| build(detection))
+            py.detach(|| build(detection, run))
         }
-        None => py.detach(|| build(Detection::Uncached)),
+        None => py.detach(|| build(Detection::Uncached, run)),
     };
-    result.map_err(|err| run_err(py, err))
+    control.finish(result, |err| run_err(py, err))
 }
 
 /// Inspect a dataset folder and return a best-effort `DatasetSpec` payload.
@@ -191,10 +197,14 @@ pub(crate) fn camera_image_sizes(
 
 /// Run the `vcal` command line on `argv` (the program name first) and
 /// return its exit status. Output goes to the process's standard output and
-/// error.
+/// error; Ctrl-C stops a run, which returns the interrupt status (130).
 #[pyfunction]
 pub(crate) fn vcal_main(py: Python<'_>, argv: Vec<std::ffi::OsString>) -> u8 {
-    py.detach(|| vision_calibration_cli::run(argv))
+    let control = PyRunControl::new(None);
+    let status = py.detach(|| vision_calibration_cli::run(argv, control.control()));
+    // The interrupt is the exit status here, not an exception.
+    let _ = control.finish(Ok::<(), PyErr>(()), |err| err);
+    status
 }
 
 /// Read a manifest file (TOML or JSON) and return its `DatasetSpec` payload.
@@ -254,17 +264,18 @@ macro_rules! target_converter {
     ($name:ident) => {
         #[doc = concat!("`dataset_runner::", stringify!($name), "`.")]
         #[pyfunction]
-        #[pyo3(signature = (manifest, base_dir=None, cache=None, force_redetect=false))]
+        #[pyo3(signature = (manifest, base_dir=None, cache=None, force_redetect=false, progress=None))]
         pub(crate) fn $name(
             py: Python<'_>,
             manifest: &Bound<'_, PyAny>,
             base_dir: Option<PathBuf>,
             cache: Option<PyRef<'_, PyFsDetectionCache>>,
             force_redetect: bool,
+            progress: Option<Py<PyAny>>,
         ) -> PyResult<Py<PyAny>> {
             let (spec, base) = resolve_manifest(manifest, base_dir)?;
-            let run = convert(py, cache, force_redetect, |detection| {
-                runner::$name(&spec, &base, detection)
+            let run = convert(py, cache, force_redetect, progress, |detection, control| {
+                runner::$name(&spec, &base, detection, control)
             })?;
             to_py(
                 py,
@@ -286,7 +297,8 @@ macro_rules! laser_converter {
     ($name:ident) => {
         #[doc = concat!("`dataset_runner::", stringify!($name), "`.")]
         #[pyfunction]
-        #[pyo3(signature = (manifest, laser_extractor, base_dir=None, cache=None, force_redetect=false))]
+        #[pyo3(signature = (manifest, laser_extractor, base_dir=None, cache=None, force_redetect=false, progress=None))]
+        #[allow(clippy::too_many_arguments)] // The Python keyword arguments.
         pub(crate) fn $name(
             py: Python<'_>,
             manifest: &Bound<'_, PyAny>,
@@ -294,11 +306,12 @@ macro_rules! laser_converter {
             base_dir: Option<PathBuf>,
             cache: Option<PyRef<'_, PyFsDetectionCache>>,
             force_redetect: bool,
+            progress: Option<Py<PyAny>>,
         ) -> PyResult<Py<PyAny>> {
             let (spec, base) = resolve_manifest(manifest, base_dir)?;
             let extractor = PyLaserExtractor::new(laser_extractor)?;
-            let run = convert(py, cache, force_redetect, |detection| {
-                runner::$name(&spec, &base, detection, &extractor)
+            let run = convert(py, cache, force_redetect, progress, |detection, control| {
+                runner::$name(&spec, &base, detection, &extractor, control)
             })?;
             to_py(
                 py,

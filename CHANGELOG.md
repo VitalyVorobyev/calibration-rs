@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carry the fixed transform at the other end of the chain
   (`base_se3_target`, `camera_se3_base`). `HandeyeInit` of
   `vision-calibration-linear` is gone.
+- **The dataset runner and `vcal` take a run control** (breaking).
+  `dataset_runner::calibrate_dataset` and every `build_*_input` converter
+  take a last argument `control: &RunControl`; pass
+  `&RunControl::default()` for the previous behaviour.
+  `vision_calibration_cli::run(args)` is `run(args, &control)`.
+  `optim::problem::SolveOptions` gains a `control` field and is no longer
+  `Copy`, `PartialEq` or `Eq`; it is still built from its `Default`. A
+  cancelled run is a new variant of each error: `Error::Cancelled`,
+  `optim::Error::Cancelled`, `RunError::Cancelled` and
+  `CalibrateDatasetError::Cancelled` (`RunError` is matched exhaustively by
+  some callers, who add the arm).
 - **`RunError::NoWholeChessboardViews` has an `ambiguous` count**
   (breaking): the views of the camera dropped because the board's turn could
   not be matched with the view's other cameras. Code that destructures the
@@ -81,6 +92,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accurate rotation at ±2°, Shah the most accurate target pose under noise,
   and no method is better everywhere, so the default stays Tsai-Lenz. The
   book's hand-eye initialization chapter has the comparison.
+- **Progress reports and cancellation.** A `RunControl`
+  (`vision_calibration::control`) carries an optional `CancelToken` and
+  observers. A session takes one with `CalibrationSession::set_control`;
+  `calibrate_dataset`, the `build_*_input` converters and
+  `optim::problem::solve` take it as an argument or option. The call reports
+  each image read (`Progress::Detection`, `Progress::LaserExtraction`), each
+  step `run_calibration` begins (`Progress::Step`) and each solver iteration
+  (`Progress::Iteration`, with the cost), and stops at the next of these
+  once the token is cancelled, returning a `Cancelled` error and no result.
+  A run with observers returns exactly what it returns without them. The
+  report's JSON schema is `schemas/progress.json`.
+- **`vcal run` shows its progress and stops on Ctrl-C.** On a terminal one
+  line of standard error follows the detection, the steps and the solver
+  iterations; Ctrl-C stops the run without writing files and exits with
+  status 130.
+- **Python: a `progress` callable and Ctrl-C.** The `run_*` functions,
+  `calibrate_dataset` and the `build_*_input` converters take
+  `progress=`, and every session `set_progress(...)`: the callable receives
+  each report as a dict (typed `types.Progress`). Ctrl-C during a long call
+  raises `KeyboardInterrupt` once the Rust side has stopped, and an
+  exception the callable raises stops the call and propagates.
 - **Sample `opencv_stereo`**: both cameras of OpenCV's stereo calibration
   sample (13 views of a 6×9 chessboard, 640×480, Apache-2.0), as a rig.
 - The `measure_board` examples (Rust and Python) take the sample to measure:

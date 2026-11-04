@@ -714,7 +714,7 @@ pub fn step_optimize(
 
     // Get effective options
     let opts = opts.unwrap_or_default();
-    let mut backend_opts = config.solver.backend_options();
+    let mut backend_opts = config.solver.backend_options(session.control());
     if let Some(max_iters) = opts.max_iters {
         backend_opts.max_iters = max_iters;
     }
@@ -1070,7 +1070,9 @@ pub fn step_filter(
 pub fn run_calibration(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
 ) -> Result<(), Error> {
+    session.begin_step("init")?;
     let _ = step_init(session, None)?;
+    session.begin_step("optimize")?;
     let _ = step_optimize(session, None)?;
     Ok(())
 }
@@ -1093,15 +1095,14 @@ pub fn run_calibration_with_filtering(
     opts: Option<IntrinsicsFilterOptions>,
 ) -> Result<(), Error> {
     // First pass
-    let _ = step_init(session, None)?;
-    let _ = step_optimize(session, None)?;
+    run_calibration(session)?;
 
     // Filter outliers
+    session.begin_step("filter")?;
     step_filter(session, opts)?;
 
     // Second pass on cleaned data
-    let _ = step_init(session, None)?;
-    let _ = step_optimize(session, None)?;
+    run_calibration(session)?;
 
     Ok(())
 }

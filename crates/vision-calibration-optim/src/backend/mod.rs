@@ -19,6 +19,7 @@ use crate::Error;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use vision_calibration_core::RunControl;
 
 use crate::ir::ProblemIR;
 
@@ -59,6 +60,10 @@ pub struct BackendSolveOptions {
     pub min_rel_decrease: Option<f64>,
     /// Error threshold for early termination.
     pub min_error: Option<f64>,
+    /// Progress reports and cancellation: polled before every iteration,
+    /// told each finished one. Not configuration, so never serialized.
+    #[serde(skip)]
+    pub control: RunControl,
 }
 
 impl Default for BackendSolveOptions {
@@ -70,6 +75,7 @@ impl Default for BackendSolveOptions {
             min_abs_decrease: Some(1e-5),
             min_rel_decrease: Some(1e-5),
             min_error: Some(1e-10),
+            control: RunControl::default(),
         }
     }
 }

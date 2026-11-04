@@ -184,13 +184,15 @@ cluster that drives it from outside the stage.
 ## Run progress and cancellation
 
 `run_calibration_cmd` takes a per-run `runId` and a `tauri::ipc::Channel<RunProgress>`
-(`src/lib/runCalibration.ts`). `run.rs` announces three coarse stages,
-`detect` -> `solve` -> `export` (`RunStage`); per-camera and per-iteration
-granularity are not emitted because the pipeline API exposes no hook.
-Cancellation is a cooperative `AtomicBool` per `runId` in a Tauri-managed
-`RunRegistry`: `cancel_run_cmd(runId)` sets it, and the runner checks it at each
-stage boundary and returns `RunResponse::Cancelled` (the running stage finishes
-first). The UI shows a distinct "Run cancelled" state; the checklist logic is
+(`src/lib/runCalibration.ts`). `run.rs` announces three stages,
+`detect` -> `solve` -> `export` (`RunStage`), and forwards the library's
+reports within them as `RunProgress.report` (a `Progress`: each image
+detected, each calibration step, each solver iteration; iterations are
+throttled to one per 50 ms). Cancellation is a library `CancelToken` per
+`runId` in a Tauri-managed `RunRegistry`: `cancel_run_cmd(runId)` cancels it,
+the library stops at its next image or solver iteration, and the runner
+returns `RunResponse::Cancelled`. The UI shows the latest report beside the
+active stage and a distinct "Run cancelled" state; the checklist logic is
 `src/workspaces/RunWorkspace/runStages.ts`.
 
 ## Repo-root resolution for built-in presets

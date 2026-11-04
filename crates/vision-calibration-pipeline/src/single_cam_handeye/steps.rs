@@ -326,7 +326,7 @@ pub fn step_intrinsics_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options()
+        ..config.solver.backend_options(session.control())
     };
 
     // Run optimization: a plain planar solve, or the staged tilt
@@ -654,7 +654,7 @@ pub fn step_handeye_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options()
+        ..config.solver.backend_options(session.control())
     };
 
     // Run optimization
@@ -711,9 +711,13 @@ fn check_camera_model(
 pub fn run_calibration(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
 ) -> Result<(), Error> {
+    session.begin_step("intrinsics_init")?;
     let _ = step_intrinsics_init(session, None)?;
+    session.begin_step("intrinsics_optimize")?;
     let _ = step_intrinsics_optimize(session, None)?;
+    session.begin_step("handeye_init")?;
     let _ = step_handeye_init(session, None)?;
+    session.begin_step("handeye_optimize")?;
     let _ = step_handeye_optimize(session, None)?;
     Ok(())
 }

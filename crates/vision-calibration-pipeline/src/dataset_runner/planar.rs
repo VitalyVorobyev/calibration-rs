@@ -3,11 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
-use vision_calibration_core::{NoMeta, PlanarDataset, View};
+use vision_calibration_core::{NoMeta, PlanarDataset, RunControl, View};
 use vision_calibration_dataset::{DatasetSpec, Topology, validate};
 
 use super::{
-    Detection, RejectedDetection, RunError, detect_features, expand_camera_images,
+    Detection, ImageProgress, RejectedDetection, RunError, detect_features, expand_camera_images,
     features_to_view, pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
@@ -18,10 +18,15 @@ use super::{
 /// differs. Returns the
 /// dataset plus a per-view list of the source image paths (for
 /// downstream `image_manifest` population).
+///
+/// `control` is checked before each image and told each one done
+/// ([`Progress::Detection`](vision_calibration_core::Progress)); once its
+/// token is cancelled the conversion stops with [`RunError::Cancelled`].
 pub fn build_planar_input(
     spec: &DatasetSpec,
     base_dir: &Path,
     detection: Detection<'_>,
+    control: &RunControl,
 ) -> Result<PlanarRunResult, RunError> {
     // Order matters: gate on topology + target before touching the
     // filesystem so users with broken globs still see helpful
@@ -62,8 +67,10 @@ pub fn build_planar_input(
     // cache key.
     let roi = camera.roi_xywh;
 
+    let mut progress = ImageProgress::targets(control, total);
     for image_path in &images {
-        let (features, _cache_hit) = detect_features(&detector_config, roi, image_path, detection)?;
+        let (features, _cache_hit) =
+            progress.read(|| detect_features(&detector_config, roi, image_path, detection))?;
 
         if let Err(reason) = filter.check(&features) {
             // Drop the view but keep walking, so an all-rejected camera
@@ -160,8 +167,13 @@ mod tests {
             laser_images: None,
         });
         let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
-        let err =
-            build_planar_input(&spec, Path::new("/tmp"), Detection::Cached(&cache)).unwrap_err();
+        let err = build_planar_input(
+            &spec,
+            Path::new("/tmp"),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         assert!(matches!(err, RunError::UnsupportedTopology { .. }));
     }
 
@@ -199,7 +211,13 @@ mod tests {
         spec.cameras[0].images = ImagePattern::List {
             paths: rel_paths.iter().map(PathBuf::from).collect(),
         };
-        let result = build_planar_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_planar_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
         assert!(result.rejected.is_empty());
     }
@@ -212,7 +230,13 @@ mod tests {
         };
         let tmp = tempfile::tempdir().expect("tempdir");
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        let err = build_planar_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_planar_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         match err {
             RunError::EmptyImageMatch { camera_id, .. } => assert_eq!(camera_id, "cam0"),
             other => panic!("expected EmptyImageMatch, got {other:?}"),
@@ -245,7 +269,12 @@ mod tests {
         let config = target_to_detector_config(&spec).unwrap();
         let key = CacheKey::for_detection(b"a.png", &config, None);
         cache.put(&key, &CachedFeatures { features }).unwrap();
-        build_planar_input(&spec, tmp.path(), Detection::Cached(&cache))
+        build_planar_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
     }
 
     fn feature(i: u32, cov: Option<[f64; 3]>) -> vision_calibration_detect::Feature {

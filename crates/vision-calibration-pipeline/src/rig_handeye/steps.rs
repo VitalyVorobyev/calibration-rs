@@ -356,7 +356,7 @@ pub fn step_intrinsics_optimize_all(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options()
+        ..config.solver.backend_options(session.control())
     };
     let auto_init = session.state.per_cam_intrinsics_auto;
 
@@ -561,6 +561,8 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
         }
     }
 
+    // A cancelled multistart has no winner, whatever it tried before.
+    backend_opts.control.check()?;
     best.ok_or_else(|| {
         last_err.unwrap_or_else(|| {
             Error::numerical(format!(
@@ -823,6 +825,7 @@ fn recover_one_scheimpflug_camera_from_nominal(
         }
     }
 
+    backend_opts.control.check()?;
     if best.as_ref().is_some_and(|candidate| {
         candidate.mean_reproj_error <= SCHEIMPFLUG_NOMINAL_RECOVER_REPROJ_PX
     }) {
@@ -866,6 +869,8 @@ fn recover_one_scheimpflug_camera_from_nominal(
         }
     }
 
+    // The candidates swallow failed solves; a cancelled one ends the search.
+    backend_opts.control.check()?;
     Ok(best)
 }
 
@@ -1492,7 +1497,7 @@ pub fn step_rig_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options()
+        ..config.solver.backend_options(session.control())
     };
 
     // The rig BA takes a dataset without robot metadata.
@@ -1758,7 +1763,7 @@ pub fn step_handeye_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options()
+        ..config.solver.backend_options(session.control())
     };
 
     let initial = HandeyeParams {
@@ -1821,11 +1826,17 @@ pub fn step_handeye_optimize(
 /// Any error from the constituent steps.
 pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<(), Error> {
     let manual = session.config.manual_init.clone().unwrap_or_default();
+    session.begin_step("intrinsics_init_all")?;
     let _ = step_intrinsics_init_all_with_seed(session, manual, None)?;
+    session.begin_step("intrinsics_optimize_all")?;
     let _ = step_intrinsics_optimize_all(session, None)?;
+    session.begin_step("rig_init")?;
     let _ = step_rig_init(session, None)?;
+    session.begin_step("rig_optimize")?;
     let _ = step_rig_optimize(session, None)?;
+    session.begin_step("handeye_init")?;
     let _ = step_handeye_init(session, None)?;
+    session.begin_step("handeye_optimize")?;
     let _ = step_handeye_optimize(session, None)?;
     Ok(())
 }

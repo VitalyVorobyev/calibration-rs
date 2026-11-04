@@ -10,8 +10,10 @@
 use pyo3::prelude::*;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use vision_calibration::control::RunControl;
 use vision_calibration::session::{CalibrationSession, ProblemType};
 
+use crate::control::PyRunControl;
 use crate::errors::calib_err;
 use crate::validation::{reject_non_finite, value_err};
 use crate::{parse_optional_payload, parse_payload, runtime_err};
@@ -84,6 +86,25 @@ fn session_export<P: ProblemType>(
     to_py(py, &export)
 }
 
+/// Run `step` on the session with the GIL released, reporting to `progress`
+/// and stopping on Ctrl-C (see [`PyRunControl`]).
+fn session_run<P: ProblemType, T: Send>(
+    py: Python<'_>,
+    session: &mut CalibrationSession<P>,
+    progress: Option<&Py<PyAny>>,
+    context: &str,
+    step: impl FnOnce(&mut CalibrationSession<P>) -> Result<T, vision_calibration::Error> + Send,
+) -> PyResult<T>
+where
+    CalibrationSession<P>: Send,
+{
+    let control = PyRunControl::new(progress.map(|p| p.clone_ref(py)));
+    session.set_control(control.control().clone());
+    let result = py.detach(|| step(session));
+    session.set_control(RunControl::default());
+    control.finish(result, |err| calib_err(context, err))
+}
+
 fn session_to_json<P: ProblemType>(session: &CalibrationSession<P>) -> PyResult<String> {
     session
         .to_json()
@@ -113,6 +134,8 @@ macro_rules! session_class {
         #[pyclass(module = "vision_calibration._vision_calibration", name = $name)]
         pub(crate) struct $class {
             inner: CalibrationSession<$problem>,
+            /// The callable each step reports its progress to.
+            progress: Option<Py<PyAny>>,
         }
 
         #[pymethods]
@@ -120,7 +143,12 @@ macro_rules! session_class {
             #[new]
             #[pyo3(signature = (description=None))]
             fn new(description: Option<String>) -> Self {
-                Self { inner: session_new(description) }
+                Self { inner: session_new(description), progress: None }
+            }
+
+            #[pyo3(signature = (progress=None))]
+            fn set_progress(&mut self, progress: Option<Py<PyAny>>) {
+                self.progress = progress;
             }
 
             fn set_input(&mut self, input: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -182,13 +210,17 @@ macro_rules! session_class {
 
             #[staticmethod]
             fn from_json(json: &str) -> PyResult<Self> {
-                Ok(Self { inner: session_from_json(json)? })
+                Ok(Self { inner: session_from_json(json)?, progress: None })
             }
 
             fn run_calibration(&mut self, py: Python<'_>) -> PyResult<()> {
-                let inner = &mut self.inner;
-                py.detach(|| run_calibration(inner))
-                    .map_err(|err| calib_err("run_calibration failed", err))
+                session_run(
+                    py,
+                    &mut self.inner,
+                    self.progress.as_ref(),
+                    "run_calibration failed",
+                    run_calibration,
+                )
             }
 
             $(
@@ -199,10 +231,13 @@ macro_rules! session_class {
                     options: Option<&Bound<'_, PyAny>>,
                 ) -> PyResult<Py<PyAny>> {
                     let opts: Option<$opts> = parse_optional_checked(options, "options")?;
-                    let inner = &mut self.inner;
-                    let result: $res = py
-                        .detach(|| $step(inner, opts))
-                        .map_err(|err| calib_err(concat!(stringify!($step), " failed"), err))?;
+                    let result: $res = session_run(
+                        py,
+                        &mut self.inner,
+                        self.progress.as_ref(),
+                        concat!(stringify!($step), " failed"),
+                        |inner| $step(inner, opts),
+                    )?;
                     to_py(py, &result)
                 }
             )*
@@ -217,10 +252,13 @@ macro_rules! session_class {
                 ) -> PyResult<Py<PyAny>> {
                     let seed: $seed = parse_checked(seed, "seed")?;
                     let opts: Option<$sopts> = parse_optional_checked(options, "options")?;
-                    let inner = &mut self.inner;
-                    let result: $sres = py
-                        .detach(|| $sstep(inner, seed, opts))
-                        .map_err(|err| calib_err(concat!(stringify!($sstep), " failed"), err))?;
+                    let result: $sres = session_run(
+                        py,
+                        &mut self.inner,
+                        self.progress.as_ref(),
+                        concat!(stringify!($sstep), " failed"),
+                        |inner| $sstep(inner, seed, opts),
+                    )?;
                     to_py(py, &result)
                 }
             )*
@@ -228,9 +266,13 @@ macro_rules! session_class {
             $( $(
                 fn $rstep(&mut self, py: Python<'_>, seed: &Bound<'_, PyAny>) -> PyResult<()> {
                     let seed: $rseed = parse_checked(seed, "seed")?;
-                    let inner = &mut self.inner;
-                    py.detach(|| $rstep(inner, seed))
-                        .map_err(|err| calib_err(concat!(stringify!($rstep), " failed"), err))
+                    session_run(
+                        py,
+                        &mut self.inner,
+                        self.progress.as_ref(),
+                        concat!(stringify!($rstep), " failed"),
+                        |inner| $rstep(inner, seed),
+                    )
                 }
             )* )?
         }

@@ -30,9 +30,20 @@ pub enum Error {
     #[error("numerical failure: {0}")]
     Numerical(String),
 
+    /// The run control's token was cancelled; the solve returned no
+    /// result.
+    #[error("cancelled")]
+    Cancelled,
+
     /// Forwarded error from `vision-calibration-core`.
     #[error(transparent)]
     Core(#[from] CoreError),
+}
+
+impl From<vision_calibration_core::Cancelled> for Error {
+    fn from(_: vision_calibration_core::Cancelled) -> Self {
+        Self::Cancelled
+    }
 }
 
 impl Error {

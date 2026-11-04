@@ -130,8 +130,18 @@ in the platform's cache directory, or `--cache <dir>`.
 | 1 | an error, printed on standard error |
 | 2 | a wrong command line |
 | 3 | `run` wrote its files, but the verdict is fail |
+| 130 | interrupted with Ctrl-C: the run stopped and wrote nothing |
 
 A script can stop on a failed calibration with `vcal run ... || exit`.
+
+## Progress and Ctrl-C
+
+On a terminal, `vcal run` keeps one line of standard error up to date: the
+images detected (`detecting 12/40`), then each step and its solver
+iterations (`optimize: iteration 7/50, cost 1.2345e2`). Piped or redirected,
+it prints no progress. Ctrl-C stops the run at the next image or iteration,
+prints `interrupted` and exits with status 130; a second Ctrl-C exits at
+once.
 
 ## Limits
 

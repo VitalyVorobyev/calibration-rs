@@ -25,7 +25,7 @@ use nalgebra::DVector;
 
 use crate::Error;
 use crate::backend::covariance::{self, RawLinearization};
-use crate::backend::lm::{self, LinearizationEngine, LmSolution};
+use crate::backend::lm::{self, LinearizationEngine, LmFailure, LmSolution};
 use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
 use crate::ir::ProblemIR;
 use compile::Compiled;
@@ -48,8 +48,12 @@ impl OptimBackend for FactrsBackend {
             cost,
             num_iters,
             converged,
-        } = lm::levenberg_marquardt(&engine, compiled.values.clone(), opts)
-            .ok_or_else(|| Error::numerical("factrs failed to converge"))?;
+        } = lm::levenberg_marquardt(&engine, compiled.values.clone(), opts).map_err(|failure| {
+            match failure {
+                LmFailure::Failed => Error::numerical("factrs failed to converge"),
+                LmFailure::Cancelled => Error::Cancelled,
+            }
+        })?;
 
         let params = compiled.read_back(ir, &state);
         // Without a robust loss the solve's own linearization is the raw one.

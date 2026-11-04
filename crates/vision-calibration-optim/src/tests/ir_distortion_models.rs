@@ -78,6 +78,7 @@ fn backend_opts(backend: SolverBackend) -> BackendSolveOptions {
         min_abs_decrease: Some(1e-14),
         min_rel_decrease: Some(1e-14),
         min_error: Some(1e-16),
+        ..BackendSolveOptions::default()
     }
 }
 

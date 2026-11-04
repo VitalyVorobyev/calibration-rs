@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What a long-running call reports to its observer.\n\nIn JSON the variant is the `kind` field:\n`{\"kind\": \"iteration\", \"iter\": 3, \"max_iters\": 100, \"cost\": 12.5}`.",
+  "oneOf": [
+    {
+      "description": "A target image was detected, or read from the detection cache.",
+      "properties": {
+        "done": {
+          "description": "Target images done so far, `1..=total`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "detection",
+          "type": "string"
+        },
+        "total": {
+          "description": "Target images to detect, over every camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "done",
+        "total"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A laser image was extracted, read from the cache, or skipped because\nits view was left out.",
+      "properties": {
+        "done": {
+          "description": "Laser images done so far, `1..=total`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "laser_extraction",
+          "type": "string"
+        },
+        "total": {
+          "description": "Laser images to extract, over every camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "done",
+        "total"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A step of a workflow's `run_calibration` begins: the step function's\nname without its `step_` prefix (`\"intrinsics_init_all\"`).",
+      "properties": {
+        "kind": {
+          "const": "step",
+          "type": "string"
+        },
+        "name": {
+          "description": "The step's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A Levenberg–Marquardt iteration finished. `iter` counts from 1 within\none solve and starts again at the next.",
+      "properties": {
+        "cost": {
+          "description": "The objective after the iteration, `½ Σᵢ ρᵢ(‖rᵢ‖²)` (the\nconvention of a solve report's `final_cost`).",
+          "format": "double",
+          "type": "number"
+        },
+        "iter": {
+          "description": "The iteration, `1..=max_iters`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "iteration",
+          "type": "string"
+        },
+        "max_iters": {
+          "description": "The solve's iteration budget.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "iter",
+        "max_iters",
+        "cost"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "Progress"
+}

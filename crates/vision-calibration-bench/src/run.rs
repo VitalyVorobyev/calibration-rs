@@ -72,8 +72,8 @@ pub mod tier_b {
     use vision_calibration_core::{
         BrownConrady5, Camera, CameraFix, CameraModelSpec, CameraParams, DistortionKind,
         DistortionParams, FeatureResidualHistogram, FxFyCxCy, Pinhole, PinholeCamera,
-        PlanarDataset, ProjectionParams, Pt2, ReprojectionStats, ScheimpflugParams, SensorKind,
-        SensorParams, TargetFeatureResidual, View, compute_planar_target_residuals,
+        PlanarDataset, ProjectionParams, Pt2, ReprojectionStats, RunControl, ScheimpflugParams,
+        SensorKind, SensorParams, TargetFeatureResidual, View, compute_planar_target_residuals,
         make_pinhole_camera,
     };
     use vision_calibration_optim::{
@@ -1510,9 +1510,13 @@ pub mod tier_b {
     ) -> Result<DetectedIntrinsicsCamera> {
         let camera_spec = camera_spec(spec, camera);
         let camera_id = camera_spec.cameras[0].id.clone();
-        let built =
-            build_planar_input(&camera_spec, &entry.data_root, DetectionMode::Cached(cache))
-                .with_context(|| format!("detection failed for {camera_id}"))?;
+        let built = build_planar_input(
+            &camera_spec,
+            &entry.data_root,
+            DetectionMode::Cached(cache),
+            &RunControl::default(),
+        )
+        .with_context(|| format!("detection failed for {camera_id}"))?;
         let views = &built.input.views;
         let features_detected = views.iter().map(|v| v.obs.len()).sum::<usize>();
 
@@ -2097,6 +2101,7 @@ pub mod tier_b {
                 &camera_spec,
                 &entry.data_root,
                 DetectionMode::Cached(&timing),
+                &RunControl::default(),
             ) {
                 Ok(built) => (built.input.views, built.total_views),
                 // A camera that found no board is a profile, not a failure.

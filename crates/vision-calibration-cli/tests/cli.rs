@@ -4,8 +4,9 @@
 use std::path::Path;
 
 use image::GrayImage;
+use vision_calibration::control::{CancelToken, RunControl};
 use vision_calibration::nalgebra::{Matrix3, Rotation3, Vector3};
-use vision_calibration_cli::run;
+use vision_calibration_cli::{INTERRUPTED, run};
 
 /// Interior corners of the rendered chessboard, across and down.
 const COLS: u32 = 8;
@@ -16,7 +17,11 @@ const HEIGHT: u32 = 480;
 const FOCAL_PX: f64 = 600.0;
 
 fn vcal(args: &[&str]) -> u8 {
-    run(std::iter::once("vcal").chain(args.iter().copied()))
+    vcal_with(args, &RunControl::default())
+}
+
+fn vcal_with(args: &[&str], control: &RunControl) -> u8 {
+    run(std::iter::once("vcal").chain(args.iter().copied()), control)
 }
 
 fn path(p: &Path) -> &str {
@@ -177,6 +182,39 @@ fn init_check_run_calibrates_a_folder() {
     let export: serde_json::Value =
         serde_json::from_slice(&std::fs::read(out.join("calibration.json")).unwrap()).unwrap();
     assert_eq!(export["params"]["camera"]["distortion"]["type"], "none");
+}
+
+/// A cancelled run (the binary's Ctrl-C handler cancels the token) exits
+/// with the interrupt status and writes nothing, whether it stops in
+/// detection or in a solve.
+#[test]
+fn a_cancelled_run_exits_130_and_writes_nothing() {
+    use vision_calibration::control::Progress;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    write_views(dir);
+    assert_eq!(vcal(&["init", path(dir)]), 0);
+    complete_manifest(dir);
+    let manifest = dir.join("dataset.toml");
+
+    for stop_at_iteration in [false, true] {
+        let token = CancelToken::new();
+        let trigger = token.clone();
+        let control = RunControl::new()
+            .with_cancel(token)
+            .with_observer(move |progress| match progress {
+                Progress::Detection { done: 2, .. } if !stop_at_iteration => trigger.cancel(),
+                Progress::Iteration { iter: 2, .. } if stop_at_iteration => trigger.cancel(),
+                _ => {}
+            });
+        let out = dir.join(format!("out_{stop_at_iteration}"));
+        assert_eq!(
+            vcal_with(&["run", path(&manifest), "-o", path(&out)], &control),
+            INTERRUPTED
+        );
+        assert!(!out.join("calibration.json").exists());
+    }
 }
 
 #[test]

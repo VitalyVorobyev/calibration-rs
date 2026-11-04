@@ -55,7 +55,9 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use vision_calibration_core::{CorrespondenceView, NoMeta, PointCovariance, Pt2, Pt3, View};
+use vision_calibration_core::{
+    Cancelled, CorrespondenceView, NoMeta, PointCovariance, Progress, Pt2, Pt3, RunControl, View,
+};
 use vision_calibration_dataset::{
     ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
     ImageNoiseSpec, ImagePattern, TargetSpec, Topology, ValidationError,
@@ -363,6 +365,64 @@ pub enum RunError {
         /// What went wrong (parse error, camera-count mismatch, …).
         message: String,
     },
+
+    /// The run control's token was cancelled before the input was built.
+    #[error("cancelled")]
+    Cancelled,
+}
+
+impl From<Cancelled> for RunError {
+    fn from(_: Cancelled) -> Self {
+        Self::Cancelled
+    }
+}
+
+/// Counts the images a converter reads for its run control: checks the
+/// token before each image and reports each image done.
+pub(super) struct ImageProgress<'a> {
+    control: &'a RunControl,
+    report: fn(usize, usize) -> Progress,
+    done: usize,
+    total: usize,
+}
+
+impl<'a> ImageProgress<'a> {
+    /// A counter of `total` target images.
+    pub(super) fn targets(control: &'a RunControl, total: usize) -> Self {
+        Self {
+            control,
+            report: Progress::detection,
+            done: 0,
+            total,
+        }
+    }
+
+    /// A counter of `total` laser images.
+    pub(super) fn lasers(control: &'a RunControl, total: usize) -> Self {
+        Self {
+            control,
+            report: Progress::laser_extraction,
+            done: 0,
+            total,
+        }
+    }
+
+    /// Read one image with `read`, unless the run was cancelled.
+    pub(super) fn read<T>(
+        &mut self,
+        read: impl FnOnce() -> Result<T, RunError>,
+    ) -> Result<T, RunError> {
+        self.control.check()?;
+        let value = read()?;
+        self.skip();
+        Ok(value)
+    }
+
+    /// Count one image as done without reading it.
+    pub(super) fn skip(&mut self) {
+        self.done += 1;
+        self.control.report((self.report)(self.done, self.total));
+    }
 }
 
 /// Why a requested corner covariance is unusable; see

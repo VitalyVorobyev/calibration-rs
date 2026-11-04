@@ -1271,6 +1271,116 @@
       ],
       "type": "object"
     },
+    "Progress": {
+      "description": "What a long-running call reports to its observer.\n\nIn JSON the variant is the `kind` field:\n`{\"kind\": \"iteration\", \"iter\": 3, \"max_iters\": 100, \"cost\": 12.5}`.",
+      "oneOf": [
+        {
+          "description": "A target image was detected, or read from the detection cache.",
+          "properties": {
+            "done": {
+              "description": "Target images done so far, `1..=total`.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "detection",
+              "type": "string"
+            },
+            "total": {
+              "description": "Target images to detect, over every camera.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "done",
+            "total"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A laser image was extracted, read from the cache, or skipped because\nits view was left out.",
+          "properties": {
+            "done": {
+              "description": "Laser images done so far, `1..=total`.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "laser_extraction",
+              "type": "string"
+            },
+            "total": {
+              "description": "Laser images to extract, over every camera.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "done",
+            "total"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A step of a workflow's `run_calibration` begins: the step function's\nname without its `step_` prefix (`\"intrinsics_init_all\"`).",
+          "properties": {
+            "kind": {
+              "const": "step",
+              "type": "string"
+            },
+            "name": {
+              "description": "The step's name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Levenberg–Marquardt iteration finished. `iter` counts from 1 within\none solve and starts again at the next.",
+          "properties": {
+            "cost": {
+              "description": "The objective after the iteration, `½ Σᵢ ρᵢ(‖rᵢ‖²)` (the\nconvention of a solve report's `final_cost`).",
+              "format": "double",
+              "type": "number"
+            },
+            "iter": {
+              "description": "The iteration, `1..=max_iters`.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "iteration",
+              "type": "string"
+            },
+            "max_iters": {
+              "description": "The solve's iteration budget.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "iter",
+            "max_iters",
+            "cost"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ProjectError": {
       "description": "Why a project command failed. `kind` is what the UI branches on;\n`message` is what it shows.",
       "properties": {
@@ -2215,15 +2325,26 @@
       "type": "object"
     },
     "RunProgress": {
-      "description": "A progress message streamed to the Run workspace over a\n[`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;\nterminal outcomes (success / failure / cancellation) are carried by\nthe command's `RunResponse` return value, not the channel.",
+      "description": "A progress message streamed to the Run workspace over a\n[`tauri::ipc::Channel`]. One is sent as each `RunStage` begins (no\n`report`) and then for the library's reports within it; terminal\noutcomes (success / failure / cancellation) are carried by the\ncommand's `RunResponse` return value, not the channel.",
       "properties": {
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Progress"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The library's report within the stage, absent when the stage\nbegins."
+        },
         "stage": {
           "allOf": [
             {
               "$ref": "#/definitions/RunStage"
             }
           ],
-          "description": "The stage that just started."
+          "description": "The stage under way."
         }
       },
       "required": [
@@ -2232,7 +2353,7 @@
       "type": "object"
     },
     "RunStage": {
-      "description": "Coarse pipeline stage a run is currently executing. The runner\nexposes exactly these three boundaries without reaching into the\nper-topology `run_calibration` wrappers (each of which fuses\ninit + optimize) or the `dataset_runner` build functions (which fuse\nimage decode + feature detection and loop cameras internally with no\ncallback). Finer granularity — per-camera detection, per-LM-iteration\n— would require a progress hook threaded through the core crates; the\npipeline API has none today (see the module docs).",
+      "description": "Pipeline stage a run is currently executing. Within a stage the\nlibrary's own reports ([`Progress`]: each image detected, each\ncalibration step, each solver iteration) ride along in\n[`RunProgress::report`].",
       "oneOf": [
         {
           "const": "detect",

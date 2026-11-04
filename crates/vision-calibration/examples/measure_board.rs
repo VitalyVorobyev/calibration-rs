@@ -26,6 +26,7 @@ use board_measure::{
     MAX_SQUARES, ViewMeasurement, measure_view, summarize, without_calibration_share,
 };
 use vision_calibration::common::CalibratedCameras;
+use vision_calibration::control::RunControl;
 use vision_calibration::core::{
     CameraModelSpec, DistortionKind, ProjectionKind, RigDataset, SensorKind,
 };
@@ -92,7 +93,12 @@ fn main() -> Result<()> {
         anyhow::bail!("the sample's target is a chessboard");
     };
     let cache = FsDetectionCache::new(dir.join(".detections"));
-    let run = build_rig_extrinsics_input(&spec, dir, Detection::Cached(&cache))?;
+    let run = build_rig_extrinsics_input(
+        &spec,
+        dir,
+        Detection::Cached(&cache),
+        &RunControl::default(),
+    )?;
     println!("{} of {} views usable", run.usable_views, run.total_views);
 
     // 2. Split the views: even ones calibrate, odd ones are held out. Each view

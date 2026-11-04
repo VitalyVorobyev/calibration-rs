@@ -17,7 +17,9 @@ Every end-to-end workflow is a `ProblemType` driven through a mutable
   associated type changes).
 - `CalibrationSession<P>` holds config, input, state, output and a log.
   Changing the input clears computed state. The session serializes to JSON
-  for checkpointing.
+  for checkpointing. It also carries the run control its steps report
+  progress to and poll for cancellation (ADR 0029); that is a handle, not
+  state, and is never serialized.
 - Step functions are free functions,
   `fn step_x(session: &mut CalibrationSession<P>, opts: Option<Opts>) -> Result<()>`,
   and each problem module adds a `run_calibration` convenience wrapper.

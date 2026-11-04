@@ -1,6 +1,6 @@
 use crate::Error;
 use crate::backend::covariance::{self, RawLinearization};
-use crate::backend::lm::{self, LinearizationEngine, LmSolution};
+use crate::backend::lm::{self, LinearizationEngine, LmFailure, LmSolution};
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
 use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
@@ -142,8 +142,10 @@ impl OptimBackend for TinySolverBackend {
             cost,
             num_iters,
             converged,
-        } = lm::levenberg_marquardt(&engine, blocks, opts)
-            .ok_or_else(|| Error::numerical("tiny-solver failed to converge"))?;
+        } = lm::levenberg_marquardt(&engine, blocks, opts).map_err(|failure| match failure {
+            LmFailure::Failed => Error::numerical("tiny-solver failed to converge"),
+            LmFailure::Cancelled => Error::Cancelled,
+        })?;
 
         let params = params_from_blocks(&state);
         // Without a robust loss the solve's own linearization is the raw one.
@@ -573,6 +575,7 @@ mod tests {
         let blocks = problem.initialize_parameter_blocks(initial);
         let engine = TinySolverEngine::new(problem, &blocks);
         lm::levenberg_marquardt(&engine, blocks, opts)
+            .ok()
             .map(|s| (params_from_blocks(&s.state), s.num_iters))
     }
 

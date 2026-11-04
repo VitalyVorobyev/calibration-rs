@@ -52,12 +52,13 @@ them with the export:
 use std::path::Path;
 use vision_calibration::analysis::{ReportOptions, html_report};
 use vision_calibration::dataset::DatasetSpec;
+use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
 
 fn main() -> anyhow::Result<()> {
     let dir = Path::new("data/my_camera");
     let spec = DatasetSpec::from_path(dir.join("dataset.toml"))?;
-    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None)?;
+    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None, &RunControl::default())?;
 
     let mut options = ReportOptions::default();
     options.title = "Bench camera".to_string();

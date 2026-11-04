@@ -68,6 +68,7 @@ from .rig_handeye_laserline import RigHandeyeLaserlineSession
 from .rig_laserline_device import RigLaserlineDeviceSession
 from .session import CalibrationSession
 from .single_cam_handeye import SingleCamHandeyeSession
+from .types import ProgressCallback
 
 __all__ = [
     "AskUserError",
@@ -305,16 +306,25 @@ def build_planar_input(
     base_dir: str | os.PathLike[str] | None = None,
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> PlanarRunResult:
     """Detect a ``planar_intrinsics`` manifest's images into a planar input.
 
     ``base_dir`` resolves the manifest's relative paths; it defaults to the
     manifest file's directory and is required for a payload. Without a
     ``cache`` every image is detected; with one, cached detections are
-    reused unless ``force_redetect``.
+    reused unless ``force_redetect``. ``progress``, when given, is called
+    with each image read (a :data:`~vision_calibration.types.Progress`
+    mapping of kind ``"detection"``, or ``"laser_extraction"`` for a laser
+    image); raising from it, or Ctrl-C, stops the detection and the
+    exception propagates.
     """
     raw = _native.build_planar_input(
-        _manifest_arg(manifest), _base_dir_arg(base_dir), _cache_arg(cache), force_redetect
+        _manifest_arg(manifest),
+        _base_dir_arg(base_dir),
+        _cache_arg(cache),
+        force_redetect,
+        progress,
     )
     return PlanarRunResult(
         input=raw["input"],
@@ -331,11 +341,16 @@ def build_single_cam_handeye_input(
     base_dir: str | os.PathLike[str] | None = None,
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> HandeyeRunResult:
     """Detect a ``single_cam_handeye`` manifest's images and pair them with
     its robot poses. Arguments as for :func:`build_planar_input`."""
     raw = _native.build_single_cam_handeye_input(
-        _manifest_arg(manifest), _base_dir_arg(base_dir), _cache_arg(cache), force_redetect
+        _manifest_arg(manifest),
+        _base_dir_arg(base_dir),
+        _cache_arg(cache),
+        force_redetect,
+        progress,
     )
     return HandeyeRunResult(
         input=raw["input"],
@@ -352,11 +367,16 @@ def build_rig_extrinsics_input(
     base_dir: str | os.PathLike[str] | None = None,
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> RigRunResult:
     """Detect a ``rig_extrinsics`` manifest's images into rig views.
     Arguments as for :func:`build_planar_input`."""
     raw = _native.build_rig_extrinsics_input(
-        _manifest_arg(manifest), _base_dir_arg(base_dir), _cache_arg(cache), force_redetect
+        _manifest_arg(manifest),
+        _base_dir_arg(base_dir),
+        _cache_arg(cache),
+        force_redetect,
+        progress,
     )
     return RigRunResult(
         input=raw["input"],
@@ -373,11 +393,16 @@ def build_rig_handeye_input(
     base_dir: str | os.PathLike[str] | None = None,
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> RigRunResult:
     """Detect a ``rig_handeye`` manifest's images into rig views paired with
     its robot poses. Arguments as for :func:`build_planar_input`."""
     raw = _native.build_rig_handeye_input(
-        _manifest_arg(manifest), _base_dir_arg(base_dir), _cache_arg(cache), force_redetect
+        _manifest_arg(manifest),
+        _base_dir_arg(base_dir),
+        _cache_arg(cache),
+        force_redetect,
+        progress,
     )
     return RigRunResult(
         input=raw["input"],
@@ -395,6 +420,7 @@ def build_laserline_device_input(
     base_dir: str | os.PathLike[str] | None = None,
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> LaserlineRunResult:
     """Detect a ``laserline_device`` manifest's target images and extract its
     laser images with ``laser_extractor``. Other arguments as for
@@ -405,6 +431,7 @@ def build_laserline_device_input(
         _base_dir_arg(base_dir),
         _cache_arg(cache),
         force_redetect,
+        progress,
     )
     return LaserlineRunResult(
         input=raw["input"],
@@ -423,6 +450,7 @@ def build_rig_laserline_device_input(
     base_dir: str | os.PathLike[str] | None = None,
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> RigLaserlineRunResult:
     """Build a ``rig_laserline_device`` input: the rig's target and laser
     images against the manifest's upstream rig calibration. Arguments as for
@@ -433,6 +461,7 @@ def build_rig_laserline_device_input(
         _base_dir_arg(base_dir),
         _cache_arg(cache),
         force_redetect,
+        progress,
     )
     return RigLaserlineRunResult(
         input=raw["input"],
@@ -451,6 +480,7 @@ def build_rig_handeye_laserline_input(
     base_dir: str | os.PathLike[str] | None = None,
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> RigHandeyeLaserlineRunResult:
     """Build a ``rig_handeye_laserline`` input: the rig's target and laser
     images paired with its robot poses. Arguments as for
@@ -461,6 +491,7 @@ def build_rig_handeye_laserline_input(
         _base_dir_arg(base_dir),
         _cache_arg(cache),
         force_redetect,
+        progress,
     )
     return RigHandeyeLaserlineRunResult(
         input=raw["input"],
@@ -496,6 +527,7 @@ def calibrate_dataset(
     cache: FsDetectionCache | None = None,
     force_redetect: bool = False,
     laser_extractor: LaserPixelExtractor | None = None,
+    progress: ProgressCallback | None = None,
 ) -> CalibrationResult:
     """Calibrate a dataset from its manifest.
 
@@ -521,6 +553,12 @@ def calibrate_dataset(
         Detect again even where the cache has an entry.
     laser_extractor:
         The laser-line extractor, required by the laser topologies.
+    progress:
+        Called with each progress report, a
+        :data:`~vision_calibration.types.Progress` mapping: each image
+        detected, each calibration step begun, each solver iteration.
+        Raising from it stops the run and the exception propagates; Ctrl-C
+        stops it with :class:`KeyboardInterrupt`.
 
     Returns
     -------
@@ -537,6 +575,8 @@ def calibrate_dataset(
         The config is invalid, or the problem rejects the detected input.
     RuntimeError
         The calibration itself failed.
+    KeyboardInterrupt
+        Ctrl-C stopped the run.
     """
     spec = cast(
         Mapping[str, Any],
@@ -553,14 +593,26 @@ def calibrate_dataset(
         if laser_extractor is None:
             raise ValueError(f"a {topology} manifest needs a laser_extractor")
         run = build(
-            manifest, laser_extractor, base_dir=base_dir, cache=cache, force_redetect=force_redetect
+            manifest,
+            laser_extractor,
+            base_dir=base_dir,
+            cache=cache,
+            force_redetect=force_redetect,
+            progress=progress,
         )
     else:
-        run = build(manifest, base_dir=base_dir, cache=cache, force_redetect=force_redetect)
+        run = build(
+            manifest,
+            base_dir=base_dir,
+            cache=cache,
+            force_redetect=force_redetect,
+            progress=progress,
+        )
     session = session_type()
     session.set_input(run.input)
     if config is not None:
         session.set_config(config)
+    session.set_progress(progress)
     session.run_calibration()
     return cast(CalibrationResult, session.export())
 

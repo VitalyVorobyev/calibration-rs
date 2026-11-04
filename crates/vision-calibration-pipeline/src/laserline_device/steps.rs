@@ -287,7 +287,7 @@ pub fn step_init_with_seed(
                 &initial,
                 &session.config.camera,
                 &session.config.solver,
-                session.config.solver.backend_options(),
+                session.config.solver.backend_options(session.control()),
             )?;
             (refined.params.camera, refined.params.camera_se3_target)
         } else {
@@ -367,7 +367,7 @@ pub fn step_optimize(
 
     let opts = opts.unwrap_or_default();
     let solve_opts = session.config.solve_opts();
-    let mut backend_opts = session.config.solver.backend_options();
+    let mut backend_opts = session.config.solver.backend_options(session.control());
     if let Some(max_iters) = opts.max_iters {
         backend_opts.max_iters = max_iters;
     }
@@ -414,7 +414,9 @@ pub fn step_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
 ) -> Result<(), Error> {
+    session.begin_step("init")?;
     let _ = step_init(session, None)?;
+    session.begin_step("optimize")?;
     let _ = step_optimize(session, None)?;
     Ok(())
 }

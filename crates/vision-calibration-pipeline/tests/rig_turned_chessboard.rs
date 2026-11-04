@@ -16,6 +16,7 @@ use std::path::Path;
 
 use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 use serde_json::json;
+use vision_calibration_core::RunControl;
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_optim::SolverBackend;
 use vision_calibration_pipeline::dataset_runner::{Detection, build_rig_extrinsics_input};
@@ -169,7 +170,13 @@ fn calibrates_through_every_turn(roll: f64) {
     let truth = cam1_se3_cam0(roll);
     let dir = tempfile::tempdir().unwrap();
     let files = write_rig(dir.path(), &truth);
-    let run = build_rig_extrinsics_input(&spec(&files), dir.path(), Detection::Uncached).unwrap();
+    let run = build_rig_extrinsics_input(
+        &spec(&files),
+        dir.path(),
+        Detection::Uncached,
+        &RunControl::default(),
+    )
+    .unwrap();
     assert!(run.rejected.is_empty(), "{:?}", run.rejected);
     assert_eq!(run.usable_views, board_poses().len());
     for view in &run.input.views {

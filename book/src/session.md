@@ -146,6 +146,54 @@ let output = session.require_output()?;
 println!("{} ({} log entries)", session.metadata().problem_type, session.log().len());
 ```
 
+## Progress and Cancellation
+
+A long run reports its progress, and stops on request, through a
+`RunControl` (in `vision_calibration::control`): an optional `CancelToken`
+and observers that receive each `Progress` report.
+
+```rust,ignore
+use vision_calibration::control::{CancelToken, Progress, RunControl};
+
+let token = CancelToken::new();
+let control = RunControl::new()
+    .with_cancel(token.clone())
+    .with_observer(|progress| match progress {
+        Progress::Step { name, .. } => eprintln!("{name}"),
+        Progress::Iteration { iter, cost, .. } => eprintln!("  {iter}: {cost:.3e}"),
+        _ => {}
+    });
+session.set_control(control);
+// From another thread (a Ctrl-C handler, a Cancel button): token.cancel();
+match run_calibration(&mut session) {
+    Err(vision_calibration::Error::Cancelled) => eprintln!("stopped"),
+    other => other?,
+}
+```
+
+| Report | When |
+|---|---|
+| `Detection { done, total }` | a target image was detected or read from the cache |
+| `LaserExtraction { done, total }` | a laser image was extracted |
+| `Step { name }` | `run_calibration` begins a step (`"intrinsics_init_all"`, …) |
+| `Iteration { iter, max_iters, cost }` | a solver iteration finished; `iter` restarts at 1 for each solve |
+
+The token is checked before every solver iteration, between the steps of
+`run_calibration` and before every image, so a run stops within one
+iteration or one image of the request. A stopped call returns
+`Error::Cancelled` (`CalibrateDatasetError::Cancelled` from
+`calibrate_dataset`, `RunError::Cancelled` from a `build_*_input`
+converter), never a partial result: a stopped step stores nothing in the
+session. Progress is a side channel: a run with observers returns exactly
+what it returns without them, bit for bit, and nothing it reports enters a
+result.
+
+The same control goes to `dataset_runner::calibrate_dataset` and the
+`build_*_input` converters as their last argument, and to
+`optim::problem::solve` as `SolveOptions::control`. Observers run on the
+calibrating thread at every report, so keep them cheap; one that must
+redraw a screen can drop reports that arrive too fast.
+
 ## In Python
 
 Each problem type has its session class, named after it:
@@ -179,3 +227,18 @@ dataclass, `exports` the `ExportRecord`s and `metadata` the
 `SessionMetadata`. `run_calibration()` runs the problem's default steps. An
 input or config the problem rejects, a step out of order and a seed that does
 not fit raise `ValueError`; a numerical failure raises `RuntimeError`.
+
+Ctrl-C stops a running step with `KeyboardInterrupt`. `set_progress` gives
+the session a callable that receives every report as a dict
+(`{"kind": "iteration", "iter": 3, "max_iters": 50, "cost": 12.5}`); raising
+from it stops the step, and the exception propagates. The `run_*` functions,
+`calibrate_dataset` and the `build_*_input` converters take the callable as
+their `progress` argument:
+
+```python
+def show(report):
+    if report["kind"] == "detection":
+        print(f"detected {report['done']}/{report['total']}")
+
+result = vc.calibrate_dataset("data/kuka_1/dataset.toml", progress=show)
+```

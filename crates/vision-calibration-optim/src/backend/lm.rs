@@ -10,6 +10,7 @@ use crate::backend::BackendSolveOptions;
 use crate::backend::normal_equations::{NormalEquations, jacobi_scaling, unscale};
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
+use vision_calibration_core::Progress;
 
 const LM_INITIAL_TRUST_REGION_RADIUS: f64 = 1e4;
 const LM_MAX_STEP_ATTEMPTS: usize = 32;
@@ -54,6 +55,16 @@ pub(crate) trait LinearizationEngine {
     fn norm(&self, x: &Self::State) -> f64;
 }
 
+/// Why a solve returned no solution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LmFailure {
+    /// The initial cost is not finite, or the normal equations cannot be
+    /// allocated.
+    Failed,
+    /// The run control's token was cancelled.
+    Cancelled,
+}
+
 /// Outcome of a solve.
 pub(crate) struct LmSolution<S> {
     /// Parameters at the last accepted step.
@@ -69,13 +80,22 @@ pub(crate) struct LmSolution<S> {
 
 /// Minimize `engine.cost` from `x0`.
 ///
-/// Returns `None` when there is something to optimize but the initial cost is
-/// not finite, or the normal equations cannot be allocated.
+/// `opts.control` is polled before every outer iteration and before the
+/// solution is returned (one atomic load each), and told each finished
+/// iteration; neither touches the arithmetic, so a solve with a control is
+/// bit-identical to one without.
+///
+/// # Errors
+///
+/// [`LmFailure::Failed`] when there is something to optimize but the initial
+/// cost is not finite, or the normal equations cannot be allocated;
+/// [`LmFailure::Cancelled`] when the control's token is cancelled.
 pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     engine: &E,
     x0: E::State,
     opts: &BackendSolveOptions,
-) -> Option<LmSolution<E::State>> {
+) -> Result<LmSolution<E::State>, LmFailure> {
+    let control = &opts.control;
     let max_iters = opts.max_iters;
     let verbosity = opts.verbosity;
     let min_abs_decrease = opts.min_abs_decrease.unwrap_or(DEFAULT_MIN_ABS_DECREASE);
@@ -86,7 +106,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     let mut current_cost = engine.cost(&x);
     let dim = engine.dim();
     if dim == 0 {
-        return Some(LmSolution {
+        return Ok(LmSolution {
             state: x,
             cost: current_cost,
             num_iters: 0,
@@ -94,7 +114,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         });
     }
     if !current_cost.is_finite() {
-        return None;
+        return Err(LmFailure::Failed);
     }
 
     let mut scaling: Option<Vec<f64>> = None;
@@ -104,6 +124,9 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     let mut num_iters = 0usize;
     let mut converged = false;
     for outer_iter in 0..max_iters {
+        if control.is_cancelled() {
+            return Err(LmFailure::Cancelled);
+        }
         num_iters = outer_iter + 1;
         let last_cost = current_cost;
         let (residuals, jac) = engine.linearize(&x);
@@ -111,7 +134,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         let scaling = scaling.get_or_insert_with(|| jacobi_scaling(jac.as_ref()));
         let normal = match &mut normal {
             Some(normal) if normal.fits(jac.symbolic()) => normal,
-            slot => slot.insert(NormalEquations::new(jac.symbolic())?),
+            slot => slot.insert(NormalEquations::new(jac.symbolic()).ok_or(LmFailure::Failed)?),
         };
         normal.assemble(jac.as_ref(), &residuals, scaling);
 
@@ -155,6 +178,12 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
 
             damping *= 2.0;
         }
+        // The robust objective is Σρ; reports use the solve report's ½Σρ.
+        control.report(Progress::iteration(
+            num_iters,
+            max_iters,
+            0.5 * current_cost,
+        ));
 
         if step_negligible {
             if verbosity > 0 {
@@ -185,7 +214,12 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         }
     }
 
-    Some(LmSolution {
+    // A token cancelled while the last iteration was reported stops this
+    // solve too: a cancelled solve never returns a solution.
+    if control.is_cancelled() {
+        return Err(LmFailure::Cancelled);
+    }
+    Ok(LmSolution {
         state: x,
         cost: current_cost,
         num_iters,

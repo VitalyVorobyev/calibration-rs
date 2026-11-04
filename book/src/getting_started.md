@@ -206,6 +206,7 @@ use vision_calibration::analysis::{CheckStatus, QualityThresholds, assess};
 use vision_calibration::common::CalibratedCameras;
 use vision_calibration::core::Uncertainty;
 use vision_calibration::dataset::{DatasetSpec, sniff_folder};
+use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
 use vision_calibration::detect::FsDetectionCache;
 
@@ -224,7 +225,7 @@ fn main() -> Result<()> {
     // 2. Detect (cached for the next run) and calibrate.
     let spec = DatasetSpec::from_path(&manifest)?;
     let cache = FsDetectionCache::new(dir.join(".detections"));
-    let run = calibrate_dataset(&spec, &dir, None, Detection::Cached(&cache), None)?;
+    let run = calibrate_dataset(&spec, &dir, None, Detection::Cached(&cache), None, &RunControl::default())?;
     println!("{} of {} views used", run.usable_views, run.total_views);
 
     // 3. The camera and the uncertainty of its parameters.
@@ -325,13 +326,14 @@ vision-calibration = { version = "0.15", features = ["fetch"] }
 
 ```rust
 use vision_calibration::dataset::{DatasetSpec, samples};
+use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
 
 fn main() -> anyhow::Result<()> {
     let manifest = samples::fetch("opencv_left", &samples::default_cache_dir()?)?;
     let spec = DatasetSpec::from_path(&manifest)?;
     let dir = manifest.parent().expect("the manifest sits in the sample's folder");
-    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None)?;
+    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None, &RunControl::default())?;
     println!("{} of {} views used", run.usable_views, run.total_views);
     Ok(())
 }
@@ -364,13 +366,14 @@ run_calibration(&mut session)?; // the same two steps in one call
 From a manifest, the configuration names its workflow, and a configuration for a different topology than the manifest's is an error raised before any image is read:
 
 ```rust
+use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{CalibrationConfig, Detection, calibrate_dataset};
 use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
 
 let mut config = PlanarIntrinsicsConfig::default();
 config.solver.max_iters = 80;
 let config = CalibrationConfig::PlanarIntrinsics(config);
-let run = calibrate_dataset(&spec, &dir, Some(config), Detection::Cached(&cache), None)?;
+let run = calibrate_dataset(&spec, &dir, Some(config), Detection::Cached(&cache), None, &RunControl::default())?;
 ```
 
 ### Python

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { newRunId, statusFromResponse } from "./runStatus";
+import { newRunId, statusFromResponse, withProgress, type RunStatus } from "./runStatus";
 import {
   configSummary,
   manifestSummary,
@@ -95,5 +95,46 @@ describe("setup summaries", () => {
         unresolved: 1,
       }),
     ).toBe("unknown");
+  });
+});
+
+describe("withProgress", () => {
+  const running: Extract<RunStatus, { kind: "running" }> = {
+    kind: "running",
+    runId: "r",
+    stage: null,
+    report: null,
+    step: null,
+    startedAt: 0,
+    cancelRequested: false,
+  };
+
+  it("keeps the step for the iterations that follow it", () => {
+    const stepped = withProgress(running, {
+      stage: "solve",
+      report: { kind: "step", name: "optimize" },
+    });
+    const iterated = withProgress(stepped, {
+      stage: "solve",
+      report: { kind: "iteration", iter: 2, max_iters: 50, cost: 1.5 },
+    });
+    expect(iterated).toMatchObject({ stage: "solve", step: "optimize" });
+    expect(iterated.report).toEqual({
+      kind: "iteration",
+      iter: 2,
+      max_iters: 50,
+      cost: 1.5,
+    });
+  });
+
+  it("clears the report when a stage begins", () => {
+    const detecting = withProgress(running, {
+      stage: "detect",
+      report: { kind: "detection", done: 1, total: 2 },
+    });
+    expect(withProgress(detecting, { stage: "solve" })).toMatchObject({
+      stage: "solve",
+      report: null,
+    });
   });
 });

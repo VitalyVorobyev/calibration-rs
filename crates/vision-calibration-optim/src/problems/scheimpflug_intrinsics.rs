@@ -263,6 +263,8 @@ pub fn optimize_scheimpflug_intrinsics_staged(
                     }
                 }
                 Ok(_) => {}
+                // A cancelled sweep returns no basin, not the best so far.
+                Err(Error::Cancelled) => return Err(Error::Cancelled),
                 Err(e) => last_err = Some(e),
             }
         }
@@ -322,6 +324,7 @@ pub fn optimize_scheimpflug_intrinsics_staged(
         {
             Ok(refined)
         }
+        Err(Error::Cancelled) => Err(Error::Cancelled),
         _ => Ok(r1),
     }
 }

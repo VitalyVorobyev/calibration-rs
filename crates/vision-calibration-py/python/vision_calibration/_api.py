@@ -50,6 +50,7 @@ from .models import (
     SingleCamHandeyeExport,
 )
 from ._generated_types import RobustLoss
+from .types import ProgressCallback
 
 _T = TypeVar("_T")
 
@@ -99,41 +100,41 @@ def _ensure_optional_type(
 
 def _run_planar_intrinsics_raw(
     input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
+    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
 ) -> PlanarIntrinsicsExport:
-    raw = cast(dict[str, Any], _native.run_planar_intrinsics(input_payload, config_payload))
+    raw = cast(dict[str, Any], _native.run_planar_intrinsics(input_payload, config_payload, progress))
     return PlanarIntrinsicsExport.from_payload(raw)
 
 
 def _run_single_cam_handeye_raw(
     input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
+    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
 ) -> SingleCamHandeyeExport:
-    raw = cast(dict[str, Any], _native.run_single_cam_handeye(input_payload, config_payload))
+    raw = cast(dict[str, Any], _native.run_single_cam_handeye(input_payload, config_payload, progress))
     return SingleCamHandeyeExport.from_payload(raw)
 
 
 def _run_rig_extrinsics_raw(
     input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
+    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
 ) -> RigExtrinsicsExport:
-    raw = cast(dict[str, Any], _native.run_rig_extrinsics(input_payload, config_payload))
+    raw = cast(dict[str, Any], _native.run_rig_extrinsics(input_payload, config_payload, progress))
     return RigExtrinsicsExport.from_payload(raw)
 
 
 def _run_rig_handeye_raw(
     input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
+    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
 ) -> RigHandeyeExport:
-    raw = cast(dict[str, Any], _native.run_rig_handeye(input_payload, config_payload))
+    raw = cast(dict[str, Any], _native.run_rig_handeye(input_payload, config_payload, progress))
     return RigHandeyeExport.from_payload(raw)
 
 
 def _run_laserline_device_raw(
     input_payload: list[dict[str, Any]],
-    config_payload: Mapping[str, Any] | None = None,
+    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
 ) -> LaserlineDeviceExport:
-    raw = cast(dict[str, Any], _native.run_laserline_device(input_payload, config_payload))
+    raw = cast(dict[str, Any], _native.run_laserline_device(input_payload, config_payload, progress))
     return LaserlineDeviceExport.from_payload(raw)
 
 
@@ -144,20 +145,30 @@ def _run_laserline_device_raw(
 
 def run_planar_intrinsics(
     input: PlanarIntrinsicsInput,
-    config: PlanarIntrinsicsConfig | None = None,
+    config: PlanarIntrinsicsConfig | None = None,    *,
+    progress: ProgressCallback | None = None,
 ) -> PlanarIntrinsicsExport:
-    """Run planar intrinsics calibration with typed input/config objects."""
+    """Run planar intrinsics calibration with typed input/config objects.
+
+    ``progress``, when given, is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping) as the run detects,
+    steps and iterates; raising from it stops the run and the exception
+    propagates. Ctrl-C stops the run and raises :class:`KeyboardInterrupt`.
+    The same holds for every ``run_*`` function.
+    """
     dataset = _ensure_type(input, PlanarIntrinsicsInput, "input")
     cfg = _ensure_optional_type(config, PlanarIntrinsicsConfig, "config")
     return _run_planar_intrinsics_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
+        progress,
     )
 
 
 def run_single_cam_handeye(
     input: SingleCamHandeyeInput,
-    config: SingleCamHandeyeConfig | None = None,
+    config: SingleCamHandeyeConfig | None = None,    *,
+    progress: ProgressCallback | None = None,
 ) -> SingleCamHandeyeExport:
     """Run single-camera hand-eye calibration with typed input/config objects."""
     dataset = _ensure_type(input, SingleCamHandeyeInput, "input")
@@ -165,12 +176,14 @@ def run_single_cam_handeye(
     return _run_single_cam_handeye_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
+        progress,
     )
 
 
 def run_rig_extrinsics(
     input: RigExtrinsicsInput,
-    config: RigExtrinsicsConfig | None = None,
+    config: RigExtrinsicsConfig | None = None,    *,
+    progress: ProgressCallback | None = None,
 ) -> RigExtrinsicsExport:
     """Run rig extrinsics calibration with typed input/config objects."""
     dataset = _ensure_type(input, RigExtrinsicsInput, "input")
@@ -178,12 +191,14 @@ def run_rig_extrinsics(
     return _run_rig_extrinsics_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
+        progress,
     )
 
 
 def run_rig_handeye(
     input: RigHandeyeInput,
-    config: RigHandeyeConfig | None = None,
+    config: RigHandeyeConfig | None = None,    *,
+    progress: ProgressCallback | None = None,
 ) -> RigHandeyeExport:
     """Run rig hand-eye calibration with typed input/config objects."""
     dataset = _ensure_type(input, RigHandeyeInput, "input")
@@ -191,12 +206,14 @@ def run_rig_handeye(
     return _run_rig_handeye_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
+        progress,
     )
 
 
 def run_laserline_device(
     input: LaserlineDeviceInput,
-    config: LaserlineDeviceConfig | None = None,
+    config: LaserlineDeviceConfig | None = None,    *,
+    progress: ProgressCallback | None = None,
 ) -> LaserlineDeviceExport:
     """Run laserline-device calibration with typed input/config objects."""
     dataset = _ensure_type(input, LaserlineDeviceInput, "input")
@@ -204,6 +221,7 @@ def run_laserline_device(
     return _run_laserline_device_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
+        progress,
     )
 
 
@@ -214,18 +232,19 @@ def run_laserline_device(
 
 def _run_rig_laserline_device_raw(
     input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
+    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
 ) -> RigLaserlineDeviceExport:
     raw = cast(
         dict[str, Any],
-        _native.run_rig_laserline_device(input_payload, config_payload),
+        _native.run_rig_laserline_device(input_payload, config_payload, progress),
     )
     return RigLaserlineDeviceExport.from_payload(raw)
 
 
 def run_rig_laserline_device(
     input: RigLaserlineDeviceInput,
-    config: RigLaserlineDeviceConfig | None = None,
+    config: RigLaserlineDeviceConfig | None = None,    *,
+    progress: ProgressCallback | None = None,
 ) -> RigLaserlineDeviceExport:
     """Run rig laserline device calibration with typed input/config objects."""
     inp = _ensure_type(input, RigLaserlineDeviceInput, "input")
@@ -233,6 +252,7 @@ def run_rig_laserline_device(
     return _run_rig_laserline_device_raw(
         inp.to_payload(),
         None if cfg is None else cfg.to_payload(),
+        progress,
     )
 
 
@@ -243,18 +263,19 @@ def run_rig_laserline_device(
 
 def _run_rig_handeye_laserline_raw(
     input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
+    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
 ) -> RigHandeyeLaserlineExport:
     raw = cast(
         dict[str, Any],
-        _native.run_rig_handeye_laserline(input_payload, config_payload),
+        _native.run_rig_handeye_laserline(input_payload, config_payload, progress),
     )
     return RigHandeyeLaserlineExport.from_payload(raw)
 
 
 def run_rig_handeye_laserline(
     input: RigHandeyeLaserlineInput,
-    config: RigHandeyeLaserlineConfig | None = None,
+    config: RigHandeyeLaserlineConfig | None = None,    *,
+    progress: ProgressCallback | None = None,
 ) -> RigHandeyeLaserlineExport:
     """Run joint rig hand-eye laserline calibration with typed input/config objects."""
     dataset = _ensure_type(input, RigHandeyeLaserlineInput, "input")
@@ -262,6 +283,7 @@ def run_rig_handeye_laserline(
     return _run_rig_handeye_laserline_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
+        progress,
     )
 
 

@@ -29,6 +29,7 @@ from .models import (
     _camera_from_payload,
     _distortion_to_payload,
 )
+from .types import ProgressCallback
 
 __all__ = [
     "CalibrationSession",
@@ -165,7 +166,8 @@ class CalibrationSession(Generic[_InputT, _ConfigT, _ExportT]):
     payload mappings. ``set_input`` validates the input and clears any
     computed state; ``set_config`` keeps it. ``run_calibration`` runs the
     problem's default pipeline; the subclasses add the individual
-    ``step_*`` methods. Long steps release the GIL.
+    ``step_*`` methods. Long steps release the GIL, report to the callable
+    :meth:`set_progress` installs, and stop on Ctrl-C.
 
     Errors: an input or config the problem rejects, a step run out of order
     and a manual-init seed that does not fit raise :class:`ValueError`; a
@@ -263,6 +265,19 @@ class CalibrationSession(Generic[_InputT, _ConfigT, _ExportT]):
     def run_calibration(self) -> None:
         """Run the problem's default pipeline of steps."""
         self._native.run_calibration()
+
+    def set_progress(self, progress: ProgressCallback | None) -> None:
+        """Report the progress of every step run from now on to ``progress``.
+
+        It is called with each report (a
+        :data:`~vision_calibration.types.Progress` mapping): a step that
+        ``run_calibration`` begins and each solver iteration. Raising from it
+        stops the step, and the exception propagates; ``None`` stops the
+        reports. Ctrl-C stops a step with :class:`KeyboardInterrupt` whether
+        or not a callable is set. A stopped step keeps the session's earlier
+        results and stores none of its own.
+        """
+        self._native.set_progress(progress)
 
     def to_json(self) -> str:
         """The whole session as JSON, to resume later with :meth:`from_json`."""

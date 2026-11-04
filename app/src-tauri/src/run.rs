@@ -14,14 +14,14 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tauri::ipc::Channel;
 
+use vision_calibration::control::{CancelToken, Progress, RunControl};
 use vision_calibration::core::{
     FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
 };
@@ -81,14 +81,10 @@ pub struct RunSuccess {
     pub cache_used: bool,
 }
 
-/// Coarse pipeline stage a run is currently executing. The runner
-/// exposes exactly these three boundaries without reaching into the
-/// per-topology `run_calibration` wrappers (each of which fuses
-/// init + optimize) or the `dataset_runner` build functions (which fuse
-/// image decode + feature detection and loop cameras internally with no
-/// callback). Finer granularity — per-camera detection, per-LM-iteration
-/// — would require a progress hook threaded through the core crates; the
-/// pipeline API has none today (see the module docs).
+/// Pipeline stage a run is currently executing. Within a stage the
+/// library's own reports ([`Progress`]: each image detected, each
+/// calibration step, each solver iteration) ride along in
+/// [`RunProgress::report`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -102,26 +98,75 @@ pub enum RunStage {
 }
 
 /// A progress message streamed to the Run workspace over a
-/// [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;
-/// terminal outcomes (success / failure / cancellation) are carried by
-/// the command's `RunResponse` return value, not the channel.
+/// [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins (no
+/// `report`) and then for the library's reports within it; terminal
+/// outcomes (success / failure / cancellation) are carried by the
+/// command's `RunResponse` return value, not the channel.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 pub struct RunProgress {
-    /// The stage that just started.
+    /// The stage under way.
     pub stage: RunStage,
+    /// The library's report within the stage, absent when the stage
+    /// begins.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<Progress>,
+}
+
+impl RunProgress {
+    /// The stage `report` belongs to: images are detected, the rest solves.
+    fn of(report: Progress) -> Self {
+        let stage = match report {
+            Progress::Detection { .. } | Progress::LaserExtraction { .. } => RunStage::Detect,
+            _ => RunStage::Solve,
+        };
+        Self {
+            stage,
+            report: Some(report),
+        }
+    }
+}
+
+/// Solver iterations forwarded at most this often: a small solve iterates
+/// far faster than the webview redraws. Every other report is forwarded.
+const ITERATION_PERIOD: Duration = Duration::from_millis(50);
+
+/// The run control of one run: `token` stops it, and every report goes to
+/// `emit` (solver iterations no faster than [`ITERATION_PERIOD`]). The
+/// clock only throttles the display; nothing it reads enters a result.
+fn run_control(
+    token: CancelToken,
+    emit: impl Fn(RunProgress) + Send + Sync + 'static,
+) -> RunControl {
+    let last_iteration: Mutex<Option<Instant>> = Mutex::new(None);
+    RunControl::new()
+        .with_cancel(token)
+        .with_observer(move |report| {
+            if let Progress::Iteration { iter, .. } = report {
+                let now = Instant::now();
+                let Ok(mut last) = last_iteration.lock() else {
+                    return;
+                };
+                if iter > 1 && last.is_some_and(|t| now - t < ITERATION_PERIOD) {
+                    return;
+                }
+                *last = Some(now);
+            }
+            emit(RunProgress::of(report));
+        })
 }
 
 /// Per-run cancellation registry. Each in-flight `run_calibration_cmd`
-/// registers its run id against a shared [`AtomicBool`]; `cancel_run_cmd`
-/// flips the flag, and the runner checks it at every stage boundary.
+/// registers its run id against a [`CancelToken`]; `cancel_run_cmd`
+/// cancels it, and the library stops at its next image or solver
+/// iteration.
 ///
 /// The map is only ever keyed by run id (insert / get / remove) — never
 /// iterated to produce a result — so its ordering is irrelevant to
 /// determinism (AGENTS.md).
 #[derive(Default)]
 pub struct RunRegistry {
-    inner: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    inner: Mutex<HashMap<String, CancelToken>>,
 }
 
 impl RunRegistry {
@@ -129,14 +174,14 @@ impl RunRegistry {
         Self::default()
     }
 
-    /// Register `run_id` and return its (freshly cleared) cancel flag.
-    fn register(&self, run_id: &str) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
+    /// Register `run_id` and return its fresh token.
+    fn register(&self, run_id: &str) -> CancelToken {
+        let token = CancelToken::new();
         self.inner
             .lock()
             .expect("run registry mutex poisoned")
-            .insert(run_id.to_string(), flag.clone());
-        flag
+            .insert(run_id.to_string(), token.clone());
+        token
     }
 
     /// Drop `run_id` from the registry once its run has finished.
@@ -156,8 +201,8 @@ impl RunRegistry {
             .expect("run registry mutex poisoned")
             .get(run_id)
         {
-            Some(flag) => {
-                flag.store(true, Ordering::SeqCst);
+            Some(token) => {
+                token.cancel();
                 true
             }
             None => false,
@@ -166,24 +211,27 @@ impl RunRegistry {
 }
 
 /// Threaded through the runner so every topology arm can emit stage
-/// progress and poll for cancellation without depending on the concrete
-/// `Channel` type (which keeps `run_blocking` unit-testable with a plain
-/// closure — see the tests).
+/// progress and hand the library its control without depending on the
+/// concrete `Channel` type (which keeps `run_blocking` unit-testable with
+/// a plain closure — see the tests).
 struct RunCtx<'a> {
-    progress: &'a dyn Fn(RunStage),
-    cancel: &'a AtomicBool,
+    progress: &'a dyn Fn(RunProgress),
+    control: RunControl,
 }
 
 impl RunCtx<'_> {
     /// Announce that `stage` has begun (best-effort; a dropped channel
     /// just means the UI went away mid-run).
     fn stage(&self, stage: RunStage) {
-        (self.progress)(stage);
+        (self.progress)(RunProgress {
+            stage,
+            report: None,
+        });
     }
 
     /// Whether the user has requested cancellation.
     fn cancelled(&self) -> bool {
-        self.cancel.load(Ordering::SeqCst)
+        self.control.is_cancelled()
     }
 }
 
@@ -194,9 +242,9 @@ impl RunCtx<'_> {
 pub enum RunResponse {
     /// Calibration completed and an export was produced.
     Ok(RunSuccess),
-    /// The user cancelled the run; it stopped at the next stage boundary
-    /// (solver-internal cancellation is out of scope). Surfaced as a
-    /// distinct UI state, not an error.
+    /// The user cancelled the run; it stopped at the next image, solver
+    /// iteration or stage boundary. Surfaced as a distinct UI state, not
+    /// an error.
     Cancelled,
     /// Runtime ambiguity per ADR 0016 — Run workspace must render a
     /// modal asking the user to fill `field`.
@@ -242,8 +290,7 @@ pub async fn run_calibration_cmd<R: tauri::Runtime>(
     cache: State<'_, ExportCache>,
     registry: State<'_, RunRegistry>,
 ) -> Result<RunResponse, String> {
-    let cancel = registry.register(&run_id);
-    let cancel_task = cancel.clone();
+    let token = registry.register(&run_id);
     let images_dir = PathBuf::from(&manifest_dir);
 
     // Long-running solve: keep IPC responsive by running on a blocking
@@ -251,12 +298,16 @@ pub async fn run_calibration_cmd<R: tauri::Runtime>(
     // so we do detection + calibration on the worker thread and pop
     // the produced export into the cache here, in the async caller.
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let emit = move |stage: RunStage| {
-            let _ = on_progress.send(RunProgress { stage });
+        let reports = on_progress.clone();
+        let control = run_control(token, move |progress| {
+            let _ = reports.send(progress);
+        });
+        let emit = move |progress: RunProgress| {
+            let _ = on_progress.send(progress);
         };
         let ctx = RunCtx {
             progress: &emit,
-            cancel: &cancel_task,
+            control,
         };
         run_blocking(manifest_json, config_json, &manifest_dir, &ctx)
     })
@@ -276,10 +327,8 @@ pub async fn run_calibration_cmd<R: tauri::Runtime>(
 
 /// Tauri command: request cancellation of an in-flight run.
 ///
-/// Cancellation is cooperative and takes effect at the next stage
-/// boundary (detect → solve → export); the currently executing stage
-/// runs to completion since the solver / detector loops expose no
-/// interrupt. Returns `true` when a matching in-flight run was flagged,
+/// Cancellation is cooperative: the library stops at its next image or
+/// solver iteration, and the runner at its next stage boundary. Returns `true` when a matching in-flight run was flagged,
 /// `false` if the run already finished (a benign race).
 #[tauri::command]
 pub fn cancel_run_cmd(run_id: String, registry: State<'_, RunRegistry>) -> bool {
@@ -423,10 +472,14 @@ where
         })
     })?;
     ctx.stage(RunStage::Solve);
+    session.set_control(ctx.control.clone());
     run(&mut session).map_err(|e| {
-        Box::new(RunResponse::Failed {
-            category: "calibration_failed".into(),
-            message: format!("calibration failed: {e}"),
+        Box::new(match e {
+            vision_calibration::Error::Cancelled => RunResponse::Cancelled,
+            e => RunResponse::Failed {
+                category: "calibration_failed".into(),
+                message: format!("calibration failed: {e}"),
+            },
         })
     })?;
     // Second cancellation boundary: solve done, export not yet built.
@@ -484,7 +537,12 @@ fn run_planar_topology<P>(
 where
     P: ProblemType<Input = PlanarDataset>,
 {
-    let planar_run = match build_planar_input(spec, base_dir, Detection::Cached(detection_cache)) {
+    let planar_run = match build_planar_input(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &ctx.control,
+    ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
@@ -518,11 +576,15 @@ fn run_single_cam_handeye_topology(
     started: Instant,
     ctx: &RunCtx,
 ) -> RunResponse {
-    let handeye_run =
-        match build_single_cam_handeye_input(spec, base_dir, Detection::Cached(detection_cache)) {
-            Ok(r) => r,
-            Err(e) => return run_error_to_response(e),
-        };
+    let handeye_run = match build_single_cam_handeye_input(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &ctx.control,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
     let cache_used = handeye_run.usable_views > 0; // hit/miss counts are not surfaced yet
     let usable_views = handeye_run.usable_views;
     let total_views = handeye_run.total_views;
@@ -567,6 +629,7 @@ fn run_laserline_topology(
         base_dir,
         Detection::Cached(detection_cache),
         &crate::laser::VmLaserExtractor,
+        &ctx.control,
     ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
@@ -621,6 +684,7 @@ fn run_rig_laserline_topology(
         base_dir,
         Detection::Cached(detection_cache),
         &crate::laser::VmLaserExtractor,
+        &ctx.control,
     ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
@@ -669,6 +733,7 @@ fn run_rig_handeye_laserline_topology(
         base_dir,
         Detection::Cached(detection_cache),
         &crate::laser::VmLaserExtractor,
+        &ctx.control,
     ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
@@ -709,6 +774,7 @@ type RigBuilder<Meta> =
         &DatasetSpec,
         &Path,
         Detection<'_>,
+        &RunControl,
     ) -> Result<vision_calibration::dataset_runner::RigRunResult<Meta>, RunError>;
 
 // Internal generic dispatch helper: it fans the shared run inputs plus a
@@ -730,7 +796,12 @@ fn run_rig_topology<P, Meta>(
 where
     P: ProblemType<Input = RigDataset<Meta>>,
 {
-    let rig_run = match build(spec, base_dir, Detection::Cached(detection_cache)) {
+    let rig_run = match build(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &ctx.control,
+    ) {
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
@@ -937,6 +1008,7 @@ fn run_error_to_response(err: RunError) -> RunResponse {
         RunError::Validation(v) => RunResponse::ValidationFailed {
             message: v.to_string(),
         },
+        RunError::Cancelled => RunResponse::Cancelled,
         other => RunResponse::Failed {
             category: error_category(&other).into(),
             message: other.to_string(),
@@ -971,6 +1043,7 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::LaserExtraction { .. } => "detection",
         RunError::InsufficientLaserViews { .. } => "insufficient_views",
         RunError::UpstreamCalibration { .. } => "upstream_calibration",
+        RunError::Cancelled => "cancelled",
     }
 }
 
@@ -1017,39 +1090,51 @@ mod tests {
         config_json: serde_json::Value,
         manifest_dir: &str,
     ) -> RunResponse {
-        let noop = |_stage: RunStage| {};
-        let cancel = AtomicBool::new(false);
+        let noop = |_progress: RunProgress| {};
         let ctx = RunCtx {
             progress: &noop,
-            cancel: &cancel,
+            control: RunControl::default(),
         };
         run_blocking(manifest_json, config_json, manifest_dir, &ctx)
     }
 
-    /// Like [`run_blocking_test`] but records each emitted stage and lets
-    /// the caller flip the cancel flag from a stage hook — used to assert
-    /// the stage sequence and cancellation-at-boundary behaviour.
+    /// Like [`run_blocking_test`] but records each stage announced and
+    /// each library report, and cancels the run at the first message
+    /// `cancel_at` accepts — used to assert the stage sequence and that a
+    /// cancel stops the run mid-stage.
     fn run_blocking_capturing(
         manifest_json: serde_json::Value,
         config_json: serde_json::Value,
         manifest_dir: &str,
-        cancel_after: Option<RunStage>,
-    ) -> (RunResponse, Vec<RunStage>) {
+        cancel_at: fn(&RunProgress) -> bool,
+    ) -> (RunResponse, Vec<RunStage>, Vec<Progress>) {
+        use std::sync::Arc;
         let stages = Mutex::new(Vec::new());
-        let cancel = AtomicBool::new(false);
-        let hook = |stage: RunStage| {
-            stages.lock().unwrap().push(stage);
-            if Some(stage) == cancel_after {
-                cancel.store(true, Ordering::SeqCst);
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let token = CancelToken::new();
+        let hook_token = token.clone();
+        let hook = |progress: RunProgress| {
+            stages.lock().unwrap().push(progress.stage);
+            if cancel_at(&progress) {
+                hook_token.cancel();
             }
         };
+        let log = Arc::clone(&reports);
+        let report_token = token.clone();
+        let control = run_control(token, move |progress| {
+            log.lock().unwrap().extend(progress.report);
+            if cancel_at(&progress) {
+                report_token.cancel();
+            }
+        });
         let ctx = RunCtx {
             progress: &hook,
-            cancel: &cancel,
+            control,
         };
         let response = run_blocking(manifest_json, config_json, manifest_dir, &ctx);
         let seen = stages.lock().unwrap().clone();
-        (response, seen)
+        let reported = reports.lock().unwrap().clone();
+        (response, seen, reported)
     }
 
     fn scheimpflug_rig_detector_override() -> serde_json::Value {
@@ -1113,15 +1198,15 @@ mod tests {
     fn run_registry_flags_only_the_matching_run() {
         let registry = RunRegistry::new();
         let flag = registry.register("run-a");
-        assert!(!flag.load(Ordering::SeqCst));
+        assert!(!flag.is_cancelled());
 
         // Cancelling an unknown id is a no-op that reports "not found".
         assert!(!registry.cancel("run-b"));
-        assert!(!flag.load(Ordering::SeqCst));
+        assert!(!flag.is_cancelled());
 
         // Cancelling the registered id flips its flag.
         assert!(registry.cancel("run-a"));
-        assert!(flag.load(Ordering::SeqCst));
+        assert!(flag.is_cancelled());
 
         // After unregister, the id is gone.
         registry.unregister("run-a");
@@ -1132,9 +1217,17 @@ mod tests {
     fn run_progress_serializes_snake_case() {
         let json = serde_json::to_value(RunProgress {
             stage: RunStage::Detect,
+            report: None,
         })
         .unwrap();
         assert_eq!(json, json!({ "stage": "detect" }));
+        let json = serde_json::to_value(RunProgress::of(Progress::detection(2, 5))).unwrap();
+        assert_eq!(
+            json,
+            json!({ "stage": "detect", "report": { "kind": "detection", "done": 2, "total": 5 } })
+        );
+        let json = serde_json::to_value(RunProgress::of(Progress::step("optimize"))).unwrap();
+        assert_eq!(json["stage"], "solve");
         for (stage, tag) in [
             (RunStage::Detect, "detect"),
             (RunStage::Solve, "solve"),
@@ -1172,7 +1265,7 @@ mod tests {
                 "translation_units": "m",
             },
         });
-        let (response, stages) = run_blocking_capturing(manifest, json!({}), "/tmp", None);
+        let (response, stages, _) = run_blocking_capturing(manifest, json!({}), "/tmp", |_| false);
         assert!(
             matches!(response, RunResponse::ValidationFailed { .. }),
             "expected ValidationFailed, got {response:?}"
@@ -1343,34 +1436,60 @@ mod tests {
 
     /// Progress + cancellation over the committed `data/kuka_1` dataset.
     /// Ignored for time (full detect + solve), not availability. Verifies
-    /// (a) a clean run emits exactly `[Detect, Solve, Export]`, and
-    /// (b) cancelling at the Detect boundary short-circuits to
-    /// `Cancelled` after the detect stage, never reaching Solve/Export.
+    /// (a) a clean run announces `[Detect, Solve, Export]` in order, with a
+    /// report per image detected and the solver's iterations, and (b) a
+    /// cancel during detection or in a solve stops the run there, as
+    /// `Cancelled`, never reaching Export.
     #[test]
     #[ignore = "full detection + solve takes tens of seconds; run with --ignored"]
     fn kuka_progress_stages_and_cancellation() {
         let (manifest, config, dir) = load_local_preset("data/kuka_1/dataset.toml")
             .expect("data/kuka_1 is committed; the manifest must be present");
 
-        let (ok, stages) = run_blocking_capturing(manifest.clone(), config.clone(), &dir, None);
-        assert!(matches!(ok, RunResponse::Ok(_)), "clean run: got {ok:?}");
+        let (ok, stages, reports) =
+            run_blocking_capturing(manifest.clone(), config.clone(), &dir, |_| false);
+        let RunResponse::Ok(success) = ok else {
+            panic!("clean run: got {ok:?}");
+        };
+        let announced: Vec<RunStage> = stages.iter().copied().fold(Vec::new(), |mut acc, stage| {
+            if acc.last() != Some(&stage) {
+                acc.push(stage);
+            }
+            acc
+        });
         assert_eq!(
-            stages,
+            announced,
             vec![RunStage::Detect, RunStage::Solve, RunStage::Export],
             "clean run must announce every stage in order"
         );
-
-        let (cancelled, stages) =
-            run_blocking_capturing(manifest, config, &dir, Some(RunStage::Detect));
+        let detected = reports
+            .iter()
+            .filter(|r| matches!(r, Progress::Detection { .. }))
+            .count();
+        assert_eq!(detected, success.total_views, "one report per image");
         assert!(
-            matches!(cancelled, RunResponse::Cancelled),
-            "cancel at detect boundary: got {cancelled:?}"
+            reports
+                .iter()
+                .any(|r| matches!(r, Progress::Iteration { .. }))
         );
-        assert_eq!(
-            stages,
-            vec![RunStage::Detect],
-            "cancellation must stop before Solve / Export"
-        );
+
+        for cancel_at in [
+            (|p: &RunProgress| matches!(p.report, Some(Progress::Detection { done: 2, .. })))
+                as fn(&RunProgress) -> bool,
+            // The first iteration of a solve is always forwarded.
+            |p: &RunProgress| matches!(p.report, Some(Progress::Iteration { iter: 1, .. })),
+        ] {
+            let (cancelled, stages, _) =
+                run_blocking_capturing(manifest.clone(), config.clone(), &dir, cancel_at);
+            assert!(
+                matches!(cancelled, RunResponse::Cancelled),
+                "cancelled mid-stage: got {cancelled:?}"
+            );
+            assert!(
+                !stages.contains(&RunStage::Export),
+                "cancellation must stop before Export"
+            );
+        }
     }
 
     /// Local-only end-to-end acceptance over the gitignored bundled

@@ -47,6 +47,8 @@
 //! # Ok::<(), vision_calibration_core::Error>(())
 //! ```
 
+/// Progress reports and cooperative cancellation of long-running calls.
+mod control;
 /// Typed error enum for this crate.
 pub mod error;
 /// Low-level linear-algebra primitives shared by the calibration and MVG
@@ -79,6 +81,7 @@ pub mod test_utils;
 mod types;
 mod view;
 
+pub use control::{CancelToken, Cancelled, Progress, RunControl};
 pub use error::Error;
 
 // Crate-root public surface, re-exported explicitly from the (private) modules.

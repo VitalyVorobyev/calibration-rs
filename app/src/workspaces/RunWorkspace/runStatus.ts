@@ -1,6 +1,11 @@
 /** The Run workspace's run state machine: idle → running → a terminal
  * state, as the runner's `RunResponse` decides. */
-import type { RunResponse, RunStage } from "../../lib/runCalibration";
+import type {
+  Progress,
+  RunProgress,
+  RunResponse,
+  RunStage,
+} from "../../lib/runCalibration";
 
 export type RunStatus =
   | { kind: "idle" }
@@ -10,9 +15,13 @@ export type RunStatus =
       runId: string;
       /** Last stage the runner announced; `null` until the first message. */
       stage: RunStage | null;
+      /** The library's latest report within the stage, if any. */
+      report: Progress | null;
+      /** The calibration step under way, for its iterations. */
+      step: string | null;
       /** Epoch ms the run started — UI elapsed clock only, never exported. */
       startedAt: number;
-      /** True once the user clicked Cancel (awaiting the boundary stop). */
+      /** True once the user clicked Cancel (awaiting the stop). */
       cancelRequested: boolean;
     }
   | { kind: "cancelled" }
@@ -28,6 +37,21 @@ export type RunStatus =
   | { kind: "error"; category: string; message: string }
   | { kind: "validation"; message: string }
   | { kind: "ask_user"; field: string; prompt: string; suggestions: string[] };
+
+/** A running status advanced by one progress message: a new stage clears
+ * the report, a step is remembered for the iterations that follow. */
+export function withProgress(
+  status: Extract<RunStatus, { kind: "running" }>,
+  progress: RunProgress,
+): Extract<RunStatus, { kind: "running" }> {
+  const report = progress.report ?? null;
+  return {
+    ...status,
+    stage: progress.stage,
+    report,
+    step: report?.kind === "step" ? report.name : status.step,
+  };
+}
 
 /** The status a finished run's response leads to. `savedAs` names the
  * project run a successful export was saved as. */

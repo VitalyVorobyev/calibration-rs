@@ -7,7 +7,7 @@
 //!   schema-driven forms in the Run workspace; the defaults feed the app's
 //!   form round-trip tests.
 //! - The input, export and quality schemas — what a workflow reads and what
-//!   it returns — go to `schemas/<name>.json`, for tools that consume the
+//!   it returns — and the progress report a long call streams go to `schemas/<name>.json`, for tools that consume the
 //!   results. Inputs and thresholds describe what deserializes, exports and
 //!   reports what serializes.
 //! - The suite's observation, truth and external-result formats go to
@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 
 use vision_calibration_bench::suite::compare::ExternalResult;
 use vision_calibration_bench::suite::{ObservationSet, Truth};
+use vision_calibration_core::Progress;
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_optim::ProjectionUncertainty;
 use vision_calibration_pipeline::analysis::{
@@ -194,6 +195,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         writes::<RankedCandidate>("ranked_candidate", "RankedCandidate"),
         writes::<PredictedRigUncertainty>("predicted_rig_uncertainty", "PredictedRigUncertainty"),
         writes::<RankedRobotPose>("ranked_robot_pose", "RankedRobotPose"),
+        writes::<Progress>("progress", "Progress"),
     ];
     let suite = vec![
         plain("observation_set", schema_value::<ObservationSet>()),

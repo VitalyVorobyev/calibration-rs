@@ -450,7 +450,7 @@ pub(crate) fn optimize_camera(
     match camera.model.sensor {
         SensorKind::Identity => {
             optimize_planar_intrinsics(dataset, initial, solve_opts, backend_opts).map_err(|e| {
-                Error::numerical(format!("optimization failed for camera {cam_idx}: {e}"))
+                Error::optim(format_args!("optimization failed for camera {cam_idx}"), e)
             })
         }
         SensorKind::Scheimpflug => optimize_scheimpflug_intrinsics_staged(
@@ -461,9 +461,10 @@ pub(crate) fn optimize_camera(
             backend_opts,
         )
         .map_err(|e| {
-            Error::numerical(format!(
-                "Scheimpflug intrinsics optimization failed for camera {cam_idx}: {e}"
-            ))
+            Error::optim(
+                format_args!("Scheimpflug intrinsics optimization failed for camera {cam_idx}"),
+                e,
+            )
         }),
         other => Err(unsupported_sensor(other)),
     }

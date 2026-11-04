@@ -18,6 +18,7 @@ high-level API for new code.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, TypeAlias
 
 from . import _generated_types
@@ -34,6 +35,7 @@ from ._generated_types import (
     Iso3,
     LaserPlane,
     ProjectionKind,
+    Progress,
     RobustLoss_Arctan,
     RobustLoss_Cauchy,
     RobustLoss_Huber,
@@ -41,6 +43,11 @@ from ._generated_types import (
     SensorKind,
     UncertaintyUnavailable,
 )
+
+# What a long call's ``progress`` argument is called with, once per report:
+# an image read, a step begun, a solver iteration finished. Its return value
+# is ignored; raising stops the call.
+ProgressCallback: TypeAlias = Callable[[Progress], object]
 
 # Untyped JSON containers; no schema describes "any object".
 JsonObject: TypeAlias = dict[str, Any]
@@ -72,6 +79,7 @@ RobustLossArctan: TypeAlias = RobustLoss_Arctan
 UncertaintyUnavailableReason: TypeAlias = UncertaintyUnavailable
 
 __all__ = [
+    "ProgressCallback",
     "JsonObject",
     "JsonArray",
     "Se3Delta",
