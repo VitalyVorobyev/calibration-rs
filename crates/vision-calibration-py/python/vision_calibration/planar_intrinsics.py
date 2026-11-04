@@ -59,9 +59,10 @@ class IntrinsicsManualInit:
     A seeded ``intrinsics`` skips the linear intrinsics fit (distortion then
     starts at zero unless seeded too). The distortion seed is a model of the
     camera's own distortion kind (``camera.model.distortion``) and is used
-    as given; another kind is an error. ``sensor`` seeds the tilt of a Scheimpflug camera (an
-    error for an untilted one); a seeded tilt is refined directly instead of
-    swept. ``poses`` are camera-from-target, one per view.
+    as given; another kind is an error. ``sensor`` seeds the tilt of a
+    Scheimpflug camera; an untilted camera takes only a zero tilt. A seeded
+    tilt is used as given and refined directly instead of swept. ``poses``
+    are camera-from-target, one per view.
     """
 
     intrinsics: PinholeIntrinsics | None = None

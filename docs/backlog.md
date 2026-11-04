@@ -42,18 +42,6 @@ pixel noise (the cameras as exact). The rectification still runs on a bare `K`.
 
 ## Lean code — LEAN (Phase 1b)
 
-- [ ] LEAN-PLANAR-INIT - `planar_intrinsics` initializes its pinhole
-  cameras with its own `init_untilted` / `init_tilted` (~300 lines), a
-  second copy of `planar_family::bootstrap_camera` that every other
-  workflow uses (fisheye already goes through it). Route both through it.
-  The copies differ in results: a tilt seed with auto-fitted intrinsics
-  seeds the linear tilt sweep in `bootstrap_camera` but only replaces the
-  swept tilt here; a zero tilt seed of an untilted camera is accepted
-  there and rejected here; and here the fitted Brown-Conrady coefficients
-  sit in state unconverted and the homographies are kept. Measure the
-  first on the Scheimpflug suite entries and seed tests before switching.
-  Gate: library lines down, results unchanged or the change measured and
-  in the CHANGELOG.
 - [ ] LEAN-RIG-TILTED - The rig stages run the wide tilt multi-start and
   the nominal recovery of a badly fitted tilted camera
   (`rig_family::tilted`) for `rig_handeye` only
@@ -139,6 +127,20 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 
 - [ ] CAL-MULTI-TARGET - Several targets with unknown relative poses in one
   scene, estimated jointly.
+- [ ] CAL-TILT-SEED-INIT - A tilt seed without an intrinsics seed fits the
+  intrinsics at the seeded tilt (`planar_family::bootstrap_camera`, every
+  workflow), but only from the candidates the linear Scheimpflug init builds
+  around that tilt: the seed with the untilted Zhang `K` as reference, and
+  the homography-decomposition fits started there, whose tilt drifts before
+  the seed replaces it. When those fit badly the start is degenerate: one
+  Monte-Carlo draw in 20 at `k1 = -0.30` and 0.087 rad tilt (linear `fx`
+  half the truth), and one of the 12 private Scheimpflug cameras (linear
+  reprojection 20 px, the solve ends on the tilt bound), where the full
+  sweep found the basin. Evaluate every candidate reference `K` of the
+  full sweep (grid, decomposition, refinement) at the seeded tilt and keep
+  the best, a fixed-tilt mode of `estimate_scheimpflug_intrinsics_iterative`.
+  Gate: those draws and that camera reach the full-seed result, no other
+  result moves; measured on both backends.
 
 ## Multiple-view geometry (Phase 2)
 
