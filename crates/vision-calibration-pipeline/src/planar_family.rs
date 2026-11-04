@@ -1,10 +1,10 @@
 //! Shared helpers for calibrating one camera from planar target views.
 //!
-//! This module is internal to the pipeline crate. It holds the planar
-//! bootstrap (homographies, Zhang's method, per-view poses) and the
-//! per-camera linear bootstrap and refinement every workflow runs for each
-//! of its cameras — planar intrinsics, the rig family, single-camera
-//! hand-eye and the laserline device — each camera in its own model
+//! This module is internal to the pipeline crate. It holds the per-camera
+//! linear bootstrap (Zhang's method or the model's own initializer, then
+//! per-view poses) and refinement every workflow runs for each of its
+//! cameras — planar intrinsics, the rig family, single-camera hand-eye and
+//! the laserline device — each camera in its own model
 //! ([`CameraModelSpec`]).
 
 use vision_calibration_core::{
@@ -29,61 +29,6 @@ use vision_calibration_optim::{
     PlanarIntrinsicsSolveOptions, ScheimpflugStagedInitOptions, optimize_planar_intrinsics,
     optimize_scheimpflug_intrinsics_staged,
 };
-
-/// Result of shared planar bootstrap (homographies + initial camera + poses).
-#[derive(Debug, Clone)]
-pub(crate) struct PlanarBootstrap {
-    pub homographies: Vec<Mat3>,
-    pub camera: PinholeCamera,
-    pub poses: Vec<Iso3>,
-}
-
-/// Estimate homographies, intrinsics/distortion, and per-view poses.
-pub(crate) fn bootstrap_planar_intrinsics(
-    dataset: &PlanarDataset,
-    init_opts: IterativeIntrinsicsOptions,
-) -> Result<PlanarBootstrap, Error> {
-    let homographies = estimate_view_homographies(dataset)?;
-    let camera = estimate_intrinsics_iterative(dataset, init_opts)
-        .map_err(|e| Error::linear_init("iterative planar intrinsics estimation failed", e))?;
-    let poses = recover_planar_poses_from_homographies(&homographies, &camera.k)?;
-
-    Ok(PlanarBootstrap {
-        homographies,
-        camera,
-        poses,
-    })
-}
-
-pub(crate) fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<Mat3>, Error> {
-    let mut homographies = Vec::with_capacity(dataset.num_views());
-    for (idx, view) in dataset.views.iter().enumerate() {
-        let (board_2d, pixel_2d) = board_and_pixel_points(&view.obs);
-        let h = dlt_homography(&board_2d, &pixel_2d).map_err(|e| {
-            Error::numerical(format!(
-                "failed to compute homography for view {} (need >=4 well-conditioned points): {e}",
-                idx
-            ))
-        })?;
-        homographies.push(h);
-    }
-    Ok(homographies)
-}
-
-pub(crate) fn recover_planar_poses_from_homographies(
-    homographies: &[Mat3],
-    intrinsics: &FxFyCxCy<Real>,
-) -> Result<Vec<Iso3>, Error> {
-    let k = intrinsics_k_matrix(intrinsics);
-    let mut poses = Vec::with_capacity(homographies.len());
-    for (idx, h) in homographies.iter().enumerate() {
-        let pose = estimate_planar_pose_from_h(&k, h).map_err(|e| {
-            Error::numerical(format!("failed to recover pose for view {}: {e}", idx))
-        })?;
-        poses.push(pose);
-    }
-    Ok(poses)
-}
 
 fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
     let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
@@ -664,26 +609,6 @@ pub(crate) fn unsupported_sensor(kind: SensorKind) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{
-        BrownConrady5, FxFyCxCy, View, make_pinhole_camera, synthetic::planar,
-    };
-    use vision_calibration_linear::distortion_fit::DistortionFitOptions;
-
-    fn make_test_dataset() -> PlanarDataset {
-        let cam_gt = make_pinhole_camera(
-            FxFyCxCy {
-                fx: 900.0,
-                fy: 880.0,
-                cx: 640.0,
-                cy: 360.0,
-            },
-            BrownConrady5::default(),
-        );
-        let board_points = planar::grid_points(6, 5, 0.04);
-        let poses = planar::poses_yaw_y_z(4, 0.0, 0.1, 0.6, 0.1);
-        let views = planar::project_views_all(&cam_gt, &board_points, &poses).expect("views");
-        PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).expect("dataset")
-    }
 
     #[test]
     fn camera_solve_opts_frees_every_pose() {
@@ -728,27 +653,5 @@ mod tests {
         assert_eq!(k[(1, 0)], 0.0);
         assert_eq!(k[(2, 0)], 0.0);
         assert_eq!(k[(2, 1)], 0.0);
-    }
-
-    #[test]
-    fn bootstrap_estimates_homographies_and_poses_per_view() {
-        let dataset = make_test_dataset();
-        let result = bootstrap_planar_intrinsics(
-            &dataset,
-            IterativeIntrinsicsOptions {
-                iterations: 2,
-                distortion_opts: DistortionFitOptions {
-                    fix_k3: true,
-                    fix_tangential: false,
-                    iters: 8,
-                },
-            },
-        )
-        .expect("bootstrap");
-
-        assert_eq!(result.homographies.len(), dataset.num_views());
-        assert_eq!(result.poses.len(), dataset.num_views());
-        assert!(result.camera.k.fx.is_finite());
-        assert!(result.camera.k.fy.is_finite());
     }
 }

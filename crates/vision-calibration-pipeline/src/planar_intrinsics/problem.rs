@@ -142,9 +142,10 @@ impl PlanarIntrinsicsConfig {
         self.camera.model.sensor == SensorKind::Scheimpflug
     }
 
-    /// Convert to vision-calibration-linear initialization options.
-    pub(crate) fn init_opts(&self) -> CameraInitOptions {
-        self.init.camera_init_opts(None, &self.camera)
+    /// Convert to vision-calibration-linear initialization options, with
+    /// `iterations` overriding `init.iterations` when set.
+    pub(crate) fn init_opts(&self, iterations: Option<usize>) -> CameraInitOptions {
+        self.init.camera_init_opts(iterations, &self.camera)
     }
 
     /// Convert to vision-calibration-optim solve options.
@@ -446,10 +447,11 @@ mod tests {
             ..Default::default()
         };
 
-        let opts = config.init_opts().pinhole;
+        let opts = config.init_opts(None).pinhole;
         assert_eq!(opts.iterations, 5);
         assert!(opts.distortion_opts.fix_k3);
         assert!(!opts.distortion_opts.fix_tangential);
+        assert_eq!(config.init_opts(Some(1)).pinhole.iterations, 1);
     }
 
     #[test]
@@ -785,20 +787,44 @@ mod tests {
         assert_eq!(config.solver.max_iters, 120);
         assert_eq!(config.camera, CameraConfig::default());
         assert!(!config.is_scheimpflug());
-        assert!(!config.init_opts().pinhole.distortion_opts.fix_tangential);
+        assert!(
+            !config
+                .init_opts(None)
+                .pinhole
+                .distortion_opts
+                .fix_tangential
+        );
     }
 
     #[test]
     fn the_linear_stage_holds_the_tangential_terms_the_camera_holds() {
         let mut config = PlanarIntrinsicsConfig::default();
         config.camera.fix.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
-        assert!(config.init_opts().pinhole.distortion_opts.fix_tangential);
+        assert!(
+            config
+                .init_opts(None)
+                .pinhole
+                .distortion_opts
+                .fix_tangential
+        );
         // A tilted camera holds them while its tilt is estimated.
         let mut config = PlanarIntrinsicsConfig::default();
         config.camera.model.sensor = SensorKind::Scheimpflug;
-        assert!(config.init_opts().pinhole.distortion_opts.fix_tangential);
+        assert!(
+            config
+                .init_opts(None)
+                .pinhole
+                .distortion_opts
+                .fix_tangential
+        );
         config.camera.fix.distortion = Some(vec!["k3".into()]);
-        assert!(config.init_opts().pinhole.distortion_opts.fix_tangential);
+        assert!(
+            config
+                .init_opts(None)
+                .pinhole
+                .distortion_opts
+                .fix_tangential
+        );
     }
 
     #[test]

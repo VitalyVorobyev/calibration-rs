@@ -311,6 +311,101 @@ fn seeded_coarse_prior_converges_on_strong_tilt_distortion() {
     );
 }
 
+/// A tilt seed with automatically fitted intrinsics: the linear stage fits
+/// the intrinsics at the seeded tilt. Fitted at the tilt its own sweep
+/// finds (about zero on this 11° sensor), the start puts the principal point
+/// 200 px off, the bounded solve ends on its `cy` bound with the tilt
+/// 0.045 rad short and no covariance.
+#[test]
+fn tilt_seed_without_intrinsics_fits_the_intrinsics_at_the_seeded_tilt() {
+    use vision_calibration::core::{
+        CameraParams, DistortionParams, ProjectionParams, SensorParams,
+    };
+    use vision_calibration::synthetic::laser::BoardExtent;
+    use vision_calibration::synthetic::noise::UniformPixelNoise;
+    use vision_calibration::synthetic::{planar, poses};
+
+    let gt_sensor = ScheimpflugParams {
+        tilt_x: -0.20,
+        tilt_y: 0.03,
+    };
+    let truth = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 {
+            params: BrownConrady5 {
+                k1: -0.12,
+                k2: 0.04,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
+        },
+        sensor: SensorParams::Scheimpflug { params: gt_sensor },
+        intrinsics: FxFyCxCy {
+            fx: 1000.0,
+            fy: 990.0,
+            cx: 640.0,
+            cy: 480.0,
+        },
+    };
+    let (nx, ny, spacing, views) = (13, 9, 0.04, 20);
+    let center = BoardExtent::from_grid(nx, ny, spacing).center();
+    let board_poses = poses::tilted_board_poses(
+        &poses::seeded_tilts(views, 0.5, 31_007),
+        (center[0], center[1]),
+        0.6,
+        0.4 / views as f64,
+    );
+    let observed = planar::project_views_noisy(
+        &truth.build().expect("camera"),
+        &planar::grid_points(nx, ny, spacing),
+        &board_poses,
+        &UniformPixelNoise {
+            seed: 1000,
+            max_abs_px: 0.5 * 3.0_f64.sqrt(),
+        },
+    )
+    .expect("views");
+    let dataset = PlanarDataset::new(observed.into_iter().map(View::without_meta).collect())
+        .expect("dataset");
+
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session.set_input(dataset).expect("input");
+    session.set_config(tilted_config()).expect("config");
+    let mut seed = IntrinsicsManualInit::default();
+    seed.sensor = Some(gt_sensor);
+    let init = step_init_with_seed(&mut session, seed, None).expect("seeded init");
+    assert!(
+        (init.camera.intrinsics.cy - 480.0).abs() < 100.0,
+        "initial cy {:.1}",
+        init.camera.intrinsics.cy
+    );
+    step_optimize(&mut session, None).expect("optimize");
+
+    let result = session.output().expect("output");
+    let vision_calibration::core::SensorParams::Scheimpflug { params } =
+        result.params.camera.sensor
+    else {
+        panic!("a tilted camera");
+    };
+    assert!(
+        (params.tilt_x - gt_sensor.tilt_x).abs() < 0.005,
+        "tilt_x {:.4}",
+        params.tilt_x
+    );
+    assert!(
+        (result.params.camera.intrinsics.fx - 1000.0).abs() < 5.0,
+        "fx {:.2}",
+        result.params.camera.intrinsics.fx
+    );
+    assert!(
+        result.uncertainty.covariance().is_some(),
+        "{:?}",
+        result.uncertainty
+    );
+}
+
 #[test]
 fn public_api_converges_on_synthetic_scheimpflug_dataset() {
     let sensor_gt = ScheimpflugParams {

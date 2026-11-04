@@ -1,39 +1,25 @@
 //! Intermediate state for planar intrinsics calibration.
 //!
-//! This module defines `PlanarState`, which holds intermediate results
-//! computed during the calibration pipeline (homographies, initial estimates, etc.).
+//! This module defines `PlanarState`, which holds the results of the steps
+//! between the input and the output: the initial estimates and the solve's
+//! metrics.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{CameraModelSpec, CameraParams, Iso3, Mat3};
+use vision_calibration_core::{CameraModelSpec, CameraParams, Iso3};
 use vision_calibration_optim::PlanarIntrinsicsParams;
 
 use crate::planar_family::convert_distortion;
 
-/// Intermediate state for planar intrinsics calibration.
-///
-/// Stores by-products of the calibration pipeline including:
-/// - Homographies from pattern detection
-/// - Initial estimates from linear initialization
-/// - Metrics from optimization
-///
-/// This struct is updated by step functions as the calibration progresses.
+/// Intermediate state for planar intrinsics calibration: the initial
+/// estimates of `step_init` and the metrics of `step_optimize`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct PlanarState {
     // ─────────────────────────────────────────────────────────────────────────
-    // From homography computation
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Homographies for each view (board_2d -> pixel_2d). Set by the
-    /// untilted pinhole initialization; the others estimate none.
-    pub homographies: Option<Vec<Mat3>>,
-
-    // ─────────────────────────────────────────────────────────────────────────
     // From initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial camera.
+    /// Initial camera, in the model the config named at `step_init`.
     ///
-    /// Its distortion holds the linear stage's coefficients (Brown-Conrady
-    /// for a pinhole camera), not necessarily in the configured model: the
-    /// distortion **model** lives in the config, so a `set_config(model)`
+    /// The distortion **model** lives in the config, so a `set_config(model)`
     /// between init and optimize is honoured — [`Self::initial_params`]
     /// converts the coefficients by name. A change of projection or sensor
     /// needs a new init.

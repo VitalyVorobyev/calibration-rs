@@ -57,6 +57,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact. In Python, `mvg.triangulate_laser(result, observations,
   mvg.RobotCaptures("gripper"))`.
 
+### Changed
+
+- **Planar intrinsics initializes its camera as every other workflow does**
+  (a changed result for one seed combination). A tilted (Scheimpflug)
+  camera seeded with its tilt but not its intrinsics now fits the
+  intrinsics, distortion and poses at the seeded tilt, as single-camera
+  hand-eye, the laserline device and the rigs already did; before, they were
+  fitted at the tilt of an unseeded sweep, which the seed then replaced. On
+  synthetic cameras tilted by 0.20 rad (11°) and seeded within 0.05 rad, the
+  solve reaches the true tilt with its covariance in 20 of 20 noise draws
+  instead of 3 (the old start put the principal point about 200 px off and
+  the solve ended on its bound); at 0.05 rad the results agree to 0.5 % of
+  their error. Of 12 real Scheimpflug cameras seeded with their mount tilt
+  alone, 11 meet their reprojection gate instead of 10 and 9 reach the
+  result of the full device seed instead of 7. One camera that the old start
+  calibrated now ends on the tilt bound, and with strong barrel distortion
+  (`k1 = -0.30`) one noise draw in 20 starts from a degenerate linear fit.
+  Every other seed combination, the unseeded init and the recommended full
+  device seed give the same result as before.
+- **A zero tilt seed is accepted for an untilted camera** in
+  `planar_intrinsics::step_init_with_seed`, as in the other workflows: it is
+  the identity a device specification gives a frontal camera. A non-zero
+  tilt is still an `InvalidInput`. A seed that does not fit the camera is
+  rejected before any work, and an init failure is logged for every camera
+  model. The init log of a tilted camera reports `cx`, `cy` like any other.
+  A step override of zero init iterations runs for a tilted camera as it
+  does for an untilted one (the linear fit without its distortion rounds)
+  instead of failing.
+- **The planar intrinsics session state no longer keeps the per-view
+  homographies**, and its initial camera holds the distortion in the
+  configured model. Session files written before load unchanged.
+
 ### Added
 
 - **The covariance of the robust relative pose and essential matrix.**

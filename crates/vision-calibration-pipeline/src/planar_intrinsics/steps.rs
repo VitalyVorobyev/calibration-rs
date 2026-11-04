@@ -2,22 +2,17 @@
 //!
 //! This module provides step functions that operate on
 //! `CalibrationSession<PlanarIntrinsicsProblem>` to perform calibration.
-//! They serve every camera model the config names; a tilted (Scheimpflug)
-//! sensor adds its own initialization and a staged solve, described at
-//! [`step_init_with_seed`] and [`step_optimize`].
+//! They serve every camera model the config names: the camera is initialized
+//! as in every other workflow (see [`step_init_with_seed`]), and a tilted
+//! (Scheimpflug) sensor adds a staged solve, described at [`step_optimize`].
 //! [`PlanarIntrinsicsProblem`](super::PlanarIntrinsicsProblem) has a
 //! runnable example of the sequence.
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFix, CameraParams, CameraProject, CorrespondenceView, DistortionKind,
-    DistortionParams, FxFyCxCy, Iso3, Mat3, PlanarDataset, ProjectionKind, ProjectionParams, Real,
-    ScheimpflugParams, SensorKind, SensorParams, View,
-};
-use vision_calibration_linear::scheimpflug_init::{
-    ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
-    estimate_scheimpflug_intrinsics_iterative,
+    CameraFix, CameraParams, CameraProject, CorrespondenceView, DistortionKind, DistortionParams,
+    FxFyCxCy, Iso3, PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
@@ -26,9 +21,7 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{
-    CameraSeed, Provenance, bootstrap_camera, bootstrap_planar_intrinsics, check_distortion_seed,
-    estimate_view_homographies, recover_planar_poses_from_homographies, unsupported_projection,
-    unsupported_sensor,
+    CameraSeed, Provenance, bootstrap_camera, check_camera_seed, unsupported_sensor,
 };
 use crate::session::CalibrationSession;
 
@@ -60,6 +53,9 @@ use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 /// kind must equal `camera.model.distortion` (a typed error otherwise). It is
 /// used as given — no coefficient is converted, and the tilted sensor's
 /// tangential zeroing applies only to the auto-fit.
+///
+/// The tilt seed fits any camera when it is zero (the identity a device spec
+/// gives a frontal camera); a non-zero tilt needs a Scheimpflug sensor.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IntrinsicsManualInit {
@@ -69,10 +65,12 @@ pub struct IntrinsicsManualInit {
     /// means auto-init (or zeros when intrinsics are also seeded — see struct
     /// docs).
     pub distortion: Option<DistortionParams>,
-    /// Manual sensor tilt, for a camera whose model has a Scheimpflug sensor
-    /// (a typed error otherwise). `None` starts from the auto-fit tilt (zero
-    /// when intrinsics are seeded). A seeded tilt is trusted: `step_optimize`
-    /// refines it directly instead of running the multi-start tilt sweep.
+    /// Manual sensor tilt of a Scheimpflug camera; an untilted camera takes
+    /// only a zero tilt (a typed error otherwise). `None` starts from the
+    /// auto-fit tilt (zero when intrinsics are seeded). A seeded tilt is used
+    /// as given: with auto-fitted intrinsics the linear stage fits them at
+    /// that tilt instead of sweeping the tilt, and `step_optimize` refines it
+    /// directly instead of running the multi-start tilt sweep.
     pub sensor: Option<ScheimpflugParams>,
     /// Manual per-view poses (camera-from-target). `None` means recover from
     /// homographies using whichever intrinsics are in effect.
@@ -156,7 +154,8 @@ pub struct IntrinsicsOptimizeResult {
 /// - `distortion`: `Some` overrides the bootstrap's fitted distortion; `None` keeps
 ///   the bootstrap value (or zeros when intrinsics are seeded and the bootstrap
 ///   doesn't run). The seed's kind must equal the camera's distortion kind.
-/// - `sensor`: Scheimpflug sensor only — see [`IntrinsicsManualInit::sensor`].
+/// - `sensor`: a Scheimpflug sensor's tilt (zero for any other camera) — see
+///   [`IntrinsicsManualInit::sensor`].
 /// - `poses`: `Some` uses the seed verbatim (count must match view count); `None`
 ///   recovers poses from homographies (bearings for an equidistant camera) using
 ///   the in-effect intrinsics — manual when seeded, auto otherwise.
@@ -172,84 +171,74 @@ pub struct IntrinsicsOptimizeResult {
 /// # Errors
 ///
 /// - Input not set, or fewer than 3 views.
-/// - `manual.sensor` is `Some` but the camera's sensor is not Scheimpflug.
+/// - `manual.sensor` is a non-zero tilt and the camera's sensor is not
+///   Scheimpflug.
 /// - `manual.distortion` is `Some` and of another kind than the camera's
 ///   distortion model.
-/// - `init.iterations == 0` when running the bootstrap auto-fit.
-/// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
+/// - The views do not determine the intrinsics, or a homography or the
+///   auto-init computation fails.
 pub fn step_init_with_seed(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<IntrinsicsInitResult, Error> {
     session.validate()?;
+    let dataset = session.require_input()?;
     let model = session.config.camera.model;
-    if manual.sensor.is_some() && model.sensor != SensorKind::Scheimpflug {
-        let msg = format!(
-            "a sensor tilt seed needs a Scheimpflug camera; the configured sensor is {:?}",
-            model.sensor
-        );
-        session.log_failure("init", msg.clone());
-        return Err(Error::invalid_input(msg));
-    }
-    if let Some(distortion) = &manual.distortion
-        && let Err(e) = check_distortion_seed(distortion, model, "distortion")
-    {
-        session.log_failure("init", e.to_string());
-        return Err(e);
-    }
-    match (model.projection, model.sensor) {
-        (ProjectionKind::Pinhole, SensorKind::Identity) => init_untilted(session, manual, opts),
-        (ProjectionKind::Pinhole, SensorKind::Scheimpflug) => init_tilted(session, manual, opts),
-        (ProjectionKind::Equidistant, _) => init_fisheye(session, manual),
-        (ProjectionKind::Pinhole, other) => Err(unsupported_sensor(other)),
-        (other, _) => Err(unsupported_projection(other)),
-    }
-}
-
-/// Equidistant (fisheye) camera: the bearing-based initializer, or the
-/// seeds, through the per-camera bootstrap every workflow shares.
-fn init_fisheye(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    manual: IntrinsicsManualInit,
-) -> Result<IntrinsicsInitResult, Error> {
-    let dataset = session.require_input()?.clone();
-    let model = session.config.camera.model;
-    if let Some(p) = &manual.poses
-        && p.len() != dataset.num_views()
-    {
-        let msg = format!(
-            "manual poses count ({}) does not match view count ({})",
-            p.len(),
-            dataset.num_views()
-        );
-        session.log_failure("init", msg.clone());
-        return Err(Error::invalid_input(msg));
-    }
     let seed = CameraSeed {
         intrinsics: manual.intrinsics,
         distortion: manual.distortion,
-        sensor: None,
+        sensor: manual.sensor,
     };
-    let bootstrap = match bootstrap_camera(0, model, &dataset, &seed, session.config.init_opts()) {
+    if let Err(e) = check_camera_seed(
+        model,
+        &seed,
+        manual.poses.as_deref(),
+        "poses",
+        dataset.num_views(),
+    ) {
+        session.log_failure("init", e.to_string());
+        return Err(e);
+    }
+    let init_opts = session
+        .config
+        .init_opts(opts.unwrap_or_default().iterations);
+    let bootstrap = match bootstrap_camera(0, model, dataset, &seed, init_opts) {
         Ok(b) => b,
         Err(e) => {
             session.log_failure("init", e.to_string());
             return Err(e);
         }
     };
-    let mut provenance = Provenance::default();
-    provenance.note("intrinsics", seed.intrinsics.is_some());
-    provenance.note("distortion", seed.distortion.is_some());
+    let mut provenance = Provenance::of_camera_seed(model, &seed);
     provenance.note("poses", manual.poses.is_some());
+    let tilted = model.sensor == SensorKind::Scheimpflug;
+    // From-scratch (no intrinsics seed) Scheimpflug auto-init is experimental — it
+    // can land in a wrong tilt/focal basin under the tilt↔focal↔distortion
+    // degeneracy. The supported path seeds a coarse focal + nominal mount tilt.
+    let experimental = if tilted && seed.intrinsics.is_none() {
+        " — WARNING: from-scratch Scheimpflug auto-init is experimental and may \
+         converge to a wrong tilt/focal basin; seed a coarse focal + nominal mount \
+         tilt via step_init_with_seed for stable results"
+    } else {
+        ""
+    };
+
+    let camera = bootstrap.camera;
     let poses = manual.poses.unwrap_or(bootstrap.poses);
-    let k = bootstrap.camera.intrinsics;
-    record_init(session, bootstrap.camera, poses, false, None);
+    let state = &mut session.state;
+    state.initial_camera = Some(camera.clone());
+    // A user-provided tilt seed is trusted directly by `step_optimize`.
+    state.initial_sensor_manual = tilted && seed.sensor.is_some();
+    state.initial_poses = Some(poses.clone());
+    state.clear_optimization();
+
+    let k = camera.intrinsics;
     session.log_success_with_notes(
         "init",
         format!(
-            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
+            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}{experimental}",
             k.fx,
             k.fy,
             k.cx,
@@ -257,366 +246,7 @@ fn init_fisheye(
             provenance.source()
         ),
     );
-    init_result(session)
-}
-
-/// Store an initialization in the session state, clearing any previous
-/// optimization.
-fn record_init(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    camera: CameraParams,
-    poses: Vec<Iso3>,
-    sensor_manual: bool,
-    homographies: Option<Vec<Mat3>>,
-) {
-    session.state.homographies = homographies;
-    session.state.initial_camera = Some(camera);
-    session.state.initial_sensor_manual = sensor_manual;
-    session.state.initial_poses = Some(poses);
-    session.state.clear_optimization();
-}
-
-/// The initialization just recorded, in the configured model.
-fn init_result(
-    session: &CalibrationSession<PlanarIntrinsicsProblem>,
-) -> Result<IntrinsicsInitResult, Error> {
-    let params = session
-        .state
-        .initial_params(session.config.camera.model)
-        .ok_or_else(|| Error::numerical("the initial camera does not fit its poses"))?;
-    Ok(IntrinsicsInitResult {
-        camera: params.camera,
-        poses: params.camera_se3_target,
-    })
-}
-
-/// The distortion of a camera with seeded intrinsics and no distortion seed:
-/// zero (state conversion expresses it in the configured kind).
-fn zero_distortion() -> DistortionParams {
-    fitted_distortion(BrownConrady5::default())
-}
-
-/// The linear stage's fitted Brown-Conrady coefficients; state conversion
-/// embeds them in the configured kind.
-fn fitted_distortion(fitted: BrownConrady5<Real>) -> DistortionParams {
-    DistortionParams::BrownConrady5 { params: fitted }
-}
-
-/// Untilted camera: Zhang's method with iterative distortion.
-fn init_untilted(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    manual: IntrinsicsManualInit,
-    opts: Option<IntrinsicsInitOptions>,
-) -> Result<IntrinsicsInitResult, Error> {
-    let input = session.require_input()?;
-
-    let opts = opts.unwrap_or_default();
-    let mut init_opts = session.config.init_opts().pinhole;
-    if let Some(iters) = opts.iterations {
-        init_opts.iterations = iters;
-    }
-
-    let mut provenance = Provenance::default();
-
-    let (intrinsics, distortion, homographies, poses) = if let Some(k) = manual.intrinsics {
-        provenance.note("intrinsics", true);
-
-        let dist = match manual.distortion {
-            Some(d) => {
-                provenance.note("distortion", true);
-                d
-            }
-            None => {
-                provenance.note("distortion", false);
-                zero_distortion()
-            }
-        };
-
-        let homographies = match estimate_view_homographies(input) {
-            Ok(hs) => hs,
-            Err(e) => {
-                session.log_failure("init", e.to_string());
-                return Err(e);
-            }
-        };
-
-        let poses = match manual.poses {
-            Some(p) => {
-                provenance.note("poses", true);
-                if p.len() != input.num_views() {
-                    let msg = format!(
-                        "manual poses count ({}) does not match view count ({})",
-                        p.len(),
-                        input.num_views()
-                    );
-                    session.log_failure("init", msg.clone());
-                    return Err(Error::invalid_input(msg));
-                }
-                p
-            }
-            None => {
-                provenance.note("poses", false);
-                match recover_planar_poses_from_homographies(&homographies, &k) {
-                    Ok(ps) => ps,
-                    Err(e) => {
-                        session.log_failure("init", e.to_string());
-                        return Err(e);
-                    }
-                }
-            }
-        };
-
-        (k, dist, homographies, poses)
-    } else {
-        provenance.note("intrinsics", false);
-
-        let bootstrap = match bootstrap_planar_intrinsics(input, init_opts) {
-            Ok(b) => b,
-            Err(e) => {
-                session.log_failure("init", e.to_string());
-                return Err(e);
-            }
-        };
-
-        let dist = match manual.distortion {
-            Some(d) => {
-                provenance.note("distortion", true);
-                d
-            }
-            None => {
-                provenance.note("distortion", false);
-                fitted_distortion(bootstrap.camera.dist)
-            }
-        };
-
-        let poses = match manual.poses {
-            Some(p) => {
-                provenance.note("poses", true);
-                if p.len() != input.num_views() {
-                    let msg = format!(
-                        "manual poses count ({}) does not match view count ({})",
-                        p.len(),
-                        input.num_views()
-                    );
-                    session.log_failure("init", msg.clone());
-                    return Err(Error::invalid_input(msg));
-                }
-                p
-            }
-            None => {
-                provenance.note("poses", false);
-                bootstrap.poses
-            }
-        };
-
-        (bootstrap.camera.k, dist, bootstrap.homographies, poses)
-    };
-
-    let camera = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion,
-        sensor: SensorParams::Identity,
-        intrinsics,
-    };
-    record_init(session, camera, poses, false, Some(homographies));
-
-    let source = provenance.source();
-    session.log_success_with_notes(
-        "init",
-        format!(
-            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
-            intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy, source
-        ),
-    );
-
-    init_result(session)
-}
-
-/// Tilted (Scheimpflug) camera: the tilted linear bootstrap, or the seeds.
-fn init_tilted(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    manual: IntrinsicsManualInit,
-    opts: Option<IntrinsicsInitOptions>,
-) -> Result<IntrinsicsInitResult, Error> {
-    let dataset = session.require_input()?.clone();
-
-    let opts = opts.unwrap_or_default();
-    let mut init_iterations = session.config.init.iterations;
-    if let Some(iterations) = opts.iterations {
-        init_iterations = iterations;
-    }
-
-    let mut provenance = Provenance::default();
-
-    // A user-provided tilt seed is trusted directly by `step_optimize`.
-    let sensor_manual = manual.sensor.is_some();
-    // From-scratch (no intrinsics seed) Scheimpflug auto-init is experimental — it
-    // can land in a wrong tilt/focal basin under the tilt↔focal↔distortion
-    // degeneracy. The supported path seeds a coarse focal + nominal mount tilt.
-    let intrinsics_seeded = manual.intrinsics.is_some();
-
-    let (intrinsics, distortion, sensor, poses) = if let Some(k) = manual.intrinsics {
-        provenance.note("intrinsics", true);
-
-        let manual_dist = manual.distortion;
-
-        let sensor = match manual.sensor {
-            Some(s) => {
-                provenance.note("sensor", true);
-                s
-            }
-            None => {
-                provenance.note("sensor", false);
-                ScheimpflugParams::default()
-            }
-        };
-
-        let (dist, poses) = match manual.poses {
-            Some(p) => {
-                provenance.note("poses", true);
-                if p.len() != dataset.num_views() {
-                    let msg = format!(
-                        "manual poses count ({}) does not match view count ({})",
-                        p.len(),
-                        dataset.num_views()
-                    );
-                    session.log_failure("init", msg.clone());
-                    return Err(Error::invalid_input(msg));
-                }
-                // Manual poses: use manual or default distortion unchanged.
-                if manual_dist.is_some() {
-                    provenance.note("distortion", true);
-                } else {
-                    provenance.note("distortion", false);
-                }
-                (manual_dist.unwrap_or_else(zero_distortion), p)
-            }
-            None => {
-                provenance.note("poses", false);
-                // Recover initial poses from board→pixel homographies. Use the
-                // seeded intrinsics as the K matrix for decomposition. Distortion
-                // and tilt effects in the homography are absorbed by the biased
-                // pose estimate; the joint optimizer in step_optimize corrects
-                // them.
-                let raw_homographies = estimate_view_homographies(&dataset).map_err(|e| {
-                    Error::numerical(format!(
-                        "scheimpflug intrinsics homography estimation failed: {e}"
-                    ))
-                })?;
-                let poses =
-                    recover_planar_poses_from_homographies(&raw_homographies, &k).map_err(|e| {
-                        Error::numerical(format!(
-                            "scheimpflug intrinsics pose recovery failed: {e}"
-                        ))
-                    })?;
-                let dist = match manual_dist {
-                    Some(d) => {
-                        provenance.note("distortion", true);
-                        d
-                    }
-                    None => {
-                        provenance.note("distortion", false);
-                        zero_distortion()
-                    }
-                };
-                (dist, poses)
-            }
-        };
-
-        (k, dist, sensor, poses)
-    } else {
-        if init_iterations == 0 {
-            return Err(Error::invalid_input("init.iterations must be positive"));
-        }
-        provenance.note("intrinsics", false);
-
-        let bootstrap = estimate_scheimpflug_intrinsics_iterative(
-            &dataset,
-            LinearScheimpflugIntrinsicsInitOptions {
-                iterations: init_iterations,
-                distortion_opts: session
-                    .config
-                    .init
-                    .distortion_fit_opts(&session.config.camera),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| Error::linear_init("scheimpflug intrinsics initialization failed", e))?;
-
-        let dist = match manual.distortion {
-            Some(d) => {
-                provenance.note("distortion", true);
-                d
-            }
-            None => {
-                provenance.note("distortion", false);
-                fitted_distortion(bootstrap.camera.dist)
-            }
-        };
-
-        let sensor = match manual.sensor {
-            Some(s) => {
-                provenance.note("sensor", true);
-                s
-            }
-            None => {
-                provenance.note("sensor", false);
-                bootstrap.sensor
-            }
-        };
-
-        let poses = match manual.poses {
-            Some(p) => {
-                provenance.note("poses", true);
-                if p.len() != dataset.num_views() {
-                    let msg = format!(
-                        "manual poses count ({}) does not match view count ({})",
-                        p.len(),
-                        dataset.num_views()
-                    );
-                    session.log_failure("init", msg.clone());
-                    return Err(Error::invalid_input(msg));
-                }
-                p
-            }
-            None => {
-                provenance.note("poses", false);
-                bootstrap.poses
-            }
-        };
-
-        (bootstrap.camera.k, dist, sensor, poses)
-    };
-
-    let camera = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion,
-        sensor: SensorParams::Scheimpflug { params: sensor },
-        intrinsics,
-    };
-    record_init(session, camera, poses, sensor_manual, None);
-
-    let source = provenance.source();
-    let experimental = if intrinsics_seeded {
-        ""
-    } else {
-        " — WARNING: from-scratch Scheimpflug auto-init is experimental and may \
-         converge to a wrong tilt/focal basin; seed a coarse focal + nominal mount \
-         tilt via step_init_with_seed for stable results"
-    };
-    session.log_success_with_notes(
-        "init",
-        format!(
-            "fx={:.1}, fy={:.1}, views={} {}{}",
-            intrinsics.fx,
-            intrinsics.fy,
-            dataset.num_views(),
-            source,
-            experimental
-        ),
-    );
-
-    init_result(session)
+    Ok(IntrinsicsInitResult { camera, poses })
 }
 
 /// Initialize intrinsics and poses from observations using full auto-init.
@@ -629,7 +259,7 @@ fn init_tilted(
 /// For a Scheimpflug sensor this from-scratch init is **experimental**; prefer
 /// [`step_init_with_seed`] with a coarse focal plus the nominal mount tilt.
 ///
-/// Updates `session.state` with intermediate results (homographies, initial estimates).
+/// Updates `session.state` with the initial estimates.
 ///
 /// # Arguments
 ///
@@ -1159,7 +789,6 @@ mod tests {
         step_init(&mut session, None).unwrap();
 
         assert!(session.state.is_initialized());
-        assert!(session.state.homographies.is_some());
         assert_eq!(session.state.initial_poses.as_ref().unwrap().len(), 4);
 
         // Check intrinsics are reasonable
@@ -1477,7 +1106,6 @@ mod tests {
             init.camera.sensor,
             SensorParams::Scheimpflug { .. }
         ));
-        assert!(session.state.homographies.is_none());
         assert!(
             log_has_experimental_warning(&session),
             "from-scratch auto-init should log the experimental warning"
@@ -1635,15 +1263,42 @@ mod tests {
     }
 
     #[test]
-    fn sensor_seed_needs_a_scheimpflug_camera() {
+    fn nonzero_sensor_seed_needs_a_scheimpflug_camera() {
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(make_test_dataset()).unwrap();
+        let manual = IntrinsicsManualInit {
+            sensor: Some(ScheimpflugParams {
+                tilt_x: 0.02,
+                tilt_y: 0.0,
+            }),
+            ..Default::default()
+        };
+        let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
+        assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
+        assert!(err.to_string().contains("Scheimpflug camera"), "{err}");
+    }
+
+    /// A zero tilt is the identity a device spec gives a frontal camera: it
+    /// seeds an untilted camera as a no-op, as in every other workflow.
+    #[test]
+    fn zero_sensor_seed_of_an_untilted_camera_is_a_no_op() {
+        let mut auto = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        auto.set_input(make_test_dataset()).unwrap();
+        let expected = step_init(&mut auto, None).unwrap();
+
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
         let manual = IntrinsicsManualInit {
             sensor: Some(ScheimpflugParams::default()),
             ..Default::default()
         };
-        let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
-        assert!(err.to_string().contains("Scheimpflug camera"), "{err}");
+        let init = step_init_with_seed(&mut session, manual, None).unwrap();
+        assert!(!session.state.initial_sensor_manual);
+        assert!(matches!(init.camera.sensor, SensorParams::Identity));
+        assert_eq!(
+            serde_json::to_value(&init).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
     }
 
     #[test]
