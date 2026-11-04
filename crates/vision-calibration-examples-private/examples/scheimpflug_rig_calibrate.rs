@@ -42,6 +42,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use vision_calibration::common::HandeyeSolution;
 use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
     device_seed::{self, DEVICE_SPEC_FILENAME, DeviceSpec},
@@ -53,17 +54,16 @@ use vision_calibration::{
 };
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind,
-    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, Iso3, PixelRect, Pt2, RigDataset, RigView, RigViewObs,
-    LaserPlane, ScheimpflugParams, SensorKind,
+    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, Iso3, LaserPlane, PixelRect, Pt2,
+    RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind,
 };
 use vision_calibration_examples_private::{
     PoseEntry, camera_parts, detect_charuco, detect_laser, load_gray, load_poses, split_horizontal,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandeyeMode, LaserlineResidualType,
-    RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams, RigHandeyeLaserlineView,
-    RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
-    evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
+    BackendSolveOptions, HandeyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset,
+    RigHandeyeLaserlineParams, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
+    RobotPoseMeta, RobustLoss, evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
 };
 
 const NUM_CAMERAS: usize = 6;
@@ -74,7 +74,8 @@ const DICTIONARY: &str = "DICT_4X4_1000";
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("SCHEIMPFLUG_RIG_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_DATA_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig".to_string()),
     );
     let cell_size_mm: f64 = std::env::var("CELL_SIZE_MM")
         .ok()
@@ -132,7 +133,8 @@ fn main() -> Result<()> {
 
     // ─── Stage 2: rig + scheimpflug + hand-eye ─────────────────────────────
     let handeye_dataset = RigDataset::new(detected.handeye_views.clone(), NUM_CAMERAS)?;
-    let mut rig_session = CalibrationSession::<RigHandeyeProblem>::with_description("scheimpflug_rig_calibrate");
+    let mut rig_session =
+        CalibrationSession::<RigHandeyeProblem>::with_description("scheimpflug_rig_calibrate");
     rig_session.set_input(handeye_dataset)?;
 
     let manual_init = match &spec {
@@ -283,14 +285,19 @@ fn main() -> Result<()> {
     for (i, err) in rig_export.per_cam_reproj_errors.iter().enumerate() {
         println!("    camera {i}: {err:.4} px");
     }
-    if let Some(he) = &rig_export.gripper_se3_rig {
-        println!(
+    match rig_export.handeye {
+        HandeyeSolution::EyeInHand {
+            gripper_se3_rig, ..
+        } => println!(
             "  gripper_se3_rig: |t|={:.4} m",
-            he.translation.vector.norm()
-        );
-    }
-    if let Some(he) = &rig_export.rig_se3_base {
-        println!("  rig_se3_base: |t|={:.4} m", he.translation.vector.norm());
+            gripper_se3_rig.translation.vector.norm()
+        ),
+        HandeyeSolution::EyeToHand { rig_se3_base, .. } => {
+            println!(
+                "  rig_se3_base: |t|={:.4} m",
+                rig_se3_base.translation.vector.norm()
+            )
+        }
     }
 
     // ─── Stage 3: rig laserline calibration (needs laser images) ───────────
@@ -315,25 +322,15 @@ fn main() -> Result<()> {
         let mut rig_se3_target = Vec::new();
         for &pose_idx in &detected.laser_pose_indices {
             let base_se3_gripper = poses[pose_idx].base_se3_gripper();
-            let rt = match rig_export.handeye_mode {
-                HandeyeMode::EyeInHand => {
-                    let gripper_se3_rig = rig_export
-                        .gripper_se3_rig
-                        .expect("EyeInHand missing gripper_se3_rig");
-                    let base_se3_target = rig_export
-                        .base_se3_target
-                        .expect("EyeInHand missing base_se3_target");
-                    gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target
-                }
-                HandeyeMode::EyeToHand => {
-                    let rig_se3_base = rig_export
-                        .rig_se3_base
-                        .expect("EyeToHand missing rig_se3_base");
-                    let gripper_se3_target = rig_export
-                        .gripper_se3_target
-                        .expect("EyeToHand missing gripper_se3_target");
-                    rig_se3_base * base_se3_gripper * gripper_se3_target
-                }
+            let rt = match rig_export.handeye {
+                HandeyeSolution::EyeInHand {
+                    gripper_se3_rig,
+                    base_se3_target,
+                } => gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target,
+                HandeyeSolution::EyeToHand {
+                    rig_se3_base,
+                    gripper_se3_target,
+                } => rig_se3_base * base_se3_gripper * gripper_se3_target,
             };
             rig_se3_target.push(rt);
         }
@@ -347,8 +344,9 @@ fn main() -> Result<()> {
             initial_planes_cam: None,
         };
 
-        let mut laser_session =
-            CalibrationSession::<RigLaserlineDeviceProblem>::with_description("scheimpflug_rig_laser");
+        let mut laser_session = CalibrationSession::<RigLaserlineDeviceProblem>::with_description(
+            "scheimpflug_rig_laser",
+        );
         laser_session.set_input(laserline_input)?;
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
         laser_cfg.solver.max_iters = 200;
@@ -378,24 +376,10 @@ fn main() -> Result<()> {
         let joint_dataset = RigHandeyeLaserlineDataset::new(
             detected.joint_views.clone(),
             NUM_CAMERAS,
-            rig_export.handeye_mode,
+            rig_export.handeye.mode(),
         )?;
-        let handeye = match rig_export.handeye_mode {
-            HandeyeMode::EyeInHand => rig_export
-                .gripper_se3_rig
-                .expect("EyeInHand missing gripper_se3_rig"),
-            HandeyeMode::EyeToHand => rig_export
-                .rig_se3_base
-                .expect("EyeToHand missing rig_se3_base"),
-        };
-        let target_ref = match rig_export.handeye_mode {
-            HandeyeMode::EyeInHand => rig_export
-                .base_se3_target
-                .expect("EyeInHand missing base_se3_target"),
-            HandeyeMode::EyeToHand => rig_export
-                .gripper_se3_target
-                .expect("EyeToHand missing gripper_se3_target"),
-        };
+        let handeye = *rig_export.handeye.handeye().pose();
+        let target_ref = *rig_export.handeye.target_pose();
         let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
         let joint_initial = RigHandeyeLaserlineParams {
             cameras: rig_export.cameras.clone(),
@@ -654,8 +638,8 @@ fn build_intrinsics_seed(
     match seed_mode {
         "generic" => {}
         "oracle" => {
-            let oracle =
-                oracle.ok_or_else(|| anyhow!("SCHEIMPFLUG_RIG_SEED=oracle requires artifacts.json"))?;
+            let oracle = oracle
+                .ok_or_else(|| anyhow!("SCHEIMPFLUG_RIG_SEED=oracle requires artifacts.json"))?;
             for (i, cam) in oracle.cameras.iter().enumerate().take(NUM_CAMERAS) {
                 // The oracle's cam 5 is degenerate (fx=51) — keep the generic
                 // seed there.

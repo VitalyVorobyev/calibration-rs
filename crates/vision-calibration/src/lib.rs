@@ -181,8 +181,9 @@ pub mod control {
 pub mod common {
     pub use vision_calibration_pipeline::common::{
         CalibratedCameras, ExportDiagnostics, ExportKind, HandeyeEstimate, HandeyeInitOptions,
-        HandeyeOptimizeOptions, HandeyeParams, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
-        RigInitOptions, RigLaserlineView, RigOptimizeOptions, RobotPoseMeta, calibrated_cameras,
+        HandeyeOptimizeOptions, HandeyeParams, HandeyeSolution, IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions, RigInitOptions, RigLaserlineView, RigOptimizeOptions,
+        RobotPoseMeta, calibrated_cameras,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -281,7 +282,7 @@ pub mod single_cam_handeye {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::single_cam_handeye::{
         SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
-        SingleCamHandeyeProblem,
+        SingleCamHandeyeProblem, SingleCamHandeyeSolution,
     };
 
     // Input views

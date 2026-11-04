@@ -231,15 +231,10 @@ fn check_manual_init(
             ));
         }
         let mode = config.handeye.handeye_init.handeye_mode;
-        if export.handeye_mode != mode {
+        if export.handeye.mode() != mode {
             return fail(format!(
-                "handeye_mode {:?}, the config's handeye.handeye_init.handeye_mode is {mode:?}",
-                export.handeye_mode
-            ));
-        }
-        if let (None, _) | (_, None) = export.mode_poses() {
-            return fail(format!(
-                "{mode:?} export lacks its hand-eye transform or target reference pose"
+                "handeye.mode {:?}, the config's handeye.handeye_init.handeye_mode is {mode:?}",
+                export.handeye.mode()
             ));
         }
     }
@@ -271,12 +266,8 @@ fn joint_initial_from_exports(
     rig_export: &RigHandeyeExport,
     laser_export: &crate::rig_laserline_device::RigLaserlineDeviceExport,
 ) -> Result<RigHandeyeLaserlineParams, Error> {
-    let (Some(handeye), Some(target_ref)) = rig_export.mode_poses() else {
-        return Err(Error::invalid_input(format!(
-            "{:?} export lacks its hand-eye transform or target reference pose",
-            rig_export.handeye_mode
-        )));
-    };
+    let handeye = *rig_export.handeye.handeye().pose();
+    let target_ref = *rig_export.handeye.target_pose();
     Ok(RigHandeyeLaserlineParams {
         cameras: rig_export.cameras.clone(),
         cam_to_rig: inverse_poses(&rig_export.cam_se3_rig),

@@ -117,8 +117,8 @@ fn config(model: CameraModelSpec) -> SingleCamHandeyeConfig {
     config
 }
 
-fn handeye_error(export_x: Option<Iso3>) -> Real {
-    (export_x.unwrap().translation.vector - gripper_se3_camera().translation.vector).norm()
+fn handeye_error(export_x: Iso3) -> Real {
+    (export_x.translation.vector - gripper_se3_camera().translation.vector).norm()
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn tilted_camera_calibrates_from_a_cold_start() {
         (params.tilt_y - sensor_gt.tilt_y).abs() < 1e-4,
         "{params:?}"
     );
-    assert!(handeye_error(export.gripper_se3_camera) < 1e-4);
+    assert!(handeye_error(*export.handeye.handeye().pose()) < 1e-4);
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn tilt_seed_follows_the_camera_model() {
     step_intrinsics_optimize(&mut session, None).unwrap();
     step_handeye_init(&mut session, None).unwrap();
     step_handeye_optimize(&mut session, None).unwrap();
-    assert!(handeye_error(session.export().unwrap().gripper_se3_camera) < 1e-4);
+    assert!(handeye_error(*session.export().unwrap().handeye.handeye().pose()) < 1e-4);
 
     // An untilted camera takes only a zero tilt.
     let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();

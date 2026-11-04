@@ -35,7 +35,7 @@ describe("detectExportKind", () => {
       detectExportKind({
         kind: "planar_intrinsics",
         cameras: [],
-        handeye_mode: "EyeInHand",
+        handeye: { mode: "EyeInHand" },
       }),
     ).toBe("planar_intrinsics");
   });

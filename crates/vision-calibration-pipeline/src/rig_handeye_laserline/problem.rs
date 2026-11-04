@@ -2,7 +2,7 @@
 
 use crate::Error;
 use crate::common::config::{RobotPoseConfig, SolverConfig, check_laser_residual};
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ExportKind, HandeyeSolution};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,7 @@ use vision_calibration_optim::{
     RobustLoss, compute_rig_laserline_feature_residuals, handeye_observer_se3_target,
 };
 
-use crate::rig_family::{
-    handeye_export_poses, inverse_poses, per_camera_histograms, rig_target_residuals,
-};
+use crate::rig_family::{inverse_poses, per_camera_histograms, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeLaserlineState;
@@ -201,32 +199,8 @@ pub struct RigHandeyeLaserlineExport {
         schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
     )]
     pub rig_se3_target: Vec<Iso3>,
-    /// Hand-eye mode used to interpret mode-dependent transforms.
-    pub handeye_mode: HandeyeMode,
-    /// Eye-in-hand hand-eye transform `gripper_se3_rig`.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub gripper_se3_rig: Option<Iso3>,
-    /// Eye-to-hand hand-eye transform `rig_se3_base`.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub rig_se3_base: Option<Iso3>,
-    /// Eye-in-hand target reference pose `base_se3_target`.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub base_se3_target: Option<Iso3>,
-    /// Eye-to-hand target reference pose `gripper_se3_target`.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub gripper_se3_target: Option<Iso3>,
+    /// The hand-eye and the target reference pose of the calibration's mode.
+    pub handeye: HandeyeSolution,
     /// Optional optimized robot pose deltas.
     pub robot_deltas: Option<Vec<[Real; 6]>>,
 
@@ -397,8 +371,7 @@ pub(crate) fn export_joint(
     per_feature_residuals.laser = laser.features;
     per_feature_residuals.laser_lines = laser.lines;
 
-    let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) =
-        handeye_export_poses(mode, params.handeye, params.target_ref);
+    let solution = HandeyeSolution::new(mode, params.handeye, params.target_ref);
 
     Ok(RigHandeyeLaserlineExport {
         kind: ExportKind::RigHandeyeLaserline,
@@ -408,11 +381,7 @@ pub(crate) fn export_joint(
         cameras: params.cameras.clone(),
         cam_se3_rig,
         rig_se3_target,
-        handeye_mode: mode,
-        gripper_se3_rig,
-        rig_se3_base,
-        base_se3_target,
-        gripper_se3_target,
+        handeye: solution,
         robot_deltas: estimate.robot_deltas.clone(),
         robot_pose_sigma: estimate.robot_pose_sigma,
         mean_reproj_error: estimate.mean_reproj_error_px,

@@ -185,7 +185,7 @@ fn a_noisy_tilted_camera_goes_through_the_nominal_recovery() {
         let fx_err = (cam.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
         assert!(fx_err < 0.05, "cam{i} fx error {:.3}%", fx_err * 100.0);
     }
-    let handeye = export.gripper_se3_rig.expect("EyeInHand export");
+    let handeye = *export.handeye.handeye().pose();
     let dt = (handeye.translation.vector - handeye_gt.translation.vector).norm();
     assert!(dt < 0.02, "hand-eye translation error {dt:.4} m");
 }

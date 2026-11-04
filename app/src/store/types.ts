@@ -56,8 +56,8 @@ export interface AnyExport {
   /** Present on single_cam_handeye. */
   camera?: CameraWire;
   camera_se3_target?: Iso3Wire[];
-  /** rig_handeye / rig_handeye_laserline / single_cam_handeye carry mode-tagged hand-eye fields. */
-  handeye_mode?: string;
+  /** rig_handeye / rig_handeye_laserline / single_cam_handeye carry the hand-eye, tagged by its `mode`. */
+  handeye?: { mode: string };
   /** Laser rig exports: per-camera laser planes in rig frame. */
   laser_planes_rig?: LaserPlaneWire[];
   /** Laser rig exports: the same planes in each camera's frame. */

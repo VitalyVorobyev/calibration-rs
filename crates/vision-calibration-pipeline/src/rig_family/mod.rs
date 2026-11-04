@@ -487,21 +487,6 @@ pub(crate) fn handeye_solve_opts(
     }
 }
 
-/// The mode-explicit pose fields of a rig hand-eye export —
-/// (`gripper_se3_rig`, `rig_se3_base`, `base_se3_target`,
-/// `gripper_se3_target`) — from the mode's hand-eye transform and target
-/// pose; the other mode's two are `None`.
-pub(crate) fn handeye_export_poses(
-    mode: HandeyeMode,
-    handeye: Iso3,
-    target_pose: Iso3,
-) -> (Option<Iso3>, Option<Iso3>, Option<Iso3>, Option<Iso3>) {
-    match mode {
-        HandeyeMode::EyeInHand => (Some(handeye), None, Some(target_pose), None),
-        HandeyeMode::EyeToHand => (None, Some(handeye), None, Some(target_pose)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

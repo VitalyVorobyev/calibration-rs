@@ -56,6 +56,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the hand-eye with `CalibratedRig::with_handeye`, which then counts as
   exact. In Python, `mvg.triangulate_laser(result, observations,
   mvg.RobotCaptures("gripper"))`.
+- **The hand-eye exports carry their hand-eye as one tagged value**
+  (breaking: the exports' JSON schemas). `SingleCamHandeyeExport`,
+  `RigHandeyeExport` and `RigHandeyeLaserlineExport` no longer have
+  `handeye_mode` and four optional poses; they have `handeye`, which holds
+  exactly the two poses of its mode, tagged by `mode`. An export with the
+  wrong pose for its mode cannot be written or read, and exports from before
+  this change no longer load. The covariance labels are unchanged.
+
+  ```json
+  // before (rig_handeye, eye-in-hand)
+  "handeye_mode": "EyeInHand",
+  "gripper_se3_rig": {…}, "rig_se3_base": null,
+  "base_se3_target": {…}, "gripper_se3_target": null
+  // after
+  "handeye": { "mode": "EyeInHand", "gripper_se3_rig": {…}, "base_se3_target": {…} }
+  ```
+
+  In Rust, `export.handeye` is a `common::HandeyeSolution`
+  (`EyeInHand { gripper_se3_rig, base_se3_target }` | `EyeToHand
+  { rig_se3_base, gripper_se3_target }`) for the rig exports and a
+  `single_cam_handeye::SingleCamHandeyeSolution` (`gripper_se3_camera` /
+  `camera_se3_base`) for the single-camera export; match on it instead of on
+  `export.handeye_mode`. In Python, `result.handeye` is a `RigEyeInHand` /
+  `RigEyeToHand` or a `CameraEyeInHand` / `CameraEyeToHand`, with `.mode`;
+  `result.handeye_mode` and the four optional pose attributes are gone.
 
 ### Changed
 

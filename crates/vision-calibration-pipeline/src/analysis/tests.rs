@@ -17,7 +17,6 @@ use vision_calibration_core::{
     PinholeCamera, RigView, RigViewObs, ScheimpflugParams, compute_rig_target_residuals,
     make_pinhole_camera, pinhole_camera_params,
 };
-use vision_calibration_optim::HandeyeMode;
 
 /// Tiny deterministic xorshift64* RNG — keeps the synthetic noise reproducible
 /// without a `rand` dependency.
@@ -286,11 +285,10 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
         cameras: cameras.iter().map(pinhole_camera_params).collect(),
         cam_se3_rig: cam_se3_rig.clone(),
         rig_se3_target: rig_se3_target.clone(),
-        handeye_mode: HandeyeMode::EyeToHand,
-        gripper_se3_rig: None,
-        rig_se3_base: Some(Iso3::identity()),
-        base_se3_target: None,
-        gripper_se3_target: Some(Iso3::identity()),
+        handeye: crate::common::HandeyeSolution::EyeToHand {
+            rig_se3_base: Iso3::identity(),
+            gripper_se3_target: Iso3::identity(),
+        },
         robot_deltas: None,
         robot_pose_sigma: None,
         mean_reproj_error: 0.0,

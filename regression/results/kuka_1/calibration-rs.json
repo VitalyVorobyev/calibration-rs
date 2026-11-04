@@ -2,19 +2,6 @@
   "suite_version": "2026.1",
   "producer": "calibration-rs 0.12.0",
   "export": {
-    "base_se3_target": {
-      "rotation": [
-        -0.48948747550596855,
-        0.5099484813898593,
-        -0.5031788963790331,
-        0.4971574759467551
-      ],
-      "translation": [
-        2.754263296794935,
-        -0.27439917009591186,
-        0.6925150987175367
-      ]
-    },
     "camera": {
       "distortion": {
         "iters": 8,
@@ -38,7 +25,6 @@
         "type": "identity"
       }
     },
-    "camera_se3_base": null,
     "diagnostics": {
       "per_feature_residuals": {
         "target_hist_per_camera": [
@@ -63,21 +49,35 @@
         ]
       }
     },
-    "gripper_se3_camera": {
-      "rotation": [
-        -0.5008120437201038,
-        0.5248514496877091,
-        -0.48370307351307407,
-        0.48964230750580434
-      ],
-      "translation": [
-        0.2579487338682875,
-        0.03255554579415089,
-        -0.10377725611415303
-      ]
+    "handeye": {
+      "base_se3_target": {
+        "rotation": [
+          -0.48948747550596855,
+          0.5099484813898593,
+          -0.5031788963790331,
+          0.4971574759467551
+        ],
+        "translation": [
+          2.754263296794935,
+          -0.27439917009591186,
+          0.6925150987175367
+        ]
+      },
+      "gripper_se3_camera": {
+        "rotation": [
+          -0.5008120437201038,
+          0.5248514496877091,
+          -0.48370307351307407,
+          0.48964230750580434
+        ],
+        "translation": [
+          0.2579487338682875,
+          0.03255554579415089,
+          -0.10377725611415303
+        ]
+      },
+      "mode": "EyeInHand"
     },
-    "gripper_se3_target": null,
-    "handeye_mode": "EyeInHand",
     "kind": "single_cam_handeye",
     "mean_reproj_error": 0.13465773856023247,
     "per_cam_reproj_errors": [

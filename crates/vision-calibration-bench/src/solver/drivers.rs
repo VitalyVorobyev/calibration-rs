@@ -175,7 +175,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             (
                 ModelParams {
                     cameras: vec![e.camera],
-                    handeye: e.gripper_se3_camera,
+                    handeye: Some(*e.handeye.handeye().pose()),
                     ..ModelParams::default()
                 },
                 e.diagnostics.per_feature_residuals,
@@ -242,7 +242,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                 ModelParams {
                     cameras: e.cameras,
                     cam_se3_rig: e.cam_se3_rig,
-                    handeye: e.gripper_se3_rig,
+                    handeye: Some(*e.handeye.handeye().pose()),
                     ..ModelParams::default()
                 },
                 e.diagnostics.per_feature_residuals,
@@ -277,7 +277,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                 ModelParams {
                     cameras: e.cameras,
                     cam_se3_rig: e.cam_se3_rig,
-                    handeye: e.gripper_se3_rig,
+                    handeye: Some(*e.handeye.handeye().pose()),
                     planes_cam: e.laser_planes_cam,
                     ..ModelParams::default()
                 },

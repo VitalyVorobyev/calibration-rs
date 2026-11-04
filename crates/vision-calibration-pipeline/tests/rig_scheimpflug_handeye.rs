@@ -162,9 +162,7 @@ fn pipeline_converges_scheimpflug_rig_handeye() {
     }
 
     // Hand-eye recovery.
-    let handeye_final = export
-        .gripper_se3_rig
-        .expect("EyeInHand should have gripper_se3_rig");
+    let handeye_final = *export.handeye.handeye().pose();
     let dt = (handeye_final.translation.vector - handeye_gt.translation.vector).norm();
     let r_diff = handeye_final.rotation.to_rotation_matrix().transpose()
         * handeye_gt.rotation.to_rotation_matrix();

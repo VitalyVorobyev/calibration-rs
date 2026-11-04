@@ -230,11 +230,11 @@ fn empty_export() -> RigHandeyeExport {
         "kind": "rig_handeye",
         "cameras": [],
         "cam_se3_rig": [],
-        "handeye_mode": "EyeInHand",
-        "gripper_se3_rig": null,
-        "rig_se3_base": null,
-        "base_se3_target": null,
-        "gripper_se3_target": null,
+        "handeye": {
+            "mode": "EyeInHand",
+            "gripper_se3_rig": Iso3::identity(),
+            "base_se3_target": Iso3::identity(),
+        },
         "robot_deltas": null,
         "mean_reproj_error": 0.0,
         "per_cam_reproj_errors": [],
@@ -410,11 +410,6 @@ fn inputs_are_checked() {
     assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
     let err =
         predict_with_robot_poses(&scene.export, &[pose], &board(), &[IMAGE, [1, 960]]).unwrap_err();
-    assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
-
-    let mut no_handeye = scene.export.clone();
-    no_handeye.gripper_se3_rig = None;
-    let err = predict_with_robot_poses(&no_handeye, &[pose], &board(), &SIZES).unwrap_err();
     assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
 
     let mut no_covariance = scene.export.clone();

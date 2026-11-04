@@ -189,7 +189,7 @@ import vision_calibration as vc
 
 cache = vc.FsDetectionCache("cache/kuka_1")
 result = vc.calibrate_dataset("data/kuka_1/dataset.toml", vc.SingleCamHandeyeConfig(), cache=cache)
-print(result.handeye_mode, f"{result.mean_reproj_error:.3f} px")
+print(result.handeye.mode, f"{result.mean_reproj_error:.3f} px")
 ```
 
 The converters are `vision_calibration.dataset_runner.build_*_input`, with the Rust names, for a run you drive step by step; each returns the run result (`input` as a payload, `view_paths`, `usable_views`, `total_views`). A manifest can also be a `DatasetSpec` payload, with `base_dir=` naming the directory its paths resolve against. `vc.sniff_folder(path)` returns the drafted manifest as a payload.

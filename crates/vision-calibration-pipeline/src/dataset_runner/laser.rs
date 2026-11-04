@@ -27,10 +27,11 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, GrayImageView};
 use vision_calibration_optim::{
-    HandeyeMode, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
-    RobotPoseMeta, apply_robot_delta,
+    LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView, RobotPoseMeta,
+    apply_robot_delta,
 };
 
+use crate::common::HandeyeSolution;
 use crate::laserline_device::LaserlineDeviceInput;
 use crate::rig_handeye::RigHandeyeExport;
 use crate::rig_handeye_laserline::RigHandeyeLaserlineInput;
@@ -823,7 +824,7 @@ fn rig_se3_target_from_upstream(
             Some(delta) => apply_robot_delta(base_se3_gripper, &delta),
             None => *base_se3_gripper,
         };
-    rig_se3_target_from_chain(export, &base_se3_gripper, path)
+    Ok(rig_se3_target_from_chain(export, &base_se3_gripper))
 }
 
 fn robot_delta_for_view(
@@ -873,32 +874,16 @@ fn robot_delta_for_view(
     })
 }
 
-fn rig_se3_target_from_chain(
-    export: &RigHandeyeExport,
-    base_se3_gripper: &Iso3,
-    path: &Path,
-) -> Result<Iso3, RunError> {
-    let missing = |field: &str| RunError::UpstreamCalibration {
-        path: path.to_path_buf(),
-        message: format!("{:?} export is missing {field}", export.handeye_mode),
-    };
-    match export.handeye_mode {
-        HandeyeMode::EyeInHand => {
-            let gripper_se3_rig = export
-                .gripper_se3_rig
-                .ok_or_else(|| missing("gripper_se3_rig"))?;
-            let base_se3_target = export
-                .base_se3_target
-                .ok_or_else(|| missing("base_se3_target"))?;
-            Ok(gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target)
-        }
-        HandeyeMode::EyeToHand => {
-            let rig_se3_base = export.rig_se3_base.ok_or_else(|| missing("rig_se3_base"))?;
-            let gripper_se3_target = export
-                .gripper_se3_target
-                .ok_or_else(|| missing("gripper_se3_target"))?;
-            Ok(rig_se3_base * base_se3_gripper * gripper_se3_target)
-        }
+fn rig_se3_target_from_chain(export: &RigHandeyeExport, base_se3_gripper: &Iso3) -> Iso3 {
+    match export.handeye {
+        HandeyeSolution::EyeInHand {
+            gripper_se3_rig,
+            base_se3_target,
+        } => gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target,
+        HandeyeSolution::EyeToHand {
+            rig_se3_base,
+            gripper_se3_target,
+        } => rig_se3_base * base_se3_gripper * gripper_se3_target,
     }
 }
 
@@ -1312,11 +1297,10 @@ mod tests {
                 .collect(),
             cam_se3_rig: vec![Iso3::identity(); num_cameras],
             rig_se3_target: vec![],
-            handeye_mode: HandeyeMode::EyeInHand,
-            gripper_se3_rig: Some(Iso3::identity()),
-            rig_se3_base: None,
-            base_se3_target: Some(Iso3::translation(0.0, 0.0, 1.0)),
-            gripper_se3_target: None,
+            handeye: HandeyeSolution::EyeInHand {
+                gripper_se3_rig: Iso3::identity(),
+                base_se3_target: Iso3::translation(0.0, 0.0, 1.0),
+            },
             robot_deltas: None,
             robot_pose_sigma: None,
             mean_reproj_error: 0.5,
@@ -1506,7 +1490,10 @@ mod tests {
             Iso3::translation(2.0, 0.0, 1.0),
             Iso3::translation(3.0, 0.0, 1.0),
         ];
-        upstream.base_se3_target = Some(Iso3::translation(0.0, 0.0, 9.0));
+        upstream.handeye = HandeyeSolution::EyeInHand {
+            gripper_se3_rig: Iso3::identity(),
+            base_se3_target: Iso3::translation(0.0, 0.0, 9.0),
+        };
         std::fs::write(
             tmp.path().join("rig_handeye_export.json"),
             serde_json::to_string(&upstream).unwrap(),

@@ -28,6 +28,7 @@ use std::time::Instant;
 #[path = "puzzle_130x130_rig/viewer.rs"]
 mod puzzle_viewer;
 
+use vision_calibration::common::HandeyeSolution;
 use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
     common::CalibratedCameras,
@@ -253,23 +254,20 @@ fn main() -> Result<()> {
     for (i, err) in rig_export.per_cam_reproj_errors.iter().enumerate() {
         println!("    camera {i}: {err:.4} px");
     }
-    match rig_export.handeye_mode {
-        HandeyeMode::EyeInHand => {
-            let he = rig_export
-                .gripper_se3_rig
-                .expect("EyeInHand missing gripper_se3_rig");
+    match rig_export.handeye {
+        HandeyeSolution::EyeInHand {
+            gripper_se3_rig: he,
+            ..
+        } => {
             println!(
                 "  gripper_se3_rig: |t|={:.4} m",
                 he.translation.vector.norm()
             );
         }
-        HandeyeMode::EyeToHand => {
-            let he = rig_export
-                .rig_se3_base
-                .expect("EyeToHand missing rig_se3_base");
-            let gt = rig_export
-                .gripper_se3_target
-                .expect("EyeToHand missing gripper_se3_target");
+        HandeyeSolution::EyeToHand {
+            rig_se3_base: he,
+            gripper_se3_target: gt,
+        } => {
             println!(
                 "  rig_se3_base:         |t|={:.4} m",
                 he.translation.vector.norm()
@@ -297,25 +295,15 @@ fn main() -> Result<()> {
             continue;
         }
         let base_se3_gripper = pose.base_se3_gripper();
-        let rt = match rig_export.handeye_mode {
-            HandeyeMode::EyeInHand => {
-                let gripper_se3_rig = rig_export
-                    .gripper_se3_rig
-                    .expect("EyeInHand missing gripper_se3_rig");
-                let base_se3_target = rig_export
-                    .base_se3_target
-                    .expect("EyeInHand missing base_se3_target");
-                gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target
-            }
-            HandeyeMode::EyeToHand => {
-                let rig_se3_base = rig_export
-                    .rig_se3_base
-                    .expect("EyeToHand missing rig_se3_base");
-                let gripper_se3_target = rig_export
-                    .gripper_se3_target
-                    .expect("EyeToHand missing gripper_se3_target");
-                rig_se3_base * base_se3_gripper * gripper_se3_target
-            }
+        let rt = match rig_export.handeye {
+            HandeyeSolution::EyeInHand {
+                gripper_se3_rig,
+                base_se3_target,
+            } => gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target,
+            HandeyeSolution::EyeToHand {
+                rig_se3_base,
+                gripper_se3_target,
+            } => rig_se3_base * base_se3_gripper * gripper_se3_target,
         };
         rig_se3_target.push(rt);
     }
@@ -373,24 +361,10 @@ fn main() -> Result<()> {
     print_frame_table();
     let joint_views: Vec<RigHandeyeLaserlineView> = detected.joint_views.clone();
     let joint_dataset =
-        RigHandeyeLaserlineDataset::new(joint_views, NUM_CAMERAS, rig_export.handeye_mode)?;
+        RigHandeyeLaserlineDataset::new(joint_views, NUM_CAMERAS, rig_export.handeye.mode())?;
 
-    let handeye = match rig_export.handeye_mode {
-        HandeyeMode::EyeInHand => rig_export
-            .gripper_se3_rig
-            .expect("EyeInHand missing gripper_se3_rig"),
-        HandeyeMode::EyeToHand => rig_export
-            .rig_se3_base
-            .expect("EyeToHand missing rig_se3_base"),
-    };
-    let target_ref = match rig_export.handeye_mode {
-        HandeyeMode::EyeInHand => rig_export
-            .base_se3_target
-            .expect("EyeInHand missing base_se3_target"),
-        HandeyeMode::EyeToHand => rig_export
-            .gripper_se3_target
-            .expect("EyeToHand missing gripper_se3_target"),
-    };
+    let handeye = *rig_export.handeye.handeye().pose();
+    let target_ref = *rig_export.handeye.target_pose();
     // Convert cam_se3_rig to cam_to_rig (T_rig_from_cam) for the optim block.
     let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
 

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraParams, Iso3, RigDataset, Uncertainty};
 use vision_calibration_optim::{
-    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
+    HandeyeEstimate, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandeyeParams, RobustLoss, SolveReport};
@@ -18,10 +18,9 @@ use crate::common::config::{
     RobotPoseConfig, SolverConfig, rig_camera_for, validate_rig_camera_indices,
     validate_rig_cameras,
 };
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ExportKind, HandeyeSolution};
 use crate::rig_family::{
-    IntrinsicsManualInit, RigStages, RigStagesState, handeye_export_poses, inverse_poses,
-    rig_target_residuals,
+    IntrinsicsManualInit, RigStages, RigStagesState, inverse_poses, rig_target_residuals,
 };
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -158,44 +157,8 @@ pub struct RigHandeyeExport {
     )]
     pub rig_se3_target: Vec<Iso3>,
 
-    /// Hand-eye mode used to interpret mode-dependent transforms.
-    pub handeye_mode: HandeyeMode,
-
-    /// Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
-    ///
-    /// `None` for EyeToHand mode.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub gripper_se3_rig: Option<Iso3>,
-
-    /// Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).
-    ///
-    /// `None` for EyeInHand mode.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub rig_se3_base: Option<Iso3>,
-
-    /// Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).
-    ///
-    /// `None` for EyeToHand mode.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub base_se3_target: Option<Iso3>,
-
-    /// Eye-to-hand: gripper-to-target transform `gripper_se3_target` (T_G_T).
-    ///
-    /// `None` for EyeInHand mode.
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
-    )]
-    pub gripper_se3_target: Option<Iso3>,
+    /// The hand-eye and the target reference pose of the calibration's mode.
+    pub handeye: HandeyeSolution,
 
     /// Per-view robot pose corrections (if refinement enabled).
     /// Each element is [rx, ry, rz, tx, ty, tz] in se(3).
@@ -223,18 +186,6 @@ pub struct RigHandeyeExport {
     pub uncertainty: Uncertainty,
 }
 
-impl RigHandeyeExport {
-    /// The hand-eye transform and the target reference pose of the export's
-    /// mode: (`gripper_se3_rig`, `base_se3_target`) eye-in-hand,
-    /// (`rig_se3_base`, `gripper_se3_target`) eye-to-hand.
-    pub(crate) fn mode_poses(&self) -> (Option<Iso3>, Option<Iso3>) {
-        match self.handeye_mode {
-            HandeyeMode::EyeInHand => (self.gripper_se3_rig, self.base_se3_target),
-            HandeyeMode::EyeToHand => (self.rig_se3_base, self.gripper_se3_target),
-        }
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ProblemType Implementation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,8 +201,8 @@ impl RigHandeyeExport {
 /// # Conventions
 ///
 /// - `cam_se3_rig` = T_C_R (transform from rig to camera frame)
-/// - EyeInHand export: `gripper_se3_rig` (T_G_R), `base_se3_target` (T_B_T)
-/// - EyeToHand export: `rig_se3_base` (T_R_B), `gripper_se3_target` (T_G_T)
+/// - EyeInHand export (`export.handeye`): `gripper_se3_rig` (T_G_R), `base_se3_target` (T_B_T)
+/// - EyeToHand export (`export.handeye`): `rig_se3_base` (T_R_B), `gripper_se3_target` (T_G_T)
 /// - Reference camera has identity extrinsics (defines rig frame)
 ///
 /// # Example
@@ -261,7 +212,7 @@ impl RigHandeyeExport {
 ///
 /// ```
 /// use vision_calibration_core::{RigView, RigViewObs};
-/// use vision_calibration_pipeline::common::RobotPoseMeta;
+/// use vision_calibration_pipeline::common::{HandeyeSolution, RobotPoseMeta};
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::rig_handeye::{
 ///     RigHandeyeInput, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,
@@ -302,7 +253,9 @@ impl RigHandeyeExport {
 /// step_handeye_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
-/// let estimate = export.gripper_se3_rig.expect("an eye-in-hand export");
+/// let HandeyeSolution::EyeInHand { gripper_se3_rig: estimate, .. } = export.handeye else {
+///     panic!("an eye-in-hand export");
+/// };
 /// assert!((estimate.translation.vector - gripper_se3_rig.translation.vector).norm() < 1e-4);
 /// # Ok(())
 /// # }
@@ -450,8 +403,7 @@ impl ProblemType for RigHandeyeProblem {
 
         let mode = config.handeye_init.handeye_mode;
         let handeye = params.handeye;
-        let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) =
-            handeye_export_poses(mode, handeye, target_pose);
+        let solution = HandeyeSolution::new(mode, handeye, target_pose);
 
         // Per-feature residuals: derive rig_se3_target per view from the
         // handeye chain, then project through each camera's model.
@@ -474,11 +426,7 @@ impl ProblemType for RigHandeyeProblem {
             cameras: params.cameras.clone(),
             cam_se3_rig,
             rig_se3_target: rig_se3_target.clone(),
-            handeye_mode: mode,
-            gripper_se3_rig,
-            rig_se3_base,
-            base_se3_target,
-            gripper_se3_target,
+            handeye: solution,
             robot_deltas: output.robot_deltas.clone(),
             robot_pose_sigma: output.robot_pose_sigma,
             mean_reproj_error: output.mean_reproj_error,
@@ -495,6 +443,7 @@ impl ProblemType for RigHandeyeProblem {
 mod tests {
     use super::*;
     use vision_calibration_core::{CorrespondenceView, Pt2, Pt3, RigDataset, RigView, RigViewObs};
+    use vision_calibration_optim::HandeyeMode;
 
     fn make_minimal_obs() -> CorrespondenceView {
         CorrespondenceView::new(
@@ -690,11 +639,8 @@ mod tests {
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
-        assert!(matches!(export.handeye_mode, HandeyeMode::EyeInHand));
-        assert!(export.gripper_se3_rig.is_some());
-        assert!(export.base_se3_target.is_some());
-        assert!(export.rig_se3_base.is_none());
-        assert!(export.gripper_se3_target.is_none());
+        assert!(matches!(export.handeye, HandeyeSolution::EyeInHand { .. }));
+        assert_solution_round_trips(&export);
         assert_eq!(
             export.rig_se3_target.len(),
             1,
@@ -729,11 +675,32 @@ mod tests {
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
-        assert!(matches!(export.handeye_mode, HandeyeMode::EyeToHand));
-        assert!(export.rig_se3_base.is_some());
-        assert!(export.gripper_se3_target.is_some());
-        assert!(export.gripper_se3_rig.is_none());
-        assert!(export.base_se3_target.is_none());
+        assert!(matches!(export.handeye, HandeyeSolution::EyeToHand { .. }));
+        assert_solution_round_trips(&export);
+    }
+
+    /// The export's JSON holds the mode's two poses under `handeye`, tagged
+    /// by `mode`, and reads back equal; the shape from before the tag (a
+    /// `handeye_mode` and four optional poses) is refused.
+    fn assert_solution_round_trips(export: &RigHandeyeExport) {
+        let json = serde_json::to_value(export).unwrap();
+        let wire = &json["handeye"];
+        assert_eq!(wire["mode"], format!("{:?}", export.handeye.mode()));
+        assert_eq!(wire.as_object().unwrap().len(), 3, "{wire}");
+        assert!(json.get("handeye_mode").is_none());
+        let back: RigHandeyeExport = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(back.handeye, export.handeye);
+
+        let mut old = json;
+        let object = old.as_object_mut().unwrap();
+        object.remove("handeye");
+        object.insert("handeye_mode".into(), "EyeInHand".into());
+        object.insert(
+            "gripper_se3_rig".into(),
+            serde_json::to_value(Iso3::identity()).unwrap(),
+        );
+        let err = serde_json::from_value::<RigHandeyeExport>(old).unwrap_err();
+        assert!(err.to_string().contains("missing field `handeye`"), "{err}");
     }
 
     #[test]
