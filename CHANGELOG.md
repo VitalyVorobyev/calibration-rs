@@ -82,6 +82,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RigEyeToHand` or a `CameraEyeInHand` / `CameraEyeToHand`, with `.mode`;
   `result.handeye_mode` and the four optional pose attributes are gone.
 
+### Fixed
+
+- **The desktop app's Quick Start presets work in an installed app.** They
+  download their sample dataset (`kuka_1`, `ds8`) into the platform cache on
+  first use instead of reading it from the source checkout the app was built
+  in.
+
 ### Changed
 
 - **Planar intrinsics initializes its camera as every other workflow does**

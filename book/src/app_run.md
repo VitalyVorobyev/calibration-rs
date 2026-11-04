@@ -6,12 +6,12 @@ The **Run calibration** workspace (`⌘5`) drives a calibration end to end witho
 
 ### Presets
 
-A card grid of public datasets. Two ship with the repository:
+A card grid of public datasets. Two are built in:
 
-- `data/kuka_1`: single-camera hand-eye, committed to the repository;
-- `data/DS8`: a three-camera rig hand-eye dataset, published as open data (extract its archive, [doi:10.15482/USDA.ADC/1340592](https://doi.org/10.15482/USDA.ADC/1340592), into that folder).
+- `kuka_1`: single-camera hand-eye, a KUKA arm with a 17×28 chessboard;
+- `ds8`: a three-camera rig hand-eye dataset, published as open data ([doi:10.15482/USDA.ADC/1340592](https://doi.org/10.15482/USDA.ADC/1340592)).
 
-Clicking a card loads its manifest and applies the configuration overrides the preset carries. Some datasets need non-default settings that the topology's schema defaults do not give, for example Scheimpflug sensors or an eye-to-hand rig; the preset states them. Preset paths are resolved against the repository root, so the cards work on any checkout. The registry lives in `app/src/workspaces/RunWorkspace/presets.ts`.
+The app carries no dataset. The first click on a card downloads the sample from its publisher into the platform cache (`VISION_CALIBRATION_DATA` overrides the location), checks every file against its SHA-256 and reuses it afterwards, so the cards work in an installed app as well as in a checkout; the first click needs a network connection, and a failed download is reported in the status banner. Clicking a card loads its manifest and applies the configuration overrides the preset carries. Some datasets need non-default settings that the topology's schema defaults do not give, for example Scheimpflug sensors or an eye-to-hand rig; the preset states them. The registry lives in `app/src/workspaces/RunWorkspace/presets.ts`.
 
 ### Sniff Folder
 

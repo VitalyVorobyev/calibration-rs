@@ -67,8 +67,8 @@ const RUN_SUCCESS_RESPONSE = {
 beforeEach(() => {
   mockIPC((cmd) => {
     switch (cmd) {
-      case "repo_root_cmd":
-        return "/fake/repo/root";
+      case "fetch_sample_cmd":
+        return "/fake/cache/kuka_1/dataset.toml";
       case "load_text_file":
         return MANIFEST_TOML;
       case "default_config_cmd":
@@ -135,8 +135,8 @@ describe("RunWorkspace progress + cancellation", () => {
     let resolveRun!: (value: unknown) => void;
     mockIPC((cmd) => {
       switch (cmd) {
-        case "repo_root_cmd":
-          return "/fake/repo/root";
+        case "fetch_sample_cmd":
+          return "/fake/cache/kuka_1/dataset.toml";
         case "load_text_file":
           return MANIFEST_TOML;
         case "default_config_cmd":
@@ -190,8 +190,8 @@ describe("RunWorkspace with a project open", () => {
     mockIPC((cmd, args) => {
       const a = args as Record<string, unknown>;
       switch (cmd) {
-        case "repo_root_cmd":
-          return "/fake/repo/root";
+        case "fetch_sample_cmd":
+          return "/fake/cache/kuka_1/dataset.toml";
         case "load_text_file":
           return MANIFEST_TOML;
         case "default_config_cmd":

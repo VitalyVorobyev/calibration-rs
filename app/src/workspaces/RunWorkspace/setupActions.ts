@@ -3,7 +3,7 @@
  * status the banner shows. */
 import { invoke } from "@tauri-apps/api/core";
 import * as TOML from "toml";
-import { dirnamePath, isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
+import { dirnamePath, isTauriContext } from "../../lib/tauri";
 import { useRunSetup } from "../../store/runSetup";
 import { pickFolder, pickManifestFile } from "../../shell/dialogs";
 import { mergeConfig, type EnabledPreset } from "./presets";
@@ -45,17 +45,11 @@ export function setupActions(report: Report): SetupActions {
         return false;
       }
       try {
-        // Preset manifest paths are repo-root-relative (presets.ts).
-        const root = await repoRoot();
-        if (!root) {
-          report({
-            kind: "error",
-            category: "no_tauri",
-            message: "Could not resolve the workspace repo root (repo_root_cmd failed).",
-          });
-          return false;
-        }
-        const path = joinPath(root, preset.manifestPath);
+        // A sample is downloaded on first use; its manifest path comes back.
+        const path =
+          "sample" in preset.source
+            ? await invoke<string>("fetch_sample_cmd", { id: preset.source.sample })
+            : preset.source.manifestPath;
         const parsed = parseManifest(
           path,
           await invoke<string>("load_text_file", { path }),

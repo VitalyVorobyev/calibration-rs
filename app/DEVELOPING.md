@@ -195,19 +195,19 @@ returns `RunResponse::Cancelled`. The UI shows the latest report beside the
 active stage and a distinct "Run cancelled" state; the checklist logic is
 `src/workspaces/RunWorkspace/runStages.ts`.
 
-## Repo-root resolution for built-in presets
+## Built-in presets
 
-Quick Start presets (`src/workspaces/RunWorkspace/presets.ts`) store a
-**repo-root-relative** `manifestPath` (`data/…`). The built-in list holds only
-datasets a fresh checkout can run (`data/kuka_1`, and `data/DS8` once its public
-archive is extracted there). Presets for local-only data go in an untracked
-`presets.local.ts` next to it, exporting `LOCAL_PRESETS: Preset[]`; `PRESETS`
-appends them when the file exists.
-`setupActions.ts`'s `applyPreset` resolves the root through `lib/tauri.ts`'s `repoRoot()`, which
-calls `repo_root_cmd` (`env!("CARGO_MANIFEST_DIR")` two levels up) and joins it
-with `joinPath`. Because the app is always compiled from a local checkout, this
-is the developer's own checkout path. Bundling public datasets in a release
-installer would use Tauri's `resource_dir` instead.
+Quick Start presets (`src/workspaces/RunWorkspace/presets.ts`) name a sample of
+the library's catalogue (`vision_calibration::dataset::samples`) in
+`source: { sample: "<id>" }`. `setupActions.ts`'s `applyPreset` calls
+`fetch_sample_cmd`, which downloads the sample into the platform cache
+(`VISION_CALIBRATION_DATA` overrides it), verifies its SHA-256 and returns the
+manifest path; later calls reuse the cache. The installer bundles no data and
+nothing resolves a source checkout at runtime (no `CARGO_MANIFEST_DIR` outside
+tests). Presets for local-only data go in an untracked `presets.local.ts` next
+to it, exporting `LOCAL_PRESETS: Preset[]` with
+`source: { manifestPath: "<absolute path>" }`; `PRESETS` appends them when the
+file exists.
 
 ## Testing
 
