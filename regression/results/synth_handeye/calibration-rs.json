@@ -726,6 +726,32 @@
         }
       ],
       "num_residuals": 4800,
+      "second_order": {
+        "combination": [
+          {
+            "label": "cy",
+            "weight": 1.0
+          },
+          {
+            "label": "gripper_se3_camera.rx",
+            "weight": 0.6711987438120314
+          },
+          {
+            "label": "gripper_se3_camera.ty",
+            "weight": -0.6160042048114374
+          },
+          {
+            "label": "gripper_se3_camera.tz",
+            "weight": 0.5415714087975904
+          },
+          {
+            "label": "fy",
+            "weight": 0.4608026103019515
+          }
+        ],
+        "max_scatter_ratio": 1.00173029750922,
+        "nees_ratio": 1.00035948436093
+      },
       "status": "available",
       "views": [
         {

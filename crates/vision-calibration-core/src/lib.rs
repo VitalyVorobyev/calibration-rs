@@ -108,12 +108,12 @@ pub use models::{
 pub use models::{FixedParams, INTRINSICS_PARAM_NAMES};
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
-    CalibratedRig, CorrespondenceView, FeatureResidualHistogram, FrameKind, FrameRef, Handeye,
-    ImageManifest, LaserFeatureResidual, LaserLineTrace, LaserPlane, NoiseLevel,
+    CalibratedRig, CombinationTerm, CorrespondenceView, FeatureResidualHistogram, FrameKind,
+    FrameRef, Handeye, ImageManifest, LaserFeatureResidual, LaserLineTrace, LaserPlane, NoiseLevel,
     ParameterCovariance, PerFeatureResiduals, PixelRect, PointCovariance,
     REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, ResidualKind, ResidualNoise, RobotFrame,
-    RobotPose, TargetFeatureResidual, Uncertainty, UncertaintyUnavailable, ViewCovariance,
-    stated_covariance,
+    RobotPose, SecondOrderError, TargetFeatureResidual, Uncertainty, UncertaintyUnavailable,
+    ViewCovariance, stated_covariance,
 };
 // The frame Jacobians the measurement crates share; outside the semver
 // promise.

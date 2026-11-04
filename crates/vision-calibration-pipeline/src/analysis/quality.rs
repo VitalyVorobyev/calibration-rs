@@ -75,6 +75,14 @@ pub struct QualityThresholds {
     /// the board's distance scales both, so they correlate almost fully in
     /// every planar calibration, while their ratio is well determined.
     pub max_parameter_correlation: f64,
+    /// Largest acceptable predicted scatter of the worst combination of the
+    /// shared parameters over its stated σ, once the error's second-order
+    /// term is counted (≥ 1); above it the covariance-linearity check warns,
+    /// naming the combination. Default `1.2`: on synthetic stereo rigs and
+    /// single cameras whose error the covariance describes the prediction
+    /// stayed at or below 1.06, and every stereo capture predicted above 1.3
+    /// scattered 1.4–3 times its σ along that combination.
+    pub max_second_order_scatter: f64,
 }
 
 impl Default for QualityThresholds {
@@ -87,6 +95,7 @@ impl Default for QualityThresholds {
             coverage_fail_below: 0.3,
             max_view_residual: 3.0,
             max_parameter_correlation: 0.99,
+            max_second_order_scatter: 1.2,
         }
     }
 }
@@ -111,6 +120,12 @@ impl QualityThresholds {
             return Err(Error::invalid_input(format!(
                 "quality threshold variance_test_alpha must be in (0, 1), got {}",
                 self.variance_test_alpha
+            )));
+        }
+        if !(self.max_second_order_scatter.is_finite() && self.max_second_order_scatter >= 1.0) {
+            return Err(Error::invalid_input(format!(
+                "quality threshold max_second_order_scatter must be finite and ≥ 1, got {}",
+                self.max_second_order_scatter
             )));
         }
         if !(self.max_parameter_correlation > 0.0 && self.max_parameter_correlation <= 1.0) {
@@ -196,6 +211,10 @@ pub enum CheckKind {
     ViewOutliers,
     /// Camera parameters the data cannot tell apart.
     ParameterCorrelation,
+    /// Whether the covariance describes the joint error of the shared
+    /// parameters, or a combination of them errs well beyond its σ at
+    /// second order.
+    CovarianceLinearity,
 }
 
 /// The unit of a measured value.
@@ -313,11 +332,13 @@ pub struct QualityReport {
 /// | [`FeatureCoverage`](CheckKind::FeatureCoverage) | the observed features, per camera | warns, then fails, as the share of the image the features reached falls |
 /// | [`ViewOutliers`](CheckKind::ViewOutliers) | the per-feature residuals, per camera | warns, naming the views whose mean residual is several σ̂ |
 /// | [`ParameterCorrelation`](CheckKind::ParameterCorrelation) | the covariance, per camera | warns, naming the camera parameters that trade off almost fully |
+/// | [`CovarianceLinearity`](CheckKind::CovarianceLinearity) | the covariance's second-order error | warns when the worst combination of the shared parameters is predicted to scatter well beyond its σ, naming its parameters |
 ///
 /// A check whose inputs the result does not carry is
 /// [`NotApplicable`](CheckStatus::NotApplicable), with the reason in its
 /// message: no image size, no stated feature noise, no covariance, or
-/// intrinsics the final solve held fixed. It is never reported as a pass.
+/// intrinsics the final solve held fixed, no second-order prediction. It is
+/// never reported as a pass.
 /// The report's [`Verdict`] is the worst verdict of the assessed checks.
 ///
 /// `image_sizes` gives each camera's `[width, height]` in pixels, in camera
@@ -351,6 +372,7 @@ pub fn assess<E: CalibratedCameras + ?Sized>(
 
     let mut checks = vec![observability(uncertainty), convergence(uncertainty)];
     checks.extend(variance_factor(uncertainty, thresholds));
+    checks.push(covariance_linearity(uncertainty, thresholds));
     for (camera, (params, size)) in cameras.iter().zip(&sizes).enumerate() {
         checks.push(projection_sigma(export, params, camera, *size, thresholds));
         checks.push(feature_coverage(target, camera, *size, thresholds));
@@ -638,6 +660,57 @@ fn variance_test(
         (CheckStatus::Pass, upper, summary)
     };
     QualityCheck::new(kind, camera, status, message).measured(ratio, threshold, Unit::Ratio)
+}
+
+fn covariance_linearity(uncertainty: &Uncertainty, thresholds: &QualityThresholds) -> QualityCheck {
+    let kind = CheckKind::CovarianceLinearity;
+    let Some(covariance) = uncertainty.covariance() else {
+        return QualityCheck::not_applicable(kind, None, no_covariance(uncertainty));
+    };
+    let Some(second) = &covariance.second_order else {
+        return QualityCheck::not_applicable(
+            kind,
+            None,
+            "the result carries no second-order prediction of its error",
+        );
+    };
+    let limit = thresholds.max_second_order_scatter;
+    let ratio = second.max_scatter_ratio;
+    let combination = second
+        .combination
+        .iter()
+        .map(|t| format!("{:+.2} {}", t.weight, t.label))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let summary = format!(
+        "at second order the worst combination of the shared parameters is predicted to \
+         scatter {ratio:.2}× its stated σ (NEES per parameter {:.2})",
+        second.nees_ratio
+    );
+    let (status, message) = if ratio > limit {
+        (
+            CheckStatus::Warn,
+            format!(
+                "{summary}, above {limit}: the views pin {combination} (each parameter over \
+                 its σ) down only through larger errors that cancel in it, so each parameter's \
+                 σ holds but the joint covariance does not; tilt the board more (15–30°) and \
+                 move it off the image centre, into the corners"
+            ),
+        )
+    } else {
+        (
+            CheckStatus::Pass,
+            format!("{summary}, within {limit}: the covariance describes the joint error"),
+        )
+    };
+    let subjects = if status == CheckStatus::Warn {
+        second.combination.iter().map(|t| t.label.clone()).collect()
+    } else {
+        Vec::new()
+    };
+    QualityCheck::new(kind, None, status, message)
+        .measured(ratio, limit, Unit::Ratio)
+        .naming(subjects)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

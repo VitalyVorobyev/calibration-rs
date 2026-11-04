@@ -157,57 +157,65 @@ pub fn stereo_cam1_se3_rig() -> Iso3 {
     make_iso((0.0, 0.05, 0.0), (-0.12, 0.0, 0.0))
 }
 
-/// The `(pitch, yaw)` tilts of the calibration views, rad.
-fn stereo_board_poses_tilts() -> [(f64, f64); 8] {
-    [
-        (0.00, 0.00),
-        (0.16, -0.06),
-        (-0.14, 0.10),
-        (0.08, 0.18),
-        (-0.06, -0.16),
-        (0.20, 0.12),
-        (-0.18, -0.10),
-        (0.11, -0.20),
-    ]
+/// The `(pitch, yaw)` tilts of the centred calibration views, rad.
+const STEREO_TILTS: [(f64, f64); 8] = [
+    (0.00, 0.00),
+    (0.16, -0.06),
+    (-0.14, 0.10),
+    (0.08, 0.18),
+    (-0.06, -0.16),
+    (0.20, 0.12),
+    (-0.18, -0.10),
+    (0.11, -0.20),
+];
+
+/// Where [`stereo_board_poses_spread`] moves the board off the centre, in
+/// units of 12 cm sideways and 9 cm up or down.
+const STEREO_OFFSETS: [(f64, f64); 8] = [
+    (0.0, 0.0),
+    (1.0, 1.0),
+    (-1.0, 1.0),
+    (1.0, -1.0),
+    (-1.0, -1.0),
+    (1.0, 0.0),
+    (-1.0, 0.0),
+    (0.0, 1.0),
+];
+
+/// Eight calibration views 0.6 to 0.8 m away (`rig_se3_target`): the board
+/// tilted by up to `0.2 · tilt` rad about both axes, and moved off the
+/// centre by `offset` times 12 cm sideways and 9 cm up or down.
+pub fn stereo_board_poses_scaled(tilt: f64, offset: f64) -> Vec<Iso3> {
+    let tilts: Vec<(f64, f64)> = STEREO_TILTS
+        .iter()
+        .map(|&(pitch, yaw)| (tilt * pitch, tilt * yaw))
+        .collect();
+    poses::tilted_board_poses(&tilts, (0.105, 0.075), 0.60, 0.03)
+        .into_iter()
+        .zip(STEREO_OFFSETS)
+        .map(|(pose, (x, y))| Iso3::translation(0.12 * offset * x, 0.09 * offset * y, 0.0) * pose)
+        .collect()
 }
 
-/// The calibration views: board poses with diverse tilt, 0.6 to 0.8 m away.
+/// Weak calibration views: the board centred, tilted by at most 0.2 rad.
+///
+/// They barely tell a camera's principal point from its rotation in the rig
+/// (σ(cx) ≈ 5 px against σ(ry) ≈ 9 mrad of camera 1), and the second-order
+/// terms of those large, cancelling errors make the calibration's error
+/// 2.5–3× its stated σ along the combinations the views do pin down, while
+/// each parameter's σ holds. The result's second-order prediction says so.
 pub fn stereo_board_poses() -> Vec<Iso3> {
-    poses::tilted_board_poses(&stereo_board_poses_tilts(), (0.105, 0.075), 0.60, 0.03)
+    stereo_board_poses_scaled(1.0, 0.0)
 }
 
 /// Calibration views that fill the field: the tilts of
 /// [`stereo_board_poses`] ×2.5 (up to 0.5 rad), the board moved off the
-/// centre by 12 cm sideways and 9 cm up or down, or both.
-///
-/// The centred, mildly tilted views of [`stereo_board_poses`] barely tell a
-/// camera's principal point from its rotation in the rig (σ(cx) ≈ 5 px
-/// against σ(ry) ≈ 9 mrad of camera 1), and the second-order terms of those
-/// large, cancelling errors make the calibration's error 2.5–3× its stated σ
-/// along the two combinations the views do pin down. A test that feeds the
-/// calibration's full covariance onward as a Gaussian, such as a prior,
-/// needs a calibration in the regime where its covariance describes the
-/// joint error, which these views give.
+/// centre by 12 cm sideways and 9 cm up or down, or both. The calibration's
+/// covariance then describes its joint error, which a test that feeds it
+/// onward as a Gaussian (a prior, a consider covariance, a measurement's σ)
+/// needs.
 pub fn stereo_board_poses_spread() -> Vec<Iso3> {
-    let offsets = [
-        (0.0, 0.0),
-        (1.0, 1.0),
-        (-1.0, 1.0),
-        (1.0, -1.0),
-        (-1.0, -1.0),
-        (1.0, 0.0),
-        (-1.0, 0.0),
-        (0.0, 1.0),
-    ];
-    let tilts: Vec<(f64, f64)> = stereo_board_poses_tilts()
-        .iter()
-        .map(|&(pitch, yaw)| (2.5 * pitch, 2.5 * yaw))
-        .collect();
-    poses::tilted_board_poses(&tilts, (0.105, 0.075), 0.60, 0.03)
-        .into_iter()
-        .zip(offsets)
-        .map(|(pose, (x, y))| Iso3::translation(0.12 * x, 0.09 * y, 0.0) * pose)
-        .collect()
+    stereo_board_poses_scaled(2.5, 1.0)
 }
 
 /// The pixels of `p` (camera 0's frame) in camera `c`, plus Gaussian noise of
@@ -255,9 +263,10 @@ pub fn calibration_input(
 }
 
 /// The stereo rig calibrated by the public rig-extrinsics workflow from the
-/// noisy views [`stereo_board_poses`] of trial `seed`, with its covariance.
+/// noisy views [`stereo_board_poses_spread`] of trial `seed`, with its
+/// covariance.
 pub fn calibrated_stereo_rig(cameras: &[PinholeCamera; 2], seed: u64) -> CalibratedRig {
-    calibrated_stereo_rig_from(cameras, &stereo_board_poses(), seed)
+    calibrated_stereo_rig_from(cameras, &stereo_board_poses_spread(), seed)
 }
 
 /// [`calibrated_stereo_rig`] from the board at `poses` (`rig_se3_target`).

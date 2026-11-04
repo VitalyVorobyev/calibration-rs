@@ -595,6 +595,7 @@ fn calibration_share(uncertainty: &Uncertainty) -> Uncertainty {
         num_residuals: c.num_residuals,
         dof: c.dof,
         view_scatter: c.view_scatter,
+        second_order: None,
     })
 }
 

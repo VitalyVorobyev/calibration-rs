@@ -65,6 +65,12 @@ fn board_distances_agree_with_the_square_size() {
     let full = summarize(std::slice::from_ref(&measured)).unwrap();
     let bare = without_calibration_share(&rig).unwrap();
     let only = summarize(&[measure_view(&bare, &view, SQUARE).unwrap().unwrap()]).unwrap();
+    eprintln!(
+        "z RMS by length (1..{MAX_SQUARES} squares): with the calibration {:.2?}, observations \
+         only {:.2?}",
+        full.iter().map(|s| s.z_rms()).collect::<Vec<_>>(),
+        only.iter().map(|s| s.z_rms()).collect::<Vec<_>>()
+    );
     for k in 0..MAX_SQUARES {
         assert!(full[k].n > 0 && full[k].n == only[k].n);
         // The calibration's share can only add to the observations' σ.

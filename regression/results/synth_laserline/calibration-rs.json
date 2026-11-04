@@ -596,6 +596,28 @@
         }
       ],
       "num_residuals": 5500,
+      "second_order": {
+        "combination": [
+          {
+            "label": "plane.d",
+            "weight": 1.0
+          },
+          {
+            "label": "fx",
+            "weight": 0.7703975641491061
+          },
+          {
+            "label": "k1",
+            "weight": 0.3325782602197743
+          },
+          {
+            "label": "fy",
+            "weight": 0.2589196597689158
+          }
+        ],
+        "max_scatter_ratio": 1.0002093965033427,
+        "nees_ratio": 1.000052001641168
+      },
       "status": "available",
       "views": [
         {

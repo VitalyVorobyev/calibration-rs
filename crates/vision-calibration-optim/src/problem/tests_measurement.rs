@@ -362,6 +362,7 @@ fn stereo(scene: &Scene, sigma_c: f64) -> CalibratedRig {
         num_residuals: 0,
         dof: 0,
         view_scatter: None,
+        second_order: None,
     };
     CalibratedRig::new(
         vec![scene.camera.clone(), scene.camera.clone()],

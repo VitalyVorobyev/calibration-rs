@@ -50,6 +50,7 @@ can be changed, and in JSON they reject unknown fields.
 | `feature_coverage` | camera | features reached under 30 % of the image | under 50 % |
 | `view_outliers` | camera | — | a view's mean residual exceeds 3 σ̂ |
 | `parameter_correlation` | camera | — | two parameters correlate above 0.99 |
+| `covariance_linearity` | result | — | a combination of the shared parameters is predicted to scatter more than 1.2× its σ |
 
 Each check carries its status, the measured value with its unit and the
 threshold it was compared to (`measurement`), what it names (`subjects`:
@@ -96,6 +97,26 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   combination of the pair, not each. `fx` and `fy` are left out: the board's
   distance scales both, so they correlate almost fully in every planar
   calibration while their ratio is well determined.
+- **Covariance linearity** reads the uncertainty's `second_order`
+  prediction ([Reading the Covariance](uncertainty_reading.md)). The
+  covariance is the error's first-order term. When the views pin a
+  combination of parameters down only through larger errors of others that
+  cancel in it, the error's second-order term can make that combination
+  scatter several times its σ while each parameter's σ still holds. A use
+  that takes the whole covariance as a Gaussian, such as a calibration
+  prior in bundle adjustment, then trusts the combination too much. The
+  check warns above `max_second_order_scatter` (1.2) and names the
+  combination's parameters, with their weights in units of their σ, in the
+  message; `subjects` lists them. The usual cause is a rig whose boards stay
+  in the middle of the image with little tilt: one camera's rotation in the
+  rig and the principal points then trade off. Tilt the board 15–30° and
+  move it into the image corners ([Capturing Calibration
+  Images](capture.md#a-rig-needs-its-joint-error-too)). On synthetic stereo
+  rigs and single cameras whose error the covariance describes, the
+  prediction stayed at or below 1.06; every stereo capture predicted above
+  1.3 scattered 1.4 to 3 times its σ along the named combination, and a
+  single camera tilted by only 3° (predicted 1.3–1.65) had a heavy tail of
+  calibrations far off.
 
 ## Not applicable is not a pass
 
@@ -107,7 +128,10 @@ reason in its message, and does not count toward the verdict:
 - no covariance (the uncertainty is unavailable): the checks that read it;
 - a camera whose parameters the final solve held fixed — the rig and rig
   hand-eye workflows by default — has no covariance to project or
-  correlate.
+  correlate;
+- no second-order prediction (more than 64 shared parameters, noise-free
+  data, or a covariance assembled from others, such as a rig laserline's
+  planes with the rig calibration's share): covariance linearity.
 
 The report's `verdict` is the worst status of the checks that were
 assessed. A report in which no check could be assessed is `warn`, since then
@@ -146,7 +170,8 @@ and the thresholds as
   "coverage_warn_below": 0.5,
   "coverage_fail_below": 0.3,
   "max_view_residual": 3.0,
-  "max_parameter_correlation": 0.99
+  "max_parameter_correlation": 0.99,
+  "max_second_order_scatter": 1.2
 }
 ```
 

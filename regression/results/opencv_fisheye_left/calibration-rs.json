@@ -601,6 +601,24 @@
         }
       ],
       "num_residuals": 3264,
+      "second_order": {
+        "combination": [
+          {
+            "label": "k3",
+            "weight": 1.0
+          },
+          {
+            "label": "k4",
+            "weight": 0.597322082252414
+          },
+          {
+            "label": "k2",
+            "weight": 0.4816729490956403
+          }
+        ],
+        "max_scatter_ratio": 1.0008328532756698,
+        "nees_ratio": 1.00025028230164
+      },
       "status": "available",
       "view_scatter": 7.107799436705616,
       "views": [

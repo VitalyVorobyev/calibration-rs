@@ -6,8 +6,9 @@ use std::path::PathBuf;
 
 use nalgebra::{Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FrameRef, FxFyCxCy, Iso3, PinholeCamera, PixelRect,
-    PlanarDataset, PointCovariance, View, ViewCovariance, make_pinhole_camera, synthetic::planar,
+    BrownConrady5, CombinationTerm, CorrespondenceView, FrameRef, FxFyCxCy, Iso3, PinholeCamera,
+    PixelRect, PlanarDataset, PointCovariance, SecondOrderError, View, ViewCovariance,
+    make_pinhole_camera, synthetic::planar,
 };
 
 use super::*;
@@ -35,6 +36,7 @@ fn covariance(labels: &[&str], matrix: Vec<Vec<f64>>, sigma: f64) -> ParameterCo
         num_residuals: 2000,
         dof: 1900,
         view_scatter: None,
+        second_order: None,
     }
 }
 
@@ -344,13 +346,14 @@ fn thresholds_fill_defaults_and_reject_unknown_fields() {
 #[test]
 fn out_of_range_thresholds_are_errors() {
     let export = calibrate(&well_covered_poses());
-    let invalid: [fn(&mut QualityThresholds); 6] = [
+    let invalid: [fn(&mut QualityThresholds); 7] = [
         |t| t.expected_feature_noise_px = Some(0.0),
         |t| t.variance_test_alpha = 1.0,
         |t| t.max_projection_sigma_px = f64::NAN,
         |t| t.coverage_fail_below = 0.6,
         |t| t.max_view_residual = -1.0,
         |t| t.max_parameter_correlation = 1.5,
+        |t| t.max_second_order_scatter = 0.9,
     ];
     for set in invalid {
         let mut thresholds = QualityThresholds::default();
@@ -669,6 +672,46 @@ fn correlations_above_the_limit_are_named_per_camera() {
         parameter_correlation(&params, &uncertainty, 0, &thresholds).status,
         CheckStatus::NotApplicable
     );
+}
+
+#[test]
+fn covariance_linearity_warns_above_the_limit_naming_the_combination() {
+    let thresholds = QualityThresholds::default();
+    let mut cov = covariance(&["fx", "cx"], vec![vec![1.0, 0.0], vec![0.0, 1.0]], 0.1);
+    let check = covariance_linearity(&Uncertainty::Available(cov.clone()), &thresholds);
+    assert_eq!(check.status, CheckStatus::NotApplicable);
+
+    let term = |label: &str, weight: f64| CombinationTerm {
+        label: label.into(),
+        weight,
+    };
+    cov.second_order = Some(SecondOrderError {
+        max_scatter_ratio: 2.9,
+        nees_ratio: 1.6,
+        combination: vec![term("cam1.cam_se3_rig.ry", 1.0), term("cam0.cx", -0.7)],
+    });
+    let check = covariance_linearity(&Uncertainty::Available(cov.clone()), &thresholds);
+    assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
+    assert_eq!(check.subjects, vec!["cam1.cam_se3_rig.ry", "cam0.cx"]);
+    let m = check.measurement.unwrap();
+    assert_eq!((m.value, m.threshold, m.unit), (2.9, 1.2, Unit::Ratio));
+    assert!(
+        check
+            .message
+            .contains("+1.00 cam1.cam_se3_rig.ry -0.70 cam0.cx"),
+        "{}",
+        check.message
+    );
+
+    if let Some(second) = &mut cov.second_order {
+        second.max_scatter_ratio = 1.1;
+    }
+    let check = covariance_linearity(&Uncertainty::Available(cov), &thresholds);
+    assert_eq!(check.status, CheckStatus::Pass, "{}", check.message);
+    assert!(check.subjects.is_empty());
+
+    let check = covariance_linearity(&Uncertainty::default(), &thresholds);
+    assert_eq!(check.status, CheckStatus::NotApplicable);
 }
 
 #[test]

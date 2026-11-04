@@ -134,6 +134,20 @@ impl OptimBackend for TinySolverBackend {
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution, Error> {
+        self.solve_with(ir, initial, opts, true)
+    }
+}
+
+impl TinySolverBackend {
+    /// [`OptimBackend::solve`], with the covariance's second-order
+    /// prediction only when `second_order` is set.
+    pub(super) fn solve_with(
+        &self,
+        ir: &ProblemIR,
+        initial: &HashMap<String, DVector<f64>>,
+        opts: &BackendSolveOptions,
+        second_order: bool,
+    ) -> Result<BackendSolution, Error> {
         let problem = self.compile(ir, initial)?;
         let blocks = problem.initialize_parameter_blocks(initial);
         let engine = TinySolverEngine::new(&problem, &blocks);
@@ -156,7 +170,7 @@ impl OptimBackend for TinySolverBackend {
         };
         Ok(BackendSolution {
             noise: covariance::noise(ir, raw.as_ref()),
-            uncertainty: covariance::estimate(ir, &params, raw, converged),
+            uncertainty: covariance::estimate(ir, &params, raw, converged, second_order),
             params,
             solve_report: SolveReport {
                 final_cost: 0.5 * cost,
@@ -178,6 +192,182 @@ impl TinySolverBackend {
         let blocks = problem.initialize_parameter_blocks(params);
         let engine = TinySolverEngine::new(&problem, &blocks);
         Ok(raw_from_engine(ir, &engine, &blocks))
+    }
+}
+
+/// Residual blocks per chunk of [`ResidualProbe::project`]: the unit of
+/// work a thread takes, fixed so that the sums do not depend on the number
+/// of threads.
+const PROBE_CHUNK: usize = 256;
+
+/// The loss-free residuals of an IR at its solution moved by tangent steps,
+/// each reduced by a linear map: what [`covariance`] evaluates the
+/// second-order error with.
+///
+/// It evaluates the IR's factors directly, in fixed chunks of residual
+/// blocks spread over threads, and sums each chunk's share in chunk order,
+/// so a result does not depend on the thread count. Losses and bounds do not
+/// apply: the residuals are raw, and a step is not clamped.
+pub(crate) struct ResidualProbe<'ir> {
+    ir: &'ir ProblemIR,
+    /// Per IR block, the tiny-solver block at the solution (with its
+    /// manifold).
+    blocks: Vec<ParameterBlock>,
+    /// Per IR residual block, its first row.
+    rows: Vec<usize>,
+    num_rows: usize,
+}
+
+impl<'ir> ResidualProbe<'ir> {
+    /// The probe of `ir` at `params`.
+    pub(crate) fn new(
+        ir: &'ir ProblemIR,
+        params: &HashMap<String, DVector<f64>>,
+    ) -> Result<Self, Error> {
+        let problem = TinySolverBackend.compile(&ir.without_losses(), params)?;
+        let mut by_name = problem.initialize_parameter_blocks(params);
+        let blocks = ir
+            .params
+            .iter()
+            .map(|block| {
+                by_name.remove(&block.name).ok_or_else(|| {
+                    Error::invalid_input(format!("no parameter block {}", block.name))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut rows = Vec::with_capacity(ir.residuals.len());
+        let mut num_rows = 0;
+        for residual in &ir.residuals {
+            rows.push(num_rows);
+            num_rows += residual.residual_dim;
+        }
+        Ok(Self {
+            ir,
+            blocks,
+            rows,
+            num_rows,
+        })
+    }
+
+    /// For each step (column `k` of `steps`, one tangent step per coordinate
+    /// of `coordinates`), `projection · r(θ̂ ⊕ step)`: the residuals at the
+    /// solution moved by the step, in IR residual order, reduced by the
+    /// `q × m` map `projection`. Column `k` of the result is step `k`'s.
+    ///
+    /// `None` when a residual is not finite at a step.
+    pub(crate) fn project(
+        &self,
+        coordinates: &[covariance::Coordinate],
+        steps: &nalgebra::DMatrix<f64>,
+        projection: &nalgebra::DMatrix<f64>,
+    ) -> Option<nalgebra::DMatrix<f64>> {
+        debug_assert_eq!(steps.nrows(), coordinates.len());
+        debug_assert_eq!(projection.ncols(), self.num_rows);
+        // Every block's value at every step.
+        let moved: Vec<Vec<DVector<f64>>> = (0..steps.ncols())
+            .map(|k| {
+                let mut tangents: Vec<Option<DVector<f64>>> = vec![None; self.blocks.len()];
+                for (c, &value) in coordinates.iter().zip(steps.column(k).iter()) {
+                    let block = &self.blocks[c.block];
+                    tangents[c.block].get_or_insert_with(|| DVector::zeros(block.tangent_size()))
+                        [c.index] = value;
+                }
+                self.blocks
+                    .iter()
+                    .zip(tangents)
+                    .map(|(block, dx)| match dx {
+                        Some(dx) => block.plus_f64(dx.rows(0, dx.len())),
+                        None => block.params.clone(),
+                    })
+                    .collect()
+            })
+            .collect();
+        let chunks: Vec<std::ops::Range<usize>> = (0..self.ir.residuals.len())
+            .step_by(PROBE_CHUNK)
+            .map(|start| start..(start + PROBE_CHUNK).min(self.ir.residuals.len()))
+            .collect();
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .min(chunks.len())
+            .max(1);
+        let q = projection.nrows();
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let mut partial: Vec<Option<nalgebra::DMatrix<f64>>> = vec![None; chunks.len()];
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..threads)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut done = Vec::new();
+                        loop {
+                            let c = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(range) = chunks.get(c) else {
+                                break;
+                            };
+                            done.push((c, self.chunk(range.clone(), &moved, projection, q)));
+                        }
+                        done
+                    })
+                })
+                .collect();
+            for worker in workers {
+                for (c, sum) in worker.join().expect("a probe thread does not panic") {
+                    partial[c] = sum;
+                }
+            }
+        });
+        let mut total = nalgebra::DMatrix::zeros(q, steps.ncols());
+        for sum in partial {
+            total += sum?;
+        }
+        Some(total)
+    }
+
+    /// One chunk's share of [`Self::project`]; `None` when a residual is not
+    /// finite or a factor does not compile.
+    fn chunk(
+        &self,
+        range: std::ops::Range<usize>,
+        moved: &[Vec<DVector<f64>>],
+        projection: &nalgebra::DMatrix<f64>,
+        q: usize,
+    ) -> Option<nalgebra::DMatrix<f64>> {
+        let factors: Vec<_> = self.ir.residuals[range.clone()]
+            .iter()
+            .map(|residual| compile_factor(residual).ok().map(|(factor, _)| factor))
+            .collect::<Option<_>>()?;
+        let mut sum = nalgebra::DMatrix::zeros(q, moved.len());
+        let mut scratch: Vec<DVector<f64>> = Vec::new();
+        for (k, values) in moved.iter().enumerate() {
+            for (factor, b) in factors.iter().zip(range.clone()) {
+                let residual = &self.ir.residuals[b];
+                // Reuse the buffers: neighbouring blocks read blocks of the
+                // same sizes.
+                scratch.truncate(residual.params.len());
+                for (slot, id) in residual.params.iter().enumerate() {
+                    let value = &values[id.0];
+                    match scratch.get_mut(slot) {
+                        Some(buffer) if buffer.len() == value.len() => buffer.copy_from(value),
+                        Some(buffer) => *buffer = value.clone(),
+                        None => scratch.push(value.clone()),
+                    }
+                }
+                let r = factor.residual_func_f64(&scratch);
+                let row = self.rows[b];
+                // Column-major: the projection's column `row + i` and the
+                // sum's column `k` are contiguous.
+                let out = &mut sum.as_mut_slice()[k * q..(k + 1) * q];
+                for (i, &v) in r.iter().enumerate() {
+                    if !v.is_finite() {
+                        return None;
+                    }
+                    let column = &projection.as_slice()[(row + i) * q..(row + i + 1) * q];
+                    for (o, &p) in out.iter_mut().zip(column) {
+                        *o += p * v;
+                    }
+                }
+            }
+        }
+        Some(sum)
     }
 }
 

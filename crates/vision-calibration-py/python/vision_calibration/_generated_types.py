@@ -195,6 +195,7 @@ CheckKind: TypeAlias = Literal[
     "feature_coverage",
     "view_outliers",
     "parameter_correlation",
+    "covariance_linearity",
 ]
 """What a check examines; `assess` describes each check.
 
@@ -205,6 +206,9 @@ CheckKind: TypeAlias = Literal[
 - ``"feature_coverage"``: How much of the image the observed features reached.
 - ``"view_outliers"``: Views whose residuals are far above the noise level.
 - ``"parameter_correlation"``: Camera parameters the data cannot tell apart.
+- ``"covariance_linearity"``: Whether the covariance describes the joint error of the shared
+  parameters, or a combination of them errs well beyond its σ at
+  second order.
 """
 
 
@@ -267,6 +271,21 @@ class ChessCornersDetectorSpec(TypedDict, total=False):
 
     A sibling `threshold_mode` key is rejected by `deny_unknown_fields`:
     the corner detector has no threshold mode.
+    """
+
+
+class CombinationTerm(TypedDict):
+    """One term of a combination of parameters: a parameter and its weight, in
+    units of the parameter's σ.
+    """
+
+    label: str
+    """The parameter's label."""
+
+    weight: float
+    """The weight of `parameter / σ(parameter)` in the combination, in
+    `[-1, 1]` with the largest term at +1. Terms of equal weight and
+    opposite sign are a difference the combination measures.
     """
 
 
@@ -1416,6 +1435,15 @@ class ParameterCovariance(_ParameterCovarianceRequired, total=False):
     them.
     """
 
+    second_order: SecondOrderError | None
+    """How far the error of the shared parameters is predicted to depart
+    from `covariance` once its second-order term is counted. `None` when
+    the result has no shared parameters or more than 64 (the prediction
+    costs `s (s + 1)` residual evaluations for `s` of them), its data is
+    noise-free, or the covariance was derived from others rather than
+    from one solve.
+    """
+
     view_scatter: float | None
     """How many times the variance of the shared parameters across views
     exceeds what the residual noise predicts, measured by leaving out one
@@ -1960,6 +1988,16 @@ class QualityThresholds(TypedDict, total=False):
     where the distortion is extrapolated, typically in corners the board
     never reached. The map is conservative for uses that re-estimate the
     camera's pose, so the check warns rather than fails.
+    """
+
+    max_second_order_scatter: float
+    """Largest acceptable predicted scatter of the worst combination of the
+    shared parameters over its stated σ, once the error's second-order
+    term is counted (≥ 1); above it the covariance-linearity check warns,
+    naming the combination. Default `1.2`: on synthetic stereo rigs and
+    single cameras whose error the covariance describes the prediction
+    stayed at or below 1.06, and every stereo capture predicted above 1.3
+    scattered 1.4–3 times its σ along that combination.
     """
 
     max_view_residual: float
@@ -2887,6 +2925,44 @@ class ScheimpflugParams(TypedDict):
     """Tilt around Y axis in radians (alias: tau_y)."""
 
 
+class SecondOrderError(TypedDict):
+    """The error of a result's shared parameters at second order, against
+    their covariance.
+
+    The covariance is the first-order error: linear in the noise. Where the
+    views pin a combination of parameters down only through large errors of
+    others that cancel in it (centred, mildly tilted views leave a camera's
+    rotation and its principal point to trade off this way), the error's
+    second-order term, quadratic in the noise, can exceed the first along
+    that combination while every parameter's own σ still holds. A consumer
+    that takes the whole covariance as a Gaussian (a prior, a test of two
+    calibrations against each other) then trusts the combination too much.
+
+    The prediction comes from the residuals' curvature along simulated
+    first-order errors, at the result's own noise level; it grows with the
+    noise's variance.
+    """
+
+    combination: list[CombinationTerm]
+    """The worst combination, `Σ wᵢ pᵢ / σᵢ` over the shared parameters
+    `pᵢ`: its largest terms, by decreasing magnitude of the weight `wᵢ`
+    (the largest +1, the others down to a quarter of it, at most six).
+    """
+
+    max_scatter_ratio: float
+    """The predicted scatter of the worst combination of the shared
+    parameters, over the σ the covariance states for it: 1 when the
+    first order describes the error, 3 when the error there is three
+    times its stated σ.
+    """
+
+    nees_ratio: float
+    """The predicted mean normalized estimation error squared of the shared
+    parameters (`eᵀ Σ⁻¹ e`), per parameter: 1 when the first order
+    describes the error.
+    """
+
+
 SensorKind: TypeAlias = Literal["identity", "scheimpflug"]
 """Which sensor model a camera uses.
 
@@ -3351,6 +3427,15 @@ class Uncertainty_Available(_Uncertainty_AvailableRequired, total=False):
     them.
     """
 
+    second_order: SecondOrderError | None
+    """How far the error of the shared parameters is predicted to depart
+    from `covariance` once its second-order term is counted. `None` when
+    the result has no shared parameters or more than 64 (the prediction
+    costs `s (s + 1)` residual evaluations for `s` of them), its data is
+    noise-free, or the covariance was derived from others rather than
+    from one solve.
+    """
+
     view_scatter: float | None
     """How many times the variance of the shared parameters across views
     exceeds what the residual noise predicts, measured by leaving out one
@@ -3486,6 +3571,7 @@ __all__ = [
     "CheckKind",
     "CheckStatus",
     "ChessCornersDetectorSpec",
+    "CombinationTerm",
     "CornerCovarianceSpec",
     "CornerStrategySpec",
     "CorrespondenceView",
@@ -3607,6 +3693,7 @@ __all__ = [
     "RobustLoss_Huber_Huber",
     "RotationFormat",
     "ScheimpflugParams",
+    "SecondOrderError",
     "SensorKind",
     "SensorParams",
     "SensorParams_Homography",

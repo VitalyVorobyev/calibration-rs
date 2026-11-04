@@ -113,6 +113,110 @@ sets more than that, so the covariance is scaled by a measured factor
   the pooled value. Without any view scatter the real cameras' `r` is
   4.9–26.
 
+## Second-order error
+
+`Σ` is the first-order error. Where the views pin a combination of
+parameters down only through larger errors of others that cancel in it, the
+error's second-order term exceeds the first along that combination while
+each parameter's σ still holds (see "Calibration priors in bundle
+adjustment" below). Every covariance carries a prediction of that term
+(`backend/covariance.rs`, `second_order`; exported as `second_order` of the
+covariance, checked by the quality report's `covariance_linearity`).
+
+- **Model.** `δ = δ₁ + δ₂ + …`, `δ₁ = H⁻¹ Jᵀ ψ(ε) ~ N(0, Σ)`. The
+  residuals' curvature along `δ₁`, `r(θ̂ ⊕ δ₁) ≈ r̂ + J δ₁ + ½ a(δ₁, δ₁)`,
+  is absorbed as `δ₂ = −H⁻¹ Jᵀ K ½ a(δ₁, δ₁)` (`K` the families' `κ`). `δ₂`
+  is even in the noise, `δ₁` odd, so they are uncorrelated and the error's
+  covariance in the whitened shared coordinates (`w = L⁻¹ δ`,
+  `L Lᵀ = Σ_shared`) is `I + M`, `M = E[w₂ w₂ᵀ]`; the NEES has mean
+  `s + tr M`. Reported: `max_scatter_ratio = √(1 + λ_max(M))`,
+  `nees_ratio = 1 + tr M / s`, and the top eigenvector as a linear function
+  `φ = (L⁻ᵀ e)ᵀ δ`, its coefficients times each parameter's σ (largest +1).
+  This is Bates and Watts' parameter-effects curvature at the result's noise
+  level. The intrinsic part (`A[δ₁]ᵀ ε_N`, the curvature out of the
+  model's tangent space met by the noise out of it) is left out; the
+  measurements below do not need it.
+- **Subspace.** Only the part of `δ₁` the shared error explains,
+  `E[δ₁ | δ₁,shared]`, drives `w₂`: a view's own error moves its block
+  rigidly and its curvature stays in that block. Measured with sampled
+  `δ₁` (256 and 1024 draws, 10 calibrations per scene, weak, tilted-centred
+  and spread rigs): the projected `δ₁` gives the same `M` to the fourth
+  digit.
+- **Exact sum.** So `δ₁ = U z`, `U = Σ_{·,shared} L⁻ᵀ`, `z ~ N(0, I_s)`,
+  `w₂ = ½ Σᵢⱼ zᵢ zⱼ Cᵢⱼ` with `Cᵢⱼ = P a(uᵢ, uⱼ)`,
+  `P = −L⁻¹ [H⁻¹ Jᵀ K]_shared`, and by Isserlis
+  `M = ¼ (b bᵀ + 2 Σᵢⱼ Cᵢⱼ Cᵢⱼᵀ)`, `b = Σᵢ Cᵢᵢ`. `a(v, v)` is the central
+  second difference `r(θ̂ ⊕ v) + r(θ̂ ⊖ v) − 2 r̂` at one σ (the odd orders
+  cancel), `a(uᵢ, uⱼ)` follows by polarization from `v = uᵢ + uⱼ`:
+  `s (s + 1)` residual evaluations, each reduced by `P` as it is made. The
+  residual blocks are evaluated in fixed chunks of 256 over threads and the
+  chunks summed in order, so the result does not depend on the thread
+  count.
+- **Sampling rejected.** Drawing `δ₁` (two residual evaluations a draw)
+  estimates a fourth moment of the noise; for one dominant quadratic form
+  the relative standard deviation per draw is `√96 / 3 ≈ 3.3`. On the weak
+  rig the worst ratio came out 1.59, 4.08, 3.20 and 2.82 with 16, 32, 64
+  and 256 draws (one fixed seed), against 2.83 exact.
+- **Cost.** Release build, 12 threads: a two-camera rig with 48 views
+  (22 shared parameters, 9216 residuals, 507 evaluations) 45 ms, against
+  0.16 s for the whole calibration (the per-camera planar stages add 5 ms
+  each); a single camera with 32 views of 12 × 9 corners (8 shared) 5 ms of
+  0.055 s. It grows as `s²` times the residuals: a four-camera rig with 50
+  shared parameters needs 2550 evaluations. Above 64 shared coordinates it
+  is skipped (`None`): a bundle adjustment's points count as shared, and
+  with 40 points (154 coordinates) the 23 870 evaluations per adjustment
+  kept the bundle-adjustment Monte-Carlo test (500 adjustments, release)
+  running for over ten minutes. Noise-free
+  data is skipped too: when no shared σ exceeds `1e-9` of its value, steps
+  of one σ are lost in the residuals' rounding. A hand-eye solve that
+  re-weighs its robot-pose priors (up to eleven re-solves) predicts it once,
+  for the solve it reports, from a fresh linearization there.
+
+Validation (`vision-calibration/tests/second_order_error.rs`, `--ignored`):
+300 noise realizations per scene, each calibrated by the public workflow;
+measured NEES per parameter (mean ± standard error) and the worst scatter
+ratio (the top eigenvalue of the whitened errors' second moment, whose
+sampling edge with these counts is about 1.27 for 22 parameters and 1.16
+for 8) against the prediction (mean NEES; median worst ratio and its 5–95 %
+range over the realizations). Stereo: the rig of the facade's tests, eight
+views, Gaussian noise; tilts of up to `0.2 · tilt` rad, the board moved off
+the centre by 12 cm and 9 cm times `offset`. Planar: the `capture_planning`
+camera, 16 views of a 12 × 9 board, ±0.35 px uniform noise.
+
+| Scene | NEES/k measured | predicted | worst ratio measured | predicted |
+|---|---|---|---|---|
+| stereo, tilt ×1, centred, 0.3 px | 1.638 ± 0.085 | 1.599 | 3.00 | 2.83 (2.70–2.99) |
+| stereo, tilt ×1, centred, 0.1 px | 1.059 ± 0.024 | 1.069 | 1.40 | 1.35 (1.33–1.37) |
+| stereo, tilt ×1, centred, 0.03 px | 1.001 ± 0.019 | 1.006 | 1.24 (edge) | 1.04 (1.03–1.04) |
+| stereo, tilt ×1.5, centred, 0.3 px | 1.270 ± 0.047 | 1.227 | 2.05 | 1.87 (1.79–1.94) |
+| stereo, tilt ×2.5, centred, 0.3 px | 1.150 ± 0.035 | 1.109 | 1.66 | 1.45 (1.40–1.48) |
+| stereo, tilt ×1, off centre, 0.3 px | 1.096 ± 0.026 | 1.106 | 1.56 | 1.55 (1.51–1.59) |
+| stereo, tilt ×2.5, off centre, 0.3 px (spread) | 1.016 ± 0.020 | 1.014 | 1.27 (edge) | 1.06 (1.06–1.06) |
+| planar, quadrants, tilt 0.05 rad | 36 ± 35 (median 0.92) | median 1.14 | 16.8 | 1.45 (1.30–1.65) |
+| planar, quadrants, tilt 0.1 rad | 0.991 ± 0.029 | 1.001 | 1.10 (edge) | 1.00 |
+| planar, quadrants, tilt 0.2 rad | 1.003 ± 0.029 | 1.000 | 1.10 (edge) | 1.00 |
+| planar, quadrants, tilt 0.35 rad | 1.011 ± 0.029 | 1.000 | 1.11 (edge) | 1.00 |
+| planar, centre, tilt 0.35 rad | 0.940 ± 0.027 | 1.000 | 1.17 (edge) | 1.00 |
+| planar, centre, tilt 0.1 rad | 0.943 ± 0.029 | 1.000 | 1.17 (edge) | 1.00 |
+
+- The prediction tracks the NEES within 1.2 standard errors in every
+  stereo scene, and its excess scales with the noise variance as the
+  second order must (`λ_max` 7.0, 0.82, 0.08 at 0.3, 0.1, 0.03 px).
+- The combination named on the weak rig is `+1.00 cam1.cam_se3_rig.ry
+  +0.78 cam1.cx −0.64 cam0.cx`: camera 1's yaw against the difference of
+  the principal points, the one the earlier diagnosis found by hand. Tilt
+  alone (×2.5, centred) leaves it at 1.45; moving the board off the centre
+  alone leaves `cx₁ − cx₀` at 1.55; both together bring it to 1.06.
+- Planar at 0.05 rad (3°): σ(fx) is tens of pixels and a few realizations
+  land far off (mean NEES 36, median 0.92); the prediction warns there
+  (1.30–1.65), naming `fy − fx` with `k1`, `k2`. The centred planar
+  scenes' NEES of 0.94 is two standard errors below 1; a second-order term
+  only adds, so it does not account for that.
+- **Threshold.** The quality check warns above 1.2: the scenes the
+  covariance describes predict at most 1.06 (95th percentile), every scene
+  measured beyond it predicts 1.30 or more (5th percentile); the threshold
+  sits 0.14 above the one and 0.10 below the other.
+
 ## Per-point covariance (whitening)
 
 When the observations state `Σᵢ` per point, the reprojection residual is
@@ -218,6 +322,7 @@ and the σ tolerance.
 | Robot pose prediction | two-camera rig (Brown-Conrady), 9 × 7 board, 6 base robot poses, 0.2 px Gaussian noise, robot error 2e-4 rad / 0.2 mm where corrected; eye-in-hand and eye-to-hand, robot poses exact or corrected, 3 seeds; best-, median-, worst-ranked of 12 candidates and best three (`analysis/next_view/rig/tests.rs`) | predicted σ per parameter against the re-solve at the current σ_eff, within 10 % on average; best candidate's real `ln det` reduction above the worst one's | σ 0.1–1.2 % on average (worst parameter 9.6 %); best above worst in 12/12 scenes; the rebuilt information reproduces the solver's covariance to 1e-6 with exact robot poses, 0.05 in correlation with corrected ones |
 | Whitened reprojection | planar and 2-camera rig, per-point covariances 0.1–1 px, anisotropy up to 4:1, 1000 runs (see "Per-point covariance") | σ̂₀ within 5 % of 1; σ within ±10 %; normalized RMS within ±10 %; within-2σ 95.4 ± 2 %; RMSE below the uniform solve | σ̂₀ 0.976, 0.986; σ 0.96–1.04; RMSE 0.31–0.41 of uniform |
 | Bundle adjustment, calibration as prior | stereo rig calibrated per run from 8 views of an 8×6 board that fill the image (tilts ≤ 0.5 rad), 0.3 px Gaussian; 3 captures of 40 points at 0.3 px; `Use::Prior`, 500 runs (`vision-calibration/tests/bundle_adjust_uncertainty.rs`) | refined `fx` scatter/stated within ±10 % (3 standard errors); refined-rig NEES/22 within ±10 % | `fx` 0.95, 0.95 (second seed set 0.94, 0.96); NEES/22 1.004 (0.995); calibration NEES/22 0.993 |
+| Second-order error | stereo rig over tilt, placement and noise; planar camera over tilt and placement; 300 runs each (`vision-calibration/tests/second_order_error.rs`, see "Second-order error") | predicted NEES/k against the measured mean; a weak and a spread calibration through the quality report (always-on) | within 1.2 standard errors (stereo NEES/22 1.01–1.60 predicted, 1.00–1.64 measured); weak warns at 2.8 naming camera 1's yaw and the principal points, spread passes at 1.06 |
 | Backend parity | planar, with and without Huber | tiny-solver vs factrs `Σ` within 1e-6 relative | pass |
 | Backend parity, whitened factor | every camera model × chain, `L` upper triangular with an off-diagonal term (`backend/parity_tests.rs`) | residual, Jacobian and cost equal in both backends | pass |
 | Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
@@ -298,6 +403,9 @@ measurements that located the cause, 300 runs each unless stated:
   the scene's noise and at a tenth of it. Prior weighting, the whitening
   `L⁻¹(c − c₀)`, the SE3 tangent and the scale gauge are right; the size of
   the calibration's errors is what breaks the Gaussian.
+- **The indicator.** The covariance's `second_order` prediction (above)
+  reproduces this from the result alone: 2.83 against the measured 3.0 on
+  these views, 1.06 on the spread ones, and the quality report warns.
 - **The fix is the calibration.** Views that fill the image with tilts up to
   0.5 rad give σ(cx) 3.9 px, σ(ry) 3.2 mrad and NEES/22 1.016, top
   eigenvalue at the sampling edge; the refined `fx` then scatters 0.94–0.96×
@@ -321,7 +429,9 @@ measurements that located the cause, 300 runs each unless stated:
   So are the combinations a weak calibration pins down from large,
   cancelling errors: centred, mildly tilted views put a stereo calibration's
   error at 2.5–3× its σ along two of them, which a consumer that takes the
-  whole covariance as a Gaussian (a bundle-adjustment prior) inherits.
+  whole covariance as a Gaussian (a bundle-adjustment prior) inherits. The
+  covariance is not corrected for it; `second_order` predicts it and the
+  quality report warns (see "Second-order error").
 - **Projection σ is camera-frame**: it includes the principal-point error a
   re-estimated camera pose would absorb. On `stereo_rig` with the intrinsics
   refined in the rig solve it is 0.74 px at the centre (σ(cx) 0.75) and

@@ -58,7 +58,7 @@ The check: eight points with a covariance made of shared terms (a common transla
 
 With the joint covariance the stated σ is right to the 1 % that the draws resolve. Without the cross terms it is off by up to a factor of two.
 
-On a calibrated stereo rig the same holds end to end: over 300 calibrations from freshly noisy board views, with a held-out board triangulated each time, the scatter of a 7.5 cm length over its stated σ is 1.00, of a 17.5 cm length 1.03, of the right angle at a board corner 0.96 and of the board plane's distance 0.97. The mean error over σ stays within 0.2 for each. The σ built from the observations alone matches the lengths and the angle (the board's own geometry is dominated by the pixel noise) but understates the plane's distance six-fold: that is the calibration's share.
+On a calibrated stereo rig the same holds end to end: over 300 calibrations from freshly noisy board views spread over the image, with a held-out board triangulated each time, the scatter of a 7.5 cm length over its stated σ is 1.00, of a 17.5 cm length 1.02, of the right angle at a board corner 0.97 and of the board plane's distance 0.89. The mean error over σ stays within 0.2 for each. The σ built from the observations alone matches the lengths and the angle (the board's own geometry is dominated by the pixel noise) but understates the plane's distance 2.2-fold: that is the calibration's share.
 
 ## Propagation
 

@@ -628,6 +628,7 @@ fn uncertainty(
         num_residuals: 2 * n,
         dof: 0,
         view_scatter: None,
+        second_order: None,
     }))
 }
 

@@ -108,6 +108,26 @@ class ResultUncertaintyTest(unittest.TestCase):
         self.assertLessEqual(abs(u.correlation("fx", "fy")), 1.0)
         self.assertEqual(len(u.views), 8)
 
+    def test_second_order_prediction_parses(self) -> None:
+        payload = _available_payload()
+        payload["second_order"] = {
+            "max_scatter_ratio": 2.9,
+            "nees_ratio": 1.6,
+            "combination": [
+                {"label": "cam1.cam_se3_rig.ry", "weight": 1.0},
+                {"label": "cam0.cx", "weight": -0.7},
+            ],
+        }
+        u = vc.ParameterUncertainty.from_payload(payload)
+        assert u.second_order is not None
+        self.assertEqual(u.second_order.max_scatter_ratio, 2.9)
+        self.assertEqual(u.second_order.nees_ratio, 1.6)
+        self.assertEqual(
+            [(t.label, t.weight) for t in u.second_order.combination],
+            [("cam1.cam_se3_rig.ry", 1.0), ("cam0.cx", -0.7)],
+        )
+        self.assertIsNone(vc.ParameterUncertainty.from_payload(_available_payload()).second_order)
+
     def test_scheimpflug_reports_the_tilt_principal_point_degeneracy(self) -> None:
         # The fixture camera has no tilt, and its views do not separate a
         # sensor tilt from a principal-point shift: the result names them

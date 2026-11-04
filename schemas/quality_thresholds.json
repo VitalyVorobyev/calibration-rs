@@ -36,6 +36,12 @@
       "format": "double",
       "type": "number"
     },
+    "max_second_order_scatter": {
+      "default": 1.2,
+      "description": "Largest acceptable predicted scatter of the worst combination of the\nshared parameters over its stated σ, once the error's second-order\nterm is counted (≥ 1); above it the covariance-linearity check warns,\nnaming the combination. Default `1.2`: on synthetic stereo rigs and\nsingle cameras whose error the covariance describes the prediction\nstayed at or below 1.06, and every stereo capture predicted above 1.3\nscattered 1.4–3 times its σ along that combination.",
+      "format": "double",
+      "type": "number"
+    },
     "max_view_residual": {
       "default": 3.0,
       "description": "Largest acceptable mean normalized residual of one view, in units of\nthe noise level σ̂ (> 0); a view above it is named and the check warns.\nDefault `3.0`: the mean of `|r| / σ̂` over Gaussian inliers is about\n1.25, so a view at 3 has residuals well over twice the typical ones,\nas from a misdetection, motion blur or a wrong robot pose.",

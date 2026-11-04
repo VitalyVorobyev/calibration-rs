@@ -353,6 +353,7 @@ mod tests {
             num_residuals: 10,
             dof: 5,
             view_scatter: None,
+            second_order: None,
         })
     }
 
@@ -489,6 +490,7 @@ mod tests {
             num_residuals: 10,
             dof: 5,
             view_scatter: None,
+            second_order: None,
         };
         CalibratedRig::new(
             vec![pinhole(800.0), pinhole(800.0)],

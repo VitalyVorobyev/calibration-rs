@@ -296,6 +296,7 @@ impl Calibration {
             num_residuals: 100,
             dof: 50,
             view_scatter: None,
+            second_order: None,
         }
     }
 
@@ -892,6 +893,7 @@ impl OnRobot {
             num_residuals: 100,
             dof: 50,
             view_scatter: None,
+            second_order: None,
         };
         Self {
             cal,

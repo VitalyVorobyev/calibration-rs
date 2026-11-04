@@ -264,6 +264,7 @@ impl Coordinate {
             num_residuals: 0,
             dof: 0,
             view_scatter: None,
+            second_order: None,
         })
     }
 }
@@ -403,6 +404,7 @@ fn both_backends_give_the_upstream_share() {
         num_residuals: 0,
         dof: 0,
         view_scatter: None,
+        second_order: None,
     });
     let tiny = solve(&dataset, &upstream, &truth, SolverBackend::TinySolver);
     let factrs = solve(&dataset, &upstream, &truth, SolverBackend::Factrs);
@@ -467,6 +469,7 @@ fn the_handeye_chain_maps_into_the_target_poses() {
                 num_residuals: 10,
                 dof: 3,
                 view_scatter: None,
+                second_order: None,
             });
             let mapped =
                 handeye_upstream_uncertainty(&calibration, mode, &handeye, 2, &poses).unwrap();

@@ -41,6 +41,20 @@ impl OptimBackend for FactrsBackend {
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution, Error> {
+        self.solve_with(ir, initial, opts, true)
+    }
+}
+
+impl FactrsBackend {
+    /// [`OptimBackend::solve`], with the covariance's second-order
+    /// prediction only when `second_order` is set.
+    pub(super) fn solve_with(
+        &self,
+        ir: &ProblemIR,
+        initial: &HashMap<String, DVector<f64>>,
+        opts: &BackendSolveOptions,
+        second_order: bool,
+    ) -> Result<BackendSolution, Error> {
         let compiled = compile::compile(ir, initial)?;
         let engine = FactrsEngine::new(&compiled);
         let LmSolution {
@@ -64,7 +78,7 @@ impl OptimBackend for FactrsBackend {
         };
         Ok(BackendSolution {
             noise: covariance::noise(ir, raw.as_ref()),
-            uncertainty: covariance::estimate(ir, &params, raw, converged),
+            uncertainty: covariance::estimate(ir, &params, raw, converged, second_order),
             params,
             solve_report: SolveReport {
                 final_cost: 0.5 * cost,
