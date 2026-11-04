@@ -215,11 +215,12 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
         self.assertEqual(len(result.per_camera_stats), 2)
         self.assertEqual(len(result.per_cam_reproj_errors), 2)
 
-        # EyeToHand mode is echoed back and populates the mode-dependent poses.
-        self.assertEqual(result.handeye_mode, "EyeToHand")
-        self.assertIsNotNone(result.rig_se3_base)
-        self.assertIsNotNone(result.gripper_se3_target)
-        self.assertIsNone(result.gripper_se3_rig)
+        # EyeToHand mode is echoed back with the mode's two poses, and only them.
+        self.assertIsInstance(result.handeye, vc.RigEyeToHand)
+        self.assertEqual(result.handeye.mode, "EyeToHand")
+        self.assertIsInstance(result.handeye.rig_se3_base, vc.Pose)
+        self.assertIsInstance(result.handeye.gripper_se3_target, vc.Pose)
+        self.assertFalse(hasattr(result.handeye, "gripper_se3_rig"))
 
         # Well-conditioned noise-free data → the joint solve is near-exact on
         # every platform. These bounds sit ~6+ orders above the observed optimum

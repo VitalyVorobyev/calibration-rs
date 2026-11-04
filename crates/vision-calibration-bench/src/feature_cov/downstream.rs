@@ -6,15 +6,15 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-use vision_calibration::common::CalibratedCameras;
 use vision_calibration::common::RobotPoseMeta;
+use vision_calibration::common::{CalibratedCameras, HandeyeSolution};
 use vision_calibration::core::{Iso3, RigDataset};
-use vision_calibration::optim::HandeyeMode;
 use vision_calibration::rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsProblem};
 use vision_calibration::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeProblem,
+    SingleCamHandeyeSolution,
 };
 use vision_calibration_core::{NoMeta, Uncertainty};
 use vision_calibration_dataset::DatasetSpec;
@@ -76,13 +76,13 @@ impl Route {
                 session.set_input(SingleCamHandeyeInput::new(subset(&input.views, keep))?)?;
                 vision_calibration::single_cam_handeye::run_calibration(&mut session)?;
                 let export = session.export()?;
-                let (handeye, label) = match export.handeye_mode {
-                    HandeyeMode::EyeInHand => (export.gripper_se3_camera, "gripper_se3_camera"),
-                    HandeyeMode::EyeToHand => (export.camera_se3_base, "camera_se3_base"),
+                let label = match export.handeye {
+                    SingleCamHandeyeSolution::EyeInHand { .. } => "gripper_se3_camera",
+                    SingleCamHandeyeSolution::EyeToHand { .. } => "camera_se3_base",
                 };
                 Ok(Solved {
                     cam_se3_rig: Vec::new(),
-                    handeye,
+                    handeye: Some(*export.handeye.handeye().pose()),
                     handeye_sigma: pose_sigma(export.parameter_uncertainty(), label),
                 })
             }
@@ -110,13 +110,13 @@ impl Route {
                 )?)?;
                 vision_calibration::rig_handeye::run_calibration(&mut session)?;
                 let export = session.export()?;
-                let (handeye, label) = match export.handeye_mode {
-                    HandeyeMode::EyeInHand => (export.gripper_se3_rig, "gripper_se3_rig"),
-                    HandeyeMode::EyeToHand => (export.rig_se3_base, "rig_se3_base"),
+                let label = match export.handeye {
+                    HandeyeSolution::EyeInHand { .. } => "gripper_se3_rig",
+                    HandeyeSolution::EyeToHand { .. } => "rig_se3_base",
                 };
                 Ok(Solved {
                     cam_se3_rig: export.cam_se3_rig.clone(),
-                    handeye,
+                    handeye: Some(*export.handeye.handeye().pose()),
                     handeye_sigma: pose_sigma(export.parameter_uncertainty(), label),
                 })
             }

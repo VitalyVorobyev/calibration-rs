@@ -22,7 +22,9 @@ mod common;
 use common::laser::{board, laser_intrinsics, laser_pixels_for_view, laser_truth, poses};
 use common::{PIXEL_SIGMA, gauss, scatter_over_stated, without_calibration_share};
 use std::time::Instant;
-use vision_calibration::common::{CalibratedCameras, RigLaserlineView, RobotPoseMeta};
+use vision_calibration::common::{
+    CalibratedCameras, HandeyeSolution, RigLaserlineView, RobotPoseMeta,
+};
 use vision_calibration::core::{
     BrownConrady5, CalibratedRig, CorrespondenceView, Iso3, ParameterCovariance, PinholeCamera,
     PointCovariance, Pt2, Pt3, RigDataset, RigView, RigViewObs, Uncertainty, Vec3,
@@ -305,10 +307,13 @@ fn the_upstream_calibrations_share_is_in_the_rig_laser_point_sigma() {
         let seed = 900 + trial;
         let handeye = rig_handeye_export(seed);
         // The laser views' target poses through the calibrated chain.
-        let (gripper_se3_rig, base_se3_target) = (
-            handeye.gripper_se3_rig.unwrap(),
-            handeye.base_se3_target.unwrap(),
-        );
+        let HandeyeSolution::EyeInHand {
+            gripper_se3_rig,
+            base_se3_target,
+        } = handeye.handeye
+        else {
+            panic!("an eye-in-hand export");
+        };
         let chain: Vec<Iso3> = robot_stations(&rig_se3_target())
             .iter()
             .map(|b| gripper_se3_rig.inverse() * b.inverse() * base_se3_target)

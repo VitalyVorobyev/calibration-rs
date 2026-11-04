@@ -81,9 +81,7 @@ impl RigHandeyeExport {
     /// # Errors
     ///
     /// Returns [`Error::InvalidInput`] if the export's camera and
-    /// `cam_se3_rig` counts differ, its hand-eye pose for its mode is
-    /// missing while its covariance lists it, or the covariance lists part
-    /// of a pose.
+    /// `cam_se3_rig` counts differ or the covariance lists part of a pose.
     pub fn to_upstream_calibration(
         &self,
         rig_se3_target: Vec<Iso3>,
@@ -95,23 +93,13 @@ impl RigHandeyeExport {
                 self.cameras.len()
             )));
         }
-        let (handeye, _) = self.mode_poses();
-        let uncertainty = match (handeye, self.uncertainty.covariance()) {
-            (Some(handeye), _) => handeye_upstream_uncertainty(
-                &self.uncertainty,
-                self.handeye_mode,
-                &handeye,
-                self.cameras.len(),
-                &rig_se3_target,
-            )?,
-            (None, None) => self.uncertainty.clone(),
-            (None, Some(_)) => {
-                return Err(Error::invalid_input(format!(
-                    "the {:?} export has a covariance but no hand-eye pose",
-                    self.handeye_mode
-                )));
-            }
-        };
+        let uncertainty = handeye_upstream_uncertainty(
+            &self.uncertainty,
+            self.handeye.mode(),
+            self.handeye.handeye().pose(),
+            self.cameras.len(),
+            &rig_se3_target,
+        )?;
         Ok(RigUpstreamCalibration {
             cameras: self.cameras.clone(),
             cam_se3_rig: self.cam_se3_rig.clone(),

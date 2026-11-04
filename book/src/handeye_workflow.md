@@ -210,27 +210,36 @@ step_handeye_optimize(&mut session, None)?;
 
 let export = session.export()?;
 println!("Camera: {:?}", export.camera); // CameraParams, in the configured model
-println!("Hand-eye: {:?}", export.gripper_se3_camera);
-println!("Target in base: {:?}", export.base_se3_target);
+println!("Hand-eye and target: {:?}", export.handeye);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 ```
 
 ### Reading the Export
 
 ```rust
-use vision_calibration::optim::HandeyeMode;
+use vision_calibration::single_cam_handeye::SingleCamHandeyeSolution;
 
-match export.handeye_mode {
-    HandeyeMode::EyeInHand => {
-        let gripper_se3_camera = export.gripper_se3_camera.unwrap(); // T_G_C
-        let base_se3_target = export.base_se3_target.unwrap();       // T_B_T
+match export.handeye {
+    SingleCamHandeyeSolution::EyeInHand { gripper_se3_camera, base_se3_target } => {
+        // gripper_se3_camera: T_G_C, base_se3_target: T_B_T
     }
-    HandeyeMode::EyeToHand => {
-        let camera_se3_base = export.camera_se3_base.unwrap();       // T_C_B
-        let gripper_se3_target = export.gripper_se3_target.unwrap(); // T_G_T
+    SingleCamHandeyeSolution::EyeToHand { camera_se3_base, gripper_se3_target } => {
+        // camera_se3_base: T_C_B, gripper_se3_target: T_G_T
     }
 }
 ```
+
+`export.handeye` holds exactly the two poses of the mode, so an export cannot carry the wrong pose for its mode. In JSON it is the `handeye` object, tagged by `mode`:
+
+```json
+"handeye": {
+  "mode": "EyeInHand",
+  "gripper_se3_camera": { "rotation": [0, 0, 0, 1], "translation": [0.05, 0, 0.1] },
+  "base_se3_target":    { "rotation": [0, 0, 0, 1], "translation": [0, 0, 1] }
+}
+```
+
+In Python, `result.handeye` is a `CameraEyeInHand` or a `CameraEyeToHand`, and `result.handeye.mode` names the mode.
 
 `export.camera` is the calibrated camera (`CameraParams`) in the configured model, `export.robot_deltas` the per-view robot-pose corrections when refinement is on, and `export.diagnostics.per_feature_residuals` the per-corner reprojection records (see [Per-Feature Residuals](per_feature_residuals.md)).
 

@@ -8,8 +8,8 @@ use vision_calibration_core::{
     CalibratedRig, CameraParams, Handeye, Iso3, LaserPlane, ParameterCovariance, Uncertainty,
 };
 use vision_calibration_optim::{
-    Error as OptimError, HandeyeMode, ProjectionUncertainty, camera_parameters,
-    projection_covariance_at, projection_uncertainty,
+    Error as OptimError, ProjectionUncertainty, camera_parameters, projection_covariance_at,
+    projection_uncertainty,
 };
 
 use crate::Error;
@@ -174,23 +174,6 @@ pub(crate) fn split_camera_label(label: &str) -> (usize, &str) {
         .unwrap_or((0, label))
 }
 
-/// The hand-eye of an export's mode from its two optional poses: the one the
-/// mode does not use is `None` in a well-formed export.
-fn handeye_of(
-    mode: HandeyeMode,
-    gripper_se3_rig: Option<Iso3>,
-    rig_se3_base: Option<Iso3>,
-) -> Option<Handeye> {
-    match mode {
-        HandeyeMode::EyeInHand => {
-            gripper_se3_rig.map(|gripper_se3_rig| Handeye::EyeInHand { gripper_se3_rig })
-        }
-        HandeyeMode::EyeToHand => {
-            rig_se3_base.map(|rig_se3_base| Handeye::EyeToHand { rig_se3_base })
-        }
-    }
-}
-
 /// The export a JSON value holds, by its `kind` field, as its cameras.
 ///
 /// # Errors
@@ -244,11 +227,7 @@ impl CalibratedCameras for SingleCamHandeyeExport {
     }
 
     fn handeye(&self) -> Option<Handeye> {
-        handeye_of(
-            self.handeye_mode,
-            self.gripper_se3_camera,
-            self.camera_se3_base,
-        )
+        Some(self.handeye.handeye())
     }
 
     fn cam_se3_rig(&self) -> Vec<Iso3> {
@@ -310,7 +289,7 @@ impl CalibratedCameras for RigHandeyeExport {
     }
 
     fn handeye(&self) -> Option<Handeye> {
-        handeye_of(self.handeye_mode, self.gripper_se3_rig, self.rig_se3_base)
+        Some(self.handeye.handeye())
     }
 
     fn cam_se3_rig(&self) -> Vec<Iso3> {
@@ -354,7 +333,7 @@ impl CalibratedCameras for RigHandeyeLaserlineExport {
     }
 
     fn handeye(&self) -> Option<Handeye> {
-        handeye_of(self.handeye_mode, self.gripper_se3_rig, self.rig_se3_base)
+        Some(self.handeye.handeye())
     }
 
     fn laser_planes_cam(&self) -> Vec<LaserPlane> {
@@ -462,7 +441,11 @@ mod tests {
             "cameras": [camera(), camera()],
             "cam_se3_rig": [pose(), pose()],
             "rig_se3_target": [],
-            "handeye_mode": "EyeInHand",
+            "handeye": {
+                "mode": "EyeInHand",
+                "gripper_se3_rig": pose(),
+                "base_se3_target": pose(),
+            },
             "mean_reproj_error": 0.1,
             "per_cam_reproj_errors": [0.1, 0.1],
             "uncertainty": serde_json::to_value(covariance(&PLANES)).unwrap(),
@@ -470,11 +453,6 @@ mod tests {
         .unwrap();
         let rig = handeye.calibrated_rig().unwrap();
         assert_eq!(rig.laser_plane(1).unwrap().distance(), -0.4);
-        // Without its pose the export has no hand-eye to attach.
-        assert!(rig.handeye().is_none());
-        let mut with_pose = handeye.clone();
-        with_pose.gripper_se3_rig = Some(Iso3::translation(0.0, 0.0, 0.1));
-        let rig = with_pose.calibrated_rig().unwrap();
         assert!(matches!(rig.handeye(), Some(Handeye::EyeInHand { .. })));
         assert_eq!(
             rig.handeye_labels().unwrap()[5],

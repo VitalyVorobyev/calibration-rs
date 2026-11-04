@@ -33,13 +33,6 @@ pixel noise (the cameras as exact). The rectification still runs on a bare `K`.
   `rig_handeye_laserline` export carries it; reopen when a staged laser
   user needs robot-frame points with the hand-eye's share.
 
-- [ ] HANDEYE-EXPORT-ENUM - The hand-eye exports (`single_cam_handeye`,
-  `rig_handeye`, `rig_handeye_laserline`) carry a mode field and two optional
-  poses (`gripper_se3_rig` / `rig_se3_base`, `base_se3_target` /
-  `gripper_se3_target`), so an export with the wrong pose for its mode is
-  representable. Carry core's `Handeye` enum (and the matching target pose)
-  instead: a schema break, migration notes, Python and app types.
-
 ## Lean code — LEAN (Phase 1b)
 
 - [ ] LEAN-RIG-TILTED - The rig stages run the wide tilt multi-start and

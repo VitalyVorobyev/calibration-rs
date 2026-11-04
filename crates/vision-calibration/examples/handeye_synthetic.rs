@@ -204,7 +204,7 @@ fn main() -> Result<()> {
     println!("Distortion (GT: zero): {:?}", export.camera.distortion);
 
     println!("Hand-eye transform:");
-    let he_t = export.gripper_se3_camera.unwrap().translation.vector.norm();
+    let he_t = export.handeye.handeye().pose().translation.vector.norm();
     let he_gt_t = handeye_gt.translation.vector.norm();
     println!(
         "  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)",

@@ -14,12 +14,12 @@
 
 use anyhow::Result;
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
+use vision_calibration::common::HandeyeSolution;
 use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, Pt3, RigDataset, RigView,
     RigViewObs, make_pinhole_camera,
 };
-use vision_calibration::optim::HandeyeMode;
 use vision_calibration::prelude::*;
 use vision_calibration::rig_handeye::{
     RigHandeyeInput, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,
@@ -265,11 +265,11 @@ fn main() -> Result<()> {
     );
 
     println!("Hand-eye transform:");
-    match export.handeye_mode {
-        HandeyeMode::EyeInHand => {
-            let handeye = export
-                .gripper_se3_rig
-                .expect("missing gripper_se3_rig for EyeInHand");
+    match export.handeye {
+        HandeyeSolution::EyeInHand {
+            gripper_se3_rig: handeye,
+            base_se3_target,
+        } => {
             let he_t = handeye.translation.vector.norm();
             let he_gt_t = handeye_gt.translation.vector.norm();
             println!(
@@ -280,9 +280,6 @@ fn main() -> Result<()> {
             );
 
             println!("Target pose:");
-            let base_se3_target = export
-                .base_se3_target
-                .expect("missing base_se3_target for EyeInHand");
             let target_t = base_se3_target.translation.vector.norm();
             let target_gt_t = target_in_base_gt.translation.vector.norm();
             println!(
@@ -292,17 +289,14 @@ fn main() -> Result<()> {
                 100.0 * (target_t - target_gt_t).abs() / target_gt_t
             );
         }
-        HandeyeMode::EyeToHand => {
-            let handeye = export
-                .rig_se3_base
-                .expect("missing rig_se3_base for EyeToHand");
+        HandeyeSolution::EyeToHand {
+            rig_se3_base: handeye,
+            gripper_se3_target,
+        } => {
             println!(
                 "  EyeToHand rig_se3_base |t|: {:.4}m",
                 handeye.translation.vector.norm()
             );
-            let gripper_se3_target = export
-                .gripper_se3_target
-                .expect("missing gripper_se3_target for EyeToHand");
             println!(
                 "  EyeToHand gripper_se3_target |t|: {:.4}m",
                 gripper_se3_target.translation.vector.norm()

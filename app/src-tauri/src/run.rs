@@ -1740,7 +1740,10 @@ mod tests {
             mean_px < 2.0,
             "kuka_1 mean reprojection error {mean_px:.3} px (expected ~1.2)"
         );
-        assert!(s.export["gripper_se3_camera"].is_object(), "eye-in-hand");
+        assert!(
+            s.export["handeye"]["gripper_se3_camera"].is_object(),
+            "eye-in-hand"
+        );
         let frames = s.export["image_manifest"]["frames"].as_array().unwrap();
         assert_eq!(frames.len(), s.usable_views);
     }

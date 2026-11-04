@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Mapping, cast
+from typing import Any, ClassVar, Mapping, TypeAlias, cast
 
 from .residuals import PerFeatureResiduals
 from ._generated_types import (
@@ -2107,6 +2107,131 @@ class PlanarIntrinsicsExport(_ExportResiduals):
         )
 
 
+def _solution_pose(payload: Mapping[str, Any], name: str) -> Pose:
+    return Pose.from_payload(cast(Mapping[str, Any], payload[name]))
+
+
+@dataclass(frozen=True, slots=True)
+class RigEyeInHand:
+    """A rig hand-eye calibration with the rig on the gripper.
+
+    ``gripper_se3_rig`` is the rig's pose on the gripper and
+    ``base_se3_target`` the static target's pose in the robot's base frame.
+    """
+
+    gripper_se3_rig: Pose
+    base_se3_target: Pose
+    mode: ClassVar[HandeyeMode] = "EyeInHand"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "gripper_se3_rig": self.gripper_se3_rig.to_payload(),
+            "base_se3_target": self.base_se3_target.to_payload(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RigEyeToHand:
+    """A rig hand-eye calibration with the rig standing in the base frame.
+
+    ``rig_se3_base`` is the base's pose in the rig and ``gripper_se3_target``
+    the static target's pose on the gripper.
+    """
+
+    rig_se3_base: Pose
+    gripper_se3_target: Pose
+    mode: ClassVar[HandeyeMode] = "EyeToHand"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "rig_se3_base": self.rig_se3_base.to_payload(),
+            "gripper_se3_target": self.gripper_se3_target.to_payload(),
+        }
+
+
+RigHandeyeSolution: TypeAlias = RigEyeInHand | RigEyeToHand
+"""The hand-eye of a rig export and its target pose: one class per mode, so
+an export holds exactly the two poses its mode estimates."""
+
+
+def _rig_solution_from_payload(payload: Mapping[str, Any]) -> RigHandeyeSolution:
+    mode = payload["mode"]
+    if mode == "EyeInHand":
+        return RigEyeInHand(
+            gripper_se3_rig=_solution_pose(payload, "gripper_se3_rig"),
+            base_se3_target=_solution_pose(payload, "base_se3_target"),
+        )
+    if mode == "EyeToHand":
+        return RigEyeToHand(
+            rig_se3_base=_solution_pose(payload, "rig_se3_base"),
+            gripper_se3_target=_solution_pose(payload, "gripper_se3_target"),
+        )
+    raise ValueError(f"unknown hand-eye mode: {mode!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class CameraEyeInHand:
+    """A single-camera hand-eye calibration with the camera on the gripper.
+
+    ``gripper_se3_camera`` is the camera's pose on the gripper and
+    ``base_se3_target`` the static target's pose in the robot's base frame.
+    """
+
+    gripper_se3_camera: Pose
+    base_se3_target: Pose
+    mode: ClassVar[HandeyeMode] = "EyeInHand"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "gripper_se3_camera": self.gripper_se3_camera.to_payload(),
+            "base_se3_target": self.base_se3_target.to_payload(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CameraEyeToHand:
+    """A single-camera hand-eye calibration with the camera standing in the
+    base frame.
+
+    ``camera_se3_base`` is the base's pose in the camera and
+    ``gripper_se3_target`` the static target's pose on the gripper.
+    """
+
+    camera_se3_base: Pose
+    gripper_se3_target: Pose
+    mode: ClassVar[HandeyeMode] = "EyeToHand"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "camera_se3_base": self.camera_se3_base.to_payload(),
+            "gripper_se3_target": self.gripper_se3_target.to_payload(),
+        }
+
+
+SingleCamHandeyeSolution: TypeAlias = CameraEyeInHand | CameraEyeToHand
+"""The hand-eye of a single-camera export and its target pose: one class per
+mode."""
+
+
+def _camera_solution_from_payload(payload: Mapping[str, Any]) -> SingleCamHandeyeSolution:
+    mode = payload["mode"]
+    if mode == "EyeInHand":
+        return CameraEyeInHand(
+            gripper_se3_camera=_solution_pose(payload, "gripper_se3_camera"),
+            base_se3_target=_solution_pose(payload, "base_se3_target"),
+        )
+    if mode == "EyeToHand":
+        return CameraEyeToHand(
+            camera_se3_base=_solution_pose(payload, "camera_se3_base"),
+            gripper_se3_target=_solution_pose(payload, "gripper_se3_target"),
+        )
+    raise ValueError(f"unknown hand-eye mode: {mode!r}")
+
+
 @dataclass(slots=True)
 class SingleCamHandeyeExport(_ExportResiduals):
     """Result from :func:`vision_calibration.run_single_cam_handeye`.
@@ -2115,11 +2240,7 @@ class SingleCamHandeyeExport(_ExportResiduals):
     """
 
     camera: Camera
-    handeye_mode: HandeyeMode
-    gripper_se3_camera: Pose | None
-    camera_se3_base: Pose | None
-    base_se3_target: Pose | None
-    gripper_se3_target: Pose | None
+    handeye: SingleCamHandeyeSolution
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
@@ -2135,20 +2256,10 @@ class SingleCamHandeyeExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "SingleCamHandeyeExport":
-        def _pose(name: str) -> Pose | None:
-            value = payload.get(name)
-            if value is None:
-                return None
-            return Pose.from_payload(cast(Mapping[str, Any], value))
-
         return cls(
             export=dict(payload),
             camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
-            handeye_mode=cast(HandeyeMode, payload["handeye_mode"]),
-            gripper_se3_camera=_pose("gripper_se3_camera"),
-            camera_se3_base=_pose("camera_se3_base"),
-            base_se3_target=_pose("base_se3_target"),
-            gripper_se3_target=_pose("gripper_se3_target"),
+            handeye=_camera_solution_from_payload(cast(Mapping[str, Any], payload["handeye"])),
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
             robot_pose_sigma=RobotPoseSigma.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
@@ -2199,11 +2310,7 @@ class RigHandeyeExport(_ExportResiduals):
 
     cameras: list[Camera]
     cam_se3_rig: list[Pose]
-    handeye_mode: HandeyeMode
-    gripper_se3_rig: Pose | None
-    rig_se3_base: Pose | None
-    base_se3_target: Pose | None
-    gripper_se3_target: Pose | None
+    handeye: RigHandeyeSolution
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
@@ -2226,18 +2333,11 @@ class RigHandeyeExport(_ExportResiduals):
         result back across the FFI boundary.
         """
 
-        def _pose(p: Pose | None) -> Any:
-            return None if p is None else p.to_payload()
-
         return {
             "cameras": [c.to_payload() for c in self.cameras],
             "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
             "rig_se3_target": [p.to_payload() for p in self.rig_se3_target],
-            "handeye_mode": self.handeye_mode,
-            "gripper_se3_rig": _pose(self.gripper_se3_rig),
-            "rig_se3_base": _pose(self.rig_se3_base),
-            "base_se3_target": _pose(self.base_se3_target),
-            "gripper_se3_target": _pose(self.gripper_se3_target),
+            "handeye": self.handeye.to_payload(),
             "robot_deltas": self.robot_deltas,
             "robot_pose_sigma": (
                 None if self.robot_pose_sigma is None else self.robot_pose_sigma.to_payload()
@@ -2248,12 +2348,6 @@ class RigHandeyeExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeExport":
-        def _pose(name: str) -> Pose | None:
-            value = payload.get(name)
-            if value is None:
-                return None
-            return Pose.from_payload(cast(Mapping[str, Any], value))
-
         return cls(
             export=dict(payload),
             cameras=_cameras_from_payload(payload),
@@ -2261,11 +2355,7 @@ class RigHandeyeExport(_ExportResiduals):
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["cam_se3_rig"])
             ],
-            handeye_mode=cast(HandeyeMode, payload["handeye_mode"]),
-            gripper_se3_rig=_pose("gripper_se3_rig"),
-            rig_se3_base=_pose("rig_se3_base"),
-            base_se3_target=_pose("base_se3_target"),
-            gripper_se3_target=_pose("gripper_se3_target"),
+            handeye=_rig_solution_from_payload(cast(Mapping[str, Any], payload["handeye"])),
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
             robot_pose_sigma=RobotPoseSigma.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
@@ -2734,11 +2824,7 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
     cameras: list[Camera]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
-    handeye_mode: HandeyeMode
-    gripper_se3_rig: Pose | None
-    rig_se3_base: Pose | None
-    base_se3_target: Pose | None
-    gripper_se3_target: Pose | None
+    handeye: RigHandeyeSolution
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
@@ -2754,12 +2840,6 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlineExport":
-        def _pose(name: str) -> Pose | None:
-            value = payload.get(name)
-            if value is None:
-                return None
-            return Pose.from_payload(cast(Mapping[str, Any], value))
-
         return cls(
             export=dict(payload),
             laser_planes_rig=[
@@ -2783,11 +2863,7 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["rig_se3_target"])
             ],
-            handeye_mode=cast(HandeyeMode, payload["handeye_mode"]),
-            gripper_se3_rig=_pose("gripper_se3_rig"),
-            rig_se3_base=_pose("rig_se3_base"),
-            base_se3_target=_pose("base_se3_target"),
-            gripper_se3_target=_pose("gripper_se3_target"),
+            handeye=_rig_solution_from_payload(cast(Mapping[str, Any], payload["handeye"])),
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
             robot_pose_sigma=RobotPoseSigma.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))

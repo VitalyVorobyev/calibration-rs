@@ -183,10 +183,10 @@ pub(super) fn split_camera(label: &str) -> (Option<usize>, &str) {
 }
 
 /// Export field `name`, element `index` when given. Looked up at the top
-/// level and under `params` (the laserline device names its per-view poses
-/// `poses`).
+/// level, under `params` (the laserline device names its per-view poses
+/// `poses`) and under `handeye` (a hand-eye export's mode-tagged poses).
 pub(super) fn field<'a>(export: &'a Value, name: &str, index: Option<usize>) -> Result<&'a Value> {
-    let containers = [Some(export), export.get("params")];
+    let containers = [Some(export), export.get("params"), export.get("handeye")];
     let alias = (name == "camera_se3_target").then_some("poses");
     let value = containers
         .into_iter()

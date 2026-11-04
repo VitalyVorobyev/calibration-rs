@@ -305,7 +305,8 @@ class ManifestRunTest(unittest.TestCase):
                 KUKA / "dataset.toml", vc.SingleCamHandeyeConfig(), cache=cache
             )
             assert isinstance(result, vc.SingleCamHandeyeExport)
-            self.assertEqual(result.handeye_mode, "EyeInHand")
+            self.assertEqual(result.handeye.mode, "EyeInHand")
+            self.assertIsInstance(result.handeye, vc.CameraEyeInHand)
             self.assertLess(result.mean_reproj_error, 0.5)
             self.assertEqual(len(result.per_feature_residuals.target), 30 * 17 * 28)
 

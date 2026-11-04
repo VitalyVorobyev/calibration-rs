@@ -54,7 +54,8 @@ const CELL_SIZE_MM: f64 = 5.0;
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
     let handeye_mode = match std::env::var("SCHEIMPFLUG_RIG_REF_HANDEYE").as_deref() {
         Ok("eye_to_hand") => HandeyeMode::EyeToHand,
@@ -114,7 +115,8 @@ fn main() -> Result<()> {
 
     // ── From-scratch RigHandeye(Scheimpflug) calibration ─────────────────────
     let dataset = RigDataset::new(views, NUM_CAMERAS)?;
-    let mut session = CalibrationSession::<RigHandeyeProblem>::with_description("scheimpflug_rig_ref_rig");
+    let mut session =
+        CalibrationSession::<RigHandeyeProblem>::with_description("scheimpflug_rig_ref_rig");
     session.set_input(dataset)?;
 
     let mut cfg = RigHandeyeConfig::default();
@@ -248,10 +250,7 @@ fn compare(
     }
 
     println!("\n── Recovered hand-eye vs oracle tcp_se3_sensor ──");
-    let our_he = match handeye_mode {
-        HandeyeMode::EyeInHand => export.gripper_se3_rig,
-        HandeyeMode::EyeToHand => export.rig_se3_base,
-    };
+    let our_he = Some(*export.handeye.handeye().pose());
     let ref_he = iso_from_4x4_mm(&art.handeye.tcp_se3_sensor);
     match our_he {
         Some(he) => {

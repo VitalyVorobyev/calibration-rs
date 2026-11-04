@@ -880,6 +880,47 @@ class HandeyeOptimizeConfig(_HandeyeOptimizeConfigRequired, total=False):
     """
 
 
+class HandeyeSolution_EyeInHand(TypedDict):
+    """The rig rides on the gripper; the target stands in the base frame."""
+
+    base_se3_target: Iso3
+    """The target's pose in the robot's base frame (`base_se3_target`)."""
+
+    gripper_se3_rig: Iso3
+    """The rig's pose on the gripper (`gripper_se3_rig`, rig frame →
+    gripper frame).
+    """
+
+    mode: Literal["EyeInHand"]
+
+
+class HandeyeSolution_EyeToHand(TypedDict):
+    """The rig stands in the base frame; the target rides on the gripper."""
+
+    gripper_se3_target: Iso3
+    """The target's pose on the gripper (`gripper_se3_target`)."""
+
+    mode: Literal["EyeToHand"]
+    rig_se3_base: Iso3
+    """The base's pose in the rig (`rig_se3_base`, base frame → rig
+    frame).
+    """
+
+
+HandeyeSolution: TypeAlias = HandeyeSolution_EyeInHand | HandeyeSolution_EyeToHand
+"""The solution of a rig hand-eye calibration: the hand-eye of its mode and
+the pose of the static target in the frame that mode fixes it in.
+
+Each mode holds exactly the two poses it estimates, so an export with the
+wrong pose for its mode cannot be written or read. In JSON it is
+internally tagged by `mode`:
+
+```json
+{"mode": "EyeInHand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
+```
+"""
+
+
 class ImageManifest(TypedDict):
     """Image manifest carried alongside a calibration export.
 
@@ -2219,12 +2260,6 @@ class RigHandeyeConfig(_RigHandeyeConfigRequired, total=False):
 class RigHandeyeExport(TypedDict):
     """Export format for rig hand-eye calibration."""
 
-    base_se3_target: Iso3 | None
-    """Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).
-
-    `None` for EyeToHand mode.
-    """
-
     cam_se3_rig: list[Iso3]
     """Per-camera extrinsics: `cam_se3_rig` (T_C_R).
     Transform from rig frame to camera frame.
@@ -2238,20 +2273,8 @@ class RigHandeyeExport(TypedDict):
     debugging, not part of the result.
     """
 
-    gripper_se3_rig: Iso3 | None
-    """Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
-
-    `None` for EyeToHand mode.
-    """
-
-    gripper_se3_target: Iso3 | None
-    """Eye-to-hand: gripper-to-target transform `gripper_se3_target` (T_G_T).
-
-    `None` for EyeInHand mode.
-    """
-
-    handeye_mode: HandeyeMode
-    """Hand-eye mode used to interpret mode-dependent transforms."""
+    handeye: HandeyeSolution
+    """The hand-eye and the target reference pose of the calibration's mode."""
 
     kind: ExportKind
     """Export-type discriminator — always `ExportKind::RigHandeye`."""
@@ -2261,12 +2284,6 @@ class RigHandeyeExport(TypedDict):
 
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (pixels)."""
-
-    rig_se3_base: Iso3 | None
-    """Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).
-
-    `None` for EyeInHand mode.
-    """
 
     rig_se3_target: list[Iso3]
     """Per-view rig poses: `rig_se3_target` (T_R_T), derived from the
@@ -2321,9 +2338,6 @@ class RigHandeyeLaserlineConfig(TypedDict):
 class RigHandeyeLaserlineExport(TypedDict):
     """Export format for joint rig hand-eye laserline calibration."""
 
-    base_se3_target: Iso3 | None
-    """Eye-in-hand target reference pose `base_se3_target`."""
-
     cam_se3_rig: list[Iso3]
     """Per-camera extrinsics `cam_se3_rig` (T_C_R)."""
 
@@ -2335,14 +2349,8 @@ class RigHandeyeLaserlineExport(TypedDict):
     debugging, not part of the result.
     """
 
-    gripper_se3_rig: Iso3 | None
-    """Eye-in-hand hand-eye transform `gripper_se3_rig`."""
-
-    gripper_se3_target: Iso3 | None
-    """Eye-to-hand target reference pose `gripper_se3_target`."""
-
-    handeye_mode: HandeyeMode
-    """Hand-eye mode used to interpret mode-dependent transforms."""
+    handeye: HandeyeSolution
+    """The hand-eye and the target reference pose of the calibration's mode."""
 
     kind: ExportKind
     """Export-type discriminator — always `ExportKind::RigHandeyeLaserline`."""
@@ -2361,9 +2369,6 @@ class RigHandeyeLaserlineExport(TypedDict):
 
     per_camera_stats: list[RigHandeyeLaserlinePerCamStats]
     """Joint per-camera stats."""
-
-    rig_se3_base: Iso3 | None
-    """Eye-to-hand hand-eye transform `rig_se3_base`."""
 
     rig_se3_target: list[Iso3]
     """Per-view target poses `rig_se3_target` (T_R_T)."""
@@ -2965,40 +2970,16 @@ class SingleCamHandeyeConfig(_SingleCamHandeyeConfigRequired, total=False):
 class SingleCamHandeyeExport(TypedDict):
     """Export format for single-camera hand-eye calibration."""
 
-    base_se3_target: Iso3 | None
-    """Eye-in-hand: base_se3_target (T_B_T).
-
-    `None` for EyeToHand mode.
-    """
-
     camera: CameraParams
     """Calibrated camera, in the configured model."""
-
-    camera_se3_base: Iso3 | None
-    """Eye-to-hand: camera_se3_base (T_C_B).
-
-    `None` for EyeInHand mode.
-    """
 
     diagnostics: ExportDiagnostics
     """Residuals and the image manifest: evidence for viewers and
     debugging, not part of the result.
     """
 
-    gripper_se3_camera: Iso3 | None
-    """Eye-in-hand: gripper_se3_camera (T_G_C).
-
-    `None` for EyeToHand mode.
-    """
-
-    gripper_se3_target: Iso3 | None
-    """Eye-to-hand: gripper_se3_target (T_G_T).
-
-    `None` for EyeInHand mode.
-    """
-
-    handeye_mode: HandeyeMode
-    """Hand-eye mode used to interpret the transforms."""
+    handeye: SingleCamHandeyeSolution
+    """The hand-eye and the target pose of the calibration's mode."""
 
     kind: ExportKind
     """Export-type discriminator — always `ExportKind::SingleCamHandeye`."""
@@ -3032,6 +3013,53 @@ class SingleCamHandeyeInput(TypedDict):
 
     views: list[SingleCamHandeyeView]
     """Per-view observations with robot poses."""
+
+
+class SingleCamHandeyeSolution_EyeInHand(TypedDict):
+    """The camera rides on the gripper; the target stands in the base frame."""
+
+    base_se3_target: Iso3
+    """The target's pose in the robot's base frame (`base_se3_target`)."""
+
+    gripper_se3_camera: Iso3
+    """The camera's pose on the gripper (`gripper_se3_camera`, camera
+    frame → gripper frame).
+    """
+
+    mode: Literal["EyeInHand"]
+
+
+class SingleCamHandeyeSolution_EyeToHand(TypedDict):
+    """The camera stands in the base frame; the target rides on the gripper."""
+
+    camera_se3_base: Iso3
+    """The base's pose in the camera (`camera_se3_base`, base frame →
+    camera frame).
+    """
+
+    gripper_se3_target: Iso3
+    """The target's pose on the gripper (`gripper_se3_target`)."""
+
+    mode: Literal["EyeToHand"]
+
+
+SingleCamHandeyeSolution: TypeAlias = (
+    SingleCamHandeyeSolution_EyeInHand
+    | SingleCamHandeyeSolution_EyeToHand
+)
+"""The solution of a single-camera hand-eye calibration: the hand-eye of its
+mode and the pose of the static target in the frame that mode fixes it in.
+
+Each mode holds exactly the two poses it estimates, so an export with the
+wrong pose for its mode cannot be written or read. It is the rig
+solution (`HandeyeSolution`) of a rig
+that is the camera, with the camera named where the rig is. In JSON it is
+internally tagged by `mode`:
+
+```json
+{"mode": "EyeInHand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+```
+"""
 
 
 class SingleCamHandeyeView(TypedDict):
@@ -3482,6 +3510,9 @@ __all__ = [
     "HandeyeMethod",
     "HandeyeMode",
     "HandeyeOptimizeConfig",
+    "HandeyeSolution",
+    "HandeyeSolution_EyeInHand",
+    "HandeyeSolution_EyeToHand",
     "ImageManifest",
     "ImageNoiseSpec",
     "ImageNoiseSpec_Known",
@@ -3584,6 +3615,9 @@ __all__ = [
     "SingleCamHandeyeConfig",
     "SingleCamHandeyeExport",
     "SingleCamHandeyeInput",
+    "SingleCamHandeyeSolution",
+    "SingleCamHandeyeSolution_EyeInHand",
+    "SingleCamHandeyeSolution_EyeToHand",
     "SingleCamHandeyeView",
     "SolverBackend",
     "SolverConfig",

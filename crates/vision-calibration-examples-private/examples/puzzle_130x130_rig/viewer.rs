@@ -83,7 +83,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         final_cost: None,
         detected: input.detected,
         params: input.joint_initial,
-        mode: input.rig_export.handeye_mode,
+        mode: input.rig_export.handeye.mode(),
         robot_deltas: input.rig_export.robot_deltas.as_deref(),
         per_cam_stats: input.joint_initial_stats,
     })?;
@@ -94,7 +94,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         final_cost: None,
         detected: input.detected,
         params: input.joint_initial,
-        mode: input.rig_export.handeye_mode,
+        mode: input.rig_export.handeye.mode(),
         robot_deltas: input.rig_export.robot_deltas.as_deref(),
         per_cam_stats: input.joint_initial_stats,
     })?;
@@ -105,7 +105,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         final_cost: Some(input.joint_est.report.final_cost),
         detected: input.detected,
         params: &input.joint_est.params,
-        mode: input.rig_export.handeye_mode,
+        mode: input.rig_export.handeye.mode(),
         robot_deltas: input.joint_est.robot_deltas.as_deref(),
         per_cam_stats: &input.joint_est.per_cam_stats,
     })?;
@@ -163,7 +163,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
                 })
             })
             .collect::<Result<Vec<_>>>()?,
-        handeye_mode: format!("{:?}", input.rig_export.handeye_mode),
+        handeye_mode: format!("{:?}", input.rig_export.handeye.mode()),
         handeye: iso_record(&input.joint_est.params.handeye),
         target_ref: iso_record(&input.joint_est.params.target_ref),
         stages: vec![stage2, stage3, stage4],
