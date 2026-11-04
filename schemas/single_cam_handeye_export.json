@@ -505,21 +505,6 @@
       ],
       "type": "object"
     },
-    "HandeyeMode": {
-      "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
-      "oneOf": [
-        {
-          "const": "EyeInHand",
-          "description": "Camera mounted on robot end-effector (gripper).\n\nTransform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world",
-          "type": "string"
-        },
-        {
-          "const": "EyeToHand",
-          "description": "Camera fixed in workspace, observes robot end-effector.\n\nTransform chain: P_camera = extr^-1 * handeye * robot * target * P_world",
-          "type": "string"
-        }
-      ]
-    },
     "ImageManifest": {
       "description": "Image manifest carried alongside a calibration export.\n\n`root` is interpreted relative to the directory of the `export.json` that\nembeds the manifest. Each [`FrameRef::path`] is interpreted relative to\n`root`. Both layers of indirection make exports portable across machines\nas long as the image directory is co-located with the export.",
       "properties": {
@@ -1033,6 +1018,57 @@
         }
       ]
     },
+    "SingleCamHandeyeSolution": {
+      "description": "The solution of a single-camera hand-eye calibration: the hand-eye of its\nmode and the pose of the static target in the frame that mode fixes it in.\n\nEach mode holds exactly the two poses it estimates, so an export with the\nwrong pose for its mode cannot be written or read. It is the rig\nsolution ([`HandeyeSolution`](crate::common::HandeyeSolution)) of a rig\nthat is the camera, with the camera named where the rig is. In JSON it is\ninternally tagged by `mode`:\n\n```json\n{\"mode\": \"EyeInHand\", \"gripper_se3_camera\": {…}, \"base_se3_target\": {…}}\n```",
+      "oneOf": [
+        {
+          "description": "The camera rides on the gripper; the target stands in the base frame.",
+          "properties": {
+            "base_se3_target": {
+              "$ref": "#/$defs/Iso3Schema",
+              "description": "The target's pose in the robot's base frame (`base_se3_target`)."
+            },
+            "gripper_se3_camera": {
+              "$ref": "#/$defs/Iso3Schema",
+              "description": "The camera's pose on the gripper (`gripper_se3_camera`, camera\nframe → gripper frame)."
+            },
+            "mode": {
+              "const": "EyeInHand",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "gripper_se3_camera",
+            "base_se3_target"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The camera stands in the base frame; the target rides on the gripper.",
+          "properties": {
+            "camera_se3_base": {
+              "$ref": "#/$defs/Iso3Schema",
+              "description": "The base's pose in the camera (`camera_se3_base`, base frame →\ncamera frame)."
+            },
+            "gripper_se3_target": {
+              "$ref": "#/$defs/Iso3Schema",
+              "description": "The target's pose on the gripper (`gripper_se3_target`)."
+            },
+            "mode": {
+              "const": "EyeToHand",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "camera_se3_base",
+            "gripper_se3_target"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "TargetFeatureResidual": {
       "description": "Reprojection record for a single target feature in a single view.",
       "properties": {
@@ -1290,31 +1326,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Export format for single-camera hand-eye calibration.",
   "properties": {
-    "base_se3_target": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Iso3Schema"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Eye-in-hand: base_se3_target (T_B_T).\n\n`None` for EyeToHand mode."
-    },
     "camera": {
       "$ref": "#/$defs/CameraParams",
       "description": "Calibrated camera, in the configured model."
-    },
-    "camera_se3_base": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Iso3Schema"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Eye-to-hand: camera_se3_base (T_C_B).\n\n`None` for EyeInHand mode."
     },
     "diagnostics": {
       "$ref": "#/$defs/ExportDiagnostics",
@@ -1323,31 +1337,9 @@
       },
       "description": "Residuals and the image manifest: evidence for viewers and\ndebugging, not part of the result."
     },
-    "gripper_se3_camera": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Iso3Schema"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Eye-in-hand: gripper_se3_camera (T_G_C).\n\n`None` for EyeToHand mode."
-    },
-    "gripper_se3_target": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Iso3Schema"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Eye-to-hand: gripper_se3_target (T_G_T).\n\n`None` for EyeInHand mode."
-    },
-    "handeye_mode": {
-      "$ref": "#/$defs/HandeyeMode",
-      "description": "Hand-eye mode used to interpret the transforms."
+    "handeye": {
+      "$ref": "#/$defs/SingleCamHandeyeSolution",
+      "description": "The hand-eye and the target pose of the calibration's mode."
     },
     "kind": {
       "$ref": "#/$defs/ExportKind",
@@ -1408,11 +1400,7 @@
   "required": [
     "kind",
     "camera",
-    "handeye_mode",
-    "gripper_se3_camera",
-    "camera_se3_base",
-    "base_se3_target",
-    "gripper_se3_target",
+    "handeye",
     "robot_deltas",
     "robot_pose_sigma",
     "mean_reproj_error",

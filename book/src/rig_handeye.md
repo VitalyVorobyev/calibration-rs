@@ -85,6 +85,7 @@ Set `camera.model.sensor` to `SensorKind::Scheimpflug` for a rig of tilted-senso
 ```rust
 use vision_calibration::prelude::*;
 use vision_calibration::rig_handeye::*;
+use vision_calibration::common::HandeyeSolution;
 use vision_calibration::optim::{HandeyeMode, RobustLoss};
 
 let mut session = CalibrationSession::<RigHandeyeProblem>::new();
@@ -103,9 +104,13 @@ step_handeye_init(&mut session, None)?;
 step_handeye_optimize(&mut session, None)?;
 
 let export = session.export()?;
-println!("Mode: {:?}", export.handeye_mode);
-if let Some(gripper_se3_rig) = export.gripper_se3_rig {
-    println!("gripper_se3_rig: {:?}", gripper_se3_rig);
+match export.handeye {
+    HandeyeSolution::EyeInHand { gripper_se3_rig, base_se3_target } => {
+        println!("gripper_se3_rig: {gripper_se3_rig:?}, base_se3_target: {base_se3_target:?}");
+    }
+    HandeyeSolution::EyeToHand { rig_se3_base, gripper_se3_target } => {
+        println!("rig_se3_base: {rig_se3_base:?}, gripper_se3_target: {gripper_se3_target:?}");
+    }
 }
 println!("Baseline: {:.1} mm",
     export.cam_se3_rig[1].translation.vector.norm() * 1000.0);

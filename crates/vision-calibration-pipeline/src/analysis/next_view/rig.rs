@@ -456,28 +456,10 @@ impl<'a> RigPlanner<'a> {
 
 /// The export's chain: its cameras, rig, hand-eye and target pose.
 fn geometry(export: &RigHandeyeExport) -> Result<RigHandeyeGeometry<'_>, Error> {
-    let missing = |what: &str| {
-        Error::invalid_input(format!(
-            "the {:?} export has no {what}",
-            export.handeye_mode
-        ))
-    };
-    let (handeye, target) = match export.handeye_mode {
-        HandeyeMode::EyeInHand => (
-            export
-                .gripper_se3_rig
-                .ok_or_else(|| missing("gripper_se3_rig"))?,
-            export
-                .base_se3_target
-                .ok_or_else(|| missing("base_se3_target"))?,
-        ),
-        HandeyeMode::EyeToHand => (
-            export.rig_se3_base.ok_or_else(|| missing("rig_se3_base"))?,
-            export
-                .gripper_se3_target
-                .ok_or_else(|| missing("gripper_se3_target"))?,
-        ),
-    };
+    let (handeye, target) = (
+        *export.handeye.handeye().pose(),
+        *export.handeye.target_pose(),
+    );
     if export.cam_se3_rig.len() != export.cameras.len() {
         return Err(Error::invalid_input(format!(
             "{} cam_se3_rig poses for {} cameras",
@@ -488,7 +470,7 @@ fn geometry(export: &RigHandeyeExport) -> Result<RigHandeyeGeometry<'_>, Error> 
     Ok(RigHandeyeGeometry {
         cameras: &export.cameras,
         cam_se3_rig: &export.cam_se3_rig,
-        mode: export.handeye_mode,
+        mode: export.handeye.mode(),
         handeye,
         target,
     })

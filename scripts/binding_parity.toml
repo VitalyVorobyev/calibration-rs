@@ -44,6 +44,7 @@
 "common::ExportKind" = "types.ExportKind"
 "common::HandeyeInitOptions" = "HandeyeInitOptions"
 "common::HandeyeOptimizeOptions" = "HandeyeOptimizeOptions"
+"common::HandeyeSolution" = ["RigEyeInHand", "RigEyeToHand", "RigHandeyeSolution"]
 "common::IntrinsicsInitOptions" = "IntrinsicsInitOptions"
 "common::IntrinsicsOptimizeOptions" = "IntrinsicsOptimizeOptions"
 "common::RigInitOptions" = "RigInitOptions"
@@ -285,6 +286,7 @@
 "single_cam_handeye::SingleCamHandeyeExport" = "SingleCamHandeyeExport"
 "single_cam_handeye::SingleCamHandeyeInput" = "SingleCamHandeyeInput"
 "single_cam_handeye::SingleCamHandeyeProblem" = "SingleCamHandeyeSession"
+"single_cam_handeye::SingleCamHandeyeSolution" = ["CameraEyeInHand", "CameraEyeToHand", "SingleCamHandeyeSolution"]
 "single_cam_handeye::SingleCamHandeyeView" = "SingleCamHandeyeView"
 "single_cam_handeye::run_calibration" = ["run_single_cam_handeye", "session.CalibrationSession.run_calibration"]
 "single_cam_handeye::step_handeye_init" = "single_cam_handeye.SingleCamHandeyeSession.step_handeye_init"

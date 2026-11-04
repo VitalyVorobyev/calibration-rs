@@ -93,12 +93,12 @@ def main() -> None:
     base_mm = baseline_m(result.cam_se3_rig) * 1000.0
 
     print(f"Views: {len(payload.views)}, cameras: {payload.num_cameras}")
-    print(f"Hand-eye mode: {result.handeye_mode}")
+    print(f"Hand-eye mode: {result.handeye.mode}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")
     print(f"Per-camera reprojection: {result.per_cam_reproj_errors}")
     print(f"Estimated baseline: {base_mm:.3f} mm")
-    if result.gripper_se3_rig is not None:
-        t = result.gripper_se3_rig.translation_xyz
+    if isinstance(result.handeye, vc.RigEyeInHand):
+        t = result.handeye.gripper_se3_rig.translation_xyz
         print(f"Recovered gripper->rig translation: [{t[0]:.4f}, {t[1]:.4f}, {t[2]:.4f}] m")
 
 

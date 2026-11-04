@@ -283,7 +283,7 @@ fn single_cam_handeye() {
     vision_calibration_pipeline::single_cam_handeye::run_calibration(&mut session).unwrap();
     let export = session.export().unwrap();
     assert_recovered(&export.camera, "export");
-    let err = (export.gripper_se3_camera.unwrap().translation.vector
+    let err = (export.handeye.handeye().pose().translation.vector
         - gripper_se3_camera().translation.vector)
         .norm();
     assert!(err < 1e-6, "hand-eye translation error {err}");

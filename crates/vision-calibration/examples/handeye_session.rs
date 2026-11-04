@@ -23,8 +23,8 @@ use anyhow::Result;
 use std::io::{self, Write};
 use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::dataset::samples;
-use vision_calibration::optim::HandeyeMode;
 use vision_calibration::prelude::*;
+use vision_calibration::single_cam_handeye::SingleCamHandeyeSolution;
 use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
     step_handeye_init, step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
@@ -152,11 +152,11 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
 
     println!("Distortion: {:?}", export.camera.distortion);
 
-    match export.handeye_mode {
-        HandeyeMode::EyeInHand => {
-            let he = export
-                .gripper_se3_camera
-                .expect("missing gripper_se3_camera");
+    match export.handeye {
+        SingleCamHandeyeSolution::EyeInHand {
+            gripper_se3_camera: he,
+            base_se3_target: target,
+        } => {
             println!("Hand-eye transform (gripper → camera):");
             let he_t = he.translation.vector;
             let he_q = he.rotation;
@@ -169,7 +169,6 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
                 he_q.i, he_q.j, he_q.k, he_q.w
             );
 
-            let target = export.base_se3_target.expect("missing base_se3_target");
             println!("Target pose in base frame:");
             let target_t = target.translation.vector;
             println!(
@@ -177,8 +176,10 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
                 target_t.x, target_t.y, target_t.z
             );
         }
-        HandeyeMode::EyeToHand => {
-            let he = export.camera_se3_base.expect("missing camera_se3_base");
+        SingleCamHandeyeSolution::EyeToHand {
+            camera_se3_base: he,
+            gripper_se3_target: target,
+        } => {
             println!("Hand-eye transform (camera → base):");
             let he_t = he.translation.vector;
             let he_q = he.rotation;
@@ -191,9 +192,6 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
                 he_q.i, he_q.j, he_q.k, he_q.w
             );
 
-            let target = export
-                .gripper_se3_target
-                .expect("missing gripper_se3_target");
             println!("Target pose in gripper frame:");
             let target_t = target.translation.vector;
             println!(

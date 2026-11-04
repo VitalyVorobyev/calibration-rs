@@ -153,7 +153,7 @@ use vision_calibration::rig_handeye_laserline::{RigHandeyeLaserlineProblem, run_
 let mut session = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
 session.set_input(input)?;
 run_calibration(&mut session)?;
-let export = session.export()?; // cam_se3_rig, gripper_se3_rig, laser_planes_rig, per_camera_stats, ...
+let export = session.export()?; // cam_se3_rig, handeye (gripper_se3_rig and base_se3_target), laser_planes_rig, per_camera_stats, ...
 ```
 
 When the rig and its hand-eye are already calibrated (a staged procedure that checks each stage before the next), or the laser planes are known from the design, `run_calibration_with_seed` starts the joint solve from them: its `JointManualInit` takes a `RigHandeyeExport` of the same views (`rig_handeye`) and one plane per camera in camera frame (`planes_cam`). [Seeding with Prior Knowledge](manual_init.md#staged-rig-laser-calibration) shows both.

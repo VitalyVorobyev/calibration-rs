@@ -8,10 +8,10 @@
 
 use nalgebra::{Rotation3, Vector3};
 use vision_calibration::Error;
-use vision_calibration::common::ExportKind;
-use vision_calibration::core::LaserPlane;
+use vision_calibration::common::{ExportKind, HandeyeSolution};
+use vision_calibration::core::{Iso3, LaserPlane};
 use vision_calibration::core::{RigDataset, RigView, RigViewObs};
-use vision_calibration::optim::{HandeyeMode, RobustLoss};
+use vision_calibration::optim::RobustLoss;
 use vision_calibration::rig_handeye::{
     RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem, run_calibration as run_rig_handeye,
 };
@@ -104,7 +104,7 @@ fn assert_recovers_truth(f: &Fixture, export: &RigHandeyeLaserlineExport) {
     let est = ModelParams {
         cameras: export.cameras.clone(),
         cam_se3_rig: export.cam_se3_rig.clone(),
-        handeye: export.gripper_se3_rig,
+        handeye: Some(*export.handeye.handeye().pose()),
         planes_cam: export.laser_planes_cam.clone(),
         ..ModelParams::default()
     };
@@ -214,12 +214,13 @@ fn a_seed_that_does_not_fit_is_invalid_input_before_any_solve() {
             with_export(&|e| e.robot_deltas = Some(vec![[0.0; 6]])),
         ),
         (
-            "handeye_mode",
-            with_export(&|e| e.handeye_mode = HandeyeMode::EyeToHand),
-        ),
-        (
-            "hand-eye transform",
-            with_export(&|e| e.gripper_se3_rig = None),
+            "handeye.mode",
+            with_export(&|e| {
+                e.handeye = HandeyeSolution::EyeToHand {
+                    rig_se3_base: Iso3::identity(),
+                    gripper_se3_target: Iso3::identity(),
+                }
+            }),
         ),
         ("planes", seed(None, Some(planes[..1].to_vec()))),
     ];

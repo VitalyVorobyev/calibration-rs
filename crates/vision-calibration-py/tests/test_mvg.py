@@ -581,8 +581,11 @@ class MvgTest(unittest.TestCase):
             "cameras": [export["params"]["camera"]],
             "cam_se3_rig": [{"rotation": [0.0, 0.0, 0.0, 1.0], "translation": [0.0, 0.0, 0.0]}],
             "rig_se3_target": [],
-            "handeye_mode": "EyeInHand",
-            "gripper_se3_rig": _pose_payload(gripper_se3_rig),
+            "handeye": {
+                "mode": "EyeInHand",
+                "gripper_se3_rig": _pose_payload(gripper_se3_rig),
+                "base_se3_target": _pose_payload(_transform(_rotation(0.0, 0.0, 0.0), (0.0, 0.0, 1.0))),
+            },
             "mean_reproj_error": 0.1,
             "per_cam_reproj_errors": [0.1],
             "uncertainty": export["uncertainty"],

@@ -36,10 +36,9 @@ pub mod tier_b {
         QualityReport, RigStageReprojection, assess, planar_intrinsics_report,
         rig_extrinsics_report, rig_handeye_report_with_rig_stage, single_cam_handeye_report,
     };
-    use vision_calibration::common::CalibratedCameras;
     use vision_calibration::common::RobotPoseMeta;
+    use vision_calibration::common::{CalibratedCameras, HandeyeSolution};
     use vision_calibration::core::{Iso3, RigDataset};
-    use vision_calibration::optim::HandeyeMode;
     use vision_calibration::planar_intrinsics::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init,
         step_init_with_seed, step_optimize,
@@ -66,8 +65,9 @@ pub mod tier_b {
     use vision_calibration::planar_intrinsics::IntrinsicsManualInit;
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
-        SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeProblem, step_handeye_init,
-        step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
+        SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeProblem,
+        SingleCamHandeyeSolution, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
+        step_intrinsics_optimize,
     };
     use vision_calibration_core::{
         BrownConrady5, Camera, CameraFix, CameraModelSpec, CameraParams, DistortionKind,
@@ -2574,7 +2574,7 @@ pub mod tier_b {
             .robot_poses
             .iter()
             .map(|pose| rig_target_for_handeye_mode(rig_export, *pose))
-            .collect::<Result<Vec<_>>>()?;
+            .collect();
         let upstream = rig_export
             .to_upstream_calibration(rig_se3_target)
             .context("build rig laserline upstream from rig hand-eye export")?;
@@ -2619,26 +2619,12 @@ pub mod tier_b {
         let joint_dataset = RigHandeyeLaserlineDataset::from_rig_dataset(
             laserline_dataset,
             observations.robot_poses,
-            rig_export.handeye_mode,
+            rig_export.handeye.mode(),
         )
         .map_err(|e| anyhow::anyhow!("build RigHandeyeLaserlineDataset: {e}"))?;
 
-        let handeye = match rig_export.handeye_mode {
-            HandeyeMode::EyeInHand => rig_export
-                .gripper_se3_rig
-                .context("EyeInHand rig export missing gripper_se3_rig")?,
-            HandeyeMode::EyeToHand => rig_export
-                .rig_se3_base
-                .context("EyeToHand rig export missing rig_se3_base")?,
-        };
-        let target_ref = match rig_export.handeye_mode {
-            HandeyeMode::EyeInHand => rig_export
-                .base_se3_target
-                .context("EyeInHand rig export missing base_se3_target")?,
-            HandeyeMode::EyeToHand => rig_export
-                .gripper_se3_target
-                .context("EyeToHand rig export missing gripper_se3_target")?,
-        };
+        let handeye = *rig_export.handeye.handeye().pose();
+        let target_ref = *rig_export.handeye.target_pose();
         let joint_initial = RigHandeyeLaserlineParams {
             cameras: rig_export.cameras.clone(),
             cam_to_rig: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
@@ -2703,29 +2689,16 @@ pub mod tier_b {
         }))
     }
 
-    fn rig_target_for_handeye_mode(
-        export: &RigHandeyeExport,
-        base_se3_gripper: Iso3,
-    ) -> Result<Iso3> {
-        match export.handeye_mode {
-            HandeyeMode::EyeInHand => {
-                let gripper_se3_rig = export
-                    .gripper_se3_rig
-                    .context("EyeInHand rig export missing gripper_se3_rig")?;
-                let base_se3_target = export
-                    .base_se3_target
-                    .context("EyeInHand rig export missing base_se3_target")?;
-                Ok(gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target)
-            }
-            HandeyeMode::EyeToHand => {
-                let rig_se3_base = export
-                    .rig_se3_base
-                    .context("EyeToHand rig export missing rig_se3_base")?;
-                let gripper_se3_target = export
-                    .gripper_se3_target
-                    .context("EyeToHand rig export missing gripper_se3_target")?;
-                Ok(rig_se3_base * base_se3_gripper * gripper_se3_target)
-            }
+    fn rig_target_for_handeye_mode(export: &RigHandeyeExport, base_se3_gripper: Iso3) -> Iso3 {
+        match export.handeye {
+            HandeyeSolution::EyeInHand {
+                gripper_se3_rig,
+                base_se3_target,
+            } => gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target,
+            HandeyeSolution::EyeToHand {
+                rig_se3_base,
+                gripper_se3_target,
+            } => rig_se3_base * base_se3_gripper * gripper_se3_target,
         }
     }
 
@@ -2838,31 +2811,41 @@ pub mod tier_b {
             cameras: vec![params_artifact(camera_id, &export.camera)],
             transforms: Vec::new(),
         };
-        if let Some(t) = &export.gripper_se3_camera {
-            artifacts.transforms.push(transform_artifact(
-                "gripper_se3_camera",
-                "gripper",
-                camera_id,
-                t,
-            ));
-        }
-        if let Some(t) = &export.camera_se3_base {
-            artifacts
-                .transforms
-                .push(transform_artifact("camera_se3_base", camera_id, "base", t));
-        }
-        if let Some(t) = &export.base_se3_target {
-            artifacts
-                .transforms
-                .push(transform_artifact("base_se3_target", "base", "target", t));
-        }
-        if let Some(t) = &export.gripper_se3_target {
-            artifacts.transforms.push(transform_artifact(
-                "gripper_se3_target",
-                "gripper",
-                "target",
-                t,
-            ));
+        match &export.handeye {
+            SingleCamHandeyeSolution::EyeInHand {
+                gripper_se3_camera,
+                base_se3_target,
+            } => {
+                artifacts.transforms.push(transform_artifact(
+                    "gripper_se3_camera",
+                    "gripper",
+                    camera_id,
+                    gripper_se3_camera,
+                ));
+                artifacts.transforms.push(transform_artifact(
+                    "base_se3_target",
+                    "base",
+                    "target",
+                    base_se3_target,
+                ));
+            }
+            SingleCamHandeyeSolution::EyeToHand {
+                camera_se3_base,
+                gripper_se3_target,
+            } => {
+                artifacts.transforms.push(transform_artifact(
+                    "camera_se3_base",
+                    camera_id,
+                    "base",
+                    camera_se3_base,
+                ));
+                artifacts.transforms.push(transform_artifact(
+                    "gripper_se3_target",
+                    "gripper",
+                    "target",
+                    gripper_se3_target,
+                ));
+            }
         }
         artifacts
     }
@@ -2916,28 +2899,41 @@ pub mod tier_b {
                 pose,
             ));
         }
-        if let Some(t) = &export.gripper_se3_rig {
-            artifacts
-                .transforms
-                .push(transform_artifact("gripper_se3_rig", "gripper", "rig", t));
-        }
-        if let Some(t) = &export.rig_se3_base {
-            artifacts
-                .transforms
-                .push(transform_artifact("rig_se3_base", "rig", "base", t));
-        }
-        if let Some(t) = &export.base_se3_target {
-            artifacts
-                .transforms
-                .push(transform_artifact("base_se3_target", "base", "target", t));
-        }
-        if let Some(t) = &export.gripper_se3_target {
-            artifacts.transforms.push(transform_artifact(
-                "gripper_se3_target",
-                "gripper",
-                "target",
-                t,
-            ));
+        match &export.handeye {
+            HandeyeSolution::EyeInHand {
+                gripper_se3_rig,
+                base_se3_target,
+            } => {
+                artifacts.transforms.push(transform_artifact(
+                    "gripper_se3_rig",
+                    "gripper",
+                    "rig",
+                    gripper_se3_rig,
+                ));
+                artifacts.transforms.push(transform_artifact(
+                    "base_se3_target",
+                    "base",
+                    "target",
+                    base_se3_target,
+                ));
+            }
+            HandeyeSolution::EyeToHand {
+                rig_se3_base,
+                gripper_se3_target,
+            } => {
+                artifacts.transforms.push(transform_artifact(
+                    "rig_se3_base",
+                    "rig",
+                    "base",
+                    rig_se3_base,
+                ));
+                artifacts.transforms.push(transform_artifact(
+                    "gripper_se3_target",
+                    "gripper",
+                    "target",
+                    gripper_se3_target,
+                ));
+            }
         }
         for (view_idx, pose) in export.rig_se3_target.iter().enumerate() {
             artifacts.transforms.push(transform_artifact(

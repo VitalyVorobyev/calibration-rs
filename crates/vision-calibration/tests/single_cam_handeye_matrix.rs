@@ -19,8 +19,8 @@ use vision_calibration::optim::{HandeyeMode, SolverBackend};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem,
-    SingleCamHandeyeView, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
-    step_intrinsics_optimize,
+    SingleCamHandeyeSolution, SingleCamHandeyeView, step_handeye_init, step_handeye_optimize,
+    step_intrinsics_init, step_intrinsics_optimize,
 };
 use vision_calibration::synthetic::poses::make_iso;
 use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
@@ -136,7 +136,17 @@ fn solve_with(
             sd(name)
         );
     }
-    if let (Some(a), Some(b)) = (tiny.gripper_se3_camera, factrs.gripper_se3_camera) {
+    if let (
+        SingleCamHandeyeSolution::EyeInHand {
+            gripper_se3_camera: a,
+            ..
+        },
+        SingleCamHandeyeSolution::EyeInHand {
+            gripper_se3_camera: b,
+            ..
+        },
+    ) = (tiny.handeye, factrs.handeye)
+    {
         let (dt, dr) = pose_error(&a, &b);
         let min_sd = |axes: [&str; 3]| {
             axes.iter()
@@ -225,9 +235,13 @@ fn single_cam_handeye_recovers_gt_across_grid_and_noise() {
             let input = SingleCamHandeyeInput::new(views).expect("input");
             let export = solve(input, HandeyeMode::EyeInHand);
 
-            let x_est = export
-                .gripper_se3_camera
-                .expect("EyeInHand populates gripper_se3_camera");
+            let SingleCamHandeyeSolution::EyeInHand {
+                gripper_se3_camera: x_est,
+                ..
+            } = export.handeye
+            else {
+                panic!("an eye-in-hand export");
+            };
             let (dt, dang) = pose_error(&x_est, &cell.handeye);
             let label = format!("{} noise={noise_px}px", cell.label);
 
@@ -334,12 +348,13 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
         let input = SingleCamHandeyeInput::new(views).expect("input");
         let export = solve(input, HandeyeMode::EyeToHand);
 
-        let x_est = export
-            .camera_se3_base
-            .expect("EyeToHand populates camera_se3_base");
-        let g_est = export
-            .gripper_se3_target
-            .expect("EyeToHand populates gripper_se3_target");
+        let SingleCamHandeyeSolution::EyeToHand {
+            camera_se3_base: x_est,
+            gripper_se3_target: g_est,
+        } = export.handeye
+        else {
+            panic!("an eye-to-hand export");
+        };
         let (dt_x, dang_x) = pose_error(&x_est, &camera_se3_base);
         let (dt_g, dang_g) = pose_error(&g_est, &gripper_se3_target);
 
@@ -420,8 +435,8 @@ fn single_cam_handeye_base_frame_gauge_invariance() {
     let rebased_target = g * target_in_base;
     let rebased = solve_for(&rebased_poses, &rebased_target);
 
-    let x_base = base.gripper_se3_camera.unwrap();
-    let x_rebased = rebased.gripper_se3_camera.unwrap();
+    let x_base = *base.handeye.handeye().pose();
+    let x_rebased = *rebased.handeye.handeye().pose();
     let (dt, dang) = pose_error(&x_base, &x_rebased);
 
     // The hand-eye X is gauge-invariant; both solves converge from the same

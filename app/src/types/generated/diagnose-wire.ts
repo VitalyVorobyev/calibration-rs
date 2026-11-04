@@ -308,11 +308,42 @@ export type ProjectErrorKind =
   | "io"
   | "parse";
 /**
- * Hand-eye calibration mode.
+ * The solution of a rig hand-eye calibration: the hand-eye of its mode and
+ * the pose of the static target in the frame that mode fixes it in.
  *
- * Specifies the transform chain used for hand-eye calibration.
+ * Each mode holds exactly the two poses it estimates, so an export with the
+ * wrong pose for its mode cannot be written or read. In JSON it is
+ * internally tagged by `mode`:
+ *
+ * ```json
+ * {"mode": "EyeInHand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
+ * ```
  */
-export type HandeyeMode = "EyeInHand" | "EyeToHand";
+export type HandeyeSolution =
+  | {
+      /**
+       * The target's pose in the robot's base frame (`base_se3_target`).
+       */
+      base_se3_target: Iso3Schema;
+      /**
+       * The rig's pose on the gripper (`gripper_se3_rig`, rig frame →
+       * gripper frame).
+       */
+      gripper_se3_rig: Iso3Schema;
+      mode: "EyeInHand";
+    }
+  | {
+      /**
+       * The target's pose on the gripper (`gripper_se3_target`).
+       */
+      gripper_se3_target: Iso3Schema;
+      mode: "EyeToHand";
+      /**
+       * The base's pose in the rig (`rig_se3_base`, base frame → rig
+       * frame).
+       */
+      rig_se3_base: Iso3Schema;
+    };
 /**
  * What a long-running call reports to its observer.
  *
@@ -372,6 +403,45 @@ export type Progress =
  * [`RunProgress::report`].
  */
 export type RunStage = "detect" | "solve" | "export";
+/**
+ * The solution of a single-camera hand-eye calibration: the hand-eye of its
+ * mode and the pose of the static target in the frame that mode fixes it in.
+ *
+ * Each mode holds exactly the two poses it estimates, so an export with the
+ * wrong pose for its mode cannot be written or read. It is the rig
+ * solution ([`HandeyeSolution`](crate::common::HandeyeSolution)) of a rig
+ * that is the camera, with the camera named where the rig is. In JSON it is
+ * internally tagged by `mode`:
+ *
+ * ```json
+ * {"mode": "EyeInHand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+ * ```
+ */
+export type SingleCamHandeyeSolution =
+  | {
+      /**
+       * The target's pose in the robot's base frame (`base_se3_target`).
+       */
+      base_se3_target: Iso3Schema;
+      /**
+       * The camera's pose on the gripper (`gripper_se3_camera`, camera
+       * frame → gripper frame).
+       */
+      gripper_se3_camera: Iso3Schema;
+      mode: "EyeInHand";
+    }
+  | {
+      /**
+       * The base's pose in the camera (`camera_se3_base`, base frame →
+       * camera frame).
+       */
+      camera_se3_base: Iso3Schema;
+      /**
+       * The target's pose on the gripper (`gripper_se3_target`).
+       */
+      gripper_se3_target: Iso3Schema;
+      mode: "EyeToHand";
+    };
 
 /**
  * Generated wire types for the diagnose app. Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.
@@ -1205,12 +1275,6 @@ export interface RigExtrinsicsExport {
  */
 export interface RigHandeyeExport {
   /**
-   * Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).
-   *
-   * `None` for EyeToHand mode.
-   */
-  base_se3_target?: Iso3Schema | null;
-  /**
    * Per-camera extrinsics: `cam_se3_rig` (T_C_R).
    * Transform from rig frame to camera frame.
    */
@@ -1225,21 +1289,9 @@ export interface RigHandeyeExport {
    */
   diagnostics?: ExportDiagnostics;
   /**
-   * Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
-   *
-   * `None` for EyeToHand mode.
+   * The hand-eye and the target reference pose of the calibration's mode.
    */
-  gripper_se3_rig?: Iso3Schema | null;
-  /**
-   * Eye-to-hand: gripper-to-target transform `gripper_se3_target` (T_G_T).
-   *
-   * `None` for EyeInHand mode.
-   */
-  gripper_se3_target?: Iso3Schema | null;
-  /**
-   * Hand-eye mode used to interpret mode-dependent transforms.
-   */
-  handeye_mode: HandeyeMode;
+  handeye: HandeyeSolution;
   /**
    * Export-type discriminator — always [`ExportKind::RigHandeye`].
    */
@@ -1252,12 +1304,6 @@ export interface RigHandeyeExport {
    * Per-camera reprojection errors (pixels).
    */
   per_cam_reproj_errors: number[];
-  /**
-   * Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).
-   *
-   * `None` for EyeInHand mode.
-   */
-  rig_se3_base?: Iso3Schema | null;
   /**
    * Per-view rig poses: `rig_se3_target` (T_R_T), derived from the
    * hand-eye chain (`handeye_observer_se3_target`) so downstream
@@ -1304,10 +1350,6 @@ export interface RobotPoseSigma {
  */
 export interface RigHandeyeLaserlineExport {
   /**
-   * Eye-in-hand target reference pose `base_se3_target`.
-   */
-  base_se3_target?: Iso3Schema | null;
-  /**
    * Per-camera extrinsics `cam_se3_rig` (T_C_R).
    */
   cam_se3_rig: Iso3Schema[];
@@ -1321,17 +1363,9 @@ export interface RigHandeyeLaserlineExport {
    */
   diagnostics?: ExportDiagnostics;
   /**
-   * Eye-in-hand hand-eye transform `gripper_se3_rig`.
+   * The hand-eye and the target reference pose of the calibration's mode.
    */
-  gripper_se3_rig?: Iso3Schema | null;
-  /**
-   * Eye-to-hand target reference pose `gripper_se3_target`.
-   */
-  gripper_se3_target?: Iso3Schema | null;
-  /**
-   * Hand-eye mode used to interpret mode-dependent transforms.
-   */
-  handeye_mode: HandeyeMode;
+  handeye: HandeyeSolution;
   /**
    * Export-type discriminator — always [`ExportKind::RigHandeyeLaserline`].
    */
@@ -1356,10 +1390,6 @@ export interface RigHandeyeLaserlineExport {
    * Joint per-camera stats.
    */
   per_camera_stats: RigHandeyeLaserlinePerCamStats[];
-  /**
-   * Eye-to-hand hand-eye transform `rig_se3_base`.
-   */
-  rig_se3_base?: Iso3Schema | null;
   /**
    * Per-view target poses `rig_se3_target` (T_R_T).
    */
@@ -1516,42 +1546,18 @@ export interface RunProgress {
  */
 export interface SingleCamHandeyeExport {
   /**
-   * Eye-in-hand: base_se3_target (T_B_T).
-   *
-   * `None` for EyeToHand mode.
-   */
-  base_se3_target?: Iso3Schema | null;
-  /**
    * Calibrated camera, in the configured model.
    */
   camera: CameraParams;
-  /**
-   * Eye-to-hand: camera_se3_base (T_C_B).
-   *
-   * `None` for EyeInHand mode.
-   */
-  camera_se3_base?: Iso3Schema | null;
   /**
    * Residuals and the image manifest: evidence for viewers and
    * debugging, not part of the result.
    */
   diagnostics?: ExportDiagnostics;
   /**
-   * Eye-in-hand: gripper_se3_camera (T_G_C).
-   *
-   * `None` for EyeToHand mode.
+   * The hand-eye and the target pose of the calibration's mode.
    */
-  gripper_se3_camera?: Iso3Schema | null;
-  /**
-   * Eye-to-hand: gripper_se3_target (T_G_T).
-   *
-   * `None` for EyeInHand mode.
-   */
-  gripper_se3_target?: Iso3Schema | null;
-  /**
-   * Hand-eye mode used to interpret the transforms.
-   */
-  handeye_mode: HandeyeMode;
+  handeye: SingleCamHandeyeSolution;
   /**
    * Export-type discriminator — always [`ExportKind::SingleCamHandeye`].
    */

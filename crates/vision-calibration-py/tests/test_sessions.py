@@ -212,7 +212,8 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         result = session.export()
         self.assertAlmostEqual(result.mean_reproj_error, refined.mean_reproj_error, places=9)
         reference = _run_single_cam_handeye_raw(payload)
-        self.assertEqual(result.gripper_se3_camera, reference.gripper_se3_camera)
+        self.assertIsInstance(result.handeye, vc.CameraEyeInHand)
+        self.assertEqual(result.handeye, reference.handeye)
 
     def test_every_closed_form_method_reaches_the_same_refinement(self) -> None:
         refined = {}
@@ -317,7 +318,7 @@ class RigHandeyeSessionTest(unittest.TestCase):
         refined = session.step_handeye_optimize()
         self.assertGreater(refined.final_cost, 0.0)
         result = session.export()
-        self.assertIsNotNone(result.gripper_se3_rig)
+        self.assertIsInstance(result.handeye, vc.RigEyeInHand)
         self.assertLess(result.mean_reproj_error, 1.0)
 
 

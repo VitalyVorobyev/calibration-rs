@@ -40,7 +40,7 @@ mod steps;
 // Re-export types
 pub use problem::{
     SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem,
-    SingleCamHandeyeView,
+    SingleCamHandeyeSolution, SingleCamHandeyeView,
 };
 pub use steps::{
     HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
