@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Runtime, State};
 use vision_calibration::core::PixelRect;
+use vision_calibration::dataset::samples;
 
 use crate::epipolar::{self, EpipolarOverlay};
 use crate::export_cache::ExportCache;
@@ -96,33 +97,29 @@ pub async fn load_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))
 }
 
-/// Absolute path to the `calibration-rs` workspace root, resolved via
-/// `CARGO_MANIFEST_DIR` (this crate always lives at
-/// `<repo-root>/app/src-tauri`, a structural invariant of the layout —
-/// see `app/README.md`'s dev notes). `CARGO_MANIFEST_DIR` is a
-/// compile-time constant, but since `app/src-tauri` is never shipped as
-/// a prebuilt binary (it's rebuilt locally by every `bun run tauri
-/// dev`/`build`), it always reflects *this developer's own checkout*.
+/// Make the sample dataset `id` (one of
+/// `vision_calibration::dataset::samples::catalogue`) available locally and
+/// return the absolute path of its `dataset.toml`.
 ///
-/// Frontend preset manifests (`RunWorkspace/presets.ts`) store paths
-/// relative to this root instead of a hard-coded personal absolute
-/// path; `lib/tauri.ts`'s `repoRoot()` calls this command once per
-/// session and joins it with each preset's relative path.
+/// The files are downloaded from their publisher into the platform cache
+/// (`VISION_CALIBRATION_DATA` overrides it), checked against their SHA-256
+/// and reused on later calls, so the installed app carries no dataset.
+/// Runs on a blocking thread: the first call downloads tens of megabytes.
 #[tauri::command]
-pub fn repo_root_cmd() -> Result<String, String> {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
-        // app/src-tauri -> app
-        .parent()
-        // app -> <repo root>
-        .and_then(|p| p.parent())
-        .map(|p| p.to_string_lossy().into_owned())
-        .ok_or_else(|| {
-            format!(
-                "CARGO_MANIFEST_DIR has no grandparent: {}",
-                manifest_dir.display()
-            )
-        })
+pub async fn fetch_sample_cmd(id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cache = samples::default_cache_dir().map_err(|e| e.to_string())?;
+        fetch_sample(&id, &cache)
+    })
+    .await
+    .map_err(|e| format!("sample fetch task: {e}"))?
+}
+
+/// [`fetch_sample_cmd`] against an explicit cache directory.
+fn fetch_sample(id: &str, cache: &Path) -> Result<String, String> {
+    samples::fetch(id, cache)
+        .map(|manifest| manifest.to_string_lossy().into_owned())
+        .map_err(|e| format!("sample {id}: {e}"))
 }
 
 /// Heuristically infer a `DatasetSpec` from a dataset folder.
@@ -259,5 +256,20 @@ mod tests {
             Some(PathBuf::from("/p/runs/a/../.."))
         );
         assert_eq!(image_root(&json!({}), Path::new("/p")), None);
+    }
+
+    #[test]
+    fn fetch_sample_names_the_unknown_sample_and_the_known_ones() {
+        let cache = tempfile::tempdir().unwrap();
+        let err = fetch_sample("no_such_sample", cache.path()).unwrap_err();
+        assert!(err.contains("no_such_sample"), "{err}");
+        assert!(err.contains("kuka_1") && err.contains("ds8"), "{err}");
+    }
+
+    #[test]
+    fn the_quick_start_samples_are_in_the_catalogue() {
+        for id in ["kuka_1", "ds8"] {
+            assert!(samples::sample(id).is_ok(), "{id}");
+        }
     }
 }

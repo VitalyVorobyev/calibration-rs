@@ -182,8 +182,6 @@ were. What is left reorganizes them around the project.
     with σ (from `mvg::metrology`, on the stereo of `StereoRectification`).
   - Also covers empty states and the fail-fast error surfaces. Gate: a
     frontend review with no high-severity findings.
-- [ ] APP-DIST - Bundle the presets, so installers run without a source
-  checkout (`repo_root_cmd` uses `CARGO_MANIFEST_DIR` today).
 - [ ] B-QUAL-TS7 - Move to TypeScript 7. **Blocked**: `typescript-eslint`
   rejects TS 7 (typescript-eslint#10940), and adopting it would drop the
   type-aware lint config. Revisit when typescript-eslint supports TS 7.

@@ -79,21 +79,21 @@ describe("mergeConfig", () => {
   });
 });
 
-// manifestPath must stay repo-root-relative (RunWorkspace resolves
-// it to an absolute path at load time via `repoRoot()` / `repo_root_cmd`),
-// so no developer's personal checkout path leaks back into source control.
-describe("BUILTIN_PRESETS manifest paths", () => {
+// A preset names a catalogue sample; it never carries a filesystem path, so
+// neither a checkout nor a developer's machine is baked into the app.
+describe("BUILTIN_PRESETS sample ids", () => {
   const enabled = BUILTIN_PRESETS.filter((p) => p.disabled !== true);
 
   it("has at least one enabled preset to check", () => {
     expect(enabled.length).toBeGreaterThan(0);
   });
 
-  it("keeps every manifestPath relative (no leading slash or drive letter)", () => {
+  it("names a plain catalogue id, not a path", () => {
     for (const preset of enabled) {
-      expect(preset.manifestPath.startsWith("/")).toBe(false);
-      expect(preset.manifestPath).not.toMatch(/^[A-Za-z]:[\\/]/);
-      expect(preset.manifestPath).not.toContain("/Users/");
+      expect("sample" in preset.source).toBe(true);
+      if ("sample" in preset.source) {
+        expect(preset.source.sample).toMatch(/^[a-z0-9_]+$/);
+      }
     }
   });
 });

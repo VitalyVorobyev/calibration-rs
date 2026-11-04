@@ -1,14 +1,15 @@
 /** Built-in preset registry for the Run workspace.
  *
- * Each enabled preset carries the *repo-root-relative* path to its TOML
- * manifest and enough metadata to render a meaningful card without
- * reading the file. `RunWorkspace` resolves the absolute path at
- * load time by joining `manifestPath` onto the workspace repo root
- * (`lib/tauri.ts`'s `repoRoot()`, backed by the `repo_root_cmd` Tauri
- * command — see `app/README.md`'s dev notes). This keeps the preset
- * registry free of any developer's personal absolute path while still
- * working out of the box for `bun run tauri dev` on any checkout.
+ * Each enabled preset names a sample dataset of the library's catalogue
+ * and carries enough metadata to render a card without loading it.
+ * Applying a preset downloads the sample into the platform cache on first
+ * use, so an installed app needs no source checkout and bundles no data.
  */
+
+/** A preset's dataset: a catalogue sample, which `fetch_sample_cmd`
+ * downloads into the platform cache on first use, or a manifest already on
+ * disk (absolute path; for the untracked `presets.local.ts`). */
+export type PresetSource = { sample: string } | { manifestPath: string };
 
 export interface EnabledPreset {
   id: string;
@@ -22,9 +23,8 @@ export interface EnabledPreset {
   /** Short target description shown in the card body. */
   targetSummary: string;
   imageCount: number;
-  /** Path to the TOML manifest file, relative to the repo root
-   * (resolved to an absolute path via `repoRoot()` at load time). */
-  manifestPath: string;
+  /** Where the manifest comes from. */
+  source: PresetSource;
   /**
    * Optional config patch deep-merged over the topology's
    * `default_config_cmd` defaults when the preset is applied — for
@@ -82,7 +82,7 @@ export interface DisabledPreset {
 export type Preset = EnabledPreset | DisabledPreset;
 
 export const BUILTIN_PRESETS: Preset[] = [
-  // ── Enabled: KUKA handeye (committed dataset) ────────────────────────────
+  // ── Enabled: KUKA handeye (sample dataset) ────────────────────────────
   {
     id: "kuka-handeye",
     name: "KUKA handeye",
@@ -91,10 +91,10 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard 17×28, 20 mm · robot poses 4×4",
     imageCount: 30,
-    manifestPath: "data/kuka_1/dataset.toml",
+    source: { sample: "kuka_1" },
   },
 
-  // ── Enabled: DS8 rig hand-eye (public download) ──────────────────────
+  // ── Enabled: DS8 rig hand-eye (sample dataset) ──────────────────────
   {
     id: "ds8-rig-handeye",
     name: "DS8 rig hand-eye",
@@ -103,7 +103,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard 10×14, 52 mm · 3 cameras · robot poses",
     imageCount: 42,
-    manifestPath: "data/DS8/dataset.toml",
+    source: { sample: "ds8" },
   },
 ];
 
