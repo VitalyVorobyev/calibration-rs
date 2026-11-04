@@ -76,7 +76,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use nalgebra::DVector;
+use nalgebra::{DVector, UnitQuaternion};
 use vision_calibration_core::{
     CameraFix, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, PointCovariance,
     ProjectionParams, Pt2, Pt3, ResidualKind, ResidualNoise, RunControl, SensorParams, Uncertainty,
@@ -84,7 +84,7 @@ use vision_calibration_core::{
 };
 
 pub use calibration::{RigBlocks, Use};
-pub use residual::{Noise, Residual, se3};
+pub use residual::{Noise, Residual, se3, so3};
 
 use crate::Error;
 use crate::backend::covariance::{self, Coordinate, ParamUncertainty};
@@ -125,6 +125,10 @@ pub enum Manifold {
     /// A unit 3-vector `[x, y, z]`, updated on the sphere: a direction such
     /// as a plane normal.
     UnitVector,
+    /// A rotation, stored as a unit quaternion `[qx, qy, qz, qw]` and
+    /// updated on SO(3); its covariance is over the right-perturbation
+    /// tangent `[rx, ry, rz]` (`R·Exp(δ)`).
+    So3,
 }
 
 impl Manifold {
@@ -133,6 +137,7 @@ impl Manifold {
             Manifold::Euclidean => ManifoldKind::Euclidean,
             Manifold::Se3 => ManifoldKind::SE3,
             Manifold::UnitVector => ManifoldKind::S2,
+            Manifold::So3 => ManifoldKind::SO3,
         }
     }
 }
@@ -178,12 +183,12 @@ struct Block {
 impl Block {
     /// Coordinates the covariance reports for the block: a Euclidean
     /// block's components, an SE3 block's tangent, a unit vector's
-    /// components.
+    /// components, a rotation's tangent.
     fn num_coordinates(&self) -> usize {
         match self.manifold {
             Manifold::Euclidean => self.values.len(),
             Manifold::Se3 => 6,
-            Manifold::UnitVector => 3,
+            Manifold::UnitVector | Manifold::So3 => 3,
         }
     }
 
@@ -197,6 +202,7 @@ impl Block {
                 .map(String::from)
                 .to_vec(),
             (None, Manifold::UnitVector) => ["nx", "ny", "nz"].map(String::from).to_vec(),
+            (None, Manifold::So3) => ["rx", "ry", "rz"].map(String::from).to_vec(),
         };
         let coordinates = names.iter().map(|c| format!("{}.{c}", self.name)).collect();
         BlockLabels::shared_owned(self.name.clone(), coordinates)
@@ -301,8 +307,9 @@ impl Problem {
     ///
     /// [`Error::InvalidInput`] for an empty, repeated or reserved name, a
     /// non-finite value, an empty Euclidean block, an SE3 block that is not
-    /// 7 values with a unit quaternion, or a unit vector that is not 3
-    /// values of unit norm.
+    /// 7 values with a unit quaternion, a unit vector that is not 3 values
+    /// of unit norm, or a rotation that is not a unit quaternion of 4
+    /// values.
     pub fn add_block(
         &mut self,
         name: impl Into<String>,
@@ -332,6 +339,11 @@ impl Problem {
             Manifold::UnitVector if initial.len() != 3 || unit(initial) > UNIT_TOLERANCE => {
                 return Err(Error::invalid_input(format!(
                     "block {name}: a unit vector is [x, y, z] of unit norm"
+                )));
+            }
+            Manifold::So3 if initial.len() != 4 || unit(initial) > UNIT_TOLERANCE => {
+                return Err(Error::invalid_input(format!(
+                    "block {name}: a rotation is a unit quaternion [qx, qy, qz, qw]"
                 )));
             }
             _ => {}
@@ -436,6 +448,7 @@ impl Problem {
     /// Name the block's coordinates in the covariance: `<block>.<label>`.
     /// A Euclidean block has one per value, an SE3 block six (its tangent;
     /// `rx … tz` by default), a unit vector three (`nx`, `ny`, `nz` by
+    /// default), a rotation three (its tangent; `rx`, `ry`, `rz` by
     /// default).
     ///
     /// # Errors
@@ -1016,6 +1029,14 @@ impl Solution {
             let v = DVector::from_column_slice(values);
             se3(&v)
         })
+    }
+
+    /// A rotation block's rotation at the solution; `None` for a block of
+    /// another problem or one that is not a rotation.
+    pub fn rotation(&self, block: BlockId) -> Option<UnitQuaternion<f64>> {
+        let values = self.value(block)?;
+        (self.manifolds[block.index] == Manifold::So3)
+            .then(|| so3(&DVector::from_column_slice(values)))
     }
 
     /// The camera at the solution; `None` for a camera of another problem.

@@ -80,14 +80,19 @@ Real matches contain outliers. The `mvg::robust` wrappers put a RANSAC loop arou
 
 ```rust
 use vision_calibration_core::RansacOptions;
+use vision_calibration::control::RunControl;
 use vision_calibration::mvg::robust::{estimate_essential, recover_relative_pose_robust};
 
 let opts = RansacOptions {
     min_inliers: 12,
     ..RansacOptions::new(3.0)   // weighted Sampson error, in σ of the stated noise
 };
-let robust = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts)?;
+let robust = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts, &RunControl::default())?;
 // robust.second_se3_first, robust.essential, robust.inliers (indices), robust.inlier_rms
+if let Some(cov) = robust.pose_covariance() {
+    // 6×6 over [rx ry rz x y z]: the rotation's tangent (rad), the unit translation
+    println!("σ(rotation about y) = {:.3}°", cov[(1, 1)].sqrt().to_degrees());
+}
 ```
 
 ```python
@@ -95,6 +100,8 @@ ransac = mvg.RansacOptions(thresh=3.0, min_inliers=12)    # thresh in σ of the 
 robust = mvg.recover_relative_pose_robust(result, (0, 1), matches, ransac)
 estimate = mvg.estimate_essential(result, (0, 1), matches, ransac)
 robust.inliers, robust.inlier_rms
+robust.pose_covariance()          # (6, 6), or None
+estimate.essential_covariance()   # (9, 9), or None
 ```
 
 **The threshold is in σ**: the residual is the weighted Sampson error above, so `3.0` keeps about 99.7 % of the inliers when the noise is Gaussian and as stated, independent of the focal length and of the camera model. The stated noise is the scale: understating the pixel noise by a factor of two doubles every residual and rejects good matches. There is no default threshold: `RansacOptions::new(thresh)` requires one, and a threshold that is not finite and positive is an error. The run is deterministic for a given `seed` field.
@@ -102,6 +109,16 @@ robust.inliers, robust.inlier_rms
 `RansacOptions` is defined in `vision-calibration-core`, which the facade does not re-export; add that crate to your dependencies to name it.
 
 `estimate_essential` returns the essential matrix with its inlier indices and the RMS of the weighted Sampson error over the inliers (in σ, about 1 when the stated noise describes the pixels); `estimate_homography` does the same for a homography (4-point DLT with symmetric transfer error, on plain image points). In Python, `mvg.estimate_homography(correspondences, mvg.RansacOptions(thresh=...))` takes an `(N, 2, 2)` array (or a list of `((x1, y1), (x2, y2))`) and returns the `homography` `(3, 3)`, `inliers` and `inlier_rms`; its threshold is in pixels. `recover_relative_pose_robust` selects the inliers first and disambiguates the four decompositions of the essential matrix with cheirality on the inliers only, so outliers cannot corrupt the positive-depth vote.
+
+### The Refined Estimate and Its σ
+
+The consensus search scores models fitted to minimal samples. Its inliers are then fitted linearly (8-point) and refined to the least squares of the weighted Sampson error above, as a relative pose: $E = [t]_\times R$ with the rotation $R$ and the unit translation direction $t$, starting from the decomposition that puts the most inliers ahead of both cameras. The inliers are re-selected with the refined estimate and the fit refined again until they settle, so the result is the estimate of its own inliers and `inliers` lists the matches it is fitted to. The refinement minimizes the error itself, its denominator's dependence on $E$ included; holding each match's variance fixed within a step settles elsewhere, at a point biased by up to 2σ of the pose with a thousand matches.
+
+Two views do not observe the length of the translation, so $|t| = 1$ is the **gauge**: the pose has five degrees of freedom, three of rotation and two of direction. `robust.uncertainty` holds its covariance from the inliers' stated pixel noise, labelled `rotation.rx`, `rotation.ry`, `rotation.rz` (rad, the right-perturbation tangent $R\,\mathrm{Exp}(\delta)$ of the rotation of `second_se3_first`) and `direction.x`, `direction.y`, `direction.z` (the components of the unit translation): the direction block has rank 2, with no variance along $t$. `estimate.uncertainty` holds the covariance of the nine entries of $E$ (`essential.e00` … `essential.e22`, row-major, with $E$ scaled to $|t| = 1$), of rank 5. Neither includes the calibration's uncertainty: the cameras enter as exact. Fewer than six inliers leave no redundancy, and the uncertainty says why it is unavailable.
+
+**Checked against Monte-Carlo.** A fisheye with an anisotropic, correlated pixel noise matched with a distorted pinhole, 120 points and 600 draws of the noise: the scatter of each of the five pose coordinates is 0.98 to 1.06 times its σ, and that of $E$'s entries 1.03 times (pooled).
+
+`estimate_essential` and `recover_relative_pose_robust` take a `RunControl` as their last argument (in Python, `progress=`): its observers receive each iteration of the refinement and its token stops the call with `MvgError::Cancelled`.
 
 ## Triangulating Points from N Views
 
@@ -140,7 +157,7 @@ found.points[0].point, found.points[0].parallax_deg
 cov = found.point_covariance(0)                       # (3, 3) in m², or None
 ```
 
-The last argument is a `RunControl` ([Sessions](session.md) describes it): its observers receive each iteration of the point refinement and its token stops the call with `MvgError::Cancelled`. `PoseOptions::control` and `BundleAdjustOptions::control` do the same for `estimate_pose` and `bundle_adjust`, and `StereoRectification::triangulate` takes a control as `triangulate` does. In Python these functions take `progress=`, a callable given each report; raising from it, or Ctrl-C, stops the call.
+The last argument is a `RunControl` ([Sessions](session.md) describes it): its observers receive each iteration of the point refinement and its token stops the call with `MvgError::Cancelled`. `PoseOptions::control` and `BundleAdjustOptions::control` do the same for `estimate_pose` and `bundle_adjust`, and `StereoRectification::triangulate`, `estimate_essential` and `recover_relative_pose_robust` take a control as `triangulate` does. In Python these functions take `progress=`, a callable given each report; raising from it, or Ctrl-C, stops the call.
 
 Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]`, so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track.
 

@@ -242,6 +242,97 @@ fn unit_vectors_stay_on_the_sphere() {
     );
 }
 
+/// `R a − b`: a vector `a` rotated onto its observed direction `b`.
+struct Rotated {
+    a: [f64; 3],
+    b: [f64; 3],
+}
+
+impl Residual for Rotated {
+    fn dim(&self) -> usize {
+        3
+    }
+    fn block_dims(&self) -> Vec<usize> {
+        vec![4]
+    }
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        let lift = |v: [f64; 3]| v.map(|c| T::from_f64(c).unwrap());
+        let [ax, ay, az] = lift(self.a);
+        let ra = so3(&blocks[0]) * Vector3::new(ax, ay, az);
+        let b = lift(self.b);
+        DVector::from_fn(3, |i, _| ra[i].clone() - b[i].clone())
+    }
+}
+
+/// A rotation block stays a unit quaternion, reaches the rotation the data
+/// say, and its covariance is over the right-perturbation tangent:
+/// `∂(R·Exp(δ) a)/∂δ = −R [a]×`, so `Σ = σ² (Σᵢ [aᵢ]×ᵀ [aᵢ]×)⁻¹`, which a
+/// left perturbation (`[R aᵢ]×` in its place) would not give for this `R`.
+#[test]
+fn rotations_stay_on_so3_with_a_right_perturbation_covariance() {
+    let truth = UnitQuaternion::from_euler_angles(0.4, -0.7, 1.1);
+    let vectors = [
+        [1.0, 0.0, 0.0],
+        [0.0, 2.0, 0.5],
+        [0.3, -0.4, 1.5],
+        [-1.0, 0.7, 0.2],
+    ];
+    let mut problem = Problem::new();
+    let start = UnitQuaternion::from_euler_angles(0.3, -0.6, 1.0);
+    let q = start.as_ref().coords;
+    let rotation = problem
+        .add_block("rot", &[q.x, q.y, q.z, q.w], Manifold::So3)
+        .unwrap();
+    let sigma = 0.01;
+    for a in vectors {
+        let b = truth * Vector3::from(a);
+        problem
+            .add_residual(
+                Rotated { a, b: b.into() },
+                &[rotation],
+                RobustLoss::None,
+                Noise::Known(sigma),
+            )
+            .unwrap();
+    }
+    let solution = solve(&problem, &SolveOptions::default()).unwrap();
+    let found = solution.rotation(rotation).unwrap();
+    assert!(found.angle_to(&truth) < 1e-6, "{}", found.angle_to(&truth));
+    let v = solution.value(rotation).unwrap();
+    assert!((Vector3::new(v[0], v[1], v[2]).norm_squared() + v[3] * v[3] - 1.0).abs() < 1e-12);
+    assert!(solution.pose(rotation).is_none());
+
+    let cov = covariance(&solution);
+    assert_eq!(cov.labels, ["rot.rx", "rot.ry", "rot.rz"]);
+    let skew = |a: [f64; 3]| Vector3::from(a).cross_matrix();
+    let info: nalgebra::Matrix3<f64> = vectors
+        .iter()
+        .map(|&a| skew(a).transpose() * skew(a))
+        .sum::<nalgebra::Matrix3<f64>>()
+        / (sigma * sigma);
+    let expected = info.try_inverse().unwrap();
+    for i in 0..3 {
+        for j in 0..3 {
+            let scale = (expected[(i, i)] * expected[(j, j)]).sqrt();
+            assert!(
+                (cov.covariance[i][j] - expected[(i, j)]).abs() < 1e-6 * scale,
+                "({i}, {j}): {} vs {}",
+                cov.covariance[i][j],
+                expected[(i, j)]
+            );
+        }
+    }
+    let err = |r: Result<BlockId, Error>| r.unwrap_err().to_string();
+    let mut problem = Problem::new();
+    assert!(
+        err(problem.add_block("q", &[0.0, 0.0, 0.0, 2.0], Manifold::So3))
+            .contains("unit quaternion")
+    );
+    assert!(
+        err(problem.add_block("q", &[0.0, 0.0, 1.0], Manifold::So3)).contains("unit quaternion")
+    );
+}
+
 /// A residual that misreports its length once its block passes 1.
 struct Misbehaving;
 

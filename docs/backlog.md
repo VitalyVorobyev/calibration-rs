@@ -16,14 +16,10 @@ two-view functions take matches with their stated noise (`PixelMatch`), and
 triangulation refines the points and returns their covariance, the
 calibration's share included, and bundle adjustment refines capture poses
 and points through the builder (Consider or Prior, robust losses, an explicit
-gauge, covariance). The rectification still runs on a bare `K`, and the two-view
-functions return no covariance.
+gauge, covariance). The robust two-view functions refine through the builder
+and return the covariance of `E` and of the relative pose from the stated
+pixel noise (the cameras as exact). The rectification still runs on a bare `K`.
 
-- [ ] MVG-E-REFINE - Move estimate_essential's local Gauss-Newton polish
-  (weighted Sampson error on the essential manifold) onto the problem builder:
-  a residual of your own over a rotation and a unit-vector block. It returns
-  the covariance of the relative pose (gauge |t| = 1) on the way, which
-  MVG-TWO-VIEW lists.
 - [ ] MVG-DENSE-COV - The calibration's share in a dense cloud's per-point
   covariance (today: disparity share; the calibrated σ goes through
   `StereoRectification::triangulate` for selected matches).
@@ -141,7 +137,12 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 
 - [ ] MVG-TWO-VIEW - Two-view robustness and uncertainty:
   - optimal two-view triangulation (Lindstrom);
-  - covariance of F, E, H and the relative pose (gauge |t| = 1);
+  - covariance of F and H (E and the relative pose have theirs from the
+    robust variants' builder refinement, gauge |t| = 1); the all-inlier
+    `recover_relative_pose` still returns its linear 5-point pose without a
+    refinement or covariance; the calibration's share in the two-view
+    covariance (a residual through the camera blocks of
+    `add_calibrated_rig`, which needs the unprojection at dual numbers);
   - H-versus-F model selection (GRIC);
   - LO-RANSAC/MSAC with an adaptive iteration count;
   - P3P/EPnP inside RANSAC.

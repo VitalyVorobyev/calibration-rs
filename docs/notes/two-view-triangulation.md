@@ -81,22 +81,54 @@ them (`cheirality_count`) and picks the winner. A candidate `(R, t)` with
 `recover_relative_pose` (`pose_recovery`) samples up to 20 evenly-spaced
 5-point subsets (deterministic, input-order independent), decomposes and
 cheirality-selects each candidate `E`, keeps the one with the most
-cheirality inliers (ties broken by the mean angular epipolar error over
+cheirality inliers (ties broken by the mean weighted Sampson error over
 **all** matches), then triangulates with the chosen pose. The robust variant
-(`recover_relative_pose_robust` → `estimate_essential`) runs 5-point +
-the angular epipolar error inside `ransac_fit`, refits inliers with
-`essential_linear`, and disambiguates cheirality on inliers only.
+(`recover_relative_pose_robust` → `estimate_essential`) runs 5-point + the
+weighted Sampson error inside `ransac_fit` (scoring minimal-sample models),
+fits the consensus set with `essential_linear`, starts from its
+decomposition with the most inliers ahead of both cameras, and refines it
+through the problem builder (below); cheirality is voted on inliers only.
 
 ## Cost
 
 The solvers minimize algebraic / first-order error. The RANSAC residual for
-`E` is the angular (Sampson-on-the-sphere) epipolar error, in **radians**,
+`E` is the covariance-weighted Sampson error, in **σ** of the stated pixel
+noise,
 
-`e² = (b₂ᵀ E b₁)² / (‖(I − b₁b₁ᵀ) Eᵀ b₂‖² + ‖(I − b₂b₂ᵀ) E b₁‖²)`,
+`e² = g² / (g₁ᵀ m₁ g₁ + g₂ᵀ m₂ g₂)`, `g = b₂ᵀ E b₁`,
+`g₁ = (I − b₁b₁ᵀ) Eᵀ b₂`, `g₂ = (I − b₂b₂ᵀ) E b₁`,
 
-the angle by which the two rays must move to meet the constraint to first
-order; it is invariant to the scale of `E` and returns `∞` at an epipole
-(vanishing denominator). A pixel threshold `t` is about `t / f` radians. The
+with `mₖ = Jₖ Σₖ Jₖᵀ` the bearing covariance a pixel's stated covariance
+maps to through the camera model. It is invariant to the scale of `E`, χ²₁
+to first order under the stated noise, and `∞` at an epipole (vanishing
+denominator).
+
+**Refinement (`robust::refine`).** The consensus set is refined to
+`min Σ e²` as a relative pose, `E = [t]× R` over an `So3` block (`R`,
+right perturbation) and a `UnitVector` block (`t`, the gauge `|t| = 1`),
+with `e` evaluated generically so autodiff differentiates the denominator
+too, `Noise::Known(1)` (already whitened). The inliers are re-selected at
+the refined `E` and refined again from the previous fit (≤ 5 refinements;
+a shrinking set stops the rounds and keeps the fit of the set before it), so
+`inliers` are the matches the estimate is fitted to. The covariance is the
+builder's `(JᵀJ)⁻¹` over `[rx ry rz]` and the ambient `[x y z]` of `t`
+(rank 2); `E`'s 9×9 (rank 5) is `J_E Σ J_Eᵀ` with `∂E/∂δωₖ = [t]× R [eₖ]×`,
+`∂E/∂tₖ = [eₖ]× R`. The cameras enter as exact: the calibration's share is
+not in it (open, MVG-TWO-VIEW).
+
+Holding each `σ_g` fixed within a step (the deleted local Gauss–Newton
+polish, an iteratively reweighted scheme) converges linearly to a fixed
+point that is **not** the minimizer: the stationarity it solves drops
+`Σ eᵢ² ∂ log σᵢ`, a systematic term that grows as `N` as the information
+does, so the offset stays put while σ shrinks as `1/√N`: its bias in σ
+grows as `√N`. On
+2000 fisheye + pinhole matches it stopped at `Σ e² = 2120.71` against the
+minimum `2108.02`. Over 300 noise draws (fisheye `Σ = [0.25 0.08; 0.08
+0.09]` px², pinhole 0.4 px) its bias was `−0.66, −0.69, −0.02, −0.86,
++0.34` σ in `(rx, ry, rz, t_a, t_b)` with 120 matches (SE 0.058) and
+`−2.18, −2.07, +0.12, −2.38, +1.24` σ with 1000, its RMS error over the
+stated σ `1.29–1.47` (120) and up to `2.63` (1000); the exact minimizer's
+bias is `≤ 0.10` σ and its RMS over σ `0.97–1.07` at both sizes. The
 pixel residuals (`residuals::sampson_distance` on `F`, symmetric transfer on
 `H`) are unchanged and serve the uncalibrated estimators. The linear DLT is
 the seed of `vision-mvg`'s `triangulate`, which refines the points against
@@ -232,6 +264,18 @@ Parameter errors scale ~linearly in `a`; translation direction and depth
 additionally scale ~`1/parallax`.
 
 ## Evidence
+
+- **Relative pose covariance**: `crates/vision-mvg/tests/relative_pose_cov.rs`
+  — fisheye (anisotropic, correlated noise) + distorted pinhole, 120 points,
+  600 draws: scatter over stated σ `1.001, 1.037, 1.055` (rotation) and
+  `1.031, 0.978` (direction tangent), NEES `5.29` (5 expected, SE 0.13),
+  `E` pooled `1.029`; gate `[0.9, 1.1]` per coordinate (≥ 3 SE wide). The
+  labels, rank, observer determinism and cancellation are checked there too;
+  the cheirality re-solve from a non-physical decomposition in `robust.rs`.
+- **Pixel-noise scale**: `crates/vision-mvg/tests/pixel_noise.rs` — inlier
+  RMS `1.0147` σ at the stated noise (`1.0181` before the exact refinement),
+  `0.5073` with doubled σ; at `f = 400 / 1600` a 3 σ threshold keeps
+  `100.0 % / 99.5 %` of the inliers and `0.50 %` of the outliers.
 
 - **Matrix test**: `crates/vision-mvg/tests/two_view_matrix.rs` — 4
   baseline/parallax regimes (`wide-sideways`, `wide-rotated`, `medium`,

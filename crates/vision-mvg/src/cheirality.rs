@@ -4,6 +4,7 @@
 //! returned. Only one places the triangulated points in front of both
 //! cameras. These functions count and select the correct pose.
 
+#[cfg(test)]
 use crate::{MvgError, Result};
 use vision_calibration_core::{Mat3, Vec3};
 
@@ -66,6 +67,10 @@ pub fn select_pose(
 ///
 /// Returns `Err` if the point slices have different lengths, if there are no
 /// correspondences, or if every candidate pose fails the cheirality check.
+///
+/// The tests' reference: the robust pose recovery votes with
+/// [`select_pose`] on the decompositions of its refined `E` itself.
+#[cfg(test)]
 pub fn recover_pose_from_essential(e: &Mat3, pts1: &[Vec3], pts2: &[Vec3]) -> Result<(Mat3, Vec3)> {
     if pts1.len() != pts2.len() {
         return Err(MvgError::CountMismatch {

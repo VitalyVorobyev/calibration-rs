@@ -7,10 +7,10 @@
 //!
 //! 1. with pixels drawn from the stated (anisotropic, correlated, different per
 //!    camera) covariances through a fisheye and a distorted pinhole, the RMS
-//!    over inliers is of order 1, and falls when the stated σ is doubled.
-//!    (Its value at the true essential matrix, exactly 1, is checked in the
-//!    crate's unit tests; the estimated matrix is the unweighted linear fit,
-//!    which sits above it when the cameras' noise differs this much.)
+//!    over the inliers of the refined estimate is 1, and halves when the
+//!    stated σ is doubled. (Its value at the true essential matrix is checked
+//!    in the crate's unit tests; the covariance of the refined estimate in
+//!    `relative_pose_cov`.)
 //! 2. with a fixed stated noise, a threshold of 3 σ keeps the inliers and drops
 //!    the gross outliers at any focal length.
 
@@ -19,8 +19,8 @@
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{
     BrownConrady5, CalibratedRig, CameraParams, DistortionParams, FxFyCxCy, Iso3, KannalaBrandt4,
-    PointCovariance, ProjectionParams, Pt2, Pt3, RansacOptions, SensorParams, Uncertainty, Vec3,
-    make_pinhole_camera, pinhole_camera_params,
+    PointCovariance, ProjectionParams, Pt2, Pt3, RansacOptions, RunControl, SensorParams,
+    Uncertainty, Vec3, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_mvg::{PixelMatch, estimate_essential};
 
@@ -185,7 +185,14 @@ fn weighted_error_is_one_sigma_for_the_stated_noise() {
     let world = scene(&mut rng, 2200);
     let matches = noisy_matches(&rig, &world, truth, 1.0, &mut rng);
     assert!(matches.len() >= 2000, "{} matches", matches.len());
-    let found = estimate_essential(&rig, [0, 1], &matches, &opts(5.0, 100)).unwrap();
+    let found = estimate_essential(
+        &rig,
+        [0, 1],
+        &matches,
+        &opts(5.0, 100),
+        &RunControl::default(),
+    )
+    .unwrap();
     assert!(found.inliers.len() * 100 >= matches.len() * 99);
     let rms = found.inlier_rms;
     eprintln!("stated = true noise: inlier RMS {rms:.4} sigma");
@@ -201,7 +208,14 @@ fn weighted_error_is_one_sigma_for_the_stated_noise() {
             PixelMatch::new(m.pt1, x4(&m.noise1), m.pt2, x4(&m.noise2))
         })
         .collect();
-    let found = estimate_essential(&rig, [0, 1], &doubled, &opts(5.0, 100)).unwrap();
+    let found = estimate_essential(
+        &rig,
+        [0, 1],
+        &doubled,
+        &opts(5.0, 100),
+        &RunControl::default(),
+    )
+    .unwrap();
     let half = found.inlier_rms;
     eprintln!("stated = 2 x true noise: inlier RMS {half:.4} sigma");
     assert!(
@@ -236,7 +250,14 @@ fn the_sigma_threshold_does_not_depend_on_the_focal_length() {
             matches.push(PixelMatch::new(a, sigma, b, sigma));
         }
 
-        let found = estimate_essential(&rig, [0, 1], &matches, &opts(3.0, 100)).unwrap();
+        let found = estimate_essential(
+            &rig,
+            [0, 1],
+            &matches,
+            &opts(3.0, 100),
+            &RunControl::default(),
+        )
+        .unwrap();
         let kept_in = found.inliers.iter().filter(|&&i| i < n_in).count();
         let kept_out = found.inliers.len() - kept_in;
         let (frac_in, frac_out) = (kept_in as f64 / n_in as f64, kept_out as f64 / n_out as f64);

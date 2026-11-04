@@ -464,25 +464,50 @@ class SceneDiagnostics:
         )
 
 
+_ESSENTIAL_LABELS = [f"essential.e{r}{c}" for r in range(3) for c in range(3)]
+_RELATIVE_POSE_LABELS = [
+    "rotation.rx",
+    "rotation.ry",
+    "rotation.rz",
+    "direction.x",
+    "direction.y",
+    "direction.z",
+]
+
+
 @dataclass(frozen=True, slots=True)
 class EssentialEstimate:
-    """A robustly estimated essential matrix."""
+    """A robustly estimated essential matrix, refined on its inliers."""
 
     essential: NDArray[np.float64]
-    """``(3, 3)``: ``b2ᵀ E b1 = 0`` on the bearings of matched pixels."""
+    """``(3, 3)``: ``b2ᵀ E b1 = 0`` on the bearings of matched pixels, scaled
+    to a unit translation (Frobenius norm √2)."""
     inliers: list[int]
-    """Indices of the inlier matches."""
+    """Indices of the inlier matches: those the estimate is fitted to."""
     inlier_rms: float
     """RMS weighted Sampson error over the inliers, in σ: about 1 when the
     stated noise describes the pixels."""
+    uncertainty: ParameterUncertainty
+    """Covariance of the nine entries of ``essential`` (``essential.e00`` ...
+    ``essential.e22``, row-major; rank 5) from the inliers' stated noise, or
+    the reason it is unavailable."""
+    _joint: _Joint = field(repr=False, compare=False)
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> EssentialEstimate:
+        uncertainty = cast(Mapping[str, Any], payload["uncertainty"])
         return cls(
             essential=_matrix(payload["essential"], 3, 3),
             inliers=[int(i) for i in payload["inliers"]],
             inlier_rms=float(payload["inlier_rms"]),
+            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            _joint=_Joint(uncertainty),
         )
+
+    def essential_covariance(self) -> NDArray[np.float64] | None:
+        """The ``(9, 9)`` covariance of the entries of ``essential`` in row-major
+        order; ``None`` when the uncertainty is unavailable."""
+        return self._joint.block(_ESSENTIAL_LABELS, _ESSENTIAL_LABELS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -534,25 +559,40 @@ class RelativePose:
 @dataclass(frozen=True, slots=True)
 class RobustRelativePose:
     """The relative pose of two cameras from matched pixels, with outliers
-    rejected by RANSAC."""
+    rejected by RANSAC and the pose refined on the inliers."""
 
     second_se3_first: Matrix4
     """``(4, 4)`` pose of the first camera's frame in the second's (unit-norm translation)."""
     essential: NDArray[np.float64]
     """``(3, 3)`` essential matrix used."""
     inliers: list[int]
-    """Indices of the inlier matches."""
+    """Indices of the inlier matches: those the pose is fitted to."""
     inlier_rms: float
     """RMS weighted Sampson error over the inliers, in σ."""
+    uncertainty: ParameterUncertainty
+    """Covariance of the pose in the gauge ``|t| = 1``: ``rotation.rx``,
+    ``.ry``, ``.rz`` (rad, right-perturbation tangent of the rotation) and
+    ``direction.x``, ``.y``, ``.z`` (the unit translation's components; rank
+    2, no variance along the translation); or the reason it is unavailable."""
+    _joint: _Joint = field(repr=False, compare=False)
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> RobustRelativePose:
+        uncertainty = cast(Mapping[str, Any], payload["uncertainty"])
         return cls(
             second_se3_first=_pose_matrix(payload["second_se3_first"]),
             essential=_matrix(payload["essential"], 3, 3),
             inliers=[int(i) for i in payload["inliers"]],
             inlier_rms=float(payload["inlier_rms"]),
+            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            _joint=_Joint(uncertainty),
         )
+
+    def pose_covariance(self) -> NDArray[np.float64] | None:
+        """The ``(6, 6)`` covariance over ``[rx ry rz x y z]``: the rotation's
+        right-perturbation tangent (rad) and the unit translation's
+        components; ``None`` when the uncertainty is unavailable."""
+        return self._joint.block(_RELATIVE_POSE_LABELS, _RELATIVE_POSE_LABELS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,9 +688,18 @@ def estimate_essential(
     cameras: tuple[int, int],
     matches: Sequence[PixelMatch],
     ransac: RansacOptions,
+    *,
+    progress: ProgressCallback | None = None,
 ) -> EssentialEstimate:
     """Estimate the essential matrix of two rig cameras from matched pixels with
-    RANSAC; ``ransac.thresh`` is in σ of the stated noise.
+    RANSAC; ``ransac.thresh`` is in σ of the stated noise. The consensus set is
+    refined to the least squares of the weighted Sampson error, and the result
+    carries the covariance of ``E``.
+
+    ``progress``, when given, is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping) as the refinement
+    iterates; raising from it stops the call and the exception propagates.
+    Ctrl-C stops it too, with or without a callable.
 
     Raises
     ------
@@ -661,7 +710,7 @@ def estimate_essential(
         If no model reaches ``ransac.min_inliers``.
     """
     payload = _native.mvg_estimate_essential(
-        _export_of(result), list(cameras), _matches(matches), ransac.to_payload()
+        _export_of(result), list(cameras), _matches(matches), ransac.to_payload(), progress
     )
     return EssentialEstimate.from_payload(cast(Mapping[str, Any], payload))
 
@@ -717,8 +766,12 @@ def recover_relative_pose_robust(
     cameras: tuple[int, int],
     matches: Sequence[PixelMatch],
     ransac: RansacOptions,
+    *,
+    progress: ProgressCallback | None = None,
 ) -> RobustRelativePose:
-    """The relative pose of two rig cameras with RANSAC over the matches.
+    """The relative pose of two rig cameras with RANSAC over the matches, refined
+    on the inliers, with its covariance in the gauge ``|t| = 1``.
+    ``progress`` as for :func:`estimate_essential`.
 
     Raises
     ------
@@ -728,7 +781,7 @@ def recover_relative_pose_robust(
         If no consensus is found or the inliers are degenerate.
     """
     payload = _native.mvg_recover_relative_pose_robust(
-        _export_of(result), list(cameras), _matches(matches), ransac.to_payload()
+        _export_of(result), list(cameras), _matches(matches), ransac.to_payload(), progress
     )
     return RobustRelativePose.from_payload(cast(Mapping[str, Any], payload))
 
