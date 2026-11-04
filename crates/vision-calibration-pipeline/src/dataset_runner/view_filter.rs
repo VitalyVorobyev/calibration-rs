@@ -22,7 +22,7 @@ pub enum RejectReason {
     /// or the manifest's `detector.min_features_per_view`.
     TooFewFeatures,
     /// A plain chessboard whose detected corners do not reach every edge of
-    /// the board. The detector labels a view from its own top-left corner,
+    /// the board, or reach an edge with fewer than half of its corners. The detector labels a view from its own top-left corner,
     /// so a partial board would move the shared target frame.
     PartialChessboard,
     /// A plain chessboard seen turned by 90° where the target frame is fixed
@@ -122,6 +122,14 @@ pub(super) struct ChessboardGrid {
     pub(super) square_size_m: f64,
 }
 
+/// Least fraction of an extent edge's length that must be detected.
+///
+/// Good detections hold at least 0.83 of every edge (a fisheye set; the
+/// pinhole sets hold all of it), the padded edges of OpenCV's stereo sample
+/// 1/9. 0.5 sits between, a factor 1.7 under the first and 4.5 over the
+/// second.
+const EDGE_SUPPORT: f64 = 0.5;
+
 /// How a whole-board detection's labels lie on the declared board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BoardExtent {
@@ -147,13 +155,43 @@ impl ChessboardGrid {
             return Err(RejectReason::PartialChessboard);
         };
         let (cols, rows) = (i64::from(self.cols), i64::from(self.rows));
-        if extent == (0, cols - 1, 0, rows - 1) {
-            Ok(BoardExtent::Declared)
+        let extent_kind = if extent == (0, cols - 1, 0, rows - 1) {
+            BoardExtent::Declared
         } else if extent == (0, rows - 1, 0, cols - 1) {
-            Ok(BoardExtent::Turned)
+            BoardExtent::Turned
+        } else {
+            return Err(RejectReason::PartialChessboard);
+        };
+        if self.edges_supported(features, extent) {
+            Ok(extent_kind)
         } else {
             Err(RejectReason::PartialChessboard)
         }
+    }
+
+    /// Whether every edge of the label extent `(u0, u1, v0, v1)` is
+    /// detected along its length, not by a stray corner.
+    ///
+    /// The detector can pad a partial board with a lone corner beside it,
+    /// which closes the extent while the board's real edge is missing.
+    /// Each of the four edge lines must hold at least
+    /// `max(2, ⌈EDGE_SUPPORT · length⌉)` corners.
+    fn edges_supported(&self, features: &[Feature], extent: (i64, i64, i64, i64)) -> bool {
+        let (u0, u1, v0, v1) = extent;
+        let mut counts = [0usize; 4]; // u = u0, u = u1, v = v0, v = v1
+        for f in features {
+            let (u, v) = self.label(f);
+            counts[0] += usize::from(u == u0);
+            counts[1] += usize::from(u == u1);
+            counts[2] += usize::from(v == v0);
+            counts[3] += usize::from(v == v1);
+        }
+        let need = |len: i64| ((EDGE_SUPPORT * len as f64).ceil() as usize).max(2);
+        let (across, down) = ((u1 - u0 + 1), (v1 - v0 + 1));
+        counts[0] >= need(down)
+            && counts[1] >= need(down)
+            && counts[2] >= need(across)
+            && counts[3] >= need(across)
     }
 
     /// The integer label `(u, v)` of a feature, recovered from its
@@ -344,6 +382,40 @@ mod tests {
             Err(RejectReason::PartialChessboard)
         );
         assert_eq!(grid().extent(&[]), Err(RejectReason::PartialChessboard));
+    }
+
+    #[test]
+    fn a_lone_corner_padding_an_edge_is_a_partial_board() {
+        // The first column is missing but for one corner beside the board:
+        // the extent is closed, the edge is not.
+        let mut features = labels(14, 10, &[]);
+        features.retain(|f| f.world_xyz[0] > 0.0 || f.world_xyz[1] == 8.0 * SQUARE);
+        assert_eq!(
+            grid().extent(&features),
+            Err(RejectReason::PartialChessboard)
+        );
+    }
+
+    #[test]
+    fn an_edge_missing_corners_stays_whole_while_supported() {
+        // Half the first column (5 of 10) is enough, 4 is not.
+        let first_column = |keep: usize| -> Vec<Feature> {
+            let mut kept = 0;
+            labels(14, 10, &[])
+                .into_iter()
+                .filter(|f| {
+                    f.world_xyz[0] > 0.0 || {
+                        kept += 1;
+                        kept <= keep
+                    }
+                })
+                .collect()
+        };
+        assert_eq!(grid().extent(&first_column(5)), Ok(BoardExtent::Declared));
+        assert_eq!(
+            grid().extent(&first_column(4)),
+            Err(RejectReason::PartialChessboard)
+        );
     }
 
     #[test]

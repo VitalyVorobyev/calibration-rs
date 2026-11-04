@@ -51,21 +51,6 @@ functions return no covariance.
   `pixel_to_gripper_point`, which returns a point without σ (delete it).
   Gate: Monte-Carlo over hand-eye calibrations, as `laser_uncertainty.rs`.
 
-## Correctness — CORRECT (Phase 1b)
-
-- [ ] CAL-CHESSBOARD-OUTLIER - A chessboard detection with an off-lattice
-  corner passes the whole-board check with wrong labels. On OpenCV's stereo
-  sample `calib-targets` 0.16.1 labels `left12` and `right07` with one
-  spurious corner beside the board (`left12`: `(0, 8)` at x = 130 px, the
-  board's first column at x ≈ 199 px), which shifts the board's labels by a
-  column. Declared 6×9, the detector's extent filter then cuts the board to
-  36 corners (dropped as partial); declared 9×6, the spurious corner fakes
-  the missing edge, both detections pass as whole, and the rig diverges
-  (σ(fx) ≈ 43 px). Check each whole-board detection's fit to its lattice (a
-  homography residual per corner, in squares) and drop the outlier, or reject
-  the detection; report the fault upstream. Gate: both detections are kept
-  whole with correct labels in either declaration, or rejected with a reason.
-
 ## Lean code — LEAN (Phase 1b)
 
 - [ ] LEAN-PIPELINE - Factor the step logic the rig, hand-eye and laser

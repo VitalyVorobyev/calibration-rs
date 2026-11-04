@@ -145,6 +145,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A lone corner no longer pads a partial chessboard into a whole one.**
+  The detector can label a stray corner beside the board as the lattice's
+  first column, which closed the board's extent while the board's real edge
+  was missing and shifted its labels by a column; a rig then diverged on
+  OpenCV's stereo sample declared the other way round. A chessboard
+  detection now needs at least half of each extent edge's corners (and at
+  least two); one that lacks them is dropped as `PartialChessboard`.
 - **Hand-eye initialization with motions past 120°.** A pair of views whose
   relative rotation exceeds 120° could enter the linear rotation solve with
   the wrong quaternion sign; from few views the initial hand-eye rotation
