@@ -53,11 +53,27 @@ functions return no covariance.
 
 ## Lean code — LEAN (Phase 1b)
 
-- [ ] LEAN-PIPELINE - Factor the step logic the rig, hand-eye and laser
-  problem types share (`rig_handeye/steps.rs` alone is ~1.5k lines) into
-  the existing `planar_family` / `rig_family` helpers. Gate: library code
-  lines down, every workflow's results bit-identical, regression suite
-  unchanged.
+- [ ] LEAN-PLANAR-INIT - `planar_intrinsics` initializes its pinhole
+  cameras with its own `init_untilted` / `init_tilted` (~300 lines), a
+  second copy of `planar_family::bootstrap_camera` that every other
+  workflow uses (fisheye already goes through it). Route both through it.
+  The copies differ in results: a tilt seed with auto-fitted intrinsics
+  seeds the linear tilt sweep in `bootstrap_camera` but only replaces the
+  swept tilt here; a zero tilt seed of an untilted camera is accepted
+  there and rejected here; and here the fitted Brown-Conrady coefficients
+  sit in state unconverted and the homographies are kept. Measure the
+  first on the Scheimpflug suite entries and seed tests before switching.
+  Gate: library lines down, results unchanged or the change measured and
+  in the CHANGELOG.
+- [ ] LEAN-RIG-TILTED - The rig stages run the wide tilt multi-start and
+  the nominal recovery of a badly fitted tilted camera
+  (`rig_family::tilted`) for `rig_handeye` only
+  (`RigStages::RECOVERS_TILTED_CAMERAS`); `rig_extrinsics` gives an
+  auto-initialized tilted camera the per-camera staged solve. Nothing
+  records why. Measure both on tilted rigs (the synthetic recovery fixture
+  of `tests/rig_tilted_recovery.rs`, the Scheimpflug rig tests) and either
+  give both the recovery or state the reason in the trait item. Gate: one
+  behaviour or a documented reason; results measured first.
 
 ## Parameter uncertainty (Phase 2)
 

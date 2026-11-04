@@ -57,6 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The rig problem types share their seed and step-result types.**
+  `rig_handeye::IntrinsicsManualInit`, `RigManualInit`,
+  `IntrinsicsInitResult` and `RigInitResult` are now the same types as
+  their `rig_extrinsics` namesakes, re-exported under both modules; fields
+  and JSON are unchanged, and so is every result. A rig manual-init error now
+  names its seed and is logged for both problem types alike.
 - **A rig camera no longer needs a view in common with the reference
   camera.** Rig initialization places the cameras through their
   co-visibility graph (two cameras are linked when they see the board in the

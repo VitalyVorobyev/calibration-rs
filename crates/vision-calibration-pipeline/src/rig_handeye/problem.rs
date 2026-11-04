@@ -6,11 +6,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
-use vision_calibration_core::{
-    CameraParams, DistortionParams, FeatureResidualHistogram, FxFyCxCy, Iso3, PerFeatureResiduals,
-    Real, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
-    compute_rig_target_residuals,
-};
+use vision_calibration_core::{CameraParams, Iso3, RigDataset, Uncertainty};
 use vision_calibration_optim::{
     HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
 };
@@ -23,7 +19,10 @@ use crate::common::config::{
     validate_rig_cameras,
 };
 use crate::common::{ExportDiagnostics, ExportKind};
-use crate::rig_family::rig_camera_models;
+use crate::rig_family::{
+    IntrinsicsManualInit, RigStages, RigStagesState, handeye_export_poses, inverse_poses,
+    rig_target_residuals,
+};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeState;
@@ -86,26 +85,6 @@ impl RigHandeyeConfig {
     pub fn camera_for(&self, index: usize) -> CameraConfig {
         rig_camera_for(&self.camera, &self.camera_overrides, index)
     }
-}
-
-/// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
-/// calibration. See `rig_extrinsics::IntrinsicsManualInit` for semantics.
-///
-/// `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor
-/// (a seeded tilt skips the tilt sweep); a camera with an untilted sensor
-/// takes only a zero tilt.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct IntrinsicsManualInit {
-    /// Per-camera intrinsics seeds. `None` runs Zhang's method per camera.
-    pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
-    /// Per-camera distortion seeds, each of the kind its camera's model names.
-    pub per_cam_distortion: Option<Vec<DistortionParams>>,
-    /// Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
-    /// others).
-    #[serde(default)]
-    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
 /// Final hand-eye bundle-adjustment options; robot-pose refinement lives in
@@ -244,6 +223,18 @@ pub struct RigHandeyeExport {
     pub uncertainty: Uncertainty,
 }
 
+impl RigHandeyeExport {
+    /// The hand-eye transform and the target reference pose of the export's
+    /// mode: (`gripper_se3_rig`, `base_se3_target`) eye-in-hand,
+    /// (`rig_se3_base`, `gripper_se3_target`) eye-to-hand.
+    pub(crate) fn mode_poses(&self) -> (Option<Iso3>, Option<Iso3>) {
+        match self.handeye_mode {
+            HandeyeMode::EyeInHand => (self.gripper_se3_rig, self.base_se3_target),
+            HandeyeMode::EyeToHand => (self.rig_se3_base, self.gripper_se3_target),
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ProblemType Implementation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,6 +312,33 @@ pub struct RigHandeyeProblem;
 
 impl ProblemState for RigHandeyeProblem {
     type State = RigHandeyeState;
+}
+
+impl RigStages for RigHandeyeProblem {
+    type Meta = RobotPoseMeta;
+    const RECOVERS_TILTED_CAMERAS: bool = true;
+
+    fn dataset(input: &RigHandeyeInput) -> &RigDataset<RobotPoseMeta> {
+        input
+    }
+    fn camera_for(config: &RigHandeyeConfig, index: usize) -> CameraConfig {
+        config.camera_for(index)
+    }
+    fn intrinsics_config(config: &RigHandeyeConfig) -> &IntrinsicsInitConfig {
+        &config.intrinsics
+    }
+    fn rig_config(config: &RigHandeyeConfig) -> &RigConfig {
+        &config.rig
+    }
+    fn solver_config(config: &RigHandeyeConfig) -> &SolverConfig {
+        &config.solver
+    }
+    fn stages(state: &RigHandeyeState) -> &RigStagesState {
+        &state.rig
+    }
+    fn stages_mut(state: &mut RigHandeyeState) -> &mut RigStagesState {
+        &mut state.rig
+    }
 }
 
 impl ProblemType for RigHandeyeProblem {
@@ -423,7 +441,7 @@ impl ProblemType for RigHandeyeProblem {
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
         let params = &output.params;
-        let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
+        let cam_se3_rig = inverse_poses(&params.cam_to_rig);
 
         let target_pose = params
             .target_poses
@@ -433,10 +451,8 @@ impl ProblemType for RigHandeyeProblem {
 
         let mode = config.handeye_init.handeye_mode;
         let handeye = params.handeye;
-        let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match mode {
-            HandeyeMode::EyeInHand => (Some(handeye), None, Some(target_pose), None),
-            HandeyeMode::EyeToHand => (None, Some(handeye), None, Some(target_pose)),
-        };
+        let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) =
+            handeye_export_poses(mode, handeye, target_pose);
 
         // Per-feature residuals: derive rig_se3_target per view from the
         // handeye chain, then project through each camera's model.
@@ -452,26 +468,8 @@ impl ProblemType for RigHandeyeProblem {
             &robot_poses,
             output.robot_deltas.as_deref(),
         );
-        let target = compute_rig_target_residuals(
-            &rig_camera_models(&params.cameras)?,
-            input,
-            &cam_se3_rig,
-            &rig_se3_target,
-        )?;
-        let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
-            .map(|cam_idx| {
-                build_feature_histogram(
-                    target
-                        .iter()
-                        .filter(|r| r.camera == cam_idx)
-                        .filter_map(|r| r.error_px),
-                )
-            })
-            .collect();
-
-        let mut per_feature_residuals = PerFeatureResiduals::default();
-        per_feature_residuals.target = target;
-        per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
+        let per_feature_residuals =
+            rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
         Ok(RigHandeyeExport {
             kind: ExportKind::RigHandeye,
             cameras: params.cameras.clone(),

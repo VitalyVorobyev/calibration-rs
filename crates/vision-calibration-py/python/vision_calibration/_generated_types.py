@@ -963,12 +963,26 @@ class IntrinsicsInitConfig(TypedDict):
 
 
 class IntrinsicsManualInit(TypedDict, total=False):
-    """Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
-    calibration. See `rig_extrinsics::IntrinsicsManualInit` for semantics.
+    """Manual seeds for the **per-camera intrinsics stage** of a rig
+    calibration.
 
-    `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor
-    (a seeded tilt skips the tilt sweep); a camera with an untilted sensor
-    takes only a zero tilt.
+    All fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, Zhang's
+    auto-fit is skipped for *every* camera; per-camera target poses are then
+    recovered from per-camera homographies using the seeded intrinsics. When
+    `None`, each camera is auto-initialized.
+
+    When intrinsics are seeded but distortion is not, distortion starts at
+    zero; when intrinsics are auto-initialized, the fitted distortion is used
+    unless distortion is seeded. Each distortion seed is a value in its
+    camera's own distortion model: its kind must equal that camera's
+    configured distortion kind (a typed error otherwise) and it is used as
+    given.
+
+    `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug
+    sensor (a seeded tilt skips the tilt sweep of the linear stage); a camera
+    with an untilted sensor takes only a zero tilt.
+
+    Per-camera vectors must have one entry per camera.
     """
 
     per_cam_distortion: list[DistortionParams] | None

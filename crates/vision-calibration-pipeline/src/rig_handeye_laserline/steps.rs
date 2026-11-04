@@ -2,6 +2,7 @@
 
 use crate::Error;
 use crate::common::ExportKind;
+use crate::rig_family::inverse_poses;
 use crate::rig_handeye::{
     RigHandeyeExport, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
 };
@@ -14,8 +15,7 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{CameraModelSpec, CameraParams};
 use vision_calibration_optim::{
-    BackendSolveOptions, HandeyeMode, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
-    optimize_rig_handeye_laserline,
+    RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions, optimize_rig_handeye_laserline,
 };
 
 use super::problem::{
@@ -135,7 +135,7 @@ pub fn run_calibration_with_seed(
 
     session.begin_step("joint_optimize")?;
     let joint_dataset = input.joint_dataset(mode)?;
-    let joint_initial = joint_initial_from_exports(&rig_export, &laser_export, mode)?;
+    let joint_initial = joint_initial_from_exports(&rig_export, &laser_export)?;
     let initial_robot_deltas = rig_export
         .robot_deltas
         .clone()
@@ -161,14 +161,10 @@ pub fn run_calibration_with_seed(
         estimate_robot_sigma: config.joint_optimize.robot_poses.estimate_sigma,
         initial_robot_deltas,
     };
-    let backend_opts = BackendSolveOptions {
-        max_iters: config.joint_optimize.solver.max_iters,
-        verbosity: config.joint_optimize.solver.verbosity,
-        ..config
-            .joint_optimize
-            .solver
-            .backend_options(session.control())
-    };
+    let backend_opts = config
+        .joint_optimize
+        .solver
+        .backend_options(session.control());
 
     let estimate =
         optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)?;
@@ -241,11 +237,7 @@ fn check_manual_init(
                 export.handeye_mode
             ));
         }
-        let (handeye, target_ref) = match mode {
-            HandeyeMode::EyeInHand => (export.gripper_se3_rig, export.base_se3_target),
-            HandeyeMode::EyeToHand => (export.rig_se3_base, export.gripper_se3_target),
-        };
-        if handeye.is_none() || target_ref.is_none() {
+        if let (None, _) | (_, None) = export.mode_poses() {
             return fail(format!(
                 "{mode:?} export lacks its hand-eye transform or target reference pose"
             ));
@@ -278,27 +270,16 @@ fn joint_models(cameras: &[CameraParams]) -> Result<Vec<CameraModelSpec>, Error>
 fn joint_initial_from_exports(
     rig_export: &RigHandeyeExport,
     laser_export: &crate::rig_laserline_device::RigLaserlineDeviceExport,
-    mode: HandeyeMode,
 ) -> Result<RigHandeyeLaserlineParams, Error> {
-    let handeye = match mode {
-        HandeyeMode::EyeInHand => rig_export
-            .gripper_se3_rig
-            .ok_or_else(|| Error::invalid_input("EyeInHand export missing gripper_se3_rig"))?,
-        HandeyeMode::EyeToHand => rig_export
-            .rig_se3_base
-            .ok_or_else(|| Error::invalid_input("EyeToHand export missing rig_se3_base"))?,
-    };
-    let target_ref = match mode {
-        HandeyeMode::EyeInHand => rig_export
-            .base_se3_target
-            .ok_or_else(|| Error::invalid_input("EyeInHand export missing base_se3_target"))?,
-        HandeyeMode::EyeToHand => rig_export
-            .gripper_se3_target
-            .ok_or_else(|| Error::invalid_input("EyeToHand export missing gripper_se3_target"))?,
+    let (Some(handeye), Some(target_ref)) = rig_export.mode_poses() else {
+        return Err(Error::invalid_input(format!(
+            "{:?} export lacks its hand-eye transform or target reference pose",
+            rig_export.handeye_mode
+        )));
     };
     Ok(RigHandeyeLaserlineParams {
         cameras: rig_export.cameras.clone(),
-        cam_to_rig: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
+        cam_to_rig: inverse_poses(&rig_export.cam_se3_rig),
         handeye,
         target_ref,
         planes_cam: laser_export.laser_planes_cam.clone(),

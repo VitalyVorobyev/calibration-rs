@@ -1,49 +1,44 @@
 //! Shared helpers for multi-camera rig calibration workflows.
 //!
-//! Internal to the pipeline crate. Consolidates the rig-level helpers used
-//! by `rig_extrinsics`, `rig_handeye` and the rig laser workflows; the
-//! per-camera bootstrap and refinement they run for each camera live in
-//! [`crate::planar_family`]. Each rig camera has its own model
+//! Internal to the pipeline crate. Holds the rig stages the rig problem
+//! types open with ([`stages`]: each camera's intrinsics on its own views,
+//! then the rig extrinsics), the recovery of tilted cameras those stages
+//! run ([`tilted`]), and the rig-level helpers of the rig, hand-eye and
+//! laser workflows: the export residuals, the hand-eye initialization and
+//! solve options. The per-camera bootstrap and refinement each camera runs
+//! live in [`crate::planar_family`]. Each rig camera has its own model
 //! ([`CameraModelSpec`]): the rig's `camera` config, or a per-camera
 //! override, so one rig can mix lenses.
 //!
-//! The workflow axis (extrinsics-only / hand-eye / laser-plane) stays
-//! per-module because each has different state fields, step sequences,
-//! residual blocks, and export shapes.
-//!
-//! This module is registered as `mod rig_family;` (private) in
-//! `lib.rs` and not re-exported.
-//!
-//! Mirrors the [`crate::planar_family`] precedent (single-camera planar
-//! bootstrap helpers).
+//! The step sequences beyond the rig stages, the residual blocks and the
+//! export shapes stay per problem module.
+
+mod stages;
+mod tilted;
+
+pub use stages::{IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit};
+pub(crate) use stages::{
+    RigStages, RigStagesState, init_intrinsics, init_rig, optimize_intrinsics, optimize_rig,
+    rig_ba_notes,
+};
 
 use crate::Error;
-use crate::common::config::{CameraConfig, IntrinsicsInitConfig};
+use crate::common::config::{CameraConfig, IntrinsicsInitConfig, RobotPoseConfig};
 use crate::planar_family::{
-    CameraSeed, bootstrap_camera, check_distortion_seed, check_sensor_seed,
+    CameraSeed, Provenance, bootstrap_camera, check_distortion_seed, check_sensor_seed,
 };
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModel, CameraModelSpec, CameraParams, DistortionParams,
-    FxFyCxCy, Iso3, NoMeta, PlanarDataset, ProjectionParams, Real, ScheimpflugParams, SensorKind,
-    SensorParams, View,
+    FeatureResidualHistogram, FxFyCxCy, Iso3, NoMeta, PerFeatureResiduals, PlanarDataset,
+    ProjectionParams, Real, RigDataset, RigView, ScheimpflugParams, SensorKind, SensorParams, View,
+    build_feature_histogram, compute_rig_target_residuals,
 };
-use vision_calibration_optim::PlanarIntrinsicsParams;
-
-/// Manual seeds for the per-camera rig intrinsics bootstrap.
-///
-/// All fields are `Option<T>`. A `None` field runs the corresponding auto
-/// step. `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug
-/// sensor; a camera with an untilted sensor takes only a zero tilt (the
-/// identity a device spec gives a frontal camera).
-///
-/// Per-camera vectors must equal the camera count (validated by
-/// [`bootstrap_rig_intrinsics`]).
-#[derive(Debug, Clone, Default)]
-pub(crate) struct RigIntrinsicsSeeds {
-    pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
-    pub per_cam_distortion: Option<Vec<DistortionParams>>,
-    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
-}
+use vision_calibration_linear::handeye::{
+    HandeyeMethod, estimate_eye_in_hand, estimate_eye_to_hand,
+};
+use vision_calibration_optim::{
+    HandeyeMode, HandeyeSolveOptions, PlanarIntrinsicsParams, RobustLoss,
+};
 
 /// Bootstrap result for the per-camera intrinsics stage.
 #[derive(Debug, Clone)]
@@ -52,10 +47,8 @@ pub(crate) struct RigIntrinsicsBootstrap {
     pub cameras: Vec<CameraParams>,
     /// `[view][cam] -> Option<Iso3>`, `cam_se3_target` (T_C_T).
     pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
-    /// Manually-seeded fields, for the session log.
-    pub manual_fields: Vec<&'static str>,
-    /// Auto-fitted fields, for the session log.
-    pub auto_fields: Vec<&'static str>,
+    /// Which seeds were given, for the session log.
+    pub provenance: Provenance,
 }
 
 /// Per-camera rig intrinsics bootstrap shared by all rig workflows.
@@ -83,7 +76,7 @@ pub(crate) fn bootstrap_rig_intrinsics<F>(
     camera_configs: &[CameraConfig],
     num_views: usize,
     extract_views: F,
-    seeds: RigIntrinsicsSeeds,
+    seeds: IntrinsicsManualInit,
     init: &IntrinsicsInitConfig,
     iterations: Option<usize>,
 ) -> Result<RigIntrinsicsBootstrap, Error>
@@ -93,7 +86,7 @@ where
     let models: Vec<CameraModelSpec> = camera_configs.iter().map(|c| c.model).collect();
     let num_cameras = models.len();
     validate_seeds(&seeds, &models)?;
-    let (manual_fields, auto_fields) = classify_seed_provenance(&seeds, &models);
+    let provenance = seed_provenance(&seeds, &models);
 
     let mut cameras = Vec::with_capacity(num_cameras);
     let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
@@ -126,12 +119,11 @@ where
     Ok(RigIntrinsicsBootstrap {
         cameras,
         per_cam_target_poses,
-        manual_fields,
-        auto_fields,
+        provenance,
     })
 }
 
-fn validate_seeds(seeds: &RigIntrinsicsSeeds, models: &[CameraModelSpec]) -> Result<(), Error> {
+fn validate_seeds(seeds: &IntrinsicsManualInit, models: &[CameraModelSpec]) -> Result<(), Error> {
     let num_cameras = models.len();
     if let Some(s) = &seeds.per_cam_intrinsics
         && s.len() != num_cameras
@@ -171,30 +163,14 @@ fn validate_seeds(seeds: &RigIntrinsicsSeeds, models: &[CameraModelSpec]) -> Res
     Ok(())
 }
 
-fn classify_seed_provenance(
-    seeds: &RigIntrinsicsSeeds,
-    models: &[CameraModelSpec],
-) -> (Vec<&'static str>, Vec<&'static str>) {
-    let mut manual: Vec<&'static str> = Vec::new();
-    let mut auto: Vec<&'static str> = Vec::new();
-    if seeds.per_cam_intrinsics.is_some() {
-        manual.push("per_cam_intrinsics");
-    } else {
-        auto.push("per_cam_intrinsics");
-    }
-    if seeds.per_cam_distortion.is_some() {
-        manual.push("per_cam_distortion");
-    } else {
-        auto.push("per_cam_distortion");
-    }
+fn seed_provenance(seeds: &IntrinsicsManualInit, models: &[CameraModelSpec]) -> Provenance {
+    let mut provenance = Provenance::default();
+    provenance.note("per_cam_intrinsics", seeds.per_cam_intrinsics.is_some());
+    provenance.note("per_cam_distortion", seeds.per_cam_distortion.is_some());
     if models.iter().any(|m| m.sensor == SensorKind::Scheimpflug) {
-        if seeds.per_cam_sensors.is_some() {
-            manual.push("per_cam_sensors");
-        } else {
-            auto.push("per_cam_sensors");
-        }
+        provenance.note("per_cam_sensors", seeds.per_cam_sensors.is_some());
     }
-    (manual, auto)
+    provenance
 }
 
 /// Build a planar dataset from per-view per-camera observations, returning
@@ -222,16 +198,6 @@ pub(crate) fn views_to_planar_dataset(
     }
     let dataset = PlanarDataset::new(valid_views)?;
     Ok((dataset, indices))
-}
-
-/// Format a "(manual: …; auto: …)" provenance string for session logs.
-pub(crate) fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
-    match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
-        (false, true) => format!("(manual: {})", manual.join(", ")),
-        (true, false) => format!("(auto: {})", auto.join(", ")),
-        (true, true) => "(empty)".to_string(),
-    }
 }
 
 /// Check the cameras in state still have the models the config names.
@@ -370,6 +336,172 @@ pub(crate) fn guard_percam_reproj_errors(errors: &[f64]) -> Result<(), Error> {
     Ok(())
 }
 
+/// The views of camera `cam_idx` of a rig dataset, one per rig view: `None`
+/// where the camera does not observe the target.
+pub(crate) fn camera_views<M>(
+    dataset: &RigDataset<M>,
+    cam_idx: usize,
+) -> Vec<Option<View<NoMeta>>> {
+    dataset
+        .views
+        .iter()
+        .map(|view| {
+            view.obs
+                .cameras
+                .get(cam_idx)
+                .and_then(|opt_obs| opt_obs.as_ref())
+                .map(|obs| View::without_meta(obs.clone()))
+        })
+        .collect()
+}
+
+/// A rig dataset's observations without their per-view metadata.
+pub(crate) fn without_meta<M>(dataset: &RigDataset<M>) -> RigDataset<NoMeta> {
+    RigDataset {
+        num_cameras: dataset.num_cameras,
+        views: dataset
+            .views
+            .iter()
+            .map(|v| RigView {
+                meta: NoMeta,
+                obs: v.obs.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// The inverse of each pose: `cam_to_rig` from `cam_se3_rig` and back.
+pub(crate) fn inverse_poses(poses: &[Iso3]) -> Vec<Iso3> {
+    poses.iter().map(|t| t.inverse()).collect()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export diagnostics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One residual histogram per camera, of the values `values(camera)`.
+pub(crate) fn per_camera_histograms<I>(
+    num_cameras: usize,
+    values: impl Fn(usize) -> I,
+) -> Vec<FeatureResidualHistogram>
+where
+    I: IntoIterator<Item = f64>,
+{
+    (0..num_cameras)
+        .map(|cam_idx| build_feature_histogram(values(cam_idx)))
+        .collect()
+}
+
+/// The per-feature target residuals of a rig calibration, with their
+/// per-camera histograms: each camera projects the target at
+/// `cam_se3_rig[cam] * rig_se3_target[view]` through its model.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for a camera whose model does not build, and
+/// any error of [`compute_rig_target_residuals`].
+pub(crate) fn rig_target_residuals<M>(
+    cameras: &[CameraParams],
+    dataset: &RigDataset<M>,
+    cam_se3_rig: &[Iso3],
+    rig_se3_target: &[Iso3],
+) -> Result<PerFeatureResiduals, Error> {
+    let target = compute_rig_target_residuals(
+        &rig_camera_models(cameras)?,
+        dataset,
+        cam_se3_rig,
+        rig_se3_target,
+    )?;
+    let mut residuals = PerFeatureResiduals::default();
+    residuals.target_hist_per_camera = Some(per_camera_histograms(dataset.num_cameras, |cam| {
+        target
+            .iter()
+            .filter(move |r| r.camera == cam)
+            .filter_map(|r| r.error_px)
+    }));
+    residuals.target = target;
+    Ok(residuals)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hand-eye
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The closed-form hand-eye estimate of `mode` by `method`: the hand-eye
+/// transform and the mode's fixed target pose, from the robot poses and
+/// the observer's (a camera's, or a rig's) target poses.
+///
+/// - `EyeInHand`: (`gripper_se3_observer`, `base_se3_target`).
+/// - `EyeToHand`: (`observer_se3_base`, `gripper_se3_target`).
+///
+/// # Errors
+///
+/// [`Error::Numerical`] when the linear solve fails.
+pub(crate) fn linear_handeye(
+    mode: HandeyeMode,
+    method: HandeyeMethod,
+    base_se3_gripper: &[Iso3],
+    observer_se3_target: &[Iso3],
+    min_motion_angle_deg: f64,
+) -> Result<(Iso3, Iso3), Error> {
+    match mode {
+        HandeyeMode::EyeInHand => estimate_eye_in_hand(
+            method,
+            base_se3_gripper,
+            observer_se3_target,
+            min_motion_angle_deg,
+        )
+        .map(|e| (e.gripper_se3_camera, e.base_se3_target))
+        .map_err(|e| Error::numerical(format!("linear hand-eye estimation failed: {e}"))),
+        HandeyeMode::EyeToHand => estimate_eye_to_hand(
+            method,
+            base_se3_gripper,
+            observer_se3_target,
+            min_motion_angle_deg,
+        )
+        .map(|e| (e.camera_se3_base, e.gripper_se3_target))
+        .map_err(|e| Error::numerical(format!("linear gripper->target estimation failed: {e}"))),
+    }
+}
+
+/// The hand-eye bundle adjustment of one fixed target with the hand-eye
+/// transform free, each camera holding `fix`, the extrinsics held where
+/// `fix_extrinsics`, and the robot poses refined as `robot_poses` says.
+pub(crate) fn handeye_solve_opts(
+    robust_loss: RobustLoss,
+    fix: Vec<CameraFix>,
+    fix_extrinsics: Vec<bool>,
+    robot_poses: &RobotPoseConfig,
+) -> HandeyeSolveOptions {
+    HandeyeSolveOptions {
+        robust_loss,
+        fix,
+        fix_extrinsics,
+        fix_handeye: false,
+        fix_target_poses: Vec::new(),
+        relax_target_poses: false,
+        refine_robot_poses: robot_poses.refine,
+        robot_rot_sigma: robot_poses.rot_sigma,
+        robot_trans_sigma: robot_poses.trans_sigma,
+        estimate_robot_sigma: robot_poses.estimate_sigma,
+    }
+}
+
+/// The mode-explicit pose fields of a rig hand-eye export —
+/// (`gripper_se3_rig`, `rig_se3_base`, `base_se3_target`,
+/// `gripper_se3_target`) — from the mode's hand-eye transform and target
+/// pose; the other mode's two are `None`.
+pub(crate) fn handeye_export_poses(
+    mode: HandeyeMode,
+    handeye: Iso3,
+    target_pose: Iso3,
+) -> (Option<Iso3>, Option<Iso3>, Option<Iso3>, Option<Iso3>) {
+    match mode {
+        HandeyeMode::EyeInHand => (Some(handeye), None, Some(target_pose), None),
+        HandeyeMode::EyeToHand => (None, Some(handeye), None, Some(target_pose)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,7 +593,7 @@ mod tests {
             &[untilted(), untilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
-            RigIntrinsicsSeeds::default(),
+            IntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -480,10 +612,10 @@ mod tests {
             assert!((k.fx - k_gt.fx).abs() / k_gt.fx < 0.05, "fx off");
             assert!((k.fy - k_gt.fy).abs() / k_gt.fy < 0.05, "fy off");
         }
-        assert!(result.manual_fields.is_empty());
+        assert!(result.provenance.all_auto());
         assert_eq!(
-            result.auto_fields,
-            vec!["per_cam_intrinsics", "per_cam_distortion"]
+            result.provenance.auto(),
+            ["per_cam_intrinsics", "per_cam_distortion"]
         );
     }
 
@@ -498,7 +630,7 @@ mod tests {
             &[tilted(), tilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
-            RigIntrinsicsSeeds::default(),
+            IntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -527,8 +659,8 @@ mod tests {
             assert!((k.cx - k_gt.cx).abs() < k_gt.cx * 0.2);
         }
         assert_eq!(
-            result.auto_fields,
-            vec![
+            result.provenance.auto(),
+            [
                 "per_cam_intrinsics",
                 "per_cam_distortion",
                 "per_cam_sensors"
@@ -548,7 +680,7 @@ mod tests {
                 &[camera.clone(), camera],
                 num_views,
                 |cam_idx| per_cam_views[cam_idx].clone(),
-                RigIntrinsicsSeeds {
+                IntrinsicsManualInit {
                     per_cam_sensors: Some(vec![sensor, sensor]),
                     ..Default::default()
                 },
@@ -578,7 +710,7 @@ mod tests {
     #[test]
     fn bootstrap_with_intrinsics_seed_skips_autofit() {
         let (per_cam_views, k_gt, num_views) = pinhole_two_camera_views();
-        let seeds = RigIntrinsicsSeeds {
+        let seeds = IntrinsicsManualInit {
             per_cam_intrinsics: Some(vec![k_gt, k_gt]),
             ..Default::default()
         };
@@ -596,8 +728,8 @@ mod tests {
             assert_eq!(cam.intrinsics.fx, k_gt.fx);
             assert_eq!(cam.intrinsics.fy, k_gt.fy);
         }
-        assert_eq!(result.manual_fields, vec!["per_cam_intrinsics"]);
-        assert_eq!(result.auto_fields, vec!["per_cam_distortion"]);
+        assert_eq!(result.provenance.manual(), ["per_cam_intrinsics"]);
+        assert_eq!(result.provenance.auto(), ["per_cam_distortion"]);
     }
 
     #[test]
@@ -607,7 +739,7 @@ mod tests {
             tilt_y: -0.008,
         };
         let (per_cam_views, _, num_views) = scheimpflug_two_camera_views(sensor_gt);
-        let seeds = RigIntrinsicsSeeds {
+        let seeds = IntrinsicsManualInit {
             per_cam_sensors: Some(vec![sensor_gt, sensor_gt]),
             ..Default::default()
         };
@@ -625,13 +757,13 @@ mod tests {
             assert_eq!(s.tilt_x, sensor_gt.tilt_x);
             assert_eq!(s.tilt_y, sensor_gt.tilt_y);
         }
-        assert!(result.manual_fields.contains(&"per_cam_sensors"));
+        assert!(result.provenance.manual().contains(&"per_cam_sensors"));
     }
 
     #[test]
     fn bootstrap_rejects_seed_length_mismatch() {
         let (per_cam_views, k_gt, num_views) = pinhole_two_camera_views();
-        let seeds = RigIntrinsicsSeeds {
+        let seeds = IntrinsicsManualInit {
             per_cam_intrinsics: Some(vec![k_gt]), // wrong length: 1 vs 2 cameras
             ..Default::default()
         };
@@ -660,7 +792,7 @@ mod tests {
             &[untilted(), untilted()],
             num_views,
             |cam_idx| truncated[cam_idx].clone(),
-            RigIntrinsicsSeeds::default(),
+            IntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -680,7 +812,7 @@ mod tests {
             &[untilted(), division.clone()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
-            RigIntrinsicsSeeds::default(),
+            IntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -688,13 +820,13 @@ mod tests {
         assert_eq!(result.cameras[0].spec(), Some(untilted().model));
         assert_eq!(result.cameras[1].spec(), Some(division.model));
         // Only a Scheimpflug camera reports a tilt seed.
-        assert!(!result.auto_fields.contains(&"per_cam_sensors"));
+        assert!(!result.provenance.auto().contains(&"per_cam_sensors"));
     }
 
     #[test]
     fn tilt_seed_for_an_untilted_camera_must_be_zero() {
         let (per_cam_views, _, num_views) = pinhole_two_camera_views();
-        let zero = RigIntrinsicsSeeds {
+        let zero = IntrinsicsManualInit {
             per_cam_sensors: Some(vec![ScheimpflugParams::default(); 2]),
             ..Default::default()
         };
@@ -709,7 +841,7 @@ mod tests {
             )
             .is_ok()
         );
-        let tilted_seed = RigIntrinsicsSeeds {
+        let tilted_seed = IntrinsicsManualInit {
             per_cam_sensors: Some(vec![
                 ScheimpflugParams::default(),
                 ScheimpflugParams {
@@ -744,14 +876,6 @@ mod tests {
         assert!(refined.intrinsics.is_empty());
         assert_eq!(refined.distortion, vec![2, 3, 4]);
         assert!(refined.sensor.is_empty());
-    }
-
-    #[test]
-    fn format_init_source_cases() {
-        assert_eq!(format_init_source(&[], &[]), "(empty)");
-        assert_eq!(format_init_source(&["a"], &[]), "(manual: a)");
-        assert_eq!(format_init_source(&[], &["b", "c"]), "(auto: b, c)");
-        assert_eq!(format_init_source(&["a"], &["b"]), "(manual: a; auto: b)");
     }
 
     #[test]

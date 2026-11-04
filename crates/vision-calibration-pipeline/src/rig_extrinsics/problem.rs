@@ -6,10 +6,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
-use vision_calibration_core::{
-    CameraParams, FeatureResidualHistogram, Iso3, NoMeta, PerFeatureResiduals, RigDataset,
-    Uncertainty, build_feature_histogram, compute_rig_target_residuals,
-};
+use vision_calibration_core::{CameraParams, Iso3, NoMeta, RigDataset, Uncertainty};
 use vision_calibration_optim::RigExtrinsicsEstimate;
 
 use crate::common::config::{
@@ -17,7 +14,7 @@ use crate::common::config::{
     validate_rig_camera_indices, validate_rig_cameras,
 };
 use crate::common::{ExportDiagnostics, ExportKind};
-use crate::rig_family::rig_camera_models;
+use crate::rig_family::{RigStages, RigStagesState, inverse_poses, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigExtrinsicsState;
@@ -193,6 +190,33 @@ impl ProblemState for RigExtrinsicsProblem {
     type State = RigExtrinsicsState;
 }
 
+impl RigStages for RigExtrinsicsProblem {
+    type Meta = NoMeta;
+    const RECOVERS_TILTED_CAMERAS: bool = false;
+
+    fn dataset(input: &RigExtrinsicsInput) -> &RigDataset<NoMeta> {
+        input
+    }
+    fn camera_for(config: &RigExtrinsicsConfig, index: usize) -> CameraConfig {
+        config.camera_for(index)
+    }
+    fn intrinsics_config(config: &RigExtrinsicsConfig) -> &IntrinsicsInitConfig {
+        &config.intrinsics
+    }
+    fn rig_config(config: &RigExtrinsicsConfig) -> &RigConfig {
+        &config.rig
+    }
+    fn solver_config(config: &RigExtrinsicsConfig) -> &SolverConfig {
+        &config.solver
+    }
+    fn stages(state: &RigExtrinsicsState) -> &RigStagesState {
+        &state.rig
+    }
+    fn stages_mut(state: &mut RigExtrinsicsState) -> &mut RigStagesState {
+        &mut state.rig
+    }
+}
+
 impl ProblemType for RigExtrinsicsProblem {
     type Config = RigExtrinsicsConfig;
     type Input = RigExtrinsicsInput;
@@ -288,31 +312,10 @@ impl ProblemType for RigExtrinsicsProblem {
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
         let params = &output.params;
-        let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
+        let cam_se3_rig = inverse_poses(&params.cam_to_rig);
         let rig_se3_target = params.rig_from_target.clone();
-        let num_cameras = input.num_cameras;
-
-        let target = compute_rig_target_residuals(
-            &rig_camera_models(&params.cameras)?,
-            input,
-            &cam_se3_rig,
-            &rig_se3_target,
-        )?;
-
-        let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..num_cameras)
-            .map(|cam_idx| {
-                build_feature_histogram(
-                    target
-                        .iter()
-                        .filter(|r| r.camera == cam_idx)
-                        .filter_map(|r| r.error_px),
-                )
-            })
-            .collect();
-
-        let mut per_feature_residuals = PerFeatureResiduals::default();
-        per_feature_residuals.target = target;
-        per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
+        let per_feature_residuals =
+            rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
         Ok(RigExtrinsicsExport {
             kind: ExportKind::RigExtrinsics,
             cameras: params.cameras.clone(),

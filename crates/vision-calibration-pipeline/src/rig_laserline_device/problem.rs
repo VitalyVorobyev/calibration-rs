@@ -6,17 +6,16 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraParams, FeatureResidualHistogram, Iso3, NoMeta, PerFeatureResiduals, RigDataset, RigView,
-    RigViewObs, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
+    CameraParams, Iso3, NoMeta, RigDataset, RigView, RigViewObs, Uncertainty,
 };
 use vision_calibration_optim::{
-    HandeyeMode, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
+    LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
     compute_rig_laserline_feature_residuals, handeye_upstream_uncertainty,
 };
 
 use crate::common::config::{SolverConfig, check_laser_residual};
 use crate::common::{ExportDiagnostics, ExportKind};
-use crate::rig_family::rig_camera_models;
+use crate::rig_family::{per_camera_histograms, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
@@ -96,10 +95,7 @@ impl RigHandeyeExport {
                 self.cameras.len()
             )));
         }
-        let handeye = match self.handeye_mode {
-            HandeyeMode::EyeInHand => self.gripper_se3_rig,
-            HandeyeMode::EyeToHand => self.rig_se3_base,
-        };
+        let (handeye, _) = self.mode_poses();
         let uncertainty = match (handeye, self.uncertainty.covariance()) {
             (Some(handeye), _) => handeye_upstream_uncertainty(
                 &self.uncertainty,
@@ -343,22 +339,12 @@ impl ProblemType for RigLaserlineDeviceProblem {
                 })
                 .collect(),
         };
-        let target = compute_rig_target_residuals(
-            &rig_camera_models(&upstream.cameras)?,
+        let mut per_feature_residuals = rig_target_residuals(
+            &upstream.cameras,
             &target_dataset,
             &upstream.cam_se3_rig,
             &upstream.rig_se3_target,
         )?;
-        let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..n)
-            .map(|cam_idx| {
-                build_feature_histogram(
-                    target
-                        .iter()
-                        .filter(|r| r.camera == cam_idx)
-                        .filter_map(|r| r.error_px),
-                )
-            })
-            .collect();
 
         let laser = compute_rig_laserline_feature_residuals(
             &input.dataset,
@@ -367,21 +353,18 @@ impl ProblemType for RigLaserlineDeviceProblem {
             &upstream.rig_se3_target,
             &output.laser_planes_cam,
         )?;
-        let laser_hist_per_camera: Vec<FeatureResidualHistogram> = (0..n)
-            .map(|cam_idx| {
-                build_feature_histogram(
-                    laser
-                        .features
-                        .iter()
-                        .filter(|r| r.camera == cam_idx)
-                        .filter_map(|r| r.residual_px),
-                )
-            })
-            .collect();
+        per_feature_residuals.laser_hist_per_camera = Some(per_camera_histograms(n, |cam| {
+            laser
+                .features
+                .iter()
+                .filter(move |r| r.camera == cam)
+                .filter_map(|r| r.residual_px)
+        }));
 
         // Mean over all finite per-feature reprojection errors — the
         // viewer-facing headline number (against the frozen upstream).
-        let (err_sum, err_count) = target
+        let (err_sum, err_count) = per_feature_residuals
+            .target
             .iter()
             .filter_map(|r| r.error_px)
             .fold((0.0, 0usize), |(s, c), e| (s + e, c + 1));
@@ -391,12 +374,8 @@ impl ProblemType for RigLaserlineDeviceProblem {
             0.0
         };
 
-        let mut per_feature_residuals = PerFeatureResiduals::default();
-        per_feature_residuals.target = target;
         per_feature_residuals.laser = laser.features;
         per_feature_residuals.laser_lines = laser.lines;
-        per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
-        per_feature_residuals.laser_hist_per_camera = Some(laser_hist_per_camera);
         Ok(RigLaserlineDeviceExport {
             kind: ExportKind::RigLaserlineDevice,
             laser_planes_rig: output.laser_planes_rig.clone(),

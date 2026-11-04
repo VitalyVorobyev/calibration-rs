@@ -28,7 +28,12 @@ pub struct MultiCamExtrinsicsInit;
 ///
 /// Use this only for initialization; it does not preserve full rotation
 /// statistics and should be refined downstream.
-fn average_isometries(poses: &[Iso3]) -> Result<Iso3, Error> {
+///
+/// # Errors
+///
+/// [`Error::InsufficientData`] for no poses.
+#[doc(hidden)]
+pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, Error> {
     if poses.is_empty() {
         return Err(Error::InsufficientData { need: 1, got: 0 });
     }

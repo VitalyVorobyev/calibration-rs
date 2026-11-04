@@ -26,11 +26,10 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{
-    CameraSeed, bootstrap_camera, bootstrap_planar_intrinsics, check_distortion_seed,
+    CameraSeed, Provenance, bootstrap_camera, bootstrap_planar_intrinsics, check_distortion_seed,
     estimate_view_homographies, recover_planar_poses_from_homographies, unsupported_projection,
     unsupported_sensor,
 };
-use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
 use super::problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
@@ -240,18 +239,10 @@ fn init_fisheye(
             return Err(e);
         }
     };
-    let (mut manual_fields, mut auto_fields) = (Vec::new(), Vec::new());
-    for (name, seeded) in [
-        ("intrinsics", seed.intrinsics.is_some()),
-        ("distortion", seed.distortion.is_some()),
-        ("poses", manual.poses.is_some()),
-    ] {
-        if seeded {
-            manual_fields.push(name);
-        } else {
-            auto_fields.push(name);
-        }
-    }
+    let mut provenance = Provenance::default();
+    provenance.note("intrinsics", seed.intrinsics.is_some());
+    provenance.note("distortion", seed.distortion.is_some());
+    provenance.note("poses", manual.poses.is_some());
     let poses = manual.poses.unwrap_or(bootstrap.poses);
     let k = bootstrap.camera.intrinsics;
     record_init(session, bootstrap.camera, poses, false, None);
@@ -263,7 +254,7 @@ fn init_fisheye(
             k.fy,
             k.cx,
             k.cy,
-            format_init_source(&manual_fields, &auto_fields)
+            provenance.source()
         ),
     );
     init_result(session)
@@ -325,19 +316,18 @@ fn init_untilted(
         init_opts.iterations = iters;
     }
 
-    let mut manual_fields: Vec<&'static str> = Vec::new();
-    let mut auto_fields: Vec<&'static str> = Vec::new();
+    let mut provenance = Provenance::default();
 
     let (intrinsics, distortion, homographies, poses) = if let Some(k) = manual.intrinsics {
-        manual_fields.push("intrinsics");
+        provenance.note("intrinsics", true);
 
         let dist = match manual.distortion {
             Some(d) => {
-                manual_fields.push("distortion");
+                provenance.note("distortion", true);
                 d
             }
             None => {
-                auto_fields.push("distortion");
+                provenance.note("distortion", false);
                 zero_distortion()
             }
         };
@@ -352,7 +342,7 @@ fn init_untilted(
 
         let poses = match manual.poses {
             Some(p) => {
-                manual_fields.push("poses");
+                provenance.note("poses", true);
                 if p.len() != input.num_views() {
                     let msg = format!(
                         "manual poses count ({}) does not match view count ({})",
@@ -365,7 +355,7 @@ fn init_untilted(
                 p
             }
             None => {
-                auto_fields.push("poses");
+                provenance.note("poses", false);
                 match recover_planar_poses_from_homographies(&homographies, &k) {
                     Ok(ps) => ps,
                     Err(e) => {
@@ -378,7 +368,7 @@ fn init_untilted(
 
         (k, dist, homographies, poses)
     } else {
-        auto_fields.push("intrinsics");
+        provenance.note("intrinsics", false);
 
         let bootstrap = match bootstrap_planar_intrinsics(input, init_opts) {
             Ok(b) => b,
@@ -390,18 +380,18 @@ fn init_untilted(
 
         let dist = match manual.distortion {
             Some(d) => {
-                manual_fields.push("distortion");
+                provenance.note("distortion", true);
                 d
             }
             None => {
-                auto_fields.push("distortion");
+                provenance.note("distortion", false);
                 fitted_distortion(bootstrap.camera.dist)
             }
         };
 
         let poses = match manual.poses {
             Some(p) => {
-                manual_fields.push("poses");
+                provenance.note("poses", true);
                 if p.len() != input.num_views() {
                     let msg = format!(
                         "manual poses count ({}) does not match view count ({})",
@@ -414,7 +404,7 @@ fn init_untilted(
                 p
             }
             None => {
-                auto_fields.push("poses");
+                provenance.note("poses", false);
                 bootstrap.poses
             }
         };
@@ -430,7 +420,7 @@ fn init_untilted(
     };
     record_init(session, camera, poses, false, Some(homographies));
 
-    let source = format_init_source(&manual_fields, &auto_fields);
+    let source = provenance.source();
     session.log_success_with_notes(
         "init",
         format!(
@@ -456,8 +446,7 @@ fn init_tilted(
         init_iterations = iterations;
     }
 
-    let mut manual_fields: Vec<&'static str> = Vec::new();
-    let mut auto_fields: Vec<&'static str> = Vec::new();
+    let mut provenance = Provenance::default();
 
     // A user-provided tilt seed is trusted directly by `step_optimize`.
     let sensor_manual = manual.sensor.is_some();
@@ -467,24 +456,24 @@ fn init_tilted(
     let intrinsics_seeded = manual.intrinsics.is_some();
 
     let (intrinsics, distortion, sensor, poses) = if let Some(k) = manual.intrinsics {
-        manual_fields.push("intrinsics");
+        provenance.note("intrinsics", true);
 
         let manual_dist = manual.distortion;
 
         let sensor = match manual.sensor {
             Some(s) => {
-                manual_fields.push("sensor");
+                provenance.note("sensor", true);
                 s
             }
             None => {
-                auto_fields.push("sensor");
+                provenance.note("sensor", false);
                 ScheimpflugParams::default()
             }
         };
 
         let (dist, poses) = match manual.poses {
             Some(p) => {
-                manual_fields.push("poses");
+                provenance.note("poses", true);
                 if p.len() != dataset.num_views() {
                     let msg = format!(
                         "manual poses count ({}) does not match view count ({})",
@@ -496,14 +485,14 @@ fn init_tilted(
                 }
                 // Manual poses: use manual or default distortion unchanged.
                 if manual_dist.is_some() {
-                    manual_fields.push("distortion");
+                    provenance.note("distortion", true);
                 } else {
-                    auto_fields.push("distortion");
+                    provenance.note("distortion", false);
                 }
                 (manual_dist.unwrap_or_else(zero_distortion), p)
             }
             None => {
-                auto_fields.push("poses");
+                provenance.note("poses", false);
                 // Recover initial poses from board→pixel homographies. Use the
                 // seeded intrinsics as the K matrix for decomposition. Distortion
                 // and tilt effects in the homography are absorbed by the biased
@@ -522,11 +511,11 @@ fn init_tilted(
                     })?;
                 let dist = match manual_dist {
                     Some(d) => {
-                        manual_fields.push("distortion");
+                        provenance.note("distortion", true);
                         d
                     }
                     None => {
-                        auto_fields.push("distortion");
+                        provenance.note("distortion", false);
                         zero_distortion()
                     }
                 };
@@ -539,7 +528,7 @@ fn init_tilted(
         if init_iterations == 0 {
             return Err(Error::invalid_input("init.iterations must be positive"));
         }
-        auto_fields.push("intrinsics");
+        provenance.note("intrinsics", false);
 
         let bootstrap = estimate_scheimpflug_intrinsics_iterative(
             &dataset,
@@ -556,29 +545,29 @@ fn init_tilted(
 
         let dist = match manual.distortion {
             Some(d) => {
-                manual_fields.push("distortion");
+                provenance.note("distortion", true);
                 d
             }
             None => {
-                auto_fields.push("distortion");
+                provenance.note("distortion", false);
                 fitted_distortion(bootstrap.camera.dist)
             }
         };
 
         let sensor = match manual.sensor {
             Some(s) => {
-                manual_fields.push("sensor");
+                provenance.note("sensor", true);
                 s
             }
             None => {
-                auto_fields.push("sensor");
+                provenance.note("sensor", false);
                 bootstrap.sensor
             }
         };
 
         let poses = match manual.poses {
             Some(p) => {
-                manual_fields.push("poses");
+                provenance.note("poses", true);
                 if p.len() != dataset.num_views() {
                     let msg = format!(
                         "manual poses count ({}) does not match view count ({})",
@@ -591,7 +580,7 @@ fn init_tilted(
                 p
             }
             None => {
-                auto_fields.push("poses");
+                provenance.note("poses", false);
                 bootstrap.poses
             }
         };
@@ -607,7 +596,7 @@ fn init_tilted(
     };
     record_init(session, camera, poses, sensor_manual, None);
 
-    let source = format_init_source(&manual_fields, &auto_fields);
+    let source = provenance.source();
     let experimental = if intrinsics_seeded {
         ""
     } else {
@@ -714,13 +703,10 @@ pub fn step_optimize(
 
     // Get effective options
     let opts = opts.unwrap_or_default();
-    let mut backend_opts = config.solver.backend_options(session.control());
-    if let Some(max_iters) = opts.max_iters {
-        backend_opts.max_iters = max_iters;
-    }
-    if let Some(verbosity) = opts.verbosity {
-        backend_opts.verbosity = verbosity;
-    }
+    let backend_opts =
+        config
+            .solver
+            .step_backend_options(session.control(), opts.max_iters, opts.verbosity);
 
     // Run optimization
     let solved = match config.camera.model.sensor {

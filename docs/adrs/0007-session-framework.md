@@ -27,6 +27,19 @@ Every end-to-end workflow is a `ProblemType` driven through a mutable
   `problem.rs` (the `ProblemType`, config and export), `state.rs` and
   `steps.rs` (step functions and `run_calibration`). There are no
   direct-function pipelines.
+- Problem types that share stages share their step bodies, not copies of
+  them. The rig problem types (`rig_extrinsics`, `rig_handeye`) open with
+  the same four rig stages (per-camera intrinsics init and refinement, rig
+  init, rig bundle adjustment); they implement the crate-private
+  `rig_family::RigStages` trait (input as a rig dataset, per-camera config,
+  stage settings, a `RigStagesState` flattened into the problem's state, so
+  the session JSON keeps its shape), and their public `step_*` functions
+  delegate to the generic stage bodies. The stages' seed and result types
+  are defined once and re-exported by each module. Single-camera seed
+  checks, step-log provenance and the hand-eye initialization and solve
+  options are shared the same way through `planar_family` and
+  `rig_family`. A difference between problem types is a trait item, not a
+  forked copy.
 - The facade re-exports the modules. Python drives every problem type
   through one generic `run_problem(input_json, config_json) -> export_json`
   binding, with no per-workflow wrapper.

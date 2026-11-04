@@ -1,126 +1,27 @@
 //! Step functions for multi-camera rig extrinsics calibration.
 //!
 //! This module provides step functions that operate on
-//! `CalibrationSession<RigExtrinsicsProblem>` to perform calibration.
+//! `CalibrationSession<RigExtrinsicsProblem>` to perform calibration. The
+//! steps are the rig stages every rig problem type shares.
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{
-    CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta, Real, ScheimpflugParams, View,
-};
-use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
-use vision_calibration_optim::{
-    BackendSolveOptions, PlanarIntrinsicsParams, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
-    optimize_rig_extrinsics,
-};
-
-use crate::common::config::CameraConfig;
-use crate::planar_family::optimize_camera;
-use crate::rig_family::{
-    RigIntrinsicsSeeds, bootstrap_rig_intrinsics, check_camera_models, format_init_source,
-    guard_percam_reproj_errors, rig_ba_fix, views_to_planar_dataset,
-};
-use crate::session::CalibrationSession;
-
-use super::problem::{RigExtrinsicsInput, RigExtrinsicsProblem};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Step Options
-// ─────────────────────────────────────────────────────────────────────────────
+use vision_calibration_core::CameraParams;
 
 use crate::common::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
 };
+use crate::rig_family::{self, rig_ba_notes};
+pub use crate::rig_family::{
+    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit,
+};
+use crate::session::CalibrationSession;
 
-/// Manual seeds for the **per-camera intrinsics stage** of rig extrinsics
-/// calibration.
-///
-/// All fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, the bootstrap
-/// Zhang's auto-fit is skipped for *every* camera; per-camera target poses are
-/// then recovered from per-camera homographies using the seeded intrinsics. When
-/// `None`, the existing per-camera auto-init runs.
-///
-/// `per_cam_distortion` follows the same convention as `IntrinsicsManualInit`: when
-/// intrinsics are seeded but distortion is not, distortion defaults to zeros. When
-/// intrinsics are auto-init'd, the bootstrap fitted distortion is used unless
-/// distortion is seeded explicitly. Each seed is a value in its camera's own
-/// distortion model: its kind must equal that camera's configured distortion
-/// kind (a typed error otherwise) and it is used as given.
-///
-/// `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor
-/// (a seeded tilt skips the tilt sweep of the linear stage); a camera with an
-/// untilted sensor takes only a zero tilt.
-///
-/// Per-camera vectors must have length equal to `input.num_cameras`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct IntrinsicsManualInit {
-    /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
-    pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
-    /// Per-camera distortion seeds, each of the kind its camera's model names.
-    pub per_cam_distortion: Option<Vec<DistortionParams>>,
-    /// Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
-    /// others).
-    #[serde(default)]
-    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
-}
-
-/// Manual seeds for the **rig extrinsics stage**.
-///
-/// `cam_se3_rig` and `rig_se3_target` are geometrically coupled — providing one
-/// without the other is ambiguous. Both must be `Some` or both must
-/// be `None`. A mismatched configuration returns `Error::InvalidInput`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct RigManualInit {
-    /// Per-camera `T_C_R` (camera-from-rig). `None` runs the linear extrinsics fit.
-    pub cam_se3_rig: Option<Vec<Iso3>>,
-    /// Per-view `T_R_T` (rig-from-target). Must be paired with `cam_se3_rig`.
-    pub rig_se3_target: Option<Vec<Iso3>>,
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper Functions
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Extract views for a single camera from the rig dataset.
-///
-/// Input-type-specific; the rest of the per-camera bootstrap chain
-/// (`views_to_planar_dataset`, `estimate_target_pose`) is shared via
-/// [`crate::rig_family`].
-fn extract_camera_views(input: &RigExtrinsicsInput, cam_idx: usize) -> Vec<Option<View<NoMeta>>> {
-    input
-        .views
-        .iter()
-        .map(|view| {
-            view.obs
-                .cameras
-                .get(cam_idx)
-                .and_then(|opt_obs| opt_obs.as_ref())
-                .map(|obs| View::without_meta(obs.clone()))
-        })
-        .collect()
-}
+use super::problem::RigExtrinsicsProblem;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Results
 // ─────────────────────────────────────────────────────────────────────────────
-
-/// Typed return value of [`step_intrinsics_init_all`] /
-/// [`step_intrinsics_init_all_with_seed`].
-///
-/// The inner `Option<Iso3>` in `per_cam_target_poses` reflects real
-/// per-(view, camera) detection coverage — a camera may not have observed the
-/// target in a given view.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct IntrinsicsInitResult {
-    /// Per-camera initial parameters, each in its camera's model.
-    pub cameras: Vec<CameraParams>,
-    /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`camera_se3_target`).
-    /// Inner `None` marks views where that camera did not observe the target.
-    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
-}
 
 /// Typed return value of [`step_intrinsics_optimize_all`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,16 +31,6 @@ pub struct IntrinsicsOptimizeResult {
     pub cameras: Vec<CameraParams>,
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
-}
-
-/// Typed return value of [`step_rig_init`] / [`step_rig_init_with_seed`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct RigInitResult {
-    /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
-    pub initial_cam_se3_rig: Vec<Iso3>,
-    /// Initial per-view `T_R_T` — rig-from-target.
-    pub initial_rig_se3_target: Vec<Iso3>,
 }
 
 /// Typed return value of [`step_rig_optimize`].
@@ -181,56 +72,7 @@ pub fn step_intrinsics_init_all_with_seed(
     manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<IntrinsicsInitResult, Error> {
-    session.validate()?;
-    let input = session.require_input()?;
-
-    let opts = opts.unwrap_or_default();
-    let config = &session.config;
-
-    let num_cameras = input.num_cameras;
-    let num_views = input.num_views();
-
-    let camera_configs: Vec<CameraConfig> =
-        (0..num_cameras).map(|i| config.camera_for(i)).collect();
-
-    let seeds = RigIntrinsicsSeeds {
-        per_cam_intrinsics: manual.per_cam_intrinsics,
-        per_cam_distortion: manual.per_cam_distortion,
-        per_cam_sensors: manual.per_cam_sensors,
-    };
-
-    let bootstrap = match bootstrap_rig_intrinsics(
-        &camera_configs,
-        num_views,
-        |cam_idx| extract_camera_views(input, cam_idx),
-        seeds,
-        &config.intrinsics,
-        opts.iterations,
-    ) {
-        Ok(b) => b,
-        Err(e) => {
-            session.log_failure("intrinsics_init_all", e.to_string());
-            return Err(e);
-        }
-    };
-
-    let cameras = bootstrap.cameras;
-    let per_cam_target_poses = bootstrap.per_cam_target_poses;
-
-    session.state.cameras = Some(cameras.clone());
-    session.state.per_cam_target_poses = Some(per_cam_target_poses.clone());
-    session.state.per_cam_intrinsics_auto = bootstrap.manual_fields.is_empty();
-
-    let source = format_init_source(&bootstrap.manual_fields, &bootstrap.auto_fields);
-    session.log_success_with_notes(
-        "intrinsics_init_all",
-        format!("initialized {num_cameras} cameras {source}"),
-    );
-
-    Ok(IntrinsicsInitResult {
-        cameras,
-        per_cam_target_poses,
-    })
+    rig_family::init_intrinsics(session, manual, opts)
 }
 
 /// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
@@ -260,92 +102,10 @@ pub fn step_intrinsics_optimize_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
 ) -> Result<IntrinsicsOptimizeResult, Error> {
-    session.validate()?;
-    let input = session.require_input()?;
-
-    if !session.state.has_per_cam_intrinsics() {
-        return Err(Error::not_available(
-            "per-camera intrinsics (call step_intrinsics_init_all first)",
-        ));
-    }
-
-    let opts = opts.unwrap_or_default();
-    let config = &session.config;
-
-    let cameras = session
-        .state
-        .cameras
-        .clone()
-        .ok_or_else(|| Error::not_available("per-camera intrinsics"))?;
-    check_camera_models(&cameras, |i| config.camera_for(i).model)?;
-    let mut per_cam_target_poses = session
-        .state
-        .per_cam_target_poses
-        .clone()
-        .ok_or_else(|| Error::not_available("per-camera target poses"))?;
-
-    let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options(session.control())
-    };
-
-    let mut optimized_cameras = Vec::with_capacity(input.num_cameras);
-    let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
-
-    for (cam_idx, camera) in cameras.iter().enumerate() {
-        let cam_views = extract_camera_views(input, cam_idx);
-        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {
-            Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
-        })?;
-
-        let initial_poses: Vec<Iso3> = valid_indices
-            .iter()
-            .map(|&global_idx| {
-                per_cam_target_poses[global_idx][cam_idx]
-                    .ok_or_else(|| Error::not_available("initial pose"))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let initial_params =
-            PlanarIntrinsicsParams::new(camera.clone(), initial_poses).map_err(|e| {
-                Error::numerical(format!("failed to build params for camera {cam_idx}: {e}"))
-            })?;
-
-        let result = optimize_camera(
-            cam_idx,
-            &planar_dataset,
-            &initial_params,
-            &config.camera_for(cam_idx),
-            &config.solver,
-            backend_opts.clone(),
-        )?;
-
-        for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
-            per_cam_target_poses[global_idx][cam_idx] =
-                Some(result.params.camera_se3_target[local_idx]);
-        }
-        optimized_cameras.push(result.params.camera);
-        per_cam_reproj_errors.push(result.mean_reproj_error);
-    }
-
-    // Fail fast on any diverged camera before its garbage intrinsics poison the
-    // linear rig init and the joint rig bundle adjustment.
-    guard_percam_reproj_errors(&per_cam_reproj_errors)?;
-
-    session.state.cameras = Some(optimized_cameras.clone());
-    session.state.per_cam_target_poses = Some(per_cam_target_poses);
-    session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
-
-    let avg_error: f64 =
-        per_cam_reproj_errors.iter().sum::<f64>() / per_cam_reproj_errors.len() as f64;
-    session.log_success_with_notes(
-        "intrinsics_optimize_all",
-        format!("avg_reproj_err={avg_error:.3}px"),
-    );
-
+    let estimate = rig_family::optimize_intrinsics(session, opts)?;
     Ok(IntrinsicsOptimizeResult {
-        cameras: optimized_cameras,
-        per_cam_reproj_errors,
+        cameras: estimate.cameras,
+        per_cam_reproj_errors: estimate.per_cam_reproj_errors,
     })
 }
 
@@ -372,97 +132,7 @@ pub fn step_rig_init_with_seed(
     manual: RigManualInit,
     opts: Option<RigInitOptions>,
 ) -> Result<RigInitResult, Error> {
-    let RigInitOptions {} = opts.unwrap_or_default();
-    session.validate()?;
-    let input = session.require_input()?;
-
-    if !session.state.has_per_cam_intrinsics() {
-        return Err(Error::not_available(
-            "per-camera intrinsics (call step_intrinsics_init_all first)",
-        ));
-    }
-
-    let num_views = input.num_views();
-    let num_cameras = input.num_cameras;
-    let reference_camera_idx = session.config.rig.reference_camera_idx;
-
-    // Coupling rule: both-or-neither.
-    match (&manual.cam_se3_rig, &manual.rig_se3_target) {
-        (Some(_), None) | (None, Some(_)) => {
-            let msg = "RigManualInit: cam_se3_rig and rig_se3_target must both be Some or \
-                 both be None (geometrically coupled per ADR 0011)";
-            session.log_failure("rig_init", msg);
-            return Err(Error::invalid_input(msg));
-        }
-        _ => {}
-    }
-
-    let mut manual_fields: Vec<&'static str> = Vec::new();
-    let mut auto_fields: Vec<&'static str> = Vec::new();
-
-    let (cam_se3_rig, rig_se3_target) = match (manual.cam_se3_rig, manual.rig_se3_target) {
-        (Some(cam_se3_rig), Some(rig_se3_target)) => {
-            if cam_se3_rig.len() != num_cameras {
-                let msg = format!(
-                    "manual cam_se3_rig length ({}) does not match num_cameras ({})",
-                    cam_se3_rig.len(),
-                    num_cameras
-                );
-                session.log_failure("rig_init", msg.clone());
-                return Err(Error::invalid_input(msg));
-            }
-            if rig_se3_target.len() != num_views {
-                let msg = format!(
-                    "manual rig_se3_target length ({}) does not match num_views ({})",
-                    rig_se3_target.len(),
-                    num_views
-                );
-                session.log_failure("rig_init", msg.clone());
-                return Err(Error::invalid_input(msg));
-            }
-            manual_fields.push("cam_se3_rig");
-            manual_fields.push("rig_se3_target");
-            (cam_se3_rig, rig_se3_target)
-        }
-        _ => {
-            auto_fields.push("cam_se3_rig");
-            auto_fields.push("rig_se3_target");
-            let per_cam_target_poses = session
-                .state
-                .per_cam_target_poses
-                .clone()
-                .ok_or_else(|| Error::not_available("per-camera target poses"))?;
-
-            let extrinsic_result = estimate_extrinsics_from_cam_target_poses(
-                &per_cam_target_poses,
-                reference_camera_idx,
-            )
-            .map_err(|e| Error::numerical(format!("rig extrinsics initialization failed: {e}")))?;
-            let cam_se3_rig: Vec<Iso3> = extrinsic_result
-                .cam_to_rig
-                .iter()
-                .map(|t| t.inverse())
-                .collect();
-            (cam_se3_rig, extrinsic_result.rig_from_target)
-        }
-    };
-
-    session.state.initial_cam_se3_rig = Some(cam_se3_rig.clone());
-    session.state.initial_rig_se3_target = Some(rig_se3_target.clone());
-
-    let source = format_init_source(&manual_fields, &auto_fields);
-    session.log_success_with_notes(
-        "rig_init",
-        format!(
-            "ref_cam={}, {} views {}",
-            reference_camera_idx, num_views, source
-        ),
-    );
-
-    Ok(RigInitResult {
-        initial_cam_se3_rig: cam_se3_rig,
-        initial_rig_se3_target: rig_se3_target,
-    })
+    rig_family::init_rig(session, manual, opts)
 }
 
 /// Initialize rig extrinsics using full auto-init (linear extrinsics fit).
@@ -501,97 +171,17 @@ pub fn step_rig_optimize(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<RigOptimizeOptions>,
 ) -> Result<RigOptimizeResult, Error> {
-    session.validate()?;
-    let input = session.require_input()?.clone();
-
-    if !session.state.has_rig_init() {
-        return Err(Error::not_available("rig init (call step_rig_init first)"));
-    }
-
-    let opts = opts.unwrap_or_default();
-    let config = &session.config;
-
-    let cameras = session
-        .state
-        .cameras
-        .clone()
-        .ok_or_else(|| Error::not_available("per-camera intrinsics"))?;
-    check_camera_models(&cameras, |i| config.camera_for(i).model)?;
-    let cam_se3_rig = session
-        .state
-        .initial_cam_se3_rig
-        .clone()
-        .ok_or_else(|| Error::not_available("initial cam_se3_rig"))?;
-    let cam_to_rig: Vec<Iso3> = cam_se3_rig.iter().map(|t| t.inverse()).collect();
-    let rig_from_target = session
-        .state
-        .initial_rig_se3_target
-        .clone()
-        .ok_or_else(|| Error::not_available("initial rig_se3_target"))?;
-
-    let fix = (0..input.num_cameras)
-        .map(|i| {
-            rig_ba_fix(
-                &config.camera_for(i),
-                config.rig.refine_intrinsics,
-                config.rig.refine_sensor,
-            )
-        })
-        .collect();
-
-    let fix_extrinsics: Vec<bool> = (0..input.num_cameras)
-        .map(|i| i == config.rig.reference_camera_idx)
-        .collect();
-
-    // The reference-camera fix above removes the full 6-DOF rig
-    // gauge on its own; no rig-from-target pose is pinned.
-    let fix_rig_poses: Vec<usize> = Vec::new();
-
-    let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options(session.control())
+    let output = rig_family::optimize_rig(session, opts)?;
+    let notes = rig_ba_notes(&output);
+    let result = RigOptimizeResult {
+        mean_reproj_error: output.mean_reproj_error,
+        per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
+        cameras: output.params.cameras.clone(),
     };
-
-    let initial = RigExtrinsicsParams {
-        cameras,
-        cam_to_rig,
-        rig_from_target,
-    };
-    let solve_opts = RigExtrinsicsSolveOptions {
-        robust_loss: config.solver.robust_loss,
-        fix,
-        fix_extrinsics,
-        fix_rig_poses,
-    };
-    let output = match optimize_rig_extrinsics(input, initial, solve_opts, backend_opts) {
-        Ok(r) => r,
-        Err(e) => {
-            session.log_failure("rig_optimize", e.to_string());
-            return Err(Error::from(e));
-        }
-    };
-
-    let mean_reproj_error = output.mean_reproj_error;
-    let per_cam_errors = output.per_cam_reproj_errors.clone();
-    let final_cost = output.report.final_cost;
-    session.state.rig_ba_final_cost = Some(final_cost);
-    session.state.rig_ba_reproj_error = Some(mean_reproj_error);
-    session.state.rig_ba_per_cam_reproj_errors = Some(per_cam_errors.clone());
-
-    let cameras = output.params.cameras.clone();
+    session.state.rig_ba_final_cost = Some(output.report.final_cost);
     session.set_output(output);
-
-    session.log_success_with_notes(
-        "rig_optimize",
-        format!("final_cost={final_cost:.2e}, mean_reproj_err={mean_reproj_error:.3}px"),
-    );
-
-    Ok(RigOptimizeResult {
-        mean_reproj_error,
-        per_cam_reproj_errors: per_cam_errors,
-        cameras,
-    })
+    session.log_success_with_notes("rig_optimize", notes);
+    Ok(result)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -621,12 +211,14 @@ pub fn run_calibration(
 
 #[cfg(test)]
 mod tests {
+    use super::super::problem::RigExtrinsicsInput;
     use super::*;
     use nalgebra::{Rotation3, Translation3};
     use vision_calibration_core::{
         BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, RigDataset, RigView,
         RigViewObs, make_pinhole_camera,
     };
+    use vision_calibration_core::{Iso3, NoMeta};
 
     fn make_test_camera(offset: f64) -> PinholeCamera {
         make_pinhole_camera(
@@ -708,8 +300,8 @@ mod tests {
 
         step_intrinsics_init_all(&mut session, None).unwrap();
 
-        assert!(session.state.has_per_cam_intrinsics());
-        let cameras = session.state.cameras.as_ref().unwrap();
+        assert!(session.state.rig.has_per_cam_intrinsics());
+        let cameras = session.state.rig.cameras.as_ref().unwrap();
         assert_eq!(cameras.len(), 2);
     }
 
@@ -741,10 +333,10 @@ mod tests {
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
 
-        assert!(session.state.has_per_cam_intrinsics());
+        assert!(session.state.rig.has_per_cam_intrinsics());
 
         session.set_input(make_test_input()).unwrap();
-        assert!(!session.state.has_per_cam_intrinsics());
+        assert!(!session.state.rig.has_per_cam_intrinsics());
     }
 
     #[test]
@@ -883,7 +475,7 @@ mod tests {
             mean_err
         );
 
-        let state_mean = session.state.rig_ba_reproj_error.unwrap();
+        let state_mean = session.state.rig.rig_ba_reproj_error.unwrap();
         assert!(
             (state_mean - mean_err).abs() < 1e-12,
             "state reprojection error mismatch: state={}, computed={}",
@@ -891,7 +483,12 @@ mod tests {
             mean_err
         );
 
-        let state_per_cam = session.state.rig_ba_per_cam_reproj_errors.as_ref().unwrap();
+        let state_per_cam = session
+            .state
+            .rig
+            .rig_ba_per_cam_reproj_errors
+            .as_ref()
+            .unwrap();
         assert_eq!(state_per_cam.len(), per_cam_stats.len());
         for (i, (state_mean, computed)) in state_per_cam
             .iter()

@@ -4,63 +4,30 @@
 //! computed during the calibration pipeline.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{CameraParams, Iso3};
+use vision_calibration_core::Iso3;
+
+use crate::rig_family::RigStagesState;
 
 /// Intermediate state for rig hand-eye calibration.
 ///
 /// Stores by-products of the calibration pipeline including:
-/// - Per-camera parameters
-/// - Per-camera target poses
-/// - Rig extrinsics from linear and BA estimation
+/// - The rig stages' state: per-camera parameters and target poses, the
+///   initial rig and the rig BA's errors
+/// - Rig extrinsics from the rig BA
 /// - Hand-eye initialization
 /// - Final optimization metrics
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct RigHandeyeState {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Per-camera intrinsics
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Per-camera parameters, each in its camera's model.
-    pub cameras: Option<Vec<CameraParams>>,
+    /// The rig stages' state (serialized inline).
+    #[serde(flatten)]
+    pub rig: RigStagesState,
 
-    /// Per-camera target poses: `[view][cam] -> Option<Iso3>`.
-    /// `cam_se3_target` (T_C_T) for each camera in each view.
-    pub per_cam_target_poses: Option<Vec<Vec<Option<Iso3>>>>,
-
-    /// Per-camera mean reprojection error from intrinsics calibration.
-    pub per_cam_reproj_errors: Option<Vec<f64>>,
-
-    /// True when the current per-camera intrinsics came from full auto-init.
-    #[serde(default)]
-    pub per_cam_intrinsics_auto: bool,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig extrinsics initialization
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Initial camera-to-rig transforms: `cam_se3_rig` (T_C_R) per camera.
-    /// Reference camera has identity.
-    pub initial_cam_se3_rig: Option<Vec<Iso3>>,
-
-    /// Initial rig-to-target poses: `rig_se3_target` (T_R_T) per view.
-    pub initial_rig_se3_target: Option<Vec<Iso3>>,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig BA results
-    // ─────────────────────────────────────────────────────────────────────────
     /// Refined camera-to-rig transforms from rig BA.
     pub rig_ba_cam_se3_rig: Option<Vec<Iso3>>,
 
     /// Refined rig-to-target poses from rig BA.
     pub rig_ba_rig_se3_target: Option<Vec<Iso3>>,
 
-    /// Mean reprojection error after rig BA.
-    pub rig_ba_reproj_error: Option<f64>,
-
-    /// Mean reprojection error after rig BA, per camera.
-    pub rig_ba_per_cam_reproj_errors: Option<Vec<f64>>,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Hand-eye initialization
-    // ─────────────────────────────────────────────────────────────────────────
     /// Initial hand-eye transform from linear estimation.
     /// `gripper_se3_rig` (T_G_R) for EyeInHand mode.
     pub initial_handeye: Option<Iso3>,
@@ -71,9 +38,6 @@ pub(crate) struct RigHandeyeState {
     /// - EyeToHand: `gripper_se3_target` (T_G_T)
     pub initial_mode_target_pose: Option<Iso3>,
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Final BA metrics (result in output)
-    // ─────────────────────────────────────────────────────────────────────────
     /// Final cost from hand-eye BA.
     pub final_cost: Option<f64>,
 
@@ -82,16 +46,6 @@ pub(crate) struct RigHandeyeState {
 }
 
 impl RigHandeyeState {
-    /// Check if per-camera intrinsics have been computed.
-    pub fn has_per_cam_intrinsics(&self) -> bool {
-        self.cameras.is_some()
-    }
-
-    /// Check if rig initialization has been run.
-    pub fn has_rig_init(&self) -> bool {
-        self.initial_cam_se3_rig.is_some() && self.initial_rig_se3_target.is_some()
-    }
-
     /// Check if rig BA has been run.
     pub fn has_rig_optimized(&self) -> bool {
         self.rig_ba_cam_se3_rig.is_some()
@@ -101,69 +55,11 @@ impl RigHandeyeState {
     pub fn has_handeye_init(&self) -> bool {
         self.initial_handeye.is_some() && self.initial_mode_target_pose.is_some()
     }
-
-    /// Check if final BA has been run.
-    #[cfg(test)]
-    pub fn has_final_optimized(&self) -> bool {
-        self.final_cost.is_some()
-    }
-
-    /// Clear rig-related results, keeping per-camera intrinsics.
-    #[cfg(test)]
-    pub fn clear_rig(&mut self) {
-        self.initial_cam_se3_rig = None;
-        self.initial_rig_se3_target = None;
-        self.rig_ba_cam_se3_rig = None;
-        self.rig_ba_rig_se3_target = None;
-        self.rig_ba_reproj_error = None;
-        self.rig_ba_per_cam_reproj_errors = None;
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{
-        BrownConrady5, FxFyCxCy, make_pinhole_camera, pinhole_camera_params,
-    };
-
-    fn make_test_camera() -> CameraParams {
-        pinhole_camera_params(&make_pinhole_camera(
-            FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-            },
-            BrownConrady5::default(),
-        ))
-    }
-
-    #[test]
-    fn default_state_not_initialized() {
-        let state = RigHandeyeState::default();
-        assert!(!state.has_per_cam_intrinsics());
-        assert!(!state.has_rig_init());
-        assert!(!state.has_rig_optimized());
-        assert!(!state.has_handeye_init());
-        assert!(!state.has_final_optimized());
-    }
-
-    #[test]
-    fn has_rig_init_requires_both() {
-        let state = RigHandeyeState {
-            initial_cam_se3_rig: Some(vec![Iso3::identity()]),
-            ..Default::default()
-        };
-        assert!(!state.has_rig_init()); // missing rig_se3_target
-
-        let state = RigHandeyeState {
-            initial_cam_se3_rig: Some(vec![Iso3::identity()]),
-            initial_rig_se3_target: Some(vec![Iso3::identity()]),
-            ..Default::default()
-        };
-        assert!(state.has_rig_init());
-    }
 
     #[test]
     fn has_handeye_init_requires_both() {
@@ -172,7 +68,6 @@ mod tests {
             ..Default::default()
         };
         assert!(!state.has_handeye_init()); // missing mode_target_pose
-
         let state = RigHandeyeState {
             initial_handeye: Some(Iso3::identity()),
             initial_mode_target_pose: Some(Iso3::identity()),
@@ -182,47 +77,23 @@ mod tests {
     }
 
     #[test]
-    fn clear_rig_keeps_intrinsics() {
+    fn json_keeps_the_stage_fields_inline() {
         let mut state = RigHandeyeState {
-            cameras: Some(vec![make_test_camera()]),
-            initial_cam_se3_rig: Some(vec![Iso3::identity()]),
-            initial_rig_se3_target: Some(vec![Iso3::identity()]),
             rig_ba_cam_se3_rig: Some(vec![Iso3::identity()]),
-            rig_ba_reproj_error: Some(0.5),
+            final_cost: Some(0.002),
             ..Default::default()
         };
+        state.rig.per_cam_reproj_errors = Some(vec![0.5, 0.6]);
+        state.rig.per_cam_intrinsics_auto = true;
 
-        state.clear_rig();
+        let json = serde_json::to_value(&state).unwrap();
+        assert_eq!(json["per_cam_reproj_errors"][1], 0.6);
+        assert_eq!(json["per_cam_intrinsics_auto"], true);
+        assert!(json.get("rig").is_none());
 
-        assert!(state.has_per_cam_intrinsics()); // Kept
-        assert!(!state.has_rig_init()); // Cleared
-        assert!(!state.has_rig_optimized()); // Cleared
-    }
-
-    #[test]
-    fn json_roundtrip() {
-        let state = RigHandeyeState {
-            cameras: Some(vec![make_test_camera(), make_test_camera()]),
-            per_cam_reproj_errors: Some(vec![0.5, 0.6]),
-            initial_cam_se3_rig: Some(vec![Iso3::identity(), Iso3::identity()]),
-            initial_rig_se3_target: Some(vec![Iso3::identity()]),
-            rig_ba_cam_se3_rig: Some(vec![Iso3::identity(), Iso3::identity()]),
-            rig_ba_reproj_error: Some(0.3),
-            initial_handeye: Some(Iso3::identity()),
-            initial_mode_target_pose: Some(Iso3::identity()),
-            final_cost: Some(0.001),
-            final_reproj_error: Some(0.3),
-            ..Default::default()
-        };
-
-        let json = serde_json::to_string_pretty(&state).unwrap();
-        let restored: RigHandeyeState = serde_json::from_str(&json).unwrap();
-
-        assert!(restored.has_per_cam_intrinsics());
-        assert!(restored.has_rig_init());
+        let restored: RigHandeyeState = serde_json::from_value(json).unwrap();
         assert!(restored.has_rig_optimized());
-        assert!(restored.has_handeye_init());
-        assert!(restored.has_final_optimized());
-        assert_eq!(restored.cameras.unwrap().len(), 2);
+        assert!(restored.rig.per_cam_intrinsics_auto);
+        assert_eq!(restored.final_cost, Some(0.002));
     }
 }

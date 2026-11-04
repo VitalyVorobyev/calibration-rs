@@ -8,9 +8,10 @@ use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
+    RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
 };
 
+use crate::rig_family::inverse_poses;
 use crate::session::CalibrationSession;
 
 use super::problem::RigLaserlineDeviceProblem;
@@ -172,12 +173,7 @@ pub fn step_optimize(
 
     let upstream = RigLaserlineUpstream {
         cameras: input.upstream.cameras,
-        cam_to_rig: input
-            .upstream
-            .cam_se3_rig
-            .iter()
-            .map(|t| t.inverse())
-            .collect(),
+        cam_to_rig: inverse_poses(&input.upstream.cam_se3_rig),
         rig_se3_target: input.upstream.rig_se3_target,
         uncertainty: input.upstream.uncertainty,
     };
@@ -186,11 +182,9 @@ pub fn step_optimize(
         laser_residual_type: cfg.laser_residual_type,
         ..RigLaserlineSolveOptions::default()
     };
-    let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(cfg.solver.max_iters),
-        verbosity: opts.verbosity.unwrap_or(cfg.solver.verbosity),
-        ..cfg.solver.backend_options(session.control())
-    };
+    let backend_opts =
+        cfg.solver
+            .step_backend_options(session.control(), opts.max_iters, opts.verbosity);
 
     let estimate = match optimize_rig_laserline(
         &input.dataset,

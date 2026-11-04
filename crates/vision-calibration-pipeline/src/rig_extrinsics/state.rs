@@ -4,163 +4,45 @@
 //! computed during the calibration pipeline.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{CameraParams, Iso3};
 
-/// Intermediate state for rig extrinsics calibration.
-///
-/// Stores by-products of the calibration pipeline including:
-/// - Per-camera parameters from individual calibration
-/// - Per-camera target poses
-/// - Initial rig extrinsics from linear estimation
-/// - Optimization metrics
+use crate::rig_family::RigStagesState;
+
+/// Intermediate state for rig extrinsics calibration: the rig stages'
+/// by-products (per-camera parameters and target poses, the initial rig) and
+/// the rig BA's metrics; the result is the output.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct RigExtrinsicsState {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Per-camera intrinsics
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Per-camera parameters, each in its camera's model.
-    pub cameras: Option<Vec<CameraParams>>,
+    /// The rig stages' state (serialized inline).
+    #[serde(flatten)]
+    pub rig: RigStagesState,
 
-    /// Per-camera target poses: `[view][cam] -> Option<Iso3>`.
-    /// `cam_se3_target` (T_C_T) for each camera in each view.
-    pub per_cam_target_poses: Option<Vec<Vec<Option<Iso3>>>>,
-
-    /// Per-camera mean reprojection error from intrinsics calibration.
-    pub per_cam_reproj_errors: Option<Vec<f64>>,
-
-    /// True when the current per-camera intrinsics came from full auto-init.
-    #[serde(default)]
-    pub per_cam_intrinsics_auto: bool,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig extrinsics initialization
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Initial rig-to-camera transforms: `cam_se3_rig` (T_C_R) per camera.
-    /// Reference camera has identity.
-    pub initial_cam_se3_rig: Option<Vec<Iso3>>,
-
-    /// Initial target-to-rig poses: `rig_se3_target` (T_R_T) per view.
-    pub initial_rig_se3_target: Option<Vec<Iso3>>,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig BA (metrics; result in output)
-    // ─────────────────────────────────────────────────────────────────────────
     /// Final cost from rig BA.
     pub rig_ba_final_cost: Option<f64>,
-
-    /// Mean reprojection error after rig BA.
-    pub rig_ba_reproj_error: Option<f64>,
-
-    /// Mean reprojection error after rig BA, per camera.
-    pub rig_ba_per_cam_reproj_errors: Option<Vec<f64>>,
-}
-
-impl RigExtrinsicsState {
-    /// Check if per-camera intrinsics have been computed.
-    pub fn has_per_cam_intrinsics(&self) -> bool {
-        self.cameras.is_some()
-    }
-
-    /// Check if rig initialization has been run.
-    pub fn has_rig_init(&self) -> bool {
-        self.initial_cam_se3_rig.is_some() && self.initial_rig_se3_target.is_some()
-    }
-
-    /// Check if rig BA has been run.
-    #[cfg(test)]
-    pub fn has_rig_optimized(&self) -> bool {
-        self.rig_ba_final_cost.is_some()
-    }
-
-    /// Clear rig-related results, keeping per-camera intrinsics and sensors.
-    #[cfg(test)]
-    pub fn clear_rig(&mut self) {
-        self.initial_cam_se3_rig = None;
-        self.initial_rig_se3_target = None;
-        self.rig_ba_final_cost = None;
-        self.rig_ba_reproj_error = None;
-        self.rig_ba_per_cam_reproj_errors = None;
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{
-        BrownConrady5, FxFyCxCy, make_pinhole_camera, pinhole_camera_params,
-    };
-
-    fn make_test_camera() -> CameraParams {
-        pinhole_camera_params(&make_pinhole_camera(
-            FxFyCxCy {
-                fx: 800.0,
-                fy: 800.0,
-                cx: 320.0,
-                cy: 240.0,
-            },
-            BrownConrady5::default(),
-        ))
-    }
+    use vision_calibration_core::Iso3;
 
     #[test]
-    fn default_state_not_initialized() {
-        let state = RigExtrinsicsState::default();
-        assert!(!state.has_per_cam_intrinsics());
-        assert!(!state.has_rig_init());
-        assert!(!state.has_rig_optimized());
-    }
-
-    #[test]
-    fn has_rig_init_requires_both() {
-        let state = RigExtrinsicsState {
-            initial_cam_se3_rig: Some(vec![Iso3::identity()]),
-            ..Default::default()
-        };
-        assert!(!state.has_rig_init()); // missing rig_se3_target
-
-        let state = RigExtrinsicsState {
-            initial_cam_se3_rig: Some(vec![Iso3::identity()]),
-            initial_rig_se3_target: Some(vec![Iso3::identity()]),
-            ..Default::default()
-        };
-        assert!(state.has_rig_init());
-    }
-
-    #[test]
-    fn clear_rig_keeps_intrinsics() {
+    fn json_keeps_the_stage_fields_inline() {
         let mut state = RigExtrinsicsState {
-            cameras: Some(vec![make_test_camera()]),
-            initial_cam_se3_rig: Some(vec![Iso3::identity()]),
-            initial_rig_se3_target: Some(vec![Iso3::identity()]),
             rig_ba_final_cost: Some(0.001),
             ..Default::default()
         };
+        state.rig.initial_cam_se3_rig = Some(vec![Iso3::identity(), Iso3::identity()]);
+        state.rig.initial_rig_se3_target = Some(vec![Iso3::identity()]);
+        state.rig.rig_ba_reproj_error = Some(0.3);
 
-        state.clear_rig();
+        let json = serde_json::to_value(&state).unwrap();
+        assert_eq!(json["rig_ba_reproj_error"], 0.3);
+        assert_eq!(json["rig_ba_final_cost"], 0.001);
+        assert!(json.get("rig").is_none());
 
-        assert!(state.has_per_cam_intrinsics()); // Kept
-        assert!(!state.has_rig_init()); // Cleared
-        assert!(!state.has_rig_optimized()); // Cleared
-    }
-
-    #[test]
-    fn json_roundtrip() {
-        let state = RigExtrinsicsState {
-            cameras: Some(vec![make_test_camera(), make_test_camera()]),
-            per_cam_reproj_errors: Some(vec![0.5, 0.6]),
-            initial_cam_se3_rig: Some(vec![Iso3::identity(), Iso3::identity()]),
-            initial_rig_se3_target: Some(vec![Iso3::identity()]),
-            rig_ba_final_cost: Some(0.001),
-            rig_ba_reproj_error: Some(0.3),
-            ..Default::default()
-        };
-
-        let json = serde_json::to_string_pretty(&state).unwrap();
-        let restored: RigExtrinsicsState = serde_json::from_str(&json).unwrap();
-
-        assert!(restored.has_per_cam_intrinsics());
-        assert!(restored.has_rig_init());
-        assert!(restored.has_rig_optimized());
-        assert_eq!(restored.cameras.unwrap().len(), 2);
+        let restored: RigExtrinsicsState = serde_json::from_value(json).unwrap();
+        assert!(restored.rig.has_rig_init());
+        assert!(!restored.rig.has_per_cam_intrinsics());
+        assert_eq!(restored.rig_ba_final_cost, Some(0.001));
     }
 }

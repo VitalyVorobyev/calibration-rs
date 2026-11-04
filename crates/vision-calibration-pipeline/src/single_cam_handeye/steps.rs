@@ -10,18 +10,18 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real, RigView,
-    RigViewObs, ScheimpflugParams, SensorKind, View,
+    RigViewObs, ScheimpflugParams, View,
 };
-use vision_calibration_linear::handeye::{estimate_eye_in_hand, estimate_eye_to_hand};
 use vision_calibration_optim::{
-    BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
-    PlanarIntrinsicsParams, RobotPoseMeta, optimize_handeye,
+    HandeyeDataset, HandeyeMode, HandeyeParams, PlanarIntrinsicsParams, RobotPoseMeta,
+    optimize_handeye,
 };
 
 use crate::planar_family::{
-    CameraSeed, bootstrap_camera, check_distortion_seed, check_sensor_seed, optimize_camera,
+    CameraSeed, Provenance, bootstrap_camera, check_camera_model, check_camera_seed,
+    optimize_camera,
 };
-use crate::rig_family::format_init_source;
+use crate::rig_family::{handeye_solve_opts, linear_handeye};
 use crate::session::CalibrationSession;
 
 use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem};
@@ -186,56 +186,28 @@ pub fn step_intrinsics_init_with_seed(
     let opts = opts.unwrap_or_default();
     let config = &session.config;
     let model = config.camera.model;
-
-    if let Some(sensor) = &manual.sensor
-        && let Err(e) = check_sensor_seed(model, sensor, "sensor")
-    {
-        session.log_failure("intrinsics_init", e.to_string());
-        return Err(e);
-    }
-    if let Some(distortion) = &manual.distortion
-        && let Err(e) = check_distortion_seed(distortion, model, "distortion")
-    {
-        session.log_failure("intrinsics_init", e.to_string());
-        return Err(e);
-    }
-    if let Some(p) = &manual.target_poses
-        && p.len() != view_count
-    {
-        let msg = format!(
-            "manual target_poses count ({}) does not match view count ({})",
-            p.len(),
-            view_count
-        );
-        session.log_failure("intrinsics_init", msg.clone());
-        return Err(Error::invalid_input(msg));
-    }
-
-    let mut manual_fields: Vec<&'static str> = Vec::new();
-    let mut auto_fields: Vec<&'static str> = Vec::new();
-    let mut note = |name: &'static str, seeded: bool| {
-        if seeded {
-            manual_fields.push(name);
-        } else {
-            auto_fields.push(name);
-        }
-    };
-    note("intrinsics", manual.intrinsics.is_some());
-    note("distortion", manual.distortion.is_some());
-    if model.sensor == SensorKind::Scheimpflug {
-        note("sensor", manual.sensor.is_some());
-    }
-    note("target_poses", manual.target_poses.is_some());
-
-    let init_opts = config
-        .intrinsics
-        .camera_init_opts(opts.iterations, &config.camera);
-    let planar_dataset = input_to_planar_dataset(input)?;
     let seed = CameraSeed {
         intrinsics: manual.intrinsics,
         distortion: manual.distortion,
         sensor: manual.sensor,
     };
+    if let Err(e) = check_camera_seed(
+        model,
+        &seed,
+        manual.target_poses.as_deref(),
+        "target_poses",
+        view_count,
+    ) {
+        session.log_failure("intrinsics_init", e.to_string());
+        return Err(e);
+    }
+    let mut provenance = Provenance::of_camera_seed(model, &seed);
+    provenance.note("target_poses", manual.target_poses.is_some());
+
+    let init_opts = config
+        .intrinsics
+        .camera_init_opts(opts.iterations, &config.camera);
+    let planar_dataset = input_to_planar_dataset(input)?;
     let bootstrap = match bootstrap_camera(0, model, &planar_dataset, &seed, init_opts) {
         Ok(b) => b,
         Err(e) => {
@@ -249,13 +221,16 @@ pub fn step_intrinsics_init_with_seed(
     session.state.initial_camera = Some(camera.clone());
     session.state.initial_target_poses = Some(initial_poses.clone());
 
-    let source = format_init_source(&manual_fields, &auto_fields);
     let k = camera.intrinsics;
     session.log_success_with_notes(
         "intrinsics_init",
         format!(
             "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
-            k.fx, k.fy, k.cx, k.cy, source
+            k.fx,
+            k.fy,
+            k.cx,
+            k.cy,
+            provenance.source()
         ),
     );
 
@@ -314,7 +289,7 @@ pub fn step_intrinsics_optimize(
         .clone()
         .ok_or_else(|| Error::not_available("initial poses"))?;
 
-    check_camera_model(&initial_camera, config.camera.model)?;
+    check_camera_model(&initial_camera, config.camera.model, "step_intrinsics_init")?;
 
     // Build initial params
     let initial_params = PlanarIntrinsicsParams::new(initial_camera, initial_poses)
@@ -323,11 +298,10 @@ pub fn step_intrinsics_optimize(
     // Convert to PlanarDataset
     let planar_dataset = input_to_planar_dataset(input)?;
 
-    let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options(session.control())
-    };
+    let backend_opts =
+        config
+            .solver
+            .step_backend_options(session.control(), opts.max_iters, opts.verbosity);
 
     // Run optimization: a plain planar solve, or the staged tilt
     // multi-start for a Scheimpflug sensor.
@@ -426,43 +400,41 @@ pub fn step_handeye_init_with_seed(
     session.state.initial_base_se3_target = None;
     session.state.initial_gripper_se3_target = None;
 
-    let mut manual_fields: Vec<&'static str> = Vec::new();
-    let mut auto_fields: Vec<&'static str> = Vec::new();
+    let mode = config.handeye_init.handeye_mode;
+    let (seeded_first, seeded_second) = match mode {
+        HandeyeMode::EyeInHand => (manual.gripper_se3_camera, manual.base_se3_target),
+        HandeyeMode::EyeToHand => (manual.gripper_se3_target, manual.camera_se3_base),
+    };
+    // Each mode seeds one pose and closes the other through the first view.
+    let mut provenance = Provenance::default();
+    let (first, second) = match mode {
+        HandeyeMode::EyeInHand => ("gripper_se3_camera", "base_se3_target"),
+        HandeyeMode::EyeToHand => ("gripper_se3_target", "camera_se3_base"),
+    };
+    provenance.note(first, seeded_first.is_some());
+    provenance.note(second, seeded_second.is_some());
 
-    let (log_pose, log_label, result) = match config.handeye_init.handeye_mode {
+    // The linear solve gives both poses.
+    let (first_pose, estimated_second) = match seeded_first {
+        Some(t) => (t, None),
+        None => {
+            let (handeye, target) =
+                linear_handeye(mode, method, &robot_poses, &cam_se3_target, min_angle)
+                    .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))?;
+            match mode {
+                HandeyeMode::EyeInHand => (handeye, Some(target)),
+                HandeyeMode::EyeToHand => (target, Some(handeye)),
+            }
+        }
+    };
+    let (log_pose, log_label, result) = match mode {
         HandeyeMode::EyeInHand => {
-            let (gripper_se3_camera, estimated_target) = match manual.gripper_se3_camera {
-                Some(t) => {
-                    manual_fields.push("gripper_se3_camera");
-                    (t, None)
-                }
-                None => {
-                    auto_fields.push("gripper_se3_camera");
-                    let e = estimate_eye_in_hand(method, &robot_poses, &cam_se3_target, min_angle)
-                        .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                        .map_err(|e| {
-                            Error::numerical(format!("linear hand-eye estimation failed: {e}"))
-                        })?;
-                    (e.gripper_se3_camera, Some(e.base_se3_target))
-                }
-            };
-
-            let base_se3_target = match manual.base_se3_target {
-                Some(t) => {
-                    manual_fields.push("base_se3_target");
-                    t
-                }
-                None => {
-                    auto_fields.push("base_se3_target");
-                    // A seeded hand-eye closes the chain through the first view.
-                    estimated_target
-                        .unwrap_or_else(|| robot_poses[0] * gripper_se3_camera * cam_se3_target[0])
-                }
-            };
-
+            let gripper_se3_camera = first_pose;
+            let base_se3_target = seeded_second
+                .or(estimated_second)
+                .unwrap_or_else(|| robot_poses[0] * gripper_se3_camera * cam_se3_target[0]);
             session.state.initial_gripper_se3_camera = Some(gripper_se3_camera);
             session.state.initial_base_se3_target = Some(base_se3_target);
-
             (
                 gripper_se3_camera,
                 "gripper_se3_camera",
@@ -475,42 +447,13 @@ pub fn step_handeye_init_with_seed(
             )
         }
         HandeyeMode::EyeToHand => {
-            let (gripper_se3_target, estimated_base) = match manual.gripper_se3_target {
-                Some(t) => {
-                    manual_fields.push("gripper_se3_target");
-                    (t, None)
-                }
-                None => {
-                    auto_fields.push("gripper_se3_target");
-                    let e = estimate_eye_to_hand(method, &robot_poses, &cam_se3_target, min_angle)
-                        .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                        .map_err(|e| {
-                            Error::numerical(format!(
-                                "linear gripper->target estimation failed: {e}"
-                            ))
-                        })?;
-                    (e.gripper_se3_target, Some(e.camera_se3_base))
-                }
-            };
-
-            let camera_se3_base = match manual.camera_se3_base {
-                Some(t) => {
-                    manual_fields.push("camera_se3_base");
-                    t
-                }
-                None => {
-                    auto_fields.push("camera_se3_base");
-                    // A seeded hand-eye closes the chain through the first view:
-                    // T_C_T = T_C_B * T_B_G * T_G_T => T_C_B = T_C_T * (T_B_G * T_G_T)^-1.
-                    estimated_base.unwrap_or_else(|| {
-                        cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
-                    })
-                }
-            };
-
+            let gripper_se3_target = first_pose;
+            // T_C_T = T_C_B * T_B_G * T_G_T => T_C_B = T_C_T * (T_B_G * T_G_T)^-1.
+            let camera_se3_base = seeded_second.or(estimated_second).unwrap_or_else(|| {
+                cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
+            });
             session.state.initial_camera_se3_base = Some(camera_se3_base);
             session.state.initial_gripper_se3_target = Some(gripper_se3_target);
-
             (
                 camera_se3_base,
                 "camera_se3_base",
@@ -524,14 +467,13 @@ pub fn step_handeye_init_with_seed(
         }
     };
 
-    let source = format_init_source(&manual_fields, &auto_fields);
     session.log_success_with_notes(
         "handeye_init",
         format!(
             "{} |t|={:.4}m {}",
             log_label,
             log_pose.translation.vector.norm(),
-            source
+            provenance.source()
         ),
     );
 
@@ -586,9 +528,9 @@ pub fn step_handeye_optimize(
         .optimized_camera
         .clone()
         .ok_or_else(|| Error::not_available("optimized camera"))?;
-    check_camera_model(&camera, config.camera.model)?;
+    check_camera_model(&camera, config.camera.model, "step_intrinsics_init")?;
     let (handeye, target_pose) = match config.handeye_init.handeye_mode {
-        vision_calibration_optim::HandeyeMode::EyeInHand => {
+        HandeyeMode::EyeInHand => {
             let handeye = session
                 .state
                 .initial_gripper_se3_camera
@@ -599,7 +541,7 @@ pub fn step_handeye_optimize(
                 .ok_or_else(|| Error::not_available("initial base_se3_target"))?;
             (handeye, target_pose)
         }
-        vision_calibration_optim::HandeyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             let handeye = session
                 .state
                 .initial_camera_se3_base
@@ -637,25 +579,17 @@ pub fn step_handeye_optimize(
         target_poses: vec![target_pose],
     };
 
-    // Configure solve options
-    let solve_opts = HandeyeSolveOptions {
-        robust_loss: config.solver.robust_loss,
-        fix: vec![config.camera.fix.clone()],
-        fix_extrinsics: vec![true], // Fix cam_to_rig for single camera
-        fix_handeye: false,
-        fix_target_poses: Vec::new(),
-        relax_target_poses: false, // Single fixed target
-        refine_robot_poses: config.robot_poses.refine,
-        robot_rot_sigma: config.robot_poses.rot_sigma,
-        robot_trans_sigma: config.robot_poses.trans_sigma,
-        estimate_robot_sigma: config.robot_poses.estimate_sigma,
-    };
-
-    let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options(session.control())
-    };
+    // The camera is the rig: its extrinsics stay the identity.
+    let solve_opts = handeye_solve_opts(
+        config.solver.robust_loss,
+        vec![config.camera.fix.clone()],
+        vec![true],
+        &config.robot_poses,
+    );
+    let backend_opts =
+        config
+            .solver
+            .step_backend_options(session.control(), opts.max_iters, opts.verbosity);
 
     // Run optimization
     let result = match optimize_handeye(dataset, initial, solve_opts, backend_opts) {
@@ -681,20 +615,6 @@ pub fn step_handeye_optimize(
         mean_reproj_error,
         final_cost,
     })
-}
-
-/// Check the camera in state still has the model the config names.
-fn check_camera_model(
-    camera: &CameraParams,
-    configured: vision_calibration_core::CameraModelSpec,
-) -> Result<(), Error> {
-    if camera.spec() != Some(configured) {
-        return Err(Error::invalid_input(format!(
-            "the camera model changed since step_intrinsics_init (now {configured:?}); run it \
-             again"
-        )));
-    }
-    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

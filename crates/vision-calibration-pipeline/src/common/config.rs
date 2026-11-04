@@ -445,6 +445,21 @@ impl SolverConfig {
             ..BackendSolveOptions::default()
         }
     }
+
+    /// [`Self::backend_options`] with a step's per-call overrides of the
+    /// iteration budget and the verbosity.
+    pub(crate) fn step_backend_options(
+        &self,
+        control: &RunControl,
+        max_iters: Option<usize>,
+        verbosity: Option<usize>,
+    ) -> BackendSolveOptions {
+        BackendSolveOptions {
+            max_iters: max_iters.unwrap_or(self.max_iters),
+            verbosity: verbosity.unwrap_or(self.verbosity),
+            ..self.backend_options(control)
+        }
+    }
 }
 
 /// Robot-pose refinement options for hand-eye bundle adjustment.
