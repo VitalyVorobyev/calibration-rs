@@ -6,12 +6,10 @@
 //! evaluated in its own model: any distortion kind, an identity or a
 //! Scheimpflug sensor.
 
-mod geometry;
 mod problem;
 mod state;
 mod steps;
 
-pub use geometry::pixel_to_gripper_point;
 pub use problem::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
     RigLaserlineDeviceProblem, RigUpstreamCalibration,

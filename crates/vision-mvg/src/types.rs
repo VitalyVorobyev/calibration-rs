@@ -1,11 +1,16 @@
 //! Core types for multiple-view geometry.
 //!
 //! Provides type aliases for geometric matrices and the input types of MVG
-//! estimation: [`Correspondence2D`] for the uncalibrated estimators and
-//! [`PixelMatch`] for the calibrated two-view functions.
+//! estimation: [`Correspondence2D`] for the uncalibrated estimators,
+//! [`PixelMatch`] for the calibrated two-view functions and [`Captures`] for
+//! the frame a measurement is stated in.
 
+use crate::{MvgError, Result};
+use nalgebra::Matrix6;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Mat3, PointCovariance, Pt2, Pt3, Real};
+use vision_calibration_core::{
+    CalibratedRig, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, RobotFrame, RobotPose,
+};
 
 /// Essential matrix (3×3, rank-2, encodes calibrated epipolar geometry).
 pub type EssentialMatrix = Mat3;
@@ -101,4 +106,118 @@ pub struct TriangulatedPoint {
     /// (`bearing · p_camera > 0`). For a pinhole this is positive depth; a
     /// wide-angle camera can see a point at negative `z` in front of it.
     pub in_front: bool,
+}
+
+/// Where the rig was at each capture of a measurement, and so the frame its
+/// points are stated in. Each observation names its capture by index.
+///
+/// On a robot the rig's pose follows from its calibration's hand-eye
+/// ([`CalibratedRig::handeye`](vision_calibration_core::CalibratedRig::handeye))
+/// and, in the frame that moves with the robot, the robot's pose at each
+/// capture; their uncertainty then enters the points' covariance. In the
+/// frame the rig is fixed in (the gripper eye-in-hand, the base eye-to-hand)
+/// the robot does not enter, and every capture is the same one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Captures<'a> {
+    /// One capture: the points are stated in the rig frame (the reference
+    /// camera's).
+    Rig,
+    /// The rig's pose at each capture in a world frame, `rig_se3_world[k]`
+    /// (world → rig frame), exact: the points are stated in the world frame.
+    World(&'a [Iso3]),
+    /// One capture: the points are stated in the robot frame the rig is
+    /// fixed in, through the calibration's hand-eye: the gripper for an
+    /// eye-in-hand rig, the base for an eye-to-hand one. Naming the other
+    /// frame is an error: it needs the robot's pose ([`Captures::Robot`]).
+    Handeye(RobotFrame),
+    /// The robot's pose at each capture, exact or with its covariance: the
+    /// points are stated in the robot frame the rig moves in, the base for
+    /// an eye-in-hand rig and the gripper for an eye-to-hand one. Naming the
+    /// frame the rig is fixed in is an error ([`Captures::Handeye`]).
+    Robot {
+        /// The frame the points are stated in.
+        frame: RobotFrame,
+        /// The robot's pose `base_se3_gripper` at each capture.
+        robot: &'a [RobotPose],
+    },
+}
+
+/// One capture's rig pose and, on a robot, how it moves with the hand-eye
+/// and the robot's pose.
+#[derive(Debug, Clone)]
+pub(crate) struct CapturePose {
+    /// `rig_se3_world` of the capture (world = the measurement's frame).
+    pub rig_se3_world: Iso3,
+    /// `None` off a robot.
+    pub robot: Option<RobotLink>,
+}
+
+/// How a capture's rig pose on a robot moves with the hand-eye and the
+/// robot's pose (core's `Handeye::rig_in_frame`).
+#[derive(Debug, Clone)]
+pub(crate) struct RobotLink {
+    /// `A`: the tangent of `rig_se3_world` per unit of the hand-eye's.
+    pub d_handeye: Matrix6<Real>,
+    /// `B` and the robot pose's covariance, when it is in the chain (the
+    /// frame that moves with the robot); the robot pose itself.
+    pub robot: Option<(Matrix6<Real>, RobotPose)>,
+}
+
+impl Captures<'_> {
+    /// Each capture's rig pose, in capture order.
+    ///
+    /// # Errors
+    ///
+    /// [`MvgError::InvalidInput`] for a robot frame and a rig without a
+    /// hand-eye, and for a frame the variant does not serve (see the
+    /// variants).
+    pub(crate) fn resolve(&self, rig: &CalibratedRig) -> Result<Vec<CapturePose>> {
+        let on_robot = |frame: RobotFrame, robot: Option<&RobotPose>| -> Result<CapturePose> {
+            let handeye = rig.handeye().ok_or_else(|| {
+                MvgError::invalid_input(format!(
+                    "points in the {} frame need the calibration's hand-eye; the rig has none",
+                    frame.name()
+                ))
+            })?;
+            let fixed_in = handeye.mount_frame();
+            let base_se3_gripper = match (frame == fixed_in, robot) {
+                (true, None) => Iso3::identity(),
+                (false, Some(robot)) => *robot.base_se3_gripper(),
+                (true, Some(_)) => {
+                    return Err(MvgError::invalid_input(format!(
+                        "the rig is fixed in the {} frame: state the points there with \
+                         Captures::Handeye, the robot's pose does not enter",
+                        frame.name()
+                    )));
+                }
+                (false, None) => {
+                    return Err(MvgError::invalid_input(format!(
+                        "the rig moves in the {} frame with the robot: state the robot's \
+                         pose at each capture with Captures::Robot",
+                        frame.name()
+                    )));
+                }
+            };
+            let at = handeye.rig_in_frame(frame, &base_se3_gripper);
+            Ok(CapturePose {
+                rig_se3_world: at.rig_se3_frame,
+                robot: Some(RobotLink {
+                    d_handeye: at.d_handeye,
+                    robot: at.d_robot.zip(robot.copied()),
+                }),
+            })
+        };
+        let exact = |rig_se3_world: Iso3| CapturePose {
+            rig_se3_world,
+            robot: None,
+        };
+        match *self {
+            Captures::Rig => Ok(vec![exact(Iso3::identity())]),
+            Captures::World(poses) => Ok(poses.iter().copied().map(exact).collect()),
+            Captures::Handeye(frame) => Ok(vec![on_robot(frame, None)?]),
+            Captures::Robot { frame, robot } => {
+                robot.iter().map(|r| on_robot(frame, Some(r))).collect()
+            }
+        }
+    }
 }

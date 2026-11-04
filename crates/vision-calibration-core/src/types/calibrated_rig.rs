@@ -1,7 +1,9 @@
 //! A calibration as a value: what a measurement needs from it.
 
 use crate::models::{CameraModel, CameraParams};
-use crate::types::{LaserPlane, NoiseLevel, PointCovariance, ResidualKind, Uncertainty};
+use crate::types::{
+    Handeye, LaserPlane, NoiseLevel, PointCovariance, ResidualKind, RobotFrame, Uncertainty,
+};
 use crate::{Error, Iso3};
 
 /// What a measurement needs from a calibration: the cameras, where each sits
@@ -21,12 +23,19 @@ use crate::{Error, Iso3};
 /// camera ([`with_laser_planes`](Self::with_laser_planes)), in that camera's
 /// own frame; their labels in the uncertainty are `plane.nx`, `plane.ny`,
 /// `plane.nz` and `plane.d` (`cam1.plane.nx` in a rig).
+///
+/// A rig from a hand-eye calibration also carries its hand-eye
+/// ([`with_handeye`](Self::with_handeye)), so a measurement can be stated in
+/// the robot's gripper or base frame; its labels are those of the export's
+/// pose: `gripper_se3_rig.rx … tz` eye-in-hand and `rig_se3_base.rx … tz`
+/// eye-to-hand (`gripper_se3_camera`, `camera_se3_base` for one camera).
 #[derive(Debug, Clone)]
 pub struct CalibratedRig {
     cameras: Vec<CameraParams>,
     models: Vec<CameraModel>,
     cam_se3_rig: Vec<Iso3>,
     laser_planes: Vec<Option<LaserPlane>>,
+    handeye: Option<Handeye>,
     uncertainty: Uncertainty,
 }
 
@@ -66,6 +75,7 @@ impl CalibratedRig {
             models,
             cam_se3_rig,
             laser_planes: Vec::new(),
+            handeye: None,
             uncertainty,
         })
     }
@@ -125,6 +135,58 @@ impl CalibratedRig {
                 format!("plane.{c}")
             }
         })
+    }
+
+    /// The same rig on a robot, fixed by `handeye`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] for a hand-eye the calibration's covariance
+    /// (when it has one) lists in part: its six labels are
+    /// [`handeye_labels`](Self::handeye_labels), and a pose is estimated
+    /// whole or held fixed. A hand-eye the covariance does not list at all
+    /// was held fixed and counts as exact.
+    pub fn with_handeye(mut self, handeye: Handeye) -> Result<Self, Error> {
+        if let Some(covariance) = self.uncertainty.covariance() {
+            let labels = Self::handeye_labels_of(&handeye, self.num_cameras() > 1);
+            let listed = labels
+                .iter()
+                .filter(|l| covariance.index(l).is_some())
+                .count();
+            if listed != 0 && listed != labels.len() {
+                return Err(Error::invalid_input(format!(
+                    "the hand-eye is in the calibration's covariance in part (the labels {}); \
+                     a pose is estimated whole or held",
+                    labels.join(", ")
+                )));
+            }
+        }
+        self.handeye = Some(handeye);
+        Ok(self)
+    }
+
+    /// The rig's hand-eye; `None` for a rig not calibrated on a robot.
+    pub fn handeye(&self) -> Option<&Handeye> {
+        self.handeye.as_ref()
+    }
+
+    /// The covariance labels of the rig's hand-eye, the tangent `[rx, ry,
+    /// rz, tx, ty, tz]` of its right perturbation: `gripper_se3_rig.*`
+    /// eye-in-hand and `rig_se3_base.*` eye-to-hand (`gripper_se3_camera.*`
+    /// and `camera_se3_base.*` for one camera, as its export names them);
+    /// `None` for a rig without a hand-eye.
+    pub fn handeye_labels(&self) -> Option<[String; 6]> {
+        let handeye = self.handeye.as_ref()?;
+        Some(Self::handeye_labels_of(handeye, self.num_cameras() > 1))
+    }
+
+    fn handeye_labels_of(handeye: &Handeye, multi_camera: bool) -> [String; 6] {
+        let rig = if multi_camera { "rig" } else { "camera" };
+        let name = match handeye.mount_frame() {
+            RobotFrame::Gripper => format!("gripper_se3_{rig}"),
+            RobotFrame::Base => format!("{rig}_se3_base"),
+        };
+        ["rx", "ry", "rz", "tx", "ty", "tz"].map(|c| format!("{name}.{c}"))
     }
 
     /// Camera `camera`'s laser plane, in its own frame; `None` for a camera
@@ -339,6 +401,56 @@ mod tests {
         )
         .unwrap();
         assert!(single.with_laser_planes(vec![Some(plane())]).is_ok());
+    }
+
+    #[test]
+    fn handeye_attaches_and_is_checked() {
+        let pose = Iso3::from_parts(Translation3::new(0.1, 0.0, 0.2), UnitQuaternion::identity());
+        let labels = |name: &str| {
+            ["rx", "ry", "rz", "tx", "ty", "tz"]
+                .map(|c| format!("{name}.{c}"))
+                .to_vec()
+        };
+        let eih = Handeye::EyeInHand {
+            gripper_se3_rig: pose,
+        };
+        let eth = Handeye::EyeToHand { rig_se3_base: pose };
+
+        let bare = CalibratedRig::single(pinhole(800.0), Uncertainty::default()).unwrap();
+        assert!(bare.handeye().is_none() && bare.handeye_labels().is_none());
+        let rig = bare.with_handeye(eih).unwrap();
+        assert_eq!(rig.handeye(), Some(&eih));
+        assert_eq!(
+            rig.handeye_labels().unwrap().to_vec(),
+            labels("gripper_se3_camera")
+        );
+
+        let pair = || {
+            CalibratedRig::new(
+                vec![pinhole(800.0), pinhole(800.0)],
+                vec![Iso3::identity(), Iso3::identity()],
+                covariance_with(labels("rig_se3_base")),
+            )
+            .unwrap()
+        };
+        let rig = pair().with_handeye(eth).unwrap();
+        assert_eq!(
+            rig.handeye_labels().unwrap().to_vec(),
+            labels("rig_se3_base")
+        );
+        // Held fixed: the covariance does not list it.
+        assert!(pair().with_handeye(eih).is_ok());
+        // Listed in part.
+        let mut part = labels("gripper_se3_rig");
+        part.truncate(3);
+        let rig = CalibratedRig::new(
+            vec![pinhole(800.0), pinhole(800.0)],
+            vec![Iso3::identity(), Iso3::identity()],
+            covariance_with(part),
+        )
+        .unwrap();
+        let err = rig.with_handeye(eih).unwrap_err();
+        assert!(err.to_string().contains("whole or held"), "{err}");
     }
 
     #[test]

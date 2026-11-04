@@ -36,6 +36,7 @@
 use crate::bearing::{bearing, camera_model};
 use crate::dense::GrayImage;
 use crate::triangulation::{RigObservation, Triangulation, triangulate};
+use crate::types::Captures;
 use crate::{MvgError, Result};
 use nalgebra::Matrix4;
 use serde::{Deserialize, Serialize};
@@ -446,7 +447,7 @@ impl StereoRectification {
                 ])
             })
             .collect::<Result<Vec<_>>>()?;
-        triangulate(rig, &[Iso3::identity()], &tracks, control)
+        triangulate(rig, Captures::Rig, &tracks, control)
     }
 }
 

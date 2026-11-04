@@ -16,8 +16,9 @@ use common::{
     PIXEL_SIGMA, calibrated_stereo_rig, scatter_over_stated, stereo_cameras, stereo_noisy_pixel,
     stereo_test_points, without_calibration_share,
 };
-use vision_calibration::core::{Iso3, PointCovariance};
+use vision_calibration::core::PointCovariance;
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
+use vision_calibration::mvg::types::Captures;
 
 #[test]
 fn the_calibrations_share_is_in_the_triangulated_depth_sigma() {
@@ -49,14 +50,14 @@ fn the_calibrations_share_is_in_the_triangulated_depth_sigma() {
             .collect();
         let with = triangulate(
             &rig,
-            &[Iso3::identity()],
+            Captures::Rig,
             &tracks,
             &vision_calibration::control::RunControl::default(),
         )
         .unwrap();
         let without = triangulate(
             &bare,
-            &[Iso3::identity()],
+            Captures::Rig,
             &tracks,
             &vision_calibration::control::RunControl::default(),
         )

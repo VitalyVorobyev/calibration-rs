@@ -64,6 +64,8 @@ __all__ = [
     "RansacOptions",
     "RelativePose",
     "RigObservation",
+    "RobotCaptures",
+    "RobotPose",
     "RobustRelativePose",
     "Scalar",
     "SceneDiagnostics",
@@ -228,7 +230,7 @@ class PixelMatch:
 @dataclass(frozen=True, slots=True)
 class RigObservation:
     """One pixel of a point: seen by rig camera ``camera`` at capture
-    ``capture`` (an index into the ``rig_se3_world`` poses of the call), with
+    ``capture`` (an index into the captures of the call), with
     its stated noise."""
 
     capture: int
@@ -266,19 +268,93 @@ class PoseObservation:
 
 @dataclass(frozen=True, slots=True)
 class LaserObservation:
-    """One pixel of the laser line seen by rig camera ``camera``; the camera
-    needs a laser plane in the calibration."""
+    """One pixel of the laser line seen by rig camera ``camera`` at capture
+    ``capture`` (an index into the captures of the call; 0 for one capture);
+    the camera needs a laser plane in the calibration."""
 
     camera: int
     pixel: Pixel
     noise: PointCovariance
+    capture: int = 0
 
     def to_payload(self) -> dict[str, Any]:
         return {
+            "capture": int(self.capture),
             "camera": int(self.camera),
             "pixel": _pixel(self.pixel, "pixel"),
             "noise": self.noise.to_payload(),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class RobotPose:
+    """The robot's pose at a capture: ``base_se3_gripper``, the ``(4, 4)``
+    matrix taking gripper coordinates into the base frame, exact or with the
+    ``(6, 6)`` covariance of its error.
+
+    The covariance is over the right perturbation ``base_se3_gripper · Exp(δ)``,
+    ``δ = [rx, ry, rz, tx, ty, tz]``: rotations in rad about the gripper's axes
+    and translations in metres along them, as the robot's repeatability or
+    accuracy states them. It must be symmetric and positive semi-definite.
+    """
+
+    base_se3_gripper: ArrayLike
+    covariance: ArrayLike | None = None
+
+    @classmethod
+    def isotropic(
+        cls, base_se3_gripper: ArrayLike, rot_sigma: float, trans_sigma: float
+    ) -> RobotPose:
+        """An uncorrelated error of ``rot_sigma`` rad about each gripper axis and
+        ``trans_sigma`` m along each."""
+        r, t = float(rot_sigma) ** 2, float(trans_sigma) ** 2
+        return cls(base_se3_gripper, np.diag([r, r, r, t, t, t]))
+
+    def to_payload(self) -> dict[str, Any]:
+        pose = np.asarray(self.base_se3_gripper, dtype=np.float64)
+        if pose.shape != (4, 4):
+            raise ValueError(f"base_se3_gripper must be a (4, 4) matrix, got shape {pose.shape}")
+        covariance = None
+        if self.covariance is not None:
+            c = np.asarray(self.covariance, dtype=np.float64)
+            if c.shape != (6, 6):
+                raise ValueError(f"a robot pose's covariance must be (6, 6), got shape {c.shape}")
+            covariance = c.tolist()
+        return {"base_se3_gripper": pose.reshape(16).tolist(), "covariance": covariance}
+
+
+@dataclass(frozen=True, slots=True)
+class RobotCaptures:
+    """Captures of a rig calibrated on a robot (its calibration carries the
+    hand-eye): the points are stated in the robot's ``frame``, ``"gripper"``
+    or ``"base"``.
+
+    In the frame that moves with the rig's robot (the base for an eye-in-hand
+    rig, the gripper for an eye-to-hand one) ``robot`` gives the robot's pose
+    at each capture, and its covariance enters the points'. In the frame the
+    rig is fixed in (the gripper eye-in-hand, the base eye-to-hand) the robot
+    does not enter: leave ``robot`` empty, and every observation is at
+    capture 0. The hand-eye's uncertainty enters in either.
+    """
+
+    frame: str
+    robot: Sequence[RobotPose] = ()
+
+    def to_payload(self) -> dict[str, Any]:
+        if self.frame not in ("gripper", "base"):
+            raise ValueError(f'frame must be "gripper" or "base", got {self.frame!r}')
+        return {"frame": self.frame, "robot": [r.to_payload() for r in self.robot]}
+
+
+def _captures(
+    captures: ArrayLike | RobotCaptures | None,
+) -> tuple[NDArray[np.float64] | None, dict[str, Any] | None]:
+    """The native ``(rig_se3_world, robot)`` arguments of ``captures``."""
+    if captures is None:
+        return None, None
+    if isinstance(captures, RobotCaptures):
+        return None, captures.to_payload()
+    return _poses(captures, "rig_se3_world"), None
 
 
 def reprojection_noise(
@@ -791,20 +867,23 @@ def recover_relative_pose_robust(
 
 def triangulate(
     result: CalibrationResult | Mapping[str, Any],
-    rig_se3_world: ArrayLike,
+    captures: ArrayLike | RobotCaptures,
     tracks: Sequence[Sequence[RigObservation]],
     *,
     progress: ProgressCallback | None = None,
 ) -> Triangulation:
-    """Triangulate each track (the observations of one point) in the world
-    frame, refine the points and give their joint covariance.
+    """Triangulate each track (the observations of one point) in the frame of
+    ``captures``, refine the points and give their joint covariance.
 
-    ``rig_se3_world[k]`` is the ``(4, 4)`` pose of the rig at capture ``k``
-    (world to rig frame), taken as exact. For one stereo capture pass
-    ``np.eye(4)``: the points come out in the rig frame. The covariance has the
-    observations' noise and the calibration's share, so the points are
-    correlated (:meth:`Triangulation.cross_covariance`); it is dense over the
-    ``3N`` coordinates, so the cost grows as ``N³``.
+    ``captures`` is the ``(K, 4, 4)`` stack of the rig's poses at each capture,
+    ``rig_se3_world[k]`` (world to rig frame), taken as exact; for one stereo
+    capture pass ``np.eye(4)``: the points come out in the rig frame. For a rig
+    calibrated on a robot, :class:`RobotCaptures` states the points in its
+    gripper or base frame, the hand-eye's and the robot poses' uncertainty in
+    their covariance. The covariance has the observations' noise and the
+    calibration's share, so the points are correlated
+    (:meth:`Triangulation.cross_covariance`); it is dense over the ``3N``
+    coordinates, so the cost grows as ``N³``.
 
     ``progress``, when given, is called with each progress report (a
     :data:`~vision_calibration.types.Progress` mapping) as the refinement
@@ -819,9 +898,11 @@ def triangulate(
     RuntimeError
         For a degenerate (zero-parallax) track.
     """
+    rig_se3_world, robot = _captures(captures)
     payload = _native.mvg_triangulate(
         _export_of(result),
-        _poses(rig_se3_world, "rig_se3_world"),
+        rig_se3_world,
+        robot,
         [[o.to_payload() for o in track] for track in tracks],
         progress,
     )
@@ -928,21 +1009,30 @@ def bundle_adjust(
 def triangulate_laser(
     result: CalibrationResult | Mapping[str, Any],
     observations: Sequence[LaserObservation],
+    captures: ArrayLike | RobotCaptures | None = None,
 ) -> LaserTriangulation:
-    """The 3D points of laser-line pixels on their cameras' laser planes, in the
-    rig frame, with the covariance of the pixels, the cameras, the planes and
-    the extrinsics.
+    """The 3D points of laser-line pixels on their cameras' laser planes, with
+    the covariance of the pixels, the cameras, the planes and the extrinsics.
+
+    Without ``captures`` the points are in the rig frame, every observation at
+    capture 0. ``captures`` as for :func:`triangulate`: the rig's exact pose at
+    each capture, or :class:`RobotCaptures` for the gripper or base frame of a
+    rig calibrated on a robot, with the hand-eye's and the robot poses'
+    uncertainty.
 
     Raises
     ------
     ValueError
-        For a camera index out of range or a camera with no laser plane in the
-        calibration.
+        For a camera or capture index out of range, a camera with no laser
+        plane in the calibration, or a robot frame the calibration cannot serve
+        (no hand-eye, or robot poses given for the frame the rig is fixed in, or
+        missing for the other).
     RuntimeError
         If a viewing ray is parallel to the plane or meets it behind the camera.
     """
+    rig_se3_world, robot = _captures(captures)
     payload = _native.mvg_triangulate_laser(
-        _export_of(result), [o.to_payload() for o in observations]
+        _export_of(result), [o.to_payload() for o in observations], rig_se3_world, robot
     )
     return LaserTriangulation.from_payload(cast(Mapping[str, Any], payload))
 

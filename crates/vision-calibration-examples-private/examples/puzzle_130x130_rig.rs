@@ -15,7 +15,7 @@
 //! 4. `RigLaserlineDeviceProblem` session consuming the frozen upstream rig
 //!    calibration to recover 6 laser planes in rig frame.
 //! 5. Joint rig + hand-eye + laser-plane BA.
-//! 6. Demonstrate `pixel_to_gripper_point` on sample laser pixels.
+//! 6. Measure sample laser pixels in the gripper frame, with their σ.
 //!
 //! Set `PUZZLE_DATA_DIR` to the dataset directory and run with
 //! `cargo run --manifest-path crates/vision-calibration-examples-private/Cargo.toml
@@ -30,17 +30,22 @@ mod puzzle_viewer;
 
 use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
+    common::CalibratedCameras,
+    mvg::{
+        laser::{LaserObservation, triangulate_laser},
+        types::Captures,
+    },
     rig_handeye::{IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
-        pixel_to_gripper_point,
     },
     session::CalibrationSession,
 };
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind,
-    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, PixelRect, Pt2, RigDataset, RigView,
-    RigViewObs, ScheimpflugParams, SensorKind, SensorParams,
+    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, PixelRect, PointCovariance, Pt2,
+    RigDataset, RigView, RigViewObs, RobotFrame, RobotPose, ScheimpflugParams, SensorKind,
+    SensorParams,
 };
 use vision_calibration_examples_private::{
     PoseEntry, detect_laser, detect_target, load_gray, load_poses, split_horizontal,
@@ -513,29 +518,48 @@ fn main() -> Result<()> {
         );
     }
 
-    // ─── Stage 5: pixel → gripper point demo ───────────────────────────────
+    // ─── Stage 5: laser pixels in the gripper frame ────────────────────────
     // Use the first pose that carried laser observations to anchor the query
     // — in EyeToHand, the gripper-frame mapping depends on the robot pose.
+    // The staged laser export's covariance does not list the hand-eye, so it
+    // counts as exact here; the joint export states its share too.
     let ref_pose = poses
         .iter()
         .find(|p| p.has_laser())
-        .map(|p| p.base_se3_gripper());
-    println!("\nsample pixel→gripper mappings:");
-    for cam in 0..NUM_CAMERAS {
-        let pixel = Pt2::new(320.0, 240.0); // center-ish
-        match pixel_to_gripper_point(
-            cam,
-            pixel,
-            &rig_export,
-            &laser_export.laser_planes_rig,
-            ref_pose,
-        ) {
-            Ok(p) => println!(
-                "  cam{cam} ({:.1},{:.1}) → ({:.3}, {:.3}, {:.3}) m (gripper)",
-                pixel.x, pixel.y, p.x, p.y, p.z
-            ),
-            Err(e) => println!("  cam{cam}: {e}"),
+        .map(|p| p.base_se3_gripper())
+        .context("no pose with laser observations")?;
+    let handeye = *rig_export
+        .calibrated_rig()?
+        .handeye()
+        .context("the hand-eye export has no hand-eye")?;
+    let rig = laser_export.calibrated_rig()?.with_handeye(handeye)?;
+    let noise = PointCovariance::isotropic(0.5)?;
+    let observations: Vec<LaserObservation> = (0..NUM_CAMERAS)
+        .map(|cam| LaserObservation::new(0, cam, Pt2::new(320.0, 240.0), noise))
+        .collect();
+    let robot = [RobotPose::exact(ref_pose)];
+    println!("\nsample laser pixels in the gripper frame:");
+    match triangulate_laser(
+        &rig,
+        Captures::Robot {
+            frame: RobotFrame::Gripper,
+            robot: &robot,
+        },
+        &observations,
+    ) {
+        Ok(found) => {
+            for (i, p) in found.points.iter().enumerate() {
+                let sigma = found
+                    .point_covariance(i)
+                    .map(|c| c.trace().sqrt() * 1e3)
+                    .unwrap_or(f64::NAN);
+                println!(
+                    "  cam{} (320.0,240.0) → ({:.3}, {:.3}, {:.3}) m (gripper), σ {sigma:.3} mm",
+                    p.camera, p.point.x, p.point.y, p.point.z
+                );
+            }
         }
+        Err(e) => println!("  {e}"),
     }
 
     Ok(())

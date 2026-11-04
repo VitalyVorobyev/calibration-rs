@@ -24,6 +24,7 @@ use vision_calibration::laserline_device::{
 };
 use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
 use vision_calibration::mvg::metrology::{PointSet, distance};
+use vision_calibration::mvg::types::Captures;
 use vision_calibration::session::CalibrationSession;
 
 /// A scatter ratio from `n` trials has a relative error of `1/sqrt(2n)`: 300
@@ -91,11 +92,11 @@ fn the_calibrations_share_is_in_the_laser_point_sigma() {
                     clean.x + LASER_SIGMA * gauss(2 * key),
                     clean.y + LASER_SIGMA * gauss(2 * key + 1),
                 );
-                LaserObservation::new(0, pixel, noise)
+                LaserObservation::new(0, 0, pixel, noise)
             })
             .collect();
-        let with = triangulate_laser(&rig, &observations).unwrap();
-        let without = triangulate_laser(&bare, &observations).unwrap();
+        let with = triangulate_laser(&rig, Captures::Rig, &observations).unwrap();
+        let without = triangulate_laser(&bare, Captures::Rig, &observations).unwrap();
         for i in 0..POINTS {
             // The same estimate either way: asking for the share moves no point.
             let d = (with.points[i].point - without.points[i].point).norm();

@@ -29,6 +29,7 @@ use vision_calibration_core::{
     Vec3, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_mvg::triangulation::{RigObservation, triangulate};
+use vision_mvg::types::Captures;
 use vision_mvg::{PixelMatch, recover_relative_pose};
 
 /// A match of two pixels, each detected to a stated 0.5 px.
@@ -228,7 +229,7 @@ fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
                 ];
                 let tp = triangulate(
                     &rig,
-                    &[Iso3::identity()],
+                    Captures::Rig,
                     &[track],
                     &vision_calibration_core::RunControl::default(),
                 )

@@ -16,6 +16,7 @@ use vision_calibration_core::{
     UncertaintyUnavailable, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_mvg::triangulation::{RigObservation, triangulate};
+use vision_mvg::types::Captures;
 
 /// A deterministic generator (SplitMix64) with normal draws.
 struct Rng(u64);
@@ -156,7 +157,7 @@ fn point_covariance_matches_the_scatter_of_pixel_noise() {
             .collect();
         let found = triangulate(
             &rig,
-            &[Iso3::identity()],
+            Captures::Rig,
             &tracks,
             &vision_calibration_core::RunControl::default(),
         )
@@ -215,7 +216,7 @@ fn a_rig_without_covariance_still_refines() {
         .collect();
     let found = triangulate(
         &rig,
-        &[Iso3::identity()],
+        Captures::Rig,
         &tracks,
         &vision_calibration_core::RunControl::default(),
     )
@@ -249,7 +250,7 @@ fn an_unrefinable_track_has_no_covariance() {
     ];
     let found = triangulate(
         &rig,
-        &[Iso3::identity()],
+        Captures::Rig,
         &[behind, good],
         &vision_calibration_core::RunControl::default(),
     )
@@ -302,7 +303,7 @@ fn refinement_improves_on_the_linear_estimate_for_a_fisheye() {
             .collect();
         let found = triangulate(
             &rig,
-            &[Iso3::identity()],
+            Captures::Rig,
             &tracks,
             &vision_calibration_core::RunControl::default(),
         )

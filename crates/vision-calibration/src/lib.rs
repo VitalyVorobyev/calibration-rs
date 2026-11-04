@@ -431,9 +431,6 @@ pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::{
         run_calibration, step_init, step_init_with_seed, step_optimize,
     };
-
-    // Geometry helper
-    pub use vision_calibration_pipeline::rig_laserline_device::pixel_to_gripper_point;
 }
 
 /// Joint rig hand-eye + laserline calibration.
@@ -473,13 +470,14 @@ pub mod core {
     pub use vision_calibration_core::{
         BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel, CameraModelSpec,
         CameraParams, CorrespondenceView, DistortionKind, DistortionParams, Division, Equidistant,
-        FrameKind, FrameRef, FxFyCxCy, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4,
-        LaserPlane, Mat3, NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera,
-        PixelRect, PlanarDataset, PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3,
-        RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs,
-        ScheimpflugParams, SensorKind, SensorModel, SensorParams, ThinPrism, Uncertainty,
-        UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
-        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
+        FrameKind, FrameRef, FxFyCxCy, Handeye, IdentitySensor, ImageManifest, Iso3,
+        KannalaBrandt4, LaserPlane, Mat3, NoMeta, NoiseLevel, ParameterCovariance, Pinhole,
+        PinholeCamera, PixelRect, PlanarDataset, PointCovariance, ProjectionKind, ProjectionParams,
+        Pt2, Pt3, RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
+        RigViewObs, RobotFrame, RobotPose, ScheimpflugParams, SensorKind, SensorModel,
+        SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable, Vec2, Vec3, View,
+        ViewCovariance, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
+        pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].

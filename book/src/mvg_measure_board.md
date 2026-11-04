@@ -26,7 +26,7 @@ The same run is repeated with the calibration's covariance replaced by zero, whi
 let rig = export.calibrated_rig()?;
 let noise = [rig.reprojection_noise(0)?, rig.reprojection_noise(1)?];
 let tracks: Vec<Vec<RigObservation>> = /* one per corner seen by both cameras */;
-let set = PointSet::from_triangulation(&triangulate(&rig, &[Iso3::identity()], &tracks, &RunControl::default())?)?;
+let set = PointSet::from_triangulation(&triangulate(&rig, Captures::Rig, &tracks, &RunControl::default())?)?;
 let length = distance(&set, a, b)?;           // Scalar { value, sigma }
 let error = length.value - truth;             // against the board's known size
 ```

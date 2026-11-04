@@ -16,6 +16,7 @@ use vision_calibration_optim::problem::Use;
 use vision_mvg::MvgError;
 use vision_mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
 use vision_mvg::triangulation::{RigObservation, triangulate};
+use vision_mvg::types::Captures;
 
 /// A deterministic generator (SplitMix64) with normal draws.
 struct Rng(u64);
@@ -620,7 +621,7 @@ fn a_prior_rig_feeds_back_into_triangulation() {
     let found = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap();
     let again = triangulate(
         &found.rig,
-        &found.rig_se3_world,
+        Captures::World(&found.rig_se3_world),
         &tracks,
         &vision_calibration_core::RunControl::default(),
     )
@@ -749,10 +750,16 @@ fn bundle_adjust_cancels_with_a_typed_error() {
 #[test]
 fn triangulate_reports_and_cancels() {
     let (rig, poses, _, tracks) = progress_scene();
-    let plain = triangulate(&rig, &poses, &tracks, &RunControl::default()).unwrap();
+    let plain = triangulate(
+        &rig,
+        Captures::World(&poses),
+        &tracks,
+        &RunControl::default(),
+    )
+    .unwrap();
 
     let (control, seen) = recording(RunControl::default());
-    let observed = triangulate(&rig, &poses, &tracks, &control).unwrap();
+    let observed = triangulate(&rig, Captures::World(&poses), &tracks, &control).unwrap();
     assert!(!seen.lock().unwrap().is_empty());
     assert_eq!(
         format!("{:?}", plain.points),
@@ -765,7 +772,12 @@ fn triangulate_reports_and_cancels() {
 
     let token = CancelToken::new();
     token.cancel();
-    let err =
-        triangulate(&rig, &poses, &tracks, &RunControl::new().with_cancel(token)).unwrap_err();
+    let err = triangulate(
+        &rig,
+        Captures::World(&poses),
+        &tracks,
+        &RunControl::new().with_cancel(token),
+    )
+    .unwrap_err();
     assert!(matches!(err, MvgError::Cancelled), "{err:?}");
 }

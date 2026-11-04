@@ -2222,7 +2222,7 @@ class RigHandeyeExport(_ExportResiduals):
     def to_payload(self) -> dict[str, Any]:
         """Convert to Rust/serde shape (``RigHandeyeExport``).
 
-        Used by helpers like :func:`pixel_to_gripper_point` that pass a
+        Used by helpers like :func:`rig_upstream_calibration` that pass a
         result back across the FFI boundary.
         """
 

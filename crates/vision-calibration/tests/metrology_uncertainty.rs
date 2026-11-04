@@ -23,6 +23,7 @@ use std::time::Instant;
 use vision_calibration::core::{CalibratedRig, Iso3, PointCovariance, Pt3};
 use vision_calibration::mvg::metrology::{PointSet, angle, distance, fit_plane};
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
+use vision_calibration::mvg::types::Captures;
 use vision_calibration::synthetic::poses::make_iso;
 
 /// A scatter ratio from `n` trials has a relative error of `1/sqrt(2n)`: 300
@@ -73,7 +74,7 @@ fn trial(rig: &CalibratedRig, tracks: &[Vec<RigObservation>]) -> Trial {
     let set = PointSet::from_triangulation(
         &triangulate(
             rig,
-            &[Iso3::identity()],
+            Captures::Rig,
             tracks,
             &vision_calibration::control::RunControl::default(),
         )

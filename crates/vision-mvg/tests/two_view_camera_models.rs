@@ -14,6 +14,7 @@ use vision_calibration_core::{
     make_pinhole_camera, pinhole_camera_params,
 };
 use vision_mvg::triangulation::{RigObservation, triangulate};
+use vision_mvg::types::Captures;
 use vision_mvg::{PixelMatch, recover_relative_pose};
 
 /// A match of two pixels, each detected to a stated 0.5 px.
@@ -151,7 +152,7 @@ fn distorted_pinhole_noiseless_recovers_pose_and_points() {
         .collect();
     let found = triangulate(
         &rig,
-        &[Iso3::identity()],
+        Captures::Rig,
         &tracks,
         &vision_calibration_core::RunControl::default(),
     )
@@ -195,7 +196,7 @@ fn distorted_pinhole_with_pixel_noise_stays_within_the_noise_floor() {
 
     let found = triangulate(
         &rig,
-        &[Iso3::identity()],
+        Captures::Rig,
         &tracks,
         &vision_calibration_core::RunControl::default(),
     )
@@ -262,7 +263,7 @@ fn fisheye_rig_recovers_points_and_pose_beyond_90_degrees() {
         .collect();
     let found = triangulate(
         &rig,
-        &[Iso3::identity()],
+        Captures::Rig,
         &tracks,
         &vision_calibration_core::RunControl::default(),
     )

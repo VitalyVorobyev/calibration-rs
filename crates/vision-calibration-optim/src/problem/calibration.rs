@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use nalgebra::{DMatrix, DVector, RealField, UnitQuaternion, Vector3};
-use vision_calibration_core::{CalibratedRig, Iso3};
+use nalgebra::{DMatrix, DVector, Matrix6, RealField, UnitQuaternion, Vector3};
+use vision_calibration_core::{CalibratedRig, Handeye, Iso3, RobotFrame, RobotPose};
 
 use super::residual::{Bridge, Residual, se3};
 use super::{BlockId, CAMERA_SLOTS, Camera, CameraId, Manifold, Owner, PoseChain, Problem, Term};
@@ -95,6 +95,20 @@ pub(super) struct Calibration {
     /// Their covariance `Σ_c`; `None` for a calibration without one (which
     /// only [`Use::Consider`] adds).
     pub(super) sigma: Option<DMatrix<f64>>,
+    /// The rig's hand-eye, for [`Problem::add_rig_pose`]; `None` for a rig
+    /// without one.
+    pub(super) handeye: Option<HandeyeSource>,
+}
+
+/// A calibration's hand-eye and its covariance with the calibration's
+/// coordinates.
+#[derive(Debug, Clone)]
+pub(super) struct HandeyeSource {
+    handeye: Handeye,
+    /// `Σ_hh` and `Cov(h, c)` over the calibration's coordinates (6 ×
+    /// their number); `None` when the covariance does not list the hand-eye
+    /// (it was held, exact) or there is no covariance.
+    sigma: Option<(Matrix6<f64>, DMatrix<f64>)>,
 }
 
 impl Problem {
@@ -256,15 +270,159 @@ impl Problem {
             let sigma = sigma.as_ref().expect("a prior has a covariance");
             self.add_prior(&coordinates, sigma)?;
         }
+        let handeye = rig.handeye().map(|&handeye| {
+            let at: Option<Vec<usize>> = rig
+                .handeye_labels()
+                .expect("a rig with a hand-eye labels it")
+                .iter()
+                .map(|l| position(l))
+                .collect();
+            let sigma = covariance.zip(at).map(|(c, at)| {
+                (
+                    Matrix6::from_fn(|a, b| c.covariance[at[a]][at[b]]),
+                    DMatrix::from_fn(6, estimated.len(), |a, b| {
+                        c.covariance[at[a]][estimated[b].2]
+                    }),
+                )
+            });
+            HandeyeSource { handeye, sigma }
+        });
         self.calibration = Some(Calibration {
             usage,
             coordinates,
             sigma,
+            handeye,
         });
         Ok(RigBlocks {
             cameras,
             cam_se3_rig,
         })
+    }
+
+    /// Add the calibrated rig's pose in the robot frame `frame`,
+    /// `rig_se3_<frame>`, as an SE3 block named `name`, held at its value,
+    /// whose uncertainty is considered with the calibration's (see
+    /// [`Use::Consider`]).
+    ///
+    /// The pose follows from the rig's hand-eye
+    /// ([`CalibratedRig::with_handeye`]) and, in the frame that moves with
+    /// the robot (the base eye-in-hand, the gripper eye-to-hand), the
+    /// robot's pose `robot` at the capture. Its uncertainty is the
+    /// hand-eye's, correlated with the cameras' through the calibration's
+    /// covariance, plus the robot pose's stated covariance, independent of
+    /// the calibration's and of every other robot pose's. A hand-eye the
+    /// covariance does not list counts as exact, as does a robot pose
+    /// without a covariance. Reproject through it as the target pose of a
+    /// [`RigBlocks::chain`]: the points then live in `frame`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] before a calibrated rig is added, for one
+    /// added with [`Use::Prior`], a rig without a hand-eye, a robot pose
+    /// given in the frame the rig is fixed in (the gripper eye-in-hand, the
+    /// base eye-to-hand: it does not enter) or missing in the other, and a
+    /// name [`add_block`](Self::add_block) rejects.
+    pub fn add_rig_pose(
+        &mut self,
+        name: impl Into<String>,
+        frame: RobotFrame,
+        robot: Option<&RobotPose>,
+    ) -> Result<BlockId, Error> {
+        let name = name.into();
+        self.check_name(&name)?;
+        let calibration = self.calibration.as_ref().ok_or_else(|| {
+            Error::invalid_input("add the calibrated rig before its poses on the robot")
+        })?;
+        if calibration.usage != Use::Consider {
+            return Err(Error::invalid_input(
+                "a rig pose on the robot is considered: add the calibrated rig with \
+                 Use::Consider",
+            ));
+        }
+        let source = calibration
+            .handeye
+            .as_ref()
+            .ok_or_else(|| Error::invalid_input("the calibration has no hand-eye"))?;
+        let fixed_in = source.handeye.mount_frame();
+        let base_se3_gripper = match (frame == fixed_in, robot) {
+            (true, None) => Iso3::identity(),
+            (true, Some(_)) => {
+                return Err(Error::invalid_input(format!(
+                    "the rig is fixed in the {} frame: the robot's pose does not enter",
+                    frame.name()
+                )));
+            }
+            (false, Some(robot)) => *robot.base_se3_gripper(),
+            (false, None) => {
+                return Err(Error::invalid_input(format!(
+                    "the rig moves in the {} frame with the robot: state the robot's pose",
+                    frame.name()
+                )));
+            }
+        };
+        let at = source.handeye.rig_in_frame(frame, &base_se3_gripper);
+        let robot_share = at
+            .d_robot
+            .zip(robot.and_then(RobotPose::covariance))
+            .map(|(b, sigma_r)| b * sigma_r * b.transpose());
+        let handeye_share = source.sigma.as_ref().map(|(sigma_hh, sigma_hc)| {
+            let a = at.d_handeye;
+            (
+                a * sigma_hc,
+                a * sigma_hh * a.transpose(),
+                sigma_hh * a.transpose(),
+            )
+        });
+
+        let id = self.push_block(super::Block {
+            name,
+            values: iso3_to_se3_dvec(&at.rig_se3_frame),
+            manifold: Manifold::Se3,
+            fixed: FixedMask::all_fixed(7),
+            bounds: Vec::new(),
+            labels: None,
+            owner: Owner::User,
+        });
+        let calibration = self
+            .calibration
+            .as_mut()
+            .expect("the calibration was checked above");
+        let Some(sigma) = calibration.sigma.as_mut() else {
+            // Without the calibration's covariance the solution has none.
+            return Ok(id);
+        };
+        if handeye_share.is_none() && robot_share.is_none() {
+            return Ok(id);
+        }
+        // The pose's tangent ξ = A ε_h + B ε_r joins the coordinates:
+        // Cov(ξ, c) = A Cov(h, c), Cov(ξ, ξ) = A Σ_hh Aᵀ + B Σ_r Bᵀ.
+        let m = sigma.nrows();
+        let mut grown = DMatrix::zeros(m + 6, m + 6);
+        grown.view_mut((0, 0), (m, m)).copy_from(sigma);
+        let mut own = robot_share.unwrap_or_else(Matrix6::zeros);
+        if let Some((cross, sigma_xi, _)) = &handeye_share {
+            grown.view_mut((m, 0), (6, m)).copy_from(cross);
+            grown.view_mut((0, m), (m, 6)).copy_from(&cross.transpose());
+            own += sigma_xi;
+        }
+        grown.view_mut((m, m), (6, 6)).copy_from(&own);
+        *sigma = grown;
+        calibration
+            .coordinates
+            .extend((0..6).map(|i| (id.index, i)));
+        // Cov(h, ξ) = Σ_hh Aᵀ, for the next pose.
+        if let Some(HandeyeSource {
+            sigma: Some((_, sigma_hc)),
+            ..
+        }) = calibration.handeye.as_mut()
+        {
+            let new_columns = handeye_share.map_or_else(Matrix6::zeros, |(_, _, c)| c);
+            let mut grown = DMatrix::zeros(6, m + 6);
+            grown.view_mut((0, 0), (6, m)).copy_from(sigma_hc);
+            grown.view_mut((0, m), (6, 6)).copy_from(&new_columns);
+            *sigma_hc = grown;
+        }
+        Ok(id)
     }
 
     /// The whitened prior `L⁻¹(c − c₀)` over the calibration's estimated

@@ -18,7 +18,6 @@ from .models import (
     LaserlineDeviceInput,
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
-    LaserPlane,
     PlanarIntrinsicsConfig,
     PlanarIntrinsicsExport,
     PlanarIntrinsicsInput,
@@ -284,93 +283,6 @@ def run_rig_handeye_laserline(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
         progress,
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# pixel_to_gripper_point
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _pixel_to_gripper_point_raw(
-    cam_idx: int,
-    pixel: list[float],
-    rig_cal_payload: Mapping[str, Any],
-    laser_planes_payload: list[Mapping[str, Any]],
-    base_se3_gripper_payload: Mapping[str, Any] | None = None,
-) -> tuple[float, float, float]:
-    """Low-level raw helper: all arguments are already serde payloads."""
-    result = cast(
-        list[float],
-        _native.pixel_to_gripper_point(
-            cam_idx,
-            list(pixel),
-            rig_cal_payload,
-            list(laser_planes_payload),
-            base_se3_gripper_payload,
-        ),
-    )
-    return (result[0], result[1], result[2])
-
-
-def pixel_to_gripper_point(
-    cam_idx: int,
-    pixel: tuple[float, float] | list[float],
-    rig_cal: RigHandeyeExport | Mapping[str, Any],
-    laser_planes_rig: list[LaserPlane] | list[Mapping[str, Any]],
-    base_se3_gripper: Pose | Mapping[str, Any] | None = None,
-) -> tuple[float, float, float]:
-    """Map a laser pixel in a rig camera to a 3D point in the gripper frame.
-
-    Parameters
-    ----------
-    cam_idx:
-        Camera index.
-    pixel:
-        Observed pixel as ``(u, v)``.
-    rig_cal:
-        Rig hand-eye calibration result — either a typed
-        :class:`~vision_calibration.models.RigHandeyeExport` or
-        a raw serde payload dict.
-    laser_planes_rig:
-        Per-camera laser planes in rig frame — either typed
-        :class:`~vision_calibration.models.LaserPlane` instances or
-        raw serde payload dicts.
-    base_se3_gripper:
-        Robot gripper pose (required for EyeToHand; ignored for EyeInHand).
-        Either a typed :class:`~vision_calibration.models.Pose` or a raw
-        serde payload dict.
-
-    Returns
-    -------
-    tuple[float, float, float]
-        3D point ``(x, y, z)`` in gripper frame.
-    """
-    # Normalise rig_cal — accept the typed dataclass or a raw dict
-    if isinstance(rig_cal, RigHandeyeExport):
-        rig_cal_payload: Mapping[str, Any] = rig_cal.to_payload()
-    else:
-        rig_cal_payload = dict(rig_cal)
-
-    # Normalise planes — use LaserPlane.to_payload() which emits the
-    # correct {"normal": [x, y, z], "distance": d} shape expected by Rust
-    planes_payload: list[Any] = []
-    for p in laser_planes_rig:
-        if isinstance(p, LaserPlane):
-            planes_payload.append(p.to_payload())
-        else:
-            planes_payload.append(dict(p))
-
-    # Normalise pose
-    pose_payload: Any = None
-    if base_se3_gripper is not None:
-        if isinstance(base_se3_gripper, Pose):
-            pose_payload = base_se3_gripper.to_payload()
-        else:
-            pose_payload = dict(base_se3_gripper)
-
-    return _pixel_to_gripper_point_raw(
-        cam_idx, list(pixel), rig_cal_payload, planes_payload, pose_payload
     )
 
 

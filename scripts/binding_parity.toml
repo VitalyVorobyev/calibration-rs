@@ -88,6 +88,8 @@
 "core::RigDataset" = ["RigExtrinsicsInput", "RigHandeyeInput"]
 "core::RigView" = ["RigExtrinsicsView", "RigHandeyeView"]
 "core::RigViewObs" = "types.RigViewObs"
+"core::RobotFrame" = "mvg.RobotCaptures.frame"
+"core::RobotPose" = "mvg.RobotPose"
 "core::ScheimpflugParams" = ["ScheimpflugSensor", "types.ScheimpflugParams"]
 "core::SensorKind" = "types.SensorKind"
 "core::SensorParams" = "types.SensorParams"
@@ -264,7 +266,6 @@
 "rig_laserline_device::RigLaserlineEstimate" = "session.CalibrationSession.output"
 "common::RigLaserlineView" = "RigLaserlineView"
 "rig_laserline_device::RigUpstreamCalibration" = "RigUpstreamCalibration"
-"rig_laserline_device::pixel_to_gripper_point" = "pixel_to_gripper_point"
 "rig_laserline_device::run_calibration" = ["run_rig_laserline_device", "session.CalibrationSession.run_calibration"]
 "rig_laserline_device::step_init" = "rig_laserline_device.RigLaserlineDeviceSession.step_init"
 "rig_laserline_device::step_init_with_seed" = "rig_laserline_device.RigLaserlineDeviceSession.step_init_with_seed"
@@ -305,7 +306,7 @@
 "mvg::rectification" = ["mvg.rectify", "mvg.StereoRectification"]
 "mvg::robust" = ["mvg.estimate_essential", "mvg.estimate_homography", "mvg.HomographyEstimate", "mvg.recover_relative_pose_robust", "mvg.EssentialEstimate", "mvg.RobustRelativePose"]
 "mvg::triangulation" = ["mvg.triangulate", "mvg.RigObservation", "mvg.Triangulation"]
-"mvg::types" = ["mvg.PixelMatch", "mvg.TriangulatedPoint"]
+"mvg::types" = ["mvg.PixelMatch", "mvg.TriangulatedPoint", "mvg.RobotCaptures"]
 
 [rust_only]
 "control::CancelToken" = "Python stops a long call with Ctrl-C (KeyboardInterrupt) or by raising from its progress callable, which cancels the token the binding holds"
@@ -344,6 +345,7 @@
 "common::CalibratedCameras" = "trait over the exports; Python's projection_uncertainty and assess take any export directly"
 "common::calibrated_cameras" = "reads an export JSON into CalibratedCameras; Python's projection_uncertainty and assess take any export directly"
 "core::CalibratedRig" = "the calibrated rig is built inside each mvg call from the calibration result passed to it; Python holds no rig object"
+"core::Handeye" = "a part of the calibrated rig, which Python never holds: each mvg call reads the hand-eye from the calibration result passed to it"
 "core::IdentitySensor" = "a camera-model component; Python builds whole cameras from CameraParams as a CameraModel"
 "core::Mat3" = "math alias; Python passes floats, tuples and numpy arrays"
 "core::Pinhole" = "a camera-model component; Python builds whole cameras from CameraParams as a CameraModel"

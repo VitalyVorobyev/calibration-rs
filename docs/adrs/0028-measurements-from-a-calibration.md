@@ -251,6 +251,74 @@ upstream so the plane fit linearizes through it. The upstream's
 `rig_se3_target` would then have two sources, and a rig-extrinsics
 upstream (per-view target poses of its own) would need a second path.
 
+### On a robot: the hand-eye is part of the calibration
+
+A rig calibrated on a robot measures in the robot's frames. `CalibratedRig`
+carries the hand-eye (`with_handeye`), a core `Handeye` enum with the one
+pose of its mode, `EyeInHand { gripper_se3_rig }` or `EyeToHand {
+rig_se3_base }`, the pose the export estimates; its covariance labels are
+the export's (`gripper_se3_rig.rx`, `rig_se3_base.rx`, `gripper_se3_camera`
+and `camera_se3_base` for one camera), whole or held as for the planes.
+`CalibratedCameras::calibrated_rig` attaches it for the three hand-eye
+exports. The robot's pose at a capture is a core `RobotPose`
+(`base_se3_gripper`, exact or with a 6×6 covariance over the right
+perturbation `base_se3_gripper·Exp(δ)`, the frame the robot-pose
+corrections of the calibration use), and `RobotFrame` names the frame.
+
+A measurement states where the rig was at each capture with `mvg::types::Captures`:
+`Rig` (one capture, the rig frame), `World(&rig_se3_world)` (exact poses),
+`Handeye(frame)` (the frame the rig is fixed in: one capture, no robot) or
+`Robot { frame, robot }` (the frame the rig moves in, a robot pose per
+capture). The variant and the frame are checked against the rig's mode
+before any work. Capture `k`'s `rig_se3_world` is the hand-eye chain, and
+its right perturbation `ξ = A ε_h + B ε_r` (core's `Handeye::rig_in_frame`,
+with `Ad`):
+
+| mode, frame | `rig_se3_<frame>` | `A` | `B` |
+|---|---|---|---|
+| eye-in-hand, gripper | `H⁻¹` | `−Ad(H)` | — |
+| eye-in-hand, base | `(P H)⁻¹` | `−Ad(P H)` | `−Ad(P)` |
+| eye-to-hand, base | `H` | `I` | — |
+| eye-to-hand, gripper | `H P` | `Ad(P⁻¹)` | `I` |
+
+The hand-eye then enters as one more calibration parameter, correlated with
+the cameras, planes and extrinsics through the calibration's covariance, and
+each robot pose as an independent source:
+
+- `triangulate_laser` (closed form) adds the columns `[x]ₓ, −I` times `A`
+  under the hand-eye's labels to `J_c`, and `[x]ₓ, −I` times `B` per robot
+  pose with its own covariance;
+- `triangulate` (the builder) adds each capture's pose with
+  `Problem::add_rig_pose(name, frame, robot)`: a fixed SE3 block whose
+  tangent joins the considered coordinates with `Cov(ξ, c) = A Cov(h, c)`
+  and `Cov(ξ, ξ) = A Σ_hh Aᵀ + B Σ_r Bᵀ`, so `S Σ_c Sᵀ` carries every cross
+  term.
+
+Rejected: a frame change applied to a finished measurement (points and
+their covariance in, points in the gripper or base frame out). It needs the
+points' cross-covariance with the hand-eye, which their covariance alone
+does not hold; with it dropped, the laser points of a joint rig hand-eye
+laserline calibration in the base frame state 0.41 mm against a 0.10 mm
+scatter (the calibration pins the board in the base frame, so the hand-eye
+errs with the planes and cameras it was estimated with). A frame option on
+each measurement puts the hand-eye into the same consider machinery.
+
+Rejected: the robot pose's error as a calibration parameter. It is the
+robot's at the measurement, not the calibration's, and independent of it;
+a robot's systematic error across poses (its kinematic calibration) is not
+modelled.
+
+A staged laser export (`rig_laserline_device`) does not list the hand-eye:
+its upstream maps the hand-eye into per-view board poses it does not
+report. A rig built from it with `with_handeye` counts the hand-eye exact;
+the joint `rig_handeye_laserline` export carries it, and the staged route
+gains it when a use needs it (the upstream would list the hand-eye with its
+cross terms to the planes).
+
+The pipeline's `pixel_to_gripper_point` (a point without σ, from a hand-eye
+export and planes in the rig frame) is deleted: `triangulate_laser` with
+`Captures` replaces it.
+
 ### What the σ promises
 
 Each propagated σ is gated by Monte-Carlo, redrawing both the calibration
@@ -270,9 +338,13 @@ on real data.
   - point-block and rig-chain reprojection;
   - whitened reprojection.
 - ADR 0027's "more chains are added when a need is shown" is that need.
-- Core gains `CalibratedRig` and `LaserPlane` (moved from optim); the
-  pipeline's `CalibratedCameras` gains `calibrated_rig` and, for the laser
-  exports, `laser_planes_cam`.
+- Core gains `CalibratedRig` and `LaserPlane` (moved from optim), and the
+  robot vocabulary `Handeye`, `RobotPose`, `RobotFrame`; the pipeline's
+  `CalibratedCameras` gains `calibrated_rig` and, for the laser exports,
+  `laser_planes_cam`, for the hand-eye exports `handeye`.
+- `triangulate` and `triangulate_laser` take `Captures` (the frame of the
+  measurement); `LaserObservation` names its capture. `optim::problem` gains
+  `add_rig_pose`.
 - Every MVG function that takes `K` changes signature to take a
   `CalibratedRig`: a breaking release.
 - MVG results carry covariances. Bundle adjustment needs an explicit

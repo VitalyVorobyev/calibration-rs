@@ -32,6 +32,16 @@ def _pose_matrix(pose: vc.Pose) -> np.ndarray:
     return out
 
 
+def _pose_payload(matrix: np.ndarray) -> dict[str, list[float]]:
+    """A ``(4, 4)`` pose as the serde ``Iso3`` payload."""
+    r = matrix[:3, :3]
+    w = 0.5 * np.sqrt(max(1.0 + np.trace(r), 1e-12))
+    x = (r[2, 1] - r[1, 2]) / (4 * w)
+    y = (r[0, 2] - r[2, 0]) / (4 * w)
+    z = (r[1, 0] - r[0, 1]) / (4 * w)
+    return {"rotation": [x, y, z, w], "translation": matrix[:3, 3].tolist()}
+
+
 def _rotation(rx: float, ry: float, rz: float) -> np.ndarray:
     cx, sx, cy, sy, cz, sz = np.cos(rx), np.sin(rx), np.cos(ry), np.sin(ry), np.cos(rz), np.sin(rz)
     rot_x = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
@@ -554,6 +564,82 @@ class MvgTest(unittest.TestCase):
         with self.assertRaises(ValueError):  # a stereo rig without a laser plane
             mvg.triangulate_laser(
                 self.scene.result, [mvg.LaserObservation(0, (500.0, 300.0), noise)]
+            )
+
+    def test_laser_points_in_the_robot_frames(self) -> None:
+        result = _laser_result()
+        export = dict(result.export)
+        # The laser calibration as a rig on a robot's gripper: its hand-eye is
+        # not in the covariance (held exact), the robot's pose has a σ.
+        gripper_se3_rig = _transform(_rotation(0.1, -0.2, 0.3), (0.02, -0.01, 0.15))
+        robot_pose = _transform(_rotation(0.3, 0.1, -0.5), (0.5, 0.1, 0.4))
+        on_robot = {
+            "kind": "rig_handeye_laserline",
+            "laser_planes_rig": [export["params"]["plane"]],
+            "laser_planes_cam": [export["params"]["plane"]],
+            "per_camera_stats": [],
+            "cameras": [export["params"]["camera"]],
+            "cam_se3_rig": [{"rotation": [0.0, 0.0, 0.0, 1.0], "translation": [0.0, 0.0, 0.0]}],
+            "rig_se3_target": [],
+            "handeye_mode": "EyeInHand",
+            "gripper_se3_rig": _pose_payload(gripper_se3_rig),
+            "mean_reproj_error": 0.1,
+            "per_cam_reproj_errors": [0.1],
+            "uncertainty": export["uncertainty"],
+        }
+        camera = vc.CameraModel(result.params.camera)
+        plane = result.params.plane
+        normal = np.array(plane.normal_xyz)
+        u = np.cross(normal, [0.0, 1.0, 0.0])
+        u /= np.linalg.norm(u)
+        centre = -plane.distance * normal
+        points = np.array([centre + a * u for a in (-0.03, 0.0, 0.03)])
+        noise = mvg.reprojection_noise(result, 0)
+        observations = [
+            mvg.LaserObservation(0, tuple(px), noise) for px in camera.project(points)
+        ]
+
+        in_rig = mvg.triangulate_laser(on_robot, observations)
+        in_gripper = mvg.triangulate_laser(on_robot, observations, mvg.RobotCaptures("gripper"))
+        robot = [mvg.RobotPose.isotropic(robot_pose, 1e-3, 0.5e-3)]
+        in_base = mvg.triangulate_laser(on_robot, observations, mvg.RobotCaptures("base", robot))
+        rig_points = np.array([p.point for p in in_rig.points])
+        np.testing.assert_allclose(
+            np.array([p.point for p in in_gripper.points]), _apply(gripper_se3_rig, rig_points),
+            atol=1e-9,
+        )
+        np.testing.assert_allclose(
+            np.array([p.point for p in in_base.points]),
+            _apply(robot_pose @ gripper_se3_rig, rig_points),
+            atol=1e-9,
+        )
+        # The robot's σ adds to the points'; an exact robot pose adds nothing.
+        exact = mvg.triangulate_laser(
+            on_robot, observations, mvg.RobotCaptures("base", [mvg.RobotPose(robot_pose)])
+        )
+        trace = lambda found: float(np.trace(found.point_covariance(0)))  # noqa: E731
+        self.assertGreater(trace(in_base), 1.5 * trace(exact))
+        self.assertAlmostEqual(trace(exact), trace(in_gripper), delta=1e-6 * trace(exact))
+        # Two captures of a scan: each observation names its robot pose.
+        second = [mvg.LaserObservation(0, o.pixel, noise, capture=1) for o in observations]
+        scan = mvg.triangulate_laser(
+            on_robot, observations + second, mvg.RobotCaptures("base", robot * 2)
+        )
+        self.assertEqual(len(scan.points), 6)
+
+        with self.assertRaises(ValueError):  # the base frame needs the robot's pose
+            mvg.triangulate_laser(on_robot, observations, mvg.RobotCaptures("base"))
+        with self.assertRaises(ValueError):  # the rig is fixed in the gripper frame
+            mvg.triangulate_laser(on_robot, observations, mvg.RobotCaptures("gripper", robot))
+        with self.assertRaises(ValueError):  # a calibration without a hand-eye
+            mvg.triangulate_laser(result, observations, mvg.RobotCaptures("gripper"))
+        with self.assertRaises(ValueError):
+            mvg.RobotCaptures("flange").to_payload()
+        with self.assertRaises(ValueError):  # not positive semi-definite
+            mvg.triangulate_laser(
+                on_robot,
+                observations,
+                mvg.RobotCaptures("base", [mvg.RobotPose(robot_pose, -np.eye(6))]),
             )
 
     # --- stereo ------------------------------------------------------------

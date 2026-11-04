@@ -32,7 +32,6 @@ from . import (
     single_cam_handeye,
 )
 from ._api import (
-    pixel_to_gripper_point,
     rig_upstream_calibration,
     projection_uncertainty,
     assess,
@@ -259,7 +258,6 @@ __all__ = [
     "run_rig_handeye_laserline",
     "run_laserline_device",
     "run_rig_laserline_device",
-    "pixel_to_gripper_point",
     "rig_upstream_calibration",
     "projection_uncertainty",
     "assess",

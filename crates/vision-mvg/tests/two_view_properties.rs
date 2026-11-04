@@ -25,6 +25,7 @@ use vision_calibration_core::{
 };
 use vision_geometry::epipolar::{decompose_essential, fundamental_8point};
 use vision_mvg::triangulation::{RigObservation, triangulate};
+use vision_mvg::types::Captures;
 
 fn skew(v: &Vec3) -> Mat3 {
     Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
@@ -206,7 +207,7 @@ fn triangulate_reproject_roundtrip() {
 
             let tp = triangulate(
                 &rig,
-                &[Iso3::identity()],
+                Captures::Rig,
                 &[track],
                 &vision_calibration_core::RunControl::default(),
             )

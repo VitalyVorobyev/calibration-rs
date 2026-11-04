@@ -3,7 +3,8 @@
 //! Every function takes a calibration result (an export payload, as
 //! `projection_uncertainty` does) and builds the `CalibratedRig` from it, so a
 //! rig that carries laser planes serves `triangulate_laser` too. Observations
-//! cross as serde payloads, poses as `(K, 4, 4)` arrays, point sets as
+//! cross as serde payloads, poses as `(K, 4, 4)` arrays (a robot pose as a
+//! row-major `(4, 4)` list with its `(6, 6)` covariance), point sets as
 //! `(N, 3)` and `(3N, 3N)` arrays. Results are the serde payloads of the Rust
 //! result types; the stereo rectification is an opaque class.
 
@@ -15,7 +16,8 @@ use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use vision_calibration::common::calibrated_cameras;
 use vision_calibration::core::{
-    CalibratedRig, CameraParams, FxFyCxCy, Iso3, PointCovariance, Pt2, Pt3, Uncertainty,
+    CalibratedRig, CameraParams, FxFyCxCy, Iso3, PointCovariance, Pt2, Pt3, RobotFrame, RobotPose,
+    Uncertainty,
 };
 use vision_calibration::mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
 use vision_calibration::mvg::dense::{BlockMatchOptions, GrayImage, match_block};
@@ -30,10 +32,12 @@ use vision_calibration::mvg::robust::{
     estimate_essential, estimate_homography, recover_relative_pose_robust,
 };
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
-use vision_calibration::mvg::types::Correspondence2D;
 use vision_calibration::mvg::types::PixelMatch;
+use vision_calibration::mvg::types::{Captures, Correspondence2D};
 use vision_calibration::mvg::{MvgError, RansacOptions};
-use vision_calibration::nalgebra::{DMatrix, Matrix3, Rotation3, Translation3, UnitQuaternion};
+use vision_calibration::nalgebra::{
+    DMatrix, Matrix3, Matrix6, Rotation3, Translation3, UnitQuaternion,
+};
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::Use;
 
@@ -118,6 +122,85 @@ fn poses_of(poses: &PyReadonlyArray3<'_, f64>, name: &str) -> PyResult<Vec<Iso3>
         .enumerate()
         .map(|(k, rows)| iso_from_rows(rows, k))
         .collect()
+}
+
+/// Captures on a robot as they cross from Python: the frame, and the robot's
+/// pose at each capture (none for the frame the rig is fixed in).
+#[derive(Deserialize)]
+struct RobotCapturesPayload {
+    frame: RobotFrame,
+    robot: Vec<RobotPosePayload>,
+}
+
+/// A robot pose as it crosses from Python: a row-major `(4, 4)` matrix and
+/// the `(6, 6)` covariance of its right perturbation, or none.
+#[derive(Deserialize)]
+struct RobotPosePayload {
+    base_se3_gripper: Vec<f64>,
+    covariance: Option<[[f64; 6]; 6]>,
+}
+
+/// The [`Captures`] of a call, owned.
+enum OwnedCaptures {
+    Rig,
+    World(Vec<Iso3>),
+    Handeye(RobotFrame),
+    Robot(RobotFrame, Vec<RobotPose>),
+}
+
+impl OwnedCaptures {
+    fn captures(&self) -> Captures<'_> {
+        match self {
+            OwnedCaptures::Rig => Captures::Rig,
+            OwnedCaptures::World(poses) => Captures::World(poses),
+            OwnedCaptures::Handeye(frame) => Captures::Handeye(*frame),
+            OwnedCaptures::Robot(frame, robot) => Captures::Robot {
+                frame: *frame,
+                robot,
+            },
+        }
+    }
+}
+
+/// The captures of a call: the world poses, the robot captures, or neither
+/// (one capture in the rig frame).
+fn captures_of(
+    rig_se3_world: Option<PyReadonlyArray3<'_, f64>>,
+    robot: Option<&Bound<'_, PyAny>>,
+) -> PyResult<OwnedCaptures> {
+    let robot = robot.filter(|r| !r.is_none());
+    match (rig_se3_world, robot) {
+        (None, None) => Ok(OwnedCaptures::Rig),
+        (Some(poses), None) => Ok(OwnedCaptures::World(poses_of(&poses, "rig_se3_world")?)),
+        (None, Some(robot)) => {
+            let payload: RobotCapturesPayload = parse_checked(robot, "captures")?;
+            if payload.robot.is_empty() {
+                return Ok(OwnedCaptures::Handeye(payload.frame));
+            }
+            let poses = payload
+                .robot
+                .iter()
+                .enumerate()
+                .map(|(k, p)| {
+                    if p.base_se3_gripper.len() != 16 {
+                        return Err(value_err(format!(
+                            "robot pose {k}: base_se3_gripper must be a (4, 4) matrix"
+                        )));
+                    }
+                    let pose = iso_from_rows(&p.base_se3_gripper, k)?;
+                    match p.covariance {
+                        None => Ok(RobotPose::exact(pose)),
+                        Some(c) => RobotPose::new(pose, Matrix6::from_fn(|r, s| c[r][s]))
+                            .map_err(|e| value_err(format!("robot pose {k}: {e}"))),
+                    }
+                })
+                .collect::<PyResult<Vec<_>>>()?;
+            Ok(OwnedCaptures::Robot(payload.frame, poses))
+        }
+        (Some(_), Some(_)) => Err(value_err(
+            "give the world poses or the robot captures, not both",
+        )),
+    }
 }
 
 fn array_2d<'a>(
@@ -250,19 +333,20 @@ pub(crate) fn mvg_recover_relative_pose_robust(
 // Measurement
 // ---------------------------------------------------------------------------
 
-#[pyfunction(signature = (result, rig_se3_world, tracks, progress=None))]
+#[pyfunction(signature = (result, rig_se3_world, robot, tracks, progress=None))]
 pub(crate) fn mvg_triangulate(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,
-    rig_se3_world: PyReadonlyArray3<'_, f64>,
+    rig_se3_world: Option<PyReadonlyArray3<'_, f64>>,
+    robot: Option<&Bound<'_, PyAny>>,
     tracks: &Bound<'_, PyAny>,
     progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
-    let poses = poses_of(&rig_se3_world, "rig_se3_world")?;
+    let captures = captures_of(rig_se3_world, robot)?;
     let tracks: Vec<Vec<RigObservation>> = parse_checked(tracks, "tracks")?;
     let control = PyRunControl::new(progress);
-    let found = py.detach(|| triangulate(&rig, &poses, &tracks, control.control()));
+    let found = py.detach(|| triangulate(&rig, captures.captures(), &tracks, control.control()));
     let found = control.finish(found, mvg_err)?;
     to_py(py, &found)
 }
@@ -353,15 +437,18 @@ pub(crate) fn mvg_bundle_adjust(
     )
 }
 
-#[pyfunction]
+#[pyfunction(signature = (result, observations, rig_se3_world=None, robot=None))]
 pub(crate) fn mvg_triangulate_laser(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,
     observations: &Bound<'_, PyAny>,
+    rig_se3_world: Option<PyReadonlyArray3<'_, f64>>,
+    robot: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
+    let captures = captures_of(rig_se3_world, robot)?;
     let observations: Vec<LaserObservation> = parse_checked(observations, "observations")?;
-    let found = triangulate_laser(&rig, &observations).map_err(mvg_err)?;
+    let found = triangulate_laser(&rig, captures.captures(), &observations).map_err(mvg_err)?;
     to_py(py, &found)
 }
 

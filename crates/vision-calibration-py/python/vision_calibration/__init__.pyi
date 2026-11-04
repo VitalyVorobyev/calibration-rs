@@ -212,14 +212,6 @@ def run_rig_handeye_laserline(
 ) -> RigHandeyeLaserlineExport: ...
 
 
-def pixel_to_gripper_point(
-    cam_idx: int,
-    pixel: tuple[float, float] | list[float],
-    rig_cal: RigHandeyeExport,
-    laser_planes_rig: list[LaserPlane],
-    base_se3_gripper: Pose | None = None,
-) -> tuple[float, float, float]: ...
-
 def rig_upstream_calibration(
     export: RigHandeyeExport, rig_se3_target: Sequence[Pose]
 ) -> RigUpstreamCalibration: ...

@@ -29,6 +29,7 @@ use vision_calibration::core::{
     make_pinhole_camera,
 };
 use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
+use vision_calibration::mvg::types::Captures;
 use vision_calibration::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use vision_calibration::rig_laserline_device::{
     RigLaserlineDataset, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
@@ -288,7 +289,7 @@ fn the_upstream_calibrations_share_is_in_the_rig_laser_point_sigma() {
                     clean.x + LASER_SIGMA * gauss(2 * key),
                     clean.y + LASER_SIGMA * gauss(2 * key + 1),
                 );
-                LaserObservation::new(c, pixel, noise)
+                LaserObservation::new(0, c, pixel, noise)
             })
             .collect()
     };
@@ -323,9 +324,9 @@ fn the_upstream_calibrations_share_is_in_the_rig_laser_point_sigma() {
         let pixels = without_calibration_share(&rig);
 
         let observations = observations_of(seed);
-        let with = triangulate_laser(&rig, &observations).unwrap();
-        let own = triangulate_laser(&own, &observations).unwrap();
-        let without = triangulate_laser(&pixels, &observations).unwrap();
+        let with = triangulate_laser(&rig, Captures::Rig, &observations).unwrap();
+        let own = triangulate_laser(&own, Captures::Rig, &observations).unwrap();
+        let without = triangulate_laser(&pixels, Captures::Rig, &observations).unwrap();
         for i in 0..count {
             depth[i].push(with.points[i].point.z);
             consider[i].push(with.point_covariance(i).expect("covariance")[(2, 2)]);

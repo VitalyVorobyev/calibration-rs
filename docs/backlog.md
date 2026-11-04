@@ -25,13 +25,20 @@ pixel noise (the cameras as exact). The rectification still runs on a bare `K`.
   `StereoRectification::triangulate` for selected matches).
 - [ ] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
   (a cross-repo change).
-- [ ] MVG-HANDEYE-FRAME - Laser and triangulated points in the gripper or
-  base frame, with the hand-eye's covariance in their σ: `CalibratedRig`
-  carries the hand-eye pose (eye-in-hand or eye-to-hand) with its
-  covariance, the points' rig-frame covariance gains its share, and the
-  robot pose is stated exact or with its sigma. Replaces the pipeline's
-  `pixel_to_gripper_point`, which returns a point without σ (delete it).
-  Gate: Monte-Carlo over hand-eye calibrations, as `laser_uncertainty.rs`.
+- [~] MVG-HANDEYE-STAGED - A staged laser export (`rig_laserline_device`)
+  lists the hand-eye with its cross terms to the planes, so its rig measures
+  in the gripper or base frame with the hand-eye's σ: its upstream maps the
+  hand-eye into per-view board poses it does not report, and a rig built
+  from it with `with_handeye` counts the hand-eye exact. Parked: the joint
+  `rig_handeye_laserline` export carries it; reopen when a staged laser
+  user needs robot-frame points with the hand-eye's share.
+
+- [ ] HANDEYE-EXPORT-ENUM - The hand-eye exports (`single_cam_handeye`,
+  `rig_handeye`, `rig_handeye_laserline`) carry a mode field and two optional
+  poses (`gripper_se3_rig` / `rig_se3_base`, `base_se3_target` /
+  `gripper_se3_target`), so an export with the wrong pose for its mode is
+  representable. Carry core's `Handeye` enum (and the matching target pose)
+  instead: a schema break, migration notes, Python and app types.
 
 ## Lean code — LEAN (Phase 1b)
 

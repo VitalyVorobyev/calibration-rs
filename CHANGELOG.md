@@ -34,6 +34,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.1 σ and its scatter 0.97–1.07 σ. The estimates move by up to
   4° of translation direction on the test scenes, the inlier RMS falls,
   and an inlier set can gain a match.
+- **Measurements name the frame of their captures** (breaking).
+  `triangulate(rig, rig_se3_world, tracks, control)` is now
+  `triangulate(rig, captures, tracks, control)` with `captures` a
+  `mvg::types::Captures`: `Captures::World(&rig_se3_world)` for the old
+  behaviour, `Captures::Rig` for one capture in the rig frame (what
+  `&[Iso3::identity()]` was). `triangulate_laser(rig, observations)` is
+  `triangulate_laser(rig, Captures::Rig, observations)`, and
+  `LaserObservation::new(camera, pixel, noise)` is
+  `LaserObservation::new(capture, camera, pixel, noise)` (`capture` 0 for
+  one capture; the JSON form gains a required `capture`). In Python,
+  `mvg.triangulate`'s second argument is `captures` (the poses as before, or
+  a `RobotCaptures`), `mvg.triangulate_laser` takes an optional `captures`,
+  and `LaserObservation` gains `capture` (default 0).
+- **`rig_laserline_device::pixel_to_gripper_point` is removed** (breaking),
+  in Python too: it gave a laser point in the gripper frame without its σ.
+  Measure with `triangulate_laser` on a hand-eye laser export's
+  `calibrated_rig()` and `Captures::Handeye(RobotFrame::Gripper)`
+  (eye-in-hand) or `Captures::Robot { frame: RobotFrame::Gripper, robot }`
+  (eye-to-hand, with the robot's pose); for a staged laser export, attach
+  the hand-eye with `CalibratedRig::with_handeye`, which then counts as
+  exact. In Python, `mvg.triangulate_laser(result, observations,
+  mvg.RobotCaptures("gripper"))`.
 
 ### Added
 
@@ -66,6 +88,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mvg.triangulate`, `mvg.estimate_pose`, `mvg.bundle_adjust` and
   `StereoRectification.triangulate` take a keyword `progress=` callable;
   raising from it, or Ctrl-C, stops the call.
+- **Laser and triangulated points in the robot's gripper or base frame,
+  with the hand-eye's and the robot pose's σ.** A hand-eye export's
+  `calibrated_rig()` carries its hand-eye (`CalibratedRig::handeye`, a
+  `core::Handeye`; `with_handeye` attaches one), and `triangulate` and
+  `triangulate_laser` take `Captures::Handeye(frame)` for the frame the rig
+  is fixed in or `Captures::Robot { frame, robot }` with the robot's pose
+  at each capture (`core::RobotPose`, exact or with the covariance of its
+  error) for the frame it moves in. The points' covariance holds the
+  hand-eye's share, correlated with the cameras and laser planes as the
+  calibration estimated them, and each robot pose's; on a joint rig
+  hand-eye laserline calibration the scatter of laser and triangulated
+  points in the base frame is 1.01 times the stated σ over 300
+  calibrations. `optim::problem::Problem::add_rig_pose` adds such a pose to
+  your own problem. In Python, `mvg.RobotPose` and `mvg.RobotCaptures`.
 
 ## [0.16.0] - 2026-11-04
 

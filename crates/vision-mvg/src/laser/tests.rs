@@ -1,6 +1,7 @@
 use super::*;
 use crate::metrology::PointSet;
 use crate::test_support::{Lcg, fisheye_params, iso, pinhole_params};
+use crate::types::Captures;
 use nalgebra::{DVector, UnitQuaternion};
 use vision_calibration_core::{
     CameraParams, DistortionParams, Iso3, LaserPlane, ProjectionParams, ScheimpflugParams,
@@ -88,13 +89,14 @@ fn ground_truth_points_are_recovered_through_every_model() {
     for (x, y) in [(-0.1, 0.05), (0.0, -0.08), (0.12, 0.1)] {
         let p = plane_point(&laser, x, y);
         observations.push(LaserObservation::new(
+            0,
             1,
             pixel(&rig.cameras()[1], &p),
             noise(0.1),
         ));
         truth.push(to_rig(&cam1_se3_rig, &p));
     }
-    let found = triangulate_laser(&rig, &observations).unwrap();
+    let found = triangulate_laser(&rig, Captures::Rig, &observations).unwrap();
     for (f, t) in found.points.iter().zip(&truth) {
         assert!((f.point - t).norm() < 1e-9, "{:?} vs {t:?}", f.point);
         assert_eq!(f.camera, 1);
@@ -119,7 +121,9 @@ fn ground_truth_points_are_recovered_through_every_model() {
     let p = plane_point(&laser, 0.07, -0.02);
     let one = triangulate_laser(
         &single,
+        Captures::Rig,
         &[LaserObservation::new(
+            0,
             0,
             pixel(&single.cameras()[0], &p),
             noise(0.1),
@@ -141,7 +145,9 @@ fn ground_truth_points_are_recovered_through_every_model() {
         .unwrap();
     let found = triangulate_laser(
         &fisheye,
+        Captures::Rig,
         &[LaserObservation::new(
+            0,
             0,
             pixel(&fisheye.cameras()[0], &p),
             noise(0.1),
@@ -325,7 +331,7 @@ impl Calibration {
             .iter()
             .map(|&(x, y)| {
                 let p = plane_point(&self.plane, x, y);
-                LaserObservation::new(1, pixel(&self.cam1, &p), noise(sigma))
+                LaserObservation::new(0, 1, pixel(&self.cam1, &p), noise(sigma))
             })
             .collect()
     }
@@ -342,7 +348,7 @@ fn theta_labels(camera: &CameraParams) -> Vec<String> {
 
 /// The rig-frame points of a call.
 fn points(rig: &CalibratedRig, observations: &[LaserObservation]) -> Vec<Vec3> {
-    triangulate_laser(rig, observations)
+    triangulate_laser(rig, Captures::Rig, observations)
         .unwrap()
         .points
         .iter()
@@ -358,8 +364,9 @@ fn jacobians_match_central_differences() {
     let observations = cal.observations(0.2);
 
     // The analytic linearization.
-    let Located { cameras, found } = locate(&rig, &observations).unwrap();
-    let lin = linearize(&rig, &cov, &observations, &cameras, &found)
+    let poses = Captures::Rig.resolve(&rig).unwrap();
+    let Located { cameras, found } = locate(&rig, &poses, &observations).unwrap();
+    let lin = linearize(&rig, &cov, &poses, &observations, &cameras, &found)
         .unwrap()
         .expect("covariance lists the camera");
     assert_eq!(lin.labels, cal.labels);
@@ -586,7 +593,7 @@ fn stated(
     rig: &CalibratedRig,
     observations: &[LaserObservation],
 ) -> (DMatrix<f64>, LaserTriangulation) {
-    let found = triangulate_laser(rig, observations).unwrap();
+    let found = triangulate_laser(rig, Captures::Rig, observations).unwrap();
     let c = found.uncertainty.covariance().expect("covariance");
     let n = c.labels.len();
     (DMatrix::from_fn(n, n, |r, s| c.covariance[r][s]), found)
@@ -669,7 +676,9 @@ fn the_uncertainty_says_why_it_is_unavailable() {
     let cal = Calibration::new(true);
     let observations = cal.observations(PIXEL_SIGMA);
     let unavailable = |rig: &CalibratedRig| {
-        triangulate_laser(rig, &observations).unwrap().uncertainty
+        triangulate_laser(rig, Captures::Rig, &observations)
+            .unwrap()
+            .uncertainty
             == Uncertainty::Unavailable {
                 reason: UncertaintyUnavailable::CalibrationWithoutCovariance,
             }
@@ -699,9 +708,13 @@ fn the_uncertainty_says_why_it_is_unavailable() {
     for row in &mut held.covariance {
         row.drain(first..first + 4);
     }
-    let with_plane =
-        triangulate_laser(&cal.rig(cal.covariance(|_, _| true)), &observations).unwrap();
-    let without_plane = triangulate_laser(&cal.rig(held), &observations).unwrap();
+    let with_plane = triangulate_laser(
+        &cal.rig(cal.covariance(|_, _| true)),
+        Captures::Rig,
+        &observations,
+    )
+    .unwrap();
+    let without_plane = triangulate_laser(&cal.rig(held), Captures::Rig, &observations).unwrap();
     let (a, b) = (
         with_plane.point_covariance(0).unwrap().trace(),
         without_plane.point_covariance(0).unwrap().trace(),
@@ -720,7 +733,7 @@ fn the_uncertainty_says_why_it_is_unavailable() {
         row.remove(at);
     }
     let rig = cal.rig(partial);
-    let err = triangulate_laser(&rig, &observations).unwrap_err();
+    let err = triangulate_laser(&rig, Captures::Rig, &observations).unwrap_err();
     assert!(err.to_string().contains("whole or held"), "{err}");
 }
 
@@ -740,16 +753,16 @@ fn errors_name_the_observation() {
     .unwrap();
     let centre = Pt2::new(640.0, 480.0);
     let message = |observations: &[LaserObservation]| {
-        triangulate_laser(&rig, observations)
+        triangulate_laser(&rig, Captures::Rig, observations)
             .unwrap_err()
             .to_string()
     };
-    let good = LaserObservation::new(1, centre, noise(0.1));
+    let good = LaserObservation::new(0, 1, centre, noise(0.1));
 
     // A camera out of range, and a camera without a plane.
-    let m = message(&[good, LaserObservation::new(5, centre, noise(0.1))]);
+    let m = message(&[good, LaserObservation::new(0, 5, centre, noise(0.1))]);
     assert!(m.contains("observation 1") && m.contains("camera 5"), "{m}");
-    let m = message(&[LaserObservation::new(0, centre, noise(0.1))]);
+    let m = message(&[LaserObservation::new(0, 0, centre, noise(0.1))]);
     assert!(
         m.contains("observation 0") && m.contains("no laser plane"),
         "{m}"
@@ -757,6 +770,7 @@ fn errors_name_the_observation() {
 
     // A pixel without a ray.
     let m = message(&[LaserObservation::new(
+        0,
         1,
         Pt2::new(f64::NAN, 0.0),
         noise(0.1),
@@ -768,8 +782,12 @@ fn errors_name_the_observation() {
         .unwrap()
         .with_laser_planes(vec![Some(plane([1.0, 0.0, 0.0], 0.0))])
         .unwrap();
-    let err =
-        triangulate_laser(&edge, &[LaserObservation::new(0, centre, noise(0.1))]).unwrap_err();
+    let err = triangulate_laser(
+        &edge,
+        Captures::Rig,
+        &[LaserObservation::new(0, 0, centre, noise(0.1))],
+    )
+    .unwrap_err();
     assert!(matches!(err, MvgError::Degenerate { .. }), "{err}");
 
     // A plane behind the camera.
@@ -777,11 +795,438 @@ fn errors_name_the_observation() {
         .unwrap()
         .with_laser_planes(vec![Some(plane([0.0, 0.0, 1.0], 0.5))])
         .unwrap();
-    let err =
-        triangulate_laser(&behind, &[LaserObservation::new(0, centre, noise(0.1))]).unwrap_err();
+    let err = triangulate_laser(
+        &behind,
+        Captures::Rig,
+        &[LaserObservation::new(0, 0, centre, noise(0.1))],
+    )
+    .unwrap_err();
     assert!(err.to_string().contains("behind the camera"), "{err}");
 
     // No observations is no points, not an error.
-    let none = triangulate_laser(&rig, &[]).unwrap();
+    let none = triangulate_laser(&rig, Captures::Rig, &[]).unwrap();
     assert!(none.points.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// On a robot: the hand-eye and the robot pose
+// ---------------------------------------------------------------------------
+
+use vision_calibration_core::{Handeye, RobotFrame, RobotPose};
+
+/// The calibration above with a hand-eye, its covariance correlated with
+/// camera 1's focal length and the plane's distance.
+struct OnRobot {
+    cal: Calibration,
+    handeye: Handeye,
+    /// The full covariance: the calibration's labels, then the hand-eye's.
+    covariance: ParameterCovariance,
+    /// Σ over (z, ε_h) with the cross terms, for drawing.
+    sigma: DMatrix<f64>,
+    /// The robot's pose at each of two captures, and its σ (rad, m).
+    robot: [Iso3; 2],
+    robot_sigma: (f64, f64),
+}
+
+impl OnRobot {
+    fn new(eye_in_hand: bool) -> Self {
+        let cal = Calibration::new(true);
+        let pose = iso(0.3, -0.2, 0.5, Vec3::new(0.05, -0.03, 0.12));
+        let handeye = if eye_in_hand {
+            Handeye::EyeInHand {
+                gripper_se3_rig: pose,
+            }
+        } else {
+            Handeye::EyeToHand {
+                rig_se3_base: iso(0.2, 0.4, -0.3, Vec3::new(0.2, -0.1, 1.1)),
+            }
+        };
+        let n_z = cal.sigma_z.nrows();
+        let n = n_z + 6;
+        // 2 mrad and 1.5 mm on the hand-eye, correlated with fx and d.
+        let mut sigma = DMatrix::zeros(n, n);
+        sigma.view_mut((0, 0), (n_z, n_z)).copy_from(&cal.sigma_z);
+        let std_h = [2e-3, 2e-3, 2e-3, 1.5e-3, 1.5e-3, 1.5e-3];
+        for i in 0..6 {
+            sigma[(n_z + i, n_z + i)] = std_h[i] * std_h[i];
+        }
+        let fx = theta_labels(&cal.cam1)
+            .iter()
+            .position(|l| l == "fx")
+            .unwrap();
+        let d = cal.n_theta + 2;
+        let mut tie = |a: usize, b: usize, r: f64| {
+            let v = r * (sigma[(a, a)] * sigma[(b, b)]).sqrt();
+            sigma[(a, b)] = v;
+            sigma[(b, a)] = v;
+        };
+        tie(fx, n_z + 5, 0.5); // fx - t_z of the hand-eye
+        tie(d, n_z + 4, -0.4); // d - t_y
+        tie(cal.n_theta + 3, n_z + 1, 0.3); // ω_x of the extrinsic - r_y
+        assert!(sigma.clone().cholesky().is_some());
+
+        // The covariance over the labels: c = blockdiag(M, I) (z, ε_h).
+        let n_c = cal.embed.nrows();
+        let mut embed = DMatrix::zeros(n_c + 6, n);
+        embed.view_mut((0, 0), (n_c, n_z)).copy_from(&cal.embed);
+        for i in 0..6 {
+            embed[(n_c + i, n_z + i)] = 1.0;
+        }
+        let full = &embed * &sigma * embed.transpose();
+        let mut labels = cal.labels.clone();
+        let name = if eye_in_hand {
+            "gripper_se3_rig"
+        } else {
+            "rig_se3_base"
+        };
+        labels.extend(["rx", "ry", "rz", "tx", "ty", "tz"].map(|c| format!("{name}.{c}")));
+        let m = labels.len();
+        let covariance = ParameterCovariance {
+            labels,
+            covariance: (0..m)
+                .map(|r| (0..m).map(|c| full[(r, c)]).collect())
+                .collect(),
+            views: Vec::new(),
+            fixed: Vec::new(),
+            noise: Vec::new(),
+            num_residuals: 100,
+            dof: 50,
+            view_scatter: None,
+        };
+        Self {
+            cal,
+            handeye,
+            covariance,
+            sigma,
+            robot: [
+                iso(0.1, 0.6, -0.2, Vec3::new(0.4, -0.1, 0.5)),
+                iso(-0.3, 0.2, 0.9, Vec3::new(0.2, 0.3, 0.6)),
+            ],
+            robot_sigma: (1e-3, 0.8e-3),
+        }
+    }
+
+    fn rig_with(
+        &self,
+        cam1: CameraParams,
+        cam1_se3_rig: Iso3,
+        plane: LaserPlane,
+        handeye: Handeye,
+    ) -> CalibratedRig {
+        self.cal
+            .rig_with(
+                cam1,
+                cam1_se3_rig,
+                plane,
+                Uncertainty::Available(self.covariance.clone()),
+            )
+            .with_handeye(handeye)
+            .unwrap()
+    }
+
+    fn rig(&self) -> CalibratedRig {
+        self.rig_with(
+            self.cal.cam1.clone(),
+            self.cal.cam1_se3_rig,
+            self.cal.plane.clone(),
+            self.handeye,
+        )
+    }
+
+    fn robot_poses(&self, robot: &[Iso3; 2]) -> Vec<RobotPose> {
+        robot
+            .iter()
+            .map(|p| RobotPose::isotropic(*p, self.robot_sigma.0, self.robot_sigma.1).unwrap())
+            .collect()
+    }
+
+    /// The camera's three laser pixels at each of the two captures.
+    fn observations(&self) -> Vec<LaserObservation> {
+        let mut all = self.cal.observations(PIXEL_SIGMA);
+        let mut second = all.clone();
+        for o in &mut second {
+            o.capture = 1;
+        }
+        all.extend(second);
+        all
+    }
+}
+
+/// `pose · Exp(ξ)` for one tangent coordinate.
+fn right(pose: &Iso3, k: usize, s: f64) -> Iso3 {
+    let mut xi = [0.0; 6];
+    xi[k] = s;
+    pose * Iso3::from_parts(
+        nalgebra::Translation3::new(xi[3], xi[4], xi[5]),
+        UnitQuaternion::from_scaled_axis(Vec3::new(xi[0], xi[1], xi[2])),
+    )
+}
+
+fn perturbed_handeye(handeye: &Handeye, k: usize, s: f64) -> Handeye {
+    match handeye {
+        Handeye::EyeInHand { gripper_se3_rig } => Handeye::EyeInHand {
+            gripper_se3_rig: right(gripper_se3_rig, k, s),
+        },
+        Handeye::EyeToHand { rig_se3_base } => Handeye::EyeToHand {
+            rig_se3_base: right(rig_se3_base, k, s),
+        },
+    }
+}
+
+/// The hand-eye's and the robot's columns, and a camera parameter's and the
+/// extrinsic's in the robot frame, against central differences: both modes,
+/// both frames.
+#[test]
+fn robot_frame_jacobians_match_central_differences() {
+    let mut worst: f64 = 0.0;
+    for eye_in_hand in [true, false] {
+        let robot = OnRobot::new(eye_in_hand);
+        let rig = robot.rig();
+        let poses = robot.robot_poses(&robot.robot);
+        for frame in [RobotFrame::Gripper, RobotFrame::Base] {
+            let moving = frame != robot.handeye.mount_frame();
+            let all = robot.observations();
+            let observations = if moving { &all[..] } else { &all[..3] };
+            let captures = |poses: &[RobotPose]| -> Vec<RobotPose> { poses.to_vec() };
+            let points_at = |rig: &CalibratedRig, poses: &[RobotPose]| -> Vec<Vec3> {
+                let poses = captures(poses);
+                let c = if moving {
+                    Captures::Robot {
+                        frame,
+                        robot: &poses,
+                    }
+                } else {
+                    Captures::Handeye(frame)
+                };
+                triangulate_laser(rig, c, observations)
+                    .unwrap()
+                    .points
+                    .iter()
+                    .map(|p| p.point.coords)
+                    .collect()
+            };
+            let c = if moving {
+                Captures::Robot {
+                    frame,
+                    robot: &poses,
+                }
+            } else {
+                Captures::Handeye(frame)
+            };
+            let resolved = c.resolve(&rig).unwrap();
+            let Located { cameras, found } = locate(&rig, &resolved, observations).unwrap();
+            let lin = linearize(
+                &rig,
+                &robot.covariance,
+                &resolved,
+                observations,
+                &cameras,
+                &found,
+            )
+            .unwrap()
+            .unwrap();
+            let column = |label: &str| -> DVector<f64> {
+                let c = lin
+                    .labels
+                    .iter()
+                    .position(|l| l == label)
+                    .unwrap_or_else(|| panic!("{label} not in {:?}", lin.labels));
+                lin.j_c.column(c).into_owned()
+            };
+            let mut check =
+                |name: &str, col: DVector<f64>, plus: Vec<Vec3>, minus: Vec<Vec3>, h: f64| {
+                    let numeric = (flat(&plus) - flat(&minus)) / (2.0 * h);
+                    let error = (&col - &numeric).norm() / col.norm().max(1e-12);
+                    worst = worst.max(error);
+                    assert!(
+                        error < 1e-6,
+                        "{eye_in_hand} {frame:?} {name}: relative error {error:e}"
+                    );
+                };
+
+            let labels = rig.handeye_labels().unwrap();
+            let h = 1e-6;
+            for (k, label) in labels.iter().enumerate() {
+                let run = |s: f64| {
+                    let rig = robot.rig_with(
+                        robot.cal.cam1.clone(),
+                        robot.cal.cam1_se3_rig,
+                        robot.cal.plane.clone(),
+                        perturbed_handeye(&robot.handeye, k, s),
+                    );
+                    points_at(&rig, &poses)
+                };
+                check(label, column(label), run(h), run(-h), h);
+            }
+            if moving {
+                for capture in 0..2 {
+                    for (k, axis) in ["rx", "ry", "rz", "tx", "ty", "tz"].iter().enumerate() {
+                        let run = |s: f64| {
+                            let mut shifted = robot.robot;
+                            shifted[capture] = right(&shifted[capture], k, s);
+                            points_at(&rig, &robot.robot_poses(&shifted))
+                        };
+                        let label = format!("capture{capture}.base_se3_gripper.{axis}");
+                        check(&label, column(&label), run(h), run(-h), h);
+                    }
+                }
+            } else {
+                assert!(!lin.labels.iter().any(|l| l.contains("base_se3_gripper")));
+            }
+            // A camera parameter and the extrinsic, carried into the frame.
+            let theta0 = theta(&robot.cal.cam1);
+            let j = theta_labels(&robot.cal.cam1)
+                .iter()
+                .position(|l| l == "fx")
+                .unwrap();
+            let run = |s: f64| {
+                let mut t = theta0.clone();
+                t[j] += s;
+                let rig = robot.rig_with(
+                    with_theta(&robot.cal.cam1, &t),
+                    robot.cal.cam1_se3_rig,
+                    robot.cal.plane.clone(),
+                    robot.handeye,
+                );
+                points_at(&rig, &poses)
+            };
+            check("fx", column("cam1.fx"), run(1e-3), run(-1e-3), 1e-3);
+            let run = |s: f64| {
+                let rig = robot.rig_with(
+                    robot.cal.cam1.clone(),
+                    right(&robot.cal.cam1_se3_rig, 1, s),
+                    robot.cal.plane.clone(),
+                    robot.handeye,
+                );
+                points_at(&rig, &poses)
+            };
+            check("ry", column("cam1.cam_se3_rig.ry"), run(h), run(-h), h);
+        }
+    }
+    eprintln!(
+        "robot-frame laser Jacobians vs central differences: worst relative error {worst:.2e}"
+    );
+}
+
+/// Points of two captures in the base frame (eye-in-hand) and the gripper
+/// frame (eye-to-hand), over draws of the calibration (the hand-eye
+/// correlated with the camera and the plane), the robot poses and the
+/// pixels: the sample covariance is the stated one, cross terms included.
+#[test]
+fn the_robot_frame_covariance_matches_the_sampled_one() {
+    for (eye_in_hand, seed) in [(true, 4_100_u64), (false, 4_200)] {
+        let robot = OnRobot::new(eye_in_hand);
+        let frame = match robot.handeye.mount_frame() {
+            RobotFrame::Gripper => RobotFrame::Base,
+            RobotFrame::Base => RobotFrame::Gripper,
+        };
+        let observations = robot.observations();
+        let poses = robot.robot_poses(&robot.robot);
+        let found = triangulate_laser(
+            &robot.rig(),
+            Captures::Robot {
+                frame,
+                robot: &poses,
+            },
+            &observations,
+        )
+        .unwrap();
+        let c = found.uncertainty.covariance().unwrap();
+        let stated = DMatrix::from_fn(c.labels.len(), c.labels.len(), |r, s| c.covariance[r][s]);
+
+        let chol = robot.sigma.clone().cholesky().unwrap().l();
+        let n_z = robot.cal.sigma_z.nrows();
+        let k = robot.cal.n_theta;
+        let n = robot.cal.plane.normal().into_inner();
+        let mut rng = Lcg(seed);
+        let draws: Vec<DVector<f64>> = (0..TRIALS)
+            .map(|_| {
+                let g = DVector::from_fn(chol.nrows(), |_, _| gauss(&mut rng));
+                let draw = &chol * g;
+                let c = &robot.cal.embed * draw.rows(0, n_z);
+                let theta1: Vec<f64> = theta(&robot.cal.cam1)
+                    .iter()
+                    .zip(c.iter())
+                    .map(|(t, d)| t + d)
+                    .collect();
+                let n1 = (n + Vec3::new(c[k], c[k + 1], c[k + 2])).normalize();
+                let laser = LaserPlane::new(n1, robot.cal.plane.distance() + c[k + 3]).unwrap();
+                let mut cam1_se3_rig = robot.cal.cam1_se3_rig;
+                let mut handeye = robot.handeye;
+                // One draw of each pose: Exp of the whole tangent.
+                let exp = |xi: &[f64]| {
+                    Iso3::from_parts(
+                        nalgebra::Translation3::new(xi[3], xi[4], xi[5]),
+                        UnitQuaternion::from_scaled_axis(Vec3::new(xi[0], xi[1], xi[2])),
+                    )
+                };
+                let extr: Vec<f64> = (0..6).map(|i| c[k + 4 + i]).collect();
+                cam1_se3_rig *= exp(&extr);
+                let eh: Vec<f64> = (0..6).map(|i| draw[n_z + i]).collect();
+                handeye = match handeye {
+                    Handeye::EyeInHand { gripper_se3_rig } => Handeye::EyeInHand {
+                        gripper_se3_rig: gripper_se3_rig * exp(&eh),
+                    },
+                    Handeye::EyeToHand { rig_se3_base } => Handeye::EyeToHand {
+                        rig_se3_base: rig_se3_base * exp(&eh),
+                    },
+                };
+                let (sr, st) = robot.robot_sigma;
+                let robot_drawn: Vec<RobotPose> = robot
+                    .robot
+                    .iter()
+                    .map(|p| {
+                        let xi: Vec<f64> = (0..6)
+                            .map(|i| if i < 3 { sr } else { st } * gauss(&mut rng))
+                            .collect();
+                        RobotPose::exact(p * exp(&xi))
+                    })
+                    .collect();
+                let rig = robot.rig_with(
+                    with_theta(&robot.cal.cam1, &theta1),
+                    cam1_se3_rig,
+                    laser,
+                    handeye,
+                );
+                let noisy: Vec<LaserObservation> = observations
+                    .iter()
+                    .map(|o| {
+                        let mut o = *o;
+                        o.pixel.x += PIXEL_SIGMA * gauss(&mut rng);
+                        o.pixel.y += PIXEL_SIGMA * gauss(&mut rng);
+                        o
+                    })
+                    .collect();
+                let points: Vec<Vec3> = triangulate_laser(
+                    &rig,
+                    Captures::Robot {
+                        frame,
+                        robot: &robot_drawn,
+                    },
+                    &noisy,
+                )
+                .unwrap()
+                .points
+                .iter()
+                .map(|p| p.point.coords)
+                .collect();
+                flat(&points)
+            })
+            .collect();
+        let sample = sample_covariance(&draws);
+        let block =
+            |m: &DMatrix<f64>, i: usize, j: usize| m.view((3 * i, 3 * j), (3, 3)).into_owned();
+        for i in 0..observations.len() {
+            let error = frobenius_error(&block(&sample, i, i), &block(&stated, i, i));
+            eprintln!("{frame:?}: point {i}, relative Frobenius error {error:.3}");
+            assert!(error <= 0.08, "{frame:?} point {i}: {error:.3}");
+        }
+        // Across captures (the calibration and the hand-eye) and within one
+        // (its robot pose too).
+        for (i, j) in [(0, 4), (0, 2)] {
+            let error = frobenius_error(&block(&sample, i, j), &block(&stated, i, j));
+            eprintln!("{frame:?}: cross block ({i}, {j}), relative Frobenius error {error:.3}");
+            assert!(error <= 0.1, "{frame:?} cross ({i}, {j}): {error:.3}");
+        }
+    }
 }
