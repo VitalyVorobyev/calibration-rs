@@ -40,18 +40,6 @@ pixel noise (the cameras as exact). The rectification still runs on a bare `K`.
   representable. Carry core's `Handeye` enum (and the matching target pose)
   instead: a schema break, migration notes, Python and app types.
 
-## Lean code — LEAN (Phase 1b)
-
-- [ ] LEAN-RIG-TILTED - The rig stages run the wide tilt multi-start and
-  the nominal recovery of a badly fitted tilted camera
-  (`rig_family::tilted`) for `rig_handeye` only
-  (`RigStages::RECOVERS_TILTED_CAMERAS`); `rig_extrinsics` gives an
-  auto-initialized tilted camera the per-camera staged solve. Nothing
-  records why. Measure both on tilted rigs (the synthetic recovery fixture
-  of `tests/rig_tilted_recovery.rs`, the Scheimpflug rig tests) and either
-  give both the recovery or state the reason in the trait item. Gate: one
-  behaviour or a documented reason; results measured first.
-
 ## Parameter uncertainty (Phase 2)
 
 Every result carries the covariance of its estimated parameters, computed
@@ -77,6 +65,14 @@ need their measurement first and stay opt-in until it is in.
   that leave it. Then move the five Monte-Carlo tests still calibrating on
   the weak views (pose, triangulation, stereo, metrology, board measure) to
   the spread views and update the book's numbers.
+- [ ] UQ-HELD-TILT - A rig solve holds each Scheimpflug camera's tilt at
+  its per-camera estimate, so the tilt's uncertainty never reaches the rig's
+  covariance: on the four-camera synthetic scene of
+  `pipeline/tests/rig_tilted_recovery.rs` cameras 0-2 end with fx about 9 px
+  low against a stated σ of 1.9 px (≈ 4.8σ), with or without the tilted
+  recovery. Free the tilt in the rig solve (when the data support it) or
+  carry its per-camera covariance as consider parameters, then gate fx and
+  tilt σ by Monte-Carlo on a tilted rig.
 - [ ] UQ-CROSS-FRAME - Projection uncertainty across the reference-frame
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
   which results do not carry.

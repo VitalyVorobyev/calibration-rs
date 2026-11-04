@@ -1,20 +1,33 @@
-//! Integration test: the recovery of a badly fitted tilted camera in a rig
-//! hand-eye calibration.
+//! Integration tests: the recovery of the tilted cameras of a rig
+//! auto-initialized from scratch, which the rig intrinsics stage of every
+//! rig problem type runs.
 //!
-//! Synthetic EyeInHand rig of three tilted cameras, auto-initialized; the
-//! third has corner noise of about a pixel, so after its own solve it fits
-//! worse than the recovery threshold and the intrinsics stage re-solves it
-//! from a nominal seed of the two well-fitted cameras, then against their
-//! rig. The calibration must keep every camera at its noise floor and
-//! recover the hand-eye transform.
+//! - A synthetic EyeInHand rig of three tilted cameras; the third has corner
+//!   noise of about a pixel, so after its own solve it fits worse than the
+//!   recovery threshold and the intrinsics stage re-solves it from a nominal
+//!   seed of the two well-fitted cameras, then against their rig. The
+//!   calibration must keep every camera at its noise floor and recover the
+//!   hand-eye transform.
+//! - A synthetic rig of four strongly distorted, tilted cameras seen in a
+//!   few nearly fronto-parallel views (no robot): one camera's own staged
+//!   solve settles in a wrong tilt / principal-point basin at twice the
+//!   noise floor; the wide tilt multi-start must bring every camera's own
+//!   solve below that, and the rig solve to the noise floor and the truth,
+//!   on both solver backends.
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
+use vision_calibration_core::synthetic::{noise::UniformPixelNoise, planar, poses};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraModelSpec, CorrespondenceView, DistortionKind, FxFyCxCy, Pinhole,
-    Pt3, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind,
+    BrownConrady5, Camera, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
+    FxFyCxCy, Iso3, NoMeta, Pinhole, Pt3, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    SensorKind, SensorParams,
 };
-use vision_calibration_optim::RobotPoseMeta;
+use vision_calibration_optim::{RobotPoseMeta, SolverBackend};
 use vision_calibration_pipeline::common::config::CameraConfig;
+use vision_calibration_pipeline::rig_extrinsics::{
+    self, RigExtrinsicsConfig, RigExtrinsicsProblem, step_intrinsics_init_all,
+    step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+};
 use vision_calibration_pipeline::rig_handeye::{
     RigHandeyeConfig, RigHandeyeProblem, run_calibration,
 };
@@ -175,4 +188,143 @@ fn a_noisy_tilted_camera_goes_through_the_nominal_recovery() {
     let handeye = export.gripper_se3_rig.expect("EyeInHand export");
     let dt = (handeye.translation.vector - handeye_gt.translation.vector).norm();
     assert!(dt < 0.02, "hand-eye translation error {dt:.4} m");
+}
+
+/// Per-axis pixel noise of the four-camera rig, px.
+const RIG_NOISE_PX: Real = 0.2;
+/// Mean reprojection error at the noise floor of the rig solve: the mean
+/// norm of the injected noise is about 0.26 px.
+const RIG_FLOOR_MEAN_PX: Real = 0.30;
+/// Bound on each camera's own solve: one camera stops at about 0.30 px in
+/// a shallow neighbour of its minimum (its principal point some 40 px off),
+/// which the rig solve refines; the wrong basin sits at about 0.56 px.
+const RIG_STAGE_MEAN_PX: Real = 0.40;
+/// Principal-point error bound, px: about 5σ of the rig solve (σ ≈ 1.1 to
+/// 1.4 px); the wrong basin is about 300 px off.
+const RIG_PP_TOL_PX: Real = 7.5;
+/// Tilt error bound, degrees; the wrong basin is about 14° off.
+const RIG_TILT_TOL_DEG: Real = 0.5;
+
+/// One camera of the four-camera rig: strong barrel distortion and a mount
+/// tilt of about −5°, each camera a little different.
+struct TiltedTruth {
+    k: FxFyCxCy<Real>,
+    k1: Real,
+    tilt: ScheimpflugParams,
+}
+
+fn tilted_rig_truth() -> [TiltedTruth; 4] {
+    let camera = |fx: Real, cx: Real, cy: Real, k1: Real, tilt_deg: (Real, Real)| TiltedTruth {
+        k: FxFyCxCy { fx, fy: fx, cx, cy },
+        k1,
+        tilt: ScheimpflugParams {
+            tilt_x: tilt_deg.0.to_radians(),
+            tilt_y: tilt_deg.1.to_radians(),
+        },
+    };
+    [
+        camera(1160.0, 367.5, 265.0, -0.38, (-4.5, 0.25)),
+        camera(1142.0, 354.0, 274.0, -0.416, (-5.4, -0.2)),
+        camera(1146.0, 357.0, 272.0, -0.408, (-5.2, -0.1)),
+        camera(1150.0, 360.0, 270.0, -0.40, (-5.0, 0.0)),
+    ]
+}
+
+/// Six views of a 13 × 10 board (10 mm cells), tilted at most 0.1 rad, at
+/// about 0.3 m from a rig of four cameras 20 mm apart, toed in on the board.
+fn tilted_rig_dataset() -> RigDataset<NoMeta> {
+    let num_views = 6;
+    let board = planar::grid_points(13, 10, 0.01);
+    let rig_se3_target = poses::tilted_board_poses(
+        &poses::seeded_tilts(num_views, 0.10, 4),
+        (0.06, 0.045),
+        0.30,
+        0.01,
+    );
+    let layout = poses::rig_layout(4, 0.02, 0.02 / 0.30);
+    let per_cam: Vec<Vec<CorrespondenceView>> = tilted_rig_truth()
+        .iter()
+        .zip(&layout)
+        .enumerate()
+        .map(|(c, (truth, cam_se3_rig))| {
+            let distortion = BrownConrady5 {
+                k1: truth.k1,
+                k2: 0.15,
+                ..BrownConrady5::default()
+            };
+            let camera = Camera::new(Pinhole, distortion, truth.tilt.compile(), truth.k);
+            let cam_se3_target: Vec<Iso3> =
+                rig_se3_target.iter().map(|t| cam_se3_rig * t).collect();
+            let noise = UniformPixelNoise {
+                seed: 404 + c as u64,
+                max_abs_px: RIG_NOISE_PX * 3.0_f64.sqrt(),
+            };
+            planar::project_views_noisy(&camera, &board, &cam_se3_target, &noise)
+                .expect("every corner projects")
+        })
+        .collect();
+    let views = (0..num_views)
+        .map(|v| RigView {
+            meta: NoMeta,
+            obs: RigViewObs {
+                cameras: per_cam.iter().map(|views| Some(views[v].clone())).collect(),
+            },
+        })
+        .collect();
+    RigDataset::new(views, 4).expect("rig dataset")
+}
+
+fn assert_at_truth(label: &str, cameras: &[CameraParams]) {
+    for (i, (camera, truth)) in cameras.iter().zip(tilted_rig_truth()).enumerate() {
+        let k = camera.intrinsics;
+        let pp_err = (k.cx - truth.k.cx).hypot(k.cy - truth.k.cy);
+        let SensorParams::Scheimpflug { params: tilt } = camera.sensor else {
+            panic!("{label}: camera {i} lost its Scheimpflug sensor");
+        };
+        let tilt_err_deg = (tilt.tilt_x - truth.tilt.tilt_x)
+            .hypot(tilt.tilt_y - truth.tilt.tilt_y)
+            .to_degrees();
+        assert!(
+            pp_err < RIG_PP_TOL_PX,
+            "{label}: camera {i} principal point {pp_err:.1} px off"
+        );
+        assert!(
+            tilt_err_deg < RIG_TILT_TOL_DEG,
+            "{label}: camera {i} tilt {tilt_err_deg:.2}° off"
+        );
+    }
+}
+
+#[test]
+fn rig_extrinsics_recovers_a_tilted_camera_in_a_wrong_basin() {
+    for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
+        let mut config = RigExtrinsicsConfig::default();
+        config.camera = CameraConfig::new(CameraModelSpec::pinhole(
+            DistortionKind::BrownConrady5,
+            SensorKind::Scheimpflug,
+        ));
+        config.solver.backend = backend;
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+        session.set_config(config).unwrap();
+        session.set_input(tilted_rig_dataset()).unwrap();
+
+        step_intrinsics_init_all(&mut session, None).unwrap();
+        let stage = step_intrinsics_optimize_all(&mut session, None).unwrap();
+        for (i, err) in stage.per_cam_reproj_errors.iter().enumerate() {
+            assert!(
+                *err < RIG_STAGE_MEAN_PX,
+                "{backend:?}: camera {i} own solve at {err:.3} px"
+            );
+        }
+
+        step_rig_init(&mut session, None).unwrap();
+        step_rig_optimize(&mut session, None).unwrap();
+        let export: rig_extrinsics::RigExtrinsicsExport = session.export().unwrap();
+        assert!(
+            export.mean_reproj_error < RIG_FLOOR_MEAN_PX,
+            "{backend:?}: rig mean reprojection error {:.3} px",
+            export.mean_reproj_error
+        );
+        assert_at_truth(&format!("{backend:?}"), &export.cameras);
+    }
 }

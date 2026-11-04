@@ -316,7 +316,6 @@ impl ProblemState for RigHandeyeProblem {
 
 impl RigStages for RigHandeyeProblem {
     type Meta = RobotPoseMeta;
-    const RECOVERS_TILTED_CAMERAS: bool = true;
 
     fn dataset(input: &RigHandeyeInput) -> &RigDataset<RobotPoseMeta> {
         input
