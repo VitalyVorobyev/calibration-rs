@@ -314,14 +314,62 @@ export type ProjectErrorKind =
  */
 export type HandeyeMode = "EyeInHand" | "EyeToHand";
 /**
- * Coarse pipeline stage a run is currently executing. The runner
- * exposes exactly these three boundaries without reaching into the
- * per-topology `run_calibration` wrappers (each of which fuses
- * init + optimize) or the `dataset_runner` build functions (which fuse
- * image decode + feature detection and loop cameras internally with no
- * callback). Finer granularity — per-camera detection, per-LM-iteration
- * — would require a progress hook threaded through the core crates; the
- * pipeline API has none today (see the module docs).
+ * What a long-running call reports to its observer.
+ *
+ * In JSON the variant is the `kind` field:
+ * `{"kind": "iteration", "iter": 3, "max_iters": 100, "cost": 12.5}`.
+ */
+export type Progress =
+  | {
+      /**
+       * Target images done so far, `1..=total`.
+       */
+      done: number;
+      kind: "detection";
+      /**
+       * Target images to detect, over every camera.
+       */
+      total: number;
+    }
+  | {
+      /**
+       * Laser images done so far, `1..=total`.
+       */
+      done: number;
+      kind: "laser_extraction";
+      /**
+       * Laser images to extract, over every camera.
+       */
+      total: number;
+    }
+  | {
+      kind: "step";
+      /**
+       * The step's name.
+       */
+      name: string;
+    }
+  | {
+      /**
+       * The objective after the iteration, `½ Σᵢ ρᵢ(‖rᵢ‖²)` (the
+       * convention of a solve report's `final_cost`).
+       */
+      cost: number;
+      /**
+       * The iteration, `1..=max_iters`.
+       */
+      iter: number;
+      kind: "iteration";
+      /**
+       * The solve's iteration budget.
+       */
+      max_iters: number;
+    };
+/**
+ * Pipeline stage a run is currently executing. Within a stage the
+ * library's own reports ([`Progress`]: each image detected, each
+ * calibration step, each solver iteration) ride along in
+ * [`RunProgress::report`].
  */
 export type RunStage = "detect" | "solve" | "export";
 
@@ -1441,13 +1489,19 @@ export interface RigLaserlineDeviceExport {
 }
 /**
  * A progress message streamed to the Run workspace over a
- * [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;
- * terminal outcomes (success / failure / cancellation) are carried by
- * the command's `RunResponse` return value, not the channel.
+ * [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins (no
+ * `report`) and then for the library's reports within it; terminal
+ * outcomes (success / failure / cancellation) are carried by the
+ * command's `RunResponse` return value, not the channel.
  */
 export interface RunProgress {
   /**
-   * The stage that just started.
+   * The library's report within the stage, absent when the stage
+   * begins.
+   */
+  report?: Progress | null;
+  /**
+   * The stage under way.
    */
   stage: RunStage;
 }

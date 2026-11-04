@@ -102,19 +102,23 @@ pub fn run_calibration_with_seed(
         seeded.push("planes_cam");
     }
 
+    // The warm-start runs report their own steps after these.
     let rig_export = match manual.rig_handeye {
         Some(export) => export,
         None => {
+            session.begin_step("rig_handeye")?;
             let mut handeye_session = CalibrationSession::<RigHandeyeProblem>::with_description(
                 "joint_warmstart_handeye",
             );
             handeye_session.set_input(input.handeye_dataset())?;
             handeye_session.set_config(config.handeye.clone())?;
+            handeye_session.set_control(session.control().clone());
             run_rig_handeye_calibration(&mut handeye_session)?;
             handeye_session.export()?
         }
     };
 
+    session.begin_step("laser_planes")?;
     let laserline_dataset = input.laserline_dataset()?;
     let upstream = rig_export.to_upstream_calibration(rig_export.rig_se3_target.clone())?;
     let mut laser_session =
@@ -125,9 +129,11 @@ pub fn run_calibration_with_seed(
         initial_planes_cam: manual.planes_cam,
     })?;
     laser_session.set_config(config.laserline_init.clone())?;
+    laser_session.set_control(session.control().clone());
     run_rig_laserline_calibration(&mut laser_session)?;
     let laser_export = laser_session.export()?;
 
+    session.begin_step("joint_optimize")?;
     let joint_dataset = input.joint_dataset(mode)?;
     let joint_initial = joint_initial_from_exports(&rig_export, &laser_export, mode)?;
     let initial_robot_deltas = rig_export
@@ -158,7 +164,10 @@ pub fn run_calibration_with_seed(
     let backend_opts = BackendSolveOptions {
         max_iters: config.joint_optimize.solver.max_iters,
         verbosity: config.joint_optimize.solver.verbosity,
-        ..config.joint_optimize.solver.backend_options()
+        ..config
+            .joint_optimize
+            .solver
+            .backend_options(session.control())
     };
 
     let estimate =

@@ -11,6 +11,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -168,6 +169,26 @@ class ManifestRunTest(unittest.TestCase):
             self.assertAlmostEqual(k.fx, _images.FX, delta=0.03 * _images.FX)
             self.assertAlmostEqual(k.fy, _images.FY, delta=0.03 * _images.FY)
             self.assertLess(result.mean_reproj_error, 0.5)
+
+    def test_calibrate_dataset_reports_each_image_and_stops_on_request(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spec = _images.write_planar_dataset(root, views=5)
+            reports: list[dict[str, Any]] = []
+            vc.calibrate_dataset(spec, base_dir=root, progress=reports.append)
+            detections = [(r["done"], r["total"]) for r in reports if r["kind"] == "detection"]
+            self.assertEqual(detections, [(i, 5) for i in range(1, 6)])
+            self.assertEqual([r["name"] for r in reports if r["kind"] == "step"], ["init", "optimize"])
+
+            class Stop(Exception):
+                pass
+
+            def stop_at_third_image(report: dict[str, Any]) -> None:
+                if report["kind"] == "detection" and report["done"] == 3:
+                    raise Stop
+
+            with self.assertRaises(Stop):
+                vc.calibrate_dataset(spec, base_dir=root, progress=stop_at_third_image)
 
     def test_left_out_views_carry_their_reason(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

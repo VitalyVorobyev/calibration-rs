@@ -1,14 +1,15 @@
 /** Typed wrapper around the `run_calibration_cmd` / `cancel_run_cmd`
  * Tauri commands. Mirrors the Rust `RunResponse` enum (see
  * app/src-tauri/src/run.rs) so the React side can match on `kind` rather
- * than parsing strings, and streams stage progress over a
+ * than parsing strings, and streams stage progress (with the library's
+ * per-image, per-step and per-iteration reports) over a
  * `tauri::ipc::Channel<RunProgress>`. */
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { RunProgress, RunStage } from "../types/generated/diagnose-wire";
+import type { RunProgress } from "../types/generated/diagnose-wire";
 
 // Re-export the generated progress wire types so components import the
 // stage vocabulary from one place.
-export type { RunProgress, RunStage } from "../types/generated/diagnose-wire";
+export type { Progress, RunProgress, RunStage } from "../types/generated/diagnose-wire";
 
 export interface RunSuccess {
   kind: "ok";
@@ -37,8 +38,8 @@ export interface RunFailed {
   message: string;
 }
 
-/** The user cancelled the run; it stopped at the next stage boundary
- * (solver-internal cancellation is out of scope). */
+/** The user cancelled the run; it stopped at its next image, solver
+ * iteration or stage boundary. */
 export interface RunCancelled {
   kind: "cancelled";
 }
@@ -52,8 +53,9 @@ export interface RunInput {
   manifest: unknown;
   config: unknown;
   manifestDir: string;
-  /** Invoked as each pipeline stage begins (detect → solve → export). */
-  onProgress?: (stage: RunStage) => void;
+  /** Invoked as each pipeline stage begins (detect → solve → export) and
+   * for each report within it. */
+  onProgress?: (progress: RunProgress) => void;
 }
 
 /** Launch a calibration run, streaming per-stage progress. The returned
@@ -62,7 +64,7 @@ export interface RunInput {
 export async function runCalibration(input: RunInput): Promise<RunResponse> {
   const channel = new Channel<RunProgress>();
   if (input.onProgress) {
-    channel.onmessage = (message: RunProgress) => input.onProgress?.(message.stage);
+    channel.onmessage = (message: RunProgress) => input.onProgress?.(message);
   }
   return invoke<RunResponse>("run_calibration_cmd", {
     runId: input.runId,

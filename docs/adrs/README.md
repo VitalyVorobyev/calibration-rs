@@ -24,6 +24,7 @@ them; layouts, commands and component wiring go to rustdoc or
 - [0024 — One API vocabulary](0024-api-vocabulary.md)
 - [0027 — A public optimization extension](0027-public-optimization-extension.md)
 - [0028 — Measurements from a calibration](0028-measurements-from-a-calibration.md)
+- [0029 — Progress and cancellation](0029-progress-and-cancellation.md)
 
 ## Models and numerics
 

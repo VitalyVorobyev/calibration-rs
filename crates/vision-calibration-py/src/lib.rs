@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 use vision_calibration::session::{CalibrationSession, ProblemType};
 
 mod camera;
+mod control;
 mod dataset;
 mod detect;
 mod errors;
@@ -47,6 +48,7 @@ fn run_problem<P, F>(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
     run_fn: F,
 ) -> PyResult<Py<PyAny>>
 where
@@ -54,7 +56,8 @@ where
     P::Input: DeserializeOwned,
     P::Config: DeserializeOwned,
     P::Export: Serialize,
-    F: FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
+    F: FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error> + Send,
+    CalibrationSession<P>: Send,
 {
     reject_non_finite("input", input)?;
     if let Some(cfg) = config {
@@ -75,7 +78,14 @@ where
             .map_err(|err| value_err(format!("invalid config: {err}")))?;
     }
 
-    run_fn(&mut session).map_err(|err| runtime_err(format!("calibration failed: {err}")))?;
+    // With the GIL released; the control reports to `progress` and turns
+    // Ctrl-C into cancellation.
+    let control = control::PyRunControl::new(progress);
+    session.set_control(control.control().clone());
+    let result = py.detach(|| run_fn(&mut session));
+    control.finish(result, |err| {
+        runtime_err(format!("calibration failed: {err}"))
+    })?;
 
     let export = session
         .export()
@@ -95,21 +105,26 @@ where
 ///     Planar intrinsics input payload (serde-compatible with `PlanarIntrinsicsInput`).
 /// config:
 ///     Optional planar configuration payload (serde-compatible with `PlanarIntrinsicsConfig`).
+/// progress:
+///     Optional callable given each progress report (a `Progress` payload);
+///     raising from it, or Ctrl-C, stops the run and raises that exception.
 ///
 /// Returns
 /// -------
 /// dict
 ///     Planar intrinsics export payload.
-#[pyfunction(signature = (input, config=None))]
+#[pyfunction(signature = (input, config=None, progress=None))]
 fn run_planar_intrinsics(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     run_problem::<vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem, _>(
         py,
         input,
         config,
+        progress,
         vision_calibration::planar_intrinsics::run_calibration,
     )
 }
@@ -127,16 +142,18 @@ fn run_planar_intrinsics(
 /// -------
 /// dict
 ///     Single-camera hand-eye export payload.
-#[pyfunction(signature = (input, config=None))]
+#[pyfunction(signature = (input, config=None, progress=None))]
 fn run_single_cam_handeye(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     run_problem::<vision_calibration::single_cam_handeye::SingleCamHandeyeProblem, _>(
         py,
         input,
         config,
+        progress,
         vision_calibration::single_cam_handeye::run_calibration,
     )
 }
@@ -154,16 +171,18 @@ fn run_single_cam_handeye(
 /// -------
 /// dict
 ///     Rig extrinsics export payload.
-#[pyfunction(signature = (input, config=None))]
+#[pyfunction(signature = (input, config=None, progress=None))]
 fn run_rig_extrinsics(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     run_problem::<vision_calibration::rig_extrinsics::RigExtrinsicsProblem, _>(
         py,
         input,
         config,
+        progress,
         vision_calibration::rig_extrinsics::run_calibration,
     )
 }
@@ -181,16 +200,18 @@ fn run_rig_extrinsics(
 /// -------
 /// dict
 ///     Rig hand-eye export payload.
-#[pyfunction(signature = (input, config=None))]
+#[pyfunction(signature = (input, config=None, progress=None))]
 fn run_rig_handeye(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     run_problem::<vision_calibration::rig_handeye::RigHandeyeProblem, _>(
         py,
         input,
         config,
+        progress,
         vision_calibration::rig_handeye::run_calibration,
     )
 }
@@ -208,16 +229,18 @@ fn run_rig_handeye(
 /// -------
 /// dict
 ///     Laserline device export payload.
-#[pyfunction(signature = (input, config=None))]
+#[pyfunction(signature = (input, config=None, progress=None))]
 fn run_laserline_device(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     run_problem::<vision_calibration::laserline_device::LaserlineDeviceProblem, _>(
         py,
         input,
         config,
+        progress,
         vision_calibration::laserline_device::run_calibration,
     )
 }
@@ -235,16 +258,18 @@ fn run_laserline_device(
 /// -------
 /// dict
 ///     Rig laserline device export payload.
-#[pyfunction(signature = (input, config=None))]
+#[pyfunction(signature = (input, config=None, progress=None))]
 fn run_rig_laserline_device(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     run_problem::<vision_calibration::rig_laserline_device::RigLaserlineDeviceProblem, _>(
         py,
         input,
         config,
+        progress,
         vision_calibration::rig_laserline_device::run_calibration,
     )
 }
@@ -264,16 +289,18 @@ fn run_rig_laserline_device(
 /// -------
 /// dict
 ///     Joint rig hand-eye laserline export payload.
-#[pyfunction(signature = (input, config=None))]
+#[pyfunction(signature = (input, config=None, progress=None))]
 fn run_rig_handeye_laserline(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     run_problem::<vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineProblem, _>(
         py,
         input,
         config,
+        progress,
         vision_calibration::rig_handeye_laserline::run_calibration,
     )
 }

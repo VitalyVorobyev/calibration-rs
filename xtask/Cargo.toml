@@ -14,6 +14,7 @@ regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
+vision-calibration-core = { workspace = true, features = ["schemars"] }
 vision-calibration-pipeline = { workspace = true, features = ["schemars"] }
 vision-calibration-optim = { workspace = true, features = ["schemars"] }
 vision-calibration-dataset = { workspace = true, features = ["schemars"] }

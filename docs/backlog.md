@@ -28,6 +28,11 @@ functions return no covariance.
   σ drops 7.9 → 7.55 px. `Use::Consider` is exact (depth 0.999). Find the
   cause (prior weighting, the scale gauge through refined extrinsics, or a
   second-order term) and tighten the gate to [0.9, 1.1].
+- [ ] MVG-PROGRESS - The multiple-view-geometry solves (`bundle_adjust`,
+  `triangulate`, `estimate_pose`) build their `SolveOptions` internally and
+  take no `RunControl`, so they report no iterations and cannot be
+  cancelled; thread a control through their options and the Python
+  bindings' `progress=`, as the calibration workflows do.
 - [ ] MVG-E-REFINE - Move estimate_essential's local Gauss-Newton polish
   (weighted Sampson error on the essential manifold) onto the problem builder:
   a residual of your own over a rotation and a unit-vector block. It returns
@@ -70,10 +75,6 @@ functions return no covariance.
   homography residual per corner, in squares) and drop the outlier, or reject
   the detection; report the fault upstream. Gate: both detections are kept
   whole with correct labels in either declaration, or rejected with a reason.
-- [ ] LIB-PROGRESS - An iteration observer and a cancellation token through
-  the optimization loop and the pipeline steps. Today the app reports
-  three coarse stages and cannot stop a running solve. Python maps
-  KeyboardInterrupt onto the token.
 
 ## Lean code — LEAN (Phase 1b)
 

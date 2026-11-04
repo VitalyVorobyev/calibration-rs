@@ -64,6 +64,7 @@ The published crates do not ship a laser-line extractor, and extraction is the o
 
 ```rust
 use vision_calibration::dataset::LaserExtractionSpec;
+use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{Detection, LaserPixelExtractor, build_rig_laserline_device_input};
 use vision_calibration::detect::GrayImageView;
 
@@ -81,7 +82,13 @@ impl LaserPixelExtractor for MyExtractor {
     }
 }
 
-let run = build_rig_laserline_device_input(&spec, base_dir, Detection::Cached(&cache), &MyExtractor)?;
+let run = build_rig_laserline_device_input(
+    &spec,
+    base_dir,
+    Detection::Cached(&cache),
+    &MyExtractor,
+    &RunControl::default(),
+)?;
 ```
 
 The runner owns the caching (keyed `laser:<name>` plus a hash of the extraction spec), the ROI cropping and the coordinate lifting; the extractor only extracts. Unlike the target detectors, a closed set, this trait is open. `name()` is part of the cache key, so switching implementations re-extracts instead of serving another extractor's pixels.

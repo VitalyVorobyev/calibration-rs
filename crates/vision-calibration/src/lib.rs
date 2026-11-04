@@ -57,6 +57,7 @@
 //! ## High-Level Calibration Workflows
 //!
 //! - [`session`] - Session framework (`CalibrationSession`, `ProblemType`)
+//! - [`control`] - Progress reports and cancellation of a long-running call
 //! - [`planar_intrinsics`] - Single-camera intrinsics (Zhang's method), any camera model
 //! - [`single_cam_handeye`] - Single camera + hand-eye calibration
 //! - [`rig_extrinsics`] - Multi-camera rig extrinsics
@@ -128,6 +129,37 @@ pub mod session {
         CalibrationSession, ExportRecord, InvalidationPolicy, LogEntry, ProblemType,
         SessionMetadata,
     };
+}
+
+/// Progress reports and cooperative cancellation of a long-running call.
+///
+/// A [`RunControl`](control::RunControl) carries an optional
+/// [`CancelToken`](control::CancelToken) and observers. Hand it to a
+/// session ([`CalibrationSession::set_control`](session::CalibrationSession::set_control)),
+/// to [`dataset_runner::calibrate_dataset`] and the `build_*_input`
+/// converters, or to [`optim::problem::solve`] through its options: the call
+/// reports each image read, each step of `run_calibration` and each solver
+/// iteration as a [`Progress`](control::Progress), and stops with a
+/// `Cancelled` error at the next of those points once the token is
+/// cancelled. Progress is a side channel: a run with an observer returns
+/// exactly what it returns without one.
+///
+/// ```
+/// use vision_calibration::control::{CancelToken, Progress, RunControl};
+///
+/// let token = CancelToken::new();
+/// let control = RunControl::new()
+///     .with_cancel(token.clone())
+///     .with_observer(|progress| {
+///         if let Progress::Iteration { iter, cost, .. } = progress {
+///             eprintln!("iteration {iter}: cost {cost:.3e}");
+///         }
+///     });
+/// // Hand `token` to whatever stops the run: a Ctrl-C handler, a button.
+/// # let _ = (control, token);
+/// ```
+pub mod control {
+    pub use vision_calibration_core::{CancelToken, Cancelled, Progress, RunControl};
 }
 
 /// Types shared by several problem modules, defined once here.

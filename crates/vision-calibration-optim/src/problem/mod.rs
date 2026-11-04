@@ -79,7 +79,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use nalgebra::DVector;
 use vision_calibration_core::{
     CameraFix, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, PointCovariance,
-    ProjectionParams, Pt2, Pt3, ResidualKind, ResidualNoise, SensorParams, Uncertainty,
+    ProjectionParams, Pt2, Pt3, ResidualKind, ResidualNoise, RunControl, SensorParams, Uncertainty,
     UncertaintyUnavailable,
 };
 
@@ -951,7 +951,7 @@ impl Problem {
 }
 
 /// Options of [`solve`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SolveOptions {
     /// The engine that linearizes the problem. A problem with a residual
@@ -960,14 +960,20 @@ pub struct SolveOptions {
     /// Most Levenberg–Marquardt iterations; a solve that stops on this
     /// budget has no covariance.
     pub max_iters: usize,
+    /// Progress and cancellation: the solve reports each iteration
+    /// ([`Progress::Iteration`](vision_calibration_core::Progress)) and
+    /// returns [`Error::Cancelled`] once the token is cancelled. The default
+    /// reports nothing and never stops early.
+    pub control: RunControl,
 }
 
 impl Default for SolveOptions {
-    /// tiny-solver, 100 iterations.
+    /// tiny-solver, 100 iterations, no control.
     fn default() -> Self {
         Self {
             backend: SolverBackend::default(),
             max_iters: BackendSolveOptions::default().max_iters,
+            control: RunControl::default(),
         }
     }
 }
@@ -1094,7 +1100,8 @@ fn add_consider_share(
 /// # Errors
 ///
 /// [`Error::InvalidInput`] for a problem with a residual you wrote and the
-/// factrs backend; [`Error::Numerical`] when the solve fails.
+/// factrs backend; [`Error::Numerical`] when the solve fails;
+/// [`Error::Cancelled`] when `options.control`'s token is cancelled.
 pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Error> {
     let calibration = problem.calibration.as_ref();
     if calibration.is_some_and(|c| c.usage == Use::Prior) {
@@ -1114,6 +1121,7 @@ pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Erro
     let opts = BackendSolveOptions {
         backend: options.backend,
         max_iters: options.max_iters,
+        control: options.control.clone(),
         ..BackendSolveOptions::default()
     };
     let mut solution = backend::solve(&ir, &initial, &opts)?;

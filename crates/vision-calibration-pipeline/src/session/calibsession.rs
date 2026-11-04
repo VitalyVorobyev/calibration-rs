@@ -6,6 +6,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::{Progress, RunControl};
 
 use super::problem_type::ProblemType;
 use super::types::{ExportRecord, LogEntry, SessionMetadata};
@@ -83,6 +84,11 @@ pub struct CalibrationSession<P: ProblemType> {
     ///
     /// Crate-private — consumers read [`Self::log`](Self::log).
     pub(crate) log: Vec<LogEntry>,
+
+    /// Progress and cancellation of the steps run on this session. A
+    /// handle, not state: never serialized, and a clone shares it.
+    #[serde(skip)]
+    control: RunControl,
 }
 
 impl<P: ProblemType> CalibrationSession<P> {
@@ -100,6 +106,7 @@ impl<P: ProblemType> CalibrationSession<P> {
             output: None,
             exports: Vec::new(),
             log: Vec::new(),
+            control: RunControl::default(),
         }
     }
 
@@ -117,6 +124,7 @@ impl<P: ProblemType> CalibrationSession<P> {
             output: None,
             exports: Vec::new(),
             log: Vec::new(),
+            control: RunControl::default(),
         }
     }
 
@@ -403,6 +411,37 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// timestamps, description).
     pub fn metadata(&self) -> &SessionMetadata {
         &self.metadata
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Progress and cancellation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Report progress to, and poll cancellation from, `control` in the
+    /// steps run from now on.
+    ///
+    /// Every solve of a step reports its iterations
+    /// ([`Progress::Iteration`]) and stops with [`Error::Cancelled`] once
+    /// the token is cancelled; `run_calibration` also reports each step it
+    /// begins ([`Progress::Step`]) and checks the token between steps. A
+    /// cancelled step leaves the session's earlier results in place and
+    /// sets none of its own. The control is not part of the session's
+    /// state: it is not serialized and does not change any result.
+    pub fn set_control(&mut self, control: RunControl) {
+        self.control = control;
+    }
+
+    /// The control the steps report to (the default: none).
+    pub fn control(&self) -> &RunControl {
+        &self.control
+    }
+
+    /// Begin the step `name` of a `run_calibration`: stop if the run was
+    /// cancelled, else report the step — and stop if the report cancelled it.
+    pub(crate) fn begin_step(&self, name: &'static str) -> Result<(), Error> {
+        self.control.check()?;
+        self.control.report(Progress::step(name));
+        Ok(self.control.check()?)
     }
 
     // ─────────────────────────────────────────────────────────────────────────

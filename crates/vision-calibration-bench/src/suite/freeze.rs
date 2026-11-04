@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
+use vision_calibration_core::RunControl;
 use vision_calibration_dataset::{DatasetSpec, Topology};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
@@ -41,23 +42,42 @@ pub fn freeze_manifest(
     // First accepted image per camera, for the camera's image size.
     let (input, first_paths): (ProblemInput, Vec<Option<PathBuf>>) = match spec.topology {
         Topology::PlanarIntrinsics => {
-            let run = build_planar_input(&spec, data_root, DetectionMode::Cached(&cache))?;
+            let run = build_planar_input(
+                &spec,
+                data_root,
+                DetectionMode::Cached(&cache),
+                &RunControl::default(),
+            )?;
             let first = vec![run.view_paths.first().cloned()];
             (ProblemInput::PlanarIntrinsics(run.input), first)
         }
         Topology::SingleCamHandeye => {
-            let run =
-                build_single_cam_handeye_input(&spec, data_root, DetectionMode::Cached(&cache))?;
+            let run = build_single_cam_handeye_input(
+                &spec,
+                data_root,
+                DetectionMode::Cached(&cache),
+                &RunControl::default(),
+            )?;
             let first = vec![run.view_paths.first().cloned()];
             (ProblemInput::SingleCamHandeye(run.input), first)
         }
         Topology::RigExtrinsics => {
-            let run = build_rig_extrinsics_input(&spec, data_root, DetectionMode::Cached(&cache))?;
+            let run = build_rig_extrinsics_input(
+                &spec,
+                data_root,
+                DetectionMode::Cached(&cache),
+                &RunControl::default(),
+            )?;
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
             (ProblemInput::RigExtrinsics(run.input), first)
         }
         Topology::RigHandeye => {
-            let run = build_rig_handeye_input(&spec, data_root, DetectionMode::Cached(&cache))?;
+            let run = build_rig_handeye_input(
+                &spec,
+                data_root,
+                DetectionMode::Cached(&cache),
+                &RunControl::default(),
+            )?;
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
             (ProblemInput::RigHandeye(run.input), first)
         }

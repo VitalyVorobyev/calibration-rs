@@ -287,7 +287,7 @@ pub fn step_intrinsics_optimize_all(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options()
+        ..config.solver.backend_options(session.control())
     };
 
     let mut optimized_cameras = Vec::with_capacity(input.num_cameras);
@@ -550,7 +550,7 @@ pub fn step_rig_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..config.solver.backend_options()
+        ..config.solver.backend_options(session.control())
     };
 
     let initial = RigExtrinsicsParams {
@@ -608,9 +608,13 @@ pub fn step_rig_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
 ) -> Result<(), Error> {
+    session.begin_step("intrinsics_init_all")?;
     let _ = step_intrinsics_init_all(session, None)?;
+    session.begin_step("intrinsics_optimize_all")?;
     let _ = step_intrinsics_optimize_all(session, None)?;
+    session.begin_step("rig_init")?;
     let _ = step_rig_init(session, None)?;
+    session.begin_step("rig_optimize")?;
     let _ = step_rig_optimize(session, None)?;
     Ok(())
 }
@@ -762,6 +766,64 @@ mod tests {
             .unwrap();
 
         assert!(session.has_output());
+    }
+
+    /// `run_calibration` reports its steps in order, an observer leaves the
+    /// export unchanged, and a token cancelled at a step boundary stops the
+    /// run there with no output.
+    #[test]
+    fn run_calibration_reports_steps_and_stops_between_them() {
+        use std::sync::{Arc, Mutex};
+        use vision_calibration_core::{CancelToken, Progress, RunControl};
+
+        let mut plain = CalibrationSession::<RigExtrinsicsProblem>::new();
+        plain.set_input(make_test_input()).unwrap();
+        run_calibration(&mut plain).unwrap();
+
+        let run = |stop_at: Option<&'static str>| {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let log = Arc::clone(&seen);
+            let token = CancelToken::new();
+            let trigger = token.clone();
+            let control = RunControl::new()
+                .with_cancel(token)
+                .with_observer(move |progress| {
+                    if let Progress::Step { name, .. } = progress {
+                        log.lock().unwrap().push(name);
+                        if stop_at == Some(name) {
+                            trigger.cancel();
+                        }
+                    }
+                });
+            let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+            session.set_input(make_test_input()).unwrap();
+            session.set_control(control);
+            let result = run_calibration(&mut session);
+            let steps = seen.lock().unwrap().clone();
+            (session, result, steps)
+        };
+
+        let (observed, result, steps) = run(None);
+        result.unwrap();
+        assert_eq!(
+            steps,
+            [
+                "intrinsics_init_all",
+                "intrinsics_optimize_all",
+                "rig_init",
+                "rig_optimize"
+            ]
+        );
+        assert_eq!(
+            serde_json::to_value(plain.export().unwrap()).unwrap(),
+            serde_json::to_value(observed.export_peek().unwrap()).unwrap()
+        );
+
+        // Cancelled as `rig_optimize` is announced: the step never starts.
+        let (session, result, steps) = run(Some("rig_optimize"));
+        assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+        assert_eq!(steps.len(), 4);
+        assert!(!session.has_output());
     }
 
     #[test]

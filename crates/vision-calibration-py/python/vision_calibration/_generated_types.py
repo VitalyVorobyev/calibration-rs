@@ -1686,6 +1686,71 @@ class PredictedUncertainty(TypedDict):
     """
 
 
+class Progress_Detection(TypedDict):
+    """A target image was detected, or read from the detection cache."""
+
+    done: int
+    """Target images done so far, `1..=total`."""
+
+    kind: Literal["detection"]
+    total: int
+    """Target images to detect, over every camera."""
+
+
+class Progress_Iteration(TypedDict):
+    """A Levenberg–Marquardt iteration finished. `iter` counts from 1 within
+    one solve and starts again at the next.
+    """
+
+    cost: float
+    """The objective after the iteration, `½ Σᵢ ρᵢ(‖rᵢ‖²)` (the
+    convention of a solve report's `final_cost`).
+    """
+
+    iter: int
+    """The iteration, `1..=max_iters`."""
+
+    kind: Literal["iteration"]
+    max_iters: int
+    """The solve's iteration budget."""
+
+
+class Progress_LaserExtraction(TypedDict):
+    """A laser image was extracted, read from the cache, or skipped because
+    its view was left out.
+    """
+
+    done: int
+    """Laser images done so far, `1..=total`."""
+
+    kind: Literal["laser_extraction"]
+    total: int
+    """Laser images to extract, over every camera."""
+
+
+class Progress_Step(TypedDict):
+    """A step of a workflow's `run_calibration` begins: the step function's
+    name without its `step_` prefix (`"intrinsics_init_all"`).
+    """
+
+    kind: Literal["step"]
+    name: str
+    """The step's name."""
+
+
+Progress: TypeAlias = (
+    Progress_Detection
+    | Progress_LaserExtraction
+    | Progress_Step
+    | Progress_Iteration
+)
+"""What a long-running call reports to its observer.
+
+In JSON the variant is the `kind` field:
+`{"kind": "iteration", "iter": 3, "max_iters": 100, "cost": 12.5}`.
+"""
+
+
 ProjectionKind: TypeAlias = Literal["pinhole", "equidistant"]
 """Which projection model a camera uses.
 
@@ -3417,6 +3482,11 @@ __all__ = [
     "PosePairing_SharedFilenameToken",
     "PredictedRigUncertainty",
     "PredictedUncertainty",
+    "Progress",
+    "Progress_Detection",
+    "Progress_Iteration",
+    "Progress_LaserExtraction",
+    "Progress_Step",
     "ProjectionKind",
     "ProjectionParams",
     "ProjectionParams_Equidistant",

@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use vision_calibration::analysis::{CheckStatus, QualityThresholds, assess};
 use vision_calibration::common::CalibratedCameras;
+use vision_calibration::control::RunControl;
 use vision_calibration::core::Uncertainty;
 use vision_calibration::dataset::{DatasetSpec, sniff_folder};
 use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
@@ -45,7 +46,14 @@ fn main() -> Result<()> {
     //    run), then run the workflow the manifest's topology names.
     let spec = DatasetSpec::from_path(&manifest).context("reading the manifest")?;
     let cache = FsDetectionCache::new(dir.join(".detections"));
-    let run = calibrate_dataset(&spec, &dir, None, Detection::Cached(&cache), None)?;
+    let run = calibrate_dataset(
+        &spec,
+        &dir,
+        None,
+        Detection::Cached(&cache),
+        None,
+        &RunControl::default(),
+    )?;
     println!("{} of {} views used", run.usable_views, run.total_views);
     for rejected in &run.rejected {
         println!(

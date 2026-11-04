@@ -188,7 +188,7 @@ pub fn step_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(cfg.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(cfg.solver.verbosity),
-        ..cfg.solver.backend_options()
+        ..cfg.solver.backend_options(session.control())
     };
 
     let estimate = match optimize_rig_laserline(
@@ -230,7 +230,9 @@ pub fn step_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
 ) -> Result<(), Error> {
+    session.begin_step("init")?;
     step_init(session, None)?;
+    session.begin_step("optimize")?;
     step_optimize(session, None)?;
     Ok(())
 }

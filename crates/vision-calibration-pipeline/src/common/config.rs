@@ -15,7 +15,7 @@
 //! problem has no reason to deviate.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{CameraFix, CameraModelSpec, ProjectionKind, SensorKind};
+use vision_calibration_core::{CameraFix, CameraModelSpec, ProjectionKind, RunControl, SensorKind};
 use vision_calibration_linear::handeye::HandeyeMethod;
 use vision_calibration_linear::prelude::{
     DistortionFitOptions, EquidistantInitOptions, IterativeIntrinsicsOptions,
@@ -432,14 +432,16 @@ impl Default for SolverConfig {
 }
 
 impl SolverConfig {
-    /// The solver options this stage runs with. A step that adjusts them (an
+    /// The solver options this stage runs with, reporting to and polled
+    /// through `control` (the session's). A step that adjusts them (an
     /// iteration budget, say) overrides fields of this value, so the backend
-    /// choice always comes from the config.
-    pub(crate) fn backend_options(&self) -> BackendSolveOptions {
+    /// choice always comes from the config and the control from the session.
+    pub(crate) fn backend_options(&self, control: &RunControl) -> BackendSolveOptions {
         BackendSolveOptions {
             backend: self.backend,
             max_iters: self.max_iters,
             verbosity: self.verbosity,
+            control: control.clone(),
             ..BackendSolveOptions::default()
         }
     }

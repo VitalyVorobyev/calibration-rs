@@ -2,7 +2,12 @@ import { Button, Callout } from "@vitavision/ui";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { RunStage } from "../../lib/runCalibration";
-import { computeStageRows, formatElapsed, type StageRow } from "./runStages";
+import {
+  computeStageRows,
+  formatElapsed,
+  progressDetail,
+  type StageRow,
+} from "./runStages";
 import type { RunStatus } from "./runStatus";
 
 interface RunStatusBannerProps {
@@ -21,6 +26,7 @@ export function RunStatusBanner({ status, onCancel }: RunStatusBannerProps) {
       return (
         <RunProgressPanel
           stage={status.stage}
+          detail={progressDetail(status.report, status.step)}
           startedAt={status.startedAt}
           cancelRequested={status.cancelRequested}
           onCancel={onCancel}
@@ -30,7 +36,7 @@ export function RunStatusBanner({ status, onCancel }: RunStatusBannerProps) {
       return (
         <Callout tone="info" title="Run cancelled">
           <span className="font-mono text-xs">
-            stopped at the stage boundary — no export was produced
+            stopped before it finished — no export was produced
           </span>
         </Callout>
       );
@@ -80,6 +86,8 @@ function ElapsedClock({ startedAt }: { startedAt: number }) {
 
 interface RunProgressPanelProps {
   stage: RunStage | null;
+  /** The latest report within the active stage, as text. */
+  detail: string | null;
   /** Epoch ms the run started — display-only, never enters any export. */
   startedAt: number;
   cancelRequested: boolean;
@@ -87,10 +95,12 @@ interface RunProgressPanelProps {
 }
 
 /** Stage checklist + live elapsed clock + Cancel button for an in-flight
- * run. The three stages (detect → solve → export) come from the runner's
- * progress channel; cancellation takes effect at the next boundary. */
+ * run. The three stages (detect → solve → export) and the detail beside the
+ * active one come from the runner's progress channel; cancellation takes
+ * effect at the next image or solver iteration. */
 function RunProgressPanel({
   stage,
+  detail,
   startedAt,
   cancelRequested,
   onCancel,
@@ -117,7 +127,7 @@ function RunProgressPanel({
           size="sm"
           onClick={onCancel}
           disabled={cancelRequested}
-          title="Stop the run at the next stage boundary"
+          title="Stop the run at its next image or solver iteration"
         >
           {cancelRequested ? "Cancelling…" : "Cancel"}
         </Button>
@@ -125,7 +135,11 @@ function RunProgressPanel({
     >
       <ul className="flex flex-col gap-1">
         {rows.map((row) => (
-          <StageRowItem key={row.id} row={row} />
+          <StageRowItem
+            key={row.id}
+            row={row}
+            detail={row.state === "active" ? detail : null}
+          />
         ))}
       </ul>
       {!cancelRequested && (
@@ -144,11 +158,12 @@ const STAGE_TEXT: Record<StageRow["state"], string> = {
   pending: "text-fg-muted",
 };
 
-function StageRowItem({ row }: { row: StageRow }) {
+function StageRowItem({ row, detail }: { row: StageRow; detail: string | null }) {
   return (
     <li className="flex items-center gap-2 font-mono text-[11px]">
       <StageStateIcon state={row.state} />
       <span className={STAGE_TEXT[row.state]}>{row.label}</span>
+      {detail && <span className="truncate text-fg-muted tabular-nums">{detail}</span>}
     </li>
   );
 }

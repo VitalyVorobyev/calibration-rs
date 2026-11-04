@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vision_calibration_core::{NoMeta, RigDataset, RigView, RigViewObs};
+use vision_calibration_core::{NoMeta, RigDataset, RigView, RigViewObs, RunControl};
 use vision_calibration_dataset::{DatasetSpec, Topology, validate};
 use vision_calibration_detect::Feature;
 use vision_calibration_optim::RobotPoseMeta;
@@ -21,8 +21,8 @@ use super::board_turn::match_rig_labels;
 use super::pairing::pair_views;
 use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
 use super::{
-    Detection, RejectReason, RejectedDetection, RunError, detect_features, expand_camera_images,
-    features_to_obs, pattern_repr, target_to_detector_config,
+    Detection, ImageProgress, RejectReason, RejectedDetection, RunError, detect_features,
+    expand_camera_images, features_to_obs, pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -46,10 +46,13 @@ pub struct RigRunResult<Meta> {
 
 /// Convert a multi-camera manifest + cache into a
 /// [`RigDataset<NoMeta>`] for `RigExtrinsics`.
+///
+/// `control` as for [`build_planar_input`](super::build_planar_input).
 pub fn build_rig_extrinsics_input(
     spec: &DatasetSpec,
     base_dir: &Path,
     detection: Detection<'_>,
+    control: &RunControl,
 ) -> Result<RigRunResult<NoMeta>, RunError> {
     if spec.topology != Topology::RigExtrinsics {
         return Err(RunError::UnsupportedTopology {
@@ -62,7 +65,7 @@ pub fn build_rig_extrinsics_input(
         total_views,
         rejected,
         ..
-    } = build_rig_core(spec, base_dir, detection)?;
+    } = build_rig_core(spec, base_dir, detection, control)?;
     let views = views
         .into_iter()
         .map(|(obs, _token)| RigView { obs, meta: NoMeta })
@@ -72,10 +75,13 @@ pub fn build_rig_extrinsics_input(
 
 /// Convert a multi-camera + robot-poses manifest + cache into a
 /// [`RigDataset<RobotPoseMeta>`] for `RigHandeye`.
+///
+/// `control` as for [`build_planar_input`](super::build_planar_input).
 pub fn build_rig_handeye_input(
     spec: &DatasetSpec,
     base_dir: &Path,
     detection: Detection<'_>,
+    control: &RunControl,
 ) -> Result<RigRunResult<RobotPoseMeta>, RunError> {
     if spec.topology != Topology::RigHandeye {
         return Err(RunError::UnsupportedTopology {
@@ -88,7 +94,7 @@ pub fn build_rig_handeye_input(
         total_views,
         rejected,
         ..
-    } = build_rig_core(spec, base_dir, detection)?;
+    } = build_rig_core(spec, base_dir, detection, control)?;
 
     // `validate` (called inside build_rig_core) guarantees both fields
     // are present for the RigHandeye topology.
@@ -123,6 +129,7 @@ pub(super) fn build_rig_core(
     spec: &DatasetSpec,
     base_dir: &Path,
     detection: Detection<'_>,
+    control: &RunControl,
 ) -> Result<RigCore, RunError> {
     // Same gate ordering as the planar converter: target + validation
     // + pairing config before any filesystem access.
@@ -161,6 +168,8 @@ pub(super) fn build_rig_core(
     // detected[view][camera]: the features of each detection the filter
     // keeps.
     let mut detected: Vec<Vec<Option<Vec<Feature>>>> = Vec::with_capacity(total_views);
+    let images = paired.paths.iter().flatten().flatten().count();
+    let mut progress = ImageProgress::targets(control, images);
     for (view, paths) in paired.paths.iter().enumerate() {
         let mut cameras = Vec::with_capacity(paths.len());
         for (cam_idx, maybe_path) in paths.iter().enumerate() {
@@ -168,12 +177,14 @@ pub(super) fn build_rig_core(
                 cameras.push(None);
                 continue;
             };
-            let (features, _cache_hit) = detect_features(
-                &detector_config,
-                spec.cameras[cam_idx].roi_xywh,
-                path,
-                detection,
-            )?;
+            let (features, _cache_hit) = progress.read(|| {
+                detect_features(
+                    &detector_config,
+                    spec.cameras[cam_idx].roi_xywh,
+                    path,
+                    detection,
+                )
+            })?;
             match filter.check(&features) {
                 Ok(()) => cameras.push(Some(features)),
                 Err(reason) => {
@@ -415,8 +426,13 @@ mod tests {
             vec!["cam0/img_0.png", "cam0/img_1.png", "cam0/img_2.png"],
             vec!["cam1/img_0.png", "cam1/img_1.png", "cam1/img_2.png"],
         ]);
-        let result =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         assert_eq!(result.input.num_cameras, 2);
         assert_eq!(result.input.num_views(), 3);
         assert_eq!(result.usable_views, 3);
@@ -443,8 +459,13 @@ mod tests {
             vec!["cam0/a.png", "cam0/b.png"],
             vec!["cam1/a.png", "cam1/b.png"],
         ]);
-        let result =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         assert_eq!(result.input.num_views(), 2);
         assert!(result.input.views[1].obs.cameras[0].is_some());
         assert!(result.input.views[1].obs.cameras[1].is_none());
@@ -473,8 +494,13 @@ mod tests {
             min_features_per_view: Some(54),
             ..DetectorSpec::default()
         });
-        let result =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         assert!(result.input.views[0].obs.cameras[1].is_some());
         assert!(result.input.views[1].obs.cameras[1].is_none());
         assert_eq!(result.rejected.len(), 1);
@@ -518,8 +544,13 @@ mod tests {
             vec!["cam0/a.png", "cam0/b.png", "cam0/c.png"],
             vec!["cam1/a.png", "cam1/b.png", "cam1/c.png"],
         ]);
-        let result =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         // Every view keeps cam0; cam1 loses its partial board only.
         assert_eq!(result.input.num_views(), 3);
         assert!(result.input.views[0].obs.cameras[1].is_some());
@@ -592,8 +623,13 @@ mod tests {
             vec!["cam0/a.png", "cam0/b.png"],
             vec!["cam1/a.png", "cam1/b.png"],
         ]);
-        let err =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         match err {
             RunError::NoWholeChessboardViews {
                 camera_id,
@@ -637,8 +673,13 @@ mod tests {
             layout: "puzzle_9x6".into(),
             cell_size_m: 0.025,
         };
-        let result =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         assert!(result.input.views[0].obs.cameras[1].is_some());
         assert!(result.rejected.is_empty());
     }
@@ -650,8 +691,13 @@ mod tests {
         seed_image(tmp.path(), &cache, "cam0/a.png", board_features());
         seed_image(tmp.path(), &cache, "cam1/a.png", grid_features(2));
         let spec = rig_spec(&[vec!["cam0/a.png"], vec!["cam1/a.png"]]);
-        let err =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         match err {
             RunError::InsufficientUsableViews { camera_id, .. } => assert_eq!(camera_id, "cam1"),
             other => panic!("expected InsufficientUsableViews, got {other:?}"),
@@ -664,8 +710,13 @@ mod tests {
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let mut spec = rig_spec(&[vec!["cam0/a.png"], vec!["cam1/a.png"]]);
         spec.pose_pairing = None;
-        let err =
-            build_rig_extrinsics_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_rig_extrinsics_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         match err {
             RunError::AskUser { field, .. } => assert_eq!(field, "pose_pairing"),
             other => panic!("expected AskUser, got {other:?}"),
@@ -677,14 +728,24 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let spec = rig_spec(&[vec!["a.png"], vec!["b.png"]]); // RigExtrinsics
-        let err =
-            build_rig_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_rig_handeye_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         assert!(matches!(err, RunError::UnsupportedTopology { .. }));
 
         let mut spec2 = rig_spec(&[vec!["a.png"], vec!["b.png"]]);
         spec2.topology = Topology::RigHandeye;
-        let err2 =
-            build_rig_extrinsics_input(&spec2, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err2 = build_rig_extrinsics_input(
+            &spec2,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         assert!(matches!(err2, RunError::UnsupportedTopology { .. }));
     }
 
@@ -735,7 +796,13 @@ mod tests {
                    0.2,0,0,0,0,0,1\n\
                    0.3,0,0,0,0,0,1";
         let spec = handeye_spec_with_poses(tmp.path(), csv);
-        let result = build_rig_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_rig_handeye_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         assert_eq!(result.input.num_views(), 3);
         let xs: Vec<f64> = result
             .input
@@ -762,8 +829,13 @@ mod tests {
         }
         let csv = "tx,ty,tz,qx,qy,qz,qw\n0.1,0,0,0,0,0,1"; // 1 pose, 3 views
         let spec = handeye_spec_with_poses(tmp.path(), csv);
-        let err =
-            build_rig_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_rig_handeye_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         match err {
             RunError::PoseCountMismatch { poses, views } => {
                 assert_eq!((poses, views), (1, 3));
@@ -792,8 +864,13 @@ mod tests {
             regex: r"^img_(?<view>\d+)\.png$".into(),
             group: "view".into(),
         });
-        let err =
-            build_rig_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_rig_handeye_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         match err {
             RunError::AskUser { field, .. } => {
                 assert_eq!(field, "robot_poses.columns.pose_id")
@@ -833,7 +910,13 @@ mod tests {
         if let Some(rp) = &mut spec.robot_poses {
             rp.columns.as_mut().unwrap().pose_id = Some("view".into());
         }
-        let result = build_rig_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap();
+        let result = build_rig_handeye_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
         assert_eq!(result.input.num_views(), 2);
         // Views are sorted by token; pose rows were reversed in the file.
         let xs: Vec<f64> = result
@@ -878,8 +961,13 @@ mod tests {
         if let Some(rp) = &mut spec.robot_poses {
             rp.columns.as_mut().unwrap().pose_id = Some("view".into());
         }
-        let err =
-            build_rig_handeye_input(&spec, tmp.path(), Detection::Cached(&cache)).unwrap_err();
+        let err = build_rig_handeye_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap_err();
         match err {
             RunError::PairingTokenMismatch { message } => {
                 assert!(

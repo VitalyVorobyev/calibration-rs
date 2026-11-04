@@ -16,7 +16,12 @@
 //! console script.
 //!
 //! [`run`] is the whole program, for an embedding (the Python console script
-//! calls it); the `vcal` binary only passes it the process arguments.
+//! calls it); the `vcal` binary only passes it the process arguments and a
+//! [`RunControl`] whose token its Ctrl-C handler cancels.
+//!
+//! `run` shows its progress (the images detected, the step and the solver
+//! iteration) on one line of standard error when standard error is a
+//! terminal, and nothing otherwise.
 //!
 //! # Exit status
 //!
@@ -26,10 +31,13 @@
 //! | 1 | an error, printed to standard error |
 //! | 2 | the command line is wrong |
 //! | 3 | `run` calibrated and wrote its files, but the quality verdict is fail |
+//! | 130 | interrupted (Ctrl-C): the run stopped and wrote nothing |
 
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -39,10 +47,11 @@ use vision_calibration::analysis::{
     CheckStatus, QualityThresholds, ReportOptions, Verdict, assess, html_report,
 };
 use vision_calibration::common::CalibratedCameras;
+use vision_calibration::control::{Progress, RunControl};
 use vision_calibration::core::Uncertainty;
 use vision_calibration::dataset::{DatasetSpec, Topology, samples, sniff_folder};
 use vision_calibration::dataset_runner::{
-    CalibrationConfig, Detection, calibrate_dataset, camera_image_sizes,
+    CalibrateDatasetError, CalibrationConfig, Detection, calibrate_dataset, camera_image_sizes,
 };
 use vision_calibration::detect::FsDetectionCache;
 
@@ -56,6 +65,9 @@ macro_rules! say {
 
 /// Exit status of a `run` whose quality verdict is fail.
 const VERDICT_FAIL: u8 = 3;
+/// Exit status of a run stopped by its control's token: 128 + SIGINT, the
+/// shell's status for a process interrupted by Ctrl-C.
+pub const INTERRUPTED: u8 = 130;
 
 /// The manifest file `init` writes into the folder.
 const MANIFEST_FILE: &str = "dataset.toml";
@@ -153,8 +165,11 @@ enum SampleCommand {
 /// Runs `vcal` on `args` (the program name first, as in
 /// [`std::env::args_os`]) and returns its exit status.
 ///
-/// Output goes to standard output, errors to standard error.
-pub fn run<I, T>(args: I) -> u8
+/// Output goes to standard output, errors to standard error. `vcal run`
+/// reports to `control` and polls its token: once it is cancelled the run
+/// stops, prints `interrupted`, writes no files and returns
+/// [`INTERRUPTED`].
+pub fn run<I, T>(args: I, control: &RunControl) -> u8
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -186,13 +201,88 @@ where
             config.as_deref(),
             redetect,
             report,
+            control,
         ),
         Command::Sample { command } => sample(command).map(|()| 0),
     };
     outcome.unwrap_or_else(|err| {
+        if matches!(
+            err.downcast_ref::<CalibrateDatasetError>(),
+            Some(CalibrateDatasetError::Cancelled)
+        ) {
+            eprintln!("interrupted");
+            return INTERRUPTED;
+        }
         eprintln!("error: {}", describe(&err));
         1
     })
+}
+
+/// One line of standard error that shows the latest progress report,
+/// redrawn at most every [`StatusLine::PERIOD`] (a new step always).
+#[derive(Clone)]
+struct StatusLine(Arc<Mutex<StatusState>>);
+
+#[derive(Default)]
+struct StatusState {
+    /// The step under way, shown with its iterations.
+    step: Option<&'static str>,
+    /// When the line was last drawn; display only.
+    drawn: Option<Instant>,
+    /// Whether the line holds text to clear.
+    dirty: bool,
+}
+
+impl StatusLine {
+    const PERIOD: Duration = Duration::from_millis(50);
+
+    fn new() -> Self {
+        Self(Arc::new(Mutex::new(StatusState::default())))
+    }
+
+    fn show(&self, progress: Progress) {
+        let Ok(mut state) = self.0.lock() else {
+            return;
+        };
+        let text = match progress {
+            Progress::Detection { done, total, .. } => format!("detecting {done}/{total}"),
+            Progress::LaserExtraction { done, total, .. } => {
+                format!("extracting laser lines {done}/{total}")
+            }
+            Progress::Step { name, .. } => {
+                state.step = Some(name);
+                state.drawn = None;
+                name.to_string()
+            }
+            Progress::Iteration {
+                iter,
+                max_iters,
+                cost,
+                ..
+            } => format!(
+                "{}: iteration {iter}/{max_iters}, cost {cost:.4e}",
+                state.step.unwrap_or("solve")
+            ),
+            _ => return,
+        };
+        let now = Instant::now();
+        if state.drawn.is_some_and(|t| now - t < Self::PERIOD) {
+            return;
+        }
+        state.drawn = Some(now);
+        state.dirty = true;
+        // A failed write to a terminal has nowhere better to go.
+        let _ = write!(std::io::stderr(), "\r\x1b[2K{text}");
+    }
+
+    fn clear(&self) {
+        if let Ok(mut state) = self.0.lock()
+            && state.dirty
+        {
+            state.dirty = false;
+            let _ = write!(std::io::stderr(), "\r\x1b[2K");
+        }
+    }
 }
 
 /// The error and its causes on one line. A cause whose text the message
@@ -272,6 +362,7 @@ fn calibrate(
     config: Option<&Path>,
     redetect: bool,
     html: bool,
+    control: &RunControl,
 ) -> Result<u8> {
     let (spec, base) = load(manifest)?;
     let config = config
@@ -285,7 +376,25 @@ fn calibrate(
     };
     // The CLI has no laser-line extractor; a laser topology fails before any
     // detection with an error that says so.
-    let run = calibrate_dataset(&spec, &base, config, detection, None)?;
+    let status = std::io::stderr().is_terminal().then(StatusLine::new);
+    let control = match &status {
+        Some(line) => {
+            let line = line.clone();
+            control
+                .clone()
+                .with_observer(move |progress| line.show(progress))
+        }
+        None => control.clone(),
+    };
+    let run = calibrate_dataset(&spec, &base, config, detection, None, &control);
+    if let Some(line) = &status {
+        line.clear();
+    }
+    let run = run?;
+    // Interrupted after the last check: still stop before writing anything.
+    if control.is_cancelled() {
+        return Err(CalibrateDatasetError::Cancelled.into());
+    }
 
     say!(
         "{}: {} of {} views used",

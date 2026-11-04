@@ -81,6 +81,7 @@ from .models import (
     SingleCamHandeyeView,
 )
 from ._generated_types import RobustLoss as _RobustLoss
+from .types import ProgressCallback as _ProgressCallback
 from . import common as common
 from . import dataset as dataset
 from . import dataset_runner as dataset_runner
@@ -164,43 +165,50 @@ def robust_arctan(scale: float) -> _RobustLoss: ...
 
 def run_planar_intrinsics(
     input: PlanarIntrinsicsInput,
-    config: PlanarIntrinsicsConfig | None = None,
+    config: PlanarIntrinsicsConfig | None = None,    *,
+    progress: _ProgressCallback | None = None,
 ) -> PlanarIntrinsicsExport: ...
 
 
 def run_single_cam_handeye(
     input: SingleCamHandeyeInput,
-    config: SingleCamHandeyeConfig | None = None,
+    config: SingleCamHandeyeConfig | None = None,    *,
+    progress: _ProgressCallback | None = None,
 ) -> SingleCamHandeyeExport: ...
 
 
 def run_rig_extrinsics(
     input: RigExtrinsicsInput,
-    config: RigExtrinsicsConfig | None = None,
+    config: RigExtrinsicsConfig | None = None,    *,
+    progress: _ProgressCallback | None = None,
 ) -> RigExtrinsicsExport: ...
 
 
 def run_rig_handeye(
     input: RigHandeyeInput,
-    config: RigHandeyeConfig | None = None,
+    config: RigHandeyeConfig | None = None,    *,
+    progress: _ProgressCallback | None = None,
 ) -> RigHandeyeExport: ...
 
 
 def run_laserline_device(
     input: LaserlineDeviceInput,
-    config: LaserlineDeviceConfig | None = None,
+    config: LaserlineDeviceConfig | None = None,    *,
+    progress: _ProgressCallback | None = None,
 ) -> LaserlineDeviceExport: ...
 
 
 def run_rig_laserline_device(
     input: RigLaserlineDeviceInput,
-    config: RigLaserlineDeviceConfig | None = None,
+    config: RigLaserlineDeviceConfig | None = None,    *,
+    progress: _ProgressCallback | None = None,
 ) -> RigLaserlineDeviceExport: ...
 
 
 def run_rig_handeye_laserline(
     input: RigHandeyeLaserlineInput,
-    config: RigHandeyeLaserlineConfig | None = None,
+    config: RigHandeyeLaserlineConfig | None = None,    *,
+    progress: _ProgressCallback | None = None,
 ) -> RigHandeyeLaserlineExport: ...
 
 

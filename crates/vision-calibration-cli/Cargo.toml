@@ -22,6 +22,8 @@ path = "src/main.rs"
 vision-calibration = { workspace = true, features = ["fetch"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
+# Ctrl-C (SIGINT, and the Windows console event) cancels a run cleanly.
+ctrlc = "3.5"
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = "1"

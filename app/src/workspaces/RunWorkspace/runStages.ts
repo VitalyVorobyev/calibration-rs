@@ -1,12 +1,13 @@
 /** Pure logic for the Run workspace's stage-progress checklist.
  *
- * The runner (`app/src-tauri/src/run.rs`) announces exactly three coarse
- * stages — `detect` → `solve` → `export` — over the progress channel. The
- * UI shows them as a checklist; this module turns "the stage that is
- * currently running" into a per-stage `pending | active | done | cancelled`
- * state without any React or Tauri dependency, so it is unit-testable in a
- * plain Node environment. */
-import type { RunStage } from "../../lib/runCalibration";
+ * The runner (`app/src-tauri/src/run.rs`) announces three stages —
+ * `detect` → `solve` → `export` — over the progress channel, with the
+ * library's reports within them (each image detected, each calibration
+ * step, each solver iteration). The UI shows the stages as a checklist and
+ * the latest report beside the active one; this module derives both
+ * without any React or Tauri dependency, so it is unit-testable in a plain
+ * Node environment. */
+import type { Progress, RunStage } from "../../lib/runCalibration";
 
 export interface RunStageInfo {
   id: RunStage;
@@ -60,6 +61,27 @@ export function computeStageRows(
     }
     return { ...info, state };
   });
+}
+
+/** The active stage's detail line for the latest report: the image count
+ * while detecting, the step and its iteration while solving. `step` is the
+ * step under way, for an iteration report. */
+export function progressDetail(
+  report: Progress | null,
+  step: string | null,
+): string | null {
+  switch (report?.kind) {
+    case undefined:
+      return null;
+    case "detection":
+      return `${report.done}/${report.total} images`;
+    case "laser_extraction":
+      return `${report.done}/${report.total} laser images`;
+    case "step":
+      return report.name;
+    case "iteration":
+      return `${step ?? "solve"} · iteration ${report.iter}/${report.max_iters} · cost ${report.cost.toExponential(3)}`;
+  }
 }
 
 /** Human-readable elapsed time (e.g. `0.4s`, `12.8s`, `1m 03s`). */

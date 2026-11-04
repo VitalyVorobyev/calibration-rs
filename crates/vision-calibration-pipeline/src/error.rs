@@ -57,7 +57,29 @@ pub enum Error {
 
     /// Error propagated from the optim crate.
     #[error(transparent)]
-    Optim(#[from] OptimError),
+    Optim(OptimError),
+
+    /// The run control's token was cancelled: the step, or the run, stopped
+    /// and returned no result.
+    #[error("cancelled")]
+    Cancelled,
+}
+
+/// An optim error, with a cancelled solve lifted to [`Error::Cancelled`]:
+/// one variant answers "was this run cancelled?" whichever crate stopped it.
+impl From<OptimError> for Error {
+    fn from(err: OptimError) -> Self {
+        match err {
+            OptimError::Cancelled => Self::Cancelled,
+            other => Self::Optim(other),
+        }
+    }
+}
+
+impl From<vision_calibration_core::Cancelled> for Error {
+    fn from(_: vision_calibration_core::Cancelled) -> Self {
+        Self::Cancelled
+    }
 }
 
 impl Error {
@@ -81,6 +103,15 @@ impl Error {
     pub(crate) fn linear_init(context: impl std::fmt::Display, err: LinearError) -> Self {
         match err {
             err @ LinearError::DegenerateViews { .. } => Self::Linear(err),
+            other => Self::numerical(format!("{context}: {other}")),
+        }
+    }
+
+    /// An optim failure, as [`Error::Numerical`] prefixed by `context` —
+    /// except a cancelled solve, which stays [`Error::Cancelled`].
+    pub(crate) fn optim(context: impl std::fmt::Display, err: OptimError) -> Self {
+        match err {
+            OptimError::Cancelled => Self::Cancelled,
             other => Self::numerical(format!("{context}: {other}")),
         }
     }

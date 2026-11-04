@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vision_calibration_core::{CameraParams, Iso3, LaserPlane, Uncertainty};
+use vision_calibration_core::{CameraParams, Iso3, LaserPlane, RunControl, Uncertainty};
 use vision_calibration_dataset::{DatasetSpec, Topology};
 
 use super::{
@@ -191,7 +191,7 @@ pub enum CalibrateDatasetError {
     /// solve. [`RunError::AskUser`] is the case where the manifest leaves a
     /// choice open.
     #[error(transparent)]
-    Run(#[from] RunError),
+    Run(RunError),
     /// The configuration is for a different topology than the manifest's.
     #[error("the config is for a {config:?} dataset but the manifest's topology is {manifest:?}")]
     ConfigTopologyMismatch {
@@ -209,7 +209,29 @@ pub enum CalibrateDatasetError {
     /// The configuration is invalid, the problem rejected the detected
     /// input, or the calibration itself failed.
     #[error(transparent)]
-    Calibration(#[from] Error),
+    Calibration(Error),
+    /// The run control's token was cancelled, during detection or the
+    /// calibration.
+    #[error("cancelled")]
+    Cancelled,
+}
+
+impl From<RunError> for CalibrateDatasetError {
+    fn from(err: RunError) -> Self {
+        match err {
+            RunError::Cancelled => Self::Cancelled,
+            other => Self::Run(other),
+        }
+    }
+}
+
+impl From<Error> for CalibrateDatasetError {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Cancelled => Self::Cancelled,
+            other => Self::Calibration(other),
+        }
+    }
 }
 
 /// Calibrates the dataset a manifest describes.
@@ -225,6 +247,17 @@ pub enum CalibrateDatasetError {
 /// (`laserline_device`, `rig_laserline_device`, `rig_handeye_laserline`) and
 /// unused by the others.
 ///
+/// `control` reports each image read ([`Progress::Detection`],
+/// [`Progress::LaserExtraction`]), each calibration step
+/// ([`Progress::Step`]) and each solver iteration
+/// ([`Progress::Iteration`]), and is polled at each of them;
+/// `&RunControl::default()` reports nothing and never stops early.
+///
+/// [`Progress::Detection`]: vision_calibration_core::Progress::Detection
+/// [`Progress::LaserExtraction`]: vision_calibration_core::Progress::LaserExtraction
+/// [`Progress::Step`]: vision_calibration_core::Progress::Step
+/// [`Progress::Iteration`]: vision_calibration_core::Progress::Iteration
+///
 /// # Errors
 ///
 /// - [`CalibrateDatasetError::ConfigTopologyMismatch`] and
@@ -235,6 +268,8 @@ pub enum CalibrateDatasetError {
 ///   manifest leaves open ([`RunError::AskUser`]), or detection and pairing
 ///   failures.
 /// - [`CalibrateDatasetError::Calibration`] from the session.
+/// - [`CalibrateDatasetError::Cancelled`] once `control`'s token is
+///   cancelled.
 ///
 /// # Example
 ///
@@ -242,13 +277,15 @@ pub enum CalibrateDatasetError {
 /// use std::path::Path;
 /// use vision_calibration_dataset::DatasetSpec;
 /// use vision_calibration_detect::FsDetectionCache;
+/// use vision_calibration_core::RunControl;
 /// use vision_calibration_pipeline::dataset_runner::{Detection, calibrate_dataset};
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let dir = Path::new("my_dataset");
 /// let spec = DatasetSpec::from_path(dir.join("dataset.toml"))?;
 /// let cache = FsDetectionCache::new(dir.join(".detections"));
-/// let run = calibrate_dataset(&spec, dir, None, Detection::Cached(&cache), None)?;
+/// let control = RunControl::default();
+/// let run = calibrate_dataset(&spec, dir, None, Detection::Cached(&cache), None, &control)?;
 /// println!("{} of {} views used", run.usable_views, run.total_views);
 /// println!("{}", serde_json::to_string_pretty(&run.export)?);
 /// # Ok(())
@@ -260,6 +297,7 @@ pub fn calibrate_dataset(
     config: Option<CalibrationConfig>,
     detection: Detection<'_>,
     laser_extractor: Option<&dyn LaserPixelExtractor>,
+    control: &RunControl,
 ) -> Result<DatasetCalibration, CalibrateDatasetError> {
     let topology = spec.topology;
     let config = config.unwrap_or_else(|| CalibrationConfig::default_for(topology));
@@ -287,11 +325,12 @@ pub fn calibrate_dataset(
     // config variant of its own topology.
     match config {
         CalibrationConfig::PlanarIntrinsics(config) => {
-            let run = build_planar_input(spec, base_dir, detection)?;
+            let run = build_planar_input(spec, base_dir, detection, control)?;
             let export = solve::<PlanarIntrinsicsProblem>(
                 run.input,
                 config,
                 crate::planar_intrinsics::run_calibration,
+                control,
             )?;
             Ok(finish(
                 image_sizes,
@@ -302,11 +341,12 @@ pub fn calibrate_dataset(
             ))
         }
         CalibrationConfig::SingleCamHandeye(config) => {
-            let run = build_single_cam_handeye_input(spec, base_dir, detection)?;
+            let run = build_single_cam_handeye_input(spec, base_dir, detection, control)?;
             let export = solve::<SingleCamHandeyeProblem>(
                 run.input,
                 config,
                 crate::single_cam_handeye::run_calibration,
+                control,
             )?;
             Ok(finish(
                 image_sizes,
@@ -317,11 +357,12 @@ pub fn calibrate_dataset(
             ))
         }
         CalibrationConfig::LaserlineDevice(config) => {
-            let run = build_laserline_device_input(spec, base_dir, detection, laser()?)?;
+            let run = build_laserline_device_input(spec, base_dir, detection, laser()?, control)?;
             let export = solve::<LaserlineDeviceProblem>(
                 run.input,
                 config,
                 crate::laserline_device::run_calibration,
+                control,
             )?;
             Ok(finish(
                 image_sizes,
@@ -332,11 +373,12 @@ pub fn calibrate_dataset(
             ))
         }
         CalibrationConfig::RigExtrinsics(config) => {
-            let run = build_rig_extrinsics_input(spec, base_dir, detection)?;
+            let run = build_rig_extrinsics_input(spec, base_dir, detection, control)?;
             let export = solve::<RigExtrinsicsProblem>(
                 run.input,
                 config,
                 crate::rig_extrinsics::run_calibration,
+                control,
             )?;
             Ok(finish(
                 image_sizes,
@@ -347,9 +389,13 @@ pub fn calibrate_dataset(
             ))
         }
         CalibrationConfig::RigHandeye(config) => {
-            let run = build_rig_handeye_input(spec, base_dir, detection)?;
-            let export =
-                solve::<RigHandeyeProblem>(run.input, config, crate::rig_handeye::run_calibration)?;
+            let run = build_rig_handeye_input(spec, base_dir, detection, control)?;
+            let export = solve::<RigHandeyeProblem>(
+                run.input,
+                config,
+                crate::rig_handeye::run_calibration,
+                control,
+            )?;
             Ok(finish(
                 image_sizes,
                 CalibrationExport::RigHandeye(export),
@@ -359,11 +405,13 @@ pub fn calibrate_dataset(
             ))
         }
         CalibrationConfig::RigLaserlineDevice(config) => {
-            let run = build_rig_laserline_device_input(spec, base_dir, detection, laser()?)?;
+            let run =
+                build_rig_laserline_device_input(spec, base_dir, detection, laser()?, control)?;
             let export = solve::<RigLaserlineDeviceProblem>(
                 run.input,
                 config,
                 crate::rig_laserline_device::run_calibration,
+                control,
             )?;
             Ok(finish(
                 image_sizes,
@@ -374,11 +422,13 @@ pub fn calibrate_dataset(
             ))
         }
         CalibrationConfig::RigHandeyeLaserline(config) => {
-            let run = build_rig_handeye_laserline_input(spec, base_dir, detection, laser()?)?;
+            let run =
+                build_rig_handeye_laserline_input(spec, base_dir, detection, laser()?, control)?;
             let export = solve::<RigHandeyeLaserlineProblem>(
                 run.input,
                 config,
                 crate::rig_handeye_laserline::run_calibration,
+                control,
             )?;
             Ok(finish(
                 image_sizes,
@@ -395,10 +445,12 @@ fn solve<P: ProblemType>(
     input: P::Input,
     config: P::Config,
     run: fn(&mut CalibrationSession<P>) -> Result<(), Error>,
+    control: &RunControl,
 ) -> Result<P::Export, Error> {
     let mut session = CalibrationSession::<P>::new();
     session.set_input(input)?;
     session.set_config(config)?;
+    session.set_control(control.clone());
     run(&mut session)?;
     session.export()
 }
@@ -460,6 +512,7 @@ mod tests {
             Some(CalibrationConfig::default_for(Topology::RigExtrinsics)),
             Detection::Uncached,
             None,
+            &RunControl::default(),
         )
         .unwrap_err();
         assert!(matches!(
@@ -484,8 +537,15 @@ mod tests {
             "target": { "kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.02 },
         }))
         .unwrap();
-        let err =
-            calibrate_dataset(&spec, Path::new("."), None, Detection::Uncached, None).unwrap_err();
+        let err = calibrate_dataset(
+            &spec,
+            Path::new("."),
+            None,
+            Detection::Uncached,
+            None,
+            &RunControl::default(),
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             CalibrateDatasetError::LaserExtractorRequired {

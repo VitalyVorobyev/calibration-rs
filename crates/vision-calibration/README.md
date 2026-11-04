@@ -67,13 +67,14 @@ feature downloads a sample dataset with a ready manifest:
 
 ```rust,no_run
 use vision_calibration::dataset::{DatasetSpec, samples};
+use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
 
 fn main() -> anyhow::Result<()> {
     let manifest = samples::fetch("opencv_left", &samples::default_cache_dir()?)?;
     let spec = DatasetSpec::from_path(&manifest)?;
     let dir = manifest.parent().expect("the manifest sits in the sample's folder");
-    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None)?;
+    let run = calibrate_dataset(&spec, dir, None, Detection::Uncached, None, &RunControl::default())?;
     println!("{} of {} views used", run.usable_views, run.total_views);
     Ok(())
 }

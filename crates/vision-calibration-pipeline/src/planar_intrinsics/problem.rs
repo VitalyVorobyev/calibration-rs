@@ -489,7 +489,9 @@ mod tests {
             ..Default::default()
         };
 
-        let opts = config.solver.backend_options();
+        let opts = config
+            .solver
+            .backend_options(&vision_calibration_core::RunControl::default());
         assert_eq!(opts.max_iters, 100);
         assert_eq!(opts.verbosity, 2);
         assert_eq!(

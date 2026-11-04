@@ -201,6 +201,7 @@ fn scheimpflug_case(engine: SolverBackend) {
         min_abs_decrease: Some(1e-10),
         min_rel_decrease: Some(1e-10),
         min_error: Some(1e-12),
+        ..BackendSolveOptions::default()
     };
 
     let solution = backend::solve(&ir, &initial_map, &backend_opts).expect("optimization failed");

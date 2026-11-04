@@ -12,7 +12,7 @@ use std::path::Path;
 
 use nalgebra::{Matrix3, Rotation3, Vector3};
 use serde_json::json;
-use vision_calibration_core::{NoiseLevel, ResidualKind, Uncertainty};
+use vision_calibration_core::{NoiseLevel, ResidualKind, RunControl, Uncertainty};
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::Detection;
@@ -141,6 +141,7 @@ fn covariance_in_the_manifest_whitens_the_calibration() {
         &spec(&files, json!({})),
         dir.path(),
         Detection::Cached(&cache),
+        &RunControl::default(),
     )
     .unwrap();
     assert!(off.usable_views >= 4, "{} usable views", off.usable_views);
@@ -169,6 +170,7 @@ fn covariance_in_the_manifest_whitens_the_calibration() {
         &spec(&files, detector),
         dir.path(),
         Detection::Cached(&cache),
+        &RunControl::default(),
     )
     .unwrap();
     assert_eq!(on.usable_views, off.usable_views);
@@ -203,7 +205,13 @@ fn covariance_on_a_target_without_one_fails_before_detection() {
     }))
     .unwrap();
     // The image does not exist: only a check made before any I/O gets here.
-    let err = build_planar_input(&spec, dir.path(), Detection::Cached(&cache)).unwrap_err();
+    let err = build_planar_input(
+        &spec,
+        dir.path(),
+        Detection::Cached(&cache),
+        &RunControl::default(),
+    )
+    .unwrap_err();
     assert!(
         matches!(
             err,
@@ -229,6 +237,7 @@ fn a_view_without_corners_is_not_a_covariance_fault() {
         &spec(&["blank.png".to_string()], detector),
         dir.path(),
         Detection::Cached(&cache),
+        &RunControl::default(),
     )
     .unwrap_err();
     assert!(
@@ -246,14 +255,27 @@ fn calibrate_dataset_matches_the_session_route() {
     let cache = FsDetectionCache::new(dir.path().join("cache"));
     let spec = spec(&files, json!({}));
 
-    let run = build_planar_input(&spec, dir.path(), Detection::Cached(&cache)).unwrap();
+    let run = build_planar_input(
+        &spec,
+        dir.path(),
+        Detection::Cached(&cache),
+        &RunControl::default(),
+    )
+    .unwrap();
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_input(run.input).unwrap();
     run_calibration(&mut session).unwrap();
     let by_session = session.export().unwrap();
 
-    let one_call = calibrate_dataset(&spec, dir.path(), None, Detection::Cached(&cache), None)
-        .expect("calibrate_dataset");
+    let one_call = calibrate_dataset(
+        &spec,
+        dir.path(),
+        None,
+        Detection::Cached(&cache),
+        None,
+        &RunControl::default(),
+    )
+    .expect("calibrate_dataset");
     assert_eq!(one_call.usable_views, run.usable_views);
     assert_eq!(one_call.total_views, run.total_views);
     assert_eq!(one_call.rejected.len(), run.rejected.len());
@@ -278,4 +300,115 @@ fn calibrate_dataset_matches_the_session_route() {
         serde_json::to_value(assess(&one_call.export, &sizes, &thresholds).unwrap()).unwrap(),
         serde_json::to_value(assess(&by_session, &sizes, &thresholds).unwrap()).unwrap()
     );
+}
+
+/// Every report of a run, and the run's control; `stop` cancels the token
+/// from the observer at the first report it accepts.
+fn recording(
+    stop: fn(&vision_calibration_core::Progress) -> bool,
+) -> (
+    RunControl,
+    std::sync::Arc<std::sync::Mutex<Vec<vision_calibration_core::Progress>>>,
+) {
+    use std::sync::{Arc, Mutex};
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&seen);
+    let token = vision_calibration_core::CancelToken::new();
+    let trigger = token.clone();
+    let control = RunControl::new()
+        .with_cancel(token)
+        .with_observer(move |progress| {
+            log.lock().unwrap().push(progress);
+            if stop(&progress) {
+                trigger.cancel();
+            }
+        });
+    (control, seen)
+}
+
+#[test]
+fn calibrate_dataset_reports_progress_and_stops_when_cancelled() {
+    use vision_calibration_core::Progress;
+    use vision_calibration_pipeline::dataset_runner::{CalibrateDatasetError, calibrate_dataset};
+
+    let dir = tempfile::tempdir().unwrap();
+    let files = write_views(dir.path());
+    let spec = spec(&files, json!({}));
+    let run = |control: &RunControl| {
+        calibrate_dataset(&spec, dir.path(), None, Detection::Uncached, None, control)
+    };
+
+    let plain = run(&RunControl::default()).expect("calibrate_dataset");
+    let (control, seen) = recording(|_| false);
+    let observed = run(&control).expect("calibrate_dataset with an observer");
+    // A side channel: the export is the same, bit for bit.
+    assert_eq!(
+        serde_json::to_value(&plain.export).unwrap(),
+        serde_json::to_value(&observed.export).unwrap()
+    );
+
+    let seen = seen.lock().unwrap();
+    let detections: Vec<(usize, usize)> = seen
+        .iter()
+        .filter_map(|p| match *p {
+            Progress::Detection { done, total, .. } => Some((done, total)),
+            _ => None,
+        })
+        .collect();
+    let images = files.len();
+    assert_eq!(
+        detections,
+        (1..=images).map(|done| (done, images)).collect::<Vec<_>>()
+    );
+    let steps: Vec<&str> = seen
+        .iter()
+        .filter_map(|p| match *p {
+            Progress::Step { name, .. } => Some(name),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(steps, ["init", "optimize"]);
+    // Iterations count from 1 within each solve, one apart.
+    let iterations: Vec<usize> = seen
+        .iter()
+        .filter_map(|p| match *p {
+            Progress::Iteration { iter, .. } => Some(iter),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(iterations.first(), Some(&1));
+    assert!(
+        iterations.windows(2).all(|w| w[1] == w[0] + 1 || w[1] == 1),
+        "{iterations:?}"
+    );
+    // Detection, then the steps, in that order.
+    let first_step = seen
+        .iter()
+        .position(|p| matches!(p, Progress::Step { .. }))
+        .unwrap();
+    assert!(
+        seen[first_step..]
+            .iter()
+            .all(|p| !matches!(p, Progress::Detection { .. }))
+    );
+
+    // Cancelled while detecting: no more images are read.
+    let (control, seen) = recording(|p| matches!(p, Progress::Detection { done: 3, .. }));
+    assert!(matches!(
+        run(&control),
+        Err(CalibrateDatasetError::Cancelled)
+    ));
+    assert_eq!(seen.lock().unwrap().len(), 3);
+
+    // Cancelled in a solve: no iteration after the one that saw it.
+    let (control, seen) = recording(|p| matches!(p, Progress::Iteration { iter: 2, .. }));
+    assert!(matches!(
+        run(&control),
+        Err(CalibrateDatasetError::Cancelled)
+    ));
+    let seen = seen.lock().unwrap();
+    assert!(matches!(
+        seen.last(),
+        Some(Progress::Iteration { iter: 2, .. })
+    ));
 }
