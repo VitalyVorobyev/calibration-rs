@@ -4,6 +4,7 @@
 //! homography explains a pair of corresponding points.
 
 use crate::types::Correspondence2D;
+use nalgebra::{Matrix3, RealField, Vector3};
 use vision_calibration_core::{Mat3, Real, Vec3, from_homogeneous, to_homogeneous};
 
 /// Algebraic epipolar residual: `x₂ᵀ F x₁`.
@@ -142,14 +143,29 @@ pub(crate) fn epipolar_constraint_sigma(
     m1: &Mat3,
     m2: &Mat3,
 ) -> Option<(Real, Real)> {
+    let (g, var) = epipolar_constraint_variance(e, b1, b2, m1, m2);
+    let floor = Real::EPSILON * e.norm_squared() * (m1.norm() + m2.norm());
+    (var.is_finite() && var > floor).then(|| (g, var.sqrt()))
+}
+
+/// The epipolar constraint `g = b2ᵀ E b1` of a bearing pair and its
+/// first-order variance `g1ᵀ m1 g1 + g2ᵀ m2 g2` (see
+/// [`weighted_sampson_error`]), at any scalar type: the two-view refinement
+/// differentiates it, the variance's dependence on `E` included.
+pub(crate) fn epipolar_constraint_variance<T: RealField>(
+    e: &Matrix3<T>,
+    b1: &Vector3<T>,
+    b2: &Vector3<T>,
+    m1: &Matrix3<T>,
+    m2: &Matrix3<T>,
+) -> (T, T) {
     let e_b1 = e * b1;
     let et_b2 = e.transpose() * b2;
     let g = b2.dot(&e_b1);
-    let g1 = et_b2 - b1 * b1.dot(&et_b2);
-    let g2 = e_b1 - b2 * b2.dot(&e_b1);
-    let var = g1.dot(&(m1 * g1)) + g2.dot(&(m2 * g2));
-    let floor = Real::EPSILON * e.norm_squared() * (m1.norm() + m2.norm());
-    (var.is_finite() && var > floor).then(|| (g, var.sqrt()))
+    let g1 = &et_b2 - b1 * b1.dot(&et_b2);
+    let g2 = &e_b1 - b2 * b2.dot(&e_b1);
+    let var = g1.dot(&(m1 * &g1)) + g2.dot(&(m2 * &g2));
+    (g, var)
 }
 
 /// Symmetric transfer error for a homography.

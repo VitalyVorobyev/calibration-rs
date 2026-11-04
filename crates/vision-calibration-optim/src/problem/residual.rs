@@ -1,7 +1,7 @@
 //! The user residual: the [`Residual`] trait, its [`Noise`] model, and the
 //! bridge to the backend's object-safe factor.
 
-use nalgebra::{DVector, Isometry3, RealField, Translation3};
+use nalgebra::{DVector, Isometry3, Quaternion, RealField, Translation3, UnitQuaternion};
 use num_dual::DualDVec64;
 
 use crate::factors::reprojection_model::se3_from_block;
@@ -17,7 +17,8 @@ use crate::ir::CustomFactor;
 ///
 /// `blocks` holds each block's stored values, in the order the residual was
 /// added with: a Euclidean block's components, an SE3 block's `[qx, qy, qz,
-/// qw, tx, ty, tz]` (read it with [`se3`]), a unit vector's `[x, y, z]`.
+/// qw, tx, ty, tz]` (read it with [`se3`]), a unit vector's `[x, y, z]`, a
+/// rotation's `[qx, qy, qz, qw]` (read it with [`so3`]).
 ///
 /// `dim` and `block_dims` must not change, and `eval` must return `dim`
 /// values and must not panic. A non-finite value is a step the solver
@@ -55,7 +56,7 @@ pub trait Residual: Send + Sync + 'static {
     fn dim(&self) -> usize;
 
     /// The ambient dimension of each block the residual reads, in order: 7
-    /// for an SE3 block, 3 for a unit vector.
+    /// for an SE3 block, 3 for a unit vector, 4 for a rotation.
     fn block_dims(&self) -> Vec<usize>;
 
     /// The residual at the blocks' values.
@@ -93,6 +94,22 @@ pub enum Noise {
 pub fn se3<T: RealField>(block: &DVector<T>) -> Isometry3<T> {
     let (rotation, translation) = se3_from_block(block);
     Isometry3::from_parts(Translation3::from(translation), rotation)
+}
+
+/// The rotation a rotation block stores (`[qx, qy, qz, qw]`), at any scalar
+/// type.
+///
+/// # Panics
+///
+/// When `block` has fewer than 4 entries; a residual that declares the
+/// block as 4-dimensional is only evaluated with 4.
+pub fn so3<T: RealField>(block: &DVector<T>) -> UnitQuaternion<T> {
+    UnitQuaternion::from_quaternion(Quaternion::new(
+        block[3].clone(),
+        block[0].clone(),
+        block[1].clone(),
+        block[2].clone(),
+    ))
 }
 
 /// A [`Residual`] in the object-safe form the backend stores, with its

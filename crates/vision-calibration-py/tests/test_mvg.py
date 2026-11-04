@@ -351,6 +351,43 @@ class MvgTest(unittest.TestCase):
         self.assertGreater(float(robust.second_se3_first[:3, 3] @ direction), 0.99)
         self.assertEqual(robust.inliers, estimate.inliers)
 
+        # The refined pose carries its covariance in the gauge |t| = 1: the
+        # direction block has no variance along the translation.
+        self.assertEqual(robust.uncertainty.labels[0], "rotation.rx")
+        pose_cov = robust.pose_covariance()
+        self.assertEqual(pose_cov.shape, (6, 6))
+        np.testing.assert_allclose(pose_cov, pose_cov.T, atol=1e-18)
+        self.assertTrue(np.all(np.diag(pose_cov) > 0.0))
+        t = robust.second_se3_first[:3, 3]
+        self.assertLess(abs(t @ pose_cov[3:, 3:] @ t), 1e-9 * np.trace(pose_cov[3:, 3:]))
+        # The covariance of E's nine entries, rank 5.
+        e_cov = estimate.essential_covariance()
+        self.assertEqual(e_cov.shape, (9, 9))
+        self.assertEqual(estimate.uncertainty.labels[0], "essential.e00")
+        eig = np.linalg.eigvalsh(e_cov)
+        self.assertEqual(int(np.sum(eig > 1e-9 * eig.max())), 5)
+
+        # progress= reports the refinement's iterations, does not change the
+        # result, and raising from it stops the call.
+        reports: list[dict] = []
+        observed = mvg.recover_relative_pose_robust(
+            scene.result, (0, 1), bad, ransac, progress=reports.append
+        )
+        self.assertTrue(reports)
+        self.assertTrue(all(r["kind"] == "iteration" for r in reports))
+        np.testing.assert_array_equal(observed.second_se3_first, robust.second_se3_first)
+
+        class Stop(Exception):
+            pass
+
+        def stop(_report: dict) -> None:
+            raise Stop
+
+        with self.assertRaises(Stop):
+            mvg.estimate_essential(scene.result, (0, 1), bad, ransac, progress=stop)
+        with self.assertRaises(Stop):
+            mvg.recover_relative_pose_robust(scene.result, (0, 1), bad, ransac, progress=stop)
+
         with self.assertRaises(ValueError):
             mvg.recover_relative_pose(scene.result, (0, 1), matches[:3])
         with self.assertRaises(ValueError):

@@ -25,13 +25,6 @@ pub enum ManifoldKind {
     /// SE(3) pose stored as `[qx, qy, qz, qw, tx, ty, tz]`.
     SE3,
     /// SO(3) rotation stored as quaternion `[qx, qy, qz, qw]`.
-    ///
-    /// Wired through the backend but not currently reached: every shipped
-    /// problem that carries a rotation carries it as part of a full SE3 pose.
-    #[allow(
-        dead_code,
-        reason = "backend capability; no shipped problem uses a bare rotation"
-    )]
     SO3,
     /// S2 unit sphere stored as `[x, y, z]`.
     S2,

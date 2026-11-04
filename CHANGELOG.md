@@ -16,8 +16,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BundleAdjustOptions` gain a `control` field (default: no observers, no
   token), and `BundleAdjustOptions` is no longer `Copy` or `PartialEq`.
   `MvgError` gains `Cancelled`.
+- **The robust two-view estimates take a run control and carry their
+  covariance** (breaking). `mvg::robust::estimate_essential` and
+  `recover_relative_pose_robust` gain a last argument
+  `control: &RunControl`. `EssentialEstimate` and `RobustRelativePose`
+  gain an `uncertainty` field and are `#[non_exhaustive]` (build them
+  through the functions, not as literals). Their `inliers` are the matches
+  the estimate is fitted to.
+- **The refined essential matrix and relative pose move** (a changed
+  result). The consensus set is now refined to the minimum of the weighted
+  Sampson error itself, the variance's dependence on `E` included. The
+  previous polish held each match's variance fixed within a step and
+  settled at a fixed point that is not that minimum: over 300 noise draws
+  of a fisheye matched with a pinhole it was biased by up to 0.9 σ of the
+  pose with 120 matches and up to 2.4 σ with 1000, and its scatter was up
+  to 1.5 (2.6) times the pose's σ; the refined estimate's bias is at most
+  0.1 σ and its scatter 0.97–1.07 σ. The estimates move by up to
+  4° of translation direction on the test scenes, the inlier RMS falls,
+  and an inlier set can gain a match.
 
 ### Added
+
+- **The covariance of the robust relative pose and essential matrix.**
+  `RobustRelativePose::uncertainty` holds the covariance of the pose in the
+  gauge `|t| = 1`: the rotation's right-perturbation tangent
+  (`rotation.rx`, `.ry`, `.rz`, rad) and the unit translation's components
+  (`direction.x`, `.y`, `.z`; rank 2, no variance along the translation),
+  from the inliers' stated pixel noise; `pose_covariance()` gives it as a
+  6×6. `EssentialEstimate::uncertainty` holds that of `E`'s nine entries
+  (`essential.e00` … `essential.e22`, row-major, rank 5;
+  `essential_covariance()` as a 9×9). Over 600 noise draws the scatter of
+  each pose coordinate is 0.98–1.06 times its σ. Both functions report the
+  refinement's iterations to the control's observers and stop with
+  `MvgError::Cancelled`. In Python, `mvg.EssentialEstimate` and
+  `mvg.RobustRelativePose` gain `uncertainty` with `essential_covariance()`
+  and `pose_covariance()`, and `mvg.estimate_essential` and
+  `mvg.recover_relative_pose_robust` take `progress=`.
+- **Rotation blocks in the problem builder.** `optim::problem::Manifold`
+  gains `So3`: a rotation stored as a unit quaternion `[qx, qy, qz, qw]`,
+  updated on SO(3), with its covariance over the right-perturbation tangent
+  (`rx`, `ry`, `rz` by default). `problem::so3` reads it in a residual at
+  any scalar type, and `Solution::rotation` at the solution.
 
 - **Progress and cancellation for the multiple-view-geometry solves.**
   `triangulate`, `estimate_pose`, `bundle_adjust` and

@@ -22,12 +22,15 @@ IR, `FactorKind` and the backends stay private.
 
 - **Blocks.** `add_block(name, initial, Manifold)` returns a `BlockId`
   (`add_pose` takes an `Iso3`). `Manifold` is `Euclidean`, `Se3` (stored
-  `[qx, qy, qz, qw, tx, ty, tz]`, ADR 0009) or `UnitVector` (S², stored
-  `[x, y, z]`). A block is fixed whole, or, if Euclidean, per component;
-  Euclidean components take bounds. Names are unique (`cam<i>` is kept for
-  cameras); each coordinate is labelled `name.<coordinate>`, the coordinate
-  given by `set_labels` or `i`, an SE3 block's `rx … tz`, a unit vector's
-  `nx … nz`. A `BlockId` carries its problem, so one from another problem
+  `[qx, qy, qz, qw, tx, ty, tz]`, ADR 0009), `UnitVector` (S², stored
+  `[x, y, z]`) or `So3` (a rotation, stored `[qx, qy, qz, qw]`, tangent
+  `R·Exp(δ)`). A block is fixed whole, or, if Euclidean, per component;
+  Euclidean components take bounds. An SE3 block cannot be fixed in part
+  (the tangent does not split), so a rotation of its own is an `So3`
+  block, not an SE3 block with its translation held. Names are unique
+  (`cam<i>` is kept for cameras); each coordinate is labelled
+  `name.<coordinate>`, the coordinate given by `set_labels` or `i`, an SE3
+  block's `rx … tz`, a unit vector's `nx … nz`, a rotation's `rx … rz`. A `BlockId` carries its problem, so one from another problem
   is an error, not a different block.
 - **Every input is checked when added.** A residual's block count and
   dimensions against what it declares, and its value at the initial blocks
@@ -52,8 +55,9 @@ is not object-safe and need not be: an internal generic adapter turns any
 `R: Residual` into the object-safe factor the backend stores, behind a
 private `FactorKind::Custom(CustomResidual)` that holds an
 `Arc<dyn CustomFactor>` and the noise model. `se3::<T>(&block) ->
-Isometry3<T>` reads a pose block at any scalar type; a unit vector is its
-stored `[x, y, z]`. A residual must not panic; a non-finite value at a
+Isometry3<T>` reads a pose block at any scalar type, `so3::<T>(&block) ->
+UnitQuaternion<T>` a rotation block; a unit vector is its stored `[x, y,
+z]`. A residual must not panic; a non-finite value at a
 step is a rejected step, as for any factor, and so is a value of the wrong
 length (the adapter turns it into `NaN`s, since the backend sizes its rows
 by `dim`).

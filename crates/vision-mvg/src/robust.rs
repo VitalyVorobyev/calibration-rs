@@ -4,32 +4,90 @@
 //! and [`Correspondence2D`] (homography):
 //!
 //! - [`estimate_essential`]: 5-point algorithm on bearings + covariance-weighted
-//!   Sampson error
+//!   Sampson error, refined on its inliers with the covariance of `E`
 //! - [`estimate_homography`]: 4-point DLT + symmetric transfer error
-//! - [`recover_relative_pose_robust`]: full pipeline from matched pixels to pose
+//! - [`recover_relative_pose_robust`]: full pipeline from matched pixels to
+//!   pose, with the covariance of the relative pose
+//!
+//! # The two-view refinement and its gauge
+//!
+//! The consensus model is refined on its inliers to the least squares of the
+//! weighted Sampson error, through the public problem builder of
+//! `vision-calibration-optim`, as a relative pose: `E = [t]× R` with the
+//! rotation `R` (the rotation of `second_se3_first`) and the unit translation
+//! direction `t`. Two views do not observe the scale of the translation, so
+//! `|t| = 1` is the gauge: the pose has five degrees of freedom, three of
+//! rotation and two of direction.
+//!
+//! The covariance of the relative pose is labelled `rotation.rx`,
+//! `rotation.ry`, `rotation.rz` (rad, the right-perturbation tangent
+//! `R·Exp(δ)`) and `direction.x`, `direction.y`, `direction.z` (the unit
+//! translation's components, in the second camera's frame): the direction
+//! block is rank 2, with no variance along `t`. The covariance of `E` is that
+//! of its nine entries (`essential.e00` … `essential.e22`, row-major, `E`
+//! scaled to `|t| = 1`), rank 5.
 
 use crate::bearing::{bearing_with_jacobian, camera_model};
-use crate::pose_recovery::iso_from_rt;
+use crate::cheirality::{cheirality_count, select_pose};
 use crate::residuals;
+use crate::triangulation::sub_covariance;
 use crate::types::{Correspondence2D, PixelMatch};
 use crate::{MvgError, Result};
-use nalgebra::Matrix2;
+use nalgebra::{
+    DVector, Matrix2, Matrix6, RealField, Rotation3, SMatrix, Translation3, UnitQuaternion, Vector3,
+};
 use serde::Serialize;
 use vision_calibration_core::{
-    CalibratedRig, Estimator, Iso3, Mat3, RansacOptions, Real, Vec3, ransac_fit,
+    CalibratedRig, Estimator, Iso3, Mat3, RansacOptions, Real, RunControl, Uncertainty, Vec3,
+    ransac_fit,
 };
+use vision_calibration_optim::RobustLoss;
+use vision_calibration_optim::problem::{
+    Manifold, Noise, Problem, Residual, SolveOptions, so3, solve,
+};
+
+/// The labels of the relative pose's covariance, in order.
+const POSE_LABELS: [&str; 6] = [
+    "rotation.rx",
+    "rotation.ry",
+    "rotation.rz",
+    "direction.x",
+    "direction.y",
+    "direction.z",
+];
+
+/// The label of the essential matrix's entry `(row, col)`.
+fn essential_label(row: usize, col: usize) -> String {
+    format!("essential.e{row}{col}")
+}
 
 /// Result of robust essential matrix estimation.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct EssentialEstimate {
     /// The estimated essential matrix: `b2ᵀ E b1 = 0` on the bearings of
-    /// matched pixels.
+    /// matched pixels, scaled to a unit translation (`‖E‖_F = √2`).
     pub essential: Mat3,
-    /// Indices of inlier matches.
+    /// Indices of the inlier matches: those the estimate is fitted to.
     pub inliers: Vec<usize>,
     /// RMS of the weighted Sampson error over inliers, in σ: about 1 when the
     /// stated pixel noise describes the pixels.
     pub inlier_rms: Real,
+    /// The covariance of `essential`'s nine entries, labelled
+    /// `essential.e00` … `essential.e22` (row-major), from the inliers'
+    /// stated pixel noise: rank 5, as `E` has five degrees of freedom at its
+    /// scale. Or why it is unavailable (fewer than six inliers, a refinement
+    /// that stopped on its iteration budget).
+    pub uncertainty: Uncertainty,
+}
+
+impl EssentialEstimate {
+    /// The 9×9 covariance of `essential`'s entries in row-major order; `None`
+    /// when the uncertainty is unavailable.
+    pub fn essential_covariance(&self) -> Option<SMatrix<Real, 9, 9>> {
+        let labels: [String; 9] = std::array::from_fn(|k| essential_label(k / 3, k % 3));
+        sub_covariance(&self.uncertainty, labels.clone(), labels)
+    }
 }
 
 /// Result of robust homography estimation.
@@ -45,17 +103,36 @@ pub struct HomographyEstimate {
 
 /// Result of robust relative pose recovery.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct RobustRelativePose {
     /// Pose of the first camera's frame in the second's (`second_se3_first`),
     /// with a unit-norm translation: the scale is not observable.
     pub second_se3_first: Iso3,
     /// The essential matrix used: `b2ᵀ E b1 = 0` on the bearings.
     pub essential: Mat3,
-    /// Indices of inlier matches.
+    /// Indices of the inlier matches: those the pose is fitted to.
     pub inliers: Vec<usize>,
     /// RMS of the weighted Sampson error over inliers, in σ: about 1 when the
     /// stated pixel noise describes the pixels.
     pub inlier_rms: Real,
+    /// The covariance of the relative pose in the gauge `|t| = 1`, from the
+    /// inliers' stated pixel noise: `rotation.rx`, `.ry`, `.rz` (rad, the
+    /// right-perturbation tangent `R·Exp(δ)` of the rotation of
+    /// `second_se3_first`) and `direction.x`, `.y`, `.z` (the components of
+    /// its unit translation; rank 2, no variance along the translation). Or
+    /// why it is unavailable (fewer than six inliers, a refinement that
+    /// stopped on its iteration budget).
+    pub uncertainty: Uncertainty,
+}
+
+impl RobustRelativePose {
+    /// The 6×6 covariance over `[rx ry rz x y z]`: the rotation's
+    /// right-perturbation tangent (rad) and the unit translation's
+    /// components; `None` when the uncertainty is unavailable.
+    pub fn pose_covariance(&self) -> Option<Matrix6<Real>> {
+        let labels = POSE_LABELS.map(String::from);
+        sub_covariance(&self.uncertainty, labels.clone(), labels)
+    }
 }
 
 // --- Essential matrix RANSAC estimator ---
@@ -75,125 +152,199 @@ impl BearingPair {
     pub(crate) fn error(&self, e: &Mat3) -> Real {
         residuals::weighted_sampson_error(e, &self.b1, &self.b2, &self.m1, &self.m2)
     }
+}
 
-    /// The epipolar constraint of `e` on this pair and its first-order σ.
-    fn constraint_sigma(&self, e: &Mat3) -> Option<(Real, Real)> {
-        residuals::epipolar_constraint_sigma(e, &self.b1, &self.b2, &self.m1, &self.m2)
+/// A relative pose: `p2 = R p1 + t` with a unit `t`, and its essential
+/// matrix `E = [t]× R`.
+#[derive(Debug, Clone, Copy)]
+struct Motion {
+    rotation: UnitQuaternion<Real>,
+    direction: Vec3,
+}
+
+impl Motion {
+    /// The motion of a rotation matrix and a translation (normalized).
+    fn new(r: &Mat3, t: &Vec3) -> Self {
+        let rotation = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(*r));
+        Self {
+            rotation: UnitQuaternion::new_normalize(rotation.into_inner()),
+            direction: t.normalize(),
+        }
+    }
+
+    fn rotation_matrix(&self) -> Mat3 {
+        self.rotation.to_rotation_matrix().into_inner()
+    }
+
+    fn essential(&self) -> Mat3 {
+        self.direction.cross_matrix() * self.rotation_matrix()
+    }
+
+    fn iso(&self) -> Iso3 {
+        Iso3::from_parts(Translation3::from(self.direction), self.rotation)
     }
 }
 
-/// Gauss-Newton iterations of [`refine_essential`]; it converges in a few.
-const REFINE_MAX_ITERS: usize = 30;
+/// The weighted Sampson error of one bearing pair, `g / σ_g` with
+/// `E = [t]× R`, over a rotation block (`R`) and a unit-vector block (`t`).
+/// `σ_g` is evaluated at the blocks, so the Jacobian carries its dependence
+/// on `E`; the residual is already in σ (`Noise::Known(1.0)`).
+struct SampsonResidual(BearingPair);
 
-/// `E` polished on the essential manifold: the minimizer, from `e`, of the
-/// sum of squared weighted Sampson errors of `data[indices]`.
+impl Residual for SampsonResidual {
+    fn dim(&self) -> usize {
+        1
+    }
+
+    fn block_dims(&self) -> Vec<usize> {
+        vec![4, 3]
+    }
+
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        let lift = |c: f64| T::from_f64(c).unwrap();
+        let p = &self.0;
+        let r = so3(&blocks[0]).to_rotation_matrix().into_inner();
+        let t = Vector3::new(
+            blocks[1][0].clone(),
+            blocks[1][1].clone(),
+            blocks[1][2].clone(),
+        );
+        let e = t.cross_matrix() * r;
+        let (g, var) = residuals::epipolar_constraint_variance(
+            &e,
+            &p.b1.map(lift),
+            &p.b2.map(lift),
+            &p.m1.map(lift),
+            &p.m2.map(lift),
+        );
+        DVector::from_element(1, g / var.sqrt())
+    }
+}
+
+/// A motion refined on its matches, with its covariance (labels
+/// [`POSE_LABELS`]).
+#[derive(Debug, Clone)]
+struct Fit {
+    motion: Motion,
+    uncertainty: Uncertainty,
+}
+
+/// `start` refined on the matches `used` to the least squares of the
+/// weighted Sampson error, through the problem builder.
 ///
 /// The linear (8-point) solution is not that minimizer: noise in the design
 /// matrix biases it, the more so when the two cameras' angular noise differs
 /// (a fisheye matched with a pinhole) or the stated covariances are
-/// anisotropic, and its error then shows as an inlier RMS well above 1 σ.
-/// The refinement parametrizes `E = [t]× R` with `R ← R exp([δω]×)` and the
-/// unit `t` moved in its tangent plane (5 degrees of freedom), holds each
-/// constraint's σ at the current estimate within a step, and takes damped
-/// Gauss-Newton steps (Levenberg-Marquardt) with analytic Jacobians. `None`
-/// when `e` does not decompose or no step lowers the cost.
-fn refine_essential(e: &Mat3, data: &[BearingPair], indices: &[usize]) -> Option<Mat3> {
-    use nalgebra::{Matrix5, Rotation3, Vector5};
-
-    let skew = |v: &Vec3| Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0);
-    let essential = |r: &Mat3, t: &Vec3| skew(t) * r;
-    let cost = |e: &Mat3| -> Real {
-        indices
-            .iter()
-            .map(|&i| match data[i].constraint_sigma(e) {
-                Some((g, sigma)) => (g / sigma).powi(2),
-                None => 0.0,
-            })
-            .sum()
+/// anisotropic, and its error then shows as an inlier RMS well above 1 σ. A
+/// match whose constraint carries no information at `start` (a bearing at
+/// an epipole: its σ vanishes) is left out of the fit.
+fn refine(
+    pairs: &[BearingPair],
+    used: &[usize],
+    start: &Motion,
+    control: &RunControl,
+) -> Result<Fit> {
+    let fail = |e: vision_calibration_optim::Error| match e {
+        vision_calibration_optim::Error::Cancelled => MvgError::Cancelled,
+        e => MvgError::numerical(format!("refining the relative pose: {e}")),
     };
-    // An orthonormal basis of the plane perpendicular to the unit `t`.
-    let tangent = |t: &Vec3| -> (Vec3, Vec3) {
-        let helper = if t.x.abs() < 0.9 {
-            Vec3::x()
-        } else {
-            Vec3::y()
-        };
-        let a = t.cross(&helper).normalize();
-        (a, t.cross(&a))
-    };
-
-    let (mut r, t0) = *vision_geometry::epipolar::decompose_essential(e)
-        .ok()?
-        .first()?;
-    let mut t = t0.normalize();
-    let mut current = cost(&essential(&r, &t));
-    let start = current;
-    let mut lambda = 1e-3;
-
-    for _ in 0..REFINE_MAX_ITERS {
-        let e_now = essential(&r, &t);
-        let (ta, tb) = tangent(&t);
-        let mut h = Matrix5::<Real>::zeros();
-        let mut b = Vector5::<Real>::zeros();
-        for &i in indices {
-            let p = &data[i];
-            let Some((g, sigma)) = p.constraint_sigma(&e_now) else {
-                continue;
-            };
-            // g = b2ᵀ [t]× R b1: ∂g/∂δω = −b2ᵀ [t]× R [b1]×, ∂g/∂t = (R b1 × b2)ᵀ.
-            let d_omega = -(p.b2.transpose() * skew(&t) * r * skew(&p.b1));
-            let d_t = (r * p.b1).cross(&p.b2);
-            let row = Vector5::new(
-                d_omega[0],
-                d_omega[1],
-                d_omega[2],
-                d_t.dot(&ta),
-                d_t.dot(&tb),
-            ) / sigma;
-            h += row * row.transpose();
-            b += row * (g / sigma);
-        }
-
-        let mut accepted = false;
-        while lambda < 1e12 {
-            let mut damped = h;
-            for k in 0..5 {
-                damped[(k, k)] += lambda * h[(k, k)].max(Real::EPSILON);
-            }
-            let Some(step) = damped.cholesky().map(|c| c.solve(&(-b))) else {
-                lambda *= 10.0;
-                continue;
-            };
-            let r_new =
-                r * Rotation3::from_scaled_axis(Vec3::new(step[0], step[1], step[2])).into_inner();
-            let t_new = (t + ta * step[3] + tb * step[4]).normalize();
-            let trial = cost(&essential(&r_new, &t_new));
-            if trial.is_finite() && trial < current {
-                let small = step.norm() < 1e-12 || current - trial <= 1e-12 * current;
-                r = r_new;
-                t = t_new;
-                current = trial;
-                lambda = (lambda * 0.1).max(1e-9);
-                accepted = !small;
-                break;
-            }
-            lambda *= 10.0;
-        }
-        if !accepted {
-            break;
+    let mut problem = Problem::new();
+    let q = start.rotation.as_ref().coords;
+    let rotation = problem
+        .add_block("rotation", &[q.x, q.y, q.z, q.w], Manifold::So3)
+        .map_err(fail)?;
+    let t = start.direction;
+    let direction = problem
+        .add_block("direction", &[t.x, t.y, t.z], Manifold::UnitVector)
+        .map_err(fail)?;
+    problem
+        .set_labels(direction, &["x", "y", "z"])
+        .map_err(fail)?;
+    let e = start.essential();
+    for &i in used {
+        if pairs[i].error(&e).is_finite() {
+            problem
+                .add_residual(
+                    SampsonResidual(pairs[i]),
+                    &[rotation, direction],
+                    RobustLoss::None,
+                    Noise::Known(1.0),
+                )
+                .map_err(fail)?;
         }
     }
-    (current < start).then(|| essential(&r, &t))
+    // `SolveOptions` is non-exhaustive: start from its default.
+    let mut options = SolveOptions::default();
+    options.control = control.clone();
+    let solution = solve(&problem, &options).map_err(fail)?;
+    let (Some(rotation), Some(direction)) =
+        (solution.rotation(rotation), solution.value(direction))
+    else {
+        return Err(MvgError::numerical(
+            "the relative pose is missing from the solution",
+        ));
+    };
+    Ok(Fit {
+        motion: Motion {
+            rotation,
+            direction: Vec3::new(direction[0], direction[1], direction[2]).normalize(),
+        },
+        uncertainty: solution.uncertainty,
+    })
 }
 
-/// `E` fitted to every pair of `inliers`: the linear solution, polished on
-/// the essential manifold by [`refine_essential`]. Run after the consensus
-/// search, not inside it: a least-squares refit of a candidate's inliers can
-/// lean towards a borderline outlier and then count it, so the search scores
-/// minimal-sample models.
-fn refit_inliers(data: &[BearingPair], inliers: &[usize]) -> Option<Mat3> {
-    let e = EssentialEstimator::fit(data, inliers)?;
-    Some(refine_essential(&e, data, inliers).unwrap_or(e))
+/// The decomposition of `e` with the most of the `used` matches ahead along
+/// both bearings; the first decomposition when none has any (the estimate of
+/// `E` does not depend on the choice).
+fn physical_motion(e: &Mat3, pairs: &[BearingPair], used: &[usize]) -> Result<Motion> {
+    let candidates = vision_geometry::epipolar::decompose_essential(e)?;
+    let (b1, b2) = bearings(pairs, used);
+    let (r, t) = select_pose(&candidates, &b1, &b2)
+        .map(|(r, t, _)| (r, t))
+        .or_else(|| candidates.first().copied())
+        .ok_or_else(|| MvgError::numerical("the essential matrix has no decomposition"))?;
+    Ok(Motion::new(&r, &t))
+}
+
+/// The bearings of the matches `used`, first and second view.
+fn bearings(pairs: &[BearingPair], used: &[usize]) -> (Vec<Vec3>, Vec<Vec3>) {
+    used.iter().map(|&i| (pairs[i].b1, pairs[i].b2)).unzip()
+}
+
+/// The RMS weighted Sampson error of `e` over the matches `used`, in σ.
+fn rms(pairs: &[BearingPair], used: &[usize], e: &Mat3) -> Real {
+    let sum: Real = used.iter().map(|&i| pairs[i].error(e).powi(2)).sum();
+    (sum / used.len() as Real).sqrt()
+}
+
+/// The covariance of `E = [t]× R`'s entries from the motion's: `J Σ Jᵀ`
+/// with `∂E/∂δωₖ = [t]× R [eₖ]×` (`R·Exp(δω)`) and `∂E/∂tₖ = [eₖ]× R`.
+fn essential_uncertainty(fit: &Fit) -> Uncertainty {
+    let labels = POSE_LABELS.map(String::from);
+    let (Some(covariance), Some(sigma)) = (
+        fit.uncertainty.covariance(),
+        sub_covariance::<6>(&fit.uncertainty, labels.clone(), labels),
+    ) else {
+        return fit.uncertainty.clone();
+    };
+    let r = fit.motion.rotation_matrix();
+    let tx = fit.motion.direction.cross_matrix();
+    let columns: [Mat3; 6] = std::array::from_fn(|k| {
+        let axis = Vec3::ith(k % 3, 1.0).cross_matrix();
+        if k < 3 { tx * r * axis } else { axis * r }
+    });
+    let jacobian = SMatrix::<Real, 9, 6>::from_fn(|row, k| columns[k][(row / 3, row % 3)]);
+    let matrix = jacobian * sigma * jacobian.transpose();
+    let mut out = covariance.clone();
+    out.labels = (0..9).map(|k| essential_label(k / 3, k % 3)).collect();
+    out.covariance = (0..9)
+        .map(|a| {
+            (0..9)
+                .map(|b| 0.5 * (matrix[(a, b)] + matrix[(b, a)]))
+                .collect()
+        })
+        .collect();
+    Uncertainty::Available(out)
 }
 
 struct EssentialEstimator;
@@ -336,10 +487,11 @@ pub(crate) fn bearing_pairs(
 /// covariance-weighted Sampson error the residual: the epipolar constraint
 /// divided by its first-order standard deviation, with each pixel's stated
 /// covariance mapped onto its bearing through the camera model's projection
-/// Jacobian. The consensus model is then refitted to its inliers, linearly
-/// and then on the essential manifold to the least squares of that error,
-/// and the inliers re-selected until they settle: the result is the
-/// estimate of its own inliers, not of the best minimal sample.
+/// Jacobian. The consensus search scores minimal-sample models; the consensus
+/// set is then fitted linearly and refined as a relative pose to the least
+/// squares of that error (see the [module docs](self)), and the inliers are
+/// re-selected and the fit refined again until they settle: the result is
+/// the estimate of its own inliers, with the covariance of `E`.
 ///
 /// **Threshold unit:** `opts.thresh` is in **σ**, dimensionless, and does not
 /// depend on the focal length or the camera model: with Gaussian noise as
@@ -348,19 +500,42 @@ pub(crate) fn bearing_pairs(
 /// `inlier_rms` of the result is the RMS of the same error over the inliers,
 /// about 1 when the stated noise describes the pixels.
 ///
+/// The refinement reports each iteration to `control`'s observers, and an
+/// observer cannot change the result.
+///
 /// # Errors
 ///
 /// [`MvgError::Core`] if `opts.thresh` is not finite and positive,
 /// [`MvgError::InsufficientData`] for fewer than 5 matches,
 /// [`MvgError::InvalidInput`] for a camera index out of range or a pixel with no
-/// finite viewing ray, and [`MvgError::NoConsensus`] if no model reaches
-/// `opts.min_inliers`.
+/// finite viewing ray, [`MvgError::NoConsensus`] if no model reaches
+/// `opts.min_inliers`, and [`MvgError::Cancelled`] when `control`'s token is
+/// cancelled.
 pub fn estimate_essential(
     rig: &CalibratedRig,
     cameras: [usize; 2],
     matches: &[PixelMatch],
     opts: &RansacOptions,
+    control: &RunControl,
 ) -> Result<EssentialEstimate> {
+    let pairs = checked_pairs(rig, cameras, matches, opts)?;
+    let settled = settle(&pairs, opts, control)?;
+    Ok(EssentialEstimate {
+        essential: settled.fit.motion.essential(),
+        uncertainty: essential_uncertainty(&settled.fit),
+        inlier_rms: settled.inlier_rms,
+        inliers: settled.inliers,
+    })
+}
+
+/// The matches as bearing pairs, after the checks every robust two-view
+/// estimate makes before any work.
+fn checked_pairs(
+    rig: &CalibratedRig,
+    cameras: [usize; 2],
+    matches: &[PixelMatch],
+    opts: &RansacOptions,
+) -> Result<Vec<BearingPair>> {
     opts.validate()?;
     if matches.len() < 5 {
         return Err(MvgError::InsufficientData {
@@ -368,54 +543,59 @@ pub fn estimate_essential(
             got: matches.len(),
         });
     }
-    let pairs = bearing_pairs(rig, cameras, matches)?;
-    essential_from_pairs(&pairs, opts)
+    bearing_pairs(rig, cameras, matches)
 }
 
-fn essential_from_pairs(pairs: &[BearingPair], opts: &RansacOptions) -> Result<EssentialEstimate> {
+/// The settled two-view estimate: the refined motion, the inliers it is
+/// fitted to and their RMS error.
+struct Settled {
+    fit: Fit,
+    inliers: Vec<usize>,
+    inlier_rms: Real,
+}
+
+/// RANSAC, then the refinement of the consensus set, re-selected until it
+/// settles.
+fn settle(pairs: &[BearingPair], opts: &RansacOptions, control: &RunControl) -> Result<Settled> {
     let result = ransac_fit::<EssentialEstimator>(pairs, opts);
     if !result.success {
         return Err(MvgError::NoConsensus);
     }
-    let mut essential = result.model.expect("success guarantees model");
+    let minimal = result.model.expect("success guarantees model");
     let mut inliers = result.inliers;
 
-    // The consensus set came from a model fitted to an earlier, smaller set:
-    // refit on it and re-select the inliers until the set settles, so the
-    // result is the refined model of its own inliers.
-    for _ in 0..FINAL_REFITS {
-        let Some(next) = refit_inliers(pairs, &inliers) else {
-            break;
-        };
-        let next_inliers: Vec<usize> = (0..pairs.len())
-            .filter(|&i| pairs[i].error(&next) <= opts.thresh)
+    // The consensus set came from a minimal sample: fit it linearly, start
+    // from the decomposition with the points ahead of both cameras, refine,
+    // and re-select the inliers until the set settles, so the result is the
+    // refined model of its own inliers. A re-selection that shrinks the set
+    // ends the rounds, keeping the fit of the set before it.
+    let linear = EssentialEstimator::fit(pairs, &inliers);
+    let start = match linear.map(|e| physical_motion(&e, pairs, &inliers)) {
+        Some(Ok(motion)) => motion,
+        _ => physical_motion(&minimal, pairs, &inliers)?,
+    };
+    let mut fit = refine(pairs, &inliers, &start, control)?;
+    for _ in 1..FINAL_REFITS {
+        let e = fit.motion.essential();
+        let next: Vec<usize> = (0..pairs.len())
+            .filter(|&i| pairs[i].error(&e) <= opts.thresh)
             .collect();
-        if next_inliers.len() < inliers.len().max(opts.min_inliers) {
+        if next == inliers || next.len() < inliers.len().max(opts.min_inliers) {
             break;
         }
-        let settled = next_inliers == inliers;
-        essential = next;
-        inliers = next_inliers;
-        if settled {
-            break;
-        }
+        inliers = next;
+        fit = refine(pairs, &inliers, &fit.motion, control)?;
     }
-    let inlier_rms = (inliers
-        .iter()
-        .map(|&i| pairs[i].error(&essential).powi(2))
-        .sum::<Real>()
-        / inliers.len() as Real)
-        .sqrt();
-
-    Ok(EssentialEstimate {
-        essential,
+    let inlier_rms = rms(pairs, &inliers, &fit.motion.essential());
+    Ok(Settled {
+        fit,
         inliers,
         inlier_rms,
     })
 }
 
-/// Refit-and-reselect rounds after the consensus search; the inlier set
-/// settles in one or two.
+/// Refinements of the consensus set, each on the inliers the previous one
+/// selects; the set settles in one or two.
 const FINAL_REFITS: usize = 5;
 
 /// Estimate a homography from correspondences using RANSAC.
@@ -460,10 +640,13 @@ pub fn estimate_homography(
 
 /// Recover relative pose robustly from matched pixels.
 ///
-/// Combines essential matrix RANSAC with decomposition and cheirality
-/// selection, with the arguments of [`estimate_essential`] (the rig, the
-/// camera of each capture and the matches). The returned `second_se3_first` has
-/// a unit-norm translation.
+/// Combines essential matrix RANSAC and its refinement (as
+/// [`estimate_essential`], with the same arguments: the rig, the camera of
+/// each capture, the matches and the run control) with cheirality: the
+/// refinement starts from the decomposition of `E` that puts the most inliers
+/// ahead of both cameras, so the refined parameters are the pose. The
+/// returned `second_se3_first` has a unit-norm translation, and its
+/// covariance is in that gauge (see the [module docs](self)).
 ///
 /// **Threshold unit:** as for [`estimate_essential`], `opts.thresh` and
 /// `inlier_rms` are in σ of the stated pixel noise.
@@ -477,35 +660,54 @@ pub fn recover_relative_pose_robust(
     cameras: [usize; 2],
     matches: &[PixelMatch],
     opts: &RansacOptions,
+    control: &RunControl,
 ) -> Result<RobustRelativePose> {
-    opts.validate()?;
-    if matches.len() < 5 {
-        return Err(MvgError::InsufficientData {
-            need: 5,
-            got: matches.len(),
-        });
-    }
-    let pairs = bearing_pairs(rig, cameras, matches)?;
-    let est = essential_from_pairs(&pairs, opts)?;
-
-    // Use only inliers for cheirality disambiguation, so outliers don't
-    // corrupt the positive-depth vote.
-    let b1: Vec<Vec3> = est.inliers.iter().map(|&i| pairs[i].b1).collect();
-    let b2: Vec<Vec3> = est.inliers.iter().map(|&i| pairs[i].b2).collect();
-
-    let (r, t) = crate::cheirality::recover_pose_from_essential(&est.essential, &b1, &b2)?;
-
+    let pairs = checked_pairs(rig, cameras, matches, opts)?;
+    let settled = settle(&pairs, opts, control)?;
+    let fit = ahead_of_both(&pairs, &settled.inliers, settled.fit, control)?;
     Ok(RobustRelativePose {
-        second_se3_first: iso_from_rt(&r, &t),
-        essential: est.essential,
-        inliers: est.inliers,
-        inlier_rms: est.inlier_rms,
+        second_se3_first: fit.motion.iso(),
+        essential: fit.motion.essential(),
+        inlier_rms: rms(&pairs, &settled.inliers, &fit.motion.essential()),
+        inliers: settled.inliers,
+        uncertainty: fit.uncertainty,
     })
+}
+
+/// `fit` as the pose of the decomposition of its `E` with the most of the
+/// `inliers` ahead of both cameras.
+///
+/// Cheirality on the inliers only, so outliers don't corrupt the
+/// positive-depth vote. The refinement started from the winning
+/// decomposition and does not leave it, so `fit` is returned as it is;
+/// should another decomposition win (a start with no point ahead), the pose
+/// is refined again from it, so the covariance is the pose's.
+fn ahead_of_both(
+    pairs: &[BearingPair],
+    inliers: &[usize],
+    fit: Fit,
+    control: &RunControl,
+) -> Result<Fit> {
+    let (b1, b2) = bearings(pairs, inliers);
+    let candidates = vision_geometry::epipolar::decompose_essential(&fit.motion.essential())?;
+    let (r, t, best) = select_pose(&candidates, &b1, &b2).ok_or(MvgError::NoValidPose)?;
+    let own = cheirality_count(
+        &fit.motion.rotation_matrix(),
+        &fit.motion.direction,
+        &b1,
+        &b2,
+    );
+    if best > own {
+        refine(pairs, inliers, &Motion::new(&r, &t), control)
+    } else {
+        Ok(fit)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pose_recovery::iso_from_rt;
     use crate::test_support::{Lcg, iso, match_of, pinhole_rig, pixel_of};
     use nalgebra::Rotation3;
     use vision_calibration_core::{Pt2, Pt3};
@@ -575,7 +777,8 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let est = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
+        let est =
+            estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
         assert!(
             est.inliers.len() >= 12,
             "expected ≥12 inliers, got {}",
@@ -626,7 +829,8 @@ mod tests {
             seed: 7,
             ..RansacOptions::new(3.0)
         };
-        let est = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
+        let est =
+            estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
         assert_eq!(est.inliers.len(), n_in, "inlier count");
         assert!(est.inliers.iter().all(|&i| i < n_in), "an outlier survived");
 
@@ -637,7 +841,8 @@ mod tests {
             seed: 7,
             ..RansacOptions::new(1.0e5)
         };
-        let est = estimate_essential(&rig, [0, 0], &matches, &loose).unwrap();
+        let est =
+            estimate_essential(&rig, [0, 0], &matches, &loose, &RunControl::default()).unwrap();
         assert_eq!(est.inliers.len(), matches.len());
     }
 
@@ -649,7 +854,7 @@ mod tests {
             let opts = RansacOptions::new(bad);
             assert!(
                 matches!(
-                    estimate_essential(&rig, [0, 0], &matches, &opts),
+                    estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()),
                     Err(MvgError::Core(_))
                 ),
                 "essential accepted thresh {bad}"
@@ -664,7 +869,13 @@ mod tests {
             );
             assert!(
                 matches!(
-                    recover_relative_pose_robust(&rig, [0, 0], &matches, &opts),
+                    recover_relative_pose_robust(
+                        &rig,
+                        [0, 0],
+                        &matches,
+                        &opts,
+                        &RunControl::default()
+                    ),
                     Err(MvgError::Core(_))
                 ),
                 "pose accepted thresh {bad}"
@@ -677,7 +888,7 @@ mod tests {
         let (matches, _) = thirty_percent_outliers();
         let opts = RansacOptions::new(3.0);
         assert!(matches!(
-            estimate_essential(&rig(), [0, 1], &matches, &opts),
+            estimate_essential(&rig(), [0, 1], &matches, &opts, &RunControl::default()),
             Err(MvgError::InvalidInput { .. })
         ));
     }
@@ -759,7 +970,9 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let result = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts).unwrap();
+        let result =
+            recover_relative_pose_robust(&rig, [0, 0], &matches, &opts, &RunControl::default())
+                .unwrap();
 
         assert!(rotation_error_deg(&result.second_se3_first, &gt_pose()) < 0.1);
         let t = result.second_se3_first.translation.vector;
@@ -786,11 +999,62 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let r1 = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
-        let r2 = estimate_essential(&rig, [0, 0], &matches, &opts).unwrap();
+        let r1 = estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
+        let r2 = estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
 
         assert_eq!(r1.inliers, r2.inliers);
         assert!((r1.inlier_rms - r2.inlier_rms).abs() < 1e-15);
+    }
+
+    /// A fit of another decomposition of `E` than the one ahead of both
+    /// cameras is refined again from that one, so the pose and its
+    /// covariance are the pose's; the physical fit is kept as it is.
+    #[test]
+    fn the_pose_is_the_decomposition_ahead_of_both_cameras() {
+        let rig = rig();
+        let matches = stereo_matches_with_outliers();
+        let pairs = bearing_pairs(&rig, [0, 0], &matches).unwrap();
+        let inliers: Vec<usize> = (0..15).collect();
+        let gt = gt_pose();
+        let truth = Motion::new(
+            gt.rotation.to_rotation_matrix().matrix(),
+            &gt.translation.vector,
+        );
+        let control = RunControl::default();
+        let (b1, b2) = bearings(&pairs, &inliers);
+        let candidates =
+            vision_geometry::epipolar::decompose_essential(&truth.essential()).unwrap();
+        // Each decomposition that is not the truth: a twisted rotation or a
+        // flipped direction.
+        let others: Vec<Motion> = candidates
+            .iter()
+            .map(|(r, t)| Motion::new(r, t))
+            .filter(|m| {
+                m.rotation.angle_to(&truth.rotation) > 1e-3
+                    || m.direction.dot(&truth.direction) < 0.0
+            })
+            .collect();
+        assert_eq!(others.len(), 3);
+        for wrong in others {
+            assert!(cheirality_count(&wrong.rotation_matrix(), &wrong.direction, &b1, &b2) < 15);
+            let fit = Fit {
+                motion: wrong,
+                uncertainty: Uncertainty::default(),
+            };
+            let pose = ahead_of_both(&pairs, &inliers, fit, &control).unwrap();
+            assert!(pose.motion.rotation.angle_to(&truth.rotation) < 1e-6);
+            assert!((pose.motion.direction - truth.direction).norm() < 1e-6);
+            let labels = &pose.uncertainty.covariance().expect("covariance").labels;
+            assert_eq!(labels[0], "rotation.rx");
+        }
+        // The physical fit comes back unchanged.
+        let fit = Fit {
+            motion: truth,
+            uncertainty: Uncertainty::default(),
+        };
+        let kept = ahead_of_both(&pairs, &inliers, fit, &control).unwrap();
+        assert_eq!(kept.motion.rotation, truth.rotation);
+        assert!(kept.uncertainty.covariance().is_none());
     }
 
     /// Regression test for the RANSAC refit no-op bug.
@@ -813,7 +1077,7 @@ mod tests {
             refit_on_inliers: true,
         };
 
-        let est = estimate_essential(&rig, [0, 0], &matches, &opts_refit)
+        let est = estimate_essential(&rig, [0, 0], &matches, &opts_refit, &RunControl::default())
             .expect("RANSAC with refit must succeed");
         assert!(
             est.inliers.len() >= 12,

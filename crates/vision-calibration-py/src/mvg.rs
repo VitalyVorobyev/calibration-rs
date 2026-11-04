@@ -194,18 +194,22 @@ pub(crate) fn mvg_reprojection_noise(
     to_py(py, &noise)
 }
 
-#[pyfunction]
+#[pyfunction(signature = (result, cameras, matches, ransac, progress=None))]
 pub(crate) fn mvg_estimate_essential(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,
     cameras: [usize; 2],
     matches: &Bound<'_, PyAny>,
     ransac: &Bound<'_, PyAny>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
     let matches: Vec<PixelMatch> = parse_checked(matches, "matches")?;
+    let ransac = ransac_of(ransac)?;
+    let control = PyRunControl::new(progress);
     let estimate =
-        estimate_essential(&rig, cameras, &matches, &ransac_of(ransac)?).map_err(mvg_err)?;
+        py.detach(|| estimate_essential(&rig, cameras, &matches, &ransac, control.control()));
+    let estimate = control.finish(estimate, mvg_err)?;
     to_py(py, &estimate)
 }
 
@@ -222,18 +226,23 @@ pub(crate) fn mvg_recover_relative_pose(
     to_py(py, &pose)
 }
 
-#[pyfunction]
+#[pyfunction(signature = (result, cameras, matches, ransac, progress=None))]
 pub(crate) fn mvg_recover_relative_pose_robust(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,
     cameras: [usize; 2],
     matches: &Bound<'_, PyAny>,
     ransac: &Bound<'_, PyAny>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
     let matches: Vec<PixelMatch> = parse_checked(matches, "matches")?;
-    let pose = recover_relative_pose_robust(&rig, cameras, &matches, &ransac_of(ransac)?)
-        .map_err(mvg_err)?;
+    let ransac = ransac_of(ransac)?;
+    let control = PyRunControl::new(progress);
+    let pose = py.detach(|| {
+        recover_relative_pose_robust(&rig, cameras, &matches, &ransac, control.control())
+    });
+    let pose = control.finish(pose, mvg_err)?;
     to_py(py, &pose)
 }
 

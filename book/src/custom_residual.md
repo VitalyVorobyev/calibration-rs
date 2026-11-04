@@ -58,7 +58,8 @@ types over `T`, and lift constants with `T::from_f64(c).unwrap()`.
 
 Each block arrives as its stored values: a Euclidean block's components, a
 pose's `[qx, qy, qz, qw, tx, ty, tz]` (`se3` turns it into an
-`Isometry3<T>`), a unit vector's `[x, y, z]`. `eval` must return `dim`
+`Isometry3<T>`), a unit vector's `[x, y, z]`, a rotation's `[qx, qy, qz,
+qw]` (`Manifold::So3`; `so3` turns it into a `UnitQuaternion<T>`). `eval` must return `dim`
 values and must not panic. A value that is not finite makes the solver
 reject that step, as for any residual.
 
