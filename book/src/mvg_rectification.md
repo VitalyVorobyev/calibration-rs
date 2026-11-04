@@ -68,12 +68,13 @@ It has rank 1, along the ray, and it grows with the square of the depth. Over 20
 The calibration is itself uncertain, and every point measured with it shares that error. For matches you select (corners, a few points to measure), `triangulate` includes it:
 
 ```rust
+use vision_calibration::control::RunControl;
 use vision_calibration::core::PointCovariance;
 use vision_calibration::mvg::rectification::RectifiedMatch;
 
 let matches = [RectifiedMatch::new(Pt2::new(x, y), disparity)];
 let noise = PointCovariance::isotropic(0.3)?; // each raw pixel's σ
-let found = rect.triangulate(&rig, &matches, noise)?;
+let found = rect.triangulate(&rig, &matches, noise, &RunControl::default())?;
 let covariance = found.point_covariance(0); // 3×3, m², the calibration's share included
 ```
 

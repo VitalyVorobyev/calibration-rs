@@ -46,6 +46,7 @@ from . import _vision_calibration as _native
 from ._api import CalibrationResult
 from ._generated_types import RobustLoss
 from .models import Camera, ParameterUncertainty, PinholeIntrinsics, PointCovariance
+from .types import ProgressCallback
 
 __all__ = [
     "BlockMatchOptions",
@@ -739,6 +740,8 @@ def triangulate(
     result: CalibrationResult | Mapping[str, Any],
     rig_se3_world: ArrayLike,
     tracks: Sequence[Sequence[RigObservation]],
+    *,
+    progress: ProgressCallback | None = None,
 ) -> Triangulation:
     """Triangulate each track (the observations of one point) in the world
     frame, refine the points and give their joint covariance.
@@ -749,6 +752,11 @@ def triangulate(
     observations' noise and the calibration's share, so the points are
     correlated (:meth:`Triangulation.cross_covariance`); it is dense over the
     ``3N`` coordinates, so the cost grows as ``N³``.
+
+    ``progress``, when given, is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping) as the refinement
+    iterates; raising from it stops the call and the exception propagates.
+    Ctrl-C stops it too, with or without a callable.
 
     Raises
     ------
@@ -762,6 +770,7 @@ def triangulate(
         _export_of(result),
         _poses(rig_se3_world, "rig_se3_world"),
         [[o.to_payload() for o in track] for track in tracks],
+        progress,
     )
     return Triangulation.from_payload(cast(Mapping[str, Any], payload))
 
@@ -772,6 +781,7 @@ def estimate_pose(
     *,
     ransac: RansacOptions | None = None,
     loss: RobustLoss | None = None,
+    progress: ProgressCallback | None = None,
 ) -> ObjectPose:
     """The pose of a known object in the rig frame from its pixels in one or
     several rig cameras, with the pose's covariance.
@@ -779,7 +789,8 @@ def estimate_pose(
     With ``ransac`` the start comes from P3P inside a RANSAC whose residual is
     the reprojection distance in σ of the stated noise (``thresh=3.0`` is the
     usual choice). ``loss`` is a robust loss of the refinement, with its scale
-    in σ (see :func:`~vision_calibration.robust_huber`).
+    in σ (see :func:`~vision_calibration.robust_huber`). ``progress`` is as
+    for :func:`triangulate`.
 
     Raises
     ------
@@ -793,6 +804,7 @@ def estimate_pose(
         [o.to_payload() for o in observations],
         None if ransac is None else ransac.to_payload(),
         loss,
+        progress,
     )
     return ObjectPose.from_payload(cast(Mapping[str, Any], payload))
 
@@ -807,6 +819,7 @@ def bundle_adjust(
     calibration: str = "consider",
     loss: RobustLoss | None = None,
     max_iters: int = 100,
+    progress: ProgressCallback | None = None,
 ) -> BundleAdjustment:
     """Refine capture poses and points together on the reprojection error.
 
@@ -819,6 +832,9 @@ def bundle_adjust(
     ``calibration`` is how the calibration's uncertainty enters: ``"consider"``
     keeps the cameras at their values and carries their covariance into the
     result's; ``"prior"`` refines them too, held by their own covariance.
+
+    ``progress`` is as for :func:`triangulate`: it receives each solver
+    iteration, and raising from it stops the adjustment.
 
     Raises
     ------
@@ -851,6 +867,7 @@ def bundle_adjust(
         calibration,
         loss,
         max_iters,
+        progress,
     )
     return BundleAdjustment.from_payload(cast(Mapping[str, Any], payload))
 
@@ -1153,10 +1170,13 @@ class StereoRectification:
         result: CalibrationResult | Mapping[str, Any],
         matches: Sequence[tuple[ArrayLike, float]],
         pixel_noise: PointCovariance,
+        *,
+        progress: ProgressCallback | None = None,
     ) -> Triangulation:
         """Triangulate rectified matches ``(left_pixel, disparity)`` through the
         raw cameras, with the calibration's covariance. ``result`` must be the
-        calibration this rectification was built from.
+        calibration this rectification was built from. ``progress`` is as for
+        :func:`triangulate`.
 
         Raises
         ------
@@ -1167,6 +1187,7 @@ class StereoRectification:
             _export_of(result),
             [{"left": _pixel(left, "left"), "disparity": float(d)} for left, d in matches],
             pixel_noise.to_payload(),
+            progress,
         )
         return Triangulation.from_payload(cast(Mapping[str, Any], payload))
 

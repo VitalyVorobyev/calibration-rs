@@ -39,6 +39,7 @@ use crate::triangulation::{RigObservation, Triangulation, triangulate};
 use crate::{MvgError, Result};
 use nalgebra::Matrix4;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::RunControl;
 use vision_calibration_core::{
     CalibratedRig, CameraModel, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Vec3,
 };
@@ -403,12 +404,13 @@ impl StereoRectification {
     /// [`MvgError::InvalidInput`] when `rig` differs from the one rectified,
     /// or a match has no raw pixel in a camera; otherwise the errors of
     /// [`triangulate()`](crate::triangulation::triangulate()), whose messages
-    /// number the matches as tracks.
+    /// number the matches as tracks, including [`MvgError::Cancelled`].
     pub fn triangulate(
         &self,
         rig: &CalibratedRig,
         matches: &[RectifiedMatch],
         pixel_noise: PointCovariance,
+        control: &RunControl,
     ) -> Result<Triangulation> {
         let [a, b] = self.cameras;
         let same_rig = rig.num_cameras() == self.num_cameras
@@ -444,7 +446,7 @@ impl StereoRectification {
                 ])
             })
             .collect::<Result<Vec<_>>>()?;
-        triangulate(rig, &[Iso3::identity()], &tracks)
+        triangulate(rig, &[Iso3::identity()], &tracks, control)
     }
 }
 
@@ -569,8 +571,13 @@ mod tests {
         let rect = rectify(&rig(0.12), [0, 1], &RectifyOptions::default()).unwrap();
         let m = [RectifiedMatch::new(Pt2::new(640.0, 480.0), 40.0)];
         let noise = PointCovariance::isotropic(0.3).unwrap();
-        let err = rect.triangulate(&rig(0.2), &m, noise).unwrap_err();
+        let err = rect
+            .triangulate(&rig(0.2), &m, noise, &RunControl::default())
+            .unwrap_err();
         assert!(matches!(err, MvgError::InvalidInput { .. }), "{err:?}");
-        assert!(rect.triangulate(&rig(0.12), &m, noise).is_ok());
+        assert!(
+            rect.triangulate(&rig(0.12), &m, noise, &RunControl::default())
+                .is_ok()
+        );
     }
 }

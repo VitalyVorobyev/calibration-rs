@@ -47,8 +47,20 @@ fn the_calibrations_share_is_in_the_triangulated_depth_sigma() {
                     .collect()
             })
             .collect();
-        let with = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
-        let without = triangulate(&bare, &[Iso3::identity()], &tracks).unwrap();
+        let with = triangulate(
+            &rig,
+            &[Iso3::identity()],
+            &tracks,
+            &vision_calibration::control::RunControl::default(),
+        )
+        .unwrap();
+        let without = triangulate(
+            &bare,
+            &[Iso3::identity()],
+            &tracks,
+            &vision_calibration::control::RunControl::default(),
+        )
+        .unwrap();
         for i in 0..points.len() {
             // The same estimate either way: asking for the share moves no point.
             let d = (with.points[i].point - without.points[i].point).norm();

@@ -109,6 +109,7 @@ robust.inliers, robust.inlier_rms
 
 ```rust
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
+use vision_calibration::control::RunControl;
 use vision_calibration::core::{Iso3, PointCovariance};
 
 // One stereo capture: the rig frame is the world frame. Each pixel is
@@ -118,7 +119,7 @@ let track = vec![
     RigObservation::new(0, 0, pixel_in_camera_0, noise),
     RigObservation::new(0, 1, pixel_in_camera_1, noise),
 ];
-let found = triangulate(&rig, &[Iso3::identity()], &[track])?;
+let found = triangulate(&rig, &[Iso3::identity()], &[track], &RunControl::default())?;
 println!("{:?} parallax {:.2}°", found.points[0].point, found.points[0].parallax_deg);
 if let Some(cov) = found.point_covariance(0) {
     // The 3×3 covariance in m²; the depth's σ along the world z axis.
@@ -138,6 +139,8 @@ found = mvg.triangulate(result, np.eye(4), [track])   # rig_se3_world: (4, 4) or
 found.points[0].point, found.points[0].parallax_deg
 cov = found.point_covariance(0)                       # (3, 3) in m², or None
 ```
+
+The last argument is a `RunControl` ([Sessions](session.md) describes it): its observers receive each iteration of the point refinement and its token stops the call with `MvgError::Cancelled`. `PoseOptions::control` and `BundleAdjustOptions::control` do the same for `estimate_pose` and `bundle_adjust`, and `StereoRectification::triangulate` takes a control as `triangulate` does. In Python these functions take `progress=`, a callable given each report; raising from it, or Ctrl-C, stops the call.
 
 Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]`, so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track.
 

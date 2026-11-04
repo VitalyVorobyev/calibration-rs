@@ -397,6 +397,36 @@ class MvgTest(unittest.TestCase):
 
     # --- bundle adjustment -------------------------------------------------
 
+    def test_progress_reports_iterations_and_raising_stops_bundle_adjust(self) -> None:
+        scene = self.scene
+        points = _scatter(20)
+        captures = np.stack(
+            [np.eye(4), _transform(_rotation(0.02, -0.08, 0.01), (-0.10, 0.02, 0.05))]
+        )
+        tracks = scene.tracks(captures, points)
+        start = points + scene.rng.normal(0.0, 0.02, points.shape)
+
+        reports: list[dict] = []
+        observed = mvg.bundle_adjust(
+            scene.result, captures, start, tracks, scale="rig", progress=reports.append
+        )
+        self.assertTrue(reports)
+        self.assertTrue(all(r["kind"] == "iteration" for r in reports))
+        plain = mvg.bundle_adjust(scene.result, captures, start, tracks, scale="rig")
+        np.testing.assert_array_equal(observed.points, plain.points)
+        np.testing.assert_array_equal(observed.rig_se3_world, plain.rig_se3_world)
+
+        class Stop(Exception):
+            pass
+
+        def stop(_report: dict) -> None:
+            raise Stop
+
+        with self.assertRaises(Stop):
+            mvg.bundle_adjust(scene.result, captures, start, tracks, scale="rig", progress=stop)
+        with self.assertRaises(Stop):
+            mvg.triangulate(scene.result, captures, tracks, progress=stop)
+
     def test_bundle_adjustment_in_a_stated_gauge(self) -> None:
         scene = self.scene
         points = _scatter(20)

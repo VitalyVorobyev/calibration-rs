@@ -154,7 +154,13 @@ fn point_covariance_matches_the_scatter_of_pixel_noise() {
             .iter()
             .map(|p| observe(&rig, p, noise, |c| rng.offset(c)))
             .collect();
-        let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+        let found = triangulate(
+            &rig,
+            &[Iso3::identity()],
+            &tracks,
+            &vision_calibration_core::RunControl::default(),
+        )
+        .unwrap();
         for (i, p) in truth.iter().enumerate() {
             let e = found.points[i].point - p;
             for a in 0..3 {
@@ -207,7 +213,13 @@ fn a_rig_without_covariance_still_refines() {
         .iter()
         .map(|p| observe(&rig, p, noise, |c| rng.offset(c)))
         .collect();
-    let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+    let found = triangulate(
+        &rig,
+        &[Iso3::identity()],
+        &tracks,
+        &vision_calibration_core::RunControl::default(),
+    )
+    .unwrap();
     assert!(matches!(
         found.uncertainty,
         Uncertainty::Unavailable {
@@ -235,7 +247,13 @@ fn an_unrefinable_track_has_no_covariance() {
         RigObservation::new(0, 0, Pt2::new(100.0, 240.0), noise),
         RigObservation::new(0, 1, Pt2::new(500.0, 240.0), noise),
     ];
-    let found = triangulate(&rig, &[Iso3::identity()], &[behind, good]).unwrap();
+    let found = triangulate(
+        &rig,
+        &[Iso3::identity()],
+        &[behind, good],
+        &vision_calibration_core::RunControl::default(),
+    )
+    .unwrap();
     assert!(!found.points[0].in_front);
     assert!(found.point_covariance(0).is_none());
     assert!(found.points[1].in_front);
@@ -282,7 +300,13 @@ fn refinement_improves_on_the_linear_estimate_for_a_fisheye() {
             .iter()
             .map(|p| observe(&rig, p, noise, |c| rng.offset(c)))
             .collect();
-        let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+        let found = triangulate(
+            &rig,
+            &[Iso3::identity()],
+            &tracks,
+            &vision_calibration_core::RunControl::default(),
+        )
+        .unwrap();
         // The linear estimate: the same views through the rig, unrefined.
         let linear = vision_mvg::triangulate_point_linear;
         for (i, p) in truth.iter().enumerate() {

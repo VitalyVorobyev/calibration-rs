@@ -30,6 +30,7 @@ use crate::triangulation::{RigObservation, sub_covariance, track_views, with_con
 use crate::{MvgError, Result};
 use nalgebra::{DVector, Matrix6, RealField};
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::RunControl;
 use vision_calibration_core::{
     CalibratedRig, Iso3, Mat3, ParameterCovariance, Pt3, Real, Uncertainty,
 };
@@ -60,7 +61,7 @@ pub enum Scale {
 }
 
 /// Options of [`bundle_adjust`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct BundleAdjustOptions {
     /// How the calibration enters: [`Use::Consider`] (the cameras stay
@@ -77,6 +78,10 @@ pub struct BundleAdjustOptions {
     /// Most Levenberg-Marquardt iterations; a solve that stops on this
     /// budget has no covariance.
     pub max_iters: usize,
+    /// Progress observers and the cancellation token of the solve; the
+    /// default reports nothing and never cancels. Not part of the result: an
+    /// uncancelled run with observers equals one without.
+    pub control: RunControl,
 }
 
 impl BundleAdjustOptions {
@@ -88,6 +93,7 @@ impl BundleAdjustOptions {
             loss: RobustLoss::None,
             scale,
             max_iters: 100,
+            control: RunControl::default(),
         }
     }
 }
@@ -245,7 +251,8 @@ impl Residual for PointDistance {
 /// cannot fix (see its variants) or with invalid numbers;
 /// [`Use::Prior`] with a rig without a covariance; and a problem the
 /// builder rejects, such as an initial point that does not project.
-/// [`MvgError::Numerical`] when the solve fails to run. A solve that stops
+/// [`MvgError::Numerical`] when the solve fails to run;
+/// [`MvgError::Cancelled`] when `opts.control`'s token is cancelled. A solve that stops
 /// short of convergence is not an error: the result stands and its
 /// uncertainty says [`UncertaintyUnavailable::NotConverged`](vision_calibration_core::UncertaintyUnavailable::NotConverged).
 pub fn bundle_adjust(
@@ -336,6 +343,7 @@ pub fn bundle_adjust(
     // `SolveOptions` is non-exhaustive: start from its default.
     let mut solve_options = SolveOptions::default();
     solve_options.max_iters = opts.max_iters;
+    solve_options.control = opts.control.clone();
     let solution = solve(&problem, &solve_options).map_err(builder_error)?;
 
     let refined_poses: Vec<Iso3> = rig_se3_world
@@ -593,6 +601,7 @@ fn calibration_share(uncertainty: &Uncertainty) -> Uncertainty {
 /// An input the builder or the solve rejects is invalid input; its message says why.
 fn builder_error(e: vision_calibration_optim::Error) -> MvgError {
     match e {
+        vision_calibration_optim::Error::Cancelled => MvgError::Cancelled,
         vision_calibration_optim::Error::InvalidInput { reason } => MvgError::invalid_input(reason),
         other => MvgError::numerical(format!("bundle adjustment: {other}")),
     }

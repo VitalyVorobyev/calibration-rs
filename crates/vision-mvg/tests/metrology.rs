@@ -161,7 +161,13 @@ fn a_triangulation_without_uncertainty_names_the_reason() {
         RigObservation::new(0, 0, cam.project_point(&p).unwrap(), noise),
         RigObservation::new(0, 1, cam.project_point(&(shift * p)).unwrap(), noise),
     ]];
-    let t = triangulate(&rig, &[vision_calibration_core::Iso3::identity()], &tracks).unwrap();
+    let t = triangulate(
+        &rig,
+        &[vision_calibration_core::Iso3::identity()],
+        &tracks,
+        &vision_calibration_core::RunControl::default(),
+    )
+    .unwrap();
     assert!(matches!(
         t.uncertainty,
         Uncertainty::Unavailable {

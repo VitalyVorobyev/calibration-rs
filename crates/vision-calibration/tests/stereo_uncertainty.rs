@@ -51,8 +51,22 @@ fn the_calibrations_share_is_in_the_measured_depth_sigma() {
                 RectifiedMatch::new(Pt2::new(left.x, left.y), left.x - right.x)
             })
             .collect();
-        let with = rect.triangulate(&rig, &matches, noise).unwrap();
-        let without = rect.triangulate(&bare, &matches, noise).unwrap();
+        let with = rect
+            .triangulate(
+                &rig,
+                &matches,
+                noise,
+                &vision_calibration::control::RunControl::default(),
+            )
+            .unwrap();
+        let without = rect
+            .triangulate(
+                &bare,
+                &matches,
+                noise,
+                &vision_calibration::control::RunControl::default(),
+            )
+            .unwrap();
         for (i, m) in matches.iter().enumerate() {
             // Asking for the share moves no point.
             let d = (with.points[i].point - without.points[i].point).norm();

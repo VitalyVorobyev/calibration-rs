@@ -226,10 +226,15 @@ fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
                     RigObservation::new(0, 0, *u1, px_noise),
                     RigObservation::new(0, 1, *u2, px_noise),
                 ];
-                let tp = triangulate(&rig, &[Iso3::identity()], &[track])
-                    .unwrap_or_else(|e| panic!("{label}: triangulation failed: {e:?}"))
-                    .points
-                    .remove(0);
+                let tp = triangulate(
+                    &rig,
+                    &[Iso3::identity()],
+                    &[track],
+                    &vision_calibration_core::RunControl::default(),
+                )
+                .unwrap_or_else(|e| panic!("{label}: triangulation failed: {e:?}"))
+                .points
+                .remove(0);
                 assert!(tp.in_front, "{label}: triangulated point behind a camera");
                 reproj_px.push(tp.reprojection_error.expect("projects in both cameras"));
                 err3d.push((tp.point - pw).norm());

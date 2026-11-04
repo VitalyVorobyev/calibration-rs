@@ -11,6 +11,7 @@ use vision_calibration_core::{
     ParameterCovariance, PointCovariance, ProjectionParams, Pt3, RansacOptions, SensorParams,
     Uncertainty, UncertaintyUnavailable, make_pinhole_camera, pinhole_camera_params,
 };
+use vision_calibration_core::{CancelToken, Progress, RunControl};
 use vision_mvg::MvgError;
 use vision_mvg::pose::{ObjectPose, PoseObservation, PoseOptions, estimate_pose};
 
@@ -566,4 +567,37 @@ fn errors_are_typed_and_come_before_any_work() {
         estimate_pose(&rig, &scrambled, &ransac),
         Err(MvgError::NoConsensus)
     ));
+}
+
+/// The refinement reports its iterations without changing the pose, and a
+/// cancelled token stops it with a typed error.
+#[test]
+fn pose_reports_iterations_and_cancels() {
+    let rig = stereo(
+        pinhole(800.0, -0.1),
+        pinhole(780.0, -0.1),
+        Uncertainty::default(),
+    );
+    let noise = PointCovariance::isotropic(0.3).unwrap();
+    let obs = observe(&rig, &[0, 1], &spatial_object(), &truth(), noise, None);
+    let plain = estimate_pose(&rig, &obs, &PoseOptions::default()).unwrap();
+
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = std::sync::Arc::clone(&seen);
+    let mut opts = PoseOptions::default();
+    opts.control = RunControl::new().with_observer(move |p| sink.lock().unwrap().push(p));
+    let observed = estimate_pose(&rig, &obs, &opts).unwrap();
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|p| matches!(p, Progress::Iteration { .. }))
+    );
+    assert_eq!(format!("{plain:?}"), format!("{observed:?}"));
+
+    let token = CancelToken::new();
+    token.cancel();
+    opts.control = RunControl::new().with_cancel(token);
+    let err = estimate_pose(&rig, &obs, &opts).unwrap_err();
+    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
 }

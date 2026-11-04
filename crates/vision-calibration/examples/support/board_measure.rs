@@ -96,7 +96,12 @@ pub fn measure_view(
     let Some((tracks, board)) = shared_corners(view, &noise) else {
         return Ok(None);
     };
-    let triangulation = triangulate(rig, &[Iso3::identity()], &tracks)?;
+    let triangulation = triangulate(
+        rig,
+        &[Iso3::identity()],
+        &tracks,
+        &vision_calibration::control::RunControl::default(),
+    )?;
     let set = PointSet::from_triangulation(&triangulation)?;
 
     let mut distances = Vec::new();

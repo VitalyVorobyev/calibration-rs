@@ -19,11 +19,6 @@ and points through the builder (Consider or Prior, robust losses, an explicit
 gauge, covariance). The rectification still runs on a bare `K`, and the two-view
 functions return no covariance.
 
-- [ ] MVG-PROGRESS - The multiple-view-geometry solves (`bundle_adjust`,
-  `triangulate`, `estimate_pose`) build their `SolveOptions` internally and
-  take no `RunControl`, so they report no iterations and cannot be
-  cancelled; thread a control through their options and the Python
-  bindings' `progress=`, as the calibration workflows do.
 - [ ] MVG-E-REFINE - Move estimate_essential's local Gauss-Newton polish
   (weighted Sampson error on the essential manifold) onto the problem builder:
   a residual of your own over a rotation and a unit-vector block. It returns
