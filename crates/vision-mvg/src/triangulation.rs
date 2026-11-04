@@ -14,6 +14,7 @@ use crate::types::TriangulatedPoint;
 use crate::{MvgError, Result};
 use nalgebra::SMatrix;
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::RunControl;
 use vision_calibration_core::{
     CalibratedRig, CameraModel, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Uncertainty,
     UncertaintyUnavailable, Vec3,
@@ -138,7 +139,7 @@ pub(crate) fn sub_covariance<const N: usize>(
 ///
 /// ```
 /// use vision_calibration_core::{
-///     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, PointCovariance, Pt3, Uncertainty,
+///     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, PointCovariance, Pt3, RunControl, Uncertainty,
 ///     make_pinhole_camera, pinhole_camera_params,
 /// };
 /// use vision_mvg::triangulation::{RigObservation, triangulate};
@@ -167,7 +168,7 @@ pub(crate) fn sub_covariance<const N: usize>(
 ///     RigObservation::new(0, 1, pixel(1), noise),
 /// ];
 ///
-/// let found = triangulate(&rig, &[Iso3::identity()], &[track])?;
+/// let found = triangulate(&rig, &[Iso3::identity()], &[track], &RunControl::default())?;
 /// assert!((found.points[0].point - point).norm() < 1e-6);
 /// assert!(found.points[0].in_front);
 /// // This rig has no covariance, so neither do the points; one with a
@@ -184,11 +185,14 @@ pub(crate) fn sub_covariance<const N: usize>(
 /// track by its index in `tracks`; so is a refinement that fails to run. A
 /// refinement that stops short of convergence is not an error: the points are
 /// returned as they stand and the uncertainty says
-/// [`UncertaintyUnavailable::NotConverged`].
+/// [`UncertaintyUnavailable::NotConverged`]. [`MvgError::Cancelled`] when
+/// `control`'s token is cancelled; the refinement reports each iteration to
+/// `control`'s observers, and an observer cannot change the result.
 pub fn triangulate(
     rig: &CalibratedRig,
     rig_se3_world: &[Iso3],
     tracks: &[Vec<RigObservation>],
+    control: &RunControl,
 ) -> Result<Triangulation> {
     let mut starts = Vec::with_capacity(tracks.len());
     for (i, track) in tracks.iter().enumerate() {
@@ -266,7 +270,10 @@ pub fn triangulate(
             },
         });
     }
-    let solution = solve(&problem, &SolveOptions::default()).map_err(refine_error)?;
+    // `SolveOptions` is non-exhaustive: start from its default.
+    let mut solve_options = SolveOptions::default();
+    solve_options.control = control.clone();
+    let solution = solve(&problem, &solve_options).map_err(refine_error)?;
 
     let points = starts
         .into_iter()
@@ -288,6 +295,9 @@ pub fn triangulate(
 }
 
 fn refine_error(e: vision_calibration_optim::Error) -> MvgError {
+    if matches!(e, vision_calibration_optim::Error::Cancelled) {
+        return MvgError::Cancelled;
+    }
     MvgError::numerical(format!("refining the points: {e}"))
 }
 
@@ -449,7 +459,8 @@ mod tests {
             .iter()
             .map(|p| track(&rig, &[Iso3::identity()], p))
             .collect();
-        let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+        let found =
+            triangulate(&rig, &[Iso3::identity()], &tracks, &RunControl::default()).unwrap();
         assert_eq!(found.points.len(), 2);
         for (f, p) in found.points.iter().zip(&world) {
             assert!((f.point - p).norm() < 1e-9);
@@ -470,7 +481,13 @@ mod tests {
             iso(-0.05, 0.04, 0.0, Vec3::new(0.25, -0.1, 0.1)),
         ];
         let world = Pt3::new(0.15, -0.1, 2.5);
-        let found = triangulate(&rig, &captures, &[track(&rig, &captures, &world)]).unwrap();
+        let found = triangulate(
+            &rig,
+            &captures,
+            &[track(&rig, &captures, &world)],
+            &RunControl::default(),
+        )
+        .unwrap();
         assert!((found.points[0].point - world).norm() < 1e-9);
         assert!(found.points[0].reprojection_error.unwrap() < 1e-7);
     }
@@ -491,7 +508,7 @@ mod tests {
             o.pixel.x += 0.3 * rng.next();
             o.pixel.y += 0.3 * rng.next();
         }
-        let found = triangulate(&rig, &captures, &[noisy]).unwrap();
+        let found = triangulate(&rig, &captures, &[noisy], &RunControl::default()).unwrap();
         let err = found.points[0].reprojection_error.unwrap();
         assert!(err > 0.01 && err < 0.5, "reprojection {err}");
         assert!((found.points[0].point - world).norm() < 0.1);
@@ -513,7 +530,7 @@ mod tests {
             RigObservation::new(0, 0, Pt2::new(600.0, 480.0), noise()),
             RigObservation::new(1, 0, Pt2::new(720.0, 480.0), noise()),
         ];
-        let found = triangulate(&rig, &captures, &[track]).unwrap();
+        let found = triangulate(&rig, &captures, &[track], &RunControl::default()).unwrap();
         assert!(!found.points[0].in_front);
         assert!(found.points[0].reprojection_error.is_none());
     }
@@ -542,7 +559,8 @@ mod tests {
             .iter()
             .map(|p| track(&rig, &[Iso3::identity()], p))
             .collect();
-        let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+        let found =
+            triangulate(&rig, &[Iso3::identity()], &tracks, &RunControl::default()).unwrap();
         for (f, p) in found.points.iter().zip(&world) {
             assert!((f.point - p).norm() < 1e-9, "{:?} vs {p:?}", f.point);
             assert!(f.in_front);
@@ -556,7 +574,7 @@ mod tests {
         let captures = [Iso3::identity()];
         let good = track(&rig, &captures, &Pt3::new(0.0, 0.0, 2.0));
         let message = |tracks: Vec<Vec<RigObservation>>| -> String {
-            triangulate(&rig, &captures, &tracks)
+            triangulate(&rig, &captures, &tracks, &RunControl::default())
                 .unwrap_err()
                 .to_string()
         };
@@ -582,7 +600,12 @@ mod tests {
         let m = message(vec![same]);
         assert!(m.contains("track 0"), "{m}");
         assert!(matches!(
-            triangulate(&rig, &captures, &[vec![good[0], good[0]]]),
+            triangulate(
+                &rig,
+                &captures,
+                &[vec![good[0], good[0]]],
+                &RunControl::default()
+            ),
             Err(MvgError::Degenerate { .. })
         ));
     }

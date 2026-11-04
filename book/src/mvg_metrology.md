@@ -6,10 +6,11 @@
 
 ```rust
 use vision_calibration::mvg::metrology::{PointSet, angle, distance, fit_plane, point_to_plane};
+use vision_calibration::control::RunControl;
 use vision_calibration::mvg::triangulation::triangulate;
 
 // rig:    CalibratedRig;  tracks: the corners of a board, one track per corner
-let triangulation = triangulate(&rig, &[Iso3::identity()], &tracks)?;
+let triangulation = triangulate(&rig, &[Iso3::identity()], &tracks, &RunControl::default())?;
 let set = PointSet::from_triangulation(&triangulation)?;
 
 let length = distance(&set, 0, 7)?;        // Scalar { value, sigma }, metres

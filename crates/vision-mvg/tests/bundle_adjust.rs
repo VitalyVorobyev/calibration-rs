@@ -5,10 +5,11 @@
 #![allow(missing_docs)]
 
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
+use std::sync::{Arc, Mutex};
 use vision_calibration_core::{
-    BrownConrady5, CalibratedRig, CameraParams, DistortionParams, FxFyCxCy, Iso3, KannalaBrandt4,
-    ParameterCovariance, PointCovariance, ProjectionParams, Pt3, SensorParams, Uncertainty,
-    make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CalibratedRig, CameraParams, CancelToken, DistortionParams, FxFyCxCy, Iso3,
+    KannalaBrandt4, ParameterCovariance, PointCovariance, Progress, ProjectionParams, Pt3,
+    RunControl, SensorParams, Uncertainty, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::RobustLoss;
 use vision_calibration_optim::problem::Use;
@@ -430,7 +431,7 @@ fn invalid_inputs_are_refused() {
         .collect();
     assert!(message(&rig, &poses, &points, &lonely, &opts).contains("least 2"));
     // Prior needs a covariance.
-    let mut prior = opts;
+    let mut prior = opts.clone();
     prior.calibration = Use::Prior;
     assert!(message(&rig, &poses, &points, &tracks, &prior).contains("covariance"));
     // Two cameras at one centre fix no scale.
@@ -617,7 +618,13 @@ fn a_prior_rig_feeds_back_into_triangulation() {
     let mut opts = BundleAdjustOptions::new(Scale::Rig);
     opts.calibration = Use::Prior;
     let found = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap();
-    let again = triangulate(&found.rig, &found.rig_se3_world, &tracks).unwrap();
+    let again = triangulate(
+        &found.rig,
+        &found.rig_se3_world,
+        &tracks,
+        &vision_calibration_core::RunControl::default(),
+    )
+    .unwrap();
     assert!(again.point_covariance(0).is_some());
     for (a, b) in again.points.iter().zip(&found.points) {
         assert!((a.point - b).norm() < 1e-2);
@@ -637,4 +644,128 @@ fn a_prior_rig_feeds_back_into_triangulation() {
             .index("capture1.rx")
             .is_some()
     );
+}
+
+/// A perturbed scene with its tracks: a solve that takes several iterations.
+fn progress_scene() -> (CalibratedRig, Vec<Iso3>, Vec<Pt3>, Vec<Vec<RigObservation>>) {
+    let rig = rig_of(pinhole(800.0), pinhole(780.0), Uncertainty::default());
+    let mut rng = Rng(11);
+    let truth_poses = captures();
+    let truth_points = scene(&mut rng, 20);
+    let tracks = observe(&rig, &truth_poses, &truth_points, 0.3, 0.3, &mut rng);
+    let (poses, points) = perturb(&truth_poses, &truth_points, 2.0, 0.02, &mut rng);
+    (rig, poses, points, tracks)
+}
+
+/// An observer collecting the iteration reports.
+fn recording(control: RunControl) -> (RunControl, Arc<Mutex<Vec<Progress>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let control = control.with_observer(move |p| sink.lock().unwrap().push(p));
+    (control, seen)
+}
+
+/// A report stream is the solve's iterations, from 1, and an observer does
+/// not change the result: the outputs agree bit for bit.
+#[test]
+fn bundle_adjust_reports_iterations_without_changing_the_result() {
+    let (rig, poses, points, tracks) = progress_scene();
+    let plain = bundle_adjust(
+        &rig,
+        &poses,
+        &points,
+        &tracks,
+        &BundleAdjustOptions::new(Scale::Rig),
+    )
+    .unwrap();
+
+    let (control, seen) = recording(RunControl::default());
+    let mut opts = BundleAdjustOptions::new(Scale::Rig);
+    opts.control = control;
+    let observed = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap();
+
+    let seen = seen.lock().unwrap();
+    assert!(!seen.is_empty(), "no iteration reported");
+    for (i, p) in seen.iter().enumerate() {
+        match p {
+            Progress::Iteration { iter, .. } => assert_eq!(*iter, i + 1),
+            other => panic!("unexpected report {other:?}"),
+        }
+    }
+    assert_eq!(
+        format!("{:?}", plain.rig_se3_world),
+        format!("{:?}", observed.rig_se3_world)
+    );
+    assert_eq!(
+        format!("{:?}", plain.points),
+        format!("{:?}", observed.points)
+    );
+    assert_eq!(
+        format!("{:?}", plain.uncertainty),
+        format!("{:?}", observed.uncertainty)
+    );
+    assert_eq!(
+        format!("{:?}", plain.report),
+        format!("{:?}", observed.report)
+    );
+    assert_eq!(
+        plain.reprojection_rms_px.to_bits(),
+        observed.reprojection_rms_px.to_bits()
+    );
+}
+
+/// A token cancelled by the first report stops the solve with a typed error,
+/// and a token cancelled beforehand stops it before any iteration.
+#[test]
+fn bundle_adjust_cancels_with_a_typed_error() {
+    let (rig, poses, points, tracks) = progress_scene();
+
+    let token = CancelToken::new();
+    let cancel = token.clone();
+    let reports = Arc::new(Mutex::new(0usize));
+    let counter = Arc::clone(&reports);
+    let mut opts = BundleAdjustOptions::new(Scale::Rig);
+    opts.control = RunControl::new()
+        .with_cancel(token)
+        .with_observer(move |_| {
+            *counter.lock().unwrap() += 1;
+            cancel.cancel();
+        });
+    let err = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap_err();
+    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
+    assert_eq!(*reports.lock().unwrap(), 1, "stopped within one iteration");
+
+    let token = CancelToken::new();
+    token.cancel();
+    let (control, seen) = recording(RunControl::new().with_cancel(token));
+    opts.control = control;
+    let err = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap_err();
+    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+/// Triangulation refines the points with the same control: reports, the
+/// same result, and a cancel.
+#[test]
+fn triangulate_reports_and_cancels() {
+    let (rig, poses, _, tracks) = progress_scene();
+    let plain = triangulate(&rig, &poses, &tracks, &RunControl::default()).unwrap();
+
+    let (control, seen) = recording(RunControl::default());
+    let observed = triangulate(&rig, &poses, &tracks, &control).unwrap();
+    assert!(!seen.lock().unwrap().is_empty());
+    assert_eq!(
+        format!("{:?}", plain.points),
+        format!("{:?}", observed.points)
+    );
+    assert_eq!(
+        format!("{:?}", plain.uncertainty),
+        format!("{:?}", observed.uncertainty)
+    );
+
+    let token = CancelToken::new();
+    token.cancel();
+    let err =
+        triangulate(&rig, &poses, &tracks, &RunControl::new().with_cancel(token)).unwrap_err();
+    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
 }

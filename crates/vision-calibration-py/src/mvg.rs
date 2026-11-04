@@ -37,6 +37,7 @@ use vision_calibration::nalgebra::{DMatrix, Matrix3, Rotation3, Translation3, Un
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::Use;
 
+use crate::control::PyRunControl;
 use crate::session::{parse_checked, parse_optional_checked, to_py};
 use crate::validation::value_err;
 use crate::{parse_payload, runtime_err};
@@ -240,34 +241,41 @@ pub(crate) fn mvg_recover_relative_pose_robust(
 // Measurement
 // ---------------------------------------------------------------------------
 
-#[pyfunction]
+#[pyfunction(signature = (result, rig_se3_world, tracks, progress=None))]
 pub(crate) fn mvg_triangulate(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,
     rig_se3_world: PyReadonlyArray3<'_, f64>,
     tracks: &Bound<'_, PyAny>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
     let poses = poses_of(&rig_se3_world, "rig_se3_world")?;
     let tracks: Vec<Vec<RigObservation>> = parse_checked(tracks, "tracks")?;
-    let found = triangulate(&rig, &poses, &tracks).map_err(mvg_err)?;
+    let control = PyRunControl::new(progress);
+    let found = py.detach(|| triangulate(&rig, &poses, &tracks, control.control()));
+    let found = control.finish(found, mvg_err)?;
     to_py(py, &found)
 }
 
-#[pyfunction(signature = (result, observations, ransac=None, loss=None))]
+#[pyfunction(signature = (result, observations, ransac=None, loss=None, progress=None))]
 pub(crate) fn mvg_estimate_pose(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,
     observations: &Bound<'_, PyAny>,
     ransac: Option<&Bound<'_, PyAny>>,
     loss: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
     let observations: Vec<PoseObservation> = parse_checked(observations, "observations")?;
     let mut options = PoseOptions::default();
     options.ransac = ransac.filter(|r| !r.is_none()).map(ransac_of).transpose()?;
     options.loss = parse_optional_checked::<RobustLoss>(loss, "loss")?.unwrap_or_default();
-    let pose = estimate_pose(&rig, &observations, &options).map_err(mvg_err)?;
+    let control = PyRunControl::new(progress);
+    options.control = control.control().clone();
+    let pose = py.detach(|| estimate_pose(&rig, &observations, &options));
+    let pose = control.finish(pose, mvg_err)?;
     to_py(py, &pose)
 }
 
@@ -286,7 +294,7 @@ struct BundleAdjustmentPayload<'a> {
     reprojection_rms_px: f64,
 }
 
-#[pyfunction(signature = (result, rig_se3_world, points, tracks, scale, calibration="consider", loss=None, max_iters=100))]
+#[pyfunction(signature = (result, rig_se3_world, points, tracks, scale, calibration="consider", loss=None, max_iters=100, progress=None))]
 #[allow(clippy::too_many_arguments)] // the Rust options, flattened
 pub(crate) fn mvg_bundle_adjust(
     py: Python<'_>,
@@ -298,6 +306,7 @@ pub(crate) fn mvg_bundle_adjust(
     calibration: &str,
     loss: Option<&Bound<'_, PyAny>>,
     max_iters: usize,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
     let poses = poses_of(&rig_se3_world, "rig_se3_world")?;
@@ -316,7 +325,10 @@ pub(crate) fn mvg_bundle_adjust(
     };
     options.loss = parse_optional_checked::<RobustLoss>(loss, "loss")?.unwrap_or_default();
     options.max_iters = max_iters;
-    let adjusted = bundle_adjust(&rig, &poses, &points, &tracks, &options).map_err(mvg_err)?;
+    let control = PyRunControl::new(progress);
+    options.control = control.control().clone();
+    let adjusted = py.detach(|| bundle_adjust(&rig, &poses, &points, &tracks, &options));
+    let adjusted = control.finish(adjusted, mvg_err)?;
     to_py(
         py,
         &BundleAdjustmentPayload {
@@ -551,20 +563,24 @@ impl PyStereoRectification {
     }
 
     /// Triangulate rectified matches with the calibration's covariance.
+    #[pyo3(signature = (result, matches, pixel_noise, progress=None))]
     fn triangulate(
         &self,
         py: Python<'_>,
         result: &Bound<'_, PyAny>,
         matches: &Bound<'_, PyAny>,
         pixel_noise: &Bound<'_, PyAny>,
+        progress: Option<Py<PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let rig = rig_of(result)?;
         let matches: Vec<RectifiedMatch> = parse_checked(matches, "matches")?;
         let noise: PointCovariance = parse_checked(pixel_noise, "pixel_noise")?;
-        let found = self
-            .inner
-            .triangulate(&rig, &matches, noise)
-            .map_err(mvg_err)?;
+        let control = PyRunControl::new(progress);
+        let found = py.detach(|| {
+            self.inner
+                .triangulate(&rig, &matches, noise, control.control())
+        });
+        let found = control.finish(found, mvg_err)?;
         to_py(py, &found)
     }
 }

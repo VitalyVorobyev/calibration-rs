@@ -23,6 +23,7 @@ use crate::{MvgError, Result};
 use nalgebra::{Matrix6, Vector2};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
+use vision_calibration_core::RunControl;
 use vision_calibration_core::{
     CalibratedRig, CameraModel, Estimator, Iso3, PointCovariance, Pt2, Pt3, RansacOptions, Real,
     Uncertainty, ransac_fit,
@@ -85,6 +86,10 @@ pub struct PoseOptions {
     /// whitened by their stated noise). The covariance takes the residuals
     /// at their stated variance.
     pub loss: RobustLoss,
+    /// Progress observers and the cancellation token of the refinement; the
+    /// default reports nothing and never cancels. Not part of the result: an
+    /// uncancelled run with observers equals one without.
+    pub control: RunControl,
 }
 
 impl Default for PoseOptions {
@@ -93,6 +98,7 @@ impl Default for PoseOptions {
         Self {
             ransac: None,
             loss: RobustLoss::None,
+            control: RunControl::default(),
         }
     }
 }
@@ -189,7 +195,8 @@ impl ObjectPose {
 /// fewer than 4 of them ahead of it); [`MvgError::Core`] for invalid RANSAC
 /// options; [`MvgError::NoConsensus`] when RANSAC finds no model;
 /// [`MvgError::Geometry`] when the closed-form start is degenerate (collinear
-/// points); [`MvgError::Numerical`] when the refinement fails to run. A
+/// points); [`MvgError::Numerical`] when the refinement fails to run;
+/// [`MvgError::Cancelled`] when `opts.control`'s token is cancelled. A
 /// refinement that stops short of convergence is not an error: the pose
 /// stands and the uncertainty says
 /// [`UncertaintyUnavailable::NotConverged`](vision_calibration_core::UncertaintyUnavailable::NotConverged).
@@ -253,7 +260,14 @@ pub fn estimate_pose(
 
     // Refine; with RANSAC re-select by the refined pose and refine again
     // until the set settles.
-    let mut solved = refine(rig, observations, &inliers, &rig_se3_object, opts.loss)?;
+    let mut solved = refine(
+        rig,
+        observations,
+        &inliers,
+        &rig_se3_object,
+        opts.loss,
+        &opts.control,
+    )?;
     if let Some(ransac) = &opts.ransac {
         for _ in 0..SETTLE_ROUNDS {
             let next = select(rig, observations, &solved.0, ransac.thresh);
@@ -262,7 +276,14 @@ pub fn estimate_pose(
             }
             inliers = next;
             rig_se3_object = solved.0;
-            solved = refine(rig, observations, &inliers, &rig_se3_object, opts.loss)?;
+            solved = refine(
+                rig,
+                observations,
+                &inliers,
+                &rig_se3_object,
+                opts.loss,
+                &opts.control,
+            )?;
         }
     }
     let (rig_se3_object, uncertainty) = solved;
@@ -355,9 +376,12 @@ fn refine(
     used: &[usize],
     rig_se3_object: &Iso3,
     loss: RobustLoss,
+    control: &RunControl,
 ) -> Result<(Iso3, Uncertainty)> {
-    let fail =
-        |e: vision_calibration_optim::Error| MvgError::numerical(format!("refining the pose: {e}"));
+    let fail = |e: vision_calibration_optim::Error| match e {
+        vision_calibration_optim::Error::Cancelled => MvgError::Cancelled,
+        e => MvgError::numerical(format!("refining the pose: {e}")),
+    };
     let mut problem = Problem::new();
     let blocks = problem
         .add_calibrated_rig(rig, Use::Consider)
@@ -384,7 +408,10 @@ fn refine(
             )
             .map_err(|e| MvgError::numerical(format!("observation {i}: refining the pose: {e}")))?;
     }
-    let solution = solve(&problem, &SolveOptions::default()).map_err(fail)?;
+    // `SolveOptions` is non-exhaustive: start from its default.
+    let mut solve_options = SolveOptions::default();
+    solve_options.control = control.clone();
+    let solution = solve(&problem, &solve_options).map_err(fail)?;
     let pose = solution
         .pose(object)
         .ok_or_else(|| MvgError::numerical("the object pose is missing from the solution"))?;

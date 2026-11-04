@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **The multiple-view-geometry solves take a run control** (breaking).
+  `mvg::triangulation::triangulate` and `StereoRectification::triangulate`
+  gain a last argument `control: &RunControl`; pass
+  `&RunControl::default()` for the old behaviour. `PoseOptions` and
+  `BundleAdjustOptions` gain a `control` field (default: no observers, no
+  token), and `BundleAdjustOptions` is no longer `Copy` or `PartialEq`.
+  `MvgError` gains `Cancelled`.
+
+### Added
+
+- **Progress and cancellation for the multiple-view-geometry solves.**
+  `triangulate`, `estimate_pose`, `bundle_adjust` and
+  `StereoRectification::triangulate` report each solver iteration to the
+  control's observers and stop with `MvgError::Cancelled` when its token is
+  cancelled; an observer does not change the result. In Python,
+  `mvg.triangulate`, `mvg.estimate_pose`, `mvg.bundle_adjust` and
+  `StereoRectification.triangulate` take a keyword `progress=` callable;
+  raising from it, or Ctrl-C, stops the call.
+
 ## [0.16.0] - 2026-11-04
 
 ### Migration

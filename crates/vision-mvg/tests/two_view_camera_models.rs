@@ -149,7 +149,13 @@ fn distorted_pinhole_noiseless_recovers_pose_and_points() {
             ]
         })
         .collect();
-    let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+    let found = triangulate(
+        &rig,
+        &[Iso3::identity()],
+        &tracks,
+        &vision_calibration_core::RunControl::default(),
+    )
+    .unwrap();
     for (f, p) in found.points.iter().zip(&world) {
         let rel_err = (f.point - p).norm() / p.coords.norm();
         assert!(rel_err < 1e-9, "relative error {rel_err}");
@@ -187,7 +193,13 @@ fn distorted_pinhole_with_pixel_noise_stays_within_the_noise_floor() {
     assert!(rot < 0.5 * 0.3, "rotation {rot} deg");
     assert!(tdir < 1.0 * 0.3, "translation direction {tdir} deg");
 
-    let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+    let found = triangulate(
+        &rig,
+        &[Iso3::identity()],
+        &tracks,
+        &vision_calibration_core::RunControl::default(),
+    )
+    .unwrap();
     let err3d = median(
         found
             .points
@@ -248,7 +260,13 @@ fn fisheye_rig_recovers_points_and_pose_beyond_90_degrees() {
             ]
         })
         .collect();
-    let found = triangulate(&rig, &[Iso3::identity()], &tracks).unwrap();
+    let found = triangulate(
+        &rig,
+        &[Iso3::identity()],
+        &tracks,
+        &vision_calibration_core::RunControl::default(),
+    )
+    .unwrap();
     for (f, p) in found.points.iter().zip(&world) {
         let rel_err = (f.point - p).norm() / p.coords.norm();
         assert!(rel_err < 1e-9, "{p:?}: relative error {rel_err}");

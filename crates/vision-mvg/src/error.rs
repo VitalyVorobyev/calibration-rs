@@ -55,6 +55,10 @@ pub enum MvgError {
     #[error("numerical failure: {0}")]
     Numerical(String),
 
+    /// The run control's token was cancelled; the call returned no result.
+    #[error("cancelled")]
+    Cancelled,
+
     /// Forwarded error from `vision-geometry`.
     #[error(transparent)]
     Geometry(#[from] GeometryError),

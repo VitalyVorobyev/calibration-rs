@@ -70,8 +70,16 @@ struct Trial {
 }
 
 fn trial(rig: &CalibratedRig, tracks: &[Vec<RigObservation>]) -> Trial {
-    let set = PointSet::from_triangulation(&triangulate(rig, &[Iso3::identity()], tracks).unwrap())
-        .unwrap();
+    let set = PointSet::from_triangulation(
+        &triangulate(
+            rig,
+            &[Iso3::identity()],
+            tracks,
+            &vision_calibration::control::RunControl::default(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let short = distance(&set, index(0, 0), index(3, 0)).unwrap();
     let long = distance(&set, index(0, 0), index(7, 0)).unwrap();
     // The right angle at the board's corner, arms of 3 squares.

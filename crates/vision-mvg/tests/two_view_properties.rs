@@ -204,10 +204,15 @@ fn triangulate_reproject_roundtrip() {
                 RigObservation::new(0, 1, u2, px_noise),
             ];
 
-            let tp = triangulate(&rig, &[Iso3::identity()], &[track])
-                .unwrap()
-                .points
-                .remove(0);
+            let tp = triangulate(
+                &rig,
+                &[Iso3::identity()],
+                &[track],
+                &vision_calibration_core::RunControl::default(),
+            )
+            .unwrap()
+            .points
+            .remove(0);
             // Round-trip: reprojection error is ~0 and the 3D point matches GT.
             let reproj = tp.reprojection_error.expect("projects in both cameras");
             assert!(reproj < 1e-6, "reprojection error {reproj:.3e}");
