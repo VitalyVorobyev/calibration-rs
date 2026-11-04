@@ -192,7 +192,6 @@ impl ProblemState for RigExtrinsicsProblem {
 
 impl RigStages for RigExtrinsicsProblem {
     type Meta = NoMeta;
-    const RECOVERS_TILTED_CAMERAS: bool = false;
 
     fn dataset(input: &RigExtrinsicsInput) -> &RigDataset<NoMeta> {
         input

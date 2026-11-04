@@ -156,11 +156,6 @@ pub(crate) trait RigStages: ProblemType {
     /// The per-view metadata of the input rig dataset.
     type Meta;
 
-    /// Whether a tilted camera after a full auto-init runs the wide tilt
-    /// multi-start, and a badly fitted one the nominal recovery
-    /// ([`TiltedRecovery`]), instead of the per-camera staged solve.
-    const RECOVERS_TILTED_CAMERAS: bool;
-
     /// The input as a rig dataset.
     fn dataset(input: &Self::Input) -> &RigDataset<Self::Meta>;
     /// The configuration of camera `index`.
@@ -246,9 +241,8 @@ pub(crate) fn init_intrinsics<P: RigStages>(
 }
 
 /// Refine each camera on its own views, in its model, holding its `fix`
-/// lists, with every pose free: [`optimize_camera`], or for
-/// [`RigStages::RECOVERS_TILTED_CAMERAS`] the [`TiltedRecovery`] of the
-/// tilted cameras after a full auto-init.
+/// lists, with every pose free: [`optimize_camera`], or after a full
+/// auto-init the [`TiltedRecovery`] of the tilted cameras.
 ///
 /// # Errors
 ///
@@ -281,7 +275,9 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
         .per_cam_target_poses
         .clone()
         .ok_or_else(|| Error::not_available("per-camera target poses"))?;
-    let recover_tilted = P::RECOVERS_TILTED_CAMERAS && stages.per_cam_intrinsics_auto;
+    // A tilted camera's own staged solve can settle in a wrong tilt /
+    // principal-point basin when nothing was seeded; seeds anchor it.
+    let recover_tilted = stages.per_cam_intrinsics_auto;
 
     let backend_opts =
         solver.step_backend_options(session.control(), opts.max_iters, opts.verbosity);

@@ -73,6 +73,8 @@ Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-ini
 
 Each tilted camera is first calibrated from its own views, as in single-camera planar intrinsics: the linear stage holds `p1`, `p2` at zero (a tangential term and the tilt trade off, and the default fix list holds them in every later solve), and the camera's own solve frees every target pose. On clean synthetic data this solve reaches the reprojection noise floor, with the principal point and tilt at the truth within their standard deviations.
 
+From scratch (nothing seeded, for any camera), a tilted camera's own solve can still settle in a wrong tilt / principal-point basin, which the rig bundle adjustment cannot leave while it holds the tilt. Both rig workflows then solve each tilted camera through a wider multi-start over linear tilt seeds, and re-solve a Brown-Conrady tilted camera that still fits worse than 0.5 px from a nominal seed built from the rig's well-fitted cameras. This costs extra solves (several times the per-camera stage on a hard rig), and a seeded rig skips it.
+
 ## RigLaserlineDevice
 
 Given a frozen rig calibration, `RigLaserlineDeviceProblem` fits one laser plane per camera and reports each plane both in the camera frame and in the rig frame.

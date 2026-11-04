@@ -110,6 +110,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A step override of zero init iterations runs for a tilted camera as it
   does for an untilted one (the linear fit without its distortion rounds)
   instead of failing.
+- **Rig extrinsics recovers a tilted camera calibrated from scratch as rig
+  hand-eye does** (a changed result for unseeded Scheimpflug cameras).
+  `rig_extrinsics::step_intrinsics_optimize_all` now solves each tilted
+  camera of a fully auto-initialized rig through the wide multi-start over
+  linear tilt seeds, and re-solves a Brown-Conrady tilted camera that still
+  fits worse than 0.5 px from a nominal seed of the well-fitted ones. A
+  camera's own staged solve could settle in a wrong tilt / principal-point
+  basin that the rig solve, which holds the tilt, cannot leave. On three
+  real six-camera Scheimpflug rigs the mean reprojection error falls from
+  0.63, 1.03 and 0.93 px to 0.30, 0.84 and 0.59 px; on a synthetic
+  four-camera rig the wrong basin put one camera's principal point 290 px
+  and its tilt 14° off, and every camera now ends within 3.3 px and 0.3° of
+  the truth. Where the staged solve already reached the minimum, the result
+  is unchanged. The intrinsics stage takes longer: up to about 6× on the
+  real rigs (2.4 s to 13.9 s), about 20 % on well-conditioned scenes. Seeded
+  cameras, untilted cameras and rig hand-eye are unaffected.
 - **The planar intrinsics session state no longer keeps the per-view
   homographies**, and its initial camera holds the distortion in the
   configured model. Session files written before load unchanged.

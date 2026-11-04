@@ -2,11 +2,13 @@
 //!
 //! A Scheimpflug camera auto-initialized without seeds can settle in a wrong
 //! tilt / principal-point / distortion basin. The rig intrinsics stage of
-//! the problem types that opt in ([`super::RigStages::RECOVERS_TILTED_CAMERAS`])
-//! solves such a camera through a wide multi-start over linear tilt seeds
-//! and, for a Brown-Conrady camera that still fits badly, re-solves it from
-//! a nominal seed built from the well-fitted cameras of the rig (and,
-//! failing that, against their rig).
+//! every rig problem type ([`super::RigStages`]) solves such a camera
+//! through a wide multi-start over linear tilt seeds and, for a
+//! Brown-Conrady camera that still fits badly, re-solves it from a nominal
+//! seed built from the well-fitted cameras of the rig (and, failing that,
+//! against their rig). The stage runs before any hand-eye or rig coupling,
+//! so the recovery serves a rig with or without robot poses alike; seeded
+//! cameras skip it.
 
 use crate::Error;
 use crate::common::config::{CameraConfig, IntrinsicsInitConfig, SolverConfig};

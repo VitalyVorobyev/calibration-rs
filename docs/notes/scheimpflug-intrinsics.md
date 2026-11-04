@@ -154,6 +154,44 @@ solves without the robust loss and is accepted on the mean reprojection
 error, outliers included, so it is rejected and the principal point keeps
 its linear-init value.
 
+### From scratch: the tilted recovery
+
+With nothing seeded, the staged solve on a camera's own views can still
+settle in a wrong tilt / principal-point basin. After a full auto-init the
+rig intrinsics stage of every rig problem type (`rig_extrinsics`,
+`rig_handeye`) therefore solves each tilted camera through
+`rig_family::tilted`: a wide multi-start over linear tilt seeds and, for a
+Brown-Conrady camera still above 0.5 px, a re-solve from a nominal seed of
+the well-fitted cameras (then against their rig). Seeded cameras skip it.
+The stage runs before any hand-eye or rig coupling, so the recovery does
+not depend on robot poses; until LEAN-RIG-TILTED only `rig_handeye` ran it.
+
+Measured on `rig_extrinsics` from scratch (Brown-Conrady + Scheimpflug,
+`k3, p1, p2` fixed, Huber 1 px, rig intrinsics and tilt held), the
+recovery off and on:
+
+| scene | mean reprojection, off → on | worst camera, off → on | runtime (release), off → on |
+|---|---:|---:|---:|
+| `scheimpflug_rig_ref` (6 cameras) | 0.632 → 0.304 px | 2.55 → 0.35 px | 3.3 → 3.5 s |
+| `scheimpflug_rig` (6 cameras, ChArUco) | 1.025 → 0.837 px | 1.20 → 0.94 px | 2.4 → 13.9 s |
+| `scheimpflug_rig_ringgrid` (6 cameras) | 0.928 → 0.592 px | 1.38 → 0.81 px | 1.7 → 6.5 s |
+| synthetic 4 cameras, `k1 ≈ −0.4`, −5° tilt, 6 views ≤ 0.1 rad, σ = 0.2 px | 0.340 → 0.264 px | 0.564 → 0.266 px | 0.7 → 1.5 s |
+| synthetic 6 cameras, same lens, 12 views ≤ 0.35 rad, σ = 0.1 px (8 seeds) | unchanged (≤ 1e-4 px) | unchanged | +20 % |
+| the same with one camera at σ = 1 px (8 seeds) | unchanged (≤ 1e-4 px) | unchanged | +140 % |
+
+Without it, one camera of `scheimpflug_rig_ref` ends at fx 1061 px and
+tilt_x −3.4° against its five neighbours' 1143–1159 px and −5.0 to −5.3°;
+with it, at 1152 px and −5.2°. On `scheimpflug_rig` five cameras settle in
+tilts of either sign (+14.7° to −13.7°, fx 1780–2070 px) without it and
+all at +13.1° to +14.8° (fx 2041–2099 px) with it. On the synthetic
+4-camera scene the wrong basin is 290 px and 14° off the truth (both
+backends); the recovery lands every camera within 3.3 px and 0.3°
+(`tests/rig_tilted_recovery.rs`). `rig_handeye` gives the same per-camera
+stage on every scene, and its final means are 0.302, 0.792 and 0.571 px
+on the three real rigs. The cost is the multi-start's extra staged solves:
+none when the first candidate fits below 0.45 px, ten when no candidate
+does.
+
 ## Evidence
 
 - Acceptance: `calib-bench accept` gates every `scheimpflug_rig_ref` and

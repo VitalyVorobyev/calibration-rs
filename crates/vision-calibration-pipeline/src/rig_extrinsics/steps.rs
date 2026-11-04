@@ -88,8 +88,12 @@ pub fn step_intrinsics_init_all(
 /// Optimize intrinsics for all cameras.
 ///
 /// Refines each camera independently in its own model, holding its `fix`
-/// lists, with every pose free. A camera with a Scheimpflug sensor runs the
-/// staged multi-start tilt solve; an untilted camera a plain planar solve.
+/// lists, with every pose free. An untilted camera runs a plain planar
+/// solve. A Scheimpflug camera runs the staged multi-start tilt solve;
+/// after a full auto-init it runs a wider multi-start over
+/// linear tilt seeds instead, and a Brown-Conrady tilted camera that still
+/// fits badly is re-solved from a nominal seed built from the well-fitted
+/// ones.
 ///
 /// Requires [`step_intrinsics_init_all`] to be run first.
 ///
