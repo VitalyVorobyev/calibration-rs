@@ -98,3 +98,25 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   are uncorrelated.
 - **`num_residuals`, `dof`**: the scalar residuals and the redundancy they
   leave after the estimated parameters.
+- **`view_scatter`**: how many times the shared parameters vary more
+  across views than the residual noise predicts, when significantly more;
+  the covariance is already scaled by it
+  ([Parameter Uncertainty](uncertainty.md)).
+- **`second_order`**: how far the error of the shared parameters is
+  predicted to depart from the covariance once its second-order term is
+  counted. The covariance is the error's first-order term, linear in the
+  noise. Weak views pin some combinations of parameters down only through
+  larger errors of others that cancel in them (centred, mildly tilted boards
+  leave a camera's rotation in a rig and its principal point to trade off
+  this way); there the second-order term, quadratic in the noise, can exceed
+  the first, while every parameter's own σ still holds.
+  `max_scatter_ratio` is the predicted scatter of the worst combination over
+  the σ the covariance states for it, `nees_ratio` the predicted mean of
+  `eᵀ Σ⁻¹ e` per parameter (both 1 when the first order describes the
+  error), and `combination` names the combination as `Σ wᵢ pᵢ / σᵢ`, its
+  largest weights first. The prediction comes from the residuals' curvature
+  along the covariance's own errors, at the result's noise level, so it
+  grows with the noise variance. [Judging a Result](quality.md) warns when
+  the ratio is above 1.2. It costs `s (s + 1)` residual evaluations for `s`
+  shared parameters, so it is left out (`null`) above 64 of them, and for
+  noise-free data.

@@ -1135,6 +1135,32 @@
         }
       ],
       "num_residuals": 6528,
+      "second_order": {
+        "combination": [
+          {
+            "label": "cam0.k3",
+            "weight": 1.0
+          },
+          {
+            "label": "cam0.k2",
+            "weight": 0.6592352500084845
+          },
+          {
+            "label": "cam0.k4",
+            "weight": 0.4994285987805395
+          },
+          {
+            "label": "cam1.k3",
+            "weight": -0.4069507748756116
+          },
+          {
+            "label": "cam1.k2",
+            "weight": -0.32327375389578683
+          }
+        ],
+        "max_scatter_ratio": 1.001410198455398,
+        "nees_ratio": 1.0003886866247904
+      },
       "status": "available",
       "view_scatter": 18.655678923202995,
       "views": [

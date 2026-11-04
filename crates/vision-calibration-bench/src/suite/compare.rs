@@ -257,6 +257,7 @@ mod tests {
             num_residuals: 10,
             dof: 5,
             view_scatter: None,
+            second_order: None,
         }
     }
 

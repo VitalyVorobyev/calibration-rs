@@ -2337,6 +2337,36 @@
         }
       ],
       "num_residuals": 27078,
+      "second_order": {
+        "combination": [
+          {
+            "label": "gripper_se3_rig.tz",
+            "weight": 1.0
+          },
+          {
+            "label": "base_se3_target.tz",
+            "weight": -0.7306143561596999
+          },
+          {
+            "label": "cam2.fx",
+            "weight": 0.6593374917005025
+          },
+          {
+            "label": "base_se3_target.ty",
+            "weight": 0.30230180509390464
+          },
+          {
+            "label": "cam2.fy",
+            "weight": 0.2637833626003017
+          },
+          {
+            "label": "cam0.fx",
+            "weight": -0.2633871367856412
+          }
+        ],
+        "max_scatter_ratio": 1.0043557710447713,
+        "nees_ratio": 1.0007928441305722
+      },
       "status": "available",
       "view_scatter": 25.140646603546525,
       "views": [

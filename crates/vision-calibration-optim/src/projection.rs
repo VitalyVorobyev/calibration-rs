@@ -464,6 +464,7 @@ mod tests {
             num_residuals: 100,
             dof: 90,
             view_scatter: None,
+            second_order: None,
         }
     }
 

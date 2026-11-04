@@ -120,12 +120,46 @@ coefficients to be extrapolated to the corners, where the projection σ
 reaches 14 px. Moving the board into each quadrant, its outer corners near
 the image corners, brings the worst σ under a pixel.
 
+## A rig needs its joint error too
+
+The tables above judge each parameter by its own σ. A rig adds parameters
+that trade off with the cameras' own: one camera's rotation in the rig and
+the two principal points all move the image of a board that sits in the
+middle of both images the same way. Views that leave them to trade off
+still give every parameter a σ that holds, but the error along the
+combination the views do pin down (here camera 1's yaw against the
+difference of the principal points) comes from larger errors that cancel,
+and through the second order those still reach it. Anything that uses the
+whole covariance at once — a calibration prior in
+[bundle adjustment](mvg_bundle_adjust.md), a test of two calibrations
+against each other — then trusts that combination several times too much.
+
+The result's uncertainty predicts this (`second_order`, see
+[Reading the Covariance](uncertainty_reading.md)), and the quality report's
+`covariance_linearity` check warns above 1.2. For a synthetic stereo pair
+(eight views of an 8 × 6 board with 30 mm squares at 0.6–0.8 m, 0.3 px
+noise), over 300 calibrations each:
+
+| Views | Predicted worst scatter / σ | Measured | NEES per parameter (measured) |
+|---|---:|---:|---:|
+| centred, tilted up to 0.2 rad | 2.83 | 3.00 | 1.64 |
+| centred, tilted up to 0.3 rad | 1.87 | 2.05 | 1.27 |
+| centred, tilted up to 0.5 rad | 1.45 | 1.66 | 1.15 |
+| off centre by 12 cm and 9 cm, tilted up to 0.2 rad | 1.55 | 1.56 | 1.10 |
+| off centre, tilted up to 0.5 rad | 1.06 | — | 1.02 |
+
+Tilt and placement each help, and only both together bring the
+combination within its σ (the last row's measured worst is below what 300
+calibrations resolve). The effect grows with the noise variance: the first
+row at 0.1 px predicts 1.35, at 0.03 px 1.04. So for a rig, put the board
+in the image corners as well as tilting it, in views both cameras see.
+
 ## Check while you capture
 
 You do not have to trust the rules: calibrate after the first ten or so
-views and read the result. The quality verdict flags poor coverage and a
-large projection σ, and the projection map shows where in the image the
-calibration is weak:
+views and read the result. The quality verdict flags poor coverage, a
+large projection σ and, for a rig, a joint error beyond the covariance,
+and the projection map shows where in the image the calibration is weak:
 
 ```rust
 use vision_calibration::analysis::{QualityThresholds, assess};

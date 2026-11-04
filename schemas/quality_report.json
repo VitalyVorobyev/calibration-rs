@@ -37,6 +37,11 @@
           "const": "parameter_correlation",
           "description": "Camera parameters the data cannot tell apart.",
           "type": "string"
+        },
+        {
+          "const": "covariance_linearity",
+          "description": "Whether the covariance describes the joint error of the shared\nparameters, or a combination of them errs well beyond its σ at\nsecond order.",
+          "type": "string"
         }
       ]
     },

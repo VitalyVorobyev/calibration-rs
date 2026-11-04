@@ -710,6 +710,7 @@ impl<'a> UpstreamShare<'a> {
             num_residuals: planes.num_residuals,
             dof: planes.dof,
             view_scatter: planes.view_scatter,
+            second_order: None,
         })
     }
 }
@@ -827,6 +828,7 @@ pub fn handeye_upstream_uncertainty(
         num_residuals: covariance.num_residuals,
         dof: covariance.dof,
         view_scatter: covariance.view_scatter,
+        second_order: None,
     }))
 }
 

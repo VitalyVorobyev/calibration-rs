@@ -15,6 +15,7 @@ KINDS = {
     "feature_coverage",
     "view_outliers",
     "parameter_correlation",
+    "covariance_linearity",
 }
 
 
@@ -47,6 +48,27 @@ class AssessTest(unittest.TestCase):
         self.assertIsNone(variance.measurement)
         # The export dict gives the same report.
         self.assertEqual(vc.assess(result.export, image_sizes=[(1280, 720)]), report)
+
+    def test_covariance_linearity_reads_the_second_order_prediction(self) -> None:
+        result = _planar_result()
+        check = _check(vc.assess(result), "covariance_linearity")
+        self.assertIsNone(check.camera)
+        second = result.uncertainty.second_order
+        if second is None:
+            self.assertEqual(check.status, "not_applicable")
+            return
+        self.assertEqual(check.status, "pass", check.message)
+        assert check.measurement is not None
+        self.assertEqual(check.measurement.unit, "ratio")
+        self.assertAlmostEqual(check.measurement.value, second.max_scatter_ratio)
+        self.assertEqual(check.measurement.threshold, 1.2)
+        strict = vc.QualityThresholds(max_second_order_scatter=1.0)
+        if second.max_scatter_ratio > 1.0:
+            warned = _check(vc.assess(result, strict), "covariance_linearity")
+            self.assertEqual(warned.status, "warn")
+            self.assertEqual(warned.subjects, [t.label for t in second.combination])
+        with self.assertRaises(ValueError):
+            vc.assess(result, vc.QualityThresholds(max_second_order_scatter=0.5))
 
     def test_without_an_image_size_the_image_checks_do_not_apply(self) -> None:
         report = vc.assess(_planar_result())
@@ -118,7 +140,8 @@ class AssessTest(unittest.TestCase):
         payload = vc.QualityThresholds().to_payload()
         self.assertIsNone(payload["expected_feature_noise_px"])
         self.assertEqual(payload["coverage_fail_below"], 0.3)
-        self.assertEqual(len(payload), 7)
+        self.assertEqual(payload["max_second_order_scatter"], 1.2)
+        self.assertEqual(len(payload), 8)
 
 
 class HtmlReportTest(unittest.TestCase):

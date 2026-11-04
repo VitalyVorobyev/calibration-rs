@@ -420,6 +420,7 @@ fn the_upstream_covariance_reaches_the_export() {
         num_residuals: 0,
         dof: 0,
         view_scatter: None,
+        second_order: None,
     });
 
     let export = calibrate(&dataset, upstream.clone(), SolverBackend::TinySolver);

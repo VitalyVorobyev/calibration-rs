@@ -957,6 +957,28 @@
         }
       ],
       "num_residuals": 6160,
+      "second_order": {
+        "combination": [
+          {
+            "label": "cam1.cam_se3_rig.ry",
+            "weight": 1.0
+          },
+          {
+            "label": "cam0.cx",
+            "weight": -0.8640609018011289
+          },
+          {
+            "label": "cam1.cx",
+            "weight": 0.8636248421727568
+          },
+          {
+            "label": "cam1.cam_se3_rig.tx",
+            "weight": 0.39489790376671513
+          }
+        ],
+        "max_scatter_ratio": 1.1450638284309347,
+        "nees_ratio": 1.0254705646677722
+      },
       "status": "available",
       "view_scatter": 3.737403890978065,
       "views": [

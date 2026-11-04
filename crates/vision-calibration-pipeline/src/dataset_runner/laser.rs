@@ -1543,6 +1543,7 @@ mod tests {
                 num_residuals: 100,
                 dof: 87,
                 view_scatter: None,
+                second_order: None,
             },
         );
         std::fs::write(

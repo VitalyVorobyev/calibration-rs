@@ -47,18 +47,6 @@ need their measurement first and stay opt-in until it is in.
   covariance, so a ring-grid one would only be a report. Reopen if a
   ring-grid weighting study is wanted, or if the view scatter on ring-grid
   data needs the detector's term.
-- [ ] UQ-NONLINEAR - A weak capture leaves a calibration where the
-  first-order covariance holds per parameter but not jointly: the stereo rig
-  of the facade's Monte-Carlo tests (centred boards, tilts up to 0.2 rad)
-  states every parameter's σ within 10 % yet scatters 2.5-3× its σ along two
-  combinations (camera 1's yaw with the principal points; NEES/22 1.64,
-  falling to 1.00 at a tenth of the pixel noise). Find a cheap indicator of
-  that regime from the result (e.g. the curvature of the cost along the
-  covariance's weakest directions, or a second-order term of the
-  estimate), add it to the quality report as a check, and recommend views
-  that leave it. Then move the five Monte-Carlo tests still calibrating on
-  the weak views (pose, triangulation, stereo, metrology, board measure) to
-  the spread views and update the book's numbers.
 - [ ] UQ-HELD-TILT - A rig solve holds each Scheimpflug camera's tilt at
   its per-camera estimate, so the tilt's uncertainty never reaches the rig's
   covariance: on the four-camera synthetic scene of

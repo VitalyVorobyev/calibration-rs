@@ -6,12 +6,14 @@ use std::collections::BTreeMap;
 
 use nalgebra::{DMatrix, Matrix3};
 use vision_calibration_core::{
-    Iso3, NoiseLevel, ParameterCovariance, ResidualNoise, Uncertainty, UncertaintyUnavailable,
-    ViewCovariance,
+    CombinationTerm, Iso3, NoiseLevel, ParameterCovariance, ResidualNoise, SecondOrderError,
+    Uncertainty, UncertaintyUnavailable, ViewCovariance,
 };
 
 use crate::backend::BackendSolution;
-use crate::backend::covariance::{Coordinate, FamilyNoise, ParamUncertainty, UnavailableReason};
+use crate::backend::covariance::{
+    Coordinate, FamilyNoise, ParamUncertainty, SecondOrder, UnavailableReason,
+};
 use crate::ir::{CameraModelSpec, HandeyeMode, ManifoldKind, ParamBlock, ProblemIR};
 use crate::params::camera::camera_block_labels;
 use crate::params::pose_se3::se3_dvec_to_iso3;
@@ -127,7 +129,11 @@ pub(crate) fn labelled(
         }
     };
 
-    let matrix = report_inverses(&estimate.matrix, &estimate.coordinates, labels);
+    let inverses = inverse_map(estimate.matrix.nrows(), &estimate.coordinates, labels);
+    let matrix = match &inverses {
+        Some(m) => m * &estimate.matrix * m.transpose(),
+        None => estimate.matrix.clone(),
+    };
 
     // Matrix positions of the shared coordinates and of each view's.
     let mut shared = Vec::new();
@@ -165,7 +171,65 @@ pub(crate) fn labelled(
         num_residuals: estimate.num_residuals,
         dof: estimate.dof,
         view_scatter: estimate.view_scatter,
+        second_order: estimate.second_order.as_ref().and_then(|second| {
+            // `δ' = M δ`, so a function `aᵀ δ` is `(M⁻ᵀ a)ᵀ δ'`.
+            let coefficients = match &inverses {
+                Some(m) => m.clone().try_inverse()?.transpose() * &second.combination,
+                None => second.combination.clone(),
+            };
+            Some(second_order_error(
+                second,
+                &coefficients,
+                &matrix,
+                &shared,
+                local_label,
+            ))
+        }),
     })
+}
+
+/// A combination's terms are the shared parameters whose weight is at least
+/// this share of the largest.
+const COMBINATION_SHARE: f64 = 0.25;
+/// At most this many terms name a combination.
+const COMBINATION_TERMS: usize = 6;
+
+/// The reported form of a second-order prediction: the variance ratios as
+/// scatter ratios, and the worst combination's coefficients (over
+/// `matrix`'s coordinates) as weights of the shared parameters (`shared`,
+/// positions in `matrix`) in units of their σ.
+fn second_order_error(
+    second: &SecondOrder,
+    coefficients: &nalgebra::DVector<f64>,
+    matrix: &DMatrix<f64>,
+    shared: &[usize],
+    label: impl Fn(usize) -> String,
+) -> SecondOrderError {
+    let mut terms: Vec<(usize, f64)> = shared
+        .iter()
+        .map(|&i| (i, coefficients[i] * matrix[(i, i)].max(0.0).sqrt()))
+        .filter(|t| t.1.is_finite())
+        .collect();
+    terms.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()).then(a.0.cmp(&b.0)));
+    // The combination's sign is arbitrary: its largest weight is +1.
+    let scale = terms.first().map_or(1.0, |t| t.1);
+    SecondOrderError {
+        max_scatter_ratio: second.max_variance_ratio.sqrt(),
+        nees_ratio: second.mean_variance_ratio,
+        combination: if scale != 0.0 {
+            terms
+                .iter()
+                .take(COMBINATION_TERMS)
+                .take_while(|t| (t.1 / scale).abs() >= COMBINATION_SHARE)
+                .map(|&(i, w)| CombinationTerm {
+                    label: label(i),
+                    weight: w / scale,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        },
+    }
 }
 
 /// The noise levels of a solve's residual families, as results report them.
@@ -196,17 +260,18 @@ fn dedup(labels: impl Iterator<Item = String>) -> Vec<String> {
     out
 }
 
-/// The covariance with every block flagged [`BlockLabels::inverse_of`]
-/// mapped to the tangent of the inverse pose.
+/// The map that takes every block flagged [`BlockLabels::inverse_of`] to the
+/// tangent of the inverse pose, over a covariance of dimension `dim`;
+/// `None` when no block is.
 ///
 /// For `T' = T·Exp(δ)`, `T'⁻¹ = T⁻¹·Exp(−Ad_T δ)`, so the inverse's
 /// right-perturbation coordinates are `−Ad_T δ` with, for `δ = [ω, v]`,
 /// `Ad_T = [[R, 0], [[t]× R, R]]`.
-fn report_inverses(
-    matrix: &DMatrix<f64>,
+fn inverse_map(
+    dim: usize,
     coordinates: &[Coordinate],
     labels: &[BlockLabels],
-) -> DMatrix<f64> {
+) -> Option<DMatrix<f64>> {
     let mut map: Option<DMatrix<f64>> = None;
     for (block, names) in labels.iter().enumerate() {
         let Some(stored) = names.inverse_of else {
@@ -226,7 +291,7 @@ fn report_inverses(
         let r = stored.rotation.to_rotation_matrix().into_inner();
         let t = stored.translation.vector;
         let tr = Matrix3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0) * r;
-        let m = map.get_or_insert_with(|| DMatrix::identity(matrix.nrows(), matrix.ncols()));
+        let m = map.get_or_insert_with(|| DMatrix::identity(dim, dim));
         for a in 0..3 {
             for b in 0..3 {
                 let at = |row: usize, col: usize| (positions[row], positions[col]);
@@ -237,10 +302,7 @@ fn report_inverses(
             }
         }
     }
-    match map {
-        Some(m) => &m * matrix * m.transpose(),
-        None => matrix.clone(),
-    }
+    map
 }
 
 /// A coordinate's label, with `view<i>.` in front of a per-view one. An
@@ -384,6 +446,42 @@ pub(crate) fn per_camera(parts: &[Uncertainty], rig_fixed: Vec<String>) -> Uncer
             .iter()
             .filter_map(|c| c.view_scatter)
             .reduce(f64::max),
+        second_order: per_camera_second_order(&available, prefix),
+    })
+}
+
+/// The second-order error of cameras solved apart: the worst camera's
+/// combination, and the expected NEES pooled over every camera's
+/// parameters. `None` unless every camera has one.
+fn per_camera_second_order(
+    parts: &[&ParameterCovariance],
+    prefix: impl Fn(usize, &str) -> String,
+) -> Option<SecondOrderError> {
+    let seconds: Vec<&SecondOrderError> = parts
+        .iter()
+        .map(|c| c.second_order.as_ref())
+        .collect::<Option<_>>()?;
+    let (worst, max) = seconds
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.max_scatter_ratio.total_cmp(&b.1.max_scatter_ratio))?;
+    let n: usize = parts.iter().map(|c| c.labels.len()).sum();
+    let nees: f64 = parts
+        .iter()
+        .zip(&seconds)
+        .map(|(c, s)| s.nees_ratio * c.labels.len() as f64)
+        .sum();
+    Some(SecondOrderError {
+        max_scatter_ratio: max.max_scatter_ratio,
+        nees_ratio: if n > 0 { nees / n as f64 } else { 1.0 },
+        combination: max
+            .combination
+            .iter()
+            .map(|t| CombinationTerm {
+                label: prefix(worst, &t.label),
+                weight: t.weight,
+            })
+            .collect(),
     })
 }
 
@@ -574,6 +672,7 @@ mod tests {
             num_residuals: 100,
             dof: 100 - n,
             view_scatter: None,
+            second_order: None,
         }))
     }
 
@@ -763,6 +862,7 @@ mod tests {
                 num_residuals: 50,
                 dof: 49,
                 view_scatter: None,
+                second_order: None,
             })
         };
         let Uncertainty::Available(c) =

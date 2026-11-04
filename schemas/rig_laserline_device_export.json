@@ -28,6 +28,25 @@
       ],
       "type": "object"
     },
+    "CombinationTerm": {
+      "description": "One term of a combination of parameters: a parameter and its weight, in\nunits of the parameter's σ.",
+      "properties": {
+        "label": {
+          "description": "The parameter's label.",
+          "type": "string"
+        },
+        "weight": {
+          "description": "The weight of `parameter / σ(parameter)` in the combination, in\n`[-1, 1]` with the largest term at +1. Terms of equal weight and\nopposite sign are a difference the combination measures.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "weight"
+      ],
+      "type": "object"
+    },
     "DistortionParams": {
       "description": "Serializable distortion model parameters.",
       "oneOf": [
@@ -760,6 +779,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "second_order": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecondOrderError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How far the error of the shared parameters is predicted to depart\nfrom `covariance` once its second-order term is counted. `None` when\nthe result has no shared parameters or more than 64 (the prediction\ncosts `s (s + 1)` residual evaluations for `s` of them), its data is\nnoise-free, or the covariance was derived from others rather than\nfrom one solve."
+        },
         "view_scatter": {
           "description": "How many times the variance of the shared parameters across views\nexceeds what the residual noise predicts, measured by leaving out one\nview at a time. The residual noise model takes every corner's error\nas independent; errors shared by a view's corners (a lens model or\ntarget that does not fit exactly, a detector bias) are not in it, and\non real images make the estimate vary between view sets several\ntimes more than predicted. `covariance` and `views` are already\nscaled by it. `None` when the views scatter no more than the noise\npredicts (within the scatter's own sampling noise, at 97.5 %), and\nbelow six views.",
           "format": "double",
@@ -986,6 +1016,34 @@
       "required": [
         "kind",
         "count"
+      ],
+      "type": "object"
+    },
+    "SecondOrderError": {
+      "description": "The error of a result's shared parameters at second order, against\ntheir covariance.\n\nThe covariance is the first-order error: linear in the noise. Where the\nviews pin a combination of parameters down only through large errors of\nothers that cancel in it (centred, mildly tilted views leave a camera's\nrotation and its principal point to trade off this way), the error's\nsecond-order term, quadratic in the noise, can exceed the first along\nthat combination while every parameter's own σ still holds. A consumer\nthat takes the whole covariance as a Gaussian (a prior, a test of two\ncalibrations against each other) then trusts the combination too much.\n\nThe prediction comes from the residuals' curvature along simulated\nfirst-order errors, at the result's own noise level; it grows with the\nnoise's variance.",
+      "properties": {
+        "combination": {
+          "description": "The worst combination, `Σ wᵢ pᵢ / σᵢ` over the shared parameters\n`pᵢ`: its largest terms, by decreasing magnitude of the weight `wᵢ`\n(the largest +1, the others down to a quarter of it, at most six).",
+          "items": {
+            "$ref": "#/$defs/CombinationTerm"
+          },
+          "type": "array"
+        },
+        "max_scatter_ratio": {
+          "description": "The predicted scatter of the worst combination of the shared\nparameters, over the σ the covariance states for it: 1 when the\nfirst order describes the error, 3 when the error there is three\ntimes its stated σ.",
+          "format": "double",
+          "type": "number"
+        },
+        "nees_ratio": {
+          "description": "The predicted mean normalized estimation error squared of the shared\nparameters (`eᵀ Σ⁻¹ e`), per parameter: 1 when the first order\ndescribes the error.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_scatter_ratio",
+        "nees_ratio",
+        "combination"
       ],
       "type": "object"
     },

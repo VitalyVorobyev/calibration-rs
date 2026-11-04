@@ -131,6 +131,7 @@ fn negligible_covariance() -> Uncertainty {
         num_residuals: 0,
         dof: 0,
         view_scatter: None,
+        second_order: None,
     })
 }
 

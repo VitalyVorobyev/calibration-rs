@@ -88,9 +88,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   download their sample dataset (`kuka_1`, `ds8`) into the platform cache on
   first use instead of reading it from the source checkout the app was built
   in.
+- **`ParameterCovariance` gains `second_order`** (breaking for code that
+  builds one as a struct literal: add `second_order: None`). The JSON field
+  is optional, so exports written before load unchanged.
 
 ### Changed
 
+- **The quality report gains a `covariance_linearity` check**, so a result
+  that passed may now warn. It warns when the result's second-order
+  prediction says a combination of its shared parameters scatters more
+  than `max_second_order_scatter` (default 1.2) times its σ, and names
+  the combination. A stereo rig calibrated from eight centred views tilted
+  by at most 0.2 rad at 0.3 px warns at 2.8 (measured: 3.0); with the
+  views tilted up to 0.5 rad and moved into the image corners it passes at
+  1.06. Raise the threshold to keep the earlier verdicts.
 - **Planar intrinsics initializes its camera as every other workflow does**
   (a changed result for one seed combination). A tilted (Scheimpflug)
   camera seeded with its tilt but not its intrinsics now fits the
@@ -139,6 +150,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The second-order error of a calibration's parameters.** Every
+  covariance a calibration or the optimization problem builder returns
+  carries `second_order` (`SecondOrderError`; Python
+  `ParameterUncertainty.second_order`): how far the error of the shared
+  parameters is predicted to depart from the covariance once its
+  second-order term is counted. Weak views pin some combinations down only
+  through larger errors of other parameters that cancel in them; each
+  parameter's σ then holds, but the joint error along such a combination is
+  several times its σ, which a use of the whole covariance (a bundle
+  adjustment prior, a NEES) inherits. `max_scatter_ratio` is the worst
+  combination's predicted scatter over its σ, `nees_ratio` the predicted
+  NEES per parameter, and `combination` names it as weights of the
+  parameters in units of their σ. It is computed from the residuals'
+  curvature along the covariance's own errors, without sampling: on
+  synthetic stereo rigs and single cameras it matched the Monte-Carlo NEES
+  within its standard error over capture strength and noise. It costs
+  `s (s + 1)` residual evaluations for `s` shared parameters: 45 ms for a
+  two-camera rig with 48 views (22 shared parameters, 9216 residuals),
+  a third of that calibration's time, and 5 ms for a single camera with
+  32 views. It is not computed above 64 shared parameters (a bundle
+  adjustment's points count as shared) or for noise-free data.
 - **The covariance of the robust relative pose and essential matrix.**
   `RobustRelativePose::uncertainty` holds the covariance of the pose in the
   gauge `|t| = 1`: the rotation's right-perturbation tangent

@@ -25,7 +25,11 @@ fn the_calibrations_share_is_in_the_triangulated_depth_sigma() {
     let cams = stereo_cameras();
     let points = stereo_test_points();
     let noise = PointCovariance::isotropic(PIXEL_SIGMA).unwrap();
-    let trials = 60_u64;
+    // A pooled scatter ratio from `n` calibrations has a relative error of
+    // about `1/sqrt(2n)` (the points share each calibration's error): 200
+    // resolve it to 5 %, so the `[0.85, 1.15]` band is 3 standard errors
+    // wide, and an understatement above 1.2 is 4 of them from none.
+    let trials = 200_u64;
 
     // Depth (z) per trial and its stated variance, with and without the share.
     let mut depth = vec![Vec::new(); points.len()];
@@ -97,7 +101,7 @@ fn the_calibrations_share_is_in_the_triangulated_depth_sigma() {
         "consider scatter/stated {with_ratio:.3}"
     );
     assert!(
-        without_ratio > 1.5,
+        without_ratio > 1.2,
         "observations only should understate: scatter/stated {without_ratio:.3}"
     );
 }

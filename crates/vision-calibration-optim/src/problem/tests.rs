@@ -120,6 +120,93 @@ fn an_estimated_family_gives_the_classical_covariance() {
     assert_eq!(solution.noise[0].count, xs.len());
 }
 
+/// `y = θ² x` at one `x`: curved in its one parameter.
+struct SquarePoint {
+    x: f64,
+    y: f64,
+}
+
+impl Residual for SquarePoint {
+    fn dim(&self) -> usize {
+        1
+    }
+    fn block_dims(&self) -> Vec<usize> {
+        vec![1]
+    }
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        let theta = blocks[0][0].clone();
+        let x = T::from_f64(self.x).unwrap();
+        DVector::from_element(1, theta.clone() * theta * x - T::from_f64(self.y).unwrap())
+    }
+}
+
+/// A linear model has no second-order error: the prediction is exactly 1,
+/// and every probe of the curvature is zero.
+#[test]
+fn a_linear_model_has_no_second_order_error() {
+    let (xs, ys) = line_data();
+    let (problem, _) = line_problem(&xs, &ys, Noise::Estimated("y".into()));
+    let solution = solve(&problem, &SolveOptions::default()).unwrap();
+    let second = covariance(&solution)
+        .second_order
+        .as_ref()
+        .expect("a second-order prediction");
+    assert_close(second.max_scatter_ratio, 1.0, 1e-9, "worst ratio");
+    assert_close(second.nees_ratio, 1.0, 1e-9, "NEES ratio");
+}
+
+/// For `y = θ² x`, `a(u, u) = 2 x u²`, so the second-order error is
+/// `δ₂ = −δ₁² / (2θ)` and `E[(δ₂/σ)²] = 3 σ² / (4 θ²)`: the prediction is
+/// `√(1 + 3σ²/(4θ̂²))` with the result's own σ and θ̂, exactly (the central
+/// difference of a quadratic is its second derivative).
+#[test]
+fn a_quadratic_model_has_the_analytic_second_order_error() {
+    let xs: Vec<f64> = (1..=10).map(f64::from).collect();
+    let ys: Vec<f64> = xs
+        .iter()
+        .enumerate()
+        .map(|(i, x)| x + 3.0 * gauss(100 + i as u64))
+        .collect();
+    let mut problem = Problem::new();
+    let theta = problem
+        .add_block("theta", &[1.2], Manifold::Euclidean)
+        .unwrap();
+    problem.set_labels(theta, &["t"]).unwrap();
+    for (&x, &y) in xs.iter().zip(&ys) {
+        problem
+            .add_residual(
+                SquarePoint { x, y },
+                &[theta],
+                RobustLoss::None,
+                Noise::Estimated("y".into()),
+            )
+            .unwrap();
+    }
+    let solution = solve(&problem, &SolveOptions::default()).unwrap();
+    let estimate = solution.value(theta).unwrap()[0];
+    let cov = covariance(&solution);
+    let variance = cov.covariance[0][0];
+    let second = cov
+        .second_order
+        .as_ref()
+        .expect("a second-order prediction");
+    let expected = 3.0 * variance / (4.0 * estimate * estimate);
+    assert!(
+        expected > 1e-3,
+        "the scene is curved enough to test: {expected}"
+    );
+    assert_close(
+        second.max_scatter_ratio.powi(2) - 1.0,
+        expected,
+        1e-6,
+        "worst variance excess",
+    );
+    assert_close(second.nees_ratio - 1.0, expected, 1e-6, "NEES excess");
+    assert_eq!(second.combination.len(), 1);
+    assert_eq!(second.combination[0].label, "theta.t");
+    assert_eq!(second.combination[0].weight, 1.0);
+}
+
 #[test]
 fn a_known_sigma_counts_as_known_information() {
     let (xs, ys) = line_data();

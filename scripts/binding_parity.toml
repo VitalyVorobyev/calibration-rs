@@ -62,6 +62,7 @@
 "core::CameraModel" = "CameraModel"
 "core::CameraModelSpec" = "CameraModelSpec"
 "core::CameraParams" = ["Camera", "types.CameraParams"]
+"core::CombinationTerm" = "CombinationTerm"
 "core::CorrespondenceView" = ["Observation", "types.CorrespondenceView"]
 "core::DistortionKind" = "types.DistortionKind"
 "core::DistortionParams" = ["Distortion", "types.DistortionParams"]
@@ -92,6 +93,7 @@
 "core::RobotFrame" = "mvg.RobotCaptures.frame"
 "core::RobotPose" = "mvg.RobotPose"
 "core::ScheimpflugParams" = ["ScheimpflugSensor", "types.ScheimpflugParams"]
+"core::SecondOrderError" = "SecondOrderError"
 "core::SensorKind" = "types.SensorKind"
 "core::SensorParams" = "types.SensorParams"
 "core::ThinPrism" = "ThinPrism9Distortion"

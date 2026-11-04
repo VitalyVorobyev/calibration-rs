@@ -152,6 +152,7 @@ pub fn predict_with_robot_poses(
         num_residuals: current.num_residuals + 2 * points_added,
         dof: current.dof + 2 * points_added,
         view_scatter: current.view_scatter,
+        second_order: None,
     };
     let projection = planner.projections(&covariance)?;
     Ok(PredictedRigUncertainty {

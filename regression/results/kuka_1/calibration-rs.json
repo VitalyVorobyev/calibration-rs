@@ -806,6 +806,28 @@
         }
       ],
       "num_residuals": 28740,
+      "second_order": {
+        "combination": [
+          {
+            "label": "fx",
+            "weight": 1.0
+          },
+          {
+            "label": "gripper_se3_camera.tz",
+            "weight": 0.7995630823892023
+          },
+          {
+            "label": "base_se3_target.tz",
+            "weight": -0.6904775380682922
+          },
+          {
+            "label": "fy",
+            "weight": -0.5582750466143076
+          }
+        ],
+        "max_scatter_ratio": 1.0000061143965537,
+        "nees_ratio": 1.0000017177766358
+      },
       "status": "available",
       "view_scatter": 2.79125779085458,
       "views": [

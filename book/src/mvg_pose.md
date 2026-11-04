@@ -167,7 +167,7 @@ Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3
 
 A rig exported without a covariance still gives refined points, and the uncertainty says why it has none rather than reporting the observations' share alone.
 
-**Why the calibration's share matters.** Take a stereo pair calibrated from eight views at 0.3 px noise, and ten points 0.6 to 0.8 m ahead measured with 0.3 px noise. Over 60 repeated calibrations the depth of a point scatters by 6.7 mm (root mean square of the reported σ: 6.7 mm, scatter over reported 0.95). The σ from the observations' noise alone is 2.1 mm, and the scatter is 3.2 times it: a camera taken as exact would report error bars three times too small.
+**Why the calibration's share matters.** Take a stereo pair calibrated from eight views spread over the image and tilted by up to 0.5 rad at 0.3 px noise, and ten points 0.6 to 0.8 m ahead measured with 0.3 px noise. Over 200 repeated calibrations the depth of a point scatters by 0.97 times the reported σ (3.0 mm, root mean square). The σ from the observations' noise alone is 2.1 mm, and the scatter is 1.46 times it: a camera taken as exact would report error bars a third too small. A weaker calibration widens the gap: from eight centred views tilted by at most 0.2 rad the reported σ is 6.7 mm and the observations' alone are 3.2 times too small.
 
 ## Laser Points with σ
 

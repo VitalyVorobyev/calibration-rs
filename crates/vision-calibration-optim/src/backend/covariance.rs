@@ -152,6 +152,29 @@ pub(crate) struct CovarianceEstimate {
     /// residual noise predicts (see [`view_scatter`]), when significantly
     /// more; `matrix` is scaled by it.
     pub view_scatter: Option<f64>,
+    /// The error's predicted departure from `matrix` at second order (see
+    /// [`second_order`]); `None` without shared coordinates or with too many,
+    /// for noise-free data, or when the residuals cannot be evaluated at its
+    /// steps.
+    pub second_order: Option<SecondOrder>,
+}
+
+/// The second-order error of the shared coordinates, against their
+/// covariance: what [`second_order`] predicts.
+#[derive(Debug, Clone)]
+pub(crate) struct SecondOrder {
+    /// The mean squared whitened error over the shared coordinates as
+    /// predicted, divided by their number: the expected NEES per
+    /// coordinate, 1 when the first order holds.
+    pub mean_variance_ratio: f64,
+    /// The largest predicted variance of the whitened error along one
+    /// combination of the shared coordinates, 1 when the first order holds.
+    pub max_variance_ratio: f64,
+    /// That combination as a linear function of the coordinates of
+    /// [`CovarianceEstimate::coordinates`] (zero for a per-view one), scaled
+    /// to unit variance: `φ = Σ aᵢ δᵢ`. A coefficient times its
+    /// coordinate's σ is how much one σ of that coordinate moves it.
+    pub combination: DVector<f64>,
 }
 
 /// Why a solve has no covariance.
@@ -186,12 +209,16 @@ pub(crate) fn tangent_dim(manifold: ManifoldKind, dim: usize) -> usize {
 
 /// The covariance of `ir`'s free coordinates at the solution `params`.
 ///
-/// `raw` is `None` when every coordinate is fixed.
+/// `raw` is `None` when every coordinate is fixed. The second-order
+/// prediction ([`second_order`]) is made only when `second_order` is set: a
+/// solve whose covariance only steers the next one (a reweighting
+/// iteration) skips it.
 pub(crate) fn estimate(
     ir: &ProblemIR,
     params: &HashMap<String, DVector<f64>>,
     raw: Option<RawLinearization>,
     converged: bool,
+    second_order: bool,
 ) -> ParamUncertainty {
     if !converged {
         return ParamUncertainty::Unavailable(UnavailableReason::NotConverged);
@@ -210,6 +237,7 @@ pub(crate) fn estimate(
             num_residuals: m,
             dof: m,
             view_scatter: None,
+            second_order: None,
         }));
     };
 
@@ -297,13 +325,28 @@ pub(crate) fn estimate(
     let scale = view_scatter.unwrap_or(1.0);
     let tangent_coords: Vec<Coordinate> = free.iter().map(|&(c, _)| c).collect();
     let sigma_tangent = DMatrix::from_fn(n, n, |a, b| scale * sigma[(free[a].1, free[b].1)]);
+    let mut kappa = vec![0.0; m];
+    for block in &blocks {
+        kappa[block.rows.clone()].fill(moments.kappa(block));
+    }
+    let second = if second_order {
+        self::second_order(ir, params, &raw, &h_inverse, &sigma_tangent, &free, &kappa)
+    } else {
+        None
+    };
     let (coordinates, matrix) = to_ambient(ir, params, &tangent_coords, &sigma_tangent);
+    let second_order = second.map(|(combination, mean, max)| SecondOrder {
+        mean_variance_ratio: mean,
+        max_variance_ratio: max,
+        combination: ambient_vector(ir, params, &tangent_coords, &combination),
+    });
     ParamUncertainty::Available(Box::new(CovarianceEstimate {
         coordinates,
         matrix,
         num_residuals: m,
         dof: m.saturating_sub(n),
         view_scatter,
+        second_order,
     }))
 }
 
@@ -783,6 +826,184 @@ fn ambient_rows(
         i += 2;
     }
     (coords, rows)
+}
+
+/// [`second_order`] is skipped above this many shared coordinates: its
+/// `s (s + 1)` residual evaluations (4160 here) would outweigh the solve. A
+/// rig of four cameras with eight parameters each and their poses has 50; a
+/// bundle adjustment's points count as shared and exceed it.
+const SECOND_ORDER_MAX_SHARED: usize = 64;
+
+/// [`second_order`] needs some shared coordinate's σ above this share of
+/// its value (or of 1, for a tangent coordinate or a value below 1): below
+/// it the data is noise-free, and steps of one σ are lost in the rounding of
+/// the residuals (about 1e-13 px for an image coordinate of 1000 px).
+const SECOND_ORDER_MIN_SIGMA: f64 = 1e-9;
+
+/// The second-order error of the shared coordinates against their
+/// covariance: returns the worst combination's coefficients over the free
+/// coordinates (see [`SecondOrder::combination`]), the mean and the
+/// largest predicted variance ratio.
+///
+/// The covariance is the first term of the estimate's error in the noise:
+/// `δ₁ = H⁻¹ Jᵀ ψ(ε)`, Gaussian with covariance `Σ`. The next term comes from
+/// the residuals' curvature along `δ₁` itself, `r(θ̂ ⊕ δ₁) ≈ r̂ + J δ₁ +
+/// ½ a(δ₁, δ₁)`, which the solve absorbs as `δ₂ = −H⁻¹ Jᵀ K ½ a(δ₁, δ₁)`
+/// (`K` the families' `κ`, `kappa` per row). It is quadratic in the noise,
+/// so uncorrelated with `δ₁`, and adds its second moment to the error's
+/// covariance: in the whitened shared coordinates `w = L⁻¹ δ`
+/// (`L Lᵀ = Σ_shared`) the error's covariance is `I + M`, `M = E[w₂ w₂ᵀ]`,
+/// and its expected NEES `s + tr M`. That is Bates and Watts'
+/// parameter-effects curvature at the result's noise level, summed over
+/// every pair of directions: a combination the views pin down only through
+/// large errors of other parameters that cancel in it (a camera's rotation
+/// against its principal point, from centred, mildly tilted views) has a
+/// large `δ₂`, though each parameter's σ still holds.
+///
+/// Only the part of `δ₁` the shared error explains drives `w₂`: a view's
+/// own error moves its block rigidly, and its curvature stays in that
+/// block (on the stereo rig of the tests, dropping the rest changed `M` in
+/// the fourth digit). That part is `δ₁ = U z`, `z ~ N(0, I_s)`, with the
+/// columns `uᵢ` of `U = Σ_{·,shared} L⁻ᵀ`, so `w₂ = ½ Σᵢⱼ zᵢ zⱼ Cᵢⱼ` with
+/// `Cᵢⱼ = P a(uᵢ, uⱼ)`, `P = −L⁻¹ [H⁻¹ Jᵀ K]_shared`, and by Isserlis
+/// `M = ¼ (b bᵀ + 2 Σᵢⱼ Cᵢⱼ Cᵢⱼᵀ)`, `b = Σᵢ Cᵢᵢ`: exact, without sampling.
+/// `a(v, v) = r(θ̂ ⊕ v) + r(θ̂ ⊖ v) − 2 r̂` at the scale of the noise (the
+/// odd orders cancel), and `a(uᵢ, uⱼ)` by polarization from `v = uᵢ + uⱼ`:
+/// `s (s + 1)` residual evaluations, reduced by `P` as they are made. The
+/// intrinsic curvature (out of the model's tangent space, met by the noise
+/// out of it) is left out; on the scenes measured the parameter effects
+/// alone predicted the NEES within its Monte-Carlo standard error.
+///
+/// `None` without shared coordinates or with more than
+/// [`SECOND_ORDER_MAX_SHARED`], for noise-free data (see
+/// [`SECOND_ORDER_MIN_SIGMA`]), or when the residuals cannot be evaluated or
+/// are not finite at a step.
+fn second_order(
+    ir: &ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+    raw: &RawLinearization,
+    h_inverse: &DMatrix<f64>,
+    sigma: &DMatrix<f64>,
+    free: &[(Coordinate, usize)],
+    kappa: &[f64],
+) -> Option<(DVector<f64>, f64, f64)> {
+    let shared: Vec<usize> = (0..free.len())
+        .filter(|&p| ir.params[free[p].0.block].view().is_none())
+        .collect();
+    let s = shared.len();
+    if s == 0 || s > SECOND_ORDER_MAX_SHARED {
+        return None;
+    }
+    // Noise-free data: steps this small are lost in the rounding of the
+    // residuals, and the second differences would be noise.
+    let resolvable = shared.iter().any(|&p| {
+        let c = free[p].0;
+        let block = &ir.params[c.block];
+        let value = match block.manifold {
+            ManifoldKind::Euclidean => params.get(&block.name).map_or(0.0, |v| v[c.index]),
+            _ => 0.0,
+        };
+        sigma[(p, p)].max(0.0).sqrt() > SECOND_ORDER_MIN_SIGMA * value.abs().max(1.0)
+    });
+    if !resolvable {
+        return None;
+    }
+    let n = free.len();
+    let m = raw.residual.nrows();
+    let sigma_shared = DMatrix::from_fn(s, s, |a, b| sigma[(shared[a], shared[b])]);
+    let l = sigma_shared.cholesky()?.l();
+    // `Uᵀ = L⁻¹ Σ_{shared,·}`: column `i` of `U` is the first-order error
+    // along the `i`-th whitened shared coordinate.
+    let u = l
+        .solve_lower_triangular(&DMatrix::from_fn(s, n, |a, p| sigma[(shared[a], p)]))?
+        .transpose();
+    // `Pᵀ = −K J [H⁻¹]_{·,shared} L⁻ᵀ`, assembled column by column of `J`.
+    let mut jh = DMatrix::<f64>::zeros(m, s);
+    let symbolic = raw.jacobian.symbolic();
+    let values = raw.jacobian.val();
+    for col in 0..raw.jacobian.ncols() {
+        for (pos, &row) in symbolic
+            .col_range(col)
+            .zip(symbolic.row_idx_of_col_raw(col))
+        {
+            for a in 0..s {
+                jh[(row, a)] -= kappa[row] * values[pos] * h_inverse[(col, free[shared[a]].1)];
+            }
+        }
+    }
+    let projection = l.solve_lower_triangular(&jh.transpose())?;
+
+    // Steps: zero, ±uᵢ, then ±(uᵢ + uⱼ) for i < j.
+    let pairs: Vec<(usize, usize)> = (0..s)
+        .flat_map(|i| (i + 1..s).map(move |j| (i, j)))
+        .collect();
+    let mut steps = DMatrix::<f64>::zeros(n, 1 + 2 * s + 2 * pairs.len());
+    for i in 0..s {
+        steps.set_column(1 + 2 * i, &u.column(i));
+        steps.set_column(2 + 2 * i, &-u.column(i));
+    }
+    for (k, &(i, j)) in pairs.iter().enumerate() {
+        let v = u.column(i) + u.column(j);
+        steps.set_column(1 + 2 * s + 2 * k, &v);
+        steps.set_column(2 + 2 * s + 2 * k, &-v);
+    }
+    let coordinates: Vec<Coordinate> = free.iter().map(|&(c, _)| c).collect();
+    let probe = super::residual_probe(ir, params).ok()?;
+    let y = probe.project(&coordinates, &steps, &projection)?;
+    let curvature = |plus: usize| y.column(plus) + y.column(plus + 1) - 2.0 * y.column(0);
+    let diagonal: Vec<DVector<f64>> = (0..s).map(|i| curvature(1 + 2 * i)).collect();
+    let mut trace_term = DVector::<f64>::zeros(s);
+    let mut moment = DMatrix::<f64>::zeros(s, s);
+    for c in &diagonal {
+        trace_term += c;
+        moment += 2.0 * c * c.transpose();
+    }
+    for (k, &(i, j)) in pairs.iter().enumerate() {
+        let c = 0.5 * (curvature(1 + 2 * s + 2 * k) - &diagonal[i] - &diagonal[j]);
+        // `Cᵢⱼ` and `Cⱼᵢ`.
+        moment += 4.0 * &c * c.transpose();
+    }
+    moment += &trace_term * trace_term.transpose();
+    moment *= 0.25;
+
+    let eigen = SymmetricEigen::new(moment.clone());
+    let (top, largest) = eigen.eigenvalues.iter().copied().enumerate().fold(
+        (0, f64::NEG_INFINITY),
+        |best, (i, v)| {
+            if v > best.1 { (i, v) } else { best }
+        },
+    );
+    // The whitened coordinate along `e` is `eᵀ L⁻¹ δ`: coefficients `L⁻ᵀ e`.
+    let coefficients = l
+        .transpose()
+        .solve_upper_triangular(&eigen.eigenvectors.column(top).into_owned())?;
+    let mut combination = DVector::zeros(n);
+    for (a, &p) in shared.iter().enumerate() {
+        combination[p] = coefficients[a];
+    }
+    Some((
+        combination,
+        1.0 + moment.trace() / s as f64,
+        1.0 + largest.max(0.0),
+    ))
+}
+
+/// A linear function's coefficients over the tangent coordinates `tangent`
+/// as coefficients over the reported coordinates: an S² block's tangent
+/// coordinates are `Bᵀ δ` of its ambient ones, `B = [b₁ b₂]` orthonormal, so
+/// `aᵀ δ_t = (B a)ᵀ δ`.
+fn ambient_vector(
+    ir: &ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+    tangent: &[Coordinate],
+    v: &DVector<f64>,
+) -> DVector<f64> {
+    let (_, rows) = ambient_rows(ir, params, tangent);
+    DVector::from_iterator(
+        rows.len(),
+        rows.iter()
+            .map(|row| row.iter().map(|&(p, cp)| cp * v[p]).sum::<f64>()),
+    )
 }
 
 /// How much more the shared parameters scatter across views than the

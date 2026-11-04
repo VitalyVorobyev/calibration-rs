@@ -33,6 +33,8 @@ from .models import (
     ThinPrism9Distortion,
     PlanarIntrinsicsConfig,
     ParameterUncertainty,
+    SecondOrderError,
+    CombinationTerm,
     ProjectionUncertainty,
     Measurement,
     QualityCheck,

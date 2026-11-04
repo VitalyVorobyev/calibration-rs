@@ -8,8 +8,8 @@
 //! of each measurement about its true value matches the σ that
 //! `metrology` reports (the first-order σ holds while the points' errors are
 //! small against the length: the short distance is 7.5 cm, where the
-//! second-order bias of a length is 0.17 σ; at 4 cm it is 0.36 σ), and the σ from the observations alone (the
-//! calibration's share replaced by nothing) understates it.
+//! second-order bias of a length is 0.16 σ), and the σ from the observations
+//! alone (the calibration's share replaced by nothing) understates it.
 
 #![allow(missing_docs)]
 

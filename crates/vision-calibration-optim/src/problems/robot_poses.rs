@@ -157,7 +157,9 @@ where
     priors.validate()?;
     let mut weighting = Weighting::initial(priors);
     let (mut ir, initial) = build(weighting)?;
-    let mut solution = backend::solve(&ir, &initial, backend_opts)?;
+    // Every solve's covariance steers the next weights; only the last one's
+    // is reported, so only it gets the second-order prediction.
+    let mut solution = backend::solve_first_order(&ir, &initial, backend_opts)?;
     for _ in 0..=MAX_REWEIGHTS {
         let pixel_sigma = solution
             .noise
@@ -188,11 +190,12 @@ where
         weighting = next;
         let (next_ir, _) = build(weighting)?;
         ir = next_ir;
-        solution = backend::solve(&ir, &solution.params, backend_opts)?;
+        solution = backend::solve_first_order(&ir, &solution.params, backend_opts)?;
         if done_after || changed < WEIGHT_TOLERANCE {
             break;
         }
     }
+    backend::add_second_order(&ir, &mut solution)?;
     Ok((ir, solution, weighting.priors))
 }
 

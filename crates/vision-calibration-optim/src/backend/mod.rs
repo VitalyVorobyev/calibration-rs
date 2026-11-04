@@ -130,6 +130,50 @@ pub(crate) fn raw_linearization(
     TinySolverBackend.raw_linearization(ir, params)
 }
 
+/// The loss-free residuals of `ir` at `params` moved by tangent steps. The
+/// tiny-solver factors evaluate every factor kind, whichever backend solved;
+/// a step is given per [`covariance::Coordinate`], whose meaning both
+/// backends share.
+pub(crate) fn residual_probe<'ir>(
+    ir: &'ir ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+) -> Result<tiny_solver_backend::ResidualProbe<'ir>, Error> {
+    tiny_solver_backend::ResidualProbe::new(ir, params)
+}
+
+/// [`solve`] without the covariance's second-order prediction, for a solve
+/// whose covariance only steers the next one; [`add_second_order`] adds it
+/// to the one kept.
+pub(crate) fn solve_first_order(
+    ir: &ProblemIR,
+    initial: &HashMap<String, DVector<f64>>,
+    opts: &BackendSolveOptions,
+) -> Result<BackendSolution, Error> {
+    match opts.backend {
+        SolverBackend::TinySolver => TinySolverBackend.solve_with(ir, initial, opts, false),
+        SolverBackend::Factrs => FactrsBackend.solve_with(ir, initial, opts, false),
+    }
+}
+
+/// Adds the second-order prediction to a [`solve_first_order`] solution of
+/// `ir`, from a fresh loss-free linearization at its parameters; the
+/// covariance itself is kept as solved.
+pub(crate) fn add_second_order(
+    ir: &ProblemIR,
+    solution: &mut BackendSolution,
+) -> Result<(), Error> {
+    let covariance::ParamUncertainty::Available(estimate) = &mut solution.uncertainty else {
+        return Ok(());
+    };
+    let raw = raw_linearization(ir, &solution.params)?;
+    if let covariance::ParamUncertainty::Available(full) =
+        covariance::estimate(ir, &solution.params, raw, true, true)
+    {
+        estimate.second_order = full.second_order;
+    }
+    Ok(())
+}
+
 /// Solve `ir` from `initial` with the backend `opts.backend` selects.
 ///
 /// This is the backend-agnostic entry point every problem uses.

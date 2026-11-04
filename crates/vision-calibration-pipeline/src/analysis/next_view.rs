@@ -193,6 +193,7 @@ pub fn predict_with_views(
         num_residuals: current.num_residuals + 2 * points_added,
         dof: (current.dof + 2 * points_added).saturating_sub(6 * views_added),
         view_scatter: current.view_scatter,
+        second_order: None,
     };
     let projection = planner.projection(&covariance)?;
     Ok(PredictedUncertainty {

@@ -423,6 +423,20 @@
         }
       ],
       "num_residuals": 3080,
+      "second_order": {
+        "combination": [
+          {
+            "label": "fy",
+            "weight": 1.0
+          },
+          {
+            "label": "fx",
+            "weight": -0.976979823752632
+          }
+        ],
+        "max_scatter_ratio": 1.0047602873956356,
+        "nees_ratio": 1.0017016766435034
+      },
       "status": "available",
       "view_scatter": 4.861945676138125,
       "views": [

@@ -182,6 +182,7 @@ impl Scene {
             num_residuals: 100,
             dof: 50,
             view_scatter: None,
+            second_order: None,
         })
     }
 

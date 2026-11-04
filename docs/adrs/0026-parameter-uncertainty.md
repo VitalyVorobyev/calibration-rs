@@ -115,6 +115,55 @@ by it.**
 - Projection uncertainty is derived on demand from the covariance, not
   stored.
 
+**The second-order error is predicted, not corrected.**
+- Weak views (a stereo rig from centred boards tilted by at most 0.2 rad)
+  pin some combinations down only through large errors of other
+  parameters that cancel in them. There the error's second-order term,
+  quadratic in the noise, exceeds the first: each parameter's σ holds, but
+  the joint error along those combinations is 2.5–3× its σ, which a
+  consumer of the whole covariance (a prior, a NEES) inherits.
+- Every covariance carries `second_order`. The first-order error is
+  `δ₁ = H⁻¹ Jᵀ ψ`; the residuals' curvature along it, `½ a(δ₁, δ₁)`, is
+  absorbed by one Gauss–Newton step as the second-order error `δ₂`, which
+  is uncorrelated with `δ₁` and adds its second moment `M` (in the
+  whitened shared coordinates) to the error's covariance. From `M`: the
+  worst combination's scatter ratio `√(1 + λ_max)`, the expected NEES per
+  parameter `1 + tr M / s`, and the combination in units of each
+  parameter's σ. This is Bates and Watts' parameter-effects curvature at
+  the result's noise level, summed over all pairs of directions.
+- `M` is exact, not sampled. Only the part of `δ₁` that the shared error
+  explains drives the shared `δ₂` (a view's own error moves its block
+  rigidly; dropping it changed `M` in the fourth digit), so `δ₁ = U z` with
+  `z ~ N(0, I_s)`, and Isserlis' theorem gives `M` from the `s (s + 1) / 2`
+  second derivatives `a(uᵢ, uⱼ)`, each from central differences of the
+  residuals at one σ: `s (s + 1)` residual evaluations, deterministic.
+- It predicts the measured joint error: on the stereo rig across tilt,
+  placement and noise (NEES/22 1.00–1.64, worst scatter 1.4–3.0 where it
+  is above the sampling edge) within 1.2 Monte-Carlo standard errors, and
+  1.00 on single planar cameras from 0.1 rad of tilt on.
+- The quality report warns above 1.2 (`CovarianceLinearity`), naming the
+  combination: data the covariance describes predicted at most 1.06, every
+  stereo capture predicted above 1.3 measured 1.4–3 (a camera tilted by
+  3°, predicted 1.3–1.65, has heavy tails instead).
+- The covariance stays first order: the excess is not Gaussian, and scaling
+  the covariance by it would overstate every parameter's σ, which holds.
+- Cost: `s (s + 1)` residual evaluations, in fixed chunks over threads:
+  45 ms on a two-camera rig with 48 views (22 shared parameters), a third
+  of that calibration's time; 5 ms on a single camera. Skipped above 64
+  shared coordinates (a bundle adjustment's points count as shared), for
+  noise-free data, and in the re-solves that only re-weigh robot-pose
+  priors (the reported solve gets it).
+- Rejected: the cost along `±kσ` of the covariance's weakest eigenvectors
+  measures the curvature along one direction at a time, while the excess
+  comes from pairs (`δfx · δry` reaching a third combination), and in the
+  whitened metric no eigenvector is weaker than another; the covariance
+  re-linearized at `θ̂ ± σ v` costs a Jacobian and a factorization per
+  direction and gives no NEES; the second-order bias alone is the mean of
+  `δ₂`, which here is near zero while its variance is not. Sampling `δ₁`
+  instead of the exact sum estimates a fourth moment of the noise, whose
+  relative error per draw is about 3: the weak rig's ratio came out
+  1.6–4.1 between 16 and 256 draws.
+
 **Availability is a type.**
 - The covariance is either available, or unavailable with a reason: not
   converged; rank-deficient, naming the null-space labels; at a bound; or no
@@ -125,7 +174,7 @@ by it.**
 **A quality verdict reads the result alone.**
 - `Pass | Warn | Fail` over typed checks (observability, convergence,
   variance factor, projection σ, feature coverage, view outliers, parameter
-  correlation). Each check records its value, unit and the threshold that
+  correlation, covariance linearity). Each check records its value, unit and the threshold that
   decided it.
 - `Fail` means the data does not support the result. `Warn` names a weakness
   that leaves the result usable.

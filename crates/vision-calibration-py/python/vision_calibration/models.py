@@ -1620,6 +1620,57 @@ class ViewCovariance:
 
 
 @dataclass(slots=True)
+class CombinationTerm:
+    """One term of a combination of parameters: a parameter's label and its
+    weight, in units of the parameter's σ, in ``[-1, 1]`` with the largest
+    term at +1. Terms of equal weight and opposite sign are a difference the
+    combination measures."""
+
+    label: str
+    weight: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "CombinationTerm":
+        return cls(label=str(payload["label"]), weight=float(payload["weight"]))
+
+
+@dataclass(slots=True)
+class SecondOrderError:
+    """The error of a result's shared parameters at second order, against
+    their covariance.
+
+    The covariance is the first-order error, linear in the noise. Where the
+    views pin a combination of parameters down only through large errors of
+    others that cancel in it (centred, mildly tilted views leave a camera's
+    rotation and its principal point to trade off this way), the error's
+    second-order term can exceed the first along that combination while
+    every parameter's own σ still holds.
+    """
+
+    #: Predicted scatter of the worst combination over its stated σ; 1 when
+    #: the first order describes the error.
+    max_scatter_ratio: float
+    #: Predicted mean ``eᵀ Σ⁻¹ e`` per shared parameter; 1 when the first
+    #: order describes the error.
+    nees_ratio: float
+    #: The worst combination, ``Σ wᵢ pᵢ / σᵢ`` over the shared parameters:
+    #: its largest terms by decreasing ``|wᵢ|`` (the largest +1, the others
+    #: down to a quarter of it, at most six).
+    combination: list[CombinationTerm] = field(default_factory=list)
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SecondOrderError":
+        return cls(
+            max_scatter_ratio=float(payload["max_scatter_ratio"]),
+            nees_ratio=float(payload["nees_ratio"]),
+            combination=[
+                CombinationTerm.from_payload(cast(Mapping[str, Any], t))
+                for t in cast(list[Any], payload["combination"])
+            ],
+        )
+
+
+@dataclass(slots=True)
 class ParameterUncertainty:
     """Covariance of a result's estimated parameters.
 
@@ -1634,6 +1685,10 @@ class ParameterUncertainty:
     leaving out one view at a time; the covariance is already scaled by it.
     ``None`` when the views scatter no more than the noise predicts, and
     below six views.
+
+    :attr:`second_order` predicts how far the error of the shared
+    parameters departs from the covariance once its second-order term is
+    counted (:class:`SecondOrderError`); ``None`` when not analysed.
 
     When :attr:`available` is false, :attr:`reason` says why
     (``"not_converged"``, ``"rank_deficient"``, ``"at_bound"``,
@@ -1651,6 +1706,7 @@ class ParameterUncertainty:
     num_residuals: int = 0
     dof: int = 0
     view_scatter: float | None = None
+    second_order: SecondOrderError | None = None
     reason: str | None = None
     reason_labels: list[str] = field(default_factory=list)
 
@@ -1688,6 +1744,13 @@ class ParameterUncertainty:
                 None
                 if payload.get("view_scatter") is None
                 else float(payload["view_scatter"])
+            ),
+            second_order=(
+                None
+                if payload.get("second_order") is None
+                else SecondOrderError.from_payload(
+                    cast(Mapping[str, Any], payload["second_order"])
+                )
             ),
         )
 
@@ -1785,6 +1848,10 @@ class QualityThresholds:
     #: Absolute correlation of two parameters of one camera above which the
     #: pair is named (``fx``/``fy`` excepted).
     max_parameter_correlation: float = 0.99
+    #: Predicted scatter of the worst combination of the shared parameters
+    #: over its σ, at second order, above which the covariance-linearity
+    #: check warns (≥ 1).
+    max_second_order_scatter: float = 1.2
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -1799,6 +1866,7 @@ class QualityThresholds:
             "coverage_fail_below": float(self.coverage_fail_below),
             "max_view_residual": float(self.max_view_residual),
             "max_parameter_correlation": float(self.max_parameter_correlation),
+            "max_second_order_scatter": float(self.max_second_order_scatter),
         }
 
 
@@ -1828,7 +1896,8 @@ class QualityCheck:
 
     #: What it examines: ``"observability"``, ``"convergence"``,
     #: ``"variance_factor"``, ``"projection_sigma"``, ``"feature_coverage"``,
-    #: ``"view_outliers"`` or ``"parameter_correlation"``.
+    #: ``"view_outliers"``, ``"parameter_correlation"`` or
+    #: ``"covariance_linearity"``.
     kind: str
     #: ``"pass"``, ``"warn"``, ``"fail"`` or ``"not_applicable"``.
     status: str
@@ -1840,7 +1909,8 @@ class QualityCheck:
     #: observability and convergence checks.
     measurement: Measurement | None = None
     #: Named items: parameter labels, parameter pairs (``"fx/cx"``) or views
-    #: (``"view 3"``).
+    #: (``"view 3"``); for ``"covariance_linearity"``, the labels of the
+    #: combination that errs beyond its σ.
     subjects: list[str] = field(default_factory=list)
 
     @classmethod
