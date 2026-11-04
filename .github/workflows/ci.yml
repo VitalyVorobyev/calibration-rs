@@ -170,6 +170,38 @@ jobs:
           cargo run --release --locked -p vision-calibration-bench
           --bin calib-bench -- suite compare
 
+  # The suite's public images, fetched from their publishers and verified
+  # against `regression/fetch/<id>.sha256` on every PR. Only the checksums
+  # gate here: the observations are re-frozen from the images in the weekly
+  # `suite-images` workflow, because corner detection differs across
+  # platforms. Entries that need a manual download (the Kaggle stereo
+  # samples) print their source and are skipped.
+  suite-images-checksums:
+    name: Suite images (checksums)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+
+      - name: Image cache
+        uses: actions/cache@v6
+        with:
+          path: target/suite-images
+          key: suite-images-${{ hashFiles('regression/fetch/*.sha256', 'regression/suite.toml') }}
+
+      # Exits non-zero when a downloaded file does not match its checksum.
+      - name: Suite fetch
+        run: >-
+          cargo run --release --locked -p vision-calibration-bench --features tier-b
+          --bin calib-bench -- suite fetch
+
   # The parameter-uncertainty Monte-Carlo gates (a few hundred solves each)
   # and the next-view prediction gate (dozens of re-solves) are `#[ignore]`d
   # in the debug test run and run here in release.
