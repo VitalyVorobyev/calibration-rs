@@ -53,16 +53,6 @@ functions return no covariance.
 
 ## Correctness — CORRECT (Phase 1b)
 
-- [ ] CAL-RIGLASER-CONSIDER - `rig_laserline_device` fits each camera's laser
-  plane with the upstream rig calibration held exact, so its plane covariance
-  is conditional on it and carries no camera or camera×plane terms:
-  `triangulate_laser` on its rig reports the calibration as unavailable.
-  `RigUpstreamCalibration` gains the upstream `Uncertainty`; the workflow
-  propagates it into the planes as consider parameters, keeps the cameras'
-  covariance in the export's, and with the camera×plane cross terms lets a
-  laser point's σ carry the whole calibration. Gate: the laser-point
-  Monte-Carlo of `laser_uncertainty.rs` on this export (scatter over stated
-  depth σ in [0.85, 1.15]).
 - [ ] CAL-CHESSBOARD-OUTLIER - A chessboard detection with an off-lattice
   corner passes the whole-board check with wrong labels. On OpenCV's stereo
   sample `calib-targets` 0.16.1 labels `left12` and `right07` with one

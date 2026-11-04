@@ -101,6 +101,20 @@ rig_handeye_laserline_bundle}`, pipeline `rig_laserline_device` /
 `rig_handeye_laserline`. The laser plane adds no gauge beyond the S² sign
 below; the rig and hand-eye gauges are in their own packs.
 
+`RigLaserlineDeviceProblem` fits each camera's plane with its camera and
+target poses held (`LaserChain::SinglePose` at `cam_se3_rig ·
+rig_se3_target`). With the upstream's covariance stated, the planes'
+covariance gains the upstream's share as consider parameters (ADR 0028,
+"A staged laser calibration carries its upstream as consider parameters").
+Evidence: `optim/tests/rig_laserline_consider.rs` checks `∂plane/∂upstream`
+against refitted planes (a camera's `fx` and `k1`, an extrinsic's
+rotation and translation, a view's target pose; within 2·10⁻³ of the
+share's scale, both backends equal) and the hand-eye map against the
+chain's finite differences in both modes; the facade's
+`rig_laser_uncertainty.rs` gate (300 rig hand-eye + laser calibrations,
+release, `--ignored`) gives a laser point's depth scatter/stated 0.989,
+against 18.4 for the planes' own σ and 26.7 for the pixels alone.
+
 ## Identifiability and degeneracies
 
 Each stripe is the plane ∩ board line — **collinear** points — so one board

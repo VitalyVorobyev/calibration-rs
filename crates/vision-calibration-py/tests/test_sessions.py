@@ -381,6 +381,36 @@ class RigLaserlineDeviceSessionTest(unittest.TestCase):
             self.assertAlmostEqual(seeded.distance, plane.distance, places=6)
 
 
+    def test_the_upstream_covariance_reaches_the_planes(self) -> None:
+        handeye = vc.RigHandeyeSession()
+        handeye.set_input(rig_handeye_input())
+        handeye.run_calibration()
+        export = handeye.export()
+        upstream = vc.rig_upstream_calibration(export, export.rig_se3_target)
+        assert upstream.uncertainty is not None
+        self.assertEqual(upstream.uncertainty["status"], "available")
+        joint = observation("synth_rig_handeye_laserline")
+        payload = {
+            "dataset": {
+                "num_cameras": joint["num_cameras"],
+                "views": [
+                    {"cameras": v["obs"]["cameras"], "laser_pixels": v["obs"]["laser_pixels"]}
+                    for v in joint["views"]
+                ],
+            },
+            "upstream": upstream.to_payload(),
+        }
+        session = vc.RigLaserlineDeviceSession()
+        session.set_input(payload)
+        session.run_calibration()
+        uncertainty = session.export().uncertainty
+        self.assertTrue(uncertainty.available)
+        # The cameras' parameters are listed with the planes, correlated.
+        self.assertIn("cam0.fx", uncertainty.labels)
+        self.assertNotEqual(uncertainty.correlation("cam0.fx", "cam0.plane.d"), 0.0)
+        self.assertNotIn("cam0.fx", uncertainty.fixed)
+
+
 class RigHandeyeLaserlineSessionTest(unittest.TestCase):
     def test_run_matches_the_one_shot_run(self) -> None:
         payload = observation("synth_rig_handeye_laserline")

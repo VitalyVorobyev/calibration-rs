@@ -10,8 +10,8 @@ use vision_calibration_core::{
     RigViewObs, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
-    compute_rig_laserline_feature_residuals,
+    HandeyeMode, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
+    compute_rig_laserline_feature_residuals, handeye_upstream_uncertainty,
 };
 
 use crate::common::config::{SolverConfig, check_laser_residual};
@@ -27,6 +27,9 @@ use super::state::RigLaserlineDeviceState;
 /// plus the per-view rig→target poses the downstream laserline dataset
 /// spans. Each camera is evaluated in its own model: any distortion kind,
 /// and an identity or Scheimpflug sensor.
+///
+/// The planes are fitted with these parameters held at their values; their
+/// `uncertainty` decides whether the planes' covariance carries theirs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigUpstreamCalibration {
@@ -44,22 +47,44 @@ pub struct RigUpstreamCalibration {
         schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
     )]
     pub rig_se3_target: Vec<Iso3>,
+    /// The covariance of the parameters above, which the laser planes'
+    /// covariance then carries: the cameras' parameters (`cam1.fx`, no
+    /// prefix for a one-camera rig), their extrinsics
+    /// (`cam1.cam_se3_rig.rx … tz`, a right perturbation of `cam_se3_rig`)
+    /// and the views' target poses (`view3.rig_se3_target.rx … tz` among
+    /// the shared parameters, correlated with the rest, or
+    /// `rig_se3_target.rx … tz` in view 3's own block). Parameters it does
+    /// not list count as exact. Unavailable, the default, holds all of them
+    /// exact: the planes' covariance is then conditional on this
+    /// calibration. [`RigHandeyeExport::to_upstream_calibration`] fills it
+    /// from the hand-eye calibration's.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 impl RigHandeyeExport {
-    /// Build a [`RigUpstreamCalibration`] from this hand-eye result, supplying
-    /// the per-view rig→target poses that this export does not carry.
+    /// Build a [`RigUpstreamCalibration`] from this hand-eye result, with
+    /// one rig→target pose per view of the downstream laserline dataset.
     ///
-    /// Each entry of `rig_se3_target` must correspond to one view of the
-    /// downstream laserline dataset. For a fixed target observed from a moving
-    /// rig, all entries are typically equal to the canonical target pose
-    /// recorded in this export (`base_se3_target` for `EyeInHand`); pass
-    /// `vec![target_pose; num_views]`.
+    /// Each entry of `rig_se3_target` is the target's pose at one view of the
+    /// laserline dataset, through this calibration's hand-eye chain: this
+    /// export's own `rig_se3_target` when the laser views are its views, or
+    /// the chain at the laser views' robot poses (`EyeInHand`: `T_R_T =
+    /// T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`; `EyeToHand`: `T_R_T = T_R_B · T_B_G ·
+    /// T_G_T`).
+    ///
+    /// The upstream's `uncertainty` is this calibration's, in the
+    /// upstream's terms: the cameras and extrinsics as they are, and the
+    /// hand-eye and target poses as each view's `rig_se3_target`, correlated
+    /// across views and with the cameras. The robot poses, with any per-view
+    /// corrections this calibration estimated, count as exact.
     ///
     /// # Errors
     ///
     /// Returns [`Error::InvalidInput`] if the export's camera and
-    /// `cam_se3_rig` counts differ.
+    /// `cam_se3_rig` counts differ, its hand-eye pose for its mode is
+    /// missing while its covariance lists it, or the covariance lists part
+    /// of a pose.
     pub fn to_upstream_calibration(
         &self,
         rig_se3_target: Vec<Iso3>,
@@ -71,10 +96,31 @@ impl RigHandeyeExport {
                 self.cameras.len()
             )));
         }
+        let handeye = match self.handeye_mode {
+            HandeyeMode::EyeInHand => self.gripper_se3_rig,
+            HandeyeMode::EyeToHand => self.rig_se3_base,
+        };
+        let uncertainty = match (handeye, self.uncertainty.covariance()) {
+            (Some(handeye), _) => handeye_upstream_uncertainty(
+                &self.uncertainty,
+                self.handeye_mode,
+                &handeye,
+                self.cameras.len(),
+                &rig_se3_target,
+            )?,
+            (None, None) => self.uncertainty.clone(),
+            (None, Some(_)) => {
+                return Err(Error::invalid_input(format!(
+                    "the {:?} export has a covariance but no hand-eye pose",
+                    self.handeye_mode
+                )));
+            }
+        };
         Ok(RigUpstreamCalibration {
             cameras: self.cameras.clone(),
             cam_se3_rig: self.cam_se3_rig.clone(),
             rig_se3_target,
+            uncertainty,
         })
     }
 }
@@ -167,9 +213,15 @@ pub struct RigLaserlineDeviceExport {
     #[serde(default)]
     pub diagnostics: ExportDiagnostics,
     /// Covariance of the laser planes in their camera frames
-    /// (`cam1.plane.nx`), conditional on the upstream calibration. Each
-    /// camera's plane is solved on its own, so each camera has its own
-    /// noise levels.
+    /// (`cam1.plane.nx … cam1.plane.d`). When the upstream calibration
+    /// carries its covariance, the planes' carries its share, and the
+    /// cameras' parameters and extrinsics are listed with it, correlated
+    /// with the planes: a laser point's σ then has the whole calibration in
+    /// it. The views' target poses enter the planes' share but are not
+    /// listed. Without one, the covariance is conditional on the upstream
+    /// calibration (its parameters are among `fixed`) and the planes of
+    /// different cameras are uncorrelated. Each camera's plane is solved on
+    /// its own, so each camera has its own noise levels.
     #[serde(default)]
     pub uncertainty: Uncertainty,
 }

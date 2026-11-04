@@ -2254,7 +2254,7 @@
             },
             "status": "unavailable"
           },
-          "description": "Covariance of the laser planes in their camera frames\n(`cam1.plane.nx`), conditional on the upstream calibration. Each\ncamera's plane is solved on its own, so each camera has its own\nnoise levels."
+          "description": "Covariance of the laser planes in their camera frames\n(`cam1.plane.nx … cam1.plane.d`). When the upstream calibration\ncarries its covariance, the planes' carries its share, and the\ncameras' parameters and extrinsics are listed with it, correlated\nwith the planes: a laser point's σ then has the whole calibration in\nit. The views' target poses enter the planes' share but are not\nlisted. Without one, the covariance is conditional on the upstream\ncalibration (its parameters are among `fixed`) and the planes of\ndifferent cameras are uncorrelated. Each camera's plane is solved on\nits own, so each camera has its own noise levels."
         }
       },
       "required": [

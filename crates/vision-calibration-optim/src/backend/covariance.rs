@@ -335,6 +335,41 @@ pub(crate) fn consider_share(
     sigma_c: &DMatrix<f64>,
 ) -> Result<(Vec<Coordinate>, DMatrix<f64>), Error> {
     debug_assert_eq!(sigma_c.nrows(), consider.len());
+    let (coordinates, s) = tangent_sensitivity(ir, raw, consider)?;
+    let share = &s * sigma_c * s.transpose();
+    Ok(to_ambient(ir, params, &coordinates, &share))
+}
+
+/// The sensitivity `S = ∂x̂/∂c = −H⁻¹ H_xc` of [`consider_share`] itself,
+/// for a caller that assembles `Σ_c` from parts or needs the solution's
+/// cross-covariance with the consider parameters (`S Σ_c`). Rows are `x`'s
+/// coordinates as [`estimate`] reports them (an S² block by its three
+/// ambient components), columns the coordinates `consider`, in their order.
+///
+/// # Errors
+///
+/// As [`consider_share`].
+pub(crate) fn consider_sensitivity(
+    ir: &ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+    raw: &RawLinearization,
+    consider: &[Coordinate],
+) -> Result<(Vec<Coordinate>, DMatrix<f64>), Error> {
+    let (coordinates, s) = tangent_sensitivity(ir, raw, consider)?;
+    let (ambient, rows) = ambient_rows(ir, params, &coordinates);
+    let lifted = DMatrix::from_fn(rows.len(), s.ncols(), |a, j| {
+        rows[a].iter().map(|&(p, cp)| cp * s[(p, j)]).sum()
+    });
+    Ok((ambient, lifted))
+}
+
+/// `S = −H⁻¹ H_xc` over the tangent coordinates `x`: every free coordinate
+/// of `raw` other than `consider`, in column order.
+fn tangent_sensitivity(
+    ir: &ProblemIR,
+    raw: &RawLinearization,
+    consider: &[Coordinate],
+) -> Result<(Vec<Coordinate>, DMatrix<f64>), Error> {
     let column = |c: &Coordinate| raw.columns[c.block].get(c.index).copied().flatten();
     let c_cols: Vec<Option<usize>> = consider.iter().map(column).collect();
     let x: Vec<(Coordinate, usize)> = raw
@@ -364,9 +399,7 @@ pub(crate) fn consider_share(
         .cholesky()
         .ok_or_else(|| Error::numerical("the Gauss–Newton matrix is not positive definite"))?
         .solve(&h_xc);
-    let share = &s * sigma_c * s.transpose();
-    let coordinates: Vec<Coordinate> = x.iter().map(|&(c, _)| c).collect();
-    Ok(to_ambient(ir, params, &coordinates, &share))
+    Ok((x.iter().map(|&(c, _)| c).collect(), s))
 }
 
 /// The noise level of each residual family in `raw`'s residuals; empty
@@ -706,7 +739,26 @@ fn to_ambient(
     {
         return (tangent.to_vec(), sigma.clone());
     }
-    // Each reported coordinate as a combination of tangent coordinates.
+    let (coords, rows) = ambient_rows(ir, params, tangent);
+    let matrix = DMatrix::from_fn(rows.len(), rows.len(), |a, b| {
+        rows[a]
+            .iter()
+            .flat_map(|&(p, cp)| rows[b].iter().map(move |&(q, cq)| cp * cq * sigma[(p, q)]))
+            .sum()
+    });
+    (coords, matrix)
+}
+
+/// Each reported coordinate of the tangent coordinates `tangent` as a
+/// combination of them, `(position in tangent, weight)`: an S² block's two
+/// tangent coordinates give its three ambient components through the
+/// tangent basis `[b₁ b₂]` at the solution, every other coordinate is
+/// itself.
+fn ambient_rows(
+    ir: &ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+    tangent: &[Coordinate],
+) -> (Vec<Coordinate>, Vec<Vec<(usize, f64)>>) {
     let mut coords = Vec::new();
     let mut rows: Vec<Vec<(usize, f64)>> = Vec::new();
     let mut i = 0;
@@ -730,13 +782,7 @@ fn to_ambient(
         }
         i += 2;
     }
-    let matrix = DMatrix::from_fn(rows.len(), rows.len(), |a, b| {
-        rows[a]
-            .iter()
-            .flat_map(|&(p, cp)| rows[b].iter().map(move |&(q, cq)| cp * cq * sigma[(p, q)]))
-            .sum()
-    });
-    (coords, matrix)
+    (coords, rows)
 }
 
 /// How much more the shared parameters scatter across views than the

@@ -179,6 +179,7 @@ pub fn step_optimize(
             .map(|t| t.inverse())
             .collect(),
         rig_se3_target: input.upstream.rig_se3_target,
+        uncertainty: input.upstream.uncertainty,
     };
 
     let solve_opts = RigLaserlineSolveOptions {

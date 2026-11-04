@@ -2552,9 +2552,15 @@ class RigLaserlineDeviceExport(TypedDict):
 
     uncertainty: Uncertainty
     """Covariance of the laser planes in their camera frames
-    (`cam1.plane.nx`), conditional on the upstream calibration. Each
-    camera's plane is solved on its own, so each camera has its own
-    noise levels.
+    (`cam1.plane.nx … cam1.plane.d`). When the upstream calibration
+    carries its covariance, the planes' carries its share, and the
+    cameras' parameters and extrinsics are listed with it, correlated
+    with the planes: a laser point's σ then has the whole calibration in
+    it. The views' target poses enter the planes' share but are not
+    listed. Without one, the covariance is conditional on the upstream
+    calibration (its parameters are among `fixed`) and the planes of
+    different cameras are uncorrelated. Each camera's plane is solved on
+    its own, so each camera has its own noise levels.
     """
 
 
@@ -2601,14 +2607,8 @@ class RigLaserlineView(TypedDict):
     """
 
 
-class RigUpstreamCalibration(TypedDict):
-    """Upstream rig calibration (frozen starting point).
-
-    Mirrors a rig hand-eye result's per-camera parameters + cam→rig poses,
-    plus the per-view rig→target poses the downstream laserline dataset
-    spans. Each camera is evaluated in its own model: any distortion kind,
-    and an identity or Scheimpflug sensor.
-    """
+class _RigUpstreamCalibrationRequired(TypedDict):
+    """The keys of `RigUpstreamCalibration` that every payload has."""
 
     cam_se3_rig: list[Iso3]
     """Per-camera extrinsics `cam_se3_rig` (T_C_R)."""
@@ -2618,6 +2618,33 @@ class RigUpstreamCalibration(TypedDict):
 
     rig_se3_target: list[Iso3]
     """Per-view rig poses `rig_se3_target` (T_R_T)."""
+
+
+class RigUpstreamCalibration(_RigUpstreamCalibrationRequired, total=False):
+    """Upstream rig calibration (frozen starting point).
+
+    Mirrors a rig hand-eye result's per-camera parameters + cam→rig poses,
+    plus the per-view rig→target poses the downstream laserline dataset
+    spans. Each camera is evaluated in its own model: any distortion kind,
+    and an identity or Scheimpflug sensor.
+
+    The planes are fitted with these parameters held at their values; their
+    `uncertainty` decides whether the planes' covariance carries theirs.
+    """
+
+    uncertainty: Uncertainty
+    """The covariance of the parameters above, which the laser planes'
+    covariance then carries: the cameras' parameters (`cam1.fx`, no
+    prefix for a one-camera rig), their extrinsics
+    (`cam1.cam_se3_rig.rx … tz`, a right perturbation of `cam_se3_rig`)
+    and the views' target poses (`view3.rig_se3_target.rx … tz` among
+    the shared parameters, correlated with the rest, or
+    `rig_se3_target.rx … tz` in view 3's own block). Parameters it does
+    not list count as exact. Unavailable, the default, holds all of them
+    exact: the planes' covariance is then conditional on this
+    calibration. `RigHandeyeExport::to_upstream_calibration` fills it
+    from the hand-eye calibration's.
+    """
 
 
 class RigViewObs(TypedDict):

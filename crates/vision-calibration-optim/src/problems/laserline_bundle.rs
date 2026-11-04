@@ -648,6 +648,91 @@ pub fn optimize_laserline(
     extract_solution(&ir, solution, spec, dataset.len())
 }
 
+/// A parameter a laser plane was solved with held fixed, as a column of
+/// [`PlaneSensitivity`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum HeldParameter {
+    /// A camera parameter, by its label (`fx`, `k1`, `tilt_x`).
+    Camera(String),
+    /// Coordinate `index` (`rx ry rz tx ty tz`) of the right-perturbation
+    /// tangent of view `view`'s `camera_se3_target`.
+    Pose { view: usize, index: usize },
+}
+
+/// How a laser plane solved with its camera and target poses held fixed
+/// moves with them: `∂(nx, ny, nz, d)/∂c`, 4 × the held parameters.
+pub(crate) struct PlaneSensitivity {
+    pub columns: Vec<HeldParameter>,
+    pub matrix: nalgebra::DMatrix<f64>,
+}
+
+/// The sensitivity of the plane of a solve at `params` (with `opts`, which
+/// held the camera and every pose fixed) to the camera parameters `camera`
+/// names and the poses of the views `pose` names, as consider parameters
+/// ([`covariance::consider_sensitivity`]).
+///
+/// [`covariance::consider_sensitivity`]: crate::backend::covariance::consider_sensitivity
+pub(crate) fn plane_sensitivity(
+    dataset: &LaserlineDataset,
+    params: &LaserlineParams,
+    opts: &LaserlineSolveOptions,
+    camera: impl Fn(&str) -> bool,
+    pose: impl Fn(usize) -> bool,
+) -> Result<PlaneSensitivity, Error> {
+    use crate::backend::covariance::{self, Coordinate};
+
+    let spec = camera_spec(&params.camera)?;
+    let (mut ir, values) = build_laserline_ir(dataset, params, opts)?;
+    let mut consider = Vec::new();
+    let mut columns = Vec::new();
+    for (block, param) in ir.params.iter_mut().enumerate() {
+        if let Some(labels) =
+            crate::params::camera::camera_block_labels(&param.name, spec, str::to_string)
+        {
+            let held: Vec<usize> = (0..param.dim)
+                .filter(|&i| !camera(&labels.coordinates[i]))
+                .collect();
+            param.fixed = FixedMask::fix_indices(&held);
+            for (index, label) in labels.coordinates.into_iter().enumerate() {
+                if !held.contains(&index) {
+                    consider.push(Coordinate { block, index });
+                    columns.push(HeldParameter::Camera(label));
+                }
+            }
+        } else if let Some(view) = param
+            .name
+            .strip_prefix("pose/")
+            .and_then(|v| v.parse::<usize>().ok())
+            && pose(view)
+        {
+            param.fixed = FixedMask::all_free();
+            for index in 0..6 {
+                consider.push(Coordinate { block, index });
+                columns.push(HeldParameter::Pose { view, index });
+            }
+        }
+    }
+    let raw = backend::raw_linearization(&ir, &values)?
+        .ok_or_else(|| Error::numerical("the plane's linearization has no columns"))?;
+    let (rows, s) = covariance::consider_sensitivity(&ir, &values, &raw, &consider)?;
+    let block_of = |name: &str| ir.params.iter().position(|p| p.name == name);
+    let (normal, distance) = (block_of("plane_n"), block_of("plane_d"));
+    let mut matrix = nalgebra::DMatrix::zeros(4, consider.len());
+    for (r, c) in rows.iter().enumerate() {
+        let at = match Some(c.block) {
+            b if b == normal => c.index,
+            b if b == distance => 3,
+            _ => {
+                return Err(Error::numerical(
+                    "the plane's solve has free coordinates besides the plane",
+                ));
+            }
+        };
+        matrix.row_mut(at).copy_from(&s.row(r));
+    }
+    Ok(PlaneSensitivity { columns, matrix })
+}
+
 /// Build IR for laserline bundle adjustment.
 fn build_laserline_ir(
     dataset: &LaserlineDataset,

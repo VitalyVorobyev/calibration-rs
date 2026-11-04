@@ -153,6 +153,7 @@ fn make_dataset() -> (
         cameras: vec![camera.clone(), camera],
         cam_se3_rig: cam_to_rig.iter().map(|t| t.inverse()).collect(),
         rig_se3_target,
+        uncertainty: Default::default(),
     };
 
     (dataset, upstream, planes_rig_gt)
@@ -321,5 +322,196 @@ fn pinhole_upstream_converges_rig_laserline() {
         let d_err = (gt.distance() - got.distance()).abs();
         assert!(ang < 0.01, "cam{cam_idx} normal error {ang:.4} rad");
         assert!(d_err < 0.01, "cam{cam_idx} distance error {d_err:.4}");
+    }
+}
+
+// ─── The upstream calibration's covariance in the planes' ─────────────────────
+
+use vision_calibration_core::{ParameterCovariance, Uncertainty, UncertaintyUnavailable};
+use vision_calibration_optim::SolverBackend;
+use vision_calibration_pipeline::rig_laserline_device::RigLaserlineDeviceConfig;
+
+fn calibrate(
+    dataset: &RigLaserlineDataset,
+    upstream: RigUpstreamCalibration,
+    backend: SolverBackend,
+) -> RigLaserlineDeviceExport {
+    let mut config = RigLaserlineDeviceConfig::default();
+    config.solver.backend = backend;
+    let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
+    session.set_config(config).unwrap();
+    session
+        .set_input(RigLaserlineDeviceInput {
+            dataset: dataset.clone(),
+            upstream,
+            initial_planes_cam: None,
+        })
+        .unwrap();
+    run_calibration(&mut session).unwrap();
+    session.export().unwrap()
+}
+
+fn plane_labels() -> Vec<String> {
+    (0..2)
+        .flat_map(|c| ["nx", "ny", "nz", "d"].map(|p| format!("cam{c}.plane.{p}")))
+        .collect()
+}
+
+/// An upstream covariance over cameras, extrinsics and target poses (one
+/// view's in its own block): the export lists the cameras' parameters and
+/// extrinsics in the upstream's order in front of the planes, holds the rest,
+/// and is the same on both backends.
+#[test]
+fn the_upstream_covariance_reaches_the_export() {
+    let (dataset, mut upstream, planes_rig_gt) = make_dataset();
+    let pose = |name: &str| -> Vec<String> {
+        ["rx", "ry", "rz", "tx", "ty", "tz"]
+            .iter()
+            .map(|c| format!("{name}.{c}"))
+            .collect()
+    };
+    let mut labels: Vec<String> = vec!["cam0.fx".into(), "cam1.cy".into(), "cam1.k1".into()];
+    labels.extend(pose("cam1.cam_se3_rig"));
+    for v in [0, 1, 3] {
+        labels.extend(pose(&format!("view{v}.rig_se3_target")));
+    }
+    let n = labels.len();
+    let variance = |l: &str| match l.rsplit('.').next().unwrap() {
+        "fx" | "cy" => 0.25,
+        "k1" => 1e-6,
+        "rx" | "ry" | "rz" => 1e-7,
+        _ => 1e-8,
+    };
+    // Correlate the extrinsic and view 0's pose a little.
+    let covariance: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    let (a, b) = (&labels[i], &labels[j]);
+                    if i == j {
+                        variance(a)
+                    } else if a.starts_with("cam1.cam_se3_rig") && b.starts_with("view0")
+                        || b.starts_with("cam1.cam_se3_rig") && a.starts_with("view0")
+                    {
+                        if a.ends_with(".tz") && b.ends_with(".tz") {
+                            0.5e-8
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        0.0
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    upstream.uncertainty = Uncertainty::Available(ParameterCovariance {
+        labels: labels.clone(),
+        covariance,
+        views: vec![vision_calibration_core::ViewCovariance {
+            view: 2,
+            labels: pose("rig_se3_target"),
+            covariance: (0..6)
+                .map(|i| (0..6).map(|j| if i == j { 1e-8 } else { 0.0 }).collect())
+                .collect(),
+        }],
+        fixed: vec!["cam0.k3".into()],
+        noise: Vec::new(),
+        num_residuals: 0,
+        dof: 0,
+        view_scatter: None,
+    });
+
+    let export = calibrate(&dataset, upstream.clone(), SolverBackend::TinySolver);
+    let cov = export.uncertainty.covariance().expect("covariance");
+    let reported: Vec<&String> = labels.iter().filter(|l| !l.starts_with("view")).collect();
+    let mut expected: Vec<String> = reported.iter().map(|l| l.to_string()).collect();
+    expected.extend(plane_labels());
+    assert_eq!(cov.labels, expected);
+    for (i, a) in reported.iter().enumerate() {
+        assert_eq!(cov.covariance[i][i], variance(a), "{a}");
+    }
+    // What the upstream did not list stays held; what it listed does not.
+    for label in ["cam0.fy", "cam1.fx", "cam0.cam_se3_rig", "cam0.k3"] {
+        assert!(
+            cov.fixed.iter().any(|l| l == label),
+            "{label}: {:?}",
+            cov.fixed
+        );
+    }
+    for label in [
+        "cam0.fx",
+        "cam1.cam_se3_rig",
+        "view0.rig_se3_target",
+        "view2.rig_se3_target",
+    ] {
+        assert!(
+            !cov.fixed.iter().any(|l| l == label),
+            "{label}: {:?}",
+            cov.fixed
+        );
+    }
+    // The planes of the two cameras are correlated through the target poses.
+    let (p0, p1) = (
+        cov.index("cam0.plane.d").unwrap(),
+        cov.index("cam1.plane.d").unwrap(),
+    );
+    assert!(cov.covariance[p0][p1].abs() > 0.0);
+    // Symmetric and positive semi-definite.
+    let m = nalgebra::DMatrix::from_fn(cov.labels.len(), cov.labels.len(), |i, j| {
+        cov.covariance[i][j]
+    });
+    assert_eq!(m, m.transpose());
+    let min = m.symmetric_eigenvalues().min();
+    assert!(min > -1e-12 * m.amax(), "min eigenvalue {min:e}");
+
+    // The factrs backend reaches the same covariance.
+    let factrs = calibrate(&dataset, upstream, SolverBackend::Factrs);
+    let other = factrs.uncertainty.covariance().unwrap();
+    assert_eq!(other.labels, cov.labels);
+    for (row, other_row) in cov.covariance.iter().zip(&other.covariance) {
+        for (a, b) in row.iter().zip(other_row) {
+            assert!((a - b).abs() <= 1e-6 * m.amax(), "{a:e} vs {b:e}");
+        }
+    }
+
+    // The calibration a measurement reads carries it whole.
+    let rig = export.calibrated_rig().unwrap();
+    assert_eq!(rig.uncertainty(), &export.uncertainty);
+    let _ = planes_rig_gt;
+}
+
+/// Without an upstream covariance (an input that predates it, or one stated
+/// unavailable) the upstream is held exact: the planes' covariance is
+/// conditional on it and lists the planes alone.
+#[test]
+fn an_upstream_without_covariance_is_held_exact() {
+    let (dataset, upstream, _) = make_dataset();
+    let input = RigLaserlineDeviceInput {
+        dataset,
+        upstream,
+        initial_planes_cam: None,
+    };
+    let mut json = serde_json::to_value(&input).unwrap();
+    json["upstream"]
+        .as_object_mut()
+        .unwrap()
+        .remove("uncertainty");
+    let parsed: RigLaserlineDeviceInput = serde_json::from_value(json).unwrap();
+    assert_eq!(
+        parsed.upstream.uncertainty,
+        Uncertainty::Unavailable {
+            reason: UncertaintyUnavailable::NotComputed
+        }
+    );
+    let export = calibrate(&parsed.dataset, parsed.upstream, SolverBackend::TinySolver);
+    let cov = export.uncertainty.covariance().expect("the planes' own");
+    assert_eq!(cov.labels, plane_labels());
+    for label in ["cam0.fx", "cam1.cam_se3_rig", "view3.rig_se3_target"] {
+        assert!(
+            cov.fixed.iter().any(|l| l == label),
+            "{label}: {:?}",
+            cov.fixed
+        );
     }
 }

@@ -85,7 +85,8 @@ pub struct RigLaserlineDeviceConfig {
 
 pub struct RigLaserlineDeviceInput {
     pub dataset: RigLaserlineDataset,               // target corners + laser pixels per camera/view
-    pub upstream: RigUpstreamCalibration,           // cameras (CameraParams), cam_se3_rig, rig_se3_target
+    pub upstream: RigUpstreamCalibration,           // cameras (CameraParams), cam_se3_rig,
+                                                    // rig_se3_target, uncertainty
     pub initial_planes_cam: Option<Vec<LaserPlane>>,
 }
 ```
@@ -97,12 +98,25 @@ use vision_calibration::rig_laserline_device::{
     RigLaserlineDeviceInput, RigLaserlineDeviceProblem, run_calibration,
 };
 
-let upstream = rig_export.to_upstream_calibration(vec![target_pose; num_views])?;
+// The laser views are the hand-eye run's views: its own board poses.
+let upstream = rig_export.to_upstream_calibration(rig_export.rig_se3_target.clone())?;
 let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
 session.set_input(RigLaserlineDeviceInput { dataset, upstream, initial_planes_cam: None })?;
 run_calibration(&mut session)?;
 let export = session.export()?; // laser_planes_rig, laser_planes_cam, per_camera_stats, ...
 ```
+
+`to_upstream_calibration` takes one board pose per laser view, through the hand-eye chain: the export's own `rig_se3_target` when the laser views are its views, or the chain at the laser views' robot poses (`EyeInHand`: `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`; `EyeToHand`: `T_R_T = T_R_B · T_B_G · T_G_T`).
+
+**Uncertainty.** The planes are fitted with the upstream calibration held at its values, so a plane moves with the cameras, their extrinsics and the board poses it was fitted against. `RigUpstreamCalibration::uncertainty` is the upstream's covariance over those (`cam1.fx`, `cam1.cam_se3_rig.rx`, `view3.rig_se3_target.rx`, …), and `to_upstream_calibration` fills it from the hand-eye calibration's: the cameras and extrinsics as they are, and the hand-eye and target poses as each view's board pose, correlated across views and with the cameras. The robot poses, with any per-view corrections the hand-eye run estimated, count as exact. The export's covariance then has three parts, all in one matrix:
+
+- each plane's own fit, from its laser pixels;
+- the upstream's share, `A Σ_u Aᵀ`, with `A` how the fitted planes move with the upstream parameters: it correlates the planes of different cameras;
+- the cameras' parameters and extrinsics with their upstream covariance, and their cross terms `A Σ_u` with the planes.
+
+So a laser point measured with this calibration (`triangulate_laser` on `export.calibrated_rig()`) carries the whole calibration, as with the joint solve below. With the upstream's uncertainty unavailable (an upstream built by hand, the default), the upstream counts as exact: the covariance lists the planes alone, conditional on the upstream, and a laser point's uncertainty is unavailable for want of the cameras'. The rig hand-eye run's covariance holds the extrinsics only when it refines them (`handeye_optimize.refine_cam_se3_rig`); otherwise they count as exact here too.
+
+In Python, `vc.rig_upstream_calibration(export, export.rig_se3_target)` gives the same `RigUpstreamCalibration`, its `uncertainty` the covariance's serde payload.
 
 The steps `step_init` and `step_optimize` are available for finer control. `dataset` is a `RigLaserlineDataset` (`RigLaserlineDataset::new(views, num_cameras)`, also exported from this module; its view type `RigLaserlineView` is in `vision_calibration::common`) whose views hold, per camera, target correspondences and the extracted laser pixels. Laser pixel extraction itself is left to the application.
 

@@ -33,6 +33,7 @@ from . import (
 )
 from ._api import (
     pixel_to_gripper_point,
+    rig_upstream_calibration,
     projection_uncertainty,
     assess,
     html_report,
@@ -259,6 +260,7 @@ __all__ = [
     "run_laserline_device",
     "run_rig_laserline_device",
     "pixel_to_gripper_point",
+    "rig_upstream_calibration",
     "projection_uncertainty",
     "assess",
     "html_report",

@@ -393,6 +393,18 @@ const PLANE_NORMAL: &str = "plane.normal";
 const PLANE_NORMAL_LABELS: [&str; 3] = ["plane.nx", "plane.ny", "plane.nz"];
 const PLANE_DISTANCE: &str = "plane.d";
 
+/// The names of a hand-eye calibration's two poses in mode `mode`: the
+/// hand-eye (`gripper_se3_rig`, `rig_se3_base`) and the target's
+/// (`base_se3_target`, `gripper_se3_target`). A single-camera problem names
+/// its camera in place of the rig (`gripper_se3_camera`).
+pub(crate) fn handeye_pose_names(mode: HandeyeMode, multi_camera: bool) -> (String, &'static str) {
+    let rig = if multi_camera { "rig" } else { "camera" };
+    match mode {
+        HandeyeMode::EyeInHand => (format!("gripper_se3_{rig}"), "base_se3_target"),
+        HandeyeMode::EyeToHand => (format!("{rig}_se3_base"), "gripper_se3_target"),
+    }
+}
+
 /// The shape of a rig or hand-eye IR, for naming its blocks.
 pub(crate) struct RigLabelling<'a> {
     /// Each camera's model, which names its blocks' coordinates.
@@ -449,11 +461,12 @@ impl RigLabelling<'_> {
                 internal: false,
             }
         };
-        let rig = if self.multi_camera { "rig" } else { "camera" };
-        let target = match self.handeye_mode {
-            Some(HandeyeMode::EyeInHand) => "base_se3_target",
-            Some(HandeyeMode::EyeToHand) => "gripper_se3_target",
-            None => "rig_se3_target",
+        let (handeye, target) = match self.handeye_mode {
+            Some(mode) => handeye_pose_names(mode, self.multi_camera),
+            None => (
+                handeye_pose_names(HandeyeMode::EyeInHand, self.multi_camera).0,
+                "rig_se3_target",
+            ),
         };
         if let Some(i) = index
             && matches!(kind, "cam" | "proj" | "dist" | "sensor")
@@ -479,10 +492,7 @@ impl RigLabelling<'_> {
                     labels.internal()
                 }
             }
-            ("handeye", None) => BlockLabels::shared_pose(&match self.handeye_mode {
-                Some(HandeyeMode::EyeToHand) => format!("{rig}_se3_base"),
-                _ => format!("gripper_se3_{rig}"),
-            }),
+            ("handeye", None) => BlockLabels::shared_pose(&handeye),
             ("target" | "target_ref", None) => BlockLabels::shared_pose(target),
             ("plane_n", Some(_)) => camera(PLANE_NORMAL, &PLANE_NORMAL_LABELS),
             ("plane_d", Some(_)) => camera(PLANE_DISTANCE, &[PLANE_DISTANCE]),

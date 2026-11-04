@@ -70,7 +70,8 @@ pub enum ProblemInput {
     /// Hand-eye calibration of a camera rig.
     RigHandeye(<RigHandeyeProblem as ProblemType>::Input),
     /// Per-camera laser planes on a calibrated rig.
-    RigLaserlineDevice(<RigLaserlineDeviceProblem as ProblemType>::Input),
+    // Boxed: the upstream's covariance makes it the largest input.
+    RigLaserlineDevice(Box<<RigLaserlineDeviceProblem as ProblemType>::Input>),
     /// Joint rig hand-eye and laser-plane calibration.
     RigHandeyeLaserline(<RigHandeyeLaserlineProblem as ProblemType>::Input),
 }

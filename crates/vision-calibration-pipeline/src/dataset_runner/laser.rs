@@ -1529,6 +1529,61 @@ mod tests {
         );
     }
 
+    /// The upstream export's covariance reaches the rig laser input, in the
+    /// upstream's terms: its cameras' labels as they are, its hand-eye and
+    /// target poses as each kept view's `rig_se3_target`.
+    #[test]
+    fn rig_laserline_carries_the_upstream_covariance() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_rig_views(tmp.path(), &cache, 3);
+        let spec = rig_laserline_spec(tmp.path(), 3);
+        let mut upstream = upstream_export(2);
+        let mut labels = vec!["cam0.fx".to_string()];
+        for pose in ["gripper_se3_rig", "base_se3_target"] {
+            labels.extend(["rx", "ry", "rz", "tx", "ty", "tz"].map(|c| format!("{pose}.{c}")));
+        }
+        let n = labels.len();
+        upstream.uncertainty = vision_calibration_core::Uncertainty::Available(
+            vision_calibration_core::ParameterCovariance {
+                labels,
+                covariance: (0..n)
+                    .map(|i| (0..n).map(|j| if i == j { 1e-6 } else { 0.0 }).collect())
+                    .collect(),
+                views: Vec::new(),
+                fixed: Vec::new(),
+                noise: Vec::new(),
+                num_residuals: 100,
+                dof: 87,
+                view_scatter: None,
+            },
+        );
+        std::fs::write(
+            tmp.path().join("rig_handeye_export.json"),
+            serde_json::to_string(&upstream).unwrap(),
+        )
+        .unwrap();
+
+        let result = build_rig_laserline_device_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &FakeLaser::new(30),
+            &RunControl::default(),
+        )
+        .unwrap();
+        let cov = result
+            .input
+            .upstream
+            .uncertainty
+            .covariance()
+            .expect("the upstream's covariance");
+        assert_eq!(cov.labels[0], "cam0.fx");
+        assert_eq!(cov.labels.len(), 1 + 6 * result.input.dataset.num_views());
+        assert!(cov.std_dev("view2.rig_se3_target.tz").unwrap() > 0.0);
+        assert!(cov.index("gripper_se3_rig.rx").is_none());
+    }
+
     #[test]
     fn rig_laserline_fallback_chain_applies_upstream_robot_deltas() {
         let tmp = tempfile::tempdir().unwrap();
