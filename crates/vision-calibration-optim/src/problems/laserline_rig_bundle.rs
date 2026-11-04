@@ -28,17 +28,19 @@
 
 use crate::Error;
 use crate::backend::BackendSolveOptions;
+use crate::ir::HandeyeMode;
 use crate::params::camera::camera_spec;
 use crate::problems::laserline_bundle::{
-    LaserCameraModel, LaserResidualRecords, LaserlineMeta, LaserlineParams, LaserlineResidualType,
-    LaserlineSolveOptions, LaserlineStats, LaserlineView, compute_laserline_stats,
-    optimize_laserline,
+    HeldParameter, LaserCameraModel, LaserResidualRecords, LaserlineMeta, LaserlineParams,
+    LaserlineResidualType, LaserlineSolveOptions, LaserlineStats, LaserlineView, PlaneSensitivity,
+    compute_laserline_stats, optimize_laserline, plane_sensitivity,
 };
-use crate::uncertainty;
+use crate::uncertainty::{self, handeye_pose_names, pose_labels};
+use nalgebra::{DMatrix, Matrix3, Matrix6};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
-    CameraFix, CameraParams, CorrespondenceView, Iso3, Pt2, Uncertainty, View,
+    CameraFix, CameraParams, CorrespondenceView, Iso3, ParameterCovariance, Pt2, Uncertainty, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -158,6 +160,15 @@ pub struct RigLaserlineUpstream {
     pub cam_to_rig: Vec<Iso3>,
     /// Per-view rig poses (`rig_se3_target`, `T_R_T`).
     pub rig_se3_target: Vec<Iso3>,
+    /// The covariance of the parameters above, which enters the planes'
+    /// as consider parameters; unavailable holds them exact. Its labels:
+    /// each camera's parameters (`cam<i>.fx`, no prefix for one camera),
+    /// `cam<i>.cam_se3_rig.rx … tz` (a right perturbation of `cam_se3_rig`)
+    /// and each view's target pose `view<v>.rig_se3_target.rx … tz` among
+    /// the shared parameters, or `rig_se3_target.rx … tz` in view `v`'s
+    /// block (uncorrelated with the rest). Parameters it does not list
+    /// count as exact.
+    pub uncertainty: Uncertainty,
 }
 
 /// Solve options for rig laserline calibration.
@@ -248,9 +259,12 @@ pub struct RigLaserlineEstimate {
     /// Per-camera stats (mean reprojection + laser residual).
     pub per_camera_stats: Vec<LaserlineStats>,
     /// Covariance of the laser planes in their camera frames
-    /// (`cam<i>.plane.nx … cam<i>.plane.d`), conditional on the upstream
-    /// calibration. Each camera's plane is solved on its own, so planes of
-    /// different cameras are uncorrelated and each camera has its own noise
+    /// (`cam<i>.plane.nx … cam<i>.plane.d`). With an upstream covariance it
+    /// carries the upstream's share (consider parameters) and lists the
+    /// cameras' parameters and extrinsics, with their cross terms against
+    /// the planes; without one it is conditional on the upstream
+    /// calibration, and planes of different cameras are uncorrelated. Each
+    /// camera's plane is solved on its own, so each camera has its own noise
     /// levels.
     #[serde(default)]
     pub uncertainty: Uncertainty,
@@ -315,6 +329,11 @@ pub fn optimize_rig_laserline(
     let mut laser_planes_rig = Vec::with_capacity(n);
     let mut per_camera_stats = Vec::with_capacity(n);
     let mut per_camera_uncertainty = Vec::with_capacity(n);
+    let mut share = upstream
+        .uncertainty
+        .covariance()
+        .map(|c| UpstreamShare::new(c, n));
+    let mut planes_of = Vec::with_capacity(n);
 
     // Propagate the residual type; the camera fix and poses are forced per
     // camera below.
@@ -330,6 +349,7 @@ pub fn optimize_rig_laserline(
         // for this camera.
         let mut views: Vec<LaserlineView> = Vec::new();
         let mut poses_cam: Vec<Iso3> = Vec::new();
+        let mut view_of: Vec<usize> = Vec::new();
         for (view_idx, view) in dataset.views.iter().enumerate() {
             let Some(corr) = view.cameras.get(cam_idx).and_then(|o| o.clone()) else {
                 continue;
@@ -351,6 +371,7 @@ pub fn optimize_rig_laserline(
                 },
             ));
             poses_cam.push(cam_se3_target);
+            view_of.push(view_idx);
         }
 
         if views.is_empty() {
@@ -372,6 +393,23 @@ pub fn optimize_rig_laserline(
 
         let est = optimize_laserline(&views, &initial, &per_cam_opts, backend_opts)?;
         let stats = compute_laserline_stats(&views, &est.params, opts.laser_residual_type)?;
+        if let Some(share) = share.as_mut()
+            && matches!(est.uncertainty, Uncertainty::Available(_))
+        {
+            let sensitivity = plane_sensitivity(
+                &views,
+                &est.params,
+                &per_cam_opts,
+                |label| share.lists_camera(cam_idx, label),
+                |k| share.lists_pose(cam_idx, view_of[k]),
+            )?;
+            planes_of.push(share.plane_columns(
+                cam_idx,
+                &sensitivity,
+                &view_of,
+                &upstream.rig_se3_target,
+            )?);
+        }
 
         let plane_cam = est.params.plane.clone();
         let plane_rig = plane_cam.transform_by(&cam_to_rig);
@@ -389,12 +427,420 @@ pub fn optimize_rig_laserline(
         .collect();
     rig_fixed.extend((0..dataset.num_views()).map(|v| format!("view{v}.rig_se3_target")));
 
+    let conditional = uncertainty::per_camera(&per_camera_uncertainty, rig_fixed);
+    let uncertainty = match (share, conditional) {
+        (Some(share), Uncertainty::Available(planes)) => share.with_planes(planes, &planes_of),
+        (_, conditional) => conditional,
+    };
     Ok(RigLaserlineEstimate {
         laser_planes_rig,
         laser_planes_cam,
         per_camera_stats,
-        uncertainty: uncertainty::per_camera(&per_camera_uncertainty, rig_fixed),
+        uncertainty,
     })
+}
+
+/// Where a label of the upstream covariance sits.
+#[derive(Debug, Clone, Copy)]
+enum Position {
+    /// Among the shared parameters, at this index.
+    Shared(usize),
+    /// In `views[block]`, at `index`.
+    View { block: usize, index: usize },
+}
+
+/// The upstream calibration's covariance over the coordinates `u` the
+/// laser planes move with: each camera's parameters, its `cam_se3_rig`
+/// and each view's `rig_se3_target`, those the covariance lists.
+///
+/// A plane is solved with its camera and its views' `camera_se3_target =
+/// cam_se3_rig · rig_se3_target` held, so it moves with them as `S =
+/// ∂plane/∂(θ, camera_se3_target)` ([`plane_sensitivity`]). A right
+/// perturbation `Exp(ε)` of `cam_se3_rig` moves `camera_se3_target` by
+/// `Exp(Ad(rig_se3_target⁻¹) ε)` and one of `rig_se3_target` by `Exp(ε)`,
+/// which chains `S` to `A = ∂plane/∂u`. Then every plane has the
+/// covariance `Σ_obs + A Σ_u Aᵀ` and the cross-covariance `A Σ_u` with the
+/// cameras' parameters and extrinsics, and two cameras' planes `A_i Σ_u
+/// A_jᵀ`: they were fitted against one calibration.
+struct UpstreamShare<'a> {
+    covariance: &'a ParameterCovariance,
+    multi_camera: bool,
+    /// The coordinates `u`, in the order first used.
+    labels: Vec<String>,
+    positions: Vec<Position>,
+    /// Whether `u[i]` is a camera parameter or extrinsic (reported with the
+    /// planes), not a target pose.
+    reported: Vec<bool>,
+}
+
+impl<'a> UpstreamShare<'a> {
+    fn new(covariance: &'a ParameterCovariance, num_cameras: usize) -> Self {
+        Self {
+            covariance,
+            multi_camera: num_cameras > 1,
+            labels: Vec::new(),
+            positions: Vec::new(),
+            reported: Vec::new(),
+        }
+    }
+
+    /// `label` of camera `camera`, as the rig names it.
+    fn camera_label(&self, camera: usize, label: &str) -> String {
+        if self.multi_camera {
+            format!("cam{camera}.{label}")
+        } else {
+            label.to_string()
+        }
+    }
+
+    /// `label`'s place in the covariance: a shared label, or
+    /// `view<v>.<label>` as `<label>` in view `v`'s block.
+    fn find(&self, label: &str) -> Option<Position> {
+        if let Some(i) = self.covariance.index(label) {
+            return Some(Position::Shared(i));
+        }
+        let (view, local) = label.strip_prefix("view")?.split_once('.')?;
+        let view: usize = view.parse().ok()?;
+        self.covariance
+            .views
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.view == view)
+            .find_map(|(block, v)| {
+                let index = v.labels.iter().position(|l| l == local)?;
+                Some(Position::View { block, index })
+            })
+    }
+
+    /// The column of `label` in `u`, added on first use; `None` when the
+    /// covariance does not list it.
+    fn column(&mut self, label: &str, reported: bool) -> Option<usize> {
+        if let Some(i) = self.labels.iter().position(|l| l == label) {
+            return Some(i);
+        }
+        let position = self.find(label)?;
+        self.labels.push(label.to_string());
+        self.positions.push(position);
+        self.reported.push(reported);
+        Some(self.labels.len() - 1)
+    }
+
+    /// The six columns of the pose `name`, or `None` when the covariance
+    /// lists none of them.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] when it lists part of the pose: a pose is
+    /// estimated whole or held.
+    fn pose_columns(&mut self, name: &str, reported: bool) -> Result<Option<[usize; 6]>, Error> {
+        let labels = pose_labels(name);
+        let listed = labels.iter().filter(|l| self.find(l).is_some()).count();
+        match listed {
+            0 => Ok(None),
+            6 => {
+                let mut columns = [0; 6];
+                for (column, label) in columns.iter_mut().zip(&labels) {
+                    *column = self
+                        .column(label, reported)
+                        .expect("every coordinate is listed");
+                }
+                Ok(Some(columns))
+            }
+            _ => Err(Error::invalid_input(format!(
+                "the upstream covariance lists part of {name}; a pose is estimated whole or held"
+            ))),
+        }
+    }
+
+    fn extrinsic_name(camera: usize) -> String {
+        format!("cam{camera}.cam_se3_rig")
+    }
+
+    fn target_name(view: usize) -> String {
+        format!("view{view}.rig_se3_target")
+    }
+
+    /// Whether the covariance lists camera `camera`'s parameter `label`.
+    fn lists_camera(&self, camera: usize, label: &str) -> bool {
+        self.find(&self.camera_label(camera, label)).is_some()
+    }
+
+    /// Whether the covariance lists camera `camera`'s extrinsic or view
+    /// `view`'s target pose, which its `camera_se3_target` composes.
+    fn lists_pose(&self, camera: usize, view: usize) -> bool {
+        let listed = |name: String| self.find(&format!("{name}.rx")).is_some();
+        (self.multi_camera && listed(Self::extrinsic_name(camera)))
+            || listed(Self::target_name(view))
+    }
+
+    /// `A = ∂plane/∂u` of camera `camera`'s plane, 4 × the columns of `u`
+    /// so far, from its sensitivity to what its solve held (`view_of[k]` is
+    /// the rig view of the solve's view `k`).
+    fn plane_columns(
+        &mut self,
+        camera: usize,
+        sensitivity: &PlaneSensitivity,
+        view_of: &[usize],
+        rig_se3_target: &[Iso3],
+    ) -> Result<DMatrix<f64>, Error> {
+        // Map each held parameter to `(column of u, weight)`.
+        let extrinsic = if self.multi_camera {
+            self.pose_columns(&Self::extrinsic_name(camera), true)?
+        } else {
+            None
+        };
+        let mut terms: Vec<Vec<(usize, f64)>> = Vec::with_capacity(sensitivity.columns.len());
+        for held in &sensitivity.columns {
+            let mut term = Vec::new();
+            match held {
+                HeldParameter::Camera(label) => {
+                    let label = self.camera_label(camera, label);
+                    let column = self.column(&label, true).ok_or_else(|| {
+                        Error::numerical(format!("{label} is not in the upstream covariance"))
+                    })?;
+                    term.push((column, 1.0));
+                }
+                HeldParameter::Pose { view, index } => {
+                    let view = view_of[*view];
+                    if let Some(extrinsic) = extrinsic {
+                        let ad = adjoint(&rig_se3_target[view].inverse());
+                        term.extend((0..6).map(|b| (extrinsic[b], ad[(*index, b)])));
+                    }
+                    if let Some(target) = self.pose_columns(&Self::target_name(view), false)? {
+                        term.push((target[*index], 1.0));
+                    }
+                }
+            }
+            terms.push(term);
+        }
+        let mut a = DMatrix::zeros(4, self.labels.len());
+        for (j, term) in terms.iter().enumerate() {
+            for &(column, weight) in term {
+                for row in 0..4 {
+                    a[(row, column)] += weight * sensitivity.matrix[(row, j)];
+                }
+            }
+        }
+        Ok(a)
+    }
+
+    /// `Σ_u` over the columns of `u`; coordinates of different blocks (the
+    /// shared ones, each view's) are uncorrelated.
+    fn sigma(&self) -> DMatrix<f64> {
+        let n = self.labels.len();
+        DMatrix::from_fn(n, n, |a, b| match (self.positions[a], self.positions[b]) {
+            (Position::Shared(i), Position::Shared(j)) => self.covariance.covariance[i][j],
+            (
+                Position::View { block, index: i },
+                Position::View {
+                    block: other,
+                    index: j,
+                },
+            ) if block == other => self.covariance.views[block].covariance[i][j],
+            _ => 0.0,
+        })
+    }
+
+    /// The planes' covariance `planes` (conditional on the upstream) with
+    /// the upstream's share added, and the cameras' parameters and
+    /// extrinsics in front of the planes, in the upstream's order;
+    /// `planes_of[c]` is camera `c`'s `A`.
+    fn with_planes(self, planes: ParameterCovariance, planes_of: &[DMatrix<f64>]) -> Uncertainty {
+        let n = self.labels.len();
+        let p = planes.labels.len();
+        debug_assert_eq!(p, 4 * planes_of.len(), "four plane coordinates per camera");
+        // `A` over every plane, in the order of `planes.labels`.
+        let mut a = DMatrix::zeros(p, n);
+        for (camera, plane) in planes_of.iter().enumerate() {
+            for (row, local) in ["plane.nx", "plane.ny", "plane.nz", "plane.d"]
+                .iter()
+                .enumerate()
+            {
+                let at = planes
+                    .index(&self.camera_label(camera, local))
+                    .expect("the planes' covariance lists each camera's plane");
+                for column in 0..plane.ncols() {
+                    a[(at, column)] = plane[(row, column)];
+                }
+            }
+        }
+        let sigma = self.sigma();
+        let a_sigma = &a * &sigma;
+        let share = &a_sigma * a.transpose();
+        // The cameras' parameters and extrinsics, in the upstream's order.
+        let mut kept: Vec<usize> = (0..n).filter(|&i| self.reported[i]).collect();
+        kept.sort_by_key(|&i| match self.positions[i] {
+            Position::Shared(at) => (0, at),
+            Position::View { block, index } => (1 + block, index),
+        });
+        let k = kept.len();
+        let mut covariance = vec![vec![0.0; k + p]; k + p];
+        for (r, &i) in kept.iter().enumerate() {
+            for (c, &j) in kept.iter().enumerate() {
+                covariance[r][c] = sigma[(i, j)];
+            }
+        }
+        for r in 0..p {
+            for (c, &j) in kept.iter().enumerate() {
+                covariance[k + r][c] = a_sigma[(r, j)];
+                covariance[c][k + r] = a_sigma[(r, j)];
+            }
+            for c in 0..p {
+                covariance[k + r][k + c] = 0.5
+                    * (planes.covariance[r][c]
+                        + planes.covariance[c][r]
+                        + share[(r, c)]
+                        + share[(c, r)]);
+            }
+        }
+        let covered = |label: &str| {
+            let pose = format!("{label}.");
+            self.labels
+                .iter()
+                .any(|l| l == label || l.starts_with(&pose))
+        };
+        let mut labels: Vec<String> = kept.iter().map(|&i| self.labels[i].clone()).collect();
+        labels.extend(planes.labels);
+        Uncertainty::Available(ParameterCovariance {
+            labels,
+            covariance,
+            views: Vec::new(),
+            fixed: planes.fixed.into_iter().filter(|l| !covered(l)).collect(),
+            noise: planes.noise,
+            num_residuals: planes.num_residuals,
+            dof: planes.dof,
+            view_scatter: planes.view_scatter,
+        })
+    }
+}
+
+/// `Ad(T) = [[R, 0], [[t]ₓ R, R]]` for `δ = [ω, v]`: `T·Exp(δ) =
+/// Exp(Ad(T) δ)·T`.
+fn adjoint(pose: &Iso3) -> Matrix6<f64> {
+    let r = pose.rotation.to_rotation_matrix().into_inner();
+    let t = pose.translation.vector;
+    let tr = Matrix3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0) * r;
+    let mut ad = Matrix6::zeros();
+    ad.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
+    ad.fixed_view_mut::<3, 3>(3, 0).copy_from(&tr);
+    ad.fixed_view_mut::<3, 3>(3, 3).copy_from(&r);
+    ad
+}
+
+/// The covariance of a rig hand-eye calibration in the coordinates of a
+/// [`RigLaserlineUpstream`] whose target poses `rig_se3_target` follow the
+/// calibration's chain.
+///
+/// `uncertainty` is the calibration's (cameras, extrinsics, the hand-eye
+/// pose `handeye` and the target's pose, labelled as its export labels
+/// them for `mode`). Its parameters other than the two poses are kept as
+/// they are; the two poses become each view's `view<v>.rig_se3_target`,
+/// correlated across views and with the cameras:
+///
+/// - `EyeInHand`, `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`: a right perturbation
+///   `ε` of `T_G_R` moves it by `−Ad(T_R_T⁻¹) ε`, one of `T_B_T` by `ε`;
+/// - `EyeToHand`, `T_R_T = T_R_B · T_B_G · T_G_T`: `ε` of `T_R_B` moves it by
+///   `Ad(T_R_T⁻¹ · T_R_B) ε`, one of `T_G_T` by `ε`.
+///
+/// The robot poses, with any per-view corrections the calibration
+/// estimated, count as exact: the export states no correlation between a
+/// correction and the shared parameters, so its per-view blocks are left
+/// out. An unavailable uncertainty stays as it is.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] when the covariance lists part of a pose.
+#[doc(hidden)]
+pub fn handeye_upstream_uncertainty(
+    uncertainty: &Uncertainty,
+    mode: HandeyeMode,
+    handeye: &Iso3,
+    num_cameras: usize,
+    rig_se3_target: &[Iso3],
+) -> Result<Uncertainty, Error> {
+    let Some(covariance) = uncertainty.covariance() else {
+        return Ok(uncertainty.clone());
+    };
+    let (handeye_name, target_name) = handeye_pose_names(mode, num_cameras > 1);
+    let whole = |name: &str| -> Result<Option<[usize; 6]>, Error> {
+        let at: Vec<Option<usize>> = pose_labels(name)
+            .iter()
+            .map(|l| covariance.index(l))
+            .collect();
+        match at.iter().filter(|i| i.is_some()).count() {
+            0 => Ok(None),
+            6 => Ok(Some(std::array::from_fn(|i| {
+                at[i].expect("every coordinate is listed")
+            }))),
+            _ => Err(Error::invalid_input(format!(
+                "the calibration's covariance lists part of {name}; a pose is estimated whole \
+                 or held"
+            ))),
+        }
+    };
+    let handeye_at = whole(&handeye_name)?;
+    let target_at = whole(target_name)?;
+    let poses: Vec<usize> = handeye_at
+        .iter()
+        .chain(target_at.iter())
+        .flatten()
+        .copied()
+        .collect();
+    let kept: Vec<usize> = (0..covariance.labels.len())
+        .filter(|i| !poses.contains(i))
+        .collect();
+    let views = if poses.is_empty() {
+        0
+    } else {
+        rig_se3_target.len()
+    };
+
+    // The linear map from the calibration's coordinates to the upstream's.
+    let mut labels: Vec<String> = kept.iter().map(|&i| covariance.labels[i].clone()).collect();
+    let mut map = DMatrix::zeros(kept.len() + 6 * views, covariance.labels.len());
+    for (row, &i) in kept.iter().enumerate() {
+        map[(row, i)] = 1.0;
+    }
+    for (v, pose) in rig_se3_target.iter().take(views).enumerate() {
+        labels.extend(pose_labels(&format!("view{v}.rig_se3_target")));
+        let first = kept.len() + 6 * v;
+        if let Some(at) = handeye_at {
+            let moves = match mode {
+                HandeyeMode::EyeInHand => -adjoint(&pose.inverse()),
+                HandeyeMode::EyeToHand => adjoint(&(pose.inverse() * handeye)),
+            };
+            for a in 0..6 {
+                for b in 0..6 {
+                    map[(first + a, at[b])] = moves[(a, b)];
+                }
+            }
+        }
+        if let Some(at) = target_at {
+            for a in 0..6 {
+                map[(first + a, at[a])] += 1.0;
+            }
+        }
+    }
+    let n = covariance.labels.len();
+    let sigma = DMatrix::from_fn(n, n, |a, b| covariance.covariance[a][b]);
+    let mapped = &map * sigma * map.transpose();
+    let m = mapped.nrows();
+    Ok(Uncertainty::Available(ParameterCovariance {
+        labels,
+        covariance: (0..m)
+            .map(|a| {
+                (0..m)
+                    .map(|b| 0.5 * (mapped[(a, b)] + mapped[(b, a)]))
+                    .collect()
+            })
+            .collect(),
+        views: Vec::new(),
+        fixed: covariance.fixed.clone(),
+        noise: covariance.noise.clone(),
+        num_residuals: covariance.num_residuals,
+        dof: covariance.dof,
+        view_scatter: covariance.view_scatter,
+    }))
 }
 
 #[cfg(test)]
@@ -549,6 +995,7 @@ mod tests {
             cameras: vec![camera.clone(), camera],
             cam_to_rig: cam_to_rig.to_vec(),
             rig_se3_target,
+            uncertainty: Uncertainty::default(),
         };
 
         // Start planes slightly perturbed (in camera frame) from GT.

@@ -122,7 +122,8 @@ pub use crate::problems::handeye::{
 pub use crate::problems::laserline_bundle::{LaserlineSolveOptions, optimize_laserline};
 #[doc(hidden)]
 pub use crate::problems::laserline_rig_bundle::{
-    RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
+    RigLaserlineSolveOptions, RigLaserlineUpstream, handeye_upstream_uncertainty,
+    optimize_rig_laserline,
 };
 #[doc(hidden)]
 pub use crate::problems::planar_intrinsics::{

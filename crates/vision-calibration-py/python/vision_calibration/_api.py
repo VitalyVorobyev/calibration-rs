@@ -375,6 +375,45 @@ def pixel_to_gripper_point(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# rig_upstream_calibration
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def rig_upstream_calibration(
+    export: RigHandeyeExport, rig_se3_target: Sequence[Pose]
+) -> RigUpstreamCalibration:
+    """A rig hand-eye result as the upstream of a rig laserline input.
+
+    Parameters
+    ----------
+    export:
+        The rig hand-eye result the laser planes are fitted against.
+    rig_se3_target:
+        One rig-from-target pose per view of the laserline dataset, through
+        the hand-eye chain: ``export.rig_se3_target`` when the laser views
+        are its views.
+
+    Returns
+    -------
+    RigUpstreamCalibration
+        The cameras, extrinsics and target poses, with the export's
+        covariance in their terms in ``uncertainty``: the cameras and
+        extrinsics as they are, the hand-eye and target poses as each view's
+        target pose. The robot poses count as exact.
+
+    Raises
+    ------
+    ValueError
+        If the export's covariance lists part of a pose, or its camera and
+        extrinsic counts differ.
+    """
+    payload = _native.rig_upstream_calibration(
+        export.export, [p.to_payload() for p in rig_se3_target]
+    )
+    return RigUpstreamCalibration.from_payload(cast(Mapping[str, Any], payload))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # projection_uncertainty
 # ─────────────────────────────────────────────────────────────────────────────
 

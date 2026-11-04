@@ -492,6 +492,78 @@
       ],
       "type": "object"
     },
+    "ParameterCovariance": {
+      "description": "The covariance of a result's estimated parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Covariance of the shared parameters: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "dof": {
+          "description": "Residuals minus estimated parameters.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fixed": {
+          "description": "Labels of the parameters held fixed. The covariance is conditional on\nthem.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the shared parameters, in the order of `covariance`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "noise": {
+          "description": "The noise level of each kind of residual, estimated from the\nresiduals at the solution.",
+          "items": {
+            "$ref": "#/$defs/ResidualNoise"
+          },
+          "type": "array"
+        },
+        "num_residuals": {
+          "description": "Number of scalar residuals, priors included.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view_scatter": {
+          "description": "How many times the variance of the shared parameters across views\nexceeds what the residual noise predicts, measured by leaving out one\nview at a time. The residual noise model takes every corner's error\nas independent; errors shared by a view's corners (a lens model or\ntarget that does not fit exactly, a detector bias) are not in it, and\non real images make the estimate vary between view sets several\ntimes more than predicted. `covariance` and `views` are already\nscaled by it. `None` when the views scatter no more than the noise\npredicts (within the scatter's own sampling noise, at 97.5 %), and\nbelow six views.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "views": {
+          "description": "Per-view parameters, one block per view that has free ones.",
+          "items": {
+            "$ref": "#/$defs/ViewCovariance"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "labels",
+        "covariance",
+        "noise",
+        "num_residuals",
+        "dof"
+      ],
+      "type": "object"
+    },
     "PlanarDataset": {
       "description": "A planar dataset consisting of multiple views.\n\nEach view observes a planar calibration target in pixel coordinates.",
       "properties": {
@@ -564,6 +636,96 @@
           "type": "object"
         }
       ]
+    },
+    "ResidualKind": {
+      "description": "A kind of residual, which sets its unit.",
+      "oneOf": [
+        {
+          "const": "reprojection",
+          "description": "Target reprojection error, pixels.",
+          "type": "string"
+        },
+        {
+          "const": "laser_plane",
+          "description": "Laser point-to-plane distance, metres.",
+          "type": "string"
+        },
+        {
+          "const": "laser_line",
+          "description": "Laser line distance in the image, pixels.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A residual family of a problem built with the optimization crate's\n`problem` builder, by its name; its unit is that of the residual.",
+          "properties": {
+            "custom": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "custom"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ResidualNoise": {
+      "description": "The estimated noise level of one kind of residual.",
+      "oneOf": [
+        {
+          "description": "`σ̂` in the residual kind's unit: pixels for reprojection and the\nlaser line, metres for the laser plane.",
+          "properties": {
+            "sigma": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "sigma"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`σ̂₀` of residuals whitened by their stated per-point covariances:\ndimensionless, the square root of the a-posteriori variance factor.\nAbout 1 when the stated covariances describe the noise; 2 means the\nactual noise is twice what they state.",
+          "properties": {
+            "sigma0": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "sigma0"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "camera": {
+          "description": "The camera, for a result that estimates each camera's noise apart\n(the rig laserline, which solves each camera's plane on its own);\n`None` for one level shared by every camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "count": {
+          "description": "Number of scalar residuals of this kind.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/ResidualKind",
+          "description": "The kind of residual."
+        }
+      },
+      "required": [
+        "kind",
+        "count"
+      ],
+      "type": "object"
     },
     "RigDataset": {
       "description": "Multi-view dataset for a camera rig.",
@@ -747,7 +909,7 @@
       "type": "object"
     },
     "RigUpstreamCalibration": {
-      "description": "Upstream rig calibration (frozen starting point).\n\nMirrors a rig hand-eye result's per-camera parameters + cam→rig poses,\nplus the per-view rig→target poses the downstream laserline dataset\nspans. Each camera is evaluated in its own model: any distortion kind,\nand an identity or Scheimpflug sensor.",
+      "description": "Upstream rig calibration (frozen starting point).\n\nMirrors a rig hand-eye result's per-camera parameters + cam→rig poses,\nplus the per-view rig→target poses the downstream laserline dataset\nspans. Each camera is evaluated in its own model: any distortion kind,\nand an identity or Scheimpflug sensor.\n\nThe planes are fitted with these parameters held at their values; their\n`uncertainty` decides whether the planes' covariance carries theirs.",
       "properties": {
         "cam_se3_rig": {
           "description": "Per-camera extrinsics `cam_se3_rig` (T_C_R).",
@@ -769,6 +931,16 @@
             "$ref": "#/$defs/Iso3Schema"
           },
           "type": "array"
+        },
+        "uncertainty": {
+          "$ref": "#/$defs/Uncertainty",
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "The covariance of the parameters above, which the laser planes'\ncovariance then carries: the cameras' parameters (`cam1.fx`, no\nprefix for a one-camera rig), their extrinsics\n(`cam1.cam_se3_rig.rx … tz`, a right perturbation of `cam_se3_rig`)\nand the views' target poses (`view3.rig_se3_target.rx … tz` among\nthe shared parameters, correlated with the rest, or\n`rig_se3_target.rx … tz` in view 3's own block). Parameters it does\nnot list count as exact. Unavailable, the default, holds all of them\nexact: the planes' covariance is then conditional on this\ncalibration. [`RigHandeyeExport::to_upstream_calibration`] fills it\nfrom the hand-eye calibration's."
         }
       },
       "required": [
@@ -938,6 +1110,142 @@
       ],
       "type": "object"
     },
+    "Uncertainty": {
+      "description": "The uncertainty of a result's estimated parameters.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ParameterCovariance",
+          "description": "The covariance of the estimated parameters.",
+          "properties": {
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No covariance, for the reason given.",
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/UncertaintyUnavailable",
+              "description": "Why the covariance is not available."
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UncertaintyUnavailable": {
+      "description": "Why a result has no covariance.",
+      "oneOf": [
+        {
+          "description": "The solve stopped on its iteration budget, short of a minimum.",
+          "properties": {
+            "kind": {
+              "const": "not_converged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The data does not determine these parameters (or combinations of\nthem): too few or too similar views, or a free gauge.",
+          "properties": {
+            "kind": {
+              "const": "rank_deficient",
+              "type": "string"
+            },
+            "unobservable": {
+              "description": "Labels of the parameters involved.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "unobservable"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "These parameters ended on a bound, where a Gaussian covariance does\nnot describe them.",
+          "properties": {
+            "kind": {
+              "const": "at_bound",
+              "type": "string"
+            },
+            "labels": {
+              "description": "Labels of the parameters on a bound.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "labels"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No more observations than estimated parameters.",
+          "properties": {
+            "kind": {
+              "const": "no_redundancy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The result was produced or stored without uncertainty.",
+          "properties": {
+            "kind": {
+              "const": "not_computed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The result depends on a calibration that has no covariance, or none\nfor the cameras it uses (a laser calibration that held the cameras'\nintrinsics fixed), so a covariance from the result's own observations\nwould leave out the calibration's share.",
+          "properties": {
+            "kind": {
+              "const": "calibration_without_covariance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "View": {
       "description": "Single-camera observation view with attached metadata.",
       "properties": {
@@ -989,6 +1297,41 @@
       "required": [
         "obs",
         "meta"
+      ],
+      "type": "object"
+    },
+    "ViewCovariance": {
+      "description": "The covariance of one view's own parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Their covariance: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the view's parameters, e.g. `camera_se3_target.rx`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "view": {
+          "description": "View index, as in the result's per-view lists.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "labels",
+        "covariance"
       ],
       "type": "object"
     }

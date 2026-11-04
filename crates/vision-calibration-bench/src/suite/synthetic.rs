@@ -36,7 +36,7 @@ pub fn synthesize(scene_id: &str) -> Result<(ObservationSet, Truth)> {
         SceneData::Laserline { input, .. } => ProblemInput::LaserlineDevice(input),
         SceneData::Rig { input, .. } => ProblemInput::RigExtrinsics(input),
         SceneData::RigHandeye { input, .. } => ProblemInput::RigHandeye(input),
-        SceneData::RigLaserline { input, .. } => ProblemInput::RigLaserlineDevice(input),
+        SceneData::RigLaserline { input, .. } => ProblemInput::RigLaserlineDevice(Box::new(input)),
         SceneData::RigHandeyeLaserline { input, .. } => ProblemInput::RigHandeyeLaserline(input),
     };
     ensure!(

@@ -2210,6 +2210,8 @@ class RigHandeyeExport(_ExportResiduals):
     robot_pose_sigma: RobotPoseSigma | None = None
     """The robot's pose error the corrections were weighed with (estimated
     with ``robot_poses.estimate_sigma``); ``None`` without refinement."""
+    rig_se3_target: list[Pose] = field(default_factory=list)
+    """Each view's rig-from-target pose, through the hand-eye chain."""
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -2230,6 +2232,7 @@ class RigHandeyeExport(_ExportResiduals):
         return {
             "cameras": [c.to_payload() for c in self.cameras],
             "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
+            "rig_se3_target": [p.to_payload() for p in self.rig_se3_target],
             "handeye_mode": self.handeye_mode,
             "gripper_se3_rig": _pose(self.gripper_se3_rig),
             "rig_se3_base": _pose(self.rig_se3_base),
@@ -2267,6 +2270,10 @@ class RigHandeyeExport(_ExportResiduals):
             robot_pose_sigma=RobotPoseSigma.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
             ),
+            rig_se3_target=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload.get("rig_se3_target", []))
+            ],
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
@@ -2320,24 +2327,37 @@ class LaserlineDeviceExport(_ExportResiduals):
 class RigUpstreamCalibration:
     """Frozen upstream calibration for rig laserline device.
 
-    Typically derived from a :class:`RigHandeyeExport`; ``cameras``
-    are ``CameraParams`` payloads (projection, distortion, sensor,
-    intrinsics) as found in the export.
+    Typically derived from a :class:`RigHandeyeExport` with
+    :func:`~vision_calibration.rig_upstream_calibration`; ``cameras`` are
+    ``CameraParams`` payloads (projection, distortion, sensor, intrinsics) as
+    found in the export.
+
+    ``uncertainty`` is the covariance of these parameters, as a serde
+    payload: the cameras' parameters (``cam1.fx``), their extrinsics
+    (``cam1.cam_se3_rig.rx`` … ``tz``) and each view's target pose
+    (``view3.rig_se3_target.rx`` … ``tz``). The laser planes' covariance then
+    carries it. ``None`` holds the upstream exact, and the planes' covariance
+    is conditional on it.
     """
 
     cameras: list[dict[str, Any]]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
+    uncertainty: dict[str, Any] | None = None
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "cameras": self.cameras,
             "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
             "rig_se3_target": [p.to_payload() for p in self.rig_se3_target],
         }
+        if self.uncertainty is not None:
+            payload["uncertainty"] = self.uncertainty
+        return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigUpstreamCalibration":
+        uncertainty = payload.get("uncertainty")
         return cls(
             cameras=cast(list[dict[str, Any]], payload["cameras"]),
             cam_se3_rig=[
@@ -2348,6 +2368,7 @@ class RigUpstreamCalibration:
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["rig_se3_target"])
             ],
+            uncertainty=None if uncertainty is None else dict(uncertainty),
         )
 
 

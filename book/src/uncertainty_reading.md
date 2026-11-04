@@ -91,7 +91,10 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   types the two as `NoiseLevel::Sigma` and `NoiseLevel::Sigma0`; Python's
   `ResidualNoise.whitened` says which `sigma` holds. The rig laserline solves
   each camera's plane on its own, with the rig calibration held fixed, so it
-  reports each camera's noise levels apart (`camera` names the camera) and
-  planes of different cameras are uncorrelated.
+  reports each camera's noise levels apart (`camera` names the camera). When
+  the upstream calibration carries its covariance, the planes' covariance
+  carries its share and the planes of different cameras are correlated
+  through it; without one, it is conditional on the upstream and the planes
+  are uncorrelated.
 - **`num_residuals`, `dof`**: the scalar residuals and the redundancy they
   leave after the estimated parameters.

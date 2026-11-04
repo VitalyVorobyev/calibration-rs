@@ -152,6 +152,7 @@ fn stereo_rig_laserline_recovers_planes() {
         cameras: vec![camera.clone(), camera],
         cam_to_rig: cam_to_rig.to_vec(),
         rig_se3_target,
+        uncertainty: Default::default(),
     };
 
     // Initial planes: slightly perturbed from GT (in camera frame).

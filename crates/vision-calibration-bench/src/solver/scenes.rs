@@ -1322,6 +1322,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
         cameras,
         cam_se3_rig: layout,
         rig_se3_target: rig_poses,
+        uncertainty: Default::default(),
     };
     let mut config = RigLaserlineDeviceConfig::default();
     config.laser_residual_type = b.laser_residual(config.laser_residual_type);

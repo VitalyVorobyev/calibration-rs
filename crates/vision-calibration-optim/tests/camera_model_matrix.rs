@@ -367,6 +367,7 @@ fn rig_laserline_solves_every_camera_model() {
                 cameras: scene.cameras.to_vec(),
                 cam_to_rig: scene.cam_to_rig.to_vec(),
                 rig_se3_target: scene.rig_se3_target.clone(),
+                uncertainty: Default::default(),
             };
             let initial: Vec<_> = scene.planes_cam.iter().map(perturbed_plane).collect();
             let result = optimize_rig_laserline(

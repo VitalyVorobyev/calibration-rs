@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `optim::Error::Cancelled`, `RunError::Cancelled` and
   `CalibrateDatasetError::Cancelled` (`RunError` is matched exhaustively by
   some callers, who add the arm).
+- **`RigUpstreamCalibration` has an `uncertainty` field** (breaking for a
+  struct literal): the covariance of the upstream calibration the rig laser
+  planes are fitted against. Add `uncertainty: Uncertainty::default()` to
+  keep the upstream exact; inputs read from JSON without the field parse as
+  before. The Python dataclass gains `uncertainty` (a serde payload, `None`
+  by default), and the Python `RigHandeyeExport` gains `rig_se3_target`.
 - **`RunError::NoWholeChessboardViews` has an `ambiguous` count**
   (breaking): the views of the camera dropped because the board's turn could
   not be matched with the view's other cameras. Code that destructures the
@@ -76,9 +82,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before.
 - A partial chessboard that also overflows the declared extent is now
   dropped as `PartialChessboard` rather than `TurnedChessboard`.
+- **A rig laserline device's covariance carries its upstream calibration.**
+  `RigHandeyeExport::to_upstream_calibration` (and the dataset runner, from
+  the `upstream_calibration` export) now passes the hand-eye calibration's
+  covariance into the upstream, in its terms: the cameras and extrinsics as
+  they are, the hand-eye and target poses as each laser view's board pose.
+  The planes' covariance then adds the upstream's share as consider
+  parameters, which correlates the planes of different cameras, and lists
+  the cameras' parameters and extrinsics with their cross terms against the
+  planes, so `triangulate_laser` on the export's `calibrated_rig()` gives a
+  laser point's σ with the whole calibration in it instead of reporting the
+  calibration as unavailable. The planes themselves are unchanged. On a
+  two-camera rig on a robot arm, the depth of a laser point scatters by 0.99
+  times this σ over 300 repeated calibrations; the planes' own covariance
+  alone understated it 18-fold. The robot poses count as exact. An upstream
+  without a covariance holds it exact and gives the previous result, bit for
+  bit.
 
 ### Added
 
+- **`rig_upstream_calibration(export, rig_se3_target)` in Python**: the
+  rig laserline upstream built from a hand-eye export, its covariance with
+  it (Rust's `RigHandeyeExport::to_upstream_calibration`).
 - **Hand-eye initialization methods.** `handeye_init.method` (Python
   `HandeyeInitConfig.method`, and per step `HandeyeInitOptions.method`)
   picks the closed-form solver of every hand-eye workflow: `tsai_lenz` (the

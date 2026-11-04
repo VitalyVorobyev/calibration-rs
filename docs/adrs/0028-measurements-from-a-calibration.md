@@ -216,6 +216,41 @@ laser pixels with redundant observations of the same point (a point seen
 by a camera and by the laser), where a joint solve has something to
 adjust.
 
+### A staged laser calibration carries its upstream as consider parameters
+
+`rig_laserline_device` fits each camera's plane against a frozen rig
+calibration, so a plane's own covariance is conditional on it. Its
+`RigUpstreamCalibration` carries the upstream's `Uncertainty` over the
+parameters the plane fit consumes: the cameras' parameters, `cam_se3_rig`,
+and each view's `rig_se3_target` (`view<v>.rig_se3_target.*` among the
+shared parameters, so the poses stay correlated with each other and with
+the cameras). The fit is unchanged; after it, each camera's laser IR is
+linearized once more with the listed camera coordinates and its views'
+`camera_se3_target` free, `S = −H⁻¹ H_xc` comes from the same
+`consider_sensitivity` the builder's `Use::Consider` uses, and a right
+perturbation `ε` of `cam_se3_rig` maps onto `camera_se3_target =
+cam_se3_rig · rig_se3_target` as `Ad(rig_se3_target⁻¹) ε`. With `A` the
+chained `∂plane/∂u`, the export's covariance is the cameras' and
+extrinsics' upstream block, their cross terms `A Σ_u` with the planes, and
+the planes' `Σ_obs + A Σ_u Aᵀ`, so a laser point from this export has the
+three sources a joint solve gives it. The target poses enter the share but
+are not listed: the export is a device calibration.
+
+The hand-eye export's covariance is over the hand-eye and the target's
+pose, not over per-view poses, so `RigHandeyeExport::to_upstream_calibration`
+maps it: `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T` moves by `−Ad(T_R_T⁻¹) ε`
+with the hand-eye and by `ε` with the target (`EyeToHand`, `T_R_T = T_R_B ·
+T_B_G · T_G_T`: `Ad(T_R_T⁻¹ · T_R_B) ε` and `ε`). The robot poses, with any
+per-view corrections, count as exact: the export states no correlation
+between a correction and the shared parameters, and the per-view blocks
+alone would not be a valid approximation. An upstream without a covariance
+holds it exact, bit for bit the conditional covariance.
+
+Rejected: carrying the hand-eye chain (mode, poses, robot poses) in the
+upstream so the plane fit linearizes through it. The upstream's
+`rig_se3_target` would then have two sources, and a rig-extrinsics
+upstream (per-view target poses of its own) would need a second path.
+
 ### What the σ promises
 
 Each propagated σ is gated by Monte-Carlo, redrawing both the calibration

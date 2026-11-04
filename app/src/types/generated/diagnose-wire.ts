@@ -1481,9 +1481,15 @@ export interface RigLaserlineDeviceExport {
   rig_se3_target?: Iso3Schema[];
   /**
    * Covariance of the laser planes in their camera frames
-   * (`cam1.plane.nx`), conditional on the upstream calibration. Each
-   * camera's plane is solved on its own, so each camera has its own
-   * noise levels.
+   * (`cam1.plane.nx … cam1.plane.d`). When the upstream calibration
+   * carries its covariance, the planes' carries its share, and the
+   * cameras' parameters and extrinsics are listed with it, correlated
+   * with the planes: a laser point's σ then has the whole calibration in
+   * it. The views' target poses enter the planes' share but are not
+   * listed. Without one, the covariance is conditional on the upstream
+   * calibration (its parameters are among `fixed`) and the planes of
+   * different cameras are uncorrelated. Each camera's plane is solved on
+   * its own, so each camera has its own noise levels.
    */
   uncertainty?: Uncertainty;
 }

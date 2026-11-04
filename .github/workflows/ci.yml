@@ -193,6 +193,11 @@ jobs:
           cargo test --release --locked -p vision-calibration-optim
           --test uncertainty -- --ignored
 
+      - name: Rig laser point gate
+        run: >-
+          cargo test --release --locked -p vision-calibration
+          --test rig_laser_uncertainty -- --ignored
+
       - name: Robot-error estimate gate
         run: >-
           cargo test --release --locked -p vision-calibration-optim

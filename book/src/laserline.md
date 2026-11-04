@@ -166,8 +166,10 @@ parameters (intrinsics, distortion and, for a tilted sensor, the tilt) and the
 laser plane (`plane.nx`, `plane.ny`, `plane.nz`, `plane.d`, in the camera
 frame), with each view's target pose as a per-view block; see
 [Parameter Uncertainty](uncertainty.md). The rig laserline result labels
-each camera's plane `cam<i>.plane.nx` …, and the joint rig hand-eye
-laserline result adds the planes to the rig hand-eye labels.
+each camera's plane `cam<i>.plane.nx` … and lists, in front of them, the
+upstream calibration's camera parameters and extrinsics when the upstream
+carries its covariance; the joint rig hand-eye laserline result adds the
+planes to the rig hand-eye labels.
 
 ## Scheimpflug Support
 

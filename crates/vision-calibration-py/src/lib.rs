@@ -385,6 +385,49 @@ fn pixel_to_gripper_point(
     Ok(output.unbind())
 }
 
+/// A rig hand-eye export as the upstream calibration of a rig laserline
+/// input.
+///
+/// Parameters
+/// ----------
+/// export:
+///     Rig hand-eye calibration export (serde-compatible with
+///     `RigHandeyeExport`).
+/// rig_se3_target:
+///     One rig-from-target pose per view of the laserline dataset (list of
+///     serde-compatible `Iso3`), through the export's hand-eye chain.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `RigUpstreamCalibration`, with the export's
+///     covariance in its terms.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the export's camera and extrinsic counts differ, its covariance
+///     lists part of a pose, or a payload is malformed or not finite.
+#[pyfunction]
+fn rig_upstream_calibration(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    rig_se3_target: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::core::Iso3;
+    use vision_calibration::rig_handeye::RigHandeyeExport;
+
+    reject_non_finite("rig_se3_target", rig_se3_target)?;
+    let export: RigHandeyeExport = parse_payload(export, "export")?;
+    let poses: Vec<Iso3> = parse_payload(rig_se3_target, "rig_se3_target")?;
+    let upstream = export
+        .to_upstream_calibration(poses)
+        .map_err(|err| value_err(err.to_string()))?;
+    let output = pythonize(py, &upstream)
+        .map_err(|err| runtime_err(format!("failed to convert the upstream to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
 /// Projection uncertainty of one camera of a calibration export.
 ///
 /// Parameters
@@ -834,6 +877,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_rig_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_handeye_laserline, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
+    m.add_function(wrap_pyfunction!(rig_upstream_calibration, m)?)?;
     m.add_function(wrap_pyfunction!(projection_uncertainty, m)?)?;
     m.add_function(wrap_pyfunction!(assess, m)?)?;
     m.add_function(wrap_pyfunction!(html_report, m)?)?;
