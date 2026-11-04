@@ -180,6 +180,116 @@ pub(crate) fn check_sensor_seed(
     Ok(())
 }
 
+/// Check one camera's seeds before any work: the tilt and the distortion
+/// against `model` ([`check_sensor_seed`], [`check_distortion_seed`]), and
+/// a seed of the per-view poses, named `poses_field`, against the view
+/// count.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming the first seed that does not fit.
+pub(crate) fn check_camera_seed(
+    model: CameraModelSpec,
+    seed: &CameraSeed,
+    poses: Option<&[Iso3]>,
+    poses_field: &str,
+    view_count: usize,
+) -> Result<(), Error> {
+    if let Some(sensor) = &seed.sensor {
+        check_sensor_seed(model, sensor, "sensor")?;
+    }
+    if let Some(distortion) = &seed.distortion {
+        check_distortion_seed(distortion, model, "distortion")?;
+    }
+    if let Some(p) = poses
+        && p.len() != view_count
+    {
+        return Err(Error::invalid_input(format!(
+            "manual {poses_field} count ({}) does not match view count ({view_count})",
+            p.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Check the camera in a session's state still has the model the config
+/// names, `init_step` being the step that initialized it.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] when the configured model changed since.
+pub(crate) fn check_camera_model(
+    camera: &CameraParams,
+    configured: CameraModelSpec,
+    init_step: &str,
+) -> Result<(), Error> {
+    if camera.spec() != Some(configured) {
+        return Err(Error::invalid_input(format!(
+            "the camera model changed since {init_step} (now {configured:?}); run it again"
+        )));
+    }
+    Ok(())
+}
+
+/// Which inputs of an initialization were seeded and which estimated, for
+/// the step's log note.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Provenance {
+    manual: Vec<&'static str>,
+    auto: Vec<&'static str>,
+}
+
+impl Provenance {
+    /// The provenance of one camera's seeds: its intrinsics, its distortion
+    /// and, for a Scheimpflug camera, its tilt.
+    pub(crate) fn of_camera_seed(model: CameraModelSpec, seed: &CameraSeed) -> Self {
+        let mut provenance = Self::default();
+        provenance.note("intrinsics", seed.intrinsics.is_some());
+        provenance.note("distortion", seed.distortion.is_some());
+        if model.sensor == SensorKind::Scheimpflug {
+            provenance.note("sensor", seed.sensor.is_some());
+        }
+        provenance
+    }
+
+    /// Record `field` as seeded or estimated.
+    pub(crate) fn note(&mut self, field: &'static str, seeded: bool) {
+        if seeded {
+            self.manual.push(field);
+        } else {
+            self.auto.push(field);
+        }
+    }
+
+    /// The seeded fields.
+    #[cfg(test)]
+    pub(crate) fn manual(&self) -> &[&'static str] {
+        &self.manual
+    }
+
+    /// The estimated fields.
+    #[cfg(test)]
+    pub(crate) fn auto(&self) -> &[&'static str] {
+        &self.auto
+    }
+
+    /// Whether nothing was seeded.
+    pub(crate) fn all_auto(&self) -> bool {
+        self.manual.is_empty()
+    }
+
+    /// The "(manual: …; auto: …)" note of the step's log.
+    pub(crate) fn source(&self) -> String {
+        let (manual, auto) = (self.manual.join(", "), self.auto.join(", "));
+        match (self.manual.is_empty(), self.auto.is_empty()) {
+            (false, false) => format!("(manual: {manual}; auto: {auto})"),
+            (false, true) => format!("(manual: {manual})"),
+            (true, false) => format!("(auto: {auto})"),
+            (true, true) => "(empty)".to_string(),
+        }
+    }
+}
+
 /// Linear bootstrap of camera `cam_idx` (named in errors) of `model` from its
 /// planar views, by the initializer of the model's projection:
 /// [`bootstrap_pinhole`] or [`bootstrap_fisheye`].
@@ -585,6 +695,20 @@ mod tests {
             let opts = camera_solve_opts(&camera, &SolverConfig::default());
             assert!(opts.fix_poses.is_empty(), "{sensor:?}");
         }
+    }
+
+    #[test]
+    fn provenance_source_cases() {
+        let source = |manual: &[&'static str], auto: &[&'static str]| {
+            let mut p = Provenance::default();
+            manual.iter().for_each(|f| p.note(f, true));
+            auto.iter().for_each(|f| p.note(f, false));
+            p.source()
+        };
+        assert_eq!(source(&[], &[]), "(empty)");
+        assert_eq!(source(&["a"], &[]), "(manual: a)");
+        assert_eq!(source(&[], &["b", "c"]), "(auto: b, c)");
+        assert_eq!(source(&["a"], &["b"]), "(manual: a; auto: b)");
     }
 
     #[test]

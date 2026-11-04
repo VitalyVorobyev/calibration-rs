@@ -9,17 +9,18 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraFix, CameraModelSpec, CameraParams, FeatureResidualHistogram, Iso3, NoMeta,
-    PerFeatureResiduals, Real, RigDataset, RigView, RigViewObs, Uncertainty,
-    build_feature_histogram, compute_rig_target_residuals,
+    CameraFix, CameraModelSpec, CameraParams, Iso3, Real, RigDataset, RigView, RigViewObs,
+    Uncertainty,
 };
 use vision_calibration_optim::{
     HandeyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset, RigHandeyeLaserlineEstimate,
     RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView, RigLaserlineDataset, RobotPoseSigma,
-    RobustLoss, apply_robot_delta, compute_rig_laserline_feature_residuals,
+    RobustLoss, compute_rig_laserline_feature_residuals, handeye_observer_se3_target,
 };
 
-use crate::rig_family::rig_camera_models;
+use crate::rig_family::{
+    handeye_export_poses, inverse_poses, per_camera_histograms, rig_target_residuals,
+};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeLaserlineState;
@@ -64,22 +65,6 @@ impl RigHandeyeLaserlineInput {
                 .iter()
                 .map(|v| RigView {
                     meta: v.meta.clone(),
-                    obs: RigViewObs {
-                        cameras: v.obs.cameras.clone(),
-                    },
-                })
-                .collect(),
-        }
-    }
-
-    fn target_dataset_no_meta(&self) -> RigDataset<NoMeta> {
-        RigDataset {
-            num_cameras: self.num_cameras,
-            views: self
-                .views
-                .iter()
-                .map(|v| RigView {
-                    meta: NoMeta,
                     obs: RigViewObs {
                         cameras: v.obs.cameras.clone(),
                     },
@@ -373,26 +358,25 @@ pub(crate) fn export_joint(
     mode: HandeyeMode,
 ) -> Result<RigHandeyeLaserlineExport, Error> {
     let params = &estimate.params;
-    let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
-    let rig_se3_target =
-        materialize_rig_se3_target(input, params, mode, estimate.robot_deltas.as_deref());
-    let target_dataset = input.target_dataset_no_meta();
-    let target = compute_rig_target_residuals(
-        &rig_camera_models(&params.cameras)?,
-        &target_dataset,
+    let cam_se3_rig = inverse_poses(&params.cam_to_rig);
+    let robot_poses: Vec<Iso3> = input
+        .views
+        .iter()
+        .map(|v| v.meta.base_se3_gripper)
+        .collect();
+    let rig_se3_target = handeye_observer_se3_target(
+        mode,
+        &params.handeye,
+        &params.target_ref,
+        &robot_poses,
+        estimate.robot_deltas.as_deref(),
+    );
+    let mut per_feature_residuals = rig_target_residuals(
+        &params.cameras,
+        &input.handeye_dataset(),
         &cam_se3_rig,
         &rig_se3_target,
     )?;
-    let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
-        .map(|cam_idx| {
-            build_feature_histogram(
-                target
-                    .iter()
-                    .filter(|r| r.camera == cam_idx)
-                    .filter_map(|r| r.error_px),
-            )
-        })
-        .collect();
 
     let laser_dataset = input.laserline_dataset()?;
     let laser = compute_rig_laserline_feature_residuals(
@@ -402,29 +386,19 @@ pub(crate) fn export_joint(
         &rig_se3_target,
         &params.planes_cam,
     )?;
-    let laser_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
-        .map(|cam_idx| {
-            build_feature_histogram(
-                laser
-                    .features
-                    .iter()
-                    .filter(|r| r.camera == cam_idx)
-                    .filter_map(|r| r.residual_px),
-            )
-        })
-        .collect();
-
-    let mut per_feature_residuals = PerFeatureResiduals::default();
-    per_feature_residuals.target = target;
+    per_feature_residuals.laser_hist_per_camera =
+        Some(per_camera_histograms(input.num_cameras, |cam| {
+            laser
+                .features
+                .iter()
+                .filter(move |r| r.camera == cam)
+                .filter_map(|r| r.residual_px)
+        }));
     per_feature_residuals.laser = laser.features;
     per_feature_residuals.laser_lines = laser.lines;
-    per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
-    per_feature_residuals.laser_hist_per_camera = Some(laser_hist_per_camera);
 
-    let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match mode {
-        HandeyeMode::EyeInHand => (Some(params.handeye), None, Some(params.target_ref), None),
-        HandeyeMode::EyeToHand => (None, Some(params.handeye), None, Some(params.target_ref)),
-    };
+    let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) =
+        handeye_export_poses(mode, params.handeye, params.target_ref);
 
     Ok(RigHandeyeLaserlineExport {
         kind: ExportKind::RigHandeyeLaserline,
@@ -452,32 +426,6 @@ pub(crate) fn export_joint(
         diagnostics: ExportDiagnostics::new(per_feature_residuals),
         uncertainty: estimate.uncertainty.clone(),
     })
-}
-
-pub(crate) fn materialize_rig_se3_target(
-    input: &RigHandeyeLaserlineInput,
-    params: &vision_calibration_optim::RigHandeyeLaserlineParams,
-    mode: HandeyeMode,
-    robot_deltas: Option<&[[Real; 6]]>,
-) -> Vec<Iso3> {
-    input
-        .views
-        .iter()
-        .enumerate()
-        .map(|(view_idx, view)| {
-            let robot_pose = if let Some(deltas) = robot_deltas {
-                apply_robot_delta(&view.meta.base_se3_gripper, &deltas[view_idx])
-            } else {
-                view.meta.base_se3_gripper
-            };
-            match mode {
-                HandeyeMode::EyeInHand => {
-                    params.handeye.inverse() * robot_pose.inverse() * params.target_ref
-                }
-                HandeyeMode::EyeToHand => params.handeye * robot_pose * params.target_ref,
-            }
-        })
-        .collect()
 }
 
 /// The joint stage's fixed parameters of each camera of `models`: its entry

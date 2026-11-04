@@ -16,9 +16,9 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{
-    CameraSeed, bootstrap_camera, check_distortion_seed, check_sensor_seed, optimize_camera,
+    CameraSeed, Provenance, bootstrap_camera, check_camera_model, check_camera_seed,
+    optimize_camera,
 };
-use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
 use super::problem::{LaserlineDeviceEstimate, LaserlineDeviceProblem};
@@ -209,53 +209,20 @@ pub fn step_init_with_seed(
         init_opts.pinhole.iterations = iters;
     }
 
-    if let Some(sensor) = &manual.sensor
-        && let Err(e) = check_sensor_seed(model, sensor, "sensor")
-    {
-        session.log_failure("init", e.to_string());
-        return Err(e);
-    }
-    if let Some(distortion) = &manual.distortion
-        && let Err(e) = check_distortion_seed(distortion, model, "distortion")
-    {
-        session.log_failure("init", e.to_string());
-        return Err(e);
-    }
-    if let Some(p) = &manual.poses
-        && p.len() != view_count
-    {
-        let msg = format!(
-            "manual poses count ({}) does not match view count ({})",
-            p.len(),
-            view_count
-        );
-        session.log_failure("init", msg.clone());
-        return Err(Error::invalid_input(msg));
-    }
-
-    let mut manual_fields: Vec<&'static str> = Vec::new();
-    let mut auto_fields: Vec<&'static str> = Vec::new();
-    let mut note = |name: &'static str, seeded: bool| {
-        if seeded {
-            manual_fields.push(name);
-        } else {
-            auto_fields.push(name);
-        }
-    };
-    note("intrinsics", manual.intrinsics.is_some());
-    note("distortion", manual.distortion.is_some());
-    if model.sensor == SensorKind::Scheimpflug {
-        note("sensor", manual.sensor.is_some());
-    }
-    note("poses", manual.poses.is_some());
-    note("plane", manual.plane.is_some());
-
-    let planar_dataset = planar_dataset_from_input(input)?;
     let seed = CameraSeed {
         intrinsics: manual.intrinsics,
         distortion: manual.distortion,
         sensor: manual.sensor,
     };
+    if let Err(e) = check_camera_seed(model, &seed, manual.poses.as_deref(), "poses", view_count) {
+        session.log_failure("init", e.to_string());
+        return Err(e);
+    }
+    let mut provenance = Provenance::of_camera_seed(model, &seed);
+    provenance.note("poses", manual.poses.is_some());
+    provenance.note("plane", manual.plane.is_some());
+
+    let planar_dataset = planar_dataset_from_input(input)?;
     let holds_tilt = session.config.holds_tilt();
     let bootstrap = if holds_tilt {
         // A held tilt is known: initialize as an untilted camera, then
@@ -312,7 +279,6 @@ pub fn step_init_with_seed(
     session.state.initial_plane_rmse = plane_rmse;
     session.state.clear_optimization();
 
-    let source = format_init_source(&manual_fields, &auto_fields);
     let plane_note = match plane_rmse {
         Some(rmse) => format!("plane_rmse={:.4}", rmse),
         None => "plane=manual".to_string(),
@@ -321,7 +287,10 @@ pub fn step_init_with_seed(
         "init",
         format!(
             "fx={:.1}, fy={:.1}, {} {}",
-            camera.intrinsics.fx, camera.intrinsics.fy, plane_note, source
+            camera.intrinsics.fx,
+            camera.intrinsics.fy,
+            plane_note,
+            provenance.source()
         ),
     );
 
@@ -358,22 +327,15 @@ pub fn step_optimize(
         .initial_params
         .clone()
         .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
-    let configured = session.config.camera.model;
-    if initial.camera.spec() != Some(configured) {
-        return Err(Error::invalid_input(format!(
-            "the camera model changed since step_init (now {configured:?}); run it again"
-        )));
-    }
+    check_camera_model(&initial.camera, session.config.camera.model, "step_init")?;
 
     let opts = opts.unwrap_or_default();
     let solve_opts = session.config.solve_opts();
-    let mut backend_opts = session.config.solver.backend_options(session.control());
-    if let Some(max_iters) = opts.max_iters {
-        backend_opts.max_iters = max_iters;
-    }
-    if let Some(verbosity) = opts.verbosity {
-        backend_opts.verbosity = verbosity;
-    }
+    let backend_opts = session.config.solver.step_backend_options(
+        session.control(),
+        opts.max_iters,
+        opts.verbosity,
+    );
 
     let result = optimize_laserline(input, &initial, &solve_opts, &backend_opts)?;
 
