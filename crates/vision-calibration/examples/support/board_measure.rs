@@ -8,11 +8,10 @@
 
 use anyhow::{Context, Result, ensure};
 use std::collections::HashMap;
-use vision_calibration::core::{
-    CalibratedRig, Iso3, PointCovariance, Pt3, RigViewObs, Uncertainty,
-};
+use vision_calibration::core::{CalibratedRig, PointCovariance, Pt3, RigViewObs, Uncertainty};
 use vision_calibration::mvg::metrology::{PointSet, distance, fit_plane};
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
+use vision_calibration::mvg::types::Captures;
 
 /// Longest distance measured, in squares.
 pub const MAX_SQUARES: usize = 7;
@@ -98,7 +97,7 @@ pub fn measure_view(
     };
     let triangulation = triangulate(
         rig,
-        &[Iso3::identity()],
+        Captures::Rig,
         &tracks,
         &vision_calibration::control::RunControl::default(),
     )?;

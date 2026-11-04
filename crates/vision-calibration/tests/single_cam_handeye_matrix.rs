@@ -364,6 +364,21 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
             "noise={noise_px}px: mean reproj {} > {reproj_bound}",
             export.mean_reproj_error
         );
+
+        // The export's rig stands in the base through its hand-eye, which the
+        // covariance lists under the labels the rig names it by.
+        use vision_calibration::common::CalibratedCameras;
+        let rig = export.calibrated_rig().expect("rig");
+        assert!(matches!(
+            rig.handeye(),
+            Some(vision_calibration::core::Handeye::EyeToHand { .. })
+        ));
+        if noise_px > 0.0 {
+            let covariance = export.uncertainty.covariance().expect("covariance");
+            for label in rig.handeye_labels().unwrap() {
+                assert!(covariance.index(&label).is_some(), "{label} not listed");
+            }
+        }
     }
 }
 

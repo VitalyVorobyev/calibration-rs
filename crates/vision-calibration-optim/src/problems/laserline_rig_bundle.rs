@@ -36,12 +36,12 @@ use crate::problems::laserline_bundle::{
     compute_laserline_stats, optimize_laserline, plane_sensitivity,
 };
 use crate::uncertainty::{self, handeye_pose_names, pose_labels};
-use nalgebra::{DMatrix, Matrix3, Matrix6};
+use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
     CameraFix, CameraParams, CorrespondenceView, Iso3, ParameterCovariance, Pt2, Uncertainty, View,
 };
+use vision_calibration_core::{LaserPlane, se3_adjoint};
 
 /// Per-view observations for a rig-level laserline calibration.
 ///
@@ -603,7 +603,7 @@ impl<'a> UpstreamShare<'a> {
                 HeldParameter::Pose { view, index } => {
                     let view = view_of[*view];
                     if let Some(extrinsic) = extrinsic {
-                        let ad = adjoint(&rig_se3_target[view].inverse());
+                        let ad = se3_adjoint(&rig_se3_target[view].inverse());
                         term.extend((0..6).map(|b| (extrinsic[b], ad[(*index, b)])));
                     }
                     if let Some(target) = self.pose_columns(&Self::target_name(view), false)? {
@@ -714,19 +714,6 @@ impl<'a> UpstreamShare<'a> {
     }
 }
 
-/// `Ad(T) = [[R, 0], [[t]ₓ R, R]]` for `δ = [ω, v]`: `T·Exp(δ) =
-/// Exp(Ad(T) δ)·T`.
-fn adjoint(pose: &Iso3) -> Matrix6<f64> {
-    let r = pose.rotation.to_rotation_matrix().into_inner();
-    let t = pose.translation.vector;
-    let tr = Matrix3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0) * r;
-    let mut ad = Matrix6::zeros();
-    ad.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
-    ad.fixed_view_mut::<3, 3>(3, 0).copy_from(&tr);
-    ad.fixed_view_mut::<3, 3>(3, 3).copy_from(&r);
-    ad
-}
-
 /// The covariance of a rig hand-eye calibration in the coordinates of a
 /// [`RigLaserlineUpstream`] whose target poses `rig_se3_target` follow the
 /// calibration's chain.
@@ -806,8 +793,8 @@ pub fn handeye_upstream_uncertainty(
         let first = kept.len() + 6 * v;
         if let Some(at) = handeye_at {
             let moves = match mode {
-                HandeyeMode::EyeInHand => -adjoint(&pose.inverse()),
-                HandeyeMode::EyeToHand => adjoint(&(pose.inverse() * handeye)),
+                HandeyeMode::EyeInHand => -se3_adjoint(&pose.inverse()),
+                HandeyeMode::EyeToHand => se3_adjoint(&(pose.inverse() * handeye)),
             };
             for a in 0..6 {
                 for b in 0..6 {

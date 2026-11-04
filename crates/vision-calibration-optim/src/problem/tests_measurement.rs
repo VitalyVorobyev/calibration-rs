@@ -477,3 +477,60 @@ fn free_points_triangulate_through_a_rig_with_stated_noise() {
         assert!(a > b, "{a} vs {b}");
     }
 }
+
+/// A rig pose on the robot needs a considered calibration with a hand-eye,
+/// and the robot's pose exactly where the rig moves with it.
+#[test]
+fn rig_poses_on_a_robot_are_checked() {
+    use vision_calibration_core::{Handeye, RobotFrame, RobotPose};
+    let scene = scene(0.3);
+    let handeye = Handeye::EyeInHand {
+        gripper_se3_rig: part_pose(),
+    };
+    let robot = RobotPose::isotropic(part_pose().inverse(), 1e-3, 1e-3).unwrap();
+
+    let mut problem = Problem::new();
+    let err = problem
+        .add_rig_pose("rig", RobotFrame::Base, Some(&robot))
+        .unwrap_err();
+    assert!(err.to_string().contains("before its poses"), "{err}");
+
+    let bare = calibrate(&scene);
+    let mut problem = Problem::new();
+    problem.add_calibrated_rig(&bare, Use::Consider).unwrap();
+    let err = problem
+        .add_rig_pose("rig", RobotFrame::Gripper, None)
+        .unwrap_err();
+    assert!(err.to_string().contains("no hand-eye"), "{err}");
+
+    let rig = bare.clone().with_handeye(handeye).unwrap();
+    let mut problem = Problem::new();
+    problem.add_calibrated_rig(&rig, Use::Consider).unwrap();
+    let err = problem
+        .add_rig_pose("a", RobotFrame::Gripper, Some(&robot))
+        .unwrap_err();
+    assert!(err.to_string().contains("does not enter"), "{err}");
+    let err = problem
+        .add_rig_pose("a", RobotFrame::Base, None)
+        .unwrap_err();
+    assert!(err.to_string().contains("state the robot's pose"), "{err}");
+    let gripper = problem
+        .add_rig_pose("in_gripper", RobotFrame::Gripper, None)
+        .unwrap();
+    let base = problem
+        .add_rig_pose("in_base", RobotFrame::Base, Some(&robot))
+        .unwrap();
+    assert_ne!(gripper, base);
+    assert!(
+        problem
+            .add_rig_pose("in_base", RobotFrame::Base, Some(&robot))
+            .is_err()
+    );
+
+    let mut problem = Problem::new();
+    problem.add_calibrated_rig(&rig, Use::Prior).unwrap();
+    let err = problem
+        .add_rig_pose("rig", RobotFrame::Gripper, None)
+        .unwrap_err();
+    assert!(err.to_string().contains("Use::Consider"), "{err}");
+}

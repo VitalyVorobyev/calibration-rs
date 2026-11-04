@@ -12,6 +12,7 @@ use vision_calibration_core::{
 use vision_mvg::MvgError;
 use vision_mvg::metrology::{PointSet, angle, distance, fit_plane, point_to_plane};
 use vision_mvg::triangulation::{RigObservation, triangulate};
+use vision_mvg::types::Captures;
 
 /// A deterministic generator (SplitMix64) with normal draws.
 struct Rng(u64);
@@ -163,7 +164,7 @@ fn a_triangulation_without_uncertainty_names_the_reason() {
     ]];
     let t = triangulate(
         &rig,
-        &[vision_calibration_core::Iso3::identity()],
+        Captures::World(&[vision_calibration_core::Iso3::identity()]),
         &tracks,
         &vision_calibration_core::RunControl::default(),
     )

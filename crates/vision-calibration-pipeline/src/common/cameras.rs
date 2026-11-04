@@ -5,11 +5,11 @@ use serde::de::DeserializeOwned;
 
 use nalgebra::Matrix2;
 use vision_calibration_core::{
-    CalibratedRig, CameraParams, Iso3, LaserPlane, ParameterCovariance, Uncertainty,
+    CalibratedRig, CameraParams, Handeye, Iso3, LaserPlane, ParameterCovariance, Uncertainty,
 };
 use vision_calibration_optim::{
-    Error as OptimError, ProjectionUncertainty, camera_parameters, projection_covariance_at,
-    projection_uncertainty,
+    Error as OptimError, HandeyeMode, ProjectionUncertainty, camera_parameters,
+    projection_covariance_at, projection_uncertainty,
 };
 
 use crate::Error;
@@ -45,28 +45,40 @@ pub trait CalibratedCameras {
         Vec::new()
     }
 
+    /// The rig's hand-eye, for an export calibrated on a robot; `None` for
+    /// the others.
+    fn handeye(&self) -> Option<Handeye> {
+        None
+    }
+
     /// The calibration as a value a measurement takes: the cameras, their
-    /// poses in the rig, their laser planes (for a laser export) and the
-    /// uncertainty of the estimated parameters (labelled as in
+    /// poses in the rig, their laser planes (for a laser export), the
+    /// hand-eye (for a hand-eye export) and the uncertainty of the
+    /// estimated parameters (labelled as in
     /// [`parameter_uncertainty`](Self::parameter_uncertainty)).
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidInput`] when a camera's parameters do not build a model
-    /// or the covariance does not list a laser plane in full.
+    /// [`Error::InvalidInput`] when a camera's parameters do not build a
+    /// model or the covariance lists a laser plane or the hand-eye in part.
     fn calibrated_rig(&self) -> Result<CalibratedRig, Error> {
-        let rig = CalibratedRig::new(
+        let invalid = |e: vision_calibration_core::Error| Error::invalid_input(e.to_string());
+        let mut rig = CalibratedRig::new(
             self.camera_params(),
             self.cam_se3_rig(),
             self.parameter_uncertainty().clone(),
         )
-        .map_err(|e| Error::invalid_input(e.to_string()))?;
+        .map_err(invalid)?;
         let planes = self.laser_planes_cam();
-        if planes.is_empty() {
-            return Ok(rig);
+        if !planes.is_empty() {
+            rig = rig
+                .with_laser_planes(planes.into_iter().map(Some).collect())
+                .map_err(invalid)?;
         }
-        rig.with_laser_planes(planes.into_iter().map(Some).collect())
-            .map_err(|e| Error::invalid_input(e.to_string()))
+        match self.handeye() {
+            Some(handeye) => rig.with_handeye(handeye).map_err(invalid),
+            None => Ok(rig),
+        }
     }
 
     /// The value of the camera parameter a covariance label names (`fx`,
@@ -162,6 +174,23 @@ pub(crate) fn split_camera_label(label: &str) -> (usize, &str) {
         .unwrap_or((0, label))
 }
 
+/// The hand-eye of an export's mode from its two optional poses: the one the
+/// mode does not use is `None` in a well-formed export.
+fn handeye_of(
+    mode: HandeyeMode,
+    gripper_se3_rig: Option<Iso3>,
+    rig_se3_base: Option<Iso3>,
+) -> Option<Handeye> {
+    match mode {
+        HandeyeMode::EyeInHand => {
+            gripper_se3_rig.map(|gripper_se3_rig| Handeye::EyeInHand { gripper_se3_rig })
+        }
+        HandeyeMode::EyeToHand => {
+            rig_se3_base.map(|rig_se3_base| Handeye::EyeToHand { rig_se3_base })
+        }
+    }
+}
+
 /// The export a JSON value holds, by its `kind` field, as its cameras.
 ///
 /// # Errors
@@ -212,6 +241,14 @@ impl CalibratedCameras for PlanarIntrinsicsExport {
 impl CalibratedCameras for SingleCamHandeyeExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         vec![self.camera.clone()]
+    }
+
+    fn handeye(&self) -> Option<Handeye> {
+        handeye_of(
+            self.handeye_mode,
+            self.gripper_se3_camera,
+            self.camera_se3_base,
+        )
     }
 
     fn cam_se3_rig(&self) -> Vec<Iso3> {
@@ -272,6 +309,10 @@ impl CalibratedCameras for RigHandeyeExport {
         self.cameras.clone()
     }
 
+    fn handeye(&self) -> Option<Handeye> {
+        handeye_of(self.handeye_mode, self.gripper_se3_rig, self.rig_se3_base)
+    }
+
     fn cam_se3_rig(&self) -> Vec<Iso3> {
         self.cam_se3_rig.clone()
     }
@@ -310,6 +351,10 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
 impl CalibratedCameras for RigHandeyeLaserlineExport {
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras.clone()
+    }
+
+    fn handeye(&self) -> Option<Handeye> {
+        handeye_of(self.handeye_mode, self.gripper_se3_rig, self.rig_se3_base)
     }
 
     fn laser_planes_cam(&self) -> Vec<LaserPlane> {
@@ -425,6 +470,17 @@ mod tests {
         .unwrap();
         let rig = handeye.calibrated_rig().unwrap();
         assert_eq!(rig.laser_plane(1).unwrap().distance(), -0.4);
+        // Without its pose the export has no hand-eye to attach.
+        assert!(rig.handeye().is_none());
+        let mut with_pose = handeye.clone();
+        with_pose.gripper_se3_rig = Some(Iso3::translation(0.0, 0.0, 0.1));
+        let rig = with_pose.calibrated_rig().unwrap();
+        assert!(matches!(rig.handeye(), Some(Handeye::EyeInHand { .. })));
+        assert_eq!(
+            rig.handeye_labels().unwrap()[5],
+            "gripper_se3_rig.tz",
+            "the labels the hand-eye exports name it by"
+        );
 
         // A plane the covariance lists in part is not guessed around; one it
         // does not list was held fixed and stays exact.

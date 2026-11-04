@@ -122,21 +122,21 @@ Two views do not observe the length of the translation, so $|t| = 1$ is the **ga
 
 ## Triangulating Points from N Views
 
-`mvg::triangulation::triangulate` takes the rig, the pose of the rig at each capture (`rig_se3_world`, taken as exact) and, for each point, a track of observations: the pixel, its noise, the rig camera that saw it and the capture. It returns a `Triangulation`: a `TriangulatedPoint` per track in the world frame, with the same diagnostics, and the joint covariance of the points.
+`mvg::triangulation::triangulate` takes the rig, where the rig was at each capture (`Captures`) and, for each point, a track of observations: the pixel, its noise, the rig camera that saw it and the capture. It returns a `Triangulation`: a `TriangulatedPoint` per track in the frame of the captures, with the same diagnostics, and the joint covariance of the points. `Captures::Rig` is one capture in the rig frame and `Captures::World(&rig_se3_world)` the rig's pose at each capture, taken as exact; a rig calibrated on a robot measures in its gripper or base frame ([below](#points-in-the-robots-frames)).
 
 ```rust
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
 use vision_calibration::control::RunControl;
-use vision_calibration::core::{Iso3, PointCovariance};
+use vision_calibration::core::PointCovariance;
+use vision_calibration::mvg::types::Captures;
 
-// One stereo capture: the rig frame is the world frame. Each pixel is
-// stated to 0.3 px.
+// One stereo capture, in the rig frame. Each pixel is stated to 0.3 px.
 let noise = PointCovariance::isotropic(0.3)?;
 let track = vec![
     RigObservation::new(0, 0, pixel_in_camera_0, noise),
     RigObservation::new(0, 1, pixel_in_camera_1, noise),
 ];
-let found = triangulate(&rig, &[Iso3::identity()], &[track], &RunControl::default())?;
+let found = triangulate(&rig, Captures::Rig, &[track], &RunControl::default())?;
 println!("{:?} parallax {:.2}°", found.points[0].point, found.points[0].parallax_deg);
 if let Some(cov) = found.point_covariance(0) {
     // The 3×3 covariance in m²; the depth's σ along the world z axis.
@@ -159,7 +159,7 @@ cov = found.point_covariance(0)                       # (3, 3) in m², or None
 
 The last argument is a `RunControl` ([Sessions](session.md) describes it): its observers receive each iteration of the point refinement and its token stops the call with `MvgError::Cancelled`. `PoseOptions::control` and `BundleAdjustOptions::control` do the same for `estimate_pose` and `bundle_adjust`, and `StereoRectification::triangulate`, `estimate_essential` and `recover_relative_pose_robust` take a control as `triangulate` does. In Python these functions take `progress=`, a callable given each report; raising from it, or Ctrl-C, stops the call.
 
-Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]`, so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track.
+Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]` (with `Captures::World`), so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track.
 
 **The estimate.** The linear algorithm of [Linear Triangulation](triangulation.md) on bearings starts each point; all the points are then refined together on the reprojection error, each pixel weighted by its stated covariance (a general `PointCovariance`, an isotropic σ, or `rig.reprojection_noise(camera)` for the calibration's own noise level). The noise is stated because a point seen twice leaves one degree of freedom, too few to estimate a noise level from.
 
@@ -177,14 +177,15 @@ A laser line seen by a calibrated camera, with its plane known, gives a 3D point
 use vision_calibration::core::{PointCovariance, Pt2};
 use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
 use vision_calibration::mvg::metrology::{PointSet, distance};
+use vision_calibration::mvg::types::Captures;
 
 // The laser-peak detector's noise, 0.1 px.
 let noise = PointCovariance::isotropic(0.1)?;
 let observations: Vec<LaserObservation> = laser_pixels
     .iter()
-    .map(|&pixel: &Pt2| LaserObservation::new(0, pixel, noise))
+    .map(|&pixel: &Pt2| LaserObservation::new(0, 0, pixel, noise)) // capture 0, camera 0
     .collect();
-let found = triangulate_laser(&rig, &observations)?;
+let found = triangulate_laser(&rig, Captures::Rig, &observations)?;
 println!("{:?} seen at {:.0}°", found.points[0].point, found.points[0].incidence_deg);
 
 // The joint covariance feeds the measurements.
@@ -201,7 +202,7 @@ length = mvg.distance(points, 0, len(observations) - 1)
 print(f"{length.value:.3f} m ± {length.sigma * 1e3:.3f} mm")
 ```
 
-The points are in the rig frame (the single camera's own frame for a laserline device). The pixel goes through its camera's model, so distortion, fisheye (beyond 90° from the axis) and tilted sensors need no separate undistortion; a ray parallel to the plane, or meeting it behind the camera, is an error that names the observation. `incidence_deg` is the angle between the ray and the plane: depth is ill-determined as it nears zero.
+With `Captures::Rig` the points are in the rig frame (the single camera's own frame for a laserline device); `Captures::World` states the rig's pose at each capture of a scan, and each observation names its capture. The pixel goes through its camera's model, so distortion, fisheye (beyond 90° from the axis) and tilted sensors need no separate undistortion; a ray parallel to the plane, or meeting it behind the camera, is an error that names the observation. `incidence_deg` is the angle between the ray and the plane: depth is ill-determined as it nears zero.
 
 **The covariance** has two sources, as for triangulation: the pixels' noise, and the calibration's, here the camera's parameters, the laser plane and the camera's pose in the rig, *with their correlations* as the calibration estimated them together. Each pixel fixes its point through $\pi(p;\theta) = u$ and $n^\top p + d = 0$, so the point moves with the pixel, the camera, the plane and the pose by the implicit-function derivatives of those two equations, computed exactly from the camera model. Every point of a call shares the calibration, so the points are correlated and `cross_covariance(i, j)` gives the block between two. The covariance is conditional on what the calibration held fixed (a plane or camera it did not estimate counts as exact), and the pixel noise is the detector's, stated by you. The cost grows as the square of the number of points times the number of calibration parameters, with a dense covariance over the coordinates.
 
@@ -210,3 +211,53 @@ A rig whose covariance lists none of an observing camera's intrinsics, distortio
 **Why the calibration's share matters.** Take a laserline device calibrated from six views at 0.3 px noise, and eight points of the plane 0.4 to 0.6 m ahead measured with 0.1 px noise. Over 300 repeated calibrations the depth of a point scatters by 1.02 times the reported σ (4.7 mm, root mean square), and the length between the first and last point by 0.99 times the σ that `metrology` derives from the joint covariance. The σ from the pixels alone is 0.017 mm: a plane and camera taken as exact would report error bars hundreds of times too small.
 
 The same holds for a two-camera rig on a robot arm: a rig hand-eye calibration from ten stations at 0.3 px, then each camera's laser plane fitted against it from six laser views, then eight points of each camera's plane measured with 0.1 px noise. Over 300 repeated calibrations the depth of a point scatters by 0.99 times the reported σ (0.45 mm). The board poses the planes are fitted against come through the hand-eye chain, so most of that σ is the hand-eye's: the planes' own fit alone, with the rig calibration taken as exact, would report 0.025 mm, 18 times too small.
+
+## Points in the Robot's Frames
+
+A rig calibrated on a robot arm measures in the robot's frames: the gripper (flange) frame or the base. Its `calibrated_rig()` carries the hand-eye (`rig.handeye()`: `Handeye::EyeInHand { gripper_se3_rig }` for a rig on the gripper, `Handeye::EyeToHand { rig_se3_base }` for one standing in the base), and `Captures` states the frame:
+
+- **`Captures::Handeye(frame)`**, the frame the rig is fixed in: the gripper eye-in-hand, the base eye-to-hand. One capture; the robot does not enter.
+- **`Captures::Robot { frame, robot }`**, the frame the rig moves in: the base eye-in-hand, the gripper eye-to-hand. `robot[k]` is the robot's pose `base_se3_gripper` at capture `k`, exact (`RobotPose::exact`) or with the covariance of its error (`RobotPose::new`, or `RobotPose::isotropic(pose, rot_sigma, trans_sigma)` in rad and m, about and along the gripper's axes). A laser scan is one call: each observation names the capture it was seen at.
+
+Naming the other frame for either variant, or a robot frame for a rig without a hand-eye, is an error before any work.
+
+```rust
+use vision_calibration::core::{RobotFrame, RobotPose};
+use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
+use vision_calibration::mvg::types::Captures;
+
+// A joint rig hand-eye laserline export: cameras, planes and hand-eye.
+let rig = export.calibrated_rig()?;
+// The robot reports its pose to 0.1 mrad and 50 µm per axis.
+let robot: Vec<RobotPose> = stations
+    .iter()
+    .map(|pose| RobotPose::isotropic(*pose, 1e-4, 5e-5))
+    .collect::<Result<_, _>>()?;
+// capture k, camera c: the pixels of each station of the scan.
+let observations: Vec<LaserObservation> = scan
+    .iter()
+    .map(|&(k, c, pixel)| LaserObservation::new(k, c, pixel, noise))
+    .collect();
+let in_base = triangulate_laser(
+    &rig,
+    Captures::Robot { frame: RobotFrame::Base, robot: &robot },
+    &observations,
+)?;
+let in_gripper = triangulate_laser(&rig, Captures::Handeye(RobotFrame::Gripper), &single)?;
+```
+
+```python
+robot = [mvg.RobotPose.isotropic(pose, 1e-4, 5e-5) for pose in stations]  # (4, 4) each
+observations = [mvg.LaserObservation(c, px, noise, capture=k) for k, c, px in scan]
+in_base = mvg.triangulate_laser(result, observations, mvg.RobotCaptures("base", robot))
+in_gripper = mvg.triangulate_laser(result, single, mvg.RobotCaptures("gripper"))
+found = mvg.triangulate(result, mvg.RobotCaptures("base", robot), tracks)
+```
+
+`triangulate` takes the same `Captures`: a single camera on the gripper moved between stations triangulates in the base frame, and a fixed rig measures points held by the gripper in its frame.
+
+**The covariance** gains two sources. The hand-eye is a parameter of the calibration, so it enters with the cameras, planes and extrinsics, *correlated with them* as the calibration estimated them in one solve. Each robot pose's stated covariance enters on its own, independent of the calibration's and of the other poses' (a robot's systematic error across poses is not modelled). A hand-eye the calibration's covariance does not list was held fixed and counts as exact, as a robot pose without a covariance does. Points of one capture share its robot pose, and every point shares the calibration, so the points are correlated.
+
+**Why the correlations matter.** Take the two-camera rig above, calibrated jointly with its laser planes and the hand-eye from ten board stations and six laser stations at 0.3 px, moved to a station it never took and reporting its pose to 0.1 mrad and 50 µm per axis; eight points of each camera's plane are measured with 0.1 px noise in the base frame, and eight points ahead of the rig triangulated from both cameras. Over 300 repeated calibrations each coordinate scatters by 1.01 times the reported σ, for the laser points (0.100 mm) and the triangulated ones (0.45 mm). The calibration pins the board's pose in the base frame, so the hand-eye and the planes err together: with their cross terms dropped, as a frame change applied after the measurement would state it, the laser points' σ is 0.41 mm, four times too large, and without the robot's error it is 0.068 mm, 1.6 times too small.
+
+A staged laser calibration (the planes of `RigLaserlineDevice` fitted against a frozen rig hand-eye calibration) does not list the hand-eye in its covariance: a rig built from it with `with_handeye` counts the hand-eye as exact. The joint `RigHandeyeLaserline` export carries all of it.

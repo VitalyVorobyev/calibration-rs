@@ -7,10 +7,12 @@
 //! rig's calibration as consider parameters: the result carries the joint
 //! covariance of the points, the calibration's uncertainty included. The
 //! diagnostics report the reprojection error in pixels, the parallax and
-//! whether the point lies ahead of every observing camera.
+//! whether the point lies ahead of every observing camera. On a robot the
+//! points can be stated in its gripper or base frame ([`Captures`]), the
+//! hand-eye's and the robot poses' uncertainty considered too.
 
 use crate::bearing::{bearing, camera_model};
-use crate::types::TriangulatedPoint;
+use crate::types::{Captures, TriangulatedPoint};
 use crate::{MvgError, Result};
 use nalgebra::SMatrix;
 use serde::{Deserialize, Serialize};
@@ -30,7 +32,8 @@ use vision_geometry::triangulation::triangulate_point_linear;
 /// with its noise.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RigObservation {
-    /// Index into the capture poses (`rig_se3_world`) the call takes.
+    /// Index of the capture that saw the point, into the call's
+    /// [`Captures`].
     pub capture: usize,
     /// Index of the rig camera that saw the point.
     pub camera: usize,
@@ -61,12 +64,13 @@ impl RigObservation {
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct Triangulation {
-    /// One point per track, in the world frame, refined, with its
-    /// diagnostics.
+    /// One point per track, in the frame of the call's [`Captures`],
+    /// refined, with its diagnostics.
     pub points: Vec<TriangulatedPoint>,
     /// The joint covariance of every refined point's coordinates, m², with
     /// the labels `p{i}.x`, `p{i}.y`, `p{i}.z` for track `i`: from the
-    /// observations' stated noise plus the calibration's share. Or why it is
+    /// observations' stated noise plus the calibration's share (and, on a
+    /// robot, the hand-eye's and the robot poses'). Or why it is
     /// unavailable; a rig without a covariance gives
     /// [`UncertaintyUnavailable::CalibrationWithoutCovariance`].
     pub uncertainty: Uncertainty,
@@ -110,23 +114,28 @@ pub(crate) fn sub_covariance<const N: usize>(
     Some(SMatrix::from_fn(|r, s| c.covariance[rows[r]][cols[s]]))
 }
 
-/// Triangulate each track (the observations of one point) in the world frame,
-/// refine the points and give their joint covariance.
+/// Triangulate each track (the observations of one point) in the frame of
+/// `captures`, refine the points and give their joint covariance.
 ///
-/// `rig_se3_world[k]` is the pose of the rig at capture `k` (world → rig
-/// frame), taken as exact. Camera `i` at capture `k` sees the world through
+/// `captures` states where the rig was at each capture, and so the frame the
+/// points are stated in: [`Captures::Rig`] for one stereo capture in the
+/// rig frame, [`Captures::World`] with the rig's exact pose
+/// `rig_se3_world[k]` at each capture, or, for a rig calibrated on a robot,
+/// its gripper or base frame through the calibration's hand-eye
+/// ([`Captures::Handeye`], [`Captures::Robot`] with the robot's pose at each
+/// capture). Camera `i` at capture `k` sees the frame through
 /// `rig.cam_se3_rig()[i] * rig_se3_world[k]`. Every pixel is unprojected
 /// through its camera's own model, so distortion, fisheye and tilted sensors
 /// need no separate undistortion. The linear (DLT) triangulation of the
 /// bearings starts each point; all points are then refined together on the
 /// reprojection error, each pixel weighted by its stated noise.
 ///
-/// For one stereo capture pass `&[Iso3::identity()]`: the rig frame is the
-/// world frame and the points come out in the rig frame.
-///
 /// The covariance has two sources: the observations' noise, and the rig's
 /// calibration, which enters as consider parameters (its parameters stay at
-/// their values and its covariance is propagated into the points'). Every
+/// their values and its covariance is propagated into the points'). On a
+/// robot the calibration's hand-eye is one of them, correlated with its
+/// cameras, and each robot pose's stated covariance another, independent of
+/// the calibration's and of the other poses'. Every
 /// point shares the calibration's uncertainty, so the points are correlated
 /// ([`Triangulation::cross_covariance`]) and are solved in one problem. The
 /// covariance is dense over the 3N coordinates, so the cost grows as N³: for
@@ -143,6 +152,7 @@ pub(crate) fn sub_covariance<const N: usize>(
 ///     make_pinhole_camera, pinhole_camera_params,
 /// };
 /// use vision_mvg::triangulation::{RigObservation, triangulate};
+/// use vision_mvg::types::Captures;
 ///
 /// // A stereo pair: camera 0 is the rig frame, camera 1 sits 10 cm to its right.
 /// let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 320.0, cy: 240.0 };
@@ -168,7 +178,7 @@ pub(crate) fn sub_covariance<const N: usize>(
 ///     RigObservation::new(0, 1, pixel(1), noise),
 /// ];
 ///
-/// let found = triangulate(&rig, &[Iso3::identity()], &[track], &RunControl::default())?;
+/// let found = triangulate(&rig, Captures::Rig, &[track], &RunControl::default())?;
 /// assert!((found.points[0].point - point).norm() < 1e-6);
 /// assert!(found.points[0].in_front);
 /// // This rig has no covariance, so neither do the points; one with a
@@ -182,7 +192,9 @@ pub(crate) fn sub_covariance<const N: usize>(
 /// All-or-nothing: a track with fewer than 2 observations, a camera or
 /// capture index out of range, a pixel without a finite viewing ray or a
 /// degenerate (zero-parallax) system is an error whose message names the
-/// track by its index in `tracks`; so is a refinement that fails to run. A
+/// track by its index in `tracks`; so is a refinement that fails to run.
+/// [`MvgError::InvalidInput`] for a robot frame the rig cannot serve (no
+/// hand-eye, or a frame the variant of [`Captures`] does not state). A
 /// refinement that stops short of convergence is not an error: the points are
 /// returned as they stand and the uncertainty says
 /// [`UncertaintyUnavailable::NotConverged`]. [`MvgError::Cancelled`] when
@@ -190,10 +202,16 @@ pub(crate) fn sub_covariance<const N: usize>(
 /// `control`'s observers, and an observer cannot change the result.
 pub fn triangulate(
     rig: &CalibratedRig,
-    rig_se3_world: &[Iso3],
+    captures: Captures<'_>,
     tracks: &[Vec<RigObservation>],
     control: &RunControl,
 ) -> Result<Triangulation> {
+    let rig_se3_world: Vec<Iso3> = captures
+        .resolve(rig)?
+        .into_iter()
+        .map(|c| c.rig_se3_world)
+        .collect();
+    let rig_se3_world = rig_se3_world.as_slice();
     let mut starts = Vec::with_capacity(tracks.len());
     for (i, track) in tracks.iter().enumerate() {
         let views = track_views(rig, rig_se3_world, track)
@@ -209,7 +227,7 @@ pub fn triangulate(
     let blocks = problem
         .add_calibrated_rig(rig, Use::Consider)
         .map_err(refine_error)?;
-    let mut captures: Vec<Option<BlockId>> = vec![None; rig_se3_world.len()];
+    let mut capture_blocks: Vec<Option<BlockId>> = vec![None; rig_se3_world.len()];
     let mut point_blocks: Vec<Option<BlockId>> = Vec::with_capacity(tracks.len());
     for (i, (track, (_, linear))) in tracks.iter().zip(&starts).enumerate() {
         if !(linear.in_front && linear.reprojection_error.is_some()) {
@@ -224,17 +242,24 @@ pub fn triangulate(
             .set_labels(block, &["x", "y", "z"])
             .map_err(refine_error)?;
         for obs in track {
-            let capture = match captures[obs.capture] {
+            let capture = match capture_blocks[obs.capture] {
                 Some(id) => id,
                 None => {
-                    let id = problem
-                        .add_pose(
-                            format!("capture{}", obs.capture),
-                            &rig_se3_world[obs.capture],
-                        )
-                        .map_err(refine_error)?;
-                    problem.fix(id).map_err(refine_error)?;
-                    captures[obs.capture] = Some(id);
+                    let name = format!("capture{}", obs.capture);
+                    let id = match captures {
+                        Captures::Rig | Captures::World(_) => {
+                            let id = problem
+                                .add_pose(name, &rig_se3_world[obs.capture])
+                                .map_err(refine_error)?;
+                            problem.fix(id).map(|()| id)
+                        }
+                        Captures::Handeye(frame) => problem.add_rig_pose(name, frame, None),
+                        Captures::Robot { frame, robot } => {
+                            problem.add_rig_pose(name, frame, Some(&robot[obs.capture]))
+                        }
+                    }
+                    .map_err(refine_error)?;
+                    capture_blocks[obs.capture] = Some(id);
                     id
                 }
             };
@@ -459,8 +484,7 @@ mod tests {
             .iter()
             .map(|p| track(&rig, &[Iso3::identity()], p))
             .collect();
-        let found =
-            triangulate(&rig, &[Iso3::identity()], &tracks, &RunControl::default()).unwrap();
+        let found = triangulate(&rig, Captures::Rig, &tracks, &RunControl::default()).unwrap();
         assert_eq!(found.points.len(), 2);
         for (f, p) in found.points.iter().zip(&world) {
             assert!((f.point - p).norm() < 1e-9);
@@ -483,7 +507,7 @@ mod tests {
         let world = Pt3::new(0.15, -0.1, 2.5);
         let found = triangulate(
             &rig,
-            &captures,
+            Captures::World(&captures),
             &[track(&rig, &captures, &world)],
             &RunControl::default(),
         )
@@ -508,7 +532,13 @@ mod tests {
             o.pixel.x += 0.3 * rng.next();
             o.pixel.y += 0.3 * rng.next();
         }
-        let found = triangulate(&rig, &captures, &[noisy], &RunControl::default()).unwrap();
+        let found = triangulate(
+            &rig,
+            Captures::World(&captures),
+            &[noisy],
+            &RunControl::default(),
+        )
+        .unwrap();
         let err = found.points[0].reprojection_error.unwrap();
         assert!(err > 0.01 && err < 0.5, "reprojection {err}");
         assert!((found.points[0].point - world).norm() < 0.1);
@@ -530,7 +560,13 @@ mod tests {
             RigObservation::new(0, 0, Pt2::new(600.0, 480.0), noise()),
             RigObservation::new(1, 0, Pt2::new(720.0, 480.0), noise()),
         ];
-        let found = triangulate(&rig, &captures, &[track], &RunControl::default()).unwrap();
+        let found = triangulate(
+            &rig,
+            Captures::World(&captures),
+            &[track],
+            &RunControl::default(),
+        )
+        .unwrap();
         assert!(!found.points[0].in_front);
         assert!(found.points[0].reprojection_error.is_none());
     }
@@ -559,8 +595,7 @@ mod tests {
             .iter()
             .map(|p| track(&rig, &[Iso3::identity()], p))
             .collect();
-        let found =
-            triangulate(&rig, &[Iso3::identity()], &tracks, &RunControl::default()).unwrap();
+        let found = triangulate(&rig, Captures::Rig, &tracks, &RunControl::default()).unwrap();
         for (f, p) in found.points.iter().zip(&world) {
             assert!((f.point - p).norm() < 1e-9, "{:?} vs {p:?}", f.point);
             assert!(f.in_front);
@@ -574,9 +609,14 @@ mod tests {
         let captures = [Iso3::identity()];
         let good = track(&rig, &captures, &Pt3::new(0.0, 0.0, 2.0));
         let message = |tracks: Vec<Vec<RigObservation>>| -> String {
-            triangulate(&rig, &captures, &tracks, &RunControl::default())
-                .unwrap_err()
-                .to_string()
+            triangulate(
+                &rig,
+                Captures::World(&captures),
+                &tracks,
+                &RunControl::default(),
+            )
+            .unwrap_err()
+            .to_string()
         };
 
         // Fewer than two observations.
@@ -602,7 +642,7 @@ mod tests {
         assert!(matches!(
             triangulate(
                 &rig,
-                &captures,
+                Captures::World(&captures),
                 &[vec![good[0], good[0]]],
                 &RunControl::default()
             ),
