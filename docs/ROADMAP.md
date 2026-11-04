@@ -63,7 +63,8 @@ geometry takes a bare `K`, carries no covariance and has no demonstration.
    dataset through the seeded official route, gated by the quality report.
 2. **Public regression suite** — a versioned public suite (observations in
    the repository, images fetched from their publishers and verified by
-   checksum) gates every PR, with reference results compared against OpenCV.
+   checksum) gates every PR, with reference results compared against OpenCV
+   wherever OpenCV has an equivalent calibration.
 3. **Uncertainty** — every result carries its parameter covariance,
    projection uncertainty and quality report, validated by Monte-Carlo and
    against real-image scatter (split-half consistency). The detector's
