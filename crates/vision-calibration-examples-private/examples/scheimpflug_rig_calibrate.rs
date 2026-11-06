@@ -179,7 +179,7 @@ fn main() -> Result<()> {
     cfg.rig.refine_intrinsics = false;
     let robot_rot_sigma = cfg.handeye_optimize.robot_poses.rot_sigma;
     let robot_trans_sigma = cfg.handeye_optimize.robot_poses.trans_sigma;
-    rig_session.set_config(cfg)?;
+    rig_session.set_config(cfg.clone())?;
 
     let t0 = Instant::now();
     let intr_opt;
@@ -270,7 +270,7 @@ fn main() -> Result<()> {
     );
 
     let mut rig_export = rig_session.export()?;
-    rig_export.image_manifest = Some(build_image_manifest(&poses, tile_w, tile_h));
+    rig_export.diagnostics.image_manifest = Some(build_image_manifest(&poses, tile_w, tile_h));
     let export_path = data_dir.join("export.json");
     std::fs::write(
         &export_path,
@@ -366,10 +366,13 @@ fn main() -> Result<()> {
             );
         }
         for (i, p) in laser_export.laser_planes_cam.iter().enumerate() {
-            let n = p.normal.into_inner();
+            let n = p.normal().into_inner();
             println!(
                 "  plane (cam) {i}: n=({:+.4}, {:+.4}, {:+.4}), d={:+.4} m",
-                n.x, n.y, n.z, p.distance
+                n.x,
+                n.y,
+                n.z,
+                p.distance()
             );
         }
         // ─── Stage 4: joint rig + hand-eye + laser-plane BA ────────────────
@@ -1014,13 +1017,13 @@ fn compare_to_oracle(
             let o = &oracle.cameras[i];
             let mut n_o = o.plane_normal;
             let mut d_o = o.plane_distance;
-            let n = p.normal.into_inner();
+            let n = p.normal().into_inner();
             if n.dot(&n_o) < 0.0 {
                 n_o = -n_o;
                 d_o = -d_o;
             }
             let angle_deg = n.dot(&n_o).clamp(-1.0, 1.0).acos().to_degrees();
-            let dist_mm = (p.distance - d_o).abs() * 1e3;
+            let dist_mm = (p.distance() - d_o).abs() * 1e3;
             let sigma = laser_sigma_mm.and_then(|s| s.get(i)).copied();
             let beat_sigma = sigma.map(|s| s < o.plane_sigma_mm);
             if beat_sigma != Some(true) {

@@ -21,7 +21,10 @@ use calib_targets::{
 };
 
 use vision_calibration_detect::{DetectorConfig, GrayImageView, RinggridConfig};
-use vision_metrology::{ColAccess, Edge1DConfig, LaserExtractConfig, LaserExtractor, ScanAxis};
+use vision_metrology::Edge1DConfig;
+use vision_metrology::laser::{
+    ColAccess, LaserExtractConfig, LaserExtractTuning, LaserExtractor, ScanAxis,
+};
 use vm_primitives::core::ImageView;
 
 /// Default coded-ring band width in millimetres, mirroring `ringgrid`'s own
@@ -611,16 +614,21 @@ pub fn detect_laser(tile: &GrayImage) -> Vec<Pt2> {
         axis: ScanAxis::Cols {
             access: ColAccess::Gather,
         },
-        edge_cfg: Edge1DConfig {
-            sigma: 1.2,
-            pos_thresh: 4.0,
-            neg_thresh: 4.0,
-            ..Edge1DConfig::default()
+        tuning: LaserExtractTuning {
+            edge_cfg: Edge1DConfig {
+                sigma: 1.2,
+                pos_thresh: 4.0,
+                neg_thresh: 4.0,
+                ..Edge1DConfig::default()
+            },
+            ..LaserExtractTuning::default()
         },
         ..LaserExtractConfig::default()
     };
-    let mut extractor = LaserExtractor::new(cfg.edge_cfg.sigma);
-    let line = extractor.extract_line_u8(&view, 0..width, &cfg, None);
+    let mut extractor = LaserExtractor::new(cfg.tuning.edge_cfg.sigma);
+    let line = extractor
+        .extract_line(&view, 0..width, &cfg, None)
+        .expect("column gathering needs no transposed view and cannot fail");
 
     line.points
         .into_iter()

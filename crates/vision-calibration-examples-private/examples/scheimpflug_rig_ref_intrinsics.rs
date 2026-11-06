@@ -71,7 +71,8 @@ struct CamResult {
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
     let max_iters: usize = std::env::var("SCHEIMPFLUG_RIG_REF_MAXITERS")
         .ok()
