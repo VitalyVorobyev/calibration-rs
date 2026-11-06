@@ -51,6 +51,7 @@ from .types import ProgressCallback
 __all__ = [
     "BlockMatchOptions",
     "BundleAdjustment",
+    "DenseCloud",
     "EssentialEstimate",
     "HomographyEstimate",
     "LaserObservation",
@@ -1156,6 +1157,21 @@ class PointSet:
         """The set of a :func:`bundle_adjust` result's points."""
         return cls._from_joint(adjustment.points, adjustment._joint, adjustment.uncertainty)
 
+    @classmethod
+    def from_dense_cloud(cls, cloud: DenseCloud, indices: Sequence[int]) -> PointSet:
+        """The set of the points ``indices`` of a :meth:`StereoRectification.dense_cloud`
+        cloud, in that order, with their joint covariance: point ``k`` of the set
+        is cloud point ``indices[k]``.
+
+        Raises
+        ------
+        ValueError
+            If the cloud has no covariance or an index is out of range.
+        """
+        picked = [int(i) for i in indices]
+        covariance = cloud.covariance(picked)
+        return cls(cloud.points[picked].reshape(-1, 3), covariance)
+
 
 def distance(points: PointSet, a: int, b: int) -> Scalar:
     """The distance between points ``a`` and ``b``, metres, with its σ.
@@ -1308,6 +1324,33 @@ class StereoRectification:
             ),
         )
 
+    def dense_cloud(
+        self,
+        result: CalibrationResult | Mapping[str, Any],
+        disparity: ArrayLike,
+        sigma_d: float,
+    ) -> DenseCloud:
+        """The point cloud of a ``(H, W)`` disparity map of this rectified pair
+        (``x_left - x_right`` in pixels, ``NaN`` where the matcher abstains, as
+        :func:`match_block` returns it), with each point's covariance on demand.
+
+        Every pixel with a finite, positive disparity becomes a point, row by
+        row, in the **rig frame**. ``sigma_d`` is the disparity's σ in pixels.
+        The covariance includes the calibration's share; a calibration without
+        a covariance gives points without one. ``result`` must be the
+        calibration this rectification was built from.
+
+        Raises
+        ------
+        ValueError
+            If ``result`` is another calibration or ``sigma_d`` is negative or
+            not finite.
+        """
+        array = np.ascontiguousarray(np.asarray(disparity, dtype=np.float32))
+        if array.ndim != 2:
+            raise ValueError(f"disparity must be a (H, W) array, got shape {array.shape}")
+        return DenseCloud(self._native.dense_cloud(_export_of(result), array, float(sigma_d)))
+
     def triangulate(
         self,
         result: CalibrationResult | Mapping[str, Any],
@@ -1336,6 +1379,74 @@ class StereoRectification:
 
     def __repr__(self) -> str:
         return f"StereoRectification(cameras={self.cameras}, baseline={self.baseline:.6g})"
+
+
+class DenseCloud:
+    """The points of a disparity map, built by
+    :meth:`StereoRectification.dense_cloud`, with the covariance of any of them
+    on demand.
+
+    The points are in the rig frame. A point's covariance has two sources: the
+    disparity's noise and the calibration's uncertainty, which every point
+    shares, so the points are correlated. :meth:`point_covariance` gives one
+    point's; :meth:`covariance`, or :meth:`PointSet.from_dense_cloud` for the
+    measurements, the joint covariance of chosen points.
+    """
+
+    __slots__ = ("_native",)
+
+    def __init__(self, native: Any) -> None:
+        self._native: Any = native
+
+    def __len__(self) -> int:
+        return int(self._native.__len__())
+
+    @property
+    def points(self) -> NDArray[np.float64]:
+        """``(N, 3)`` points, rig frame, metres."""
+        return cast(NDArray[np.float64], self._native.points())
+
+    @property
+    def pixels(self) -> NDArray[np.int64]:
+        """``(N, 2)`` rectified left pixels ``(x, y)`` the points were measured at."""
+        return cast(NDArray[np.int64], self._native.pixels())
+
+    @property
+    def disparities(self) -> NDArray[np.float64]:
+        """``(N,)`` disparities, pixels."""
+        return cast(NDArray[np.float64], self._native.disparities())
+
+    @property
+    def sigma_d(self) -> float:
+        """The disparity σ the cloud was built with, pixels."""
+        return float(self._native.sigma_d())
+
+    @property
+    def covariance_unavailable(self) -> str | None:
+        """Why the points have no covariance (``"calibration_without_covariance"``
+        for a calibration without one); ``None`` when they have one."""
+        return cast(str | None, self._native.covariance_unavailable())
+
+    def point_covariance(self, i: int) -> NDArray[np.float64] | None:
+        """Point ``i``'s ``(3, 3)`` covariance, m²: the disparity's share and the
+        calibration's. ``None`` when the points have no covariance or ``i`` is
+        out of range."""
+        return cast(NDArray[np.float64] | None, self._native.point_covariance(int(i)))
+
+    def covariance(self, indices: Sequence[int]) -> NDArray[np.float64]:
+        """The ``(3k, 3k)`` joint covariance of the points ``indices``, m²,
+        ordered ``x, y, z`` per point. Its cost grows as ``k²``: choose the
+        points a measurement needs.
+
+        Raises
+        ------
+        ValueError
+            If the points have no covariance or an index is out of range.
+        """
+        return cast(NDArray[np.float64], self._native.covariance([int(i) for i in indices]))
+
+    def __repr__(self) -> str:
+        return f"DenseCloud(points={len(self)}, sigma_d={self.sigma_d:.6g})"
 
 
 def rectify(

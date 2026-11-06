@@ -698,6 +698,47 @@ class MvgTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             rect.triangulate(_laser_result(), [(left, disparity)], scene.noise)
 
+    def test_dense_cloud_with_the_calibrations_share(self) -> None:
+        scene = self.scene
+        rect = mvg.rectify(scene.result, (0, 1))
+        point = np.array([0.05, -0.04, 1.3])
+        pixels = [
+            scene.models[c].project(_apply(scene.cam_se3_rig[c], point[None]))[0] for c in range(2)
+        ]
+        left = rect.rectified_pixel(0, pixels[0])
+        right = rect.rectified_pixel(1, pixels[1])
+        x, y = int(round(left[0])), int(round(left[1]))
+        disparity = np.full((y + 10, x + 10), np.nan, dtype=np.float32)
+        disparity[y, x] = left[0] - right[0]
+        disparity[y, x + 5] = left[0] - right[0] - 1.0
+        disparity[0, 0] = -2.0  # not a point
+        cloud = rect.dense_cloud(scene.result, disparity, sigma_d=0.2)
+        self.assertEqual(len(cloud), 2)
+        self.assertIsNone(cloud.covariance_unavailable)
+        self.assertEqual(cloud.sigma_d, 0.2)
+        np.testing.assert_array_equal(cloud.pixels, [[x, y], [x + 5, y]])
+        self.assertEqual(cloud.points.shape, (2, 3))
+        # The left camera is the rig frame here: the point is `point` at the grid pixel.
+        np.testing.assert_allclose(
+            cloud.points[0], rect.point((x, y), float(disparity[y, x])), atol=1e-12
+        )
+        covariance = cloud.point_covariance(0)
+        disparity_only = rect.disparity_covariance((x, y), float(disparity[y, x]), 0.2)
+        self.assertGreater(covariance[2, 2], disparity_only[2, 2])
+        joint = cloud.covariance([1, 0])
+        self.assertEqual(joint.shape, (6, 6))
+        np.testing.assert_allclose(joint[3:, 3:], covariance, rtol=1e-12)
+        self.assertGreater(abs(joint[2, 5]), 0.0)  # the shared calibration correlates them
+        points = mvg.PointSet.from_dense_cloud(cloud, [0, 1])
+        length = mvg.distance(points, 0, 1)
+        self.assertGreater(length.sigma, 0.0)
+        with self.assertRaises(ValueError):
+            cloud.covariance([0, 2])
+        with self.assertRaises(ValueError):
+            rect.dense_cloud(scene.result, disparity, sigma_d=-1.0)
+        with self.assertRaises(ValueError):
+            rect.dense_cloud(_laser_result(), disparity, sigma_d=0.2)
+
     def test_rectify_image_keeps_shape_and_dtype(self) -> None:
         rect = mvg.rectify(self.scene.result, (0, 1))
         raw = (np.arange(576 * 1024) % 251).astype(np.uint8).reshape(576, 1024)

@@ -12,16 +12,20 @@
 //! `d = x_left − x_right > 0`. [`StereoRectification::point`] gives the 3D
 //! point, [`StereoRectification::disparity_to_depth`] the matrix `Q` that does
 //! it for a whole map, and [`StereoRectification::disparity_covariance`] the
-//! covariance that the disparity's noise alone gives it.
-//! [`StereoRectification::triangulate`] gives measurements that also carry the
-//! calibration's uncertainty.
+//! covariance that the disparity's noise alone gives it. Two measurements also
+//! carry the calibration's uncertainty:
+//! [`StereoRectification::dense_cloud`] turns a whole disparity map into a
+//! [`DenseCloud`] whose points' covariance is computed on demand, and
+//! [`StereoRectification::triangulate`] refines selected matches on the
+//! reprojection error of both raw pixels.
 //!
 //! # Frames
 //!
 //! Two frames appear. [`point`](StereoRectification::point) and
 //! [`disparity_covariance`](StereoRectification::disparity_covariance) are in
-//! the **left camera's frame** (`cameras[0]`), as a dense point cloud is.
-//! [`triangulate`](StereoRectification::triangulate) works on the rig, so its
+//! the **left camera's frame** (`cameras[0]`), as `Q` is.
+//! [`dense_cloud`](StereoRectification::dense_cloud) and
+//! [`triangulate`](StereoRectification::triangulate) work on the rig, so their
 //! points are in the **rig frame**.
 //!
 //! # Rectified geometry
@@ -32,6 +36,10 @@
 //! `x_r = fx (X − B)/Z + cx` on the right, both on row `y = fy Y/Z + cy`.
 //! Hence `d = fx B/Z`, and a disparity error `δd` moves the point along its
 //! viewing ray: `δP = −P δd/d`.
+
+mod cloud;
+
+pub use cloud::{DenseCloud, DensePoint};
 
 use crate::bearing::{bearing, camera_model};
 use crate::dense::GrayImage;
@@ -376,7 +384,8 @@ impl StereoRectification {
     /// 1, along the viewing ray, and its depth σ is `Z² σ_d/(fx B)`.
     ///
     /// It does not include the calibration's uncertainty (see
-    /// [`triangulate`](Self::triangulate)). `None` where `point` is, or for a
+    /// [`dense_cloud`](Self::dense_cloud) and [`triangulate`](Self::triangulate)).
+    /// `None` where `point` is, or for a
     /// `sigma_d` that is negative or not finite.
     pub fn disparity_covariance(&self, left: &Pt2, disparity: Real, sigma_d: Real) -> Option<Mat3> {
         if !(sigma_d.is_finite() && sigma_d >= 0.0) {
@@ -413,20 +422,8 @@ impl StereoRectification {
         pixel_noise: PointCovariance,
         control: &RunControl,
     ) -> Result<Triangulation> {
+        self.check_rig(rig)?;
         let [a, b] = self.cameras;
-        let same_rig = rig.num_cameras() == self.num_cameras
-            && rig
-                .cam_se3_rig()
-                .get(a)
-                .zip(rig.cam_se3_rig().get(b))
-                .is_some_and(|(pa, pb)| {
-                    same_pose(pa, &self.cam_se3_rig[0]) && same_pose(pb, &self.cam_se3_rig[1])
-                });
-        if !same_rig {
-            return Err(MvgError::invalid_input(
-                "the rig is not the one this rectification was built from",
-            ));
-        }
         let tracks = matches
             .iter()
             .enumerate()
@@ -448,6 +445,29 @@ impl StereoRectification {
             })
             .collect::<Result<Vec<_>>>()?;
         triangulate(rig, Captures::Rig, &tracks, control)
+    }
+}
+
+impl StereoRectification {
+    /// `InvalidInput` unless `rig` is the one this rectification was built
+    /// from (its camera count and the pair's two poses).
+    fn check_rig(&self, rig: &CalibratedRig) -> Result<()> {
+        let [a, b] = self.cameras;
+        let same_rig = rig.num_cameras() == self.num_cameras
+            && rig
+                .cam_se3_rig()
+                .get(a)
+                .zip(rig.cam_se3_rig().get(b))
+                .is_some_and(|(pa, pb)| {
+                    same_pose(pa, &self.cam_se3_rig[0]) && same_pose(pb, &self.cam_se3_rig[1])
+                });
+        if same_rig {
+            Ok(())
+        } else {
+            Err(MvgError::invalid_input(
+                "the rig is not the one this rectification was built from",
+            ))
+        }
     }
 }
 

@@ -216,6 +216,32 @@ laser pixels with redundant observations of the same point (a point seen
 by a camera and by the laser), where a joint solve has something to
 adjust.
 
+### Dense clouds: the matcher's measurement, closed form, on demand
+
+A dense match is a rectified left grid pixel and a disparity along the row.
+The rectification maps are fixed (built with the calibration's values), so
+the left pixel is a fixed raw pixel, exact, and the right measurement says
+only which rectified column the right camera saw the point on; the row there
+(the vertical disparity a calibration error causes) is not measured. The
+point is the implicit function `F(X; c, d) = [π_L(X) − u_L; r(π_R(X) −
+u_R(d))] = 0` with `r` the row of the fixed right map's inverse that gives
+the column: three equations, three unknowns, so its sensitivity to the
+calibration is closed form, `G = −A⁻¹ ∂F/∂c`, from the same `CameraJacobian`
+as the laser points, and the disparity's is `−(X − c_L)/d`.
+`StereoRectification::dense_cloud` returns a `DenseCloud` in the rig frame
+(as `triangulate`'s): it stores the points only, and computes `G_i` when a
+covariance is asked for, per point or jointly over chosen indices
+(`PointSet::from_dense_cloud` for metrology), since a full map's `G_i` would
+take hundreds of megabytes. The rectification is never differentiated: it is
+how the measurement was taken, not a parameter of the point.
+
+Rejected: `triangulate` with isotropic noise on both raw pixels per point. It
+is the builder route at a dense cost that grows as the cube of the point
+count, and it is another measurement model: it shares a vertical disparity
+between the two cameras (across-row σ up to 40 % off; the depth σ agrees
+within 0.5 %). With the left pixel exact and the right one weighted only
+along `r` it states the dense covariance to 1e-7, which the tests check.
+
 ### A staged laser calibration carries its upstream as consider parameters
 
 `rig_laserline_device` fits each camera's plane against a frozen rig

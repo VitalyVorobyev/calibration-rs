@@ -230,6 +230,11 @@ jobs:
           cargo test --release --locked -p vision-calibration
           --test rig_laser_uncertainty -- --ignored
 
+      - name: Dense cloud gate
+        run: >-
+          cargo test --release --locked -p vision-calibration
+          --test dense_cloud_uncertainty -- --ignored
+
       - name: Second-order error gate
         run: >-
           cargo test --release --locked -p vision-calibration

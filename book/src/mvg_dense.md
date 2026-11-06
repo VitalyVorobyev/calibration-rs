@@ -53,6 +53,44 @@ Semi-global matching is strictly additive: block matching stays the default. In 
 
 For a rectified pair with shared focal length $f$ (pixels) and baseline $b$, a disparity $d$ gives depth $Z = f\,b / d$. `StereoRectification` converts for you (`point`, the matrix `disparity_to_depth`, and the disparity's covariance; see [Stereo from a Calibration](mvg_rectification.md)). The desktop app's Depth workspace uses it and renders depth and a reprojected point cloud (see [Inspecting Results](app_inspect.md#depth)).
 
+## Point Clouds with Uncertainty
+
+`StereoRectification::dense_cloud` turns a whole disparity map into a `DenseCloud`: one point per pixel with a finite, positive disparity, in the **rig frame**, with the covariance of any point computed when you ask for it. The covariance has two sources: the matcher's disparity noise `sigma_d`, and the calibration's uncertainty, which every point of the cloud shares.
+
+```rust
+use vision_calibration::mvg::metrology::{PointSet, distance};
+
+let cloud = rect.dense_cloud(&rig, &disp, 0.2)?;     // σ_d = 0.2 px
+let p = &cloud.points()[i];                          // p.point, p.pixel = [x, y], p.disparity
+let cov = cloud.point_covariance(i);                 // Option<3×3>, m²
+// A measurement between cloud points takes their joint covariance:
+let set = PointSet::from_dense_cloud(&cloud, &[i, j])?;
+let length = distance(&set, 0, 1)?;                  // length.value, length.sigma
+```
+
+```python
+cloud = rect.dense_cloud(result, disp, sigma_d=0.2)  # disp from mvg.match_block
+cloud.points                                         # (N, 3), rig frame, metres
+cloud.pixels                                         # (N, 2) rectified left pixels (x, y)
+cov = cloud.point_covariance(i)                      # (3, 3), m², or None
+points = mvg.PointSet.from_dense_cloud(cloud, [i, j])
+length = mvg.distance(points, 0, 1)
+```
+
+**The measurement.** The rectified images are resampled with the calibration's values, so the left pixel of a match is a grid point of a fixed raw pixel, and the disparity says where along the row of the rectified right image the matcher found it. If the calibration is off, the true point lies on the true left ray through that raw pixel, at the depth where its true right projection falls on that rectified column; the row it falls on there (a vertical disparity) is not measured. The covariance is the first-order propagation of this model, with the cameras' exact derivatives through their own models (distortion, fisheye and tilted sensors included):
+
+$$\Sigma_i = G_i\,\Sigma_c\,G_i^\top + \sigma_d^2\,g_i g_i^\top,$$
+
+with $G_i$ the derivative of point $i$ by the calibration's parameters (both cameras' intrinsics, distortion and sensor, and their extrinsics), $\Sigma_c$ their covariance from the calibration and $g_i$ the derivative by the disparity (along the left viewing ray). Parameters the calibration held fixed count as exact. Two points share $\Sigma_c$, so they are correlated by $G_i \Sigma_c G_j^\top$; the disparity errors are taken as independent.
+
+**On demand.** Building the cloud stores only the points (a 640 × 480 map in a few milliseconds). Each covariance evaluates both cameras' derivatives at the point, about 15 µs per point on one laptop core, and `covariance(&indices)` (Python: `cloud.covariance(indices)`) gives the joint $3k \times 3k$ covariance of $k$ chosen points. Storing every $G_i$ of a full map would take hundreds of megabytes; choose the points a measurement needs instead.
+
+**The calibration's share matters.** On a stereo rig calibrated 200 times from noisy board views, with ten pixels of a held-out scene 0.6 to 0.8 m away measured at $\sigma_d = 0.2$ px, the depth error over the stated σ is 0.91 (2.6 mm). The disparity's share alone (1.0 mm) is 2.5 times too small: on a short baseline at short range, the calibration is most of the error.
+
+For the same matches, the depth σ agrees with `triangulate`'s within 1 %; it differs across the rows, where `triangulate` takes both raw pixels as measured and shares a vertical disparity between the two cameras, while the matcher measures none.
+
+A rig without a covariance gives a cloud whose points have none: `point_covariance` is `None`, `covariance` and `PointSet::from_dense_cloud` return an `InvalidInput` error with the reason, and `covariance_unavailable()` says `CalibrationWithoutCovariance`. The disparity's share alone, if that is what you want, is `disparity_covariance`. `dense_cloud` returns `InvalidInput` for a rig other than the one rectified, a `sigma_d` that is negative or not finite, or a covariance that lists part of a camera's extrinsic.
+
 ## Try It
 
 A runnable demo writes inspectable PNGs (left, right, ground truth, estimate and error) to `target/fixtures/`:

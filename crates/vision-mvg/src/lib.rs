@@ -16,9 +16,9 @@
 //!   camera's known laser plane, with the covariance of the pixels, the camera,
 //!   the plane and the extrinsic
 //! - **Stereo**: [`rectify`] — rectification of two rig cameras from the
-//!   calibration for any camera model, the disparity-to-depth matrix, points
-//!   with the covariance of their disparity, and measurements that carry the
-//!   calibration's uncertainty
+//!   calibration for any camera model, the disparity-to-depth matrix, dense
+//!   point clouds from a disparity map and triangulated matches, both with the
+//!   calibration's uncertainty in their covariance
 //! - **Measurements**: [`metrology`] — distances, angles, plane fits and
 //!   point-to-plane distances over triangulated points, each with the σ from
 //!   the points' joint covariance
@@ -121,6 +121,7 @@ pub mod rectification;
 pub mod refine;
 pub mod residuals;
 pub mod robust;
+mod sensitivity;
 #[cfg(test)]
 mod test_support;
 pub mod triangulation;

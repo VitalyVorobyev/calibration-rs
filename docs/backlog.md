@@ -19,12 +19,9 @@ and points through the builder (Consider or Prior, robust losses, an explicit
 gauge, covariance). The robust two-view functions refine through the builder
 and return the covariance of `E` and of the relative pose from the stated
 pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
-`StereoRectification::triangulate` carries the calibration's share, the dense
-path only the disparity's.
+`StereoRectification::triangulate` and `StereoRectification::dense_cloud`
+carry the calibration's share.
 
-- [ ] MVG-DENSE-COV - The calibration's share in a dense cloud's per-point
-  covariance (today: disparity share; the calibrated σ goes through
-  `StereoRectification::triangulate` for selected matches).
 - [ ] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
   (a cross-repo change).
 - [~] MVG-HANDEYE-STAGED - A staged laser export (`rig_laserline_device`)

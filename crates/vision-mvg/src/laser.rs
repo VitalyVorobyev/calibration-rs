@@ -42,6 +42,7 @@
 //! through the second.
 
 use crate::bearing::{bearing, camera_model};
+use crate::sensitivity::{POSE_AXES, camera_coordinates, skew};
 use crate::triangulation::{sub_covariance, with_context};
 use crate::types::{CapturePose, Captures};
 use crate::{MvgError, Result};
@@ -386,13 +387,6 @@ fn linearize(
     found: &[(LaserPoint, Sensitivity)],
 ) -> Result<Option<Linearization>> {
     let multi = rig.num_cameras() > 1;
-    let prefix = |k: usize| {
-        if multi {
-            format!("cam{k}.")
-        } else {
-            String::new()
-        }
-    };
 
     // The calibration coordinates c: per observing camera, ascending, its
     // parameters (the order of CameraJacobian::labels), its plane and its
@@ -409,16 +403,15 @@ fn linearize(
         let Some(jacobian) = jacobian else {
             continue;
         };
-        let mut theta = Vec::new();
-        for (j, label) in jacobian.labels().iter().enumerate() {
-            let label = format!("{}{label}", prefix(k));
-            if let Some(at) = covariance.index(&label) {
-                theta.push((j, push(label, at)));
-            }
-        }
-        if theta.is_empty() {
+        let coordinates = camera_coordinates(rig, covariance, k, jacobian)?;
+        if coordinates.theta.is_empty() {
             return Ok(None);
         }
+        let theta = coordinates
+            .theta
+            .into_iter()
+            .map(|(j, label, at)| (j, push(label, at)))
+            .collect();
         // The plane, whole or held (`CalibratedRig::with_laser_planes` checked).
         let plane_labels = CalibratedRig::plane_labels(k, multi);
         let plane = if plane_labels.iter().all(|l| covariance.index(l).is_some()) {
@@ -434,31 +427,16 @@ fn linearize(
         } else {
             None
         };
-        let pose: Vec<(String, Option<usize>)> = ["rx", "ry", "rz", "tx", "ty", "tz"]
-            .iter()
-            .map(|c| {
-                let label = format!("{}cam_se3_rig.{c}", prefix(k));
-                let at = covariance.index(&label);
-                (label, at)
-            })
-            .collect();
-        let extrinsic = if multi && pose.iter().all(|(_, at)| at.is_some()) {
+        let extrinsic = coordinates.extrinsic.map(|pose| {
             let mut first = 0;
             for (i, (label, at)) in pose.into_iter().enumerate() {
-                let column = push(label, at.expect("checked"));
+                let column = push(label, at);
                 if i == 0 {
                     first = column;
                 }
             }
-            Some(first)
-        } else if pose.iter().any(|(_, at)| at.is_some()) {
-            return Err(MvgError::invalid_input(format!(
-                "camera {k}: the covariance lists part of its cam_se3_rig; a pose is \
-                 estimated whole or held"
-            )));
-        } else {
-            None
-        };
+            first
+        });
         columns[k] = Some(CameraColumns {
             theta,
             plane,
@@ -498,10 +476,7 @@ fn linearize(
         if let (None, Some(sigma)) = (robot_column[k], stated) {
             robot_column[k] = Some(labels.len());
             robot.push((labels.len(), sigma));
-            labels.extend(
-                ["rx", "ry", "rz", "tx", "ty", "tz"]
-                    .map(|c| format!("capture{k}.base_se3_gripper.{c}")),
-            );
+            labels.extend(POSE_AXES.map(|c| format!("capture{k}.base_se3_gripper.{c}")));
         }
     }
 
@@ -564,11 +539,6 @@ fn linearize(
         j_c,
         j_u,
     }))
-}
-
-/// `[v]ₓ`, the cross-product matrix: `[v]ₓ w = v × w`.
-fn skew(v: &Vector3<Real>) -> Matrix3<Real> {
-    Matrix3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
 }
 
 fn uncertainty(
