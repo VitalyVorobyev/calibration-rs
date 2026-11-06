@@ -28,6 +28,7 @@ pub use tier_b::{
 pub mod tier_b {
     //! Tier-B entry points that require detection and image-loading capabilities.
 
+    #[cfg(feature = "laser")]
     use std::path::{Path, PathBuf};
     use std::time::Instant;
 
@@ -2180,6 +2181,7 @@ pub mod tier_b {
         }
     }
 
+    #[cfg(feature = "laser")]
     fn progress_images(
         entry: &BenchEntry,
         stage: &str,
