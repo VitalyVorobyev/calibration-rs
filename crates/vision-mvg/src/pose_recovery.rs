@@ -9,7 +9,7 @@ use crate::bearing::camera_model;
 use crate::cheirality;
 use crate::robust::bearing_pairs;
 use crate::triangulation::{ViewRay, triangulate_views, with_context};
-use crate::types::{EssentialMatrix, PixelMatch, TriangulatedPoint};
+use crate::types::{PixelMatch, TriangulatedPoint};
 use crate::{MvgError, Result};
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use serde::Serialize;
@@ -25,7 +25,7 @@ pub struct RelativePose {
     pub second_se3_first: Iso3,
     /// The essential matrix used: `b2ᵀ E b1 = 0` on the bearings of matched
     /// pixels.
-    pub essential: EssentialMatrix,
+    pub essential: Mat3,
     /// One triangulated point per match, in the first camera's frame at the
     /// unit baseline, with their pixel reprojection diagnostics through the two
     /// cameras' models. A degenerate match fails the call.
@@ -213,7 +213,7 @@ pub fn recover_relative_pose(
 
     // Generate essential matrix candidates from multiple 5-point subsets.
     // Use evenly-spaced subsets to avoid dependence on input ordering.
-    let mut all_candidates: Vec<EssentialMatrix> = Vec::new();
+    let mut all_candidates: Vec<Mat3> = Vec::new();
 
     if n == 5 {
         // Exactly 5 points: single call.

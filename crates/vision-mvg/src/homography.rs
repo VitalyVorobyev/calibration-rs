@@ -11,8 +11,6 @@
 use crate::{MvgError, Result};
 use vision_calibration_core::{Mat3, Pt2, Real, Vec3};
 
-use crate::types::HomographyMatrix;
-
 /// Result of decomposing a homography into motion and plane normal.
 #[derive(Debug, Clone)]
 pub struct HomographyDecomposition {
@@ -27,7 +25,7 @@ pub struct HomographyDecomposition {
 /// Transfer a point through a homography: `x' = H * x`.
 ///
 /// Projects the result back to inhomogeneous coordinates.
-pub fn homography_transfer(h: &HomographyMatrix, pt: &Pt2) -> Pt2 {
+pub fn homography_transfer(h: &Mat3, pt: &Pt2) -> Pt2 {
     let p = nalgebra::Vector3::new(pt.x, pt.y, 1.0);
     let hp = h * p;
     Pt2::new(hp.x / hp.z, hp.y / hp.z)
@@ -36,7 +34,7 @@ pub fn homography_transfer(h: &HomographyMatrix, pt: &Pt2) -> Pt2 {
 /// Transfer a point through the inverse homography: `x = H⁻¹ * x'`.
 ///
 /// Returns an error if `H` is singular.
-pub fn homography_transfer_inverse(h: &HomographyMatrix, pt: &Pt2) -> Result<Pt2> {
+pub fn homography_transfer_inverse(h: &Mat3, pt: &Pt2) -> Result<Pt2> {
     let h_inv = h
         .try_inverse()
         .ok_or_else(|| MvgError::degenerate("singular homography"))?;
@@ -53,7 +51,7 @@ pub fn homography_transfer_inverse(h: &HomographyMatrix, pt: &Pt2) -> Result<Pt2
 /// Returns 2 or 4 candidates; the correct one must be selected using
 /// additional constraints (e.g., visible points must have positive depth,
 /// plane normal must face the camera).
-pub fn decompose_homography(h: &HomographyMatrix) -> Result<Vec<HomographyDecomposition>> {
+pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
     // Normalize H by middle singular value so that σ2 = 1.
     let svd_h = h.svd(false, false);
     let s2 = svd_h.singular_values[1];
@@ -155,7 +153,7 @@ fn find_perpendicular(v: &Vec3) -> Vec3 {
 /// returns `H = R + (t * n^T) / d`.
 ///
 /// The plane equation is `n^T X = d` for 3D points `X` on the plane.
-pub fn homography_from_pose_and_plane(r: &Mat3, t: &Vec3, n: &Vec3, d: Real) -> HomographyMatrix {
+pub fn homography_from_pose_and_plane(r: &Mat3, t: &Vec3, n: &Vec3, d: Real) -> Mat3 {
     *r + (t * n.transpose()) / d
 }
 
@@ -263,7 +261,7 @@ mod tests {
     #[test]
     fn decompose_pure_rotation() {
         let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.02);
-        let h: HomographyMatrix = *rot.matrix();
+        let h: Mat3 = *rot.matrix();
 
         let decomps = decompose_homography(&h).unwrap();
         assert!(!decomps.is_empty());
@@ -286,7 +284,7 @@ mod tests {
 
     #[test]
     fn identity_homography() {
-        let h = HomographyMatrix::identity();
+        let h = Mat3::identity();
         let pt = Pt2::new(0.5, -0.3);
         let pt2 = homography_transfer(&h, &pt);
         assert!((pt2.x - pt.x).abs() < 1e-15);

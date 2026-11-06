@@ -1,7 +1,6 @@
 //! Core types for multiple-view geometry.
 //!
-//! Provides type aliases for geometric matrices and the input types of MVG
-//! estimation: [`Correspondence2D`] for the uncalibrated estimators,
+//! The input types of MVG estimation: [`Correspondence2D`] for the uncalibrated estimators,
 //! [`PixelMatch`] for the calibrated two-view functions and [`Captures`] for
 //! the frame a measurement is stated in.
 
@@ -9,17 +8,8 @@ use crate::{MvgError, Result};
 use nalgebra::Matrix6;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CalibratedRig, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, RobotFrame, RobotPose,
+    CalibratedRig, Iso3, PointCovariance, Pt2, Pt3, Real, RobotFrame, RobotPose,
 };
-
-/// Essential matrix (3×3, rank-2, encodes calibrated epipolar geometry).
-pub type EssentialMatrix = Mat3;
-
-/// Fundamental matrix (3×3, rank-2, encodes uncalibrated epipolar geometry).
-pub type FundamentalMatrix = Mat3;
-
-/// Homography matrix (3×3, invertible projective transform between planes).
-pub type HomographyMatrix = Mat3;
 
 /// A pair of corresponding points observed in two views, as plain image
 /// coordinates, for the uncalibrated estimators (fundamental matrix,
