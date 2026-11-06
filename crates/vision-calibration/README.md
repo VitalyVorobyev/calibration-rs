@@ -28,7 +28,7 @@ From Python, install the `vision-calibration` package from PyPI instead.
 
 ```toml
 [dependencies]
-vision-calibration = { version = "0.17", features = ["synthetic"] }
+vision-calibration = { version = "0.18", features = ["synthetic"] }
 ```
 
 Eight synthetic views of an 8×6 board (40 mm pitch) calibrate a camera:
