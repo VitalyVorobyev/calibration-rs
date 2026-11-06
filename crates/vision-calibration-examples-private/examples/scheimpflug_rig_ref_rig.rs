@@ -181,7 +181,7 @@ fn main() -> Result<()> {
         export.mean_reproj_error
     );
 
-    compare(&art, &export, handeye_mode);
+    compare(&art, &export);
     Ok(())
 }
 
@@ -202,11 +202,7 @@ fn ref_params(intr: &RefIntrinsic) -> (f64, f64, f64, f64, BrownConrady5<f64>, S
     (m[0][0], m[1][1], m[0][2], m[1][2], dist, tilt)
 }
 
-fn compare(
-    art: &RefArtifacts,
-    export: &vision_calibration::rig_handeye::RigHandeyeExport,
-    handeye_mode: HandeyeMode,
-) {
+fn compare(art: &RefArtifacts, export: &vision_calibration::rig_handeye::RigHandeyeExport) {
     println!("\n── Recovered intrinsics vs oracle (from scratch) ──");
     println!(
         "  cam |     fx (ref)      |     fy (ref)      |   cx (ref)    |   cy (ref)    |    k1 (ref)     |    k2 (ref)     |  tau_x° (ref)  |  tau_y° (ref)"

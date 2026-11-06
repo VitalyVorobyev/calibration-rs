@@ -41,6 +41,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use vision_calibration::common::HandeyeSolution;
 use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
     rig_handeye::{self as rh, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
@@ -83,7 +84,10 @@ fn main() -> Result<()> {
 
     let board: BoardRinggridSpec = load_ringgrid_board(&data_dir.join("board_ringgrid.json"))
         .context("load ring-grid board manifest")?;
-    let ring_width_mm = env_f64("SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM", board.ring_width_mm());
+    let ring_width_mm = env_f64(
+        "SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM",
+        board.ring_width_mm(),
+    );
 
     println!("data dir = {}", data_dir.display());
     println!("hand-eye mode = {handeye_mode:?}");
@@ -255,15 +259,11 @@ fn main() -> Result<()> {
         export.mean_reproj_error
     );
 
-    report(&export, handeye_mode, &data_dir);
+    report(&export, &data_dir);
     Ok(())
 }
 
-fn report(
-    export: &vision_calibration::rig_handeye::RigHandeyeExport,
-    handeye_mode: HandeyeMode,
-    data_dir: &std::path::Path,
-) {
+fn report(export: &vision_calibration::rig_handeye::RigHandeyeExport, data_dir: &std::path::Path) {
     println!("\n── Recovered ring-grid intrinsics (this rig — no oracle) ──");
     println!(
         "  cam |    fx    |    fy    |   cx   |   cy   |    k1     |    k2     |  tau_x° |  tau_y°"
@@ -291,17 +291,16 @@ fn report(
     }
 
     println!("\n── Recovered hand-eye ──");
-    let he = match handeye_mode {
-        HandeyeMode::EyeInHand => export.gripper_se3_rig,
-        HandeyeMode::EyeToHand => export.rig_se3_base,
+    let (mode, he) = match &export.handeye {
+        HandeyeSolution::EyeInHand {
+            gripper_se3_rig, ..
+        } => ("EyeInHand", gripper_se3_rig),
+        HandeyeSolution::EyeToHand { rig_se3_base, .. } => ("EyeToHand", rig_se3_base),
     };
-    match he {
-        Some(he) => println!(
-            "  {handeye_mode:?}: |t| = {:.2} mm",
-            he.translation.vector.norm() * 1e3
-        ),
-        None => println!("  no hand-eye of the expected topology in the export"),
-    }
+    println!(
+        "  {mode}: |t| = {:.2} mm",
+        he.translation.vector.norm() * 1e3
+    );
 
     // ── Quality comparison vs puzzleboard scheimpflug_rig_ref (different rig) ───────────
     let puzzle_ref_dir = PathBuf::from(
@@ -311,7 +310,9 @@ fn report(
     let puzzle = load_ref_artifacts(&puzzle_ref_dir.join("artifacts.json")).ok();
     let _ = data_dir; // ring-grid dir has no oracle; baseline comes from puzzle_ref_dir
 
-    println!("\n── Calibration quality: ring-grid (this rig) vs puzzleboard scheimpflug_rig_ref ──");
+    println!(
+        "\n── Calibration quality: ring-grid (this rig) vs puzzleboard scheimpflug_rig_ref ──"
+    );
     println!(
         "  (DIFFERENT rigs — compares how well each target calibrates, not parameter agreement)"
     );

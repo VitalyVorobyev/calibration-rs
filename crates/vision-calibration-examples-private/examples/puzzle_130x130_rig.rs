@@ -164,7 +164,7 @@ fn main() -> Result<()> {
     cfg.rig.refine_intrinsics = false;
     let robot_rot_sigma = cfg.handeye_optimize.robot_poses.rot_sigma;
     let robot_trans_sigma = cfg.handeye_optimize.robot_poses.trans_sigma;
-    rig_session.set_config(cfg)?;
+    rig_session.set_config(cfg.clone())?;
 
     let t0 = Instant::now();
     {
@@ -239,7 +239,7 @@ fn main() -> Result<()> {
     // pull per-tile pixels straight from the source PNGs. Each pose stores
     // a single 4320×540 strip; emit one `FrameRef` per (pose, camera) using
     // ROI to slice the camera's 720×540 tile out of that strip.
-    rig_export.image_manifest = Some(build_image_manifest(&poses, tile_w, tile_h));
+    rig_export.diagnostics.image_manifest = Some(build_image_manifest(&poses, tile_w, tile_h));
     let export_path = data_dir.join("export.json");
     std::fs::write(
         &export_path,
@@ -339,10 +339,13 @@ fn main() -> Result<()> {
         );
     }
     for (i, p) in laser_export.laser_planes_rig.iter().enumerate() {
-        let n = p.normal.into_inner();
+        let n = p.normal().into_inner();
         println!(
             "  plane (rig) {i}: n=({:.4}, {:.4}, {:.4}), d={:.4} m",
-            n.x, n.y, n.z, p.distance
+            n.x,
+            n.y,
+            n.z,
+            p.distance()
         );
     }
 
@@ -465,10 +468,13 @@ fn main() -> Result<()> {
     print_param_deltas(&joint_initial, &joint_est.params);
     print_robot_delta_summary("joint BA robot deltas", joint_est.robot_deltas.as_deref());
     for (i, p) in joint_est.planes_rig.iter().enumerate() {
-        let n = p.normal.into_inner();
+        let n = p.normal().into_inner();
         println!(
             "  plane (rig) {i}: n=({:+.4}, {:+.4}, {:+.4}), d={:+.4} m",
-            n.x, n.y, n.z, p.distance
+            n.x,
+            n.y,
+            n.z,
+            p.distance()
         );
     }
 
@@ -679,12 +685,12 @@ fn print_param_deltas(
         .zip(final_params.planes_cam.iter())
     {
         let dot = a
-            .normal
+            .normal()
             .into_inner()
-            .dot(&b.normal.into_inner())
+            .dot(&b.normal().into_inner())
             .clamp(-1.0, 1.0);
         max_plane_angle = max_plane_angle.max(dot.acos());
-        max_plane_d = max_plane_d.max((a.distance - b.distance).abs());
+        max_plane_d = max_plane_d.max((a.distance() - b.distance()).abs());
     }
     let handeye_delta = initial.handeye.inverse() * final_params.handeye;
     let target_delta = initial.target_ref.inverse() * final_params.target_ref;

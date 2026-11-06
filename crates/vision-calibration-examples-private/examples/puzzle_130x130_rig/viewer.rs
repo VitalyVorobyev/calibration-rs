@@ -46,7 +46,7 @@ fn camera_arrays(camera: &CameraParams) -> Result<([Real; 4], [Real; 5], [Real; 
     let tilt = match &camera.sensor {
         SensorParams::Scheimpflug { params } => [params.tilt_x, params.tilt_y],
         SensorParams::Identity => [0.0, 0.0],
-        SensorParams::Homography { .. } => anyhow::bail!("viewer manifest: unsupported sensor"),
+        _ => anyhow::bail!("viewer manifest: unsupported sensor"),
     };
     Ok((
         [k.fx, k.fy, k.cx, k.cy],
@@ -372,7 +372,7 @@ fn laser_line_endpoints_px(
 ) -> Option<[[f64; 2]; 2]> {
     let target_normal_c = cam_se3_target.rotation * Vector3::z_axis().into_inner();
     let target_d_c = -target_normal_c.dot(&cam_se3_target.translation.vector);
-    let laser_normal = plane.normal.into_inner();
+    let laser_normal = plane.normal().into_inner();
     let direction = laser_normal.cross(&target_normal_c);
     if direction.norm() < 1.0e-12 {
         return None;
@@ -380,7 +380,7 @@ fn laser_line_endpoints_px(
     let direction = direction.normalize();
     let p0 = line_origin(
         &laser_normal,
-        plane.distance,
+        plane.distance(),
         &target_normal_c,
         target_d_c,
         &direction,
@@ -476,10 +476,10 @@ fn iso_record(iso: &Iso3) -> TransformRecord {
 }
 
 fn plane_record(plane: &LaserPlane) -> PlaneRecord {
-    let n = plane.normal.into_inner();
+    let n = plane.normal().into_inner();
     PlaneRecord {
         normal: [n.x, n.y, n.z],
-        distance_m: plane.distance,
+        distance_m: plane.distance(),
     }
 }
 

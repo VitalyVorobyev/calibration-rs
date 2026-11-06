@@ -96,7 +96,10 @@ fn main() -> Result<()> {
 
     let board: BoardRinggridSpec = load_ringgrid_board(&data_dir.join("board_ringgrid.json"))
         .context("load ring-grid board manifest")?;
-    let ring_width_mm = env_f64("SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM", board.ring_width_mm());
+    let ring_width_mm = env_f64(
+        "SCHEIMPFLUG_RIG_RINGGRID_RING_WIDTH_MM",
+        board.ring_width_mm(),
+    );
 
     println!("data dir = {}", data_dir.display());
     println!(

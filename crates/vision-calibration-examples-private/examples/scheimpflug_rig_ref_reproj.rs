@@ -39,7 +39,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use vision_calibration::mvg::solvers::dlt_homography;
-use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
 use vision_calibration_core::{
     CorrespondenceView, DistortionModel, IntrinsicsModel, Iso3, Pt2, SensorModel,
 };
@@ -47,6 +46,7 @@ use vision_calibration_examples_private::{
     ScheimpflugCamera, detect_target, intrinsic_to_camera, load_gray, load_poses,
     load_ref_artifacts, split_horizontal,
 };
+use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
 
 const NUM_CAMERAS: usize = 6;
 const BOARD_ROWS: u32 = 130;
@@ -105,7 +105,8 @@ impl CamAccum {
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
+        std::env::var("SCHEIMPFLUG_RIG_REF_DATA_DIR")
+            .unwrap_or_else(|_| "privatedata/scheimpflug_rig_ref".to_string()),
     );
     println!("data dir = {}", data_dir.display());
 
@@ -303,9 +304,7 @@ fn report(art: &vision_calibration_examples_private::RefArtifacts, accums: &[Cam
         println!(
             "→ Scheimpflug model + reprojection computation VALIDATED against the OpenCV-convention oracle."
         );
-        println!(
-            "  RMS/p95 inflation above is a detector corner-outlier tail, not a model bias."
-        );
+        println!("  RMS/p95 inflation above is a detector corner-outlier tail, not a model bias.");
     } else {
         println!(
             "VERDICT: median exceeds the reference by {worst_med_delta:+.4} px on at least one camera —"
