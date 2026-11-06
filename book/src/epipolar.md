@@ -106,10 +106,11 @@ The relationship is: $E = K'^T F K$.
 Both solvers have RANSAC wrappers for outlier rejection:
 
 ```rust
+// vision_geometry::epipolar::fundamental_8point_ransac
 let (F, inliers) = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
 ```
 
-Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`essential_5point`) returns multiple candidates and is used directly; the calibrated `mvg::robust::estimate_essential` wraps it in RANSAC on bearings, scoring each match by its covariance-weighted Sampson error: the epipolar constraint over its first-order σ, from the pixels' stated noise (see [Pose Recovery and Triangulation](mvg_pose.md)).
+Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`mvg::solvers::essential_5point`) returns multiple candidates and is used directly; the calibrated `mvg::robust::estimate_essential` wraps it in RANSAC on bearings, scoring each match by its covariance-weighted Sampson error: the epipolar constraint over its first-order σ, from the pixels' stated noise (see [Pose Recovery and Triangulation](mvg_pose.md)).
 
 > **OpenCV equivalence**: `cv::findFundamentalMat` (8-point and 7-point), `cv::findEssentialMat` (5-point with RANSAC).
 

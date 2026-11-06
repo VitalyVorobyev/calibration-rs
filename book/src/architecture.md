@@ -48,7 +48,7 @@ Deterministic two-view and pose solvers, all free functions in per-topic modules
 | `camera_matrix` | `dlt_camera_matrix` |
 | `pnp` | `dlt`, `p3p`, `epnp`, `dlt_ransac` |
 
-The facade re-exports the main solvers at the root of its `mvg` module (`vision_calibration::mvg::dlt_homography`, …) and the PnP solvers as `init::pnp`; the full set is in the `vision-geometry` crate.
+The facade re-exports the main solvers in its `mvg::solvers` module (`vision_calibration::mvg::solvers::dlt_homography`, …) and the PnP solvers as `init::pnp`; the full set is in the `vision-geometry` crate.
 
 ### vision-mvg
 
@@ -99,7 +99,7 @@ Unified facade crate that re-exports everything through a clean module hierarchy
 use vision_calibration::prelude::*;            // Minimal planar hello-world imports
 use vision_calibration::planar_intrinsics::*;  // Planar workflow
 use vision_calibration::core::*;               // Math types
-use vision_calibration::mvg::dlt_homography;   // Two-view solvers
+use vision_calibration::mvg::solvers;          // Closed-form solvers
 use vision_calibration::mvg::rectification;    // N-view geometry
 use vision_calibration::optim::RobustLoss;     // Optimization vocabulary (hand-picked)
 ```

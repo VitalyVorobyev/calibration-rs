@@ -20,7 +20,7 @@ this chapter builds on.
 | Stage | Public piece |
 |---|---|
 | Observations | `core::CorrespondenceView` (points and their pixels), `core::PlanarDataset` |
-| Starting values | [`init`](https://docs.rs/vision-calibration/latest/vision_calibration/init/): a camera from views of a plane, a plane's pose from its homography (`mvg::dlt_homography`), a pose from 3D–2D points (`pnp`), hand-eye, a plane through points |
+| Starting values | [`init`](https://docs.rs/vision-calibration/latest/vision_calibration/init/): a camera from views of a plane, a plane's pose from its homography (`mvg::solvers::dlt_homography`), a pose from 3D–2D points (`pnp`), hand-eye, a plane through points |
 | Solve | [`optim::problem`](https://docs.rs/vision-calibration/latest/vision_calibration/optim/problem/): blocks, a camera, reprojection residuals, residuals of your own, `solve` |
 | Uncertainty | `Solution::uncertainty`, labelled as a workflow's; [`projection_uncertainty`](uncertainty_projection.md) for a camera |
 | Testing | `synthetic` (feature `synthetic`): boards, poses and noise with a known truth |
@@ -36,7 +36,7 @@ use vision_calibration::core::{CorrespondenceView, PlanarDataset, Pt2, View};
 use vision_calibration::init::{
     IterativeIntrinsicsOptions, estimate_intrinsics_iterative, estimate_planar_pose_from_h, pnp,
 };
-use vision_calibration::mvg::dlt_homography;
+use vision_calibration::mvg::solvers::dlt_homography;
 
 let mut views = Vec::new();
 for pixels in &board_pixels {

@@ -13,7 +13,7 @@ use vision_calibration::core::{
 use vision_calibration::init::{
     IterativeIntrinsicsOptions, estimate_intrinsics_iterative, estimate_planar_pose_from_h, pnp,
 };
-use vision_calibration::mvg::dlt_homography;
+use vision_calibration::mvg::solvers::dlt_homography;
 use vision_calibration::nalgebra::{Translation3, UnitQuaternion, Vector3};
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::{

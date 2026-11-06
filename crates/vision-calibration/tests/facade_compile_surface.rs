@@ -304,6 +304,16 @@ fn mvg_module_surface_compiles() {
     let _: Option<mvg::types::PixelMatch> = None;
     let _: Option<mvg::MvgError> = None;
     let _: Option<Result<(), mvg::MvgError>> = None;
+    let _ = mvg::solvers::dlt_homography;
+    let _ = mvg::solvers::dlt_camera_matrix;
+    let _ = mvg::solvers::decompose_camera_matrix;
+    let _: Option<mvg::solvers::CameraMatrixDecomposition> = None;
+    let _: Option<mvg::solvers::Mat34> = None;
+    let _ = mvg::solvers::essential_5point;
+    let _ = mvg::solvers::fundamental_7point;
+    let _ = mvg::solvers::fundamental_8point;
+    let _ = mvg::solvers::decompose_essential;
+    let _ = mvg::solvers::triangulate_point_linear;
 }
 
 #[test]
