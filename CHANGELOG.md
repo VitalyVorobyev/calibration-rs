@@ -171,6 +171,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dense point clouds with the calibration's uncertainty.**
+  `StereoRectification::dense_cloud(&rig, &disparity, sigma_d)` (Python
+  `StereoRectification.dense_cloud(result, disparity, sigma_d)`) turns a
+  disparity map into a `DenseCloud`: one point per pixel with a finite,
+  positive disparity, in the rig frame, with each point's covariance
+  computed on demand. The covariance is the disparity's share plus the
+  calibration's (both cameras' parameters and extrinsics, with their
+  correlations), propagated in closed form through the matcher's
+  measurement: the left pixel exact, the disparity measured along the
+  rectified row. `point_covariance(i)` gives one point's,
+  `covariance(&indices)` the joint covariance of chosen points (the shared
+  calibration correlates them), and `PointSet::from_dense_cloud` (Python
+  `PointSet.from_dense_cloud`) feeds the measurements. A calibration without
+  a covariance gives points without one, with the reason. On a stereo rig
+  calibrated 200 times, the depth error over the stated σ is 0.91 at
+  σ_d = 0.2 px; the disparity's share alone is 2.5 times too small. A
+  640 × 480 cloud builds in a few milliseconds; a point's covariance takes
+  about 15 µs.
 - **The second-order error of a calibration's parameters.** Every
   covariance a calibration or the optimization problem builder returns
   carries `second_order` (`SecondOrderError`; Python

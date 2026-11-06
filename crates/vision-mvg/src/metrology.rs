@@ -3,7 +3,8 @@
 //!
 //! The input is a [`PointSet`]: points and the joint covariance of all their
 //! coordinates, as [`triangulate`](crate::triangulation::triangulate) and
-//! [`bundle_adjust`](crate::bundle_adjust::bundle_adjust) return it. Points
+//! [`bundle_adjust`](crate::bundle_adjust::bundle_adjust) return it, or as a
+//! [`DenseCloud`] computes it for chosen points. Points
 //! measured with one calibration share that calibration's uncertainty, so
 //! their errors are correlated, and a length between two of them is more (or
 //! less) certain than independent errors would say. Every σ here uses the
@@ -36,6 +37,7 @@
 
 use crate::bundle_adjust::BundleAdjustment;
 use crate::laser::LaserTriangulation;
+use crate::rectification::DenseCloud;
 use crate::triangulation::Triangulation;
 use crate::{MvgError, Result};
 use nalgebra::{DMatrix, DVector, RealField, SMatrix, SVector, SymmetricEigen, Vector3};
@@ -148,6 +150,21 @@ impl PointSet {
     /// adjustment's gauge. As for [`from_triangulation`](Self::from_triangulation).
     pub fn from_bundle_adjustment(adjustment: &BundleAdjustment) -> Result<Self> {
         Self::from_uncertainty(adjustment.points.clone(), &adjustment.uncertainty)
+    }
+
+    /// The points `indices` of a dense cloud (rig frame), in that order, with
+    /// their joint covariance ([`DenseCloud::covariance`]): point `k` of the
+    /// set is cloud point `indices[k]`. A cloud's covariance is computed on
+    /// demand, so choose the points a measurement needs.
+    ///
+    /// # Errors
+    ///
+    /// As for [`DenseCloud::covariance`]: an `InvalidInput` when the cloud
+    /// has no covariance (with the reason) or an index is out of range.
+    pub fn from_dense_cloud(cloud: &DenseCloud, indices: &[usize]) -> Result<Self> {
+        let covariance = cloud.covariance(indices)?;
+        let points = indices.iter().map(|&i| cloud.points()[i].point).collect();
+        Self::new(points, covariance)
     }
 
     /// Reads the joint covariance of `p{i}.x/y/z` out of `uncertainty`.

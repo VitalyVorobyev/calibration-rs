@@ -20,13 +20,13 @@ use vision_calibration::core::{
     Uncertainty,
 };
 use vision_calibration::mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
-use vision_calibration::mvg::dense::{BlockMatchOptions, GrayImage, match_block};
+use vision_calibration::mvg::dense::{BlockMatchOptions, DisparityMap, GrayImage, match_block};
 use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
 use vision_calibration::mvg::metrology::{self, PointSet};
 use vision_calibration::mvg::pose::{PoseObservation, PoseOptions, estimate_pose};
 use vision_calibration::mvg::pose_recovery::recover_relative_pose;
 use vision_calibration::mvg::rectification::{
-    RectifiedMatch, RectifyOptions, StereoRectification, rectify,
+    DenseCloud, RectifiedMatch, RectifyOptions, StereoRectification, rectify,
 };
 use vision_calibration::mvg::robust::{
     estimate_essential, estimate_homography, recover_relative_pose_robust,
@@ -658,6 +658,24 @@ impl PyStereoRectification {
             .transpose()
     }
 
+    /// The point cloud of a `(H, W)` float32 disparity map (`NaN` invalid)
+    /// with a disparity σ, the points' covariance on demand.
+    fn dense_cloud(
+        &self,
+        py: Python<'_>,
+        result: &Bound<'_, PyAny>,
+        disparity: PyReadonlyArray2<'_, f32>,
+        sigma_d: f64,
+    ) -> PyResult<PyDenseCloud> {
+        let rig = rig_of(result)?;
+        let shape = disparity.shape();
+        let map = DisparityMap::new(shape[1], shape[0], disparity.as_slice()?.to_vec());
+        let cloud = py
+            .detach(|| self.inner.dense_cloud(&rig, &map, sigma_d))
+            .map_err(mvg_err)?;
+        Ok(PyDenseCloud { inner: cloud })
+    }
+
     /// Triangulate rectified matches with the calibration's covariance.
     #[pyo3(signature = (result, matches, pixel_noise, progress=None))]
     fn triangulate(
@@ -678,6 +696,98 @@ impl PyStereoRectification {
         });
         let found = control.finish(found, mvg_err)?;
         to_py(py, &found)
+    }
+}
+
+/// The points of a disparity map, with their covariance on demand (see
+/// `vision_calibration.mvg`).
+#[pyclass(
+    module = "vision_calibration._vision_calibration",
+    name = "DenseCloud",
+    frozen
+)]
+pub(crate) struct PyDenseCloud {
+    inner: DenseCloud,
+}
+
+#[pymethods]
+impl PyDenseCloud {
+    fn __len__(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// The `(N, 3)` points, rig frame, metres.
+    fn points<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let data: Vec<f64> = self
+            .inner
+            .points()
+            .iter()
+            .flat_map(|p| [p.point.x, p.point.y, p.point.z])
+            .collect();
+        PyArray1::from_vec(py, data).reshape([self.inner.len(), 3])
+    }
+
+    /// The `(N, 2)` rectified left pixels `(x, y)` of the points.
+    fn pixels<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<i64>>> {
+        let data: Vec<i64> = self
+            .inner
+            .points()
+            .iter()
+            .flat_map(|p| p.pixel.map(|v| v as i64))
+            .collect();
+        PyArray1::from_vec(py, data).reshape([self.inner.len(), 2])
+    }
+
+    /// The `(N,)` disparities, pixels.
+    fn disparities<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        let data: Vec<f64> = self.inner.points().iter().map(|p| p.disparity).collect();
+        PyArray1::from_vec(py, data)
+    }
+
+    /// The disparity σ the cloud was built with, pixels.
+    fn sigma_d(&self) -> f64 {
+        self.inner.sigma_d()
+    }
+
+    /// Why the points have no covariance (the reason's kind), or `None`.
+    fn covariance_unavailable(&self) -> Option<String> {
+        self.inner.covariance_unavailable().map(|reason| {
+            serde_json::to_value(reason)
+                .ok()
+                .and_then(|v| v["kind"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| format!("{reason:?}"))
+        })
+    }
+
+    /// Point `i`'s `(3, 3)` covariance, m², or `None`.
+    fn point_covariance<'py>(
+        &self,
+        py: Python<'py>,
+        i: usize,
+    ) -> PyResult<Option<Bound<'py, PyArray2<f64>>>> {
+        self.inner
+            .point_covariance(i)
+            .map(|c| matrix_array::<3, 3>(py, |r, s| c[(r, s)]))
+            .transpose()
+    }
+
+    /// The `(3k, 3k)` joint covariance of the points `indices`, m².
+    fn covariance<'py>(
+        &self,
+        py: Python<'py>,
+        indices: Vec<usize>,
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let c = py
+            .detach(|| self.inner.covariance(&indices))
+            .map_err(mvg_err)?;
+        let n = c.nrows();
+        // nalgebra is column-major; the covariance is symmetric, but copy
+        // row by row so the layout never depends on it.
+        let data: Vec<f64> = (0..n)
+            .flat_map(|r| (0..n).map(move |s| (r, s)))
+            .map(|(r, s)| c[(r, s)])
+            .collect();
+        PyArray1::from_vec(py, data).reshape([n, n])
     }
 }
 
@@ -827,5 +937,6 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mvg_estimate_homography, m)?)?;
     m.add_function(wrap_pyfunction!(mvg_defaults, m)?)?;
     m.add_class::<PyStereoRectification>()?;
+    m.add_class::<PyDenseCloud>()?;
     Ok(())
 }

@@ -61,7 +61,7 @@ A disparity error $\delta d$ moves the point along its viewing ray, $\delta P = 
 
 $$\Sigma = \left(\frac{\sigma_d}{d}\right)^2 P P^\top,\qquad \sigma_Z = \frac{Z^2\,\sigma_d}{f_x B}.$$
 
-It has rank 1, along the ray, and it grows with the square of the depth. Over 2000 draws of the disparity noise the scatter of the depth over this $\sigma_Z$ is 0.97 to 1.06 at 0.7, 1.5 and 3 m, which is the sampling error of the draws. This is the covariance a dense point cloud carries per point; it does **not** include the calibration's uncertainty.
+It has rank 1, along the ray, and it grows with the square of the depth. Over 2000 draws of the disparity noise the scatter of the depth over this $\sigma_Z$ is 0.97 to 1.06 at 0.7, 1.5 and 3 m, which is the sampling error of the draws. It does **not** include the calibration's uncertainty; a dense point cloud with it is `dense_cloud` ([Dense Stereo](mvg_dense.md#point-clouds-with-uncertainty)).
 
 ## Measurements with the Calibration's Uncertainty
 
@@ -80,7 +80,7 @@ let covariance = found.point_covariance(0); // 3×3, m², the calibration's shar
 
 Each match is mapped back to the two cameras' raw pixels and triangulated as one stereo capture with [`triangulate`](mvg_pose.md): refined on the reprojection error of the stated noise, the rig's calibration entering as consider parameters. The points are in the **rig frame** (the left camera's frame only when it is the reference camera), and the covariance is joint over the points, so `cross_covariance(i, j)` gives the correlation the shared calibration causes. `rig` must be the rig the rectification was built from.
 
-Measured on a stereo rig calibrated 200 times from noisy board views spread over the image, with ten held-out points measured from freshly noisy pixels, the scatter of the depth over the stated depth σ is **0.97** with the calibration's share (3.0 mm). The σ from the observations alone (2.1 mm) is 1.46 times too small, and so is the disparity covariance of the previous section, because the calibration is a large part of the error of a short baseline at a short range (with centred, barely tilted calibration views, 3.2 times). A disparity covariance is the right σ for the matcher's noise, and `triangulate` is the one for a measurement.
+Measured on a stereo rig calibrated 200 times from noisy board views spread over the image, with ten held-out points measured from freshly noisy pixels, the scatter of the depth over the stated depth σ is **0.97** with the calibration's share (3.0 mm). The σ from the observations alone (2.1 mm) is 1.46 times too small, and so is the disparity covariance of the previous section, because the calibration is a large part of the error of a short baseline at a short range (with centred, barely tilted calibration views, 3.2 times). A disparity covariance is the right σ for the matcher's noise alone; `triangulate`, and `dense_cloud` for a whole disparity map, are the ones for a measurement.
 
 ## Failure Modes
 
