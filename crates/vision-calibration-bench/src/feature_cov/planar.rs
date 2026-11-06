@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-use vision_calibration::analysis::planar_intrinsics_report;
 use vision_calibration::common::CalibratedCameras;
 use vision_calibration::planar_intrinsics::{
     IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem,
@@ -13,6 +12,7 @@ use vision_calibration::planar_intrinsics::{
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration_core::{NoMeta, NoiseLevel, PlanarDataset, Pt2, View};
+use vision_calibration_pipeline::analysis::planar_intrinsics_report;
 
 use super::Options;
 use super::arms::{Arm, Declined};

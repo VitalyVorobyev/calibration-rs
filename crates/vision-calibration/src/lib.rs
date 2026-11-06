@@ -464,9 +464,8 @@ pub mod rig_handeye_laserline {
 /// Core math types, camera models, and RANSAC primitives.
 ///
 /// Re-exports selected foundational types from `vision_calibration_core`. The
-/// per-feature residual/diagnostics types and helpers (`ReprojectionStats`,
-/// `PerFeatureResiduals`, `compute_*_target_residuals`, …) live in
-/// [`analysis`], not here — see that module's doc comment.
+/// per-feature residual types (`ReprojectionStats`, `PerFeatureResiduals`, …)
+/// live in [`analysis`], not here.
 pub mod core {
     pub use vision_calibration_core::{
         BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel, CameraModelSpec,
@@ -588,9 +587,6 @@ pub mod mvg {
 /// only the small value/enum vocabulary a facade consumer legitimately names:
 /// the robust-loss and solver-backend selectors, the laser-plane parameter
 /// type, the hand-eye mode enum and projection uncertainty.
-///
-/// The `compute_*_feature_residuals` / `handeye_observer_se3_target` helpers
-/// live in [`analysis`], not here.
 pub mod optim {
     /// The error type carried by [`crate::Error::Optim`].
     pub use vision_calibration_optim::Error;
@@ -694,52 +690,39 @@ pub mod prelude {
     };
 }
 
-/// Result analysis: a quality verdict, per-feature residuals and multi-level
-/// reprojection reports.
+/// Result analysis: a quality verdict, an HTML report, next-view planning and
+/// the per-feature residual types the exports carry.
 ///
-/// Three families of items live here:
-/// - The quality verdict (re-exported from the pipeline):
-///   [`assess`](vision_calibration_pipeline::analysis::assess) judges any
-///   export against
-///   [`QualityThresholds`](vision_calibration_pipeline::analysis::QualityThresholds)
-///   and returns a
-///   [`QualityReport`](vision_calibration_pipeline::analysis::QualityReport).
-/// - Multi-level reprojection reports (re-exported from the pipeline):
-///   [`ReprojLevel`](vision_calibration_pipeline::analysis::ReprojLevel),
-///   [`ReprojReport`](vision_calibration_pipeline::analysis::ReprojReport),
-///   and the `*_report` builders — see the pipeline crate's `analysis` module
-///   doc comment for the constraint-level model.
-/// - Per-feature residual types and computation helpers (from
-///   `vision-calibration-core` and `vision-calibration-optim`):
+/// - The quality verdict:
+///   [`assess`](analysis::assess) judges any
+///   calibration export against [`QualityThresholds`](analysis::QualityThresholds)
+///   and returns a [`QualityReport`](analysis::QualityReport).
+/// - [`html_report`](analysis::html_report) renders a result as one
+///   self-contained HTML page.
+/// - Next-view planning: [`candidate_poses`](analysis::candidate_poses),
+///   [`predict_with_views`](analysis::predict_with_views),
+///   [`predict_with_robot_poses`](analysis::predict_with_robot_poses),
+///   [`rank_candidates`](analysis::rank_candidates) and
+///   [`rank_robot_poses`](analysis::rank_robot_poses).
+/// - The per-feature residual types of the `*Export` types'
+///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
 ///   [`PerFeatureResiduals`](analysis::PerFeatureResiduals),
 ///   [`TargetFeatureResidual`](analysis::TargetFeatureResidual),
 ///   [`LaserFeatureResidual`](analysis::LaserFeatureResidual),
-///   [`LaserLineTrace`](analysis::LaserLineTrace),
-///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram),
-///   `compute_planar_target_residuals{,_views}`, `compute_rig_target_residuals`,
-///   `build_feature_histogram`, `compute_laserline_feature_residuals` and
-///   `compute_rig_laserline_feature_residuals` (both returning
-///   [`LaserResidualRecords`](analysis::LaserResidualRecords)), and
-///   `handeye_observer_se3_target` — used across the per-problem `*Export`
-///   types' `per_feature_residuals` field.
+///   [`LaserLineTrace`](analysis::LaserLineTrace) and
+///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram).
 pub mod analysis {
-    pub use vision_calibration_pipeline::analysis::*;
+    pub use vision_calibration_pipeline::analysis::{
+        CandidateGrid, CheckKind, CheckStatus, Measurement, PredictedRigUncertainty,
+        PredictedUncertainty, QualityCheck, QualityReport, QualityThresholds, RankedCandidate,
+        RankedRobotPose, ReportOptions, Unit, Verdict, assess, candidate_poses, html_report,
+        predict_with_robot_poses, predict_with_views, rank_candidates, rank_robot_poses,
+    };
 
-    // Per-feature residual/histogram types and their computation helpers.
     pub use vision_calibration_core::{
         FeatureResidualHistogram, LaserFeatureResidual, LaserLineTrace, PerFeatureResiduals,
         REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, TargetFeatureResidual,
-        build_feature_histogram, compute_planar_target_residuals,
-        compute_planar_target_residuals_views, compute_rig_target_residuals,
-    };
-
-    // Per-feature residual helpers implemented against the optimization
-    // backend: `handeye_observer_se3_target` (used by hand-eye exports) and
-    // `compute_*_feature_residuals` (used by laser exports).
-    pub use vision_calibration_optim::{
-        LaserResidualRecords, compute_laserline_feature_residuals,
-        compute_rig_laserline_feature_residuals, handeye_observer_se3_target,
     };
 }
 
