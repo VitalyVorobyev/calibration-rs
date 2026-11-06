@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SceneDiagnostics` moved to `mvg::pose_recovery::SceneDiagnostics`, next to
   `RelativePose`, which holds it in `scene`.
 
+- **`vision_mvg::types::{EssentialMatrix, FundamentalMatrix, HomographyMatrix}`
+  are removed** (breaking). They were aliases of `Mat3`; use `core::Mat3`.
+
 ## [0.17.0] - 2026-11-06
 
 ### Migration
