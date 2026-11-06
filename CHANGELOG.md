@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`vision_mvg::types::{EssentialMatrix, FundamentalMatrix, HomographyMatrix}`
   are removed** (breaking). They were aliases of `Mat3`; use `core::Mat3`.
 
+- **The closed-form solvers moved to `mvg::solvers`** (breaking):
+  `mvg::dlt_homography` becomes `mvg::solvers::dlt_homography`, and likewise
+  `dlt_camera_matrix`, `decompose_camera_matrix`, `CameraMatrixDecomposition`,
+  `Mat34`, `essential_5point`, `fundamental_7point`, `fundamental_8point`,
+  `decompose_essential` and `triangulate_point_linear`.
+
 ## [0.17.0] - 2026-11-06
 
 ### Migration

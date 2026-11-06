@@ -1768,7 +1768,7 @@ pub mod tier_b {
             let max_z = obs_3d.iter().fold(0.0_f64, |m, p| m.max(p.z.abs()));
             let pose = if max_z < 1e-6 {
                 let world2d: Vec<Pt2> = obs_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
-                let h = vision_calibration::mvg::dlt_homography(&world2d, obs_2d)
+                let h = vision_calibration::mvg::solvers::dlt_homography(&world2d, obs_2d)
                     .with_context(|| format!("homography seed failed for view {view_idx}"))?;
                 vision_calibration_linear::planar_pose::estimate_planar_pose_from_h(
                     &k.k_matrix(),

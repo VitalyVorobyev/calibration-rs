@@ -134,7 +134,7 @@ before any work. Built-in constructors run on both.
 A workflow is composed from public pieces: the closed-form initializers,
 re-exported on the facade as `vision_calibration::init` (Zhang with
 distortion, pose from a homography, PnP, hand-eye, a plane through points;
-the homography DLT is already `mvg::dlt_homography`), then a `Problem`,
+the homography DLT is already `mvg::solvers::dlt_homography`), then a `Problem`,
 `solve` and the analysis functions. The session framework, its steps and the export
 contract stay the library's own.
 

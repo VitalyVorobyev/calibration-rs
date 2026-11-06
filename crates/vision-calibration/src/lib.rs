@@ -548,8 +548,8 @@ pub mod detect {
 }
 
 /// Multiple-view geometry, re-exported from `vision_mvg`: the deterministic
-/// two-view solvers (essential and fundamental matrix, homography DLT,
-/// camera-matrix DLT, linear triangulation) at the module root, plus
+/// closed-form solvers in [`solvers`](mvg::solvers) (essential and fundamental
+/// matrix, homography DLT, camera-matrix DLT, linear triangulation), plus
 /// calibrated relative-pose recovery, robust (RANSAC) estimation with scene
 /// diagnostics, N-view triangulation, laser points on a known plane, bundle
 /// adjustment from a calibration,
@@ -562,19 +562,22 @@ pub mod detect {
 pub mod mvg {
     /// RANSAC settings taken by the robust estimators in [`robust`].
     pub use vision_calibration_core::RansacOptions;
-    /// Deterministic two-view solvers, on normalized (or pixel) coordinates.
-    pub use vision_geometry::camera_matrix::{
-        CameraMatrixDecomposition, Mat34, decompose_camera_matrix, dlt_camera_matrix,
-    };
-    pub use vision_geometry::epipolar::{
-        decompose_essential, essential_5point, fundamental_7point, fundamental_8point,
-    };
-    pub use vision_geometry::homography::dlt_homography;
-    pub use vision_geometry::triangulation::triangulate_point_linear;
     pub use vision_mvg::{
         MvgError, bundle_adjust, dense, homography, laser, metrology, pose, pose_recovery,
         rectification, residuals, robust, triangulation, types,
     };
+
+    /// Deterministic closed-form solvers, on normalized or pixel coordinates.
+    pub mod solvers {
+        pub use vision_geometry::camera_matrix::{
+            CameraMatrixDecomposition, Mat34, decompose_camera_matrix, dlt_camera_matrix,
+        };
+        pub use vision_geometry::epipolar::{
+            decompose_essential, essential_5point, fundamental_7point, fundamental_8point,
+        };
+        pub use vision_geometry::homography::dlt_homography;
+        pub use vision_geometry::triangulation::triangulate_point_linear;
+    }
 }
 
 /// Non-linear optimization vocabulary.
@@ -623,7 +626,7 @@ pub mod optim {
 ///
 /// Each returns this module's [`Error`](init::Error), which `?` converts
 /// into [`crate::Error`]. Plane homographies come from
-/// [`mvg::dlt_homography`].
+/// [`mvg::solvers::dlt_homography`].
 pub mod init {
     /// The error the initializers return.
     pub use vision_calibration_linear::Error;

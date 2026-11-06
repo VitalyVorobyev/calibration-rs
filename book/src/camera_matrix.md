@@ -55,7 +55,7 @@ $$\mathbf{t} = K^{-1} \mathbf{p}_4$$
 
 ## Full Decomposition
 
-The `CameraMatrixDecomposition` struct:
+The `CameraMatrixDecomposition` struct (`mvg::solvers::CameraMatrixDecomposition`):
 
 ```rust
 pub struct CameraMatrixDecomposition {
@@ -68,6 +68,8 @@ pub struct CameraMatrixDecomposition {
 ## API
 
 ```rust
+use vision_calibration::mvg::solvers::{decompose_camera_matrix, dlt_camera_matrix};
+
 // Estimate the full 3×4 camera matrix
 let P = dlt_camera_matrix(&world_pts, &image_pts)?;
 
@@ -77,7 +79,7 @@ println!("Intrinsics: {:?}", decomp.k);
 println!("Rotation: {:?}", decomp.r);
 println!("Translation: {:?}", decomp.t);
 
-// Or just RQ decompose any 3×3 matrix
+// Or just RQ decompose any 3×3 matrix (`vision_geometry::camera_matrix::rq_decompose`)
 let (K, R) = rq_decompose(&M);
 ```
 

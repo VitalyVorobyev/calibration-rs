@@ -38,6 +38,8 @@ For accurate points, refine them on the reprojection error with their noise stat
 ## API
 
 ```rust
+use vision_calibration::mvg::solvers::triangulate_point_linear;
+
 let X = triangulate_point_linear(&cam_se3_world, &bearings)?;
 ```
 
@@ -54,4 +56,4 @@ Deterministic two-view solvers, all free functions in per-topic modules:
 | `triangulation` | `triangulate_point_linear` |
 | `camera_matrix` | `dlt_camera_matrix` |
 
-The facade re-exports the main solvers at the root of its `mvg` module (`vision_calibration::mvg::dlt_homography`, …); the full set is in the `vision-geometry` crate.
+The facade re-exports the main solvers in its `mvg::solvers` module (`vision_calibration::mvg::solvers::dlt_homography`, …); the full set is in the `vision-geometry` crate.
