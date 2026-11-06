@@ -95,8 +95,9 @@ geometry takes a bare `K`, carries no covariance and has no demonstration.
     references (`cargo xtask check-docs`).
 12. **Public dependencies** — only `nalgebra` reaches the facade's
     signatures; its version follows the solver backends, and a bump is a
-    breaking release (AGENTS.md §7). Decide before the rc whether 1.0
-    waits for the backends' move to nalgebra 0.35 (NALGEBRA-035).
+    breaking release (AGENTS.md §7). 1.0 ships on nalgebra 0.34 and does not
+    wait for the backends' move to 0.35; that bump is a 2.0 change
+    (NALGEBRA-035).
 
 ### Phase 2 — Growth in 1.x
 

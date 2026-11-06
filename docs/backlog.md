@@ -228,9 +228,10 @@ were. What is left reorganizes them around the project.
   a fork branch, TS-UPSTREAM) and a factrs release on them. factrs `main` is
   on faer 0.24 / faer-ext 0.8 but still nalgebra 0.34; the shared LM reads
   its Jacobian only as pattern and values (`backend/normal_equations.rs`),
-  so that side needs a zero-copy faer view, not a redesign. Landing it
-  before 1.0 keeps it a minor; after 1.0 it waits for 2.0. Decide before
-  the 1.0 rc whether 1.0 waits for it.
+  so that side needs a zero-copy faer view, not a redesign. Decided: 1.0
+  ships on nalgebra 0.34 and does not wait for the backends; the bump is a
+  2.0 change, to batch with other breaks. Reopen when both backends release
+  on nalgebra 0.35.
 
 ## v1.0
 
