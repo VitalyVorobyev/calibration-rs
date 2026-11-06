@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from `vision_geometry` itself. Through the facade, `mvg::bundle_adjust` is
   now only the module.
 
+- **`mvg::error` and `mvg::degeneracy` are gone** (breaking). `mvg::MvgError`
+  stays; write `Result<T, MvgError>` where you used `mvg::error::Result<T>`.
+  `SceneDiagnostics` moved to `mvg::pose_recovery::SceneDiagnostics`, next to
+  `RelativePose`, which holds it in `scene`.
+
 ## [0.17.0] - 2026-11-06
 
 ### Migration

@@ -104,9 +104,8 @@
 mod bearing;
 pub mod bundle_adjust;
 mod cheirality;
-pub mod degeneracy;
 pub mod dense;
-pub mod error;
+mod error;
 pub mod homography;
 pub mod laser;
 pub mod metrology;

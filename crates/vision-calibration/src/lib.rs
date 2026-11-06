@@ -550,8 +550,8 @@ pub mod detect {
 /// Multiple-view geometry, re-exported from `vision_mvg`: the deterministic
 /// two-view solvers (essential and fundamental matrix, homography DLT,
 /// camera-matrix DLT, linear triangulation) at the module root, plus
-/// calibrated relative-pose recovery, robust (RANSAC) estimation, degeneracy
-/// checks, N-view triangulation, laser points on a known plane, bundle
+/// calibrated relative-pose recovery, robust (RANSAC) estimation with scene
+/// diagnostics, N-view triangulation, laser points on a known plane, bundle
 /// adjustment from a calibration,
 /// measurements with joint σ (distance, angle, plane fit),
 /// homography decomposition, stereo rectification from a calibration (any camera
@@ -572,8 +572,8 @@ pub mod mvg {
     pub use vision_geometry::homography::dlt_homography;
     pub use vision_geometry::triangulation::triangulate_point_linear;
     pub use vision_mvg::{
-        MvgError, bundle_adjust, degeneracy, dense, error, homography, laser, metrology, pose,
-        pose_recovery, rectification, residuals, robust, triangulation, types,
+        MvgError, bundle_adjust, dense, homography, laser, metrology, pose, pose_recovery,
+        rectification, residuals, robust, triangulation, types,
     };
 }
 
