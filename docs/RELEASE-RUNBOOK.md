@@ -97,6 +97,13 @@ cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vis
 A crate not yet on crates.io has no baseline; exclude it here and in
 `release.yml` until its first release.
 
+From the first release candidate on, `ci.yml` runs the same check on every
+pull request against the most recent `v1.0.0-rc.*` tag
+(`--baseline-rev`), so a breaking change through the rc series fails the PR.
+The `semver-rc` job passes without checking while no such tag exists. Keep
+its excludes in step with the command above, and delete the job once 1.0.0
+is released (the release check then takes over).
+
 Also confirm on crates.io, once per crate in §2, that the crate exists and has
 a Trusted Publisher entry (§4). There is no CLI for this.
 
