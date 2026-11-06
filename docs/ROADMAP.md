@@ -76,9 +76,11 @@ geometry takes a bare `K`, carries no covariance and has no demonstration.
    baseline with a drift gate.
 5. **Frozen API** — facade-only consumers; one camera-model spec across all
    problem types and MVG; normalized configs
-   ([ADR 0024](adrs/0024-api-vocabulary.md)); typed errors; no duplicate
-   public type names and no deprecated shims; no breaking change through a
-   `1.0.0-rc` series.
+   ([ADR 0024](adrs/0024-api-vocabulary.md)); typed errors; one path per
+   public symbol (the per-problem seeds and step results share names across
+   problem modules by design, ADR 0024) and no deprecated shims; no breaking
+   change through a `1.0.0-rc` series (`semver-checks` against the last rc
+   on every PR).
 6. **Python parity** — every facade capability, MVG included, is in the
    Python package, enforced in CI.
 7. **Measurements** — a measurement from a calibrated system (point,
