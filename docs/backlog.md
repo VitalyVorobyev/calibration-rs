@@ -22,8 +22,24 @@ pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
 `StereoRectification::triangulate` and `StereoRectification::dense_cloud`
 carry the calibration's share.
 
-- [ ] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
-  (a cross-repo change).
+- [ ] MVG-PROOF-PACK - The measurement families have no proof pack of
+  their own (ROADMAP exit criterion 4). `notes/two-view-triangulation.md`,
+  `notes/rectification.md` and `notes/uncertainty.md` cover two-view
+  geometry, triangulation, rectification and the bundle-adjustment evidence.
+  Object pose (`mvg::pose`), laser triangulation (`mvg::laser`), metrology
+  and the dense cloud have Monte-Carlo gates (the facade's
+  `tests/*_uncertainty.rs`) but no math note. MVG also has no committed
+  regression baseline: the public suite gates calibrations only. Needed: a
+  `notes/mvg-measurements.md` (the implicit-function σ of each measurement,
+  what it holds exact, its gauge), and a suite entry that measures the held-out
+  boards of `opencv_stereo` (the `measure_board` route) against a committed
+  baseline with a drift gate.
+- [~] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
+  (a cross-repo change). Parked by the maintainer (2026-11-06): it would give
+  that image-processing library, which has its own f32 camera model and a
+  pixel → ray → plane path without σ, a dependency on the calibration facade.
+  That is an architecture decision for `vision-metrology`, not part of the
+  1.0 path. Reopen when `vision-metrology` needs measurements with σ.
 - [~] MVG-HANDEYE-STAGED - A staged laser export (`rig_laserline_device`)
   lists the hand-eye with its cross terms to the planes, so its rig measures
   in the gripper or base frame with the hand-eye's σ: its upstream maps the
