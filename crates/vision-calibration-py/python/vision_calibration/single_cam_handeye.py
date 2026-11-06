@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar, TypeAlias
 
 from . import _vision_calibration as _native
 from .common import (
@@ -23,17 +23,19 @@ from .common import (
 from .models import (
     Camera,
     Distortion,
+    HandeyeMode,
     PinholeIntrinsics,
     Pose,
     ScheimpflugSensor,
     SingleCamHandeyeConfig,
     SingleCamHandeyeExport,
     SingleCamHandeyeInput,
+    SingleCamHandeyeSolution,
+    _camera_solution_from_payload,
 )
 from .session import (
     CalibrationSession,
     _camera,
-    _optional_pose,
     _payload,
     _poses,
     _seed_payload,
@@ -41,6 +43,8 @@ from .session import (
 
 __all__ = [
     "HandeyeInitOptions",
+    "EyeInHandManualInit",
+    "EyeToHandManualInit",
     "HandeyeInitResult",
     "HandeyeManualInit",
     "HandeyeOptimizeOptions",
@@ -80,29 +84,58 @@ class IntrinsicsManualInit:
 
 
 @dataclass(slots=True)
-class HandeyeManualInit:
-    """Manual seeds of the hand-eye stage; a field left ``None`` is
-    estimated.
+class EyeInHandManualInit:
+    """Manual seeds of the hand-eye stage of an eye-in-hand session (the
+    camera on the gripper); a pose left ``None`` is estimated.
 
-    Eye-in-hand reads ``gripper_se3_camera`` and ``base_se3_target``;
-    eye-to-hand reads ``camera_se3_base`` and ``gripper_se3_target``. The
-    other mode's fields are ignored.
+    The session's ``handeye_init.handeye_mode`` must be ``"EyeInHand"``; a
+    seed of the other mode raises before any work.
     """
 
     gripper_se3_camera: Pose | None = None
     base_se3_target: Pose | None = None
-    camera_se3_base: Pose | None = None
-    gripper_se3_target: Pose | None = None
+    mode: ClassVar[HandeyeMode] = "EyeInHand"
 
     def to_payload(self) -> dict[str, Any]:
-        return _seed_payload(
-            {
-                "gripper_se3_camera": self.gripper_se3_camera,
-                "base_se3_target": self.base_se3_target,
-                "camera_se3_base": self.camera_se3_base,
-                "gripper_se3_target": self.gripper_se3_target,
-            }
-        )
+        return {
+            "mode": self.mode,
+            **_seed_payload(
+                {
+                    "gripper_se3_camera": self.gripper_se3_camera,
+                    "base_se3_target": self.base_se3_target,
+                }
+            ),
+        }
+
+
+@dataclass(slots=True)
+class EyeToHandManualInit:
+    """Manual seeds of the hand-eye stage of an eye-to-hand session (the
+    camera in the base frame); a pose left ``None`` is estimated.
+
+    The session's ``handeye_init.handeye_mode`` must be ``"EyeToHand"``; a
+    seed of the other mode raises before any work.
+    """
+
+    camera_se3_base: Pose | None = None
+    gripper_se3_target: Pose | None = None
+    mode: ClassVar[HandeyeMode] = "EyeToHand"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            **_seed_payload(
+                {
+                    "camera_se3_base": self.camera_se3_base,
+                    "gripper_se3_target": self.gripper_se3_target,
+                }
+            ),
+        }
+
+
+HandeyeManualInit: TypeAlias = EyeInHandManualInit | EyeToHandManualInit
+"""The hand-eye seed of a session: one class per mode, named like the
+export's :data:`SingleCamHandeyeSolution`."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,22 +170,14 @@ class IntrinsicsOptimizeResult:
 
 @dataclass(frozen=True, slots=True)
 class HandeyeInitResult:
-    """The linear hand-eye estimate: the two transforms of the session's mode
-    are set, the other two are ``None``."""
+    """The linear hand-eye estimate: the hand-eye and target pose of the
+    session's mode, both always set."""
 
-    gripper_se3_camera: Pose | None
-    base_se3_target: Pose | None
-    camera_se3_base: Pose | None
-    gripper_se3_target: Pose | None
+    handeye: SingleCamHandeyeSolution
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeInitResult:
-        return cls(
-            gripper_se3_camera=_optional_pose(payload.get("gripper_se3_camera")),
-            base_se3_target=_optional_pose(payload.get("base_se3_target")),
-            camera_se3_base=_optional_pose(payload.get("camera_se3_base")),
-            gripper_se3_target=_optional_pose(payload.get("gripper_se3_target")),
-        )
+        return cls(handeye=_camera_solution_from_payload(payload["handeye"]))
 
 
 @dataclass(frozen=True, slots=True)

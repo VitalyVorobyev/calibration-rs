@@ -144,14 +144,23 @@ The `device_seed` module derives these seeds from a device description (focal le
 
 `cam_se3_rig` and `rig_se3_target` are geometrically coupled. The rig stage's `RigManualInit` requires both or neither, and enforces it at runtime with a typed `Error::InvalidInput`.
 
-### Hand-eye coupling
+### Hand-eye seeds
 
-`RigHandeye` has three initialization stages (intrinsics, rig, hand-eye), each with its own `*ManualInit`. The hand-eye stage's `mode_target_pose` depends on the mounting mode:
+The hand-eye stage's seed has one variant per mounting mode, named and tagged like the export's `handeye` value (`HandeyeSolution` for a rig, `SingleCamHandeyeSolution` for one camera):
 
-- `EyeInHand`: `handeye = T_G_R`, `mode_target_pose = T_B_T`.
-- `EyeToHand`: `handeye = T_R_B`, `mode_target_pose = T_G_T`.
+```rust
+use vision_calibration::rig_handeye::HandeyeManualInit;
 
-If you seed `handeye` but not `mode_target_pose`, the latter is derived from the chain.
+// EyeInHand: gripper_se3_rig = T_G_R, base_se3_target = T_B_T.
+// EyeToHand: rig_se3_base = T_R_B, gripper_se3_target = T_G_T.
+let seed = HandeyeManualInit::EyeInHand {
+    gripper_se3_rig: Some(nominal_mount),
+    base_se3_target: None,
+};
+step_handeye_init_with_seed(&mut session, seed, None)?;
+```
+
+The variant must be the one of `handeye_init.handeye_mode`; a seed of the other mode is an `Error::InvalidInput`, raised before any work. A pose left `None` is estimated. If you seed the hand-eye but not the target pose, the target pose is derived from the chain through the first view. `single_cam_handeye::HandeyeManualInit` has the same shape with the camera named where the rig is (`gripper_se3_camera`, `camera_se3_base`). The step's result carries the same value: `init.handeye` is the `HandeyeSolution` (or `SingleCamHandeyeSolution`) of the mode, with both poses set. In Python the seed is an `EyeInHandManualInit` or an `EyeToHandManualInit`, from `rig_handeye` or `single_cam_handeye`.
 
 ### Staged rig laser calibration
 

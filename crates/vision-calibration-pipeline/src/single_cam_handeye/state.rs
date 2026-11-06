@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraParams, Iso3};
 
+use super::problem::SingleCamHandeyeSolution;
+
 /// Intermediate state for single-camera hand-eye calibration.
 ///
 /// Stores by-products of the calibration pipeline including:
@@ -39,17 +41,8 @@ pub(crate) struct SingleCamHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // From hand-eye initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial hand-eye transform (EyeInHand): gripper_se3_camera (T_G_C).
-    pub initial_gripper_se3_camera: Option<Iso3>,
-
-    /// Initial hand-eye transform (EyeToHand): camera_se3_base (T_C_B).
-    pub initial_camera_se3_base: Option<Iso3>,
-
-    /// Initial fixed target pose (EyeInHand): base_se3_target (T_B_T).
-    pub initial_base_se3_target: Option<Iso3>,
-
-    /// Initial fixed target pose (EyeToHand): gripper_se3_target (T_G_T).
-    pub initial_gripper_se3_target: Option<Iso3>,
+    /// Initial hand-eye and target pose of the configured mode.
+    pub initial_handeye: Option<SingleCamHandeyeSolution>,
 
     // ─────────────────────────────────────────────────────────────────────────
     // From hand-eye optimization (metrics only; result in output)
@@ -74,7 +67,7 @@ impl SingleCamHandeyeState {
 
     /// Check if hand-eye initialization has been run.
     pub fn has_handeye_init(&self) -> bool {
-        self.initial_gripper_se3_camera.is_some() || self.initial_camera_se3_base.is_some()
+        self.initial_handeye.is_some()
     }
 
     /// Check if hand-eye optimization has been run.
@@ -86,10 +79,7 @@ impl SingleCamHandeyeState {
     /// Clear hand-eye results, keeping intrinsics.
     #[cfg(test)]
     pub fn clear_handeye(&mut self) {
-        self.initial_gripper_se3_camera = None;
-        self.initial_camera_se3_base = None;
-        self.initial_base_se3_target = None;
-        self.initial_gripper_se3_target = None;
+        self.initial_handeye = None;
         self.handeye_final_cost = None;
         self.handeye_reproj_error = None;
     }
@@ -156,7 +146,10 @@ mod tests {
         let mut state = SingleCamHandeyeState {
             initial_camera: Some(camera),
             initial_target_poses: Some(vec![Iso3::identity()]),
-            initial_gripper_se3_camera: Some(Iso3::identity()),
+            initial_handeye: Some(SingleCamHandeyeSolution::EyeInHand {
+                gripper_se3_camera: Iso3::identity(),
+                base_se3_target: Iso3::identity(),
+            }),
             handeye_final_cost: Some(0.001),
             ..Default::default()
         };
@@ -190,7 +183,10 @@ mod tests {
             initial_target_poses: Some(vec![Iso3::identity()]),
             handeye_final_cost: Some(0.001),
             handeye_reproj_error: Some(0.5),
-            initial_gripper_se3_camera: Some(Iso3::identity()),
+            initial_handeye: Some(SingleCamHandeyeSolution::EyeInHand {
+                gripper_se3_camera: Iso3::identity(),
+                base_se3_target: Iso3::identity(),
+            }),
             ..Default::default()
         };
 

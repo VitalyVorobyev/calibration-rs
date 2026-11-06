@@ -57,6 +57,8 @@ Shah (see [Hand-Eye Linear](handeye_linear.md)):
 4. Estimate $T_{B,T}$: through the first view, or over all views with Shah's
    method, which estimates it together with the hand-eye
 
+The result's `handeye` is a `SingleCamHandeyeSolution` of the configured mode, with both poses set. `step_handeye_init_with_seed` takes a `HandeyeManualInit` instead: `EyeInHand { gripper_se3_camera, base_se3_target }` or `EyeToHand { camera_se3_base, gripper_se3_target }`, each pose optional. Its variant must match `handeye_init.handeye_mode`, or the step returns `Error::InvalidInput` (see [Manual Initialization](manual_init.md#hand-eye-seeds)).
+
 ### Step 4: Hand-Eye Optimization (`step_handeye_optimize`)
 
 Joint non-linear optimization of all parameters:

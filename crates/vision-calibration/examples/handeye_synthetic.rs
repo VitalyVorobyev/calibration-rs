@@ -146,11 +146,8 @@ fn main() -> Result<()> {
     // If results diverge, try adding more poses with varied rotation axes.
     println!("--- Step 3: Hand-Eye Initialization ---");
     let he_init = step_handeye_init(&mut session, None)?;
-    let init_he = he_init
-        .gripper_se3_camera
-        .as_ref()
-        .expect("EyeInHand mode populates gripper_se3_camera");
-    let init_he_t = init_he.translation.vector.norm();
+    let init_he = he_init.handeye.handeye();
+    let init_he_t = init_he.pose().translation.vector.norm();
     println!(
         "  Hand-eye |t|: {:.4}m (GT: {:.4}m)",
         init_he_t,

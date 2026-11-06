@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar, TypeAlias
 
 from . import _vision_calibration as _native
 from .common import (
@@ -29,10 +29,13 @@ from .common import (
 )
 from .models import (
     Camera,
+    HandeyeMode,
     Pose,
     RigHandeyeConfig,
     RigHandeyeExport,
     RigHandeyeInput,
+    RigHandeyeSolution,
+    _rig_solution_from_payload,
 )
 from .rig_extrinsics import (
     IntrinsicsInitResult,
@@ -45,14 +48,14 @@ from .session import (
     CalibrationSession,
     _cameras,
     _floats,
-    _optional_pose,
     _payload,
-    _pose,
     _poses,
     _seed_payload,
 )
 
 __all__ = [
+    "EyeInHandManualInit",
+    "EyeToHandManualInit",
     "HandeyeInitOptions",
     "HandeyeInitResult",
     "HandeyeManualInit",
@@ -73,20 +76,58 @@ __all__ = [
 
 
 @dataclass(slots=True)
-class HandeyeManualInit:
-    """Manual seeds of the hand-eye stage; a field left ``None`` is
-    estimated.
+class EyeInHandManualInit:
+    """Manual seeds of the hand-eye stage of an eye-in-hand session (the rig
+    on the gripper); a pose left ``None`` is estimated.
 
-    Eye-in-hand: ``handeye`` is ``gripper_se3_rig`` and
-    ``mode_target_pose`` is ``base_se3_target``. Eye-to-hand: ``handeye`` is
-    ``rig_se3_base`` and ``mode_target_pose`` is ``gripper_se3_target``.
+    The session's ``handeye_init.handeye_mode`` must be ``"EyeInHand"``; a
+    seed of the other mode raises before any work.
     """
 
-    handeye: Pose | None = None
-    mode_target_pose: Pose | None = None
+    gripper_se3_rig: Pose | None = None
+    base_se3_target: Pose | None = None
+    mode: ClassVar[HandeyeMode] = "EyeInHand"
 
     def to_payload(self) -> dict[str, Any]:
-        return _seed_payload({"handeye": self.handeye, "mode_target_pose": self.mode_target_pose})
+        return {
+            "mode": self.mode,
+            **_seed_payload(
+                {
+                    "gripper_se3_rig": self.gripper_se3_rig,
+                    "base_se3_target": self.base_se3_target,
+                }
+            ),
+        }
+
+
+@dataclass(slots=True)
+class EyeToHandManualInit:
+    """Manual seeds of the hand-eye stage of an eye-to-hand session (the rig
+    in the base frame); a pose left ``None`` is estimated.
+
+    The session's ``handeye_init.handeye_mode`` must be ``"EyeToHand"``; a
+    seed of the other mode raises before any work.
+    """
+
+    rig_se3_base: Pose | None = None
+    gripper_se3_target: Pose | None = None
+    mode: ClassVar[HandeyeMode] = "EyeToHand"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            **_seed_payload(
+                {
+                    "rig_se3_base": self.rig_se3_base,
+                    "gripper_se3_target": self.gripper_se3_target,
+                }
+            ),
+        }
+
+
+HandeyeManualInit: TypeAlias = EyeInHandManualInit | EyeToHandManualInit
+"""The hand-eye seed of a session: one class per mode, named like the
+export's :data:`RigHandeyeSolution`."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,18 +172,14 @@ class RigOptimizeResult:
 
 @dataclass(frozen=True, slots=True)
 class HandeyeInitResult:
-    """The linear hand-eye estimate, in the session's mode (see
-    :class:`HandeyeManualInit`)."""
+    """The linear hand-eye estimate: the hand-eye and target pose of the
+    session's mode, both always set."""
 
-    initial_handeye: Pose
-    initial_mode_target_pose: Pose | None
+    handeye: RigHandeyeSolution
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeInitResult:
-        return cls(
-            initial_handeye=_pose(payload["initial_handeye"]),
-            initial_mode_target_pose=_optional_pose(payload.get("initial_mode_target_pose")),
-        )
+        return cls(handeye=_rig_solution_from_payload(payload["handeye"]))
 
 
 @dataclass(frozen=True, slots=True)

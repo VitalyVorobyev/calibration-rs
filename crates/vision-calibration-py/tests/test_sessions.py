@@ -206,8 +206,7 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         optimized = session.step_intrinsics_optimize()
         self.assertLess(optimized.mean_reproj_error, 1.0)
         handeye = session.step_handeye_init(vc.HandeyeInitOptions(min_motion_angle_deg=5.0))
-        self.assertIsNotNone(handeye.gripper_se3_camera)
-        self.assertIsNone(handeye.camera_se3_base)
+        self.assertIsInstance(handeye.handeye, vc.CameraEyeInHand)
         refined = session.step_handeye_optimize()
         result = session.export()
         self.assertAlmostEqual(result.mean_reproj_error, refined.mean_reproj_error, places=9)
@@ -223,7 +222,7 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
             session.step_intrinsics_init()
             session.step_intrinsics_optimize()
             init = session.step_handeye_init(vc.HandeyeInitOptions(method=method))
-            self.assertIsNotNone(init.gripper_se3_camera)
+            self.assertIsInstance(init.handeye, vc.CameraEyeInHand)
             refined[method] = session.step_handeye_optimize().mean_reproj_error
         for method, err in refined.items():
             self.assertAlmostEqual(err, refined["tsai_lenz"], places=4, msg=method)
@@ -236,7 +235,7 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         session.set_input(observation("synth_handeye"))
         session.step_intrinsics_init()
         session.step_intrinsics_optimize()
-        self.assertIsNotNone(session.step_handeye_init().base_se3_target)
+        self.assertIsInstance(session.step_handeye_init().handeye, vc.CameraEyeInHand)
 
     def test_seeding_the_hand_eye_with_its_estimate_keeps_it(self) -> None:
         session = vc.SingleCamHandeyeSession()
@@ -245,12 +244,20 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         session.step_intrinsics_optimize()
         estimate = session.step_handeye_init()
         seeded = session.step_handeye_init_with_seed(
-            single_cam_handeye.HandeyeManualInit(
-                gripper_se3_camera=estimate.gripper_se3_camera,
-                base_se3_target=estimate.base_se3_target,
+            single_cam_handeye.EyeInHandManualInit(
+                gripper_se3_camera=estimate.handeye.gripper_se3_camera,
+                base_se3_target=estimate.handeye.base_se3_target,
             )
         )
         self.assertEqual(seeded, estimate)
+
+    def test_a_seed_of_the_other_mode_is_rejected(self) -> None:
+        session = vc.SingleCamHandeyeSession()
+        session.set_input(observation("synth_handeye"))
+        session.step_intrinsics_init()
+        session.step_intrinsics_optimize()
+        with self.assertRaises(ValueError):
+            session.step_handeye_init_with_seed(single_cam_handeye.EyeToHandManualInit())
 
 
 class RigExtrinsicsSessionTest(unittest.TestCase):
@@ -308,13 +315,16 @@ class RigHandeyeSessionTest(unittest.TestCase):
         rig = session.step_rig_optimize()
         self.assertEqual(len(rig.cam_se3_rig), 2)
         handeye = session.step_handeye_init()
-        self.assertIsInstance(handeye.initial_handeye, vc.Pose)
+        self.assertIsInstance(handeye.handeye, vc.RigEyeInHand)
         reseeded = session.step_handeye_init_with_seed(
-            rig_handeye.HandeyeManualInit(
-                handeye=handeye.initial_handeye, mode_target_pose=handeye.initial_mode_target_pose
+            rig_handeye.EyeInHandManualInit(
+                gripper_se3_rig=handeye.handeye.gripper_se3_rig,
+                base_se3_target=handeye.handeye.base_se3_target,
             )
         )
         self.assertEqual(reseeded, handeye)
+        with self.assertRaises(ValueError):
+            session.step_handeye_init_with_seed(rig_handeye.EyeToHandManualInit())
         refined = session.step_handeye_optimize()
         self.assertGreater(refined.final_cost, 0.0)
         result = session.export()

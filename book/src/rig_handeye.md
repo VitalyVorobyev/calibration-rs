@@ -45,6 +45,8 @@ Uses the closed-form method of `handeye_init.method` (Tsai-Lenz by default; see 
 3. Solve $AX = XB$ for $X = T_{G,R}$ (`gripper_se3_rig`)
 4. Estimate the target in the base frame, $T_{B,T}$
 
+The result's `handeye` is a `HandeyeSolution` of the configured mode. `step_handeye_init_with_seed` takes a `HandeyeManualInit` (`EyeInHand { gripper_se3_rig, base_se3_target }` or `EyeToHand { rig_se3_base, gripper_se3_target }`, each pose optional); its variant must match `handeye_init.handeye_mode` (see [Manual Initialization](manual_init.md#hand-eye-seeds)).
+
 ### Step 6: Hand-Eye Optimization (`step_handeye_optimize`)
 
 Joint optimization of all parameters:
