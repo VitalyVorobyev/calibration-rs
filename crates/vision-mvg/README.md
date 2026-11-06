@@ -38,7 +38,8 @@ use vision_calibration_core::{
     BrownConrady5, CalibratedRig, FxFyCxCy, PointCovariance, Pt3, Uncertainty, Vec3,
     make_pinhole_camera, pinhole_camera_params,
 };
-use vision_mvg::{PixelMatch, recover_relative_pose};
+use vision_mvg::pose_recovery::recover_relative_pose;
+use vision_mvg::types::PixelMatch;
 
 // One calibrated camera, moved between two captures.
 let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 480.0 };

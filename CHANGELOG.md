@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **`vision-mvg` is module-first** (breaking). The flat re-exports at its
+  crate root are gone; only `MvgError` remains there. Reach each item through
+  its module: `vision_mvg::bundle_adjust::bundle_adjust`,
+  `vision_mvg::pose_recovery::recover_relative_pose`,
+  `vision_mvg::types::PixelMatch`, `vision_mvg::robust::estimate_essential`,
+  and so on. The closed-form solvers that were re-exported from
+  `vision-geometry` (`dlt_homography`, `essential_5point`, ...) are imported
+  from `vision_geometry` itself. Through the facade, `mvg::bundle_adjust` is
+  now only the module.
+
 ## [0.17.0] - 2026-11-06
 
 ### Migration

@@ -1,6 +1,6 @@
 //! Cameras and rigs shared by the crate's unit tests.
 
-use crate::PixelMatch;
+use crate::types::PixelMatch;
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{
     BrownConrady5, CalibratedRig, CameraParams, DistortionParams, FxFyCxCy, Iso3, KannalaBrandt4,

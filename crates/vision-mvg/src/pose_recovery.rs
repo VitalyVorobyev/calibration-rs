@@ -60,7 +60,7 @@ pub(crate) fn iso_from_rt(r: &Mat3, t: &Vec3) -> Iso3 {
 /// 3. Selects the pose with the most points passing cheirality
 /// 4. Triangulates all matches with the selected pose
 ///
-/// For outlier-contaminated data, prefer [`crate::recover_relative_pose_robust`]
+/// For outlier-contaminated data, prefer [`crate::robust::recover_relative_pose_robust`]
 /// which uses RANSAC.
 ///
 /// # Errors

@@ -563,11 +563,14 @@ pub mod mvg {
     /// RANSAC settings taken by the robust estimators in [`robust`].
     pub use vision_calibration_core::RansacOptions;
     /// Deterministic two-view solvers, on normalized (or pixel) coordinates.
-    pub use vision_mvg::{
-        CameraMatrixDecomposition, Mat34, decompose_camera_matrix, decompose_essential,
-        dlt_camera_matrix, dlt_homography, essential_5point, fundamental_7point,
-        fundamental_8point, triangulate_point_linear,
+    pub use vision_geometry::camera_matrix::{
+        CameraMatrixDecomposition, Mat34, decompose_camera_matrix, dlt_camera_matrix,
     };
+    pub use vision_geometry::epipolar::{
+        decompose_essential, essential_5point, fundamental_7point, fundamental_8point,
+    };
+    pub use vision_geometry::homography::dlt_homography;
+    pub use vision_geometry::triangulation::triangulate_point_linear;
     pub use vision_mvg::{
         MvgError, bundle_adjust, degeneracy, dense, error, homography, laser, metrology, pose,
         pose_recovery, rectification, residuals, robust, triangulation, types,
