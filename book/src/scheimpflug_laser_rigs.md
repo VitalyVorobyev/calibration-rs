@@ -63,17 +63,16 @@ session.update_config(|c| {
         1,
         CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
     )];
-    c.rig.refine_sensor = false; // keep the tilts fixed in the rig bundle adjustment
 })?;
 ```
 
-The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_optimize.refine_sensor`) lets the tilts move there.
+The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_optimize.refine_sensor`) refines the tilts there too. Both default to on: a camera's own views pin its tilt poorly, as it trades with the principal point, while the views of the whole rig pin it several times better. A tilt held at the camera's own estimate leaves its error in the focal length and the principal point, and the covariance, conditional on the held tilt, then states their σ several times too small; setting the flag to `false` holds it there, and the covariance lists it under `fixed`.
 
 Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `rig_extrinsics::IntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the linear stage's tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
 
 Each tilted camera is first calibrated from its own views, as in single-camera planar intrinsics: the linear stage holds `p1`, `p2` at zero (a tangential term and the tilt trade off, and the default fix list holds them in every later solve), and the camera's own solve frees every target pose. On clean synthetic data this solve reaches the reprojection noise floor, with the principal point and tilt at the truth within their standard deviations.
 
-From scratch (nothing seeded, for any camera), a tilted camera's own solve can still settle in a wrong tilt / principal-point basin, which the rig bundle adjustment cannot leave while it holds the tilt. Both rig workflows then solve each tilted camera through a wider multi-start over linear tilt seeds, and re-solve a Brown-Conrady tilted camera that still fits worse than 0.5 px from a nominal seed built from the rig's well-fitted cameras. This costs extra solves (several times the per-camera stage on a hard rig), and a seeded rig skips it.
+From scratch (nothing seeded, for any camera), a tilted camera's own solve can still settle in a wrong tilt / principal-point basin, which the rig bundle adjustment, a local solve, may not leave. Both rig workflows then solve each tilted camera through a wider multi-start over linear tilt seeds, and re-solve a Brown-Conrady tilted camera that still fits worse than 0.5 px from a nominal seed built from the rig's well-fitted cameras. This costs extra solves (several times the per-camera stage on a hard rig), and a seeded rig skips it.
 
 ## RigLaserlineDevice
 
@@ -140,9 +139,9 @@ pub struct RigHandeyeLaserlineConfig {
 ```
 
 `joint_optimize.fix` holds one `CameraFix` per camera, named in that camera's model.
-Left empty, every camera gets the joint stage's default: intrinsics and the
-low-order radial terms (`k1`, `k2`; the division model's `lambda`) refined,
-the higher-order distortion terms and the sensor tilt held at their
+Left empty, every camera gets the joint stage's default: intrinsics, the
+low-order radial terms (`k1`, `k2`; the division model's `lambda`) and the
+sensor tilt refined, the higher-order distortion terms held at their
 warm-start values, because they trade off against the extrinsics and the
 laser planes. An entry's slot left out keeps the model's default, as in every
 `CameraFix`.

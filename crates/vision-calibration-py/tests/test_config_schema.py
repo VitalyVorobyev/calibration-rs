@@ -115,7 +115,7 @@ class RigCameraConfigSchemaTest(unittest.TestCase):
             },
         )
         self.assertEqual(payload["camera_overrides"], [])
-        self.assertFalse(payload["rig"]["refine_sensor"])
+        self.assertTrue(payload["rig"]["refine_sensor"])
 
     def test_rig_handeye_camera_key_and_defaults(self) -> None:
         payload = vc.RigHandeyeConfig().to_payload()
@@ -128,7 +128,7 @@ class RigCameraConfigSchemaTest(unittest.TestCase):
                 "robot_poses": payload["handeye_optimize"]["robot_poses"],
                 "refine_intrinsics": True,
                 "refine_cam_se3_rig": False,
-                "refine_sensor": False,
+                "refine_sensor": True,
             },
         )
 
@@ -158,21 +158,21 @@ class RigCameraConfigSchemaTest(unittest.TestCase):
                 vc.CameraOverride(1, model=vc.CameraModelSpec(sensor="scheimpflug"))
             ],
         )
-        cfg.rig.refine_sensor = True
+        cfg.rig.refine_sensor = False
         restored = vc.RigExtrinsicsConfig.from_mapping(cfg.to_payload())
         self.assertEqual(restored.to_payload(), cfg.to_payload())
         self.assertIsInstance(restored.camera_overrides[0], vc.CameraOverride)
         self.assertEqual(restored.camera_overrides[0].model.sensor, "scheimpflug")
-        self.assertTrue(restored.rig.refine_sensor)
+        self.assertFalse(restored.rig.refine_sensor)
 
     def test_rig_handeye_overrides_roundtrip(self) -> None:
         cfg = vc.RigHandeyeConfig(
             camera_overrides=[vc.CameraOverride(0, fix=vc.CameraFix(distortion=["k1"]))]
         )
-        cfg.handeye_optimize.refine_sensor = True
+        cfg.handeye_optimize.refine_sensor = False
         restored = vc.RigHandeyeConfig.from_mapping(cfg.to_payload())
         self.assertEqual(restored.to_payload(), cfg.to_payload())
-        self.assertTrue(restored.handeye_optimize.refine_sensor)
+        self.assertFalse(restored.handeye_optimize.refine_sensor)
 
     def test_removed_sensor_field_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

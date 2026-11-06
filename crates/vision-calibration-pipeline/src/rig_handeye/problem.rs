@@ -103,10 +103,11 @@ pub struct HandeyeOptimizeConfig {
     /// Refine cam_se3_rig in hand-eye BA (default: false).
     /// When true, rig extrinsics are further refined during hand-eye optimization.
     pub refine_cam_se3_rig: bool,
-    /// Refine the sensor tilt of each Scheimpflug camera in hand-eye BA,
-    /// holding its `fix.sensor` list (default: false). Cameras with an
-    /// untilted sensor have no tilt.
-    #[serde(default)]
+    /// Refine the sensor tilt of each Scheimpflug camera in the hand-eye
+    /// BA, holding its `fix.sensor` list. Default: `true`, for the reason
+    /// given on `rig.refine_sensor`: the final solve's covariance then
+    /// includes the tilts. Cameras with an untilted sensor have no tilt.
+    #[serde(default = "crate::common::config::default_true")]
     pub refine_sensor: bool,
 }
 
@@ -116,7 +117,7 @@ impl Default for HandeyeOptimizeConfig {
             robot_poses: RobotPoseConfig::default(),
             refine_intrinsics: true,
             refine_cam_se3_rig: false,
-            refine_sensor: false,
+            refine_sensor: true,
         }
     }
 }
@@ -567,13 +568,13 @@ mod tests {
     }
 
     #[test]
-    fn final_handeye_optimize_defaults_refine_intrinsics_and_keep_rig_fixed() {
+    fn final_handeye_optimize_defaults_refine_cameras_and_keep_rig_fixed() {
         let config = RigHandeyeConfig::default();
         assert!(config.rig.refine_intrinsics);
         assert!(config.handeye_optimize.refine_intrinsics);
         assert!(!config.handeye_optimize.refine_cam_se3_rig);
-        assert!(!config.handeye_optimize.refine_sensor);
-        assert!(!config.rig.refine_sensor);
+        assert!(config.handeye_optimize.refine_sensor);
+        assert!(config.rig.refine_sensor);
     }
 
     #[test]

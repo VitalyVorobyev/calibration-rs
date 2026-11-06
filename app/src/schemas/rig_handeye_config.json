@@ -534,8 +534,8 @@
           "type": "boolean"
         },
         "refine_sensor": {
-          "default": false,
-          "description": "Refine the sensor tilt of each Scheimpflug camera in hand-eye BA,\nholding its `fix.sensor` list (default: false). Cameras with an\nuntilted sensor have no tilt.",
+          "default": true,
+          "description": "Refine the sensor tilt of each Scheimpflug camera in the hand-eye\nBA, holding its `fix.sensor` list. Default: `true`, for the reason\ngiven on `rig.refine_sensor`: the final solve's covariance then\nincludes the tilts. Cameras with an untilted sensor have no tilt.",
           "type": "boolean"
         },
         "robot_poses": {
@@ -638,8 +638,8 @@
           "type": "boolean"
         },
         "refine_sensor": {
-          "default": false,
-          "description": "Re-refine the sensor tilt of each Scheimpflug camera during rig\nbundle adjustment, holding its `fix.sensor` list. Default: `false` —\nthe tilt is fitted per camera and trades off against the extrinsics\nin the joint solve. Cameras with an untilted sensor have no tilt.",
+          "default": true,
+          "description": "Refine the sensor tilt of each Scheimpflug camera in the rig bundle\nadjustment, holding its `fix.sensor` list. Default: `true`, for the\nreason given on `refine_intrinsics`: a camera's own views pin its\ntilt poorly (it trades with the principal point), the views of the\nwhole rig pin it several times better, and a tilt held at the\nper-camera estimate leaves its error in the focal length and the\nprincipal point while the covariance, conditional on the held tilt,\nunderstates their standard deviations several-fold. `false` holds\nthe tilt at the per-camera estimate; the covariance then lists it as\nfixed. Cameras with an untilted sensor have no tilt.",
           "type": "boolean"
         }
       },

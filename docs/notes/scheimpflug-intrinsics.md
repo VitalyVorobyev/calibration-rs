@@ -95,10 +95,43 @@ matter.
 The rig workflows calibrate each tilted camera from its own views first
 (`planar_family::{bootstrap_camera, optimize_camera}`: the linear stage,
 then the staged tilt multi-start), and the rig bundle adjustment refines
-the intrinsics but holds the tilt unless `rig.refine_sensor` is set. So the
-per-camera stage has to land on the camera's own minimum; the rig solve
-cannot move the tilt off a wrong one, and the principal point and the
-camera's rotation in the rig absorb the error.
+the intrinsics and the tilt (`rig.refine_sensor`, `handeye_optimize.
+refine_sensor` and the laser joint stage's default fix, all on since
+UQ-HELD-TILT). The per-camera stage still has to land near the camera's
+own minimum: the rig solve is local and does not leave a wrong tilt /
+principal-point basin.
+
+**Why the rig solve refines the tilt** (UQ-HELD-TILT). A camera's own
+views pin the tilt poorly; the rig's shared board poses pin it far better.
+Held at the per-camera estimate, the tilt's error goes into `fx` and the
+principal point, and the covariance, conditional on the held tilt, does
+not show it. Measured by Monte-Carlo (`rig_extrinsics` from scratch, the
+held tilt against the refined one):
+
+| scene | held: `fx` bias / scatter / stated σ | refined: `fx` bias / scatter / stated σ | refined: tilt scatter / σ |
+|---|---|---|---|
+| 4 cameras, `k1 ≈ −0.4`, −5° tilt, 6 views ≤ 0.1 rad, σ = 0.2 px (60 draws, `pipeline/tests/rig_tilted_recovery.rs`; TinySolver, Factrs within 6 px held and 0.05 px refined) | −17 to −26 / 27–32 / 3.4–3.6 px | ≤ 0.3 / 7.2–7.8 / 6.9–7.6 px | 0.048–0.053° / 0.049–0.050° |
+| 2 cameras, `k1 ≈ −0.04`, 8 views ≤ 0.45 rad, σ = 0.1 px (100 draws, facade `rig_extrinsics_scheimpflug.rs`) | `cx`: 0 / 1.5–2.6 / 0.10–0.14 px | `cx`: 0 / 1.5–2.6 / 1.5–2.3 px | 0.07–0.08° / 0.07–0.08° |
+
+On the first scene holding the tilt is a point-estimate problem (the
+per-camera tilts are biased by about +0.5° and scatter 0.5–0.9°, some
+cameras land in a wrong basin) as well as a missing-variance one; on the
+second it is missing variance only. Refining fixes both; the alternative,
+carrying the per-camera tilt covariance as consider parameters, would fix
+the σ but not the bias, and has no case where it would apply (a tilt the
+rig views cannot determine, the camera's own views cannot either). The
+Monte-Carlo gate `rig_covariance_with_tilts_matches_monte_carlo` (400
+draws per backend on the second scene) measures scatter / stated σ of
+0.94–1.02 for `fx, fy, cx, cy, tilt_x, tilt_y` of both cameras on both
+backends.
+
+On the private six-camera ChArUco rig (`scheimpflug_rig`, from scratch
+through `vcal run`), which pins the tilt / `cy` / `fx` valley very weakly,
+refining moves the cameras along it (up to about 25° of tilt and 25 % of
+`fx`) for a mean reprojection error about 8 % lower; the held solution
+itself moves by up to 25° of tilt and 5 % of `fx` when only the tilt seed
+changes, against a stated `fx` σ under 0.5 %. Neither is trustworthy
+there; the refined covariance is the less overconfident.
 
 Two rules make it land there, both shared with the single-camera
 workflows:

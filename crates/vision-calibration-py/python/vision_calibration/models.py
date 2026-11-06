@@ -190,9 +190,10 @@ class RigConfig:
     #: Refine each camera's intrinsics jointly with the rig (default), so the
     #: result's covariance includes them.
     refine_intrinsics: bool = True
-    #: Also refine each tilted camera's sensor tilt in the rig bundle
-    #: adjustment (no effect for untilted cameras).
-    refine_sensor: bool = False
+    #: Refine each tilted camera's sensor tilt in the rig bundle adjustment
+    #: (default), so the result's covariance includes it; ``False`` holds it
+    #: at the camera's own estimate. No effect for untilted cameras.
+    refine_sensor: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -863,13 +864,14 @@ class HandeyeOptimizeConfig:
 
     ``robot_poses`` sets robot-pose refinement; ``refine_intrinsics``
     (default) refines each camera's intrinsics, ``refine_cam_se3_rig`` the rig
-    extrinsics, and ``refine_sensor`` each tilted camera's sensor tilt.
+    extrinsics, and ``refine_sensor`` (default) each tilted camera's sensor
+    tilt.
     """
 
     robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
     refine_intrinsics: bool = True
     refine_cam_se3_rig: bool = False
-    refine_sensor: bool = False
+    refine_sensor: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {

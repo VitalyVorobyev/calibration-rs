@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **The rig workflows refine each Scheimpflug camera's tilt in their joint
+  solves** (a changed result). `RigConfig::refine_sensor` (`rig.refine_sensor`)
+  and `HandeyeOptimizeConfig::refine_sensor` (`handeye_optimize.refine_sensor`)
+  now default to `true`, also when a config leaves them out, and the
+  `rig_handeye_laserline` joint stage's default fix list no longer holds the
+  tilt. A tilt held at the camera's own estimate left its error in the focal
+  length and principal point, and the covariance, conditional on it, stated
+  their σ far too small: on a four-camera tilted rig seen in six nearly
+  fronto-parallel views (60 noise draws), the focal lengths were 17–26 px
+  low on average and scattered 27–32 px against a stated σ of 3.4–3.6 px;
+  refined in the rig solve they are unbiased (≤ 0.3 px), with a scatter of
+  7.2–7.8 px against a stated σ of 6.9–7.6 px, and the tilts scatter
+  0.05° against a stated 0.05°. On a well-conditioned two-camera tilted rig
+  the estimates barely move, but the principal points' σ was 20 times too
+  small and is now within 5 % of the scatter. A tilted camera with no
+  distortion cannot tell its tilt from a principal-point shift, so its rig
+  covariance is now `rank_deficient` instead of conditional on a tilt the
+  data do not determine. Rigs of untilted cameras are unchanged. Set the flags to `false` (or name the tilts in the joint
+  stage's `fix`) for the previous behaviour; the covariance then lists the
+  tilts under `fixed`.
+
 - **The multiple-view-geometry solves take a run control** (breaking).
   `mvg::triangulation::triangulate` and `StereoRectification::triangulate`
   gain a last argument `control: &RunControl`; pass

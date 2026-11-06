@@ -47,14 +47,6 @@ need their measurement first and stay opt-in until it is in.
   covariance, so a ring-grid one would only be a report. Reopen if a
   ring-grid weighting study is wanted, or if the view scatter on ring-grid
   data needs the detector's term.
-- [ ] UQ-HELD-TILT - A rig solve holds each Scheimpflug camera's tilt at
-  its per-camera estimate, so the tilt's uncertainty never reaches the rig's
-  covariance: on the four-camera synthetic scene of
-  `pipeline/tests/rig_tilted_recovery.rs` cameras 0-2 end with fx about 9 px
-  low against a stated σ of 1.9 px (≈ 4.8σ), with or without the tilted
-  recovery. Free the tilt in the rig solve (when the data support it) or
-  carry its per-camera covariance as consider parameters, then gate fx and
-  tilt σ by Monte-Carlo on a tilted rig.
 - [ ] UQ-CROSS-FRAME - Projection uncertainty across the reference-frame
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
   which results do not carry.

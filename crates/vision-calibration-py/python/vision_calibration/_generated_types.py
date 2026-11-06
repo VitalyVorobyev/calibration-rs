@@ -893,9 +893,10 @@ class HandeyeOptimizeConfig(_HandeyeOptimizeConfigRequired, total=False):
     """
 
     refine_sensor: bool
-    """Refine the sensor tilt of each Scheimpflug camera in hand-eye BA,
-    holding its `fix.sensor` list (default: false). Cameras with an
-    untilted sensor have no tilt.
+    """Refine the sensor tilt of each Scheimpflug camera in the hand-eye
+    BA, holding its `fix.sensor` list. Default: `true`, for the reason
+    given on `rig.refine_sensor`: the final solve's covariance then
+    includes the tilts. Cameras with an untilted sensor have no tilt.
     """
 
 
@@ -1129,12 +1130,14 @@ class JointOptimizeConfig(_JointOptimizeConfigRequired, total=False):
     in camera order, each named per slot in that camera's model
     (`{"distortion": ["k3", "p1", "p2"], "sensor": ["tilt_x"]}`); a slot
     left out of an entry keeps the model's default. Empty (the default)
-    gives every camera the stage default: intrinsics and the low-order
-    radial terms (`k1`, `k2`; the division model's `lambda`) refined,
-    the higher-order distortion terms and the sensor tilt held at their
+    gives every camera the stage default: intrinsics, the low-order
+    radial terms (`k1`, `k2`; the division model's `lambda`) and the
+    sensor tilt refined, the higher-order distortion terms held at their
     warm-start values — they trade off against the extrinsics and the
-    laser planes in the joint solve. A name the camera's model does not
-    have is a configuration error.
+    laser planes in the joint solve. The tilt is refined like the
+    intrinsics: held, the covariance would be conditional on it and
+    understate the intrinsics' standard deviations. A name the camera's
+    model does not have is a configuration error.
     """
 
 
@@ -2148,10 +2151,16 @@ class RigConfig(_RigConfigRequired, total=False):
     """
 
     refine_sensor: bool
-    """Re-refine the sensor tilt of each Scheimpflug camera during rig
-    bundle adjustment, holding its `fix.sensor` list. Default: `false` —
-    the tilt is fitted per camera and trades off against the extrinsics
-    in the joint solve. Cameras with an untilted sensor have no tilt.
+    """Refine the sensor tilt of each Scheimpflug camera in the rig bundle
+    adjustment, holding its `fix.sensor` list. Default: `true`, for the
+    reason given on `refine_intrinsics`: a camera's own views pin its
+    tilt poorly (it trades with the principal point), the views of the
+    whole rig pin it several times better, and a tilt held at the
+    per-camera estimate leaves its error in the focal length and the
+    principal point while the covariance, conditional on the held tilt,
+    understates their standard deviations several-fold. `false` holds
+    the tilt at the per-camera estimate; the covariance then lists it as
+    fixed. Cameras with an untilted sensor have no tilt.
     """
 
 

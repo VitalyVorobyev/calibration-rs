@@ -154,11 +154,10 @@ pub fn step_rig_init(
 /// Jointly optimizes:
 /// - Per-camera extrinsics (camera-to-rig)
 /// - Per-view rig poses (rig-to-target)
-/// - Optionally: per-camera intrinsics and distortion (if
-///   `rig.refine_intrinsics` is true), holding each camera's `fix`
-///   lists
-/// - Optionally: the tilt of each Scheimpflug camera (if `rig.refine_sensor`
-///   is true), holding its `fix.sensor` list
+/// - Per-camera intrinsics and distortion (unless `rig.refine_intrinsics`
+///   is false), holding each camera's `fix` lists
+/// - The tilt of each Scheimpflug camera (unless `rig.refine_sensor` is
+///   false), holding its `fix.sensor` list
 ///
 /// The reference camera (`rig.reference_camera_idx`) alone removes the rig's
 /// full 6-DOF gauge freedom; no rig-from-target pose is fixed; an extra

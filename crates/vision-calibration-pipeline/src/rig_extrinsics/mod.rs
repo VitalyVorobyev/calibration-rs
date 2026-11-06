@@ -27,8 +27,9 @@
 //!   fix alone removes the rig's full 6-DOF gauge freedom (no rig-from-target
 //!   pose is additionally pinned)
 //! - Intrinsics: re-refined in rig BA with each camera's fix lists
-//!   (`rig.refine_intrinsics`); a Scheimpflug tilt is held there unless
-//!   `rig.refine_sensor` is set
+//!   (`rig.refine_intrinsics`), and so is a Scheimpflug tilt
+//!   (`rig.refine_sensor`): the whole rig's views determine it far better
+//!   than the camera's own, and the covariance then includes it
 //! - Every camera has the model of `camera` (pinhole, Brown-Conrady, untilted
 //!   sensor by default) unless `camera_overrides` names it; each keeps its
 //!   model's default fix lists (`k3` for Brown-Conrady) unless `fix` says
