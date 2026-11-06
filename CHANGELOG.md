@@ -31,7 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mvg::dlt_homography` becomes `mvg::solvers::dlt_homography`, and likewise
   `dlt_camera_matrix`, `decompose_camera_matrix`, `CameraMatrixDecomposition`,
   `Mat34`, `essential_5point`, `fundamental_7point`, `fundamental_8point`,
-  `decompose_essential` and `triangulate_point_linear`.
+  `decompose_essential` and `triangulate_point_linear`. The module also
+  holds the RANSAC wrappers `dlt_homography_ransac` and
+  `fundamental_8point_ransac` and the RQ decomposition `rq_decompose`, which
+  the facade did not reach before.
 
 - **`analysis` lists what it exports** (breaking for the items removed). It no
   longer re-exports the multi-level reprojection reports (`ReprojLevel`,
