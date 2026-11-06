@@ -18,7 +18,9 @@ calibration's share included, and bundle adjustment refines capture poses
 and points through the builder (Consider or Prior, robust losses, an explicit
 gauge, covariance). The robust two-view functions refine through the builder
 and return the covariance of `E` and of the relative pose from the stated
-pixel noise (the cameras as exact). The rectification still runs on a bare `K`.
+pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
+`StereoRectification::triangulate` carries the calibration's share, the dense
+path only the disparity's.
 
 - [ ] MVG-DENSE-COV - The calibration's share in a dense cloud's per-point
   covariance (today: disparity share; the calibrated σ goes through
@@ -47,6 +49,17 @@ need their measurement first and stay opt-in until it is in.
   covariance, so a ring-grid one would only be a report. Reopen if a
   ring-grid weighting study is wanted, or if the view scatter on ring-grid
   data needs the detector's term.
+- [ ] UQ-SECOND-ORDER-COMPOSED - A rig laserline device covariance that
+  joins its planes to the upstream calibration's
+  (`laserline_rig_bundle.rs`, `with_planes`, and
+  `handeye_upstream_uncertainty`) has `second_order: None`, so its quality
+  report says `covariance_linearity` is not applicable even when the
+  upstream warned. The cameras' block is the upstream's marginal, so the
+  upstream's `max_scatter_ratio` is a lower bound of the joint's: carry it
+  (with the combination's labels mapped through the hand-eye to per-view
+  poses) and the planes' own, marked as a bound, or compute the joint
+  term from the upstream's residuals where the dataset runner has them.
+  Gate: a Monte-Carlo NEES on a rig laser scene.
 - [ ] UQ-CROSS-FRAME - Projection uncertainty across the reference-frame
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
   which results do not carry.

@@ -191,7 +191,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two-camera rig with 48 views (22 shared parameters, 9216 residuals),
   a third of that calibration's time, and 5 ms for a single camera with
   32 views. It is not computed above 64 shared parameters (a bundle
-  adjustment's points count as shared) or for noise-free data.
+  adjustment's points count as shared), for noise-free data, or for a rig
+  laserline device result that joins its planes to its upstream
+  calibration's covariance (read the upstream export's own).
 - **The covariance of the robust relative pose and essential matrix.**
   `RobustRelativePose::uncertainty` holds the covariance of the pose in the
   gauge `|t| = 1`: the rotation's right-perturbation tangent
