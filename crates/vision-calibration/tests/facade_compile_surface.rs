@@ -305,6 +305,9 @@ fn mvg_module_surface_compiles() {
     let _: Option<mvg::MvgError> = None;
     let _: Option<Result<(), mvg::MvgError>> = None;
     let _ = mvg::solvers::dlt_homography;
+    let _ = mvg::solvers::dlt_homography_ransac;
+    let _ = mvg::solvers::fundamental_8point_ransac;
+    let _ = mvg::solvers::rq_decompose;
     let _ = mvg::solvers::dlt_camera_matrix;
     let _ = mvg::solvers::decompose_camera_matrix;
     let _: Option<mvg::solvers::CameraMatrixDecomposition> = None;

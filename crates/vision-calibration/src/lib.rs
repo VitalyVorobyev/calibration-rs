@@ -570,11 +570,13 @@ pub mod mvg {
     pub mod solvers {
         pub use vision_geometry::camera_matrix::{
             CameraMatrixDecomposition, Mat34, decompose_camera_matrix, dlt_camera_matrix,
+            rq_decompose,
         };
         pub use vision_geometry::epipolar::{
             decompose_essential, essential_5point, fundamental_7point, fundamental_8point,
+            fundamental_8point_ransac,
         };
-        pub use vision_geometry::homography::dlt_homography;
+        pub use vision_geometry::homography::{dlt_homography, dlt_homography_ransac};
         pub use vision_geometry::triangulation::triangulate_point_linear;
     }
 }

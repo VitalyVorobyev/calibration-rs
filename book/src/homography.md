@@ -61,7 +61,7 @@ With $N > 4$, the system is overdetermined and the SVD solution minimizes the al
 
 ## RANSAC Wrapper
 
-For real data with potential mismatched correspondences, `dlt_homography_ransac` (in `vision_geometry::homography`) wraps the DLT solver in RANSAC:
+For real data with potential mismatched correspondences, `mvg::solvers::dlt_homography_ransac` wraps the DLT solver in RANSAC:
 
 ```rust
 let (H, inliers) = dlt_homography_ransac(&world_pts, &image_pts, &opts)?;

@@ -106,7 +106,7 @@ The relationship is: $E = K'^T F K$.
 Both solvers have RANSAC wrappers for outlier rejection:
 
 ```rust
-// vision_geometry::epipolar::fundamental_8point_ransac
+// vision_calibration::mvg::solvers::fundamental_8point_ransac
 let (F, inliers) = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
 ```
 
