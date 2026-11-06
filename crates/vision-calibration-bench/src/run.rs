@@ -32,10 +32,7 @@ pub mod tier_b {
     use std::time::Instant;
 
     use anyhow::{Context, Result};
-    use vision_calibration::analysis::{
-        QualityReport, RigStageReprojection, assess, planar_intrinsics_report,
-        rig_extrinsics_report, rig_handeye_report_with_rig_stage, single_cam_handeye_report,
-    };
+    use vision_calibration::analysis::{QualityReport, assess};
     use vision_calibration::common::RobotPoseMeta;
     use vision_calibration::common::{CalibratedCameras, HandeyeSolution};
     use vision_calibration::core::{Iso3, RigDataset};
@@ -46,6 +43,10 @@ pub mod tier_b {
     use vision_calibration::rig_extrinsics::{
         RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem, step_intrinsics_init_all,
         step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    };
+    use vision_calibration_pipeline::analysis::{
+        RigStageReprojection, planar_intrinsics_report, rig_extrinsics_report,
+        rig_handeye_report_with_rig_stage, single_cam_handeye_report,
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
     use vision_calibration::rig_handeye::{
@@ -2270,7 +2271,7 @@ pub mod tier_b {
 
     fn split_reproj_report(
         entry: &BenchEntry,
-        report: Option<vision_calibration::analysis::ReprojReport>,
+        report: Option<vision_calibration_pipeline::analysis::ReprojReport>,
     ) -> (
         Option<crate::record::CompactReprojReport>,
         Option<ResidualSidecar>,

@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Mat34`, `essential_5point`, `fundamental_7point`, `fundamental_8point`,
   `decompose_essential` and `triangulate_point_linear`.
 
+- **`analysis` lists what it exports** (breaking for the items removed). It no
+  longer re-exports the multi-level reprojection reports (`ReprojLevel`,
+  `ReprojReport`, `LevelReport`, `LevelStats`, `RigStageReprojection` and the
+  `*_report` builders) nor the helpers that build an export's per-feature
+  residuals (`compute_*_residuals`, `compute_*_feature_residuals`,
+  `build_feature_histogram`, `handeye_observer_se3_target`,
+  `LaserResidualRecords`). They stay in `vision-calibration-pipeline`,
+  `vision-calibration-core` and `vision-calibration-optim`. The quality,
+  report and next-view items and the residual types that the exports hold
+  are unchanged.
+
 ## [0.17.0] - 2026-11-06
 
 ### Migration
