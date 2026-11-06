@@ -8,7 +8,7 @@ use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraModelSpec, CorrespondenceView, DistortionKind, FxFyCxCy, NoMeta,
     Pinhole, Pt3, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind,
-    SensorParams, make_pinhole_camera,
+    SensorParams, Uncertainty, UncertaintyUnavailable, make_pinhole_camera,
 };
 use vision_calibration_pipeline::common::CalibratedCameras;
 use vision_calibration_pipeline::common::config::{CameraConfig, CameraOverride};
@@ -139,6 +139,39 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
     run_calibration(&mut session).unwrap();
 
     let export = session.export().unwrap();
+
+    // The scene has no distortion, and without it a tilt is a principal-point
+    // shift and a pose rotation: the rig solve, which refines the tilts,
+    // reports the principal points as undetermined rather than stating a
+    // covariance conditional on a tilt the data cannot pin.
+    match &export.uncertainty {
+        Uncertainty::Unavailable {
+            reason: UncertaintyUnavailable::RankDeficient { unobservable },
+        } => assert!(
+            unobservable.iter().any(|l| l == "cam1.cx"),
+            "{unobservable:?}"
+        ),
+        other => panic!("expected a rank-deficient covariance, got {other:?}"),
+    }
+
+    // Holding the tilts (at the per-camera estimates) gives the covariance
+    // conditional on them, which lists them as fixed.
+    let mut config = scheimpflug_config();
+    config.rig.refine_sensor = false;
+    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session.set_config(config).unwrap();
+    session.set_input(make_dataset().0).unwrap();
+    run_calibration(&mut session).unwrap();
+    let export = session.export().unwrap();
+    let cov = export
+        .uncertainty
+        .covariance()
+        .expect("a conditional covariance");
+    assert!(
+        cov.fixed.iter().any(|l| l == "cam1.tilt_x"),
+        "{:?}",
+        cov.fixed
+    );
 
     // The rig solve refines each camera's intrinsics, so the result carries
     // their covariance and projects it.

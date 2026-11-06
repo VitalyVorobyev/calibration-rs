@@ -605,11 +605,17 @@ pub struct RigConfig {
     /// the intrinsics and understate the uncertainty (several-fold on real
     /// stereo rigs).
     pub refine_intrinsics: bool,
-    /// Re-refine the sensor tilt of each Scheimpflug camera during rig
-    /// bundle adjustment, holding its `fix.sensor` list. Default: `false` —
-    /// the tilt is fitted per camera and trades off against the extrinsics
-    /// in the joint solve. Cameras with an untilted sensor have no tilt.
-    #[serde(default)]
+    /// Refine the sensor tilt of each Scheimpflug camera in the rig bundle
+    /// adjustment, holding its `fix.sensor` list. Default: `true`, for the
+    /// reason given on `refine_intrinsics`: a camera's own views pin its
+    /// tilt poorly (it trades with the principal point), the views of the
+    /// whole rig pin it several times better, and a tilt held at the
+    /// per-camera estimate leaves its error in the focal length and the
+    /// principal point while the covariance, conditional on the held tilt,
+    /// understates their standard deviations several-fold. `false` holds
+    /// the tilt at the per-camera estimate; the covariance then lists it as
+    /// fixed. Cameras with an untilted sensor have no tilt.
+    #[serde(default = "default_true")]
     pub refine_sensor: bool,
 }
 
@@ -618,9 +624,14 @@ impl Default for RigConfig {
         Self {
             reference_camera_idx: 0,
             refine_intrinsics: true,
-            refine_sensor: false,
+            refine_sensor: true,
         }
     }
+}
+
+/// Serde default of a flag that is on unless the config says otherwise.
+pub(crate) fn default_true() -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -718,7 +729,12 @@ mod tests {
         let cfg = RigConfig::default();
         assert_eq!(cfg.reference_camera_idx, 0);
         assert!(cfg.refine_intrinsics);
-        assert!(!cfg.refine_sensor);
+        assert!(cfg.refine_sensor);
+        // A config that leaves the flag out refines the tilt too.
+        let lean: RigConfig =
+            serde_json::from_str(r#"{"reference_camera_idx": 0, "refine_intrinsics": true}"#)
+                .unwrap();
+        assert!(lean.refine_sensor);
     }
 
     /// A projection without a linear initializer is rejected before any

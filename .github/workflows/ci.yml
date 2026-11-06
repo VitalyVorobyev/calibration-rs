@@ -235,6 +235,11 @@ jobs:
           cargo test --release --locked -p vision-calibration
           --test second_order_error -- --ignored
 
+      - name: Tilted rig gate
+        run: >-
+          cargo test --release --locked -p vision-calibration
+          --test rig_extrinsics_scheimpflug -- --ignored
+
       - name: Robot-frame point gate
         run: >-
           cargo test --release --locked -p vision-calibration

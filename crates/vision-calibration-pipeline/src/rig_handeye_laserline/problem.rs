@@ -135,12 +135,14 @@ pub struct JointOptimizeConfig {
     /// in camera order, each named per slot in that camera's model
     /// (`{"distortion": ["k3", "p1", "p2"], "sensor": ["tilt_x"]}`); a slot
     /// left out of an entry keeps the model's default. Empty (the default)
-    /// gives every camera the stage default: intrinsics and the low-order
-    /// radial terms (`k1`, `k2`; the division model's `lambda`) refined,
-    /// the higher-order distortion terms and the sensor tilt held at their
+    /// gives every camera the stage default: intrinsics, the low-order
+    /// radial terms (`k1`, `k2`; the division model's `lambda`) and the
+    /// sensor tilt refined, the higher-order distortion terms held at their
     /// warm-start values — they trade off against the extrinsics and the
-    /// laser planes in the joint solve. A name the camera's model does not
-    /// have is a configuration error.
+    /// laser planes in the joint solve. The tilt is refined like the
+    /// intrinsics: held, the covariance would be conditional on it and
+    /// understate the intrinsics' standard deviations. A name the camera's
+    /// model does not have is a configuration error.
     #[serde(default)]
     pub fix: Vec<CameraFix>,
     /// Fix the hand-eye transform during the joint stage.
@@ -426,16 +428,16 @@ pub(crate) fn joint_fix(
     Ok(config.fix.clone())
 }
 
-/// The joint stage's default fix of a camera of `model`: intrinsics and the
-/// low-order radial terms refined, the higher-order distortion terms and
-/// the sensor tilt held.
+/// The joint stage's default fix of a camera of `model`: intrinsics, the
+/// low-order radial terms and the sensor tilt refined, the higher-order
+/// distortion terms held.
 fn joint_stage_default_fix(model: CameraModelSpec) -> CameraFix {
     let names = |v: &[&str]| Some(v.iter().map(|n| n.to_string()).collect());
     CameraFix {
         intrinsics: Some(Vec::new()),
         projection: Some(Vec::new()),
         distortion: names(&model.distortion.higher_order_names()),
-        sensor: names(model.sensor.param_names()),
+        sensor: Some(Vec::new()),
     }
 }
 
@@ -466,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn joint_fix_defaults_hold_higher_order_terms_and_tilt() {
+    fn joint_fix_defaults_hold_higher_order_terms_and_refine_tilt() {
         let untilted =
             CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
         let tilted =
@@ -483,7 +485,7 @@ mod tests {
         assert_eq!(resolved[0].distortion, vec![2, 3, 4]);
         assert!(resolved[0].sensor.is_empty());
         assert_eq!(resolved[1].distortion, vec![2, 3, 4]);
-        assert_eq!(resolved[1].sensor, vec![0, 1]);
+        assert!(resolved[1].sensor.is_empty());
         assert!(resolved[2].distortion.is_empty());
     }
 
