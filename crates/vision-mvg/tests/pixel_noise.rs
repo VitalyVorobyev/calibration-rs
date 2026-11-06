@@ -22,7 +22,8 @@ use vision_calibration_core::{
     PointCovariance, ProjectionParams, Pt2, Pt3, RansacOptions, RunControl, SensorParams,
     Uncertainty, Vec3, make_pinhole_camera, pinhole_camera_params,
 };
-use vision_mvg::{PixelMatch, estimate_essential};
+use vision_mvg::robust::estimate_essential;
+use vision_mvg::types::PixelMatch;
 
 /// A deterministic generator (SplitMix64) with uniform and normal draws.
 struct Rng(u64);

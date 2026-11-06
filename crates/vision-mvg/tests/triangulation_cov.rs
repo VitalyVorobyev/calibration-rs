@@ -310,7 +310,7 @@ fn refinement_improves_on_the_linear_estimate_for_a_fisheye() {
         )
         .unwrap();
         // The linear estimate: the same views through the rig, unrefined.
-        let linear = vision_mvg::triangulate_point_linear;
+        let linear = vision_geometry::triangulation::triangulate_point_linear;
         for (i, p) in truth.iter().enumerate() {
             let poses: Vec<Iso3> = rig.cam_se3_rig().to_vec();
             let bearings: Vec<_> = tracks[i]

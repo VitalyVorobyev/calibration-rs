@@ -28,9 +28,10 @@ use vision_calibration_core::{
     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Uncertainty,
     Vec3, make_pinhole_camera, pinhole_camera_params,
 };
+use vision_mvg::pose_recovery::recover_relative_pose;
 use vision_mvg::triangulation::{RigObservation, triangulate};
 use vision_mvg::types::Captures;
-use vision_mvg::{PixelMatch, recover_relative_pose};
+use vision_mvg::types::PixelMatch;
 
 /// A match of two pixels, each detected to a stated 0.5 px.
 fn matched(pt1: Pt2, pt2: Pt2) -> PixelMatch {
