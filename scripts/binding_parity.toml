@@ -300,13 +300,11 @@
 "mvg::MvgError" = ["builtins.ValueError", "builtins.RuntimeError"]
 "mvg::RansacOptions" = "mvg.RansacOptions"
 "mvg::bundle_adjust" = ["mvg.bundle_adjust", "mvg.BundleAdjustment"]
-"mvg::degeneracy" = "mvg.SceneDiagnostics"
 "mvg::dense" = ["mvg.match_block", "mvg.BlockMatchOptions"]
-"mvg::error" = ["builtins.ValueError", "builtins.RuntimeError"]
 "mvg::laser" = ["mvg.triangulate_laser", "mvg.LaserObservation", "mvg.LaserPoint", "mvg.LaserTriangulation"]
 "mvg::metrology" = ["mvg.PointSet", "mvg.Scalar", "mvg.PlaneFit", "mvg.distance", "mvg.angle", "mvg.fit_plane", "mvg.point_to_plane"]
 "mvg::pose" = ["mvg.estimate_pose", "mvg.PoseObservation", "mvg.ObjectPose"]
-"mvg::pose_recovery" = ["mvg.recover_relative_pose", "mvg.RelativePose"]
+"mvg::pose_recovery" = ["mvg.recover_relative_pose", "mvg.RelativePose", "mvg.SceneDiagnostics"]
 "mvg::rectification" = ["mvg.rectify", "mvg.StereoRectification", "mvg.DenseCloud"]
 "mvg::robust" = ["mvg.estimate_essential", "mvg.estimate_homography", "mvg.HomographyEstimate", "mvg.recover_relative_pose_robust", "mvg.EssentialEstimate", "mvg.RobustRelativePose"]
 "mvg::triangulation" = ["mvg.triangulate", "mvg.RigObservation", "mvg.Triangulation"]

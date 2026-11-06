@@ -303,7 +303,7 @@ fn mvg_module_surface_compiles() {
     let _: Option<mvg::types::Correspondence2D> = None;
     let _: Option<mvg::types::PixelMatch> = None;
     let _: Option<mvg::MvgError> = None;
-    let _: Option<mvg::error::Result<()>> = None;
+    let _: Option<Result<(), mvg::MvgError>> = None;
 }
 
 #[test]

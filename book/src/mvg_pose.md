@@ -72,7 +72,7 @@ Each entry of `rel.points` is a `TriangulatedPoint`:
 
 ### Degenerate Geometry
 
-The 5-point estimator needs a genuinely three-dimensional scene. A near-planar cloud, a pure rotation (no baseline) or nearly parallel rays make the essential matrix poorly determined. `rel.scene` (a `SceneDiagnostics`) reports the median parallax, pure-rotation and planar flags and a baseline ratio (the unit baseline over the median depth, measured along the first camera's bearing); for a planar scene the homography model (`mvg::homography::decompose_homography`) is the right one instead.
+The 5-point estimator needs a genuinely three-dimensional scene. A near-planar cloud, a pure rotation (no baseline) or nearly parallel rays make the essential matrix poorly determined. `rel.scene` (a `mvg::pose_recovery::SceneDiagnostics`) reports the median parallax, pure-rotation and planar flags and a baseline ratio (the unit baseline over the median depth, measured along the first camera's bearing); for a planar scene the homography model (`mvg::homography::decompose_homography`) is the right one instead.
 
 ## Outliers: the Robust Variants
 
