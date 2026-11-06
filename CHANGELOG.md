@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **Hand-eye seeds and init results carry one tagged value per mode**
+  (breaking). `HandeyeManualInit` of `single_cam_handeye` and `rig_handeye`
+  is an enum with the variants of the export's `handeye`, tagged by `mode` in
+  JSON; `Default` is gone (`HandeyeManualInit::unseeded(mode)` is the seed
+  with nothing set). A seed whose variant is not the config's
+  `handeye_init.handeye_mode` is an `Error::InvalidInput` before any work; it
+  used to have its other-mode fields ignored. `HandeyeInitResult` holds
+  `handeye`, a `SingleCamHandeyeSolution` or `HandeyeSolution` with both
+  poses, in place of the optional poses (single camera) or `initial_handeye`
+  and `initial_mode_target_pose` (rig). The serialized state of a hand-eye
+  session changes with it (`initial_handeye` replaces the separate initial
+  poses), so a saved session from before does not load.
+
+  ```rust
+  // before (rig)
+  let seed = HandeyeManualInit { handeye: Some(mount), mode_target_pose: None };
+  let init = step_handeye_init_with_seed(&mut session, seed, None)?;
+  let (he, target) = (init.initial_handeye, init.initial_mode_target_pose);
+  // after
+  let seed = HandeyeManualInit::EyeInHand { gripper_se3_rig: Some(mount), base_se3_target: None };
+  let init = step_handeye_init_with_seed(&mut session, seed, None)?;
+  let HandeyeSolution::EyeInHand { gripper_se3_rig, base_se3_target } = init.handeye else { .. };
+  ```
+
+  ```python
+  # before
+  seed = rig_handeye.HandeyeManualInit(handeye=mount)
+  init = session.step_handeye_init_with_seed(seed)  # init.initial_handeye
+  # after
+  seed = rig_handeye.EyeInHandManualInit(gripper_se3_rig=mount)
+  init = session.step_handeye_init_with_seed(seed)  # init.handeye.gripper_se3_rig
+  ```
+
+  The single-camera seed follows with `gripper_se3_camera` / `camera_se3_base`
+  (`single_cam_handeye.EyeInHandManualInit`, `EyeToHandManualInit`).
+
 ## [0.18.0] - 2026-11-06
 
 ### Migration

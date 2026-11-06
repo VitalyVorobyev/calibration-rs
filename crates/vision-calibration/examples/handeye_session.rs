@@ -109,18 +109,13 @@ fn main() -> Result<()> {
     println!("--- Step 3: Hand-Eye Initialization (Tsai-Lenz) ---");
     let he_init = step_handeye_init(&mut session, None)?;
 
-    let init_he = he_init
-        .gripper_se3_camera
-        .as_ref()
-        .expect("EyeInHand mode populates gripper_se3_camera");
-    let init_target = he_init
-        .base_se3_target
-        .as_ref()
-        .expect("EyeInHand mode populates base_se3_target");
-    println!("  Hand-eye |t|: {:.4}m", init_he.translation.vector.norm());
+    println!(
+        "  Hand-eye |t|: {:.4}m",
+        he_init.handeye.handeye().pose().translation.vector.norm()
+    );
     println!(
         "  Target in base |t|: {:.4}m",
-        init_target.translation.vector.norm()
+        he_init.handeye.target_pose().translation.vector.norm()
     );
     println!();
 

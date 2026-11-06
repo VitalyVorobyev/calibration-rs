@@ -185,7 +185,7 @@ pub fn rig_layout_seed(
 ///
 /// The spec's mount mode must match the session's configured
 /// [`HandeyeMode`]; a mismatch is a typed error rather than a silently
-/// wrong transform. `mode_target_pose` stays `None` (data-dependent).
+/// wrong transform. The target pose stays `None` (data-dependent).
 pub fn handeye_seed(
     spec: &DeviceSpec,
     expected_mode: HandeyeMode,
@@ -207,9 +207,16 @@ pub fn handeye_seed(
             expected: expected_mode,
         });
     }
-    Ok(HandeyeManualInit {
-        handeye: Some(iso3_from_nominal(pose)),
-        ..Default::default()
+    let pose = Some(iso3_from_nominal(pose));
+    Ok(match expected_mode {
+        HandeyeMode::EyeInHand => HandeyeManualInit::EyeInHand {
+            gripper_se3_rig: pose,
+            base_se3_target: None,
+        },
+        HandeyeMode::EyeToHand => HandeyeManualInit::EyeToHand {
+            rig_se3_base: pose,
+            gripper_se3_target: None,
+        },
     })
 }
 
@@ -455,10 +462,17 @@ mod tests {
     fn handeye_seed_mode_checked() {
         let spec = rig_spec();
         let seed = handeye_seed(&spec, HandeyeMode::EyeToHand).unwrap();
-        let handeye = seed.handeye.unwrap();
+        let HandeyeManualInit::EyeToHand {
+            rig_se3_base,
+            gripper_se3_target,
+        } = seed
+        else {
+            panic!("eye-to-hand seed expected");
+        };
+        let handeye = rig_se3_base.unwrap();
         // 250 mm in the spec → 0.25 m in the pipeline's world unit.
         assert!((handeye.translation.vector.y - 0.25).abs() < 1e-12);
-        assert!(seed.mode_target_pose.is_none());
+        assert!(gripper_se3_target.is_none());
 
         assert!(matches!(
             handeye_seed(&spec, HandeyeMode::EyeInHand),

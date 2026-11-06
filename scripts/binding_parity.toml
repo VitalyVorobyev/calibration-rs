@@ -225,7 +225,7 @@
 "rig_extrinsics::step_rig_init_with_seed" = "rig_extrinsics.RigExtrinsicsSession.step_rig_init_with_seed"
 "rig_extrinsics::step_rig_optimize" = "rig_extrinsics.RigExtrinsicsSession.step_rig_optimize"
 "rig_handeye::HandeyeInitResult" = "rig_handeye.HandeyeInitResult"
-"rig_handeye::HandeyeManualInit" = "rig_handeye.HandeyeManualInit"
+"rig_handeye::HandeyeManualInit" = ["rig_handeye.EyeInHandManualInit", "rig_handeye.EyeToHandManualInit", "rig_handeye.HandeyeManualInit"]
 "rig_handeye::HandeyeOptimizeConfig" = "HandeyeOptimizeConfig"
 "rig_handeye::HandeyeOptimizeResult" = "rig_handeye.HandeyeOptimizeResult"
 "rig_handeye::IntrinsicsInitResult" = "rig_handeye.IntrinsicsInitResult"
@@ -279,7 +279,7 @@
 "session::SessionMetadata" = "SessionMetadata"
 "common::HandeyeEstimate" = "session.CalibrationSession.output"
 "single_cam_handeye::HandeyeInitResult" = "single_cam_handeye.HandeyeInitResult"
-"single_cam_handeye::HandeyeManualInit" = "single_cam_handeye.HandeyeManualInit"
+"single_cam_handeye::HandeyeManualInit" = ["single_cam_handeye.EyeInHandManualInit", "single_cam_handeye.EyeToHandManualInit", "single_cam_handeye.HandeyeManualInit"]
 "single_cam_handeye::HandeyeOptimizeResult" = "single_cam_handeye.HandeyeOptimizeResult"
 "single_cam_handeye::IntrinsicsInitResult" = "single_cam_handeye.IntrinsicsInitResult"
 "single_cam_handeye::IntrinsicsManualInit" = "single_cam_handeye.IntrinsicsManualInit"

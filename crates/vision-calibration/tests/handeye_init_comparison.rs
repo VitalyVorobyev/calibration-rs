@@ -33,8 +33,9 @@ use vision_calibration::optim::SolverBackend;
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
     HandeyeManualInit, IntrinsicsManualInit, SingleCamHandeyeConfig, SingleCamHandeyeInput,
-    SingleCamHandeyeProblem, SingleCamHandeyeView, step_handeye_init, step_handeye_init_with_seed,
-    step_handeye_optimize, step_intrinsics_init_with_seed, step_intrinsics_optimize,
+    SingleCamHandeyeProblem, SingleCamHandeyeSolution, SingleCamHandeyeView, step_handeye_init,
+    step_handeye_init_with_seed, step_handeye_optimize, step_intrinsics_init_with_seed,
+    step_intrinsics_optimize,
 };
 use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
 
@@ -251,9 +252,10 @@ fn trial(regime: &Regime, seed: u64, backend: SolverBackend, min_angle_deg: Real
     let scene = scene(regime, seed);
     // Sessions are rebuilt (deterministically) rather than cloned.
     let mut reference = camera_stage(&scene, regime, backend);
-    let mut gt = HandeyeManualInit::default();
-    gt.gripper_se3_camera = Some(scene.gripper_se3_camera);
-    gt.base_se3_target = Some(scene.base_se3_target);
+    let gt = HandeyeManualInit::EyeInHand {
+        gripper_se3_camera: Some(scene.gripper_se3_camera),
+        base_se3_target: Some(scene.base_se3_target),
+    };
     step_handeye_init_with_seed(&mut reference, gt, None).expect("seeded init");
     let x_ref = refine(&mut reference).expect("refinement from the truth");
     // Two refinements of the same problem stop on the solver's tolerance,
@@ -269,8 +271,13 @@ fn trial(regime: &Regime, seed: u64, backend: SolverBackend, min_angle_deg: Real
         let Ok(init) = step_handeye_init(&mut session, Some(opts)) else {
             return Outcome::Rejected;
         };
-        let x = init.gripper_se3_camera.expect("eye-in-hand init");
-        let z = init.base_se3_target.expect("eye-in-hand init");
+        let SingleCamHandeyeSolution::EyeInHand {
+            gripper_se3_camera: x,
+            base_se3_target: z,
+        } = init.handeye
+        else {
+            panic!("eye-in-hand init");
+        };
         for p in [x, z] {
             assert!(
                 p.translation.vector.iter().all(|v| v.is_finite())

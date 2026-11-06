@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::Iso3;
 
+use crate::common::HandeyeSolution;
 use crate::rig_family::RigStagesState;
 
 /// Intermediate state for rig hand-eye calibration.
@@ -28,15 +29,8 @@ pub(crate) struct RigHandeyeState {
     /// Refined rig-to-target poses from rig BA.
     pub rig_ba_rig_se3_target: Option<Vec<Iso3>>,
 
-    /// Initial hand-eye transform from linear estimation.
-    /// `gripper_se3_rig` (T_G_R) for EyeInHand mode.
-    pub initial_handeye: Option<Iso3>,
-
-    /// Initial mode-dependent fixed target pose.
-    ///
-    /// - EyeInHand: `base_se3_target` (T_B_T)
-    /// - EyeToHand: `gripper_se3_target` (T_G_T)
-    pub initial_mode_target_pose: Option<Iso3>,
+    /// Initial hand-eye and target pose of the configured mode.
+    pub initial_handeye: Option<HandeyeSolution>,
 
     /// Final cost from hand-eye BA.
     pub final_cost: Option<f64>,
@@ -53,7 +47,7 @@ impl RigHandeyeState {
 
     /// Check if hand-eye initialization has been run.
     pub fn has_handeye_init(&self) -> bool {
-        self.initial_handeye.is_some() && self.initial_mode_target_pose.is_some()
+        self.initial_handeye.is_some()
     }
 }
 
@@ -62,15 +56,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn has_handeye_init_requires_both() {
+    fn has_handeye_init_follows_the_solution() {
+        assert!(!RigHandeyeState::default().has_handeye_init());
         let state = RigHandeyeState {
-            initial_handeye: Some(Iso3::identity()),
-            ..Default::default()
-        };
-        assert!(!state.has_handeye_init()); // missing mode_target_pose
-        let state = RigHandeyeState {
-            initial_handeye: Some(Iso3::identity()),
-            initial_mode_target_pose: Some(Iso3::identity()),
+            initial_handeye: Some(HandeyeSolution::EyeInHand {
+                gripper_se3_rig: Iso3::identity(),
+                base_se3_target: Iso3::identity(),
+            }),
             ..Default::default()
         };
         assert!(state.has_handeye_init());

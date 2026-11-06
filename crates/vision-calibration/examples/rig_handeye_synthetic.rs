@@ -194,19 +194,17 @@ fn main() -> Result<()> {
     // Step 5: Hand-eye initialization
     println!("--- Step 5: Hand-Eye Initialization (Tsai-Lenz) ---");
     let he_init = step_handeye_init(&mut session, None)?;
-    let init_he = &he_init.initial_handeye;
+    let init_he = he_init.handeye.handeye();
     println!(
         "  Hand-eye |t|: {:.4}m (GT: {:.4}m)",
-        init_he.translation.vector.norm(),
+        init_he.pose().translation.vector.norm(),
         handeye_gt.translation.vector.norm()
     );
-    if let Some(init_target) = he_init.initial_mode_target_pose.as_ref() {
-        println!(
-            "  Target in base |t|: {:.4}m (GT: {:.4}m)",
-            init_target.translation.vector.norm(),
-            target_in_base_gt.translation.vector.norm()
-        );
-    }
+    println!(
+        "  Target in base |t|: {:.4}m (GT: {:.4}m)",
+        he_init.handeye.target_pose().translation.vector.norm(),
+        target_in_base_gt.translation.vector.norm()
+    );
     println!();
 
     // Step 6: Hand-eye optimization
