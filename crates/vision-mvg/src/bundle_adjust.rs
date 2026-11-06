@@ -335,7 +335,7 @@ pub fn bundle_adjust(
                 PointDistance { distance },
                 &[point_blocks[a], point_blocks[b]],
                 RobustLoss::None,
-                Noise::Known(sigma),
+                Noise::Stated(sigma),
             )
             .map_err(builder_error)?;
     }

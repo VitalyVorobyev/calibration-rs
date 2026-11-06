@@ -106,7 +106,7 @@ adds its cameras and extrinsics as blocks:
   measurement API takes all its points in one call.
 - **`Use::Prior`**: the calibration's parameters are free, held by a
   Gaussian prior `L⁻¹(c − c₀)` with `Σ_c = L Lᵀ` (whitened, unit
-  variance, like `Noise::Known`). This is for bundle adjustment that
+  variance, like `Noise::Stated`). This is for bundle adjustment that
   refines the cameras with the new observations. The prior weighs in
   units of its covariance, so every other residual's noise must be stated
   too: the solve weighs a residual of estimated noise as if its σ were 1
@@ -149,7 +149,7 @@ loss)`:
   `cam_se3_rig · rig_se3_world`, a `ReprojChain::Rig` storing
   `cam_se3_rig` itself, so its tangent is the one the exports report;
 - a **whitened reprojection** for an observation's 2×2 covariance
-  (`PixelNoise::Stated`): known information, like `Noise::Known`, not a
+  (`PixelNoise::Stated`): known information, like `Noise::Stated`, not a
   family whose noise level is estimated.
 
 ### Gauge and scale in bundle adjustment

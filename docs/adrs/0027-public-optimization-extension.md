@@ -73,7 +73,7 @@ as known information. Each user residual says which it is:
   residuals of the family named `family`, which is pooled like the
   built-in families (reprojection, laser plane, laser line), never with
   them;
-- `Noise::Known(σ)`: known information, like a prior. The adapter divides
+- `Noise::Stated(σ)`: known information, like a prior. The adapter divides
   the residual by σ, so the solve weighs it by its precision, and the
   covariance counts it as a prior of unit residual variance. (Scaling only
   the covariance would leave the solve weighing, say, a 0.2 mm range in

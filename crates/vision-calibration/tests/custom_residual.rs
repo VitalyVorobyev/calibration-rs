@@ -98,7 +98,7 @@ fn refine(
             Range { measured: range },
             &[blocks[0]],
             RobustLoss::None,
-            Noise::Known(RANGE_SIGMA),
+            Noise::Stated(RANGE_SIGMA),
         )
         .unwrap();
     Refined {

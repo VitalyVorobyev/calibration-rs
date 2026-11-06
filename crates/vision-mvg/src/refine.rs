@@ -125,7 +125,7 @@ pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Ma
                 HomographyTransfer { pt1: *p1, pt2: *p2 },
                 &[block],
                 RobustLoss::None,
-                Noise::Known(1.0),
+                Noise::Stated(1.0),
             )
             .map_err(numerical)?;
     }

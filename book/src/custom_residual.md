@@ -100,7 +100,7 @@ problem.add_residual(
     Range { measured: 0.4524 },
     &[views[0]],
     RobustLoss::None,
-    Noise::Known(2e-4), // the rangefinder's σ: 0.2 mm
+    Noise::Stated(2e-4), // the rangefinder's σ: 0.2 mm
 )?;
 
 let solution = solve(&problem, &SolveOptions::default())?;
@@ -119,7 +119,7 @@ the target frame, its observed pixel and that pixel's noise.
 The covariance needs the standard deviation of every residual. A residual
 gets it in one of two ways:
 
-- **`Noise::Known(σ)`** for a measurement with a stated σ, or a prior. The
+- **`Noise::Stated(σ)`** for a measurement with a stated σ, or a prior. The
   solve divides the residual by σ, so it weighs as much as its precision
   says, and the covariance counts it as known information.
 - **`Noise::Estimated(name)`** for residuals that share an unknown noise
@@ -136,7 +136,7 @@ An estimated family enters the solve in its own unit, unweighted. The
 covariance accounts for whatever weights the solve used, so it stays right.
 But a family in metres next to residuals in pixels barely moves the
 solution. To have it count, divide its residual by its expected σ, as
-`Noise::Known` does.
+`Noise::Stated` does.
 
 `solution.noise` lists each estimated family's level. A family of yours
 appears as `ResidualKind::Custom(name)`.

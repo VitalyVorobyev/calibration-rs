@@ -211,7 +211,7 @@ fn a_quadratic_model_has_the_analytic_second_order_error() {
 fn a_known_sigma_counts_as_known_information() {
     let (xs, ys) = line_data();
     let sigma = 0.05;
-    let (problem, _) = line_problem(&xs, &ys, Noise::Known(sigma));
+    let (problem, _) = line_problem(&xs, &ys, Noise::Stated(sigma));
     let solution = solve(&problem, &SolveOptions::default()).unwrap();
     let (inverse, _, _) = line_fit(&xs, &ys);
     let cov = covariance(&solution);
@@ -312,7 +312,7 @@ fn unit_vectors_stay_on_the_sphere() {
             },
             &[n, length],
             RobustLoss::None,
-            Noise::Known(1.0),
+            Noise::Stated(1.0),
         )
         .unwrap();
     let solution = solve(&problem, &SolveOptions::default()).unwrap();
@@ -378,7 +378,7 @@ fn rotations_stay_on_so3_with_a_right_perturbation_covariance() {
                 Rotated { a, b: b.into() },
                 &[rotation],
                 RobustLoss::None,
-                Noise::Known(sigma),
+                Noise::Stated(sigma),
             )
             .unwrap();
     }
@@ -442,7 +442,7 @@ fn a_residual_of_the_wrong_length_is_a_rejected_step() {
     let mut problem = Problem::new();
     let x = problem.add_block("x", &[0.0], Manifold::Euclidean).unwrap();
     problem
-        .add_residual(Misbehaving, &[x], RobustLoss::None, Noise::Known(1.0))
+        .add_residual(Misbehaving, &[x], RobustLoss::None, Noise::Stated(1.0))
         .unwrap();
     let solution = solve(&problem, &SolveOptions::default()).unwrap();
     assert!(solution.value(x).unwrap()[0] <= 1.0);
@@ -469,7 +469,7 @@ fn inputs_are_checked_as_they_are_added() {
     assert!(err(problem.add_block("x", &[1.0], Manifold::Euclidean)).contains("already"));
     let pose = problem.add_pose("pose", &Iso3::identity()).unwrap();
 
-    let unit = || Noise::Known(1.0);
+    let unit = || Noise::Stated(1.0);
     let line = || LinePoint { x: 1.0, y: 2.0 };
     let add = |p: &mut Problem, blocks: &[BlockId], loss, noise| {
         p.add_residual(line(), blocks, loss, noise)
@@ -480,7 +480,7 @@ fn inputs_are_checked_as_they_are_added() {
     assert!(add(&mut problem, &[pose], RobustLoss::None, unit()).contains("7 values"));
     let huber = RobustLoss::Huber { scale: -1.0 };
     assert!(add(&mut problem, &[x], huber, unit()).contains("positive"));
-    assert!(add(&mut problem, &[x], RobustLoss::None, Noise::Known(0.0)).contains("known σ"));
+    assert!(add(&mut problem, &[x], RobustLoss::None, Noise::Stated(0.0)).contains("stated σ"));
     let empty = Noise::Estimated(String::new());
     assert!(add(&mut problem, &[x], RobustLoss::None, empty).contains("name"));
     struct Pair;
@@ -759,7 +759,7 @@ fn a_user_residual_joins_the_reprojection_residuals() {
                     Range { measured: truth },
                     &[first],
                     RobustLoss::None,
-                    Noise::Known(1e-5),
+                    Noise::Stated(1e-5),
                 )
                 .unwrap();
         }
