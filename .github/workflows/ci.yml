@@ -90,6 +90,58 @@ jobs:
       - name: Cargo check (MSRV)
         run: cargo check --workspace --all-targets --all-features --locked
 
+  # From the first release candidate on, the public API may not break until
+  # 1.0.0 (no breaking change through the rc series). The job compares the
+  # pull request with the most recent `v1.0.0-rc.*` tag and passes without
+  # checking anything while no such tag exists.
+  semver-rc:
+    name: Semver check against the last 1.0 rc
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Find the baseline tag
+        id: baseline
+        run: |
+          tag=$(git tag --list 'v1.0.0-rc.*' --sort=-version:refname | head -n 1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -z "$tag" ]; then
+            echo "No v1.0.0-rc.* tag yet: nothing to compare against."
+          else
+            echo "Comparing with $tag."
+          fi
+
+      - name: Set up Rust
+        if: steps.baseline.outputs.tag != ''
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.baseline.outputs.tag != ''
+        with:
+          prefix-key: v1-rust-semver
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-semver-checks
+        if: steps.baseline.outputs.tag != ''
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+
+      # The same excludes as the release check (docs/RELEASE-RUNBOOK.md §1.3):
+      # these crates are not on crates.io or expose no Rust API.
+      - name: Semver check
+        if: steps.baseline.outputs.tag != ''
+        run: >-
+          cargo semver-checks --workspace
+          --baseline-rev "${{ steps.baseline.outputs.tag }}"
+          --exclude vision-calibration-bench
+          --exclude vision-calibration-py
+          --exclude vision-calibration-cli
+
   wasm32:
     name: wasm32 build (core + dataset)
     runs-on: ubuntu-latest
