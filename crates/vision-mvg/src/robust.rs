@@ -188,7 +188,7 @@ impl Motion {
 /// The weighted Sampson error of one bearing pair, `g / σ_g` with
 /// `E = [t]× R`, over a rotation block (`R`) and a unit-vector block (`t`).
 /// `σ_g` is evaluated at the blocks, so the Jacobian carries its dependence
-/// on `E`; the residual is already in σ (`Noise::Known(1.0)`).
+/// on `E`; the residual is already in σ (`Noise::Stated(1.0)`).
 struct SampsonResidual(BearingPair);
 
 impl Residual for SampsonResidual {
@@ -268,7 +268,7 @@ fn refine(
                     SampsonResidual(pairs[i]),
                     &[rotation, direction],
                     RobustLoss::None,
-                    Noise::Known(1.0),
+                    Noise::Stated(1.0),
                 )
                 .map_err(fail)?;
         }

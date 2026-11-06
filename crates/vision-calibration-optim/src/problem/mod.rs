@@ -486,7 +486,7 @@ impl Problem {
     /// [`Error::InvalidInput`], naming the residual by its index, for a
     /// block of another problem, blocks that do not match
     /// [`Residual::block_dims`], a block given twice, an empty residual, a loss with a scale that
-    /// is not positive, an empty family name or a known σ that is not
+    /// is not positive, an empty family name or a stated σ that is not
     /// positive and finite, or a value at the initial blocks of the wrong
     /// length or not finite.
     pub fn add_residual<R: Residual>(
@@ -503,10 +503,12 @@ impl Problem {
                 return Err(fail("a noise family needs a name".into()));
             }
             Noise::Estimated(family) => (CustomNoise::Family(ResidualKind::Custom(family)), 1.0),
-            Noise::Known(sigma) if !(sigma.is_finite() && sigma > 0.0) => {
-                return Err(fail(format!("known σ {sigma} must be positive and finite")));
+            Noise::Stated(sigma) if !(sigma.is_finite() && sigma > 0.0) => {
+                return Err(fail(format!(
+                    "stated σ {sigma} must be positive and finite"
+                )));
             }
-            Noise::Known(sigma) => (CustomNoise::Whitened, 1.0 / sigma),
+            Noise::Stated(sigma) => (CustomNoise::Whitened, 1.0 / sigma),
         };
         let bridge = Bridge::new(residual, scale);
         let dim = bridge.dim();
@@ -1134,7 +1136,7 @@ pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Erro
         if problem.has_estimated_noise() {
             return Err(Error::invalid_input(
                 "a calibration added with Use::Prior is weighed by its covariance, so every \
-                 residual's noise is stated too (PixelNoise::Stated, Noise::Known)",
+                 residual's noise is stated too (PixelNoise::Stated, Noise::Stated)",
             ));
         }
     }

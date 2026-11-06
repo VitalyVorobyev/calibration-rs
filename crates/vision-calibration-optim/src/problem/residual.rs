@@ -80,7 +80,7 @@ pub enum Noise {
     /// Each scalar residual has this standard deviation, in the residual's
     /// unit. The solve divides the residual by it, so it weighs as much as
     /// its precision says: a residual already divided by its σ takes `1`.
-    Known(f64),
+    Stated(f64),
 }
 
 /// The SE3 pose a block stores (`[qx, qy, qz, qw, tx, ty, tz]`), at any

@@ -63,7 +63,7 @@ impl Residual for Rosenbrock {
 fn rosenbrock(control: RunControl) -> Result<(Vec<f64>, usize, f64), Error> {
     let mut problem = Problem::new();
     let block = problem.add_block("xy", &[-1.2, 1.0], Manifold::Euclidean)?;
-    problem.add_residual(Rosenbrock, &[block], RobustLoss::None, Noise::Known(1.0))?;
+    problem.add_residual(Rosenbrock, &[block], RobustLoss::None, Noise::Stated(1.0))?;
     let mut options = SolveOptions::default();
     options.max_iters = 200;
     options.control = control;

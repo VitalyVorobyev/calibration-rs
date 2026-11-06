@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report and next-view items and the residual types that the exports hold
   are unchanged.
 
+- **`optim::problem::Noise::Known` is now `Noise::Stated`** (breaking), the
+  word `PixelNoise::Stated` already uses for a noise the caller gives.
+
 ## [0.17.0] - 2026-11-06
 
 ### Migration
