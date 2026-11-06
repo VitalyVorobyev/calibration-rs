@@ -119,4 +119,7 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   grows with the noise variance. [Judging a Result](quality.md) warns when
   the ratio is above 1.2. It costs `s (s + 1)` residual evaluations for `s`
   shared parameters, so it is left out (`null`) above 64 of them, and for
-  noise-free data.
+  noise-free data. A rig laserline device result whose covariance joins
+  its planes to its upstream calibration's leaves it out too: the cameras
+  enter that solve as given, so their residuals' curvature is not there to
+  measure; the upstream export's own `second_order` describes them.
