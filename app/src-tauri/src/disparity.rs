@@ -144,15 +144,19 @@ fn compute(
     // source. The source is prefiltered by the same factor to avoid aliasing.
     let left_src = load_gray(path_a)?;
     let right_src = load_gray(path_b)?;
-    let (w, h) = (left_src.width / s, left_src.height / s);
+    let (w, h) = (left_src.width() / s, left_src.height() / s);
     if w == 0 || h == 0 {
         return Err("image too small for the chosen downscale".to_string());
     }
     let mut rect_opts = RectifyOptions::default();
     rect_opts.scale = 1.0 / s as f64;
     let rect = rectify(&rig, [cam_a, cam_b], &rect_opts).map_err(|e| format!("rectify: {e}"))?;
-    let rect_left = rect.rectify_image(0, &box_filter(&left_src, s), w, h);
-    let rect_right = rect.rectify_image(1, &box_filter(&right_src, s), w, h);
+    let rect_left = rect
+        .rectify_image(0, &box_filter(&left_src, s)?, w, h)
+        .map_err(|e| format!("rectify: {e}"))?;
+    let rect_right = rect
+        .rectify_image(1, &box_filter(&right_src, s)?, w, h)
+        .map_err(|e| format!("rectify: {e}"))?;
 
     let f_rect = rect.k_rect().fx;
     let disp_nominal = (f_rect * rect.baseline() / z_board) as f32;
@@ -173,7 +177,7 @@ fn compute(
     }
     let disp = match_block(&rect_left, &rect_right, &opts).map_err(|e| format!("match: {e}"))?;
 
-    let valid = disp.data.iter().filter(|v| v.is_finite()).count();
+    let valid = disp.data().iter().filter(|v| v.is_finite()).count();
     let density = valid as f64 / (w * h) as f64;
     let (lo, hi) = valid_range(&disp).unwrap_or((0.0, 1.0));
     let (plane_rms, plane_inliers) = planarity_rms(&disp);
@@ -209,16 +213,16 @@ fn load_gray(path: &Path) -> Result<GrayImage, String> {
         .map_err(|e| format!("decode {}: {e}", path.display()))?
         .to_luma8();
     let (w, h) = (img.width() as usize, img.height() as usize);
-    Ok(GrayImage::new(w, h, img.into_raw()))
+    GrayImage::new(w, h, img.into_raw()).map_err(|e| format!("decode {}: {e}", path.display()))
 }
 
 /// A separable box filter of side `factor` (the anti-aliasing prefilter of a
 /// `factor`× reduction); the image keeps its size. `factor == 1` is a copy.
-fn box_filter(src: &GrayImage, factor: usize) -> GrayImage {
+fn box_filter(src: &GrayImage, factor: usize) -> Result<GrayImage, String> {
     if factor <= 1 {
-        return src.clone();
+        return Ok(src.clone());
     }
-    let (w, h) = (src.width, src.height);
+    let (w, h) = (src.width(), src.height());
     // The window of pixel `x` is `[x - lo, x - lo + factor)`, clipped to the image.
     let lo = factor / 2;
     let pass = |input: &[f32], horizontal: bool| -> Vec<f32> {
@@ -245,7 +249,7 @@ fn box_filter(src: &GrayImage, factor: usize) -> GrayImage {
         }
         out
     };
-    let gray: Vec<f32> = src.data.iter().map(|&v| f32::from(v)).collect();
+    let gray: Vec<f32> = src.data().iter().map(|&v| f32::from(v)).collect();
     let blurred = pass(&pass(&gray, true), false);
     GrayImage::new(
         w,
@@ -255,6 +259,7 @@ fn box_filter(src: &GrayImage, factor: usize) -> GrayImage {
             .map(|v| v.round().clamp(0.0, 255.0) as u8)
             .collect(),
     )
+    .map_err(|e| format!("prefilter: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +270,7 @@ fn valid_range(d: &DisparityMap) -> Option<(f32, f32)> {
     let mut lo = f32::INFINITY;
     let mut hi = f32::NEG_INFINITY;
     let mut any = false;
-    for &v in &d.data {
+    for &v in d.data() {
         if v.is_finite() {
             any = true;
             lo = lo.min(v);
@@ -277,8 +282,8 @@ fn valid_range(d: &DisparityMap) -> Option<(f32, f32)> {
 
 /// Robust planar fit `d ≈ a·x + b·y + c`, refit once on inliers (≤3 px).
 fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
-    let samples: Vec<(f64, f64, f64)> = (0..d.height)
-        .flat_map(|y| (0..d.width).map(move |x| (x, y)))
+    let samples: Vec<(f64, f64, f64)> = (0..d.height())
+        .flat_map(|y| (0..d.width()).map(move |x| (x, y)))
         .filter_map(|(x, y)| {
             let v = d.get(x, y);
             v.is_finite().then_some((x as f64, y as f64, v as f64))
@@ -336,7 +341,7 @@ fn reproject(
     rect_left: &GrayImage,
     rect: &StereoRectification,
 ) -> (PointCloud, Vec<f32>) {
-    let (w, h) = (disp.width, disp.height);
+    let (w, h) = (disp.width(), disp.height());
     let f_b = (rect.k_rect().fx * rect.baseline()) as f32;
 
     let mut depth = vec![f32::NAN; w * h];
@@ -412,7 +417,7 @@ fn depth_url(depth: &[f32], w: usize, h: usize) -> Result<String, String> {
 fn disparity_url(d: &DisparityMap, lo: f32, hi: f32) -> Result<String, String> {
     let span = (hi - lo).max(1e-6);
     let rgb: Vec<[u8; 3]> = d
-        .data
+        .data()
         .iter()
         .map(|&v| {
             if v.is_finite() {
@@ -422,15 +427,15 @@ fn disparity_url(d: &DisparityMap, lo: f32, hi: f32) -> Result<String, String> {
             }
         })
         .collect();
-    rgb_to_url(d.width, d.height, &rgb)
+    rgb_to_url(d.width(), d.height(), &rgb)
 }
 
 fn overlay_url(left: &GrayImage, d: &DisparityMap, lo: f32, hi: f32) -> Result<String, String> {
     let span = (hi - lo).max(1e-6);
     let rgb: Vec<[u8; 3]> = left
-        .data
+        .data()
         .iter()
-        .zip(&d.data)
+        .zip(d.data())
         .map(|(&g8, &v)| {
             let g = g8 as f32;
             if v.is_finite() {
@@ -445,12 +450,12 @@ fn overlay_url(left: &GrayImage, d: &DisparityMap, lo: f32, hi: f32) -> Result<S
             }
         })
         .collect();
-    rgb_to_url(left.width, left.height, &rgb)
+    rgb_to_url(left.width(), left.height(), &rgb)
 }
 
 /// Rectified left | right side-by-side with shared horizontal epipolar lines.
 fn pair_with_epilines_url(left: &GrayImage, right: &GrayImage) -> Result<String, String> {
-    let (w, h) = (left.width, left.height);
+    let (w, h) = (left.width(), left.height());
     let gap = 6usize;
     let total_w = w * 2 + gap;
     let mut rgb = vec![[255u8, 255, 255]; total_w * h];
