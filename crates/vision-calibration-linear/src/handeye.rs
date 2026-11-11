@@ -232,10 +232,10 @@ fn build_all_pairs(
             let affine_a = base_se3_gripper[i].inverse() * base_se3_gripper[j];
             let affine_b = stream[i].inverse() * stream[j];
             let pair = MotionPair {
-                rot_a: crate::math::project_to_so3(
+                rot_a: vision_calibration_core::linalg::project_to_so3(
                     affine_a.rotation.to_rotation_matrix().matrix(),
                 )?,
-                rot_b: crate::math::project_to_so3(
+                rot_b: vision_calibration_core::linalg::project_to_so3(
                     affine_b.rotation.to_rotation_matrix().matrix(),
                 )?,
                 tra_a: affine_a.translation.vector,
@@ -330,7 +330,7 @@ fn rotation_park_martin(pairs: &[MotionPair]) -> Result<Matrix3<Real>, Error> {
     for p in pairs {
         h += log_so3(&p.rot_a) * log_so3(&p.rot_b).transpose();
     }
-    crate::math::project_to_so3(&h)
+    Ok(vision_calibration_core::linalg::project_to_so3(&h)?)
 }
 
 /// `X` from its rotation and the stacked translation constraints
@@ -507,8 +507,8 @@ fn shah(base_se3_gripper: &[Iso3], stream: &[Iso3]) -> Result<(Iso3, Iso3), Erro
         return Err(Error::Singular);
     }
     let alpha = det.signum() / det.abs().cbrt();
-    let rot_x = crate::math::project_to_so3(&(alpha * mx))?;
-    let rot_z = crate::math::project_to_so3(&(alpha * mz))?;
+    let rot_x = vision_calibration_core::linalg::project_to_so3(&(alpha * mx))?;
+    let rot_z = vision_calibration_core::linalg::project_to_so3(&(alpha * mz))?;
 
     let mut c = DMatrix::<Real>::zeros(3 * n, 6);
     let mut d = DVector::<Real>::zeros(3 * n);

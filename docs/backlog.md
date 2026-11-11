@@ -73,6 +73,14 @@ need their measurement first and stay opt-in until it is in.
   poses) and the planes' own, marked as a bound, or compute the joint
   term from the upstream's residuals where the dataset runner has them.
   Gate: a Monte-Carlo NEES on a rig laser scene.
+- [ ] UQ-ROBUST-KAPPA - Under a redescending loss (Cauchy, Arctan) with
+  heavy outliers, a one-dimensional residual family can have a mean `ψ′` at
+  or below zero (`(1 − u)/(1 + u)²` per Cauchy residual at `u = s/c² > 1`).
+  `family_moments` (`backend/covariance.rs`) clamps it to
+  `f64::MIN_POSITIVE`, so the sandwich covariance comes back scaled by about
+  `1/κ²` instead of unavailable. Return a typed `UncertaintyUnavailable`
+  reason there. Gate: a laser scene with a Cauchy loss and 30 % outliers
+  reports the reason; no result with `κ` well above zero moves.
 - [ ] UQ-CROSS-FRAME - Projection uncertainty across the reference-frame
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
   which results do not carry.

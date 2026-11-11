@@ -83,7 +83,7 @@ impl PlanarPoseSolver {
         r_mat.set_column(2, &r3);
 
         // Project onto SO(3) (polar decomposition; see `math::project_to_so3`).
-        let mut r_orth = crate::math::project_to_so3(&r_mat)?;
+        let mut r_orth = vision_calibration_core::linalg::project_to_so3(&r_mat)?;
 
         if t_vec.z < 0.0 {
             r_orth.column_mut(0).neg_mut();
@@ -197,7 +197,8 @@ pub fn estimate_planar_pose_from_bearings(
     if r3.norm() <= 1e-12 {
         return Err(Error::Singular);
     }
-    let r_orth = crate::math::project_to_so3(&Matrix3::from_columns(&[r1, r2, r3]))?;
+    let r_orth =
+        vision_calibration_core::linalg::project_to_so3(&Matrix3::from_columns(&[r1, r2, r3]))?;
     Ok(build_iso(r_orth, t_vec))
 }
 

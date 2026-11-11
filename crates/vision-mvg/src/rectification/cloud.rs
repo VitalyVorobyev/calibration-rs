@@ -200,8 +200,8 @@ impl StereoRectification {
             * self.rect_r_cam[0].transpose();
         let left_centre = rig_se3_left.translation.vector;
         let mut points = Vec::with_capacity(disparity.valid_count());
-        for y in 0..disparity.height {
-            for x in 0..disparity.width {
+        for y in 0..disparity.height() {
+            for x in 0..disparity.width() {
                 let d = Real::from(disparity.get(x, y));
                 let Some(p) = self.rectified_point(&Pt2::new(x as Real, y as Real), d) else {
                     continue;

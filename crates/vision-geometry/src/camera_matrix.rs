@@ -3,7 +3,7 @@
 //! Provides a normalized DLT solver for the 3×4 projection matrix `P` and an
 //! RQ decomposition to recover intrinsics and rotation.
 
-use crate::math::dlt_rank_ok;
+use crate::math::{dlt_rank_ok, ensure_finite};
 
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, Matrix3, Matrix3x4};
@@ -31,6 +31,8 @@ pub struct CameraMatrixDecomposition {
 /// `world` are 3D points and `image` are their pixel projections. The output is
 /// defined up to a global scale.
 pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
+    ensure_finite("world point", world.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite("image point", image.iter().flat_map(|p| p.coords.iter()))?;
     let n = world.len();
     if n < 6 {
         return Err(GeometryError::InsufficientData { need: 6, got: n });

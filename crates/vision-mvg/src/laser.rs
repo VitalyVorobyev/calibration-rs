@@ -301,7 +301,7 @@ fn locate(
             LaserPoint {
                 point: world_se3_rig * q,
                 camera: obs.camera,
-                incidence_deg: along.abs().asin().to_degrees(),
+                incidence_deg: along.abs().min(1.0).asin().to_degrees(),
             },
             Sensitivity {
                 p,

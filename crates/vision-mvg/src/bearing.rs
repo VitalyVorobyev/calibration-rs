@@ -21,18 +21,37 @@ pub(crate) fn camera_model(rig: &CalibratedRig, camera: usize) -> Result<&Camera
 
 /// The unit bearing of `pixel` through `model`. `index` names the pixel in
 /// the error when its ray is zero or not finite.
+///
+/// The unprojection inverts the distortion iteratively, and returns its best
+/// effort for a pixel no ray reaches (beyond where a strong barrel
+/// distortion folds over). The bearing is accepted only when it projects
+/// back onto the pixel within [`ROUND_TRIP_TOL_PX`]; otherwise the pixel is
+/// outside the region where the model inverts, and that is an error.
 pub(crate) fn bearing(model: &CameraModel, pixel: &Pt2, index: usize) -> Result<Vec3> {
     let d = model.backproject_pixel(pixel).direction;
     let n = d.norm();
-    if n.is_finite() && n > 0.0 {
-        Ok(d / n)
-    } else {
-        Err(MvgError::invalid_input(format!(
+    if !(n.is_finite() && n > 0.0) {
+        return Err(MvgError::invalid_input(format!(
             "pixel {index} ({}, {}) has no finite viewing ray",
             pixel.x, pixel.y
-        )))
+        )));
+    }
+    let b = d / n;
+    let back = model.project_point_c(&b);
+    match back {
+        Some(p) if (p - pixel).norm() <= ROUND_TRIP_TOL_PX => Ok(b),
+        _ => Err(MvgError::invalid_input(format!(
+            "pixel {index} ({}, {}) is outside the region where the camera model \
+             inverts: no viewing ray projects onto it",
+            pixel.x, pixel.y
+        ))),
     }
 }
+
+/// How far, in pixels, a bearing may project from the pixel it came from.
+/// The undistortion converges to rounding where it converges at all; a
+/// pixel no ray reaches is off by far more.
+const ROUND_TRIP_TOL_PX: Real = 1e-3;
 
 /// The unit bearing `b` of `pixel` through `model` and the Jacobian
 /// `J = ∂b/∂pixel` (3×2, `bᵀ J = 0`): a pixel error `δ` moves the bearing by
@@ -177,5 +196,17 @@ mod tests {
         let model = pinhole_params(0.0).build().unwrap();
         let err = bearing_with_jacobian(&model, &Pt2::new(f64::NAN, 0.0), 7).unwrap_err();
         assert!(err.to_string().contains("pixel 7"), "{err}");
+    }
+
+    /// Barrel distortion `k1 = −0.3` folds over at a normalized radius of
+    /// `1/√(3·0.3)`: no ray lands beyond a distorted radius of about 0.70
+    /// (562 px). A pixel there has no bearing, and the undistortion's best
+    /// effort is not one.
+    #[test]
+    fn a_pixel_outside_the_invertible_region_has_no_bearing() {
+        let model = pinhole_params(-0.3).build().unwrap();
+        assert!(bearing(&model, &Pt2::new(640.0 + 400.0, 480.0), 0).is_ok());
+        let err = bearing(&model, &Pt2::new(640.0 + 700.0, 480.0), 7).unwrap_err();
+        assert!(matches!(err, MvgError::InvalidInput { .. }), "{err:?}");
     }
 }

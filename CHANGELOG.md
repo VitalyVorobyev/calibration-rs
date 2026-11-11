@@ -81,6 +81,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `init::pnp::dlt` and `dlt_ransac` return a `Degenerate` error for coplanar
   (or collinear) world points instead of an arbitrary pose: a planar object
   leaves the 12-unknown DLT underdetermined. Use `epnp` for a planar object.
+- The closed-form solvers of `mvg::solvers` and `init::pnp`, and
+  `mvg::homography::decompose_essential`, return an `InvalidInput` error for a
+  NaN or infinite coordinate. `fundamental_7point` and `p3p` used to hang
+  on one, in an SVD or Schur iteration that never converges.
+- `RansacOptions::validate` checks every field: `confidence` must be strictly
+  between 0 and 1 and `max_iters` at least 1 (a confidence of 1 or NaN ended
+  the search after the first model). A refit that leaves fewer than
+  `min_inliers` inliers no longer replaces the sample's model.
+- The measurement functions refuse a pixel outside the region where the
+  camera model inverts (beyond where a strong barrel distortion folds over),
+  instead of measuring along the undistortion's best-effort ray, which no
+  pixel of the camera sees.
+- A laser point seen head-on no longer reports a NaN incidence angle.
+
+### Migration
+
+- **`mvg::dense::GrayImage` and `DisparityMap` check their size** (breaking).
+  `new` returns a `Result` (an empty image, or a buffer whose length is not
+  `width × height`, is an `InvalidInput` error; it used to panic), and the
+  fields are private: read them with `width()`, `height()`, `data()` and
+  `into_data()`. `StereoRectification::rectify_image` returns a `Result`
+  (a `side` other than 0 or 1 is an error; it used to panic).
+
+  ```rust
+  // before
+  let img = GrayImage::new(w, h, pixels);
+  let rect = rectification.rectify_image(0, &img, w, h);
+  // after
+  let img = GrayImage::new(w, h, pixels)?;
+  let rect = rectification.rectify_image(0, &img, w, h)?;
+  ```
 
 ## [0.18.0] - 2026-11-06
 

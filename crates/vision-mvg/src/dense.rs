@@ -45,35 +45,60 @@ use crate::{MvgError, Result};
 // Buffer types
 // ---------------------------------------------------------------------------
 
-/// 8-bit grayscale image buffer, row-major (`x` is the fast axis).
+/// 8-bit grayscale image buffer, row-major (`x` is the fast axis), at least
+/// one pixel in each direction.
 #[derive(Debug, Clone)]
 pub struct GrayImage {
-    /// Image width in pixels.
-    pub width: usize,
-    /// Image height in pixels.
-    pub height: usize,
-    /// Raw pixel data, `data[y * width + x]`.
-    pub data: Vec<u8>,
+    width: usize,
+    height: usize,
+    data: Vec<u8>,
 }
 
 impl GrayImage {
-    /// Construct a new buffer.
+    /// A `width × height` image from its pixels, `data[y * width + x]`.
     ///
-    /// # Panics
-    /// Panics if `data.len() != width * height`.
-    pub fn new(width: usize, height: usize, data: Vec<u8>) -> Self {
-        assert_eq!(
-            data.len(),
-            width * height,
-            "GrayImage: data length mismatch (expected {}, got {})",
-            width * height,
-            data.len()
-        );
-        Self {
+    /// # Errors
+    ///
+    /// [`MvgError::InvalidInput`] if `width` or `height` is zero or
+    /// `data.len() != width * height`.
+    pub fn new(width: usize, height: usize, data: Vec<u8>) -> Result<Self> {
+        if width == 0 || height == 0 {
+            return Err(MvgError::invalid_input(format!(
+                "GrayImage: an image needs at least one pixel, got {width}×{height}"
+            )));
+        }
+        if Some(data.len()) != width.checked_mul(height) {
+            return Err(MvgError::invalid_input(format!(
+                "GrayImage: {width}×{height} needs {} pixels, got {}",
+                width.saturating_mul(height),
+                data.len()
+            )));
+        }
+        Ok(Self {
             width,
             height,
             data,
-        }
+        })
+    }
+
+    /// Image width in pixels.
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Image height in pixels.
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// The pixels, `data[y * width + x]`.
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// The pixels, `data[y * width + x]`, taken out of the image.
+    pub fn into_data(self) -> Vec<u8> {
+        self.data
     }
 
     /// Read one pixel.
@@ -127,30 +152,51 @@ impl GrayImage {
 /// because those comparisons return `false` for `NaN`.
 #[derive(Debug, Clone)]
 pub struct DisparityMap {
-    /// Map width in pixels.
-    pub width: usize,
-    /// Map height in pixels.
-    pub height: usize,
-    /// Raw data, `data[y * width + x]`, `NaN` = invalid.
-    pub data: Vec<f32>,
+    width: usize,
+    height: usize,
+    data: Vec<f32>,
 }
 
 impl DisparityMap {
-    /// Construct a new map.
+    /// A `width × height` map from its values, `data[y * width + x]`, `NaN`
+    /// for an invalid pixel.
     ///
-    /// # Panics
-    /// Panics if `data.len() != width * height`.
-    pub fn new(width: usize, height: usize, data: Vec<f32>) -> Self {
-        assert_eq!(
-            data.len(),
-            width * height,
-            "DisparityMap: data length mismatch"
-        );
-        Self {
+    /// # Errors
+    ///
+    /// [`MvgError::InvalidInput`] if `data.len() != width * height`.
+    pub fn new(width: usize, height: usize, data: Vec<f32>) -> Result<Self> {
+        if Some(data.len()) != width.checked_mul(height) {
+            return Err(MvgError::invalid_input(format!(
+                "DisparityMap: {width}×{height} needs {} values, got {}",
+                width.saturating_mul(height),
+                data.len()
+            )));
+        }
+        Ok(Self {
             width,
             height,
             data,
-        }
+        })
+    }
+
+    /// Map width in pixels.
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Map height in pixels.
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// The values, `data[y * width + x]`, `NaN` = invalid.
+    pub fn data(&self) -> &[f32] {
+        &self.data
+    }
+
+    /// The values, `data[y * width + x]`, taken out of the map.
+    pub fn into_data(self) -> Vec<f32> {
+        self.data
     }
 
     /// Construct a map filled with a single value (use `f32::NAN` for all-invalid).
@@ -371,7 +417,7 @@ pub fn match_block(
     let left_disp = solve_direction(left, right, &il, &ill, &ir, &irr, -1, r, opts);
 
     if !opts.lr_consistency {
-        return Ok(DisparityMap::new(w, h, left_disp));
+        return DisparityMap::new(w, h, left_disp);
     }
 
     // Right-referenced disparity: a right pixel matches the left image at xr + d.
@@ -397,7 +443,7 @@ pub fn match_block(
             }
         }
     }
-    Ok(DisparityMap::new(w, h, out))
+    DisparityMap::new(w, h, out)
 }
 
 /// Compute a one-directional disparity map.
@@ -720,7 +766,7 @@ mod tests {
                 ld[y * w + x] = texture_u8(x, y);
             }
         }
-        let left = GrayImage::new(w, h, ld);
+        let left = GrayImage::new(w, h, ld).unwrap();
         let mut rd = vec![0u8; w * h];
         let mut gt = vec![f32::NAN; w * h];
         for y in 0..h {
@@ -733,11 +779,11 @@ mod tests {
                 }
             }
         }
-        (left, GrayImage::new(w, h, rd), gt)
+        (left, GrayImage::new(w, h, rd).unwrap(), gt)
     }
 
     fn rms_over_valid(est: &DisparityMap, gt: &[f32], r: usize) -> (f64, usize) {
-        let (w, h) = (est.width, est.height);
+        let (w, h) = (est.width(), est.height());
         let (mut sum_sq, mut n) = (0.0f64, 0usize);
         for y in r..h - r {
             for x in r..w - r {
@@ -859,16 +905,16 @@ mod tests {
 
     #[test]
     fn rejects_mismatched_dimensions() {
-        let a = GrayImage::new(10, 10, vec![0; 100]);
-        let b = GrayImage::new(12, 10, vec![0; 120]);
+        let a = GrayImage::new(10, 10, vec![0; 100]).unwrap();
+        let b = GrayImage::new(12, 10, vec![0; 120]).unwrap();
         let err = match_block(&a, &b, &BlockMatchOptions::default()).unwrap_err();
         assert!(matches!(err, MvgError::InvalidInput { .. }));
     }
 
     #[test]
     fn rejects_even_block_size() {
-        let a = GrayImage::new(20, 20, vec![0; 400]);
-        let b = GrayImage::new(20, 20, vec![0; 400]);
+        let a = GrayImage::new(20, 20, vec![0; 400]).unwrap();
+        let b = GrayImage::new(20, 20, vec![0; 400]).unwrap();
         let err = match_block(
             &a,
             &b,
@@ -883,8 +929,8 @@ mod tests {
 
     #[test]
     fn rejects_window_larger_than_image() {
-        let a = GrayImage::new(5, 5, vec![0; 25]);
-        let b = GrayImage::new(5, 5, vec![0; 25]);
+        let a = GrayImage::new(5, 5, vec![0; 25]).unwrap();
+        let b = GrayImage::new(5, 5, vec![0; 25]).unwrap();
         let err = match_block(
             &a,
             &b,
@@ -901,7 +947,7 @@ mod tests {
     fn textureless_region_is_rejected() {
         // A flat (zero-variance) image yields undefined correlation everywhere,
         // so every pixel must be invalid rather than spuriously matched.
-        let flat = GrayImage::new(40, 30, vec![128; 40 * 30]);
+        let flat = GrayImage::new(40, 30, vec![128; 40 * 30]).unwrap();
         let est = match_block(
             &flat,
             &flat.clone(),
@@ -912,5 +958,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(est.valid_count(), 0, "flat image must produce no matches");
+    }
+
+    #[test]
+    fn images_need_a_pixel_and_a_matching_buffer() {
+        assert!(GrayImage::new(0, 0, Vec::new()).is_err());
+        assert!(GrayImage::new(3, 2, vec![0; 5]).is_err());
+        assert!(GrayImage::new(usize::MAX, 2, vec![0; 5]).is_err());
+        assert!(DisparityMap::new(3, 2, vec![0.0; 7]).is_err());
+        let one = GrayImage::new(1, 1, vec![7]).unwrap();
+        assert_eq!(one.bilinear(5.0, -3.0), 7.0);
     }
 }

@@ -301,18 +301,24 @@ impl StereoRectification {
     /// large reduction aliases, so reduce the source first or keep `scale`
     /// near 1.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// When `side` is not 0 or 1.
+    /// [`MvgError::InvalidInput`] when `side` is not 0 or 1, or `width` or
+    /// `height` is zero.
     pub fn rectify_image(
         &self,
         side: usize,
         src: &GrayImage,
         width: usize,
         height: usize,
-    ) -> GrayImage {
-        let mut data = vec![0u8; width * height];
-        let (w, h) = (src.width as Real, src.height as Real);
+    ) -> Result<GrayImage> {
+        if side > 1 {
+            return Err(MvgError::invalid_input(format!(
+                "rectify_image: side must be 0 (left) or 1 (right), got {side}"
+            )));
+        }
+        let mut data = vec![0u8; width.saturating_mul(height)];
+        let (w, h) = (src.width() as Real, src.height() as Real);
         for y in 0..height {
             for x in 0..width {
                 let Some(raw) = self.raw_pixel(side, &Pt2::new(x as Real, y as Real)) else {

@@ -4,6 +4,7 @@
 //! decomposition. Returns four possible (R, t) pairs that must be
 //! disambiguated via cheirality checks.
 
+use crate::math::ensure_finite;
 use crate::{GeometryError, Result};
 use nalgebra::SMatrix;
 use vision_calibration_core::{Mat3, Real, Vec3};
@@ -48,6 +49,7 @@ pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
 /// A valid estimated `E` (even from a noisy 8-point solve) has raw `σ₀ ≈ σ₁ > 0`,
 /// so the threshold of 0.1 is conservative.
 pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
+    ensure_finite("essential matrix", e.iter())?;
     // Degeneracy check on the RAW input — before projection.
     // This catches rank-1 inputs like diag(1,0,0) that survive projection
     // to (σ/2, σ/2, 0) and would yield an arbitrary translation direction.

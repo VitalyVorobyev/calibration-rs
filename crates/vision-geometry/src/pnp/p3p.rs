@@ -6,6 +6,7 @@
 
 use super::pose_utils::pose_from_points;
 use crate::GeometryError;
+use crate::math::ensure_finite;
 use nalgebra::Vector3;
 use vision_calibration_core::linalg::solve_quartic_real;
 use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real};
@@ -35,6 +36,9 @@ fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
 /// of length 3, or [`GeometryError::Singular`] if the intrinsics `k` are
 /// non-invertible or the points are collinear (quartic has no real roots).
 pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>, GeometryError> {
+    ensure_finite("world point", world.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite("image point", image.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite("intrinsics", [&k.fx, &k.fy, &k.cx, &k.cy])?;
     if world.len() != image.len() || world.len() != 3 {
         return Err(GeometryError::invalid_input(format!(
             "invalid number of correspondences: expected 3, got {}",

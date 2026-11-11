@@ -558,11 +558,7 @@ fn gray_image(image: &PyReadonlyArray2<'_, u8>, name: &str) -> PyResult<GrayImag
     if shape[0] == 0 || shape[1] == 0 {
         return Err(value_err(format!("{name} is empty")));
     }
-    Ok(GrayImage::new(
-        shape[1],
-        shape[0],
-        image.as_slice()?.to_vec(),
-    ))
+    GrayImage::new(shape[1], shape[0], image.as_slice()?.to_vec()).map_err(mvg_err)
 }
 
 #[pymethods]
@@ -625,8 +621,10 @@ impl PyStereoRectification {
             ));
         }
         let src = gray_image(&image, "image")?;
-        let out = py.detach(|| self.inner.rectify_image(side, &src, width, height));
-        PyArray1::from_vec(py, out.data).reshape([height, width])
+        let out = py
+            .detach(|| self.inner.rectify_image(side, &src, width, height))
+            .map_err(mvg_err)?;
+        PyArray1::from_vec(py, out.into_data()).reshape([height, width])
     }
 
     /// The 4×4 matrix mapping `(x, y, disparity, 1)` of the left rectified image
@@ -669,7 +667,8 @@ impl PyStereoRectification {
     ) -> PyResult<PyDenseCloud> {
         let rig = rig_of(result)?;
         let shape = disparity.shape();
-        let map = DisparityMap::new(shape[1], shape[0], disparity.as_slice()?.to_vec());
+        let map = DisparityMap::new(shape[1], shape[0], disparity.as_slice()?.to_vec())
+            .map_err(mvg_err)?;
         let cloud = py
             .detach(|| self.inner.dense_cloud(&rig, &map, sigma_d))
             .map_err(mvg_err)?;
@@ -849,7 +848,8 @@ pub(crate) fn mvg_match_block<'py>(
     };
     let (l, r) = (gray_image(&left, "left")?, gray_image(&right, "right")?);
     let map = py.detach(|| match_block(&l, &r, &opts)).map_err(mvg_err)?;
-    PyArray1::from_vec(py, map.data).reshape([map.height, map.width])
+    let shape = [map.height(), map.width()];
+    PyArray1::from_vec(py, map.into_data()).reshape(shape)
 }
 
 /// Robust homography of plain image-point correspondences `(N, 2, 2)`:

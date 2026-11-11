@@ -40,9 +40,11 @@ pub struct RansacOptions {
     /// `vision-mvg`. Each estimator's documentation states its
     /// unit. Must be finite and positive.
     pub thresh: f64,
-    /// Minimum number of inliers required to accept a model.
+    /// Minimum number of inliers required to accept a model, before and
+    /// after the refit.
     pub min_inliers: usize,
-    /// Desired confidence level in `[0, 1]` for finding a good model.
+    /// Desired probability, strictly between 0 and 1, of drawing at least
+    /// one all-inlier sample; it sets the adaptive iteration count.
     pub confidence: f64,
     /// Random-number generator seed (for reproducibility).
     pub seed: u64,
@@ -67,23 +69,32 @@ impl RansacOptions {
         }
     }
 
-    /// Check that the options are usable: `thresh` must be finite and
-    /// positive. The estimators call this before any work and return the
-    /// error instead of running with a threshold that rejects or accepts
-    /// everything.
+    /// Check that the options are usable: `thresh` finite and positive,
+    /// `confidence` strictly between 0 and 1, and `max_iters` at least 1.
+    /// The estimators call this before any work and return the error
+    /// instead of running with a threshold that rejects or accepts
+    /// everything, or a confidence that ends the search after one model.
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidInput`] when `thresh` is NaN, infinite, zero or negative.
+    /// [`Error::InvalidInput`] naming the first field out of range.
     pub fn validate(&self) -> Result<(), Error> {
-        if self.thresh.is_finite() && self.thresh > 0.0 {
-            Ok(())
-        } else {
-            Err(Error::invalid_input(format!(
+        if !(self.thresh.is_finite() && self.thresh > 0.0) {
+            return Err(Error::invalid_input(format!(
                 "RANSAC inlier threshold must be finite and positive, got {}",
                 self.thresh
-            )))
+            )));
         }
+        if !(self.confidence > 0.0 && self.confidence < 1.0) {
+            return Err(Error::invalid_input(format!(
+                "RANSAC confidence must be strictly between 0 and 1, got {}",
+                self.confidence
+            )));
+        }
+        if self.max_iters == 0 {
+            return Err(Error::invalid_input("RANSAC max_iters must be at least 1"));
+        }
+        Ok(())
     }
 }
 
@@ -291,17 +302,25 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
             refined_residuals.extend_from_slice(&inlier_residuals);
 
             if let Some(m2) = E::refit(data, &refined_inliers) {
-                model_refit = m2;
-
                 // Recompute inliers for the refined model
                 refined_inliers.clear();
                 refined_residuals.clear();
                 for (i, datum) in data.iter().enumerate() {
-                    let r = E::residual(&model_refit, datum);
+                    let r = E::residual(&m2, datum);
                     if r <= opts.thresh {
                         refined_inliers.push(i);
                         refined_residuals.push(r);
                     }
+                }
+                if refined_inliers.len() >= opts.min_inliers {
+                    model_refit = m2;
+                } else {
+                    // The refit lost the consensus `min_inliers` asks for:
+                    // keep the sample's model and its inliers.
+                    refined_inliers.clear();
+                    refined_inliers.extend_from_slice(&inliers);
+                    refined_residuals.clear();
+                    refined_residuals.extend_from_slice(&inlier_residuals);
                 }
             }
 
@@ -449,5 +468,68 @@ mod tests {
         assert!((model.slope - 2.0).abs() < 0.05);
         assert!((model.intercept - 1.0).abs() < 0.05);
         assert!(res.inliers.len() >= opts.min_inliers);
+    }
+
+    #[test]
+    fn validate_rejects_each_out_of_range_field() {
+        assert!(RansacOptions::new(1.0).validate().is_ok());
+        for bad in [
+            RansacOptions::new(f64::NAN),
+            RansacOptions::new(0.0),
+            RansacOptions {
+                confidence: 1.0,
+                ..RansacOptions::new(1.0)
+            },
+            RansacOptions {
+                confidence: 0.0,
+                ..RansacOptions::new(1.0)
+            },
+            RansacOptions {
+                confidence: f64::NAN,
+                ..RansacOptions::new(1.0)
+            },
+            RansacOptions {
+                max_iters: 0,
+                ..RansacOptions::new(1.0)
+            },
+        ] {
+            assert!(bad.validate().is_err(), "{bad:?}");
+        }
+    }
+
+    /// A line estimator whose refit lands far from the data, so the refit
+    /// keeps no inlier.
+    struct LosingRefit;
+
+    impl Estimator for LosingRefit {
+        type Datum = (f64, f64);
+        type Model = LineModel;
+        const MIN_SAMPLES: usize = 2;
+
+        fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model> {
+            LineEstimator::fit(data, sample_indices)
+        }
+        fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
+            LineEstimator::residual(model, datum)
+        }
+        fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
+            LineEstimator::is_degenerate(data, sample_indices)
+        }
+        fn refit(_data: &[Self::Datum], _inliers: &[usize]) -> Option<Self::Model> {
+            Some(LineModel {
+                slope: 0.0,
+                intercept: 1.0e6,
+            })
+        }
+    }
+
+    #[test]
+    fn a_refit_below_min_inliers_keeps_the_sample_model() {
+        let data: Vec<(f64, f64)> = (0..20).map(|i| (i as f64, 2.0 * i as f64 + 1.0)).collect();
+        let res = ransac_fit::<LosingRefit>(&data, &default_opts());
+        assert!(res.success);
+        assert!(res.inliers.len() >= default_opts().min_inliers);
+        let model = res.model.unwrap();
+        assert!((model.slope - 2.0).abs() < 1e-9, "{model:?}");
     }
 }

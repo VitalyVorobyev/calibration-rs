@@ -474,18 +474,22 @@ impl DenseMatcher for BlockMatcher {
         right: &GrayBuffer,
         opts: &DenseMatchOptions,
     ) -> DisparityMap {
-        let l = mvgd::GrayImage::new(left.width, left.height, left.data.clone());
-        let r = mvgd::GrayImage::new(right.width, right.height, right.data.clone());
         let mopts = mvgd::BlockMatchOptions {
             min_disparity: opts.min_disparity,
             num_disparities: opts.num_disparities,
             block_size: opts.block_size,
             ..Default::default()
         };
-        match mvgd::match_block(&l, &r, &mopts) {
-            Ok(d) => DisparityMap::new(d.width, d.height, d.data),
-            // The matcher only errors on invalid configuration; surface that as
-            // an all-invalid map rather than panicking inside the harness.
+        let matched =
+            mvgd::GrayImage::new(left.width, left.height, left.data.clone()).and_then(|l| {
+                let r = mvgd::GrayImage::new(right.width, right.height, right.data.clone())?;
+                mvgd::match_block(&l, &r, &mopts)
+            });
+        match matched {
+            Ok(d) => DisparityMap::new(d.width(), d.height(), d.data().to_vec()),
+            // The matcher only errors on invalid input or configuration;
+            // surface that as an all-invalid map rather than panicking inside
+            // the harness.
             Err(_) => DisparityMap::filled(left.width, left.height, f32::NAN),
         }
     }

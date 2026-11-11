@@ -7,6 +7,7 @@
 //! Input points should be in consistent units; normalization is applied
 //! internally for numerical stability and the output is de-normalized.
 
+use crate::math::ensure_finite;
 use crate::{GeometryError, Result};
 use nalgebra::DMatrix;
 use vision_calibration_core::linalg::{mat3_from_vec, normalize_points_2d, null_space};
@@ -66,6 +67,11 @@ fn points_are_collinear(pts: &[Pt2]) -> bool {
 /// `src` and `dst` are corresponding 2D points. The returned homography
 /// is scaled so that `H[2,2] == 1` when possible.
 pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
+    ensure_finite("source point", src.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite(
+        "destination point",
+        dst.iter().flat_map(|p| p.coords.iter()),
+    )?;
     let n = src.len();
     if n < 4 {
         return Err(GeometryError::InsufficientData { need: 4, got: n });

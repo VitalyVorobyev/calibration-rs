@@ -5,8 +5,8 @@
 
 use crate::GeometryError;
 use crate::homography::dlt_homography;
-use crate::math::project_to_so3;
 use nalgebra::{Rotation3, UnitQuaternion};
+use vision_calibration_core::linalg::project_to_so3;
 use vision_calibration_core::{Iso3, Mat3, Pt2, Pt3, Real, Vec3};
 
 /// `T_C_W` for the points `world`, which lie on the plane through `centre`

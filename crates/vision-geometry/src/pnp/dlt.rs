@@ -5,8 +5,9 @@
 //! via SVD decomposition.
 
 use crate::GeometryError;
-use crate::math::project_to_so3;
+use crate::math::ensure_finite;
 use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
+use vision_calibration_core::linalg::project_to_so3;
 use vision_calibration_core::linalg::{mat34_from_vec, null_space};
 use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 
@@ -25,6 +26,9 @@ use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 /// planar object takes [`epnp`](super::epnp)), and [`GeometryError::Singular`]
 /// if normalization or SVD fails.
 pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, GeometryError> {
+    ensure_finite("world point", world.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite("image point", image.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite("intrinsics", [&k.fx, &k.fy, &k.cx, &k.cy])?;
     let n = world.len();
     if n < 6 || image.len() != n {
         return Err(GeometryError::InsufficientData { need: 6, got: n });
