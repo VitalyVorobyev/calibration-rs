@@ -4,7 +4,7 @@
  *
  * Renders against the real generated `PlanarIntrinsicsConfig` schema (not a
  * hand-rolled toy schema) so the tests exercise the same `$ref` resolution,
- * nested objects, and both enum shapes (`RobustLoss`'s externally-tagged
+ * nested objects, and both enum shapes (`RobustLoss`'s internally-tagged
  * enum, `DistortionKind`'s plain string enum) that `RunWorkspace` renders —
  * and the same props: the whole value in, the whole next value out,
  * `columns={1}` for the narrow rail.
@@ -113,21 +113,21 @@ describe("config form (SchemaValueForm)", () => {
     expect(next.camera.model.distortion).toBe("rational8");
   });
 
-  it("propagates an externally-tagged enum variant switch (RobustLoss)", () => {
+  it("propagates an internally-tagged enum variant switch (RobustLoss)", () => {
     const onValueChange = vi.fn();
     renderForm(onValueChange);
     const solver = screen.getByRole("group", { name: "Solver" });
     const robustLoss = within(solver).getByRole("combobox", { name: "Robust loss" });
-    expect(robustLoss.textContent).toBe("None");
+    expect(robustLoss.textContent).toBe("none");
 
-    choose(robustLoss, "Huber");
+    choose(robustLoss, "huber");
 
     expect(onValueChange).toHaveBeenCalledTimes(1);
     const next = onValueChange.mock.calls[0]![0] as {
-      solver: { robust_loss: { Huber?: { scale: number } } };
+      solver: { robust_loss: { kind?: string; scale?: number } };
     };
-    expect(Object.keys(next.solver.robust_loss)).toEqual(["Huber"]);
-    expect(typeof next.solver.robust_loss.Huber?.scale).toBe("number");
+    expect(Object.keys(next.solver.robust_loss)).toEqual(["kind", "scale"]);
+    expect(typeof next.solver.robust_loss.scale).toBe("number");
   });
 
   it("propagates the sensor choice", () => {

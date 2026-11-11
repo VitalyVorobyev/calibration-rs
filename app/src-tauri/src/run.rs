@@ -1569,10 +1569,10 @@ mod tests {
         });
         handeye_config["rig"]["refine_sensor"] = json!(false);
         handeye_config["rig"]["refine_intrinsics"] = json!(false);
-        handeye_config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
+        handeye_config["handeye_init"]["handeye_mode"] = json!("eye_to_hand");
         handeye_config["handeye_optimize"]["robot_poses"]["refine"] = json!(true);
         handeye_config["solver"]["max_iters"] = json!(200);
-        handeye_config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
+        handeye_config["solver"]["robust_loss"] = json!({"kind": "huber", "scale": 1.0});
         let handeye = match run_blocking_test(
             read_manifest("dataset_rig_handeye.toml"),
             handeye_config.clone(),
@@ -1602,7 +1602,7 @@ mod tests {
         // stage-3 choice), so the σ gate below is unit-meaningful.
         let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
         laser_config["solver"]["max_iters"] = json!(200);
-        laser_config["laser_residual_type"] = json!("PointToPlane");
+        laser_config["laser_residual_type"] = json!("point_to_plane");
         let laser = match run_blocking_test(read_manifest("dataset_laser.toml"), laser_config, &dir)
         {
             RunResponse::Ok(s) => s,
@@ -1678,9 +1678,9 @@ mod tests {
         let mut joint_config = default_config_cmd("rig_handeye_laserline".into()).unwrap();
         joint_config["handeye"] = handeye_config;
         joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
-        joint_config["laserline_init"]["laser_residual_type"] = json!("PointToPlane");
+        joint_config["laserline_init"]["laser_residual_type"] = json!("point_to_plane");
         joint_config["joint_optimize"]["solver"]["max_iters"] = json!(30);
-        joint_config["joint_optimize"]["laser_residual_type"] = json!("PointToPlane");
+        joint_config["joint_optimize"]["laser_residual_type"] = json!("point_to_plane");
         joint_config["joint_optimize"]["calib_weight"] = json!(1.0);
         joint_config["joint_optimize"]["laser_weight"] = json!(10000.0);
         joint_config["joint_optimize"]["robot_poses"]["refine"] = json!(true);

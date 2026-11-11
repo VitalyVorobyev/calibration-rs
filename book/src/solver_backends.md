@@ -34,7 +34,7 @@ config.solver.backend = SolverBackend::Factrs;
 JSON config:
 
 ```json
-{ "solver": { "max_iters": 50, "robust_loss": "None", "backend": "factrs" } }
+{ "solver": { "max_iters": 50, "robust_loss": {"kind": "none"}, "backend": "factrs" } }
 ```
 
 Python:

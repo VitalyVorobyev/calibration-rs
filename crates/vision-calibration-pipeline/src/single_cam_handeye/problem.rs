@@ -118,11 +118,11 @@ pub struct SingleCamHandeyeConfig {
 /// internally tagged by `mode`:
 ///
 /// ```json
-/// {"mode": "EyeInHand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+/// {"mode": "eye_in_hand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(tag = "mode")]
+#[serde(tag = "mode", rename_all = "snake_case")]
 pub enum SingleCamHandeyeSolution {
     /// The camera rides on the gripper; the target stands in the base frame.
     EyeInHand {
@@ -601,7 +601,7 @@ mod tests {
             assert_eq!(solution.target_pose(), &target);
             assert_eq!(solution.handeye().pose(), &handeye);
             let json = serde_json::to_value(solution).unwrap();
-            assert_eq!(json["mode"], format!("{mode:?}"));
+            assert_eq!(json["mode"], serde_json::to_value(mode).unwrap());
             assert_eq!(json.as_object().unwrap().len(), 3, "{json}");
             for key in keys {
                 assert!(json.get(key).is_some(), "{key} in {json}");
@@ -612,8 +612,8 @@ mod tests {
             // The other mode's pose is not the mode's: refused, not guessed.
             let mut wrong = json;
             wrong["mode"] = match mode {
-                HandeyeMode::EyeInHand => "EyeToHand".into(),
-                HandeyeMode::EyeToHand => "EyeInHand".into(),
+                HandeyeMode::EyeInHand => "eye_to_hand".into(),
+                HandeyeMode::EyeToHand => "eye_in_hand".into(),
             };
             let err = serde_json::from_value::<SingleCamHandeyeSolution>(wrong).unwrap_err();
             assert!(err.to_string().contains("missing field"), "{err}");

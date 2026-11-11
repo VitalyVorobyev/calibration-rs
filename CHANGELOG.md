@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **Serialized enums are snake_case** (breaking). Every enum value in a
+  config, input or export is now spelled in snake_case, like the rest of the
+  JSON (`"tiny_solver"`, `"eye_in_hand"` in manifests). Saved configs and
+  exports written before need their values renamed:
+
+  | Type | Before | After |
+  |---|---|---|
+  | `HandeyeMode` (`handeye_init.handeye_mode`) | `"EyeInHand"`, `"EyeToHand"` | `"eye_in_hand"`, `"eye_to_hand"` |
+  | `HandeyeSolution`, `SingleCamHandeyeSolution`, `HandeyeManualInit` (the `mode` tag) | `"mode": "EyeInHand"` | `"mode": "eye_in_hand"` |
+  | `LaserlineResidualType` (`laser_residual_type`) | `"PointToPlane"`, `"LineDistNormalized"` | `"point_to_plane"`, `"line_dist_normalized"` |
+  | `RobustLoss` (`robust_loss`, `calib_loss`, `laser_loss`) | `"None"`, `{"Huber": {"scale": 1.0}}` | `{"kind": "none"}`, `{"kind": "huber", "scale": 1.0}` |
+
+  `RobustLoss` is now tagged by `kind` like `TargetSpec`, with the variants
+  `none`, `huber`, `cauchy` and `arctan`; the Python helpers
+  `robust_none()`, `robust_huber(scale)` and the like build the new shape.
+
+  ```json
+  // before
+  { "handeye_mode": "EyeToHand", "robust_loss": { "Huber": { "scale": 1.0 } },
+    "laser_residual_type": "PointToPlane" }
+  // after
+  { "handeye_mode": "eye_to_hand", "robust_loss": { "kind": "huber", "scale": 1.0 },
+    "laser_residual_type": "point_to_plane" }
+  ```
+
 - **Hand-eye seeds and init results carry one tagged value per mode**
   (breaking). `HandeyeManualInit` of `single_cam_handeye` and `rig_handeye`
   is an enum with the variants of the export's `handeye`, tagged by `mode` in

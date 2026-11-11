@@ -582,7 +582,7 @@ class MvgTest(unittest.TestCase):
             "cam_se3_rig": [{"rotation": [0.0, 0.0, 0.0, 1.0], "translation": [0.0, 0.0, 0.0]}],
             "rig_se3_target": [],
             "handeye": {
-                "mode": "EyeInHand",
+                "mode": "eye_in_hand",
                 "gripper_se3_rig": _pose_payload(gripper_se3_rig),
                 "base_se3_target": _pose_payload(_transform(_rotation(0.0, 0.0, 0.0), (0.0, 0.0, 1.0))),
             },

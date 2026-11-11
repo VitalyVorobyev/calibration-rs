@@ -77,3 +77,5 @@ custom-protocol = ["tauri/custom-protocol"]
 # command payload/response types and forward the facade's `schemars`
 # feature so the `*Export` types are schema-able too.
 schema-export = ["dep:schemars", "vision-calibration/schemars"]
+
+[workspace]

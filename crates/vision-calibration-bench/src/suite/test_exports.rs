@@ -25,7 +25,7 @@ pub(super) fn rig_export(fx1: f64, cam1: &Iso3, delta_rx: f64) -> Value {
         "cam_se3_rig": [Iso3::identity(), cam1],
         "rig_se3_target": [Iso3::identity(), Iso3::identity()],
         "handeye": {
-            "mode": "EyeInHand",
+            "mode": "eye_in_hand",
             "gripper_se3_rig": Iso3::identity(),
             "base_se3_target": Iso3::identity(),
         },

@@ -199,7 +199,7 @@ def _synthetic_dataset() -> vc.RigHandeyeLaserlineInput:
 
 def _eye_to_hand_config() -> vc.RigHandeyeLaserlineConfig:
     cfg = vc.RigHandeyeLaserlineConfig()
-    cfg.handeye.handeye_init.handeye_mode = "EyeToHand"
+    cfg.handeye.handeye_init.handeye_mode = "eye_to_hand"
     return cfg
 
 
@@ -217,7 +217,7 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
 
         # EyeToHand mode is echoed back with the mode's two poses, and only them.
         self.assertIsInstance(result.handeye, vc.RigEyeToHand)
-        self.assertEqual(result.handeye.mode, "EyeToHand")
+        self.assertEqual(result.handeye.mode, "eye_to_hand")
         self.assertIsInstance(result.handeye.rig_se3_base, vc.Pose)
         self.assertIsInstance(result.handeye.gripper_se3_target, vc.Pose)
         self.assertFalse(hasattr(result.handeye, "gripper_se3_rig"))

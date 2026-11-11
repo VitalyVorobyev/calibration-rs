@@ -89,9 +89,9 @@ so they cover the whole fisheye image, beyond 90° included.
 Some combinations have no initializer and are configuration errors:
 
 - an equidistant camera with a Scheimpflug sensor;
-- the line-distance laser residual (`LineDistNormalized`), which needs the
+- the line-distance laser residual (`line_dist_normalized`), which needs the
   laser line's image to be straight: a fisheye laser workflow uses
-  `PointToPlane`.
+  `point_to_plane`.
 
 Seeds are values in the camera's own model: a fisheye camera takes seeded
 intrinsics and a `KannalaBrandt4` distortion seed, and poses then come from

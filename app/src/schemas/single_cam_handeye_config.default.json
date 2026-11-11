@@ -8,7 +8,7 @@
     }
   },
   "handeye_init": {
-    "handeye_mode": "EyeInHand",
+    "handeye_mode": "eye_in_hand",
     "method": "tsai_lenz",
     "min_motion_angle_deg": 5.0
   },
@@ -25,7 +25,9 @@
   "solver": {
     "backend": "tiny_solver",
     "max_iters": 50,
-    "robust_loss": "None",
+    "robust_loss": {
+      "kind": "none"
+    },
     "verbosity": 0
   }
 }

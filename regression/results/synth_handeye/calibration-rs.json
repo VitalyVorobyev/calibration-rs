@@ -76,7 +76,7 @@
           0.07976804295035135
         ]
       },
-      "mode": "EyeInHand"
+      "mode": "eye_in_hand"
     },
     "kind": "single_cam_handeye",
     "mean_reproj_error": 0.6645427805689337,

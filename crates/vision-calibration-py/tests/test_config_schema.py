@@ -237,16 +237,16 @@ class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):
     def test_laserline_init_defaults_to_point_to_plane(self) -> None:
         payload = vc.RigHandeyeLaserlineConfig().to_payload()
         init = payload["laserline_init"]
-        self.assertEqual(init["laser_residual_type"], "PointToPlane")
+        self.assertEqual(init["laser_residual_type"], "point_to_plane")
         # Rust default seeds the frozen-geometry stage at 200 iterations.
         self.assertEqual(init["solver"]["max_iters"], 200)
 
     def test_joint_optimize_defaults_match_rust(self) -> None:
         ba = vc.RigHandeyeLaserlineConfig().to_payload()["joint_optimize"]
         self.assertEqual(ba["solver"]["max_iters"], 30)
-        self.assertEqual(ba["laser_residual_type"], "PointToPlane")
-        self.assertEqual(ba["calib_loss"], "None")
-        self.assertEqual(ba["laser_loss"], "None")
+        self.assertEqual(ba["laser_residual_type"], "point_to_plane")
+        self.assertEqual(ba["calib_loss"], {"kind": "none"})
+        self.assertEqual(ba["laser_loss"], {"kind": "none"})
         self.assertEqual(ba["calib_weight"], 1.0)
         self.assertEqual(ba["laser_weight"], 1.0e4)
         # An empty `fix` gives every camera the stage default.

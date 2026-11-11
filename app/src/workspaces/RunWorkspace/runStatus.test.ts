@@ -68,14 +68,13 @@ describe("setup summaries", () => {
     expect(manifestSummary({ cameras: [{}] })).toBe("? · ? · 1 camera");
   });
 
-  it("summarizes the config's robust loss in each wire shape", () => {
-    expect(robustLossLabel("None")).toBe("None");
-    expect(robustLossLabel({ type: "huber", scale: 1 })).toBe("huber");
-    expect(robustLossLabel({ Cauchy: { scale: 1 } })).toBe("Cauchy");
-    expect(robustLossLabel(undefined)).toBe("None");
-    expect(configSummary({ max_iters: 50, robust_loss: "None" })).toBe(
-      "max_iters=50 · loss=None",
-    );
+  it("summarizes the config's robust loss by its kind", () => {
+    expect(robustLossLabel({ kind: "none" })).toBe("none");
+    expect(robustLossLabel({ kind: "huber", scale: 1 })).toBe("huber");
+    expect(robustLossLabel(undefined)).toBe("none");
+    expect(
+      configSummary({ max_iters: 50, robust_loss: { kind: "cauchy", scale: 1 } }),
+    ).toBe("max_iters=50 · loss=cauchy");
   });
 
   it("says why Run is blocked, most fundamental reason first", () => {

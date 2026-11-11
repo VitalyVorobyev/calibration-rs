@@ -10,7 +10,7 @@
     },
     "camera_overrides": [],
     "handeye_init": {
-      "handeye_mode": "EyeInHand",
+      "handeye_mode": "eye_in_hand",
       "method": "tsai_lenz",
       "min_motion_angle_deg": 5.0
     },
@@ -37,18 +37,24 @@
     "solver": {
       "backend": "tiny_solver",
       "max_iters": 50,
-      "robust_loss": "None",
+      "robust_loss": {
+        "kind": "none"
+      },
       "verbosity": 0
     }
   },
   "joint_optimize": {
-    "calib_loss": "None",
+    "calib_loss": {
+      "kind": "none"
+    },
     "calib_weight": 1.0,
     "fix": [],
     "fix_handeye": false,
     "fix_target_ref": false,
-    "laser_loss": "None",
-    "laser_residual_type": "PointToPlane",
+    "laser_loss": {
+      "kind": "none"
+    },
+    "laser_residual_type": "point_to_plane",
     "laser_weight": 10000.0,
     "robot_poses": {
       "estimate_sigma": true,
@@ -59,16 +65,20 @@
     "solver": {
       "backend": "tiny_solver",
       "max_iters": 30,
-      "robust_loss": "None",
+      "robust_loss": {
+        "kind": "none"
+      },
       "verbosity": 0
     }
   },
   "laserline_init": {
-    "laser_residual_type": "PointToPlane",
+    "laser_residual_type": "point_to_plane",
     "solver": {
       "backend": "tiny_solver",
       "max_iters": 200,
-      "robust_loss": "None",
+      "robust_loss": {
+        "kind": "none"
+      },
       "verbosity": 0
     }
   }

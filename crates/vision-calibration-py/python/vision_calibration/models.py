@@ -65,7 +65,7 @@ class SolverConfig:
 
     max_iters: int = 50
     verbosity: int = 0
-    robust_loss: RobustLoss = "None"
+    robust_loss: RobustLoss = field(default_factory=lambda: {"kind": "none"})
     #: Engine that linearizes the problem: ``"tiny_solver"`` (default) or
     #: ``"factrs"``. Both reach the same minimizer.
     backend: SolverBackend = "tiny_solver"
@@ -159,7 +159,7 @@ class HandeyeInitConfig:
     solve.
     """
 
-    handeye_mode: HandeyeMode = "EyeInHand"
+    handeye_mode: HandeyeMode = "eye_in_hand"
     method: HandeyeMethod = "tsai_lenz"
     min_motion_angle_deg: float = 5.0
 
@@ -979,13 +979,13 @@ class DeviceOptimizeConfig:
     :class:`LaserlineDeviceConfig`.
     """
 
-    calib_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 1.0}})
-    laser_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 1.0}})
+    calib_loss: RobustLoss = field(default_factory=lambda: {"kind": "huber", "scale": 1.0})
+    laser_loss: RobustLoss = field(default_factory=lambda: {"kind": "huber", "scale": 1.0})
     calib_weight: float = 1.0
     laser_weight: float = 1.0
     fix_poses: list[int] = field(default_factory=list)
     fix_plane: bool = False
-    laser_residual_type: LaserlineResidualType = "LineDistNormalized"
+    laser_residual_type: LaserlineResidualType = "line_dist_normalized"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -2193,7 +2193,7 @@ class RigEyeInHand:
 
     gripper_se3_rig: Pose
     base_se3_target: Pose
-    mode: ClassVar[HandeyeMode] = "EyeInHand"
+    mode: ClassVar[HandeyeMode] = "eye_in_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -2213,7 +2213,7 @@ class RigEyeToHand:
 
     rig_se3_base: Pose
     gripper_se3_target: Pose
-    mode: ClassVar[HandeyeMode] = "EyeToHand"
+    mode: ClassVar[HandeyeMode] = "eye_to_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -2230,12 +2230,12 @@ an export holds exactly the two poses its mode estimates."""
 
 def _rig_solution_from_payload(payload: Mapping[str, Any]) -> RigHandeyeSolution:
     mode = payload["mode"]
-    if mode == "EyeInHand":
+    if mode == "eye_in_hand":
         return RigEyeInHand(
             gripper_se3_rig=_solution_pose(payload, "gripper_se3_rig"),
             base_se3_target=_solution_pose(payload, "base_se3_target"),
         )
-    if mode == "EyeToHand":
+    if mode == "eye_to_hand":
         return RigEyeToHand(
             rig_se3_base=_solution_pose(payload, "rig_se3_base"),
             gripper_se3_target=_solution_pose(payload, "gripper_se3_target"),
@@ -2253,7 +2253,7 @@ class CameraEyeInHand:
 
     gripper_se3_camera: Pose
     base_se3_target: Pose
-    mode: ClassVar[HandeyeMode] = "EyeInHand"
+    mode: ClassVar[HandeyeMode] = "eye_in_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -2274,7 +2274,7 @@ class CameraEyeToHand:
 
     camera_se3_base: Pose
     gripper_se3_target: Pose
-    mode: ClassVar[HandeyeMode] = "EyeToHand"
+    mode: ClassVar[HandeyeMode] = "eye_to_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -2291,12 +2291,12 @@ mode."""
 
 def _camera_solution_from_payload(payload: Mapping[str, Any]) -> SingleCamHandeyeSolution:
     mode = payload["mode"]
-    if mode == "EyeInHand":
+    if mode == "eye_in_hand":
         return CameraEyeInHand(
             gripper_se3_camera=_solution_pose(payload, "gripper_se3_camera"),
             base_se3_target=_solution_pose(payload, "base_se3_target"),
         )
-    if mode == "EyeToHand":
+    if mode == "eye_to_hand":
         return CameraEyeToHand(
             camera_se3_base=_solution_pose(payload, "camera_se3_base"),
             gripper_se3_target=_solution_pose(payload, "gripper_se3_target"),
@@ -2610,7 +2610,7 @@ class RigLaserlineDeviceConfig:
     """
 
     solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=200))
-    laser_residual_type: LaserlineResidualType = "LineDistNormalized"
+    laser_residual_type: LaserlineResidualType = "line_dist_normalized"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -2737,9 +2737,9 @@ class JointOptimizeConfig:
     """
 
     solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=30))
-    laser_residual_type: LaserlineResidualType = "PointToPlane"
-    calib_loss: RobustLoss = "None"
-    laser_loss: RobustLoss = "None"
+    laser_residual_type: LaserlineResidualType = "point_to_plane"
+    calib_loss: RobustLoss = field(default_factory=lambda: {"kind": "none"})
+    laser_loss: RobustLoss = field(default_factory=lambda: {"kind": "none"})
     calib_weight: float = 1.0
     laser_weight: float = 1.0e4
     fix: list[CameraFix] = field(default_factory=list)
@@ -2804,7 +2804,7 @@ class RigHandeyeLaserlineConfig:
     )
     laserline_init: RigLaserlineDeviceConfig = field(
         default_factory=lambda: RigLaserlineDeviceConfig(
-            laser_residual_type="PointToPlane"
+            laser_residual_type="point_to_plane"
         )
     )
     joint_optimize: JointOptimizeConfig = field(

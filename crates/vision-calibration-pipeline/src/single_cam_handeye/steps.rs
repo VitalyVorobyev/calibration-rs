@@ -74,7 +74,7 @@ pub struct IntrinsicsManualInit {
 /// the first view, and with neither seeded the closed-form solver of
 /// `handeye_init.method` gives both.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "mode")]
+#[serde(tag = "mode", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum HandeyeManualInit {
     /// The camera rides on the gripper; the target stands in the base frame.
@@ -679,11 +679,11 @@ mod tests {
             gripper_se3_target: None,
         };
         let json = serde_json::to_value(&seed).unwrap();
-        assert_eq!(json["mode"], "EyeToHand");
+        assert_eq!(json["mode"], "eye_to_hand");
         let back: HandeyeManualInit = serde_json::from_value(json).unwrap();
         assert_eq!(back, seed);
         // Unseeded poses may be left out.
-        let bare: HandeyeManualInit = serde_json::from_str(r#"{"mode":"EyeInHand"}"#).unwrap();
+        let bare: HandeyeManualInit = serde_json::from_str(r#"{"mode":"eye_in_hand"}"#).unwrap();
         assert_eq!(bare, HandeyeManualInit::unseeded(HandeyeMode::EyeInHand));
     }
     use nalgebra::{Rotation3, Translation3};

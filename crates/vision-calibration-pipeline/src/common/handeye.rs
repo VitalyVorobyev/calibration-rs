@@ -12,11 +12,11 @@ use vision_calibration_optim::HandeyeMode;
 /// internally tagged by `mode`:
 ///
 /// ```json
-/// {"mode": "EyeInHand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
+/// {"mode": "eye_in_hand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(tag = "mode")]
+#[serde(tag = "mode", rename_all = "snake_case")]
 pub enum HandeyeSolution {
     /// The rig rides on the gripper; the target stands in the base frame.
     EyeInHand {

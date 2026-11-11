@@ -235,7 +235,7 @@ match export.handeye {
 
 ```json
 "handeye": {
-  "mode": "EyeInHand",
+  "mode": "eye_in_hand",
   "gripper_se3_camera": { "rotation": [0, 0, 0, 1], "translation": [0.05, 0, 0.1] },
   "base_se3_target":    { "rotation": [0, 0, 0, 1], "translation": [0, 0, 1] }
 }

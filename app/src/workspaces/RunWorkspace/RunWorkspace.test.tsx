@@ -40,7 +40,12 @@ pattern = "*.png"
 
 const DEFAULT_CONFIG = {
   init: { iterations: 2, fix_k3: true },
-  solver: { max_iters: 50, verbosity: 0, robust_loss: "None", backend: "tiny_solver" },
+  solver: {
+    max_iters: 50,
+    verbosity: 0,
+    robust_loss: { kind: "none" },
+    backend: "tiny_solver",
+  },
   camera: {
     model: { projection: "pinhole", distortion: "brown_conrady5", sensor: "identity" },
     fix: {},

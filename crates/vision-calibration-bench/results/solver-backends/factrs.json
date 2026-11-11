@@ -13,7 +13,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.33587500000000003,
@@ -72,9 +74,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -134,9 +135,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -191,7 +191,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.318791,
@@ -250,9 +252,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -312,9 +313,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -369,7 +369,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.195416,
@@ -428,9 +430,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -490,9 +491,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -547,7 +547,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.181875,
@@ -606,9 +608,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -668,9 +669,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -725,7 +725,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 4.018624999999999,
@@ -784,9 +786,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -846,9 +847,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -903,7 +903,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 3.991583,
@@ -962,9 +964,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1024,9 +1025,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1081,7 +1081,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.045917,
@@ -1140,9 +1142,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1202,9 +1203,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1259,7 +1259,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.043665999999999996,
@@ -1318,9 +1320,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1380,9 +1381,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1437,7 +1437,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.14825,
@@ -1496,9 +1498,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1558,9 +1559,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1615,7 +1615,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.15187499999999998,
@@ -1674,9 +1676,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1736,9 +1737,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1793,7 +1793,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.45399999999999996,
@@ -1852,9 +1854,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1914,9 +1915,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -1971,7 +1971,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.438291,
@@ -2030,9 +2032,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2092,9 +2093,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2149,7 +2149,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.33016700000000004,
@@ -2208,9 +2210,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2270,9 +2271,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2327,7 +2327,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.34495800000000004,
@@ -2386,9 +2388,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2448,9 +2449,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2505,7 +2505,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.230208,
@@ -2564,9 +2566,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2626,9 +2627,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2683,7 +2683,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.219791,
@@ -2742,9 +2744,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2804,9 +2805,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2861,7 +2861,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 4.031542,
@@ -2920,9 +2922,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -2982,9 +2983,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3039,7 +3039,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 4.027,
@@ -3098,9 +3100,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3160,9 +3161,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3217,7 +3217,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.319458,
@@ -3276,9 +3278,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3338,9 +3339,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3395,7 +3395,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.315125,
@@ -3454,9 +3456,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3516,9 +3517,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3573,7 +3573,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.141291,
@@ -3632,9 +3634,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3694,9 +3695,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3751,7 +3751,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.1826670000000001,
@@ -3810,9 +3812,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3872,9 +3873,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -3929,7 +3929,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 3.547375,
@@ -3988,9 +3990,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4050,9 +4051,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4107,7 +4107,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 3.78375,
@@ -4166,9 +4168,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4228,9 +4229,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4285,7 +4285,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.628333,
@@ -4344,9 +4346,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4406,9 +4407,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4463,7 +4463,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.621958,
@@ -4522,9 +4524,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4584,9 +4585,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4641,7 +4641,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 2.228749,
@@ -4700,9 +4702,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4762,9 +4763,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4819,7 +4819,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 2.3188750000000002,
@@ -4878,9 +4880,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4940,9 +4941,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -4997,7 +4997,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 7.7526660000000005,
@@ -5056,9 +5058,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5118,9 +5119,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5175,7 +5175,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 7.3986659999999995,
@@ -5234,9 +5236,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5296,9 +5297,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5353,7 +5353,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.970917,
@@ -5412,9 +5414,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5474,9 +5475,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5531,7 +5531,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 1.9257090000000001,
@@ -5590,9 +5592,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5652,9 +5653,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5709,7 +5709,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 7.576833,
@@ -5768,9 +5770,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5830,9 +5831,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -5887,7 +5887,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 7.500875,
@@ -5946,9 +5948,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6008,9 +6009,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6065,7 +6065,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 24.753583,
@@ -6124,9 +6126,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6186,9 +6187,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6243,7 +6243,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 25.142834,
@@ -6302,9 +6304,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6364,9 +6365,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6421,7 +6421,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.637707,
@@ -6480,9 +6482,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6542,9 +6543,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6599,7 +6599,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.5964160000000001,
@@ -6658,9 +6660,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6720,9 +6721,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6777,7 +6777,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 2.355626,
@@ -6836,9 +6838,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6898,9 +6899,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -6955,7 +6955,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 2.3345409999999998,
@@ -7014,9 +7016,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7076,9 +7077,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7133,7 +7133,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 7.959917000000001,
@@ -7192,9 +7194,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7254,9 +7255,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7311,7 +7311,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 8.055541,
@@ -7370,9 +7372,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7432,9 +7433,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7489,7 +7489,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.038834,
@@ -7540,7 +7542,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.037292,
@@ -7591,7 +7595,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.10129200000000001,
@@ -7642,7 +7648,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.090125,
@@ -7693,7 +7701,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.176125,
@@ -7744,7 +7754,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": 0.173458,
@@ -7795,7 +7807,9 @@
         "scale": "small",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": null,
@@ -7854,9 +7868,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7916,9 +7929,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -7973,7 +7985,9 @@
         "scale": "small",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": null,
@@ -8032,9 +8046,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8094,9 +8107,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8151,7 +8163,9 @@
         "scale": "medium",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": null,
@@ -8210,9 +8224,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8272,9 +8285,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8329,7 +8341,9 @@
         "scale": "medium",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": null,
@@ -8388,9 +8402,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8450,9 +8463,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8507,7 +8519,9 @@
         "scale": "large",
         "noise_px": 0.1,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": null,
@@ -8566,9 +8580,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8628,9 +8641,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8685,7 +8697,9 @@
         "scale": "large",
         "noise_px": 0.5,
         "outliers": "none",
-        "loss": "None"
+        "loss": {
+          "kind": "none"
+        }
       },
       "timing": {
         "init_ms": null,
@@ -8744,9 +8758,8 @@
           }
         },
         "loss": {
-          "Huber": {
-            "scale": 1.0
-          }
+          "kind": "huber",
+          "scale": 1.0
         }
       },
       "timing": {
@@ -8806,9 +8819,8 @@
           }
         },
         "loss": {
-          "Cauchy": {
-            "scale": 1.0
-          }
+          "kind": "cauchy",
+          "scale": 1.0
         }
       },
       "timing": {
