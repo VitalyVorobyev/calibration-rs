@@ -875,7 +875,7 @@
           "description": "Per-view, per-camera observations."
         },
         "initial_planes_cam": {
-          "description": "Optional per-camera initial plane in camera frame. If `None`, defaults\nto a generic `z=-0.2m` plane.",
+          "description": "Optional per-camera initial plane in camera frame. If `None`, each\ncamera's plane is fitted in closed form from its laser pixels.",
           "items": {
             "$ref": "#/$defs/LaserPlane"
           },

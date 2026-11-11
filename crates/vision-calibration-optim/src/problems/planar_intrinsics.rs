@@ -311,6 +311,14 @@ pub fn optimize_planar_intrinsics(
     } else {
         finite_mean_reproj_error(&camera_model, dataset, &poses)
     };
+    // The ranking above scores a candidate whose points all fail to project
+    // as infinitely bad; a result is not allowed to be that candidate.
+    if !mean_reproj_error.is_finite() {
+        return Err(Error::numerical(
+            "no observation projects through the solved camera, so the solution \
+             has no reprojection error",
+        ));
+    }
 
     let labels: Vec<_> = ir
         .params

@@ -96,8 +96,9 @@ __all__ = [
 
 RunError = _native.RunError
 """A manifest run failed; ``kind`` names the failure: ``"validation"``,
-``"empty_image_match"``, ``"image_size_mismatch"``, ``"pose_count_mismatch"``, ``"detection"``,
-``"insufficient_usable_views"``, ``"no_whole_chessboard_views"``, ...."""
+``"empty_image_match"``, ``"image_size_mismatch"``, ``"roi_out_of_bounds"``,
+``"pose_count_mismatch"``, ``"detection"``, ``"insufficient_usable_views"``,
+``"no_whole_chessboard_views"``, ...."""
 
 AskUserError = _native.AskUserError
 """The manifest leaves a convention open and the runner will not guess.

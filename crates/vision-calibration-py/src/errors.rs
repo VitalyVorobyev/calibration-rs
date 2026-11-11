@@ -85,6 +85,7 @@ pub(crate) fn run_error_kind(err: &RustRunError) -> &'static str {
         RustRunError::Io(_) => "io",
         RustRunError::Decode { .. } => "decode",
         RustRunError::ImageSizeMismatch { .. } => "image_size_mismatch",
+        RustRunError::RoiOutOfBounds { .. } => "roi_out_of_bounds",
         RustRunError::Detection { .. } => "detection",
         RustRunError::CornerCovariance { .. } => "corner_covariance",
         RustRunError::CovarianceUnsupported { .. } => "covariance_unsupported",

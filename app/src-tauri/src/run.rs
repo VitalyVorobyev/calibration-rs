@@ -1033,7 +1033,9 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::PairingTokenMismatch { .. } => "view_pairing",
         RunError::Io(_) => "io",
         RunError::Decode { .. } => "decode",
-        RunError::ImageSizeMismatch { .. } => "image_size_mismatch",
+        RunError::ImageSizeMismatch { .. } | RunError::RoiOutOfBounds { .. } => {
+            "image_size_mismatch"
+        }
         RunError::Detection { .. } | RunError::CornerCovariance { .. } => "detection",
         RunError::Cache(_) => "cache",
         RunError::AskUser { .. } => "ask_user",

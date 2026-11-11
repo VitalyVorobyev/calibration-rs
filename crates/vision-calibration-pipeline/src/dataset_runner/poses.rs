@@ -272,11 +272,14 @@ fn parse_pose_row(
     };
     let get_f64 = |name: &str| -> Result<f64, RunError> {
         let raw = get(name)?;
-        raw.parse::<f64>().map_err(|_| RunError::PoseParse {
-            path: path.to_path_buf(),
-            row: index,
-            message: format!("column {name:?}: {raw:?} is not a number"),
-        })
+        raw.parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite())
+            .ok_or_else(|| RunError::PoseParse {
+                path: path.to_path_buf(),
+                row: index,
+                message: format!("column {name:?}: {raw:?} is not a finite number"),
+            })
     };
 
     let id = match &columns.pose_id {
@@ -543,6 +546,23 @@ fn pose_from_matrix_values(
 /// `from_euler_angles(r, p, y)` builds `Rz(y) · Ry(p) · Rx(r)` —
 /// equivalent to our `EulerZyx` with reversed argument order — so we
 /// compose from axis-angles explicitly to keep both orders honest.
+/// How far an exported rotation may be from a unit quaternion or an
+/// orthonormal matrix and still count as one with float noise (printed
+/// poses carry about six digits). Beyond it the values are not a rotation,
+/// and normalizing them would invent one.
+const ROTATION_TOL: f64 = 1e-3;
+
+/// `q` normalized, when its norm is 1 within [`ROTATION_TOL`].
+fn unit_quaternion(q: Quaternion<f64>) -> Result<UnitQuaternion<f64>, String> {
+    let norm = q.norm();
+    if (norm - 1.0).abs() > ROTATION_TOL {
+        return Err(format!(
+            "quaternion norm {norm:.6} is not 1 (tolerance {ROTATION_TOL:e})"
+        ));
+    }
+    Ok(UnitQuaternion::from_quaternion(q))
+}
+
 fn rotation_from_values(
     format: RotationFormat,
     values: &[f64],
@@ -557,6 +577,9 @@ fn rotation_from_values(
             ))
         }
     };
+    if let Some(bad) = values.iter().find(|v| !v.is_finite()) {
+        return Err(format!("pose value {bad} is not finite"));
+    }
     let rx = |a: f64| UnitQuaternion::from_axis_angle(&Vector3::x_axis(), a);
     let ry = |a: f64| UnitQuaternion::from_axis_angle(&Vector3::y_axis(), a);
     let rz = |a: f64| UnitQuaternion::from_axis_angle(&Vector3::z_axis(), a);
@@ -564,15 +587,11 @@ fn rotation_from_values(
     match format {
         RotationFormat::QuatXyzw => {
             expect_len(4)?;
-            Ok(UnitQuaternion::from_quaternion(Quaternion::new(
-                values[3], values[0], values[1], values[2],
-            )))
+            unit_quaternion(Quaternion::new(values[3], values[0], values[1], values[2]))
         }
         RotationFormat::QuatWxyz => {
             expect_len(4)?;
-            Ok(UnitQuaternion::from_quaternion(Quaternion::new(
-                values[0], values[1], values[2], values[3],
-            )))
+            unit_quaternion(Quaternion::new(values[0], values[1], values[2], values[3]))
         }
         RotationFormat::EulerXyzDeg | RotationFormat::EulerXyzRad => {
             expect_len(3)?;
@@ -605,10 +624,23 @@ fn rotation_from_values(
                 values[0], values[1], values[2], values[4], values[5], values[6], values[8],
                 values[9], values[10],
             );
+            // A reflection, or a matrix far from orthonormal, is not a
+            // rotation with float noise: refuse it rather than project it
+            // onto the nearest rotation.
+            let off = (m.transpose() * m - nalgebra::Matrix3::identity())
+                .abs()
+                .max();
+            if m.determinant() <= 0.0 || off > ROTATION_TOL {
+                return Err(format!(
+                    "the upper-left 3×3 is not a rotation (det {:.6}, |RᵀR − I| {off:.2e}; \
+                     tolerance {ROTATION_TOL:e})",
+                    m.determinant()
+                ));
+            }
             // The SVD polar projection, not nalgebra's iterative
             // `Rotation3::from_matrix`, which mis-converges on exact 180°
-            // rotations (the wrong axis); it also absorbs mild
-            // non-orthonormality in an exported matrix.
+            // rotations (the wrong axis); it also absorbs the float noise of
+            // an exported matrix.
             let r = project_to_so3(&m)
                 .map_err(|_| "rotation matrix has non-finite entries".to_string())?;
             Ok(UnitQuaternion::from_rotation_matrix(
@@ -1121,5 +1153,41 @@ mod tests {
         let src2 = matrix_field_source(&path2, RobotPoseFormat::Json);
         let err2 = load_robot_poses(&src2, &conv, path2.parent().unwrap()).unwrap_err();
         assert!(matches!(err2, RunError::PoseParse { .. }));
+    }
+
+    #[test]
+    fn a_rotation_that_is_not_one_is_refused() {
+        // A zero, a scaled and a non-finite quaternion.
+        for q in [
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 2.0],
+            [f64::NAN, 0.0, 0.0, 1.0],
+        ] {
+            assert!(
+                rotation_from_values(RotationFormat::QuatXyzw, &q).is_err(),
+                "{q:?}"
+            );
+        }
+        // Float noise passes.
+        let q = [0.0, 0.0, 0.0, 1.000_000_4];
+        assert!(rotation_from_values(RotationFormat::QuatXyzw, &q).is_ok());
+        // A reflection, and a scaled matrix.
+        let reflection = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        let scaled = [
+            2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        for m in [reflection, scaled] {
+            assert!(rotation_from_values(RotationFormat::Matrix4x4RowMajor, &m).is_err());
+        }
+        // An infinite translation in a matrix.
+        let mut far = [0.0; 16];
+        far[0] = 1.0;
+        far[5] = 1.0;
+        far[10] = 1.0;
+        far[15] = 1.0;
+        far[3] = f64::INFINITY;
+        assert!(rotation_from_values(RotationFormat::Matrix4x4RowMajor, &far).is_err());
     }
 }

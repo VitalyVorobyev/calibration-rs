@@ -228,6 +228,21 @@ pub enum RunError {
         size: [u32; 2],
     },
 
+    /// A camera's region of interest (`roi_xywh`) does not fit inside its
+    /// images.
+    #[error(
+        "{path} is {size:?} pixels, but its region of interest [x, y, width, height] \
+         = {roi:?} runs past it"
+    )]
+    RoiOutOfBounds {
+        /// The image.
+        path: PathBuf,
+        /// Its `[width, height]` in pixels.
+        size: [u32; 2],
+        /// The region, `[x, y, width, height]`.
+        roi: [u32; 4],
+    },
+
     /// Detection failure for a specific image.
     #[error("detector {detector} failed on {path}: {source}")]
     Detection {
@@ -657,16 +672,14 @@ fn parse_puzzleboard_layout(layout: &str) -> Result<(u32, u32), String> {
 /// [`RunError::Validation`] for an invalid manifest,
 /// [`RunError::EmptyImageMatch`] or [`RunError::BadGlob`] when a camera's
 /// images cannot be listed, [`RunError::Decode`] when an image header cannot
-/// be read, and [`RunError::ImageSizeMismatch`] when one camera's images
-/// differ in size.
+/// be read, [`RunError::ImageSizeMismatch`] when one camera's images
+/// differ in size, and [`RunError::RoiOutOfBounds`] when a camera's region
+/// does not fit inside its images.
 pub fn camera_image_sizes(spec: &DatasetSpec, base_dir: &Path) -> Result<Vec<[u32; 2]>, RunError> {
     vision_calibration_dataset::validate(spec)?;
     spec.cameras
         .iter()
         .map(|camera| {
-            if let Some([_, _, width, height]) = camera.roi_xywh {
-                return Ok([width, height]);
-            }
             let images = expand_camera_images(camera, base_dir)?;
             let mut first: Option<(&PathBuf, [u32; 2])> = None;
             for path in &images {
@@ -690,13 +703,18 @@ pub fn camera_image_sizes(spec: &DatasetSpec, base_dir: &Path) -> Result<Vec<[u3
                     Some(_) => {}
                 }
             }
-            first
-                .map(|(_, size)| size)
-                .ok_or_else(|| RunError::EmptyImageMatch {
-                    camera_id: camera.id.clone(),
-                    pattern: pattern_repr(&camera.images),
-                    base: base_dir.to_path_buf(),
-                })
+            let (path, size) = first.ok_or_else(|| RunError::EmptyImageMatch {
+                camera_id: camera.id.clone(),
+                pattern: pattern_repr(&camera.images),
+                base: base_dir.to_path_buf(),
+            })?;
+            match camera.roi_xywh {
+                Some(roi) => {
+                    check_roi(roi, size, path)?;
+                    Ok([roi[2], roi[3]])
+                }
+                None => Ok(size),
+            }
         })
         .collect()
 }
@@ -946,10 +964,33 @@ pub(crate) fn decode_gray(
         source: e,
     })?;
     let img = match roi {
-        Some([x, y, w, h]) => img.crop_imm(x, y, w, h),
+        Some(roi) => {
+            check_roi(roi, [img.width(), img.height()], image_path)?;
+            let [x, y, w, h] = roi;
+            img.crop_imm(x, y, w, h)
+        }
         None => img,
     };
     Ok(img.to_luma8())
+}
+
+/// The region `roi` (`[x, y, width, height]`) lies inside an image of
+/// `size` (`[width, height]`): cropping would otherwise clip it silently,
+/// and the detections would be reported in a smaller frame than the
+/// manifest states.
+fn check_roi(roi: [u32; 4], size: [u32; 2], path: &Path) -> Result<(), RunError> {
+    let [x, y, w, h] = roi;
+    let fits = x.checked_add(w).is_some_and(|right| right <= size[0])
+        && y.checked_add(h).is_some_and(|bottom| bottom <= size[1]);
+    if fits {
+        Ok(())
+    } else {
+        Err(RunError::RoiOutOfBounds {
+            path: path.to_path_buf(),
+            size,
+            roi,
+        })
+    }
 }
 
 fn features_to_view(features: &[Feature]) -> Result<View<NoMeta>, RunError> {
@@ -1349,12 +1390,35 @@ mod tests {
             vec![[64, 48]]
         );
 
-        // A region is the camera's image, whatever the files' size.
+        // A region inside the images is the camera's image.
         let spec = sized_spec(paths, Some([8, 4, 32, 24]));
         assert_eq!(
             camera_image_sizes(&spec, tmp.path()).unwrap(),
             vec![[32, 24]]
         );
+    }
+
+    #[test]
+    fn a_region_that_runs_past_the_images_is_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = vec![write_blank(tmp.path(), "a.png", 64, 48)];
+        let spec = sized_spec(paths.clone(), Some([40, 0, 32, 24]));
+        let err = camera_image_sizes(&spec, tmp.path()).unwrap_err();
+        assert!(
+            matches!(err, RunError::RoiOutOfBounds { size: [64, 48], .. }),
+            "{err:?}"
+        );
+        // Decoding a frame refuses it too, rather than cropping it short.
+        let bytes = std::fs::read(&paths[0]).unwrap();
+        let err = decode_gray(&bytes, &paths[0], Some([40, 0, 32, 24])).unwrap_err();
+        assert!(matches!(err, RunError::RoiOutOfBounds { .. }), "{err:?}");
+        // And a camera whose region names no image is still an error.
+        let mut spec = sized_spec(vec![], Some([0, 0, 8, 8]));
+        spec.cameras[0].images = ImagePattern::Glob {
+            pattern: "missing/*.png".into(),
+        };
+        let err = camera_image_sizes(&spec, tmp.path()).unwrap_err();
+        assert!(matches!(err, RunError::EmptyImageMatch { .. }), "{err:?}");
     }
 
     #[test]
