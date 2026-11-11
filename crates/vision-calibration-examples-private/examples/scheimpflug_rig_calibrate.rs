@@ -231,7 +231,7 @@ fn main() -> Result<()> {
             println!("    cam {i} rig reproj = {e:.3} px");
         }
         let step_t = Instant::now();
-        let handeye_mode = rig_session.config.handeye_init.handeye_mode;
+        let handeye_mode = rig_session.config().handeye_init.handeye_mode;
         match spec
             .as_ref()
             .map(|s| device_seed::handeye_seed(s, handeye_mode))

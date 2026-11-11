@@ -77,6 +77,7 @@ pub struct LogEntry {
 
 impl LogEntry {
     /// Create a success log entry.
+    #[cfg(test)]
     pub(crate) fn success(operation: impl Into<String>) -> Self {
         Self {
             timestamp: current_timestamp(),

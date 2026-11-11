@@ -4,12 +4,12 @@
 
 ## Structure
 
-A session has two public fields and otherwise exposes its data through methods:
+A session exposes its data through methods:
 
 | Member | Access | Purpose |
 |--------|--------|---------|
-| `config` | `pub` field | Algorithm parameters (iterations, fix masks, loss functions) |
-| `exports` | `pub` field | Timestamped `ExportRecord`s created by `export()` |
+| config | `config()`, `set_config()`, `update_config()` | Algorithm parameters (iterations, fix masks, loss functions) |
+| exports | `exports()` | Timestamped `ExportRecord`s created by `export()` |
 | input | `input()`, `require_input()`, `set_input()`, `clear_input()` | Observation data |
 | output | `output()`, `require_output()` | Final calibration result, set by the last step |
 | `metadata()` | method | `SessionMetadata`: problem type name, schema version, timestamps, description |
@@ -22,14 +22,14 @@ The public methods of `CalibrationSession<P>`:
 | Group | Methods |
 |-------|---------|
 | Construction | `new()`, `with_description(..)`, `with_input(..)` |
-| Input | `set_input`, `input`, `input_mut`, `require_input`, `require_input_mut`, `has_input`, `clear_input` |
-| Config | `set_config`, `update_config` |
-| Output | `output`, `output_mut`, `require_output`, `set_output`, `has_output`, `clear_output` |
-| Export | `export`, `export_with_notes`, `export_peek` |
+| Input | `set_input`, `input`, `require_input`, `has_input`, `clear_input` |
+| Config | `config`, `set_config`, `update_config` |
+| Output | `output`, `require_output`, `has_output`, `clear_output` |
+| Export | `export`, `export_with_notes`, `export_peek`, `exports` |
 | Validation | `validate` |
-| Log | `log`, `log_success`, `log_success_with_notes`, `log_failure` |
+| Log | `log` |
 | Metadata | `metadata` |
-| Reset | `reset_state`, `reset_output`, `reset` |
+| Reset | `reset` |
 | Serialization | `to_json`, `from_json` |
 
 ## Lifecycle
@@ -112,7 +112,9 @@ When input or configuration changes, computed state may need to be cleared:
 | `update_config()` | Keep everything (`KEEP_ALL`) |
 | `clear_input()` | Same as `set_input()` (`CLEAR_COMPUTED`), then the input is removed |
 
-Each problem type may override these policies.
+Each problem type may override these policies. A kept output still means
+what it meant when it was solved: a hand-eye result records the mode it was
+solved in, and its export reads that mode, not the current config's.
 
 ## Audit Log
 

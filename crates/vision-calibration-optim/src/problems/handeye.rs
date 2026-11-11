@@ -185,6 +185,9 @@ impl Default for HandeyeSolveOptions {
 /// Result of hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandeyeEstimate {
+    /// The mode the hand-eye was solved in: it says which pose
+    /// [`HandeyeParams::handeye`] and the target pose are.
+    pub mode: HandeyeMode,
     /// Refined hand-eye parameters.
     pub params: HandeyeParams,
     /// Covariance of the estimated parameters at the solution.
@@ -340,6 +343,7 @@ pub fn optimize_handeye(
     .labels(&ir, &solution);
 
     Ok(HandeyeEstimate {
+        mode: dataset.mode,
         params,
         uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
         report: solution.solve_report,

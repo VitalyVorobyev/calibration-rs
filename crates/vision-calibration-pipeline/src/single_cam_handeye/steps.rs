@@ -821,12 +821,14 @@ mod tests {
     }
 
     #[test]
-    fn set_config_keeps_output() {
+    fn set_config_keeps_output_in_the_mode_it_was_solved_in() {
         let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         run_calibration(&mut session).unwrap();
 
         assert!(session.has_output());
+        let solved = session.export_peek().unwrap().handeye;
+        assert_eq!(solved.mode(), HandeyeMode::EyeInHand);
 
         // Change config
         session
@@ -843,8 +845,10 @@ mod tests {
             })
             .unwrap();
 
-        // Output should still be there
+        // The output stays, and still reads as the eye-in-hand solution it
+        // is: the export does not reinterpret it in the new config's mode.
         assert!(session.has_output());
+        assert_eq!(session.export_peek().unwrap().handeye, solved);
     }
 
     #[test]

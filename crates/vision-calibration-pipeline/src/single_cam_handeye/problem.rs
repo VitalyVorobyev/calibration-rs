@@ -334,7 +334,7 @@ impl ProblemType for SingleCamHandeyeProblem {
     }
 
     fn schema_version() -> u32 {
-        2
+        3
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
@@ -390,7 +390,7 @@ impl ProblemType for SingleCamHandeyeProblem {
     fn export(
         input: &Self::Input,
         output: &Self::Output,
-        config: &Self::Config,
+        _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
         // Extract the single camera (index 0 for single-cam setup).
         let camera = output
@@ -411,11 +411,8 @@ impl ProblemType for SingleCamHandeyeProblem {
             .cloned()
             .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
-        let solution = SingleCamHandeyeSolution::new(
-            config.handeye_init.handeye_mode,
-            output.params.handeye,
-            target_pose,
-        );
+        let solution =
+            SingleCamHandeyeSolution::new(output.mode, output.params.handeye, target_pose);
 
         // Per-feature residuals: derive cam_se3_target per view from the
         // handeye chain (camera == observer for single-cam) and project.
@@ -425,7 +422,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             .map(|v| v.meta.base_se3_gripper)
             .collect();
         let cam_se3_target = handeye_observer_se3_target(
-            config.handeye_init.handeye_mode,
+            output.mode,
             &output.params.handeye,
             &target_pose,
             &robot_poses,
@@ -626,6 +623,6 @@ mod tests {
     #[test]
     fn problem_name_and_version() {
         assert_eq!(SingleCamHandeyeProblem::name(), "single_cam_handeye_v2");
-        assert_eq!(SingleCamHandeyeProblem::schema_version(), 2);
+        assert_eq!(SingleCamHandeyeProblem::schema_version(), 3);
     }
 }

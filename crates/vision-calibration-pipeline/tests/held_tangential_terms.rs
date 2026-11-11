@@ -147,7 +147,7 @@ fn planar_intrinsics() {
     session
         .set_input(PlanarDataset::new(views).unwrap())
         .unwrap();
-    let mut config = session.config.clone();
+    let mut config = session.config().clone();
     config.camera = held();
     session.set_config(config).unwrap();
     let init = step_init(&mut session, None).unwrap();
@@ -173,7 +173,7 @@ fn single_cam_handeye() {
     session
         .set_input(SingleCamHandeyeInput::new(views).unwrap())
         .unwrap();
-    let mut config = session.config.clone();
+    let mut config = session.config().clone();
     config.camera = held();
     config.robot_poses.refine = false;
     session.set_config(config).unwrap();
@@ -189,7 +189,7 @@ fn single_cam_handeye() {
 fn rig_extrinsics() {
     let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
     session.set_input(rig_views(|_| NoMeta)).unwrap();
-    let mut config = session.config.clone();
+    let mut config = session.config().clone();
     config.camera = held();
     session.set_config(config).unwrap();
     let init =
@@ -212,7 +212,7 @@ fn rig_handeye() {
             base_se3_gripper: base_se3_gripper(p),
         }))
         .unwrap();
-    let mut config = session.config.clone();
+    let mut config = session.config().clone();
     config.camera = held();
     config.handeye_optimize.robot_poses.refine = false;
     session.set_config(config).unwrap();
