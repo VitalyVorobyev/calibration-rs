@@ -29,7 +29,10 @@ pub(super) fn rig_export(fx1: f64, cam1: &Iso3, delta_rx: f64) -> Value {
             "gripper_se3_rig": Iso3::identity(),
             "base_se3_target": Iso3::identity(),
         },
-        "robot_deltas": [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [delta_rx, 0.0, 0.0, 0.0, 0.0, 0.0]],
+        "robot_refinement": {
+            "deltas": [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [delta_rx, 0.0, 0.0, 0.0, 0.0, 0.0]],
+            "sigma": {"rot_sigma": 1e-3, "trans_sigma": 1e-3},
+        },
         "mean_reproj_error": 0.1,
         "per_cam_reproj_errors": [0.1, 0.1],
         "diagnostics": {"per_feature_residuals": {}},

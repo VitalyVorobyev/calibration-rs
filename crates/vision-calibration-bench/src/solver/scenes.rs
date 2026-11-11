@@ -1336,11 +1336,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
         },
         outliers: Vec::new(),
         data: SceneData::RigLaserline {
-            input: RigLaserlineDeviceInput {
-                dataset,
-                upstream,
-                initial_planes_cam: None,
-            },
+            input: RigLaserlineDeviceInput { dataset, upstream },
             config,
         },
     })

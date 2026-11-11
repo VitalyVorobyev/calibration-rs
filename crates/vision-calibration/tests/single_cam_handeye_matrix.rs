@@ -12,6 +12,7 @@
 #![allow(missing_docs)]
 
 use vision_calibration::common::RobotPoseMeta;
+use vision_calibration::common::config::RobotPoseConfig;
 use vision_calibration::core::{
     BrownConrady5, FxFyCxCy, Iso3, PinholeCamera, Pt3, Uncertainty, make_pinhole_camera,
 };
@@ -169,7 +170,9 @@ fn solve_on(
     let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
     let mut config = SingleCamHandeyeConfig::default();
     config.handeye_init.handeye_mode = mode;
-    config.robot_poses.refine = refine_robot_poses;
+    if !refine_robot_poses {
+        config.robot_poses = RobotPoseConfig::Exact;
+    }
     config.solver.backend = backend;
     session.set_config(config).expect("config");
     session.set_input(input).expect("input");

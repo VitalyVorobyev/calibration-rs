@@ -16,7 +16,9 @@
 mod stages;
 mod tilted;
 
-pub use stages::{IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit};
+pub use stages::{
+    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit, RigPoses,
+};
 pub(crate) use stages::{
     RigStages, RigStagesState, init_intrinsics, init_rig, optimize_intrinsics, optimize_rig,
     rig_ba_notes,
@@ -473,6 +475,8 @@ pub(crate) fn handeye_solve_opts(
     fix_extrinsics: Vec<bool>,
     robot_poses: &RobotPoseConfig,
 ) -> HandeyeSolveOptions {
+    let (refine_robot_poses, robot_rot_sigma, robot_trans_sigma, estimate_robot_sigma) =
+        robot_poses.solver_terms();
     HandeyeSolveOptions {
         robust_loss,
         fix,
@@ -480,10 +484,10 @@ pub(crate) fn handeye_solve_opts(
         fix_handeye: false,
         fix_target_poses: Vec::new(),
         relax_target_poses: false,
-        refine_robot_poses: robot_poses.refine,
-        robot_rot_sigma: robot_poses.rot_sigma,
-        robot_trans_sigma: robot_poses.trans_sigma,
-        estimate_robot_sigma: robot_poses.estimate_sigma,
+        refine_robot_poses,
+        robot_rot_sigma,
+        robot_trans_sigma,
+        estimate_robot_sigma,
     }
 }
 

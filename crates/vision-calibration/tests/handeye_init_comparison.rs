@@ -22,6 +22,7 @@
 
 #![allow(missing_docs)]
 
+use vision_calibration::common::config::RobotPoseConfig;
 use vision_calibration::common::{HandeyeInitOptions, HandeyeOptimizeOptions, RobotPoseMeta};
 use vision_calibration::core::{
     BrownConrady5, CameraFix, DistortionParams, FxFyCxCy, Iso3, PinholeCamera, Pt3, Real,
@@ -207,7 +208,9 @@ fn camera_stage(
     let mut config = SingleCamHandeyeConfig::default();
     config.camera.fix = CameraFix::all(config.camera.model);
     config.solver.backend = backend;
-    config.robot_poses.refine = regime.refine_robot_poses;
+    if !regime.refine_robot_poses {
+        config.robot_poses = RobotPoseConfig::Exact;
+    }
     let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
     session.set_config(config).expect("config");
     session.set_input(scene.input.clone()).expect("input");

@@ -43,13 +43,12 @@ pub struct PlaneOptimizeOptions {
 /// part of `input.upstream` and is *not* a manual-init concern
 /// — it's an input contract. Only the laser planes are seedable here.
 ///
-/// When `planes_cam` is `Some`, it overrides any `input.initial_planes_cam` and
-/// the linear plane fit is skipped entirely. Length must equal
+/// When `planes_cam` is `Some`, the linear plane fit is skipped entirely. Length must equal
 /// `input.dataset.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PlaneManualInit {
-    /// Per-camera laser planes (camera frame). Overrides input-supplied seeds.
+    /// Per-camera laser planes (camera frame). `None` runs the linear fit.
     pub planes_cam: Option<Vec<LaserPlane>>,
 }
 
@@ -59,10 +58,8 @@ pub struct PlaneManualInit {
 /// This is the load-bearing init function. [`step_init`] is a thin delegate with
 /// `PlaneManualInit::default()`.
 ///
-/// Resolution order for the laser planes:
-/// 1. `manual.planes_cam` if `Some` (highest priority).
-/// 2. `input.initial_planes_cam` if `Some`.
-/// 3. Closed-form linear fit per camera.
+/// The laser planes are `manual.planes_cam` if `Some`, else a closed-form
+/// linear fit per camera.
 ///
 /// # Errors
 ///
@@ -91,30 +88,28 @@ pub fn step_init_with_seed(
         return Err(Error::invalid_input(msg));
     }
 
-    let (planes, source): (Vec<LaserPlane>, &'static str) =
-        match (manual.planes_cam, &input.initial_planes_cam) {
-            (Some(p), _) => (p, "(manual: planes_cam)"),
-            (None, Some(p)) => (p.clone(), "(input: initial_planes_cam)"),
-            (None, None) => {
-                let fitted: Result<Vec<LaserPlane>, Error> = (0..input.dataset.num_cameras)
-                    .map(|cam_idx| linear_plane_init(input, cam_idx))
-                    .collect();
-                match fitted {
-                    Ok(planes) => (planes, "(auto: linear fit)"),
-                    Err(err) => {
-                        session.log_failure("init", err.to_string());
-                        return Err(err);
-                    }
+    let (planes, source): (Vec<LaserPlane>, &'static str) = match manual.planes_cam {
+        Some(p) => (p, "(manual: planes_cam)"),
+        None => {
+            let fitted: Result<Vec<LaserPlane>, Error> = (0..input.dataset.num_cameras)
+                .map(|cam_idx| linear_plane_init(input, cam_idx))
+                .collect();
+            match fitted {
+                Ok(planes) => (planes, "(auto: linear fit)"),
+                Err(err) => {
+                    session.log_failure("init", err.to_string());
+                    return Err(err);
                 }
             }
-        };
+        }
+    };
 
     session.state.initial_planes_cam = Some(planes);
     session.log_success_with_notes("init", format!("initial planes set {source}"));
     Ok(())
 }
 
-/// Initialize per-camera laser planes using the input-or-auto path.
+/// Initialize per-camera laser planes by the linear fit.
 ///
 /// Convenience wrapper around [`step_init_with_seed`] with default seeds.
 pub fn step_init(

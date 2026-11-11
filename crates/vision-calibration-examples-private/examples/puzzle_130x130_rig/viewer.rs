@@ -84,7 +84,11 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         detected: input.detected,
         params: input.joint_initial,
         mode: input.rig_export.handeye.mode(),
-        robot_deltas: input.rig_export.robot_deltas.as_deref(),
+        robot_deltas: input
+            .rig_export
+            .robot_refinement
+            .as_ref()
+            .map(|r| r.deltas.as_slice()),
         per_cam_stats: input.joint_initial_stats,
     })?;
     let stage3 = build_stage(StageBuildInput {
@@ -95,7 +99,11 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         detected: input.detected,
         params: input.joint_initial,
         mode: input.rig_export.handeye.mode(),
-        robot_deltas: input.rig_export.robot_deltas.as_deref(),
+        robot_deltas: input
+            .rig_export
+            .robot_refinement
+            .as_ref()
+            .map(|r| r.deltas.as_slice()),
         per_cam_stats: input.joint_initial_stats,
     })?;
     let stage4 = build_stage(StageBuildInput {
@@ -106,7 +114,11 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         detected: input.detected,
         params: &input.joint_est.params,
         mode: input.rig_export.handeye.mode(),
-        robot_deltas: input.joint_est.robot_deltas.as_deref(),
+        robot_deltas: input
+            .joint_est
+            .robot_refinement
+            .as_ref()
+            .map(|r| r.deltas.as_slice()),
         per_cam_stats: &input.joint_est.per_cam_stats,
     })?;
 

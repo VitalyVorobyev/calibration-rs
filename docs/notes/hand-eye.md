@@ -193,7 +193,7 @@ E = Σ_i Σ_j ρ( ‖ π( camera, T_C_T_i(X, Y, T_B_G_i) · X_j ) − u_ij ‖²
 over per-camera intrinsics + distortion (`k3` fixed by default), the
 hand-eye `X` and the fixed target `Y` (both SE(3)), and `cam_se3_rig`
 (fixed for a single camera via `fix_extrinsics`). With robot-pose
-refinement (`RobotPoseConfig::refine`, default **on**) each robot pose gets
+refinement (`RobotPoseConfig::Refine`, default **on**) each robot pose gets
 a per-view se(3) correction `T_B_G_i ↦ exp(δ_i) · T_B_G_i` (left-multiply)
 with a zero-mean anisotropic prior (rotation σ = 0.5°, translation
 σ = 1 mm) and `δ_0 ≡ 0`. Factors are autodiff-generic (ADR 0008); `ρ`

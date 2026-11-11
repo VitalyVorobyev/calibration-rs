@@ -466,11 +466,7 @@ pub fn build_rig_laserline_device_input(
     );
 
     Ok(RigLaserlineRunResult {
-        input: RigLaserlineDeviceInput {
-            dataset,
-            upstream,
-            initial_planes_cam: None,
-        },
+        input: RigLaserlineDeviceInput { dataset, upstream },
         view_paths: core.view_paths,
         laser_paths,
         usable_views,
@@ -843,7 +839,7 @@ fn robot_delta_for_view(
     total_views: usize,
     path: &Path,
 ) -> Result<Option<[f64; 6]>, RunError> {
-    let Some(deltas) = export.robot_deltas.as_ref() else {
+    let Some(deltas) = export.robot_refinement.as_ref().map(|r| &r.deltas) else {
         return Ok(None);
     };
     if deltas.len() == total_views {
@@ -852,7 +848,7 @@ fn robot_delta_for_view(
             .map_err(|_| RunError::UpstreamCalibration {
                 path: path.to_path_buf(),
                 message: format!(
-                    "upstream robot_deltas has {total_views} entries but view token {token:?} \
+                    "upstream robot_refinement.deltas has {total_views} entries but view token {token:?} \
                  is not an index"
                 ),
             })?;
@@ -864,7 +860,7 @@ fn robot_delta_for_view(
                 path: path.to_path_buf(),
                 message: format!(
                     "view token {token:?} resolved to index {idx}, outside upstream \
-                     robot_deltas length {}",
+                     robot_refinement.deltas length {}",
                     deltas.len()
                 ),
             });
@@ -875,7 +871,7 @@ fn robot_delta_for_view(
     Err(RunError::UpstreamCalibration {
         path: path.to_path_buf(),
         message: format!(
-            "upstream robot_deltas has {} entries, but this run has {kept_views} kept views \
+            "upstream robot_refinement.deltas has {} entries, but this run has {kept_views} kept views \
              and {total_views} total paired views",
             deltas.len()
         ),
@@ -1309,8 +1305,7 @@ mod tests {
                 gripper_se3_rig: Iso3::identity(),
                 base_se3_target: Iso3::translation(0.0, 0.0, 1.0),
             },
-            robot_deltas: None,
-            robot_pose_sigma: None,
+            robot_refinement: None,
             mean_reproj_error: 0.5,
             per_cam_reproj_errors: vec![0.5; num_cameras],
             diagnostics: Default::default(),
@@ -1440,7 +1435,6 @@ mod tests {
             (t - nalgebra::Vector3::new(-0.2, 0.0, 1.0)).norm() < 1e-12,
             "got {t:?}"
         );
-        assert!(input.initial_planes_cam.is_none());
     }
 
     #[test]
@@ -1587,7 +1581,13 @@ mod tests {
         seed_rig_views(tmp.path(), &cache, 3);
         let spec = rig_laserline_spec(tmp.path(), 3);
         let mut upstream = upstream_export(2);
-        upstream.robot_deltas = Some(vec![[0.0; 6], [0.0, 0.0, 0.0, 0.05, 0.0, 0.0], [0.0; 6]]);
+        upstream.robot_refinement = Some(vision_calibration_optim::RobotRefinement {
+            deltas: vec![[0.0; 6], [0.0, 0.0, 0.0, 0.05, 0.0, 0.0], [0.0; 6]],
+            sigma: vision_calibration_optim::RobotPoseSigma {
+                rot_sigma: 1.0e-3,
+                trans_sigma: 1.0e-3,
+            },
+        });
         std::fs::write(
             tmp.path().join("rig_handeye_export.json"),
             serde_json::to_string(&upstream).unwrap(),

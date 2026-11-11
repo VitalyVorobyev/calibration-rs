@@ -88,7 +88,6 @@ pub struct RigLaserlineDeviceInput {
     pub dataset: RigLaserlineDataset,               // target corners + laser pixels per camera/view
     pub upstream: RigUpstreamCalibration,           // cameras (CameraParams), cam_se3_rig,
                                                     // rig_se3_target, uncertainty
-    pub initial_planes_cam: Option<Vec<LaserPlane>>,
 }
 ```
 
@@ -102,7 +101,7 @@ use vision_calibration::rig_laserline_device::{
 // The laser views are the hand-eye run's views: its own board poses.
 let upstream = rig_export.to_upstream_calibration(rig_export.rig_se3_target.clone())?;
 let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
-session.set_input(RigLaserlineDeviceInput { dataset, upstream, initial_planes_cam: None })?;
+session.set_input(RigLaserlineDeviceInput { dataset, upstream })?;
 run_calibration(&mut session)?;
 let export = session.export()?; // laser_planes_rig, laser_planes_cam, per_camera_stats, ...
 ```

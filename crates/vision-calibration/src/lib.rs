@@ -170,7 +170,9 @@ pub mod control {
 ///   view's robot pose) and [`RigLaserlineView`](common::RigLaserlineView)
 ///   (a rig view with laser pixels).
 /// - The hand-eye estimate ([`HandeyeEstimate`](common::HandeyeEstimate),
-///   [`HandeyeParams`](common::HandeyeParams)).
+///   [`HandeyeParams`](common::HandeyeParams)) and the robot-pose
+///   correction a refining solve reports
+///   ([`RobotRefinement`](common::RobotRefinement)).
 /// - [`CalibratedCameras`](common::CalibratedCameras), every export's camera
 ///   view.
 ///
@@ -183,7 +185,7 @@ pub mod common {
         CalibratedCameras, ExportDiagnostics, ExportKind, HandeyeEstimate, HandeyeInitOptions,
         HandeyeOptimizeOptions, HandeyeParams, HandeyeSolution, IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions, RigInitOptions, RigLaserlineView, RigOptimizeOptions,
-        RobotPoseMeta, calibrated_cameras,
+        RobotPoseMeta, RobotPoseSigma, RobotRefinement, calibrated_cameras,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -192,7 +194,7 @@ pub mod common {
     pub mod config {
         pub use vision_calibration_pipeline::common::config::{
             CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig,
-            RobotPoseConfig, SolverConfig,
+            RobotPoseConfig, RobotPosePrior, SolverConfig,
         };
     }
 }
@@ -355,7 +357,7 @@ pub mod rig_extrinsics {
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_extrinsics::{
         IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeResult, RigInitResult,
-        RigManualInit, RigOptimizeResult,
+        RigManualInit, RigOptimizeResult, RigPoses,
     };
 
     // Parameters of the estimate
@@ -395,7 +397,7 @@ pub mod rig_handeye {
     pub use vision_calibration_pipeline::rig_handeye::{
         HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
         IntrinsicsManualInit, IntrinsicsOptimizeResult, RigInitResult, RigManualInit,
-        RigOptimizeResult,
+        RigOptimizeResult, RigPoses,
     };
 
     // Step functions

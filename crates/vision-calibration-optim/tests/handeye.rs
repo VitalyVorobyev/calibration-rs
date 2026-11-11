@@ -542,8 +542,8 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     let mut deltas = Vec::with_capacity(num_views);
     let mut max_rot: f64 = 0.0;
     let mut max_trans: f64 = 0.0;
-    if let Some(robot_deltas) = &result_refine.robot_deltas {
-        for delta in robot_deltas {
+    if let Some(robot) = &result_refine.robot_refinement {
+        for delta in &robot.deltas {
             let xi = *delta;
             max_rot = max_rot.max(Vector3::new(xi[0], xi[1], xi[2]).norm());
             max_trans = max_trans.max(Vector3::new(xi[3], xi[4], xi[5]).norm());

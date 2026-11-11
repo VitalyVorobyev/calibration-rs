@@ -8,7 +8,7 @@
 
 use nalgebra::{Rotation3, Vector3};
 use vision_calibration::Error;
-use vision_calibration::common::{ExportKind, HandeyeSolution};
+use vision_calibration::common::{ExportKind, HandeyeSolution, RobotPoseSigma, RobotRefinement};
 use vision_calibration::core::{Iso3, LaserPlane};
 use vision_calibration::core::{RigDataset, RigView, RigViewObs};
 use vision_calibration::optim::RobustLoss;
@@ -210,8 +210,16 @@ fn a_seed_that_does_not_fit_is_invalid_input_before_any_solve() {
             }),
         ),
         (
-            "robot_deltas",
-            with_export(&|e| e.robot_deltas = Some(vec![[0.0; 6]])),
+            "robot_refinement.deltas",
+            with_export(&|e| {
+                e.robot_refinement = Some(RobotRefinement {
+                    deltas: vec![[0.0; 6]],
+                    sigma: RobotPoseSigma {
+                        rot_sigma: 1.0e-3,
+                        trans_sigma: 1.0e-3,
+                    },
+                })
+            }),
         ),
         (
             "handeye.mode",

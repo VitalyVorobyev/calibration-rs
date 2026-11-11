@@ -19,7 +19,7 @@ use crate::rig_family::{
     rig_ba_notes,
 };
 pub use crate::rig_family::{
-    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit,
+    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit, RigPoses,
 };
 use crate::session::CalibrationSession;
 
@@ -162,7 +162,9 @@ pub struct HandeyeOptimizeResult {
 /// independently (the tilted variant for a Scheimpflug camera). The linear
 /// stage fits only the distortion terms each camera's solves estimate. See
 /// `rig_extrinsics::step_intrinsics_init_all_with_seed` for the seed
-/// semantics.
+/// semantics. `manual` is the seed of this call: it overrides the config's
+/// `manual_init`, which [`step_intrinsics_init_all`] and `run_calibration`
+/// use.
 ///
 /// # Errors
 ///
@@ -178,14 +180,17 @@ pub fn step_intrinsics_init_all_with_seed(
     rig_family::init_intrinsics(session, manual, opts)
 }
 
-/// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
+/// Initialize intrinsics for all cameras, seeded by the config's
+/// `manual_init` where it has one (Zhang's per camera for everything else).
 ///
-/// Convenience wrapper around [`step_intrinsics_init_all_with_seed`] with default seeds.
+/// Convenience wrapper around [`step_intrinsics_init_all_with_seed`] with the
+/// config's seed (the default, a full auto-init, when it has none).
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<IntrinsicsInitResult, Error> {
-    step_intrinsics_init_all_with_seed(session, IntrinsicsManualInit::default(), opts)
+    let manual = session.config.manual_init.clone().unwrap_or_default();
+    step_intrinsics_init_all_with_seed(session, manual, opts)
 }
 
 /// Optimize intrinsics for all cameras.
@@ -527,9 +532,8 @@ pub fn step_handeye_optimize(
 ///
 /// Any error from the constituent steps.
 pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<(), Error> {
-    let manual = session.config.manual_init.clone().unwrap_or_default();
     session.begin_step("intrinsics_init_all")?;
-    let _ = step_intrinsics_init_all_with_seed(session, manual, None)?;
+    let _ = step_intrinsics_init_all(session, None)?;
     session.begin_step("intrinsics_optimize_all")?;
     let _ = step_intrinsics_optimize_all(session, None)?;
     session.begin_step("rig_init")?;
@@ -812,6 +816,57 @@ mod tests {
             notes.contains("manual: per_cam_intrinsics, per_cam_distortion"),
             "unexpected intrinsics-init notes: {notes}"
         );
+    }
+
+    #[test]
+    fn step_intrinsics_init_all_uses_the_configured_seed_and_an_explicit_seed_overrides_it() {
+        let seed = |fx: f64| IntrinsicsManualInit {
+            per_cam_intrinsics: Some(vec![
+                FxFyCxCy {
+                    fx,
+                    fy: fx,
+                    cx: 640.0,
+                    cy: 360.0,
+                };
+                2
+            ]),
+            per_cam_distortion: Some(vec![
+                DistortionParams::BrownConrady5 {
+                    params: BrownConrady5::default(),
+                };
+                2
+            ]),
+            per_cam_sensors: None,
+        };
+        let session_with = |manual_init| {
+            let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+            session.set_input(make_test_input()).unwrap();
+            session
+                .set_config(super::super::problem::RigHandeyeConfig {
+                    manual_init,
+                    ..Default::default()
+                })
+                .unwrap();
+            session
+        };
+
+        // The configured seed reaches the step.
+        let mut session = session_with(Some(seed(805.0)));
+        step_intrinsics_init_all(&mut session, None).unwrap();
+        let notes = session.log()[0].notes.clone().expect("seed provenance");
+        assert!(
+            notes.contains("manual: per_cam_intrinsics, per_cam_distortion"),
+            "{notes}"
+        );
+
+        // An explicit seed overrides the config's.
+        let mut session = session_with(Some(seed(805.0)));
+        let init =
+            step_intrinsics_init_all_with_seed(&mut session, IntrinsicsManualInit::default(), None)
+                .unwrap();
+        let notes = session.log()[0].notes.clone().expect("provenance");
+        assert!(!notes.contains("manual: per_cam_intrinsics"), "{notes}");
+        assert_eq!(init.cameras.len(), 2);
     }
 
     #[test]

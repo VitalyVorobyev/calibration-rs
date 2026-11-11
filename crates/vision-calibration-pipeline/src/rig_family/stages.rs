@@ -69,16 +69,34 @@ pub struct IntrinsicsManualInit {
 
 /// Manual seeds for the **rig extrinsics stage**.
 ///
-/// `cam_se3_rig` and `rig_se3_target` are geometrically coupled — providing
-/// one without the other is ambiguous. Both must be `Some` or both must be
-/// `None`; a mismatched configuration returns `Error::InvalidInput`.
+/// The camera-from-rig and rig-from-target poses are geometrically coupled,
+/// so they are seeded together as [`RigPoses`] or not at all.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigManualInit {
-    /// Per-camera `T_C_R` (camera-from-rig). `None` runs the linear extrinsics fit.
-    pub cam_se3_rig: Option<Vec<Iso3>>,
-    /// Per-view `T_R_T` (rig-from-target). Must be paired with `cam_se3_rig`.
-    pub rig_se3_target: Option<Vec<Iso3>>,
+    /// The seeded poses. `None` runs the linear extrinsics fit.
+    pub poses: Option<RigPoses>,
+}
+
+/// Seeded rig poses: one `T_C_R` per camera and one `T_R_T` per view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct RigPoses {
+    /// Per-camera `T_C_R` (camera-from-rig); one per camera.
+    pub cam_se3_rig: Vec<Iso3>,
+    /// Per-view `T_R_T` (rig-from-target); one per view.
+    pub rig_se3_target: Vec<Iso3>,
+}
+
+impl RigPoses {
+    /// Seed the rig with `cam_se3_rig` (one pose per camera) and
+    /// `rig_se3_target` (one pose per view).
+    pub fn new(cam_se3_rig: Vec<Iso3>, rig_se3_target: Vec<Iso3>) -> Self {
+        Self {
+            cam_se3_rig,
+            rig_se3_target,
+        }
+    }
 }
 
 /// Typed return value of the per-camera intrinsics initialization of a rig
@@ -394,8 +412,11 @@ pub(crate) fn init_rig<P: RigStages>(
     let reference_camera_idx = P::rig_config(&session.config).reference_camera_idx;
 
     let mut provenance = Provenance::default();
-    let seeded = match (manual.cam_se3_rig, manual.rig_se3_target) {
-        (Some(cam_se3_rig), Some(rig_se3_target)) => {
+    let seeded = match manual.poses {
+        Some(RigPoses {
+            cam_se3_rig,
+            rig_se3_target,
+        }) => {
             if cam_se3_rig.len() != num_cameras {
                 Err(format!(
                     "manual cam_se3_rig length ({}) does not match num_cameras ({num_cameras})",
@@ -410,12 +431,7 @@ pub(crate) fn init_rig<P: RigStages>(
                 Ok(Some((cam_se3_rig, rig_se3_target)))
             }
         }
-        (None, None) => Ok(None),
-        _ => Err(
-            "RigManualInit: cam_se3_rig and rig_se3_target must both be Some or both be \
-                  None (they are geometrically coupled)"
-                .to_string(),
-        ),
+        None => Ok(None),
     };
     let seeded = match seeded {
         Ok(seeded) => seeded,

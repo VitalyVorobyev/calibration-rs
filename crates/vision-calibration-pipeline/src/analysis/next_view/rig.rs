@@ -502,13 +502,13 @@ fn robot_pose(
             ));
         }
     };
-    if export.robot_deltas.is_none() {
-        return Ok(RobotPose::Exact);
-    }
-    let sigma = export.robot_pose_sigma.ok_or_else(|| {
-        Error::invalid_input("the result corrected its robot poses but states no robot pose error")
-    })?;
-    Ok(RobotPose::Corrected { sigma, pixel_sigma })
+    Ok(match &export.robot_refinement {
+        None => RobotPose::Exact,
+        Some(robot) => RobotPose::Corrected {
+            sigma: robot.sigma,
+            pixel_sigma,
+        },
+    })
 }
 
 #[cfg(test)]

@@ -28,7 +28,7 @@ use anyhow::{Result, ensure};
 use vision_calibration::core::{CameraParams, DistortionParams, FxFyCxCy, Iso3};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
-    IntrinsicsManualInit, RigExtrinsicsInput, RigExtrinsicsProblem, RigManualInit,
+    IntrinsicsManualInit, RigExtrinsicsInput, RigExtrinsicsProblem, RigManualInit, RigPoses,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init_with_seed,
     step_rig_optimize,
 };
@@ -90,8 +90,10 @@ fn main() -> Result<()> {
     // step_intrinsics_init_all_with_seed.
     let cameras_b = intr_init_b.cameras.clone();
     let mut rig_manual_b = RigManualInit::default();
-    rig_manual_b.cam_se3_rig = Some(cam_se3_rig_a.clone());
-    rig_manual_b.rig_se3_target = Some(rig_se3_target_a.clone());
+    rig_manual_b.poses = Some(RigPoses::new(
+        cam_se3_rig_a.clone(),
+        rig_se3_target_a.clone(),
+    ));
     let _rig_init_b = step_rig_init_with_seed(&mut session_b, rig_manual_b, None)?;
     let rig_opt_b = step_rig_optimize(&mut session_b, None)?;
     let b_summary = summarize(&session_b, "Run B", &rig_opt_b, &cameras_b)?;

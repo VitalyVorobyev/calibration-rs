@@ -222,7 +222,7 @@ impl Cell {
         }
         add(3, "fx", fx);
         self.sigma_px += cov.noise[0].level.value();
-        if let Some(robot) = est.robot_pose_sigma {
+        if let Some(robot) = est.robot_refinement.as_ref().map(|r| r.sigma) {
             self.robot_sigma[0] += robot.rot_sigma;
             self.robot_sigma[1] += robot.trans_sigma;
         }
@@ -367,7 +367,7 @@ fn estimated_robot_sigma_recovers_the_robot_error() {
     for start in [(0.01 * deg, 1e-4), (1.0 * deg, 1e-2)] {
         let (mut rot, mut trans) = (0.0, 0.0);
         for seed in seeds.clone() {
-            let sigma = solve(seed, start, true).robot_pose_sigma.unwrap();
+            let sigma = solve(seed, start, true).robot_refinement.unwrap().sigma;
             rot += sigma.rot_sigma / 4.0;
             trans += sigma.trans_sigma / 4.0;
         }

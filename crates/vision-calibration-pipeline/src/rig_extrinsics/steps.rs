@@ -13,7 +13,7 @@ use crate::common::{
 };
 use crate::rig_family::{self, rig_ba_notes};
 pub use crate::rig_family::{
-    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit,
+    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit, RigPoses,
 };
 use crate::session::CalibrationSession;
 

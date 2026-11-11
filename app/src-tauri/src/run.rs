@@ -1571,7 +1571,6 @@ mod tests {
         handeye_config["rig"]["refine_sensor"] = json!(false);
         handeye_config["rig"]["refine_intrinsics"] = json!(false);
         handeye_config["handeye_init"]["handeye_mode"] = json!("eye_to_hand");
-        handeye_config["handeye_optimize"]["robot_poses"]["refine"] = json!(true);
         handeye_config["solver"]["max_iters"] = json!(200);
         handeye_config["solver"]["robust_loss"] = json!({"kind": "huber", "scale": 1.0});
         let handeye = match run_blocking_test(
@@ -1684,7 +1683,6 @@ mod tests {
         joint_config["joint_optimize"]["laser_residual_type"] = json!("point_to_plane");
         joint_config["joint_optimize"]["calib_weight"] = json!(1.0);
         joint_config["joint_optimize"]["laser_weight"] = json!(10000.0);
-        joint_config["joint_optimize"]["robot_poses"]["refine"] = json!(true);
         // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
         // `handeye.rig.reference_camera_idx`.
         // Every camera is tilted: the principal point, the higher-order

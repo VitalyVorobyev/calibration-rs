@@ -13,7 +13,7 @@ use vision_calibration_core::{
     View,
 };
 use vision_calibration_optim::RobotPoseMeta;
-use vision_calibration_pipeline::common::config::CameraConfig;
+use vision_calibration_pipeline::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration_pipeline::session::CalibrationSession;
 use vision_calibration_pipeline::{
     planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize},
@@ -175,7 +175,7 @@ fn single_cam_handeye() {
         .unwrap();
     let mut config = session.config().clone();
     config.camera = held();
-    config.robot_poses.refine = false;
+    config.robot_poses = RobotPoseConfig::Exact;
     session.set_config(config).unwrap();
     let init =
         vision_calibration_pipeline::single_cam_handeye::step_intrinsics_init(&mut session, None)
@@ -214,7 +214,7 @@ fn rig_handeye() {
         .unwrap();
     let mut config = session.config().clone();
     config.camera = held();
-    config.handeye_optimize.robot_poses.refine = false;
+    config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
     session.set_config(config).unwrap();
     let init =
         vision_calibration_pipeline::rig_handeye::step_intrinsics_init_all(&mut session, None)

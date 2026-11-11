@@ -7,8 +7,8 @@ use crate::rig_handeye::{
     RigHandeyeExport, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
 };
 use crate::rig_laserline_device::{
-    RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
-    run_calibration as run_rig_laserline_calibration,
+    PlaneManualInit, RigLaserlineDeviceInput, RigLaserlineDeviceProblem, step_init_with_seed,
+    step_optimize as step_laser_optimize,
 };
 use crate::session::CalibrationSession;
 use serde::{Deserialize, Serialize};
@@ -126,21 +126,29 @@ pub fn run_calibration_with_seed(
     laser_session.set_input(RigLaserlineDeviceInput {
         dataset: laserline_dataset.clone(),
         upstream,
-        initial_planes_cam: manual.planes_cam,
     })?;
     laser_session.set_config(config.laserline_init.clone())?;
     laser_session.set_control(session.control().clone());
-    run_rig_laserline_calibration(&mut laser_session)?;
+    let plane_seed = PlaneManualInit {
+        planes_cam: manual.planes_cam,
+    };
+    laser_session.begin_step("init")?;
+    step_init_with_seed(&mut laser_session, plane_seed, None)?;
+    laser_session.begin_step("optimize")?;
+    step_laser_optimize(&mut laser_session, None)?;
     let laser_export = laser_session.export()?;
 
     session.begin_step("joint_optimize")?;
     let joint_dataset = input.joint_dataset(mode)?;
     let joint_initial = joint_initial_from_exports(&rig_export, &laser_export)?;
     let initial_robot_deltas = rig_export
-        .robot_deltas
-        .clone()
+        .robot_refinement
+        .as_ref()
+        .map(|r| r.deltas.clone())
         .filter(|deltas| deltas.len() == input.num_views());
     let n = input.num_cameras;
+    let (refine_robot_poses, robot_rot_sigma, robot_trans_sigma, estimate_robot_sigma) =
+        config.joint_optimize.robot_poses.solver_terms();
     let joint_opts = RigHandeyeLaserlineSolveOptions {
         laser_residual_type: config.joint_optimize.laser_residual_type,
         calib_loss: config.joint_optimize.calib_loss,
@@ -155,10 +163,10 @@ pub fn run_calibration_with_seed(
         fix_handeye: config.joint_optimize.fix_handeye,
         fix_target_ref: config.joint_optimize.fix_target_ref,
         fix_planes: vec![false; n],
-        refine_robot_poses: config.joint_optimize.robot_poses.refine,
-        robot_rot_sigma: config.joint_optimize.robot_poses.rot_sigma,
-        robot_trans_sigma: config.joint_optimize.robot_poses.trans_sigma,
-        estimate_robot_sigma: config.joint_optimize.robot_poses.estimate_sigma,
+        refine_robot_poses,
+        robot_rot_sigma,
+        robot_trans_sigma,
+        estimate_robot_sigma,
         initial_robot_deltas,
     };
     let backend_opts = config
@@ -222,11 +230,11 @@ fn check_manual_init(
                 export.rig_se3_target.len()
             ));
         }
-        if let Some(deltas) = &export.robot_deltas
+        if let Some(deltas) = export.robot_refinement.as_ref().map(|r| &r.deltas)
             && deltas.len() != n_views
         {
             return fail(format!(
-                "{} robot_deltas, expected {n_views} (the input's views)",
+                "{} robot_refinement.deltas, expected {n_views} (the input's views)",
                 deltas.len()
             ));
         }

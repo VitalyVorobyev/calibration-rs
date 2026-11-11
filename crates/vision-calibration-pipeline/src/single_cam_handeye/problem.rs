@@ -11,7 +11,7 @@ use vision_calibration_core::{
     compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
-    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
+    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotRefinement, handeye_observer_se3_target,
 };
 
 use crate::common::config::{
@@ -225,16 +225,11 @@ pub struct SingleCamHandeyeExport {
     /// The hand-eye and the target pose of the calibration's mode.
     pub handeye: SingleCamHandeyeSolution,
 
-    /// Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).
-    /// Only present if robot refinement was enabled.
-    pub robot_deltas: Option<Vec<[f64; 6]>>,
-
-    /// The robot's pose error the corrections were weighed with: the
-    /// configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-    /// with `robot_poses.estimate_sigma`. Only present if robot refinement
-    /// was enabled.
+    /// The per-view robot-pose corrections and the pose error they were
+    /// weighed with: the configured `robot_poses` prior, or its estimate with
+    /// `estimate_sigma`. Only present if robot refinement was enabled.
     #[serde(default)]
-    pub robot_pose_sigma: Option<RobotPoseSigma>,
+    pub robot_refinement: Option<RobotRefinement>,
 
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
@@ -371,9 +366,7 @@ impl ProblemType for SingleCamHandeyeProblem {
                 "min_motion_angle_deg must be positive",
             ));
         }
-        if config.robot_poses.refine {
-            config.robot_poses.validate()?;
-        }
+        config.robot_poses.validate()?;
         config.camera.validate_single_camera()
     }
 
@@ -424,7 +417,10 @@ impl ProblemType for SingleCamHandeyeProblem {
             &output.params.handeye,
             &target_pose,
             &robot_poses,
-            output.robot_deltas.as_deref(),
+            output
+                .robot_refinement
+                .as_ref()
+                .map(|r| r.deltas.as_slice()),
         );
         let target = compute_planar_target_residuals_views(&model, &input.views, &cam_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
@@ -436,8 +432,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             kind: ExportKind::SingleCamHandeye,
             camera,
             handeye: solution,
-            robot_deltas: output.robot_deltas.clone(),
-            robot_pose_sigma: output.robot_pose_sigma,
+            robot_refinement: output.robot_refinement.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
             // Callers that have the images fill `image_manifest`; the

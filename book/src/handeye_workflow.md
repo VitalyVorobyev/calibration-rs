@@ -81,8 +81,8 @@ known constants from the robot kinematics (passed as per-residual data).
 Robot poses carry errors of their own, usually larger than the corner noise
 once projected through the lever arm to the board: 0.05° at 1 m moves the
 camera's view by almost a millimetre. Taken as exact, these errors end up in
-the camera parameters. `robot_poses.refine` (on by default) gives every view
-an SE(3) correction of its measured pose:
+the camera parameters. `robot_poses` set to `refine` (the default) gives every
+view an SE(3) correction of its measured pose; `exact` takes the poses as given:
 
 **Additional parameter blocks**: `"robot_delta/v"` (6D, Euclidean se(3)
 tangent `[ω, v]`) per view, applied in the gripper frame as
@@ -107,13 +107,13 @@ The priors' standard deviations decide how far the result trusts the robot.
 Too loose, and the hand-eye and target standard deviations come out larger
 than the data warrants; too tight, and the robot's errors leak into the
 camera parameters while the standard deviations come out too small. So by
-default (`robot_poses.estimate_sigma`) the solve estimates them: `rot_sigma`
+default (`estimate_sigma` in the `refine` prior) the solve estimates them: `rot_sigma`
 and `trans_sigma` (0.5°, 1 mm) are only its starting values. Each prior's
 variance factor is the sum of its squared normalized corrections over its
 redundancy, `ŝ² = Σ (δₖ/σ)² / Σ (1 − Var(δₖ)/σ²)`, the share of each
 correction the corner data do not already determine. `σ` is scaled by `ŝ`
 and the solve repeats until both factors are 1. The export reports the
-estimate as `robot_pose_sigma`, the robot's orientation and position error
+estimate as `robot_refinement.sigma`, the robot's orientation and position error
 in this calibration. On synthetic scenes it recovers the simulated error
 from a prior ten times too tight or too loose, and the normalized errors of
 the hand-eye and target come out with an RMS of 1.02–1.13. With
@@ -153,7 +153,8 @@ pub struct SingleCamHandeyeConfig {
 
     // Robot-pose refinement settings for the hand-eye bundle adjustment.
     pub robot_poses: RobotPoseConfig,
-    // { refine: bool = true, rot_sigma: f64, trans_sigma: f64 }
+    // Exact | Refine(RobotPosePrior { rot_sigma, trans_sigma, estimate_sigma }); default Refine
+    // JSON: {"kind": "exact"} or {"kind": "refine", "rot_sigma": …, "trans_sigma": …, "estimate_sigma": true}
 }
 ```
 
@@ -243,7 +244,7 @@ match export.handeye {
 
 In Python, `result.handeye` is a `CameraEyeInHand` or a `CameraEyeToHand`, and `result.handeye.mode` names the mode.
 
-`export.camera` is the calibrated camera (`CameraParams`) in the configured model, `export.robot_deltas` the per-view robot-pose corrections when refinement is on, and `export.diagnostics.per_feature_residuals` the per-corner reprojection records (see [Per-Feature Residuals](per_feature_residuals.md)).
+`export.camera` is the calibrated camera (`CameraParams`) in the configured model, `export.robot_refinement` the per-view robot-pose corrections (`deltas`) and the robot error they were weighed with (`sigma`) when refinement is on, and `export.diagnostics.per_feature_residuals` the per-corner reprojection records (see [Per-Feature Residuals](per_feature_residuals.md)).
 
 The `SingleCamHandeyeInput::new` constructor rejects an empty set of views and any view with fewer than 4 correspondences (the minimum for a homography). Each stage has a `*_with_seed` sibling and a typed step result (`IntrinsicsInitResult`, `HandeyeOptimizeResult`, ...); see [Seeding with Prior Knowledge](manual_init.md).
 

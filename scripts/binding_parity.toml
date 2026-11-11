@@ -55,6 +55,9 @@
 "common::config::IntrinsicsInitConfig" = "IntrinsicsInitConfig"
 "common::config::RigConfig" = "RigConfig"
 "common::config::RobotPoseConfig" = "RobotPoseConfig"
+"common::config::RobotPosePrior" = "RobotPosePrior"
+"common::RobotPoseSigma" = "RobotPoseSigma"
+"common::RobotRefinement" = "RobotRefinement"
 "common::config::SolverConfig" = "SolverConfig"
 "core::BrownConrady5" = "BrownConradyDistortion"
 "core::Camera" = "CameraModel"
@@ -216,6 +219,7 @@
 "rig_extrinsics::RigExtrinsicsProblem" = "RigExtrinsicsSession"
 "rig_extrinsics::RigInitResult" = "rig_extrinsics.RigInitResult"
 "rig_extrinsics::RigManualInit" = "rig_extrinsics.RigManualInit"
+"rig_extrinsics::RigPoses" = "rig_extrinsics.RigPoses"
 "rig_extrinsics::RigOptimizeResult" = "rig_extrinsics.RigOptimizeResult"
 "rig_extrinsics::run_calibration" = ["run_rig_extrinsics", "session.CalibrationSession.run_calibration"]
 "rig_extrinsics::step_intrinsics_init_all" = "rig_extrinsics.RigExtrinsicsSession.step_intrinsics_init_all"
@@ -237,6 +241,7 @@
 "rig_handeye::RigHandeyeProblem" = "RigHandeyeSession"
 "rig_handeye::RigInitResult" = "rig_handeye.RigInitResult"
 "rig_handeye::RigManualInit" = "rig_handeye.RigManualInit"
+"rig_handeye::RigPoses" = "rig_handeye.RigPoses"
 "rig_handeye::RigOptimizeResult" = "rig_handeye.RigOptimizeResult"
 "rig_handeye::run_calibration" = ["run_rig_handeye", "session.CalibrationSession.run_calibration"]
 "rig_handeye::step_handeye_init" = "rig_handeye.RigHandeyeSession.step_handeye_init"

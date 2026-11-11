@@ -445,7 +445,7 @@ fn solve_and_rebuild(mode: HandeyeMode, refine_robot_poses: bool) -> (DMatrix<f6
     let n = index.len();
     let mut information = DMatrix::<f64>::zeros(n, n);
     for (v, g) in stations.iter().enumerate() {
-        let g = match &estimate.robot_deltas {
+        let g = match estimate.robot_refinement.as_ref().map(|r| &r.deltas) {
             Some(deltas) => crate::problems::handeye::apply_robot_delta(g, &deltas[v]),
             None => *g,
         };

@@ -39,7 +39,8 @@ pub use handeye::HandeyeSolution;
 // Input and output types shared by several problem types: the robot pose of
 // a hand-eye view, a rig view with laser pixels, and the hand-eye estimate.
 pub use vision_calibration_optim::{
-    HandeyeEstimate, HandeyeParams, RigLaserlineView, RobotPoseMeta,
+    HandeyeEstimate, HandeyeParams, RigLaserlineView, RobotPoseMeta, RobotPoseSigma,
+    RobotRefinement,
 };
 
 use serde::{Deserialize, Serialize};

@@ -2283,7 +2283,11 @@ class RigHandeyeConfig(_RigHandeyeConfigRequired, total=False):
     """
 
     manual_init: IntrinsicsManualInit | None
-    """Optional manual seeds for the per-camera intrinsics stage."""
+    """Optional manual seeds for the per-camera intrinsics stage. They seed
+    `step_intrinsics_init_all` and `run_calibration` alike;
+    `step_intrinsics_init_all_with_seed` takes an explicit seed that
+    overrides this one.
+    """
 
 
 class RigHandeyeExport(TypedDict):
@@ -2323,16 +2327,10 @@ class RigHandeyeExport(TypedDict):
     they decode with an empty Vec.
     """
 
-    robot_deltas: list[tuple[float, float, float, float, float, float] | list[float]] | None
-    """Per-view robot pose corrections (if refinement enabled).
-    Each element is [rx, ry, rz, tx, ty, tz] in se(3).
-    """
-
-    robot_pose_sigma: RobotPoseSigma | None
-    """The robot's pose error the corrections were weighed with: the
-    configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-    with `robot_poses.estimate_sigma`. Only present if robot refinement
-    was enabled.
+    robot_refinement: RobotRefinement | None
+    """The per-view robot-pose corrections and the pose error they were
+    weighed with: the configured `robot_poses` prior, or its estimate with
+    `estimate_sigma`. Only present if robot refinement was enabled.
     """
 
     uncertainty: Uncertainty
@@ -2402,14 +2400,10 @@ class RigHandeyeLaserlineExport(TypedDict):
     rig_se3_target: list[Iso3]
     """Per-view target poses `rig_se3_target` (T_R_T)."""
 
-    robot_deltas: list[tuple[float, float, float, float, float, float] | list[float]] | None
-    """Optional optimized robot pose deltas."""
-
-    robot_pose_sigma: RobotPoseSigma | None
-    """The robot's pose error the corrections were weighed with: the
-    configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-    with `robot_poses.estimate_sigma`. Only present if robot refinement
-    was enabled.
+    robot_refinement: RobotRefinement | None
+    """The per-view robot-pose corrections and the pose error they were
+    weighed with: the configured `robot_poses` prior, or its estimate with
+    `estimate_sigma`. Only present if robot refinement was enabled.
     """
 
     uncertainty: Uncertainty
@@ -2612,23 +2606,14 @@ class RigLaserlineDeviceExport(TypedDict):
     """
 
 
-class _RigLaserlineDeviceInputRequired(TypedDict):
-    """The keys of `RigLaserlineDeviceInput` that every payload has."""
+class RigLaserlineDeviceInput(TypedDict):
+    """Input for rig laserline calibration: dataset + frozen upstream calibration."""
 
     dataset: RigLaserlineDataset
     """Per-view, per-camera observations."""
 
     upstream: RigUpstreamCalibration
     """Upstream rig calibration (frozen)."""
-
-
-class RigLaserlineDeviceInput(_RigLaserlineDeviceInputRequired, total=False):
-    """Input for rig laserline calibration: dataset + frozen upstream calibration."""
-
-    initial_planes_cam: list[LaserPlane] | None
-    """Optional per-camera initial plane in camera frame. If `None`, each
-    camera's plane is fitted in closed form from its laser pixels.
-    """
 
 
 class RigLaserlineView(TypedDict):
@@ -2702,45 +2687,28 @@ class RigViewObs(TypedDict):
     """Per-camera observation; None if camera didn't observe in this view."""
 
 
-class RobotPoseConfig(TypedDict):
-    """Robot-pose refinement options for hand-eye bundle adjustment.
+class RobotPoseConfig_Exact(TypedDict):
+    """The robot poses are taken as exact."""
 
-    Shared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint
-    rig+hand-eye+laser BA config (`JointOptimizeConfig`).
+    kind: Literal["exact"]
 
-    With `refine`, every view's measured robot pose gets an se(3) correction
-    in the gripper frame, `base_se3_gripper · exp(δ)`, under a zero-mean
-    prior with the standard deviations below: the tool's orientation error
-    about each gripper axis and its position error along each, the figures
-    a robot's accuracy is stated in. The prior is weighed
-    against the corner residuals at their noise level, which the solve
-    estimates (one solve at 1 px, then one from that solution at the noise
-    its residuals show), so the result and its covariance are the
-    maximum-likelihood ones for a robot whose error has these standard
-    deviations. The covariance takes them as the robot's true accuracy:
-    state them, rather than leave a loose default, to get honest hand-eye
-    and target standard deviations. Without `refine` the robot poses are
-    taken as exact.
-    """
+
+class RobotPoseConfig_Refine(TypedDict):
+    """Per-view se(3) corrections under the prior."""
 
     estimate_sigma: bool
     """Estimate the robot's error from the corrections, starting from
     `rot_sigma` and `trans_sigma`: each prior's variance factor is
     estimated from the corrections and their redundancy, and the solve
     repeats until it settles. The export reports the estimate
-    (`robot_pose_sigma`). On by default: the stated accuracy of an arm is
-    rarely its error in one calibration, and a prior that is too loose
-    or too tight misstates the hand-eye and target standard deviations.
-    Off, `rot_sigma` and `trans_sigma` are taken as the robot's true
-    accuracy.
+    (`robot_refinement.sigma`). On by default: the stated accuracy of an
+    arm is rarely its error in one calibration, and a prior that is too
+    loose or too tight misstates the hand-eye and target standard
+    deviations. Off, `rot_sigma` and `trans_sigma` are taken as the
+    robot's true accuracy.
     """
 
-    refine: bool
-    """Refine the robot poses with per-view se(3) corrections. On by
-    default: robot pose errors are rarely below the corner noise, and
-    taking them as exact pushes them into the camera parameters.
-    """
-
+    kind: Literal["refine"]
     rot_sigma: float
     """Standard deviation of the tool's orientation error about each gripper
     axis (radians, > 0). Default 0.5°, a loose bound for an industrial
@@ -2752,6 +2720,23 @@ class RobotPoseConfig(TypedDict):
     axis (metres, > 0). Default 1 mm, a loose bound for an industrial
     arm.
     """
+
+
+RobotPoseConfig: TypeAlias = RobotPoseConfig_Exact | RobotPoseConfig_Refine
+"""Robot-pose refinement options for hand-eye bundle adjustment.
+
+Shared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint
+rig+hand-eye+laser BA config (`JointOptimizeConfig`).
+
+`Refine` gives every view's measured robot pose an se(3)
+correction in the gripper frame, `base_se3_gripper · exp(δ)`, under a
+zero-mean prior (see `RobotPosePrior`). `Exact` takes the
+robot poses as exact. Serialized as `{"kind": "exact"}` or
+`{"kind": "refine", "rot_sigma": …, "trans_sigma": …, "estimate_sigma": …}`.
+The default is `Refine` with the default prior: robot pose errors are
+rarely below the corner noise, and taking them as exact pushes them into
+the camera parameters.
+"""
 
 
 RobotPoseFormat: TypeAlias = Literal[
@@ -2826,6 +2811,25 @@ class RobotPoseSource(_RobotPoseSourceRequired, total=False):
     `pose_convention.rotation_format = matrix4x4_row_major`.
     Translation comes from the matrix's fourth column, scaled by
     `translation_units`. No `pose_id` ⇒ `by_index` pairing only.
+    """
+
+
+class RobotRefinement(TypedDict):
+    """The robot-pose correction a hand-eye solve estimated with
+    `refine_robot_poses`.
+
+    Absent from a result when the robot poses were taken as exact.
+    """
+
+    deltas: list[tuple[float, float, float, float, float, float] | list[float]]
+    """Per-view robot-pose corrections, one se(3) tangent
+    `[rx, ry, rz, tx, ty, tz]` per view, in the gripper frame: the view's
+    corrected pose is `base_se3_gripper · exp(δ)`.
+    """
+
+    sigma: RobotPoseSigma
+    """The robot's pose error the corrections were weighed with: the
+    configured one, or the estimate when it was estimated.
     """
 
 
@@ -3052,16 +3056,10 @@ class SingleCamHandeyeExport(TypedDict):
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (pixels). Single element for single-camera."""
 
-    robot_deltas: list[tuple[float, float, float, float, float, float] | list[float]] | None
-    """Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).
-    Only present if robot refinement was enabled.
-    """
-
-    robot_pose_sigma: RobotPoseSigma | None
-    """The robot's pose error the corrections were weighed with: the
-    configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-    with `robot_poses.estimate_sigma`. Only present if robot refinement
-    was enabled.
+    robot_refinement: RobotRefinement | None
+    """The per-view robot-pose corrections and the pose error they were
+    weighed with: the configured `robot_poses` prior, or its estimate with
+    `estimate_sigma`. Only present if robot refinement was enabled.
     """
 
     uncertainty: Uncertainty
@@ -3664,10 +3662,13 @@ __all__ = [
     "RigUpstreamCalibration",
     "RigViewObs",
     "RobotPoseConfig",
+    "RobotPoseConfig_Exact",
+    "RobotPoseConfig_Refine",
     "RobotPoseFormat",
     "RobotPoseMeta",
     "RobotPoseSigma",
     "RobotPoseSource",
+    "RobotRefinement",
     "RobustLoss",
     "RobustLoss_Arctan",
     "RobustLoss_Cauchy",

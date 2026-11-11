@@ -53,7 +53,7 @@ cargo run -p vision-calibration --example manual_init --release
 ```rust
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
-    IntrinsicsManualInit, RigExtrinsicsProblem, RigManualInit,
+    IntrinsicsManualInit, RigExtrinsicsProblem, RigManualInit, RigPoses,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
     step_rig_init_with_seed, step_rig_optimize,
 };
@@ -66,7 +66,7 @@ let rig_init_a = step_rig_init_with_seed(&mut session_a, RigManualInit::default(
 step_rig_optimize(&mut session_a, None)?;
 ```
 
-`IntrinsicsManualInit::default()` and `RigManualInit::default()` have all fields `None`, so this is exactly the automatic path: the same as `run_calibration`.
+`IntrinsicsManualInit::default()` and `RigManualInit::default()` have nothing seeded (`None` throughout), so this is exactly the automatic path: the same as `run_calibration`.
 
 ### 2. Capture what the stages produced
 
@@ -100,8 +100,7 @@ step_intrinsics_init_all_with_seed(&mut session_b, intrinsics_seed, None)?;
 // Skip step_intrinsics_optimize_all: the seed is already optimized.
 
 let mut rig_seed = RigManualInit::default();
-rig_seed.cam_se3_rig = Some(cam_se3_rig_a);
-rig_seed.rig_se3_target = Some(rig_se3_target_a);
+rig_seed.poses = Some(RigPoses::new(cam_se3_rig_a, rig_se3_target_a));
 step_rig_init_with_seed(&mut session_b, rig_seed, None)?;
 step_rig_optimize(&mut session_b, None)?;
 ```
@@ -136,13 +135,13 @@ seed.per_cam_distortion = Some(vec![nominal_distortion; num_cameras]);
 step_intrinsics_init_all_with_seed(&mut session, seed, None)?;
 ```
 
-This unblocks scenarios where Zhang's method fails on borderline data, for example strongly tilted Scheimpflug rigs. For those, also set `per_cam_sensors` to the nominal mount tilts: a seeded tilt is used verbatim and skips the linear stage's tilt sweep. A non-zero tilt for a camera with an identity sensor is an error; a zero tilt is accepted. `RigHandeyeConfig::manual_init` takes the same `per_cam_sensors`. The single-camera seeds (`planar_intrinsics::IntrinsicsManualInit`, `single_cam_handeye::IntrinsicsManualInit` and `laserline_device::DeviceManualInit`) take one tilt in `sensor`, with the same rule.
+This unblocks scenarios where Zhang's method fails on borderline data, for example strongly tilted Scheimpflug rigs. For those, also set `per_cam_sensors` to the nominal mount tilts: a seeded tilt is used verbatim and skips the linear stage's tilt sweep. A non-zero tilt for a camera with an identity sensor is an error; a zero tilt is accepted. `RigHandeyeConfig::manual_init` takes the same `per_cam_sensors`; it seeds `step_intrinsics_init_all` and `run_calibration` alike, and `step_intrinsics_init_all_with_seed` takes an explicit seed that overrides it. The single-camera seeds (`planar_intrinsics::IntrinsicsManualInit`, `single_cam_handeye::IntrinsicsManualInit` and `laserline_device::DeviceManualInit`) take one tilt in `sensor`, with the same rule.
 
 The `device_seed` module derives these seeds from a device description (focal length in millimetres, pixel pitch, mount tilt); see [Device Specifications](manifest.md#device-specifications).
 
-### Coupling rule (rig stage)
+### Rig poses (rig stage)
 
-`cam_se3_rig` and `rig_se3_target` are geometrically coupled. The rig stage's `RigManualInit` requires both or neither, and enforces it at runtime with a typed `Error::InvalidInput`.
+`cam_se3_rig` and `rig_se3_target` are geometrically coupled, so the rig stage's `RigManualInit` seeds them together: its `poses` is `None` (the linear fit) or a `RigPoses` holding both. A length that does not match the cameras or views is a typed `Error::InvalidInput`.
 
 ### Hand-eye seeds
 

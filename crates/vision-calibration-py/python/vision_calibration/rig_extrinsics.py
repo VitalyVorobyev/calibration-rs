@@ -50,6 +50,7 @@ __all__ = [
     "RigInitOptions",
     "RigInitResult",
     "RigManualInit",
+    "RigPoses",
     "RigOptimizeOptions",
     "RigOptimizeResult",
 ]
@@ -82,20 +83,34 @@ class IntrinsicsManualInit:
 
 
 @dataclass(slots=True)
-class RigManualInit:
-    """Manual seeds of the rig stage: set both or neither.
+class RigPoses:
+    """Seeded rig poses: the two go together.
 
-    ``cam_se3_rig`` is each camera's camera-from-rig pose; ``rig_se3_target``
-    each view's rig-from-target pose.
+    ``cam_se3_rig`` is each camera's camera-from-rig pose (one per camera);
+    ``rig_se3_target`` each view's rig-from-target pose (one per view).
     """
 
-    cam_se3_rig: list[Pose] | None = None
-    rig_se3_target: list[Pose] | None = None
+    cam_se3_rig: list[Pose]
+    rig_se3_target: list[Pose]
 
     def to_payload(self) -> dict[str, Any]:
         return _seed_payload(
             {"cam_se3_rig": self.cam_se3_rig, "rig_se3_target": self.rig_se3_target}
         )
+
+
+@dataclass(slots=True)
+class RigManualInit:
+    """Manual seeds of the rig stage.
+
+    ``poses`` seeds the camera-from-rig and rig-from-target poses together;
+    ``None`` runs the linear extrinsics fit.
+    """
+
+    poses: RigPoses | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return _seed_payload({"poses": self.poses})
 
 
 def _target_poses(values: Any) -> list[list[Pose | None]]:

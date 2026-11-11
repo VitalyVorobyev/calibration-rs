@@ -43,7 +43,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use vision_calibration::common::HandeyeSolution;
-use vision_calibration::common::config::CameraConfig;
+use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration::{
     device_seed::{self, DEVICE_SPEC_FILENAME, DeviceSpec},
     rig_handeye::{self as rh, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
@@ -161,8 +161,9 @@ fn main() -> Result<()> {
     // poses the hand-eye residual is directly sensitive to the board scale,
     // which makes the cell-size A/B check sharp (robot translations anchor
     // absolute scale).
-    cfg.handeye_optimize.robot_poses.refine =
-        std::env::var("SCHEIMPFLUG_RIG_REFINE_ROBOT").map_or(true, |v| v != "0");
+    if std::env::var("SCHEIMPFLUG_RIG_REFINE_ROBOT").is_ok_and(|v| v == "0") {
+        cfg.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
+    }
     // Scheimpflug: both tilts free (the reference system also frees tau_x/tau_y;
     // oracle tilts reach 0.27 rad). Distortion: k1, k2 free; k3 + tangential
     // fixed, matching the reference config (`fix_k3: true, fix_tangent: true`).
@@ -177,8 +178,12 @@ fn main() -> Result<()> {
     };
     cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics = false;
-    let robot_rot_sigma = cfg.handeye_optimize.robot_poses.rot_sigma;
-    let robot_trans_sigma = cfg.handeye_optimize.robot_poses.trans_sigma;
+    let robot_prior = cfg
+        .handeye_optimize
+        .robot_poses
+        .prior()
+        .cloned()
+        .unwrap_or_default();
     rig_session.set_config(cfg.clone())?;
 
     let t0 = Instant::now();
@@ -341,7 +346,6 @@ fn main() -> Result<()> {
         let laserline_input = RigLaserlineDeviceInput {
             dataset: laserline_dataset,
             upstream,
-            initial_planes_cam: None,
         };
 
         let mut laser_session = CalibrationSession::<RigLaserlineDeviceProblem>::with_description(
@@ -391,7 +395,7 @@ fn main() -> Result<()> {
             target_ref,
             planes_cam: laser_export.laser_planes_cam.clone(),
         };
-        let initial_robot_deltas = rig_export.robot_deltas.clone();
+        let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|r| r.deltas.clone());
         let (joint_initial_mean, _) = evaluate_rig_handeye_laserline(
             &joint_dataset,
             &joint_initial,
@@ -416,9 +420,9 @@ fn main() -> Result<()> {
         joint_opts.laser_weight = 1e4;
         joint_opts.calib_weight = 1.0;
         joint_opts.refine_robot_poses = true;
-        joint_opts.robot_rot_sigma = robot_rot_sigma;
-        joint_opts.robot_trans_sigma = robot_trans_sigma;
-        joint_opts.estimate_robot_sigma = cfg.handeye_optimize.robot_poses.estimate_sigma;
+        joint_opts.robot_rot_sigma = robot_prior.rot_sigma;
+        joint_opts.robot_trans_sigma = robot_prior.trans_sigma;
+        joint_opts.estimate_robot_sigma = robot_prior.estimate_sigma;
         joint_opts.initial_robot_deltas = initial_robot_deltas;
 
         let backend_opts = BackendSolveOptions {

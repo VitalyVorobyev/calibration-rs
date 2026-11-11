@@ -200,7 +200,8 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
     println!("  Mean: {:.4} px", export.mean_reproj_error);
     println!("  Per-camera: {:?}", export.per_cam_reproj_errors);
 
-    if let Some(deltas) = &export.robot_deltas {
+    if let Some(robot) = &export.robot_refinement {
+        let deltas = &robot.deltas;
         println!("Robot pose refinements ({} views):", deltas.len());
         let max_rot: f64 = deltas
             .iter()
@@ -223,7 +224,8 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
             max_trans * 1000.0
         );
     }
-    if let Some(sigma) = &export.robot_pose_sigma {
+    if let Some(robot) = &export.robot_refinement {
+        let sigma = &robot.sigma;
         println!(
             "Estimated robot error: {:.3}° / {:.2}mm per axis",
             sigma.rot_sigma.to_degrees(),
