@@ -1,7 +1,6 @@
 //! Step functions for rig laserline calibration.
 
 use crate::Error;
-use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_linear::laserline::{
@@ -63,13 +62,14 @@ pub struct PlaneManualInit {
 /// Resolution order for the laser planes:
 /// 1. `manual.planes_cam` if `Some` (highest priority).
 /// 2. `input.initial_planes_cam` if `Some`.
-/// 3. Closed-form linear fit per camera, with a generic fallback plane for
-///    degenerate cases.
+/// 3. Closed-form linear fit per camera.
 ///
 /// # Errors
 ///
 /// - Input not set.
 /// - `manual.planes_cam.len() != input.dataset.num_cameras`.
+/// - Without a seed, a camera whose linear fit fails (no laser pixels, or
+///   pixels that do not determine a plane): the error names it.
 pub fn step_init_with_seed(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
     manual: PlaneManualInit,
@@ -96,14 +96,16 @@ pub fn step_init_with_seed(
             (Some(p), _) => (p, "(manual: planes_cam)"),
             (None, Some(p)) => (p.clone(), "(input: initial_planes_cam)"),
             (None, None) => {
-                let mut planes = Vec::with_capacity(input.dataset.num_cameras);
-                for cam_idx in 0..input.dataset.num_cameras {
-                    let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2)
-                        .expect("a unit normal and a finite distance");
-                    let plane = linear_plane_init(input, cam_idx).unwrap_or(default_plane);
-                    planes.push(plane);
+                let fitted: Result<Vec<LaserPlane>, Error> = (0..input.dataset.num_cameras)
+                    .map(|cam_idx| linear_plane_init(input, cam_idx))
+                    .collect();
+                match fitted {
+                    Ok(planes) => (planes, "(auto: linear fit)"),
+                    Err(err) => {
+                        session.log_failure("init", err.to_string());
+                        return Err(err);
+                    }
                 }
-                (planes, "(auto: linear fit with default fallback)")
             }
         };
 
@@ -122,12 +124,22 @@ pub fn step_init(
     step_init_with_seed(session, PlaneManualInit::default(), opts)
 }
 
+/// The closed-form plane of camera `cam_idx` from its laser pixels on the
+/// upstream's target poses.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming the camera when its model does not build,
+/// it saw no laser pixels, or its pixels do not determine a plane (a seed in
+/// `PlaneManualInit::planes_cam` then starts the solve).
 fn linear_plane_init(
     input: &super::problem::RigLaserlineDeviceInput,
     cam_idx: usize,
-) -> Option<LaserPlane> {
+) -> Result<LaserPlane, Error> {
     let rig_to_cam = input.upstream.cam_se3_rig[cam_idx];
-    let camera = input.upstream.cameras[cam_idx].build().ok()?;
+    let camera = input.upstream.cameras[cam_idx]
+        .build()
+        .map_err(|e| Error::invalid_input(format!("camera {cam_idx}: camera model: {e}")))?;
     let mut views = Vec::new();
     for (view_idx, view) in input.dataset.views.iter().enumerate() {
         let Some(laser_pixels) = view
@@ -144,8 +156,20 @@ fn linear_plane_init(
             camera_se3_target: rig_to_cam * rig_se3_target,
         });
     }
-    let estimate = LaserlinePlaneSolver::from_views(&views, &camera).ok()?;
-    LaserPlane::new(estimate.normal.into_inner(), estimate.distance).ok()
+    if views.is_empty() {
+        return Err(Error::invalid_input(format!(
+            "camera {cam_idx}: no view has laser pixels, so its laser plane cannot be \
+             initialized; seed it in PlaneManualInit::planes_cam"
+        )));
+    }
+    let estimate = LaserlinePlaneSolver::from_views(&views, &camera).map_err(|e| {
+        Error::invalid_input(format!(
+            "camera {cam_idx}: the linear laser-plane fit failed ({e}); seed the plane \
+             in PlaneManualInit::planes_cam"
+        ))
+    })?;
+    LaserPlane::new(estimate.normal.into_inner(), estimate.distance)
+        .map_err(|e| Error::invalid_input(format!("camera {cam_idx}: laser plane: {e}")))
 }
 
 /// Optimize per-camera laser planes and express them in rig frame.

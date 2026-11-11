@@ -62,6 +62,20 @@ pub enum CalibrationConfig {
 }
 
 impl CalibrationConfig {
+    /// Check the configuration on its own, as its problem's `set_config`
+    /// does; [`calibrate_dataset`] runs it before any detection.
+    fn validate(&self) -> Result<(), Error> {
+        match self {
+            Self::PlanarIntrinsics(c) => PlanarIntrinsicsProblem::validate_config(c),
+            Self::SingleCamHandeye(c) => SingleCamHandeyeProblem::validate_config(c),
+            Self::LaserlineDevice(c) => LaserlineDeviceProblem::validate_config(c),
+            Self::RigExtrinsics(c) => RigExtrinsicsProblem::validate_config(c),
+            Self::RigHandeye(c) => RigHandeyeProblem::validate_config(c),
+            Self::RigLaserlineDevice(c) => RigLaserlineDeviceProblem::validate_config(c),
+            Self::RigHandeyeLaserline(c) => RigHandeyeLaserlineProblem::validate_config(c),
+        }
+    }
+
     /// The default configuration of the problem type that `topology`
     /// selects.
     pub fn default_for(topology: Topology) -> Self {
@@ -307,6 +321,8 @@ pub fn calibrate_dataset(
             config: config.topology(),
         });
     }
+    // An invalid config fails here, before any image is read.
+    config.validate()?;
     let laser =
         || laser_extractor.ok_or(CalibrateDatasetError::LaserExtractorRequired { topology });
     let needs_laser = matches!(
@@ -522,6 +538,37 @@ mod tests {
                 config: Topology::RigExtrinsics,
             }
         ));
+    }
+
+    /// An invalid config is refused before any image is read: the glob
+    /// matches nothing, so reaching detection would be an `EmptyImageMatch`.
+    #[test]
+    fn an_invalid_config_fails_before_reading_images() {
+        let spec: DatasetSpec = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "topology": "planar_intrinsics",
+            "cameras": [{ "id": "cam0", "images": { "kind": "glob", "pattern": "missing/*.png" } }],
+            "target": { "kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.02 },
+        }))
+        .unwrap();
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.solver.max_iters = 0;
+        let err = calibrate_dataset(
+            &spec,
+            Path::new("."),
+            Some(CalibrationConfig::PlanarIntrinsics(config)),
+            Detection::Uncached,
+            None,
+            &RunControl::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                CalibrateDatasetError::Calibration(Error::InvalidInput { .. })
+            ),
+            "{err:?}"
+        );
     }
 
     #[test]

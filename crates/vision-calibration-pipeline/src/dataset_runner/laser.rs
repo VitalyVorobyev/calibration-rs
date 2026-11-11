@@ -296,12 +296,35 @@ pub fn build_rig_laserline_device_input(
             topology: spec.topology,
         });
     }
+    // The robot poses and the upstream calibration load before any
+    // detection, so a file that does not parse fails the run first.
+    // `validate` guarantees pose_pairing, robot_poses, pose_convention,
+    // upstream_calibration, and laser_images on every camera for this
+    // topology.
+    vision_calibration_dataset::validate(spec)?;
+    let source = spec
+        .robot_poses
+        .as_ref()
+        .expect("validate guarantees robot_poses for RigLaserlineDevice");
+    let convention = spec
+        .pose_convention
+        .as_ref()
+        .expect("validate guarantees pose_convention for RigLaserlineDevice");
+    let poses = load_robot_poses(source, convention, base_dir)?;
+    let upstream_path = spec
+        .upstream_calibration
+        .as_ref()
+        .expect("validate guarantees upstream_calibration for RigLaserlineDevice");
+    let upstream_path = if upstream_path.is_absolute() {
+        upstream_path.clone()
+    } else {
+        base_dir.join(upstream_path)
+    };
+    let export = load_upstream_export(&upstream_path)?;
+
     let core = build_rig_core(spec, base_dir, detection, control)?;
     let num_cameras = spec.cameras.len();
 
-    // `validate` (inside build_rig_core) guarantees pose_pairing,
-    // robot_poses, pose_convention, upstream_calibration, and
-    // laser_images on every camera for this topology.
     let pairing = spec
         .pose_pairing
         .as_ref()
@@ -389,31 +412,12 @@ pub fn build_rig_laserline_device_input(
     }
 
     // Robot poses → per-kept-view T_B_G, matched by pairing token.
-    let source = spec
-        .robot_poses
-        .as_ref()
-        .expect("validate guarantees robot_poses for RigLaserlineDevice");
-    let convention = spec
-        .pose_convention
-        .as_ref()
-        .expect("validate guarantees pose_convention for RigLaserlineDevice");
-    let poses = load_robot_poses(source, convention, base_dir)?;
     let kept_tokens: Vec<String> = core.views.iter().map(|(_, t)| t.clone()).collect();
     let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, core.total_views)?;
 
     // Frozen upstream rig hand-eye export → per-view rig_se3_target.
     // Prefer the upstream export's optimized target poses; older exports
     // fall back to the hand-eye chain.
-    let upstream_path = spec
-        .upstream_calibration
-        .as_ref()
-        .expect("validate guarantees upstream_calibration for RigLaserlineDevice");
-    let upstream_path = if upstream_path.is_absolute() {
-        upstream_path.clone()
-    } else {
-        base_dir.join(upstream_path)
-    };
-    let export = load_upstream_export(&upstream_path)?;
     if export.cameras.len() != num_cameras {
         return Err(RunError::UpstreamCalibration {
             path: upstream_path,
@@ -491,6 +495,19 @@ pub fn build_rig_handeye_laserline_input(
             topology: spec.topology,
         });
     }
+    // The robot poses load before any detection, so a pose file that does
+    // not parse fails the run first.
+    vision_calibration_dataset::validate(spec)?;
+    let source = spec
+        .robot_poses
+        .as_ref()
+        .expect("validate guarantees robot_poses for RigHandeyeLaserline");
+    let convention = spec
+        .pose_convention
+        .as_ref()
+        .expect("validate guarantees pose_convention for RigHandeyeLaserline");
+    let poses = load_robot_poses(source, convention, base_dir)?;
+
     let core = build_rig_core(spec, base_dir, detection, control)?;
     let num_cameras = spec.cameras.len();
     let pairing = spec
@@ -574,15 +591,6 @@ pub fn build_rig_handeye_laserline_input(
         }
     }
 
-    let source = spec
-        .robot_poses
-        .as_ref()
-        .expect("validate guarantees robot_poses for RigHandeyeLaserline");
-    let convention = spec
-        .pose_convention
-        .as_ref()
-        .expect("validate guarantees pose_convention for RigHandeyeLaserline");
-    let poses = load_robot_poses(source, convention, base_dir)?;
     let kept_tokens: Vec<String> = core.views.iter().map(|(_, t)| t.clone()).collect();
     let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, core.total_views)?;
 

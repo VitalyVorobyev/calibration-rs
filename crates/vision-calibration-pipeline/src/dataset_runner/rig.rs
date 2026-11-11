@@ -88,16 +88,10 @@ pub fn build_rig_handeye_input(
             topology: spec.topology,
         });
     }
-    let RigCore {
-        views,
-        view_paths,
-        total_views,
-        rejected,
-        ..
-    } = build_rig_core(spec, base_dir, detection, control)?;
-
-    // `validate` (called inside build_rig_core) guarantees both fields
-    // are present for the RigHandeye topology.
+    // The robot poses load before any detection: a pose file that does not
+    // parse fails the run before the expensive work. `validate` guarantees
+    // both fields for the RigHandeye topology.
+    vision_calibration_dataset::validate(spec)?;
     let source = spec
         .robot_poses
         .as_ref()
@@ -107,6 +101,14 @@ pub fn build_rig_handeye_input(
         .as_ref()
         .expect("validate guarantees pose_convention for RigHandeye");
     let poses = load_robot_poses(source, convention, base_dir)?;
+
+    let RigCore {
+        views,
+        view_paths,
+        total_views,
+        rejected,
+        ..
+    } = build_rig_core(spec, base_dir, detection, control)?;
 
     let views = pair_poses_to_views(views, &poses, spec, total_views)?;
     finish(views, spec.cameras.len(), view_paths, total_views, rejected)

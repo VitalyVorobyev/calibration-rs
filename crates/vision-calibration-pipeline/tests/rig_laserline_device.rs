@@ -516,3 +516,29 @@ fn an_upstream_without_covariance_is_held_exact() {
         );
     }
 }
+
+/// A camera without laser pixels has no closed-form plane: unseeded, the
+/// init stops with an error naming it, instead of starting the solve from a
+/// made-up plane.
+#[test]
+fn an_unseeded_camera_without_laser_pixels_is_an_error() {
+    let (dataset, upstream, _) = make_dataset();
+    let views = dataset
+        .views
+        .into_iter()
+        .map(|mut v| {
+            v.laser_pixels[1] = None;
+            v
+        })
+        .collect();
+    let input = RigLaserlineDeviceInput {
+        dataset: RigLaserlineDataset::new(views, 2).unwrap(),
+        upstream,
+        initial_planes_cam: None,
+    };
+
+    let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
+    session.set_input(input).unwrap();
+    let err = run_calibration(&mut session).unwrap_err().to_string();
+    assert!(err.contains("camera 1"), "{err}");
+}

@@ -117,8 +117,8 @@ pub struct RigLaserlineDeviceInput {
     pub dataset: RigLaserlineDataset,
     /// Upstream rig calibration (frozen).
     pub upstream: RigUpstreamCalibration,
-    /// Optional per-camera initial plane in camera frame. If `None`, defaults
-    /// to a generic `z=-0.2m` plane.
+    /// Optional per-camera initial plane in camera frame. If `None`, each
+    /// camera's plane is fitted in closed form from its laser pixels.
     pub initial_planes_cam: Option<Vec<LaserPlane>>,
 }
 
@@ -356,11 +356,13 @@ impl ProblemType for RigLaserlineDeviceProblem {
             .iter()
             .filter_map(|r| r.error_px)
             .fold((0.0, 0usize), |(s, c), e| (s + e, c + 1));
-        let mean_reproj_error = if err_count > 0 {
-            err_sum / err_count as f64
-        } else {
-            0.0
-        };
+        if err_count == 0 {
+            return Err(Error::numerical(
+                "no target feature projects through the calibrated cameras, so the \
+                 export has no reprojection error to report",
+            ));
+        }
+        let mean_reproj_error = err_sum / err_count as f64;
 
         per_feature_residuals.laser = laser.features;
         per_feature_residuals.laser_lines = laser.lines;

@@ -118,6 +118,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other methods stayed within 0.3°. Signs are now matched through the
   Tsai-Lenz rotation; motions away from 180° give the same result as before.
 
+- `rig_laserline_device` stops with an error naming the camera when a
+  camera's laser plane cannot be fitted in closed form (no laser pixels, or
+  pixels that do not determine a plane). It used to start that camera's
+  solve from a made-up plane 0.2 m in front of it.
+- Robot poses are checked as they load: a quaternion whose norm is not 1
+  (within 1e-3), a rotation matrix that is a reflection or not orthonormal
+  (within 1e-3), and a `nan` or `inf` value are `pose_parse` errors. They
+  used to be normalized, projected onto the nearest rotation, or accepted.
+- A camera's `roi_xywh` must lie inside its images: a region that runs past
+  them is a `RunError::RoiOutOfBounds` (`roi_out_of_bounds` in Python), where
+  it used to be cropped short silently. `camera_image_sizes`, and so
+  `vcal check`, now read the images of a camera with a region too.
+- `calibrate_dataset` checks the config before reading any image, and the
+  rig hand-eye and rig laser runs load the robot poses and the upstream
+  calibration before detection, so an invalid config or an unreadable pose
+  or upstream file fails the run first.
+- An export with no target feature to average no longer reports a mean
+  reprojection error of 0 (`rig_laserline_device`) or infinity (a tilted
+  planar camera): the calibration fails with an error instead.
+
 ## [0.18.0] - 2026-11-06
 
 ### Migration

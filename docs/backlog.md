@@ -87,6 +87,22 @@ need their measurement first and stay opt-in until it is in.
 - [ ] UQ-TARGET-FLATNESS - Target manufacturing and flatness error in the
   covariance.
 
+## Datasets and the runner (alongside)
+
+- [ ] DATA-VIEW-IDENTITY - A rig laser run matches its upstream rig
+  hand-eye export to its views by position or by a numeric pairing token
+  (`dataset_runner/laser.rs`, `rig_se3_target_from_upstream`,
+  `robot_delta_for_view`). When both runs kept the same number of views but
+  dropped different ones, the positional match pairs the wrong target
+  poses with no error. The cause: `calibrate_dataset` never fills the
+  export's `diagnostics.image_manifest` (the app builds its own), so an
+  export from the CLI or Python carries no view identity. Fill the
+  manifest in `calibrate_dataset` (one source with the app), match the
+  upstream by its frames' image paths or tokens, and make an ambiguous
+  match a typed error. Gate: a rig laser run whose upstream dropped a
+  different view than it did fails; the matching cases give bit-identical
+  results.
+
 ## Regression suite (alongside)
 
 A versioned public suite for regression and for comparison with other
