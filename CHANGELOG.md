@@ -72,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its result in the new mode: the export took the mode from the current
   config, which a config change does not clear. The export now reads the
   mode the hand-eye was solved in.
+- `mvg::homography::decompose_homography` decomposes a homography of either
+  sign. A homography with a negative determinant (`−H`, as a DLT that fixes
+  `h33 = 1` returns when the true `h33` is negative) gave every candidate a
+  rotation off by a half-turn about the plane normal. Its rank test is now
+  relative to the largest singular value, and non-finite entries are a
+  `Degenerate` error.
+- `init::pnp::dlt` and `dlt_ransac` return a `Degenerate` error for coplanar
+  (or collinear) world points instead of an arbitrary pose: a planar object
+  leaves the 12-unknown DLT underdetermined. Use `epnp` for a planar object.
 
 ## [0.18.0] - 2026-11-06
 

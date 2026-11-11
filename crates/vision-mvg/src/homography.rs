@@ -52,16 +52,26 @@ pub fn homography_transfer_inverse(h: &Mat3, pt: &Pt2) -> Result<Pt2> {
 /// additional constraints (e.g., visible points must have positive depth,
 /// plane normal must face the camera).
 pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
-    // Normalize H by middle singular value so that σ2 = 1.
+    if h.iter().any(|v| !v.is_finite()) {
+        return Err(MvgError::degenerate("homography has non-finite entries"));
+    }
+    // Normalize H by its middle singular value so that σ2 = 1, and by its
+    // sign so that det(H) > 0. H is defined up to scale, sign included, but
+    // `R + t nᵀ/d` has a positive determinant (`d₂/d₁`, the ratio of the two
+    // cameras' distances to the plane, both in front of it): the
+    // construction below assumes that sign, and `−H` would give every
+    // candidate a rotation off by a half-turn about the plane normal.
     let svd_h = h.svd(false, false);
+    let s1 = svd_h.singular_values[0];
     let s2 = svd_h.singular_values[1];
     let s3 = svd_h.singular_values[2];
 
-    if s3 < 1e-12 {
+    if s3 <= 1e-12 * s1 {
         return Err(MvgError::degenerate("degenerate homography (rank < 3)"));
     }
 
-    let h_n = h / s2;
+    let sign = if h.determinant() < 0.0 { -1.0 } else { 1.0 };
+    let h_n = h * (sign / s2);
 
     // Eigendecompose H^T H: eigenvalues γ1 ≥ γ2 ≈ 1 ≥ γ3.
     let hth = h_n.transpose() * h_n;
@@ -222,6 +232,29 @@ mod tests {
         }
     }
 
+    /// Whether one candidate of `decomps` is the ground truth: the rotation
+    /// within 1°, the translation direction and the normal within 8°.
+    fn recovers(
+        decomps: &[HomographyDecomposition],
+        r_gt: &Mat3,
+        t_gt: &Vec3,
+        n_gt: &Vec3,
+    ) -> bool {
+        decomps.iter().any(|decomp| {
+            let r_diff = decomp.r.transpose() * r_gt;
+            let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
+            let ang_deg = cos_theta.acos().to_degrees();
+            // The translation's scale is unknown.
+            let t_cos = if t_gt.norm() > 1e-12 && decomp.t.norm() > 1e-12 {
+                decomp.t.normalize().dot(&t_gt.normalize()).abs()
+            } else {
+                1.0
+            };
+            let n_cos = decomp.normal.normalize().dot(&n_gt.normalize()).abs();
+            ang_deg < 1.0 && t_cos > 0.99 && n_cos > 0.99
+        })
+    }
+
     #[test]
     fn decompose_homography_roundtrip() {
         let (r_gt, t_gt, n_gt, d, _) = make_planar_scene();
@@ -229,33 +262,27 @@ mod tests {
 
         let decomps = decompose_homography(&h).unwrap();
         assert!(!decomps.is_empty());
-
-        let mut found = false;
-        for decomp in &decomps {
-            // Check rotation.
-            let r_diff = decomp.r.transpose() * r_gt;
-            let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
-            let ang_deg = cos_theta.acos().to_degrees();
-
-            // Check translation direction (scale is unknown).
-            let t_cos = if t_gt.norm() > 1e-12 && decomp.t.norm() > 1e-12 {
-                decomp.t.normalize().dot(&t_gt.normalize()).abs()
-            } else {
-                1.0
-            };
-
-            // Check normal direction.
-            let n_cos = decomp.normal.normalize().dot(&n_gt.normalize()).abs();
-
-            if ang_deg < 1.0 && t_cos > 0.99 && n_cos > 0.99 {
-                found = true;
-            }
-        }
-
         assert!(
-            found,
+            recovers(&decomps, &r_gt, &t_gt, &n_gt),
             "decompose_homography did not recover the correct pose/normal"
         );
+    }
+
+    /// A homography is defined up to scale, sign included (a DLT that fixes
+    /// `h33 = 1` flips it whenever the true `h33` is negative): every scale
+    /// decomposes to the same candidates.
+    #[test]
+    fn decompose_homography_is_invariant_to_scale_and_sign() {
+        let (r_gt, t_gt, n_gt, d, _) = make_planar_scene();
+        let h = homography_from_pose_and_plane(&r_gt, &t_gt, &n_gt, d);
+
+        for scale in [-1.0, -3.7, 0.01, -250.0] {
+            let decomps = decompose_homography(&(h * scale)).unwrap();
+            assert!(
+                recovers(&decomps, &r_gt, &t_gt, &n_gt),
+                "scale {scale}: no candidate is the ground truth"
+            );
+        }
     }
 
     #[test]

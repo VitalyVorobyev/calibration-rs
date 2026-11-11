@@ -30,6 +30,12 @@ pub fn dlt_ransac(
     if n < 6 || image.len() != n {
         return Err(GeometryError::InsufficientData { need: 6, got: n });
     }
+    // Coplanar or collinear world points defeat every sample, whatever the
+    // outliers: say so instead of reporting no consensus. Such a set leaves
+    // the solve on all the points degenerate too, which is cheap to check.
+    if let Err(err @ GeometryError::Degenerate { .. }) = dlt::dlt(world, image, k) {
+        return Err(err);
+    }
 
     #[derive(Clone)]
     struct PnpDatum {
@@ -160,5 +166,30 @@ mod tests {
 
         assert!(dt < 1e-3, "translation error too large: {}", dt);
         assert!(ang < 1e-3, "rotation error too large: {}", ang);
+    }
+
+    #[test]
+    fn ransac_rejects_a_planar_object() {
+        let k = FxFyCxCy {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+        };
+        let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
+        let iso_gt = Isometry3::from_parts(
+            Translation3::new(0.1, -0.05, 1.0),
+            Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
+        );
+        let world: Vec<Pt3> = (0..30)
+            .map(|i| Pt3::new((i % 6) as Real * 0.1, (i / 6) as Real * 0.1, 0.0))
+            .collect();
+        let image: Vec<Pt2> = world
+            .iter()
+            .map(|pw| cam.project_point(&iso_gt.transform_point(pw)).unwrap())
+            .collect();
+
+        let err = dlt_ransac(&world, &image, &k, &RansacOptions::new(1.0)).unwrap_err();
+        assert!(matches!(err, GeometryError::Degenerate { .. }), "{err:?}");
     }
 }
