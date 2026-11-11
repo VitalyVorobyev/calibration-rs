@@ -99,6 +99,44 @@ pairs returned a rotation 180° off
 (`every_method_recovers_motions_past_120_degrees` fails without the fix).
 Data whose pairs all rotate less than 120° gives bit-identical results.
 
+**Near 180°.** `w ≥ 0` fails within noise of a half turn, where both scalar
+parts are at noise level (or exactly zero, and nalgebra's branch decides).
+The methods differ in what a mismatched pair does:
+
+- **Tsai–Lenz**: at exactly 180° the true `q_X` is an eigenvector of the
+  mismatched pair's block `2(I + L(q_A)R(q_B))` (eigenvalue 4); the pair raises
+  the smallest eigenvalue without moving its eigenvector. Unaffected while
+  the consistent pairs outnumber the mismatched ones.
+- **Park–Martin**: a pair whose `β = log R_B` comes out flipped turns
+  `Σ α βᵀ = R_X S` into `R_X (S − 2π² b bᵀ)`; the polar factor is still
+  `R_X` while that stays positive definite. Unaffected likewise.
+- **Shah**: absolute poses, no pairs, no quaternions. Unaffected.
+- **Daniilidis**: its six rows per pair drop the scalar equation and lose that
+  invariance. Two mismatched pairs among 91 (six exact 180° wrist flips on
+  eight stations) put it 1.03° and 5.0 mm off, noise-free. Fix: its signs
+  are matched through the Tsai–Lenz rotation, `q_B → −q_B` when
+  `q_A · (q_X0 q_B q_X0⁻¹) < 0` (`sign_matched_quats`); this is the `w ≥ 0`
+  choice whenever `q_X0` is within 90° of the truth and the pair is away from
+  180°, so other data gives bit-identical results.
+
+Measured (`near_half_turn_motions_keep_every_method_accurate`: 14 views,
+six partners at 170°–180°, versus the same scene at 85°–90°; 40 draws, camera
+0.2° / 1 mm, robot 0.04° / 0.2 mm per axis; worst error of `X`):
+
+| method | mode | quarter turns | half turns, before | half turns, after |
+|---|---|---|---|---|
+| Tsai–Lenz | eye-in-hand | 0.230° 1.31 mm | 0.222° 1.03 mm | same |
+| Park–Martin | eye-in-hand | 0.244° 1.32 mm | 0.224° 1.03 mm | same |
+| Daniilidis | eye-in-hand | 0.265° 1.34 mm | **1.922° 11.10 mm** | 0.236° 0.95 mm |
+| Shah | eye-in-hand | 0.230° 1.32 mm | 0.215° 0.89 mm | same |
+| Tsai–Lenz | eye-to-hand | 0.278° 6.36 mm | 0.242° 4.82 mm | same |
+| Park–Martin | eye-to-hand | 0.286° 6.36 mm | 0.251° 4.82 mm | same |
+| Daniilidis | eye-to-hand | 0.580° 6.36 mm | **2.209° 13.95 mm** | 0.400° 4.95 mm |
+| Shah | eye-to-hand | 0.278° 6.47 mm | 0.233° 4.80 mm | same |
+
+The min-angle filter needs no upper bound: no method loses accuracy on pairs
+near 180°, which carry the most rotation.
+
 **Conditioning.** Pairs whose smaller rotation angle (of `A` or `B`) is below
 `min_motion_angle_deg` (default **5°**) are dropped. There is no per-pair
 `A`/`B` axis test — `A` and `B` share their axis whenever `R_X` is the
@@ -240,7 +278,8 @@ estimated `gripper_se3_target` recovers to ~0.1 mm, while `camera_se3_base`
 - **Linear init** (`vision-calibration-linear::handeye`, every method):
   `every_method_recovers_exact_eye_in_hand` / `_eye_to_hand`,
   `_an_identity_rotation_mount`, `_a_mount_rotated_about_a_motion_axis`,
-  `_motions_past_120_degrees` (the sign fix);
+  `_motions_past_120_degrees` (the sign fix), `_half_turn_motions` and
+  `near_half_turn_motions_keep_every_method_accurate` (near 180°);
   `every_method_rejects_motions_about_a_single_axis`,
   `_translation_only_motion`; `invalid_input_is_a_typed_error`;
   `rotation_poor_noisy_motion_stays_finite`.

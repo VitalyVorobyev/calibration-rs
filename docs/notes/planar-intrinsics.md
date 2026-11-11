@@ -35,6 +35,19 @@ alternates with `K`: fit Brown–Conrady coefficients by linear least squares
 against the homography residuals (`distortion_fit`; `k1, k2, p1, p2` by
 default, `k3` fixed), undistort the pixels, re-estimate `K`.
 
+**Conditioning.** `V` is built from pixel-unit homographies with no
+normalizing camera `K₀`, and `null_space` squares its condition number.
+Measured for ten views tilted 10°–40° with unit-norm `H`: `σ₁/σ₅(V)` is
+2.3e3, 1.1e4, 2.1e4, 3.7e4 at fx = 800, 4000, 8000, 16 000 px (linear in
+f, not quadratic), so `κ²` ≤ 1.4e9 and noise-free homographies return `K`
+to ~1e-13 relative at every focal length. With σ ≈ 0.1 px corner noise
+(50 draws), the median |Δfx|/fx is 0.019 % at 800 px (1280 px sensor) and
+0.006 % at 16 000 px (8192 px sensor), but 0.082 % (max 0.35 %) at
+16 000 px on a 2448 px sensor: the narrow field of view loses perspective,
+not precision. Normalizing by `K₀` from the image extent before forming
+`V` is no better (0.089 %, max 0.36 %), so it is not done.
+(`long_focal_lengths_stay_exact`, `long_focal_lengths_initialize_accurately`.)
+
 ## Cost
 
 Non-linear refinement minimizes total squared reprojection error

@@ -293,11 +293,40 @@ fn quat_of(r: &Matrix3<Real>) -> UnitQuaternion<Real> {
     }
 }
 
+/// The quaternions of a pair, `q_B` signed so that `q_A = q_X q_B q_X⁻¹`
+/// holds for a rotation `q_x` near the solution.
+///
+/// Away from 180° this is the sign [`quat_of`] gives, for any `q_x` within
+/// 90° of the truth. Within noise of 180° both scalar parts are at the level
+/// of the noise, and their signs say nothing about the pair.
+fn sign_matched_quats(
+    p: &MotionPair,
+    q_x: &UnitQuaternion<Real>,
+) -> (UnitQuaternion<Real>, UnitQuaternion<Real>) {
+    let (qa, qb) = (quat_of(&p.rot_a), quat_of(&p.rot_b));
+    if qa.coords.dot(&(q_x * qb * q_x.inverse()).coords) < 0.0 {
+        (qa, UnitQuaternion::new_unchecked(-qb.into_inner()))
+    } else {
+        (qa, qb)
+    }
+}
+
 // ---------- rotation, then translation (Tsai–Lenz, Park–Martin) ----------
 
 /// Rotation of `R_A R_X = R_X R_B` from the stacked quaternion constraints
 /// `[L(q_A) − R(q_B)] q_X = 0`.
 fn rotation_tsai_lenz(pairs: &[MotionPair]) -> Result<Matrix3<Real>, Error> {
+    Ok(quat_tsai_lenz(pairs)?.to_rotation_matrix().into_inner())
+}
+
+/// [`rotation_tsai_lenz`] as a quaternion.
+///
+/// A pair within noise of 180° can enter with `q_B` of the wrong sign, as
+/// `q_A q_X = −q_X q_B`. At 180° exactly the true `q_X` is still an
+/// eigenvector of that pair's block, so the pair raises the smallest
+/// eigenvalue without moving its eigenvector, and the solution holds while
+/// the consistent pairs outnumber such pairs.
+fn quat_tsai_lenz(pairs: &[MotionPair]) -> Result<UnitQuaternion<Real>, Error> {
     fn quat_left(q: &UnitQuaternion<Real>) -> Matrix4<Real> {
         let (w, x, y, z) = (q.w, q.i, q.j, q.k);
         Matrix4::new(w, -x, -y, -z, x, w, -z, y, y, z, w, -x, z, -y, x, w)
@@ -317,9 +346,7 @@ fn rotation_tsai_lenz(pairs: &[MotionPair]) -> Result<Matrix3<Real>, Error> {
     // eigen — avoids nalgebra's hang-prone dense SVD.
     let q_vec = vision_calibration_core::linalg::null_space(&m)?.vector;
     let q = Quaternion::new(q_vec[0], q_vec[1], q_vec[2], q_vec[3]).normalize();
-    Ok(UnitQuaternion::from_quaternion(q)
-        .to_rotation_matrix()
-        .into_inner())
+    Ok(UnitQuaternion::from_quaternion(q))
 }
 
 /// Rotation of `R_A = R_X R_B R_Xᵀ` from the rotation vectors: `α = R_X β`
@@ -369,12 +396,19 @@ fn iso_from(rot: Matrix3<Real>, t: Vector3<Real>) -> Iso3 {
 /// ```
 ///
 /// (`a`, `b`, `a'`, `b'` the vector parts of the pair's real and dual
-/// quaternions, sign-matched so their scalar parts agree). The solution is
+/// quaternions, sign-matched so `q_A = q_X q_B q_X⁻¹`). The solution is
 /// the two-dimensional null space `λ₁ v₁ + λ₂ v₂` of the stack, fixed by the
 /// unit-norm and `q · q' = 0` constraints. Translations are divided by their
 /// RMS first so the dual rows weigh like the real ones; the solution is
 /// rescaled after.
+///
+/// The signs are matched through the Tsai–Lenz rotation
+/// ([`sign_matched_quats`]), not by the scalar parts alone: within noise of
+/// 180° those vanish, and a pair entering with mismatched signs moves this
+/// solution (by 1° and 5 mm from two such pairs among 91, noise-free) where
+/// it leaves Tsai–Lenz's in place.
 fn daniilidis(pairs: &[MotionPair]) -> Result<Iso3, Error> {
+    let q_ref = quat_tsai_lenz(pairs)?;
     let rms = (pairs
         .iter()
         .map(|p| p.tra_a.norm_squared() + p.tra_b.norm_squared())
@@ -389,8 +423,7 @@ fn daniilidis(pairs: &[MotionPair]) -> Result<Iso3, Error> {
 
     let mut normal = SMatrix::<Real, 8, 8>::zeros();
     for p in pairs {
-        // Both scalar parts cos(θ/2) ≥ 0 (ambiguous only at θ = 180°).
-        let (qa, qb) = (quat_of(&p.rot_a), quat_of(&p.rot_b));
+        let (qa, qb) = sign_matched_quats(p, &q_ref);
         let dual = |t: &Vector3<Real>, q: &UnitQuaternion<Real>| {
             Quaternion::from_imag(0.5 * t / scale) * q.into_inner()
         };
@@ -794,5 +827,155 @@ mod tests {
         );
         let m: HandeyeMethod = serde_json::from_str("\"tsai_lenz\"").unwrap();
         assert_eq!(m, HandeyeMethod::default());
+    }
+
+    /// Deterministic standard normal samples: SplitMix64 and Box–Muller.
+    struct Gauss(u64);
+
+    impl Gauss {
+        fn uniform(&mut self) -> Real {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            ((z ^ (z >> 31)) >> 11) as Real / (1u64 << 53) as Real
+        }
+
+        fn sample(&mut self) -> Real {
+            let u1 = self.uniform().max(Real::MIN_POSITIVE);
+            let u2 = self.uniform();
+            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+        }
+
+        fn vector(&mut self, sigma: Real) -> Vector3<Real> {
+            Vector3::new(self.sample(), self.sample(), self.sample()) * sigma
+        }
+
+        /// `p` moved by a random rotation and translation of per-axis
+        /// standard deviations `rot_sigma` (rad) and `t_sigma`.
+        fn perturb(&mut self, p: &Iso3, rot_sigma: Real, t_sigma: Real) -> Iso3 {
+            let rot = UnitQuaternion::from_scaled_axis(self.vector(rot_sigma));
+            Isometry3::from_parts(Translation3::from(self.vector(t_sigma)), rot) * p
+        }
+    }
+
+    /// Eight stations rotated by up to 35°, then one partner per entry of
+    /// `turns_deg`: station `k` turned by `turns_deg[k]` degrees about an
+    /// axis of the gripper (the flange axis first), as a wrist flip does.
+    fn stations_with_turns(turns_deg: &[Real]) -> Vec<Iso3> {
+        let mut robot: Vec<Iso3> = (0..8)
+            .map(|k| {
+                let kf = k as Real;
+                make_iso(
+                    (
+                        0.5 * (kf * 0.9).sin(),
+                        0.4 * (kf * 1.3).cos(),
+                        0.6 * (kf * 0.7).sin(),
+                    ),
+                    (0.1 * kf.sin(), -0.05 * kf, 0.8 + 0.03 * kf),
+                )
+            })
+            .collect();
+        let axes = [
+            Vector3::z(),
+            Vector3::x(),
+            Vector3::new(0.3, 0.2, 1.0),
+            Vector3::y(),
+            Vector3::new(1.0, -1.0, 0.4),
+            Vector3::new(-0.2, 0.1, 1.0),
+        ];
+        for (k, (&deg, axis)) in turns_deg.iter().zip(axes).enumerate() {
+            let rot = UnitQuaternion::from_axis_angle(&Unit::new_normalize(axis), deg.to_radians());
+            let turn = Isometry3::from_parts(Translation3::new(0.02, -0.01, 0.03), rot);
+            robot.push(robot[k] * turn);
+        }
+        robot
+    }
+
+    /// Relative motions of exactly 180°: both quaternions of such a pair
+    /// have a zero scalar part, so `w ≥ 0` cannot match their signs and
+    /// nalgebra's branch choice decides. Two of this scene's 91 pairs come
+    /// out mismatched; Tsai–Lenz and Park–Martin absorb them (the true
+    /// rotation stays their solution), Daniilidis's dual-quaternion rows did
+    /// not (1.03° and 5.0 mm off before its signs were matched).
+    #[test]
+    fn every_method_recovers_half_turn_motions() {
+        let x = make_iso((0.4, -0.3, 0.9), (0.05, 0.02, 0.1));
+        let z = make_iso((0.2, 0.1, -0.4), (0.3, -0.2, 0.9));
+        let robot = stations_with_turns(&[180.0; 6]);
+        for method in METHODS {
+            assert_recovers(method, &x, &z, &robot, 1e-9);
+            let cams: Vec<Iso3> = robot.iter().map(|bg| z * bg * x).collect();
+            let est = estimate_eye_to_hand(method, &robot, &cams, 1.0).unwrap();
+            let (dt, dr) = pose_error(&est.gripper_se3_target, &x);
+            assert!(
+                dt < 1e-9 && dr < 1e-9,
+                "{method:?} eye-to-hand: X off by {dt} m, {dr} rad"
+            );
+        }
+    }
+
+    /// Wrist flips within noise of 180° (170°–180°) must not make any method
+    /// worse than the same scene with quarter turns (85°–90°) in their
+    /// place. Over 40 noisy draws (camera 0.2° and 1 mm, robot 0.04° and
+    /// 0.2 mm per axis) the largest rotation and translation errors of `X`
+    /// stay within 1.5× those of the quarter-turn scene, eye-in-hand and
+    /// eye-to-hand.
+    #[test]
+    fn near_half_turn_motions_keep_every_method_accurate() {
+        let x = make_iso((0.4, -0.3, 0.9), (0.05, 0.02, 0.1));
+        let z = make_iso((0.2, 0.1, -0.4), (0.3, -0.2, 0.9));
+        let half_turns = [170.0, 178.0, 179.0, 179.5, 179.9, 180.0];
+        let quarter_turns = half_turns.map(|d| 0.5 * d);
+        // The largest (rotation deg, translation mm) error of X over the draws.
+        let worst = |method: HandeyeMethod, turns: &[Real], eye_to_hand: bool| {
+            let robot = stations_with_turns(turns);
+            let (mut rot, mut tra): (Real, Real) = (0.0, 0.0);
+            for seed in 0..40 {
+                let mut g = Gauss(0xC0FF_EE00 + seed);
+                let cams: Vec<Iso3> = robot
+                    .iter()
+                    .map(|bg| {
+                        let c = if eye_to_hand {
+                            z * bg * x
+                        } else {
+                            (bg * x).inverse() * z
+                        };
+                        g.perturb(&c, 0.2_f64.to_radians(), 1e-3)
+                    })
+                    .collect();
+                let measured: Vec<Iso3> = robot
+                    .iter()
+                    .map(|bg| g.perturb(bg, 0.04_f64.to_radians(), 2e-4))
+                    .collect();
+                let est = if eye_to_hand {
+                    estimate_eye_to_hand(method, &measured, &cams, 1.0)
+                        .map(|e| e.gripper_se3_target)
+                } else {
+                    estimate_eye_in_hand(method, &measured, &cams, 1.0)
+                        .map(|e| e.gripper_se3_camera)
+                }
+                .unwrap();
+                let (dt, dr) = pose_error(&est, &x);
+                rot = rot.max(dr.to_degrees());
+                tra = tra.max(dt * 1e3);
+            }
+            (rot, tra)
+        };
+        for eye_to_hand in [false, true] {
+            for method in METHODS {
+                let (rot_q, tra_q) = worst(method, &quarter_turns, eye_to_hand);
+                let (rot_h, tra_h) = worst(method, &half_turns, eye_to_hand);
+                println!(
+                    "{method:?} eye_to_hand={eye_to_hand}: quarter turns {rot_q:.3}° {tra_q:.2} mm, \
+                     half turns {rot_h:.3}° {tra_h:.2} mm"
+                );
+                assert!(
+                    rot_h <= 1.5 * rot_q && tra_h <= 1.5 * tra_q,
+                    "{method:?} eye_to_hand={eye_to_hand}: half turns {rot_h:.3}° {tra_h:.2} mm \
+                     vs quarter turns {rot_q:.3}° {tra_q:.2} mm"
+                );
+            }
+        }
     }
 }

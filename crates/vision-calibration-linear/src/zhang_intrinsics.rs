@@ -169,7 +169,10 @@ impl PlanarIntrinsicsLinearInit {
 
         // Solve `V b = 0` for the smallest right-singular vector via `AᵀA`
         // symmetric eigen (see `math::null_space`) — avoids nalgebra's
-        // hang-prone dense SVD on the `2M×6` design matrix.
+        // hang-prone dense SVD on the `2M×6` design matrix. `V` is in pixel
+        // units, not normalized, but its condition number grows only
+        // linearly with the focal length (≈ 3.7e4 at 16 000 px), so squaring
+        // it costs no accuracy that matters (`long_focal_lengths_stay_exact`).
         let b = vision_calibration_core::linalg::null_space(&vmtx)?.vector;
 
         let b11 = b[0];
@@ -382,6 +385,65 @@ mod tests {
         }
         let above = tilted_homographies(&kmtx, Real::to_radians(1.25));
         assert!(check_board_orientations(&above, &intr).is_ok());
+    }
+
+    /// The design matrix is built from pixel-unit homographies and solved
+    /// through its normal matrix, which squares its condition number. That
+    /// number grows only linearly with the focal length (2.3–2.8 · f for
+    /// these views with unit-norm homographies, 3.7e4 at 16 000 px), so the
+    /// squared one stays far inside double precision: exact homographies,
+    /// unit-norm as a DLT returns them or in their raw `K [r1 r2 t]` scale,
+    /// give `K` to 1e-9 relative from 800 to 16 000 px.
+    #[test]
+    fn long_focal_lengths_stay_exact() {
+        for (f, w, h) in [
+            (800.0, 1280.0, 960.0),
+            (4000.0, 4096.0, 3000.0),
+            (8000.0, 6000.0, 4000.0),
+            (16000.0, 8192.0, 5460.0),
+            (16000.0, 2448.0, 2048.0),
+        ] {
+            let truth = FxFyCxCy {
+                fx: f,
+                fy: 1.002 * f,
+                cx: 0.5 * w + 7.0,
+                cy: 0.5 * h - 5.0,
+            };
+            let kmtx = truth.k_matrix();
+            // Ten views of a 0.32 m board spanning half the image width,
+            // tilted 10°–40° in varied directions.
+            let depth = 2.0 * f * 0.32 / w;
+            let raw: Vec<Mat3> = (0..10)
+                .map(|k| {
+                    let kf = k as Real;
+                    let tilt = (10.0 + 30.0 * kf / 9.0).to_radians();
+                    let dir = kf * 2.4;
+                    let rot = Rotation3::from_euler_angles(
+                        tilt * dir.cos(),
+                        tilt * dir.sin(),
+                        0.2 * (1.7 * kf).sin(),
+                    );
+                    let t = Vector3::new(0.03 * (0.9 * kf).sin(), 0.03 * (1.3 * kf).cos(), 1.0)
+                        * depth
+                        - rot * Vector3::new(0.16, 0.12, 0.0);
+                    synthetic_homography(&kmtx, rot, t)
+                })
+                .collect();
+            let unit: Vec<Mat3> = raw.iter().map(|h| h / h.norm()).collect();
+            for hmtxs in [&raw, &unit] {
+                let est = estimate_intrinsics_from_homographies(hmtxs).unwrap();
+                let rel = [
+                    (est.fx - truth.fx) / truth.fx,
+                    (est.fy - truth.fy) / truth.fy,
+                    (est.cx - truth.cx) / truth.fx,
+                    (est.cy - truth.cy) / truth.fy,
+                ];
+                assert!(
+                    rel.iter().all(|e| e.abs() < 1e-9),
+                    "f = {f} px, {w}×{h}: relative errors {rel:?}"
+                );
+            }
+        }
     }
 
     #[test]
