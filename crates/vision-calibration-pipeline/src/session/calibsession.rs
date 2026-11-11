@@ -61,8 +61,12 @@ pub struct CalibrationSession<P: ProblemType> {
     /// Crate-private — consumers read [`Self::metadata`](Self::metadata).
     pub(crate) metadata: SessionMetadata,
 
-    /// Configuration parameters (always present, defaults if not explicitly set).
-    pub config: P::Config,
+    /// Configuration parameters (always present, defaults if not explicitly
+    /// set). Crate-private — consumers read [`Self::config`](Self::config)
+    /// and change it through [`Self::set_config`](Self::set_config) or
+    /// [`Self::update_config`](Self::update_config), which validate it and
+    /// apply the problem's invalidation policy.
+    pub(crate) config: P::Config,
 
     /// Input observations (embedded). `None` until set.
     input: Option<P::Input>,
@@ -77,8 +81,9 @@ pub struct CalibrationSession<P: ProblemType> {
     /// Final calibration output. `None` until computed.
     output: Option<P::Output>,
 
-    /// Collection of generated exports.
-    pub exports: Vec<ExportRecord<P::Export>>,
+    /// Collection of generated exports. Crate-private — consumers read
+    /// [`Self::exports`](Self::exports).
+    pub(crate) exports: Vec<ExportRecord<P::Export>>,
 
     /// Operation log (lightweight audit trail).
     ///
@@ -172,11 +177,6 @@ impl<P: ProblemType> CalibrationSession<P> {
         self.input.as_ref()
     }
 
-    /// Get a mutable reference to the input, if set.
-    pub fn input_mut(&mut self) -> Option<&mut P::Input> {
-        self.input.as_mut()
-    }
-
     /// Get a reference to the input, or error if not set.
     ///
     /// # Errors
@@ -185,17 +185,6 @@ impl<P: ProblemType> CalibrationSession<P> {
     pub fn require_input(&self) -> Result<&P::Input, Error> {
         self.input
             .as_ref()
-            .ok_or_else(|| Error::not_available("input"))
-    }
-
-    /// Get a mutable reference to the input, or error if not set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if input is not set.
-    pub fn require_input_mut(&mut self) -> Result<&mut P::Input, Error> {
-        self.input
-            .as_mut()
             .ok_or_else(|| Error::not_available("input"))
     }
 
@@ -223,6 +212,11 @@ impl<P: ProblemType> CalibrationSession<P> {
     // ─────────────────────────────────────────────────────────────────────────
     // Configuration Management
     // ─────────────────────────────────────────────────────────────────────────
+
+    /// The configuration the steps run with.
+    pub fn config(&self) -> &P::Config {
+        &self.config
+    }
 
     /// Set configuration, applying validation and invalidation policy.
     ///
@@ -274,11 +268,6 @@ impl<P: ProblemType> CalibrationSession<P> {
         self.output.as_ref()
     }
 
-    /// Get a mutable reference to the output, if computed.
-    pub fn output_mut(&mut self) -> Option<&mut P::Output> {
-        self.output.as_mut()
-    }
-
     /// Get a reference to the output, or error if not computed.
     ///
     /// # Errors
@@ -290,8 +279,8 @@ impl<P: ProblemType> CalibrationSession<P> {
             .ok_or_else(|| Error::not_available("output"))
     }
 
-    /// Set the output (typically called by step functions).
-    pub fn set_output(&mut self, output: P::Output) {
+    /// Set the output (called by the step functions).
+    pub(crate) fn set_output(&mut self, output: P::Output) {
         self.output = Some(output);
         self.metadata.touch();
     }
@@ -380,13 +369,14 @@ impl<P: ProblemType> CalibrationSession<P> {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Log a successful operation.
-    pub fn log_success(&mut self, operation: impl Into<String>) {
+    #[cfg(test)]
+    pub(crate) fn log_success(&mut self, operation: impl Into<String>) {
         self.log.push(LogEntry::success(operation));
         self.metadata.touch();
     }
 
     /// Log a successful operation with notes.
-    pub fn log_success_with_notes(
+    pub(crate) fn log_success_with_notes(
         &mut self,
         operation: impl Into<String>,
         notes: impl Into<String>,
@@ -397,9 +387,14 @@ impl<P: ProblemType> CalibrationSession<P> {
     }
 
     /// Log a failed operation.
-    pub fn log_failure(&mut self, operation: impl Into<String>, error: impl Into<String>) {
+    pub(crate) fn log_failure(&mut self, operation: impl Into<String>, error: impl Into<String>) {
         self.log.push(LogEntry::failure(operation, error));
         self.metadata.touch();
+    }
+
+    /// The exports this session produced, oldest first.
+    pub fn exports(&self) -> &[ExportRecord<P::Export>] {
+        &self.exports
     }
 
     /// Immutable view of the operation log (lightweight audit trail).
@@ -447,18 +442,6 @@ impl<P: ProblemType> CalibrationSession<P> {
     // ─────────────────────────────────────────────────────────────────────────
     // Reset
     // ─────────────────────────────────────────────────────────────────────────
-
-    /// Reset state to default, keeping input, config, and output.
-    pub fn reset_state(&mut self) {
-        self.state = P::State::default();
-        self.metadata.touch();
-    }
-
-    /// Reset output, keeping input, config, and state.
-    pub fn reset_output(&mut self) {
-        self.output = None;
-        self.metadata.touch();
-    }
 
     /// Reset everything except config and description.
     pub fn reset(&mut self) {
@@ -916,34 +899,6 @@ mod tests {
             restored.metadata.schema_version,
             MockProblem::schema_version()
         );
-    }
-
-    #[test]
-    fn reset_state() {
-        let mut session = CalibrationSession::<MockProblem>::new();
-        session.set_input(MockInput { data: vec![1.0] }).unwrap();
-        session.state.computed = Some(42.0);
-        session.set_output(MockOutput { result: 100.0 });
-
-        session.reset_state();
-
-        assert!(session.has_input()); // Kept
-        assert!(session.state.computed.is_none()); // Cleared
-        assert!(session.has_output()); // Kept
-    }
-
-    #[test]
-    fn reset_output() {
-        let mut session = CalibrationSession::<MockProblem>::new();
-        session.set_input(MockInput { data: vec![1.0] }).unwrap();
-        session.state.computed = Some(42.0);
-        session.set_output(MockOutput { result: 100.0 });
-
-        session.reset_output();
-
-        assert!(session.has_input()); // Kept
-        assert!(session.state.computed.is_some()); // Kept
-        assert!(!session.has_output()); // Cleared
     }
 
     #[test]

@@ -45,6 +45,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The single-camera seed follows with `gripper_se3_camera` / `camera_se3_base`
   (`single_cam_handeye.EyeInHandManualInit`, `EyeToHandManualInit`).
 
+- **`CalibrationSession` keeps its fields behind methods** (breaking). The
+  `config` and `exports` fields are private: read them with `config()` and
+  `exports()`, and change the config with `set_config` or `update_config`,
+  which validate it and apply the problem's invalidation policy. The
+  step-function plumbing is no longer public (`set_output`, `log_success`,
+  `log_success_with_notes`, `log_failure`), nor are the mutable accessors
+  that bypassed validation (`input_mut`, `require_input_mut`, `output_mut`).
+  `reset_output` is removed (it was `clear_output`), as is `reset_state`.
+
+  ```rust
+  // before
+  let mode = session.config.handeye_init.handeye_mode;
+  // after
+  let mode = session.config().handeye_init.handeye_mode;
+  ```
+
+- **`HandeyeEstimate` records its `mode`** (breaking for code that builds
+  one). The saved sessions of `single_cam_handeye` and `rig_handeye` carry it,
+  and their `schema_version` is bumped (3 and 2), so a session saved before
+  this release is refused with a version error instead of a decoding error.
+
+### Fixed
+
+- A hand-eye session whose `handeye_mode` was changed after solving exported
+  its result in the new mode: the export took the mode from the current
+  config, which a config change does not clear. The export now reads the
+  mode the hand-eye was solved in.
+
 ## [0.18.0] - 2026-11-06
 
 ### Migration

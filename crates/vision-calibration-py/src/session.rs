@@ -168,7 +168,7 @@ macro_rules! session_class {
             }
 
             fn config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-                to_py(py, &self.inner.config)
+                to_py(py, self.inner.config())
             }
 
             fn has_output(&self) -> bool {
@@ -185,7 +185,7 @@ macro_rules! session_class {
             }
 
             fn exports(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-                to_py(py, &self.inner.exports)
+                to_py(py, &self.inner.exports())
             }
 
             fn log(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {

@@ -305,7 +305,7 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn schema_version() -> u32 {
-        1
+        2
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
@@ -391,7 +391,7 @@ impl ProblemType for RigHandeyeProblem {
     fn export(
         input: &Self::Input,
         output: &Self::Output,
-        config: &Self::Config,
+        _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
         let params = &output.params;
         let cam_se3_rig = inverse_poses(&params.cam_to_rig);
@@ -402,7 +402,7 @@ impl ProblemType for RigHandeyeProblem {
             .copied()
             .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
-        let mode = config.handeye_init.handeye_mode;
+        let mode = output.mode;
         let handeye = params.handeye;
         let solution = HandeyeSolution::new(mode, handeye, target_pose);
 
@@ -580,7 +580,7 @@ mod tests {
     #[test]
     fn problem_name_and_version() {
         assert_eq!(RigHandeyeProblem::name(), "rig_handeye_v2");
-        assert_eq!(RigHandeyeProblem::schema_version(), 1);
+        assert_eq!(RigHandeyeProblem::schema_version(), 2);
     }
 
     fn make_dummy_output() -> HandeyeEstimate {
@@ -595,6 +595,7 @@ mod tests {
         );
 
         HandeyeEstimate {
+            mode: HandeyeMode::EyeInHand,
             params: HandeyeParams {
                 cameras: vec![vision_calibration_core::pinhole_camera_params(&camera)],
                 cam_to_rig: vec![Iso3::identity()],
@@ -651,7 +652,8 @@ mod tests {
 
     #[test]
     fn export_eye_to_hand_is_explicit() {
-        let output = make_dummy_output();
+        let mut output = make_dummy_output();
+        output.mode = HandeyeMode::EyeToHand;
         let config = RigHandeyeConfig {
             handeye_init: HandeyeInitConfig {
                 handeye_mode: HandeyeMode::EyeToHand,
