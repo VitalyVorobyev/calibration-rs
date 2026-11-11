@@ -62,7 +62,7 @@ describe("mergeConfig", () => {
     };
     const overrides = {
       camera: { model: { sensor: "scheimpflug" } },
-      handeye_init: { handeye_mode: "EyeToHand" },
+      handeye_init: { handeye_mode: "eye_to_hand" },
     };
     expect(mergeConfig(defaults, overrides)).toEqual({
       camera: {
@@ -74,7 +74,7 @@ describe("mergeConfig", () => {
         fix: {},
       },
       solver: { max_iters: 100 },
-      handeye_init: { handeye_mode: "EyeToHand" },
+      handeye_init: { handeye_mode: "eye_to_hand" },
     });
   });
 });

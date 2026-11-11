@@ -805,7 +805,7 @@ class _HandeyeInitConfigRequired(TypedDict):
     """The keys of `HandeyeInitConfig` that every payload has."""
 
     handeye_mode: HandeyeMode
-    """Hand-eye mode: `EyeInHand` or `EyeToHand`."""
+    """Hand-eye mode: `eye_in_hand` or `eye_to_hand`."""
 
     min_motion_angle_deg: float
     """Minimum rotation (degrees) between two views, in the robot and in the
@@ -854,15 +854,15 @@ differ in how they weigh the views and in what they estimate jointly.
 """
 
 
-HandeyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
+HandeyeMode: TypeAlias = Literal["eye_in_hand", "eye_to_hand"]
 """Hand-eye calibration mode.
 
 Specifies the transform chain used for hand-eye calibration.
 
-- ``"EyeInHand"``: Camera mounted on robot end-effector (gripper).
+- ``"eye_in_hand"``: Camera mounted on robot end-effector (gripper).
 
   Transform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world
-- ``"EyeToHand"``: Camera fixed in workspace, observes robot end-effector.
+- ``"eye_to_hand"``: Camera fixed in workspace, observes robot end-effector.
 
   Transform chain: P_camera = extr^-1 * handeye * robot * target * P_world
 """
@@ -911,7 +911,7 @@ class HandeyeSolution_EyeInHand(TypedDict):
     gripper frame).
     """
 
-    mode: Literal["EyeInHand"]
+    mode: Literal["eye_in_hand"]
 
 
 class HandeyeSolution_EyeToHand(TypedDict):
@@ -920,7 +920,7 @@ class HandeyeSolution_EyeToHand(TypedDict):
     gripper_se3_target: Iso3
     """The target's pose on the gripper (`gripper_se3_target`)."""
 
-    mode: Literal["EyeToHand"]
+    mode: Literal["eye_to_hand"]
     rig_se3_base: Iso3
     """The base's pose in the rig (`rig_se3_base`, base frame → rig
     frame).
@@ -936,7 +936,7 @@ wrong pose for its mode cannot be written or read. In JSON it is
 internally tagged by `mode`:
 
 ```json
-{"mode": "EyeInHand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
+{"mode": "eye_in_hand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
 ```
 """
 
@@ -1354,15 +1354,15 @@ class LaserlineParams(TypedDict):
     """Per-view target poses (`camera_se3_target`)."""
 
 
-LaserlineResidualType: TypeAlias = Literal["PointToPlane", "LineDistNormalized"]
+LaserlineResidualType: TypeAlias = Literal["point_to_plane", "line_dist_normalized"]
 """Type of laser plane residual to use.
 
-- ``"PointToPlane"``: Point-to-plane distance (original approach).
+- ``"point_to_plane"``: Point-to-plane distance (original approach).
 
   Undistorts pixel, back-projects to 3D ray, intersects with target plane,
   computes 3D point in camera frame, measures signed distance to laser plane.
   Residual: 1D distance in meters.
-- ``"LineDistNormalized"``: Line-distance in normalized plane (alternative approach).
+- ``"line_dist_normalized"``: Line-distance in normalized plane (alternative approach).
 
   Computes 3D intersection line of laser plane and target plane, projects
   line onto z=1 normalized camera plane, undistorts laser pixels to normalized
@@ -2850,7 +2850,11 @@ class RobotPoseSource(_RobotPoseSourceRequired, total=False):
 class RobustLoss_Arctan(TypedDict):
     """Arctangent loss: bounded, influence vanishing for large residuals."""
 
-    Arctan: RobustLoss_Arctan_Arctan
+    kind: Literal["arctan"]
+    scale: float
+    """Transition in squared-residual units: down-weighting sets in near
+    `‖r‖ ≈ √scale`.
+    """
 
 
 class RobustLoss_Cauchy(TypedDict):
@@ -2858,17 +2862,29 @@ class RobustLoss_Cauchy(TypedDict):
     `‖r‖ ≈ scale`.
     """
 
-    Cauchy: RobustLoss_Cauchy_Cauchy
+    kind: Literal["cauchy"]
+    scale: float
+    """Residual norm where down-weighting sets in, in residual units."""
 
 
 class RobustLoss_Huber(TypedDict):
     """Huber loss: quadratic up to `‖r‖ = scale`, linear beyond."""
 
-    Huber: RobustLoss_Huber_Huber
+    kind: Literal["huber"]
+    scale: float
+    """Transition residual norm, in residual units (pixels for
+    reprojection).
+    """
+
+
+class RobustLoss_None(TypedDict):
+    """No robustification (plain squared residual)."""
+
+    kind: Literal["none"]
 
 
 RobustLoss: TypeAlias = (
-    Literal["None"]
+    RobustLoss_None
     | RobustLoss_Huber
     | RobustLoss_Cauchy
     | RobustLoss_Arctan
@@ -2877,28 +2893,7 @@ RobustLoss: TypeAlias = (
 
 Each residual block has its own loss; per-point robustification is achieved
 by using one residual block per observation.
-
-- ``"None"``: No robustification (plain squared residual).
 """
-
-
-class RobustLoss_Arctan_Arctan(TypedDict):
-    scale: float
-    """Transition in squared-residual units: down-weighting sets in near
-    `‖r‖ ≈ √scale`.
-    """
-
-
-class RobustLoss_Cauchy_Cauchy(TypedDict):
-    scale: float
-    """Residual norm where down-weighting sets in, in residual units."""
-
-
-class RobustLoss_Huber_Huber(TypedDict):
-    scale: float
-    """Transition residual norm, in residual units (pixels for
-    reprojection).
-    """
 
 
 RotationFormat: TypeAlias = Literal[
@@ -3111,7 +3106,7 @@ class SingleCamHandeyeSolution_EyeInHand(TypedDict):
     frame → gripper frame).
     """
 
-    mode: Literal["EyeInHand"]
+    mode: Literal["eye_in_hand"]
 
 
 class SingleCamHandeyeSolution_EyeToHand(TypedDict):
@@ -3125,7 +3120,7 @@ class SingleCamHandeyeSolution_EyeToHand(TypedDict):
     gripper_se3_target: Iso3
     """The target's pose on the gripper (`gripper_se3_target`)."""
 
-    mode: Literal["EyeToHand"]
+    mode: Literal["eye_to_hand"]
 
 
 SingleCamHandeyeSolution: TypeAlias = (
@@ -3142,7 +3137,7 @@ that is the camera, with the camera named where the rig is. In JSON it is
 internally tagged by `mode`:
 
 ```json
-{"mode": "EyeInHand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+{"mode": "eye_in_hand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
 ```
 """
 
@@ -3695,11 +3690,9 @@ __all__ = [
     "RobotPoseSource",
     "RobustLoss",
     "RobustLoss_Arctan",
-    "RobustLoss_Arctan_Arctan",
     "RobustLoss_Cauchy",
-    "RobustLoss_Cauchy_Cauchy",
     "RobustLoss_Huber",
-    "RobustLoss_Huber_Huber",
+    "RobustLoss_None",
     "RotationFormat",
     "ScheimpflugParams",
     "SecondOrderError",

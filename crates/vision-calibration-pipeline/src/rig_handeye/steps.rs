@@ -40,7 +40,7 @@ use super::problem::RigHandeyeProblem;
 /// pose not, the target pose closes through the first view; otherwise the
 /// closed-form solver of `handeye_init.method` provides what is missing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "mode")]
+#[serde(tag = "mode", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum HandeyeManualInit {
     /// The rig rides on the gripper; the target stands in the base frame.
@@ -834,10 +834,10 @@ mod tests {
             base_se3_target: None,
         };
         let json = serde_json::to_value(&seed).unwrap();
-        assert_eq!(json["mode"], "EyeInHand");
+        assert_eq!(json["mode"], "eye_in_hand");
         let back: HandeyeManualInit = serde_json::from_value(json).unwrap();
         assert_eq!(back, seed);
-        let bare: HandeyeManualInit = serde_json::from_str(r#"{"mode":"EyeToHand"}"#).unwrap();
+        let bare: HandeyeManualInit = serde_json::from_str(r#"{"mode":"eye_to_hand"}"#).unwrap();
         assert_eq!(bare, HandeyeManualInit::unseeded(HandeyeMode::EyeToHand));
     }
 

@@ -231,7 +231,7 @@ fn empty_export() -> RigHandeyeExport {
         "cameras": [],
         "cam_se3_rig": [],
         "handeye": {
-            "mode": "EyeInHand",
+            "mode": "eye_in_hand",
             "gripper_se3_rig": Iso3::identity(),
             "base_se3_target": Iso3::identity(),
         },

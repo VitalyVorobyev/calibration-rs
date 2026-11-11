@@ -109,6 +109,7 @@ impl FixedMask {
 /// by using one residual block per observation.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RobustLoss {
     /// No robustification (plain squared residual).
     #[default]
@@ -222,6 +223,7 @@ impl RobustLoss {
 /// Specifies the transform chain used for hand-eye calibration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum HandeyeMode {
     /// Camera mounted on robot end-effector (gripper).
     ///

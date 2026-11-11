@@ -224,7 +224,7 @@ pub(crate) fn check_laser_residual(
     {
         return Err(crate::Error::invalid_input(format!(
             "{field}: the line-distance laser residual needs straight laser lines in the \
-             image, which the {:?} projection bends; use PointToPlane",
+             image, which the {:?} projection bends; use point_to_plane",
             model.projection
         )));
     }
@@ -557,7 +557,7 @@ impl RobotPoseConfig {
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct HandeyeInitConfig {
-    /// Hand-eye mode: `EyeInHand` or `EyeToHand`.
+    /// Hand-eye mode: `eye_in_hand` or `eye_to_hand`.
     pub handeye_mode: HandeyeMode,
     /// The closed-form solver of the initialization: `tsai_lenz` (default),
     /// `park_martin`, `daniilidis` or `shah`. They differ in the accuracy of
@@ -714,11 +714,11 @@ mod tests {
         assert!((cfg.min_motion_angle_deg - 5.0).abs() < 1e-15);
         // A config written before `method` existed still reads.
         let old: HandeyeInitConfig =
-            serde_json::from_str(r#"{"handeye_mode": "EyeToHand", "min_motion_angle_deg": 3.0}"#)
+            serde_json::from_str(r#"{"handeye_mode": "eye_to_hand", "min_motion_angle_deg": 3.0}"#)
                 .unwrap();
         assert_eq!(old.method, HandeyeMethod::TsaiLenz);
         let shah: HandeyeInitConfig = serde_json::from_str(
-            r#"{"handeye_mode": "EyeInHand", "method": "shah", "min_motion_angle_deg": 5.0}"#,
+            r#"{"handeye_mode": "eye_in_hand", "method": "shah", "min_motion_angle_deg": 5.0}"#,
         )
         .unwrap();
         assert_eq!(shah.method, HandeyeMethod::Shah);
@@ -797,7 +797,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            err.contains("laser_residual_type") && err.contains("PointToPlane"),
+            err.contains("laser_residual_type") && err.contains("point_to_plane"),
             "{err}"
         );
         assert!(check_laser_residual(LaserlineResidualType::PointToPlane, fisheye, "f").is_ok());

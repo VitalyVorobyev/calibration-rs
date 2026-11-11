@@ -201,7 +201,7 @@
           -0.019493821863859853
         ]
       },
-      "mode": "EyeInHand"
+      "mode": "eye_in_hand"
     },
     "kind": "rig_handeye",
     "mean_reproj_error": 0.25815549396539716,

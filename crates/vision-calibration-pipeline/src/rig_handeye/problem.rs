@@ -688,7 +688,13 @@ mod tests {
     fn assert_solution_round_trips(export: &RigHandeyeExport) {
         let json = serde_json::to_value(export).unwrap();
         let wire = &json["handeye"];
-        assert_eq!(wire["mode"], format!("{:?}", export.handeye.mode()));
+        assert_eq!(
+            wire["mode"],
+            match export.handeye.mode() {
+                HandeyeMode::EyeInHand => "eye_in_hand",
+                HandeyeMode::EyeToHand => "eye_to_hand",
+            }
+        );
         assert_eq!(wire.as_object().unwrap().len(), 3, "{wire}");
         assert!(json.get("handeye_mode").is_none());
         let back: RigHandeyeExport = serde_json::from_value(json.clone()).unwrap();
@@ -697,7 +703,7 @@ mod tests {
         let mut old = json;
         let object = old.as_object_mut().unwrap();
         object.remove("handeye");
-        object.insert("handeye_mode".into(), "EyeInHand".into());
+        object.insert("handeye_mode".into(), "eye_in_hand".into());
         object.insert(
             "gripper_se3_rig".into(),
             serde_json::to_value(Iso3::identity()).unwrap(),

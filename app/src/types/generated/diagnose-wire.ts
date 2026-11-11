@@ -316,7 +316,7 @@ export type ProjectErrorKind =
  * internally tagged by `mode`:
  *
  * ```json
- * {"mode": "EyeInHand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
+ * {"mode": "eye_in_hand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
  * ```
  */
 export type HandeyeSolution =
@@ -330,14 +330,14 @@ export type HandeyeSolution =
        * gripper frame).
        */
       gripper_se3_rig: Iso3Schema;
-      mode: "EyeInHand";
+      mode: "eye_in_hand";
     }
   | {
       /**
        * The target's pose on the gripper (`gripper_se3_target`).
        */
       gripper_se3_target: Iso3Schema;
-      mode: "EyeToHand";
+      mode: "eye_to_hand";
       /**
        * The base's pose in the rig (`rig_se3_base`, base frame → rig
        * frame).
@@ -414,7 +414,7 @@ export type RunStage = "detect" | "solve" | "export";
  * internally tagged by `mode`:
  *
  * ```json
- * {"mode": "EyeInHand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+ * {"mode": "eye_in_hand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
  * ```
  */
 export type SingleCamHandeyeSolution =
@@ -428,7 +428,7 @@ export type SingleCamHandeyeSolution =
        * frame → gripper frame).
        */
       gripper_se3_camera: Iso3Schema;
-      mode: "EyeInHand";
+      mode: "eye_in_hand";
     }
   | {
       /**
@@ -440,7 +440,7 @@ export type SingleCamHandeyeSolution =
        * The target's pose on the gripper (`gripper_se3_target`).
        */
       gripper_se3_target: Iso3Schema;
-      mode: "EyeToHand";
+      mode: "eye_to_hand";
     };
 
 /**

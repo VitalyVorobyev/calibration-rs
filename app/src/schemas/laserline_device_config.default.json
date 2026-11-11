@@ -13,25 +13,25 @@
   },
   "optimize": {
     "calib_loss": {
-      "Huber": {
-        "scale": 1.0
-      }
+      "kind": "huber",
+      "scale": 1.0
     },
     "calib_weight": 1.0,
     "fix_plane": false,
     "fix_poses": [],
     "laser_loss": {
-      "Huber": {
-        "scale": 1.0
-      }
+      "kind": "huber",
+      "scale": 1.0
     },
-    "laser_residual_type": "LineDistNormalized",
+    "laser_residual_type": "line_dist_normalized",
     "laser_weight": 1.0
   },
   "solver": {
     "backend": "tiny_solver",
     "max_iters": 50,
-    "robust_loss": "None",
+    "robust_loss": {
+      "kind": "none"
+    },
     "verbosity": 0
   }
 }

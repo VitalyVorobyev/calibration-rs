@@ -156,6 +156,7 @@ pub struct LaserlineStats {
 /// Type of laser plane residual to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum LaserlineResidualType {
     /// Point-to-plane distance (original approach).
     ///
@@ -224,8 +225,8 @@ impl Default for LaserlineSolveOptions {
 ///
 /// - Reprojection errors are reported in pixels (mean Euclidean error).
 /// - Laser residual units depend on `residual_type`:
-///   - `PointToPlane`: meters (signed distance to plane)
-///   - `LineDistNormalized`: pixels (normalized line distance scaled by sqrt(fx*fy))
+///   - `point_to_plane`: meters (signed distance to plane)
+///   - `line_dist_normalized`: pixels (normalized line distance scaled by sqrt(fx*fy))
 ///
 /// # Errors
 ///

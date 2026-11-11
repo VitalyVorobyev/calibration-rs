@@ -595,7 +595,7 @@ pub mod optim {
     /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
     pub use vision_calibration_optim::HandeyeMode;
     /// The laser residual of the laser workflows' configs
-    /// (`laser_residual_type`): a fisheye camera takes `PointToPlane`.
+    /// (`laser_residual_type`): a fisheye camera takes `point_to_plane`.
     pub use vision_calibration_optim::LaserlineResidualType;
     /// Robust loss (M-estimator) selector for optimization.
     pub use vision_calibration_optim::RobustLoss;

@@ -23,17 +23,14 @@ export function configSummary(config: unknown): string {
   return `max_iters=${iters} · loss=${robustLossLabel(c?.robust_loss)}`;
 }
 
-/** A robust-loss config value's name: a bare string, a `{ type }` tag or
- * an externally tagged `{ Name: … }`. */
+/** A robust-loss config value's name: the `kind` tag of
+ * `{ "kind": "huber", "scale": … }`; `none` when absent. */
 export function robustLossLabel(value: unknown): string {
-  if (typeof value === "string") return value;
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.type === "string") return obj.type;
-    const key = Object.keys(obj)[0];
-    if (key) return key;
+    const kind = (value as Record<string, unknown>).kind;
+    if (typeof kind === "string") return kind;
   }
-  return "None";
+  return "none";
 }
 
 /** Why Run is blocked, or `undefined` when it is not. */

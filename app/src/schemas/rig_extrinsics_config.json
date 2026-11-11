@@ -217,76 +217,72 @@
       "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
       "oneOf": [
         {
-          "const": "None",
           "description": "No robustification (plain squared residual).",
-          "type": "string"
+          "properties": {
+            "kind": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         },
         {
-          "additionalProperties": false,
           "description": "Huber loss: quadratic up to `‖r‖ = scale`, linear beyond.",
           "properties": {
-            "Huber": {
-              "properties": {
-                "scale": {
-                  "description": "Transition residual norm, in residual units (pixels for\nreprojection).",
-                  "format": "double",
-                  "type": "number"
-                }
-              },
-              "required": [
-                "scale"
-              ],
-              "type": "object"
+            "kind": {
+              "const": "huber",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Transition residual norm, in residual units (pixels for\nreprojection).",
+              "format": "double",
+              "type": "number"
             }
           },
           "required": [
-            "Huber"
+            "kind",
+            "scale"
           ],
           "type": "object"
         },
         {
-          "additionalProperties": false,
           "description": "Cauchy loss: logarithmic growth, influence decreasing beyond\n`‖r‖ ≈ scale`.",
           "properties": {
-            "Cauchy": {
-              "properties": {
-                "scale": {
-                  "description": "Residual norm where down-weighting sets in, in residual units.",
-                  "format": "double",
-                  "type": "number"
-                }
-              },
-              "required": [
-                "scale"
-              ],
-              "type": "object"
+            "kind": {
+              "const": "cauchy",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Residual norm where down-weighting sets in, in residual units.",
+              "format": "double",
+              "type": "number"
             }
           },
           "required": [
-            "Cauchy"
+            "kind",
+            "scale"
           ],
           "type": "object"
         },
         {
-          "additionalProperties": false,
           "description": "Arctangent loss: bounded, influence vanishing for large residuals.",
           "properties": {
-            "Arctan": {
-              "properties": {
-                "scale": {
-                  "description": "Transition in squared-residual units: down-weighting sets in near\n`‖r‖ ≈ √scale`.",
-                  "format": "double",
-                  "type": "number"
-                }
-              },
-              "required": [
-                "scale"
-              ],
-              "type": "object"
+            "kind": {
+              "const": "arctan",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Transition in squared-residual units: down-weighting sets in near\n`‖r‖ ≈ √scale`.",
+              "format": "double",
+              "type": "number"
             }
           },
           "required": [
-            "Arctan"
+            "kind",
+            "scale"
           ],
           "type": "object"
         }

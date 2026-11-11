@@ -682,7 +682,7 @@
       "type": "object"
     },
     "HandeyeSolution": {
-      "description": "The solution of a rig hand-eye calibration: the hand-eye of its mode and\nthe pose of the static target in the frame that mode fixes it in.\n\nEach mode holds exactly the two poses it estimates, so an export with the\nwrong pose for its mode cannot be written or read. In JSON it is\ninternally tagged by `mode`:\n\n```json\n{\"mode\": \"EyeInHand\", \"gripper_se3_rig\": {…}, \"base_se3_target\": {…}}\n```",
+      "description": "The solution of a rig hand-eye calibration: the hand-eye of its mode and\nthe pose of the static target in the frame that mode fixes it in.\n\nEach mode holds exactly the two poses it estimates, so an export with the\nwrong pose for its mode cannot be written or read. In JSON it is\ninternally tagged by `mode`:\n\n```json\n{\"mode\": \"eye_in_hand\", \"gripper_se3_rig\": {…}, \"base_se3_target\": {…}}\n```",
       "oneOf": [
         {
           "description": "The rig rides on the gripper; the target stands in the base frame.",
@@ -704,7 +704,7 @@
               "description": "The rig's pose on the gripper (`gripper_se3_rig`, rig frame →\ngripper frame)."
             },
             "mode": {
-              "const": "EyeInHand",
+              "const": "eye_in_hand",
               "type": "string"
             }
           },
@@ -727,7 +727,7 @@
               "description": "The target's pose on the gripper (`gripper_se3_target`)."
             },
             "mode": {
-              "const": "EyeToHand",
+              "const": "eye_to_hand",
               "type": "string"
             },
             "rig_se3_base": {
@@ -2594,7 +2594,7 @@
       "type": "object"
     },
     "SingleCamHandeyeSolution": {
-      "description": "The solution of a single-camera hand-eye calibration: the hand-eye of its\nmode and the pose of the static target in the frame that mode fixes it in.\n\nEach mode holds exactly the two poses it estimates, so an export with the\nwrong pose for its mode cannot be written or read. It is the rig\nsolution ([`HandeyeSolution`](crate::common::HandeyeSolution)) of a rig\nthat is the camera, with the camera named where the rig is. In JSON it is\ninternally tagged by `mode`:\n\n```json\n{\"mode\": \"EyeInHand\", \"gripper_se3_camera\": {…}, \"base_se3_target\": {…}}\n```",
+      "description": "The solution of a single-camera hand-eye calibration: the hand-eye of its\nmode and the pose of the static target in the frame that mode fixes it in.\n\nEach mode holds exactly the two poses it estimates, so an export with the\nwrong pose for its mode cannot be written or read. It is the rig\nsolution ([`HandeyeSolution`](crate::common::HandeyeSolution)) of a rig\nthat is the camera, with the camera named where the rig is. In JSON it is\ninternally tagged by `mode`:\n\n```json\n{\"mode\": \"eye_in_hand\", \"gripper_se3_camera\": {…}, \"base_se3_target\": {…}}\n```",
       "oneOf": [
         {
           "description": "The camera rides on the gripper; the target stands in the base frame.",
@@ -2616,7 +2616,7 @@
               "description": "The camera's pose on the gripper (`gripper_se3_camera`, camera\nframe → gripper frame)."
             },
             "mode": {
-              "const": "EyeInHand",
+              "const": "eye_in_hand",
               "type": "string"
             }
           },
@@ -2647,7 +2647,7 @@
               "description": "The target's pose on the gripper (`gripper_se3_target`)."
             },
             "mode": {
-              "const": "EyeToHand",
+              "const": "eye_to_hand",
               "type": "string"
             }
           },

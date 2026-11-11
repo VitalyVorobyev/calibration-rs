@@ -88,13 +88,13 @@ class EyeInHandManualInit:
     """Manual seeds of the hand-eye stage of an eye-in-hand session (the
     camera on the gripper); a pose left ``None`` is estimated.
 
-    The session's ``handeye_init.handeye_mode`` must be ``"EyeInHand"``; a
+    The session's ``handeye_init.handeye_mode`` must be ``"eye_in_hand"``; a
     seed of the other mode raises before any work.
     """
 
     gripper_se3_camera: Pose | None = None
     base_se3_target: Pose | None = None
-    mode: ClassVar[HandeyeMode] = "EyeInHand"
+    mode: ClassVar[HandeyeMode] = "eye_in_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -113,13 +113,13 @@ class EyeToHandManualInit:
     """Manual seeds of the hand-eye stage of an eye-to-hand session (the
     camera in the base frame); a pose left ``None`` is estimated.
 
-    The session's ``handeye_init.handeye_mode`` must be ``"EyeToHand"``; a
+    The session's ``handeye_init.handeye_mode`` must be ``"eye_to_hand"``; a
     seed of the other mode raises before any work.
     """
 
     camera_se3_base: Pose | None = None
     gripper_se3_target: Pose | None = None
-    mode: ClassVar[HandeyeMode] = "EyeToHand"
+    mode: ClassVar[HandeyeMode] = "eye_to_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {

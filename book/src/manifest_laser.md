@@ -54,7 +54,7 @@ pattern = "laser_*.png"
 # ... one [[cameras]] entry per camera
 ```
 
-Run the hand-eye stage first (`topology = "rig_handeye"`, the same cameras and poses, no laser fields) and save its export as `rig_handeye_export.json`. In the desktop app each stage is one Run click; such a setup needs non-default configuration (Scheimpflug sensors, eye-to-hand, `PointToPlane` laser residuals), set in the config form or in a preset.
+Run the hand-eye stage first (`topology = "rig_handeye"`, the same cameras and poses, no laser fields) and save its export as `rig_handeye_export.json`. In the desktop app each stage is one Run click; such a setup needs non-default configuration (Scheimpflug sensors, eye-to-hand, `point_to_plane` laser residuals), set in the config form or in a preset.
 
 A single-camera `LaserlineDevice` is the same minus `robot_poses` and `upstream_calibration`: it calibrates the intrinsics and the laser plane jointly from the target and laser frames alone.
 

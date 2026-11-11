@@ -443,7 +443,7 @@ mod tests {
             "cam_se3_rig": [pose(), pose()],
             "rig_se3_target": [],
             "handeye": {
-                "mode": "EyeInHand",
+                "mode": "eye_in_hand",
                 "gripper_se3_rig": pose(),
                 "base_se3_target": pose(),
             },

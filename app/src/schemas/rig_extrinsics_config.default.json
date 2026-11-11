@@ -20,7 +20,9 @@
   "solver": {
     "backend": "tiny_solver",
     "max_iters": 50,
-    "robust_loss": "None",
+    "robust_loss": {
+      "kind": "none"
+    },
     "verbosity": 0
   }
 }
