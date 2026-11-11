@@ -21,7 +21,9 @@ use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 /// # Errors
 ///
 /// Returns [`GeometryError::InsufficientData`] if fewer than 6 correspondences are given,
-/// [`GeometryError::Singular`] if normalization or SVD fails.
+/// [`GeometryError::Degenerate`] if the points lie on one plane or line (a
+/// planar object takes [`epnp`](super::epnp)), and [`GeometryError::Singular`]
+/// if normalization or SVD fails.
 pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, GeometryError> {
     let n = world.len();
     if n < 6 || image.len() != n {
@@ -117,7 +119,20 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Geo
     // eigen (see [`null_space`](vision_calibration_core::linalg::null_space)) — avoids nalgebra's
     // hang-prone dense SVD on the tall `2N×12` design matrix. Reshape into the
     // 3×4 matrix `P = [R|t]` (up to scale).
-    let p_mtx = mat34_from_vec(&null_space(&a)?.vector);
+    let ns = null_space(&a)?;
+    let sv = &ns.singular_values;
+    // The 2n×12 design must have rank 11 (a 1-D null space). Coplanar
+    // points zero the columns of the coordinate along the plane normal and
+    // leave a null space of dimension ≥ 4, so the second-smallest singular
+    // value collapses like the smallest; collinear points do worse. The
+    // threshold is the one `dlt_homography` uses on its normalized design.
+    if sv[0] <= Real::EPSILON || sv[10] / sv[0] < 1e-7 {
+        return Err(GeometryError::degenerate(
+            "rank-deficient point configuration: the DLT needs 6 or more points \
+             not on one plane (use EPnP for a planar object)",
+        ));
+    }
+    let p_mtx = mat34_from_vec(&ns.vector);
 
     // De-normalize 3D points: P = P_norm * T_world.
     let p_mtx = p_mtx * t_world;
@@ -199,5 +214,35 @@ mod tests {
 
         assert!(dt < 1e-3, "translation error too large: {}", dt);
         assert!(ang < 1e-3, "rotation error too large: {}", ang);
+    }
+
+    /// A planar object (a calibration board) leaves the 12-unknown DLT
+    /// underdetermined: the columns of the coordinate along the plane normal
+    /// vanish. That is a typed error, not an arbitrary pose.
+    #[test]
+    fn dlt_rejects_coplanar_points() {
+        let k = FxFyCxCy {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+        };
+        let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
+        let iso_gt = Isometry3::from_parts(
+            Translation3::new(0.1, -0.05, 1.0),
+            Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
+        );
+        let mut world = Vec::new();
+        let mut image = Vec::new();
+        for y in 0..4 {
+            for x in 0..5 {
+                let pw = Pt3::new(x as Real * 0.1, y as Real * 0.1, 0.0);
+                image.push(cam.project_point(&iso_gt.transform_point(&pw)).unwrap());
+                world.push(pw);
+            }
+        }
+
+        let err = dlt(&world, &image, &k).unwrap_err();
+        assert!(matches!(err, GeometryError::Degenerate { .. }), "{err:?}");
     }
 }

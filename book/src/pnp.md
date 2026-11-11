@@ -49,7 +49,10 @@ P3P returns up to 4 poses. To select the correct one, use a fourth point (or mor
 
 ## DLT PnP: Linear Solver for $n \geq 6$
 
-The DLT (Direct Linear Transform) PnP uses an overdetermined system for $n \geq 6$ points.
+The DLT (Direct Linear Transform) PnP uses an overdetermined system for $n \geq 6$ points. The points must not lie on one plane: a planar object, such as a
+calibration board, leaves the 12 unknowns underdetermined, and `dlt()` and
+`dlt_ransac()` return a `Degenerate` error for it. Use `epnp()` for a planar
+object.
 
 ### Derivation
 
