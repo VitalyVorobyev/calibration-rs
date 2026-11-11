@@ -647,4 +647,74 @@ mod tests {
             camera.k.fx
         );
     }
+
+    /// Long lenses: the closed form runs on pixel-unit homographies without
+    /// a normalizing camera, and stays exact from 800 to 16 000 px, on
+    /// sensors sized for the lens and on one 2448 × 2048 sensor behind every
+    /// lens (a 7° field of view at 16 000 px). Ten views of a 0.32 m board
+    /// spanning half the image width, tilted 10°–40°. Noise-free, `K` comes
+    /// back to 1e-9 relative; with ±0.17 px uniform corner noise (σ ≈ 0.1
+    /// px) the error grows as the field of view narrows (0.02 % of fx here
+    /// at 16 000 px on the small sensor, 0.35 % at worst over 50 noise
+    /// draws): a loss of perspective, not of precision, and a solve
+    /// normalized by the image extent does no better.
+    #[test]
+    fn long_focal_lengths_initialize_accurately() {
+        let board = grid_points(9, 7, 0.04);
+        let centre = Vec3::new(0.16, 0.12, 0.0);
+        for (f, w, h) in [
+            (800.0, 1280.0, 960.0),
+            (4000.0, 4096.0, 3000.0),
+            (8000.0, 6000.0, 4000.0),
+            (16000.0, 8192.0, 5460.0),
+            (4000.0, 2448.0, 2048.0),
+            (16000.0, 2448.0, 2048.0),
+        ] {
+            let truth = FxFyCxCy {
+                fx: f,
+                fy: 1.002 * f,
+                cx: 0.5 * w + 7.0,
+                cy: 0.5 * h - 5.0,
+            };
+            let camera = make_pinhole_camera(truth, BrownConrady5::default());
+            let depth = 2.0 * f * 0.32 / w;
+            let poses: Vec<Iso3> = (0..10)
+                .map(|k| {
+                    let kf = k as Real;
+                    let tilt = (10.0 + 30.0 * kf / 9.0).to_radians();
+                    let dir = kf * 2.4;
+                    let rotation = UnitQuaternion::from_euler_angles(
+                        tilt * dir.cos(),
+                        tilt * dir.sin(),
+                        0.2 * (1.7 * kf).sin(),
+                    );
+                    let at = Vec3::new(0.03 * (0.9 * kf).sin(), 0.03 * (1.3 * kf).cos(), 1.0)
+                        * depth
+                        - rotation * centre;
+                    Iso3::from_parts(Translation3::from(at), rotation)
+                })
+                .collect();
+            for (max_abs_px, tol) in [(0.0, 1e-9), (0.17, 1e-2)] {
+                let noise = UniformPixelNoise {
+                    seed: 11,
+                    max_abs_px,
+                };
+                let views = project_views_noisy(&camera, &board, &poses, &noise).unwrap();
+                let dataset =
+                    PlanarDataset::new(views.into_iter().map(View::without_meta).collect())
+                        .unwrap();
+                let k = init(&dataset).expect("well-posed capture").k;
+                let rel = [
+                    (k.fx - truth.fx) / truth.fx,
+                    (k.fy - truth.fy) / truth.fy,
+                    (k.cx - truth.cx) / truth.fx,
+                    (k.cy - truth.cy) / truth.fy,
+                ];
+                assert!(
+                    rel.iter().all(|e| e.abs() < tol),
+                    "f = {f} px, {w}×{h}, noise ±{max_abs_px} px: relative errors {rel:?}"
+                );
+            }
+        }
+    }
 }

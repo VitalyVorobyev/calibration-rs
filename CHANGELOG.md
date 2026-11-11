@@ -111,6 +111,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pixel of the camera sees.
 - A laser point seen head-on no longer reports a NaN incidence angle.
 
+- The Daniilidis hand-eye initialization lost accuracy when robot motions
+  between two views came within noise of a half turn (a 180° wrist flip):
+  the two quaternions of such a motion could enter with opposite signs. With
+  six such flips among 14 views it was off by up to 2.2° and 14 mm where the
+  other methods stayed within 0.3°. Signs are now matched through the
+  Tsai-Lenz rotation; motions away from 180° give the same result as before.
+
 ## [0.18.0] - 2026-11-06
 
 ### Migration
