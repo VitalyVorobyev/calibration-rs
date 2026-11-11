@@ -9,8 +9,8 @@ The matcher scores each pixel and each candidate disparity with the zero-mean no
 ```rust
 use vision_calibration::mvg::dense::{match_block, BlockMatchOptions, GrayImage};
 
-// `left` / `right` are rectified grayscale images: `rect.rectify_image(0, ..)`
-// and `rect.rectify_image(1, ..)` of the raw pair (see Stereo from a Calibration).
+// `left` / `right` are rectified grayscale images: `rect.rectify_image(0, ..)?`
+// and `rect.rectify_image(1, ..)?` of the raw pair (see Stereo from a Calibration).
 let disp = match_block(&left, &right, &BlockMatchOptions {
     min_disparity: 0,
     num_disparities: 64,   // search [min, min + num)
@@ -29,7 +29,7 @@ disp = mvg.match_block(left, right, mvg.BlockMatchOptions(num_disparities=64, bl
 # disp is a (H, W) float32 array: x_left − x_right in pixels, NaN where the matcher abstains.
 ```
 
-`GrayImage::new(width, height, data)` wraps row-major 8-bit pixels. The options and their defaults:
+`GrayImage::new(width, height, data)` wraps row-major 8-bit pixels, and returns an error for an empty image or a buffer of the wrong length. The options and their defaults:
 
 | Option | Default | Meaning |
 |---|---|---|

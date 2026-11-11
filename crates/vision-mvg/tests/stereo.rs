@@ -218,12 +218,12 @@ fn rectify_image_samples_the_raw_pixel() {
     let data = (0..w * h)
         .map(|i| ramp((i % w) as f64, (i / w) as f64).round() as u8)
         .collect();
-    let src = GrayImage::new(w, h, data);
+    let src = GrayImage::new(w, h, data).unwrap();
     // The reduced rectification (half size) fills its interior.
-    let half = rect.rectify_image(0, &src, 640, 480);
+    let half = rect.rectify_image(0, &src, 640, 480).unwrap();
     assert!(half.get(320, 240) > 0);
     // Full size: the value matches the ramp at the raw pixel.
-    let full = rect.rectify_image(1, &src, 1280, 960);
+    let full = rect.rectify_image(1, &src, 1280, 960).unwrap();
     for (x, y) in [(640, 480), (200, 300), (900, 700)] {
         let raw = rect.raw_pixel(1, &Pt2::new(x as f64, y as f64)).unwrap();
         let want = ramp(raw.x, raw.y);

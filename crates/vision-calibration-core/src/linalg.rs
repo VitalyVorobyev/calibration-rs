@@ -235,8 +235,14 @@ pub fn solve_cubic_real(a: Real, b: Real, c: Real, d: Real) -> Vec<Real> {
 /// Solve quartic equation `ax⁴ + bx³ + cx² + dx + e = 0` for real roots.
 ///
 /// Uses companion matrix eigenvalue method via Schur decomposition.
-/// Returns sorted, deduplicated real roots.
+/// Returns sorted, deduplicated real roots; none for a non-finite
+/// coefficient.
 pub fn solve_quartic_real(a: Real, b: Real, c: Real, d: Real, e: Real) -> Vec<Real> {
+    // A non-finite coefficient has no roots to find, and would never let the
+    // Schur iteration below converge.
+    if ![a, b, c, d, e].iter().all(|v| v.is_finite()) {
+        return Vec::new();
+    }
     let eps = 1e-12;
     if a.abs() < eps {
         return solve_cubic_real(b, c, d, e);
@@ -264,6 +270,37 @@ pub fn solve_quartic_real(a: Real, b: Real, c: Real, d: Real, e: Real) -> Vec<Re
     roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     roots.dedup_by(|a, b| (*a - *b).abs() < 1e-8);
     roots
+}
+
+/// Project a 3×3 matrix onto the rotation group SO(3) by polar decomposition.
+///
+/// Returns the nearest (Frobenius) rotation `R = U Vᵀ` from the SVD
+/// `M = U Σ Vᵀ`, with the sign of `U`'s last column flipped if needed to force
+/// `det(R) = +1`, so a reflection comes back as the nearest proper rotation.
+/// The SVD is a fixed 3×3, which cannot trigger the dense-matrix hang that
+/// [`null_space`] avoids.
+///
+/// # Errors
+///
+/// [`MathError::Singular`] for a matrix with a non-finite entry, which has
+/// no nearest rotation (nalgebra's 3×3 SVD would return one anyway, of NaN).
+pub fn project_to_so3(m: &Mat3) -> Result<Mat3, MathError> {
+    if m.iter().any(|v| !v.is_finite()) {
+        return Err(MathError::Singular);
+    }
+    let svd = m.svd(true, true);
+    let u = svd.u.ok_or(MathError::Singular)?;
+    let v_t = svd.v_t.ok_or(MathError::Singular)?;
+    let mut r = u * v_t;
+    if r.determinant() < 0.0 {
+        let mut u_fixed = u;
+        let last = u_fixed.ncols() - 1;
+        for row in 0..u_fixed.nrows() {
+            u_fixed[(row, last)] = -u_fixed[(row, last)];
+        }
+        r = u_fixed * v_t;
+    }
+    Ok(r)
 }
 
 /// Solution of a homogeneous least-squares ([`null_space`]) solve.
@@ -298,9 +335,12 @@ pub struct NullSpaceSolution {
 ///
 /// # Errors
 ///
-/// Returns [`MathError::Singular`] if `AᵀA` is non-finite (a degenerate / NaN
-/// design) or the decomposition yields no eigenvalues.
+/// Returns [`MathError::Singular`] if `A` or `AᵀA` is non-finite (a
+/// degenerate / NaN design) or the decomposition yields no eigenvalues.
 pub fn null_space(a: &DMatrix<Real>) -> Result<NullSpaceSolution, MathError> {
+    if a.iter().any(|v| !v.is_finite()) {
+        return Err(MathError::Singular);
+    }
     let ata = a.transpose() * a;
     let eigen = ata.symmetric_eigen();
     if eigen.eigenvalues.iter().any(|v| !v.is_finite()) {
@@ -554,5 +594,39 @@ mod tests {
         let mut a = DMatrix::<Real>::zeros(8, 3);
         a[(0, 0)] = Real::NAN;
         assert!(null_space(&a).is_err());
+    }
+
+    /// A slightly perturbed rotation projects back to a proper rotation
+    /// (orthonormal, det = +1) close to the original.
+    #[test]
+    fn project_to_so3_recovers_rotation() {
+        use nalgebra::Rotation3;
+        let r = *Rotation3::from_euler_angles(0.2, -0.35, 0.1).matrix();
+        let mut noisy = r;
+        noisy[(0, 1)] += 0.02;
+        noisy[(2, 0)] -= 0.015;
+        let proj = project_to_so3(&noisy).unwrap();
+        assert!((proj.determinant() - 1.0).abs() < 1e-9, "det != 1");
+        assert!(
+            (proj * proj.transpose() - Mat3::identity()).norm() < 1e-9,
+            "not orthonormal"
+        );
+        assert!((proj - r).norm() < 0.05, "projection drifted from input");
+    }
+
+    /// A reflection (det < 0) is corrected to a proper rotation (det = +1).
+    #[test]
+    fn project_to_so3_fixes_reflection() {
+        // diag(1, 1, -1) is an orthogonal reflection with det = -1.
+        let refl = Mat3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0);
+        let proj = project_to_so3(&refl).unwrap();
+        assert!((proj.determinant() - 1.0).abs() < 1e-9, "det != 1");
+    }
+
+    #[test]
+    fn project_to_so3_rejects_non_finite() {
+        let mut m = Mat3::identity();
+        m[(1, 2)] = f64::NAN;
+        assert!(project_to_so3(&m).is_err());
     }
 }

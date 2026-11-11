@@ -6,7 +6,7 @@
 //! camera's own unprojection, so the solvers serve every camera model.
 
 use super::polynomial::build_polynomial_system;
-use crate::math::dlt_rank_ok;
+use crate::math::{dlt_rank_ok, ensure_finite};
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, SMatrix, linalg::Schur};
 use vision_calibration_core::linalg::{mat3_from_svd_row, mat3_from_vec, null_space};
@@ -196,6 +196,8 @@ pub fn essential_5point(b1: &[Vec3], b2: &[Vec3]) -> Result<Vec<Mat3>> {
 ///
 /// Returns the projected essential matrix, or `Err` if the SVD fails.
 pub fn essential_linear(b1: &[Vec3], b2: &[Vec3]) -> Result<Mat3> {
+    ensure_finite("first-view bearing", b1.iter().flat_map(|v| v.iter()))?;
+    ensure_finite("second-view bearing", b2.iter().flat_map(|v| v.iter()))?;
     let (pts1, pts2) = (b1, b2);
     if pts1.len() != pts2.len() {
         return Err(GeometryError::CountMismatch {

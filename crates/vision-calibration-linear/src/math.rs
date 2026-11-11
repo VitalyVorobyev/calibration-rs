@@ -1,14 +1,13 @@
-//! Least-squares and rotation helpers specific to the linear calibration
-//! solvers. The shared numeric primitives (Hartley normalization, polynomial
-//! roots, null spaces, SVD reshaping) are in
+//! Least-squares helpers specific to the linear calibration solvers. The
+//! shared numeric primitives (Hartley normalization, polynomial roots, null
+//! spaces, SVD reshaping, the projection onto SO(3)) are in
 //! [`vision_calibration_core::linalg`].
 //!
 //! - [`ridge_lstsq`] — ridge-regularized normal-equation least squares.
-//! - [`project_to_so3`] — polar projection of a 3×3 matrix onto SO(3).
 
 use crate::Error;
 use nalgebra::{DMatrix, DVector};
-use vision_calibration_core::{Mat3, Real};
+use vision_calibration_core::Real;
 
 /// Solve the overdetermined least-squares system `A x ≈ b` via the
 /// ridge-regularized normal equations `x = (AᵀA + λI)⁻¹ Aᵀ b`.
@@ -43,35 +42,6 @@ pub fn ridge_lstsq(
     ata.lu().solve(&atb).ok_or(Error::Singular)
 }
 
-/// Project a 3×3 matrix onto the rotation group SO(3) via polar decomposition.
-///
-/// Returns the nearest (Frobenius) rotation `R = U Vᵀ` from the SVD `M = U Σ Vᵀ`,
-/// with the sign of `Vᵀ`'s last row flipped if needed to force `det(R) = +1`
-/// (avoiding a reflection). The SVD here is a fixed 3×3 — it cannot trigger the
-/// dense-matrix hang that [`null_space`](vision_calibration_core::linalg::null_space) guards against — so a direct SVD is
-/// used. Centralizes the polar-projection idiom shared by the PnP, hand-eye, and
-/// pose solvers.
-///
-/// # Errors
-///
-/// Returns [`Error::Singular`] if the SVD factors are unavailable (a non-finite
-/// input matrix).
-pub fn project_to_so3(m: &Mat3) -> Result<Mat3, Error> {
-    let svd = m.svd(true, true);
-    let u = svd.u.ok_or(Error::Singular)?;
-    let v_t = svd.v_t.ok_or(Error::Singular)?;
-    let mut r = u * v_t;
-    if r.determinant() < 0.0 {
-        let mut u_fixed = u;
-        let last = u_fixed.ncols() - 1;
-        for row in 0..u_fixed.nrows() {
-            u_fixed[(row, last)] = -u_fixed[(row, last)];
-        }
-        r = u_fixed * v_t;
-    }
-    Ok(r)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,34 +72,5 @@ mod tests {
         a[(0, 0)] = Real::INFINITY;
         let b = DVector::<Real>::zeros(6);
         assert!(matches!(ridge_lstsq(&a, &b, 1e-6), Err(Error::Singular)));
-    }
-
-    // ---- project_to_so3 -----------------------------------------------------
-
-    /// A slightly perturbed rotation projects back to a proper rotation
-    /// (orthonormal, det = +1) close to the original.
-    #[test]
-    fn project_to_so3_recovers_rotation() {
-        use nalgebra::Rotation3;
-        let r = *Rotation3::from_euler_angles(0.2, -0.35, 0.1).matrix();
-        let mut noisy = r;
-        noisy[(0, 1)] += 0.02;
-        noisy[(2, 0)] -= 0.015;
-        let proj = project_to_so3(&noisy).unwrap();
-        assert!((proj.determinant() - 1.0).abs() < 1e-9, "det != 1");
-        assert!(
-            (proj * proj.transpose() - Mat3::identity()).norm() < 1e-9,
-            "not orthonormal"
-        );
-        assert!((proj - r).norm() < 0.05, "projection drifted from input");
-    }
-
-    /// A reflection (det < 0) is corrected to a proper rotation (det = +1).
-    #[test]
-    fn project_to_so3_fixes_reflection() {
-        // diag(1, 1, -1) is an orthogonal reflection with det = -1.
-        let refl = Mat3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0);
-        let proj = project_to_so3(&refl).unwrap();
-        assert!((proj.determinant() - 1.0).abs() < 1e-9, "det != 1");
     }
 }

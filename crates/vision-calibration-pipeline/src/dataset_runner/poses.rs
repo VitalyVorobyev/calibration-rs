@@ -16,11 +16,11 @@ use nalgebra::{Quaternion, Rotation3, UnitQuaternion, Vector3};
 use serde_json::Value;
 
 use vision_calibration_core::Iso3;
+use vision_calibration_core::linalg::project_to_so3;
 use vision_calibration_dataset::{
     DatasetSpec, PoseConvention, PosePairing, RobotPoseFormat, RobotPoseSource, RotationFormat,
     TransformConvention, TranslationUnits,
 };
-use vision_calibration_linear::math::project_to_so3;
 
 use super::RunError;
 

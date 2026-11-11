@@ -7,6 +7,7 @@
 use super::planar::planar_pose;
 use super::pose_utils::pose_from_points;
 use crate::GeometryError;
+use crate::math::ensure_finite;
 use nalgebra::{DMatrix, Vector3, linalg::SymmetricEigen};
 use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real, Vec3};
 
@@ -29,6 +30,9 @@ const FLAT_RATIO: Real = 1e-8;
 /// the points are collinear, or [`GeometryError::Singular`] if the intrinsics
 /// `k` are non-invertible or the control-point system is degenerate.
 pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, GeometryError> {
+    ensure_finite("world point", world.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite("image point", image.iter().flat_map(|p| p.coords.iter()))?;
+    ensure_finite("intrinsics", [&k.fx, &k.fy, &k.cx, &k.cy])?;
     let n = world.len();
     if n < 4 || image.len() != n {
         return Err(GeometryError::InsufficientData { need: 4, got: n });

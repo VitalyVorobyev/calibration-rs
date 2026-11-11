@@ -3,7 +3,7 @@
 //! Implements the normalized 8-point algorithm, the minimal 7-point solver,
 //! and RANSAC-based robust estimation for fundamental matrices.
 
-use crate::math::dlt_rank_ok;
+use crate::math::{dlt_rank_ok, ensure_finite};
 
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, SMatrix};
@@ -18,6 +18,14 @@ use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_
 /// returned matrix is forced to rank-2 and satisfies `x'^T F x = 0`
 /// (up to numerical error).
 pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
+    ensure_finite(
+        "first-view point",
+        pts1.iter().flat_map(|p| p.coords.iter()),
+    )?;
+    ensure_finite(
+        "second-view point",
+        pts2.iter().flat_map(|p| p.coords.iter()),
+    )?;
     let n = pts1.len();
     if n < 8 {
         return Err(GeometryError::InsufficientData { need: 8, got: n });
@@ -94,6 +102,14 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
 /// Returns up to three candidate fundamental matrices. Inputs are pixel
 /// coordinates; internal normalization is applied before solving.
 pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
+    ensure_finite(
+        "first-view point",
+        pts1.iter().flat_map(|p| p.coords.iter()),
+    )?;
+    ensure_finite(
+        "second-view point",
+        pts2.iter().flat_map(|p| p.coords.iter()),
+    )?;
     if pts1.len() != pts2.len() {
         return Err(GeometryError::CountMismatch {
             expected: pts1.len(),

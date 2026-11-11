@@ -6,7 +6,7 @@
 //! estimate is algebraic; refining it against pixels belongs to a calibrated
 //! measurement, where the camera model is known.
 
-use crate::math::dlt_rank_ok;
+use crate::math::{dlt_rank_ok, ensure_finite};
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, Matrix3, Matrix3x4};
 use vision_calibration_core::linalg::null_space;
@@ -32,6 +32,13 @@ use vision_calibration_core::{Iso3, Pt3, Real, Vec3};
 /// (identical cameras or coincident rays / zero parallax), or the recovered
 /// point is at infinity.
 pub fn triangulate_point_linear(cam_se3_world: &[Iso3], bearings: &[Vec3]) -> Result<Pt3> {
+    ensure_finite(
+        "camera pose",
+        cam_se3_world
+            .iter()
+            .flat_map(|p| p.translation.vector.iter().chain(p.rotation.coords.iter())),
+    )?;
+    ensure_finite("bearing", bearings.iter().flat_map(|v| v.iter()))?;
     if cam_se3_world.len() < 2 {
         return Err(GeometryError::InsufficientData {
             need: 2,

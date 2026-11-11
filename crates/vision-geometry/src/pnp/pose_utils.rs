@@ -37,7 +37,7 @@ pub(super) fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3, G
     }
 
     // Polar decomposition to the nearest rotation (see `math::project_to_so3`).
-    let r = crate::math::project_to_so3(&h)?;
+    let r = vision_calibration_core::linalg::project_to_so3(&h)?;
 
     let t = c_c - r * c_w;
     let rot = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r));
