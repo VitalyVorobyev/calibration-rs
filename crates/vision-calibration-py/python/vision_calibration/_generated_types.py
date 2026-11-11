@@ -2644,8 +2644,8 @@ class RigLaserlineDeviceInput(_RigLaserlineDeviceInputRequired, total=False):
     """Input for rig laserline calibration: dataset + frozen upstream calibration."""
 
     initial_planes_cam: list[LaserPlane] | None
-    """Optional per-camera initial plane in camera frame. If `None`, defaults
-    to a generic `z=-0.2m` plane.
+    """Optional per-camera initial plane in camera frame. If `None`, each
+    camera's plane is fitted in closed form from its laser pixels.
     """
 
 
