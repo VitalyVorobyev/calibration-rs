@@ -124,6 +124,6 @@ Freeing *every* coefficient does move the numbers, in both directions. On one ri
 
 ## Special Cases
 
-- **Wide-angle or fisheye-adjacent lenses**: set `camera.fix.distortion = Some(vec![])` and `init.fix_k3 = false` so the linear stage also fits `k3`. This is the one knob the default advice tells you not to flip without a reason.
+- **Wide-angle or fisheye-adjacent lenses**: set `camera.fix.distortion = Some(vec![])` and `intrinsics_init.fix_k3 = false` so the linear stage also fits `k3`. This is the one knob the default advice tells you not to flip without a reason.
 - **`DistortionKind::None`**: pinhole-only, for pre-rectified or synthetic inputs. It is not accepted with a Scheimpflug sensor: the tilt is estimated jointly with the radial terms, so configuration validation rejects `None` with a typed error.
 - **Hand-eye and laser workflows**: the same `camera.model.distortion` choice as planar intrinsics. A rig sets it per camera, and the rig laser workflows inherit each camera's model from the upstream rig.

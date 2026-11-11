@@ -205,7 +205,7 @@ fn stereo_rig_laserline_recovers_planes() {
     }
 
     // Reprojection residual quality.
-    for (cam_idx, stats) in est.per_camera_stats.iter().enumerate() {
+    for (cam_idx, stats) in est.per_cam_stats.iter().enumerate() {
         println!("cam{cam_idx} reproj={:.3e}", stats.mean_reproj_error);
         assert!(
             stats.mean_reproj_error < 0.5,

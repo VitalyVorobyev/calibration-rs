@@ -6139,6 +6139,7 @@ dependencies = [
 name = "vision-calibration-dataset"
 version = "0.18.0"
 dependencies = [
+ "schemars 1.2.3",
  "serde",
  "serde_json",
  "sha2 0.11.1",

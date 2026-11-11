@@ -320,7 +320,7 @@ pub fn sample_dir(cache: &Path, id: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Topology;
+    use crate::ProblemKind;
 
     #[test]
     fn every_sample_is_embedded_with_a_valid_manifest_and_file_list() {
@@ -341,7 +341,7 @@ mod tests {
         }
         assert_eq!(
             sample("kuka_1").unwrap().manifest().topology,
-            Topology::SingleCamHandeye
+            ProblemKind::SingleCamHandeye
         );
     }
 

@@ -358,12 +358,12 @@ use vision_calibration::planar_intrinsics::run_calibration;
 
 session.update_config(|c| {
     c.solver.max_iters = 80;
-    c.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    c.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
 })?;
 run_calibration(&mut session)?; // the same two steps in one call
 ```
 
-From a manifest, the configuration names its workflow, and a configuration for a different topology than the manifest's is an error raised before any image is read:
+From a manifest, the configuration names its workflow, and a configuration for a different problem kind than the manifest's is an error raised before any image is read:
 
 ```rust
 use vision_calibration::control::RunControl;
@@ -380,7 +380,8 @@ let run = calibrate_dataset(&spec, &dir, Some(config), Detection::Cached(&cache)
 
 ```python
 config = vc.PlanarIntrinsicsConfig(
-    solver=vc.SolverConfig(max_iters=80, robust_loss=vc.robust_huber(1.0)),
+    optimize=vc.PlanarOptimizeConfig(reprojection_loss=vc.robust_huber(1.0)),
+    solver=vc.SolverConfig(max_iters=80),
 )
 result = vc.run_planar_intrinsics(dataset, config)
 result = vc.calibrate_dataset("my_board_images/dataset.json", config)  # from a manifest

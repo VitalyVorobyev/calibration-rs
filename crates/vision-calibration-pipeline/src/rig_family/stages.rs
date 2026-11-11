@@ -22,7 +22,9 @@ use super::{
     inverse_poses, rig_ba_fix, views_to_planar_dataset, without_meta,
 };
 use crate::Error;
-use crate::common::config::{CameraConfig, IntrinsicsInitConfig, RigConfig, SolverConfig};
+use crate::common::config::{
+    CameraConfig, IntrinsicsInitConfig, IntrinsicsOptimizeConfig, RigConfig, SolverConfig,
+};
 use crate::common::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
 };
@@ -179,10 +181,12 @@ pub(crate) trait RigStages: ProblemType {
     /// The configuration of camera `index`.
     fn camera_for(config: &Self::Config, index: usize) -> CameraConfig;
     /// The per-camera linear-initialization settings.
-    fn intrinsics_config(config: &Self::Config) -> &IntrinsicsInitConfig;
-    /// The rig frame options.
+    fn intrinsics_init_config(config: &Self::Config) -> &IntrinsicsInitConfig;
+    /// The per-camera refinement settings.
+    fn intrinsics_optimize_config(config: &Self::Config) -> &IntrinsicsOptimizeConfig;
+    /// The rig stage settings.
     fn rig_config(config: &Self::Config) -> &RigConfig;
-    /// The non-linear solve settings.
+    /// The solver engine settings.
     fn solver_config(config: &Self::Config) -> &SolverConfig;
     /// The rig stages' state.
     fn stages(state: &Self::State) -> &RigStagesState;
@@ -229,7 +233,7 @@ pub(crate) fn init_intrinsics<P: RigStages>(
         input.num_views(),
         |cam_idx| camera_views(input, cam_idx),
         manual,
-        P::intrinsics_config(config),
+        P::intrinsics_init_config(config),
         opts.iterations,
     ) {
         Ok(b) => b,
@@ -283,6 +287,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
     let opts = opts.unwrap_or_default();
     let config = &session.config;
     let solver = P::solver_config(config);
+    let reprojection_loss = P::intrinsics_optimize_config(config).reprojection_loss;
 
     let cameras = stages
         .cameras
@@ -330,8 +335,8 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
                 &valid_indices,
                 &initial_params,
                 &camera_config,
-                solver,
-                P::intrinsics_config(config),
+                reprojection_loss,
+                P::intrinsics_init_config(config),
                 backend_opts.clone(),
             )?
         } else {
@@ -340,7 +345,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
                 &planar_dataset,
                 &initial_params,
                 &camera_config,
-                solver,
+                reprojection_loss,
                 backend_opts.clone(),
             )?
         };
@@ -544,7 +549,7 @@ pub(crate) fn optimize_rig<P: RigStages>(
         rig_se3_target,
     };
     let solve_opts = RigExtrinsicsSolveOptions {
-        robust_loss: solver.robust_loss,
+        robust_loss: rig.reprojection_loss,
         fix,
         fix_extrinsics,
         // The reference-camera fix removes the full 6-DOF rig gauge on its

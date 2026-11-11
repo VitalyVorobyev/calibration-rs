@@ -116,7 +116,7 @@
     ],
     "diagnostics": {
       "per_feature_residuals": {
-        "target_hist_per_camera": [
+        "target_hist_per_cam": [
           {
             "bucket_edges_px": [
               1.0,

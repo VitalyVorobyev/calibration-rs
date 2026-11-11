@@ -20,8 +20,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::spec::{
-    CameraSource, DatasetSpec, ImagePattern, PoseConvention, PosePairing, RobotPoseFormat,
-    RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention, TranslationUnits,
+    CameraSource, DatasetSpec, ImagePattern, PoseConvention, PosePairing, ProblemKind,
+    RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, TransformConvention,
+    TranslationUnits,
 };
 
 /// Errors raised while sniffing a dataset folder.
@@ -83,10 +84,10 @@ pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
     let n = cameras.len();
     let has_poses = pose.is_some();
     let (topology, topology_ambiguous) = match (n, has_poses) {
-        (1, true) => (Topology::SingleCamHandeye, false),
-        (1, false) => (Topology::PlanarIntrinsics, false),
-        (_, true) => (Topology::RigHandeye, false),
-        (_, false) => (Topology::RigExtrinsics, true),
+        (1, true) => (ProblemKind::SingleCamHandeye, false),
+        (1, false) => (ProblemKind::PlanarIntrinsics, false),
+        (_, true) => (ProblemKind::RigHandeye, false),
+        (_, false) => (ProblemKind::RigExtrinsics, true),
     };
 
     // Build camera sources.
@@ -504,7 +505,7 @@ mod tests {
         assert_eq!(spec.cameras.len(), 1);
         assert_eq!(spec.cameras[0].id, "cam0");
         assert_eq!(cam_glob(&spec, "cam0"), "*.png");
-        assert_eq!(spec.topology, Topology::SingleCamHandeye);
+        assert_eq!(spec.topology, ProblemKind::SingleCamHandeye);
         assert!(matches!(spec.pose_pairing, Some(PosePairing::ByIndex)));
 
         let poses = spec.robot_poses.as_ref().expect("poses detected");
@@ -514,7 +515,7 @@ mod tests {
         let conv = spec.pose_convention.as_ref().unwrap();
         assert_eq!(conv.rotation_format, RotationFormat::Matrix4x4RowMajor);
 
-        // Topology is unambiguous (1 cam + poses); geometry + convention
+        // ProblemKind is unambiguous (1 cam + poses); geometry + convention
         // direction/units are not.
         assert!(!spec.unresolved.contains(&"topology".to_string()));
         assert!(spec.unresolved.contains(&"target".to_string()));
@@ -547,7 +548,7 @@ mod tests {
         assert_eq!(cam_glob(&spec, "leftcamera"), "imgs/leftcamera/*.png");
         assert_eq!(cam_glob(&spec, "rightcamera"), "imgs/rightcamera/*.png");
 
-        assert_eq!(spec.topology, Topology::RigExtrinsics);
+        assert_eq!(spec.topology, ProblemKind::RigExtrinsics);
         assert!(spec.robot_poses.is_none());
         assert!(matches!(spec.pose_pairing, Some(PosePairing::ByIndex)));
         assert!(spec.unresolved.contains(&"topology".to_string()));
@@ -564,7 +565,7 @@ mod tests {
 
         assert_eq!(spec.cameras.len(), 1);
         assert_eq!(cam_glob(&spec, "cam0"), "*.jpg");
-        assert_eq!(spec.topology, Topology::PlanarIntrinsics);
+        assert_eq!(spec.topology, ProblemKind::PlanarIntrinsics);
         // The sensor (straight or tilted) is a config choice, so the
         // topology itself is settled.
         assert!(!spec.unresolved.contains(&"topology".to_string()));
@@ -667,7 +668,7 @@ mod tests {
         };
         assert_eq!(spec.cameras.len(), 1);
         assert_eq!(cam_glob(&spec, "cam0"), "*.png");
-        assert_eq!(spec.topology, Topology::SingleCamHandeye);
+        assert_eq!(spec.topology, ProblemKind::SingleCamHandeye);
         let poses = spec.robot_poses.as_ref().unwrap();
         assert_eq!(poses.format, RobotPoseFormat::Rowmajor4x4);
         assert_eq!(poses.path, PathBuf::from("RobotPosesVec.txt"));
@@ -682,7 +683,7 @@ mod tests {
         assert_eq!(spec.cameras.len(), 2);
         assert_eq!(cam_glob(&spec, "leftcamera"), "imgs/leftcamera/*.png");
         assert_eq!(cam_glob(&spec, "rightcamera"), "imgs/rightcamera/*.png");
-        assert_eq!(spec.topology, Topology::RigExtrinsics);
+        assert_eq!(spec.topology, ProblemKind::RigExtrinsics);
         assert!(spec.robot_poses.is_none());
         assert!(spec.unresolved.contains(&"topology".to_string()));
     }

@@ -69,8 +69,11 @@ Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`, `
 ```rust
 pub struct RigExtrinsicsConfig {
     // Per-camera linear-initialization stage settings.
-    pub intrinsics: IntrinsicsInitConfig, // { iterations, fix_k3 }
+    pub intrinsics_init: IntrinsicsInitConfig, // { iterations, fix_k3 }
     // (fits only the distortion terms each camera's solves estimate)
+
+    // Per-camera non-linear refinement, each camera on its own views.
+    pub intrinsics_optimize: IntrinsicsOptimizeConfig, // { reprojection_loss }
 
     // Camera model shared by every camera (projection, distortion, sensor)
     // and its named fix lists; default Brown-Conrady, identity sensor.
@@ -80,14 +83,14 @@ pub struct RigExtrinsicsConfig {
     pub camera_overrides: Vec<CameraOverride>, // { camera, model, fix }
 
     // Rig frame options.
-    pub rig: RigConfig, // { reference_camera_idx, refine_intrinsics, refine_sensor }
+    pub rig: RigConfig, // { reference_camera_idx, refine_intrinsics, refine_sensor, reprojection_loss }
 
-    // Non-linear solve stage settings.
-    pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }
+    // Solver engine, shared by every stage.
+    pub solver: SolverConfig, // { max_iters, verbosity, backend }
 }
 ```
 
-Every camera uses `camera` unless `camera_overrides` names it. An override replaces the model and the fix lists of one camera, so a rig can mix distortion kinds and sensors. A camera index out of range or listed twice is a validation error. A slot left out of `fix` keeps the model's default. With `rig.refine_intrinsics` set, each camera's fix lists are held during the rig bundle adjustment.
+Each stage carries its own robust loss: `intrinsics_optimize.reprojection_loss` for the per-camera solves and `rig.reprojection_loss` for the rig bundle adjustment (see [Robust Loss Functions](robust_loss.md)). Every camera uses `camera` unless `camera_overrides` names it. An override replaces the model and the fix lists of one camera, so a rig can mix distortion kinds and sensors. A camera index out of range or listed twice is a validation error. A slot left out of `fix` keeps the model's default. With `rig.refine_intrinsics` set, each camera's fix lists are held during the rig bundle adjustment.
 
 ```rust
 use vision_calibration::common::config::CameraOverride;

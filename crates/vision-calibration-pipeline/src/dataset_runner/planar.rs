@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use vision_calibration_core::{NoMeta, PlanarDataset, RunControl, View};
-use vision_calibration_dataset::{DatasetSpec, Topology, validate};
+use vision_calibration_dataset::{DatasetSpec, ProblemKind, validate};
 
 use super::{
     Detection, ImageProgress, RejectedDetection, RunError, detect_features, expand_camera_images,
@@ -31,7 +31,7 @@ pub fn build_planar_input(
     // Order matters: gate on topology + target before touching the
     // filesystem so users with broken globs still see helpful
     // "wrong topology" or "wrong target" errors first.
-    if spec.topology != Topology::PlanarIntrinsics {
+    if spec.topology != ProblemKind::PlanarIntrinsics {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -148,7 +148,7 @@ mod tests {
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
-            topology: Topology::PlanarIntrinsics,
+            topology: ProblemKind::PlanarIntrinsics,
             pose_pairing: None,
             pose_convention: None,
             unresolved: vec![],
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn rejects_rig_topology() {
         let mut spec = planar_spec_for_globless_test();
-        spec.topology = Topology::RigExtrinsics;
+        spec.topology = ProblemKind::RigExtrinsics;
         spec.cameras.push(CameraSource {
             id: "cam1".into(),
             images: ImagePattern::List { paths: vec![] },
@@ -317,7 +317,7 @@ mod tests {
                         total: 6
                     }
                 );
-                assert!(fault.to_string().contains("known"), "{fault}");
+                assert!(fault.to_string().contains("stated"), "{fault}");
             }
             other => panic!("expected CornerCovariance, got {other:?}"),
         }

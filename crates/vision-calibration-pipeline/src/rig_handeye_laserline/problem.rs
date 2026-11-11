@@ -2,9 +2,11 @@
 
 use crate::Error;
 use crate::common::config::{RobotPoseConfig, SolverConfig, check_laser_residual};
-use crate::common::{ExportDiagnostics, ExportKind, HandeyeSolution};
+use crate::common::{ExportDiagnostics, HandeyeSolution, ProblemKind};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
-use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
+use crate::rig_laserline_device::{
+    PlaneOptimizeConfig, RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
+};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_core::stated_covariance;
@@ -72,17 +74,30 @@ impl RigHandeyeLaserlineInput {
 }
 
 /// Configuration for joint rig hand-eye laserline calibration.
+///
+/// The calibration runs two warm-start problems and then its own joint
+/// solve. Each warm start is configured by its problem's whole config —
+/// `handeye` a rig hand-eye calibration, `laserline_init` a rig laserline
+/// calibration of the planes against that frozen geometry — and every one
+/// of their fields applies to that stage. The joint bundle adjustment is
+/// configured by `joint_optimize` and `solver`, the same shape as a
+/// single-camera laserline device's `optimize` and `solver`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigHandeyeLaserlineConfig {
-    /// Warm-start rig hand-eye stage.
+    /// The warm-start rig hand-eye calibration: cameras, extrinsics,
+    /// hand-eye transform and target reference pose. Its `rig`
+    /// reference camera also fixes the rig gauge of the joint solve.
     pub handeye: RigHandeyeConfig,
-    /// Frozen-geometry laser plane initialization stage.
+    /// The warm-start laser-plane fit against the frozen hand-eye geometry.
     pub laserline_init: RigLaserlineDeviceConfig,
-    /// Final joint bundle adjustment stage.
+    /// The joint bundle-adjustment stage.
     pub joint_optimize: JointOptimizeConfig,
+    /// Solver engine settings of the joint stage. `max_iters` defaults to
+    /// 30: the stage starts from both warm starts and needs few iterations.
+    pub solver: SolverConfig,
 }
 
 impl Default for RigHandeyeLaserlineConfig {
@@ -90,14 +105,17 @@ impl Default for RigHandeyeLaserlineConfig {
         Self {
             handeye: RigHandeyeConfig::default(),
             laserline_init: RigLaserlineDeviceConfig {
-                solver: SolverConfig {
-                    max_iters: 200,
-                    verbosity: 0,
-                    ..SolverConfig::default()
+                optimize: PlaneOptimizeConfig {
+                    laser_residual_type: LaserlineResidualType::PointToPlane,
+                    ..PlaneOptimizeConfig::default()
                 },
-                laser_residual_type: LaserlineResidualType::PointToPlane,
+                ..RigLaserlineDeviceConfig::default()
             },
             joint_optimize: JointOptimizeConfig::default(),
+            solver: SolverConfig {
+                max_iters: 30,
+                ..SolverConfig::default()
+            },
         }
     }
 }
@@ -113,22 +131,17 @@ impl Default for RigHandeyeLaserlineConfig {
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct JointOptimizeConfig {
-    /// Non-linear solve stage settings for the joint stage.
-    ///
-    /// `robust_loss` is **not consulted** by this problem: laser-carrying
-    /// stages track calibration and laser residuals as independent families
-    /// with their own robust losses (`calib_loss`, `laser_loss`).
-    /// `max_iters`, `verbosity` and `backend` apply.
-    pub solver: SolverConfig,
     /// Which laser residual drives the joint solve.
     pub laser_residual_type: LaserlineResidualType,
-    /// Robust loss applied to target residuals.
-    pub calib_loss: RobustLoss,
-    /// Robust loss applied to laser residuals.
+    /// Robust loss on the target-corner reprojection residuals; its scale is
+    /// in pixels.
+    pub reprojection_loss: RobustLoss,
+    /// Robust loss on the laser residuals, its scale in the residual's unit
+    /// (meters for point-to-plane, pixels for the line distance).
     pub laser_loss: RobustLoss,
-    /// Weight for target corner residuals.
-    pub calib_weight: f64,
-    /// Weight for laser residuals.
+    /// Weight of the reprojection residuals.
+    pub reprojection_weight: f64,
+    /// Weight of the laser residuals.
     pub laser_weight: f64,
     /// Camera parameters held fixed in the joint stage, one entry per camera
     /// in camera order, each named per slot in that camera's model
@@ -155,15 +168,10 @@ pub struct JointOptimizeConfig {
 impl Default for JointOptimizeConfig {
     fn default() -> Self {
         Self {
-            solver: SolverConfig {
-                max_iters: 30,
-                verbosity: 0,
-                ..SolverConfig::default()
-            },
             laser_residual_type: LaserlineResidualType::PointToPlane,
-            calib_loss: RobustLoss::None,
+            reprojection_loss: RobustLoss::None,
             laser_loss: RobustLoss::None,
-            calib_weight: 1.0,
+            reprojection_weight: 1.0,
             laser_weight: 1.0e4,
             fix: Vec::new(),
             fix_handeye: false,
@@ -178,14 +186,14 @@ impl Default for JointOptimizeConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeLaserlineExport {
-    /// Export-type discriminator — always [`ExportKind::RigHandeyeLaserline`].
-    pub kind: ExportKind,
+    /// Export-type discriminator — always [`ProblemKind::RigHandeyeLaserline`].
+    pub kind: ProblemKind,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
     /// Per-camera laser planes in camera frame.
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Joint per-camera stats.
-    pub per_camera_stats: Vec<RigHandeyeLaserlinePerCamStats>,
+    pub per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats>,
     /// Per-camera parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
     /// Per-camera extrinsics `cam_se3_rig` (T_C_R).
@@ -240,6 +248,10 @@ impl ProblemType for RigHandeyeLaserlineProblem {
         "rig_handeye_laserline_v1"
     }
 
+    fn schema_version() -> u32 {
+        2
+    }
+
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
         stated_covariance(
             input
@@ -272,10 +284,8 @@ impl ProblemType for RigHandeyeLaserlineProblem {
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         RigHandeyeProblem::validate_config(&config.handeye)?;
         RigLaserlineDeviceProblem::validate_config(&config.laserline_init)?;
-        if config.joint_optimize.solver.max_iters == 0 {
-            return Err(Error::invalid_input(
-                "joint_optimize.solver.max_iters must be positive",
-            ));
+        if config.solver.max_iters == 0 {
+            return Err(Error::invalid_input("solver.max_iters must be positive"));
         }
         config.joint_optimize.robot_poses.validate()?;
         Ok(())
@@ -291,9 +301,9 @@ impl ProblemType for RigHandeyeLaserlineProblem {
             .collect();
         for (i, &model) in models.iter().enumerate() {
             check_laser_residual(
-                config.laserline_init.laser_residual_type,
+                config.laserline_init.optimize.laser_residual_type,
                 model,
-                &format!("laserline_init.laser_residual_type (camera {i})"),
+                &format!("laserline_init.optimize.laser_residual_type (camera {i})"),
             )?;
             check_laser_residual(
                 config.joint_optimize.laser_residual_type,
@@ -358,9 +368,9 @@ pub(crate) fn export_joint(
         &params.cameras,
         &cam_se3_rig,
         &rig_se3_target,
-        &params.planes_cam,
+        &params.laser_planes_cam,
     )?;
-    per_feature_residuals.laser_hist_per_camera =
+    per_feature_residuals.laser_hist_per_cam =
         Some(per_camera_histograms(input.num_cameras, |cam| {
             laser
                 .features
@@ -374,20 +384,20 @@ pub(crate) fn export_joint(
     let solution = HandeyeSolution::new(mode, params.handeye, params.target_ref);
 
     Ok(RigHandeyeLaserlineExport {
-        kind: ExportKind::RigHandeyeLaserline,
-        laser_planes_rig: estimate.planes_rig.clone(),
-        laser_planes_cam: params.planes_cam.clone(),
-        per_camera_stats: estimate.per_cam_stats.clone(),
+        kind: ProblemKind::RigHandeyeLaserline,
+        laser_planes_rig: estimate.laser_planes_rig.clone(),
+        laser_planes_cam: params.laser_planes_cam.clone(),
+        per_cam_stats: estimate.per_cam_stats.clone(),
         cameras: params.cameras.clone(),
         cam_se3_rig,
         rig_se3_target,
         handeye: solution,
         robot_refinement: estimate.robot_refinement.clone(),
-        mean_reproj_error: estimate.mean_reproj_error_px,
+        mean_reproj_error: estimate.mean_reproj_error,
         per_cam_reproj_errors: estimate
             .per_cam_stats
             .iter()
-            .map(|s| s.mean_reproj_error_px)
+            .map(|s| s.mean_reproj_error)
             .collect(),
         // Callers that have the images fill `image_manifest`; the
         // pipeline never has image paths.

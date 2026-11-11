@@ -60,7 +60,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_dataset::{
     ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
-    ImageNoiseSpec, ImagePattern, TargetSpec, Topology, ValidationError,
+    ImageNoiseSpec, ImagePattern, ProblemKind, TargetSpec, ValidationError,
 };
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
@@ -101,13 +101,13 @@ pub enum RunError {
     #[error("manifest validation failed: {0}")]
     Validation(#[from] ValidationError),
 
-    /// Topology is not supported by this converter (e.g. a rig manifest
+    /// ProblemKind is not supported by this converter (e.g. a rig manifest
     /// handed to the planar converter, or a topology whose converter
     /// has not shipped yet).
     #[error("topology {topology:?} is not supported by this converter")]
     UnsupportedTopology {
         /// The offending topology.
-        topology: Topology,
+        topology: ProblemKind,
     },
 
     /// Target type is not supported by any registered detector.
@@ -449,7 +449,7 @@ pub enum CovarianceFault {
     #[error(
         "the detector reported no covariance for {missing} of {total} corners in this \
          image; on JPEG or demosaiced input the per-image noise estimate declines — \
-         set `image_noise = {{ known = σ }}` (gray levels) instead"
+         set `image_noise = {{ stated = σ }}` (gray levels) instead"
     )]
     Missing {
         /// Corners without a covariance.
@@ -495,7 +495,7 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
         covariance: covariance.map(|CornerCovarianceSpec { image_noise }| CornerCovariance {
             image_noise: match image_noise {
                 ImageNoiseSpec::Estimate => ImageNoise::Estimate,
-                ImageNoiseSpec::Known(sigma) => ImageNoise::Known(sigma),
+                ImageNoiseSpec::Stated(sigma) => ImageNoise::Stated(sigma),
             },
         }),
     }
@@ -1053,7 +1053,7 @@ mod tests {
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
-            topology: Topology::PlanarIntrinsics,
+            topology: ProblemKind::PlanarIntrinsics,
             pose_pairing: None,
             pose_convention: None,
             unresolved: vec![],
@@ -1211,7 +1211,7 @@ mod tests {
                 strategy: Some(CornerStrategySpec::Radon),
                 threshold_value: Some(0.2),
                 covariance: Some(CornerCovarianceSpec {
-                    image_noise: ImageNoiseSpec::Known(2.0),
+                    image_noise: ImageNoiseSpec::Stated(2.0),
                 }),
                 ..ChessCornersDetectorSpec::default()
             }),
@@ -1228,7 +1228,7 @@ mod tests {
         assert_eq!(
             lowered.covariance,
             Some(CornerCovariance {
-                image_noise: ImageNoise::Known(2.0)
+                image_noise: ImageNoise::Stated(2.0)
             })
         );
         assert_eq!(

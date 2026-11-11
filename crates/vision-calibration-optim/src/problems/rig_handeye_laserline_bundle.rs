@@ -164,7 +164,7 @@ pub struct RigHandeyeLaserlineParams {
     /// - `EyeToHand`: `gripper_se3_target` (`T_G_T`).
     pub target_ref: Iso3,
     /// Per-camera laser plane expressed in camera frame.
-    pub planes_cam: Vec<LaserPlane>,
+    pub laser_planes_cam: Vec<LaserPlane>,
 }
 
 /// Solve options for joint rig + hand-eye + laser BA.
@@ -173,11 +173,11 @@ pub struct RigHandeyeLaserlineSolveOptions {
     /// Which laser residual to use.
     pub laser_residual_type: LaserlineResidualType,
     /// Robust loss applied to the target-corner residuals.
-    pub calib_loss: RobustLoss,
+    pub reprojection_loss: RobustLoss,
     /// Robust loss applied to the laser residuals.
     pub laser_loss: RobustLoss,
     /// Uniform weight for target corner residuals.
-    pub calib_weight: f64,
+    pub reprojection_weight: f64,
     /// Uniform weight for laser pixel residuals.
     pub laser_weight: f64,
     /// Camera parameters held fixed, one entry per camera, each resolved
@@ -223,9 +223,9 @@ impl Default for RigHandeyeLaserlineSolveOptions {
     fn default() -> Self {
         Self {
             laser_residual_type: LaserlineResidualType::LineDistNormalized,
-            calib_loss: RobustLoss::None,
+            reprojection_loss: RobustLoss::None,
             laser_loss: RobustLoss::None,
-            calib_weight: 1.0,
+            reprojection_weight: 1.0,
             laser_weight: 1.0,
             fix: Vec::new(),
             fix_extrinsics: Vec::new(),
@@ -246,24 +246,24 @@ impl Default for RigHandeyeLaserlineSolveOptions {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigHandeyeLaserlinePerCamStats {
     /// Mean target-corner reprojection error (pixels).
-    pub mean_reproj_error_px: f64,
+    pub mean_reproj_error: f64,
     /// Number of target corner residuals evaluated for this camera.
     pub reproj_count: usize,
     /// Maximum target-corner reprojection error (pixels).
-    pub max_reproj_error_px: f64,
+    pub max_reproj_error: f64,
     /// Reprojection error histogram with buckets `[<=1, <=2, <=5, <=10, >10]` pixels.
-    pub reproj_histogram_px: [usize; 5],
+    pub reproj_histogram: [usize; 5],
     /// Mean laser point-to-plane distance (meters).
-    pub mean_laser_err_m: f64,
+    pub mean_laser_error_m: f64,
     /// Maximum absolute laser point-to-plane distance (meters).
-    pub max_laser_err_m: f64,
+    pub max_laser_error_m: f64,
     /// Laser point-to-plane histogram with buckets
     /// `[<=0.1mm, <=1mm, <=10mm, <=100mm, >100mm]`.
     pub laser_histogram_m: [usize; 5],
     /// Mean laser line-distance in undistorted pixel space (pixels).
-    pub mean_laser_err_px: f64,
+    pub mean_laser_error_px: f64,
     /// Maximum absolute laser line-distance in undistorted pixel space (pixels).
-    pub max_laser_err_px: f64,
+    pub max_laser_error_px: f64,
     /// Number of laser pixel residuals evaluated for this camera.
     pub laser_count: usize,
 }
@@ -274,12 +274,12 @@ pub struct RigHandeyeLaserlineEstimate {
     /// Refined parameters.
     pub params: RigHandeyeLaserlineParams,
     /// Per-camera laser plane expressed in rig frame (convenience: derived
-    /// from `params.planes_cam` + `params.rig_se3_cam`).
-    pub planes_rig: Vec<LaserPlane>,
+    /// from `params.laser_planes_cam` + `params.rig_se3_cam`).
+    pub laser_planes_rig: Vec<LaserPlane>,
     /// Backend solve report.
     pub report: SolveReport,
     /// Mean target-corner reprojection error across all cameras (pixels).
-    pub mean_reproj_error_px: f64,
+    pub mean_reproj_error: f64,
     /// Per-camera stats (reprojection + laser, both pixel and metric).
     pub per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats>,
     /// The per-view robot-pose corrections and the pose error they were
@@ -376,7 +376,7 @@ pub fn optimize_rig_handeye_laserline(
         rig_se3_cam,
         handeye,
         target_ref,
-        planes_cam,
+        laser_planes_cam: planes_cam,
     };
 
     let robot_refinement = match robot_pose_sigma {
@@ -387,14 +387,14 @@ pub fn optimize_rig_handeye_laserline(
         None => None,
     };
 
-    let planes_rig: Vec<LaserPlane> = params
-        .planes_cam
+    let laser_planes_rig: Vec<LaserPlane> = params
+        .laser_planes_cam
         .iter()
         .zip(params.rig_se3_cam.iter())
         .map(|(plane, rig_se3_cam)| plane.transform_by(rig_se3_cam))
         .collect();
 
-    let (mean_reproj_error_px, per_cam_stats) = compute_stats(
+    let (mean_reproj_error, per_cam_stats) = compute_stats(
         &dataset,
         &params,
         robot_refinement.as_ref().map(|r| r.deltas.as_slice()),
@@ -402,9 +402,9 @@ pub fn optimize_rig_handeye_laserline(
 
     Ok(RigHandeyeLaserlineEstimate {
         params,
-        planes_rig,
+        laser_planes_rig,
         report: solution.solve_report,
-        mean_reproj_error_px,
+        mean_reproj_error,
         per_cam_stats,
         robot_refinement,
         uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
@@ -452,8 +452,13 @@ fn compute_stats(
     let extr_dvecs: Vec<DVector<f64>> = params.rig_se3_cam.iter().map(iso3_to_se3_dvec).collect();
     let handeye_dv = iso3_to_se3_dvec(&params.handeye);
     let target_ref_dv = iso3_to_se3_dvec(&params.target_ref);
-    let plane_n_dvecs: Vec<DVector<f64>> = params.planes_cam.iter().map(normal_to_dvec).collect();
-    let plane_d_dvecs: Vec<DVector<f64>> = params.planes_cam.iter().map(distance_to_dvec).collect();
+    let plane_n_dvecs: Vec<DVector<f64>> =
+        params.laser_planes_cam.iter().map(normal_to_dvec).collect();
+    let plane_d_dvecs: Vec<DVector<f64>> = params
+        .laser_planes_cam
+        .iter()
+        .map(distance_to_dvec)
+        .collect();
 
     let mut per_cam_reproj_sum = vec![0.0f64; dataset.num_cameras];
     let mut per_cam_reproj_count = vec![0usize; dataset.num_cameras];
@@ -565,13 +570,13 @@ fn compute_stats(
     let per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats> = (0..dataset.num_cameras)
         .map(|cam_idx| {
             let reproj_count = per_cam_reproj_count[cam_idx];
-            let mean_reproj_error_px = if reproj_count > 0 {
+            let mean_reproj_error = if reproj_count > 0 {
                 per_cam_reproj_sum[cam_idx] / reproj_count as f64
             } else {
                 0.0
             };
             let laser_count = per_cam_laser_count[cam_idx];
-            let (mean_laser_err_m, mean_laser_err_px) = if laser_count > 0 {
+            let (mean_laser_error_m, mean_laser_error_px) = if laser_count > 0 {
                 let n = laser_count as f64;
                 (
                     (per_cam_laser_pt_sq_sum[cam_idx] / n).sqrt(),
@@ -581,15 +586,15 @@ fn compute_stats(
                 (0.0, 0.0)
             };
             RigHandeyeLaserlinePerCamStats {
-                mean_reproj_error_px,
+                mean_reproj_error,
                 reproj_count,
-                max_reproj_error_px: per_cam_reproj_max[cam_idx],
-                reproj_histogram_px: per_cam_reproj_hist[cam_idx],
-                mean_laser_err_m,
-                max_laser_err_m: per_cam_laser_pt_max[cam_idx],
+                max_reproj_error: per_cam_reproj_max[cam_idx],
+                reproj_histogram: per_cam_reproj_hist[cam_idx],
+                mean_laser_error_m,
+                max_laser_error_m: per_cam_laser_pt_max[cam_idx],
                 laser_histogram_m: per_cam_laser_m_hist[cam_idx],
-                mean_laser_err_px,
-                max_laser_err_px: per_cam_laser_px_max[cam_idx],
+                mean_laser_error_px,
+                max_laser_error_px: per_cam_laser_px_max[cam_idx],
                 laser_count,
             }
         })
@@ -597,12 +602,12 @@ fn compute_stats(
 
     let total_reproj_sum: f64 = per_cam_reproj_sum.iter().sum();
     let total_reproj_count: usize = per_cam_reproj_count.iter().sum();
-    let mean_reproj_error_px = if total_reproj_count > 0 {
+    let mean_reproj_error = if total_reproj_count > 0 {
         total_reproj_sum / total_reproj_count as f64
     } else {
         0.0
     };
-    Ok((mean_reproj_error_px, per_cam_stats))
+    Ok((mean_reproj_error, per_cam_stats))
 }
 
 fn bucket_reproj_px(err: f64) -> usize {
@@ -648,7 +653,7 @@ fn build_ir(
     if initial.rig_se3_cam.len() != n {
         return Err(Error::invalid_input("rig_se3_cam count mismatch"));
     }
-    if initial.planes_cam.len() != n {
+    if initial.laser_planes_cam.len() != n {
         return Err(Error::invalid_input("planes_cam count mismatch"));
     }
     if !opts.fix_extrinsics.is_empty() && opts.fix_extrinsics.len() != n {
@@ -746,11 +751,11 @@ fn build_ir(
         let key_n = format!("plane_n/{cam_idx}");
         let id_n = ir.add_param_block(&key_n, 3, ManifoldKind::S2, fixed_n, None);
         plane_n_ids.push(id_n);
-        initial_map.insert(key_n, normal_to_dvec(&initial.planes_cam[cam_idx]));
+        initial_map.insert(key_n, normal_to_dvec(&initial.laser_planes_cam[cam_idx]));
         let key_d = format!("plane_d/{cam_idx}");
         let id_d = ir.add_param_block(&key_d, 1, ManifoldKind::Euclidean, fixed_d, None);
         plane_d_ids.push(id_d);
-        initial_map.insert(key_d, distance_to_dvec(&initial.planes_cam[cam_idx]));
+        initial_map.insert(key_d, distance_to_dvec(&initial.laser_planes_cam[cam_idx]));
     }
 
     // 8. Residuals per view.
@@ -801,14 +806,14 @@ fn build_ir(
             for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
                 ir.add_residual_block(ResidualBlock {
                     params: params.clone(),
-                    loss: opts.calib_loss,
+                    loss: opts.reprojection_loss,
                     factor: FactorKind::ReprojPoint {
                         model: specs[cam_idx],
                         chain,
                         pw: [pw.x, pw.y, pw.z],
                         uv: [uv.x, uv.y],
                         sqrt_info: ReprojSqrtInfo::for_point(obs, pt_idx)
-                            .weighted(opts.calib_weight),
+                            .weighted(opts.reprojection_weight),
                     },
                     residual_dim: 2,
                 });
@@ -976,7 +981,7 @@ mod tests {
             rig_se3_cam: rig_se3_cam_gt.clone(),
             handeye: handeye_gt,
             target_ref: target_ref_gt,
-            planes_cam: planes_cam_gt.clone(),
+            laser_planes_cam: planes_cam_gt.clone(),
         };
 
         // Synthesize observations using the ground-truth chain.
@@ -1152,9 +1157,9 @@ mod tests {
 
         // Target reprojection should nail sub-pixel.
         assert!(
-            est.mean_reproj_error_px < 0.1,
+            est.mean_reproj_error < 0.1,
             "reproj {} not < 0.1 px",
-            est.mean_reproj_error_px
+            est.mean_reproj_error
         );
         // Laser residuals should be near-zero in both units. Point-to-plane
         // (meters) is what we optimize via LineDistNormalized indirectly;
@@ -1162,14 +1167,14 @@ mod tests {
         // tolerance since the synthesized line sampling is sparse.
         for (i, s) in est.per_cam_stats.iter().enumerate() {
             assert!(
-                s.mean_laser_err_m < 1e-4,
+                s.mean_laser_error_m < 1e-4,
                 "cam {i}: laser pt-to-plane {} not < 1e-4 m",
-                s.mean_laser_err_m
+                s.mean_laser_error_m
             );
             assert!(
-                s.mean_laser_err_px < 1.0,
+                s.mean_laser_error_px < 1.0,
                 "cam {i}: laser line-dist {} not < 1.0 px",
-                s.mean_laser_err_px
+                s.mean_laser_error_px
             );
         }
 

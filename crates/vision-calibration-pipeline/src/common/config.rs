@@ -1,11 +1,11 @@
 //! Shared config sub-structs embedded by grouped top-level `*Config` types.
 //!
-//! The same handful of concepts — per-camera linear init, non-linear solve
-//! settings, robot-pose refinement, hand-eye linear init — recur across the
-//! eight problem configs. This module holds the single canonical
-//! definition of each; top-level `*Config` types embed them as named groups
-//! (`init: IntrinsicsInitConfig`, `solver: SolverConfig`, ...) instead of
-//! re-declaring the same fields flat.
+//! The same handful of concepts — per-camera linear init and refinement,
+//! solver engine settings, robot-pose refinement, hand-eye linear init, the
+//! rig stage — recur across the problem configs. This module holds the
+//! single canonical definition of each; top-level `*Config` types embed them
+//! as named groups (`intrinsics_init: IntrinsicsInitConfig`, `solver:
+//! SolverConfig`, ...) instead of re-declaring the same fields flat.
 //!
 //! Per-problem defaults still differ (e.g. `SolverConfig::max_iters` is 50
 //! for most solves but 120 for planar intrinsics, sized for a tilted
@@ -252,7 +252,8 @@ pub(crate) fn validate_rig_camera_indices(
 /// Per-camera linear-initialization stage (Zhang's method + iterative
 /// Brown-Conrady distortion fit).
 ///
-/// Shared by every intrinsics-bearing problem's `init` config group.
+/// Shared by every intrinsics-bearing problem's `intrinsics_init` config
+/// group.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -393,7 +394,14 @@ fn held(list: &Option<Vec<String>>, default: Option<Vec<String>>, name: &str) ->
         .is_some_and(|l| l.iter().any(|h| h == name))
 }
 
-/// Non-linear solve stage options shared across problem types.
+/// The solver engine: iteration budget, verbosity and backend, shared by
+/// every problem's non-linear stages.
+///
+/// It holds engine settings only. What a stage minimizes — its robust losses
+/// and weights — belongs to the stage's own group (`optimize`,
+/// `intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named
+/// by the residual family it applies to (`reprojection_loss`,
+/// `laser_loss`).
 ///
 /// `max_iters` has no single workspace-wide default — problems override it
 /// per solve-stage cost. Documented per-problem defaults: 50 standard; 120
@@ -412,8 +420,6 @@ pub struct SolverConfig {
     pub max_iters: usize,
     /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
     pub verbosity: usize,
-    /// Robust loss function for outlier handling.
-    pub robust_loss: RobustLoss,
     /// Engine that linearizes the problem for the Levenberg–Marquardt loop.
     /// Both reach the same minimizer; see [`SolverBackend`].
     #[serde(default)]
@@ -425,7 +431,6 @@ impl Default for SolverConfig {
         Self {
             max_iters: 50,
             verbosity: 0,
-            robust_loss: RobustLoss::None,
             backend: SolverBackend::default(),
         }
     }
@@ -460,6 +465,25 @@ impl SolverConfig {
             ..self.backend_options(control)
         }
     }
+}
+
+/// The per-camera intrinsics refinement stage (`intrinsics_optimize`): each
+/// camera solved on its own views, before the joint stages.
+///
+/// Shared by the single-camera hand-eye and the two rig problems. The
+/// stage's iteration budget and backend come from `solver`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+#[serde(deny_unknown_fields)]
+pub struct IntrinsicsOptimizeConfig {
+    /// Robust loss on the target-corner reprojection residuals of this
+    /// stage; its scale is in pixels. Default `none`: plain least squares,
+    /// the maximum-likelihood estimate under Gaussian corner noise. The
+    /// later stages have their own: a redescending loss (`cauchy`,
+    /// `arctan`) needs a good start, so a convex `huber` here and the
+    /// redescending one in the final stage is a sound pairing.
+    pub reprojection_loss: RobustLoss,
 }
 
 /// Robot-pose refinement options for hand-eye bundle adjustment.
@@ -642,7 +666,8 @@ impl Default for HandeyeInitConfig {
     }
 }
 
-/// Multi-camera rig frame options: reference-camera gauge and rig-BA scope.
+/// The rig stage: the reference-camera gauge, and the scope and loss of the
+/// rig bundle adjustment.
 ///
 /// The `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -673,6 +698,9 @@ pub struct RigConfig {
     /// fixed. Cameras with an untilted sensor have no tilt.
     #[serde(default = "default_true")]
     pub refine_sensor: bool,
+    /// Robust loss on the target-corner reprojection residuals of the rig
+    /// bundle adjustment; its scale is in pixels. Default `none`.
+    pub reprojection_loss: RobustLoss,
 }
 
 impl Default for RigConfig {
@@ -681,6 +709,7 @@ impl Default for RigConfig {
             reference_camera_idx: 0,
             refine_intrinsics: true,
             refine_sensor: true,
+            reprojection_loss: RobustLoss::None,
         }
     }
 }
@@ -751,7 +780,6 @@ mod tests {
         let cfg = SolverConfig::default();
         assert_eq!(cfg.max_iters, 50);
         assert_eq!(cfg.verbosity, 0);
-        assert_eq!(cfg.robust_loss, RobustLoss::None);
     }
 
     #[test]
@@ -787,10 +815,13 @@ mod tests {
         assert_eq!(cfg.reference_camera_idx, 0);
         assert!(cfg.refine_intrinsics);
         assert!(cfg.refine_sensor);
+        assert_eq!(cfg.reprojection_loss, RobustLoss::None);
         // A config that leaves the flag out refines the tilt too.
-        let lean: RigConfig =
-            serde_json::from_str(r#"{"reference_camera_idx": 0, "refine_intrinsics": true}"#)
-                .unwrap();
+        let lean: RigConfig = serde_json::from_str(
+            r#"{"reference_camera_idx": 0, "refine_intrinsics": true,
+                "reprojection_loss": {"kind": "none"}}"#,
+        )
+        .unwrap();
         assert!(lean.refine_sensor);
     }
 

@@ -55,7 +55,7 @@ pub struct DatasetSpec {
 
     /// Path to a frozen upstream `RigHandeyeExport` JSON, relative to
     /// the manifest directory unless absolute. Required for
-    /// `Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
+    /// `ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
     /// laserline calibration computes its own hand-eye warm start and does not
     /// use this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -63,7 +63,7 @@ pub struct DatasetSpec {
 
     /// Calibration topology — selects which problem type the runner
     /// will dispatch to.
-    pub topology: Topology,
+    pub topology: ProblemKind,
 
     /// How per-camera images are paired across views (and optionally
     /// with robot poses). `None` is permitted only where pairing is
@@ -278,6 +278,14 @@ pub enum TargetSpec {
 
 /// Target-detector overrides. These options affect feature detection
 /// only; they are hashed into the detection-cache key by the runner.
+///
+/// The manifest declares its own detector types (this one,
+/// [`ChessCornersDetectorSpec`], [`CornerStrategySpec`],
+/// [`CornerCovarianceSpec`], [`ImageNoiseSpec`]) instead of reusing the
+/// detector crate's: the manifest crate and the detector crate do not depend
+/// on each other, so a manifest is read and validated without the detectors.
+/// The runner maps each to its detector counterpart, which has the same JSON
+/// spelling.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
@@ -298,7 +306,8 @@ pub struct DetectorSpec {
     pub min_features_per_view: Option<usize>,
 }
 
-/// The corner detector a chessboard-like detector runs.
+/// The corner detector a chessboard-like detector runs. The manifest's copy
+/// of the detector's corner strategy (see [`DetectorSpec`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -312,7 +321,8 @@ pub enum CornerStrategySpec {
     Radon,
 }
 
-/// ChESS corner extractor overrides.
+/// ChESS corner extractor overrides. The manifest's copy of the detector's
+/// ChESS options (see [`DetectorSpec`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
@@ -367,20 +377,24 @@ pub struct ChessCornersDetectorSpec {
 }
 
 /// Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].
+/// The manifest's copy of the detector's covariance options (see
+/// [`DetectorSpec`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct CornerCovarianceSpec {
     /// The image noise that the propagated covariance is expressed in.
     /// Defaults to `estimate`: the noise is estimated from each image, which
-    /// is unreliable on JPEG or demosaiced images; give `known` for those.
+    /// is unreliable on JPEG or demosaiced images; give `stated` for those.
     #[serde(default)]
     pub image_noise: ImageNoiseSpec,
 }
 
-/// The pixel-noise level behind a corner covariance.
+/// The pixel-noise level behind a corner covariance: estimated from the
+/// image, or stated by the user. The manifest's copy of the detector's
+/// image-noise option (see [`DetectorSpec`]).
 ///
-/// In JSON / TOML: `"estimate"` or `{ known = 2.0 }`.
+/// In JSON / TOML: `"estimate"` or `{ stated = 2.0 }`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -392,7 +406,7 @@ pub enum ImageNoiseSpec {
     /// The standard deviation of the image's pixel noise, in gray levels of
     /// the 8-bit image (finite and `>= 0`), e.g. the standard deviation of
     /// the difference of two frames of a static scene divided by `√2`.
-    Known(f32),
+    Stated(f32),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -473,18 +487,24 @@ pub struct PoseColumnMap {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Topology
+// Problem kind
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Calibration topology — selects the problem-type dispatch.
+/// The calibration problem a dataset is for, and the kind of an export.
 ///
-/// A topology describes the data (how many cameras, robot poses, laser
+/// One value per problem type, serialized as its snake_case name
+/// (`"planar_intrinsics"`, …). A manifest names it in its `topology` field,
+/// which selects the problem a run dispatches to; every export carries it in
+/// its `kind` field, so a consumer narrows on one value instead of probing
+/// which fields are present. The tag is required on deserialize.
+///
+/// A problem kind describes the data (how many cameras, robot poses, laser
 /// images), not the camera model: a tilted (Scheimpflug) single camera is a
 /// `planar_intrinsics` dataset whose calibration config names the sensor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
-pub enum Topology {
+pub enum ProblemKind {
     /// Single camera, planar target — `PlanarIntrinsicsProblem` (any camera
     /// model, including a tilted sensor).
     PlanarIntrinsics,

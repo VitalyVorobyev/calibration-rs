@@ -1,5 +1,5 @@
 import type {
-  ExportKind as WireExportKind,
+  ProblemKind as WireExportKind,
   LaserlineDeviceExport,
   PlanarIntrinsicsExport,
   RigExtrinsicsExport,
@@ -32,7 +32,7 @@ export type ExportKind = WireExportKind | "unknown";
  * This `Record` is the single source of truth for both the label vocabulary
  * *and* the set of recognised kinds (see {@link detectExportKind}). Typing it
  * `Record<WireExportKind, string>` pins it to the generated union: adding or
- * renaming a Rust `ExportKind` variant and regenerating the types forces a
+ * renaming a Rust `ProblemKind` variant and regenerating the types forces a
  * matching edit here, or the build fails. */
 const WIRE_KIND_LABELS: Record<WireExportKind, string> = {
   planar_intrinsics: "Planar intrinsics",

@@ -155,7 +155,7 @@ fn main() -> Result<()> {
         // Match the oracle lens config: k1,k2 free; k3 + tangential fixed (the
         // default `radial_only`); both Scheimpflug tilts free; robust loss to
         // down-weight the detector outlier tail.
-        config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        config.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
         // Coarse "datasheet" prior derived from the device spec (ADR 0011):
@@ -252,7 +252,7 @@ fn sweep_solve_camera(
     let mut config = PlanarIntrinsicsConfig::default();
     config.camera.model.sensor = SensorKind::Scheimpflug;
     config.solver.max_iters = max_iters;
-    config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
     config.camera.model.distortion = model;
     session.set_config(config)?;
 

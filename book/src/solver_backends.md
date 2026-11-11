@@ -34,7 +34,7 @@ config.solver.backend = SolverBackend::Factrs;
 JSON config:
 
 ```json
-{ "solver": { "max_iters": 50, "robust_loss": {"kind": "none"}, "backend": "factrs" } }
+{ "solver": { "max_iters": 50, "verbosity": 0, "backend": "factrs" } }
 ```
 
 Python:
@@ -44,9 +44,9 @@ config = vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(backend="factrs"))
 ```
 
 In the desktop app, the backend is a field of the solver group of each
-config form. Workflows with several solve stages (for example the joint rig,
-hand-eye and laser workflow) have one solver group per stage, each with its
-own backend.
+config form. The joint rig, hand-eye and laser workflow embeds two other
+configs and has a solver group for each of them as well as its own, each with
+its own backend.
 
 In code, set it on the config's solver group:
 
@@ -154,7 +154,8 @@ application running many calibrations at once.
 ## Solver Options
 
 Each solve stage's `SolverConfig` sets the `backend`, the iteration budget
-`max_iters`, the `verbosity` and the `robust_loss`. The loop stops when the
+`max_iters` and the `verbosity`; the robust loss belongs to the stage's
+optimize group, not the solver (see [Robust Loss Functions](robust_loss.md)). The loop stops when the
 cost decreases by less than 1e-5 in absolute or relative terms, or falls
 below 1e-10.
 

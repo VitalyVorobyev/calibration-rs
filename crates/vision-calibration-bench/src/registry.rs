@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::SensorKind;
-use vision_calibration_dataset::{DatasetSpec, Topology};
+use vision_calibration_dataset::DatasetSpec;
 
 /// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
 /// need a direct `vision-calibration-dataset` dependency.
@@ -215,43 +215,9 @@ pub enum Tier {
     B,
 }
 
-/// Problem kind a dataset targets.
-///
-/// Mirrors [`Topology`] one-for-one; the exhaustive `From<Topology>`
-/// conversion keeps the two in step.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProblemKind {
-    /// Single-camera planar intrinsics (Zhang); a tilted sensor is selected
-    /// by [`PlanarIntrinsicsOverride::sensor`].
-    PlanarIntrinsics,
-    /// Single-camera hand-eye.
-    SingleCamHandeye,
-    /// Multi-camera rig extrinsics.
-    RigExtrinsics,
-    /// Multi-camera rig hand-eye.
-    RigHandeye,
-    /// Joint multi-camera rig hand-eye + laserline.
-    RigHandeyeLaserline,
-    /// Single laserline device.
-    LaserlineDevice,
-    /// Multi-camera rig laserline device.
-    RigLaserlineDevice,
-}
-
-impl From<Topology> for ProblemKind {
-    fn from(topology: Topology) -> Self {
-        match topology {
-            Topology::PlanarIntrinsics => Self::PlanarIntrinsics,
-            Topology::SingleCamHandeye => Self::SingleCamHandeye,
-            Topology::RigExtrinsics => Self::RigExtrinsics,
-            Topology::RigHandeye => Self::RigHandeye,
-            Topology::RigHandeyeLaserline => Self::RigHandeyeLaserline,
-            Topology::LaserlineDevice => Self::LaserlineDevice,
-            Topology::RigLaserlineDevice => Self::RigLaserlineDevice,
-        }
-    }
-}
+/// Problem kind a dataset targets: the manifest's `topology`, one enum for
+/// the registry, the manifest and the exports.
+pub use vision_calibration_dataset::ProblemKind;
 
 /// Reference to a dataset specification: inline or by path.
 ///
@@ -422,9 +388,10 @@ pub struct SingleCamHandeyeOverride {
     /// Solver max iterations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_iters: Option<usize>,
-    /// Robust loss.
+    /// Robust loss on the reprojection residuals, applied to every stage
+    /// that solves them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub robust_loss: Option<BenchRobustLoss>,
+    pub reprojection_loss: Option<BenchRobustLoss>,
     /// Bundle-adjustment robot-pose settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handeye_optimize: Option<HandeyeOptimizeOverride>,
@@ -449,9 +416,10 @@ pub struct RigHandeyeOverride {
     /// Solver max iterations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_iters: Option<usize>,
-    /// Robust loss.
+    /// Robust loss on the reprojection residuals, applied to every stage
+    /// that solves them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub robust_loss: Option<BenchRobustLoss>,
+    pub reprojection_loss: Option<BenchRobustLoss>,
     /// Re-refine intrinsics in rig BA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refine_intrinsics: Option<bool>,
@@ -525,8 +493,9 @@ impl SingleCamHandeyeOverride {
         if let Some(max_iters) = self.max_iters {
             config.solver.max_iters = max_iters;
         }
-        if let Some(loss) = self.robust_loss {
-            config.solver.robust_loss = loss.into();
+        if let Some(loss) = self.reprojection_loss {
+            config.intrinsics_optimize.reprojection_loss = loss.into();
+            config.handeye_optimize.reprojection_loss = loss.into();
         }
         if let Some(ba) = &self.handeye_optimize {
             apply_single_handeye_optimize(ba, config);
@@ -552,8 +521,10 @@ impl RigHandeyeOverride {
         if let Some(max_iters) = self.max_iters {
             config.solver.max_iters = max_iters;
         }
-        if let Some(loss) = self.robust_loss {
-            config.solver.robust_loss = loss.into();
+        if let Some(loss) = self.reprojection_loss {
+            config.intrinsics_optimize.reprojection_loss = loss.into();
+            config.rig.reprojection_loss = loss.into();
+            config.handeye_optimize.reprojection_loss = loss.into();
         }
         if let Some(refine) = self.refine_intrinsics {
             config.rig.refine_intrinsics = refine;
@@ -567,7 +538,7 @@ impl RigHandeyeOverride {
 /// Apply the robot-pose-refinement fields of a [`HandeyeOptimizeOverride`] to a
 /// [`RobotPoseConfig`]. Shared by [`apply_single_handeye_optimize`] and [`apply_rig_handeye_optimize`],
 /// which differ only in *where* their `RobotPoseConfig` lives
-/// (`SingleCamHandeyeConfig::robot_poses` vs
+/// (`SingleCamHandeyeConfig::handeye_optimize::robot_poses` vs
 /// `RigHandeyeConfig::handeye_optimize::robot_poses`) and in the rig-only fields
 /// `apply_rig_handeye_optimize` applies afterward.
 fn apply_robot_pose_override(ba: &HandeyeOptimizeOverride, robot_poses: &mut RobotPoseConfig) {
@@ -591,7 +562,7 @@ fn apply_single_handeye_optimize(
     ba: &HandeyeOptimizeOverride,
     config: &mut SingleCamHandeyeConfig,
 ) {
-    apply_robot_pose_override(ba, &mut config.robot_poses);
+    apply_robot_pose_override(ba, &mut config.handeye_optimize.robot_poses);
 }
 
 fn apply_rig_handeye_optimize(ba: &HandeyeOptimizeOverride, config: &mut RigHandeyeConfig) {
@@ -665,7 +636,7 @@ mod tests {
         };
         camera
     }
-    use vision_calibration_dataset::{CameraSource, ImagePattern, TargetSpec, Topology};
+    use vision_calibration_dataset::{CameraSource, ImagePattern, ProblemKind, TargetSpec};
 
     fn sample_spec() -> DatasetSpec {
         DatasetSpec {
@@ -687,7 +658,7 @@ mod tests {
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
-            topology: Topology::RigHandeye,
+            topology: ProblemKind::RigHandeye,
             pose_pairing: None,
             pose_convention: None,
             unresolved: Vec::new(),
@@ -747,7 +718,7 @@ mod tests {
                 refine_sensor: Some(false),
                 handeye_mode: Some(BenchHandeyeMode::EyeToHand),
                 max_iters: Some(200),
-                robust_loss: Some(BenchRobustLoss::Huber { scale: 1.0 }),
+                reprojection_loss: Some(BenchRobustLoss::Huber { scale: 1.0 }),
                 refine_intrinsics: Some(false),
                 handeye_optimize: Some(HandeyeOptimizeOverride {
                     refine_robot_poses: Some(true),
@@ -818,7 +789,13 @@ mod tests {
         assert_eq!(cfg.camera.model.sensor, SensorKind::Scheimpflug);
         assert_eq!(cfg.handeye_init.handeye_mode, HandeyeMode::EyeToHand);
         assert_eq!(cfg.solver.max_iters, 200);
-        assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
+        for loss in [
+            cfg.intrinsics_optimize.reprojection_loss,
+            cfg.rig.reprojection_loss,
+            cfg.handeye_optimize.reprojection_loss,
+        ] {
+            assert_eq!(loss, RobustLoss::Huber { scale: 1.0 });
+        }
         assert!(cfg.handeye_optimize.robot_poses.prior().is_some());
         assert!(!cfg.handeye_optimize.refine_cam_se3_rig);
         assert!(!cfg.handeye_optimize.refine_sensor);

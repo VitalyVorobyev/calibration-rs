@@ -273,7 +273,7 @@ mod tests {
         assert!(plain.iter().all(|f| f.cov_px.is_none()));
 
         let mut cfg = board_config();
-        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": 2.0 } } });
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "stated": 2.0 } } });
         let with = run(&img, &cfg).unwrap();
         assert_eq!(with.len(), plain.len());
         for (a, b) in with.iter().zip(&plain) {
@@ -299,7 +299,7 @@ mod tests {
         cfg.chess_corners = Some(ChessCornersConfig {
             threshold_value: Some(30.0),
             covariance: Some(crate::CornerCovariance {
-                image_noise: crate::ImageNoise::Known(2.0),
+                image_noise: crate::ImageNoise::Stated(2.0),
             }),
             ..ChessCornersConfig::default()
         });
@@ -310,12 +310,12 @@ mod tests {
     }
 
     #[test]
-    fn invalid_known_noise_is_rejected() {
+    fn invalid_stated_noise_is_rejected() {
         let img = image::DynamicImage::new_luma8(8, 8);
         let mut cfg = board_config();
-        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": null } } });
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "stated": null } } });
         assert!(run(&img, &cfg).is_err());
-        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "known": -1.0 } } });
+        cfg["chess_corners"] = json!({ "covariance": { "image_noise": { "stated": -1.0 } } });
         let err = run(&img, &cfg).unwrap_err();
         assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
     }

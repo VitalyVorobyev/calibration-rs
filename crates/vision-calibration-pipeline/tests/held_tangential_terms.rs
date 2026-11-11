@@ -175,7 +175,7 @@ fn single_cam_handeye() {
         .unwrap();
     let mut config = session.config().clone();
     config.camera = held();
-    config.robot_poses = RobotPoseConfig::Exact;
+    config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
     session.set_config(config).unwrap();
     let init =
         vision_calibration_pipeline::single_cam_handeye::step_intrinsics_init(&mut session, None)

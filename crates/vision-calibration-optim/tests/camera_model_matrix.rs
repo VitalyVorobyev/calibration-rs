@@ -278,7 +278,7 @@ fn laserline_solves_every_camera_model() {
                     result.report.final_cost
                 );
                 if identifiable(kind, &sensor) {
-                    let (angle, dd) = plane_errors(&result.params.plane, &plane);
+                    let (angle, dd) = plane_errors(&result.params.laser_plane, &plane);
                     assert!(
                         angle < 1e-5 && dd < 1e-6,
                         "{label}: plane {angle} rad, {dd} m"
@@ -431,7 +431,7 @@ fn joint_rig_laserline_solves_every_camera_model() {
                     Rotation3::from_euler_angles(0.104, -0.048, 0.197).into(),
                 ),
                 target_ref: base_se3_target,
-                planes_cam: scene.planes_cam.iter().map(perturbed_plane).collect(),
+                laser_planes_cam: scene.planes_cam.iter().map(perturbed_plane).collect(),
             };
             let opts = RigHandeyeLaserlineSolveOptions {
                 fix_extrinsics: vec![true, true],
@@ -441,13 +441,14 @@ fn joint_rig_laserline_solves_every_camera_model() {
             let result = optimize_rig_handeye_laserline(dataset, initial, opts, tight())
                 .unwrap_or_else(|e| panic!("{kind:?}/{sensor:?}: {e}"));
             assert!(
-                result.mean_reproj_error_px < 1e-6,
+                result.mean_reproj_error < 1e-6,
                 "{kind:?}/{sensor:?}: reprojection {} px",
-                result.mean_reproj_error_px
+                result.mean_reproj_error
             );
             assert_eq!(result.params.cameras[1].spec(), scene.cameras[1].spec());
             if identifiable(kind, &sensor) {
-                let (angle, dd) = plane_errors(&result.params.planes_cam[1], &scene.planes_cam[1]);
+                let (angle, dd) =
+                    plane_errors(&result.params.laser_planes_cam[1], &scene.planes_cam[1]);
                 assert!(
                     angle < 1e-5 && dd < 1e-6,
                     "{kind:?}/{sensor:?}: camera 1 plane {angle} rad, {dd} m"

@@ -11,7 +11,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use vision_calibration_dataset::{
     CameraSource, DatasetSpec, DetectorSpec, ImagePattern, PoseConvention, PosePairing,
-    RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
+    RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, TransformConvention,
     TranslationUnits,
 };
 
@@ -86,10 +86,10 @@ fn lower_registry_fields(entry: &BenchEntry) -> Result<DatasetSpec> {
             min_features_per_view,
         });
 
-    let topology = entry.problem.topology();
+    let topology = entry.problem;
     let hand_eye = matches!(
         topology,
-        Topology::SingleCamHandeye | Topology::RigHandeye | Topology::RigHandeyeLaserline
+        ProblemKind::SingleCamHandeye | ProblemKind::RigHandeye | ProblemKind::RigHandeyeLaserline
     );
     let (robot_poses, pose_convention) = if hand_eye {
         let source = entry
@@ -102,8 +102,8 @@ fn lower_registry_fields(entry: &BenchEntry) -> Result<DatasetSpec> {
         (None, None)
     };
     let pose_pairing = match topology {
-        Topology::PlanarIntrinsics | Topology::LaserlineDevice => None,
-        Topology::RigExtrinsics => Some(PosePairing::SharedFilenameToken {
+        ProblemKind::PlanarIntrinsics | ProblemKind::LaserlineDevice => None,
+        ProblemKind::RigExtrinsics => Some(PosePairing::SharedFilenameToken {
             regex: RIG_PAIRING_REGEX.to_string(),
             group: "view".to_string(),
         }),
@@ -217,21 +217,6 @@ fn robot_pose_source(source: &PoseSource) -> Result<(RobotPoseSource, PoseConven
             translation_units,
         },
     ))
-}
-
-impl ProblemKind {
-    /// The manifest topology of this problem kind.
-    pub fn topology(self) -> Topology {
-        match self {
-            ProblemKind::PlanarIntrinsics => Topology::PlanarIntrinsics,
-            ProblemKind::SingleCamHandeye => Topology::SingleCamHandeye,
-            ProblemKind::RigExtrinsics => Topology::RigExtrinsics,
-            ProblemKind::RigHandeye => Topology::RigHandeye,
-            ProblemKind::RigHandeyeLaserline => Topology::RigHandeyeLaserline,
-            ProblemKind::LaserlineDevice => Topology::LaserlineDevice,
-            ProblemKind::RigLaserlineDevice => Topology::RigLaserlineDevice,
-        }
-    }
 }
 
 #[cfg(test)]

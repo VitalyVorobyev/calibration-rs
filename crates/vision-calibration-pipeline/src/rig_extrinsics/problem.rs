@@ -10,10 +10,10 @@ use vision_calibration_core::{CameraParams, Iso3, NoMeta, RigDataset, Uncertaint
 use vision_calibration_optim::RigExtrinsicsEstimate;
 
 use crate::common::config::{
-    CameraConfig, CameraOverride, IntrinsicsInitConfig, RigConfig, SolverConfig, rig_camera_for,
-    validate_rig_camera_indices, validate_rig_cameras,
+    CameraConfig, CameraOverride, IntrinsicsInitConfig, IntrinsicsOptimizeConfig, RigConfig,
+    SolverConfig, rig_camera_for, validate_rig_camera_indices, validate_rig_cameras,
 };
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ProblemKind};
 use crate::rig_family::{RigStages, RigStagesState, inverse_poses, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -37,6 +37,11 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 /// Grouped by stage. Every camera has the model of `camera` unless
 /// `camera_overrides` names it, so one rig can mix lenses and sensors.
 ///
+/// Two stages solve the target corners, each with its own
+/// `reprojection_loss`: `intrinsics_optimize` (each camera alone) and `rig`
+/// (the rig bundle adjustment). A robust calibration sets both; the final
+/// stage's loss is the estimator.
+///
 /// The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge; an extra per-view pose constraint would be
 /// redundant and mildly pessimizing. View-0's rig-from-target pose is always free in the rig BA.
@@ -45,10 +50,6 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigExtrinsicsConfig {
-    /// Per-camera linear-initialization stage settings. The linear stage
-    /// fits only the distortion terms each camera's solves estimate.
-    pub intrinsics: IntrinsicsInitConfig,
-
     /// The camera model of every rig camera and the parameters its solves
     /// hold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a
     /// multi-start tilt sweep.
@@ -60,10 +61,20 @@ pub struct RigExtrinsicsConfig {
     #[serde(default)]
     pub camera_overrides: Vec<CameraOverride>,
 
-    /// Rig frame options (reference camera, rig-BA scope).
+    /// Per-camera linear-initialization stage settings
+    /// (`step_intrinsics_init_all`). The linear stage fits only the
+    /// distortion terms each camera's solves estimate.
+    pub intrinsics_init: IntrinsicsInitConfig,
+
+    /// Per-camera refinement stage settings (`step_intrinsics_optimize_all`).
+    pub intrinsics_optimize: IntrinsicsOptimizeConfig,
+
+    /// Rig stage settings (`step_rig_init`, `step_rig_optimize`): the
+    /// reference camera, and the scope and loss of the rig bundle
+    /// adjustment.
     pub rig: RigConfig,
 
-    /// Non-linear solve stage settings.
+    /// Solver engine settings, for every non-linear stage.
     pub solver: SolverConfig,
 }
 
@@ -83,8 +94,8 @@ impl RigExtrinsicsConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigExtrinsicsExport {
-    /// Export-type discriminator — always [`ExportKind::RigExtrinsics`].
-    pub kind: ExportKind,
+    /// Export-type discriminator — always [`ProblemKind::RigExtrinsics`].
+    pub kind: ProblemKind,
 
     /// Per-camera calibrated parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
@@ -199,8 +210,11 @@ impl RigStages for RigExtrinsicsProblem {
     fn camera_for(config: &RigExtrinsicsConfig, index: usize) -> CameraConfig {
         config.camera_for(index)
     }
-    fn intrinsics_config(config: &RigExtrinsicsConfig) -> &IntrinsicsInitConfig {
-        &config.intrinsics
+    fn intrinsics_init_config(config: &RigExtrinsicsConfig) -> &IntrinsicsInitConfig {
+        &config.intrinsics_init
+    }
+    fn intrinsics_optimize_config(config: &RigExtrinsicsConfig) -> &IntrinsicsOptimizeConfig {
+        &config.intrinsics_optimize
     }
     fn rig_config(config: &RigExtrinsicsConfig) -> &RigConfig {
         &config.rig
@@ -227,7 +241,7 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn schema_version() -> u32 {
-        1
+        2
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
@@ -279,9 +293,9 @@ impl ProblemType for RigExtrinsicsProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics.iterations == 0 {
+        if config.intrinsics_init.iterations == 0 {
             return Err(Error::invalid_input(
-                "intrinsics.iterations must be positive",
+                "intrinsics_init.iterations must be positive",
             ));
         }
         validate_rig_cameras(&config.camera, &config.camera_overrides)
@@ -316,7 +330,7 @@ impl ProblemType for RigExtrinsicsProblem {
         let per_feature_residuals =
             rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
         Ok(RigExtrinsicsExport {
-            kind: ExportKind::RigExtrinsics,
+            kind: ProblemKind::RigExtrinsics,
             cameras: params.cameras.clone(),
             cam_se3_rig,
             rig_se3_target,
@@ -443,13 +457,13 @@ mod tests {
         let config = RigExtrinsicsConfig {
             solver: SolverConfig {
                 max_iters: 100,
-                robust_loss: vision_calibration_optim::RobustLoss::Huber { scale: 2.5 },
                 ..SolverConfig::default()
             },
             rig: RigConfig {
                 reference_camera_idx: 1,
                 refine_intrinsics: true,
                 refine_sensor: true,
+                reprojection_loss: vision_calibration_optim::RobustLoss::Huber { scale: 2.5 },
             },
             ..Default::default()
         };
@@ -459,6 +473,10 @@ mod tests {
 
         assert_eq!(restored.solver.max_iters, 100);
         assert_eq!(restored.rig.reference_camera_idx, 1);
+        assert_eq!(
+            restored.rig.reprojection_loss,
+            vision_calibration_optim::RobustLoss::Huber { scale: 2.5 }
+        );
         assert!(restored.rig.refine_intrinsics);
         assert!(restored.rig.refine_sensor);
     }
@@ -466,7 +484,7 @@ mod tests {
     #[test]
     fn problem_name_and_version() {
         assert_eq!(RigExtrinsicsProblem::name(), "rig_extrinsics_v2");
-        assert_eq!(RigExtrinsicsProblem::schema_version(), 1);
+        assert_eq!(RigExtrinsicsProblem::schema_version(), 2);
     }
 
     #[test]
@@ -575,7 +593,7 @@ mod tests {
         let hist = export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .as_ref()
             .expect("rig export emits per-camera histograms");
         assert_eq!(hist.len(), 2);
@@ -588,7 +606,7 @@ mod tests {
             export
                 .diagnostics
                 .per_feature_residuals
-                .laser_hist_per_camera
+                .laser_hist_per_cam
                 .is_none()
         );
     }
@@ -669,11 +687,8 @@ mod tests {
             restored
                 .diagnostics
                 .per_feature_residuals
-                .target_hist_per_camera,
-            export
-                .diagnostics
-                .per_feature_residuals
-                .target_hist_per_camera
+                .target_hist_per_cam,
+            export.diagnostics.per_feature_residuals.target_hist_per_cam
         );
     }
 

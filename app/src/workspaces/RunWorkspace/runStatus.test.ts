@@ -73,7 +73,10 @@ describe("setup summaries", () => {
     expect(robustLossLabel({ kind: "huber", scale: 1 })).toBe("huber");
     expect(robustLossLabel(undefined)).toBe("none");
     expect(
-      configSummary({ max_iters: 50, robust_loss: { kind: "cauchy", scale: 1 } }),
+      configSummary({
+        solver: { max_iters: 50 },
+        optimize: { reprojection_loss: { kind: "cauchy", scale: 1 } },
+      }),
     ).toBe("max_iters=50 · loss=cauchy");
   });
 

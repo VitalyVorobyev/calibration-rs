@@ -5,8 +5,8 @@
 //!   pixel noise × outliers) and its generators. Pixel noise is uniform with
 //!   the stated per-axis standard deviation; contaminated scenes displace 5 %
 //!   of the target observations by 10–30 px and solve under Huber or Cauchy
-//!   (set through `solver.robust_loss`, or the problem's `calib_loss` for the
-//!   laser-carrying problems; their laser loss keeps the problem default).
+//!   (the `reprojection_loss` of every stage that solves the target corners;
+//!   the laser-carrying problems' laser loss keeps the problem default).
 //!   The frozen-rig laser problem fits laser planes only, so it has no
 //!   contaminated scenes.
 //! - [`drivers`]: runs a scene through the public step functions, timing the

@@ -113,7 +113,7 @@ fn brown_conrady() -> DistortionParams {
 fn config(model: CameraModelSpec) -> SingleCamHandeyeConfig {
     let mut config = SingleCamHandeyeConfig::default();
     config.camera = CameraConfig::new(model);
-    config.robot_poses = RobotPoseConfig::Exact;
+    config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
     config
 }
 

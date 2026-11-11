@@ -25,7 +25,7 @@ use vision_calibration::control::{CancelToken, Progress, RunControl};
 use vision_calibration::core::{
     FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
 };
-use vision_calibration::dataset::{DatasetSpec, Topology};
+use vision_calibration::dataset::{DatasetSpec, ProblemKind};
 use vision_calibration::dataset_runner::{
     Detection, RunError, build_laserline_device_input, build_planar_input,
     build_rig_extrinsics_input, build_rig_handeye_input, build_rig_handeye_laserline_input,
@@ -379,7 +379,7 @@ fn run_blocking(
     ctx.stage(RunStage::Detect);
 
     match spec.topology {
-        Topology::PlanarIntrinsics => run_planar_topology::<PlanarIntrinsicsProblem>(
+        ProblemKind::PlanarIntrinsics => run_planar_topology::<PlanarIntrinsicsProblem>(
             &spec,
             config_json,
             base_dir,
@@ -388,7 +388,7 @@ fn run_blocking(
             ctx,
             run_planar_calibration,
         ),
-        Topology::RigExtrinsics => run_rig_topology::<RigExtrinsicsProblem, _>(
+        ProblemKind::RigExtrinsics => run_rig_topology::<RigExtrinsicsProblem, _>(
             &spec,
             config_json,
             base_dir,
@@ -398,7 +398,7 @@ fn run_blocking(
             build_rig_extrinsics_input,
             run_rig_extrinsics_calibration,
         ),
-        Topology::RigHandeye => run_rig_topology::<RigHandeyeProblem, _>(
+        ProblemKind::RigHandeye => run_rig_topology::<RigHandeyeProblem, _>(
             &spec,
             config_json,
             base_dir,
@@ -408,7 +408,7 @@ fn run_blocking(
             build_rig_handeye_input,
             run_rig_handeye_calibration,
         ),
-        Topology::SingleCamHandeye => run_single_cam_handeye_topology(
+        ProblemKind::SingleCamHandeye => run_single_cam_handeye_topology(
             &spec,
             config_json,
             base_dir,
@@ -416,13 +416,13 @@ fn run_blocking(
             started,
             ctx,
         ),
-        Topology::LaserlineDevice => {
+        ProblemKind::LaserlineDevice => {
             run_laserline_topology(&spec, config_json, base_dir, &detection_cache, started, ctx)
         }
-        Topology::RigLaserlineDevice => {
+        ProblemKind::RigLaserlineDevice => {
             run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started, ctx)
         }
-        Topology::RigHandeyeLaserline => run_rig_handeye_laserline_topology(
+        ProblemKind::RigHandeyeLaserline => run_rig_handeye_laserline_topology(
             &spec,
             config_json,
             base_dir,
@@ -1188,7 +1188,7 @@ mod tests {
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
-            topology: Topology::RigExtrinsics,
+            topology: ProblemKind::RigExtrinsics,
             pose_pairing: Some(PosePairing::ByIndex),
             pose_convention: None,
             unresolved: vec![],
@@ -1572,7 +1572,10 @@ mod tests {
         handeye_config["rig"]["refine_intrinsics"] = json!(false);
         handeye_config["handeye_init"]["handeye_mode"] = json!("eye_to_hand");
         handeye_config["solver"]["max_iters"] = json!(200);
-        handeye_config["solver"]["robust_loss"] = json!({"kind": "huber", "scale": 1.0});
+        let huber = json!({"kind": "huber", "scale": 1.0});
+        handeye_config["intrinsics_optimize"]["reprojection_loss"] = huber.clone();
+        handeye_config["rig"]["reprojection_loss"] = huber.clone();
+        handeye_config["handeye_optimize"]["reprojection_loss"] = huber;
         let handeye = match run_blocking_test(
             read_manifest("dataset_rig_handeye.toml"),
             handeye_config.clone(),
@@ -1602,7 +1605,7 @@ mod tests {
         // stage-3 choice), so the σ gate below is unit-meaningful.
         let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
         laser_config["solver"]["max_iters"] = json!(200);
-        laser_config["laser_residual_type"] = json!("point_to_plane");
+        laser_config["optimize"]["laser_residual_type"] = json!("point_to_plane");
         let laser = match run_blocking_test(read_manifest("dataset_laser.toml"), laser_config, &dir)
         {
             RunResponse::Ok(s) => s,
@@ -1632,7 +1635,7 @@ mod tests {
             frozen_mean_px < 2.2,
             "frozen laser diagnostic mean reproj {frozen_mean_px:.3} px"
         );
-        let stats = laser.export["per_camera_stats"].as_array().unwrap();
+        let stats = laser.export["per_cam_stats"].as_array().unwrap();
         assert_eq!(stats.len(), 6);
         for (cam, s) in stats.iter().enumerate() {
             // Plane-fit sanity gate, not an oracle-beating gate: with
@@ -1678,10 +1681,10 @@ mod tests {
         let mut joint_config = default_config_cmd("rig_handeye_laserline".into()).unwrap();
         joint_config["handeye"] = handeye_config;
         joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
-        joint_config["laserline_init"]["laser_residual_type"] = json!("point_to_plane");
-        joint_config["joint_optimize"]["solver"]["max_iters"] = json!(30);
+        joint_config["laserline_init"]["optimize"]["laser_residual_type"] = json!("point_to_plane");
+        joint_config["solver"]["max_iters"] = json!(30);
         joint_config["joint_optimize"]["laser_residual_type"] = json!("point_to_plane");
-        joint_config["joint_optimize"]["calib_weight"] = json!(1.0);
+        joint_config["joint_optimize"]["reprojection_weight"] = json!(1.0);
         joint_config["joint_optimize"]["laser_weight"] = json!(10000.0);
         // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
         // `handeye.rig.reference_camera_idx`.
@@ -1707,10 +1710,10 @@ mod tests {
             joint_mean_px < 1.35,
             "joint rig hand-eye laserline mean reproj {joint_mean_px:.3} px"
         );
-        let joint_stats = joint.export["per_camera_stats"].as_array().unwrap();
+        let joint_stats = joint.export["per_cam_stats"].as_array().unwrap();
         assert_eq!(joint_stats.len(), 6);
         for (cam, s) in joint_stats.iter().enumerate() {
-            let laser_err = s["mean_laser_err_m"].as_f64().unwrap();
+            let laser_err = s["mean_laser_error_m"].as_f64().unwrap();
             eprintln!(
                 "joint cam {cam}: mean point-to-plane {:.4} mm",
                 laser_err * 1e3

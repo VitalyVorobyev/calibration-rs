@@ -11,7 +11,7 @@
 //! cameras skip it.
 
 use crate::Error;
-use crate::common::config::{CameraConfig, IntrinsicsInitConfig, SolverConfig};
+use crate::common::config::{CameraConfig, IntrinsicsInitConfig};
 use crate::planar_family::{camera_solve_opts, embed_distortion};
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModel, CameraModelSpec, CameraParams, CorrespondenceView,
@@ -25,7 +25,7 @@ use vision_calibration_linear::extrinsics::{
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
-    PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
+    PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobustLoss,
     ScheimpflugStagedInitOptions, SolveReport, optimize_planar_intrinsics, optimize_rig_extrinsics,
     optimize_scheimpflug_intrinsics_staged,
 };
@@ -87,11 +87,11 @@ impl TiltedRecovery {
         valid_indices: &[usize],
         initial: &PlanarIntrinsicsParams,
         camera: &CameraConfig,
-        solver: &SolverConfig,
+        reprojection_loss: RobustLoss,
         intrinsics: &IntrinsicsInitConfig,
         backend_opts: BackendSolveOptions,
     ) -> Result<PlanarIntrinsicsEstimate, Error> {
-        let solve_opts = camera_solve_opts(camera, solver);
+        let solve_opts = camera_solve_opts(camera, reprojection_loss);
         if camera.model == TILTED_BROWN_CONRADY {
             self.work_items.push(ScheimpflugCameraWork {
                 cam_idx,

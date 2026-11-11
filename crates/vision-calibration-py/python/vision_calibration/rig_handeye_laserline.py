@@ -39,7 +39,7 @@ class JointManualInit:
     corrections are used as they are. It must have the input's cameras (in
     the configured models) and views and the configured hand-eye mode.
 
-    ``planes_cam`` is one laser plane per camera, in that camera's frame (a
+    ``laser_planes_cam`` is one laser plane per camera, in that camera's frame (a
     design value, say); the plane stage refines them instead of fitting its
     starting planes linearly.
 
@@ -48,7 +48,7 @@ class JointManualInit:
     """
 
     rig_handeye: RigHandeyeExport | None = None
-    planes_cam: list[LaserPlane] | None = None
+    laser_planes_cam: list[LaserPlane] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         rig_handeye: dict[str, Any] | None = None
@@ -59,7 +59,7 @@ class JointManualInit:
                     "rig_handeye must be an export the library returned "
                     "(RigHandeyeExport.export is empty)"
                 )
-        return _seed_payload({"rig_handeye": rig_handeye, "planes_cam": self.planes_cam})
+        return _seed_payload({"rig_handeye": rig_handeye, "laser_planes_cam": self.laser_planes_cam})
 
 
 class RigHandeyeLaserlineSession(

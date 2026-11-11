@@ -242,7 +242,7 @@ pub fn step_intrinsics_init_with_seed(
     provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
 
     let init_opts = config
-        .intrinsics
+        .intrinsics_init
         .camera_init_opts(opts.iterations, &config.camera);
     let planar_dataset = input_to_planar_dataset(input)?;
     let bootstrap = match bootstrap_camera(0, model, &planar_dataset, &seed, init_opts) {
@@ -347,7 +347,7 @@ pub fn step_intrinsics_optimize(
         &planar_dataset,
         &initial_params,
         &config.camera,
-        &config.solver,
+        config.intrinsics_optimize.reprojection_loss,
         backend_opts,
     ) {
         Ok(r) => r,
@@ -593,10 +593,10 @@ pub fn step_handeye_optimize(
 
     // The camera is the rig: its extrinsics stay the identity.
     let solve_opts = handeye_solve_opts(
-        config.solver.robust_loss,
+        config.handeye_optimize.reprojection_loss,
         vec![config.camera.fix.clone()],
         vec![true],
-        &config.robot_poses,
+        &config.handeye_optimize.robot_poses,
     );
     let backend_opts =
         config

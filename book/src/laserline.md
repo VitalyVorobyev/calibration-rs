@@ -94,14 +94,14 @@ $$d_\perp = \frac{|(\mathbf{q} - \mathbf{p}_0) \times \hat{\mathbf{d}}_{\text{2D
 
 ## Configuration
 
-`init` and `solver` are the shared sub-structs, `camera` the camera model
+`intrinsics_init` and `solver` are the shared sub-structs, `camera` the camera model
 and its fixed parameters (as in [Planar Intrinsics](planar_intrinsics.md)),
 and `optimize` groups the laser-specific bundle-adjustment settings:
 
 ```rust
 pub struct LaserlineDeviceConfig {
     // Per-camera linear-initialization stage settings.
-    pub init: IntrinsicsInitConfig,
+    pub intrinsics_init: IntrinsicsInitConfig,
     // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
     //   distortion terms the bundle adjustment estimates
 
@@ -111,18 +111,17 @@ pub struct LaserlineDeviceConfig {
     // everything but the low-order radial terms under a Scheimpflug sensor).
     pub camera: CameraConfig, // { model: CameraModelSpec, fix: CameraFix }
 
-    // Non-linear solve stage settings. `robust_loss` is not consulted here —
-    // laser-carrying stages use `optimize.calib_loss`/`optimize.laser_loss`.
-    pub solver: SolverConfig, // { max_iters: usize = 50, verbosity: usize = 0, .. }
+    // Solver engine: engine settings only; the robust losses are in `optimize`.
+    pub solver: SolverConfig, // { max_iters: usize = 50, verbosity: usize = 0, backend }
 
     // Bundle-adjustment options.
     pub optimize: DeviceOptimizeConfig,
 }
 
 pub struct DeviceOptimizeConfig {
-    pub calib_loss: RobustLoss,        // Default: Huber { scale: 1.0 }
-    pub laser_loss: RobustLoss,        // Default: Huber { scale: 1.0 }, in the residual's unit
-    pub calib_weight: f64,             // Weight for calibration residuals (default: 1.0)
+    pub reprojection_loss: RobustLoss, // Corner residuals. Default: Huber { scale: 1.0 }
+    pub laser_loss: RobustLoss,        // Laser residuals. Default: Huber { scale: 1.0 }, in the residual's unit
+    pub reprojection_weight: f64,      // Weight for corner residuals (default: 1.0)
     pub laser_weight: f64,             // Weight for laser residuals (default: 1.0)
     pub fix_poses: Vec<usize>,         // Default: empty (each pose is set by its own corners)
     pub fix_plane: bool,
@@ -133,9 +132,15 @@ pub struct DeviceOptimizeConfig {
 The line-distance residual needs a projection that keeps lines straight
 (the pinhole); the configuration is checked before the solve.
 
+The two robust losses are independent: `reprojection_loss` applies to the
+target corners, `laser_loss` to the laser residuals, each in its own unit. The
+initial camera-only tilt solve of a Scheimpflug sensor started from scratch is
+plain least squares; the losses apply from the bundle adjustment on (see
+[Robust Loss Functions](robust_loss.md)).
+
 ### Weight Balancing
 
-Since calibration residuals (in pixels) and laser residuals may have different scales, the weights allow balancing their relative influence. A common starting point is `calib_weight = 1.0` and `laser_weight = 1.0`, adjusting if one term dominates.
+Since calibration residuals (in pixels) and laser residuals may have different scales, the weights allow balancing their relative influence. A common starting point is `reprojection_weight = 1.0` and `laser_weight = 1.0`, adjusting if one term dominates.
 
 ## Complete Example
 

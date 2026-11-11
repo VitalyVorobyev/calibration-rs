@@ -11,8 +11,8 @@ mod state;
 mod steps;
 
 pub use problem::{
-    RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
-    RigLaserlineDeviceProblem, RigUpstreamCalibration,
+    PlaneOptimizeConfig, RigLaserlineDeviceConfig, RigLaserlineDeviceExport,
+    RigLaserlineDeviceInput, RigLaserlineDeviceProblem, RigUpstreamCalibration,
 };
 pub use steps::{
     PlaneInitOptions, PlaneManualInit, PlaneOptimizeOptions, run_calibration, step_init,

@@ -16,7 +16,7 @@ use vision_calibration_optim::{
 use crate::common::config::{
     CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig, check_laser_residual,
 };
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ProblemKind};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
@@ -90,10 +90,6 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct LaserlineDeviceConfig {
-    /// Per-camera linear-initialization stage settings. The linear stage
-    /// fits only the distortion terms the bundle adjustment estimates
-    /// ([`Self::effective_fix`]).
-    pub init: IntrinsicsInitConfig,
     /// The camera model and the parameters the bundle adjustment holds
     /// fixed. Any distortion kind, and an identity or Scheimpflug sensor;
     /// the line-distance laser residual needs a projection that keeps lines
@@ -104,15 +100,16 @@ pub struct LaserlineDeviceConfig {
     /// the linear tilt sweep and a staged multi-start).
     #[serde(default)]
     pub camera: CameraConfig,
-    /// Non-linear solve stage settings.
-    ///
-    /// `robust_loss` is **not consulted** by this problem: laser-carrying
-    /// stages track calibration and laser residuals as independent families
-    /// with their own robust losses (`optimize.calib_loss`,
-    /// `optimize.laser_loss`). `max_iters`, `verbosity` and `backend` apply.
-    pub solver: SolverConfig,
-    /// Bundle-adjustment options.
+    /// Linear-initialization stage settings (`step_init`). The linear stage
+    /// fits only the distortion terms the bundle adjustment estimates
+    /// ([`Self::effective_fix`]). A Scheimpflug camera whose tilt is
+    /// estimated and not seeded is solved alone by the staged tilt
+    /// multi-start before the plane fit, in plain least squares.
+    pub intrinsics_init: IntrinsicsInitConfig,
+    /// Bundle-adjustment stage settings (`step_optimize`).
     pub optimize: DeviceOptimizeConfig,
+    /// Solver engine settings.
+    pub solver: SolverConfig,
 }
 
 /// Bundle-adjustment options for laserline device calibration.
@@ -121,15 +118,16 @@ pub struct LaserlineDeviceConfig {
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct DeviceOptimizeConfig {
-    /// Robust loss for calibration reprojection residuals.
-    pub calib_loss: vision_calibration_optim::RobustLoss,
-    /// Robust loss for laser residuals. Its scale is in the residual's unit:
-    /// pixels for the line distance (the default residual), meters for
+    /// Robust loss on the target-corner reprojection residuals; its scale is
+    /// in pixels.
+    pub reprojection_loss: vision_calibration_optim::RobustLoss,
+    /// Robust loss on the laser residuals. Its scale is in the residual's
+    /// unit: pixels for the line distance (the default residual), meters for
     /// point-to-plane.
     pub laser_loss: vision_calibration_optim::RobustLoss,
-    /// Global weight for calibration residuals.
-    pub calib_weight: f64,
-    /// Global weight for laser residuals.
+    /// Weight of the reprojection residuals.
+    pub reprojection_weight: f64,
+    /// Weight of the laser residuals.
     pub laser_weight: f64,
     /// Indices of target poses to hold fixed. None by default: each view's
     /// pose is measured by its own corners, so there is no gauge to fix. A
@@ -146,9 +144,9 @@ pub struct DeviceOptimizeConfig {
 impl Default for DeviceOptimizeConfig {
     fn default() -> Self {
         Self {
-            calib_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
+            reprojection_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
             laser_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
-            calib_weight: 1.0,
+            reprojection_weight: 1.0,
             laser_weight: 1.0,
             fix_poses: Vec::new(),
             fix_plane: false,
@@ -177,7 +175,7 @@ impl LaserlineDeviceConfig {
             model: self.camera.model,
             fix: self.effective_fix(),
         };
-        self.init.camera_init_opts(None, &camera)
+        self.intrinsics_init.camera_init_opts(None, &camera)
     }
 
     /// The fix lists the bundle adjustment applies. A held tilt (see
@@ -205,8 +203,8 @@ impl LaserlineDeviceConfig {
     /// lists are [`Self::effective_fix`].
     pub(crate) fn solve_opts(&self) -> LaserlineSolveOptions {
         LaserlineSolveOptions {
-            calib_loss: self.optimize.calib_loss,
-            calib_weight: self.optimize.calib_weight,
+            reprojection_loss: self.optimize.reprojection_loss,
+            reprojection_weight: self.optimize.reprojection_weight,
             laser_loss: self.optimize.laser_loss,
             laser_weight: self.optimize.laser_weight,
             fix: self.effective_fix(),
@@ -233,8 +231,8 @@ pub struct LaserlineDeviceEstimate {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceExport {
-    /// Export-type discriminator — always [`ExportKind::LaserlineDevice`].
-    pub kind: ExportKind,
+    /// Export-type discriminator — always [`ProblemKind::LaserlineDevice`].
+    pub kind: ProblemKind,
     /// The calibrated camera, in its model.
     pub camera: CameraParams,
     /// Per-view target poses (`cam_se3_target`).
@@ -275,6 +273,10 @@ impl ProblemType for LaserlineDeviceProblem {
         "laserline_device_v1"
     }
 
+    fn schema_version() -> u32 {
+        2
+    }
+
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
         stated_covariance(input.iter().map(|v| &v.obs))?;
         if input.len() < 3 {
@@ -304,11 +306,11 @@ impl ProblemType for LaserlineDeviceProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.init.iterations == 0 {
+        if config.intrinsics_init.iterations == 0 {
             return Err(Error::invalid_input("init.iterations must be positive"));
         }
-        if config.optimize.calib_weight <= 0.0 {
-            return Err(Error::invalid_input("calib_weight must be positive"));
+        if config.optimize.reprojection_weight <= 0.0 {
+            return Err(Error::invalid_input("reprojection_weight must be positive"));
         }
         if config.optimize.laser_weight <= 0.0 {
             return Err(Error::invalid_input("laser_weight must be positive"));
@@ -348,13 +350,13 @@ impl ProblemType for LaserlineDeviceProblem {
         per_feature_residuals.target = target;
         per_feature_residuals.laser = laser.features;
         per_feature_residuals.laser_lines = laser.lines;
-        per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
-        per_feature_residuals.laser_hist_per_camera = Some(vec![laser_hist]);
+        per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
+        per_feature_residuals.laser_hist_per_cam = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {
-            kind: ExportKind::LaserlineDevice,
+            kind: ProblemKind::LaserlineDevice,
             camera: output.estimate.params.camera.clone(),
             cam_se3_target: output.estimate.params.cam_se3_target.clone(),
-            laser_plane: output.estimate.params.plane.clone(),
+            laser_plane: output.estimate.params.laser_plane.clone(),
             stats: output.stats.clone(),
             mean_reproj_error: output.stats.mean_reproj_error,
             per_cam_reproj_errors: vec![output.stats.mean_reproj_error],
@@ -493,7 +495,7 @@ mod tests {
         let target_hist = &export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .as_ref()
             .unwrap()[0];
         assert_eq!(target_hist.count, 12);
@@ -501,7 +503,7 @@ mod tests {
         let laser_hist = &export
             .diagnostics
             .per_feature_residuals
-            .laser_hist_per_camera
+            .laser_hist_per_cam
             .as_ref()
             .unwrap()[0];
         assert_eq!(laser_hist.count, 15);
@@ -667,21 +669,15 @@ mod tests {
             restored
                 .diagnostics
                 .per_feature_residuals
-                .target_hist_per_camera,
-            export
-                .diagnostics
-                .per_feature_residuals
-                .target_hist_per_camera
+                .target_hist_per_cam,
+            export.diagnostics.per_feature_residuals.target_hist_per_cam
         );
         assert_eq!(
             restored
                 .diagnostics
                 .per_feature_residuals
-                .laser_hist_per_camera,
-            export
-                .diagnostics
-                .per_feature_residuals
-                .laser_hist_per_camera
+                .laser_hist_per_cam,
+            export.diagnostics.per_feature_residuals.laser_hist_per_cam
         );
     }
 }

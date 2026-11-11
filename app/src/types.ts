@@ -77,8 +77,8 @@ export interface PerFeatureResiduals {
   laser?: LaserFeatureResidual[];
   /** One projected laser line per (view, camera) with laser pixels. */
   laser_lines?: LaserLineTrace[];
-  target_hist_per_camera?: FeatureResidualHistogram[] | null;
-  laser_hist_per_camera?: FeatureResidualHistogram[] | null;
+  target_hist_per_cam?: FeatureResidualHistogram[] | null;
+  laser_hist_per_cam?: FeatureResidualHistogram[] | null;
 }
 
 /** An export's `diagnostics` group: every feature's residual and, when

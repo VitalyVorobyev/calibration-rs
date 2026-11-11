@@ -482,7 +482,7 @@ pub fn step_handeye_optimize(
         target_poses: vec![mode_target_pose],
     };
     let solve_opts = handeye_solve_opts(
-        config.solver.robust_loss,
+        refine.reprojection_loss,
         fix,
         fix_extrinsics,
         &refine.robot_poses,

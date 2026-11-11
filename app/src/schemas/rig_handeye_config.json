@@ -523,7 +523,7 @@
     },
     "HandeyeOptimizeConfig": {
       "additionalProperties": false,
-      "description": "Final hand-eye bundle-adjustment options; robot-pose refinement lives in\nthe shared [`RobotPoseConfig`] group.",
+      "description": "The final hand-eye bundle adjustment of a rig hand-eye calibration\n(`step_handeye_optimize`): its loss, robot-pose refinement and scope.",
       "properties": {
         "refine_cam_se3_rig": {
           "description": "Refine cam_se3_rig in hand-eye BA (default: false).\nWhen true, rig extrinsics are further refined during hand-eye optimization.",
@@ -538,12 +538,17 @@
           "description": "Refine the sensor tilt of each Scheimpflug camera in the hand-eye\nBA, holding its `fix.sensor` list. Default: `true`, for the reason\ngiven on `rig.refine_sensor`: the final solve's covariance then\nincludes the tilts. Cameras with an untilted sensor have no tilt.",
           "type": "boolean"
         },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels. Default `none`."
+        },
         "robot_poses": {
           "$ref": "#/$defs/RobotPoseConfig",
           "description": "Robot-pose refinement settings for the final hand-eye BA."
         }
       },
       "required": [
+        "reprojection_loss",
         "robot_poses",
         "refine_intrinsics",
         "refine_cam_se3_rig"
@@ -552,7 +557,7 @@
     },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
-      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `intrinsics_init` config\ngroup.",
       "properties": {
         "fix_k3": {
           "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera: a\nterm the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
@@ -608,6 +613,20 @@
       },
       "type": "object"
     },
+    "IntrinsicsOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The per-camera intrinsics refinement stage (`intrinsics_optimize`): each\ncamera solved on its own views, before the joint stages.\n\nShared by the single-camera hand-eye and the two rig problems. The\nstage's iteration budget and backend come from `solver`.",
+      "properties": {
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals of this\nstage; its scale is in pixels. Default `none`: plain least squares,\nthe maximum-likelihood estimate under Gaussian corner noise. The\nlater stages have their own: a redescending loss (`cauchy`,\n`arctan`) needs a good start, so a convex `huber` here and the\nredescending one in the final stage is a sound pairing."
+        }
+      },
+      "required": [
+        "reprojection_loss"
+      ],
+      "type": "object"
+    },
     "ProjectionKind": {
       "description": "Which projection model a camera uses.",
       "oneOf": [
@@ -625,7 +644,7 @@
     },
     "RigConfig": {
       "additionalProperties": false,
-      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
+      "description": "The rig stage: the reference-camera gauge, and the scope and loss of the\nrig bundle adjustment.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
       "properties": {
         "reference_camera_idx": {
           "description": "Reference camera index for the rig frame (identity extrinsics).",
@@ -641,11 +660,16 @@
           "default": true,
           "description": "Refine the sensor tilt of each Scheimpflug camera in the rig bundle\nadjustment, holding its `fix.sensor` list. Default: `true`, for the\nreason given on `refine_intrinsics`: a camera's own views pin its\ntilt poorly (it trades with the principal point), the views of the\nwhole rig pin it several times better, and a tilt held at the\nper-camera estimate leaves its error in the focal length and the\nprincipal point while the covariance, conditional on the held tilt,\nunderstates their standard deviations several-fold. `false` holds\nthe tilt at the per-camera estimate; the covariance then lists it as\nfixed. Cameras with an untilted sensor have no tilt.",
           "type": "boolean"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals of the rig\nbundle adjustment; its scale is in pixels. Default `none`."
         }
       },
       "required": [
         "reference_camera_idx",
-        "refine_intrinsics"
+        "refine_intrinsics",
+        "reprojection_loss"
       ],
       "type": "object"
     },
@@ -825,7 +849,7 @@
     },
     "SolverConfig": {
       "additionalProperties": false,
-      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "description": "The solver engine: iteration budget, verbosity and backend, shared by\nevery problem's non-linear stages.\n\nIt holds engine settings only. What a stage minimizes — its robust losses\nand weights — belongs to the stage's own group (`optimize`,\n`intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named\nby the residual family it applies to (`reprojection_loss`,\n`laser_loss`).\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "backend": {
           "$ref": "#/$defs/SolverBackend",
@@ -838,10 +862,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "robust_loss": {
-          "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss function for outlier handling."
-        },
         "verbosity": {
           "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
           "format": "uint",
@@ -851,15 +871,14 @@
       },
       "required": [
         "max_iters",
-        "verbosity",
-        "robust_loss"
+        "verbosity"
       ],
       "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Every camera has the model of `camera` unless\n`camera_overrides` names it, so one rig can mix lenses and sensors.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
+  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Every camera has the model of `camera` unless\n`camera_overrides` names it, so one rig can mix lenses and sensors.\n\nThree stages solve the target corners, each with its own\n`reprojection_loss`: `intrinsics_optimize` (each camera alone), `rig`\n(the rig bundle adjustment) and `handeye_optimize`. A robust calibration\nsets all three; the final stage's loss is the estimator.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
   "properties": {
     "camera": {
       "$ref": "#/$defs/CameraConfig",
@@ -883,15 +902,19 @@
     },
     "handeye_init": {
       "$ref": "#/$defs/HandeyeInitConfig",
-      "description": "Hand-eye linear initialization options."
+      "description": "Hand-eye linear-initialization stage settings (`step_handeye_init`)."
     },
     "handeye_optimize": {
       "$ref": "#/$defs/HandeyeOptimizeConfig",
-      "description": "Final hand-eye bundle-adjustment options."
+      "description": "Final hand-eye bundle-adjustment stage settings\n(`step_handeye_optimize`)."
     },
-    "intrinsics": {
+    "intrinsics_init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
-      "description": "Per-camera linear-initialization stage settings. The linear stage\nfits only the distortion terms each camera's solves estimate."
+      "description": "Per-camera linear-initialization stage settings\n(`step_intrinsics_init_all`). The linear stage fits only the\ndistortion terms each camera's solves estimate."
+    },
+    "intrinsics_optimize": {
+      "$ref": "#/$defs/IntrinsicsOptimizeConfig",
+      "description": "Per-camera refinement stage settings (`step_intrinsics_optimize_all`)."
     },
     "manual_init": {
       "anyOf": [
@@ -906,19 +929,20 @@
     },
     "rig": {
       "$ref": "#/$defs/RigConfig",
-      "description": "Rig frame options (reference camera, rig-BA scope)."
+      "description": "Rig stage settings (`step_rig_init`, `step_rig_optimize`): the\nreference camera, and the scope and loss of the rig bundle\nadjustment."
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
-      "description": "Non-linear solve stage settings."
+      "description": "Solver engine settings, for every non-linear stage."
     }
   },
   "required": [
-    "intrinsics",
+    "intrinsics_init",
+    "intrinsics_optimize",
     "rig",
     "handeye_init",
-    "solver",
-    "handeye_optimize"
+    "handeye_optimize",
+    "solver"
   ],
   "title": "RigHandeyeConfig",
   "type": "object"

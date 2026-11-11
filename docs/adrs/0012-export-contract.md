@@ -15,9 +15,10 @@ grouped apart from the result: the result fields (camera parameters,
 poses, uncertainty, reprojection error) are the stable contract, and
 `diagnostics` (`ExportDiagnostics`) holds the evidence for viewers.
 
-- **`kind`** — a required discriminator, the shared `ExportKind` enum
-  (snake_case), serialized as the first field. Consumers branch on it;
-  deserialization without it fails.
+- **`kind`** — a required discriminator, the shared `ProblemKind` enum
+  (snake_case; the manifest's `topology` is the same enum), serialized as
+  the first field. Consumers branch on it; deserialization without it
+  fails.
 - **`diagnostics.per_feature_residuals`** — per-(view, camera, feature) records:
   target reprojection residuals, laser residuals in metres and in the
   solver's pixel line distance, the projected laser line per (view, camera)

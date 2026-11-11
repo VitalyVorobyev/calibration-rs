@@ -2,8 +2,8 @@
 //! otherwise surface as a fail-fast `AskUser` event downstream.
 
 use crate::spec::{
-    CornerStrategySpec, DatasetSpec, ImageNoiseSpec, ImagePattern, RobotPoseFormat,
-    RobotPoseSource, RotationFormat, Topology,
+    CornerStrategySpec, DatasetSpec, ImageNoiseSpec, ImagePattern, ProblemKind, RobotPoseFormat,
+    RobotPoseSource, RotationFormat,
 };
 use thiserror::Error;
 
@@ -19,7 +19,7 @@ pub enum ValidationError {
     #[error("topology {topology:?} requires robot_poses but none was given")]
     MissingRobotPoses {
         /// The offending topology.
-        topology: Topology,
+        topology: ProblemKind,
     },
 
     /// The number of cameras declared doesn't match what the topology
@@ -28,7 +28,7 @@ pub enum ValidationError {
     #[error("topology {topology:?} expects {expected_min}..={expected_max} camera(s), got {got}")]
     WrongCameraCount {
         /// The offending topology.
-        topology: Topology,
+        topology: ProblemKind,
         /// How many cameras were declared.
         got: usize,
         /// Inclusive minimum count for the topology.
@@ -93,7 +93,7 @@ pub enum ValidationError {
     #[error("topology {topology:?} does not use {field}")]
     FieldUnusedByTopology {
         /// The offending topology.
-        topology: Topology,
+        topology: ProblemKind,
         /// Dotted path of the unused field (e.g. `"cameras[cam0].laser_images"`).
         field: String,
     },
@@ -113,7 +113,7 @@ pub enum ValidationError {
     )]
     MissingUpstreamCalibration {
         /// The offending topology.
-        topology: Topology,
+        topology: ProblemKind,
     },
 
     /// Laser extraction parameters are out of range.
@@ -199,11 +199,11 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
     };
     if let Some(chess) = &detector.chess_corners
         && let Some(cov) = &chess.covariance
-        && let ImageNoiseSpec::Known(sigma) = cov.image_noise
+        && let ImageNoiseSpec::Stated(sigma) = cov.image_noise
         && !(sigma.is_finite() && sigma >= 0.0)
     {
         return Err(ValidationError::BadDetectorOverride(format!(
-            "chess_corners.covariance.image_noise.known must be finite and >= 0 \
+            "chess_corners.covariance.image_noise.stated must be finite and >= 0 \
              (gray levels), got {sigma}"
         )));
     }
@@ -231,7 +231,9 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
 fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
     let uses_laser = matches!(
         spec.topology,
-        Topology::LaserlineDevice | Topology::RigLaserlineDevice | Topology::RigHandeyeLaserline
+        ProblemKind::LaserlineDevice
+            | ProblemKind::RigLaserlineDevice
+            | ProblemKind::RigHandeyeLaserline
     );
 
     if !uses_laser {
@@ -299,12 +301,12 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
     }
 
     match spec.topology {
-        Topology::RigLaserlineDevice if spec.upstream_calibration.is_none() => {
+        ProblemKind::RigLaserlineDevice if spec.upstream_calibration.is_none() => {
             Err(ValidationError::MissingUpstreamCalibration {
                 topology: spec.topology,
             })
         }
-        Topology::LaserlineDevice | Topology::RigHandeyeLaserline
+        ProblemKind::LaserlineDevice | ProblemKind::RigHandeyeLaserline
             if spec.upstream_calibration.is_some() =>
         {
             // These topologies calibrate their own upstream geometry — an
@@ -318,32 +320,32 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
     }
 }
 
-fn topology_needs_robot(t: Topology) -> bool {
+fn topology_needs_robot(t: ProblemKind) -> bool {
     matches!(
         t,
-        Topology::SingleCamHandeye
-            | Topology::RigHandeye
-            | Topology::RigLaserlineDevice
-            | Topology::RigHandeyeLaserline
+        ProblemKind::SingleCamHandeye
+            | ProblemKind::RigHandeye
+            | ProblemKind::RigLaserlineDevice
+            | ProblemKind::RigHandeyeLaserline
     )
 }
 
-fn topology_camera_range(t: Topology) -> (usize, usize) {
+fn topology_camera_range(t: ProblemKind) -> (usize, usize) {
     match t {
         // Single-camera topologies must have exactly one camera; an
         // extra camera in the manifest is almost always a user mistake
         // (wrong topology selected, leftover entry from a copy-paste).
-        Topology::PlanarIntrinsics | Topology::SingleCamHandeye | Topology::LaserlineDevice => {
-            (1, 1)
-        }
+        ProblemKind::PlanarIntrinsics
+        | ProblemKind::SingleCamHandeye
+        | ProblemKind::LaserlineDevice => (1, 1),
         // Rig topologies need at least two cameras; the upper bound is
         // unconstrained (puzzle 130×130 ships with 6).
-        Topology::RigExtrinsics | Topology::RigHandeye | Topology::RigLaserlineDevice => {
+        ProblemKind::RigExtrinsics | ProblemKind::RigHandeye | ProblemKind::RigLaserlineDevice => {
             (2, usize::MAX)
         }
         // The joint laser hand-eye also takes one camera carrying its laser
         // (a triangulation head on a robot).
-        Topology::RigHandeyeLaserline => (1, usize::MAX),
+        ProblemKind::RigHandeyeLaserline => (1, usize::MAX),
     }
 }
 
@@ -445,9 +447,8 @@ mod tests {
     use super::*;
     use crate::spec::{
         CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, DatasetSpec, DetectorSpec,
-        ImageNoiseSpec, ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat,
-        RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
-        TranslationUnits,
+        ImageNoiseSpec, ImagePattern, PoseColumnMap, PoseConvention, ProblemKind, RobotPoseFormat,
+        RobotPoseSource, RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
     };
 
     fn planar_chessboard_minimal() -> DatasetSpec {
@@ -470,7 +471,7 @@ mod tests {
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
-            topology: Topology::PlanarIntrinsics,
+            topology: ProblemKind::PlanarIntrinsics,
             pose_pairing: None,
             pose_convention: None,
             unresolved: vec![],
@@ -500,7 +501,7 @@ mod tests {
     #[test]
     fn rig_handeye_requires_robot_poses() {
         let mut spec = planar_chessboard_minimal();
-        spec.topology = Topology::RigHandeye;
+        spec.topology = ProblemKind::RigHandeye;
         spec.cameras.push(CameraSource {
             id: "cam1".into(),
             images: ImagePattern::Glob {
@@ -539,7 +540,7 @@ mod tests {
     #[test]
     fn duplicate_camera_id_rejected() {
         let mut spec = planar_chessboard_minimal();
-        spec.topology = Topology::RigExtrinsics;
+        spec.topology = ProblemKind::RigExtrinsics;
         spec.cameras.push(CameraSource {
             id: "cam0".into(),
             images: ImagePattern::Glob {
@@ -573,7 +574,7 @@ mod tests {
             translation_units: TranslationUnits::M,
         };
         let mut spec = planar_chessboard_minimal();
-        spec.topology = Topology::SingleCamHandeye;
+        spec.topology = ProblemKind::SingleCamHandeye;
         spec.robot_poses = Some(robot);
         spec.pose_convention = Some(convention);
         let err = validate(&spec).unwrap_err();
@@ -589,7 +590,7 @@ mod tests {
 
     fn handeye_spec_with(robot: RobotPoseSource, rotation_format: RotationFormat) -> DatasetSpec {
         let mut spec = planar_chessboard_minimal();
-        spec.topology = Topology::SingleCamHandeye;
+        spec.topology = ProblemKind::SingleCamHandeye;
         spec.robot_poses = Some(robot);
         spec.pose_convention = Some(PoseConvention {
             transform: TransformConvention::TBaseTcp,
@@ -737,12 +738,12 @@ mod tests {
 
     #[test]
     fn detector_covariance_roundtrips_in_json_and_toml() {
-        let json = r#"{"covariance":{"image_noise":{"known":2.0}}}"#;
+        let json = r#"{"covariance":{"image_noise":{"stated":2.0}}}"#;
         let spec: ChessCornersDetectorSpec = serde_json::from_str(json).unwrap();
         assert_eq!(
             spec.covariance,
             Some(CornerCovarianceSpec {
-                image_noise: ImageNoiseSpec::Known(2.0)
+                image_noise: ImageNoiseSpec::Stated(2.0)
             })
         );
         assert_eq!(serde_json::to_string(&spec).unwrap(), json);
@@ -768,7 +769,7 @@ mod tests {
         );
 
         let toml_spec: ChessCornersDetectorSpec =
-            toml::from_str("[covariance]\nimage_noise = { known = 2.0 }\n").unwrap();
+            toml::from_str("[covariance]\nimage_noise = { stated = 2.0 }\n").unwrap();
         assert_eq!(toml_spec.covariance, spec.covariance);
     }
 
@@ -791,10 +792,10 @@ mod tests {
             });
             spec
         };
-        validate(&with(ImageNoiseSpec::Known(0.0))).unwrap();
+        validate(&with(ImageNoiseSpec::Stated(0.0))).unwrap();
         validate(&with(ImageNoiseSpec::Estimate)).unwrap();
         for bad in [-1.0, f32::NAN, f32::INFINITY] {
-            let err = validate(&with(ImageNoiseSpec::Known(bad))).unwrap_err();
+            let err = validate(&with(ImageNoiseSpec::Stated(bad))).unwrap_err();
             assert!(matches!(err, ValidationError::BadDetectorOverride(_)));
         }
     }
@@ -846,7 +847,7 @@ mod tests {
     /// Minimal valid single-camera laserline manifest.
     fn laserline_minimal() -> DatasetSpec {
         let mut spec = planar_chessboard_minimal();
-        spec.topology = Topology::LaserlineDevice;
+        spec.topology = ProblemKind::LaserlineDevice;
         spec.cameras[0].laser_images = Some(ImagePattern::Glob {
             pattern: "cam0/laser_*.png".into(),
         });
@@ -856,7 +857,7 @@ mod tests {
     /// Minimal valid rig laserline manifest (2 cameras, rowmajor poses).
     fn rig_laserline_minimal() -> DatasetSpec {
         let mut spec = laserline_minimal();
-        spec.topology = Topology::RigLaserlineDevice;
+        spec.topology = ProblemKind::RigLaserlineDevice;
         spec.cameras.push(CameraSource {
             id: "cam1".into(),
             images: ImagePattern::Glob {
@@ -884,7 +885,7 @@ mod tests {
 
     fn rig_handeye_laserline_minimal() -> DatasetSpec {
         let mut spec = rig_laserline_minimal();
-        spec.topology = Topology::RigHandeyeLaserline;
+        spec.topology = ProblemKind::RigHandeyeLaserline;
         spec.upstream_calibration = None;
         spec
     }

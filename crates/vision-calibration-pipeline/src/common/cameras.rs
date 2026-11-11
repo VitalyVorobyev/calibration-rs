@@ -13,7 +13,7 @@ use vision_calibration_optim::{
 };
 
 use crate::Error;
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ProblemKind};
 use crate::laserline_device::LaserlineDeviceExport;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
@@ -186,20 +186,20 @@ pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn Calibrate
     ) -> Result<Box<dyn CalibratedCameras>, Error> {
         Ok(Box::new(serde_json::from_value::<T>(export)?))
     }
-    let kind: ExportKind = serde_json::from_value(
+    let kind: ProblemKind = serde_json::from_value(
         export
             .get("kind")
             .cloned()
             .unwrap_or(serde_json::Value::Null),
     )?;
     match kind {
-        ExportKind::PlanarIntrinsics => typed::<PlanarIntrinsicsExport>(export),
-        ExportKind::SingleCamHandeye => typed::<SingleCamHandeyeExport>(export),
-        ExportKind::LaserlineDevice => typed::<LaserlineDeviceExport>(export),
-        ExportKind::RigExtrinsics => typed::<RigExtrinsicsExport>(export),
-        ExportKind::RigHandeye => typed::<RigHandeyeExport>(export),
-        ExportKind::RigLaserlineDevice => typed::<RigLaserlineDeviceExport>(export),
-        ExportKind::RigHandeyeLaserline => typed::<RigHandeyeLaserlineExport>(export),
+        ProblemKind::PlanarIntrinsics => typed::<PlanarIntrinsicsExport>(export),
+        ProblemKind::SingleCamHandeye => typed::<SingleCamHandeyeExport>(export),
+        ProblemKind::LaserlineDevice => typed::<LaserlineDeviceExport>(export),
+        ProblemKind::RigExtrinsics => typed::<RigExtrinsicsExport>(export),
+        ProblemKind::RigHandeye => typed::<RigHandeyeExport>(export),
+        ProblemKind::RigLaserlineDevice => typed::<RigLaserlineDeviceExport>(export),
+        ProblemKind::RigHandeyeLaserline => typed::<RigHandeyeLaserlineExport>(export),
     }
 }
 
@@ -421,7 +421,7 @@ mod tests {
             "kind": "rig_laserline_device",
             "laser_planes_rig": [plane(-0.3), plane(-0.4)],
             "laser_planes_cam": [plane(-0.3), plane(-0.4)],
-            "per_camera_stats": [],
+            "per_cam_stats": [],
             "cameras": [camera(), camera()],
             "cam_se3_rig": [pose(), pose()],
             "rig_se3_target": [],
@@ -438,7 +438,7 @@ mod tests {
             "kind": "rig_handeye_laserline",
             "laser_planes_rig": [plane(-0.3), plane(-0.4)],
             "laser_planes_cam": [plane(-0.3), plane(-0.4)],
-            "per_camera_stats": [],
+            "per_cam_stats": [],
             "cameras": [camera(), camera()],
             "cam_se3_rig": [pose(), pose()],
             "rig_se3_target": [],

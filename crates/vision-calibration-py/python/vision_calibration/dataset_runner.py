@@ -504,8 +504,8 @@ def build_rig_handeye_laserline_input(
     )
 
 
-# Each topology's input builder and session class.
-_TOPOLOGIES: dict[str, tuple[Callable[..., Any], type[CalibrationSession[Any, Any, Any]], bool]] = {
+# Each problem kind's input builder and session class.
+_PROBLEM_KINDS: dict[str, tuple[Callable[..., Any], type[CalibrationSession[Any, Any, Any]], bool]] = {
     "planar_intrinsics": (build_planar_input, PlanarIntrinsicsSession, False),
     "single_cam_handeye": (build_single_cam_handeye_input, SingleCamHandeyeSession, False),
     "rig_extrinsics": (build_rig_extrinsics_input, RigExtrinsicsSession, False),
@@ -586,7 +586,7 @@ def calibrate_dataset(
         else manifest,
     )
     topology = str(spec.get("topology"))
-    entry = _TOPOLOGIES.get(topology)
+    entry = _PROBLEM_KINDS.get(topology)
     if entry is None:
         raise ValueError(f"unknown manifest topology {topology!r}")
     build, session_type, needs_laser = entry

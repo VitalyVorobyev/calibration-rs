@@ -165,7 +165,7 @@ fn covariance_in_the_manifest_whitens_the_calibration() {
 
     // On: every view carries covariances; the noise is σ̂₀.
     let detector =
-        json!({ "chess_corners": { "covariance": { "image_noise": { "known": 2.0 } } } });
+        json!({ "chess_corners": { "covariance": { "image_noise": { "stated": 2.0 } } } });
     let on = build_planar_input(
         &spec(&files, detector),
         dir.path(),

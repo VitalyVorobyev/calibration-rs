@@ -16,6 +16,7 @@ mod steps;
 pub(crate) use problem::MIN_VIEW_POINTS;
 pub use problem::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsInput, PlanarIntrinsicsProblem,
+    PlanarOptimizeConfig,
 };
 pub use steps::{
     IntrinsicsFilterOptions, IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeResult,

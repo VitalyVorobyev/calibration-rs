@@ -61,21 +61,24 @@ Joint optimization of all parameters:
 
 ```rust
 pub struct RigHandeyeConfig {
-    pub intrinsics: IntrinsicsInitConfig,   // per-camera linear init
+    pub intrinsics_init: IntrinsicsInitConfig, // per-camera linear init
+    pub intrinsics_optimize: IntrinsicsOptimizeConfig, // per-camera refinement: reprojection_loss
     pub manual_init: Option<IntrinsicsManualInit>, // optional per-camera seeds
     pub camera: CameraConfig,               // camera model + fix lists shared by every camera
     pub camera_overrides: Vec<CameraOverride>, // per-camera replacement of `camera`
-    pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics, refine_sensor
+    pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics, refine_sensor, reprojection_loss
     pub handeye_init: HandeyeInitConfig,    // handeye_mode, method, min_motion_angle_deg
-    pub solver: SolverConfig,               // max_iters, verbosity, robust_loss
-    pub handeye_optimize: HandeyeOptimizeConfig, // robot_poses, refine_cam_se3_rig, refine_sensor
+    pub handeye_optimize: HandeyeOptimizeConfig, // reprojection_loss, robot_poses, refine_intrinsics, refine_cam_se3_rig, refine_sensor
+    pub solver: SolverConfig,               // max_iters, verbosity, backend
 }
 ```
 
 ```rust
 session.update_config(|c| {
     c.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
-    c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
+    c.intrinsics_optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
+    c.rig.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
+    c.handeye_optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
     c.handeye_optimize.robot_poses = RobotPoseConfig::Refine(RobotPosePrior::new(0.01, 0.002));
 })?;
 ```

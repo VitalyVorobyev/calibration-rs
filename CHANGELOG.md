@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | `HandeyeMode` (`handeye_init.handeye_mode`) | `"EyeInHand"`, `"EyeToHand"` | `"eye_in_hand"`, `"eye_to_hand"` |
   | `HandeyeSolution`, `SingleCamHandeyeSolution`, `HandeyeManualInit` (the `mode` tag) | `"mode": "EyeInHand"` | `"mode": "eye_in_hand"` |
   | `LaserlineResidualType` (`laser_residual_type`) | `"PointToPlane"`, `"LineDistNormalized"` | `"point_to_plane"`, `"line_dist_normalized"` |
-  | `RobustLoss` (`robust_loss`, `calib_loss`, `laser_loss`) | `"None"`, `{"Huber": {"scale": 1.0}}` | `{"kind": "none"}`, `{"kind": "huber", "scale": 1.0}` |
+  | `RobustLoss` (every loss field) | `"None"`, `{"Huber": {"scale": 1.0}}` | `{"kind": "none"}`, `{"kind": "huber", "scale": 1.0}` |
 
   `RobustLoss` is now tagged by `kind` like `TargetSpec`, with the variants
   `none`, `huber`, `cauchy` and `arctan`; the Python helpers
@@ -27,10 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ```json
   // before
-  { "handeye_mode": "EyeToHand", "robust_loss": { "Huber": { "scale": 1.0 } },
+  { "handeye_mode": "EyeToHand", "laser_loss": { "Huber": { "scale": 1.0 } },
     "laser_residual_type": "PointToPlane" }
   // after
-  { "handeye_mode": "eye_to_hand", "robust_loss": { "kind": "huber", "scale": 1.0 },
+  { "handeye_mode": "eye_to_hand", "laser_loss": { "kind": "huber", "scale": 1.0 },
     "laser_residual_type": "point_to_plane" }
   ```
 
@@ -221,7 +221,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     overrides the config's.
 
   - `RigLaserlineDeviceInput` no longer has `initial_planes_cam`; seed the
-    laser planes with `step_init_with_seed(PlaneManualInit { planes_cam })`
+    laser planes with `step_init_with_seed(PlaneManualInit { laser_planes_cam })`
     (Python: `RigLaserlineDeviceSession.step_init_with_seed`).
 
     ```rust
@@ -230,6 +230,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     // after
     RigLaserlineDeviceInput { dataset, upstream }
     ```
+
+- **One config grammar across the problem types** (breaking). Every config
+  is grouped by stage, in the order the steps run, and a stage has the same
+  group name in every problem: `camera`, `intrinsics_init`, the refinement
+  stages (`optimize`, `intrinsics_optimize`, `rig`, `handeye_optimize`,
+  `joint_optimize`) and `solver`. `solver` holds the solver engine only
+  (`max_iters`, `verbosity`, `backend`). Each refinement stage carries the
+  robust loss of the residuals it solves, named by their family:
+  `reprojection_loss` for the target corners, `laser_loss` for the laser
+  residuals. Where one `solver.robust_loss` drove several stages, each stage
+  now has its own loss: set the old value in every one of them to keep a
+  config's results (the defaults are unchanged). A stage loss of its own
+  lets a convex loss (`huber`) start a problem and a redescending one
+  (`cauchy`, `arctan`) finish it.
+
+  | Problem | Before | After |
+  |---|---|---|
+  | `planar_intrinsics` | `init` | `intrinsics_init` |
+  | `planar_intrinsics` | `fix_poses` | `optimize.fix_poses` |
+  | `planar_intrinsics` | `solver.robust_loss` | `optimize.reprojection_loss` |
+  | `laserline_device` | `init` | `intrinsics_init` |
+  | `laserline_device` | `optimize.calib_loss`, `optimize.calib_weight` | `optimize.reprojection_loss`, `optimize.reprojection_weight` |
+  | `laserline_device` | `solver.robust_loss` | removed (see below) |
+  | `single_cam_handeye` | `intrinsics` | `intrinsics_init` |
+  | `single_cam_handeye` | `robot_poses` | `handeye_optimize.robot_poses` |
+  | `single_cam_handeye` | `solver.robust_loss` | `intrinsics_optimize.reprojection_loss`, `handeye_optimize.reprojection_loss` |
+  | `rig_extrinsics` | `intrinsics` | `intrinsics_init` |
+  | `rig_extrinsics` | `solver.robust_loss` | `intrinsics_optimize.reprojection_loss`, `rig.reprojection_loss` |
+  | `rig_handeye` | `intrinsics` | `intrinsics_init` |
+  | `rig_handeye` | `solver.robust_loss` | `intrinsics_optimize.reprojection_loss`, `rig.reprojection_loss`, `handeye_optimize.reprojection_loss` |
+  | `rig_laserline_device` | `laser_residual_type` | `optimize.laser_residual_type` |
+  | `rig_laserline_device` | (fixed Huber at 1) | `optimize.laser_loss` (default Huber at 1) |
+  | `rig_laserline_device` | `solver.robust_loss` | removed (it was not read) |
+  | `rig_handeye_laserline` | `handeye.…`, `laserline_init.…` | as `rig_handeye` and `rig_laserline_device` above |
+  | `rig_handeye_laserline` | `joint_optimize.solver` | `solver` |
+  | `rig_handeye_laserline` | `joint_optimize.calib_loss`, `joint_optimize.calib_weight` | `joint_optimize.reprojection_loss`, `joint_optimize.reprojection_weight` |
+  | `rig_handeye_laserline` | `laserline_init.solver.robust_loss`, `joint_optimize.solver.robust_loss` | removed (they were not read) |
+
+  A laserline device's `solver.robust_loss` applied only to the initial
+  camera-only solve of a Scheimpflug camera whose tilt is estimated and not
+  seeded; that solve is now plain least squares, as it was by default. New
+  Rust group types: `common::config::IntrinsicsOptimizeConfig`,
+  `planar_intrinsics::PlanarOptimizeConfig`,
+  `single_cam_handeye::SingleCamHandeyeOptimizeConfig` and
+  `rig_laserline_device::PlaneOptimizeConfig`; `RigConfig` and the rig
+  `HandeyeOptimizeConfig` gain `reprojection_loss`, and `JointOptimizeConfig`
+  loses `solver`. Python has the same classes.
+
+  ```json
+  // planar_intrinsics, before → after
+  { "init": { "iterations": 2, "fix_k3": true }, "fix_poses": [],
+    "solver": { "max_iters": 120, "verbosity": 0, "robust_loss": { "kind": "huber", "scale": 1.0 }, "backend": "tiny_solver" } }
+  { "intrinsics_init": { "iterations": 2, "fix_k3": true },
+    "optimize": { "reprojection_loss": { "kind": "huber", "scale": 1.0 }, "fix_poses": [] },
+    "solver": { "max_iters": 120, "verbosity": 0, "backend": "tiny_solver" } }
+
+  // laserline_device
+  { "init": { … }, "optimize": { "calib_loss": { … }, "calib_weight": 1.0, … }, "solver": { …, "robust_loss": { "kind": "none" } } }
+  { "intrinsics_init": { … }, "optimize": { "reprojection_loss": { … }, "reprojection_weight": 1.0, … }, "solver": { … } }
+
+  // single_cam_handeye
+  { "intrinsics": { … }, "handeye_init": { … }, "robot_poses": { "kind": "refine", … },
+    "solver": { …, "robust_loss": { "kind": "huber", "scale": 1.0 } } }
+  { "intrinsics_init": { … },
+    "intrinsics_optimize": { "reprojection_loss": { "kind": "huber", "scale": 1.0 } },
+    "handeye_init": { … },
+    "handeye_optimize": { "reprojection_loss": { "kind": "huber", "scale": 1.0 }, "robot_poses": { "kind": "refine", … } },
+    "solver": { … } }
+
+  // rig_extrinsics
+  { "intrinsics": { … }, "rig": { "reference_camera_idx": 0, … }, "solver": { …, "robust_loss": { "kind": "huber", "scale": 1.0 } } }
+  { "intrinsics_init": { … },
+    "intrinsics_optimize": { "reprojection_loss": { "kind": "huber", "scale": 1.0 } },
+    "rig": { "reference_camera_idx": 0, …, "reprojection_loss": { "kind": "huber", "scale": 1.0 } },
+    "solver": { … } }
+
+  // rig_handeye: as rig_extrinsics, plus
+  { "handeye_optimize": { "robot_poses": { … }, "refine_intrinsics": true, … } }
+  { "handeye_optimize": { "reprojection_loss": { "kind": "huber", "scale": 1.0 }, "robot_poses": { … }, "refine_intrinsics": true, … } }
+
+  // rig_laserline_device
+  { "laser_residual_type": "line_dist_normalized", "solver": { …, "robust_loss": { "kind": "none" } } }
+  { "optimize": { "laser_residual_type": "line_dist_normalized", "laser_loss": { "kind": "huber", "scale": 1.0 } }, "solver": { … } }
+
+  // rig_handeye_laserline
+  { "handeye": { … }, "laserline_init": { "laser_residual_type": "point_to_plane", "solver": { … } },
+    "joint_optimize": { "solver": { "max_iters": 30, … }, "calib_loss": { … }, "calib_weight": 1.0, … } }
+  { "handeye": { … }, "laserline_init": { "optimize": { "laser_residual_type": "point_to_plane", "laser_loss": { … } }, "solver": { … } },
+    "joint_optimize": { "reprojection_loss": { … }, "reprojection_weight": 1.0, … },
+    "solver": { "max_iters": 30, … } }
+  ```
+
+  ```rust
+  // before
+  config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+  // after (rig_handeye)
+  let huber = RobustLoss::Huber { scale: 1.0 };
+  config.intrinsics_optimize.reprojection_loss = huber;
+  config.rig.reprojection_loss = huber;
+  config.handeye_optimize.reprojection_loss = huber;
+  ```
+
+- **One name per statistic, per laser plane and per problem kind**
+  (breaking). Saved exports and code that reads them need the renames below.
+
+  | Where | Before | After |
+  |---|---|---|
+  | `rig_laserline_device`, `rig_handeye_laserline` exports; `RigLaserlineEstimate` | `per_camera_stats` | `per_cam_stats` |
+  | `rig_handeye_laserline` per-camera stats | `mean_reproj_error_px`, `max_reproj_error_px`, `reproj_histogram_px` | `mean_reproj_error`, `max_reproj_error`, `reproj_histogram` |
+  | `rig_handeye_laserline` per-camera stats | `mean_laser_err_m`, `max_laser_err_m`, `mean_laser_err_px`, `max_laser_err_px` | `mean_laser_error_m`, `max_laser_error_m`, `mean_laser_error_px`, `max_laser_error_px` |
+  | `RigHandeyeLaserlineEstimate` | `planes_rig`, `mean_reproj_error_px` | `laser_planes_rig`, `mean_reproj_error` |
+  | `RigHandeyeLaserlineParams` | `planes_cam` | `laser_planes_cam` |
+  | `LaserlineParams`, `DeviceManualInit`, `DeviceInitResult` | `plane` | `laser_plane` |
+  | `PlaneManualInit`, `JointManualInit` | `planes_cam` | `laser_planes_cam` |
+  | every export's `diagnostics.per_feature_residuals` | `target_hist_per_camera`, `laser_hist_per_camera` | `target_hist_per_cam`, `laser_hist_per_cam` |
+  | manifest `topology`, export `kind` (Rust) | `dataset::Topology`, `common::ExportKind` | `dataset::ProblemKind` (same JSON values) |
+  | manifest and detector `image_noise` | `{ known = σ }`, `ImageNoiseSpec::Known` | `{ stated = σ }`, `ImageNoiseSpec::Stated` |
+
+  The manifest's `topology` and every export's `kind` are one enum,
+  `vision_calibration::dataset::ProblemKind`; their JSON spellings are
+  unchanged. The saved sessions of all seven problem types carry the new
+  configs, and their `schema_version` is bumped, so a session saved before
+  this release is refused with a version error.
 
 ### Fixed
 

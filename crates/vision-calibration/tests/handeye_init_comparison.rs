@@ -209,7 +209,7 @@ fn camera_stage(
     config.camera.fix = CameraFix::all(config.camera.model);
     config.solver.backend = backend;
     if !regime.refine_robot_poses {
-        config.robot_poses = RobotPoseConfig::Exact;
+        config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
     }
     let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
     session.set_config(config).expect("config");

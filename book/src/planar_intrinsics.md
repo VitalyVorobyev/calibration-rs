@@ -48,26 +48,30 @@ After optimization, expect <2% intrinsics error and <1 px mean reprojection erro
 
 ## Configuration
 
-`init` and `solver` are shared sub-structs reused by every intrinsics-bearing
-problem type; `camera` names the camera model and its fixed parameters:
+`intrinsics_init` and `solver` are shared sub-structs reused by every
+intrinsics-bearing problem type; `camera` names the camera model and its fixed
+parameters:
 
 ```rust
 pub struct PlanarIntrinsicsConfig {
-    // Linear-initialization stage settings.
-    pub init: IntrinsicsInitConfig,
-    // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
-    //   distortion terms the camera's solves estimate
-
-    // Non-linear solve stage settings.
-    pub solver: SolverConfig,
-    // { max_iters: usize = 120, verbosity: usize = 0, robust_loss: RobustLoss = None }
-
     // The camera model and the parameters held fixed.
     pub camera: CameraConfig,
     // { model: CameraModelSpec { projection, distortion, sensor },
     //   fix: CameraFix { intrinsics, projection, distortion, sensor } }
 
-    pub fix_poses: Vec<usize>,              // Fix specific view poses
+    // Linear-initialization stage settings.
+    pub intrinsics_init: IntrinsicsInitConfig,
+    // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
+    //   distortion terms the camera's solves estimate
+
+    // Non-linear refinement stage.
+    pub optimize: PlanarOptimizeConfig,
+    // { reprojection_loss: RobustLoss = None,   // robust loss on the corners
+    //   fix_poses: Vec<usize> = [] }            // view poses held fixed
+
+    // Solver engine.
+    pub solver: SolverConfig,
+    // { max_iters: usize = 120, verbosity: usize = 0, backend: SolverBackend }
 }
 ```
 
@@ -156,7 +160,7 @@ session.set_input(dataset)?;
 // Optional: customize configuration
 session.update_config(|c| {
     c.solver.max_iters = 80;
-    c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
+    c.optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
 
 // Run pipeline

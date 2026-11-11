@@ -61,9 +61,9 @@ pub(crate) struct RigIntrinsicsBootstrap {
 /// estimates the tilt). The linear stage fits Brown-Conrady coefficients,
 /// embedded into each camera's distortion model (extra coefficients start
 /// at zero) unless that camera's distortion is seeded in its own model, with
-/// `init`'s options resolved for each camera
+/// `intrinsics_init`'s options resolved for each camera
 /// ([`IntrinsicsInitConfig::iterative_opts`]: only the terms the camera's
-/// solves estimate are fitted; `iterations` overrides `init.iterations`).
+/// solves estimate are fitted; `iterations` overrides `intrinsics_init.iterations`).
 /// Per-camera target poses are recovered from per-camera
 /// homographies using whichever intrinsics were chosen.
 ///
@@ -415,7 +415,7 @@ pub(crate) fn rig_target_residuals<M>(
         rig_se3_target,
     )?;
     let mut residuals = PerFeatureResiduals::default();
-    residuals.target_hist_per_camera = Some(per_camera_histograms(dataset.num_cameras, |cam| {
+    residuals.target_hist_per_cam = Some(per_camera_histograms(dataset.num_cameras, |cam| {
         target
             .iter()
             .filter(move |r| r.camera == cam)

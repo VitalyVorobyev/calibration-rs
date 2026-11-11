@@ -166,7 +166,7 @@ The variant must be the one of `handeye_init.handeye_mode`; a seed of the other 
 `RigHandeyeLaserline` has no steps: `run_calibration` runs rig hand-eye, fits each camera's laser plane against that frozen geometry, then refines everything jointly. `run_calibration_with_seed` takes a `JointManualInit` that replaces either warm start:
 
 - `rig_handeye`: a `RigHandeyeExport` of the same views, for example from a `RigHandeyeProblem` session you ran (and inspected) first. The rig hand-eye stage is skipped; its cameras, extrinsics, hand-eye transform, target poses and robot-pose corrections start the joint solve.
-- `planes_cam`: one laser plane per camera, in camera frame, for example from the mechanical drawing. The plane stage refines them instead of fitting its starting planes linearly.
+- `laser_planes_cam`: one laser plane per camera, in camera frame, for example from the mechanical drawing. The plane stage refines them instead of fitting its starting planes linearly.
 
 ```rust
 use vision_calibration::rig_handeye_laserline::{JointManualInit, run_calibration_with_seed};
@@ -175,7 +175,7 @@ use vision_calibration::rig_handeye_laserline::{JointManualInit, run_calibration
 // with `config.handeye` as its config.
 let mut seed = JointManualInit::default();
 seed.rig_handeye = Some(rig_export);
-seed.planes_cam = Some(design_planes); // Vec<LaserPlane>, one per camera
+seed.laser_planes_cam = Some(design_planes); // Vec<LaserPlane>, one per camera
 run_calibration_with_seed(&mut joint_session, seed)?;
 ```
 
@@ -208,7 +208,7 @@ rig_export = rig_session.export()  # a RigHandeyeSession on the same views
 joint = vc.RigHandeyeLaserlineSession()
 joint.set_input(dataset)
 joint.run_calibration_with_seed(
-    rig_handeye_laserline.JointManualInit(rig_handeye=rig_export, planes_cam=design_planes)
+    rig_handeye_laserline.JointManualInit(rig_handeye=rig_export, laser_planes_cam=design_planes)
 )
 ```
 

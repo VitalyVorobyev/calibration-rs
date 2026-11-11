@@ -85,7 +85,7 @@ class LaserResultUncertaintyTest(unittest.TestCase):
             {
                 "laser_planes_rig": [plane, plane],
                 "laser_planes_cam": [plane, plane],
-                "per_camera_stats": [stats, stats],
+                "per_cam_stats": [stats, stats],
                 "uncertainty": uncertainty,
             }
         )

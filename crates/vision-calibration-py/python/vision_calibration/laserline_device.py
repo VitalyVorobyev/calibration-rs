@@ -61,7 +61,7 @@ class DeviceManualInit:
     estimated.
 
     The camera seeds mean what they mean for planar intrinsics; ``cam_se3_target``
-    are camera-from-target, one per view; ``plane`` is the laser plane in the
+    are camera-from-target, one per view; ``laser_plane`` is the laser plane in the
     camera frame and skips the linear plane fit.
     """
 
@@ -69,7 +69,7 @@ class DeviceManualInit:
     distortion: Distortion | None = None
     sensor: ScheimpflugSensor | None = None
     cam_se3_target: list[Pose] | None = None
-    plane: LaserPlane | None = None
+    laser_plane: LaserPlane | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return _seed_payload(
@@ -78,7 +78,7 @@ class DeviceManualInit:
                 "distortion": self.distortion,
                 "sensor": self.sensor,
                 "cam_se3_target": self.cam_se3_target,
-                "plane": self.plane,
+                "laser_plane": self.laser_plane,
             }
         )
 
@@ -90,7 +90,7 @@ class DeviceInitResult:
     camera: Camera
     cam_se3_target: list[Pose]
     """Per-view camera-from-target."""
-    plane: LaserPlane
+    laser_plane: LaserPlane
     """Laser plane in the camera frame."""
     plane_rmse: float | None
     """RMS distance of the laser points to the fitted plane, metres; ``None``
@@ -102,7 +102,7 @@ class DeviceInitResult:
         return cls(
             camera=_camera(payload["camera"]),
             cam_se3_target=_poses(payload["cam_se3_target"]),
-            plane=LaserPlane.from_payload(cast(Mapping[str, Any], payload["plane"])),
+            laser_plane=LaserPlane.from_payload(cast(Mapping[str, Any], payload["laser_plane"])),
             plane_rmse=None if rmse is None else float(rmse),
         )
 

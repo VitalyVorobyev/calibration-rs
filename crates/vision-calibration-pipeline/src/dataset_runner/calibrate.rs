@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vision_calibration_core::{CameraParams, Iso3, LaserPlane, RunControl, Uncertainty};
-use vision_calibration_dataset::{DatasetSpec, Topology};
+use vision_calibration_dataset::{DatasetSpec, ProblemKind};
 
 use super::{
     Detection, LaserPixelExtractor, RejectedDetection, RunError, build_laserline_device_input,
@@ -15,7 +15,7 @@ use super::{
     build_single_cam_handeye_input, camera_image_sizes,
 };
 use crate::Error;
-use crate::common::{CalibratedCameras, ExportDiagnostics, ExportKind};
+use crate::common::{CalibratedCameras, ExportDiagnostics};
 use crate::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceProblem,
 };
@@ -78,28 +78,28 @@ impl CalibrationConfig {
 
     /// The default configuration of the problem type that `topology`
     /// selects.
-    pub fn default_for(topology: Topology) -> Self {
+    pub fn default_for(topology: ProblemKind) -> Self {
         match topology {
-            Topology::PlanarIntrinsics => Self::PlanarIntrinsics(Default::default()),
-            Topology::SingleCamHandeye => Self::SingleCamHandeye(Default::default()),
-            Topology::LaserlineDevice => Self::LaserlineDevice(Default::default()),
-            Topology::RigExtrinsics => Self::RigExtrinsics(Default::default()),
-            Topology::RigHandeye => Self::RigHandeye(Default::default()),
-            Topology::RigLaserlineDevice => Self::RigLaserlineDevice(Default::default()),
-            Topology::RigHandeyeLaserline => Self::RigHandeyeLaserline(Default::default()),
+            ProblemKind::PlanarIntrinsics => Self::PlanarIntrinsics(Default::default()),
+            ProblemKind::SingleCamHandeye => Self::SingleCamHandeye(Default::default()),
+            ProblemKind::LaserlineDevice => Self::LaserlineDevice(Default::default()),
+            ProblemKind::RigExtrinsics => Self::RigExtrinsics(Default::default()),
+            ProblemKind::RigHandeye => Self::RigHandeye(Default::default()),
+            ProblemKind::RigLaserlineDevice => Self::RigLaserlineDevice(Default::default()),
+            ProblemKind::RigHandeyeLaserline => Self::RigHandeyeLaserline(Default::default()),
         }
     }
 
     /// The manifest topology this configuration applies to.
-    pub fn topology(&self) -> Topology {
+    pub fn topology(&self) -> ProblemKind {
         match self {
-            Self::PlanarIntrinsics(_) => Topology::PlanarIntrinsics,
-            Self::SingleCamHandeye(_) => Topology::SingleCamHandeye,
-            Self::LaserlineDevice(_) => Topology::LaserlineDevice,
-            Self::RigExtrinsics(_) => Topology::RigExtrinsics,
-            Self::RigHandeye(_) => Topology::RigHandeye,
-            Self::RigLaserlineDevice(_) => Topology::RigLaserlineDevice,
-            Self::RigHandeyeLaserline(_) => Topology::RigHandeyeLaserline,
+            Self::PlanarIntrinsics(_) => ProblemKind::PlanarIntrinsics,
+            Self::SingleCamHandeye(_) => ProblemKind::SingleCamHandeye,
+            Self::LaserlineDevice(_) => ProblemKind::LaserlineDevice,
+            Self::RigExtrinsics(_) => ProblemKind::RigExtrinsics,
+            Self::RigHandeye(_) => ProblemKind::RigHandeye,
+            Self::RigLaserlineDevice(_) => ProblemKind::RigLaserlineDevice,
+            Self::RigHandeyeLaserline(_) => ProblemKind::RigHandeyeLaserline,
         }
     }
 }
@@ -142,15 +142,15 @@ impl CalibrationExport {
     }
 
     /// The problem type that produced this export.
-    pub fn kind(&self) -> ExportKind {
+    pub fn kind(&self) -> ProblemKind {
         match self {
-            Self::PlanarIntrinsics(_) => ExportKind::PlanarIntrinsics,
-            Self::SingleCamHandeye(_) => ExportKind::SingleCamHandeye,
-            Self::LaserlineDevice(_) => ExportKind::LaserlineDevice,
-            Self::RigExtrinsics(_) => ExportKind::RigExtrinsics,
-            Self::RigHandeye(_) => ExportKind::RigHandeye,
-            Self::RigLaserlineDevice(_) => ExportKind::RigLaserlineDevice,
-            Self::RigHandeyeLaserline(_) => ExportKind::RigHandeyeLaserline,
+            Self::PlanarIntrinsics(_) => ProblemKind::PlanarIntrinsics,
+            Self::SingleCamHandeye(_) => ProblemKind::SingleCamHandeye,
+            Self::LaserlineDevice(_) => ProblemKind::LaserlineDevice,
+            Self::RigExtrinsics(_) => ProblemKind::RigExtrinsics,
+            Self::RigHandeye(_) => ProblemKind::RigHandeye,
+            Self::RigLaserlineDevice(_) => ProblemKind::RigLaserlineDevice,
+            Self::RigHandeyeLaserline(_) => ProblemKind::RigHandeyeLaserline,
         }
     }
 }
@@ -210,15 +210,15 @@ pub enum CalibrateDatasetError {
     #[error("the config is for a {config:?} dataset but the manifest's topology is {manifest:?}")]
     ConfigTopologyMismatch {
         /// The manifest's topology.
-        manifest: Topology,
+        manifest: ProblemKind,
         /// The topology the configuration applies to.
-        config: Topology,
+        config: ProblemKind,
     },
     /// A laser topology was given no laser-line extractor.
     #[error("a {topology:?} manifest needs a laser-line extractor")]
     LaserExtractorRequired {
         /// The manifest's topology.
-        topology: Topology,
+        topology: ProblemKind,
     },
     /// The configuration is invalid, the problem rejected the detected
     /// input, or the calibration itself failed.
@@ -491,14 +491,14 @@ fn finish(
 mod tests {
     use super::*;
 
-    const ALL: [Topology; 7] = [
-        Topology::PlanarIntrinsics,
-        Topology::SingleCamHandeye,
-        Topology::LaserlineDevice,
-        Topology::RigExtrinsics,
-        Topology::RigHandeye,
-        Topology::RigLaserlineDevice,
-        Topology::RigHandeyeLaserline,
+    const ALL: [ProblemKind; 7] = [
+        ProblemKind::PlanarIntrinsics,
+        ProblemKind::SingleCamHandeye,
+        ProblemKind::LaserlineDevice,
+        ProblemKind::RigExtrinsics,
+        ProblemKind::RigHandeye,
+        ProblemKind::RigLaserlineDevice,
+        ProblemKind::RigHandeyeLaserline,
     ];
 
     #[test]
@@ -525,7 +525,7 @@ mod tests {
         let err = calibrate_dataset(
             &spec,
             Path::new("."),
-            Some(CalibrationConfig::default_for(Topology::RigExtrinsics)),
+            Some(CalibrationConfig::default_for(ProblemKind::RigExtrinsics)),
             Detection::Uncached,
             None,
             &RunControl::default(),
@@ -534,8 +534,8 @@ mod tests {
         assert!(matches!(
             err,
             CalibrateDatasetError::ConfigTopologyMismatch {
-                manifest: Topology::PlanarIntrinsics,
-                config: Topology::RigExtrinsics,
+                manifest: ProblemKind::PlanarIntrinsics,
+                config: ProblemKind::RigExtrinsics,
             }
         ));
     }
@@ -596,7 +596,7 @@ mod tests {
         assert!(matches!(
             err,
             CalibrateDatasetError::LaserExtractorRequired {
-                topology: Topology::LaserlineDevice
+                topology: ProblemKind::LaserlineDevice
             }
         ));
     }

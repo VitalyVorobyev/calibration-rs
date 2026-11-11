@@ -81,7 +81,7 @@ known constants from the robot kinematics (passed as per-residual data).
 Robot poses carry errors of their own, usually larger than the corner noise
 once projected through the lever arm to the board: 0.05° at 1 m moves the
 camera's view by almost a millimetre. Taken as exact, these errors end up in
-the camera parameters. `robot_poses` set to `refine` (the default) gives every
+the camera parameters. `handeye_optimize.robot_poses` set to `refine` (the default) gives every
 view an SE(3) correction of its measured pose; `exact` takes the poses as given:
 
 **Additional parameter blocks**: `"robot_delta/v"` (6D, Euclidean se(3)
@@ -134,27 +134,31 @@ reused across every hand-eye problem type:
 
 ```rust
 pub struct SingleCamHandeyeConfig {
-    // Per-camera linear-initialization stage settings.
-    pub intrinsics: IntrinsicsInitConfig,
-    // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
-    //   distortion terms the camera's solves estimate
-
     // The camera model (any distortion kind, an identity or Scheimpflug
     // sensor) and the parameters its solves hold fixed, named per slot.
     pub camera: CameraConfig, // { model: CameraModelSpec, fix: CameraFix }
+
+    // Per-camera linear-initialization stage settings.
+    pub intrinsics_init: IntrinsicsInitConfig,
+    // { iterations: usize = 2, fix_k3: bool = true }; it fits only the
+    //   distortion terms the camera's solves estimate
+
+    // Per-camera non-linear refinement (planar bundle adjustment).
+    pub intrinsics_optimize: IntrinsicsOptimizeConfig, // { reprojection_loss }
 
     // Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
     pub handeye_init: HandeyeInitConfig,
     // { handeye_mode: HandeyeMode, method: HandeyeMethod = TsaiLenz,
     //   min_motion_angle_deg: f64 = 5.0 }
 
-    // Non-linear solve stage settings.
-    pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }
-
-    // Robot-pose refinement settings for the hand-eye bundle adjustment.
-    pub robot_poses: RobotPoseConfig,
-    // Exact | Refine(RobotPosePrior { rot_sigma, trans_sigma, estimate_sigma }); default Refine
+    // Hand-eye bundle adjustment.
+    pub handeye_optimize: SingleCamHandeyeOptimizeConfig,
+    // { reprojection_loss: RobustLoss = None, robot_poses: RobotPoseConfig }
+    // robot_poses: Exact | Refine(RobotPosePrior { rot_sigma, trans_sigma, estimate_sigma }); default Refine
     // JSON: {"kind": "exact"} or {"kind": "refine", "rot_sigma": …, "trans_sigma": …, "estimate_sigma": true}
+
+    // Solver engine, shared by both solve stages.
+    pub solver: SolverConfig, // { max_iters, verbosity, backend }
 }
 ```
 

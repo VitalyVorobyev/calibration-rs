@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use vision_calibration_core::{RunControl, View};
-use vision_calibration_dataset::{DatasetSpec, Topology, validate};
+use vision_calibration_dataset::{DatasetSpec, ProblemKind, validate};
 
 use crate::common::RobotPoseMeta;
 use crate::single_cam_handeye::SingleCamHandeyeInput;
@@ -52,7 +52,7 @@ pub fn build_single_cam_handeye_input(
 ) -> Result<HandeyeRunResult, RunError> {
     // Same gate ordering as the other converters: topology + target +
     // validation + pairing config before any filesystem access.
-    if spec.topology != Topology::SingleCamHandeye {
+    if spec.topology != ProblemKind::SingleCamHandeye {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -267,7 +267,7 @@ mod tests {
             }),
             laser: None,
             upstream_calibration: None,
-            topology: Topology::SingleCamHandeye,
+            topology: ProblemKind::SingleCamHandeye,
             pose_pairing: Some(PosePairing::ByIndex),
             pose_convention: Some(PoseConvention {
                 transform: TransformConvention::TBaseTcp,
@@ -458,7 +458,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let mut spec = handeye_spec(tmp.path(), &["a.png"], &identity_pose_line(0.1));
-        spec.topology = Topology::PlanarIntrinsics;
+        spec.topology = ProblemKind::PlanarIntrinsics;
         let err = build_single_cam_handeye_input(
             &spec,
             tmp.path(),

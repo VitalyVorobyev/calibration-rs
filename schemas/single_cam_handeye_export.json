@@ -345,46 +345,6 @@
       ],
       "type": "object"
     },
-    "ExportKind": {
-      "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
-      "oneOf": [
-        {
-          "const": "planar_intrinsics",
-          "description": "[`PlanarIntrinsicsExport`](crate::planar_intrinsics::PlanarIntrinsicsExport).",
-          "type": "string"
-        },
-        {
-          "const": "single_cam_handeye",
-          "description": "[`SingleCamHandeyeExport`](crate::single_cam_handeye::SingleCamHandeyeExport).",
-          "type": "string"
-        },
-        {
-          "const": "laserline_device",
-          "description": "[`LaserlineDeviceExport`](crate::laserline_device::LaserlineDeviceExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_extrinsics",
-          "description": "[`RigExtrinsicsExport`](crate::rig_extrinsics::RigExtrinsicsExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_handeye",
-          "description": "[`RigHandeyeExport`](crate::rig_handeye::RigHandeyeExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_laserline_device",
-          "description": "[`RigLaserlineDeviceExport`](crate::rig_laserline_device::RigLaserlineDeviceExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_handeye_laserline",
-          "description": "[`RigHandeyeLaserlineExport`](crate::rig_handeye_laserline::RigHandeyeLaserlineExport).",
-          "type": "string"
-        }
-      ]
-    },
     "FeatureResidualHistogram": {
       "description": "Aggregate residual histogram for a (set of) reprojection error samples.\n\nBuckets are fixed at `[<=1, <=2, <=5, <=10, >10]` pixels — see\n[`REPROJECTION_HISTOGRAM_EDGES_PX`].",
       "properties": {
@@ -762,7 +722,7 @@
           },
           "type": "array"
         },
-        "laser_hist_per_camera": {
+        "laser_hist_per_cam": {
           "description": "Per-camera laser pixel-distance histogram (length = `num_cameras`).",
           "items": {
             "$ref": "#/$defs/FeatureResidualHistogram"
@@ -786,7 +746,7 @@
           },
           "type": "array"
         },
-        "target_hist_per_camera": {
+        "target_hist_per_cam": {
           "description": "Per-camera target reprojection histogram (length = `num_cameras`).",
           "items": {
             "$ref": "#/$defs/FeatureResidualHistogram"
@@ -834,6 +794,46 @@
         "h"
       ],
       "type": "object"
+    },
+    "ProblemKind": {
+      "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "Single camera, planar target — `PlanarIntrinsicsProblem` (any camera\nmodel, including a tilted sensor).",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "Single camera mounted on a robot — `SingleCamHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "Camera + laser plane — `LaserlineDeviceProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "Multi-camera rig, target only — `RigExtrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "Multi-camera rig + robot — `RigHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye_laserline",
+          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
+          "type": "string"
+        }
+      ]
     },
     "ProjectionParams": {
       "description": "Serializable projection model parameters.",
@@ -1427,8 +1427,8 @@
       "description": "The hand-eye and the target pose of the calibration's mode."
     },
     "kind": {
-      "$ref": "#/$defs/ExportKind",
-      "description": "Export-type discriminator — always [`ExportKind::SingleCamHandeye`]."
+      "$ref": "#/$defs/ProblemKind",
+      "description": "Export-type discriminator — always [`ProblemKind::SingleCamHandeye`]."
     },
     "mean_reproj_error": {
       "description": "Mean reprojection error (pixels).",
@@ -1453,7 +1453,7 @@
         }
       ],
       "default": null,
-      "description": "The per-view robot-pose corrections and the pose error they were\nweighed with: the configured `robot_poses` prior, or its estimate with\n`estimate_sigma`. Only present if robot refinement was enabled."
+      "description": "The per-view robot-pose corrections and the pose error they were\nweighed with: the configured `handeye_optimize.robot_poses` prior, or its estimate with\n`estimate_sigma`. Only present if robot refinement was enabled."
     },
     "uncertainty": {
       "$ref": "#/$defs/Uncertainty",

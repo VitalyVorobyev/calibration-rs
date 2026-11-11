@@ -45,7 +45,8 @@ obs = vc.Observation(
 )
 dataset = vc.PlanarIntrinsicsInput(views=[vc.PlanarView(observation=obs)] * 3)
 config = vc.PlanarIntrinsicsConfig(
-    solver=vc.SolverConfig(max_iters=80, robust_loss=vc.robust_huber(1.0)),
+    optimize=vc.PlanarOptimizeConfig(reprojection_loss=vc.robust_huber(1.0)),
+    solver=vc.SolverConfig(max_iters=80),
 )
 
 result = vc.run_planar_intrinsics(dataset, config)

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use vision_calibration_core::{CorrespondenceView, NoMeta, PlanarDataset, RigDataset, RunControl};
-use vision_calibration_dataset::{DatasetSpec, TargetSpec, Topology};
+use vision_calibration_dataset::{DatasetSpec, ProblemKind, TargetSpec};
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
 };
@@ -321,7 +321,7 @@ fn image_sizes(spec: &DatasetSpec, paths: &[Vec<&PathBuf>]) -> Result<Vec<[u32; 
 pub fn camera_spec(spec: &DatasetSpec, camera: usize) -> DatasetSpec {
     DatasetSpec {
         cameras: vec![spec.cameras[camera].clone()],
-        topology: Topology::PlanarIntrinsics,
+        topology: ProblemKind::PlanarIntrinsics,
         robot_poses: None,
         pose_pairing: None,
         pose_convention: None,

@@ -289,7 +289,7 @@
     },
     "diagnostics": {
       "per_feature_residuals": {
-        "laser_hist_per_camera": [
+        "laser_hist_per_cam": [
           {
             "bucket_edges_px": [
               1.0,
@@ -309,7 +309,7 @@
             "mean": 0.41614602196087047
           }
         ],
-        "target_hist_per_camera": [
+        "target_hist_per_cam": [
           {
             "bucket_edges_px": [
               1.0,

@@ -577,7 +577,7 @@ class MvgTest(unittest.TestCase):
             "kind": "rig_handeye_laserline",
             "laser_planes_rig": [export["laser_plane"]],
             "laser_planes_cam": [export["laser_plane"]],
-            "per_camera_stats": [],
+            "per_cam_stats": [],
             "cameras": [export["camera"]],
             "cam_se3_rig": [{"rotation": [0.0, 0.0, 0.0, 1.0], "translation": [0.0, 0.0, 0.0]}],
             "rig_se3_target": [],

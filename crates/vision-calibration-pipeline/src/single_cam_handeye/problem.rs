@@ -11,13 +11,15 @@ use vision_calibration_core::{
     compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
-    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotRefinement, handeye_observer_se3_target,
+    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotRefinement, RobustLoss,
+    handeye_observer_se3_target,
 };
 
 use crate::common::config::{
-    CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
+    CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, IntrinsicsOptimizeConfig,
+    RobotPoseConfig, SolverConfig,
 };
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ProblemKind};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
@@ -72,20 +74,20 @@ impl SingleCamHandeyeInput {
 
 /// Configuration for single-camera hand-eye calibration.
 ///
-/// Grouped by stage: per-camera linear init, the camera model, hand-eye
-/// linear init, non-linear solve, and robot-pose refinement each live in
-/// their own shared sub-struct. Every group's own `Default` is the plain
-/// workspace default (no per-problem override is needed here, unlike
-/// `PlanarIntrinsicsConfig`'s iteration cap).
+/// Grouped by stage, in the order the steps run: the camera model, the
+/// intrinsics linear init and refinement, the hand-eye linear init and
+/// bundle adjustment, and the solver engine. Every group's own `Default` is
+/// the plain workspace default (no per-problem override is needed here,
+/// unlike `PlanarIntrinsicsConfig`'s iteration cap).
+///
+/// Two stages solve the target corners, each with its own
+/// `reprojection_loss`: `intrinsics_optimize` and `handeye_optimize`. A
+/// robust calibration sets both; the final stage's loss is the estimator.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct SingleCamHandeyeConfig {
-    /// Per-camera linear-initialization stage settings. The linear stage
-    /// fits only the distortion terms the camera's solves estimate.
-    pub intrinsics: IntrinsicsInitConfig,
-
     /// The camera model and the parameters its solves (the intrinsics stage
     /// and the hand-eye bundle adjustment) hold fixed. Any distortion kind
     /// with an identity sensor; a Scheimpflug sensor needs a distortion
@@ -94,13 +96,37 @@ pub struct SingleCamHandeyeConfig {
     #[serde(default)]
     pub camera: CameraConfig,
 
-    /// Hand-eye linear-initialization stage settings.
+    /// Linear-initialization stage settings (`step_intrinsics_init`). The
+    /// linear stage fits only the distortion terms the camera's solves
+    /// estimate.
+    pub intrinsics_init: IntrinsicsInitConfig,
+
+    /// Intrinsics refinement stage settings (`step_intrinsics_optimize`).
+    pub intrinsics_optimize: IntrinsicsOptimizeConfig,
+
+    /// Hand-eye linear-initialization stage settings (`step_handeye_init`).
     pub handeye_init: HandeyeInitConfig,
 
-    /// Non-linear solve stage settings.
-    pub solver: SolverConfig,
+    /// Hand-eye bundle-adjustment stage settings (`step_handeye_optimize`).
+    pub handeye_optimize: SingleCamHandeyeOptimizeConfig,
 
-    /// Robot-pose refinement settings for the hand-eye bundle adjustment.
+    /// Solver engine settings, for both non-linear stages.
+    pub solver: SolverConfig,
+}
+
+/// The hand-eye bundle adjustment of a single-camera hand-eye calibration
+/// (`step_handeye_optimize`): the camera, the hand-eye transform, the
+/// target pose and, by default, the robot poses refined together, the
+/// camera's `fix` lists held.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+#[serde(deny_unknown_fields)]
+pub struct SingleCamHandeyeOptimizeConfig {
+    /// Robust loss on the target-corner reprojection residuals; its scale is
+    /// in pixels. Default `none`.
+    pub reprojection_loss: RobustLoss,
+    /// Robot-pose refinement.
     pub robot_poses: RobotPoseConfig,
 }
 
@@ -216,8 +242,8 @@ impl SingleCamHandeyeSolution {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct SingleCamHandeyeExport {
-    /// Export-type discriminator — always [`ExportKind::SingleCamHandeye`].
-    pub kind: ExportKind,
+    /// Export-type discriminator — always [`ProblemKind::SingleCamHandeye`].
+    pub kind: ProblemKind,
 
     /// Calibrated camera, in the configured model.
     pub camera: CameraParams,
@@ -226,7 +252,7 @@ pub struct SingleCamHandeyeExport {
     pub handeye: SingleCamHandeyeSolution,
 
     /// The per-view robot-pose corrections and the pose error they were
-    /// weighed with: the configured `robot_poses` prior, or its estimate with
+    /// weighed with: the configured `handeye_optimize.robot_poses` prior, or its estimate with
     /// `estimate_sigma`. Only present if robot refinement was enabled.
     #[serde(default)]
     pub robot_refinement: Option<RobotRefinement>,
@@ -327,7 +353,7 @@ impl ProblemType for SingleCamHandeyeProblem {
     }
 
     fn schema_version() -> u32 {
-        3
+        4
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
@@ -356,9 +382,9 @@ impl ProblemType for SingleCamHandeyeProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics.iterations == 0 {
+        if config.intrinsics_init.iterations == 0 {
             return Err(Error::invalid_input(
-                "intrinsics.iterations must be positive",
+                "intrinsics_init.iterations must be positive",
             ));
         }
         if config.handeye_init.min_motion_angle_deg <= 0.0 {
@@ -366,7 +392,7 @@ impl ProblemType for SingleCamHandeyeProblem {
                 "min_motion_angle_deg must be positive",
             ));
         }
-        config.robot_poses.validate()?;
+        config.handeye_optimize.robot_poses.validate()?;
         config.camera.validate_single_camera()
     }
 
@@ -427,9 +453,9 @@ impl ProblemType for SingleCamHandeyeProblem {
 
         let mut per_feature_residuals = PerFeatureResiduals::default();
         per_feature_residuals.target = target;
-        per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
+        per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
         Ok(SingleCamHandeyeExport {
-            kind: ExportKind::SingleCamHandeye,
+            kind: ProblemKind::SingleCamHandeye,
             camera,
             handeye: solution,
             robot_refinement: output.robot_refinement.clone(),
@@ -548,12 +574,14 @@ mod tests {
         let config = SingleCamHandeyeConfig {
             solver: SolverConfig {
                 max_iters: 100,
-                robust_loss: RobustLoss::Huber { scale: 2.5 },
                 ..Default::default()
             },
-            intrinsics: IntrinsicsInitConfig {
+            intrinsics_init: IntrinsicsInitConfig {
                 fix_k3: false,
                 ..Default::default()
+            },
+            intrinsics_optimize: IntrinsicsOptimizeConfig {
+                reprojection_loss: RobustLoss::Huber { scale: 2.5 },
             },
             handeye_init: HandeyeInitConfig {
                 handeye_mode: HandeyeMode::EyeToHand,
@@ -566,7 +594,15 @@ mod tests {
         let restored: SingleCamHandeyeConfig = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.solver.max_iters, 100);
-        assert!(!restored.intrinsics.fix_k3);
+        assert!(!restored.intrinsics_init.fix_k3);
+        assert_eq!(
+            restored.intrinsics_optimize.reprojection_loss,
+            RobustLoss::Huber { scale: 2.5 }
+        );
+        assert_eq!(
+            restored.handeye_optimize.reprojection_loss,
+            RobustLoss::None
+        );
         assert!(matches!(
             restored.handeye_init.handeye_mode,
             HandeyeMode::EyeToHand
@@ -616,6 +652,6 @@ mod tests {
     #[test]
     fn problem_name_and_version() {
         assert_eq!(SingleCamHandeyeProblem::name(), "single_cam_handeye_v2");
-        assert_eq!(SingleCamHandeyeProblem::schema_version(), 3);
+        assert_eq!(SingleCamHandeyeProblem::schema_version(), 4);
     }
 }

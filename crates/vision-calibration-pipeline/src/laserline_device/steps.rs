@@ -11,7 +11,7 @@ use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
 use vision_calibration_optim::{
-    LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, compute_laserline_stats,
+    LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, RobustLoss, compute_laserline_stats,
     optimize_laserline,
 };
 
@@ -53,7 +53,7 @@ pub struct DeviceInitOptions {
 /// - `sensor` seeds the tilt of a Scheimpflug camera; a seeded tilt replaces
 ///   the linear tilt sweep. An untilted camera takes only a zero tilt (a
 ///   non-zero one is a typed error).
-/// - `plane: Some` skips the linear plane fit. Note that `initial_plane_rmse` is
+/// - `laser_plane: Some` skips the linear plane fit. Note that `initial_plane_rmse` is
 ///   recorded as `None` in this case (no fit RMSE is meaningful for a manual seed).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -67,7 +67,7 @@ pub struct DeviceManualInit {
     /// Manual per-view poses (`cam_se3_target`).
     pub cam_se3_target: Option<Vec<Iso3>>,
     /// Manual laser plane seed (camera-frame `(n̂, d)`).
-    pub plane: Option<LaserPlane>,
+    pub laser_plane: Option<LaserPlane>,
 }
 
 /// Options for the optimization step.
@@ -97,7 +97,7 @@ pub struct DeviceInitResult {
     /// Initial per-view target poses (`cam_se3_target`).
     pub cam_se3_target: Vec<Iso3>,
     /// Initial laser plane (camera-frame `(n̂, d)`).
-    pub plane: LaserPlane,
+    pub laser_plane: LaserPlane,
     /// RMSE of the linear laser plane fit (meters); `None` when the plane was
     /// supplied as a manual seed.
     pub plane_rmse: Option<f64>,
@@ -226,7 +226,7 @@ pub fn step_init_with_seed(
     }
     let mut provenance = Provenance::of_camera_seed(model, &seed);
     provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
-    provenance.note("plane", manual.plane.is_some());
+    provenance.note("laser_plane", manual.laser_plane.is_some());
 
     let planar_dataset = planar_dataset_from_input(input)?;
     let holds_tilt = session.config.holds_tilt();
@@ -259,7 +259,7 @@ pub fn step_init_with_seed(
                 &planar_dataset,
                 &initial,
                 &session.config.camera,
-                &session.config.solver,
+                RobustLoss::None,
                 session.config.solver.backend_options(session.control()),
             )?;
             (refined.params.camera, refined.params.cam_se3_target)
@@ -268,7 +268,7 @@ pub fn step_init_with_seed(
         };
     let poses = manual.cam_se3_target.unwrap_or(bootstrap_poses);
 
-    let (plane, plane_rmse) = match manual.plane {
+    let (plane, plane_rmse) = match manual.laser_plane {
         Some(p) => (p, None),
         None => {
             let model = camera
@@ -303,7 +303,7 @@ pub fn step_init_with_seed(
     Ok(DeviceInitResult {
         camera,
         cam_se3_target: poses,
-        plane,
+        laser_plane: plane,
         plane_rmse,
     })
 }

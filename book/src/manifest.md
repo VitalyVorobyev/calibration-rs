@@ -145,7 +145,7 @@ The same philosophy applies at run time. When the runner meets an ambiguity it c
 
 The converters in `vision_calibration::dataset_runner` turn a `DatasetSpec` into the input of a problem type, running detection through a [detection cache](detection.md#the-detection-cache):
 
-| Topology | Converter |
+| `topology` | Converter |
 |---|---|
 | `planar_intrinsics` | `build_planar_input` |
 | `single_cam_handeye` | `build_single_cam_handeye_input` |

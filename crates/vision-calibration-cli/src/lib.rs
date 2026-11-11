@@ -49,7 +49,7 @@ use vision_calibration::analysis::{
 use vision_calibration::common::CalibratedCameras;
 use vision_calibration::control::{Progress, RunControl};
 use vision_calibration::core::Uncertainty;
-use vision_calibration::dataset::{DatasetSpec, Topology, samples, sniff_folder};
+use vision_calibration::dataset::{DatasetSpec, ProblemKind, samples, sniff_folder};
 use vision_calibration::dataset_runner::{
     CalibrateDatasetError, CalibrationConfig, Detection, calibrate_dataset, camera_image_sizes,
 };
@@ -489,7 +489,7 @@ fn calibrate(
 
 /// The default configuration of `topology` with the changes the file at
 /// `path` makes.
-fn configuration(topology: Topology, path: &Path) -> Result<CalibrationConfig> {
+fn configuration(topology: ProblemKind, path: &Path) -> Result<CalibrationConfig> {
     let context = || format!("reading the configuration {}", path.display());
     let text = std::fs::read_to_string(path).with_context(context)?;
     let changes: Value = if path.extension().is_some_and(|e| e == "toml") {

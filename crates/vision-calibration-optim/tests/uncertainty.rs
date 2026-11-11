@@ -762,12 +762,12 @@ fn laser_pixels(
 
 /// The labelled value of a laserline parameter pack.
 fn laserline_value(params: &LaserlineParams, label: &str) -> f64 {
-    let n = params.plane.normal();
+    let n = params.laser_plane.normal();
     match label {
         "plane.nx" => n.x,
         "plane.ny" => n.y,
         "plane.nz" => n.z,
-        "plane.d" => params.plane.distance(),
+        "plane.d" => params.laser_plane.distance(),
         camera_label => camera_error(&pinhole_truth(0.0, 0.0), &params.camera, camera_label),
     }
 }

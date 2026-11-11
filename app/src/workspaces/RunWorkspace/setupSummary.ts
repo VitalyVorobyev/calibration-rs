@@ -16,11 +16,25 @@ export function manifestSummary(manifest: unknown): string {
   return `${topology} · ${targetKindOf(manifest)} · ${cameras} camera${cameras !== 1 ? "s" : ""}`;
 }
 
-/** `max_iters=N · loss=L`. */
+/** `max_iters=N · loss=L`: the solver iteration cap and the reprojection
+ * loss of every stage (one name when they agree, `a/b` when they differ). */
 export function configSummary(config: unknown): string {
   const c = config as Record<string, unknown> | null;
-  const iters = typeof c?.max_iters === "number" ? c.max_iters : "?";
-  return `max_iters=${iters} · loss=${robustLossLabel(c?.robust_loss)}`;
+  const solver = c?.solver as Record<string, unknown> | undefined;
+  const iters = typeof solver?.max_iters === "number" ? solver.max_iters : "?";
+  const kinds = [...new Set(reprojectionLosses(c).map(robustLossLabel))];
+  return `max_iters=${iters} · loss=${kinds.length > 0 ? kinds.join("/") : "none"}`;
+}
+
+/** Every `reprojection_loss` value nested anywhere in a config. */
+function reprojectionLosses(value: unknown): unknown[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const out: unknown[] = [];
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "reprojection_loss") out.push(child);
+    else out.push(...reprojectionLosses(child));
+  }
+  return out;
 }
 
 /** A robust-loss config value's name: the `kind` tag of

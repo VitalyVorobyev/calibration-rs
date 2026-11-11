@@ -422,7 +422,7 @@ impl SceneData {
             SceneData::RigHandeyeLaserline { config, .. } => {
                 config.handeye.solver.backend = backend;
                 config.laserline_init.solver.backend = backend;
-                config.joint_optimize.solver.backend = backend;
+                config.solver.backend = backend;
             }
         }
     }
@@ -935,7 +935,7 @@ fn planar_scene(b: &Builder) -> Result<Scene> {
     )?;
     let mut config = PlanarIntrinsicsConfig::default();
     config.camera.model = b.spec.camera.model();
-    config.solver.robust_loss = b.spec.loss;
+    config.optimize.reprojection_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
         image_sizes: vec![[1280, 960]],
@@ -966,7 +966,7 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
     )?;
     let mut config = PlanarIntrinsicsConfig::default();
     config.camera.model = b.spec.camera.model();
-    config.solver.robust_loss = b.spec.loss;
+    config.optimize.reprojection_loss = b.spec.loss;
     // Coarse device-spec seed: focal ~8 % low, principal point at the image
     // centre, the nominal mount tilt, no distortion.
     let mut seed = IntrinsicsManualInit::default();
@@ -1045,7 +1045,8 @@ fn single_handeye_scene(b: &Builder) -> Result<Scene> {
     let mut config = SingleCamHandeyeConfig::default();
     config.camera.model = b.spec.camera.model();
     config.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
-    config.solver.robust_loss = b.spec.loss;
+    config.intrinsics_optimize.reprojection_loss = b.spec.loss;
+    config.handeye_optimize.reprojection_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
         image_sizes: vec![[1024, 768]],
@@ -1106,7 +1107,7 @@ fn laserline_scene(b: &Builder) -> Result<Scene> {
     let mut config = LaserlineDeviceConfig::default();
     config.camera.model = b.spec.camera.model();
     config.optimize.laser_residual_type = b.laser_residual(config.optimize.laser_residual_type);
-    config.optimize.calib_loss = b.spec.loss;
+    config.optimize.reprojection_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
         image_sizes: vec![[1280, 720]],
@@ -1177,7 +1178,8 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
         .collect();
     let input = RigDataset::new(views, cameras.len())?;
     let mut config = RigExtrinsicsConfig::default();
-    config.solver.robust_loss = b.spec.loss;
+    config.intrinsics_optimize.reprojection_loss = b.spec.loss;
+    config.rig.reprojection_loss = b.spec.loss;
     config.camera.model = camera.model();
     // Every camera tilted; the model's default fix lists hold all but the
     // low-order radial terms.
@@ -1238,7 +1240,9 @@ fn rig_handeye_scene(b: &Builder) -> Result<Scene> {
     let input = RigDataset::new(views, cameras.len())?;
     let mut config = RigHandeyeConfig::default();
     config.camera.model = b.spec.camera.model();
-    config.solver.robust_loss = b.spec.loss;
+    config.intrinsics_optimize.reprojection_loss = b.spec.loss;
+    config.rig.reprojection_loss = b.spec.loss;
+    config.handeye_optimize.reprojection_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
         image_sizes: vec![[1280, 960]; 2],
@@ -1325,7 +1329,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
         uncertainty: Default::default(),
     };
     let mut config = RigLaserlineDeviceConfig::default();
-    config.laser_residual_type = b.laser_residual(config.laser_residual_type);
+    config.optimize.laser_residual_type = b.laser_residual(config.optimize.laser_residual_type);
     Ok(Scene {
         spec: b.spec.clone(),
         image_sizes: vec![[1280, 960]; 2],
@@ -1393,8 +1397,10 @@ fn rig_handeye_laserline_scene(b: &Builder) -> Result<Scene> {
         .collect();
     let mut config = RigHandeyeLaserlineConfig::default();
     config.handeye.camera.model = b.spec.camera.model();
-    config.joint_optimize.calib_loss = b.spec.loss;
-    config.handeye.solver.robust_loss = b.spec.loss;
+    config.joint_optimize.reprojection_loss = b.spec.loss;
+    config.handeye.intrinsics_optimize.reprojection_loss = b.spec.loss;
+    config.handeye.rig.reprojection_loss = b.spec.loss;
+    config.handeye.handeye_optimize.reprojection_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
         image_sizes: vec![[1280, 960]; 2],
