@@ -2,6 +2,472 @@
   "suite_version": "2026.1",
   "producer": "calibration-rs 0.11.0",
   "export": {
+    "cam_se3_target": [
+      {
+        "rotation": [
+          -0.33596857001920477,
+          0.033888713993055465,
+          0.026207383752129023,
+          0.9408984260057067
+        ],
+        "translation": [
+          -0.04203342670029016,
+          -0.001775107060387658,
+          0.2806177477446063
+        ]
+      },
+      {
+        "rotation": [
+          -0.01741650746658108,
+          -0.18011782559925013,
+          -0.050466768175105224,
+          0.9821951636406203
+        ],
+        "translation": [
+          -0.036134450129394695,
+          -0.052778355637638726,
+          0.2227406600536712
+        ]
+      },
+      {
+        "rotation": [
+          0.24074436314492267,
+          -0.0026510040667982984,
+          0.03249658468663272,
+          0.9700407701612794
+        ],
+        "translation": [
+          -0.04289586824634988,
+          -0.12513606888467446,
+          0.2166942501545182
+        ]
+      },
+      {
+        "rotation": [
+          -0.04830063004670383,
+          -0.38070056684955517,
+          -0.042278881054660065,
+          0.9224676816855346
+        ],
+        "translation": [
+          -0.11920940923537122,
+          -0.06745494990735823,
+          0.19960720578479266
+        ]
+      },
+      {
+        "rotation": [
+          -0.31978135127052004,
+          -0.27302575345877905,
+          -0.14631735009980915,
+          0.8954261881292263
+        ],
+        "translation": [
+          -0.14625470539654994,
+          0.02844851888466648,
+          0.24826705032609508
+        ]
+      },
+      {
+        "rotation": [
+          -0.19220877718994042,
+          0.07307860262743951,
+          0.007459154357274338,
+          0.9786008710528736
+        ],
+        "translation": [
+          0.04042917125318277,
+          0.051000957195815357,
+          0.3059488907564758
+        ]
+      },
+      {
+        "rotation": [
+          -0.08867814386870046,
+          0.30338268801403695,
+          0.0284239843125452,
+          0.9483075495477086
+        ],
+        "translation": [
+          0.1643501637362558,
+          0.047020566182380784,
+          0.3104931588819499
+        ]
+      },
+      {
+        "rotation": [
+          -0.05807820735957722,
+          0.2928833431747456,
+          0.034417723291286,
+          0.9537618620201411
+        ],
+        "translation": [
+          0.15819338990995713,
+          -0.07819381414787914,
+          0.33170668067639897
+        ]
+      },
+      {
+        "rotation": [
+          0.07335235102678843,
+          0.23420716686209744,
+          -0.014195590808937333,
+          0.9693115705441969
+        ],
+        "translation": [
+          0.12205051932792622,
+          -0.1584183626573473,
+          0.2865739129293133
+        ]
+      },
+      {
+        "rotation": [
+          -0.15075706759551355,
+          0.16228197476555217,
+          0.041706056607255945,
+          0.9742676593618751
+        ],
+        "translation": [
+          0.10308302984837324,
+          -0.18275376182609593,
+          0.3144569908176478
+        ]
+      },
+      {
+        "rotation": [
+          -0.15025719547297406,
+          0.08875245069441927,
+          0.010073127362761374,
+          0.9846036308126559
+        ],
+        "translation": [
+          -0.0932478979318338,
+          -0.18881410527325554,
+          0.32977139185376014
+        ]
+      },
+      {
+        "rotation": [
+          -0.020262955276053728,
+          -0.02048465355023574,
+          0.040539363084420264,
+          0.9987624100120694
+        ],
+        "translation": [
+          -0.23061189278954,
+          -0.17821109962223805,
+          0.2875344467390068
+        ]
+      },
+      {
+        "rotation": [
+          -0.0664345405215211,
+          0.05669874021400777,
+          0.04861943477655001,
+          0.9949913845083522
+        ],
+        "translation": [
+          -0.033817054692285464,
+          -0.12619995386305846,
+          0.23778872136586904
+        ]
+      },
+      {
+        "rotation": [
+          -0.13377242778731,
+          0.003236589897989195,
+          -0.011305833812746045,
+          0.9909422991130815
+        ],
+        "translation": [
+          -0.08364444878608907,
+          -0.017915618237626278,
+          0.2175701575916665
+        ]
+      },
+      {
+        "rotation": [
+          -0.07011674897589561,
+          0.17075018213781926,
+          0.03397168873783636,
+          0.9822290675688907
+        ],
+        "translation": [
+          0.08546266437499629,
+          -0.06813261885253702,
+          0.22145601636846954
+        ]
+      },
+      {
+        "rotation": [
+          -0.034394274452890866,
+          -0.3100982772125759,
+          0.012499468742346495,
+          0.9499999240188448
+        ],
+        "translation": [
+          -0.20031594492282762,
+          -0.07459909544606137,
+          0.17184086738428866
+        ]
+      },
+      {
+        "rotation": [
+          -0.1411697638437555,
+          -0.17690505529529077,
+          0.02441637509566185,
+          0.9737451102903965
+        ],
+        "translation": [
+          -0.2230222916664833,
+          0.03912539060387696,
+          0.25403494912194496
+        ]
+      },
+      {
+        "rotation": [
+          0.10236513271937873,
+          -0.01885758401316585,
+          0.03711654731849294,
+          0.9938753106117914
+        ],
+        "translation": [
+          -0.052642581584283886,
+          -0.19101998769249004,
+          0.28368931966601557
+        ]
+      },
+      {
+        "rotation": [
+          -0.008268032352030243,
+          0.005924391523505005,
+          0.04138451521831401,
+          0.9990915188941637
+        ],
+        "translation": [
+          -0.0633421376367576,
+          -0.06271054895362603,
+          0.19010858378899867
+        ]
+      },
+      {
+        "rotation": [
+          -0.06153721901501178,
+          0.00263790389912523,
+          0.020537830328276448,
+          0.9978899787372976
+        ],
+        "translation": [
+          -0.05962711811877762,
+          -0.02259026526957551,
+          0.36063611483764024
+        ]
+      },
+      {
+        "rotation": [
+          -0.024758770116234355,
+          -0.25092042927412417,
+          0.045240646693068515,
+          0.9666329320698803
+        ],
+        "translation": [
+          -0.17439850439673446,
+          -0.08387479972952284,
+          0.2514454228535489
+        ]
+      },
+      {
+        "rotation": [
+          -0.24085132491787808,
+          -0.21567157037504303,
+          -0.029800912017822527,
+          0.9458267910458932
+        ],
+        "translation": [
+          -0.2207436326036982,
+          0.038077095229427066,
+          0.22940106345303107
+        ]
+      },
+      {
+        "rotation": [
+          -0.0764906719521677,
+          0.32187967695197955,
+          0.01887410364949503,
+          0.9434969098417988
+        ],
+        "translation": [
+          0.19758597102898928,
+          0.06972190392036794,
+          0.3317741830287161
+        ]
+      },
+      {
+        "rotation": [
+          -0.02636720378764903,
+          0.3846326731184341,
+          0.1481236453453622,
+          0.9107260087555367
+        ],
+        "translation": [
+          0.19928178143969272,
+          -0.19745816171377348,
+          0.308821546042337
+        ]
+      },
+      {
+        "rotation": [
+          0.026572891710407717,
+          -0.042699264264503115,
+          0.050630534427278245,
+          0.9974503512661798
+        ],
+        "translation": [
+          -0.10038616733673457,
+          -0.12729467274148779,
+          0.2038351798129422
+        ]
+      },
+      {
+        "rotation": [
+          -0.2116397925932675,
+          0.050032405146722914,
+          0.005550448134233767,
+          0.976050484940109
+        ],
+        "translation": [
+          0.0029792191780130322,
+          0.05597998203327012,
+          0.5922314896788842
+        ]
+      },
+      {
+        "rotation": [
+          0.036481074968932194,
+          0.38296835755173925,
+          -0.06254735496837616,
+          0.9209192128898682
+        ],
+        "translation": [
+          0.1233849291897734,
+          0.005642522151302448,
+          0.5835229875085948
+        ]
+      },
+      {
+        "rotation": [
+          0.0835654517495851,
+          -0.010265822860045239,
+          0.05984195931859986,
+          0.9946508774740035
+        ],
+        "translation": [
+          -0.10424328544644043,
+          -0.09261079983749004,
+          0.43369752353056407
+        ]
+      },
+      {
+        "rotation": [
+          -0.20885176957525156,
+          -0.18949815226975908,
+          0.0038954290319280576,
+          0.9594040933122447
+        ],
+        "translation": [
+          -0.10243909804614412,
+          0.011759171270814429,
+          0.5293971570777282
+        ]
+      },
+      {
+        "rotation": [
+          -0.2352426018726147,
+          0.21180887517617789,
+          0.03292457242691584,
+          0.9480052168586993
+        ],
+        "translation": [
+          0.04708649048806783,
+          0.08369915329196792,
+          0.5458521102012458
+        ]
+      },
+      {
+        "rotation": [
+          -0.3112358318032189,
+          -0.10252459858681463,
+          0.08900061181350517,
+          0.9405848472005025
+        ],
+        "translation": [
+          -0.17478175557211423,
+          0.1209799921708568,
+          0.47911526847210856
+        ]
+      },
+      {
+        "rotation": [
+          -0.2773432065417012,
+          0.2978009940768747,
+          -0.01776306252948899,
+          0.9132796873475102
+        ],
+        "translation": [
+          0.23337504338897783,
+          0.21029766319307144,
+          0.5641977247766928
+        ]
+      },
+      {
+        "rotation": [
+          -0.04529148701192015,
+          -0.05180724734885825,
+          0.024527921257355135,
+          0.9973279658192566
+        ],
+        "translation": [
+          0.006986043501254027,
+          -0.053195238098839026,
+          0.2969659313226425
+        ]
+      },
+      {
+        "rotation": [
+          -0.07319652158321609,
+          0.15189730161898335,
+          0.025499210684202498,
+          0.9853523579123725
+        ],
+        "translation": [
+          -0.04948646616685081,
+          -0.06504012605975862,
+          0.30164822606424746
+        ]
+      }
+    ],
+    "camera": {
+      "distortion": {
+        "iters": 8,
+        "k1": -0.0014974715896410565,
+        "k2": -0.0031718497537243503,
+        "k3": 0.005896893596617992,
+        "k4": -0.0036744073965597024,
+        "type": "kannala_brandt4"
+      },
+      "intrinsics": {
+        "cx": 620.4579763807459,
+        "cy": 381.9383495166437,
+        "fx": 558.4785667947374,
+        "fy": 560.5073454550956
+      },
+      "projection": {
+        "type": "equidistant"
+      },
+      "sensor": {
+        "type": "identity"
+      }
+    },
     "diagnostics": {
       "per_feature_residuals": {
         "target_hist_per_camera": [
@@ -28,474 +494,6 @@
     },
     "kind": "planar_intrinsics",
     "mean_reproj_error": 0.22271940952356853,
-    "params": {
-      "camera": {
-        "distortion": {
-          "iters": 8,
-          "k1": -0.0014974715896410565,
-          "k2": -0.0031718497537243503,
-          "k3": 0.005896893596617992,
-          "k4": -0.0036744073965597024,
-          "type": "kannala_brandt4"
-        },
-        "intrinsics": {
-          "cx": 620.4579763807459,
-          "cy": 381.9383495166437,
-          "fx": 558.4785667947374,
-          "fy": 560.5073454550956
-        },
-        "projection": {
-          "type": "equidistant"
-        },
-        "sensor": {
-          "type": "identity"
-        }
-      },
-      "camera_se3_target": [
-        {
-          "rotation": [
-            -0.33596857001920477,
-            0.033888713993055465,
-            0.026207383752129023,
-            0.9408984260057067
-          ],
-          "translation": [
-            -0.04203342670029016,
-            -0.001775107060387658,
-            0.2806177477446063
-          ]
-        },
-        {
-          "rotation": [
-            -0.01741650746658108,
-            -0.18011782559925013,
-            -0.050466768175105224,
-            0.9821951636406203
-          ],
-          "translation": [
-            -0.036134450129394695,
-            -0.052778355637638726,
-            0.2227406600536712
-          ]
-        },
-        {
-          "rotation": [
-            0.24074436314492267,
-            -0.0026510040667982984,
-            0.03249658468663272,
-            0.9700407701612794
-          ],
-          "translation": [
-            -0.04289586824634988,
-            -0.12513606888467446,
-            0.2166942501545182
-          ]
-        },
-        {
-          "rotation": [
-            -0.04830063004670383,
-            -0.38070056684955517,
-            -0.042278881054660065,
-            0.9224676816855346
-          ],
-          "translation": [
-            -0.11920940923537122,
-            -0.06745494990735823,
-            0.19960720578479266
-          ]
-        },
-        {
-          "rotation": [
-            -0.31978135127052004,
-            -0.27302575345877905,
-            -0.14631735009980915,
-            0.8954261881292263
-          ],
-          "translation": [
-            -0.14625470539654994,
-            0.02844851888466648,
-            0.24826705032609508
-          ]
-        },
-        {
-          "rotation": [
-            -0.19220877718994042,
-            0.07307860262743951,
-            0.007459154357274338,
-            0.9786008710528736
-          ],
-          "translation": [
-            0.04042917125318277,
-            0.051000957195815357,
-            0.3059488907564758
-          ]
-        },
-        {
-          "rotation": [
-            -0.08867814386870046,
-            0.30338268801403695,
-            0.0284239843125452,
-            0.9483075495477086
-          ],
-          "translation": [
-            0.1643501637362558,
-            0.047020566182380784,
-            0.3104931588819499
-          ]
-        },
-        {
-          "rotation": [
-            -0.05807820735957722,
-            0.2928833431747456,
-            0.034417723291286,
-            0.9537618620201411
-          ],
-          "translation": [
-            0.15819338990995713,
-            -0.07819381414787914,
-            0.33170668067639897
-          ]
-        },
-        {
-          "rotation": [
-            0.07335235102678843,
-            0.23420716686209744,
-            -0.014195590808937333,
-            0.9693115705441969
-          ],
-          "translation": [
-            0.12205051932792622,
-            -0.1584183626573473,
-            0.2865739129293133
-          ]
-        },
-        {
-          "rotation": [
-            -0.15075706759551355,
-            0.16228197476555217,
-            0.041706056607255945,
-            0.9742676593618751
-          ],
-          "translation": [
-            0.10308302984837324,
-            -0.18275376182609593,
-            0.3144569908176478
-          ]
-        },
-        {
-          "rotation": [
-            -0.15025719547297406,
-            0.08875245069441927,
-            0.010073127362761374,
-            0.9846036308126559
-          ],
-          "translation": [
-            -0.0932478979318338,
-            -0.18881410527325554,
-            0.32977139185376014
-          ]
-        },
-        {
-          "rotation": [
-            -0.020262955276053728,
-            -0.02048465355023574,
-            0.040539363084420264,
-            0.9987624100120694
-          ],
-          "translation": [
-            -0.23061189278954,
-            -0.17821109962223805,
-            0.2875344467390068
-          ]
-        },
-        {
-          "rotation": [
-            -0.0664345405215211,
-            0.05669874021400777,
-            0.04861943477655001,
-            0.9949913845083522
-          ],
-          "translation": [
-            -0.033817054692285464,
-            -0.12619995386305846,
-            0.23778872136586904
-          ]
-        },
-        {
-          "rotation": [
-            -0.13377242778731,
-            0.003236589897989195,
-            -0.011305833812746045,
-            0.9909422991130815
-          ],
-          "translation": [
-            -0.08364444878608907,
-            -0.017915618237626278,
-            0.2175701575916665
-          ]
-        },
-        {
-          "rotation": [
-            -0.07011674897589561,
-            0.17075018213781926,
-            0.03397168873783636,
-            0.9822290675688907
-          ],
-          "translation": [
-            0.08546266437499629,
-            -0.06813261885253702,
-            0.22145601636846954
-          ]
-        },
-        {
-          "rotation": [
-            -0.034394274452890866,
-            -0.3100982772125759,
-            0.012499468742346495,
-            0.9499999240188448
-          ],
-          "translation": [
-            -0.20031594492282762,
-            -0.07459909544606137,
-            0.17184086738428866
-          ]
-        },
-        {
-          "rotation": [
-            -0.1411697638437555,
-            -0.17690505529529077,
-            0.02441637509566185,
-            0.9737451102903965
-          ],
-          "translation": [
-            -0.2230222916664833,
-            0.03912539060387696,
-            0.25403494912194496
-          ]
-        },
-        {
-          "rotation": [
-            0.10236513271937873,
-            -0.01885758401316585,
-            0.03711654731849294,
-            0.9938753106117914
-          ],
-          "translation": [
-            -0.052642581584283886,
-            -0.19101998769249004,
-            0.28368931966601557
-          ]
-        },
-        {
-          "rotation": [
-            -0.008268032352030243,
-            0.005924391523505005,
-            0.04138451521831401,
-            0.9990915188941637
-          ],
-          "translation": [
-            -0.0633421376367576,
-            -0.06271054895362603,
-            0.19010858378899867
-          ]
-        },
-        {
-          "rotation": [
-            -0.06153721901501178,
-            0.00263790389912523,
-            0.020537830328276448,
-            0.9978899787372976
-          ],
-          "translation": [
-            -0.05962711811877762,
-            -0.02259026526957551,
-            0.36063611483764024
-          ]
-        },
-        {
-          "rotation": [
-            -0.024758770116234355,
-            -0.25092042927412417,
-            0.045240646693068515,
-            0.9666329320698803
-          ],
-          "translation": [
-            -0.17439850439673446,
-            -0.08387479972952284,
-            0.2514454228535489
-          ]
-        },
-        {
-          "rotation": [
-            -0.24085132491787808,
-            -0.21567157037504303,
-            -0.029800912017822527,
-            0.9458267910458932
-          ],
-          "translation": [
-            -0.2207436326036982,
-            0.038077095229427066,
-            0.22940106345303107
-          ]
-        },
-        {
-          "rotation": [
-            -0.0764906719521677,
-            0.32187967695197955,
-            0.01887410364949503,
-            0.9434969098417988
-          ],
-          "translation": [
-            0.19758597102898928,
-            0.06972190392036794,
-            0.3317741830287161
-          ]
-        },
-        {
-          "rotation": [
-            -0.02636720378764903,
-            0.3846326731184341,
-            0.1481236453453622,
-            0.9107260087555367
-          ],
-          "translation": [
-            0.19928178143969272,
-            -0.19745816171377348,
-            0.308821546042337
-          ]
-        },
-        {
-          "rotation": [
-            0.026572891710407717,
-            -0.042699264264503115,
-            0.050630534427278245,
-            0.9974503512661798
-          ],
-          "translation": [
-            -0.10038616733673457,
-            -0.12729467274148779,
-            0.2038351798129422
-          ]
-        },
-        {
-          "rotation": [
-            -0.2116397925932675,
-            0.050032405146722914,
-            0.005550448134233767,
-            0.976050484940109
-          ],
-          "translation": [
-            0.0029792191780130322,
-            0.05597998203327012,
-            0.5922314896788842
-          ]
-        },
-        {
-          "rotation": [
-            0.036481074968932194,
-            0.38296835755173925,
-            -0.06254735496837616,
-            0.9209192128898682
-          ],
-          "translation": [
-            0.1233849291897734,
-            0.005642522151302448,
-            0.5835229875085948
-          ]
-        },
-        {
-          "rotation": [
-            0.0835654517495851,
-            -0.010265822860045239,
-            0.05984195931859986,
-            0.9946508774740035
-          ],
-          "translation": [
-            -0.10424328544644043,
-            -0.09261079983749004,
-            0.43369752353056407
-          ]
-        },
-        {
-          "rotation": [
-            -0.20885176957525156,
-            -0.18949815226975908,
-            0.0038954290319280576,
-            0.9594040933122447
-          ],
-          "translation": [
-            -0.10243909804614412,
-            0.011759171270814429,
-            0.5293971570777282
-          ]
-        },
-        {
-          "rotation": [
-            -0.2352426018726147,
-            0.21180887517617789,
-            0.03292457242691584,
-            0.9480052168586993
-          ],
-          "translation": [
-            0.04708649048806783,
-            0.08369915329196792,
-            0.5458521102012458
-          ]
-        },
-        {
-          "rotation": [
-            -0.3112358318032189,
-            -0.10252459858681463,
-            0.08900061181350517,
-            0.9405848472005025
-          ],
-          "translation": [
-            -0.17478175557211423,
-            0.1209799921708568,
-            0.47911526847210856
-          ]
-        },
-        {
-          "rotation": [
-            -0.2773432065417012,
-            0.2978009940768747,
-            -0.01776306252948899,
-            0.9132796873475102
-          ],
-          "translation": [
-            0.23337504338897783,
-            0.21029766319307144,
-            0.5641977247766928
-          ]
-        },
-        {
-          "rotation": [
-            -0.04529148701192015,
-            -0.05180724734885825,
-            0.024527921257355135,
-            0.9973279658192566
-          ],
-          "translation": [
-            0.006986043501254027,
-            -0.053195238098839026,
-            0.2969659313226425
-          ]
-        },
-        {
-          "rotation": [
-            -0.07319652158321609,
-            0.15189730161898335,
-            0.025499210684202498,
-            0.9853523579123725
-          ],
-          "translation": [
-            -0.04948646616685081,
-            -0.06504012605975862,
-            0.30164822606424746
-          ]
-        }
-      ]
-    },
     "per_cam_reproj_errors": [
       0.22271940952356853
     ],
@@ -674,12 +672,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 0
         },
@@ -735,12 +733,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 1
         },
@@ -796,12 +794,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 2
         },
@@ -857,12 +855,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 3
         },
@@ -918,12 +916,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 4
         },
@@ -979,12 +977,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 5
         },
@@ -1040,12 +1038,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 6
         },
@@ -1101,12 +1099,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 7
         },
@@ -1162,12 +1160,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 8
         },
@@ -1223,12 +1221,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 9
         },
@@ -1284,12 +1282,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 10
         },
@@ -1345,12 +1343,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 11
         },
@@ -1406,12 +1404,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 12
         },
@@ -1467,12 +1465,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 13
         },
@@ -1528,12 +1526,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 14
         },
@@ -1589,12 +1587,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 15
         },
@@ -1650,12 +1648,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 16
         },
@@ -1711,12 +1709,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 17
         },
@@ -1772,12 +1770,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 18
         },
@@ -1833,12 +1831,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 19
         },
@@ -1894,12 +1892,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 20
         },
@@ -1955,12 +1953,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 21
         },
@@ -2016,12 +2014,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 22
         },
@@ -2077,12 +2075,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 23
         },
@@ -2138,12 +2136,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 24
         },
@@ -2199,12 +2197,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 25
         },
@@ -2260,12 +2258,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 26
         },
@@ -2321,12 +2319,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 27
         },
@@ -2382,12 +2380,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 28
         },
@@ -2443,12 +2441,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 29
         },
@@ -2504,12 +2502,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 30
         },
@@ -2565,12 +2563,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 31
         },
@@ -2626,12 +2624,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 32
         },
@@ -2687,12 +2685,12 @@
             ]
           ],
           "labels": [
-            "camera_se3_target.rx",
-            "camera_se3_target.ry",
-            "camera_se3_target.rz",
-            "camera_se3_target.tx",
-            "camera_se3_target.ty",
-            "camera_se3_target.tz"
+            "cam_se3_target.rx",
+            "cam_se3_target.ry",
+            "cam_se3_target.rz",
+            "cam_se3_target.tx",
+            "cam_se3_target.ty",
+            "cam_se3_target.tz"
           ],
           "view": 33
         }

@@ -149,7 +149,7 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
 
     match export.handeye {
         SingleCamHandeyeSolution::EyeInHand {
-            gripper_se3_camera: he,
+            gripper_se3_cam: he,
             base_se3_target: target,
         } => {
             println!("Hand-eye transform (gripper → camera):");
@@ -172,7 +172,7 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
             );
         }
         SingleCamHandeyeSolution::EyeToHand {
-            camera_se3_base: he,
+            cam_se3_base: he,
             gripper_se3_target: target,
         } => {
             println!("Hand-eye transform (camera → base):");

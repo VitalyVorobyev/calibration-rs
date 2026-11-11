@@ -87,7 +87,7 @@ step_init(&mut session, None)?;      // Zhang's method + linear distortion fit
 step_optimize(&mut session, None)?;  // Levenberg-Marquardt bundle adjustment
 
 let result = session.export()?;
-println!("{:?} at {:.4} px", result.params.camera, result.mean_reproj_error);
+println!("{:?} at {:.4} px", result.camera, result.mean_reproj_error);
 ```
 
 The same thing from Python:

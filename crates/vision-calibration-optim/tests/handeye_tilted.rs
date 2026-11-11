@@ -34,7 +34,7 @@ fn eye_in_hand_scheimpflug_converges() {
 
     let camera_gt = Camera::new(Pinhole, distortion_gt, sensor_gt.compile(), intrinsics_gt);
 
-    let cam_to_rig_gt = Isometry3::identity();
+    let rig_se3_cam_gt = Isometry3::identity();
     let handeye_gt = Isometry3::from_parts(
         Translation3::new(0.05, 0.03, 0.15),
         Rotation3::from_euler_angles(0.1, -0.05, 0.15).into(),
@@ -75,7 +75,7 @@ fn eye_in_hand_scheimpflug_converges() {
                 let p_base = target_pose_gt.transform_point(&pw);
                 let p_gripper = robot_pose.inverse_transform_point(&p_base);
                 let p_rig = handeye_gt.inverse_transform_point(&p_gripper);
-                let p_cam = cam_to_rig_gt.inverse_transform_point(&p_rig);
+                let p_cam = rig_se3_cam_gt.inverse_transform_point(&p_rig);
                 if let Some(pixel) = camera_gt.project_point(&p_cam) {
                     points_3d.push(pw);
                     points_2d.push(pixel);
@@ -124,7 +124,7 @@ fn eye_in_hand_scheimpflug_converges() {
 
     let initial = HandeyeParams {
         cameras: cameras_init,
-        cam_to_rig: vec![cam_to_rig_gt],
+        rig_se3_cam: vec![rig_se3_cam_gt],
         handeye: handeye_init,
         target_poses: vec![Isometry3::identity()],
     };

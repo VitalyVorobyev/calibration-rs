@@ -86,7 +86,7 @@ fn main() -> Result<()> {
     // by solver-noise levels and is not what a "load saved calibration" caller
     // would do. We still need state.per_cam_reproj_errors populated for the
     // rig stage, but rig_optimize does not depend on it directly — it only
-    // needs per_cam_intrinsics + per_cam_target_poses, both already set by
+    // needs per_cam_intrinsics + cam_se3_target, both already set by
     // step_intrinsics_init_all_with_seed.
     let cameras_b = intr_init_b.cameras.clone();
     let mut rig_manual_b = RigManualInit::default();
@@ -179,7 +179,7 @@ fn summarize(
         .map_err(|e| anyhow::anyhow!("{label}: no output: {e}"))?;
     let cam_se3_rig: Vec<Iso3> = output
         .params
-        .cam_to_rig
+        .rig_se3_cam
         .iter()
         .map(|t| t.inverse())
         .collect();
@@ -341,7 +341,7 @@ fn print_per_feature_residuals_summary(
         for r in pf.target.iter().take(head_n) {
             println!(
                 "      pose={} cam={} feat={} err={}",
-                r.pose,
+                r.view,
                 r.camera,
                 r.feature,
                 r.error_px
@@ -356,7 +356,7 @@ fn print_per_feature_residuals_summary(
         for r in pf.target.iter().rev().take(tail_n).rev() {
             println!(
                 "      pose={} cam={} feat={} err={}",
-                r.pose,
+                r.view,
                 r.camera,
                 r.feature,
                 r.error_px

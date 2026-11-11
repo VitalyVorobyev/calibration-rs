@@ -6,7 +6,7 @@
 //! `cam1.fx`. A pose's six labels end in `rx, ry, rz` (rotation, radians) and
 //! `tx, ty, tz` (translation, metres): the right perturbation `T · Exp(δ)`,
 //! so both are expressed in the pose's source frame (the target frame for
-//! `camera_se3_target`).
+//! `cam_se3_target`).
 //!
 //! The covariance is conditional on every parameter the solve held fixed
 //! ([`ParameterCovariance::fixed`]): it does not include their uncertainty.
@@ -196,7 +196,7 @@ impl ParameterCovariance {
 pub struct ViewCovariance {
     /// View index, as in the result's per-view lists.
     pub view: usize,
-    /// Labels of the view's parameters, e.g. `camera_se3_target.rx`.
+    /// Labels of the view's parameters, e.g. `cam_se3_target.rx`.
     pub labels: Vec<String>,
     /// Their covariance: one row per label, symmetric.
     pub covariance: Vec<Vec<f64>>,
@@ -284,7 +284,7 @@ mod tests {
             covariance: vec![vec![4.0, -1.2], vec![-1.2, 1.0]],
             views: vec![ViewCovariance {
                 view: 0,
-                labels: vec!["camera_se3_target.tz".into()],
+                labels: vec!["cam_se3_target.tz".into()],
                 covariance: vec![vec![1e-8]],
             }],
             fixed: vec!["k3".into()],

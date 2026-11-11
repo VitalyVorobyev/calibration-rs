@@ -188,7 +188,7 @@ mod tests {
         assert!(!state.initialized_for(pinhole_bc5()));
 
         let params = state.initial_params(tilted).unwrap();
-        assert_eq!(params.camera_se3_target.len(), 1);
+        assert_eq!(params.cam_se3_target.len(), 1);
         assert!(matches!(
             params.camera.sensor,
             SensorParams::Scheimpflug { params } if params.tilt_x == 0.1

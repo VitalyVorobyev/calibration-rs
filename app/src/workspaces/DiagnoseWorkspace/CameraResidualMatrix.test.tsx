@@ -10,7 +10,7 @@ import { CameraResidualMatrix } from "./CameraResidualMatrix";
 
 function res(pose: number, camera: number, error_px: number): TargetFeatureResidual {
   return {
-    pose,
+    view: pose,
     camera,
     feature: 0,
     target_xyz_m: [0, 0, 0],

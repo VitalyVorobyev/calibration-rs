@@ -222,7 +222,7 @@ struct Camera {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PoseChain {
-    /// One SE3 block, `camera_se3_target`.
+    /// One SE3 block, `cam_se3_target`.
     Pose(BlockId),
     /// A camera of a rig: `cam_se3_rig · rig_se3_target`, two SE3 blocks.
     /// [`RigBlocks::chain`] builds it for a calibrated rig.
@@ -740,11 +740,11 @@ impl Problem {
         // The projection is total (a pinhole clamps the depth), so a point
         // outside its domain has a finite residual that means nothing.
         let pose = |i: usize| se3(&self.blocks[poses[i]].values);
-        let camera_se3_target = match ir_chain {
+        let cam_se3_target = match ir_chain {
             ReprojChain::Rig => pose(0) * pose(1),
             _ => pose(0),
         };
-        let p_camera = camera_se3_target.transform_point(&target);
+        let p_camera = cam_se3_target.transform_point(&target);
         // The projection's block follows the intrinsics when it has one.
         let projection = if spec.projection.dim() > 0 {
             values[1].as_slice()

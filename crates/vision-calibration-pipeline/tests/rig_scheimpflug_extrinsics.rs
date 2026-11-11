@@ -56,9 +56,9 @@ fn make_dataset() -> (
         Translation3::new(0.12, 0.0, 0.0),
         Rotation3::identity().into(),
     );
-    let cam_to_rig = [cam0_to_rig, cam1_to_rig];
+    let rig_se3_cam = [cam0_to_rig, cam1_to_rig];
 
-    let rig_from_target = vec![
+    let rig_se3_target = vec![
         Isometry3::from_parts(
             Translation3::new(0.1, -0.05, 1.0),
             Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
@@ -78,9 +78,9 @@ fn make_dataset() -> (
     ];
 
     let mut views = Vec::new();
-    for rig_pose in &rig_from_target {
+    for rig_pose in &rig_se3_target {
         let mut cam_obs = Vec::new();
-        for (cam_idx, c2r) in cam_to_rig.iter().enumerate() {
+        for (cam_idx, c2r) in rig_se3_cam.iter().enumerate() {
             let mut pts3 = Vec::new();
             let mut pts2 = Vec::new();
             for y in -2..=2i32 {

@@ -25,8 +25,8 @@ class PerFeatureResidualsTest(unittest.TestCase):
         self.assertEqual(len(res.target), 4 * 48)
         self.assertEqual(res.target.observed_px.shape, (4 * 48, 2))
         self.assertEqual(res.target.target_xyz_m.shape, (4 * 48, 3))
-        self.assertEqual(res.target.pose.dtype, np.int64)
-        np.testing.assert_array_equal(np.unique(res.target.pose), np.arange(4))
+        self.assertEqual(res.target.view.dtype, np.int64)
+        np.testing.assert_array_equal(np.unique(res.target.view), np.arange(4))
         np.testing.assert_allclose(
             res.target.error_px,
             np.linalg.norm(res.target.projected_px - res.target.observed_px, axis=1),
@@ -52,7 +52,7 @@ class PerFeatureResidualsTest(unittest.TestCase):
             {
                 "target": [
                     {
-                        "pose": 2,
+                        "view": 2,
                         "camera": 1,
                         "feature": 5,
                         "target_xyz_m": [0.1, 0.2, 0.0],
@@ -63,7 +63,7 @@ class PerFeatureResidualsTest(unittest.TestCase):
                 ],
                 "laser": [
                     {
-                        "pose": 0,
+                        "view": 0,
                         "camera": 0,
                         "feature": 0,
                         "observed_px": [1.0, 2.0],

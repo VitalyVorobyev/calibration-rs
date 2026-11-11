@@ -7,12 +7,10 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty, build_feature_histogram,
-    compute_planar_target_residuals,
+    CameraParams, Iso3, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
+    build_feature_histogram, compute_planar_target_residuals,
 };
-use vision_calibration_optim::{
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
-};
+use vision_calibration_optim::{PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions};
 
 use crate::common::config::{CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig};
 use crate::common::{ExportDiagnostics, ExportKind};
@@ -72,7 +70,7 @@ pub type PlanarIntrinsicsInput = PlanarDataset;
 /// step_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
-/// let k = export.params.camera.intrinsics;
+/// let k = export.camera.intrinsics;
 /// assert!((k.fx - 800.0).abs() < 1e-3 && (k.cy - 360.0).abs() < 1e-3);
 /// # Ok(())
 /// # }
@@ -166,9 +164,15 @@ impl PlanarIntrinsicsConfig {
 pub struct PlanarIntrinsicsExport {
     /// Export-type discriminator — always [`ExportKind::PlanarIntrinsics`].
     pub kind: ExportKind,
-    /// Calibrated parameters; `params.camera.sensor` states whether a tilted
-    /// sensor was calibrated.
-    pub params: PlanarIntrinsicsParams,
+    /// The calibrated camera, in its model; `camera.sensor` states whether a
+    /// tilted sensor was calibrated.
+    pub camera: CameraParams,
+    /// Per-view target poses (`cam_se3_target`).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
+    pub cam_se3_target: Vec<Iso3>,
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
@@ -253,15 +257,15 @@ impl ProblemType for PlanarIntrinsicsProblem {
         // out of an optimizer that ran on `input`); surface it as a typed
         // error rather than panicking.
         let cam = output.params.build_camera()?;
-        let target =
-            compute_planar_target_residuals(&cam, input, &output.params.camera_se3_target)?;
+        let target = compute_planar_target_residuals(&cam, input, &output.params.cam_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
         let mut per_feature_residuals = PerFeatureResiduals::default();
         per_feature_residuals.target = target;
         per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(PlanarIntrinsicsExport {
             kind: ExportKind::PlanarIntrinsics,
-            params: output.params.clone(),
+            camera: output.params.camera.clone(),
+            cam_se3_target: output.params.cam_se3_target.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: vec![output.mean_reproj_error],
             // Callers that have the images fill `image_manifest`; the
@@ -277,6 +281,7 @@ mod tests {
     use super::*;
     use vision_calibration_core::DistortionKind;
     use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
+    use vision_calibration_optim::PlanarIntrinsicsParams;
     use vision_calibration_optim::RobustLoss;
     use vision_calibration_optim::SolveReport;
 
@@ -754,7 +759,8 @@ mod tests {
         .expect("valid params");
         let mut export = PlanarIntrinsicsExport {
             kind: ExportKind::PlanarIntrinsics,
-            params,
+            camera: params.camera,
+            cam_se3_target: params.cam_se3_target,
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
             diagnostics: ExportDiagnostics::default(),

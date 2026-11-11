@@ -32,7 +32,7 @@ use vision_calibration::nalgebra::{DVector, RealField};
 use vision_calibration::optim::problem::{Residual, se3};
 
 /// A measured distance from the camera centre to the board's origin: the
-/// length of the translation of `camera_se3_target`.
+/// length of the translation of `cam_se3_target`.
 struct Range {
     measured: f64,
 }
@@ -111,7 +111,7 @@ let board_pose = solution.pose(views[0]).unwrap();
 `add_camera` lays out the camera's blocks from its model, holding what the
 `CameraFix` names, just as a workflow's config does (by default `k3` for
 Brown–Conrady). `add_reprojection` takes the chain that moves a point into
-the camera frame (here one `camera_se3_target` pose block), the point in
+the camera frame (here one `cam_se3_target` pose block), the point in
 the target frame, its observed pixel and that pixel's noise.
 
 ## Noise: what the covariance needs to know

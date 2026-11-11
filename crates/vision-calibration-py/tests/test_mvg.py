@@ -530,8 +530,8 @@ class MvgTest(unittest.TestCase):
 
     def test_laser_points_on_the_calibrated_plane(self) -> None:
         result = _laser_result()
-        camera = vc.CameraModel(result.params.camera)
-        plane = result.params.plane
+        camera = vc.CameraModel(result.camera)
+        plane = result.laser_plane
         normal = np.array(plane.normal_xyz)
         noise = mvg.reprojection_noise(result, 0)
         # Points on the plane n·x + d = 0, seen across the image.
@@ -575,10 +575,10 @@ class MvgTest(unittest.TestCase):
         robot_pose = _transform(_rotation(0.3, 0.1, -0.5), (0.5, 0.1, 0.4))
         on_robot = {
             "kind": "rig_handeye_laserline",
-            "laser_planes_rig": [export["params"]["plane"]],
-            "laser_planes_cam": [export["params"]["plane"]],
+            "laser_planes_rig": [export["laser_plane"]],
+            "laser_planes_cam": [export["laser_plane"]],
             "per_camera_stats": [],
-            "cameras": [export["params"]["camera"]],
+            "cameras": [export["camera"]],
             "cam_se3_rig": [{"rotation": [0.0, 0.0, 0.0, 1.0], "translation": [0.0, 0.0, 0.0]}],
             "rig_se3_target": [],
             "handeye": {
@@ -590,8 +590,8 @@ class MvgTest(unittest.TestCase):
             "per_cam_reproj_errors": [0.1],
             "uncertainty": export["uncertainty"],
         }
-        camera = vc.CameraModel(result.params.camera)
-        plane = result.params.plane
+        camera = vc.CameraModel(result.camera)
+        plane = result.laser_plane
         normal = np.array(plane.normal_xyz)
         u = np.cross(normal, [0.0, 1.0, 0.0])
         u /= np.linalg.norm(u)

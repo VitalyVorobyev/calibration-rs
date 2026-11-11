@@ -84,7 +84,7 @@ pub struct RigManualInit {
 /// Typed return value of the per-camera intrinsics initialization of a rig
 /// (`step_intrinsics_init_all`, `step_intrinsics_init_all_with_seed`).
 ///
-/// The inner `Option<Iso3>` in `per_cam_target_poses` reflects real
+/// The inner `Option<Iso3>` in `cam_se3_target` reflects real
 /// per-(view, camera) detection coverage — a camera may not have observed the
 /// target in a given view.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,9 +92,9 @@ pub struct RigManualInit {
 pub struct IntrinsicsInitResult {
     /// Per-camera initial parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
-    /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`camera_se3_target`).
+    /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`cam_se3_target`).
     /// Inner `None` marks views where that camera did not observe the target.
-    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
+    pub cam_se3_target: Vec<Vec<Option<Iso3>>>,
 }
 
 /// Typed return value of the rig extrinsics initialization (`step_rig_init`,
@@ -120,7 +120,7 @@ pub(crate) struct RigStagesState {
     pub cameras: Option<Vec<CameraParams>>,
     /// Per-camera target poses: `[view][cam] -> Option<Iso3>`.
     /// `cam_se3_target` (T_C_T) for each camera in each view.
-    pub per_cam_target_poses: Option<Vec<Vec<Option<Iso3>>>>,
+    pub cam_se3_target: Option<Vec<Vec<Option<Iso3>>>>,
     /// Per-camera mean reprojection error from intrinsics calibration.
     pub per_cam_reproj_errors: Option<Vec<f64>>,
     /// True when the current per-camera intrinsics came from full auto-init.
@@ -180,7 +180,7 @@ pub(crate) struct RigCamerasEstimate {
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
     /// Per-camera target poses refined alongside: `[view][cam]`.
-    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
+    pub cam_se3_target: Vec<Vec<Option<Iso3>>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,7 +223,7 @@ pub(crate) fn init_intrinsics<P: RigStages>(
 
     let stages = P::stages_mut(&mut session.state);
     stages.cameras = Some(bootstrap.cameras.clone());
-    stages.per_cam_target_poses = Some(bootstrap.per_cam_target_poses.clone());
+    stages.cam_se3_target = Some(bootstrap.cam_se3_target.clone());
     stages.per_cam_intrinsics_auto = bootstrap.provenance.all_auto();
 
     session.log_success_with_notes(
@@ -236,7 +236,7 @@ pub(crate) fn init_intrinsics<P: RigStages>(
 
     Ok(IntrinsicsInitResult {
         cameras: bootstrap.cameras,
-        per_cam_target_poses: bootstrap.per_cam_target_poses,
+        cam_se3_target: bootstrap.cam_se3_target,
     })
 }
 
@@ -271,8 +271,8 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
         .clone()
         .ok_or_else(|| Error::not_available("per-camera intrinsics"))?;
     check_camera_models(&cameras, |i| P::camera_for(config, i).model)?;
-    let mut per_cam_target_poses = stages
-        .per_cam_target_poses
+    let mut cam_se3_target = stages
+        .cam_se3_target
         .clone()
         .ok_or_else(|| Error::not_available("per-camera target poses"))?;
     // A tilted camera's own staged solve can settle in a wrong tilt /
@@ -296,7 +296,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
         let initial_poses: Vec<Iso3> = valid_indices
             .iter()
             .map(|&global_idx| {
-                per_cam_target_poses[global_idx][cam_idx]
+                cam_se3_target[global_idx][cam_idx]
                     .ok_or_else(|| Error::not_available("initial pose for camera view"))
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -328,8 +328,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
         };
 
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
-            per_cam_target_poses[global_idx][cam_idx] =
-                Some(result.params.camera_se3_target[local_idx]);
+            cam_se3_target[global_idx][cam_idx] = Some(result.params.cam_se3_target[local_idx]);
         }
         optimized_cameras.push(result.params.camera);
         per_cam_reproj_errors.push(result.mean_reproj_error);
@@ -338,7 +337,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
     tilted.recover(
         &mut optimized_cameras,
         &mut per_cam_reproj_errors,
-        &mut per_cam_target_poses,
+        &mut cam_se3_target,
         backend_opts,
         P::rig_config(config).reference_camera_idx,
     )?;
@@ -349,7 +348,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
 
     let stages = P::stages_mut(&mut session.state);
     stages.cameras = Some(optimized_cameras.clone());
-    stages.per_cam_target_poses = Some(per_cam_target_poses.clone());
+    stages.cam_se3_target = Some(cam_se3_target.clone());
     stages.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
     let avg_error: f64 =
@@ -362,7 +361,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
     Ok(RigCamerasEstimate {
         cameras: optimized_cameras,
         per_cam_reproj_errors,
-        per_cam_target_poses,
+        cam_se3_target,
     })
 }
 
@@ -431,18 +430,18 @@ pub(crate) fn init_rig<P: RigStages>(
     let (cam_se3_rig, rig_se3_target) = match seeded {
         Some(seeded) => seeded,
         None => {
-            let per_cam_target_poses = P::stages(&session.state)
-                .per_cam_target_poses
+            let cam_se3_target = P::stages(&session.state)
+                .cam_se3_target
                 .as_ref()
                 .ok_or_else(|| Error::not_available("per-camera target poses"))?;
-            let extrinsic_result = estimate_extrinsics_from_cam_target_poses(
-                per_cam_target_poses,
-                reference_camera_idx,
-            )
-            .map_err(|e| Error::numerical(format!("rig extrinsics initialization failed: {e}")))?;
+            let extrinsic_result =
+                estimate_extrinsics_from_cam_target_poses(cam_se3_target, reference_camera_idx)
+                    .map_err(|e| {
+                        Error::numerical(format!("rig extrinsics initialization failed: {e}"))
+                    })?;
             (
-                inverse_poses(&extrinsic_result.cam_to_rig),
-                extrinsic_result.rig_from_target,
+                inverse_poses(&extrinsic_result.rig_se3_cam),
+                extrinsic_result.rig_se3_target,
             )
         }
     };
@@ -504,7 +503,7 @@ pub(crate) fn optimize_rig<P: RigStages>(
         .initial_cam_se3_rig
         .as_ref()
         .ok_or_else(|| Error::not_available("initial cam_se3_rig"))?;
-    let rig_from_target = stages
+    let rig_se3_target = stages
         .initial_rig_se3_target
         .clone()
         .ok_or_else(|| Error::not_available("initial rig_se3_target"))?;
@@ -525,8 +524,8 @@ pub(crate) fn optimize_rig<P: RigStages>(
 
     let initial = RigExtrinsicsParams {
         cameras,
-        cam_to_rig: inverse_poses(cam_se3_rig),
-        rig_from_target,
+        rig_se3_cam: inverse_poses(cam_se3_rig),
+        rig_se3_target,
     };
     let solve_opts = RigExtrinsicsSolveOptions {
         robust_loss: solver.robust_loss,

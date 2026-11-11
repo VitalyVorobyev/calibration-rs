@@ -94,7 +94,7 @@ struct Regime {
 struct Scene {
     camera: PinholeCamera,
     input: SingleCamHandeyeInput,
-    gripper_se3_camera: Iso3,
+    gripper_se3_cam: Iso3,
     base_se3_target: Iso3,
 }
 
@@ -119,14 +119,14 @@ fn scene(regime: &Regime, seed: u64) -> Scene {
         BrownConrady5::default(),
     );
     // A hand-eye transform up to ~29° and 10 cm, and a target in the base.
-    let gripper_se3_camera = iso(rng.vec3(0.3), rng.vec3(0.1));
+    let gripper_se3_cam = iso(rng.vec3(0.3), rng.vec3(0.1));
     let base_se3_target = iso(rng.vec3(0.3), Vector3::new(0.6, 0.1, 0.0) + rng.vec3(0.1));
 
     // Camera stations: looking at the board centre from ~0.6 m, the viewing
     // direction rotated about the board centre by up to `spread` per axis.
     let centre = Vector3::new(0.12, 0.09, 0.0);
     let spread = regime.spread_deg.to_radians();
-    let mut target_se3_camera: Vec<Iso3> = (0..10)
+    let mut target_se3_cam: Vec<Iso3> = (0..10)
         .map(|_| {
             let rot = UnitQuaternion::from_scaled_axis(rng.vec3(spread));
             let dist = 0.6 + rng.sym(0.08);
@@ -136,27 +136,27 @@ fn scene(regime: &Regime, seed: u64) -> Scene {
         })
         .collect();
     if regime.translation_only {
-        let base = target_se3_camera[0];
+        let base = target_se3_cam[0];
         for _ in 0..4 {
             let shift = Vector3::new(rng.sym(0.05), rng.sym(0.05), rng.sym(0.05));
-            target_se3_camera.push(Iso3::from_parts(
+            target_se3_cam.push(Iso3::from_parts(
                 Translation3::from(base.translation.vector + shift),
                 base.rotation,
             ));
         }
     }
-    let camera_se3_target: Vec<Iso3> = target_se3_camera.iter().map(|p| p.inverse()).collect();
+    let cam_se3_target: Vec<Iso3> = target_se3_cam.iter().map(|p| p.inverse()).collect();
     // T_B_G = T_B_T · T_T_C · T_C_G.
-    let base_se3_gripper: Vec<Iso3> = target_se3_camera
+    let base_se3_gripper: Vec<Iso3> = target_se3_cam
         .iter()
-        .map(|t_c| base_se3_target * t_c * gripper_se3_camera.inverse())
+        .map(|t_c| base_se3_target * t_c * gripper_se3_cam.inverse())
         .collect();
 
     let noise = UniformPixelNoise {
         seed: seed ^ 0x5EED,
         max_abs_px: regime.pixel_noise,
     };
-    let obs = planar::project_views_noisy(&camera, &board(), &camera_se3_target, &noise)
+    let obs = planar::project_views_noisy(&camera, &board(), &cam_se3_target, &noise)
         .expect("the board projects in every view");
     let (rot_noise, trans_noise) = (regime.robot_noise.0.to_radians(), regime.robot_noise.1);
     let views = obs
@@ -176,7 +176,7 @@ fn scene(regime: &Regime, seed: u64) -> Scene {
     Scene {
         camera,
         input: SingleCamHandeyeInput::new(views).expect("valid input"),
-        gripper_se3_camera,
+        gripper_se3_cam,
         base_se3_target,
     }
 }
@@ -239,7 +239,7 @@ fn handeye_sigma(session: &CalibrationSession<SingleCamHandeyeProblem>) -> (Real
     let min_sd = |axes: [&str; 3]| {
         axes.iter()
             .map(|a| {
-                cov.std_dev(&format!("gripper_se3_camera.{a}"))
+                cov.std_dev(&format!("gripper_se3_cam.{a}"))
                     .expect("estimated")
             })
             .fold(Real::INFINITY, Real::min)
@@ -253,7 +253,7 @@ fn trial(regime: &Regime, seed: u64, backend: SolverBackend, min_angle_deg: Real
     // Sessions are rebuilt (deterministically) rather than cloned.
     let mut reference = camera_stage(&scene, regime, backend);
     let gt = HandeyeManualInit::EyeInHand {
-        gripper_se3_camera: Some(scene.gripper_se3_camera),
+        gripper_se3_cam: Some(scene.gripper_se3_cam),
         base_se3_target: Some(scene.base_se3_target),
     };
     step_handeye_init_with_seed(&mut reference, gt, None).expect("seeded init");
@@ -272,7 +272,7 @@ fn trial(regime: &Regime, seed: u64, backend: SolverBackend, min_angle_deg: Real
             return Outcome::Rejected;
         };
         let SingleCamHandeyeSolution::EyeInHand {
-            gripper_se3_camera: x,
+            gripper_se3_cam: x,
             base_se3_target: z,
         } = init.handeye
         else {
@@ -285,7 +285,7 @@ fn trial(regime: &Regime, seed: u64, backend: SolverBackend, min_angle_deg: Real
                 "{method:?} returned a non-finite init"
             );
         }
-        let err = poses::pose_error(&x, &scene.gripper_se3_camera);
+        let err = poses::pose_error(&x, &scene.gripper_se3_cam);
         let target_err = poses::pose_error(&z, &scene.base_se3_target);
         let offset_sigma = refine(&mut session).map_or(Real::INFINITY, |x_fin| {
             let d = poses::pose_error(&x_fin, &x_ref);

@@ -125,7 +125,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
         },
         frame_conventions: FrameConventions {
             cam_se3_rig: "T_C_R".to_string(),
-            cam_to_rig: "T_R_C".to_string(),
+            rig_se3_cam: "T_R_C".to_string(),
             eye_to_hand_chain: "T_C_T = T_C_R * T_R_B * T_B_G * T_G_T".to_string(),
             robot_delta: "T_B_G_corr = T_B_G * exp(delta)".to_string(),
         },
@@ -156,8 +156,8 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
                     intrinsics,
                     distortion,
                     scheimpflug,
-                    cam_se3_rig: iso_record(&input.joint_est.params.cam_to_rig[idx].inverse()),
-                    cam_to_rig: iso_record(&input.joint_est.params.cam_to_rig[idx]),
+                    cam_se3_rig: iso_record(&input.joint_est.params.rig_se3_cam[idx].inverse()),
+                    rig_se3_cam: iso_record(&input.joint_est.params.rig_se3_cam[idx]),
                     laser_plane_camera: plane_record(&input.joint_est.params.planes_cam[idx]),
                     laser_plane_rig: plane_record(&input.joint_est.planes_rig[idx]),
                 })
@@ -290,14 +290,14 @@ fn stage_geometry(params: &RigHandeyeLaserlineParams) -> Result<StageGeometry> {
             .enumerate()
             .map(|(idx, camera)| {
                 let (intrinsics, distortion, scheimpflug) = camera_arrays(camera)?;
-                let plane_rig = params.planes_cam[idx].transform_by(&params.cam_to_rig[idx]);
+                let plane_rig = params.planes_cam[idx].transform_by(&params.rig_se3_cam[idx]);
                 Ok(StageCameraRecord {
                     index: idx,
                     intrinsics,
                     distortion,
                     scheimpflug,
-                    cam_se3_rig: iso_record(&params.cam_to_rig[idx].inverse()),
-                    cam_to_rig: iso_record(&params.cam_to_rig[idx]),
+                    cam_se3_rig: iso_record(&params.rig_se3_cam[idx].inverse()),
+                    rig_se3_cam: iso_record(&params.rig_se3_cam[idx]),
                     laser_plane_camera: plane_record(&params.planes_cam[idx]),
                     laser_plane_rig: plane_record(&plane_rig),
                 })
@@ -320,7 +320,7 @@ fn cam_se3_target_from_robot(
     robot_pose: Iso3,
     cam_idx: usize,
 ) -> Iso3 {
-    let cam_se3_rig = params.cam_to_rig[cam_idx].inverse();
+    let cam_se3_rig = params.rig_se3_cam[cam_idx].inverse();
     match mode {
         HandeyeMode::EyeToHand => cam_se3_rig * params.handeye * robot_pose * params.target_ref,
         HandeyeMode::EyeInHand => {
@@ -512,7 +512,7 @@ struct DatasetInfo {
 #[derive(Debug, Clone, Serialize)]
 struct FrameConventions {
     cam_se3_rig: String,
-    cam_to_rig: String,
+    rig_se3_cam: String,
     eye_to_hand_chain: String,
     robot_delta: String,
 }
@@ -533,7 +533,7 @@ struct CameraRecord {
     distortion: [f64; 5],
     scheimpflug: [f64; 2],
     cam_se3_rig: TransformRecord,
-    cam_to_rig: TransformRecord,
+    rig_se3_cam: TransformRecord,
     laser_plane_camera: PlaneRecord,
     laser_plane_rig: PlaneRecord,
 }
@@ -578,7 +578,7 @@ struct StageCameraRecord {
     distortion: [f64; 5],
     scheimpflug: [f64; 2],
     cam_se3_rig: TransformRecord,
-    cam_to_rig: TransformRecord,
+    rig_se3_cam: TransformRecord,
     laser_plane_camera: PlaneRecord,
     laser_plane_rig: PlaneRecord,
 }
@@ -626,7 +626,7 @@ mod tests {
             },
             frame_conventions: FrameConventions {
                 cam_se3_rig: "T_C_R".to_string(),
-                cam_to_rig: "T_R_C".to_string(),
+                rig_se3_cam: "T_R_C".to_string(),
                 eye_to_hand_chain: "T_C_T = T_C_R * T_R_B * T_B_G * T_G_T".to_string(),
                 robot_delta: "T_B_G_corr = T_B_G * exp(delta)".to_string(),
             },

@@ -48,7 +48,7 @@ class VcalTest(unittest.TestCase):
             out = root / "out"
             status = vcal(["run", str(manifest), "-o", str(out)])
             export = json.loads((out / "calibration.json").read_text())
-            fx = export["params"]["camera"]["intrinsics"]["fx"]
+            fx = export["camera"]["intrinsics"]["fx"]
             self.assertAlmostEqual(fx, _images.FX, delta=0.03 * _images.FX)
             # These small boards leave most of the image uncovered: the
             # verdict fails, and the status says so after writing the files.

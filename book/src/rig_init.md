@@ -76,8 +76,8 @@ let extrinsic_poses = estimate_extrinsics_from_cam_target_poses(
     ref_cam_idx,        // usize: reference camera index
 )?;
 
-// extrinsic_poses.cam_to_rig: Vec<Iso3>  (T_{R,C} for each camera)
-// extrinsic_poses.rig_from_target: Vec<Iso3>  (T_{R,T} for each view)
+// extrinsic_poses.rig_se3_cam: Vec<Iso3>  (T_{R,C} for each camera)
+// extrinsic_poses.rig_se3_target: Vec<Iso3>  (T_{R,T} for each view)
 ```
 
 ## Usage in Calibration Pipeline

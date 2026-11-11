@@ -43,12 +43,12 @@ Two closed-form stages (`rig_extrinsics/steps.rs`,
 1. **Per-camera intrinsics.** Each camera is calibrated in isolation by
    iterative Zhang (`rig_family::bootstrap_rig_intrinsics` →
    `vision-calibration-linear`), yielding `K_i, d_i` and a per-view
-   `T_Ci_Tv` (`camera_se3_target`). Scheimpflug cameras use the tilt-aware
+   `T_Ci_Tv` (`cam_se3_target`). Scheimpflug cameras use the tilt-aware
    linear init (`scheimpflug_init`). A per-camera reprojection guard
    (`guard_percam_reproj_errors`, 50 px ceiling) fails fast on a diverged
    camera before its poses can poison the rig fit.
 2. **Rig extrinsics.** `estimate_extrinsics_from_cam_target_poses` pins the
-   rig frame to the reference camera `r` (`cam_to_rig[r] = I`); for every
+   rig frame to the reference camera `r` (`rig_se3_cam[r] = I`); for every
    view where camera `i` and `r` both see the target,
    `T_R_Ci = T_Cr_Tv · (T_Ci_Tv)⁻¹`, averaged over co-observed views
    (arithmetic mean of translations, hemisphere-corrected quaternion mean of

@@ -336,7 +336,7 @@ fn a_view_off_the_image_changes_nothing() {
 #[test]
 fn prediction_matches_a_resolve() {
     let mut scene = Scene::new(Model::BrownConrady, 3, 0.2);
-    let candidates = candidates(&scene.export.params.camera);
+    let candidates = candidates(&scene.export.camera);
     // A view tilted about its x axis in the top-left region.
     let a = agreement(&mut scene, &candidates[1..2]);
     let deviation = mean_abs_deviation(&a.sigma_ratio);
@@ -361,7 +361,7 @@ fn prediction_matches_a_resolve() {
 #[test]
 fn ranking_is_ordered_and_deterministic() {
     let scene = Scene::new(Model::BrownConrady, 4, 0.2);
-    let candidates = candidates(&scene.export.params.camera);
+    let candidates = candidates(&scene.export.camera);
     assert_eq!(candidates.len(), 9 * 5);
     let ranked = rank_candidates(&scene.export, &candidates, &board(), IMAGE).unwrap();
     assert_eq!(ranked.len(), candidates.len());
@@ -412,7 +412,7 @@ fn candidate_poses_put_the_target_on_each_region() {
 #[test]
 fn inputs_are_checked() {
     let scene = Scene::new(Model::BrownConrady, 5, 0.2);
-    let pose = candidates(&scene.export.params.camera)[0];
+    let pose = candidates(&scene.export.camera)[0];
     let err = predict_with_views(&scene.export, &[], &board(), IMAGE).unwrap_err();
     assert!(
         matches!(err, Error::InsufficientData { need: 1, got: 0 }),
@@ -447,7 +447,7 @@ fn inputs_are_checked() {
 #[test]
 fn results_round_trip_through_json() {
     let scene = Scene::new(Model::BrownConrady, 6, 0.2);
-    let candidates = candidates(&scene.export.params.camera);
+    let candidates = candidates(&scene.export.camera);
     let predicted = predict_with_views(&scene.export, &candidates[..2], &board(), IMAGE).unwrap();
     let back: PredictedUncertainty =
         serde_json::from_value(serde_json::to_value(&predicted).unwrap()).unwrap();
@@ -486,7 +486,7 @@ fn prediction_matches_resolves_across_models() {
         let mut projection = Vec::new();
         for (seed, &sigma) in sigmas.iter().enumerate() {
             let mut scene = Scene::new(model, 100 + seed as u64, sigma);
-            let candidates = candidates(&scene.export.params.camera);
+            let candidates = candidates(&scene.export.camera);
             let ranked = rank_candidates(&scene.export, &candidates, &board(), IMAGE).unwrap();
             // Candidates that see most of the board: a re-solve would
             // accept them, and the ranking is between real views.

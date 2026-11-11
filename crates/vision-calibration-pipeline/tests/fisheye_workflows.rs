@@ -105,7 +105,7 @@ fn view(cam_se3_target: &Iso3) -> CorrespondenceView {
     CorrespondenceView::new(p3, p2).unwrap()
 }
 
-fn gripper_se3_camera() -> Iso3 {
+fn gripper_se3_cam() -> Iso3 {
     Isometry3::from_parts(
         Translation3::new(0.05, -0.03, 0.12),
         Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
@@ -118,7 +118,7 @@ fn base_se3_gripper(cam_se3_target: &Iso3) -> Iso3 {
         Translation3::new(0.4, 0.1, -0.2),
         Rotation3::from_euler_angles(0.0, 0.0, 0.3).into(),
     );
-    base_se3_target * cam_se3_target.inverse() * gripper_se3_camera().inverse()
+    base_se3_target * cam_se3_target.inverse() * gripper_se3_cam().inverse()
 }
 
 /// Two identical cameras 2 cm apart, both seeing the board in every view.
@@ -173,7 +173,7 @@ fn planar_intrinsics() {
     let k = init.camera.intrinsics;
     assert!((k.fx / 300.0 - 1.0).abs() < 0.02, "init {k:?}");
     vision_calibration_pipeline::planar_intrinsics::step_optimize(&mut session, None).unwrap();
-    assert_recovered(&session.export().unwrap().params.camera, "optimize");
+    assert_recovered(&session.export().unwrap().camera, "optimize");
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn planar_intrinsics_from_seeded_intrinsics() {
     });
     step_init_with_seed(&mut session, seed, None).unwrap();
     vision_calibration_pipeline::planar_intrinsics::step_optimize(&mut session, None).unwrap();
-    assert_recovered(&session.export().unwrap().params.camera, "optimize");
+    assert_recovered(&session.export().unwrap().camera, "optimize");
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn planar_intrinsics_from_seeded_intrinsics_and_distortion() {
         "the seed is used as given"
     );
     vision_calibration_pipeline::planar_intrinsics::step_optimize(&mut session, None).unwrap();
-    assert_recovered(&session.export().unwrap().params.camera, "optimize");
+    assert_recovered(&session.export().unwrap().camera, "optimize");
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn single_cam_handeye() {
     let export = session.export().unwrap();
     assert_recovered(&export.camera, "export");
     let err = (export.handeye.handeye().pose().translation.vector
-        - gripper_se3_camera().translation.vector)
+        - gripper_se3_cam().translation.vector)
         .norm();
     assert!(err < 1e-6, "hand-eye translation error {err}");
 }
@@ -370,7 +370,7 @@ fn wide_angle_analysis() {
         .map(|i| Pt3::new((i % 9) as Real * 0.03, (i / 9) as Real * 0.03, 0.0))
         .collect();
     let grid = CandidateGrid::new(0.3, 0.3, [4, 3]);
-    let candidates = candidate_poses(&export.params.camera, &board, image_size, &grid).unwrap();
+    let candidates = candidate_poses(&export.camera, &board, image_size, &grid).unwrap();
     assert_eq!(candidates.len(), 4 * 3 * 5);
     let ranked = rank_candidates(&export, &candidates, &board, image_size).unwrap();
     assert!(!ranked.is_empty());

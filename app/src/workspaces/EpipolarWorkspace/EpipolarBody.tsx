@@ -72,7 +72,7 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
   const residualsForPose = useMemo<TargetFeatureResidual[]>(
     () =>
       data.diagnostics.per_feature_residuals.target.filter(
-        (r) => r.pose === selectedPose,
+        (r) => r.view === selectedPose,
       ),
     [data, selectedPose],
   );

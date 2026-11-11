@@ -16,7 +16,7 @@
 //! ```
 //!
 //! (intrinsics `K`, Scheimpflug tilt `H_tilt`, and the planar-pose homography
-//! `[r1 r2 t]` from `camera_se3_target`). A circle with conic matrix `C` on
+//! `[r1 r2 t]` from `cam_se3_target`). A circle with conic matrix `C` on
 //! the plane images to the conic `C' = H⁻ᵀ C H⁻¹`; the bias is
 //! `center(C') − H·center`. Distortion is *not* a homography, so it is
 //! excluded from `H` here — its contribution is treated separately in the
@@ -185,11 +185,11 @@ pub fn diagnose(
     r_outer_m: f64,
     r_inner_m: f64,
 ) -> RinggridBiasReport {
-    let k = k_matrix(&export.params.camera.intrinsics);
+    let k = k_matrix(&export.camera.intrinsics);
     let cx0 = k[(0, 2)];
     let cy0 = k[(1, 2)];
-    let h_tilt = tilt_homography(&export.params.camera.sensor);
-    let poses = &export.params.camera_se3_target;
+    let h_tilt = tilt_homography(&export.camera.sensor);
+    let poses = &export.cam_se3_target;
 
     // Cache the no-distortion homography per view.
     let h_nodistort: Vec<Matrix3<f64>> = poses
@@ -217,7 +217,7 @@ pub fn diagnose(
         let Some(projected) = rec.projected_px else {
             continue;
         };
-        let Some(h) = h_nodistort.get(rec.pose) else {
+        let Some(h) = h_nodistort.get(rec.view) else {
             continue;
         };
         let (cx, cy) = (rec.target_xyz_m[0], rec.target_xyz_m[1]);

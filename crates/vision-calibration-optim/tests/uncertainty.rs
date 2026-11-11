@@ -204,11 +204,11 @@ fn pinhole_truth(fx: f64, cx: f64) -> PinholeCamera {
     )
 }
 
-/// The board's projections in `camera` at `camera_se3_target`, with noise
+/// The board's projections in `camera` at `cam_se3_target`, with noise
 /// from stream `stream`.
 fn observe(
     camera: &PinholeCamera,
-    camera_se3_target: &Iso3,
+    cam_se3_target: &Iso3,
     noise: &UniformPixelNoise,
     stream: usize,
 ) -> CorrespondenceView {
@@ -216,7 +216,7 @@ fn observe(
         .iter()
         .enumerate()
         .filter_map(|(i, p)| {
-            let uv = camera.project_point(&camera_se3_target.transform_point(p))?;
+            let uv = camera.project_point(&cam_se3_target.transform_point(p))?;
             let uv = noise.apply(stream, i, Vec2::new(uv.x, uv.y));
             Some((*p, Pt2::new(uv.x, uv.y)))
         })
@@ -292,7 +292,7 @@ fn dataset(params: &PlanarIntrinsicsParams, noise: UniformPixelNoise) -> PlanarD
         })
         .collect();
     let views = params
-        .camera_se3_target
+        .cam_se3_target
         .iter()
         .enumerate()
         .map(|(v, pose)| {
@@ -358,7 +358,7 @@ fn scheimpflug_covariance_matches_monte_carlo() {
         };
         assert!(cov.fixed.contains(&"k3".to_string()), "{:?}", cov.fixed);
         assert!(cov.fixed.contains(&"p1".to_string()), "{:?}", cov.fixed);
-        assert_eq!(cov.views.len(), gt.camera_se3_target.len());
+        assert_eq!(cov.views.len(), gt.cam_se3_target.len());
         mc.push(cov, |l| value(&est.params, l) - value(&gt, l));
     }
     assert_eq!(
@@ -476,8 +476,8 @@ fn rig_extrinsics_covariance_matches_monte_carlo() {
     let rig_se3_target = board_poses();
     let initial = RigExtrinsicsParams {
         cameras: cameras.iter().map(pinhole_camera_params).collect(),
-        cam_to_rig: rig_se3_cam.to_vec(),
-        rig_from_target: rig_se3_target.clone(),
+        rig_se3_cam: rig_se3_cam.to_vec(),
+        rig_se3_target: rig_se3_target.clone(),
     };
 
     let mut mc = MonteCarlo::default();
@@ -514,7 +514,10 @@ fn rig_extrinsics_covariance_matches_monte_carlo() {
         };
         assert!(cov.fixed.contains(&"cam0.cam_se3_rig".to_string()));
         assert_eq!(cov.views[0].labels[0], "rig_se3_target.rx");
-        let cam_se3_rig_1 = (rig_se3_cam[1].inverse(), est.params.cam_to_rig[1].inverse());
+        let cam_se3_rig_1 = (
+            rig_se3_cam[1].inverse(),
+            est.params.rig_se3_cam[1].inverse(),
+        );
         mc.push(cov, |label| {
             let (cam, rest) = label.split_once('.').unwrap();
             let c: usize = cam.strip_prefix("cam").unwrap().parse().unwrap();
@@ -533,18 +536,18 @@ fn rig_extrinsics_covariance_matches_monte_carlo() {
 
 /// An eye-in-hand scene: the camera, its hand-eye pose and the board in the
 /// base frame, and the robot poses that put the camera at each board pose
-/// (`camera_se3_target = X⁻¹ · B⁻¹ · Y`, so `B = Y · camera_se3_target⁻¹ · X⁻¹`).
+/// (`cam_se3_target = X⁻¹ · B⁻¹ · Y`, so `B = Y · cam_se3_target⁻¹ · X⁻¹`).
 struct EyeInHand {
     camera: PinholeCamera,
-    gripper_se3_camera: Iso3,
+    gripper_se3_cam: Iso3,
     base_se3_target: Iso3,
-    camera_se3_target: Vec<Iso3>,
+    cam_se3_target: Vec<Iso3>,
     base_se3_gripper: Vec<Iso3>,
 }
 
 impl EyeInHand {
     fn new() -> Self {
-        let gripper_se3_camera = Iso3::from_parts(
+        let gripper_se3_cam = Iso3::from_parts(
             Translation3::new(0.03, -0.02, 0.08),
             UnitQuaternion::from_euler_angles(0.1, -0.05, 0.3),
         );
@@ -552,16 +555,16 @@ impl EyeInHand {
             Translation3::new(0.6, -0.1, 0.02),
             UnitQuaternion::from_euler_angles(0.0, 0.05, 1.2),
         );
-        let camera_se3_target = board_poses();
-        let base_se3_gripper = camera_se3_target
+        let cam_se3_target = board_poses();
+        let base_se3_gripper = cam_se3_target
             .iter()
-            .map(|c| base_se3_target * c.inverse() * gripper_se3_camera.inverse())
+            .map(|c| base_se3_target * c.inverse() * gripper_se3_cam.inverse())
             .collect();
         Self {
             camera: pinhole_truth(1150.0, 372.0),
-            gripper_se3_camera,
+            gripper_se3_cam,
             base_se3_target,
-            camera_se3_target,
+            cam_se3_target,
             base_se3_gripper,
         }
     }
@@ -569,8 +572,8 @@ impl EyeInHand {
     fn initial(&self) -> HandeyeParams {
         HandeyeParams {
             cameras: vec![pinhole_camera_params(&self.camera)],
-            cam_to_rig: vec![Iso3::identity()],
-            handeye: self.gripper_se3_camera,
+            rig_se3_cam: vec![Iso3::identity()],
+            handeye: self.gripper_se3_cam,
             target_poses: vec![self.base_se3_target],
         }
     }
@@ -578,7 +581,7 @@ impl EyeInHand {
     /// The dataset with pixel noise and the given (observed) robot poses.
     fn dataset(&self, noise: &UniformPixelNoise, robot: &[Iso3]) -> HandeyeDataset {
         let views = self
-            .camera_se3_target
+            .cam_se3_target
             .iter()
             .zip(robot)
             .enumerate()
@@ -597,8 +600,8 @@ impl EyeInHand {
     /// The error of a shared label of a hand-eye estimate.
     fn error(&self, est: &vision_calibration_optim::HandeyeEstimate, label: &str) -> f64 {
         match label.split_once('.') {
-            Some(("gripper_se3_camera", c)) => {
-                pose_coordinate(&self.gripper_se3_camera, &est.params.handeye, c)
+            Some(("gripper_se3_cam", c)) => {
+                pose_coordinate(&self.gripper_se3_cam, &est.params.handeye, c)
             }
             Some(("base_se3_target", c)) => {
                 pose_coordinate(&self.base_se3_target, &est.params.target_poses[0], c)
@@ -637,7 +640,7 @@ fn handeye_covariance_matches_monte_carlo() {
         );
         mc.push(cov, |label| scene.error(&est, label));
     }
-    assert!(mc.labels.contains(&"gripper_se3_camera.tz".to_string()));
+    assert!(mc.labels.contains(&"gripper_se3_cam.tz".to_string()));
     mc.assert_calibrated(0.10);
 }
 
@@ -730,18 +733,18 @@ fn laser_plane_truth() -> LaserPlane {
     .unwrap()
 }
 
-/// The laser line on the board at `camera_se3_target`: points of the board's
+/// The laser line on the board at `cam_se3_target`: points of the board's
 /// plane on the laser plane, within the board, projected with seeded noise.
 fn laser_pixels(
     camera: &PinholeCamera,
-    camera_se3_target: &Iso3,
+    cam_se3_target: &Iso3,
     plane: &LaserPlane,
     noise: &UniformPixelNoise,
     stream: usize,
 ) -> Vec<Pt2> {
     // The laser plane in target coordinates, `n_t · p + d_t = 0`.
-    let n_t = camera_se3_target.rotation.inverse() * plane.normal().into_inner();
-    let d_t = plane.distance() + plane.normal().dot(&camera_se3_target.translation.vector);
+    let n_t = cam_se3_target.rotation.inverse() * plane.normal().into_inner();
+    let d_t = plane.distance() + plane.normal().dot(&cam_se3_target.translation.vector);
     (0..60)
         .filter_map(|i| {
             let y = -0.08 + 0.16 * i as f64 / 59.0;
@@ -749,7 +752,7 @@ fn laser_pixels(
             if x.abs() > 0.08 {
                 return None;
             }
-            let p = camera_se3_target.transform_point(&Pt3::new(x, y, 0.0));
+            let p = cam_se3_target.transform_point(&Pt3::new(x, y, 0.0));
             let uv = camera.project_point(&p)?;
             let uv = noise.apply(stream, i, Vec2::new(uv.x, uv.y));
             Some(Pt2::new(uv.x, uv.y))

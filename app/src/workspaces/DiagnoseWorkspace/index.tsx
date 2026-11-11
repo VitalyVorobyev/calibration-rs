@@ -363,7 +363,7 @@ export function DiagnoseWorkspace() {
           {showLaser ? (
             <LaserResidualLegend
               residuals={laserResiduals.filter(
-                (r) => r.pose === activeFrame.pose && r.camera === activeFrame.camera,
+                (r) => r.view === activeFrame.pose && r.camera === activeFrame.camera,
               )}
               hist={
                 data.diagnostics.per_feature_residuals.laser_hist_per_camera?.[cameraA]
@@ -372,7 +372,7 @@ export function DiagnoseWorkspace() {
           ) : (
             <ResidualLegend
               residuals={data.diagnostics.per_feature_residuals.target.filter(
-                (r) => r.pose === activeFrame.pose && r.camera === activeFrame.camera,
+                (r) => r.view === activeFrame.pose && r.camera === activeFrame.camera,
               )}
             />
           )}

@@ -19,7 +19,7 @@ use vision_calibration_pipeline::single_cam_handeye::{
     step_intrinsics_init_with_seed, step_intrinsics_optimize,
 };
 
-fn gripper_se3_camera() -> Iso3 {
+fn gripper_se3_cam() -> Iso3 {
     Isometry3::from_parts(
         Translation3::new(0.05, -0.03, 0.12),
         Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
@@ -78,7 +78,7 @@ fn input(camera: &CameraParams) -> SingleCamHandeyeInput {
                 RobotPoseMeta {
                     base_se3_gripper: base_se3_target
                         * cam_se3_target.inverse()
-                        * gripper_se3_camera().inverse(),
+                        * gripper_se3_cam().inverse(),
                 },
             )
         })
@@ -118,7 +118,7 @@ fn config(model: CameraModelSpec) -> SingleCamHandeyeConfig {
 }
 
 fn handeye_error(export_x: Iso3) -> Real {
-    (export_x.translation.vector - gripper_se3_camera().translation.vector).norm()
+    (export_x.translation.vector - gripper_se3_cam().translation.vector).norm()
 }
 
 #[test]

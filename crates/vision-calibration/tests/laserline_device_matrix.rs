@@ -45,7 +45,7 @@ fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
     };
     let tiny = run(SolverBackend::TinySolver);
     let factrs = run(SolverBackend::Factrs);
-    let (a, b) = (&tiny.params, &factrs.params);
+    let (a, b) = (&tiny, &factrs);
     for (name, x, y) in [
         ("fx", a.camera.intrinsics.fx, b.camera.intrinsics.fx),
         ("fy", a.camera.intrinsics.fy, b.camera.intrinsics.fy),
@@ -57,8 +57,8 @@ fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
             "backends disagree on {name}: {x} vs {y}"
         );
     }
-    let dn = a.plane.normal().angle(&b.plane.normal());
-    let dd = (a.plane.distance() - b.plane.distance()).abs();
+    let dn = a.laser_plane.normal().angle(&b.laser_plane.normal());
+    let dd = (a.laser_plane.distance() - b.laser_plane.distance()).abs();
     assert!(dn <= 1e-5 && dd <= 1e-5, "plane {dn} rad / {dd} m");
     tiny
 }
@@ -105,7 +105,7 @@ fn laserline_device_recovers_plane_across_grid_and_noise() {
                 }
 
                 let export = solve(dataset);
-                let plane = &export.params.plane;
+                let plane = &export.laser_plane;
 
                 // Align to the GT sign (the S2 double cover: (n, d) ≡ (−n, −d)).
                 let mut n_est = plane.normal().into_inner();

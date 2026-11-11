@@ -295,12 +295,8 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         );
 
         // Compute final reprojection error
-        let (final_mean, final_max) = compute_reprojection_error(
-            &nl_views,
-            &opt_k,
-            &opt_dist,
-            &result.params.camera_se3_target,
-        );
+        let (final_mean, final_max) =
+            compute_reprojection_error(&nl_views, &opt_k, &opt_dist, &result.params.cam_se3_target);
         println!(
             "Final reprojection error: mean={:.3} px, max={:.3} px",
             final_mean, final_max
@@ -719,7 +715,7 @@ fn planar_intrinsics_with_iterative_linear_init() {
             &views_optim,
             &opt_k,
             &opt_dist,
-            &result.params.camera_se3_target,
+            &result.params.cam_se3_target,
         );
 
         println!(

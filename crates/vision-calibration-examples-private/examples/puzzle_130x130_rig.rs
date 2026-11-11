@@ -368,12 +368,12 @@ fn main() -> Result<()> {
 
     let handeye = *rig_export.handeye.handeye().pose();
     let target_ref = *rig_export.handeye.target_pose();
-    // Convert cam_se3_rig to cam_to_rig (T_rig_from_cam) for the optim block.
-    let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
+    // Convert cam_se3_rig to rig_se3_cam (T_rig_from_cam) for the optim block.
+    let rig_se3_cam: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
 
     let joint_initial = RigHandeyeLaserlineParams {
         cameras: rig_export.cameras.clone(),
-        cam_to_rig,
+        rig_se3_cam,
         handeye,
         target_ref,
         planes_cam: laser_export.laser_planes_cam.clone(),
@@ -607,7 +607,7 @@ fn print_detection_diagnostics(detected: &DetectedDatasets) {
 fn print_frame_table() {
     println!("  frame table:");
     println!("    cam_se3_rig = T_C_R (exported by stage 2)");
-    println!("    cam_to_rig  = T_R_C (joint optimizer parameter)");
+    println!("    rig_se3_cam  = T_R_C (joint optimizer parameter)");
     println!("    EyeToHand   = T_C_T = T_C_R * T_R_B * T_B_G * T_G_T");
     println!("    robot delta = T_B_G_corr = T_B_G * exp(delta)");
 }
@@ -671,9 +671,9 @@ fn print_param_deltas(
         }
     }
     for (a, b) in initial
-        .cam_to_rig
+        .rig_se3_cam
         .iter()
-        .zip(final_params.cam_to_rig.iter())
+        .zip(final_params.rig_se3_cam.iter())
     {
         let d = a.inverse() * *b;
         max_extr_t = max_extr_t.max(d.translation.vector.norm());
@@ -752,7 +752,7 @@ fn build_image_manifest(poses: &[PoseEntry], tile_w: u32, tile_h: u32) -> ImageM
             roi.w = tile_w;
             roi.h = tile_h;
             let mut frame = FrameRef::default();
-            frame.pose = pose_idx;
+            frame.view = pose_idx;
             frame.camera = cam_idx;
             frame.path = PathBuf::from(&pose.target_image);
             frame.roi = Some(roi);

@@ -18,7 +18,7 @@ export interface PixelRect {
 export type FrameKind = "target" | "laser";
 
 export interface FrameRef {
-  pose: number;
+  view: number;
   camera: number;
   path: string;
   roi?: PixelRect;
@@ -31,7 +31,7 @@ export interface ImageManifest {
 }
 
 export interface TargetFeatureResidual {
-  pose: number;
+  view: number;
   camera: number;
   feature: number;
   target_xyz_m: [number, number, number];
@@ -42,7 +42,7 @@ export interface TargetFeatureResidual {
 
 /** Per-laser-pixel residual record (laser problem types only). */
 export interface LaserFeatureResidual {
-  pose: number;
+  view: number;
   camera: number;
   feature: number;
   observed_px: [number, number];
@@ -57,7 +57,7 @@ export interface LaserFeatureResidual {
 /** The calibrated laser line in one view's image: a polyline (distortion
  * bends it) spanning the view's laser pixels. */
 export interface LaserLineTrace {
-  pose: number;
+  view: number;
   camera: number;
   points_px: [number, number][];
 }

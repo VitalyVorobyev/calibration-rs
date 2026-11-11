@@ -5,7 +5,7 @@
 //! own model) and the per-view target poses all frozen (they are expected to
 //! come from an upstream rig + hand-eye calibration). The resulting per-camera
 //! planes (in camera frame) are transformed into the rig frame via the
-//! provided `cam_to_rig` (`T_R_C`) transforms.
+//! provided `rig_se3_cam` (`T_R_C`) transforms.
 //!
 //! The joint rig + hand-eye + plane bundle adjustment is
 //! [`super::rig_handeye_laserline_bundle`].
@@ -157,7 +157,7 @@ pub struct RigLaserlineUpstream {
     /// Per-camera camera parameters.
     pub cameras: Vec<CameraParams>,
     /// Per-camera extrinsics (camera-to-rig, `T_R_C`).
-    pub cam_to_rig: Vec<Iso3>,
+    pub rig_se3_cam: Vec<Iso3>,
     /// Per-view rig poses (`rig_se3_target`, `T_R_T`).
     pub rig_se3_target: Vec<Iso3>,
     /// The covariance of the parameters above, which enters the planes'
@@ -184,7 +184,7 @@ pub struct RigLaserlineSolveOptions {
 }
 
 /// Compute per-pixel laser residual records for every laser observation in a
-/// rig dataset, indexed pose-major then by camera then by pixel.
+/// rig dataset, indexed view-major then by camera then by pixel.
 ///
 /// Like [`super::laserline_bundle::compute_laserline_feature_residuals`] but
 /// fans out across all cameras of a rig: each (view, cam_idx, pixel_idx)
@@ -296,14 +296,14 @@ pub fn optimize_rig_laserline(
 ) -> Result<RigLaserlineEstimate, Error> {
     let n = dataset.num_cameras;
     if upstream.cameras.len() != n
-        || upstream.cam_to_rig.len() != n
+        || upstream.rig_se3_cam.len() != n
         || initial_planes_cam.len() != n
     {
         return Err(Error::invalid_input(format!(
             "upstream or initial_planes_cam length mismatch: cameras={n}, \
-            upstream cameras={}, cam_to_rig={}, planes={}",
+            upstream cameras={}, rig_se3_cam={}, planes={}",
             upstream.cameras.len(),
-            upstream.cam_to_rig.len(),
+            upstream.rig_se3_cam.len(),
             initial_planes_cam.len(),
         )));
     }
@@ -341,10 +341,10 @@ pub fn optimize_rig_laserline(
     laser_opts.laser_residual_type = opts.laser_residual_type;
 
     for (cam_idx, initial_plane_cam) in initial_planes_cam.iter().enumerate() {
-        let cam_to_rig = upstream.cam_to_rig[cam_idx];
-        let rig_to_cam = cam_to_rig.inverse();
+        let rig_se3_cam = upstream.rig_se3_cam[cam_idx];
+        let rig_to_cam = rig_se3_cam.inverse();
 
-        // Build per-camera LaserlineView sequence + camera_se3_target poses.
+        // Build per-camera LaserlineView sequence + cam_se3_target poses.
         // Skip views that lack either target correspondences or laser pixels
         // for this camera.
         let mut views: Vec<LaserlineView> = Vec::new();
@@ -412,7 +412,7 @@ pub fn optimize_rig_laserline(
         }
 
         let plane_cam = est.params.plane.clone();
-        let plane_rig = plane_cam.transform_by(&cam_to_rig);
+        let plane_rig = plane_cam.transform_by(&rig_se3_cam);
         laser_planes_cam.push(plane_cam);
         laser_planes_rig.push(plane_rig);
         per_camera_stats.push(stats);
@@ -453,10 +453,10 @@ enum Position {
 /// laser planes move with: each camera's parameters, its `cam_se3_rig`
 /// and each view's `rig_se3_target`, those the covariance lists.
 ///
-/// A plane is solved with its camera and its views' `camera_se3_target =
+/// A plane is solved with its camera and its views' `cam_se3_target =
 /// cam_se3_rig · rig_se3_target` held, so it moves with them as `S =
-/// ∂plane/∂(θ, camera_se3_target)` ([`plane_sensitivity`]). A right
-/// perturbation `Exp(ε)` of `cam_se3_rig` moves `camera_se3_target` by
+/// ∂plane/∂(θ, cam_se3_target)` ([`plane_sensitivity`]). A right
+/// perturbation `Exp(ε)` of `cam_se3_rig` moves `cam_se3_target` by
 /// `Exp(Ad(rig_se3_target⁻¹) ε)` and one of `rig_se3_target` by `Exp(ε)`,
 /// which chains `S` to `A = ∂plane/∂u`. Then every plane has the
 /// covariance `Σ_obs + A Σ_u Aᵀ` and the cross-covariance `A Σ_u` with the
@@ -566,7 +566,7 @@ impl<'a> UpstreamShare<'a> {
     }
 
     /// Whether the covariance lists camera `camera`'s extrinsic or view
-    /// `view`'s target pose, which its `camera_se3_target` composes.
+    /// `view`'s target pose, which its `cam_se3_target` composes.
     fn lists_pose(&self, camera: usize, view: usize) -> bool {
         let listed = |name: String| self.find(&format!("{name}.rx")).is_some();
         (self.multi_camera && listed(Self::extrinsic_name(camera)))
@@ -869,7 +869,7 @@ mod tests {
         let sensor = ScheimpflugParams::default();
 
         // Two cameras: cam0 at origin, cam1 displaced.
-        let cam_to_rig = [
+        let rig_se3_cam = [
             Isometry3::identity(),
             Isometry3::from_parts(
                 Translation3::new(0.15, 0.0, 0.0),
@@ -906,7 +906,7 @@ mod tests {
         // Convert to each camera's frame for synthetic pixel generation.
         let planes_cam_gt: Vec<LaserPlane> = planes_rig_gt
             .iter()
-            .zip(cam_to_rig.iter())
+            .zip(rig_se3_cam.iter())
             .map(|(p_rig, t)| p_rig.transform_by(&t.inverse()))
             .collect();
 
@@ -921,7 +921,7 @@ mod tests {
             let mut cam_obs: Vec<Option<CorrespondenceView>> = Vec::new();
             let mut laser_obs: Vec<Option<Vec<Pt2>>> = Vec::new();
             for cam_idx in 0..2 {
-                let cam_se3_target = cam_to_rig[cam_idx].inverse() * rig_pose;
+                let cam_se3_target = rig_se3_cam[cam_idx].inverse() * rig_pose;
 
                 // Target correspondences
                 let mut pts3 = Vec::new();
@@ -982,7 +982,7 @@ mod tests {
         };
         let upstream = RigLaserlineUpstream {
             cameras: vec![camera.clone(), camera],
-            cam_to_rig: cam_to_rig.to_vec(),
+            rig_se3_cam: rig_se3_cam.to_vec(),
             rig_se3_target,
             uncertainty: Uncertainty::default(),
         };
@@ -1027,7 +1027,7 @@ mod tests {
         for label in ["cam1.fx", "cam1.cam_se3_rig", "view3.rig_se3_target"] {
             assert!(cov.fixed.iter().any(|l| l == label), "{:?}", cov.fixed);
         }
-        assert!(!cov.fixed.iter().any(|l| l.contains("camera_se3_target")));
+        assert!(!cov.fixed.iter().any(|l| l.contains("cam_se3_target")));
         assert_eq!(
             cov.noise.iter().map(|n| n.camera).collect::<Vec<_>>(),
             [Some(0), Some(0), Some(1), Some(1)]

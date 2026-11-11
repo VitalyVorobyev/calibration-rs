@@ -14,7 +14,7 @@ function fakeImage(width: number, height: number): HTMLImageElement {
 }
 
 const residual = (feature: number, error: number): TargetFeatureResidual => ({
-  pose: 0,
+  view: 0,
   camera: 0,
   feature,
   target_xyz_m: [0, 0, 0],

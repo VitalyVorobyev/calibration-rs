@@ -47,9 +47,9 @@ function materializeExport(
   }
   const root = joinPath(exportDir, manifest.root);
   const toKey = (f: (typeof manifest.frames)[number]): FrameKey => ({
-    pose: f.pose,
+    pose: f.view,
     camera: f.camera,
-    label: `pose ${f.pose} · cam ${f.camera}`,
+    label: `pose ${f.view} · cam ${f.camera}`,
     abs_path: joinPath(root, f.path),
     roi: f.roi,
   });

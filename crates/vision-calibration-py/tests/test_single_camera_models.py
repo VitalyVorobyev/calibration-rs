@@ -45,7 +45,7 @@ class LaserlineDeviceCameraTest(unittest.TestCase):
     def test_distortion_model_reaches_the_result(self) -> None:
         cfg = vc.LaserlineDeviceConfig(camera=_camera("rational8"))
         result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)
-        camera = result.params.camera
+        camera = result.camera
         self.assertIsInstance(camera.sensor, vc.IdentitySensor)
         self.assertIsInstance(camera.distortion, vc.Rational8Distortion)
         self.assertLess(result.mean_reproj_error, 1e-3)
@@ -55,7 +55,7 @@ class LaserlineDeviceCameraTest(unittest.TestCase):
             camera=_camera("brown_conrady5", sensor="scheimpflug")
         )
         result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)
-        self.assertIsInstance(result.params.camera.sensor, vc.ScheimpflugSensor)
+        self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
 
 
 if __name__ == "__main__":

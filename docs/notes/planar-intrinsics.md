@@ -18,7 +18,7 @@ pixel = K( distort( project(X_c) ) ),   X_c = T_C_T · X_t
   symmetrically for `y`), `r² = x² + y²`.
 - `K`: `u = fx·x_d + cx`, `v = fy·y_d + cy` (no skew term; the optimizer packs
   `[fx, fy, cx, cy]`).
-- `T_C_T` (`camera_se3_target`, ADR 0009): one SE(3) pose per view; the
+- `T_C_T` (`cam_se3_target`, ADR 0009): one SE(3) pose per view; the
   target frame is the board plane `z = 0`.
 
 ## Initialization (Zhang, iterative)

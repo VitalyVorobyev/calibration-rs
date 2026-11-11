@@ -39,7 +39,7 @@ pub struct LaserlineView {
     /// 2D pixel observations along the laser line
     pub laser_pixels: Vec<Pt2>,
     /// Camera-to-target transform (T_C_T) from calibration features
-    pub camera_se3_target: Iso3,
+    pub cam_se3_target: Iso3,
 }
 
 /// Result of linear laser plane estimation.
@@ -204,8 +204,7 @@ impl LaserlinePlaneSolver {
         // Gather all 3D points from all views
         let mut all_points = Vec::new();
         for view in views {
-            let points =
-                Self::compute_3d_points(&view.laser_pixels, camera, &view.camera_se3_target)?;
+            let points = Self::compute_3d_points(&view.laser_pixels, camera, &view.cam_se3_target)?;
             all_points.extend(points);
         }
 
@@ -230,7 +229,7 @@ impl LaserlinePlaneSolver {
     fn compute_3d_points<P, D, Sm, K>(
         laser_pixels: &[Pt2],
         camera: &Camera<Real, P, D, Sm, K>,
-        camera_se3_target: &Iso3,
+        cam_se3_target: &Iso3,
     ) -> Result<Vec<Pt3>, Error>
     where
         P: ProjectionModel<Real>,
@@ -249,8 +248,8 @@ impl LaserlinePlaneSolver {
             // 2. Transform ray to target frame
             // T_T_C = T_C_T^-1
             let ray_origin_camera = Point3::from(ray.origin);
-            let ray_origin_target = camera_se3_target.inverse_transform_point(&ray_origin_camera);
-            let ray_dir_target = camera_se3_target.inverse_transform_vector(&ray_dir_camera);
+            let ray_origin_target = cam_se3_target.inverse_transform_point(&ray_origin_camera);
+            let ray_dir_target = cam_se3_target.inverse_transform_vector(&ray_dir_camera);
 
             // 3. Intersect ray with target plane (Z=0)
             // Ray: p(t) = ray_origin_target + t * ray_dir_target
@@ -266,7 +265,7 @@ impl LaserlinePlaneSolver {
             let pt_target = ray_origin_target + ray_dir_target * t;
 
             // 4. Transform back to camera frame
-            let pt_camera = camera_se3_target.transform_point(&pt_target);
+            let pt_camera = cam_se3_target.transform_point(&pt_target);
             points_camera.push(pt_camera);
         }
 
@@ -378,7 +377,7 @@ mod tests {
         let camera = make_test_camera();
         let view = LaserlineView {
             laser_pixels: vec![Pt2::new(100.0, 100.0), Pt2::new(200.0, 100.0)],
-            camera_se3_target: Iso3::identity(),
+            cam_se3_target: Iso3::identity(),
         };
 
         let result = LaserlinePlaneSolver::from_views(&[view], &camera);
@@ -418,7 +417,7 @@ mod tests {
                 Pt2::new(640.0, 480.0),
                 Pt2::new(880.0, 480.0),
             ],
-            camera_se3_target: pose1,
+            cam_se3_target: pose1,
         };
 
         let view2 = LaserlineView {
@@ -427,7 +426,7 @@ mod tests {
                 Pt2::new(640.0, 520.0),
                 Pt2::new(880.0, 520.0),
             ],
-            camera_se3_target: pose2,
+            cam_se3_target: pose2,
         };
 
         let result = LaserlinePlaneSolver::from_views(&[view1, view2], &camera);

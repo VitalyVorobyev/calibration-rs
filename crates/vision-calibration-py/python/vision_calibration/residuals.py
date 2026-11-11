@@ -11,7 +11,7 @@ a value the record leaves unset (a point that did not project) is NaN.
 
     res = result.per_feature_residuals
     worst = res.target.error_px.argmax()
-    print(res.target.pose[worst], res.target.observed_px[worst])
+    print(res.target.view[worst], res.target.observed_px[worst])
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class TargetFeatureResiduals:
     """The reprojection of every target corner: one row per
     ``TargetFeatureResidual`` record, view-major."""
 
-    pose: NDArray[np.int64]
+    view: NDArray[np.int64]
     """``(N,)`` view index in the input."""
     camera: NDArray[np.int64]
     """``(N,)`` camera index; 0 for a single camera."""
@@ -82,12 +82,12 @@ class TargetFeatureResiduals:
     project."""
 
     def __len__(self) -> int:
-        return int(self.pose.shape[0])
+        return int(self.view.shape[0])
 
     @classmethod
     def from_payload(cls, records: Sequence[Mapping[str, Any]]) -> TargetFeatureResiduals:
         return cls(
-            pose=_ints(records, "pose"),
+            view=_ints(records, "view"),
             camera=_ints(records, "camera"),
             feature=_ints(records, "feature"),
             target_xyz_m=_points(records, "target_xyz_m", 3),
@@ -103,7 +103,7 @@ class LaserFeatureResiduals:
     """The residual of every laser pixel: one row per ``LaserFeatureResidual``
     record, view-major."""
 
-    pose: NDArray[np.int64]
+    view: NDArray[np.int64]
     """``(N,)`` view index in the input."""
     camera: NDArray[np.int64]
     """``(N,)`` camera index; 0 for a single camera."""
@@ -119,12 +119,12 @@ class LaserFeatureResiduals:
     NaN where the laser and target planes share no line."""
 
     def __len__(self) -> int:
-        return int(self.pose.shape[0])
+        return int(self.view.shape[0])
 
     @classmethod
     def from_payload(cls, records: Sequence[Mapping[str, Any]]) -> LaserFeatureResiduals:
         return cls(
-            pose=_ints(records, "pose"),
+            view=_ints(records, "view"),
             camera=_ints(records, "camera"),
             feature=_ints(records, "feature"),
             observed_px=_points(records, "observed_px", 2),
@@ -137,7 +137,7 @@ class LaserFeatureResiduals:
 class LaserLineTrace:
     """The calibrated laser line in one view's image."""
 
-    pose: int
+    view: int
     camera: int
     points_px: NDArray[np.float64]
     """``(M, 2)`` points along the line, pixels, spanning the view's laser
@@ -146,7 +146,7 @@ class LaserLineTrace:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> LaserLineTrace:
         points = np.asarray(payload.get("points_px", []), dtype=np.float64).reshape(-1, 2)
-        return cls(pose=int(payload["pose"]), camera=int(payload["camera"]), points_px=points)
+        return cls(view=int(payload["view"]), camera=int(payload["camera"]), points_px=points)
 
 
 @dataclass(frozen=True, slots=True)

@@ -125,7 +125,7 @@ fn scene() -> (RigLaserlineDataset, RigLaserlineUpstream, Vec<LaserPlane>) {
         .collect();
     let upstream = RigLaserlineUpstream {
         cameras,
-        cam_to_rig: cam_se3_rig.iter().map(|e| e.inverse()).collect(),
+        rig_se3_cam: cam_se3_rig.iter().map(|e| e.inverse()).collect(),
         rig_se3_target,
         uncertainty: Uncertainty::default(),
     };
@@ -226,9 +226,9 @@ impl Coordinate {
             },
             Self::Extrinsic(c, i) => {
                 delta[i] = h;
-                // `cam_to_rig` is `cam_se3_rig⁻¹`.
-                let cam_se3_rig = out.cam_to_rig[c].inverse();
-                out.cam_to_rig[c] = perturbed(&cam_se3_rig, &delta).inverse();
+                // `rig_se3_cam` is `cam_se3_rig⁻¹`.
+                let cam_se3_rig = out.rig_se3_cam[c].inverse();
+                out.rig_se3_cam[c] = perturbed(&cam_se3_rig, &delta).inverse();
             }
             Self::Target(v, i) => {
                 delta[i] = h;

@@ -16,19 +16,19 @@ import type {
 
 export const TARGET_MANIFEST: ImageManifest = {
   root: ".",
-  frames: [{ pose: 0, camera: 0, path: "frame0.png" }],
+  frames: [{ view: 0, camera: 0, path: "frame0.png" }],
 };
 
 export const LASER_MANIFEST: ImageManifest = {
   root: ".",
   frames: [
-    { pose: 0, camera: 0, path: "frame0.png", kind: "target" },
-    { pose: 0, camera: 0, path: "laser0.png", kind: "laser" },
+    { view: 0, camera: 0, path: "frame0.png", kind: "target" },
+    { view: 0, camera: 0, path: "laser0.png", kind: "laser" },
   ],
 };
 
 export const TARGET_RESIDUAL: TargetFeatureResidual = {
-  pose: 0,
+  view: 0,
   camera: 0,
   feature: 0,
   target_xyz_m: [0, 0, 0],
@@ -38,7 +38,7 @@ export const TARGET_RESIDUAL: TargetFeatureResidual = {
 };
 
 export const LASER_RESIDUAL: LaserFeatureResidual = {
-  pose: 0,
+  view: 0,
   camera: 0,
   feature: 0,
   observed_px: [5, 5],
@@ -51,7 +51,7 @@ export const LASER_RESIDUAL: LaserFeatureResidual = {
  * residual to draw. */
 export const PLANAR_EXPORT_FIXTURE = {
   kind: "planar_intrinsics",
-  params: { camera: { sensor: { type: "identity" } } },
+  camera: { sensor: { type: "identity" } },
   diagnostics: {
     per_feature_residuals: { target: [TARGET_RESIDUAL] },
     image_manifest: TARGET_MANIFEST,

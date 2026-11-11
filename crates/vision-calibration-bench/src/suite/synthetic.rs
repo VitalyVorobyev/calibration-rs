@@ -106,7 +106,7 @@ fn truth(scene: &Scene) -> Truth {
         let name = if rig {
             "gripper_se3_rig"
         } else {
-            "gripper_se3_camera"
+            "gripper_se3_cam"
         };
         poses.insert(name.to_string(), handeye);
     }

@@ -29,7 +29,7 @@ use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
 struct GtCell {
     fx: f64,
     fy: f64,
-    /// Hand-eye ground truth (`gripper_se3_camera`, `T_G_C`) for EyeInHand.
+    /// Hand-eye ground truth (`gripper_se3_cam`, `T_G_C`) for EyeInHand.
     handeye: Iso3,
     label: &'static str,
 }
@@ -138,19 +138,17 @@ fn solve_with(
     }
     if let (
         SingleCamHandeyeSolution::EyeInHand {
-            gripper_se3_camera: a,
-            ..
+            gripper_se3_cam: a, ..
         },
         SingleCamHandeyeSolution::EyeInHand {
-            gripper_se3_camera: b,
-            ..
+            gripper_se3_cam: b, ..
         },
     ) = (tiny.handeye, factrs.handeye)
     {
         let (dt, dr) = pose_error(&a, &b);
         let min_sd = |axes: [&str; 3]| {
             axes.iter()
-                .map(|c| sd(&format!("gripper_se3_camera.{c}")))
+                .map(|c| sd(&format!("gripper_se3_cam.{c}")))
                 .fold(f64::INFINITY, f64::min)
         };
         let (st, sr) = (min_sd(["tx", "ty", "tz"]), min_sd(["rx", "ry", "rz"]));
@@ -236,7 +234,7 @@ fn single_cam_handeye_recovers_gt_across_grid_and_noise() {
             let export = solve(input, HandeyeMode::EyeInHand);
 
             let SingleCamHandeyeSolution::EyeInHand {
-                gripper_se3_camera: x_est,
+                gripper_se3_cam: x_est,
                 ..
             } = export.handeye
             else {
@@ -288,7 +286,7 @@ fn single_cam_handeye_recovers_gt_across_grid_and_noise() {
                 .zip([w.x, w.y, w.z, v.x, v.y, v.z])
             {
                 let sd = cov
-                    .std_dev(&format!("gripper_se3_camera.{axis}"))
+                    .std_dev(&format!("gripper_se3_cam.{axis}"))
                     .expect("hand-eye σ");
                 assert!(
                     e.abs() <= 4.0 * sd,
@@ -315,10 +313,10 @@ fn single_cam_handeye_recovers_gt_across_grid_and_noise() {
 #[test]
 fn single_cam_handeye_eye_to_hand_recovers_gt() {
     // EyeToHand: a scene-fixed camera observes a gripper-mounted target.
-    //   handeye = camera_se3_base (T_C_B), target = gripper_se3_target (T_G_T)
+    //   handeye = cam_se3_base (T_C_B), target = gripper_se3_target (T_G_T)
     //   T_C_T_i = T_C_B · T_B_G_i · T_G_T
     let cam_gt = camera(950.0, 940.0);
-    let camera_se3_base = make_iso((0.08, -0.06, 0.03), (0.02, 0.04, 1.2));
+    let cam_se3_base = make_iso((0.08, -0.06, 0.03), (0.02, 0.04, 1.2));
     let gripper_se3_target = make_iso((0.03, 0.05, -0.02), (0.03, -0.02, 0.02));
 
     let board = board();
@@ -331,7 +329,7 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
         };
         let cam_poses: Vec<Iso3> = robot_poses
             .iter()
-            .map(|tbg| camera_se3_base * tbg * gripper_se3_target)
+            .map(|tbg| cam_se3_base * tbg * gripper_se3_target)
             .collect();
         let obs =
             planar::project_views_noisy(&cam_gt, &board, &cam_poses, &noise).expect("projectable");
@@ -349,16 +347,16 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
         let export = solve(input, HandeyeMode::EyeToHand);
 
         let SingleCamHandeyeSolution::EyeToHand {
-            camera_se3_base: x_est,
+            cam_se3_base: x_est,
             gripper_se3_target: g_est,
         } = export.handeye
         else {
             panic!("an eye-to-hand export");
         };
-        let (dt_x, dang_x) = pose_error(&x_est, &camera_se3_base);
+        let (dt_x, dang_x) = pose_error(&x_est, &cam_se3_base);
         let (dt_g, dang_g) = pose_error(&g_est, &gripper_se3_target);
 
-        // `camera_se3_base` is a *derived*, distant pose (target ~1.2 m away),
+        // `cam_se3_base` is a *derived*, distant pose (target ~1.2 m away),
         // so its translation is the least-constrained DOF; allow it a little
         // more headroom than the direct DLT output `gripper_se3_target`.
         let (ang_tol, trans_tol, reproj_bound) = if noise_px == 0.0 {
@@ -368,11 +366,11 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
         };
         assert!(
             dang_x < ang_tol && dang_g < ang_tol,
-            "noise={noise_px}px: rotation err camera_se3_base={dang_x} gripper_se3_target={dang_g} > {ang_tol}"
+            "noise={noise_px}px: rotation err cam_se3_base={dang_x} gripper_se3_target={dang_g} > {ang_tol}"
         );
         assert!(
             dt_x < trans_tol && dt_g < trans_tol,
-            "noise={noise_px}px: translation err camera_se3_base={dt_x} gripper_se3_target={dt_g} > {trans_tol}"
+            "noise={noise_px}px: translation err cam_se3_base={dt_x} gripper_se3_target={dt_g} > {trans_tol}"
         );
         assert!(
             export.mean_reproj_error <= reproj_bound,

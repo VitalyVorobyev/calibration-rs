@@ -42,7 +42,7 @@ use crate::common::{
 /// seeds are values in the configured camera model.
 ///
 /// Partial-seed semantics mirror `IntrinsicsManualInit`: when `intrinsics` is seeded
-/// but `target_poses` is `None`, poses are recovered from per-view homographies
+/// but `cam_se3_target` is `None`, poses are recovered from per-view homographies
 /// using the manual intrinsics. When intrinsics are seeded and distortion is not,
 /// distortion starts at zero. A distortion seed's kind must equal the
 /// camera's configured distortion kind (a typed error otherwise) and is used
@@ -58,8 +58,8 @@ pub struct IntrinsicsManualInit {
     pub distortion: Option<DistortionParams>,
     /// Manual sensor tilt seed (Scheimpflug camera; zero otherwise).
     pub sensor: Option<ScheimpflugParams>,
-    /// Manual per-view target poses (`camera_se3_target`).
-    pub target_poses: Option<Vec<Iso3>>,
+    /// Manual per-view target poses (`cam_se3_target`).
+    pub cam_se3_target: Option<Vec<Iso3>>,
 }
 
 /// Manual initialization seeds for the **hand-eye stage** of single-camera
@@ -80,14 +80,14 @@ pub enum HandeyeManualInit {
     /// The camera rides on the gripper; the target stands in the base frame.
     EyeInHand {
         /// Camera mounted on the gripper: `T_G_C`.
-        gripper_se3_camera: Option<Iso3>,
+        gripper_se3_cam: Option<Iso3>,
         /// Target fixed in the base frame: `T_B_T`.
         base_se3_target: Option<Iso3>,
     },
     /// The camera stands in the base frame; the target rides on the gripper.
     EyeToHand {
         /// Camera fixed in the scene: `T_C_B`.
-        camera_se3_base: Option<Iso3>,
+        cam_se3_base: Option<Iso3>,
         /// Target attached to the gripper: `T_G_T`.
         gripper_se3_target: Option<Iso3>,
     },
@@ -98,11 +98,11 @@ impl HandeyeManualInit {
     pub fn unseeded(mode: HandeyeMode) -> Self {
         match mode {
             HandeyeMode::EyeInHand => Self::EyeInHand {
-                gripper_se3_camera: None,
+                gripper_se3_cam: None,
                 base_se3_target: None,
             },
             HandeyeMode::EyeToHand => Self::EyeToHand {
-                camera_se3_base: None,
+                cam_se3_base: None,
                 gripper_se3_target: None,
             },
         }
@@ -120,13 +120,13 @@ impl HandeyeManualInit {
     fn poses(&self) -> (Option<Iso3>, Option<Iso3>) {
         match *self {
             Self::EyeInHand {
-                gripper_se3_camera,
+                gripper_se3_cam,
                 base_se3_target,
-            } => (gripper_se3_camera, base_se3_target),
+            } => (gripper_se3_cam, base_se3_target),
             Self::EyeToHand {
-                camera_se3_base,
+                cam_se3_base,
                 gripper_se3_target,
-            } => (camera_se3_base, gripper_se3_target),
+            } => (cam_se3_base, gripper_se3_target),
         }
     }
 }
@@ -158,8 +158,8 @@ fn input_to_planar_dataset(input: &SingleCamHandeyeInput) -> Result<PlanarDatase
 pub struct IntrinsicsInitResult {
     /// Initial camera estimate, in the configured model.
     pub camera: CameraParams,
-    /// Per-view initial target poses (`camera_se3_target`).
-    pub target_poses: Vec<Iso3>,
+    /// Per-view initial target poses (`cam_se3_target`).
+    pub cam_se3_target: Vec<Iso3>,
 }
 
 /// Typed return value of [`step_intrinsics_optimize`].
@@ -168,8 +168,8 @@ pub struct IntrinsicsInitResult {
 pub struct IntrinsicsOptimizeResult {
     /// Refined camera, in the configured model.
     pub camera: CameraParams,
-    /// Refined per-view target poses (`camera_se3_target`).
-    pub target_poses: Vec<Iso3>,
+    /// Refined per-view target poses (`cam_se3_target`).
+    pub cam_se3_target: Vec<Iso3>,
     /// Mean reprojection error in pixels after intrinsics optimization.
     pub mean_reproj_error: f64,
 }
@@ -231,15 +231,15 @@ pub fn step_intrinsics_init_with_seed(
     if let Err(e) = check_camera_seed(
         model,
         &seed,
-        manual.target_poses.as_deref(),
-        "target_poses",
+        manual.cam_se3_target.as_deref(),
+        "cam_se3_target",
         view_count,
     ) {
         session.log_failure("intrinsics_init", e.to_string());
         return Err(e);
     }
     let mut provenance = Provenance::of_camera_seed(model, &seed);
-    provenance.note("target_poses", manual.target_poses.is_some());
+    provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
 
     let init_opts = config
         .intrinsics
@@ -253,10 +253,10 @@ pub fn step_intrinsics_init_with_seed(
         }
     };
     let camera = bootstrap.camera;
-    let initial_poses = manual.target_poses.unwrap_or(bootstrap.poses);
+    let initial_poses = manual.cam_se3_target.unwrap_or(bootstrap.cam_se3_target);
 
     session.state.initial_camera = Some(camera.clone());
-    session.state.initial_target_poses = Some(initial_poses.clone());
+    session.state.initial_cam_se3_target = Some(initial_poses.clone());
 
     let k = camera.intrinsics;
     session.log_success_with_notes(
@@ -273,7 +273,7 @@ pub fn step_intrinsics_init_with_seed(
 
     Ok(IntrinsicsInitResult {
         camera,
-        target_poses: initial_poses,
+        cam_se3_target: initial_poses,
     })
 }
 
@@ -322,7 +322,7 @@ pub fn step_intrinsics_optimize(
         .ok_or_else(|| Error::not_available("initial camera"))?;
     let initial_poses = session
         .state
-        .initial_target_poses
+        .initial_cam_se3_target
         .clone()
         .ok_or_else(|| Error::not_available("initial poses"))?;
 
@@ -359,10 +359,10 @@ pub fn step_intrinsics_optimize(
 
     // Update state
     let camera = result.params.camera.clone();
-    let target_poses = result.params.camera_se3_target.to_vec();
+    let cam_se3_target = result.params.cam_se3_target.to_vec();
     let mean_reproj_error = result.mean_reproj_error;
     session.state.optimized_camera = Some(camera.clone());
-    session.state.optimized_target_poses = Some(target_poses.clone());
+    session.state.optimized_cam_se3_target = Some(cam_se3_target.clone());
     session.state.intrinsics_reproj_error = Some(mean_reproj_error);
 
     session.log_success_with_notes(
@@ -375,7 +375,7 @@ pub fn step_intrinsics_optimize(
 
     Ok(IntrinsicsOptimizeResult {
         camera,
-        target_poses,
+        cam_se3_target,
         mean_reproj_error,
     })
 }
@@ -388,7 +388,7 @@ pub fn step_intrinsics_optimize(
 ///
 /// The seed's variant must be the one of
 /// `session.config.handeye_init.handeye_mode`. Poses not seeded come from the
-/// linear solve; a seeded `gripper_se3_camera` (eye-in-hand) or
+/// linear solve; a seeded `gripper_se3_cam` (eye-in-hand) or
 /// `gripper_se3_target` (eye-to-hand) closes the other through the first view.
 ///
 /// # Errors
@@ -432,7 +432,7 @@ pub fn step_handeye_init_with_seed(
         .collect();
     let cam_se3_target = session
         .state
-        .optimized_target_poses
+        .optimized_cam_se3_target
         .clone()
         .ok_or_else(|| Error::not_available("optimized target poses"))?;
 
@@ -443,8 +443,8 @@ pub fn step_handeye_init_with_seed(
     // Each mode seeds one pose and closes the other through the first view.
     let mut provenance = Provenance::default();
     let (handeye_label, target_label) = match mode {
-        HandeyeMode::EyeInHand => ("gripper_se3_camera", "base_se3_target"),
-        HandeyeMode::EyeToHand => ("camera_se3_base", "gripper_se3_target"),
+        HandeyeMode::EyeInHand => ("gripper_se3_cam", "base_se3_target"),
+        HandeyeMode::EyeToHand => ("cam_se3_base", "gripper_se3_target"),
     };
     provenance.note(handeye_label, seeded_handeye.is_some());
     provenance.note(target_label, seeded_target.is_some());
@@ -469,23 +469,23 @@ pub fn step_handeye_init_with_seed(
     };
     let solution = match mode {
         HandeyeMode::EyeInHand => {
-            let gripper_se3_camera = first_pose;
+            let gripper_se3_cam = first_pose;
             let base_se3_target = seeded_second
                 .or(estimated_second)
-                .unwrap_or_else(|| robot_poses[0] * gripper_se3_camera * cam_se3_target[0]);
+                .unwrap_or_else(|| robot_poses[0] * gripper_se3_cam * cam_se3_target[0]);
             SingleCamHandeyeSolution::EyeInHand {
-                gripper_se3_camera,
+                gripper_se3_cam,
                 base_se3_target,
             }
         }
         HandeyeMode::EyeToHand => {
             let gripper_se3_target = first_pose;
             // T_C_T = T_C_B * T_B_G * T_G_T => T_C_B = T_C_T * (T_B_G * T_G_T)^-1.
-            let camera_se3_base = seeded_second.or(estimated_second).unwrap_or_else(|| {
+            let cam_se3_base = seeded_second.or(estimated_second).unwrap_or_else(|| {
                 cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
             });
             SingleCamHandeyeSolution::EyeToHand {
-                camera_se3_base,
+                cam_se3_base,
                 gripper_se3_target,
             }
         }
@@ -567,7 +567,7 @@ pub fn step_handeye_optimize(
     let (handeye, target_pose) = (*solution.handeye().pose(), *solution.target_pose());
 
     // Build HandeyeDataset
-    // For single camera: cam_to_rig is identity (camera IS the rig)
+    // For single camera: rig_se3_cam is identity (camera IS the rig)
     let views: Vec<RigView<RobotPoseMeta>> = input
         .views
         .iter()
@@ -586,7 +586,7 @@ pub fn step_handeye_optimize(
     // Build initial params
     let initial = HandeyeParams {
         cameras: vec![camera],
-        cam_to_rig: vec![Iso3::identity()], // Single cam = rig frame
+        rig_se3_cam: vec![Iso3::identity()], // Single cam = rig frame
         handeye,
         target_poses: vec![target_pose],
     };
@@ -675,7 +675,7 @@ mod tests {
     #[test]
     fn handeye_seed_json_is_tagged_like_the_export() {
         let seed = HandeyeManualInit::EyeToHand {
-            camera_se3_base: Some(Iso3::identity()),
+            cam_se3_base: Some(Iso3::identity()),
             gripper_se3_target: None,
         };
         let json = serde_json::to_value(&seed).unwrap();

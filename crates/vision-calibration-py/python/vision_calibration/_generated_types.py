@@ -734,7 +734,7 @@ class FeatureResidualHistogram(TypedDict):
 FrameKind: TypeAlias = Literal["target", "laser"]
 """What a frame depicts, distinguishing target images from laser-on images.
 
-Laser problem types capture two images per `(pose, camera)` slot: one of
+Laser problem types capture two images per `(view, camera)` slot: one of
 the calibration target and one with the laser line on. Both can appear in
 the same `ImageManifest`, discriminated by `FrameRef::kind`.
 
@@ -756,12 +756,12 @@ class _FrameRefRequired(TypedDict):
     path: str
     """Image path relative to the enclosing `ImageManifest::root`."""
 
-    pose: int
-    """Pose / view index in the input dataset."""
+    view: int
+    """View index in the input dataset."""
 
 
 class FrameRef(_FrameRefRequired, total=False):
-    """Reference to a single image (or sub-image) for one `(pose, camera)`."""
+    """Reference to a single image (or sub-image) for one `(view, camera)`."""
 
     kind: FrameKind
     """What the frame depicts. Absent in JSON means `FrameKind::Target`,
@@ -770,7 +770,7 @@ class FrameRef(_FrameRefRequired, total=False):
 
     roi: PixelRect | None
     """Sub-image rectangle in pixel coordinates. `None` means the entire
-    image is this `(pose, camera)`. Used for tiled multi-camera frames.
+    image is this `(view, camera)`. Used for tiled multi-camera frames.
 
     **Coordinate convention:** see the module-level `# Coordinate
     convention` block. ROI is a render-time crop hint only —
@@ -951,8 +951,8 @@ class ImageManifest(TypedDict):
     """
 
     frames: list[FrameRef]
-    """One entry per `(pose, camera)` slot the viewer can render.
-    Pose-major; aligns with the indexing of `PerFeatureResiduals.target`.
+    """One entry per `(view, camera)` slot the viewer can render.
+    View-major; aligns with the indexing of `PerFeatureResiduals.target`.
     """
 
     root: str
@@ -1183,9 +1183,6 @@ class LaserFeatureResidual(TypedDict):
     observed_px: tuple[float, float] | list[float]
     """Observed laser pixel coordinate."""
 
-    pose: int
-    """Pose / view index in the input dataset."""
-
     residual_m: float | None
     """Point-to-plane distance in meters between the back-projected ray and
     the calibrated laser plane. `None` if the ray does not intersect.
@@ -1197,6 +1194,9 @@ class LaserFeatureResidual(TypedDict):
     undistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the
     laser and target planes have no line in common.
     """
+
+    view: int
+    """View index in the input dataset."""
 
 
 class LaserLineTrace(TypedDict):
@@ -1210,8 +1210,8 @@ class LaserLineTrace(TypedDict):
     laser pixels.
     """
 
-    pose: int
-    """Pose / view index in the input dataset."""
+    view: int
+    """View index in the input dataset."""
 
 
 class LaserPlane(TypedDict):
@@ -1284,6 +1284,12 @@ class LaserlineDeviceConfig(_LaserlineDeviceConfigRequired, total=False):
 class LaserlineDeviceExport(TypedDict):
     """Export type for laserline device calibration."""
 
+    cam_se3_target: list[Iso3]
+    """Per-view target poses (`cam_se3_target`)."""
+
+    camera: CameraParams
+    """The calibrated camera, in its model."""
+
     diagnostics: ExportDiagnostics
     """Residuals and the image manifest: evidence for viewers and
     debugging, not part of the result.
@@ -1292,13 +1298,11 @@ class LaserlineDeviceExport(TypedDict):
     kind: ExportKind
     """Export-type discriminator — always `ExportKind::LaserlineDevice`."""
 
+    laser_plane: LaserPlane
+    """The laser plane in the camera frame."""
+
     mean_reproj_error: float
     """Mean reprojection error (pixels)."""
-
-    params: LaserlineParams
-    """The calibrated camera, the laser plane (camera frame) and the
-    per-view target poses.
-    """
 
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (single element for single-camera workflows)."""
@@ -1337,21 +1341,6 @@ class LaserlineMeta(_LaserlineMetaRequired, total=False):
 
     laser_weights: list[float]
     """Per-pixel weights (empty = unweighted, all default to 1.0)."""
-
-
-class LaserlineParams(TypedDict):
-    """Initial values for laserline bundle adjustment."""
-
-    camera: CameraParams
-    """The camera, in its model: any distortion kind, and an identity or
-    Scheimpflug sensor.
-    """
-
-    plane: LaserPlane
-    """Laser plane parameters in camera frame."""
-
-    poses: list[Iso3]
-    """Per-view target poses (`camera_se3_target`)."""
 
 
 LaserlineResidualType: TypeAlias = Literal["point_to_plane", "line_dist_normalized"]
@@ -1476,18 +1465,18 @@ class PerFeatureResiduals(TypedDict, total=False):
     """
 
     laser: list[LaserFeatureResidual]
-    """Per-laser-pixel residual records, pose-major."""
+    """Per-laser-pixel residual records, view-major."""
 
     laser_hist_per_camera: list[FeatureResidualHistogram] | None
     """Per-camera laser pixel-distance histogram (length = `num_cameras`)."""
 
     laser_lines: list[LaserLineTrace]
     """The projected laser line of each (view, camera) with laser pixels,
-    pose-major.
+    view-major.
     """
 
     target: list[TargetFeatureResidual]
-    """Per-target-corner reprojection records, pose-major."""
+    """Per-target-corner reprojection records, view-major."""
 
     target_hist_per_camera: list[FeatureResidualHistogram] | None
     """Per-camera target reprojection histogram (length = `num_cameras`)."""
@@ -1550,6 +1539,14 @@ class PlanarIntrinsicsConfig(_PlanarIntrinsicsConfigRequired, total=False):
 class PlanarIntrinsicsExport(TypedDict):
     """Export format for planar intrinsics calibration."""
 
+    cam_se3_target: list[Iso3]
+    """Per-view target poses (`cam_se3_target`)."""
+
+    camera: CameraParams
+    """The calibrated camera, in its model; `camera.sensor` states whether a
+    tilted sensor was calibrated.
+    """
+
     diagnostics: ExportDiagnostics
     """Residuals and the image manifest: evidence for viewers and
     debugging, not part of the result.
@@ -1560,11 +1557,6 @@ class PlanarIntrinsicsExport(TypedDict):
 
     mean_reproj_error: float
     """Mean reprojection error (pixels)."""
-
-    params: PlanarIntrinsicsParams
-    """Calibrated parameters; `params.camera.sensor` states whether a tilted
-    sensor was calibrated.
-    """
 
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (single element for single-camera workflows)."""
@@ -1584,16 +1576,6 @@ class PlanarIntrinsicsInput(TypedDict):
 
     views: list[PlanarView]
     """Sequence of planar calibration views."""
-
-
-class PlanarIntrinsicsParams(TypedDict):
-    """Optimization result for planar intrinsics."""
-
-    camera: CameraParams
-    """Refined camera model (model-agnostic serializable parameters)."""
-
-    camera_se3_target: list[Iso3]
-    """Refined target-to-camera poses."""
 
 
 class PlanarView(TypedDict):
@@ -3101,8 +3083,8 @@ class SingleCamHandeyeSolution_EyeInHand(TypedDict):
     base_se3_target: Iso3
     """The target's pose in the robot's base frame (`base_se3_target`)."""
 
-    gripper_se3_camera: Iso3
-    """The camera's pose on the gripper (`gripper_se3_camera`, camera
+    gripper_se3_cam: Iso3
+    """The camera's pose on the gripper (`gripper_se3_cam`, camera
     frame → gripper frame).
     """
 
@@ -3112,8 +3094,8 @@ class SingleCamHandeyeSolution_EyeInHand(TypedDict):
 class SingleCamHandeyeSolution_EyeToHand(TypedDict):
     """The camera stands in the base frame; the target rides on the gripper."""
 
-    camera_se3_base: Iso3
-    """The base's pose in the camera (`camera_se3_base`, base frame →
+    cam_se3_base: Iso3
+    """The base's pose in the camera (`cam_se3_base`, base frame →
     camera frame).
     """
 
@@ -3137,7 +3119,7 @@ that is the camera, with the camera named where the rig is. In JSON it is
 internally tagged by `mode`:
 
 ```json
-{"mode": "eye_in_hand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+{"mode": "eye_in_hand", "gripper_se3_cam": {…}, "base_se3_target": {…}}
 ```
 """
 
@@ -3215,9 +3197,6 @@ class _TargetFeatureResidualRequired(TypedDict):
     observed_px: tuple[float, float] | list[float]
     """Observed pixel coordinate."""
 
-    pose: int
-    """Pose / view index in the input dataset."""
-
     projected_px: tuple[float, float] | list[float] | None
     """Projected pixel using the calibrated camera + recovered pose.
     `None` when projection diverges (point behind camera, distortion failure).
@@ -3225,6 +3204,9 @@ class _TargetFeatureResidualRequired(TypedDict):
 
     target_xyz_m: tuple[float, float, float] | list[float]
     """3D point in target / world frame (meters)."""
+
+    view: int
+    """View index in the input dataset."""
 
 
 class TargetFeatureResidual(_TargetFeatureResidualRequired, total=False):
@@ -3558,7 +3540,7 @@ class ViewCovariance(TypedDict):
     """Their covariance: one row per label, symmetric."""
 
     labels: list[str]
-    """Labels of the view's parameters, e.g. `camera_se3_target.rx`."""
+    """Labels of the view's parameters, e.g. `cam_se3_target.rx`."""
 
     view: int
     """View index, as in the result's per-view lists."""
@@ -3622,7 +3604,6 @@ __all__ = [
     "LaserlineDeviceExport",
     "LaserlineDeviceInput",
     "LaserlineMeta",
-    "LaserlineParams",
     "LaserlineResidualType",
     "LaserlineStats",
     "LaserlineView",
@@ -3634,7 +3615,6 @@ __all__ = [
     "PlanarIntrinsicsConfig",
     "PlanarIntrinsicsExport",
     "PlanarIntrinsicsInput",
-    "PlanarIntrinsicsParams",
     "PlanarView",
     "PointCovariance",
     "PoseColumnMap",

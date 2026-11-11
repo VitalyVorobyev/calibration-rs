@@ -252,9 +252,9 @@ and each view's `rig_se3_target` (`view<v>.rig_se3_target.*` among the
 shared parameters, so the poses stay correlated with each other and with
 the cameras). The fit is unchanged; after it, each camera's laser IR is
 linearized once more with the listed camera coordinates and its views'
-`camera_se3_target` free, `S = −H⁻¹ H_xc` comes from the same
+`cam_se3_target` free, `S = −H⁻¹ H_xc` comes from the same
 `consider_sensitivity` the builder's `Use::Consider` uses, and a right
-perturbation `ε` of `cam_se3_rig` maps onto `camera_se3_target =
+perturbation `ε` of `cam_se3_rig` maps onto `cam_se3_target =
 cam_se3_rig · rig_se3_target` as `Ad(rig_se3_target⁻¹) ε`. With `A` the
 chained `∂plane/∂u`, the export's covariance is the cameras' and
 extrinsics' upstream block, their cross terms `A Σ_u` with the planes, and
@@ -283,8 +283,8 @@ A rig calibrated on a robot measures in the robot's frames. `CalibratedRig`
 carries the hand-eye (`with_handeye`), a core `Handeye` enum with the one
 pose of its mode, `EyeInHand { gripper_se3_rig }` or `EyeToHand {
 rig_se3_base }`, the pose the export estimates; its covariance labels are
-the export's (`gripper_se3_rig.rx`, `rig_se3_base.rx`, `gripper_se3_camera`
-and `camera_se3_base` for one camera), whole or held as for the planes.
+the export's (`gripper_se3_rig.rx`, `rig_se3_base.rx`, `gripper_se3_cam`
+and `cam_se3_base` for one camera), whole or held as for the planes.
 `CalibratedCameras::calibrated_rig` attaches it for the three hand-eye
 exports. The robot's pose at a capture is a core `RobotPose`
 (`base_se3_gripper`, exact or with a 6×6 covariance over the right

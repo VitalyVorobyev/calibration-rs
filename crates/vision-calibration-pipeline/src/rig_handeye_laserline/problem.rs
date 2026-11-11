@@ -334,7 +334,7 @@ pub(crate) fn export_joint(
     mode: HandeyeMode,
 ) -> Result<RigHandeyeLaserlineExport, Error> {
     let params = &estimate.params;
-    let cam_se3_rig = inverse_poses(&params.cam_to_rig);
+    let cam_se3_rig = inverse_poses(&params.rig_se3_cam);
     let robot_poses: Vec<Iso3> = input
         .views
         .iter()

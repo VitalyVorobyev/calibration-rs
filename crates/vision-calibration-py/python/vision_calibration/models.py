@@ -1514,29 +1514,6 @@ class LaserPlane:
 
 
 @dataclass(slots=True)
-class LaserlineParams:
-    """Typed parameter payload for laserline optimization results.
-
-    ``camera`` is a :class:`Camera`.
-    """
-
-    camera: Camera
-    poses: list[Pose]
-    plane: LaserPlane
-
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineParams":
-        return cls(
-            camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
-            poses=[
-                Pose.from_payload(cast(Mapping[str, Any], pose))
-                for pose in cast(list[Any], payload["poses"])
-            ],
-            plane=LaserPlane.from_payload(cast(Mapping[str, Any], payload["plane"])),
-        )
-
-
-@dataclass(slots=True)
 class LaserlineStats:
     """Typed summary statistics for laserline results."""
 
@@ -2148,7 +2125,7 @@ class PlanarIntrinsicsExport(_ExportResiduals):
     """
 
     camera: Camera
-    camera_se3_target: list[Pose]
+    cam_se3_target: list[Pose]
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
     uncertainty: ParameterUncertainty = field(
@@ -2160,15 +2137,14 @@ class PlanarIntrinsicsExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarIntrinsicsExport":
-        params = cast(Mapping[str, Any], payload["params"])
         poses = [
             Pose.from_payload(cast(Mapping[str, Any], p))
-            for p in cast(list[Any], params["camera_se3_target"])
+            for p in cast(list[Any], payload["cam_se3_target"])
         ]
         return cls(
             export=dict(payload),
-            camera=_camera_from_payload(cast(Mapping[str, Any], params["camera"])),
-            camera_se3_target=poses,
+            camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
+            cam_se3_target=poses,
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
@@ -2247,18 +2223,18 @@ def _rig_solution_from_payload(payload: Mapping[str, Any]) -> RigHandeyeSolution
 class CameraEyeInHand:
     """A single-camera hand-eye calibration with the camera on the gripper.
 
-    ``gripper_se3_camera`` is the camera's pose on the gripper and
+    ``gripper_se3_cam`` is the camera's pose on the gripper and
     ``base_se3_target`` the static target's pose in the robot's base frame.
     """
 
-    gripper_se3_camera: Pose
+    gripper_se3_cam: Pose
     base_se3_target: Pose
     mode: ClassVar[HandeyeMode] = "eye_in_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
-            "gripper_se3_camera": self.gripper_se3_camera.to_payload(),
+            "gripper_se3_cam": self.gripper_se3_cam.to_payload(),
             "base_se3_target": self.base_se3_target.to_payload(),
         }
 
@@ -2268,18 +2244,18 @@ class CameraEyeToHand:
     """A single-camera hand-eye calibration with the camera standing in the
     base frame.
 
-    ``camera_se3_base`` is the base's pose in the camera and
+    ``cam_se3_base`` is the base's pose in the camera and
     ``gripper_se3_target`` the static target's pose on the gripper.
     """
 
-    camera_se3_base: Pose
+    cam_se3_base: Pose
     gripper_se3_target: Pose
     mode: ClassVar[HandeyeMode] = "eye_to_hand"
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
-            "camera_se3_base": self.camera_se3_base.to_payload(),
+            "cam_se3_base": self.cam_se3_base.to_payload(),
             "gripper_se3_target": self.gripper_se3_target.to_payload(),
         }
 
@@ -2293,12 +2269,12 @@ def _camera_solution_from_payload(payload: Mapping[str, Any]) -> SingleCamHandey
     mode = payload["mode"]
     if mode == "eye_in_hand":
         return CameraEyeInHand(
-            gripper_se3_camera=_solution_pose(payload, "gripper_se3_camera"),
+            gripper_se3_cam=_solution_pose(payload, "gripper_se3_cam"),
             base_se3_target=_solution_pose(payload, "base_se3_target"),
         )
     if mode == "eye_to_hand":
         return CameraEyeToHand(
-            camera_se3_base=_solution_pose(payload, "camera_se3_base"),
+            cam_se3_base=_solution_pose(payload, "cam_se3_base"),
             gripper_se3_target=_solution_pose(payload, "gripper_se3_target"),
         )
     raise ValueError(f"unknown hand-eye mode: {mode!r}")
@@ -2448,9 +2424,15 @@ class RigHandeyeExport(_ExportResiduals):
 
 @dataclass(slots=True)
 class LaserlineDeviceExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_laserline_device`."""
+    """Result from :func:`vision_calibration.run_laserline_device`.
 
-    params: LaserlineParams
+    ``camera`` is the calibrated camera, ``cam_se3_target`` each view's
+    target pose and ``laser_plane`` the laser plane in the camera frame.
+    """
+
+    camera: Camera
+    cam_se3_target: list[Pose]
+    laser_plane: LaserPlane
     stats: LaserlineStats
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
@@ -2472,7 +2454,12 @@ class LaserlineDeviceExport(_ExportResiduals):
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceExport":
         return cls(
             export=dict(payload),
-            params=LaserlineParams.from_payload(cast(Mapping[str, Any], payload["params"])),
+            camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
+            cam_se3_target=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["cam_se3_target"])
+            ],
+            laser_plane=LaserPlane.from_payload(cast(Mapping[str, Any], payload["laser_plane"])),
             stats=LaserlineStats.from_payload(cast(Mapping[str, Any], payload["stats"])),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
