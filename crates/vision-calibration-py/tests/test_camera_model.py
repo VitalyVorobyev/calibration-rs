@@ -120,8 +120,8 @@ class CameraModelTest(unittest.TestCase):
         cam = vc.CameraModel(result.camera)
         # The result's residual table agrees with projecting its own poses.
         residuals = result.per_feature_residuals.target
-        first = residuals.pose == 0
-        pose = result.camera_se3_target[0]
+        first = residuals.view == 0
+        pose = result.cam_se3_target[0]
         x, y, z, w = pose.rotation_xyzw
         rot = np.array(
             [

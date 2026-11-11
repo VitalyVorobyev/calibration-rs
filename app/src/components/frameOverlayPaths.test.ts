@@ -14,7 +14,7 @@ function tgt(
   over: Partial<TargetFeatureResidual> & Pick<TargetFeatureResidual, "observed_px">,
 ): TargetFeatureResidual {
   return {
-    pose: 1,
+    view: 1,
     camera: 0,
     feature: 0,
     target_xyz_m: [0, 0, 0],
@@ -27,7 +27,7 @@ function tgt(
 function las(
   over: Partial<LaserFeatureResidual> & Pick<LaserFeatureResidual, "observed_px">,
 ): LaserFeatureResidual {
-  return { pose: 1, camera: 0, feature: 0, ...over };
+  return { view: 1, camera: 0, feature: 0, ...over };
 }
 
 /** First two numbers of the path: where the shaft starts and, after `L`, ends. */
@@ -79,7 +79,7 @@ describe("buildResidualArrows", () => {
 
   it("keeps only the requested pose and camera", () => {
     const res = [
-      tgt({ observed_px: [1, 1], projected_px: [2, 1], pose: 2 }),
+      tgt({ observed_px: [1, 1], projected_px: [2, 1], view: 2 }),
       tgt({ observed_px: [1, 1], projected_px: [2, 1], camera: 3 }),
     ];
     expect(buildResidualArrows(res, FRAME, 1).arrows).toEqual([]);
@@ -109,12 +109,12 @@ describe("buildLaserOverlay", () => {
   it("draws the frame's projected line as a polyline", () => {
     const lines = [
       {
-        pose: 1,
+        view: 1,
         camera: 1,
         points_px: [[0, 0] as [number, number], [9, 9] as [number, number]],
       },
       {
-        pose: 1,
+        view: 1,
         camera: 0,
         points_px: [
           [0, 10],
@@ -141,7 +141,7 @@ describe("buildLaserOverlay", () => {
         las({ observed_px: [3, 3], residual_m: 0.003 }),
         las({ observed_px: [4, 4], residual_m: null }),
         las({ observed_px: [5, 5] }),
-        las({ observed_px: [6, 6], residual_m: 0, pose: 9 }),
+        las({ observed_px: [6, 6], residual_m: 0, view: 9 }),
       ],
       [],
       FRAME,

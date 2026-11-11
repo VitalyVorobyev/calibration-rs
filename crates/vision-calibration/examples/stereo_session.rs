@@ -116,7 +116,7 @@ fn main() -> Result<()> {
     let output = session.require_output()?;
     let cam_se3_rig: Vec<Iso3> = output
         .params
-        .cam_to_rig
+        .rig_se3_cam
         .iter()
         .map(|t| t.inverse())
         .collect();

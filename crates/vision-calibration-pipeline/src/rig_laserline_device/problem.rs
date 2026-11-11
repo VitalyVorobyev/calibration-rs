@@ -438,7 +438,7 @@ mod tests {
                 roi.w = 720;
                 roi.h = 540;
                 let mut frame = FrameRef::default();
-                frame.pose = 0;
+                frame.view = 0;
                 frame.camera = cam;
                 frame.path = std::path::PathBuf::from("target_0.png");
                 frame.roi = Some(roi);

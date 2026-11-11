@@ -140,7 +140,7 @@ fn init_check_run_calibrates_a_folder() {
     assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 0);
     let export: serde_json::Value =
         serde_json::from_slice(&std::fs::read(out.join("calibration.json")).unwrap()).unwrap();
-    let intrinsics = &export["params"]["camera"]["intrinsics"];
+    let intrinsics = &export["camera"]["intrinsics"];
     for (name, truth) in [
         ("fx", FOCAL_PX),
         ("fy", FOCAL_PX),
@@ -181,7 +181,7 @@ fn init_check_run_calibrates_a_folder() {
     );
     let export: serde_json::Value =
         serde_json::from_slice(&std::fs::read(out.join("calibration.json")).unwrap()).unwrap();
-    assert_eq!(export["params"]["camera"]["distortion"]["type"], "none");
+    assert_eq!(export["camera"]["distortion"]["type"], "none");
 }
 
 /// A cancelled run (the binary's Ctrl-C handler cancels the token) exits

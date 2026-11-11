@@ -21,7 +21,7 @@
 //! # Conventions
 //!
 //! - **Robot pose**: `base_se3_gripper` (T_B_G) - gripper in base frame
-//! - **Hand-eye transform** (EyeInHand mode): `gripper_se3_camera` (T_G_C)
+//! - **Hand-eye transform** (EyeInHand mode): `gripper_se3_cam` (T_G_C)
 //! - **Target pose**: `base_se3_target` (T_B_T) - single static target in base frame
 //!
 //! # Default Behavior

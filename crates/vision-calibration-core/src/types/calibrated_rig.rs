@@ -28,7 +28,7 @@ use crate::{Error, Iso3};
 /// ([`with_handeye`](Self::with_handeye)), so a measurement can be stated in
 /// the robot's gripper or base frame; its labels are those of the export's
 /// pose: `gripper_se3_rig.rx … tz` eye-in-hand and `rig_se3_base.rx … tz`
-/// eye-to-hand (`gripper_se3_camera`, `camera_se3_base` for one camera).
+/// eye-to-hand (`gripper_se3_cam`, `cam_se3_base` for one camera).
 #[derive(Debug, Clone)]
 pub struct CalibratedRig {
     cameras: Vec<CameraParams>,
@@ -172,8 +172,8 @@ impl CalibratedRig {
 
     /// The covariance labels of the rig's hand-eye, the tangent `[rx, ry,
     /// rz, tx, ty, tz]` of its right perturbation: `gripper_se3_rig.*`
-    /// eye-in-hand and `rig_se3_base.*` eye-to-hand (`gripper_se3_camera.*`
-    /// and `camera_se3_base.*` for one camera, as its export names them);
+    /// eye-in-hand and `rig_se3_base.*` eye-to-hand (`gripper_se3_cam.*`
+    /// and `cam_se3_base.*` for one camera, as its export names them);
     /// `None` for a rig without a hand-eye.
     pub fn handeye_labels(&self) -> Option<[String; 6]> {
         let handeye = self.handeye.as_ref()?;
@@ -181,7 +181,7 @@ impl CalibratedRig {
     }
 
     fn handeye_labels_of(handeye: &Handeye, multi_camera: bool) -> [String; 6] {
-        let rig = if multi_camera { "rig" } else { "camera" };
+        let rig = if multi_camera { "rig" } else { "cam" };
         let name = match handeye.mount_frame() {
             RobotFrame::Gripper => format!("gripper_se3_{rig}"),
             RobotFrame::Base => format!("{rig}_se3_base"),
@@ -423,7 +423,7 @@ mod tests {
         assert_eq!(rig.handeye(), Some(&eih));
         assert_eq!(
             rig.handeye_labels().unwrap().to_vec(),
-            labels("gripper_se3_camera")
+            labels("gripper_se3_cam")
         );
 
         let pair = || {

@@ -113,8 +113,8 @@ impl<'a> Resolver<'a> {
             .ok_or_else(|| anyhow!("no camera parameter `{label}` in the export"))
     }
 
-    /// The pose `name` (`gripper_se3_camera`, `cam1.cam_se3_rig`), or view
-    /// `view`'s pose `name` (`camera_se3_target`).
+    /// The pose `name` (`gripper_se3_cam`, `cam1.cam_se3_rig`), or view
+    /// `view`'s pose `name` (`cam_se3_target`).
     pub(super) fn pose(&self, name: &str, view: Option<usize>) -> Result<Iso3> {
         let (camera, local) = split_camera(name);
         pose(field(self.export, local, view.or(camera))?)
@@ -183,19 +183,13 @@ pub(super) fn split_camera(label: &str) -> (Option<usize>, &str) {
 }
 
 /// Export field `name`, element `index` when given. Looked up at the top
-/// level, under `params` (the laserline device names its per-view poses
-/// `poses`) and under `handeye` (a hand-eye export's mode-tagged poses).
+/// level and under `handeye` (a hand-eye export's mode-tagged poses).
 pub(super) fn field<'a>(export: &'a Value, name: &str, index: Option<usize>) -> Result<&'a Value> {
-    let containers = [Some(export), export.get("params"), export.get("handeye")];
-    let alias = (name == "camera_se3_target").then_some("poses");
+    let containers = [Some(export), export.get("handeye")];
     let value = containers
         .into_iter()
         .flatten()
-        .find_map(|c| {
-            c.get(name)
-                .or_else(|| alias.and_then(|a| c.get(a)))
-                .filter(|v| !v.is_null())
-        })
+        .find_map(|c| c.get(name).filter(|v| !v.is_null()))
         .ok_or_else(|| anyhow!("no `{name}` in the export"))?;
     match index {
         None => Ok(value),
@@ -209,7 +203,7 @@ pub(super) fn field<'a>(export: &'a Value, name: &str, index: Option<usize>) -> 
 /// one plane, or a rig's per-camera plane in that camera's frame.
 fn plane(export: &Value, camera: Option<usize>) -> Result<([f64; 3], f64)> {
     let plane = match camera {
-        None => field(export, "plane", None)?,
+        None => field(export, "laser_plane", None)?,
         Some(i) => field(export, "laser_planes_cam", Some(i))?,
     };
     let normal = plane
@@ -312,7 +306,7 @@ mod tests {
     #[test]
     fn laser_planes_are_read_where_each_export_keeps_them() {
         let single = json!({
-            "params": {"plane": {"normal": [0.0, 0.0, -1.0], "distance": 0.5}}
+            "laser_plane": {"normal": [0.0, 0.0, -1.0], "distance": 0.5}
         });
         assert_eq!(plane(&single, None).unwrap(), ([0.0, 0.0, -1.0], 0.5));
         let rig = json!({"laser_planes_cam": [

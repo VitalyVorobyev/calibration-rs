@@ -99,8 +99,8 @@ fn make_dataset<C: CameraProject>(camera: &C, poses: &[Iso3]) -> PlanarDataset {
 }
 
 fn reproj_rms(export: &PlanarIntrinsicsExport, dataset: &PlanarDataset) -> f64 {
-    let camera = export.params.camera.build().unwrap();
-    let poses = &export.params.camera_se3_target;
+    let camera = export.camera.build().unwrap();
+    let poses = &export.cam_se3_target;
     let mut sum_sq = 0.0;
     let mut n = 0usize;
     for (view, pose) in dataset.views.iter().zip(poses.iter()) {
@@ -331,7 +331,7 @@ fn manual_rational8_seed_is_used_as_given_and_converges() {
     );
 
     assert_eq!(
-        session.export().unwrap().params.camera.distortion.kind(),
+        session.export().unwrap().camera.distortion.kind(),
         DistortionKind::Rational8
     );
     assert!(rms.is_finite());
@@ -377,12 +377,9 @@ fn set_config_model_after_init_is_honoured() {
     let export = session.export().expect("export");
 
     assert!(
-        matches!(
-            export.params.camera.distortion,
-            DistortionParams::Rational { .. }
-        ),
+        matches!(export.camera.distortion, DistortionParams::Rational { .. }),
         "export must reflect the post-init Rational8 config, got {:?}",
-        export.params.camera.distortion
+        export.camera.distortion
     );
     let rms = reproj_rms(&export, &dataset);
     println!("[set_config-after-init] rms={rms:.4e} px");

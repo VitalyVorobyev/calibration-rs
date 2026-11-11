@@ -52,7 +52,7 @@ fn stereo_rig_laserline_recovers_planes() {
         Translation3::new(0.15, 0.0, 0.0),
         Rotation3::identity().into(),
     );
-    let cam_to_rig = [cam0_to_rig, cam1_to_rig];
+    let rig_se3_cam = [cam0_to_rig, cam1_to_rig];
 
     // Per-view rig poses (target at varying depths).
     let rig_se3_target = vec![
@@ -82,7 +82,7 @@ fn stereo_rig_laserline_recovers_planes() {
     // Convert to camera frames.
     let planes_cam_gt: Vec<LaserPlane> = planes_rig_gt
         .iter()
-        .zip(cam_to_rig.iter())
+        .zip(rig_se3_cam.iter())
         .map(|(p_rig, t)| p_rig.transform_by(&t.inverse()))
         .collect();
 
@@ -94,7 +94,7 @@ fn stereo_rig_laserline_recovers_planes() {
         let mut cam_obs = Vec::new();
         let mut laser_obs = Vec::new();
         for cam_idx in 0..2 {
-            let cam_se3_target = cam_to_rig[cam_idx].inverse() * rig_pose;
+            let cam_se3_target = rig_se3_cam[cam_idx].inverse() * rig_pose;
 
             // Target correspondences.
             let mut pts3 = Vec::new();
@@ -150,7 +150,7 @@ fn stereo_rig_laserline_recovers_planes() {
     };
     let upstream = RigLaserlineUpstream {
         cameras: vec![camera.clone(), camera],
-        cam_to_rig: cam_to_rig.to_vec(),
+        rig_se3_cam: rig_se3_cam.to_vec(),
         rig_se3_target,
         uncertainty: Default::default(),
     };

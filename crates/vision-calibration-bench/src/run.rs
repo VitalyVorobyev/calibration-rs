@@ -1923,7 +1923,7 @@ pub mod tier_b {
             estimate.params.camera.intrinsics,
         );
         let residuals =
-            compute_planar_target_residuals(&camera, dataset, &estimate.params.camera_se3_target)
+            compute_planar_target_residuals(&camera, dataset, &estimate.params.cam_se3_target)
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
         let stats = intrinsics_stats_from_residuals(&residuals);
         let diff = (stats.mean - estimate.mean_reproj_error).abs();
@@ -2046,7 +2046,7 @@ pub mod tier_b {
             .into_iter()
             .take(limit)
             .map(|(error_px, r)| IntrinsicsOutlier {
-                pose: r.pose,
+                pose: r.view,
                 feature: r.feature,
                 target_xyz_m: r.target_xyz_m,
                 observed_px: r.observed_px,
@@ -2059,14 +2059,14 @@ pub mod tier_b {
     fn intrinsics_pose_stats(residuals: &[TargetFeatureResidual]) -> Vec<IntrinsicsPoseStats> {
         let pose_count = residuals
             .iter()
-            .map(|residual| residual.pose)
+            .map(|residual| residual.view)
             .max()
             .map(|idx| idx + 1)
             .unwrap_or(0);
         let mut per_pose = vec![Vec::new(); pose_count];
         for residual in residuals {
             if let Some(error) = residual.error_px.filter(|e| e.is_finite())
-                && let Some(slot) = per_pose.get_mut(residual.pose)
+                && let Some(slot) = per_pose.get_mut(residual.view)
             {
                 slot.push(error);
             }
@@ -2630,7 +2630,7 @@ pub mod tier_b {
         let target_ref = *rig_export.handeye.target_pose();
         let joint_initial = RigHandeyeLaserlineParams {
             cameras: rig_export.cameras.clone(),
-            cam_to_rig: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
+            rig_se3_cam: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
             handeye,
             target_ref,
             planes_cam: laser_export.laser_planes_cam.clone(),
@@ -2790,10 +2790,10 @@ pub mod tier_b {
         let mut artifacts = CalibrationArtifacts {
             spatial_unit: "mm".to_string(),
             angle_unit: "deg".to_string(),
-            cameras: vec![params_artifact(camera_id, &export.params.camera)],
+            cameras: vec![params_artifact(camera_id, &export.camera)],
             transforms: Vec::new(),
         };
-        for (view_idx, pose) in export.params.camera_se3_target.iter().enumerate() {
+        for (view_idx, pose) in export.cam_se3_target.iter().enumerate() {
             artifacts.transforms.push(transform_artifact(
                 format!("{camera_id}_se3_target_view{view_idx}"),
                 camera_id,
@@ -2816,14 +2816,14 @@ pub mod tier_b {
         };
         match &export.handeye {
             SingleCamHandeyeSolution::EyeInHand {
-                gripper_se3_camera,
+                gripper_se3_cam,
                 base_se3_target,
             } => {
                 artifacts.transforms.push(transform_artifact(
-                    "gripper_se3_camera",
+                    "gripper_se3_cam",
                     "gripper",
                     camera_id,
-                    gripper_se3_camera,
+                    gripper_se3_cam,
                 ));
                 artifacts.transforms.push(transform_artifact(
                     "base_se3_target",
@@ -2833,14 +2833,14 @@ pub mod tier_b {
                 ));
             }
             SingleCamHandeyeSolution::EyeToHand {
-                camera_se3_base,
+                cam_se3_base,
                 gripper_se3_target,
             } => {
                 artifacts.transforms.push(transform_artifact(
-                    "camera_se3_base",
+                    "cam_se3_base",
                     camera_id,
                     "base",
-                    camera_se3_base,
+                    cam_se3_base,
                 ));
                 artifacts.transforms.push(transform_artifact(
                     "gripper_se3_target",

@@ -19,7 +19,7 @@ PerFeatureResiduals
 └─ laser_hist_per_camera:  Option<Vec<FeatureResidualHistogram>>
 ```
 
-A target record carries an explicit `(pose, camera, feature)` triple, the 3D target point `target_xyz_m`, the `observed_px` and `projected_px` pixels and the `error_px` between them. Records are pose-major: the outer loop is the view, the inner loop the camera (cameras without an observation in that view are skipped), the innermost the feature index in that view's and camera's `points_3d`.
+A target record carries an explicit `(view, camera, feature)` triple, the 3D target point `target_xyz_m`, the `observed_px` and `projected_px` pixels and the `error_px` between them. Records are view-major: the outer loop is the view, the inner loop the camera (cameras without an observation in that view are skipped), the innermost the feature index in that view's and camera's `points_3d`.
 
 `Option` fields carry two meanings:
 
@@ -85,7 +85,7 @@ worst.sort_by(|a, b| b.0.total_cmp(&a.0));
 for (err, r) in worst.iter().take(5) {
     println!(
         "pose={} cam={} feat={} target_xy_m=({:.3},{:.3}) observed=({:.1},{:.1}) err={:.3}px",
-        r.pose, r.camera, r.feature,
+        r.view, r.camera, r.feature,
         r.target_xyz_m[0], r.target_xyz_m[1],
         r.observed_px[0], r.observed_px[1],
         err
@@ -117,7 +117,7 @@ assert!((mean_from_records - hist.mean).abs() < 1e-9);
 - `residual_m`: the point-to-plane distance in metres from the back-projected ray's intersection with the target plane to the calibrated laser plane;
 - `residual_px`: the distance in pixels from the observed pixel to the projected laser line. This is the line-distance residual the laser solve minimizes, measured on the undistorted image plane.
 
-Each `LaserLineTrace` in `laser_lines` is one view's projected laser line (`pose`, `camera`, `points_px`): a polyline over the extent of that view's laser pixels, for 2D overlays. Lens distortion bends the line, so draw all of its points rather than a segment between the first and last.
+Each `LaserLineTrace` in `laser_lines` is one view's projected laser line (`view`, `camera`, `points_px`): a polyline over the extent of that view's laser pixels, for 2D overlays. Lens distortion bends the line, so draw all of its points rather than a segment between the first and last.
 
 ## Which Camera Chain Produced Them
 
@@ -141,7 +141,7 @@ assert_eq!(
 
 Empty vectors and `None` histograms are skipped on the wire (`{}` for an empty container).
 
-In Python every result has `per_feature_residuals`, a `PerFeatureResiduals` whose record lists are numpy tables: `target` holds one row per `TargetFeatureResidual` and `laser` one per `LaserFeatureResidual`, a column per field (`pose`, `camera`, `feature`, `observed_px` as `(N, 2)`, ...). A value the record leaves unset, such as the projection of a point behind the camera, is NaN. `laser_lines` is a list of `LaserLineTrace`, the histograms lists of `FeatureResidualHistogram`.
+In Python every result has `per_feature_residuals`, a `PerFeatureResiduals` whose record lists are numpy tables: `target` holds one row per `TargetFeatureResidual` and `laser` one per `LaserFeatureResidual`, a column per field (`view`, `camera`, `feature`, `observed_px` as `(N, 2)`, ...). A value the record leaves unset, such as the projection of a point behind the camera, is NaN. `laser_lines` is a list of `LaserLineTrace`, the histograms lists of `FeatureResidualHistogram`.
 
 ```python
 import numpy as np
@@ -149,7 +149,7 @@ import numpy as np
 res = result.per_feature_residuals
 worst = np.argsort(-np.nan_to_num(res.target.error_px))[:5]
 for i in worst:
-    print(res.target.pose[i], res.target.camera[i], res.target.feature[i],
+    print(res.target.view[i], res.target.camera[i], res.target.feature[i],
           f"{res.target.error_px[i]:.3f}")
 print(res.target_hist_per_camera[0].counts)
 ```

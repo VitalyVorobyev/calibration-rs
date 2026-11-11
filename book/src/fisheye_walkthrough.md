@@ -55,8 +55,8 @@ session.set_input(input)?;
 let init = step_init(&mut session, None)?; // bearing-based fisheye initializer
 step_optimize(&mut session, None)?;
 let export = session.export()?;
-println!("{:?}", export.params.camera.intrinsics);
-println!("{:?}", export.params.camera.distortion.values()); // k1..k4
+println!("{:?}", export.camera.intrinsics);
+println!("{:?}", export.camera.distortion.values()); // k1..k4
 ```
 
 `step_init` runs the [bearing-based initializer](fisheye_init.md), which

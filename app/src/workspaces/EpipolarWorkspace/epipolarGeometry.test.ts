@@ -8,7 +8,7 @@ import {
 } from "./epipolarGeometry";
 
 const feature = (id: number, x: number, y: number) =>
-  ({ pose: 0, camera: 0, feature: id, observed_px: [x, y] }) as TargetFeatureResidual;
+  ({ view: 0, camera: 0, feature: id, observed_px: [x, y] }) as TargetFeatureResidual;
 
 describe("snapToFeature", () => {
   const features = [feature(1, 10, 10), feature(2, 13, 10)];

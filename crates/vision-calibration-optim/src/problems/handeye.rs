@@ -98,29 +98,29 @@ impl HandeyeDataset {
     }
 }
 
-/// Initial values for hand-eye calibration.
+/// Initial / refined values for hand-eye calibration.
 ///
-/// - `cam_to_rig`: camera pose in the rig frame (`T_R_C`)
-/// - `handeye`:
-///   - `EyeInHand`: gripper pose in the rig frame (`T_G_R`)
-///   - `EyeToHand`: rig pose in the base frame (`T_R_B`)
-/// - `target_poses`: fixed target pose(s) depending on the selected mode
+/// - `rig_se3_cam`: the camera's pose in the rig frame (`T_R_C`)
+/// - `handeye`: the mode's hand-eye pose: `gripper_se3_rig` (eye-in-hand) or
+///   `rig_se3_base` (eye-to-hand)
+/// - `target_poses`: the mode's target pose(s): `base_se3_target`
+///   (eye-in-hand) or `gripper_se3_target` (eye-to-hand)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandeyeParams {
     /// Per-camera camera parameters, each in its own model.
     pub cameras: Vec<CameraParams>,
-    /// Per-camera extrinsics (camera-to-rig transforms).
-    pub cam_to_rig: Vec<Iso3>,
-    /// Hand-eye transform (mode-dependent).
+    /// Per-camera extrinsics (`rig_se3_cam`, `T_R_C`).
+    pub rig_se3_cam: Vec<Iso3>,
+    /// The hand-eye pose, named by the mode:
     ///
-    /// - `EyeInHand`: `handeye = gripper_from_rig` (`T_G_R`)
-    /// - `EyeToHand`: `handeye = rig_from_base` (`T_R_B`)
+    /// - `EyeInHand`: `gripper_se3_rig` (`T_G_R`)
+    /// - `EyeToHand`: `rig_se3_base` (`T_R_B`)
     pub handeye: Iso3,
-    /// Calibration target poses.
+    /// The target pose(s), named by the mode:
     ///
     /// - Default (fixed target):
-    ///   - `EyeInHand`: the first pose is used as the initial `base_from_target` (`T_B_T`)
-    ///   - `EyeToHand`: the first pose is used as the initial `gripper_from_target` (`T_G_T`)
+    ///   - `EyeInHand`: the first pose is the initial `base_se3_target` (`T_B_T`)
+    ///   - `EyeToHand`: the first pose is the initial `gripper_se3_target` (`T_G_T`)
     /// - Per-view target mode (`relax_target_poses = true`): one pose per view is required.
     pub target_poses: Vec<Iso3>,
 }
@@ -309,7 +309,7 @@ pub fn optimize_handeye(
         .enumerate()
         .map(|(i, spec)| unpack_camera(&solution.params, *spec, Some(i)))
         .collect::<Result<Vec<_>, Error>>()?;
-    let cam_to_rig = (0..dataset.data.num_cameras)
+    let rig_se3_cam = (0..dataset.data.num_cameras)
         .map(|i| solved_pose(&solution.params, &format!("extr/{i}")))
         .collect::<Result<Vec<_>, Error>>()?;
     let handeye = solved_pose(&solution.params, "handeye")?;
@@ -329,7 +329,7 @@ pub fn optimize_handeye(
 
     let params = HandeyeParams {
         cameras,
-        cam_to_rig,
+        rig_se3_cam,
         handeye,
         target_poses,
     };
@@ -365,7 +365,7 @@ fn compute_handeye_reproj_error(
     robot_deltas: Option<&[[Real; 6]]>,
 ) -> Result<(f64, Vec<f64>), Error> {
     let models = camera_models(&params.cameras)?;
-    let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
+    let cam_se3_rig: Vec<Iso3> = params.rig_se3_cam.iter().map(|t| t.inverse()).collect();
     let handeye_inv = params.handeye.inverse();
     let target_pose = params
         .target_poses
@@ -440,10 +440,10 @@ fn build_handeye_ir(
             dataset.data.num_cameras
         )));
     }
-    if initial.cam_to_rig.len() != dataset.data.num_cameras {
+    if initial.rig_se3_cam.len() != dataset.data.num_cameras {
         return Err(Error::invalid_input(format!(
-            "cam_to_rig count {} != num_cameras {}",
-            initial.cam_to_rig.len(),
+            "rig_se3_cam count {} != num_cameras {}",
+            initial.rig_se3_cam.len(),
             dataset.data.num_cameras
         )));
     }
@@ -492,7 +492,7 @@ fn build_handeye_ir(
         let key = format!("extr/{}", cam_idx);
         let id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
         extr_ids.push(id);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.cam_to_rig[cam_idx]));
+        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_se3_cam[cam_idx]));
     }
 
     // 3. Hand-eye transform
@@ -697,7 +697,7 @@ mod tests {
         let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
         let params = HandeyeParams {
             cameras: vec![pinhole_camera_params(&camera)],
-            cam_to_rig: vec![Iso3::identity()],
+            rig_se3_cam: vec![Iso3::identity()],
             handeye,
             target_poses: vec![target_in_base],
         };
@@ -721,7 +721,7 @@ mod tests {
         use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 
         let camera = make_test_camera();
-        let gripper_se3_camera = Iso3::from_parts(
+        let gripper_se3_cam = Iso3::from_parts(
             Translation3::new(0.03, -0.02, 0.08),
             UnitQuaternion::from_euler_angles(0.1, -0.05, 0.3),
         );
@@ -760,12 +760,12 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(v, &(rx, ry, rz, tx, ty, tz))| {
-                let camera_se3_target = Iso3::from_parts(
+                let cam_se3_target = Iso3::from_parts(
                     Translation3::new(tx, ty, tz),
                     UnitQuaternion::from_euler_angles(rx, ry, rz),
                 );
                 let base_se3_gripper =
-                    base_se3_target * camera_se3_target.inverse() * gripper_se3_camera.inverse();
+                    base_se3_target * cam_se3_target.inverse() * gripper_se3_cam.inverse();
                 let (u, w) = (robot_noise.sample(v, 0), robot_noise.sample(v, 1));
                 let t = robot_noise.sample(v, 2);
                 let eps = [
@@ -776,7 +776,7 @@ mod tests {
                     t.x * 1e-3,
                     t.y * 1e-3,
                 ];
-                let mut obs = project_view(&camera, &camera_se3_target, &board);
+                let mut obs = project_view(&camera, &cam_se3_target, &board);
                 for (i, p) in obs.points_2d.iter_mut().enumerate() {
                     *p += pixel_noise.sample(v, i);
                 }
@@ -803,8 +803,8 @@ mod tests {
         };
         let initial = HandeyeParams {
             cameras: vec![pinhole_camera_params(&camera)],
-            cam_to_rig: vec![Iso3::identity()],
-            handeye: gripper_se3_camera,
+            rig_se3_cam: vec![Iso3::identity()],
+            handeye: gripper_se3_cam,
             target_poses: vec![base_se3_target],
         };
         let opts = HandeyeSolveOptions {

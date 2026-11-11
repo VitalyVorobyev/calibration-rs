@@ -111,11 +111,11 @@ pub struct IntrinsicsOptimizeResult {
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
     /// Per-camera target poses refined alongside the intrinsics:
-    /// `[view][cam] -> Option<Iso3>` (`camera_se3_target`). This is what the
+    /// `[view][cam] -> Option<Iso3>` (`cam_se3_target`). This is what the
     /// unseeded rig init consumes; seeded rig inits (e.g.
     /// [`crate::device_seed::rig_layout_seed`]) should anchor on these, not
     /// on the coarser init-time poses.
-    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
+    pub cam_se3_target: Vec<Vec<Option<Iso3>>>,
 }
 
 /// Typed return value of [`step_rig_optimize`] for rig hand-eye calibration.
@@ -213,7 +213,7 @@ pub fn step_intrinsics_optimize_all(
     Ok(IntrinsicsOptimizeResult {
         cameras: estimate.cameras,
         per_cam_reproj_errors: estimate.per_cam_reproj_errors,
-        per_cam_target_poses: estimate.per_cam_target_poses,
+        cam_se3_target: estimate.cam_se3_target,
     })
 }
 
@@ -270,15 +270,15 @@ pub fn step_rig_optimize(
 ) -> Result<RigOptimizeResult, Error> {
     let output = rig_family::optimize_rig(session, opts)?;
     let notes = rig_ba_notes(&output);
-    let cam_se3_rig = inverse_poses(&output.params.cam_to_rig);
+    let cam_se3_rig = inverse_poses(&output.params.rig_se3_cam);
     let result = RigOptimizeResult {
         mean_reproj_error: output.mean_reproj_error,
         per_cam_reproj_errors: output.per_cam_reproj_errors,
         cam_se3_rig: cam_se3_rig.clone(),
-        rig_se3_target: output.params.rig_from_target.clone(),
+        rig_se3_target: output.params.rig_se3_target.clone(),
     };
     session.state.rig_ba_cam_se3_rig = Some(cam_se3_rig);
-    session.state.rig_ba_rig_se3_target = Some(output.params.rig_from_target);
+    session.state.rig_ba_rig_se3_target = Some(output.params.rig_se3_target);
     session.state.rig.cameras = Some(output.params.cameras);
     session.log_success_with_notes("rig_optimize", notes);
     Ok(result)
@@ -472,7 +472,7 @@ pub fn step_handeye_optimize(
 
     let initial = HandeyeParams {
         cameras,
-        cam_to_rig: inverse_poses(cam_se3_rig),
+        rig_se3_cam: inverse_poses(cam_se3_rig),
         handeye,
         target_poses: vec![mode_target_pose],
     };

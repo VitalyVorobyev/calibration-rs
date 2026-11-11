@@ -103,7 +103,7 @@ establish their invariants: `add_camera(&CameraParams, &CameraFix)` lays out the
 camera's blocks from its `CameraModelSpec` and labels them as the
 workflows' results do (`fx`, or `cam<i>.fx` with several cameras), so
 `projection_uncertainty` reads them; `add_reprojection(camera,
-camera_se3_target, point, pixel, loss)` adds the reprojection residual
+cam_se3_target, point, pixel, loss)` adds the reprojection residual
 through one SE3 pose, checking that the point is in the projection's domain
 at the initial values (the projection itself is total, so a point behind a
 pinhole camera has a finite, meaningless residual). Stated per-point

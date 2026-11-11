@@ -60,7 +60,7 @@ class DeviceManualInit:
     """Manual seeds of ``step_init_with_seed``; a field left ``None`` is
     estimated.
 
-    The camera seeds mean what they mean for planar intrinsics; ``poses``
+    The camera seeds mean what they mean for planar intrinsics; ``cam_se3_target``
     are camera-from-target, one per view; ``plane`` is the laser plane in the
     camera frame and skips the linear plane fit.
     """
@@ -68,7 +68,7 @@ class DeviceManualInit:
     intrinsics: PinholeIntrinsics | None = None
     distortion: Distortion | None = None
     sensor: ScheimpflugSensor | None = None
-    poses: list[Pose] | None = None
+    cam_se3_target: list[Pose] | None = None
     plane: LaserPlane | None = None
 
     def to_payload(self) -> dict[str, Any]:
@@ -77,7 +77,7 @@ class DeviceManualInit:
                 "intrinsics": self.intrinsics,
                 "distortion": self.distortion,
                 "sensor": self.sensor,
-                "poses": self.poses,
+                "cam_se3_target": self.cam_se3_target,
                 "plane": self.plane,
             }
         )
@@ -88,7 +88,7 @@ class DeviceInitResult:
     """The initial camera, poses and laser plane."""
 
     camera: Camera
-    poses: list[Pose]
+    cam_se3_target: list[Pose]
     """Per-view camera-from-target."""
     plane: LaserPlane
     """Laser plane in the camera frame."""
@@ -101,7 +101,7 @@ class DeviceInitResult:
         rmse = payload.get("plane_rmse")
         return cls(
             camera=_camera(payload["camera"]),
-            poses=_poses(payload["poses"]),
+            cam_se3_target=_poses(payload["cam_se3_target"]),
             plane=LaserPlane.from_payload(cast(Mapping[str, Any], payload["plane"])),
             plane_rmse=None if rmse is None else float(rmse),
         )

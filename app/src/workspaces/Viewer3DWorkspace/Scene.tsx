@@ -77,9 +77,9 @@ export function Scene({
   const residualsByPose = useMemo(() => {
     const m = new Map<number, TargetFeatureResidual[]>();
     for (const r of data.diagnostics.per_feature_residuals.target) {
-      const arr = m.get(r.pose);
+      const arr = m.get(r.view);
       if (arr) arr.push(r);
-      else m.set(r.pose, [r]);
+      else m.set(r.view, [r]);
     }
     return m;
   }, [data]);

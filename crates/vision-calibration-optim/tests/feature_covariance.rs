@@ -124,11 +124,11 @@ fn pinhole_truth(fx: f64, cx: f64) -> PinholeCamera {
     )
 }
 
-/// The board seen by `camera` at `camera_se3_target` in realization `seed`:
+/// The board seen by `camera` at `cam_se3_target` in realization `seed`:
 /// with its stated covariances and with none, on the same noisy pixels.
 fn observe(
     camera: &PinholeCamera,
-    camera_se3_target: &Iso3,
+    cam_se3_target: &Iso3,
     seed: u64,
     cam: usize,
     view: usize,
@@ -137,7 +137,7 @@ fn observe(
     let mut p2 = Vec::new();
     let mut cov = Vec::new();
     for (i, p) in board().iter().enumerate() {
-        let Some(uv) = camera.project_point(&camera_se3_target.transform_point(p)) else {
+        let Some(uv) = camera.project_point(&cam_se3_target.transform_point(p)) else {
             continue;
         };
         let (c, root) = point_covariance(cam, view, i);
@@ -382,8 +382,8 @@ fn rig_study(runs: u64) -> Study {
     let rig_se3_target = board_poses();
     let initial = RigExtrinsicsParams {
         cameras: cameras.iter().map(pinhole_camera_params).collect(),
-        cam_to_rig: rig_se3_cam.to_vec(),
-        rig_from_target: rig_se3_target.clone(),
+        rig_se3_cam: rig_se3_cam.to_vec(),
+        rig_se3_target: rig_se3_target.clone(),
     };
     let truth_cam1 = rig_se3_cam[1].inverse();
     let mut study = Study::default();
@@ -427,7 +427,7 @@ fn rig_study(runs: u64) -> Study {
             let c: usize = cam.strip_prefix("cam").unwrap().parse().unwrap();
             match rest.strip_prefix("cam_se3_rig.") {
                 Some(coordinate) => {
-                    pose_coordinate(&truth_cam1, &params.cam_to_rig[1].inverse(), coordinate)
+                    pose_coordinate(&truth_cam1, &params.rig_se3_cam[1].inverse(), coordinate)
                 }
                 None => camera_error(&cameras[c], &params.cameras[c], rest),
             }

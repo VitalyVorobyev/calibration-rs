@@ -22,7 +22,7 @@ use vision_calibration::optim::problem::{
 };
 
 /// A measured distance from the camera centre to the board's origin: the
-/// length of the translation of `camera_se3_target`.
+/// length of the translation of `cam_se3_target`.
 struct Range {
     measured: f64,
 }

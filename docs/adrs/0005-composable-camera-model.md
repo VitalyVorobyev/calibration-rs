@@ -166,7 +166,7 @@ error at validation, never a silent fallback.
 ### Telecentric gauge
 
 An orthographic camera cannot see depth along its optical axis:
-- **Per-view depth:** each view's depth (`tz` of `camera_se3_target`) is
+- **Per-view depth:** each view's depth (`tz` of `cam_se3_target`) is
   held at its initial value.
 - **Hand-eye:** the hand-eye translation along the optical axis is
   likewise held.

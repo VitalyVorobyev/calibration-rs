@@ -59,7 +59,7 @@ fn main() -> Result<()> {
     print_camera("init     ", &init.camera);
     step_optimize(&mut session, None)?;
     let export = session.export()?;
-    print_camera("optimized", &export.params.camera);
+    print_camera("optimized", &export.camera);
     println!(
         "  mean reprojection error {:.4} px",
         export.mean_reproj_error

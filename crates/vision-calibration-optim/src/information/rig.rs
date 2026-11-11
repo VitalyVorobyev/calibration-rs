@@ -228,7 +228,7 @@ impl Layout {
                 labels.extend(pose_labels(&prefix(i, "cam_se3_rig")));
             }
         }
-        let rig = if multi { "rig" } else { "camera" };
+        let rig = if multi { "rig" } else { "cam" };
         let (handeye, target) = match mode {
             HandeyeMode::EyeInHand => (format!("gripper_se3_{rig}"), "base_se3_target"),
             HandeyeMode::EyeToHand => (format!("{rig}_se3_base"), "gripper_se3_target"),

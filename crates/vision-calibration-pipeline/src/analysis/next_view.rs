@@ -5,7 +5,7 @@
 //!
 //! # Prediction
 //!
-//! A candidate is a target pose `camera_se3_target`. The target's points are
+//! A candidate is a target pose `cam_se3_target`. The target's points are
 //! projected through the current estimate; those behind the camera or
 //! outside the image are dropped. The candidate's information about the
 //! camera is `JᵀJ` over the camera parameters and the candidate's own pose,
@@ -145,7 +145,7 @@ impl CandidateGrid {
 /// of the target `target_points` added, and its projection uncertainty over
 /// an image of `image_size` pixels (see the module documentation).
 ///
-/// `candidates` are `camera_se3_target` poses; `target_points` are the
+/// `candidates` are `cam_se3_target` poses; `target_points` are the
 /// target's points in its own frame, metres, as the calibration observed
 /// them.
 ///
@@ -356,7 +356,7 @@ impl<'a> Planner<'a> {
                 });
             }
         };
-        let camera = &export.params.camera;
+        let camera = &export.camera;
         let names: Vec<&'static str> = camera_parameters(camera)
             .map_err(input_error)?
             .into_iter()
@@ -407,14 +407,14 @@ impl<'a> Planner<'a> {
     /// parameters per unit pixel variance; `None` when it adds none.
     fn candidate_information(
         &self,
-        camera_se3_target: &Iso3,
+        cam_se3_target: &Iso3,
     ) -> Result<(usize, Option<DMatrix<f64>>), Error> {
         let [width, height] = self.image_size.map(f64::from);
         let visible: Vec<Pt3> = self
             .target_points
             .iter()
             .filter(|point| {
-                let p_c = camera_se3_target.transform_point(point).coords;
+                let p_c = cam_se3_target.transform_point(point).coords;
                 // `project_point_c` is `None` outside the projection's domain.
                 self.model
                     .project_point_c(&p_c)
@@ -425,18 +425,14 @@ impl<'a> Planner<'a> {
         if visible.len() < MIN_VIEW_POINTS {
             return Ok((visible.len(), None));
         }
-        let information = match view_information(
-            self.camera,
-            camera_se3_target,
-            &visible,
-            ViewPose::Estimated,
-        ) {
-            Ok(information) => information,
-            // The points do not determine the pose: a re-solve would not
-            // learn the camera from this view.
-            Err(OptimError::Numerical(_)) => return Ok((visible.len(), None)),
-            Err(err) => return Err(input_error(err)),
-        };
+        let information =
+            match view_information(self.camera, cam_se3_target, &visible, ViewPose::Estimated) {
+                Ok(information) => information,
+                // The points do not determine the pose: a re-solve would not
+                // learn the camera from this view.
+                Err(OptimError::Numerical(_)) => return Ok((visible.len(), None)),
+                Err(err) => return Err(input_error(err)),
+            };
         Ok((visible.len(), Some(self.restrict(&information.matrix))))
     }
 
@@ -467,13 +463,13 @@ fn existing_information(
     covariance: &ParameterCovariance,
     free: &[usize],
 ) -> Result<DMatrix<f64>, Error> {
-    let poses = &export.params.camera_se3_target;
+    let poses = &export.cam_se3_target;
     let mut points: Vec<Vec<Pt3>> = vec![Vec::new(); poses.len()];
     for record in &export.diagnostics.per_feature_residuals.target {
-        let view = points.get_mut(record.pose).ok_or_else(|| {
+        let view = points.get_mut(record.view).ok_or_else(|| {
             Error::invalid_input(format!(
                 "a feature residual names view {}, but the result has {} poses",
-                record.pose,
+                record.view,
                 poses.len()
             ))
         })?;
@@ -492,7 +488,7 @@ fn existing_information(
         }
         let estimated = covariance.views.iter().any(|v| v.view == view);
         let information = view_information(
-            &export.params.camera,
+            &export.camera,
             pose,
             view_points,
             if estimated {

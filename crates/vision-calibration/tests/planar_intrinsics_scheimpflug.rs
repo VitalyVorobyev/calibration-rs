@@ -513,5 +513,5 @@ fn scheimpflug_result_json_roundtrip() {
     let restored: PlanarIntrinsicsEstimate =
         serde_json::from_str(&json).expect("deserialize result");
     assert!(restored.mean_reproj_error.is_finite());
-    assert_eq!(restored.params.camera_se3_target.len(), dataset.num_views());
+    assert_eq!(restored.params.cam_se3_target.len(), dataset.num_views());
 }

@@ -51,9 +51,9 @@ impl Rng {
 /// 30 robot stations.
 struct Scene {
     camera: PinholeCamera,
-    gripper_se3_camera: Iso3,
+    gripper_se3_cam: Iso3,
     base_se3_target: Iso3,
-    camera_se3_target: Vec<Iso3>,
+    cam_se3_target: Vec<Iso3>,
     base_se3_gripper: Vec<Iso3>,
     board: Vec<Pt3>,
 }
@@ -76,7 +76,7 @@ impl Scene {
                 iters: 8,
             },
         );
-        let gripper_se3_camera = Iso3::from_parts(
+        let gripper_se3_cam = Iso3::from_parts(
             Translation3::new(0.26, 0.034, -0.10),
             UnitQuaternion::from_euler_angles(1.55, 0.02, 1.6),
         );
@@ -85,7 +85,7 @@ impl Scene {
             UnitQuaternion::from_euler_angles(-1.6, 0.03, -1.55),
         );
         let mut rng = Rng(0xC0FFEE);
-        let camera_se3_target: Vec<Iso3> = (0..30)
+        let cam_se3_target: Vec<Iso3> = (0..30)
             .map(|_| {
                 let rx = 0.45 * (rng.uniform() - 0.5);
                 let ry = 0.45 * (rng.uniform() - 0.5);
@@ -99,9 +99,9 @@ impl Scene {
                 )
             })
             .collect();
-        let base_se3_gripper = camera_se3_target
+        let base_se3_gripper = cam_se3_target
             .iter()
-            .map(|c| base_se3_target * c.inverse() * gripper_se3_camera.inverse())
+            .map(|c| base_se3_target * c.inverse() * gripper_se3_cam.inverse())
             .collect();
         let board = (0..17 * 28)
             .map(|i| {
@@ -114,9 +114,9 @@ impl Scene {
             .collect();
         Self {
             camera,
-            gripper_se3_camera,
+            gripper_se3_cam,
             base_se3_target,
-            camera_se3_target,
+            cam_se3_target,
             base_se3_gripper,
             board,
         }
@@ -125,8 +125,8 @@ impl Scene {
     fn initial(&self) -> HandeyeParams {
         HandeyeParams {
             cameras: vec![pinhole_camera_params(&self.camera)],
-            cam_to_rig: vec![Iso3::identity()],
-            handeye: self.gripper_se3_camera,
+            rig_se3_cam: vec![Iso3::identity()],
+            handeye: self.gripper_se3_cam,
             target_poses: vec![self.base_se3_target],
         }
     }
@@ -138,7 +138,7 @@ impl Scene {
     fn dataset(&self, seed: u64, px: f64, robot: (f64, f64), base_frame: bool) -> HandeyeDataset {
         let mut rng = Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0xABCD);
         let views = self
-            .camera_se3_target
+            .cam_se3_target
             .iter()
             .zip(&self.base_se3_gripper)
             .map(|(c, b)| {
@@ -202,7 +202,7 @@ impl Cell {
         let Uncertainty::Available(cov) = &est.uncertainty else {
             panic!("no covariance: {:?}", est.uncertainty);
         };
-        let he = pose_error(&scene.gripper_se3_camera, &est.params.handeye);
+        let he = pose_error(&scene.gripper_se3_cam, &est.params.handeye);
         let target = pose_error(&scene.base_se3_target, &est.params.target_poses[0]);
         let fx = est.params.cameras[0].intrinsics.fx - scene.camera.k.fx;
         let coords = ["rx", "ry", "rz", "tx", "ty", "tz"];
@@ -215,7 +215,7 @@ impl Cell {
             self.within_2 += f64::from(u8::from(z.abs() < 2.0));
         };
         for (i, c) in coords.iter().enumerate() {
-            add(i / 3, &format!("gripper_se3_camera.{c}"), he[i]);
+            add(i / 3, &format!("gripper_se3_cam.{c}"), he[i]);
         }
         for (i, c) in coords.iter().enumerate().skip(3) {
             add(2, &format!("base_se3_target.{c}"), target[i]);
@@ -361,7 +361,7 @@ fn estimated_robot_sigma_recovers_the_robot_error() {
         .unwrap()
     };
     let handeye_trans_err = |est: &HandeyeEstimate| {
-        (est.params.handeye.translation.vector - scene.gripper_se3_camera.translation.vector).norm()
+        (est.params.handeye.translation.vector - scene.gripper_se3_cam.translation.vector).norm()
     };
     let seeds = 0..4;
     for start in [(0.01 * deg, 1e-4), (1.0 * deg, 1e-2)] {

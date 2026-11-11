@@ -84,7 +84,7 @@ fn assert_projection_uncertainty(export: &impl CalibratedCameras) {
 fn assert_camera_parameters_from_json(export: &impl serde::Serialize, fx: f64) {
     let cameras = calibrated_cameras(serde_json::to_value(export).unwrap()).unwrap();
     assert_eq!(cameras.camera_parameter("fx"), Some(fx));
-    assert_eq!(cameras.camera_parameter("camera_se3_target.rx"), None);
+    assert_eq!(cameras.camera_parameter("cam_se3_target.rx"), None);
     assert_eq!(cameras.camera_parameter("cam1.fx"), None);
 }
 
@@ -190,8 +190,8 @@ fn bc5_pipeline_noiseless_round_trip() {
     );
 
     // Verify coefficients converge close to GT.
-    let k_out = export.params.camera.intrinsics;
-    let DistortionParams::BrownConrady5 { params: d_out } = export.params.camera.distortion else {
+    let k_out = export.camera.intrinsics;
+    let DistortionParams::BrownConrady5 { params: d_out } = export.camera.distortion else {
         panic!("BC5 must produce BC5 distortion")
     };
     println!(
@@ -239,7 +239,7 @@ fn rational8_pipeline_noiseless_round_trip() {
         "Rational8 pipeline: reprojection RMS too large: {rms:.4e} px"
     );
 
-    let k_out = export.params.camera.intrinsics;
+    let k_out = export.camera.intrinsics;
     println!(
         "[Rational8] fx_err={:.3} fy_err={:.3}",
         (k_out.fx - k_gt.fx).abs(),
@@ -249,8 +249,8 @@ fn rational8_pipeline_noiseless_round_trip() {
     assert!((k_out.fy - k_gt.fy).abs() < 5.0, "fy not converged");
 
     // Verify reprojection with the exported camera model.
-    let cam_out = export.params.build_camera().unwrap();
-    let rms_check = reproj_rms(&cam_out, &dataset, &export.params.camera_se3_target);
+    let cam_out = export.camera.build().unwrap();
+    let rms_check = reproj_rms(&cam_out, &dataset, &export.cam_se3_target);
     println!("[Rational8] direct reproj rms={rms_check:.4e}");
     assert!(
         rms_check < 1e-2,
@@ -283,7 +283,7 @@ fn thinprism9_pipeline_noiseless_round_trip() {
 
     let (export, rms) = run_pipeline(dataset.clone(), DistortionKind::ThinPrism9);
     assert_projection_uncertainty(&export);
-    assert_camera_parameters_from_json(&export, export.params.camera.intrinsics.fx);
+    assert_camera_parameters_from_json(&export, export.camera.intrinsics.fx);
 
     println!("[ThinPrism9 pipeline] rms={rms:.4e} px");
     assert!(
@@ -291,7 +291,7 @@ fn thinprism9_pipeline_noiseless_round_trip() {
         "ThinPrism9 pipeline: reprojection RMS too large: {rms:.4e} px"
     );
 
-    let k_out = export.params.camera.intrinsics;
+    let k_out = export.camera.intrinsics;
     println!(
         "[ThinPrism9] fx_err={:.3} fy_err={:.3}",
         (k_out.fx - k_gt.fx).abs(),
@@ -300,8 +300,8 @@ fn thinprism9_pipeline_noiseless_round_trip() {
     assert!((k_out.fx - k_gt.fx).abs() < 5.0, "fx not converged");
     assert!((k_out.fy - k_gt.fy).abs() < 5.0, "fy not converged");
 
-    let cam_out = export.params.build_camera().unwrap();
-    let rms_check = reproj_rms(&cam_out, &dataset, &export.params.camera_se3_target);
+    let cam_out = export.camera.build().unwrap();
+    let rms_check = reproj_rms(&cam_out, &dataset, &export.cam_se3_target);
     println!("[ThinPrism9] direct reproj rms={rms_check:.4e}");
     assert!(
         rms_check < 1e-2,
@@ -333,7 +333,7 @@ fn division1_pipeline_noiseless_round_trip() {
         "Division1 pipeline: reprojection RMS too large: {rms:.4e} px"
     );
 
-    let k_out = export.params.camera.intrinsics;
+    let k_out = export.camera.intrinsics;
     println!(
         "[Division1] fx_err={:.3} fy_err={:.3}",
         (k_out.fx - k_gt.fx).abs(),
@@ -342,8 +342,8 @@ fn division1_pipeline_noiseless_round_trip() {
     assert!((k_out.fx - k_gt.fx).abs() < 5.0, "fx not converged");
     assert!((k_out.fy - k_gt.fy).abs() < 5.0, "fy not converged");
 
-    let cam_out = export.params.build_camera().unwrap();
-    let rms_check = reproj_rms(&cam_out, &dataset, &export.params.camera_se3_target);
+    let cam_out = export.camera.build().unwrap();
+    let rms_check = reproj_rms(&cam_out, &dataset, &export.cam_se3_target);
     println!("[Division1] direct reproj rms={rms_check:.4e}");
     assert!(
         rms_check < 1e-2,
@@ -380,8 +380,8 @@ fn rational8_export_json_roundtrip() {
         serde_json::from_str(&json).expect("deserialize export");
 
     // Intrinsics survive the roundtrip.
-    let k_orig = export.params.camera.intrinsics;
-    let k_rest = restored.params.camera.intrinsics;
+    let k_orig = export.camera.intrinsics;
+    let k_rest = restored.camera.intrinsics;
     assert!((k_orig.fx - k_rest.fx).abs() < 1e-9);
     assert!((k_orig.fy - k_rest.fy).abs() < 1e-9);
     assert!((k_orig.cx - k_rest.cx).abs() < 1e-9);

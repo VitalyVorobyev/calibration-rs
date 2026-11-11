@@ -452,7 +452,7 @@ mod tests {
 
         let cam_se3_rig: Vec<Iso3> = output
             .params
-            .cam_to_rig
+            .rig_se3_cam
             .iter()
             .map(|t| t.inverse())
             .collect();
@@ -461,14 +461,14 @@ mod tests {
             &models,
             &input,
             &cam_se3_rig,
-            &output.params.rig_from_target,
+            &output.params.rig_se3_target,
         )
         .unwrap();
         let per_cam_stats = vision_calibration_core::compute_rig_reprojection_stats_per_camera(
             &models,
             &input,
             &cam_se3_rig,
-            &output.params.rig_from_target,
+            &output.params.rig_se3_target,
         )
         .unwrap();
         let mean_err = reproj_stats.mean;

@@ -299,7 +299,7 @@ fn labels_name_the_covariance_parameters() {
     let points = visible(&single, &g);
     let info = rig_handeye_view_information(&single, &g, &points, RobotPose::Exact).unwrap();
     assert_eq!(info.labels[0], "fx");
-    assert!(info.labels.iter().any(|l| l == "camera_se3_base.rx"));
+    assert!(info.labels.iter().any(|l| l == "cam_se3_base.rx"));
     assert!(!info.labels.iter().any(|l| l.contains("cam_se3_rig")));
 }
 
@@ -390,7 +390,7 @@ fn solve_and_rebuild(mode: HandeyeMode, refine_robot_poses: bool) -> (DMatrix<f6
         dataset,
         HandeyeParams {
             cameras: cameras.clone(),
-            cam_to_rig: layout.iter().map(Iso3::inverse).collect(),
+            rig_se3_cam: layout.iter().map(Iso3::inverse).collect(),
             handeye,
             target_poses: vec![target],
         },
@@ -422,7 +422,7 @@ fn solve_and_rebuild(mode: HandeyeMode, refine_robot_poses: bool) -> (DMatrix<f6
     };
 
     let params = &estimate.params;
-    let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(Iso3::inverse).collect();
+    let cam_se3_rig: Vec<Iso3> = params.rig_se3_cam.iter().map(Iso3::inverse).collect();
     let solved = RigHandeyeGeometry {
         cameras: &params.cameras,
         cam_se3_rig: &cam_se3_rig,

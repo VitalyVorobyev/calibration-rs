@@ -9,7 +9,7 @@ function res(
   error_px: number | null,
 ): TargetFeatureResidual {
   return {
-    pose,
+    view: pose,
     camera,
     feature: 0,
     target_xyz_m: [0, 0, 0],

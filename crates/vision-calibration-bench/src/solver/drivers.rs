@@ -134,7 +134,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: vec![e.params.camera],
+                    cameras: vec![e.camera],
                     ..ModelParams::default()
                 },
                 e.diagnostics.per_feature_residuals,
@@ -155,7 +155,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let e = s.export()?;
             (
                 ModelParams {
-                    cameras: vec![e.params.camera],
+                    cameras: vec![e.camera],
                     ..ModelParams::default()
                 },
                 e.diagnostics.per_feature_residuals,
@@ -190,11 +190,11 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             ph.optimize(|| laser_optimize(&mut s, None))?;
             let report = s.output().map(|o| o.estimate.report.clone());
             let e = s.export()?;
-            let p = &e.params;
+            let p = &e;
             (
                 ModelParams {
                     cameras: vec![p.camera.clone()],
-                    planes_cam: vec![p.plane.clone()],
+                    planes_cam: vec![p.laser_plane.clone()],
                     ..ModelParams::default()
                 },
                 e.diagnostics.per_feature_residuals,

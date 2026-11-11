@@ -11,7 +11,7 @@ Hand-eye calibration estimates the rigid transform between a camera and a robot 
 - **Camera** (C): the camera frame (observations come from here)
 - **Target** (T): the calibration board frame
 
-Each view $i$ pairs a robot pose $T_{B,G_i}$ (`base_se3_gripper`) with the board pose the camera observes, $T_{C_i,T}$ (`camera_se3_target`).
+Each view $i$ pairs a robot pose $T_{B,G_i}$ (`base_se3_gripper`) with the board pose the camera observes, $T_{C_i,T}$ (`cam_se3_target`).
 
 ### Robot-world form: $A_i X = Z B_i$
 
@@ -27,8 +27,8 @@ Both are $A_i X = Z B_i$ with $A_i = T_{B,G_i}$:
 
 | mode | $B_i$ | $X$ | $Z$ |
 |---|---|---|---|
-| eye-in-hand | $T_{T,C_i}$ | `gripper_se3_camera` | `base_se3_target` |
-| eye-to-hand | $T_{C,T_i}$ | `gripper_se3_target` | `base_se3_camera` (returned as `camera_se3_base`) |
+| eye-in-hand | $T_{T,C_i}$ | `gripper_se3_cam` | `base_se3_target` |
+| eye-to-hand | $T_{C,T_i}$ | `gripper_se3_target` | `base_se3_cam` (returned as `cam_se3_base`) |
 
 For a rig the observer is the rig frame instead of a camera.
 
@@ -116,14 +116,14 @@ use vision_calibration::init::{HandeyeMethod, estimate_eye_in_hand};
 let estimate = estimate_eye_in_hand(
     HandeyeMethod::TsaiLenz,
     &base_se3_gripper,  // &[Iso3]: robot poses
-    &camera_se3_target, // &[Iso3]: observed board poses
+    &cam_se3_target, // &[Iso3]: observed board poses
     5.0,                // minimum rotation of a pair, degrees
 )?;
-let x = estimate.gripper_se3_camera;
+let x = estimate.gripper_se3_cam;
 let z = estimate.base_se3_target;
 ```
 
-`estimate_eye_to_hand` takes the same arguments and returns `gripper_se3_target` and `camera_se3_base`.
+`estimate_eye_to_hand` takes the same arguments and returns `gripper_se3_target` and `cam_se3_base`.
 
 > **OpenCV equivalence**: `cv::calibrateHandEye` with `CALIB_HAND_EYE_TSAI`, `CALIB_HAND_EYE_PARK` and `CALIB_HAND_EYE_DANIILIDIS`; `cv::calibrateRobotWorldHandEye` with `CALIB_ROBOT_WORLD_HAND_EYE_SHAH`.
 

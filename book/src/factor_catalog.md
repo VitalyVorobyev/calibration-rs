@@ -61,7 +61,7 @@ $\mathbf{P}_c$ comes from the chain:
 
 ### `ReprojChain::SinglePose`
 
-**Chain blocks**: `[camera_se3_target(7)]`
+**Chain blocks**: `[cam_se3_target(7)]`
 
 $$\mathbf{P}_c = T_{C,T} \cdot \mathbf{P}_w$$
 
@@ -115,7 +115,7 @@ reprojection chains but end with the laser-plane blocks
 `[plane_normal(3, S²), plane_distance(1)]`; a robot-delta block, when
 present, always comes last:
 
-- `LaserChain::SinglePose` — blocks `[camera_se3_target, plane_normal, plane_distance]`.
+- `LaserChain::SinglePose` — blocks `[cam_se3_target, plane_normal, plane_distance]`.
 - `LaserChain::RigHandeye { base_se3_gripper, mode }` — blocks
   `[cam_se3_rig, handeye, target_ref, plane_normal, plane_distance]`; the
   per-view pose is composed exactly like the hand-eye reprojection chain.

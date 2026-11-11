@@ -14,7 +14,7 @@ def _available_payload() -> dict:
         "status": "available",
         "labels": ["fx", "cx"],
         "covariance": [[4.0, -1.2], [-1.2, 1.0]],
-        "views": [{"view": 0, "labels": ["camera_se3_target.tz"], "covariance": [[1e-8]]}],
+        "views": [{"view": 0, "labels": ["cam_se3_target.tz"], "covariance": [[1e-8]]}],
         "fixed": ["k3"],
         "noise": [{"kind": "reprojection", "sigma": 0.2, "count": 400}],
         "num_residuals": 400,
@@ -29,7 +29,7 @@ class ParameterUncertaintyParsingTest(unittest.TestCase):
         self.assertAlmostEqual(u.std_dev("fx"), 2.0)
         self.assertAlmostEqual(u.correlation("fx", "cx"), -0.6)
         self.assertEqual(u.fixed, ["k3"])
-        self.assertEqual(u.views[0].labels, ["camera_se3_target.tz"])
+        self.assertEqual(u.views[0].labels, ["cam_se3_target.tz"])
         self.assertEqual(u.noise[0].kind, "reprojection")
         with self.assertRaises(KeyError):
             u.std_dev("k3")

@@ -102,8 +102,8 @@ fn main() -> Result<()> {
 
     // Export results
     let export = session.export()?;
-    let final_k = export.params.camera.intrinsics;
-    let final_dist = match export.params.camera.distortion {
+    let final_k = export.camera.intrinsics;
+    let final_dist = match export.camera.distortion {
         DistortionParams::BrownConrady5 { params } => Some(params),
         _ => None,
     };

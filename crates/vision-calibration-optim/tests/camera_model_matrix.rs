@@ -173,7 +173,7 @@ fn identifiable(kind: DistortionKind, sensor: &SensorParams) -> bool {
 
 #[test]
 fn handeye_solves_every_camera_model() {
-    let gripper_se3_camera = Isometry3::from_parts(
+    let gripper_se3_cam = Isometry3::from_parts(
         Translation3::new(0.05, -0.03, 0.12),
         Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
     );
@@ -194,14 +194,14 @@ fn handeye_solves_every_camera_model() {
                     meta: RobotPoseMeta {
                         base_se3_gripper: base_se3_target
                             * cam_se3_target.inverse()
-                            * gripper_se3_camera.inverse(),
+                            * gripper_se3_cam.inverse(),
                     },
                 })
                 .collect();
             let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
             let initial = HandeyeParams {
                 cameras: vec![camera(kind, &sensor, perturbed_k())],
-                cam_to_rig: vec![Iso3::identity()],
+                rig_se3_cam: vec![Iso3::identity()],
                 handeye: Isometry3::from_parts(
                     Translation3::new(0.052, -0.028, 0.118),
                     Rotation3::from_euler_angles(0.104, -0.048, 0.197).into(),
@@ -222,7 +222,7 @@ fn handeye_solves_every_camera_model() {
             assert_eq!(result.params.cameras[0].spec(), truth.spec());
             if identifiable(kind, &sensor) {
                 let dt = (result.params.handeye.translation.vector
-                    - gripper_se3_camera.translation.vector)
+                    - gripper_se3_cam.translation.vector)
                     .norm();
                 assert!(dt < 1e-4, "{kind:?}/{sensor:?}: hand-eye translation {dt}");
             }
@@ -293,7 +293,7 @@ fn laserline_solves_every_camera_model() {
 /// the model under test.
 struct RigScene {
     cameras: [CameraParams; 2],
-    cam_to_rig: [Iso3; 2],
+    rig_se3_cam: [Iso3; 2],
     rig_se3_target: Vec<Iso3>,
     planes_cam: [LaserPlane; 2],
     views: Vec<RigLaserlineView>,
@@ -309,7 +309,7 @@ fn rig_scene(kind: DistortionKind, sensor: &SensorParams) -> RigScene {
         camera(kind, sensor, truth_k()),
     ];
     let models = [cameras[0].build().unwrap(), cameras[1].build().unwrap()];
-    let cam_to_rig = [
+    let rig_se3_cam = [
         Iso3::identity(),
         Isometry3::from_parts(
             Translation3::new(0.08, 0.0, 0.0),
@@ -319,15 +319,15 @@ fn rig_scene(kind: DistortionKind, sensor: &SensorParams) -> RigScene {
     let rig_se3_target = board_poses();
     let plane_rig = laser_plane();
     let planes_cam = [
-        plane_rig.transform_by(&cam_to_rig[0].inverse()),
-        plane_rig.transform_by(&cam_to_rig[1].inverse()),
+        plane_rig.transform_by(&rig_se3_cam[0].inverse()),
+        plane_rig.transform_by(&rig_se3_cam[1].inverse()),
     ];
     let views = rig_se3_target
         .iter()
         .map(|rig_pose| {
             let per_cam: Vec<_> = (0..2)
                 .map(|c| {
-                    let cam_se3_target = cam_to_rig[c].inverse() * rig_pose;
+                    let cam_se3_target = rig_se3_cam[c].inverse() * rig_pose;
                     (
                         Some(observe(&models[c], &cam_se3_target)),
                         Some(laser_pixels(&models[c], &cam_se3_target, &planes_cam[c])),
@@ -342,7 +342,7 @@ fn rig_scene(kind: DistortionKind, sensor: &SensorParams) -> RigScene {
         .collect();
     RigScene {
         cameras,
-        cam_to_rig,
+        rig_se3_cam,
         rig_se3_target,
         planes_cam,
         views,
@@ -365,7 +365,7 @@ fn rig_laserline_solves_every_camera_model() {
             let dataset = RigLaserlineDataset::new(scene.views.clone(), 2).unwrap();
             let upstream = RigLaserlineUpstream {
                 cameras: scene.cameras.to_vec(),
-                cam_to_rig: scene.cam_to_rig.to_vec(),
+                rig_se3_cam: scene.rig_se3_cam.to_vec(),
                 rig_se3_target: scene.rig_se3_target.clone(),
                 uncertainty: Default::default(),
             };
@@ -425,7 +425,7 @@ fn joint_rig_laserline_solves_every_camera_model() {
                     scene.cameras[0].clone(),
                     camera(kind, &sensor, perturbed_k()),
                 ],
-                cam_to_rig: scene.cam_to_rig.to_vec(),
+                rig_se3_cam: scene.rig_se3_cam.to_vec(),
                 handeye: Isometry3::from_parts(
                     Translation3::new(0.052, -0.028, 0.118),
                     Rotation3::from_euler_angles(0.104, -0.048, 0.197).into(),

@@ -908,7 +908,7 @@ mod tests {
             "intrinsics" => DVector::from_row_slice(&[812.3, 798.7, 645.2, 357.9]),
             "distortion" => DVector::from_row_slice(&[-0.11, 0.07, 0.012, 0.0015, -0.0023]),
             "sensor" => DVector::from_row_slice(&[0.021, -0.013]),
-            "camera_se3_target" | "pose" => {
+            "cam_se3_target" | "pose" => {
                 DVector::from_row_slice(&[0.051, -0.022, 0.041, 0.997_55, 0.41, 0.21, 0.92])
             }
             "extrinsics" | "cam_se3_rig" => {

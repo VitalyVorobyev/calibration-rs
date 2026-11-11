@@ -13,7 +13,6 @@ from .models import (
     LaserlineDeviceInput,
     LaserlineDeviceConfig,
     DeviceOptimizeConfig,
-    LaserlineParams,
     LaserlineDeviceExport,
     LaserPlane,
     LaserlineStats,

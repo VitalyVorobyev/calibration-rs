@@ -36,7 +36,7 @@ fn part() -> Vec<Pt3> {
     points
 }
 
-/// The part's true `camera_se3_part`: half a metre away, turned a little.
+/// The part's true `cam_se3_part`: half a metre away, turned a little.
 fn part_pose() -> Iso3 {
     Iso3::from_parts(
         Translation3::new(-0.03, -0.02, 0.5),

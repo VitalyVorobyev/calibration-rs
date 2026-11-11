@@ -57,7 +57,7 @@ Shah (see [Hand-Eye Linear](handeye_linear.md)):
 4. Estimate $T_{B,T}$: through the first view, or over all views with Shah's
    method, which estimates it together with the hand-eye
 
-The result's `handeye` is a `SingleCamHandeyeSolution` of the configured mode, with both poses set. `step_handeye_init_with_seed` takes a `HandeyeManualInit` instead: `EyeInHand { gripper_se3_camera, base_se3_target }` or `EyeToHand { camera_se3_base, gripper_se3_target }`, each pose optional. Its variant must match `handeye_init.handeye_mode`, or the step returns `Error::InvalidInput` (see [Manual Initialization](manual_init.md#hand-eye-seeds)).
+The result's `handeye` is a `SingleCamHandeyeSolution` of the configured mode, with both poses set. `step_handeye_init_with_seed` takes a `HandeyeManualInit` instead: `EyeInHand { gripper_se3_cam, base_se3_target }` or `EyeToHand { cam_se3_base, gripper_se3_target }`, each pose optional. Its variant must match `handeye_init.handeye_mode`, or the step returns `Error::InvalidInput` (see [Manual Initialization](manual_init.md#hand-eye-seeds)).
 
 ### Step 4: Hand-Eye Optimization (`step_handeye_optimize`)
 
@@ -175,8 +175,8 @@ pub type SingleCamHandeyeView = View<RobotPoseMeta>;
 
 Poses follow the `frame_se3_frame` naming: `base_se3_gripper` reads "gripper pose expressed in the base frame" ($T_{B,G}$). The unknowns are named the same way. The mounting mode is `HandeyeInitConfig::handeye_mode`:
 
-- `HandeyeMode::EyeInHand` (the default): the camera rides on the gripper and observes a **fixed** target. The calibration solves for `gripper_se3_camera` ($T_{G,C}$) and `base_se3_target` ($T_{B,T}$).
-- `HandeyeMode::EyeToHand`: the camera is fixed in the scene and observes a target **mounted on the gripper**. The calibration solves for `camera_se3_base` ($T_{C,B}$) and `gripper_se3_target` ($T_{G,T}$).
+- `HandeyeMode::EyeInHand` (the default): the camera rides on the gripper and observes a **fixed** target. The calibration solves for `gripper_se3_cam` ($T_{G,C}$) and `base_se3_target` ($T_{B,T}$).
+- `HandeyeMode::EyeToHand`: the camera is fixed in the scene and observes a target **mounted on the gripper**. The calibration solves for `cam_se3_base` ($T_{C,B}$) and `gripper_se3_target` ($T_{G,T}$).
 
 The export's four pose fields are mutually exclusive by mode: the active mode fills its pair and leaves the other pair `None`.
 
@@ -191,7 +191,7 @@ config.handeye_init.handeye_mode = HandeyeMode::EyeToHand;
 session.set_config(config)?;
 ```
 
-In eye-to-hand mode the pixel-to-3D chain for a fixed camera observing a gripper-mounted target composes as $T_{C,T} = T_{C,B} \cdot T_{B,G} \cdot T_{G,T}$, the same identity `step_handeye_init_with_seed` uses to derive `camera_se3_base` when only `gripper_se3_target` is seeded (see [Seeding with Prior Knowledge](manual_init.md#hand-eye-coupling)).
+In eye-to-hand mode the pixel-to-3D chain for a fixed camera observing a gripper-mounted target composes as $T_{C,T} = T_{C,B} \cdot T_{B,G} \cdot T_{G,T}$, the same identity `step_handeye_init_with_seed` uses to derive `cam_se3_base` when only `gripper_se3_target` is seeded (see [Seeding with Prior Knowledge](manual_init.md#hand-eye-coupling)).
 
 ## Complete Example
 
@@ -222,11 +222,11 @@ println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 use vision_calibration::single_cam_handeye::SingleCamHandeyeSolution;
 
 match export.handeye {
-    SingleCamHandeyeSolution::EyeInHand { gripper_se3_camera, base_se3_target } => {
-        // gripper_se3_camera: T_G_C, base_se3_target: T_B_T
+    SingleCamHandeyeSolution::EyeInHand { gripper_se3_cam, base_se3_target } => {
+        // gripper_se3_cam: T_G_C, base_se3_target: T_B_T
     }
-    SingleCamHandeyeSolution::EyeToHand { camera_se3_base, gripper_se3_target } => {
-        // camera_se3_base: T_C_B, gripper_se3_target: T_G_T
+    SingleCamHandeyeSolution::EyeToHand { cam_se3_base, gripper_se3_target } => {
+        // cam_se3_base: T_C_B, gripper_se3_target: T_G_T
     }
 }
 ```
@@ -236,7 +236,7 @@ match export.handeye {
 ```json
 "handeye": {
   "mode": "eye_in_hand",
-  "gripper_se3_camera": { "rotation": [0, 0, 0, 1], "translation": [0.05, 0, 0.1] },
+  "gripper_se3_cam": { "rotation": [0, 0, 0, 1], "translation": [0.05, 0, 0.1] },
   "base_se3_target":    { "rotation": [0, 0, 0, 1], "translation": [0, 0, 1] }
 }
 ```

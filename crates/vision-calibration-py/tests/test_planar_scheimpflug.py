@@ -23,7 +23,7 @@ class PlanarScheimpflugTest(unittest.TestCase):
         self.assertGreaterEqual(result.mean_reproj_error, 0.0)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
-        self.assertEqual(result.export["params"]["camera"]["sensor"]["type"], "scheimpflug")
+        self.assertEqual(result.export["camera"]["sensor"]["type"], "scheimpflug")
 
     def test_untilted_camera_has_identity_sensor(self) -> None:
         result = vc.run_planar_intrinsics(_make_dataset())

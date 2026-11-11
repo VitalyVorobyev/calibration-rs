@@ -335,7 +335,7 @@ pub struct OutlierRef {
 }
 
 impl OutlierRef {
-    /// `(pose, camera, feature)` lookup key matching the export's residual records.
+    /// `(view, camera, feature)` lookup key matching the export's residual records.
     pub fn key(&self) -> (usize, usize, usize) {
         (self.pose, self.camera, self.feature)
     }
@@ -437,7 +437,7 @@ pub struct Scene {
     pub truth: ModelParams,
     /// Each camera's image `[width, height]`, pixels.
     pub image_sizes: Vec<[u32; 2]>,
-    /// Injected outliers (sorted by `(pose, camera, feature)`).
+    /// Injected outliers (sorted by `(view, camera, feature)`).
     pub outliers: Vec<OutlierRef>,
     /// Problem input + configuration.
     pub data: SceneData,
@@ -997,7 +997,7 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
 }
 
 /// Hand-eye ground truth shared by the single-camera and rig scenes:
-/// `gripper_se3_camera` (or `_rig`) and the target pose in the robot base.
+/// `gripper_se3_cam` (or `_rig`) and the target pose in the robot base.
 /// A fisheye camera sees the target from about 0.3 m instead of 1 m, so the
 /// board spans a wide field.
 fn handeye_truth(camera: CameraKind) -> (Iso3, Iso3) {

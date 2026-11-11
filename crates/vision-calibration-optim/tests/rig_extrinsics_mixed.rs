@@ -70,9 +70,9 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         Translation3::new(0.12, 0.0, 0.0),
         Rotation3::identity().into(),
     );
-    let cam_to_rig_gt = [cam0_to_rig_gt, cam1_to_rig_gt];
+    let rig_se3_cam_gt = [cam0_to_rig_gt, cam1_to_rig_gt];
 
-    let rig_from_target_gt = vec![
+    let rig_se3_target_gt = vec![
         Isometry3::from_parts(
             Translation3::new(0.1, -0.05, 1.0),
             Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
@@ -93,16 +93,16 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
 
     // Generate synthetic observations using the tilted cameras.
     let mut views = Vec::new();
-    for rig_pose in &rig_from_target_gt {
+    for rig_pose in &rig_se3_target_gt {
         let mut cameras_obs = Vec::new();
-        for (cam_idx, cam_to_rig) in cam_to_rig_gt.iter().enumerate() {
+        for (cam_idx, rig_se3_cam) in rig_se3_cam_gt.iter().enumerate() {
             let mut points_3d = Vec::new();
             let mut points_2d = Vec::new();
             for y in -2..=2 {
                 for x in -3..=3 {
                     let pw = Pt3::new(x as Real * 0.05, y as Real * 0.05, 0.0);
                     let p_rig = rig_pose.transform_point(&pw);
-                    let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
+                    let p_cam = rig_se3_cam.inverse_transform_point(&p_rig);
                     if let Some(pixel) = cam_gt[cam_idx].project_point(&p_cam) {
                         points_3d.push(pw);
                         points_2d.push(pixel);
@@ -152,7 +152,7 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         Translation3::new(0.115, 0.003, -0.002),
         Rotation3::from_euler_angles(0.008, 0.005, -0.01).into(),
     );
-    let rig_from_target_init = rig_from_target_gt
+    let rig_se3_target_init = rig_se3_target_gt
         .iter()
         .map(|iso| {
             let t = iso.translation.vector + nalgebra::Vector3::new(0.008, -0.005, 0.01);
@@ -164,8 +164,8 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
 
     let initial = RigExtrinsicsParams {
         cameras: cameras_init,
-        cam_to_rig: vec![cam0_to_rig_gt, cam1_to_rig_init],
-        rig_from_target: rig_from_target_init,
+        rig_se3_cam: vec![cam0_to_rig_gt, cam1_to_rig_init],
+        rig_se3_target: rig_se3_target_init,
     };
 
     // Break gauge: fix cam0 pose. Both cameras keep k3 fixed and solve the
@@ -214,7 +214,7 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
     }
 
     // Camera 1 extrinsics recovery.
-    let cam1_final = &result.params.cam_to_rig[1];
+    let cam1_final = &result.params.rig_se3_cam[1];
     let dt = (cam1_final.translation.vector - cam1_to_rig_gt.translation.vector).norm();
     let r_diff = cam1_final.rotation.to_rotation_matrix().transpose()
         * cam1_to_rig_gt.rotation.to_rotation_matrix();

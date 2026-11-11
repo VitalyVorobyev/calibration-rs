@@ -3,7 +3,7 @@
 //!
 //! A view observes target points `X` through the camera, each corner a
 //! pixel `q(θ, T X)` with `θ` the camera's parameters and `T` the view's
-//! `camera_se3_target`. Per unit pixel variance, the view's Fisher
+//! `cam_se3_target`. Per unit pixel variance, the view's Fisher
 //! information over `[θ, δ]`, with `δ` the pose's tangent coordinates, is
 //! `A = Σ JᵀJ`, `J = ∂q/∂[θ, δ]`. A pose the solve estimates is not known
 //! and takes part of that information: marginalizing it leaves the Schur
@@ -57,7 +57,7 @@ pub struct ViewInformation {
     pub matrix: DMatrix<f64>,
 }
 
-/// The information the view `camera_se3_target` of `points` (target frame,
+/// The information the view `cam_se3_target` of `points` (target frame,
 /// metres) carries about `camera`'s parameters, per unit pixel variance; an
 /// estimated pose is marginalized (see the module documentation).
 ///
@@ -72,7 +72,7 @@ pub struct ViewInformation {
 /// (fewer than three, or a degenerate configuration).
 pub fn view_information(
     camera: &CameraParams,
-    camera_se3_target: &Iso3,
+    cam_se3_target: &Iso3,
     points: &[Pt3],
     pose: ViewPose,
 ) -> Result<ViewInformation, Error> {
@@ -83,7 +83,7 @@ pub fn view_information(
     let mut x = model.theta.clone().resize_vertically(n + 3, 0.0);
     let mut a = DMatrix::<f64>::zeros(n + 6, n + 6);
     for point in points {
-        let p_c = camera_se3_target.transform_point(point).coords;
+        let p_c = cam_se3_target.transform_point(point).coords;
         let projection = camera.projection.values();
         if !p_c.iter().all(|v| v.is_finite())
             || !model.model.projection.in_domain(&projection, &p_c)

@@ -13,8 +13,8 @@
 //!
 //! # Indexing
 //!
-//! `target` and `laser` Vecs are pose-major. Every record carries an explicit
-//! `(pose, camera, feature)` triple. Iteration order: outer = view, inner =
+//! `target` and `laser` Vecs are view-major. Every record carries an explicit
+//! `(view, camera, feature)` triple. Iteration order: outer = view, inner =
 //! camera (camera-`None` slots skipped), innermost = feature index in that
 //! view's `points_3d`. For single-camera problem types `camera` is always 0.
 //!
@@ -51,8 +51,8 @@ pub const REPROJECTION_HISTOGRAM_EDGES_PX: [f64; 4] = [1.0, 2.0, 5.0, 10.0];
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct TargetFeatureResidual {
-    /// Pose / view index in the input dataset.
-    pub pose: usize,
+    /// View index in the input dataset.
+    pub view: usize,
     /// Camera index. `0` for single-camera problem types.
     pub camera: usize,
     /// Feature index within the view's `points_3d`.
@@ -80,8 +80,8 @@ pub struct TargetFeatureResidual {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserFeatureResidual {
-    /// Pose / view index in the input dataset.
-    pub pose: usize,
+    /// View index in the input dataset.
+    pub view: usize,
     /// Camera index. `0` for single-camera problem types.
     pub camera: usize,
     /// Pixel index within the view's laser pixel list.
@@ -103,8 +103,8 @@ pub struct LaserFeatureResidual {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserLineTrace {
-    /// Pose / view index in the input dataset.
-    pub pose: usize,
+    /// View index in the input dataset.
+    pub view: usize,
     /// Camera index. `0` for single-camera problem types.
     pub camera: usize,
     /// Points of the line in pixels, in order along it, spanning the view's
@@ -157,14 +157,14 @@ impl Default for FeatureResidualHistogram {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PerFeatureResiduals {
-    /// Per-target-corner reprojection records, pose-major.
+    /// Per-target-corner reprojection records, view-major.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target: Vec<TargetFeatureResidual>,
-    /// Per-laser-pixel residual records, pose-major.
+    /// Per-laser-pixel residual records, view-major.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub laser: Vec<LaserFeatureResidual>,
     /// The projected laser line of each (view, camera) with laser pixels,
-    /// pose-major.
+    /// view-major.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub laser_lines: Vec<LaserLineTrace>,
     /// Per-camera target reprojection histogram (length = `num_cameras`).
@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn target_feature_residual_default() {
         let r = TargetFeatureResidual::default();
-        assert_eq!(r.pose, 0);
+        assert_eq!(r.view, 0);
         assert_eq!(r.camera, 0);
         assert_eq!(r.feature, 0);
         assert_eq!(r.target_xyz_m, [0.0; 3]);
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn laser_feature_residual_default() {
         let r = LaserFeatureResidual::default();
-        assert_eq!(r.pose, 0);
+        assert_eq!(r.view, 0);
         assert_eq!(r.camera, 0);
         assert!(r.residual_m.is_none());
         assert!(r.residual_px.is_none());
@@ -236,7 +236,7 @@ mod tests {
     fn populated_per_feature_residuals_roundtrip() {
         let p = PerFeatureResiduals {
             target: vec![TargetFeatureResidual {
-                pose: 3,
+                view: 3,
                 camera: 1,
                 feature: 17,
                 target_xyz_m: [0.1, 0.2, 0.0],
@@ -246,7 +246,7 @@ mod tests {
                 error_whitened: Some(1.25),
             }],
             laser: vec![LaserFeatureResidual {
-                pose: 5,
+                view: 5,
                 camera: 0,
                 feature: 9,
                 observed_px: [400.0, 200.0],
@@ -254,7 +254,7 @@ mod tests {
                 residual_px: Some(0.5),
             }],
             laser_lines: vec![LaserLineTrace {
-                pose: 5,
+                view: 5,
                 camera: 0,
                 points_px: vec![[100.0, 200.0], [400.0, 200.4], [700.0, 200.5]],
             }],
@@ -277,7 +277,7 @@ mod tests {
         // Critical: None must roundtrip cleanly so the UI can distinguish
         // "projection diverged" from "error happens to be exactly zero".
         let r = TargetFeatureResidual {
-            pose: 0,
+            view: 0,
             camera: 0,
             feature: 0,
             target_xyz_m: [0.0; 3],

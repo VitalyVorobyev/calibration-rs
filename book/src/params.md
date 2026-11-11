@@ -78,12 +78,12 @@ ideal = cam.undistort(pixels)                   # (N, 2) in a distortion-free pi
 
 ## Reading the Result
 
-The calibrated planar-intrinsics parameters (`PlanarIntrinsicsParams`, `export.params`) hold the camera in their `camera` field and the per-view poses in `camera_se3_target`:
+The planar-intrinsics export holds the calibrated camera in its `camera` field and the per-view target poses in `cam_se3_target`:
 
 ```rust
-export.params.camera.intrinsics        // FxFyCxCy<f64>
-export.params.camera.distortion        // DistortionParams: match on the model
-export.params.build_camera()?          // CameraModel, ready to project
+export.camera.intrinsics        // FxFyCxCy<f64>
+export.camera.distortion        // DistortionParams: match on the model
+export.camera.build()?          // CameraModel, ready to project
 ```
 
 ## Use in Session Framework

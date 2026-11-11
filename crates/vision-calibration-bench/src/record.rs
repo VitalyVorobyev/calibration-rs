@@ -988,7 +988,7 @@ mod tests {
     fn residual(camera: usize, pose: usize, error_px: f64) -> TargetFeatureResidual {
         let mut residual = TargetFeatureResidual::default();
         residual.camera = camera;
-        residual.pose = pose;
+        residual.view = pose;
         residual.feature = 0;
         residual.observed_px = [0.0, 0.0];
         residual.projected_px = Some([error_px, 0.0]);

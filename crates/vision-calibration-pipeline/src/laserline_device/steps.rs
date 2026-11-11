@@ -64,8 +64,8 @@ pub struct DeviceManualInit {
     pub distortion: Option<DistortionParams>,
     /// Manual sensor tilt seed (Scheimpflug camera; zero otherwise).
     pub sensor: Option<ScheimpflugParams>,
-    /// Manual per-view poses (`camera_se3_target`).
-    pub poses: Option<Vec<Iso3>>,
+    /// Manual per-view poses (`cam_se3_target`).
+    pub cam_se3_target: Option<Vec<Iso3>>,
     /// Manual laser plane seed (camera-frame `(n̂, d)`).
     pub plane: Option<LaserPlane>,
 }
@@ -94,8 +94,8 @@ pub struct DeviceOptimizeOptions {
 pub struct DeviceInitResult {
     /// Initial camera, in the configured model.
     pub camera: CameraParams,
-    /// Initial per-view target poses (`camera_se3_target`).
-    pub poses: Vec<Iso3>,
+    /// Initial per-view target poses (`cam_se3_target`).
+    pub cam_se3_target: Vec<Iso3>,
     /// Initial laser plane (camera-frame `(n̂, d)`).
     pub plane: LaserPlane,
     /// RMSE of the linear laser plane fit (meters); `None` when the plane was
@@ -146,7 +146,7 @@ fn linear_plane_init(
         .zip(poses.iter())
         .map(|(view, pose)| LinearLaserlineView {
             laser_pixels: view.meta.laser_pixels.clone(),
-            camera_se3_target: *pose,
+            cam_se3_target: *pose,
         })
         .collect();
 
@@ -192,7 +192,7 @@ fn update_state_with_stats(
 /// - Input not set, or fewer than 3 views.
 /// - A non-zero `manual.sensor` for an untilted camera.
 /// - Auto-init computation fails (homography / Zhang's / linear plane).
-/// - `manual.poses` is `Some` but its length does not match the view count.
+/// - `manual.cam_se3_target` is `Some` but its length does not match the view count.
 pub fn step_init_with_seed(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     manual: DeviceManualInit,
@@ -214,12 +214,18 @@ pub fn step_init_with_seed(
         distortion: manual.distortion,
         sensor: manual.sensor,
     };
-    if let Err(e) = check_camera_seed(model, &seed, manual.poses.as_deref(), "poses", view_count) {
+    if let Err(e) = check_camera_seed(
+        model,
+        &seed,
+        manual.cam_se3_target.as_deref(),
+        "cam_se3_target",
+        view_count,
+    ) {
         session.log_failure("init", e.to_string());
         return Err(e);
     }
     let mut provenance = Provenance::of_camera_seed(model, &seed);
-    provenance.note("poses", manual.poses.is_some());
+    provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
     provenance.note("plane", manual.plane.is_some());
 
     let planar_dataset = planar_dataset_from_input(input)?;
@@ -247,7 +253,7 @@ pub fn step_init_with_seed(
         if model.sensor == SensorKind::Scheimpflug && !holds_tilt && manual.sensor.is_none() {
             // Cold-start tilt: the camera alone, through the staged tilt
             // multi-start, before the plane fit needs its rays.
-            let initial = PlanarIntrinsicsParams::new(bootstrap.camera, bootstrap.poses)?;
+            let initial = PlanarIntrinsicsParams::new(bootstrap.camera, bootstrap.cam_se3_target)?;
             let refined = optimize_camera(
                 0,
                 &planar_dataset,
@@ -256,11 +262,11 @@ pub fn step_init_with_seed(
                 &session.config.solver,
                 session.config.solver.backend_options(session.control()),
             )?;
-            (refined.params.camera, refined.params.camera_se3_target)
+            (refined.params.camera, refined.params.cam_se3_target)
         } else {
-            (bootstrap.camera, bootstrap.poses)
+            (bootstrap.camera, bootstrap.cam_se3_target)
         };
-    let poses = manual.poses.unwrap_or(bootstrap_poses);
+    let poses = manual.cam_se3_target.unwrap_or(bootstrap_poses);
 
     let (plane, plane_rmse) = match manual.plane {
         Some(p) => (p, None),
@@ -296,7 +302,7 @@ pub fn step_init_with_seed(
 
     Ok(DeviceInitResult {
         camera,
-        poses,
+        cam_se3_target: poses,
         plane,
         plane_rmse,
     })

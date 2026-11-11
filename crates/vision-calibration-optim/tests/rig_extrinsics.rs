@@ -47,10 +47,10 @@ fn stereo_rig_extrinsics_converges() {
         Rotation3::from_euler_angles(0.0, 0.0, 0.0).into(),
     );
 
-    let cam_to_rig_gt = vec![cam0_to_rig_gt, cam1_to_rig_gt];
+    let rig_se3_cam_gt = vec![cam0_to_rig_gt, cam1_to_rig_gt];
 
     // Ground truth rig poses (3 views): T_R_T (target -> rig)
-    let rig_from_target_gt = vec![
+    let rig_se3_target_gt = vec![
         Isometry3::from_parts(
             Translation3::new(0.1, -0.05, 1.0),
             Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
@@ -67,10 +67,10 @@ fn stereo_rig_extrinsics_converges() {
 
     // Generate synthetic observations
     let mut views = Vec::new();
-    for rig_pose in &rig_from_target_gt {
+    for rig_pose in &rig_se3_target_gt {
         let mut cameras_obs = Vec::new();
 
-        for cam_to_rig in &cam_to_rig_gt {
+        for rig_se3_cam in &rig_se3_cam_gt {
             let mut points_3d = Vec::new();
             let mut points_2d = Vec::new();
 
@@ -81,7 +81,7 @@ fn stereo_rig_extrinsics_converges() {
 
                     // Transform: target -> rig -> camera
                     let p_rig = rig_pose.transform_point(&pw);
-                    let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
+                    let p_cam = rig_se3_cam.inverse_transform_point(&p_rig);
 
                     if let Some(pixel) = camera_gt.project_point(&p_cam) {
                         points_3d.push(pw);
@@ -149,7 +149,7 @@ fn stereo_rig_extrinsics_converges() {
     );
 
     // Perturb rig poses
-    let rig_from_target_init = rig_from_target_gt
+    let rig_se3_target_init = rig_se3_target_gt
         .iter()
         .map(|iso| {
             let t = iso.translation.vector + nalgebra::Vector3::new(0.008, -0.005, 0.01);
@@ -167,8 +167,8 @@ fn stereo_rig_extrinsics_converges() {
 
     let initial = RigExtrinsicsParams {
         cameras: cameras_init,
-        cam_to_rig: vec![cam0_to_rig_init, cam1_to_rig_init],
-        rig_from_target: rig_from_target_init,
+        rig_se3_cam: vec![cam0_to_rig_init, cam1_to_rig_init],
+        rig_se3_target: rig_se3_target_init,
     };
 
     // Solve options - fix camera 0 extrinsics to remove gauge freedom
@@ -269,7 +269,7 @@ fn stereo_rig_extrinsics_converges() {
     }
 
     // Verify camera 1 extrinsics (camera 0 is fixed)
-    let cam1_extr_final = &result.params.cam_to_rig[1];
+    let cam1_extr_final = &result.params.rig_se3_cam[1];
     let cam1_extr_gt = &cam1_to_rig_gt;
 
     let dt = (cam1_extr_final.translation.vector - cam1_extr_gt.translation.vector).norm();
@@ -340,8 +340,8 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                 Translation3::new(0.12, 0.01, 0.0),
                 Rotation3::from_euler_angles(0.0, 0.05, 0.02).into(),
             );
-            let cam_to_rig = [Isometry3::identity(), cam1_to_rig];
-            let rig_from_target: Vec<_> = (0..6)
+            let rig_se3_cam = [Isometry3::identity(), cam1_to_rig];
+            let rig_se3_target: Vec<_> = (0..6)
                 .map(|i| {
                     let a = i as Real * 0.07;
                     Isometry3::from_parts(
@@ -351,7 +351,7 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                     )
                 })
                 .collect();
-            let views: Vec<RigView<NoMeta>> = rig_from_target
+            let views: Vec<RigView<NoMeta>> = rig_se3_target
                 .iter()
                 .map(|pose| {
                     let cameras = (0..2)
@@ -360,7 +360,7 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                             for y in -3..=3 {
                                 for x in -4..=4 {
                                     let pw = Pt3::new(x as Real * 0.03, y as Real * 0.03, 0.0);
-                                    let p_cam = cam_to_rig[c]
+                                    let p_cam = rig_se3_cam[c]
                                         .inverse_transform_point(&pose.transform_point(&pw));
                                     if let Some(px) = models[c].project_point(&p_cam) {
                                         p3.push(pw);
@@ -390,14 +390,14 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                     camera(SensorParams::Identity, k_init),
                     camera(sensor.clone(), k_init),
                 ],
-                cam_to_rig: vec![
+                rig_se3_cam: vec![
                     Isometry3::identity(),
                     Isometry3::from_parts(
                         Translation3::new(0.115, 0.012, 0.003),
                         Rotation3::from_euler_angles(0.004, 0.046, 0.018).into(),
                     ),
                 ],
-                rig_from_target: rig_from_target.clone(),
+                rig_se3_target: rig_se3_target.clone(),
             };
             let opts = RigExtrinsicsSolveOptions {
                 fix_extrinsics: vec![true, false],
@@ -431,7 +431,7 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                     "{kind:?}/{sensor:?}: camera {c} fx rel err {err}"
                 );
             }
-            let dt = (result.params.cam_to_rig[1].translation.vector
+            let dt = (result.params.rig_se3_cam[1].translation.vector
                 - cam1_to_rig.translation.vector)
                 .norm();
             assert!(dt < 1e-3, "{kind:?}/{sensor:?}: cam1 translation err {dt}");

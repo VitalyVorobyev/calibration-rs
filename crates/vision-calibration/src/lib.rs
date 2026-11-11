@@ -41,7 +41,7 @@
 //! // or both at once: vision_calibration::planar_intrinsics::run_calibration
 //!
 //! let export = session.export()?;
-//! assert!((export.params.camera.intrinsics.fx - 800.0).abs() < 1e-3);
+//! assert!((export.camera.intrinsics.fx - 800.0).abs() < 1e-3);
 //! # Ok(())
 //! # }
 //! ```

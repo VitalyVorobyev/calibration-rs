@@ -230,7 +230,7 @@ class ManifestRunTest(unittest.TestCase):
             result = vc.calibrate_dataset(spec, base_dir=root, laser_extractor=extractor)
             assert isinstance(result, vc.LaserlineDeviceExport)
             self.assertEqual(extractor.calls, 6)
-            plane = result.params.plane
+            plane = result.laser_plane
             normal = np.array(plane.normal_xyz)
             self.assertGreater(abs(normal @ _images.LASER_NORMAL), 0.999)
             self.assertAlmostEqual(

@@ -22,7 +22,7 @@ use crate::params::pose_se3::se3_dvec_to_iso3;
 pub(crate) struct BlockLabels {
     /// The view the block belongs to; `None` for a shared block.
     pub view: Option<usize>,
-    /// The block's name in labels, e.g. `camera_se3_target`.
+    /// The block's name in labels, e.g. `cam_se3_target`.
     pub name: String,
     /// One label per reported coordinate (a Euclidean block's components, an
     /// SE3 block's `[rx, ry, rz, tx, ty, tz]`, an S² block's `[nx, ny, nz]`).
@@ -322,7 +322,7 @@ fn coordinate_label(labels: &BlockLabels, index: usize) -> String {
 
 /// Labels of the fixed coordinates: each one of a shared Euclidean block,
 /// a fully fixed pose or per-view block by its name alone
-/// (`view3.camera_se3_target`).
+/// (`view3.cam_se3_target`).
 fn fixed_labels(ir: &ProblemIR, labels: &[BlockLabels]) -> Vec<String> {
     let mut out = Vec::new();
     for (block, names) in ir.params.iter().zip(labels) {
@@ -363,7 +363,7 @@ pub(crate) fn planar_block_labels(block: &ParamBlock, camera: CameraModelSpec) -
                 .strip_prefix("pose/")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_else(|| panic!("unexpected planar IR block {name}"));
-            BlockLabels::view_pose(view, "camera_se3_target")
+            BlockLabels::view_pose(view, "cam_se3_target")
         }
     }
 }
@@ -494,9 +494,9 @@ const PLANE_DISTANCE: &str = "plane.d";
 /// The names of a hand-eye calibration's two poses in mode `mode`: the
 /// hand-eye (`gripper_se3_rig`, `rig_se3_base`) and the target's
 /// (`base_se3_target`, `gripper_se3_target`). A single-camera problem names
-/// its camera in place of the rig (`gripper_se3_camera`).
+/// its camera in place of the rig (`gripper_se3_cam`).
 pub(crate) fn handeye_pose_names(mode: HandeyeMode, multi_camera: bool) -> (String, &'static str) {
-    let rig = if multi_camera { "rig" } else { "camera" };
+    let rig = if multi_camera { "rig" } else { "cam" };
     match mode {
         HandeyeMode::EyeInHand => (format!("gripper_se3_{rig}"), "base_se3_target"),
         HandeyeMode::EyeToHand => (format!("{rig}_se3_base"), "gripper_se3_target"),
@@ -694,9 +694,9 @@ mod tests {
         assert_eq!(c.std_dev("p2"), Some(8f64.sqrt()));
         assert_eq!(c.views.len(), 1);
         assert_eq!(c.views[0].view, 1);
-        assert_eq!(c.views[0].labels[5], "camera_se3_target.tz");
+        assert_eq!(c.views[0].labels[5], "cam_se3_target.tz");
         assert_eq!(c.views[0].covariance[5][5], 14.0);
-        assert_eq!(c.fixed, ["k3", "view0.camera_se3_target"]);
+        assert_eq!(c.fixed, ["k3", "view0.cam_se3_target"]);
         assert_eq!(c.noise[0].level, NoiseLevel::Sigma(0.25));
     }
 
@@ -713,7 +713,7 @@ mod tests {
             labelled(&ir, &solve, &noise(), &labels(&ir)),
             Uncertainty::Unavailable {
                 reason: UncertaintyUnavailable::RankDeficient {
-                    unobservable: vec!["cx".into(), "view1.camera_se3_target.tz".into()],
+                    unobservable: vec!["cx".into(), "view1.cam_se3_target.tz".into()],
                 }
             }
         );
@@ -791,12 +791,12 @@ mod tests {
         let solve = estimate(Vec::new(), DMatrix::zeros(0, 0));
         let labels = vec![
             BlockLabels::shared_pose("cam_se3_rig").internal(),
-            BlockLabels::shared_pose("gripper_se3_camera"),
+            BlockLabels::shared_pose("gripper_se3_cam"),
         ];
         let Uncertainty::Available(c) = labelled(&ir, &solve, &noise(), &labels) else {
             panic!("available");
         };
-        assert_eq!(c.fixed, ["gripper_se3_camera"]);
+        assert_eq!(c.fixed, ["gripper_se3_cam"]);
     }
 
     #[test]
@@ -852,7 +852,7 @@ mod tests {
                 labels: vec!["plane.d".into()],
                 covariance: vec![vec![sigma * sigma]],
                 views: Vec::new(),
-                fixed: vec!["fx".into(), "view0.camera_se3_target".into()],
+                fixed: vec!["fx".into(), "view0.cam_se3_target".into()],
                 noise: vec![ResidualNoise {
                     kind: ResidualKind::LaserLine,
                     level: NoiseLevel::Sigma(sigma),

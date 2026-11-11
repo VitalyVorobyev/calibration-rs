@@ -436,7 +436,7 @@
       "type": "object"
     },
     "FrameKind": {
-      "description": "What a frame depicts, distinguishing target images from laser-on images.\n\nLaser problem types capture two images per `(pose, camera)` slot: one of\nthe calibration target and one with the laser line on. Both can appear in\nthe same [`ImageManifest`], discriminated by [`FrameRef::kind`].\n\nSerialized in `snake_case`; absent in JSON means [`FrameKind::Target`],\nwhich keeps exports without laser frames byte-stable and forward-readable.",
+      "description": "What a frame depicts, distinguishing target images from laser-on images.\n\nLaser problem types capture two images per `(view, camera)` slot: one of\nthe calibration target and one with the laser line on. Both can appear in\nthe same [`ImageManifest`], discriminated by [`FrameRef::kind`].\n\nSerialized in `snake_case`; absent in JSON means [`FrameKind::Target`],\nwhich keeps exports without laser frames byte-stable and forward-readable.",
       "oneOf": [
         {
           "const": "target",
@@ -451,7 +451,7 @@
       ]
     },
     "FrameRef": {
-      "description": "Reference to a single image (or sub-image) for one `(pose, camera)`.",
+      "description": "Reference to a single image (or sub-image) for one `(view, camera)`.",
       "properties": {
         "camera": {
           "description": "Camera index. `0` for single-camera problem types.",
@@ -467,12 +467,6 @@
           "description": "Image path relative to the enclosing [`ImageManifest::root`].",
           "type": "string"
         },
-        "pose": {
-          "description": "Pose / view index in the input dataset.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
         "roi": {
           "anyOf": [
             {
@@ -482,11 +476,17 @@
               "type": "null"
             }
           ],
-          "description": "Sub-image rectangle in pixel coordinates. `None` means the entire\nimage is this `(pose, camera)`. Used for tiled multi-camera frames.\n\n**Coordinate convention:** see the module-level `# Coordinate\nconvention` block. ROI is a render-time crop hint only —\nper-feature residuals are already in the ROI-local pixel frame\n(i.e. the camera's own image frame, since intrinsics were\ncalibrated against the cropped tile), so a viewer must not\nsubtract `(x, y)` from `observed_px` / `projected_px` when\ndrawing."
+          "description": "Sub-image rectangle in pixel coordinates. `None` means the entire\nimage is this `(view, camera)`. Used for tiled multi-camera frames.\n\n**Coordinate convention:** see the module-level `# Coordinate\nconvention` block. ROI is a render-time crop hint only —\nper-feature residuals are already in the ROI-local pixel frame\n(i.e. the camera's own image frame, since intrinsics were\ncalibrated against the cropped tile), so a viewer must not\nsubtract `(x, y)` from `observed_px` / `projected_px` when\ndrawing."
+        },
+        "view": {
+          "description": "View index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
-        "pose",
+        "view",
         "camera",
         "path"
       ],
@@ -528,7 +528,7 @@
       "description": "Image manifest carried alongside a calibration export.\n\n`root` is interpreted relative to the directory of the `export.json` that\nembeds the manifest. Each [`FrameRef::path`] is interpreted relative to\n`root`. Both layers of indirection make exports portable across machines\nas long as the image directory is co-located with the export.",
       "properties": {
         "frames": {
-          "description": "One entry per `(pose, camera)` slot the viewer can render.\nPose-major; aligns with the indexing of `PerFeatureResiduals.target`.",
+          "description": "One entry per `(view, camera)` slot the viewer can render.\nView-major; aligns with the indexing of `PerFeatureResiduals.target`.",
           "items": {
             "$ref": "#/$defs/FrameRef"
           },
@@ -600,12 +600,6 @@
           "minItems": 2,
           "type": "array"
         },
-        "pose": {
-          "description": "Pose / view index in the input dataset.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
         "residual_m": {
           "description": "Point-to-plane distance in meters between the back-projected ray and\nthe calibrated laser plane. `None` if the ray does not intersect.",
           "format": "double",
@@ -621,10 +615,16 @@
             "number",
             "null"
           ]
+        },
+        "view": {
+          "description": "View index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
-        "pose",
+        "view",
         "camera",
         "feature",
         "observed_px",
@@ -655,15 +655,15 @@
           },
           "type": "array"
         },
-        "pose": {
-          "description": "Pose / view index in the input dataset.",
+        "view": {
+          "description": "View index in the input dataset.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         }
       },
       "required": [
-        "pose",
+        "view",
         "camera",
         "points_px"
       ],
@@ -756,7 +756,7 @@
       "description": "Container bundled into every `*Export` carrying the per-feature drill-down\ndata the diagnose UI consumes.\n\nEmpty `Vec`s mean \"this problem type does not produce observations of that\nflavor\" (e.g., `PlanarIntrinsicsExport.per_feature_residuals.laser` is\nalways empty). The histogram fields are `Option`: `None` means the problem\ntype chose not to produce a per-camera aggregate; `Some(vec)` length must\nmatch `num_cameras`.",
       "properties": {
         "laser": {
-          "description": "Per-laser-pixel residual records, pose-major.",
+          "description": "Per-laser-pixel residual records, view-major.",
           "items": {
             "$ref": "#/$defs/LaserFeatureResidual"
           },
@@ -773,14 +773,14 @@
           ]
         },
         "laser_lines": {
-          "description": "The projected laser line of each (view, camera) with laser pixels,\npose-major.",
+          "description": "The projected laser line of each (view, camera) with laser pixels,\nview-major.",
           "items": {
             "$ref": "#/$defs/LaserLineTrace"
           },
           "type": "array"
         },
         "target": {
-          "description": "Per-target-corner reprojection records, pose-major.",
+          "description": "Per-target-corner reprojection records, view-major.",
           "items": {
             "$ref": "#/$defs/TargetFeatureResidual"
           },
@@ -832,27 +832,6 @@
         "y",
         "w",
         "h"
-      ],
-      "type": "object"
-    },
-    "PlanarIntrinsicsParams": {
-      "description": "Optimization result for planar intrinsics.",
-      "properties": {
-        "camera": {
-          "$ref": "#/$defs/CameraParams",
-          "description": "Refined camera model (model-agnostic serializable parameters)."
-        },
-        "camera_se3_target": {
-          "description": "Refined target-to-camera poses.",
-          "items": {
-            "$ref": "#/$defs/Iso3Schema"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "camera",
-        "camera_se3_target"
       ],
       "type": "object"
     },
@@ -1118,12 +1097,6 @@
           "minItems": 2,
           "type": "array"
         },
-        "pose": {
-          "description": "Pose / view index in the input dataset.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
         "projected_px": {
           "description": "Projected pixel using the calibrated camera + recovered pose.\n`None` when projection diverges (point behind camera, distortion failure).",
           "items": {
@@ -1146,10 +1119,16 @@
           "maxItems": 3,
           "minItems": 3,
           "type": "array"
+        },
+        "view": {
+          "description": "View index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
-        "pose",
+        "view",
         "camera",
         "feature",
         "target_xyz_m",
@@ -1310,7 +1289,7 @@
           "type": "array"
         },
         "labels": {
-          "description": "Labels of the view's parameters, e.g. `camera_se3_target.rx`.",
+          "description": "Labels of the view's parameters, e.g. `cam_se3_target.rx`.",
           "items": {
             "type": "string"
           },
@@ -1334,6 +1313,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Export format for planar intrinsics calibration.",
   "properties": {
+    "cam_se3_target": {
+      "description": "Per-view target poses (`cam_se3_target`).",
+      "items": {
+        "$ref": "#/$defs/Iso3Schema"
+      },
+      "type": "array"
+    },
+    "camera": {
+      "$ref": "#/$defs/CameraParams",
+      "description": "The calibrated camera, in its model; `camera.sensor` states whether a\ntilted sensor was calibrated."
+    },
     "diagnostics": {
       "$ref": "#/$defs/ExportDiagnostics",
       "default": {
@@ -1349,10 +1339,6 @@
       "description": "Mean reprojection error (pixels).",
       "format": "double",
       "type": "number"
-    },
-    "params": {
-      "$ref": "#/$defs/PlanarIntrinsicsParams",
-      "description": "Calibrated parameters; `params.camera.sensor` states whether a tilted\nsensor was calibrated."
     },
     "per_cam_reproj_errors": {
       "description": "Per-camera reprojection errors (single element for single-camera workflows).",
@@ -1375,7 +1361,8 @@
   },
   "required": [
     "kind",
-    "params",
+    "camera",
+    "cam_se3_target",
     "mean_reproj_error",
     "per_cam_reproj_errors",
     "diagnostics",

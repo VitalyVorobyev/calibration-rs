@@ -24,7 +24,7 @@ H = K · H_tilt · [r1 r2 t]
 
 with intrinsics `K`, the Scheimpflug tilt homography `H_tilt` (tilt acts on
 normalized coordinates — ADR 0011), and the planar pose `[r1 r2 t]` from
-`camera_se3_target`. A circle with conic matrix `C` images to
+`cam_se3_target`. A circle with conic matrix `C` images to
 
 ```
 C' = H⁻ᵀ C H⁻¹.

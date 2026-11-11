@@ -4,10 +4,9 @@
  * The 3D workspace draws `cameras` + `cam_se3_rig` + `rig_se3_target`
  * (+ `laser_planes_rig`). Rig exports carry those directly. A
  * single-camera `laserline_device` export instead carries its laser
- * plane and per-view target poses under `params`, in the
- * camera's own frame. Placing that one camera at the rig origin
+ * plane and per-view target poses, in the camera's own frame. Placing that one camera at the rig origin
  * (identity `cam_se3_rig`) makes camera frame ≡ rig frame, so the laser
- * plane and `camera_se3_target` poses drop straight into the rig fields
+ * plane and `cam_se3_target` poses drop straight into the rig fields
  * and the existing `Scene` renders them unchanged.
  *
  * Pure and side-effect free so it unit-tests without React/Tauri. */
@@ -38,23 +37,23 @@ export function adaptSceneExport(data: AnyExport): AnyExport {
   if (isRigShaped(data)) return data;
   if (data.kind !== "laserline_device") return data;
 
-  const params = (data as unknown as LaserlineDeviceExport).params;
-  const plane = params?.plane;
-  const poses = params?.poses;
+  const laser = data as unknown as LaserlineDeviceExport;
+  const plane = laser.laser_plane;
+  const poses = laser.cam_se3_target;
   // Need the camera, the plane (camera frame) and the per-view poses to
   // build a meaningful scene; bail (unchanged) if the export lacks them.
-  if (!plane || !params?.camera || !Array.isArray(poses) || poses.length === 0) {
+  if (!plane || !laser.camera || !Array.isArray(poses) || poses.length === 0) {
     return data;
   }
 
   // The camera in its own model (distortion kind, tilted sensor or not).
-  const camera: CameraWire = params.camera;
+  const camera: CameraWire = laser.camera;
 
   return {
     ...data,
     cameras: [camera],
     cam_se3_rig: [IDENTITY_ISO3],
-    // camera ≡ rig, so camera_se3_target poses are rig_se3_target.
+    // camera ≡ rig, so cam_se3_target poses are rig_se3_target.
     rig_se3_target: poses,
     // Plane is already in the camera (== rig) frame.
     laser_planes_rig: [plane],

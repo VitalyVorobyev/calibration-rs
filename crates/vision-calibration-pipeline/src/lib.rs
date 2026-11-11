@@ -35,7 +35,7 @@
 //! step_optimize(&mut session, None)?;
 //!
 //! let export = session.export()?;
-//! assert!((export.params.camera.intrinsics.fx - 800.0).abs() < 1e-3);
+//! assert!((export.camera.intrinsics.fx - 800.0).abs() < 1e-3);
 //! # Ok(())
 //! # }
 //! ```

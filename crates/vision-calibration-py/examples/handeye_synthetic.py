@@ -73,7 +73,7 @@ def main() -> None:
     print(f"Per-camera reprojection: {result.per_cam_reproj_errors}")
     print(f"Recovered intrinsics: fx={k.fx:.3f}, fy={k.fy:.3f}, cx={k.cx:.3f}, cy={k.cy:.3f}")
     if isinstance(result.handeye, vc.CameraEyeInHand):
-        t = result.handeye.gripper_se3_camera.translation_xyz
+        t = result.handeye.gripper_se3_cam.translation_xyz
         print(f"Recovered gripper->camera translation: [{t[0]:.4f}, {t[1]:.4f}, {t[2]:.4f}] m")
 
 

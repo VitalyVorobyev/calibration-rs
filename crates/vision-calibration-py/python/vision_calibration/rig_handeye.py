@@ -137,7 +137,7 @@ class IntrinsicsOptimizeResult:
     cameras: list[Camera]
     per_cam_reproj_errors: list[float]
     """Mean reprojection error per camera, pixels."""
-    per_cam_target_poses: list[list[Pose | None]]
+    cam_se3_target: list[list[Pose | None]]
     """``[view][camera]`` camera-from-target; ``None`` where the camera did
     not see the target."""
 
@@ -146,7 +146,7 @@ class IntrinsicsOptimizeResult:
         return cls(
             cameras=_cameras(payload["cameras"]),
             per_cam_reproj_errors=_floats(payload["per_cam_reproj_errors"]),
-            per_cam_target_poses=_target_poses(payload["per_cam_target_poses"]),
+            cam_se3_target=_target_poses(payload["cam_se3_target"]),
         )
 
 

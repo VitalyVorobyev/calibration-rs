@@ -10,7 +10,7 @@ import { PoseStatsTable } from "./PoseStatsTable";
 
 function res(pose: number, error_px: number): TargetFeatureResidual {
   return {
-    pose,
+    view: pose,
     camera: 0,
     feature: 0,
     target_xyz_m: [0, 0, 0],

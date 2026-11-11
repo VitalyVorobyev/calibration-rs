@@ -33,12 +33,12 @@ use vision_calibration_core::{
 pub struct PlanarIntrinsicsParams {
     /// Refined camera model (model-agnostic serializable parameters).
     pub camera: CameraParams,
-    /// Refined target-to-camera poses.
+    /// Refined per-view target poses (`cam_se3_target`).
     #[cfg_attr(
         feature = "schemars",
         schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
     )]
-    pub camera_se3_target: Vec<Iso3>,
+    pub cam_se3_target: Vec<Iso3>,
 }
 
 impl PlanarIntrinsicsParams {
@@ -46,14 +46,14 @@ impl PlanarIntrinsicsParams {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
-    pub fn new(camera: CameraParams, camera_se3_target: Vec<Iso3>) -> Result<Self, Error> {
-        if camera_se3_target.is_empty() {
+    /// Returns [`Error::InsufficientData`] if `cam_se3_target` is empty.
+    pub fn new(camera: CameraParams, cam_se3_target: Vec<Iso3>) -> Result<Self, Error> {
+        if cam_se3_target.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
         }
         Ok(Self {
             camera,
-            camera_se3_target,
+            cam_se3_target,
         })
     }
 
@@ -62,12 +62,9 @@ impl PlanarIntrinsicsParams {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
-    pub fn from_pinhole(
-        camera: PinholeCamera,
-        camera_se3_target: Vec<Iso3>,
-    ) -> Result<Self, Error> {
-        Self::new(pinhole_camera_params(&camera), camera_se3_target)
+    /// Returns [`Error::InsufficientData`] if `cam_se3_target` is empty.
+    pub fn from_pinhole(camera: PinholeCamera, cam_se3_target: Vec<Iso3>) -> Result<Self, Error> {
+        Self::new(pinhole_camera_params(&camera), cam_se3_target)
     }
 
     /// Build the runtime [`CameraModel`] for residual computation.
@@ -98,11 +95,11 @@ impl PlanarIntrinsicsParams {
     /// Create with zero distortion (pinhole model only).
     pub fn from_intrinsics(
         intrinsics: FxFyCxCy<Real>,
-        camera_se3_target: Vec<Iso3>,
+        cam_se3_target: Vec<Iso3>,
     ) -> Result<Self, Error> {
         Self::from_pinhole(
             make_pinhole_camera(intrinsics, BrownConrady5::default()),
-            camera_se3_target,
+            cam_se3_target,
         )
     }
 }
@@ -244,7 +241,7 @@ pub(crate) fn build_planar_intrinsics_ir(
     build_planar_reprojection_ir(
         dataset,
         &initial.camera,
-        &initial.camera_se3_target,
+        &initial.cam_se3_target,
         &PlanarIrOptions {
             robust_loss: opts.robust_loss,
             fixed: &fixed,
@@ -278,7 +275,7 @@ pub fn optimize_planar_intrinsics(
     let (ir, initial_map) = build_planar_reprojection_ir(
         dataset,
         &initial.camera,
-        &initial.camera_se3_target,
+        &initial.cam_se3_target,
         &PlanarIrOptions {
             robust_loss: opts.robust_loss,
             fixed: &fixed,
@@ -344,9 +341,7 @@ fn mean_reproj_error(
         .views
         .iter()
         .zip(poses.iter().cloned())
-        .map(|(view, camera_se3_target)| {
-            View::new(view.obs.clone(), TargetPose { camera_se3_target })
-        })
+        .map(|(view, cam_se3_target)| View::new(view.obs.clone(), TargetPose { cam_se3_target }))
         .collect();
     Ok(compute_mean_reproj_error(camera, &views)?)
 }

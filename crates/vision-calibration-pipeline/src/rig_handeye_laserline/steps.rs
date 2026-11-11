@@ -270,7 +270,7 @@ fn joint_initial_from_exports(
     let target_ref = *rig_export.handeye.target_pose();
     Ok(RigHandeyeLaserlineParams {
         cameras: rig_export.cameras.clone(),
-        cam_to_rig: inverse_poses(&rig_export.cam_se3_rig),
+        rig_se3_cam: inverse_poses(&rig_export.cam_se3_rig),
         handeye,
         target_ref,
         planes_cam: laser_export.laser_planes_cam.clone(),

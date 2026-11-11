@@ -3,7 +3,7 @@
 //! `ImageManifest` is an optional addition to selected `*Export` types that
 //! lets a downstream viewer (the Tauri/React diagnose UI; ad-hoc
 //! viewers; CI screenshot tools) locate the source image for each
-//! `(pose, camera)` slot referenced by [`PerFeatureResiduals`].
+//! `(view, camera)` slot referenced by [`PerFeatureResiduals`].
 //!
 //! The manifest is a viewer-side contract: the calibration pipeline does not
 //! consume it. Existing exports remain valid by absence (the field is
@@ -12,7 +12,7 @@
 //!
 //! # Indexing
 //!
-//! Frames are pose-major and align with the `(pose, camera)` indexing used by
+//! Frames are view-major and align with the `(view, camera)` indexing used by
 //! [`TargetFeatureResidual`]/[`LaserFeatureResidual`]. Lookup by linear scan
 //! is fine at the dataset sizes the diagnose UI targets (≤ a few hundred
 //! frames); no map index is materialised.
@@ -58,14 +58,14 @@ use std::path::PathBuf;
 pub struct ImageManifest {
     /// Image root directory, relative to the export file's directory.
     pub root: PathBuf,
-    /// One entry per `(pose, camera)` slot the viewer can render.
-    /// Pose-major; aligns with the indexing of `PerFeatureResiduals.target`.
+    /// One entry per `(view, camera)` slot the viewer can render.
+    /// View-major; aligns with the indexing of `PerFeatureResiduals.target`.
     pub frames: Vec<FrameRef>,
 }
 
 /// What a frame depicts, distinguishing target images from laser-on images.
 ///
-/// Laser problem types capture two images per `(pose, camera)` slot: one of
+/// Laser problem types capture two images per `(view, camera)` slot: one of
 /// the calibration target and one with the laser line on. Both can appear in
 /// the same [`ImageManifest`], discriminated by [`FrameRef::kind`].
 ///
@@ -91,19 +91,19 @@ impl FrameKind {
     }
 }
 
-/// Reference to a single image (or sub-image) for one `(pose, camera)`.
+/// Reference to a single image (or sub-image) for one `(view, camera)`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct FrameRef {
-    /// Pose / view index in the input dataset.
-    pub pose: usize,
+    /// View index in the input dataset.
+    pub view: usize,
     /// Camera index. `0` for single-camera problem types.
     pub camera: usize,
     /// Image path relative to the enclosing [`ImageManifest::root`].
     pub path: PathBuf,
     /// Sub-image rectangle in pixel coordinates. `None` means the entire
-    /// image is this `(pose, camera)`. Used for tiled multi-camera frames.
+    /// image is this `(view, camera)`. Used for tiled multi-camera frames.
     ///
     /// **Coordinate convention:** see the module-level `# Coordinate
     /// convention` block. ROI is a render-time crop hint only —
@@ -136,23 +136,23 @@ pub struct PixelRect {
 }
 
 impl ImageManifest {
-    /// Find the **target** frame for a given `(pose, camera)` pair, if any.
+    /// Find the **target** frame for a given `(view, camera)` pair, if any.
     ///
     /// Equivalent to [`frame_of_kind`](Self::frame_of_kind) with
     /// [`FrameKind::Target`] — the historical behavior, kept target-only so
     /// manifests that also carry laser frames stay unambiguous.
-    pub fn frame(&self, pose: usize, camera: usize) -> Option<&FrameRef> {
-        self.frame_of_kind(pose, camera, FrameKind::Target)
+    pub fn frame(&self, view: usize, camera: usize) -> Option<&FrameRef> {
+        self.frame_of_kind(view, camera, FrameKind::Target)
     }
 
-    /// Find the frame of a given kind for a `(pose, camera)` pair, if any.
+    /// Find the frame of a given kind for a `(view, camera)` pair, if any.
     ///
     /// Linear scan; first match wins. Returns `None` if the manifest has
     /// no entry of that kind for that slot.
-    pub fn frame_of_kind(&self, pose: usize, camera: usize, kind: FrameKind) -> Option<&FrameRef> {
+    pub fn frame_of_kind(&self, view: usize, camera: usize, kind: FrameKind) -> Option<&FrameRef> {
         self.frames
             .iter()
-            .find(|f| f.pose == pose && f.camera == camera && f.kind == kind)
+            .find(|f| f.view == view && f.camera == camera && f.kind == kind)
     }
 
     /// Iterate over frames of kind [`FrameKind::Target`].
@@ -175,14 +175,14 @@ mod tests {
             root: PathBuf::from("images"),
             frames: vec![
                 FrameRef {
-                    pose: 0,
+                    view: 0,
                     camera: 0,
                     path: PathBuf::from("pose_0_cam_0.png"),
                     roi: None,
                     kind: FrameKind::Target,
                 },
                 FrameRef {
-                    pose: 1,
+                    view: 1,
                     camera: 0,
                     path: PathBuf::from("strip_pose_1.png"),
                     roi: Some(PixelRect {
@@ -194,7 +194,7 @@ mod tests {
                     kind: FrameKind::Target,
                 },
                 FrameRef {
-                    pose: 1,
+                    view: 1,
                     camera: 1,
                     path: PathBuf::from("strip_pose_1.png"),
                     roi: Some(PixelRect {
@@ -206,7 +206,7 @@ mod tests {
                     kind: FrameKind::Target,
                 },
                 FrameRef {
-                    pose: 0,
+                    view: 0,
                     camera: 0,
                     path: PathBuf::from("laser_pose_0_cam_0.png"),
                     roi: None,
@@ -247,7 +247,7 @@ mod tests {
         let m = sample();
         let f = m.frame_of_kind(0, 0, FrameKind::Laser).unwrap();
         assert_eq!(f.path, PathBuf::from("laser_pose_0_cam_0.png"));
-        // No laser frame for pose 1.
+        // No laser frame for view 1.
         assert!(m.frame_of_kind(1, 0, FrameKind::Laser).is_none());
     }
 
@@ -266,7 +266,7 @@ mod tests {
     fn kind_serde_back_compat() {
         // Target kind never appears in JSON.
         let target = FrameRef {
-            pose: 0,
+            view: 0,
             camera: 0,
             path: PathBuf::from("a.png"),
             roi: None,
@@ -290,7 +290,7 @@ mod tests {
 
         // JSON without a `kind` field deserializes as Target (ADR 0016 §5).
         let no_kind: FrameRef =
-            serde_json::from_str(r#"{"pose":3,"camera":1,"path":"b.png"}"#).unwrap();
+            serde_json::from_str(r#"{"view":3,"camera":1,"path":"b.png"}"#).unwrap();
         assert_eq!(no_kind.kind, FrameKind::Target);
     }
 

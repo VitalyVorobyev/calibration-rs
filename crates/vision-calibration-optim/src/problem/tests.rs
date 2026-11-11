@@ -707,7 +707,7 @@ fn a_planar_problem_matches_the_library_planar_solve() {
 }
 
 /// The distance between the camera centre and the target origin, from a
-/// `camera_se3_target` pose: `‖t‖`.
+/// `cam_se3_target` pose: `‖t‖`.
 struct Range {
     measured: f64,
 }

@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
 use vision_calibration_core::{
-    PerFeatureResiduals, Uncertainty, build_feature_histogram,
+    CameraParams, Iso3, LaserPlane, PerFeatureResiduals, Uncertainty, build_feature_histogram,
     compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
-    LaserlineDataset, LaserlineEstimate, LaserlineParams, LaserlineResidualType,
-    LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
+    LaserlineDataset, LaserlineEstimate, LaserlineResidualType, LaserlineSolveOptions,
+    LaserlineStats, compute_laserline_feature_residuals,
 };
 
 use crate::common::config::{
@@ -70,7 +70,7 @@ use super::state::LaserlineDeviceState;
 /// session.set_input(views)?;
 /// run_calibration(&mut session)?;
 ///
-/// let plane = session.export()?.params.plane;
+/// let plane = session.export()?.laser_plane;
 /// assert!(plane.normal().dot(&normal).abs() > 1.0 - 1e-6);
 /// # Ok(())
 /// # }
@@ -235,9 +235,16 @@ pub struct LaserlineDeviceEstimate {
 pub struct LaserlineDeviceExport {
     /// Export-type discriminator — always [`ExportKind::LaserlineDevice`].
     pub kind: ExportKind,
-    /// The calibrated camera, the laser plane (camera frame) and the
-    /// per-view target poses.
-    pub params: LaserlineParams,
+    /// The calibrated camera, in its model.
+    pub camera: CameraParams,
+    /// Per-view target poses (`cam_se3_target`).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
+    pub cam_se3_target: Vec<Iso3>,
+    /// The laser plane in the camera frame.
+    pub laser_plane: LaserPlane,
     /// Laserline statistics payload.
     pub stats: LaserlineStats,
     /// Mean reprojection error (pixels).
@@ -330,7 +337,7 @@ impl ProblemType for LaserlineDeviceProblem {
             .camera
             .build()
             .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
-        let target = compute_planar_target_residuals_views(&camera, input, &params.poses)?;
+        let target = compute_planar_target_residuals_views(&camera, input, &params.cam_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
 
         let laser = compute_laserline_feature_residuals(input, params)?;
@@ -345,7 +352,9 @@ impl ProblemType for LaserlineDeviceProblem {
         per_feature_residuals.laser_hist_per_camera = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {
             kind: ExportKind::LaserlineDevice,
-            params: output.estimate.params.clone(),
+            camera: output.estimate.params.camera.clone(),
+            cam_se3_target: output.estimate.params.cam_se3_target.clone(),
+            laser_plane: output.estimate.params.plane.clone(),
             stats: output.stats.clone(),
             mean_reproj_error: output.stats.mean_reproj_error,
             per_cam_reproj_errors: vec![output.stats.mean_reproj_error],

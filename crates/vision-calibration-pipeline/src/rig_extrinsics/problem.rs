@@ -311,8 +311,8 @@ impl ProblemType for RigExtrinsicsProblem {
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
         let params = &output.params;
-        let cam_se3_rig = inverse_poses(&params.cam_to_rig);
-        let rig_se3_target = params.rig_from_target.clone();
+        let cam_se3_rig = inverse_poses(&params.rig_se3_cam);
+        let rig_se3_target = params.rig_se3_target.clone();
         let per_feature_residuals =
             rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
         Ok(RigExtrinsicsExport {
@@ -493,16 +493,16 @@ mod tests {
         };
         let cam0 = make_camera();
         let cam1 = make_camera();
-        // T_R_C convention: cam_to_rig (line 30 of rig_extrinsics.rs).
-        let cam_to_rig = vec![
+        // T_R_C convention: rig_se3_cam (line 30 of rig_extrinsics.rs).
+        let rig_se3_cam = vec![
             Iso3::identity(),
             Iso3::from_parts(
                 nalgebra::Translation3::new(-0.2, 0.0, 0.0),
                 nalgebra::UnitQuaternion::identity(),
             ),
         ];
-        let cam_se3_rig: Vec<Iso3> = cam_to_rig.iter().map(|t| t.inverse()).collect();
-        let rig_from_target = vec![
+        let cam_se3_rig: Vec<Iso3> = rig_se3_cam.iter().map(|t| t.inverse()).collect();
+        let rig_se3_target = vec![
             Iso3::from_parts(
                 nalgebra::Translation3::new(0.0, 0.0, 1.0),
                 nalgebra::UnitQuaternion::identity(),
@@ -524,7 +524,7 @@ mod tests {
         ];
 
         let mut views = Vec::new();
-        for rig_se3_target in &rig_from_target {
+        for rig_se3_target in &rig_se3_target {
             let mut cameras = Vec::new();
             for (cam_idx, cam) in [&cam0, &cam1].iter().enumerate() {
                 let cam_se3_target = cam_se3_rig[cam_idx] * rig_se3_target;
@@ -550,8 +550,8 @@ mod tests {
         let output = RigExtrinsicsEstimate {
             params: RigExtrinsicsParams {
                 cameras: vec![pinhole_camera_params(&cam0), pinhole_camera_params(&cam1)],
-                cam_to_rig,
-                rig_from_target,
+                rig_se3_cam,
+                rig_se3_target,
             },
             uncertainty: Default::default(),
             report: SolveReport {
@@ -611,8 +611,8 @@ mod tests {
         );
         // One pose, one view, two cameras with the same model — produces
         // 8 records.
-        let cam_to_rig = vec![Iso3::identity(), Iso3::identity()];
-        let rig_from_target = vec![Iso3::from_parts(
+        let rig_se3_cam = vec![Iso3::identity(), Iso3::identity()];
+        let rig_se3_target = vec![Iso3::from_parts(
             nalgebra::Translation3::new(0.0, 0.0, 1.0),
             nalgebra::UnitQuaternion::identity(),
         )];
@@ -622,7 +622,7 @@ mod tests {
             Pt3::new(0.0, 0.05, 0.0),
             Pt3::new(0.05, 0.05, 0.0),
         ];
-        let cam_se3_target = rig_from_target[0];
+        let cam_se3_target = rig_se3_target[0];
         let pixels: Vec<Pt2> = board
             .iter()
             .map(|p| {
@@ -644,8 +644,8 @@ mod tests {
         let output = RigExtrinsicsEstimate {
             params: RigExtrinsicsParams {
                 cameras: vec![pinhole_camera_params(&camera); 2],
-                cam_to_rig,
-                rig_from_target,
+                rig_se3_cam,
+                rig_se3_target,
             },
             uncertainty: Default::default(),
             report: SolveReport {
@@ -695,8 +695,8 @@ mod tests {
             },
             BrownConrady5::default(),
         );
-        let cam_to_rig = vec![Iso3::identity(), Iso3::identity()];
-        let rig_from_target = vec![Iso3::from_parts(
+        let rig_se3_cam = vec![Iso3::identity(), Iso3::identity()];
+        let rig_se3_target = vec![Iso3::from_parts(
             nalgebra::Translation3::new(0.0, 0.0, 1.0),
             nalgebra::UnitQuaternion::identity(),
         )];
@@ -706,7 +706,7 @@ mod tests {
             Pt3::new(0.0, 0.05, 0.0),
             Pt3::new(0.05, 0.05, 0.0),
         ];
-        let cam_se3_target = rig_from_target[0];
+        let cam_se3_target = rig_se3_target[0];
         let pixels: Vec<Pt2> = board
             .iter()
             .map(|p| {
@@ -727,8 +727,8 @@ mod tests {
         let output = RigExtrinsicsEstimate {
             params: RigExtrinsicsParams {
                 cameras: vec![pinhole_camera_params(&camera); 2],
-                cam_to_rig,
-                rig_from_target,
+                rig_se3_cam,
+                rig_se3_target,
             },
             uncertainty: Default::default(),
             report: SolveReport {
@@ -774,7 +774,7 @@ mod tests {
                 roi.w = 720;
                 roi.h = 540;
                 let mut frame = FrameRef::default();
-                frame.pose = 0;
+                frame.view = 0;
                 frame.camera = cam;
                 frame.path = std::path::PathBuf::from("target_0.png");
                 frame.roi = Some(roi);

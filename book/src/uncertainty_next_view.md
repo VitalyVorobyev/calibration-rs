@@ -18,7 +18,7 @@ let image = [1280, 960];
 // 3 × 3 image regions, the board 0.55 m away, fronto-parallel and tilted
 // by ±0.4 rad about each of its axes: 45 candidates.
 let grid = CandidateGrid::new(0.55, 0.4, [3, 3]);
-let candidates = candidate_poses(&export.params.camera, &board, image, &grid)?;
+let candidates = candidate_poses(&export.camera, &board, image, &grid)?;
 
 let ranked = rank_candidates(&export, &candidates, &board, image)?;
 let best = &ranked[0];
@@ -46,7 +46,7 @@ predicted = vc.predict_with_views(result, [candidates[r.index] for r in ranked[:
 print(f"σ(cx) {predicted.covariance.std_dev('cx'):.3f} px")
 ```
 
-A candidate is a target pose, `camera_se3_target`; any pose works, so an
+A candidate is a target pose, `cam_se3_target`; any pose works, so an
 application can propose its own (a pose the operator can reach, a robot
 station) instead of the grid. `target_points` are the target's points in its
 own frame, as the calibration observed them.

@@ -74,7 +74,7 @@ use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LaserlineView};
 // Each view carries laser pixels and the camera-to-target pose
 let views: Vec<LaserlineView> = poses.iter().zip(laser_pixels_per_view.iter())
     .map(|(pose, pixels)| LaserlineView {
-        camera_se3_target: *pose,
+        cam_se3_target: *pose,
         laser_pixels: pixels.clone(),
     })
     .collect();

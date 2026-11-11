@@ -55,9 +55,9 @@ export function computePoseResidualStats(
 ): PoseResidualStat[] {
   const byPose = new Map<number, TargetFeatureResidual[]>();
   for (const r of residuals) {
-    const arr = byPose.get(r.pose);
+    const arr = byPose.get(r.view);
     if (arr) arr.push(r);
-    else byPose.set(r.pose, [r]);
+    else byPose.set(r.view, [r]);
   }
   const poses = [...byPose.keys()].sort((a, b) => a - b);
   return poses.map((pose) => {
@@ -108,16 +108,16 @@ export function computeCameraPoseMatrix(
   const poseSet = new Set<number>();
   for (const r of residuals) {
     cameraSet.add(r.camera);
-    poseSet.add(r.pose);
+    poseSet.add(r.view);
     let row = acc.get(r.camera);
     if (!row) {
       row = new Map();
       acc.set(r.camera, row);
     }
-    let slot = row.get(r.pose);
+    let slot = row.get(r.view);
     if (!slot) {
       slot = { sum: 0, count: 0 };
-      row.set(r.pose, slot);
+      row.set(r.view, slot);
     }
     if (typeof r.error_px === "number" && Number.isFinite(r.error_px)) {
       slot.sum += r.error_px;

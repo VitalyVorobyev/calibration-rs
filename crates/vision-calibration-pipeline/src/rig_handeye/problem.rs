@@ -394,7 +394,7 @@ impl ProblemType for RigHandeyeProblem {
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
         let params = &output.params;
-        let cam_se3_rig = inverse_poses(&params.cam_to_rig);
+        let cam_se3_rig = inverse_poses(&params.rig_se3_cam);
 
         let target_pose = params
             .target_poses
@@ -598,7 +598,7 @@ mod tests {
             mode: HandeyeMode::EyeInHand,
             params: HandeyeParams {
                 cameras: vec![vision_calibration_core::pinhole_camera_params(&camera)],
-                cam_to_rig: vec![Iso3::identity()],
+                rig_se3_cam: vec![Iso3::identity()],
                 handeye: Iso3::identity(),
                 target_poses: vec![Iso3::identity()],
             },
@@ -782,7 +782,7 @@ mod tests {
                 roi.w = 720;
                 roi.h = 540;
                 let mut frame = FrameRef::default();
-                frame.pose = 0;
+                frame.view = 0;
                 frame.camera = cam;
                 frame.path = std::path::PathBuf::from("target_0.png");
                 frame.roi = Some(roi);

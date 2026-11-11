@@ -48,7 +48,7 @@ fn eye_in_hand_calibration_converges() {
         Rotation3::identity().into(),
     );
 
-    let cam_to_rig_gt = [cam0_to_rig_gt, cam1_to_rig_gt];
+    let rig_se3_cam_gt = [cam0_to_rig_gt, cam1_to_rig_gt];
 
     // Ground truth hand-eye transform (rig-to-gripper for eye-in-hand)
     let handeye_gt = Isometry3::from_parts(
@@ -89,7 +89,7 @@ fn eye_in_hand_calibration_converges() {
         let mut cameras_obs = Vec::new();
 
         // Use only camera 0 for simplified test
-        let cam_to_rig = &cam_to_rig_gt[0];
+        let rig_se3_cam = &rig_se3_cam_gt[0];
         let mut points_3d = Vec::new();
         let mut points_2d = Vec::new();
 
@@ -103,7 +103,7 @@ fn eye_in_hand_calibration_converges() {
                 let p_base = target_pose_gt.transform_point(&pw);
                 let p_gripper = robot_pose.inverse_transform_point(&p_base);
                 let p_rig = handeye_gt.inverse_transform_point(&p_gripper);
-                let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
+                let p_cam = rig_se3_cam.inverse_transform_point(&p_rig);
 
                 if let Some(pixel) = camera_gt.project_point(&p_cam) {
                     points_3d.push(pw);
@@ -163,7 +163,7 @@ fn eye_in_hand_calibration_converges() {
 
     let initial = HandeyeParams {
         cameras: cameras_init,
-        cam_to_rig: vec![cam0_to_rig_init],
+        rig_se3_cam: vec![cam0_to_rig_init],
         handeye: handeye_init,
         target_poses: target_poses_init,
     };
@@ -339,7 +339,7 @@ fn mean_reproj_error_eye_in_hand(
     views: &[RigView<RobotPoseMeta>],
     intrinsics: FxFyCxCy<Real>,
     distortion: BrownConrady5<Real>,
-    cam_to_rig: &Isometry3<Real>,
+    rig_se3_cam: &Isometry3<Real>,
     handeye: &Isometry3<Real>,
     target_pose: &Isometry3<Real>,
     robot_deltas: Option<&Vec<Isometry3<Real>>>,
@@ -360,7 +360,7 @@ fn mean_reproj_error_eye_in_hand(
             let p_base = target_pose.transform_point(pw);
             let p_gripper = robot_pose.inverse_transform_point(&p_base);
             let p_rig = handeye.inverse_transform_point(&p_gripper);
-            let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
+            let p_cam = rig_se3_cam.inverse_transform_point(&p_rig);
             if let Some(pred) = camera.project_point(&p_cam) {
                 total_error += (pred - *uv).norm();
                 total_points += 1;
@@ -391,7 +391,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     };
     let camera_gt = make_pinhole_camera(intrinsics_gt, distortion_gt);
 
-    let cam_to_rig_gt = Isometry3::identity();
+    let rig_se3_cam_gt = Isometry3::identity();
     let handeye_gt = Isometry3::from_parts(
         Translation3::new(0.04, -0.02, 0.12),
         Rotation3::from_euler_angles(0.05, -0.03, 0.08).into(),
@@ -461,7 +461,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
             let p_base = target_pose_gt.transform_point(pw);
             let p_gripper = robot_pose_gt.inverse_transform_point(&p_base);
             let p_rig = handeye_gt.inverse_transform_point(&p_gripper);
-            let p_cam = cam_to_rig_gt.inverse_transform_point(&p_rig);
+            let p_cam = rig_se3_cam_gt.inverse_transform_point(&p_rig);
 
             if let Some(pixel) = camera_gt.project_point(&p_cam) {
                 let noise_u = (lcg(&mut pixel_seed) - 0.5) * 0.4;
@@ -489,7 +489,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
             intrinsics_gt,
             distortion_gt,
         ))],
-        cam_to_rig: vec![cam_to_rig_gt],
+        rig_se3_cam: vec![rig_se3_cam_gt],
         handeye: Isometry3::from_parts(
             Translation3::new(0.038, -0.021, 0.118),
             Rotation3::from_euler_angles(0.052, -0.028, 0.075).into(),
@@ -523,7 +523,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         &views,
         intrinsics_gt,
         distortion_gt,
-        &cam_to_rig_gt,
+        &rig_se3_cam_gt,
         &result_no_refine.params.handeye,
         &result_no_refine.params.target_poses[0],
         None,
@@ -560,7 +560,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         &views,
         intrinsics_gt,
         distortion_gt,
-        &cam_to_rig_gt,
+        &rig_se3_cam_gt,
         &result_refine.params.handeye,
         &result_refine.params.target_poses[0],
         Some(&deltas),

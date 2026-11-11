@@ -2,13 +2,13 @@
 //!
 //! Every view `i` pairs a measured robot pose `T_B_G_i` (`base_se3_gripper`)
 //! with the pose of a planar target seen by a camera, `T_C_T_i`
-//! (`camera_se3_target`). Two rigid transforms are unknown and constant over
+//! (`cam_se3_target`). Two rigid transforms are unknown and constant over
 //! the views:
 //!
-//! - **eye-in-hand** (camera on the gripper): `gripper_se3_camera` and
+//! - **eye-in-hand** (camera on the gripper): `gripper_se3_cam` and
 //!   `base_se3_target`, with `T_B_G_i · T_G_C = T_B_T · T_T_C_i`;
 //! - **eye-to-hand** (target on the gripper, camera fixed):
-//!   `gripper_se3_target` and `camera_se3_base`, with
+//!   `gripper_se3_target` and `cam_se3_base`, with
 //!   `T_B_G_i · T_G_T = T_B_C · T_C_T_i`.
 //!
 //! Both are the robot-world equation `A_i X = Z B_i` with `A_i = T_B_G_i`.
@@ -60,7 +60,7 @@ pub enum HandeyeMethod {
 #[non_exhaustive]
 pub struct EyeInHandEstimate {
     /// The camera in the gripper frame (`T_G_C`).
-    pub gripper_se3_camera: Iso3,
+    pub gripper_se3_cam: Iso3,
     /// The target in the robot base frame (`T_B_T`).
     pub base_se3_target: Iso3,
 }
@@ -72,12 +72,12 @@ pub struct EyeToHandEstimate {
     /// The target in the gripper frame (`T_G_T`).
     pub gripper_se3_target: Iso3,
     /// The robot base in the camera frame (`T_C_B`).
-    pub camera_se3_base: Iso3,
+    pub cam_se3_base: Iso3,
 }
 
 /// Eye-in-hand initialization from robot poses and target poses.
 ///
-/// `base_se3_gripper[i]` and `camera_se3_target[i]` are the robot pose and
+/// `base_se3_gripper[i]` and `cam_se3_target[i]` are the robot pose and
 /// the observed target pose of view `i`. View pairs whose rotation, in either
 /// the robot or the camera, is below `min_motion_angle_deg` carry too little
 /// rotation to use: the motion-pair methods drop them, and every method
@@ -94,21 +94,21 @@ pub struct EyeToHandEstimate {
 pub fn estimate_eye_in_hand(
     method: HandeyeMethod,
     base_se3_gripper: &[Iso3],
-    camera_se3_target: &[Iso3],
+    cam_se3_target: &[Iso3],
     min_motion_angle_deg: Real,
 ) -> Result<EyeInHandEstimate, Error> {
-    check_poses(base_se3_gripper, camera_se3_target)?;
+    check_poses(base_se3_gripper, cam_se3_target)?;
     // T_B_G_i · T_G_C = T_B_T · T_T_C_i: the stream B_i is T_T_C_i.
-    let target_se3_camera: Vec<Iso3> = camera_se3_target.iter().map(|t| t.inverse()).collect();
+    let target_se3_cam: Vec<Iso3> = cam_se3_target.iter().map(|t| t.inverse()).collect();
     let (x, z) = solve_ax_zb(
         method,
         base_se3_gripper,
-        &target_se3_camera,
+        &target_se3_cam,
         min_motion_angle_deg,
     )?;
-    let base_se3_target = z.unwrap_or_else(|| base_se3_gripper[0] * x * camera_se3_target[0]);
+    let base_se3_target = z.unwrap_or_else(|| base_se3_gripper[0] * x * cam_se3_target[0]);
     Ok(EyeInHandEstimate {
-        gripper_se3_camera: x,
+        gripper_se3_cam: x,
         base_se3_target,
     })
 }
@@ -117,7 +117,7 @@ pub fn estimate_eye_in_hand(
 ///
 /// The arguments and the motion filter are those of
 /// [`estimate_eye_in_hand`]. The motion-pair methods derive
-/// `camera_se3_base` from the first view; Shah's method estimates it over
+/// `cam_se3_base` from the first view; Shah's method estimates it over
 /// all views.
 ///
 /// # Errors
@@ -126,24 +126,24 @@ pub fn estimate_eye_in_hand(
 pub fn estimate_eye_to_hand(
     method: HandeyeMethod,
     base_se3_gripper: &[Iso3],
-    camera_se3_target: &[Iso3],
+    cam_se3_target: &[Iso3],
     min_motion_angle_deg: Real,
 ) -> Result<EyeToHandEstimate, Error> {
-    check_poses(base_se3_gripper, camera_se3_target)?;
+    check_poses(base_se3_gripper, cam_se3_target)?;
     // T_B_G_i · T_G_T = T_B_C · T_C_T_i: the stream B_i is T_C_T_i.
     let (x, z) = solve_ax_zb(
         method,
         base_se3_gripper,
-        camera_se3_target,
+        cam_se3_target,
         min_motion_angle_deg,
     )?;
-    let camera_se3_base = match z {
-        Some(base_se3_camera) => base_se3_camera.inverse(),
-        None => camera_se3_target[0] * (base_se3_gripper[0] * x).inverse(),
+    let cam_se3_base = match z {
+        Some(base_se3_cam) => base_se3_cam.inverse(),
+        None => cam_se3_target[0] * (base_se3_gripper[0] * x).inverse(),
     };
     Ok(EyeToHandEstimate {
         gripper_se3_target: x,
-        camera_se3_base,
+        cam_se3_base,
     })
 }
 
@@ -619,7 +619,7 @@ mod tests {
     fn assert_recovers(method: HandeyeMethod, x: &Iso3, z: &Iso3, robot: &[Iso3], tol: Real) {
         let cams = eye_in_hand_views(x, z, robot);
         let est = estimate_eye_in_hand(method, robot, &cams, 1.0).unwrap();
-        let (dt, dr) = pose_error(&est.gripper_se3_camera, x);
+        let (dt, dr) = pose_error(&est.gripper_se3_cam, x);
         assert!(
             dt < tol && dr < tol,
             "{method:?}: X off by {dt} m, {dr} rad"
@@ -644,11 +644,11 @@ mod tests {
     fn every_method_recovers_exact_eye_to_hand() {
         // T_C_T_i = T_C_B · T_B_G_i · T_G_T.
         let gripper_se3_target = make_iso((0.3, 0.1, -0.2), (0.0, 0.05, 0.12));
-        let camera_se3_base = make_iso((2.6, -0.1, 0.3), (0.2, -0.1, 1.4));
+        let cam_se3_base = make_iso((2.6, -0.1, 0.3), (0.2, -0.1, 1.4));
         let robot = varied_robot_poses();
         let cams: Vec<Iso3> = robot
             .iter()
-            .map(|bg| camera_se3_base * bg * gripper_se3_target)
+            .map(|bg| cam_se3_base * bg * gripper_se3_target)
             .collect();
         for method in METHODS {
             let est = estimate_eye_to_hand(method, &robot, &cams, 1.0).unwrap();
@@ -657,7 +657,7 @@ mod tests {
                 dt < 1e-9 && dr < 1e-9,
                 "{method:?}: X off by {dt} m, {dr} rad"
             );
-            let (dt, dr) = pose_error(&est.camera_se3_base, &camera_se3_base);
+            let (dt, dr) = pose_error(&est.cam_se3_base, &cam_se3_base);
             assert!(
                 dt < 1e-9 && dr < 1e-9,
                 "{method:?}: Z off by {dt} m, {dr} rad"
@@ -810,7 +810,7 @@ mod tests {
             .collect();
         for method in METHODS {
             let est = estimate_eye_in_hand(method, &robot, &cams, 0.5).unwrap();
-            let p = est.gripper_se3_camera;
+            let p = est.gripper_se3_cam;
             assert!(
                 p.translation.vector.iter().all(|v| v.is_finite())
                     && p.rotation.coords.iter().all(|v| v.is_finite()),
@@ -952,8 +952,7 @@ mod tests {
                     estimate_eye_to_hand(method, &measured, &cams, 1.0)
                         .map(|e| e.gripper_se3_target)
                 } else {
-                    estimate_eye_in_hand(method, &measured, &cams, 1.0)
-                        .map(|e| e.gripper_se3_camera)
+                    estimate_eye_in_hand(method, &measured, &cams, 1.0).map(|e| e.gripper_se3_cam)
                 }
                 .unwrap();
                 let (dt, dr) = pose_error(&est, &x);

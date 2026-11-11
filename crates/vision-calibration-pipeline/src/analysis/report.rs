@@ -533,12 +533,12 @@ fn heat_map(
 
 /// The mean reprojection error of each view, as bars in view order.
 fn per_view(residuals: &[TargetFeatureResidual]) -> String {
-    let views = residuals.iter().map(|r| r.pose + 1).max().unwrap_or(0);
+    let views = residuals.iter().map(|r| r.view + 1).max().unwrap_or(0);
     let mut sums = vec![(0.0f64, 0usize); views];
     for r in residuals {
         if let Some(e) = r.error_px.filter(|e| e.is_finite()) {
-            sums[r.pose].0 += e;
-            sums[r.pose].1 += 1;
+            sums[r.view].0 += e;
+            sums[r.view].1 += 1;
         }
     }
     let means: Vec<Option<f64>> = sums
