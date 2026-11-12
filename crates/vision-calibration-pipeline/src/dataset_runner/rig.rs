@@ -20,6 +20,7 @@ use vision_calibration_optim::RobotPoseMeta;
 use super::board_turn::match_rig_labels;
 use super::pairing::pair_views;
 use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
+use super::require_pose_pairing;
 use super::{
     Detection, ImageProgress, RejectReason, RejectedDetection, RunError, detect_features,
     expand_camera_images, features_to_obs, pattern_repr, target_to_detector_config,
@@ -138,16 +139,8 @@ pub(super) fn build_rig_core(
     let detector_config = target_to_detector_config(spec)?;
     validate(spec)?;
 
-    let Some(pairing) = &spec.pose_pairing else {
-        return Err(RunError::AskUser {
-            field: "pose_pairing".into(),
-            prompt: "Rig topologies need to know how per-camera images align into views. \
-                     Pick by_index (same count and order everywhere) or \
-                     shared_filename_token (a regex extracts a view token from filenames)."
-                .into(),
-            suggestions: vec!["by_index".into(), "shared_filename_token".into()],
-        });
-    };
+    let pairing = require_pose_pairing(spec)?
+        .expect("every rig and laser topology needs a pairing; require_pose_pairing asks for it");
 
     let mut images: Vec<Vec<PathBuf>> = Vec::with_capacity(spec.cameras.len());
     for camera in &spec.cameras {
