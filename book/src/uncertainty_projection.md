@@ -9,8 +9,12 @@ of that ellipse, in pixels, on a grid of 16 × 12 nodes from pixel `(0, 0)` to
 largest of the four corners and the largest on the grid. The export does not
 record the image size, so the call takes it:
 
-```rust
+```rust,no_run
 use vision_calibration::common::CalibratedCameras;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 let export = session.export()?;
 let map = export.projection_uncertainty(0, [1280, 1024])?;
@@ -19,6 +23,8 @@ println!(
     map.center,
     map.corner.unwrap_or(f64::NAN)
 );
+# Ok(())
+# }
 ```
 
 ```python
@@ -34,8 +40,14 @@ For the whole ellipse at pixels of your choice, `projection_covariance`
 returns `J Σ Jᵀ` itself, in px², one entry per pixel (`None` where no ray
 reaches it). It is Rust only:
 
-```rust
+```rust,no_run
+# use vision_calibration::common::CalibratedCameras;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
+# fn main() -> anyhow::Result<()> {
+# let export: PlanarIntrinsicsExport = unimplemented!("a calibration's export");
 let ellipses = export.projection_covariance(0, &[[640.0, 512.0], [10.0, 10.0]])?;
+# Ok(())
+# }
 ```
 
 Reading the map:

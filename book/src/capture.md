@@ -161,15 +161,21 @@ views and read the result. The quality verdict flags poor coverage, a
 large projection σ and, for a rig, a joint error beyond the covariance,
 and the projection map shows where in the image the calibration is weak:
 
-```rust
+```rust,no_run
 use vision_calibration::analysis::{QualityThresholds, assess};
 use vision_calibration::common::CalibratedCameras;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let session: CalibrationSession<PlanarIntrinsicsProblem> = unimplemented!("a calibrated session");
 
 let export = session.export()?;
 let report = assess(&export, &[[1280, 960]], &QualityThresholds::default())?;
 println!("{:?}", report.verdict);
 let map = export.projection_uncertainty(0, [1280, 960])?;
 println!("σ centre {:.2} px, worst {:.2} px", map.center, map.max);
+# Ok(())
+# }
 ```
 
 ```python
@@ -205,8 +211,12 @@ comes from Zhang's method finding no camera that fits the views.
 In Rust it is a typed error to match on; in Python it is a `ValueError`
 with the same message:
 
-```rust
+```rust,no_run
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::{Error, init};
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 match run_calibration(&mut session) {
     Err(Error::Linear(init::Error::DegenerateViews { .. })) => {
@@ -214,6 +224,8 @@ match run_calibration(&mut session) {
     }
     other => other?,
 }
+# Ok(())
+# }
 ```
 
 ## The image itself

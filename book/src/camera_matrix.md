@@ -57,7 +57,7 @@ $$\mathbf{t} = K^{-1} \mathbf{p}_4$$
 
 The `CameraMatrixDecomposition` struct (`mvg::solvers::CameraMatrixDecomposition`):
 
-```rust
+```rust,ignore
 pub struct CameraMatrixDecomposition {
     pub k: Mat3,   // Upper-triangular intrinsics
     pub r: Mat3,   // Rotation matrix (orthonormal, det = +1)
@@ -67,8 +67,13 @@ pub struct CameraMatrixDecomposition {
 
 ## API
 
-```rust
-use vision_calibration::mvg::solvers::{decompose_camera_matrix, dlt_camera_matrix};
+```rust,no_run
+use vision_calibration::mvg::solvers::{decompose_camera_matrix, dlt_camera_matrix, rq_decompose};
+# use vision_calibration::core::{Mat3, Pt2, Pt3};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let world_pts: Vec<Pt3> = unimplemented!("six or more non-coplanar points");
+# let image_pts: Vec<Pt2> = unimplemented!("their pixels");
+# let M: Mat3 = unimplemented!();
 
 // Estimate the full 3×4 camera matrix
 let P = dlt_camera_matrix(&world_pts, &image_pts)?;
@@ -79,9 +84,11 @@ println!("Intrinsics: {:?}", decomp.k);
 println!("Rotation: {:?}", decomp.r);
 println!("Translation: {:?}", decomp.t);
 
-// Or just RQ decompose any 3×3 matrix (`mvg::solvers::rq_decompose`):
+// Or just RQ decompose any 3×3 matrix:
 // `M = K R`, with `K` upper-triangular and `R` orthonormal
 let (K, R) = rq_decompose(&M);
+# Ok(())
+# }
 ```
 
 ## When to Use

@@ -6,8 +6,11 @@ Once a pair is rectified, `mvg::dense::match_block` produces a per-pixel dispari
 
 The matcher scores each pixel and each candidate disparity with the zero-mean normalized cross-correlation (ZNCC) over a square window, which tolerates a per-camera gain and bias. It selects the winner per pixel, refines it to sub-pixel precision with a parabola through the correlation peak, and filters with left-right consistency, a uniqueness check and a minimum correlation. Pixels that fail a check are `NaN` in the result.
 
-```rust
+```rust,no_run
 use vision_calibration::mvg::dense::{match_block, BlockMatchOptions, GrayImage};
+# fn main() -> anyhow::Result<()> {
+# let left: GrayImage = unimplemented!("the rectified left image");
+# let right: GrayImage = unimplemented!("the rectified right image");
 
 // `left` / `right` are rectified grayscale images: `rect.rectify_image(0, ..)?`
 // and `rect.rectify_image(1, ..)?` of the raw pair (see Stereo from a Calibration).
@@ -17,6 +20,8 @@ options.num_disparities = 64; // search [min, min + num)
 options.block_size = 9;       // odd; larger = smoother, fewer matches near edges
 let disp = match_block(&left, &right, &options)?;
 // disp.get(x, y) is x_left − x_right in pixels, or NaN where the matcher abstains.
+# Ok(())
+# }
 ```
 
 ```python
@@ -56,8 +61,16 @@ For a rectified pair with shared focal length $f$ (pixels) and baseline $b$, a d
 
 `StereoRectification::dense_cloud` turns a whole disparity map into a `DenseCloud`: one point per pixel with a finite, positive disparity, in the **rig frame**, with the covariance of any point computed when you ask for it. The covariance has two sources: the matcher's disparity noise `sigma_d`, and the calibration's uncertainty, which every point of the cloud shares.
 
-```rust
+```rust,no_run
+use vision_calibration::core::CalibratedRig;
+use vision_calibration::mvg::dense::DisparityMap;
 use vision_calibration::mvg::metrology::{PointSet, distance};
+use vision_calibration::mvg::rectification::StereoRectification;
+# fn main() -> anyhow::Result<()> {
+# let rect: StereoRectification = unimplemented!("the rig's rectification");
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let disp: DisparityMap = unimplemented!("a disparity map");
+# let (i, j) = (0, 1);
 
 let cloud = rect.dense_cloud(&rig, &disp, 0.2)?;     // σ_d = 0.2 px
 let p = &cloud.points()[i];                          // p.point, p.pixel = [x, y], p.disparity
@@ -65,6 +78,8 @@ let cov = cloud.point_covariance(i);                 // Option<3×3>, m²
 // A measurement between cloud points takes their joint covariance:
 let set = PointSet::from_dense_cloud(&cloud, &[i, j])?;
 let length = distance(&set, 0, 1)?;                  // length.value, length.sigma
+# Ok(())
+# }
 ```
 
 ```python

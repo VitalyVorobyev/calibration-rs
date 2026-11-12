@@ -51,6 +51,8 @@ its own backend.
 In code, set it on the config's solver group:
 
 ```rust
+# use vision_calibration::optim::SolverBackend;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
 let mut config = PlanarIntrinsicsConfig::default();
 config.solver.backend = SolverBackend::Factrs;
 ```
@@ -166,7 +168,7 @@ retries.
 
 ## Solve Report
 
-```rust
+```rust,ignore
 pub struct SolveReport {
     pub final_cost: f64,
     pub num_iters: usize,

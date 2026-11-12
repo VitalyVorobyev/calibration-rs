@@ -62,11 +62,12 @@ A single-camera `LaserlineDevice` is the same minus `robot_poses` and `upstream_
 
 The published crates do not ship a laser-line extractor, and extraction is the one step of the runner that you provide. Implement the open `LaserPixelExtractor` trait and hand it to the converter:
 
-```rust
-use vision_calibration::dataset::LaserExtractionSpec;
+```rust,no_run
+use std::path::Path;
 use vision_calibration::control::RunControl;
+use vision_calibration::dataset::{DatasetSpec, LaserExtractionSpec};
 use vision_calibration::dataset_runner::{Detection, LaserPixelExtractor, build_rig_laserline_device_input};
-use vision_calibration::detect::GrayImageView;
+use vision_calibration::detect::{FsDetectionCache, GrayImageView};
 
 struct MyExtractor;
 
@@ -81,6 +82,10 @@ impl LaserPixelExtractor for MyExtractor {
         todo!()
     }
 }
+# fn main() -> anyhow::Result<()> {
+# let spec: DatasetSpec = unimplemented!("a rig laser-line manifest");
+# let base_dir = Path::new("data/rig_laser");
+# let cache = FsDetectionCache::new("cache/rig_laser");
 
 let run = build_rig_laserline_device_input(
     &spec,
@@ -89,6 +94,8 @@ let run = build_rig_laserline_device_input(
     &MyExtractor,
     &RunControl::default(),
 )?;
+# Ok(())
+# }
 ```
 
 The runner owns the caching (keyed `laser:<name>` plus a hash of the extraction spec), the ROI cropping and the coordinate lifting; the extractor only extracts. Unlike the target detectors, a closed set, this trait is open. `name()` is part of the cache key, so switching implementations re-extracts instead of serving another extractor's pixels.

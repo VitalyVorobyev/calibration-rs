@@ -14,12 +14,18 @@ one per point of a view. It must be finite and positive definite (`xx > 0`,
 `yy > 0`, `xy² < xx·yy`); anything else is rejected when the view is built
 or read.
 
-```rust
-use vision_calibration::core::{CorrespondenceView, PointCovariance};
+```rust,no_run
+use vision_calibration::core::{CorrespondenceView, PointCovariance, Pt2, Pt3};
+# fn main() -> anyhow::Result<()> {
+# let points_3d: Vec<Pt3> = unimplemented!("the target's points");
+# let points_2d: Vec<Pt2> = unimplemented!("their pixels");
+# let n = points_3d.len();
 
 // σ = 0.3 px along u, 0.1 px along v.
 let cov = PointCovariance::new(0.09, 0.0, 0.01)?;
 let view = CorrespondenceView::new_with_covariances(points_3d, points_2d, vec![cov; n])?;
+# Ok(())
+# }
 ```
 
 ```python

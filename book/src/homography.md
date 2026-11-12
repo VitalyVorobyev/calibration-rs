@@ -63,8 +63,15 @@ With $N > 4$, the system is overdetermined and the SVD solution minimizes the al
 
 For real data with potential mismatched correspondences, `mvg::robust::estimate_homography` wraps the DLT solver in RANSAC:
 
-```rust
+```rust,no_run
+use vision_calibration::core::Pt2;
+use vision_calibration::mvg::RansacOptions;
+use vision_calibration::mvg::robust::estimate_homography;
 use vision_calibration::mvg::types::Correspondence2D;
+# fn main() -> anyhow::Result<()> {
+# let world_pts: Vec<Pt2> = unimplemented!("board points");
+# let image_pts: Vec<Pt2> = unimplemented!("their pixels");
+# let opts = RansacOptions::new(3.0);
 
 let corrs: Vec<Correspondence2D> = world_pts
     .iter()
@@ -73,6 +80,8 @@ let corrs: Vec<Correspondence2D> = world_pts
     .collect();
 let estimate = estimate_homography(&corrs, &opts)?;
 // estimate.homography, estimate.inliers, estimate.inlier_rms
+# Ok(())
+# }
 ```
 
 - `MIN_SAMPLES = 4`
@@ -82,7 +91,13 @@ let estimate = estimate_homography(&corrs, &opts)?;
 
 ## API
 
-```rust
+```rust,no_run
+# use vision_calibration::core::Pt2;
+# use vision_calibration::mvg::types::Correspondence2D;
+# fn main() -> anyhow::Result<()> {
+# let world_2d: Vec<Pt2> = unimplemented!("board points");
+# let image_2d: Vec<Pt2> = unimplemented!("their pixels");
+# let corrs: Vec<Correspondence2D> = unimplemented!("the pairs");
 // Direct DLT (all points assumed inliers)
 use vision_calibration::mvg::solvers::dlt_homography;
 let H = dlt_homography(&world_2d, &image_2d)?;
@@ -94,6 +109,8 @@ let opts = RansacOptions::new(3.0)   // threshold in pixels (symmetric transfer 
     .with_max_iters(1000)
     .with_confidence(0.99);
 let estimate = estimate_homography(&corrs, &opts)?;
+# Ok(())
+# }
 ```
 
 ## Geometric Interpretation

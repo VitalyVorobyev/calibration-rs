@@ -37,6 +37,7 @@ use vision_calibration::core::{
     CameraModelSpec, CameraParams, DistortionKind, DistortionParams, FxFyCxCy, ProjectionKind,
     ProjectionParams, SensorKind, SensorParams,
 };
+# fn main() -> anyhow::Result<()> {
 
 let spec = CameraModelSpec::new(
     ProjectionKind::Equidistant,
@@ -50,6 +51,8 @@ let camera = CameraParams::new(
     FxFyCxCy { fx: 300.0, fy: 300.0, cx: 640.0, cy: 400.0 },
 );
 let model = camera.build()?;
+# Ok(())
+# }
 ```
 
 In Python the same camera is

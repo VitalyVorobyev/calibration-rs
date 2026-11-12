@@ -8,7 +8,7 @@ You rarely call a detector yourself. The [dataset runner](manifest.md) picks the
 
 Every detector turns one image into a list of `Feature` values:
 
-```rust
+```rust,ignore
 pub struct Feature {
     pub image_xy: [f64; 2],   // pixel (column, row) in the source image
     pub world_xyz: [f64; 3],  // metres, in the target frame; the target plane is z = 0
@@ -103,8 +103,9 @@ In Python, `Features.cov_px` is the `(N, 3)` array of covariances (`None` when n
 
 A `DetectorConfig` names the target and carries its typed configuration, one variant per detector; the set is closed and owned by the crate. It detects in an 8-bit grayscale `GrayImageView` (row-major pixels; decode and convert the image with any library):
 
-```rust
+```rust,no_run
 use vision_calibration::detect::{ChessboardConfig, DetectorConfig, GrayImageView};
+# fn main() -> anyhow::Result<()> {
 
 let config = DetectorConfig::Chessboard(ChessboardConfig {
     rows: 17,
@@ -115,6 +116,8 @@ let config = DetectorConfig::Chessboard(ChessboardConfig {
 let gray = image::open("data/kuka_1/01.png")?.to_luma8();
 let features = config.detect(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?)?;
 println!("{} corners", features.len());
+# Ok(())
+# }
 ```
 
 `ChessboardConfig`, `CharucoConfig`, `PuzzleboardConfig` and `RinggridConfig` reject unknown fields when deserialized, so a typo in a hand-written config fails loudly. Each detector sits behind its own cargo feature of `vision-calibration-detect` (`chessboard`, `charuco`, `puzzleboard`, `ringgrid`; all on by default), so a build that needs one target does not compile the others. The facade crate's `vision_calibration::detect` module re-exports the configs, the cache, `Feature` and the error types.
@@ -123,14 +126,17 @@ To get features into a calibration without a manifest, build the problem input f
 
 The facade's `dataset_runner::detect_target` runs a detector from a manifest's `target` (and optional `detector`) section instead of a detector config, lowered exactly as a manifest run lowers it:
 
-```rust
+```rust,no_run
 use vision_calibration::dataset::TargetSpec;
 use vision_calibration::dataset_runner::detect_target;
 use vision_calibration::detect::GrayImageView;
+# fn main() -> anyhow::Result<()> {
 
 let target = TargetSpec::Chessboard { rows: 17, cols: 28, square_size_m: 0.02 };
 let gray = image::open("data/kuka_1/01.png")?.to_luma8();
 let features = detect_target(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?, &target, None)?;
+# Ok(())
+# }
 ```
 
 ### In Python
@@ -164,8 +170,18 @@ A cache entry is keyed by `CacheKey`:
 - **the detector name**: `"chessboard"`, `"charuco"`, ... (laser extraction uses a `laser:<name>` namespace);
 - **the configuration**: a hash of the detector configuration serialized to JSON with sorted keys, together with the crop the image was detected in, the crate's release and the detector's output revision (`CacheKey::for_detection`). Semantically equal configurations collide on purpose; changing any detector parameter, upgrading the detector stack or bumping a detector's output revision gives a new key and so recomputes, while the entries of the other detectors stay valid.
 
-```rust
-use vision_calibration::detect::{CacheKey, CachedFeatures, DetectionCache, FsDetectionCache, GrayImageView};
+```rust,no_run
+use vision_calibration::detect::{
+    CacheKey, CachedFeatures, ChessboardConfig, DetectionCache, DetectorConfig, FsDetectionCache,
+    GrayImageView,
+};
+# fn main() -> anyhow::Result<()> {
+# let config = DetectorConfig::Chessboard(ChessboardConfig {
+#     rows: 17,
+#     cols: 28,
+#     square_size_m: 0.02,
+#     chess_corners: None,
+# });
 
 let cache = FsDetectionCache::new("cache/kuka_1");   // created on first write
 let bytes = std::fs::read("data/kuka_1/01.png")?;
@@ -180,6 +196,8 @@ let features = match cache.get(&key)? {
         features
     }
 };
+# Ok(())
+# }
 ```
 
 `FsDetectionCache` writes one JSON file per entry under its root, named `<image>-<detector>-<config>.json` with a portable file-name encoding that is valid on Linux, macOS and Windows. Entries are written atomically, so the cache is safe under concurrent readers and writers. The dataset runner takes a `Detection` mode: `Detection::Cached(&cache)` reuses and stores entries, `Detection::Refresh(&cache)` detects every image again and overwrites its entry, and `Detection::Uncached` uses no cache. The cache is any `&dyn DetectionCache`, so an application can supply its own store.

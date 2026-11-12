@@ -4,7 +4,7 @@ calibration-rs separates the **definition** of optimization problems from their 
 
 ## Three-Stage Pipeline
 
-```
+```text
 Problem Builder  →  ProblemIR  →  Backend.compile()  →  Backend.solve()
  (domain code)      (generic)     (solver-specific)     (optimization)
 ```
@@ -17,7 +17,7 @@ Problem Builder  →  ProblemIR  →  Backend.compile()  →  Backend.solve()
 
 The central type that describes a complete optimization problem:
 
-```rust
+```rust,ignore
 pub struct ProblemIR {
     pub params: Vec<ParamBlock>,
     pub residuals: Vec<ResidualBlock>,
@@ -30,7 +30,7 @@ It is validated on construction to ensure all parameter references are valid, di
 
 Each parameter block represents a group of optimization variables:
 
-```rust
+```rust,ignore
 pub struct ParamBlock {
     pub id: ParamId,
     pub name: String,
@@ -68,7 +68,7 @@ Problem builders use consistent naming:
 
 Controls which parameters are held constant during optimization:
 
-```rust
+```rust,ignore
 // Construct via factory methods:
 FixedMask::all_free()              // nothing fixed
 FixedMask::all_fixed(dim)          // everything fixed
@@ -82,7 +82,7 @@ FixedMask::fix_indices(&[2])       // fix specific indices
 
 Each residual block connects parameter blocks through a factor:
 
-```rust
+```rust,ignore
 pub struct ResidualBlock {
     pub params: Vec<ParamId>,
     pub loss: RobustLoss,
@@ -98,7 +98,7 @@ The `params` vector references `ParamBlock`s by their `ParamId`. The ordering mu
 A factor is one of four residual families. The camera model and pose chain
 are **data** carried by the factor, not separate enum variants:
 
-```rust
+```rust,ignore
 pub enum FactorKind {
     /// 2D pixel reprojection residual.
     ReprojPoint {
@@ -129,7 +129,7 @@ optimizable parameters.
 
 ### Camera model as data
 
-```rust
+```rust,ignore
 pub struct CameraModelSpec {
     pub projection: ProjectionKind, // Pinhole
     pub distortion: DistortionKind, // None | BrownConrady5 | Rational8 | ThinPrism9 | Division1
@@ -187,7 +187,7 @@ Parameter blocks carry only their structural definition (dimension, manifold, fi
 
 For a 10-view planar intrinsics problem with 48 points per view:
 
-```
+```text
 Parameters:
   - "cam": dim=4, Euclidean (fx, fy, cx, cy)
   - "dist": dim=5, Euclidean (k1, k2, k3, p1, p2)

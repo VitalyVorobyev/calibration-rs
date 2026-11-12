@@ -6,8 +6,12 @@ The maps go through each camera's own unprojection and projection, so **raw pixe
 
 ## Usage
 
-```rust
+```rust,no_run
+use vision_calibration::core::{CalibratedRig, Pt2};
 use vision_calibration::mvg::rectification::{RectifyOptions, rectify};
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let (raw_left, raw_right): (Pt2, Pt2) = unimplemented!("a corresponding pair of raw pixels");
 
 let rect = rectify(&rig, [0, 1], &RectifyOptions::default())?;
 
@@ -16,6 +20,8 @@ let left = rect.rectified_pixel(0, &raw_left).unwrap();
 let right = rect.rectified_pixel(1, &raw_right).unwrap();
 // left.y == right.y for a corresponding pair, and
 let disparity = left.x - right.x; // positive for a point ahead of the pair
+# Ok(())
+# }
 ```
 
 ```python
@@ -51,8 +57,16 @@ On the rectified pair a match is a left pixel $(x, y)$ and a disparity $d = x_\t
 
 `point(&left, d)` gives the same point in the **left camera's frame** (`cameras[0]`), or `None` for $d \le 0$:
 
-```rust
+```rust,no_run
+use vision_calibration::core::Pt2;
+use vision_calibration::mvg::rectification::StereoRectification;
+# fn main() -> anyhow::Result<()> {
+# let rect: StereoRectification = unimplemented!("the rig's rectification");
+# let (x, y, disparity) = (0.0, 0.0, 0.0);
+
 let point = rect.point(&Pt2::new(x, y), disparity).unwrap();
+# Ok(())
+# }
 ```
 
 ## Disparity Uncertainty
@@ -67,15 +81,21 @@ It has rank 1, along the ray, and it grows with the square of the depth. Over 20
 
 The calibration is itself uncertain, and every point measured with it shares that error. For matches you select (corners, a few points to measure), `triangulate` includes it:
 
-```rust
+```rust,no_run
 use vision_calibration::control::RunControl;
-use vision_calibration::core::PointCovariance;
-use vision_calibration::mvg::rectification::RectifiedMatch;
+use vision_calibration::core::{CalibratedRig, PointCovariance, Pt2};
+use vision_calibration::mvg::rectification::{RectifiedMatch, StereoRectification};
+# fn main() -> anyhow::Result<()> {
+# let rect: StereoRectification = unimplemented!("the rig's rectification");
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let (x, y, disparity) = (0.0, 0.0, 0.0);
 
 let matches = [RectifiedMatch::new(Pt2::new(x, y), disparity)];
 let noise = PointCovariance::isotropic(0.3)?; // each raw pixel's σ
 let found = rect.triangulate(&rig, &matches, noise, &RunControl::default())?;
 let covariance = found.point_covariance(0); // 3×3, m², the calibration's share included
+# Ok(())
+# }
 ```
 
 Each match is mapped back to the two cameras' raw pixels and triangulated as one stereo capture with [`triangulate`](mvg_pose.md): refined on the reprojection error of the stated noise, the rig's calibration entering as consider parameters. The points are in the **rig frame** (the left camera's frame only when it is the reference camera), and the covariance is joint over the points, so `cross_covariance(i, j)` gives the correlation the shared calibration causes. `rig` must be the rig the rectification was built from.

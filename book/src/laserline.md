@@ -98,7 +98,7 @@ $$d_\perp = \frac{|(\mathbf{q} - \mathbf{p}_0) \times \hat{\mathbf{d}}_{\text{2D
 and its fixed parameters (as in [Planar Intrinsics](planar_intrinsics.md)),
 and `optimize` groups the laser-specific bundle-adjustment settings:
 
-```rust
+```rust,ignore
 pub struct LaserlineDeviceConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics_init: IntrinsicsInitConfig,
@@ -144,9 +144,11 @@ Since calibration residuals (in pixels) and laser residuals may have different s
 
 ## Complete Example
 
-```rust
+```rust,no_run
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::laserline_device::*;
+# fn main() -> anyhow::Result<()> {
+# let laserline_input: LaserlineDeviceInput = unimplemented!("the observed views");
 
 let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 session.set_input(laserline_input)?;
@@ -154,8 +156,8 @@ session.set_input(laserline_input)?;
 run_calibration(&mut session)?;
 
 let export = session.export()?;
-println!("Plane normal: {:?}", export.laser_plane.normal);
-println!("Plane distance: {:.4}", export.laser_plane.distance);
+println!("Plane normal: {:?}", export.laser_plane.normal());
+println!("Plane distance: {:.4}", export.laser_plane.distance());
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 println!("Laser error: {:.4}", export.stats.mean_laser_error);
 
@@ -163,6 +165,8 @@ println!("Laser error: {:.4}", export.stats.mean_laser_error);
 if let Some(cov) = export.uncertainty.covariance() {
     println!("Plane distance σ: {:.2e} m", cov.std_dev("plane.d").unwrap());
 }
+# Ok(())
+# }
 ```
 
 `export.camera` is the calibrated camera in its model
@@ -182,6 +186,10 @@ planes to the rig hand-eye labels.
 Laser profilers usually tilt their sensor. Select it in the camera model:
 
 ```rust
+use vision_calibration::common::config::CameraConfig;
+use vision_calibration::core::{CameraModelSpec, DistortionKind, SensorKind};
+use vision_calibration::laserline_device::LaserlineDeviceConfig;
+
 let mut config = LaserlineDeviceConfig::default();
 config.camera = CameraConfig::new(CameraModelSpec::pinhole(
     DistortionKind::BrownConrady5,

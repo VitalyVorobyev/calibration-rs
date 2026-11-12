@@ -94,12 +94,15 @@ For tabular formats, `[robot_poses.columns]` maps your column names to `tx`, `ty
 
 Writing a manifest by hand for a folder of 400 images is tedious, so `sniff_folder` writes a first draft:
 
-```rust
+```rust,no_run
 use std::path::Path;
 use vision_calibration::dataset::sniff_folder;
+# fn main() -> anyhow::Result<()> {
 
 let spec = sniff_folder(Path::new("data/my_dataset"))?;
 println!("{:?}", spec.unresolved);
+# Ok(())
+# }
 ```
 
 The same function is `vcal init` on the command line ([The Command Line](cli.md)) and the **Sniff folder** button of the app's Run workspace:
@@ -155,7 +158,7 @@ The converters in `vision_calibration::dataset_runner` turn a `DatasetSpec` into
 | `rig_laserline_device` | `build_rig_laserline_device_input` |
 | `rig_handeye_laserline` | `build_rig_handeye_laserline_input` |
 
-```rust
+```rust,no_run
 use std::path::Path;
 use vision_calibration::dataset::DatasetSpec;
 use vision_calibration::control::RunControl;
@@ -163,6 +166,7 @@ use vision_calibration::dataset_runner::{Detection, build_single_cam_handeye_inp
 use vision_calibration::detect::FsDetectionCache;
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{SingleCamHandeyeProblem, run_calibration};
+# fn main() -> anyhow::Result<()> {
 
 let base_dir = Path::new("data/kuka_1");
 let spec = DatasetSpec::from_path(base_dir.join("dataset.toml"))?; // TOML or JSON
@@ -174,6 +178,8 @@ println!("{}/{} views usable", run.usable_views, run.total_views);
 let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 session.set_input(run.input)?;
 run_calibration(&mut session)?;
+# Ok(())
+# }
 ```
 
 Each converter checks the topology and target, validates the manifest and resolves the pairing *before* it reads a single image, so a wrong manifest fails in milliseconds with a message that names the field. A view whose detection yields fewer features than `detector.min_features_per_view` (default 4) is dropped. With a plain chessboard, the topologies whose views share one target frame (`single_cam_handeye` and every rig topology) also drop a view unless its corners span the whole board: a partial chessboard is labelled from its own top-left corner and would move that frame. A rig turns each camera's labels to agree with the other cameras of the view, so a board seen turned is kept; where the target is fixed through the views (hand-eye), a board camera 0 sees turned by 90° is dropped. [Calibration Targets and Detection](detection.md#chessboard) explains the rules, and recommends ChArUco or PuzzleBoard targets when you need partial views. `planar_intrinsics` and `laserline_device` estimate one target pose per view and keep partial boards.

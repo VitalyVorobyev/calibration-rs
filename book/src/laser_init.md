@@ -68,8 +68,13 @@ Typical accuracy: 1-5° normal direction error, 5-20% distance error. Refined in
 
 ## API
 
-```rust
+```rust,no_run
+use vision_calibration::core::{Iso3, PinholeCamera, Pt2};
 use vision_calibration::init::{LaserlinePlaneSolver, PlaneFitView};
+# fn main() -> anyhow::Result<()> {
+# let poses: Vec<Iso3> = unimplemented!("the board's pose per view");
+# let laser_pixels_per_view: Vec<Vec<Pt2>> = unimplemented!("the laser pixels per view");
+# let camera: PinholeCamera = unimplemented!("the calibrated camera");
 
 // Each view carries laser pixels and the camera-to-target pose
 let views: Vec<PlaneFitView> = poses.iter().zip(laser_pixels_per_view.iter())
@@ -83,4 +88,6 @@ let plane = LaserlinePlaneSolver::from_views(&views, &camera)?;
 // plane.normal: UnitVector3<f64> (unit normal in camera frame)
 // plane.distance: f64 (signed distance from camera origin)
 // plane.rmse: f64 (fit residual)
+# Ok(())
+# }
 ```

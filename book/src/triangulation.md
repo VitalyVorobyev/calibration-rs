@@ -37,10 +37,16 @@ For accurate points, refine them on the reprojection error with their noise stat
 
 ## API
 
-```rust
+```rust,no_run
+use vision_calibration::core::{Iso3, Vec3};
 use vision_calibration::mvg::solvers::triangulate_point_linear;
+# fn main() -> anyhow::Result<()> {
+# let cam_se3_world: Vec<Iso3> = unimplemented!("each camera's pose");
+# let bearings: Vec<Vec3> = unimplemented!("the point's bearing in each camera");
 
 let X = triangulate_point_linear(&cam_se3_world, &bearings)?;
+# Ok(())
+# }
 ```
 
 Where `cam_se3_world` holds each view's `Iso3` pose and `bearings` the matching rays (any nonzero length). The calibrated entry point, `mvg::triangulation::triangulate`, builds the bearings from pixels through a `CalibratedRig`, refines the points and adds diagnostics and covariance; see [Pose Recovery and Triangulation](mvg_pose.md).

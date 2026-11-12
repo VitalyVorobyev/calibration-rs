@@ -31,12 +31,17 @@ The camera comes from Zhang's method with a distortion fit, over the board
 views. Each board pose comes from its homography, and the part's pose from
 EPnP on its eight fiducials, whose positions on the part are known:
 
-```rust
-use vision_calibration::core::{CorrespondenceView, PlanarDataset, Pt2, View};
+```rust,no_run
+use vision_calibration::core::{CorrespondenceView, PlanarDataset, Pt2, Pt3, View};
 use vision_calibration::init::{
     IterativeIntrinsicsOptions, estimate_intrinsics_iterative, estimate_planar_pose_from_h, pnp,
 };
 use vision_calibration::mvg::solvers::dlt_homography;
+# fn main() -> anyhow::Result<()> {
+# let board: Vec<Pt3> = unimplemented!("the board's corners, in its frame");
+# let board_pixels: Vec<Vec<Pt2>> = unimplemented!("their pixels, one set per view");
+# let fiducials: Vec<Pt3> = unimplemented!("the part's fiducials, in its frame");
+# let part_pixels: Vec<Pt2> = unimplemented!("their pixels");
 
 let mut views = Vec::new();
 for pixels in &board_pixels {
@@ -54,6 +59,8 @@ for pixels in &board_pixels {
     board_poses.push(estimate_planar_pose_from_h(&start.k.k_matrix(), &h)?);
 }
 let part_start = pnp::epnp(&fiducials, &part_pixels, &start.k)?;
+# Ok(())
+# }
 ```
 
 EPnP uses the pinhole intrinsics and ignores distortion. That is enough
@@ -65,12 +72,20 @@ model.
 The board views and the part enter one problem, through one camera. Each
 has its own pose block:
 
-```rust
-use vision_calibration::core::{CameraFix, pinhole_camera_params};
+```rust,no_run
+use vision_calibration::core::{CameraFix, Iso3, PinholeCamera, Pt2, Pt3, pinhole_camera_params};
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::{
     PixelNoise, PoseChain, Problem, SolveOptions, TargetPoint, solve,
 };
+# fn main() -> anyhow::Result<()> {
+# let start: PinholeCamera = unimplemented!("the initial camera");
+# let board: Vec<Pt3> = unimplemented!("the board's corners, in its frame");
+# let board_pixels: Vec<Vec<Pt2>> = unimplemented!("their pixels, one set per view");
+# let board_poses: Vec<Iso3> = unimplemented!("the board's initial pose per view");
+# let fiducials: Vec<Pt3> = unimplemented!("the part's fiducials, in its frame");
+# let part_pixels: Vec<Pt2> = unimplemented!("their pixels");
+# let part_start: Iso3 = unimplemented!("the part's initial pose");
 
 let mut problem = Problem::new();
 let cam = problem.add_camera(&pinhole_camera_params(&start), &CameraFix::default())?;
@@ -101,6 +116,8 @@ for (point, pixel) in fiducials.iter().zip(&part_pixels) {
 
 let solution = solve(&problem, &SolveOptions::default())?;
 let cam_se3_part = solution.pose(part).unwrap();
+# Ok(())
+# }
 ```
 
 Each reprojection names how its point reaches the camera (`PoseChain`:
@@ -120,9 +137,19 @@ A calibration's result carries its cameras and their covariance, without
 the board pixels it came from. `add_calibrated_rig` adds it to a problem
 with that covariance:
 
-```rust
-use vision_calibration::core::CalibratedRig;
-use vision_calibration::optim::problem::Use;
+```rust,no_run
+use vision_calibration::common::CalibratedCameras;
+use vision_calibration::core::{CalibratedRig, Iso3, Pt2, Pt3};
+use vision_calibration::optim::RobustLoss;
+use vision_calibration::optim::problem::{
+    PixelNoise, PoseChain, Problem, SolveOptions, TargetPoint, Use, solve,
+};
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() -> anyhow::Result<()> {
+# let export: RigExtrinsicsExport = unimplemented!("a rig calibration's export");
+# let fiducials: Vec<Pt3> = unimplemented!("the part's fiducials, in its frame");
+# let part_pixels: Vec<Pt2> = unimplemented!("their pixels");
+# let part_start: Iso3 = unimplemented!("the part's initial pose");
 
 let rig: CalibratedRig = export.calibrated_rig()?;
 let mut problem = Problem::new();
@@ -139,6 +166,8 @@ for (point, pixel) in fiducials.iter().zip(&part_pixels) {
     )?;
 }
 let solution = solve(&problem, &SolveOptions::default())?;
+# Ok(())
+# }
 ```
 
 Every calibration result has `calibrated_rig()`. The calibration enters in

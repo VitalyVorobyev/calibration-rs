@@ -36,19 +36,26 @@ The examples below use the stereo chessboard rig of [Stereo Rig with Real Data](
 
 No configuration is needed: the records are always populated.
 
-```rust
+```rust,no_run
 use vision_calibration::session::CalibrationSession;
-use vision_calibration::rig_extrinsics::{RigExtrinsicsProblem, run_calibration};
+use vision_calibration::rig_extrinsics::{RigExtrinsicsInput, RigExtrinsicsProblem, run_calibration};
+# fn main() -> anyhow::Result<()> {
+# let my_dataset: RigExtrinsicsInput = unimplemented!("the observed rig views");
 
 let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 session.set_input(my_dataset)?;
 run_calibration(&mut session)?;
 let export = session.export()?;
+# Ok(())
+# }
 ```
 
 ### 2. Summarize the histograms
 
-```rust
+```rust,no_run
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() {
+# let export: RigExtrinsicsExport = unimplemented!("a rig calibration's export");
 let pf = &export.diagnostics.per_feature_residuals;
 let total = pf.target.len();
 let with_value = pf.target.iter().filter(|r| r.error_px.is_some()).count();
@@ -61,6 +68,7 @@ if let Some(hists) = pf.target_hist_per_cam.as_ref() {
                  h.count, h.mean, h.max, h.counts);
     }
 }
+# }
 ```
 
 Output on the 20-view stereo chessboard rig:
@@ -75,7 +83,11 @@ cam 1: count=1540 mean=0.2544px max=0.9146px buckets [1540, 0, 0, 0, 0]
 
 Sort by `error_px` to triage outliers:
 
-```rust
+```rust,no_run
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() {
+# let export: RigExtrinsicsExport = unimplemented!("a rig calibration's export");
+# let pf = &export.diagnostics.per_feature_residuals;
 let mut worst: Vec<_> = pf
     .target
     .iter()
@@ -91,6 +103,7 @@ for (err, r) in worst.iter().take(5) {
         err
     );
 }
+# }
 ```
 
 A diagnose view typically projects this onto the source image as a heatmap; the `(observed_px, projected_px)` pair lets you draw an arrow from observed to projected for every record.
@@ -99,7 +112,13 @@ A diagnose view typically projects this onto the source image as a heatmap; the 
 
 The per-camera histogram `mean` must agree with the mean recomputed from the records. The `manual_init` example asserts this:
 
-```rust
+```rust,no_run
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() {
+# let export: RigExtrinsicsExport = unimplemented!("a rig calibration's export");
+# let pf = &export.diagnostics.per_feature_residuals;
+# let cam_idx = 0;
+# let hist = &pf.target_hist_per_cam.as_ref().unwrap()[cam_idx];
 let mean_from_records: f64 = pf
     .target
     .iter()
@@ -108,6 +127,7 @@ let mean_from_records: f64 = pf
     .sum::<f64>()
     / hist.count as f64;
 assert!((mean_from_records - hist.mean).abs() < 1e-9);
+# }
 ```
 
 ## Laser Residuals
@@ -130,13 +150,18 @@ The records use exactly the camera chain the optimizer used, so they agree with 
 
 Every record type derives `Serialize` and `Deserialize`, and the export round-trips through JSON:
 
-```rust
+```rust,no_run
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() -> anyhow::Result<()> {
+# let export: RigExtrinsicsExport = unimplemented!("a rig calibration's export");
 let json = serde_json::to_string(&export)?;
 let restored: RigExtrinsicsExport = serde_json::from_str(&json)?;
 assert_eq!(
     restored.diagnostics.per_feature_residuals,
     export.diagnostics.per_feature_residuals,
 );
+# Ok(())
+# }
 ```
 
 Empty vectors and `None` histograms are skipped on the wire (`{}` for an empty container).

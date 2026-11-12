@@ -7,8 +7,12 @@ so, as a verdict — `pass`, `warn` or `fail` — and the checks behind it. It
 builds on the result's [uncertainty](uncertainty.md) and residuals; it does
 not re-run the calibration.
 
-```rust
+```rust,no_run
 use vision_calibration::analysis::{CheckStatus, QualityThresholds, assess};
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let session: CalibrationSession<PlanarIntrinsicsProblem> = unimplemented!("a calibrated session");
 
 let export = session.export()?;
 let mut thresholds = QualityThresholds::default();
@@ -20,6 +24,8 @@ for check in &report.checks {
         println!("{:?} {:?}: {}", check.kind, check.status, check.message);
     }
 }
+# Ok(())
+# }
 ```
 
 ```python

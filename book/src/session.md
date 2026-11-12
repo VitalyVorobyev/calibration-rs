@@ -37,6 +37,9 @@ The public methods of `CalibrationSession<P>`:
 ### 1. Create
 
 ```rust
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+use vision_calibration::session::CalibrationSession;
+
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 // Or with a description:
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::with_description(
@@ -46,8 +49,16 @@ let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::with_descriptio
 
 ### 2. Set Input
 
-```rust
+```rust,no_run
+# use vision_calibration::core::PlanarDataset;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+# let dataset: PlanarDataset = unimplemented!("the observed views");
 session.set_input(dataset)?;
+# Ok(())
+# }
 ```
 
 Input is validated via `ProblemType::validate_input()`. Setting input clears computed state (per the invalidation policy).
@@ -55,27 +66,46 @@ Input is validated via `ProblemType::validate_input()`. Setting input clears com
 ### 3. Configure
 
 ```rust
+use vision_calibration::optim::RobustLoss;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.update_config(|c| {
     c.solver.max_iters = 50;
     c.optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
+# Ok(())
+# }
 ```
 
 Configuration is validated via `ProblemType::validate_config()`.
 
 ### 4. Run Steps
 
-```rust
+```rust,no_run
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 step_init(&mut session, None)?;
 step_optimize(&mut session, None)?;
+# Ok(())
+# }
 ```
 
 Step functions are free functions operating on `&mut CalibrationSession<P>`. Each step reads input/state, performs computation, and updates state (or output).
 
 ### 5. Export
 
-```rust
+```rust,no_run
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 let export = session.export()?;
+# Ok(())
+# }
 ```
 
 Creates an `ExportRecord` with the current timestamp and output. Multiple exports can be created (e.g., after re-optimization with different settings).
@@ -84,7 +114,11 @@ Creates an `ExportRecord` with the current timestamp and output. Multiple export
 
 The entire session can be serialized and restored:
 
-```rust
+```rust,no_run
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_optimize};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 // Save
 let json = session.to_json()?;
 std::fs::write("calibration.json", &json)?;
@@ -95,6 +129,8 @@ let mut restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&jso
 
 // Resume from where we left off
 step_optimize(&mut restored, None)?;
+# Ok(())
+# }
 ```
 
 This enables:
@@ -134,7 +170,7 @@ solved in, and its export reads that mode, not the current config's.
 
 Every step function appends to the session log:
 
-```rust
+```rust,ignore
 pub struct LogEntry {
     pub timestamp: u64,
     pub operation: String,
@@ -147,7 +183,11 @@ The log records what was done and when, useful for tracking calibration history.
 
 ## Reading Results
 
-```rust
+```rust,no_run
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init};
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 // Input (required before steps)
 let input = session.require_input()?;  // Returns error if no input
 
@@ -160,6 +200,8 @@ let output = session.require_output()?;
 
 // Session bookkeeping
 println!("{} ({} log entries)", session.metadata().problem_type, session.log().len());
+# Ok(())
+# }
 ```
 
 ## Progress and Cancellation
@@ -168,8 +210,12 @@ A long run reports its progress, and stops on request, through a
 `RunControl` (in `vision_calibration::control`): an optional `CancelToken`
 and observers that receive each `Progress` report.
 
-```rust,ignore
+```rust,no_run
 use vision_calibration::control::{CancelToken, Progress, RunControl};
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 let token = CancelToken::new();
 let control = RunControl::new()
@@ -185,6 +231,8 @@ match run_calibration(&mut session) {
     Err(vision_calibration::Error::Cancelled) => eprintln!("stopped"),
     other => other?,
 }
+# Ok(())
+# }
 ```
 
 | Report | When |

@@ -27,7 +27,7 @@ $$s_x = \frac{u - c_x}{f_x}, \quad s_y = \frac{v - c_y}{f_y}$$
 
 ## The `IntrinsicsModel` Trait
 
-```rust
+```rust,ignore
 pub trait IntrinsicsModel<S: RealField> {
     fn sensor_to_pixel(&self, sensor: &Point2<S>) -> Point2<S>;
     fn pixel_to_sensor(&self, pixel: &Point2<S>) -> Point2<S>;
@@ -36,7 +36,7 @@ pub trait IntrinsicsModel<S: RealField> {
 
 The `FxFyCxCy<S>` struct implements this trait:
 
-```rust
+```rust,ignore
 pub struct FxFyCxCy<S: RealField> {
     pub fx: S, pub fy: S,
     pub cx: S, pub cy: S,

@@ -105,10 +105,19 @@ The relationship is: $E = K'^T F K$.
 
 Both solvers have RANSAC wrappers for outlier rejection:
 
-```rust
-// vision_calibration::mvg::solvers::fundamental_8point_ransac
+```rust,no_run
+use vision_calibration::core::Pt2;
+use vision_calibration::mvg::RansacOptions;
+use vision_calibration::mvg::solvers::fundamental_8point_ransac;
+# fn main() -> anyhow::Result<()> {
+# let pts1: Vec<Pt2> = unimplemented!("pixels in the first image");
+# let pts2: Vec<Pt2> = unimplemented!("their matches in the second");
+# let opts = RansacOptions::new(1.0);
+
 let estimate = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
 // estimate.fundamental, estimate.inliers
+# Ok(())
+# }
 ```
 
 Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`mvg::solvers::essential_5point`) returns multiple candidates and is used directly; the calibrated `mvg::robust::estimate_essential` wraps it in RANSAC on bearings, scoring each match by its covariance-weighted Sampson error: the epipolar constraint over its first-order σ, from the pixels' stated noise (see [Pose Recovery and Triangulation](mvg_pose.md)).

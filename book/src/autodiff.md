@@ -22,7 +22,7 @@ All residual functions in calibration-rs are written **generic over the scalar t
 
 A simplified pinhole + Brown-Conrady reprojection residual looks like this (the shipped residuals additionally take the camera model and pose chain as data):
 
-```rust
+```rust,ignore
 fn reproj_residual_generic<T: RealField>(
     intr: DVectorView<'_, T>,  // [fx, fy, cx, cy]
     dist: DVectorView<'_, T>,  // [k1, k2, k3, p1, p2]
@@ -55,7 +55,7 @@ Step by step:
 
 ### 1. Unpack Parameters
 
-```rust
+```rust,ignore
 let fx = intr[0].clone();
 let fy = intr[1].clone();
 let cx = intr[2].clone();
@@ -101,7 +101,7 @@ Every arithmetic operation on `T` values propagates derivatives automatically th
 
 Each backend wraps the same generic residual function in its own residual type. The factor carries its camera model as data, and the residual evaluates it per slot through the core camera-model kinds:
 
-```
+```text
 FactorKind::ReprojPoint { model: pinhole + Brown-Conrady, chain: SinglePose, pw, uv, sqrt_info }
     ↓ (compile step)
 residual(params) = reproj_residual(model, chain, params, pw, uv, sqrt_info)
@@ -113,7 +113,7 @@ Both evaluate it with dual numbers to get residuals and Jacobians in one pass. t
 
 A critical autodiff-compatible function is `se3_exp<T>()`, which maps a 6D tangent vector to an SE(3) transform:
 
-```rust
+```rust,ignore
 fn se3_exp<T: RealField>(xi: &[T; 6]) -> [[T; 4]; 4]
 ```
 

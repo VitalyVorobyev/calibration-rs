@@ -15,12 +15,14 @@ The example uses the images of the `kuka_1` sample, which it downloads on the fi
 
 The example detects corners with the `calib_targets` crate (a dev-dependency of the examples; the calibration library itself takes plain point correspondences). Each image is processed independently; failed detections are skipped and the workflow continues with the views that succeed.
 
-```rust
+```rust,no_run
+use std::path::Path;
 use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
 use calib_targets::detect::{self, default_chess_config};
 
 const SQUARE_SIZE_M: f64 = 0.02; // 20 mm squares
 
+# fn detect_one(path: &Path) -> anyhow::Result<Option<ChessboardDetection>> {
 let board_params = ChessboardParams::default();
 
 let img = image::ImageReader::open(path)?.decode()?.to_luma8();
@@ -28,13 +30,21 @@ let Ok(detection) = detect::detect_chessboard(&img, &default_chess_config(), &bo
 else {
     return Ok(None); // no board found in this image
 };
+# Ok(Some(detection))
+# }
+# fn main() {}
 ```
 
 ### 2. Correspondence Construction
 
 Each detected corner carries its grid index (`corner.grid.u`, `corner.grid.v`) and its pixel position. The board lies in the plane $Z = 0$, so the 3D point follows directly from the grid index and the square size:
 
-```rust
+```rust,no_run
+use anyhow::Result;
+use calib_targets::chessboard::ChessboardDetection;
+use vision_calibration::core::{CorrespondenceView, Pt2, Pt3};
+
+# const SQUARE_SIZE_M: f64 = 0.02;
 fn detection_to_view(detection: ChessboardDetection) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
@@ -51,6 +61,7 @@ fn detection_to_view(detection: ChessboardDetection) -> Result<CorrespondenceVie
 
     Ok(CorrespondenceView::new(points_3d, points_2d)?)
 }
+# fn main() {}
 ```
 
 `CorrespondenceView::new` validates that both point lists have the same length.
@@ -59,7 +70,13 @@ fn detection_to_view(detection: ChessboardDetection) -> Result<CorrespondenceVie
 
 The remaining pipeline is identical to the synthetic case:
 
-```rust
+```rust,no_run
+use vision_calibration::core::{CorrespondenceView, PlanarDataset, View};
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let views: Vec<CorrespondenceView> = unimplemented!("one view per detected board");
+
 let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
@@ -71,19 +88,26 @@ let export = session.export()?;
 let k = export.camera.intrinsics;
 println!("fx={:.2} fy={:.2} cx={:.2} cy={:.2}", k.fx, k.fy, k.cx, k.cy);
 println!("Mean reprojection error: {:.4} px", export.mean_reproj_error);
+# Ok(())
+# }
 ```
 
 ### 4. Parameter Uncertainty
 
 The export carries the covariance of the estimated parameters (see [Parameter Uncertainty](uncertainty.md)):
 
-```rust
+```rust,no_run
 use vision_calibration::core::Uncertainty;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
+# fn main() {
+# let export: PlanarIntrinsicsExport = unimplemented!("a calibration's export");
+# let k = export.camera.intrinsics;
 
 if let Uncertainty::Available(cov) = &export.uncertainty {
     println!("fx = {:.2} ± {:.2} px", k.fx, cov.std_dev("fx").unwrap());
     println!("corr(fx, cx) = {:+.3}", cov.correlation("fx", "cx").unwrap());
 }
+# }
 ```
 
 On this dataset the example reports a mean reprojection error of about 0.13 px and `fx` ≈ 2058 px with a standard deviation of about 0.3 px.
@@ -92,14 +116,21 @@ On this dataset the example reports a mean reprojection error of about 0.13 px a
 
 Real data usually contains a few poorly detected corners. `run_calibration_with_filtering` solves, removes observations above a reprojection-error threshold, and solves again:
 
-```rust
-use vision_calibration::planar_intrinsics::{IntrinsicsFilterOptions, run_calibration_with_filtering};
+```rust,no_run
+use vision_calibration::planar_intrinsics::{
+    IntrinsicsFilterOptions, PlanarIntrinsicsProblem, run_calibration_with_filtering,
+};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 let mut filter_opts = IntrinsicsFilterOptions::default();
 filter_opts.max_reproj_error = 1.0;
 filter_opts.min_points_per_view = 10;
 filter_opts.remove_sparse_views = true;
 run_calibration_with_filtering(&mut session, Some(filter_opts))?;
+# Ok(())
+# }
 ```
 
 ## Interpreting Results

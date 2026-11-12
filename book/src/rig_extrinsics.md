@@ -66,7 +66,7 @@ Joint optimization of all parameters:
 Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`, `RigConfig`,
 `SolverConfig`) are reused across every rig-family problem type:
 
-```rust
+```rust,ignore
 pub struct RigExtrinsicsConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics_init: IntrinsicsInitConfig, // { iterations, fix_k3 }
@@ -95,6 +95,10 @@ Each stage carries its own robust loss: `intrinsics_optimize.reprojection_loss` 
 ```rust
 use vision_calibration::common::config::CameraOverride;
 use vision_calibration::core::{CameraModelSpec, DistortionKind, SensorKind};
+# use vision_calibration::rig_extrinsics::RigExtrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 
 // Camera 1 has a tilted sensor and a rational lens; the others are straight Brown-Conrady.
 session.update_config(|c| {
@@ -103,6 +107,8 @@ session.update_config(|c| {
         CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Scheimpflug),
     )];
 })?;
+# Ok(())
+# }
 ```
 
 A rig of tilted cameras sets `config.camera = CameraConfig::new(CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug))` instead. Tilt seeds go through `RigIntrinsicsManualInit::per_cam_sensors` and `step_intrinsics_init_all_with_seed`; zero tilts need no seed (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` is one `CameraParams` per camera, stating the calibrated distortion and sensor.
@@ -111,7 +117,7 @@ The reference camera (`rig.reference_camera_idx`) is fixed at identity, which re
 
 ## Input Format
 
-```rust
+```rust,ignore
 pub struct RigDataset<Meta> {
     pub num_cameras: usize,
     pub views: Vec<RigView<Meta>>,
@@ -129,12 +135,15 @@ Each view has an `Option<CorrespondenceView>` per camera — cameras that don't 
 
 After optimization, per-camera reprojection errors are computed independently:
 
-```rust
-let export = session.export()?;
+```rust,no_run
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() {
+# let export: RigExtrinsicsExport = unimplemented!("a rig calibration's export");
 for (cam_idx, error) in export.per_cam_reproj_errors.iter().enumerate() {
     println!("Camera {}: {:.4} px", cam_idx, error);
 }
 println!("Overall: {:.4} px", export.mean_reproj_error);
+# }
 ```
 
 ## Stereo Baseline
@@ -147,9 +156,11 @@ since $T_{R,C_0} = I$ (camera 0 is the reference).
 
 ## Complete Example
 
-```rust
+```rust,no_run
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::rig_extrinsics::*;
+# fn main() -> anyhow::Result<()> {
+# let rig_dataset: RigExtrinsicsInput = unimplemented!("the observed rig views");
 
 let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 session.set_input(rig_dataset)?;
@@ -162,6 +173,8 @@ step_rig_optimize(&mut session, None)?;
 let export = session.export()?;
 let baseline = export.cam_se3_rig[1].translation.vector.norm();
 println!("Stereo baseline: {:.1} mm", baseline * 1000.0);
+# Ok(())
+# }
 ```
 
 > **OpenCV equivalence**: `cv::stereoCalibrate` for 2-camera rigs. calibration-rs generalizes to $N$ cameras.

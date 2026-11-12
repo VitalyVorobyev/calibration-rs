@@ -95,9 +95,15 @@ Median errors of the initial estimate over 100 trials per row (stations without 
 
 The workflows run the initialization in `step_handeye_init`; the method comes from the config, or from the step's options for one call:
 
-```rust
+```rust,no_run
 use vision_calibration::common::HandeyeInitOptions;
 use vision_calibration::init::HandeyeMethod;
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::single_cam_handeye::{
+    SingleCamHandeyeConfig, SingleCamHandeyeProblem, step_handeye_init,
+};
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 
 let mut config = SingleCamHandeyeConfig::default();
 config.handeye_init.method = HandeyeMethod::Shah;
@@ -106,12 +112,18 @@ session.set_config(config)?;
 let mut opts = HandeyeInitOptions::default();
 opts.method = Some(HandeyeMethod::Daniilidis); // this call only
 step_handeye_init(&mut session, Some(opts))?;
+# Ok(())
+# }
 ```
 
 The closed-form solvers are also available on their own, to start a problem of your own:
 
-```rust
+```rust,no_run
+use vision_calibration::core::Iso3;
 use vision_calibration::init::{HandeyeMethod, estimate_eye_in_hand};
+# fn main() -> anyhow::Result<()> {
+# let base_se3_gripper: Vec<Iso3> = unimplemented!("the robot poses");
+# let cam_se3_target: Vec<Iso3> = unimplemented!("the observed board poses");
 
 let estimate = estimate_eye_in_hand(
     HandeyeMethod::TsaiLenz,
@@ -121,6 +133,8 @@ let estimate = estimate_eye_in_hand(
 )?;
 let x = estimate.gripper_se3_cam;
 let z = estimate.base_se3_target;
+# Ok(())
+# }
 ```
 
 `estimate_eye_to_hand` takes the same arguments and returns `gripper_se3_target` and `cam_se3_base`.

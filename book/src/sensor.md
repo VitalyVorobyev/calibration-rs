@@ -4,7 +4,7 @@ In standard cameras, the sensor plane is perpendicular to the optical axis. Some
 
 ## The `SensorModel` Trait
 
-```rust
+```rust,ignore
 pub trait SensorModel<S: RealField> {
     fn normalized_to_sensor(&self, n: &Point2<S>) -> Point2<S>;
     fn sensor_to_normalized(&self, s: &Point2<S>) -> Point2<S>;
@@ -50,7 +50,7 @@ where $\text{proj}_z$ normalizes by the $Z$-component (perspective division thro
 
 ### `ScheimpflugParams`
 
-```rust
+```rust,ignore
 pub struct ScheimpflugParams {
     pub tilt_x: f64,   // tau_x in radians
     pub tilt_y: f64,   // tau_y in radians

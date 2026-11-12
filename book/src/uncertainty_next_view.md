@@ -8,10 +8,12 @@ would have with candidate views of its target added, and `rank_candidates`
 orders candidate target poses by how much each would reduce the largest
 projection σ.
 
-```rust
+```rust,no_run
 use vision_calibration::analysis::{CandidateGrid, candidate_poses, predict_with_views, rank_candidates};
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
+# fn main() -> anyhow::Result<()> {
+# let export: PlanarIntrinsicsExport = unimplemented!("a calibration's export");
 
-let export = session.export()?;
 let board = vision_calibration::synthetic::planar::grid_points(9, 7, 0.03);
 let image = [1280, 960];
 
@@ -31,6 +33,8 @@ println!(
 let picks: Vec<_> = ranked[..3].iter().map(|r| candidates[r.index]).collect();
 let predicted = predict_with_views(&export, &picks, &board, image)?;
 println!("σ(cx) {:.3} px", predicted.covariance.std_dev("cx").unwrap());
+# Ok(())
+# }
 ```
 
 ```python
@@ -117,10 +121,15 @@ pose follows from the calibration's own chain. `predict_with_robot_poses`
 predicts the covariance with views at candidate robot poses added, and
 `rank_robot_poses` orders the candidates.
 
-```rust
+```rust,no_run
 use vision_calibration::analysis::{predict_with_robot_poses, rank_robot_poses};
+use vision_calibration::core::Iso3;
+# use vision_calibration::rig_handeye::RigHandeyeExport;
+# fn main() -> anyhow::Result<()> {
+# let export: RigHandeyeExport = unimplemented!("a rig hand-eye calibration's export");
+# let reachable: Vec<Iso3> = unimplemented!("poses the arm can reach");
 
-let export = session.export()?; // a rig hand-eye export
+// `export`: a rig hand-eye export
 let board = vision_calibration::synthetic::planar::grid_points(9, 7, 0.03);
 let image_sizes = [[1280, 960], [1280, 960]]; // one per camera
 
@@ -138,6 +147,8 @@ println!(
     "σ(hand-eye tz) {:.3} mm",
     1e3 * predicted.covariance.std_dev("gripper_se3_rig.tz").unwrap()
 );
+# Ok(())
+# }
 ```
 
 ```python

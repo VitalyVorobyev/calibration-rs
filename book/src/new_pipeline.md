@@ -6,7 +6,7 @@ This chapter is a guide for contributors working inside the `vision-calibration-
 
 Create a new folder under `crates/vision-calibration-pipeline/src/`:
 
-```
+```text
 my_problem/
 ├── mod.rs         # Module re-exports
 ├── problem.rs     # ProblemType implementation + Config/Export
@@ -18,7 +18,7 @@ my_problem/
 
 The state holds intermediate results between steps. It stays crate-private; users see typed step results instead.
 
-```rust
+```rust,ignore
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct MyState {
     // Initialization results
@@ -35,7 +35,7 @@ The state must implement `Default` (empty state) and `Clone + Serialize + Deseri
 
 ## Step 2: Define the Problem Type (`problem.rs`)
 
-```rust
+```rust,ignore
 use crate::Error;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -90,7 +90,7 @@ Shared config groups (`SolverConfig`, `IntrinsicsInitConfig`, `IntrinsicsOptimiz
 
 Each step takes `Option<<Stage><Action>Options>` (reuse the shared ones in `common/mod.rs`; `None` keeps the session config) and returns a typed `<Stage><Action>Result`, so callers never need to read the state:
 
-```rust
+```rust,ignore
 use crate::Error;
 use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 use crate::session::CalibrationSession;
@@ -156,7 +156,7 @@ Add `step_*_with_seed` variants when the problem supports manual seeds, followin
 
 ## Step 4: Module Re-exports (`mod.rs`)
 
-```rust
+```rust,ignore
 mod problem;
 mod state;
 mod steps;
@@ -172,7 +172,7 @@ pub use steps::{
 
 In `crates/vision-calibration-pipeline/src/lib.rs`:
 
-```rust
+```rust,ignore
 pub mod my_problem;
 ```
 
@@ -180,7 +180,7 @@ pub mod my_problem;
 
 In `crates/vision-calibration/src/lib.rs`, list the public items explicitly (the facade curates its surface):
 
-```rust
+```rust,ignore
 pub mod my_problem {
     pub use vision_calibration_pipeline::my_problem::{
         IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsOptimizeOptions,
@@ -198,7 +198,7 @@ Add the Python binding in `vision-calibration-py`: one `session_class!` invocati
 
 Write a test next to the module (it can read the crate-private state) or an integration test using only the public API:
 
-```rust
+```rust,ignore
 #[test]
 fn my_problem_session_workflow() -> Result<(), Error> {
     let input = make_synthetic_input(); // local test helper

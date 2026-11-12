@@ -4,8 +4,13 @@
 
 ## Usage
 
-```rust
+```rust,no_run
+use vision_calibration::core::{CalibratedRig, PointCovariance, Pt2, Pt3};
 use vision_calibration::mvg::pose::{PoseObservation, PoseOptions, estimate_pose};
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let board: Vec<Pt3> = unimplemented!("the object's points in its own frame, metres");
+# let pixels: Vec<Pt2> = unimplemented!("where camera 0 saw each of them");
 
 // rig:     CalibratedRig
 // board:   the object's points in its own frame, metres
@@ -22,6 +27,8 @@ println!("{}", pose.rig_se3_object);
 if let Some(cov) = pose.pose_covariance() {
     // 6x6 over [rx ry rz tx ty tz], rad and m, right-perturbation tangent
 }
+# Ok(())
+# }
 ```
 
 ```python

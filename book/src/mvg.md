@@ -60,17 +60,26 @@ scene: 36 correspondences visible in both views
 
 Every export with cameras gives its calibration as a `CalibratedRig`, with the cameras' parameters, their poses in the rig and the uncertainty of the estimated parameters (labelled as in the export: `fx` for one camera, `cam1.k1` and `cam1.cam_se3_rig.rx` in a rig):
 
-```rust
+```rust,no_run
 use vision_calibration::common::CalibratedCameras;
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() -> anyhow::Result<()> {
+# let export: RigExtrinsicsExport = unimplemented!("a rig calibration's export");
 
 let rig = export.calibrated_rig()?;
 // rig.cameras(), rig.cam_se3_rig(), rig.uncertainty(), rig.model(i)
+# Ok(())
+# }
 ```
 
 `cam_se3_rig[i]` is the pose of the rig frame in camera `i` (`T_Ci_R`). The relative pose of two cameras of a rig is **composed**:
 
-```rust
+```rust,no_run
+# use vision_calibration::core::CalibratedRig;
+# fn main() {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
 let cam1_se3_cam0 = rig.cam_se3_rig()[1] * rig.cam_se3_rig()[0].inverse();
+# }
 ```
 
 A single `cam_se3_rig[i]` equals the relative pose only in the special case where camera 0 is the reference frame (its pose is the identity). The reference camera need not be camera 0.

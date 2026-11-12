@@ -138,8 +138,15 @@ show, which is what the constraints feed on.
 
 ## API
 
-```rust
+```rust,no_run
+use vision_calibration::core::Mat3;
+use vision_calibration::init::estimate_intrinsics_from_homographies;
+# fn main() -> anyhow::Result<()> {
+# let homographies: Vec<Mat3> = unimplemented!("one board-to-pixel homography per view");
+
 let K = estimate_intrinsics_from_homographies(&homographies)?;
+# Ok(())
+# }
 ```
 
 Returns `FxFyCxCy` with the estimated intrinsics. Typically followed by distortion estimation and non-linear refinement.

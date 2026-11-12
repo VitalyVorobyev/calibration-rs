@@ -36,7 +36,7 @@ The library covers the full calibration pipeline:
 
 calibration-rs is organized as a layered Rust workspace with a layered architecture:
 
-```
+```text
 vision-calibration (facade)
     → vision-calibration-pipeline (sessions, workflows, dataset runner)
         → vision-calibration-optim (non-linear refinement)

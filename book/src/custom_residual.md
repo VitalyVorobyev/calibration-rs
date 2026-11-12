@@ -72,12 +72,28 @@ observations, from the closed-form initializers in
 or a workflow's result ([Compose Your Own Pipeline](compose_pipeline.md)
 computes them):
 
-```rust
-use vision_calibration::core::CameraFix;
+```rust,no_run
+use vision_calibration::core::{CameraFix, CameraParams, Iso3, Pt2, Pt3};
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::{
     Noise, PixelNoise, PoseChain, Problem, SolveOptions, TargetPoint, solve,
 };
+# use vision_calibration::nalgebra::{DVector, RealField};
+# use vision_calibration::optim::problem::{Residual, se3};
+# struct Range { measured: f64 }
+# impl Residual for Range {
+#     fn dim(&self) -> usize { 1 }
+#     fn block_dims(&self) -> Vec<usize> { vec![7] }
+#     fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+#         let range = se3(&blocks[0]).translation.vector.norm();
+#         DVector::from_element(1, range - T::from_f64(self.measured).unwrap())
+#     }
+# }
+# fn main() -> anyhow::Result<()> {
+# let camera: CameraParams = unimplemented!("the initial camera");
+# let board: Vec<Pt3> = unimplemented!("the board's corners, in its frame");
+# let pixels: Vec<Vec<Pt2>> = unimplemented!("their pixels, one set per view");
+# let poses: Vec<Iso3> = unimplemented!("the board's initial pose per view");
 
 let mut problem = Problem::new();
 let cam = problem.add_camera(&camera, &CameraFix::default())?;
@@ -106,6 +122,8 @@ problem.add_residual(
 let solution = solve(&problem, &SolveOptions::default())?;
 let refined = solution.camera(cam).unwrap();
 let board_pose = solution.pose(views[0]).unwrap();
+# Ok(())
+# }
 ```
 
 `add_camera` lays out the camera's blocks from its model, holding what the

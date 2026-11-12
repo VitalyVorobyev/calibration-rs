@@ -6,7 +6,7 @@ calibration-rs offers two ways to run calibration workflows: **step functions** 
 
 Step functions are free functions that operate on a mutable session reference:
 
-```rust
+```rust,ignore
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
@@ -24,7 +24,12 @@ Each step:
 
 **Intermediate inspection**: Examine the typed result of each step.
 
-```rust
+```rust,no_run
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+# let expected_fx = 800.0;
 let init = step_init(&mut session, None)?;
 
 // Inspect initialization quality before committing to optimization
@@ -35,33 +40,55 @@ if (init.camera.intrinsics.fx - expected_fx).abs() / expected_fx > 0.5 {
 
 let opt = step_optimize(&mut session, None)?;
 println!("{:.3} px after {} iterations", opt.mean_reproj_error, opt.iterations);
+# Ok(())
+# }
 ```
 
 **Per-step configuration**: Override options for individual steps.
 
-```rust
+```rust,no_run
+use vision_calibration::common::IntrinsicsOptimizeOptions;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_optimize};
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 // Use more iterations for optimization
 let mut opts = IntrinsicsOptimizeOptions::default();
 opts.max_iters = Some(200);
 step_optimize(&mut session, Some(opts))?;
+# Ok(())
+# }
 ```
 
 **Selective execution**: Skip steps or re-run specific steps.
 
-```rust
+```rust,no_run
+use vision_calibration::optim::RobustLoss;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_optimize};
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 // Re-run optimization with different settings (without re-initializing)
 session.update_config(|c| c.optimize.reprojection_loss = RobustLoss::Cauchy { scale: 3.0 })?;
 step_optimize(&mut session, None)?;
+# Ok(())
+# }
 ```
 
 **Checkpointing**: Save and restore between steps.
 
-```rust
+```rust,no_run
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 step_init(&mut session, None)?;
 let checkpoint = session.to_json()?;
 std::fs::write("after_init.json", &checkpoint)?;
 
 step_optimize(&mut session, None)?;
+# Ok(())
+# }
 ```
 
 ## Manual Seeds
@@ -83,6 +110,10 @@ Every problem module uses the same names, so code written against one problem re
 Pipeline functions chain all steps into a single call:
 
 ```rust
+use vision_calibration::Error;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+use vision_calibration::session::CalibrationSession;
+
 pub fn run_calibration(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
 ) -> Result<(), Error> {
@@ -90,6 +121,7 @@ pub fn run_calibration(
     step_optimize(session, None)?;
     Ok(())
 }
+# fn main() {}
 ```
 
 ### When to Use
@@ -98,11 +130,18 @@ pub fn run_calibration(
 - **Default settings**: When the defaults work and you don't need inspection
 - **Scripts and automation**: When human inspection is not needed
 
-```rust
+```rust,no_run
+use vision_calibration::core::PlanarDataset;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!("the observed views");
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_input(dataset)?;
 run_calibration(&mut session)?;
 let export = session.export()?;
+# Ok(())
+# }
 ```
 
 ## Available Steps and Pipeline Functions

@@ -185,6 +185,13 @@ All published crates and the PyPI package share one version.
   with its Python binding and its book coverage in the same PR. A capability
   that is deliberately Rust-only is recorded in the binding parity check, with
   the reason.
+* **The book compiles.** Every ```` ```rust ```` block of `book/src` is a
+  doctest of the facade crate (`crates/vision-calibration/src/book_doctests.rs`
+  includes each chapter), so it uses `vision_calibration::…` only. Complete a
+  block with hidden `# ` lines; `no_run` when it needs images or a network;
+  `ignore` only for a type or signature excerpt that is not a program; a
+  diagram or output is ```` ```text ````. `cargo xtask check-docs` fails on a
+  chapter missing from the include list and on a bare fence.
 * **User-facing docs never cite internal material.** The READMEs, `book/src`,
   the CHANGELOG, published rustdoc and the Python package do not mention ADRs,
   `docs/` paths, backlog IDs, PR numbers, private datasets or agent files, and

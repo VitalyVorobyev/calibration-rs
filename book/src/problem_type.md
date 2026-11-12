@@ -6,7 +6,7 @@ The `ProblemType` trait defines the interface for a calibration problem. It spec
 
 ## Definition
 
-```rust
+```rust,ignore
 pub trait ProblemType: ProblemState + Sized + 'static {
     type Config: Clone + Default + Serialize + DeserializeOwned + Debug;
     type Input: Clone + Serialize + DeserializeOwned + Debug;
@@ -52,7 +52,7 @@ The `Serialize + DeserializeOwned` bounds enable JSON checkpointing (the interna
 
 Returns a stable string identifier for the problem type:
 
-```rust
+```rust,ignore
 fn name() -> &'static str { "planar_intrinsics_v2" }
 ```
 
@@ -62,7 +62,7 @@ This is stored in session metadata and used for deserialization. Changing the na
 
 Converts the internal output to a user-facing export format:
 
-```rust
+```rust,ignore
 fn export(
     input: &Self::Input, output: &Self::Output, config: &Self::Config,
 ) -> Result<Self::Export, Error>;
@@ -86,7 +86,7 @@ Example: `PlanarIntrinsicsProblem` validates that input has at least 3 views wit
 
 Control what happens when input or config changes:
 
-```rust
+```rust,ignore
 pub struct InvalidationPolicy {
     pub clear_state: bool,
     pub clear_output: bool,

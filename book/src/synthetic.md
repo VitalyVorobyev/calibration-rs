@@ -17,6 +17,7 @@ Points are generated in the $Z = 0$ plane with the specified column count, row c
 ## Pose Generation
 
 ```rust
+# use vision_calibration::synthetic::planar;
 // 6 camera poses with varying yaw and distance
 let poses = planar::poses_yaw_y_z(
     6,      // number of views
@@ -33,9 +34,20 @@ Poses are generated looking at the board center, with rotation around the Y axis
 ## Projection
 
 ```rust
+# use vision_calibration::core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
+# use vision_calibration::synthetic::planar;
+# fn main() -> anyhow::Result<()> {
+# let camera = make_pinhole_camera(
+#     FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 },
+#     BrownConrady5::default(),
+# );
+# let board_points = planar::grid_points(8, 6, 0.04);
+# let poses = planar::poses_yaw_y_z(6, -0.2, 0.08, 0.5, 0.05);
 // Project board points through all poses
 let views = planar::project_views_all(&camera, &board_points, &poses)?;
 // Returns Vec<CorrespondenceView>: 2D-3D point pairs per view
+# Ok(())
+# }
 ```
 
 This applies the full camera model (projection + distortion + intrinsics) to generate pixel observations.
@@ -46,9 +58,20 @@ For realistic testing, project with deterministic uniform pixel noise. `UniformP
 
 ```rust
 use vision_calibration::synthetic::noise::UniformPixelNoise;
+# use vision_calibration::core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
+# use vision_calibration::synthetic::planar;
+# fn main() -> anyhow::Result<()> {
+# let camera = make_pinhole_camera(
+#     FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 },
+#     BrownConrady5::default(),
+# );
+# let board_points = planar::grid_points(8, 6, 0.04);
+# let poses = planar::poses_yaw_y_z(6, -0.2, 0.08, 0.5, 0.05);
 
 let noise = UniformPixelNoise { seed: 42, max_abs_px: 0.5 }; // uniform in [-0.5, 0.5] px per axis
 let views = planar::project_views_noisy(&camera, &board_points, &poses, &noise)?;
+# Ok(())
+# }
 ```
 
 Typical noise levels (`max_abs_px`):
