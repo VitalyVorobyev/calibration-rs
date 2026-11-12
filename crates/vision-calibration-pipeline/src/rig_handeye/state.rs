@@ -46,6 +46,7 @@ impl RigHandeyeState {
     }
 
     /// Check if hand-eye initialization has been run.
+    #[cfg(test)]
     pub fn has_handeye_init(&self) -> bool {
         self.initial_handeye.is_some()
     }

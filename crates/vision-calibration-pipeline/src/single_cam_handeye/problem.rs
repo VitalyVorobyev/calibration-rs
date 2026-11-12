@@ -7,12 +7,12 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraParams, Handeye, Iso3, PerFeatureResiduals, Uncertainty, View, build_feature_histogram,
-    compute_planar_target_residuals_views,
+    CameraParams, Handeye, Iso3, PerFeatureResiduals, RigView, RigViewObs, Uncertainty, View,
+    build_feature_histogram, compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
-    HandeyeEstimate, HandeyeMode, RobotPoseMeta, RobotRefinement, RobustLoss,
-    handeye_observer_se3_target,
+    HandeyeDataset, HandeyeEstimate, HandeyeMode, HandeyeSolveOptions, RobotPoseMeta,
+    RobotRefinement, RobustLoss, handeye_observer_se3_target,
 };
 
 use crate::common::config::{
@@ -20,6 +20,8 @@ use crate::common::config::{
     RobotPoseConfig, SolverConfig,
 };
 use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
+use crate::planar_family::check_camera_model;
+use crate::rig_family::{HandeyePoses, HandeyeStages, handeye_solve_opts};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
@@ -349,6 +351,115 @@ pub struct SingleCamHandeyeProblem;
 
 impl ProblemState for SingleCamHandeyeProblem {
     type State = SingleCamHandeyeState;
+}
+
+impl HandeyePoses for SingleCamHandeyeSolution {
+    fn from_poses(mode: HandeyeMode, handeye: Iso3, target: Iso3) -> Self {
+        Self::new(mode, handeye, target)
+    }
+    fn mode(&self) -> HandeyeMode {
+        SingleCamHandeyeSolution::mode(self)
+    }
+    fn poses(&self) -> (Iso3, Iso3) {
+        (*self.handeye().pose(), *self.target_pose())
+    }
+    fn pose_names(mode: HandeyeMode) -> (&'static str, &'static str) {
+        match mode {
+            HandeyeMode::EyeInHand => ("gripper_se3_cam", "base_se3_target"),
+            HandeyeMode::EyeToHand => ("cam_se3_base", "gripper_se3_target"),
+        }
+    }
+}
+
+/// The hand-eye stages of a rig that is the camera: one camera, at the
+/// identity in the rig frame.
+impl HandeyeStages for SingleCamHandeyeProblem {
+    type Solution = SingleCamHandeyeSolution;
+
+    fn handeye_init_config(config: &SingleCamHandeyeConfig) -> &HandeyeInitConfig {
+        &config.handeye_init
+    }
+    fn solver_config(config: &SingleCamHandeyeConfig) -> &SolverConfig {
+        &config.solver
+    }
+    fn base_se3_gripper(input: &SingleCamHandeyeInput) -> Vec<Iso3> {
+        input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper)
+            .collect()
+    }
+    fn observer_se3_target(state: &SingleCamHandeyeState) -> Result<&[Iso3], Error> {
+        if !state.has_intrinsics_optimized() {
+            return Err(Error::not_available(
+                "intrinsics optimization (call step_intrinsics_optimize first)",
+            ));
+        }
+        state
+            .optimized_cam_se3_target
+            .as_deref()
+            .ok_or_else(|| Error::not_available("optimized target poses"))
+    }
+    fn initial_handeye(state: &SingleCamHandeyeState) -> Option<SingleCamHandeyeSolution> {
+        state.initial_handeye
+    }
+    fn initial_handeye_mut(
+        state: &mut SingleCamHandeyeState,
+    ) -> &mut Option<SingleCamHandeyeSolution> {
+        &mut state.initial_handeye
+    }
+    fn handeye_cameras(
+        config: &SingleCamHandeyeConfig,
+        state: &SingleCamHandeyeState,
+    ) -> Result<Vec<CameraParams>, Error> {
+        let camera = state
+            .optimized_camera
+            .clone()
+            .ok_or_else(|| Error::not_available("optimized camera"))?;
+        check_camera_model(&camera, config.camera.model, "step_intrinsics_init")?;
+        Ok(vec![camera])
+    }
+    fn rig_se3_cam(_state: &SingleCamHandeyeState) -> Result<Vec<Iso3>, Error> {
+        Ok(vec![Iso3::identity()])
+    }
+    fn handeye_dataset(
+        input: &SingleCamHandeyeInput,
+        mode: HandeyeMode,
+    ) -> Result<HandeyeDataset, Error> {
+        let views = input
+            .views
+            .iter()
+            .map(|v| RigView {
+                meta: RobotPoseMeta {
+                    base_se3_gripper: v.meta.base_se3_gripper,
+                },
+                obs: RigViewObs {
+                    cameras: vec![Some(v.obs.clone())],
+                },
+            })
+            .collect();
+        Ok(HandeyeDataset::new(views, 1, mode)?)
+    }
+    fn handeye_solve_options(
+        config: &SingleCamHandeyeConfig,
+        _num_cameras: usize,
+    ) -> HandeyeSolveOptions {
+        // The camera holds its `fix` lists; its extrinsics stay the identity.
+        handeye_solve_opts(
+            config.handeye_optimize.reprojection_loss,
+            vec![config.camera.fix.clone()],
+            vec![true],
+            &config.handeye_optimize.robot_poses,
+        )
+    }
+    fn record_handeye_optimize(
+        state: &mut SingleCamHandeyeState,
+        final_cost: f64,
+        mean_reproj_error: f64,
+    ) {
+        state.handeye_final_cost = Some(final_cost);
+        state.handeye_reproj_error = Some(mean_reproj_error);
+    }
 }
 
 impl ProblemType for SingleCamHandeyeProblem {

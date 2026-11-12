@@ -88,6 +88,10 @@ vector is scaled to `det R_X = 1` and both halves projected to SO(3); then
 `[R_A, −I](t_X; t_Z) = R_Z t_B − t_A` by least squares. `Z` is estimated over
 all views, so it seeds the bundle adjustment's target (EyeInHand) or base
 (EyeToHand) pose directly; a seeded `X` still closes `Z` through view 0.
+In the workflows' hand-eye stage either pose seeded alone closes the other
+through view 0 (`Z = A_0 X B_0^{-1}`, or `X = A_0^{-1} Z B_0`), so the pair
+reproduces view 0 exactly; the closed-form solve runs only when neither is
+seeded.
 
 **Quaternion sign.** `q_A q_X = q_X q_B` needs `q_A`, `q_B` with the same
 sign of their (equal) scalar parts. nalgebra's matrix→quaternion picks the

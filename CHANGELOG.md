@@ -507,11 +507,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ValueError` before any image is read, and a manifest payload that does not
   parse raises `ValueError` rather than `TypeError`.
 
+### Changed
+
+- **A hand-eye seed of one pose closes the other through the first view, in
+  both modes and both hand-eye workflows** (a changed initialization for
+  four seed combinations). `single_cam_handeye` and `rig_handeye` now run
+  the same hand-eye stages, and `step_handeye_init_with_seed` follows one
+  rule: a seeded pose is used as given; with one pose seeded the other is
+  derived from it through the first view, without the closed-form solve;
+  with neither seeded the closed-form solver gives both. Before, a seed of
+  the target pose alone (`base_se3_target` eye-in-hand, `gripper_se3_target`
+  eye-to-hand in a rig) and a seed of `cam_se3_base` alone (single camera,
+  eye-to-hand) ran the closed-form solve and paired its estimate of the
+  other pose with the seed, so the two did not describe the same chain and
+  a robot motion too poor for the closed-form solve failed the step despite
+  the seed. A seed of the hand-eye alone, of both poses or of neither gives
+  the same result as before, as does every `run_calibration`. On synthetic
+  captures (nine stations, 0.2 px noise, the seed 0.86° and 5.4 mm off) the
+  derived pose starts further off than the closed-form estimate did (for
+  example 1.12° and 17 mm instead of 0.28° and 5.9 mm for a single camera's
+  hand-eye from a seeded `base_se3_target`), and the bundle adjustment ends
+  at the same result: identical to the printed digits in three of the four
+  combinations on both solver backends, and within 0.003 of its standard
+  deviation (7 µm, 0.0003°) for a rig's eye-to-hand `rig_se3_base`.
+- `single_cam_handeye::HandeyeOptimizeResult` and
+  `rig_handeye::HandeyeOptimizeResult` are one type, as the two problems'
+  hand-eye bundle adjustments are one stage. The rig's `handeye_init` log
+  note names the hand-eye pose (`gripper_se3_rig |t|=…`) as the single
+  camera's does, instead of `translation_norm=…`.
+
+### Added
+
+- **The regression suite gates a measurement.** The `opencv_stereo` entry
+  also measures its held-out boards: its even views calibrate a stereo rig,
+  the corners of each odd view are triangulated with the calibration's
+  uncertainty, and the 2070 distances along board rows and columns, 1 to 7
+  squares, are compared with the board's size. The reference result stores
+  the mean and RMS error, the mean stated σ and the RMS of error over σ per
+  held-out view and length, and `calib-bench suite check` fails on any
+  change (with `--sigma k`, on a mean length that moves by `k` of its σ).
+  A suite entry asks for it with `measure_board = { square_size_m = ... }`.
+
 ### Fixed
 
 - `calibrate_dataset` asks for a manifest's missing `pose_pairing`
   (`RunError::AskUser`) before it reads any image; it used to report the
   first unreadable image instead.
+
+- `rig_handeye::step_handeye_init` and `step_handeye_init_with_seed` that
+  failed (the closed-form solve finding too little robot rotation, say) left
+  the previous run's initialization in place, and `step_handeye_optimize`
+  then started from it. A run now clears the initialization once it starts
+  its work, as the single-camera step already did, so a failed run leaves
+  none.
+
 - A hand-eye session whose `handeye_mode` was changed after solving exported
   its result in the new mode: the export took the mode from the current
   config, which a config change does not clear. The export now reads the
@@ -565,18 +614,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An export with no target feature to average no longer reports a mean
   reprojection error of 0 (`rig_laserline_device`) or infinity (a tilted
   planar camera): the calibration fails with an error instead.
-
-### Added
-
-- **The regression suite gates a measurement.** The `opencv_stereo` entry
-  also measures its held-out boards: its even views calibrate a stereo rig,
-  the corners of each odd view are triangulated with the calibration's
-  uncertainty, and the 2070 distances along board rows and columns, 1 to 7
-  squares, are compared with the board's size. The reference result stores
-  the mean and RMS error, the mean stated σ and the RMS of error over σ per
-  held-out view and length, and `calib-bench suite check` fails on any
-  change (with `--sigma k`, on a mean length that moves by `k` of its σ).
-  A suite entry asks for it with `measure_board = { square_size_m = ... }`.
 
 ## [0.18.0] - 2026-11-06
 

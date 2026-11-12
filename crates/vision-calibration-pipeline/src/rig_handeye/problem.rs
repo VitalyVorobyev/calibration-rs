@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraParams, Iso3, RigDataset, Uncertainty};
 use vision_calibration_optim::{
-    HandeyeEstimate, RobotPoseMeta, RobotRefinement, RobustLoss, handeye_observer_se3_target,
+    HandeyeDataset, HandeyeEstimate, HandeyeMode, HandeyeSolveOptions, RobotPoseMeta,
+    RobotRefinement, RobustLoss, handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandeyeParams, SolveReport};
@@ -22,7 +23,8 @@ use crate::common::{
     ExportDiagnostics, HandeyeSolution, ProblemKind, VersionedExport, read_schema_version,
 };
 use crate::rig_family::{
-    IntrinsicsManualInit, RigStages, RigStagesState, inverse_poses, rig_target_residuals,
+    HandeyePoses, HandeyeStages, IntrinsicsManualInit, RigStages, RigStagesState,
+    check_camera_models, handeye_solve_opts, inverse_poses, rig_ba_fix, rig_target_residuals,
 };
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -318,6 +320,123 @@ impl RigStages for RigHandeyeProblem {
     }
     fn stages_mut(state: &mut RigHandeyeState) -> &mut RigStagesState {
         &mut state.rig
+    }
+}
+
+impl HandeyePoses for HandeyeSolution {
+    fn from_poses(mode: HandeyeMode, handeye: Iso3, target: Iso3) -> Self {
+        Self::new(mode, handeye, target)
+    }
+    fn mode(&self) -> HandeyeMode {
+        HandeyeSolution::mode(self)
+    }
+    fn poses(&self) -> (Iso3, Iso3) {
+        (*self.handeye().pose(), *self.target_pose())
+    }
+    fn pose_names(mode: HandeyeMode) -> (&'static str, &'static str) {
+        match mode {
+            HandeyeMode::EyeInHand => ("gripper_se3_rig", "base_se3_target"),
+            HandeyeMode::EyeToHand => ("rig_se3_base", "gripper_se3_target"),
+        }
+    }
+}
+
+impl HandeyeStages for RigHandeyeProblem {
+    type Solution = HandeyeSolution;
+
+    fn handeye_init_config(config: &RigHandeyeConfig) -> &HandeyeInitConfig {
+        &config.handeye_init
+    }
+    fn solver_config(config: &RigHandeyeConfig) -> &SolverConfig {
+        &config.solver
+    }
+    fn base_se3_gripper(input: &RigHandeyeInput) -> Vec<Iso3> {
+        input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper)
+            .collect()
+    }
+    fn observer_se3_target(state: &RigHandeyeState) -> Result<&[Iso3], Error> {
+        if !state.has_rig_optimized() {
+            return Err(Error::not_available(
+                "rig optimization results (call step_rig_optimize first)",
+            ));
+        }
+        state
+            .rig_ba_rig_se3_target
+            .as_deref()
+            .ok_or_else(|| Error::not_available("rig_se3_target from rig BA"))
+    }
+    fn initial_handeye(state: &RigHandeyeState) -> Option<HandeyeSolution> {
+        state.initial_handeye
+    }
+    fn initial_handeye_mut(state: &mut RigHandeyeState) -> &mut Option<HandeyeSolution> {
+        &mut state.initial_handeye
+    }
+    fn handeye_cameras(
+        config: &RigHandeyeConfig,
+        state: &RigHandeyeState,
+    ) -> Result<Vec<CameraParams>, Error> {
+        let cameras = state
+            .rig
+            .cameras
+            .clone()
+            .ok_or_else(|| Error::not_available("per-camera intrinsics"))?;
+        check_camera_models(&cameras, |i| config.camera_for(i).model)?;
+        Ok(cameras)
+    }
+    fn rig_se3_cam(state: &RigHandeyeState) -> Result<Vec<Iso3>, Error> {
+        state
+            .rig_ba_cam_se3_rig
+            .as_deref()
+            .map(inverse_poses)
+            .ok_or_else(|| Error::not_available("cam_se3_rig from rig BA"))
+    }
+    fn handeye_dataset(
+        input: &RigHandeyeInput,
+        mode: HandeyeMode,
+    ) -> Result<HandeyeDataset, Error> {
+        Ok(HandeyeDataset::new(
+            input.views.clone(),
+            input.num_cameras,
+            mode,
+        )?)
+    }
+    fn handeye_solve_options(config: &RigHandeyeConfig, num_cameras: usize) -> HandeyeSolveOptions {
+        let refine = &config.handeye_optimize;
+        let fix = (0..num_cameras)
+            .map(|i| {
+                rig_ba_fix(
+                    &config.camera_for(i),
+                    refine.refine_intrinsics,
+                    refine.refine_sensor,
+                )
+            })
+            .collect();
+        // The reference camera holds the rig frame when the extrinsics are
+        // refined; otherwise every camera keeps its rig-BA extrinsics.
+        let fix_extrinsics = if refine.refine_cam_se3_rig {
+            (0..num_cameras)
+                .map(|i| i == config.rig.reference_camera_idx)
+                .collect()
+        } else {
+            vec![true; num_cameras]
+        };
+        handeye_solve_opts(
+            refine.reprojection_loss,
+            fix,
+            fix_extrinsics,
+            &refine.robot_poses,
+        )
+    }
+    fn record_handeye_optimize(
+        state: &mut RigHandeyeState,
+        final_cost: f64,
+        mean_reproj_error: f64,
+    ) {
+        state.final_cost = Some(final_cost);
+        state.final_reproj_error = Some(mean_reproj_error);
     }
 }
 

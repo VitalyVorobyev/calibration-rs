@@ -35,11 +35,17 @@ Every end-to-end workflow is a `ProblemType` driven through a mutable
   stage settings, a `RigStagesState` flattened into the problem's state, so
   the session JSON keeps its shape), and their public `step_*` functions
   delegate to the generic stage bodies. The stages' seed and result types
-  are defined once and re-exported by each module. Single-camera seed
-  checks, step-log provenance and the hand-eye initialization and solve
-  options are shared the same way through `planar_family` and
-  `rig_family`. A difference between problem types is a trait item, not a
-  forked copy.
+  are defined once and re-exported by each module. The hand-eye problem
+  types (`single_cam_handeye`, `rig_handeye`) close with the same two
+  hand-eye stages (initialization, bundle adjustment) through
+  `rig_family::HandeyeStages`: a single camera is the one-camera rig whose
+  frame is the camera's. Their seeds follow one rule: a seeded pose is
+  used as given, one seeded pose closes the other through the first view,
+  and the closed-form solve runs only with neither seeded; a run clears
+  the previous initialization once it starts. Single-camera seed checks
+  and step-log provenance are shared the same way through
+  `planar_family`. A difference between problem types is a trait item, not
+  a forked copy.
 - The facade re-exports the modules. Python drives every problem type
   through one generic `run_problem(input_json, config_json) -> export_json`
   binding, with no per-workflow wrapper.
