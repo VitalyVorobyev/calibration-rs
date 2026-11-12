@@ -75,7 +75,7 @@ pub use error::Error;
 // below, which is what every consumer in this workspace does.
 pub use crate::backend::{SolveReport, SolverBackend};
 pub use crate::ir::{DistortionKind, HandeyeMode, RobustLoss};
-pub use crate::problems::RobotPoseSigma;
+pub use crate::problems::{RobotPoseSigma, RobotRefinement};
 pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};
 
 // The results of each problem: its estimate, parameters and input types.

@@ -29,7 +29,7 @@ use std::time::Instant;
 mod puzzle_viewer;
 
 use vision_calibration::common::HandeyeSolution;
-use vision_calibration::common::config::CameraConfig;
+use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration::{
     common::CalibratedCameras,
     mvg::{
@@ -141,7 +141,7 @@ fn main() -> Result<()> {
     // Refine per-view robot pose se(3) deltas — encoder noise otherwise
     // biases hand-eye. Stage 4 uses these as initial robot-delta parameters
     // rather than mutating the canonical detected dataset.
-    cfg.handeye_optimize.robot_poses.refine = true;
+    cfg.handeye_optimize.robot_poses = RobotPoseConfig::default();
     // Configure Scheimpflug sensor mode:
     // - tilt_x is free, tilt_y is held fixed (per-camera BA on this dataset
     //   converges tilt_x in a narrow band; tilt_y has degenerate signal at
@@ -162,8 +162,12 @@ fn main() -> Result<()> {
     };
     cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics = false;
-    let robot_rot_sigma = cfg.handeye_optimize.robot_poses.rot_sigma;
-    let robot_trans_sigma = cfg.handeye_optimize.robot_poses.trans_sigma;
+    let robot_prior = cfg
+        .handeye_optimize
+        .robot_poses
+        .prior()
+        .cloned()
+        .unwrap_or_default();
     rig_session.set_config(cfg.clone())?;
 
     let t0 = Instant::now();
@@ -280,7 +284,10 @@ fn main() -> Result<()> {
     }
     print_robot_delta_summary(
         "stage 2 exported robot deltas",
-        rig_export.robot_deltas.as_deref(),
+        rig_export
+            .robot_refinement
+            .as_ref()
+            .map(|r| r.deltas.as_slice()),
     );
 
     // ─── Stage 3: rig laserline calibration ────────────────────────────────
@@ -315,7 +322,6 @@ fn main() -> Result<()> {
     let laserline_input = RigLaserlineDeviceInput {
         dataset: laserline_dataset,
         upstream,
-        initial_planes_cam: None,
     };
 
     let mut laser_session =
@@ -378,7 +384,7 @@ fn main() -> Result<()> {
         target_ref,
         planes_cam: laser_export.laser_planes_cam.clone(),
     };
-    let initial_robot_deltas = rig_export.robot_deltas.clone();
+    let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|r| r.deltas.clone());
     let (joint_initial_mean, joint_initial_stats) = evaluate_rig_handeye_laserline(
         &joint_dataset,
         &joint_initial,
@@ -428,9 +434,9 @@ fn main() -> Result<()> {
     joint_opts.laser_weight = 1e4;
     joint_opts.calib_weight = 1.0;
     joint_opts.refine_robot_poses = true;
-    joint_opts.robot_rot_sigma = robot_rot_sigma;
-    joint_opts.robot_trans_sigma = robot_trans_sigma;
-    joint_opts.estimate_robot_sigma = cfg.handeye_optimize.robot_poses.estimate_sigma;
+    joint_opts.robot_rot_sigma = robot_prior.rot_sigma;
+    joint_opts.robot_trans_sigma = robot_prior.trans_sigma;
+    joint_opts.estimate_robot_sigma = robot_prior.estimate_sigma;
     joint_opts.initial_robot_deltas = initial_robot_deltas;
     let backend_opts = BackendSolveOptions {
         max_iters: 30,
@@ -466,7 +472,11 @@ fn main() -> Result<()> {
         );
     }
     print_param_deltas(&joint_initial, &joint_est.params);
-    print_robot_delta_summary("joint BA robot deltas", joint_est.robot_deltas.as_deref());
+    print_robot_delta_summary("joint BA robot deltas", joint_est
+            .robot_refinement
+            .as_ref()
+            .map(|r| r.deltas.as_slice()),
+    );
     for (i, p) in joint_est.planes_rig.iter().enumerate() {
         let n = p.normal().into_inner();
         println!(

@@ -42,7 +42,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use vision_calibration::common::HandeyeSolution;
-use vision_calibration::common::config::CameraConfig;
+use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration::{
     rig_handeye::{self as rh, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
     session::CalibrationSession,
@@ -179,7 +179,9 @@ fn main() -> Result<()> {
     // Robot-pose refinement on by default; `SCHEIMPFLUG_RIG_RINGGRID_REFINE_ROBOT=0` holds
     // the measured poses fixed (a divergence-isolation knob).
     let refine_robot = std::env::var("SCHEIMPFLUG_RIG_RINGGRID_REFINE_ROBOT").as_deref() != Ok("0");
-    cfg.handeye_optimize.robot_poses.refine = refine_robot;
+    if !refine_robot {
+        cfg.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
+    }
     // Optionally let the final hand-eye BA also refine rig extrinsics / tilts.
     if std::env::var("SCHEIMPFLUG_RIG_RINGGRID_REFINE_EXTRINSICS").as_deref() == Ok("1") {
         cfg.handeye_optimize.refine_cam_se3_rig = true;

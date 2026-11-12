@@ -294,13 +294,21 @@ class RigExtrinsicsSessionTest(unittest.TestCase):
         rig = session.step_rig_init()
         again = session.step_rig_init_with_seed(
             rig_extrinsics.RigManualInit(
-                cam_se3_rig=rig.initial_cam_se3_rig, rig_se3_target=rig.initial_rig_se3_target
+                poses=rig_extrinsics.RigPoses(
+                    cam_se3_rig=rig.initial_cam_se3_rig,
+                    rig_se3_target=rig.initial_rig_se3_target,
+                )
             )
         )
         self.assertEqual(again, rig)
-        with self.assertRaises(ValueError):  # the two seeds go together
+        with self.assertRaises(ValueError):  # one pose per camera
             session.step_rig_init_with_seed(
-                rig_extrinsics.RigManualInit(cam_se3_rig=rig.initial_cam_se3_rig)
+                rig_extrinsics.RigManualInit(
+                    poses=rig_extrinsics.RigPoses(
+                        cam_se3_rig=rig.initial_cam_se3_rig[:1],
+                        rig_se3_target=rig.initial_rig_se3_target,
+                    )
+                )
             )
 
 

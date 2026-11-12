@@ -117,9 +117,6 @@ pub struct RigLaserlineDeviceInput {
     pub dataset: RigLaserlineDataset,
     /// Upstream rig calibration (frozen).
     pub upstream: RigUpstreamCalibration,
-    /// Optional per-camera initial plane in camera frame. If `None`, each
-    /// camera's plane is fitted in closed form from its laser pixels.
-    pub initial_planes_cam: Option<Vec<LaserPlane>>,
 }
 
 /// Configuration for rig laserline calibration.
@@ -262,14 +259,6 @@ impl ProblemType for RigLaserlineDeviceProblem {
                 "upstream rig_se3_target has {} entries, expected {}",
                 input.upstream.rig_se3_target.len(),
                 input.dataset.num_views()
-            )));
-        }
-        if let Some(planes) = &input.initial_planes_cam
-            && planes.len() != n
-        {
-            return Err(Error::invalid_input(format!(
-                "initial_planes_cam has {} entries, expected {n}",
-                planes.len()
             )));
         }
         Ok(())

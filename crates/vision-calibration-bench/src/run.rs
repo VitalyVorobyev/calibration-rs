@@ -1089,8 +1089,6 @@ pub mod tier_b {
         let views_for_report = detected.input.views.clone();
         let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         let config = single_cam_handeye_config(entry);
-        let robot_rot_sigma = config.robot_poses.rot_sigma;
-        let robot_trans_sigma = config.robot_poses.trans_sigma;
         session
             .set_config(config)
             .context("set single_cam_handeye config failed")?;
@@ -1164,14 +1162,14 @@ pub mod tier_b {
             entry,
             single_cam_handeye_report(&export, &views_for_report).ok(),
         );
-        let robot_corrections = export.robot_deltas.as_deref().and_then(|deltas| {
-            // The robot error the corrections were weighed with: the
-            // estimate when the solve made one, else the configured prior.
-            let sigma = export.robot_pose_sigma;
+        // The robot error the corrections were weighed with: the estimate
+        // when the solve made one, else the configured prior (the export
+        // carries the one that was used).
+        let robot_corrections = export.robot_refinement.as_ref().and_then(|robot| {
             RobotCorrectionSummary::from_deltas_with_priors(
-                deltas,
-                Some(sigma.map_or(robot_rot_sigma, |s| s.rot_sigma)),
-                Some(sigma.map_or(robot_trans_sigma, |s| s.trans_sigma)),
+                &robot.deltas,
+                Some(robot.sigma.rot_sigma),
+                Some(robot.sigma.trans_sigma),
             )
         });
 
@@ -1237,8 +1235,16 @@ pub mod tier_b {
 
         // ── Calibration ─────────────────────────────────────────────────────
         let config = rig_handeye_config(entry, &spec)?;
-        let robot_rot_sigma = config.handeye_optimize.robot_poses.rot_sigma;
-        let robot_trans_sigma = config.handeye_optimize.robot_poses.trans_sigma;
+        // The joint solve always refines the robot poses; the config's prior
+        // (the default when it takes them as exact) sets the weighting.
+        let robot_prior = config
+            .handeye_optimize
+            .robot_poses
+            .prior()
+            .cloned()
+            .unwrap_or_default();
+        let robot_rot_sigma = robot_prior.rot_sigma;
+        let robot_trans_sigma = robot_prior.trans_sigma;
         let manual_intrinsics = config.manual_init.clone().unwrap_or_default();
         let dataset_for_report = detected.input.clone();
         let mut session = CalibrationSession::<RigHandeyeProblem>::new();
@@ -1364,14 +1370,14 @@ pub mod tier_b {
             entry,
             rig_handeye_report_with_rig_stage(&export, &dataset_for_report, &rig_stage).ok(),
         );
-        let robot_corrections = export.robot_deltas.as_deref().and_then(|deltas| {
-            // The robot error the corrections were weighed with: the
-            // estimate when the solve made one, else the configured prior.
-            let sigma = export.robot_pose_sigma;
+        // The robot error the corrections were weighed with: the estimate
+        // when the solve made one, else the configured prior (the export
+        // carries the one that was used).
+        let robot_corrections = export.robot_refinement.as_ref().and_then(|robot| {
             RobotCorrectionSummary::from_deltas_with_priors(
-                deltas,
-                Some(sigma.map_or(robot_rot_sigma, |s| s.rot_sigma)),
-                Some(sigma.map_or(robot_trans_sigma, |s| s.trans_sigma)),
+                &robot.deltas,
+                Some(robot.sigma.rot_sigma),
+                Some(robot.sigma.trans_sigma),
             )
         });
 
@@ -2584,7 +2590,6 @@ pub mod tier_b {
         let laserline_input = RigLaserlineDeviceInput {
             dataset: laserline_dataset.clone(),
             upstream,
-            initial_planes_cam: None,
         };
 
         let mut laser_session =
@@ -2609,7 +2614,8 @@ pub mod tier_b {
         let mut laser_metrics = observations.metrics;
         apply_laserline_stage_stats(&mut laser_metrics, &laser_export.per_camera_stats);
 
-        let initial_robot_deltas = rig_export.robot_deltas.as_ref().map(|deltas| {
+        let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|robot| {
+            let deltas = &robot.deltas;
             observations
                 .view_indices
                 .iter()

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraParams, Iso3, RigDataset, Uncertainty};
 use vision_calibration_optim::{
-    HandeyeEstimate, RobotPoseMeta, RobotPoseSigma, handeye_observer_se3_target,
+    HandeyeEstimate, RobotPoseMeta, RobotRefinement, handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandeyeParams, RobustLoss, SolveReport};
@@ -57,7 +57,10 @@ pub struct RigHandeyeConfig {
     /// Per-camera linear-initialization stage settings. The linear stage
     /// fits only the distortion terms each camera's solves estimate.
     pub intrinsics: IntrinsicsInitConfig,
-    /// Optional manual seeds for the per-camera intrinsics stage.
+    /// Optional manual seeds for the per-camera intrinsics stage. They seed
+    /// `step_intrinsics_init_all` and `run_calibration` alike;
+    /// `step_intrinsics_init_all_with_seed` takes an explicit seed that
+    /// overrides this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual_init: Option<IntrinsicsManualInit>,
     /// The camera model of every rig camera and the parameters its solves
@@ -161,16 +164,11 @@ pub struct RigHandeyeExport {
     /// The hand-eye and the target reference pose of the calibration's mode.
     pub handeye: HandeyeSolution,
 
-    /// Per-view robot pose corrections (if refinement enabled).
-    /// Each element is [rx, ry, rz, tx, ty, tz] in se(3).
-    pub robot_deltas: Option<Vec<[f64; 6]>>,
-
-    /// The robot's pose error the corrections were weighed with: the
-    /// configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-    /// with `robot_poses.estimate_sigma`. Only present if robot refinement
-    /// was enabled.
+    /// The per-view robot-pose corrections and the pose error they were
+    /// weighed with: the configured `robot_poses` prior, or its estimate with
+    /// `estimate_sigma`. Only present if robot refinement was enabled.
     #[serde(default)]
-    pub robot_pose_sigma: Option<RobotPoseSigma>,
+    pub robot_refinement: Option<RobotRefinement>,
 
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
@@ -418,7 +416,10 @@ impl ProblemType for RigHandeyeProblem {
             &handeye,
             &target_pose,
             &robot_poses,
-            output.robot_deltas.as_deref(),
+            output
+                .robot_refinement
+                .as_ref()
+                .map(|r| r.deltas.as_slice()),
         );
         let per_feature_residuals =
             rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
@@ -428,8 +429,7 @@ impl ProblemType for RigHandeyeProblem {
             cam_se3_rig,
             rig_se3_target: rig_se3_target.clone(),
             handeye: solution,
-            robot_deltas: output.robot_deltas.clone(),
-            robot_pose_sigma: output.robot_pose_sigma,
+            robot_refinement: output.robot_refinement.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
             // Callers that have the images fill `image_manifest`; the
@@ -549,10 +549,7 @@ mod tests {
                 ..HandeyeInitConfig::default()
             },
             handeye_optimize: HandeyeOptimizeConfig {
-                robot_poses: RobotPoseConfig {
-                    refine: false,
-                    ..RobotPoseConfig::default()
-                },
+                robot_poses: RobotPoseConfig::Exact,
                 ..HandeyeOptimizeConfig::default()
             },
             ..Default::default()
@@ -564,7 +561,10 @@ mod tests {
         assert_eq!(restored.solver.max_iters, 100);
         assert_eq!(restored.rig.reference_camera_idx, 1);
         assert!(restored.rig.refine_intrinsics);
-        assert!(!restored.handeye_optimize.robot_poses.refine);
+        assert!(matches!(
+            restored.handeye_optimize.robot_poses,
+            RobotPoseConfig::Exact
+        ));
     }
 
     #[test]
@@ -607,8 +607,7 @@ mod tests {
                 final_cost: 0.0,
                 num_iters: 0,
             },
-            robot_deltas: None,
-            robot_pose_sigma: None,
+            robot_refinement: None,
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
         }

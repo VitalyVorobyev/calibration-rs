@@ -306,7 +306,8 @@ fn main() -> Result<()> {
     println!("  Mean: {:.4} px", export.mean_reproj_error);
     println!("  Per-camera: {:?}", export.per_cam_reproj_errors);
 
-    if let Some(deltas) = &export.robot_deltas {
+    if let Some(robot) = &export.robot_refinement {
+        let deltas = &robot.deltas;
         let max_rot: f64 = deltas
             .iter()
             .map(|d| (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt())

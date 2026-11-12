@@ -571,14 +571,19 @@ impl RigHandeyeOverride {
 /// `RigHandeyeConfig::handeye_optimize::robot_poses`) and in the rig-only fields
 /// `apply_rig_handeye_optimize` applies afterward.
 fn apply_robot_pose_override(ba: &HandeyeOptimizeOverride, robot_poses: &mut RobotPoseConfig) {
-    if let Some(refine) = ba.refine_robot_poses {
-        robot_poses.refine = refine;
+    match (ba.refine_robot_poses, &*robot_poses) {
+        (Some(false), _) => *robot_poses = RobotPoseConfig::Exact,
+        (Some(true), RobotPoseConfig::Exact) => *robot_poses = RobotPoseConfig::default(),
+        _ => {}
     }
-    if let Some(sigma) = ba.robot_rot_sigma {
-        robot_poses.rot_sigma = sigma;
-    }
-    if let Some(sigma) = ba.robot_trans_sigma {
-        robot_poses.trans_sigma = sigma;
+    // The sigmas have a meaning only while the poses are refined.
+    if let RobotPoseConfig::Refine(prior) = robot_poses {
+        if let Some(sigma) = ba.robot_rot_sigma {
+            prior.rot_sigma = sigma;
+        }
+        if let Some(sigma) = ba.robot_trans_sigma {
+            prior.trans_sigma = sigma;
+        }
     }
 }
 
@@ -814,7 +819,7 @@ mod tests {
         assert_eq!(cfg.handeye_init.handeye_mode, HandeyeMode::EyeToHand);
         assert_eq!(cfg.solver.max_iters, 200);
         assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
-        assert!(cfg.handeye_optimize.robot_poses.refine);
+        assert!(cfg.handeye_optimize.robot_poses.prior().is_some());
         assert!(!cfg.handeye_optimize.refine_cam_se3_rig);
         assert!(!cfg.handeye_optimize.refine_sensor);
     }

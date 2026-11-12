@@ -1852,33 +1852,17 @@
           },
           "type": "array"
         },
-        "robot_deltas": {
-          "description": "Per-view robot pose corrections (if refinement enabled).\nEach element is [rx, ry, rz, tx, ty, tz] in se(3).",
-          "items": {
-            "items": {
-              "format": "double",
-              "type": "number"
-            },
-            "maxItems": 6,
-            "minItems": 6,
-            "type": "array"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "robot_pose_sigma": {
+        "robot_refinement": {
           "anyOf": [
             {
-              "$ref": "#/definitions/RobotPoseSigma"
+              "$ref": "#/definitions/RobotRefinement"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "The robot's pose error the corrections were weighed with: the\nconfigured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate\nwith `robot_poses.estimate_sigma`. Only present if robot refinement\nwas enabled."
+          "description": "The per-view robot-pose corrections and the pose error they were\nweighed with: the configured `robot_poses` prior, or its estimate with\n`estimate_sigma`. Only present if robot refinement was enabled."
         },
         "uncertainty": {
           "allOf": [
@@ -1990,33 +1974,17 @@
           },
           "type": "array"
         },
-        "robot_deltas": {
-          "description": "Optional optimized robot pose deltas.",
-          "items": {
-            "items": {
-              "format": "double",
-              "type": "number"
-            },
-            "maxItems": 6,
-            "minItems": 6,
-            "type": "array"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "robot_pose_sigma": {
+        "robot_refinement": {
           "anyOf": [
             {
-              "$ref": "#/definitions/RobotPoseSigma"
+              "$ref": "#/definitions/RobotRefinement"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "The robot's pose error the corrections were weighed with: the\nconfigured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate\nwith `robot_poses.estimate_sigma`. Only present if robot refinement\nwas enabled."
+          "description": "The per-view robot-pose corrections and the pose error they were\nweighed with: the configured `robot_poses` prior, or its estimate with\n`estimate_sigma`. Only present if robot refinement was enabled."
         },
         "uncertainty": {
           "allOf": [
@@ -2242,6 +2210,37 @@
       "required": [
         "rot_sigma",
         "trans_sigma"
+      ],
+      "type": "object"
+    },
+    "RobotRefinement": {
+      "description": "The robot-pose correction a hand-eye solve estimated with\n`refine_robot_poses`.\n\nAbsent from a result when the robot poses were taken as exact.",
+      "properties": {
+        "deltas": {
+          "description": "Per-view robot-pose corrections, one se(3) tangent\n`[rx, ry, rz, tx, ty, tz]` per view, in the gripper frame: the view's\ncorrected pose is `base_se3_gripper · exp(δ)`.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 6,
+            "minItems": 6,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "sigma": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RobotPoseSigma"
+            }
+          ],
+          "description": "The robot's pose error the corrections were weighed with: the\nconfigured one, or the estimate when it was estimated."
+        }
+      },
+      "required": [
+        "deltas",
+        "sigma"
       ],
       "type": "object"
     },
@@ -2507,33 +2506,17 @@
           },
           "type": "array"
         },
-        "robot_deltas": {
-          "description": "Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).\nOnly present if robot refinement was enabled.",
-          "items": {
-            "items": {
-              "format": "double",
-              "type": "number"
-            },
-            "maxItems": 6,
-            "minItems": 6,
-            "type": "array"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "robot_pose_sigma": {
+        "robot_refinement": {
           "anyOf": [
             {
-              "$ref": "#/definitions/RobotPoseSigma"
+              "$ref": "#/definitions/RobotRefinement"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "The robot's pose error the corrections were weighed with: the\nconfigured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate\nwith `robot_poses.estimate_sigma`. Only present if robot refinement\nwas enabled."
+          "description": "The per-view robot-pose corrections and the pose error they were\nweighed with: the configured `robot_poses` prior, or its estimate with\n`estimate_sigma`. Only present if robot refinement was enabled."
         },
         "uncertainty": {
           "allOf": [

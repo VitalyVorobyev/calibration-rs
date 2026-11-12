@@ -137,7 +137,11 @@ fn delta(
         let (camera, local) = split_camera(name);
         if local == "robot_delta" {
             let component = |export: &Value| -> Result<f64> {
-                number(&field(export, "robot_deltas", view.or(camera))?[index])
+                let refinement = export
+                    .get("robot_refinement")
+                    .filter(|v| !v.is_null())
+                    .ok_or_else(|| anyhow!("no `robot_refinement` in the export"))?;
+                number(&field(refinement, "deltas", view.or(camera))?[index])
             };
             return Ok(component(actual.export)? - component(reference.export)?);
         }

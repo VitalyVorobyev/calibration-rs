@@ -34,7 +34,7 @@ use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::rig_extrinsics::{
     ReprojectionSums, camera_models, resolve_camera_fix, solved_pose,
 };
-use crate::problems::robot_poses::{self, RobotPoseSigma, Weighting};
+use crate::problems::robot_poses::{self, RobotPoseSigma, RobotRefinement, Weighting};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -195,14 +195,12 @@ pub struct HandeyeEstimate {
     pub uncertainty: Uncertainty,
     /// Backend solve report.
     pub report: SolveReport,
-    /// Optional per-view robot pose deltas (se(3) tangent, `[rx, ry, rz, tx, ty, tz]`).
-    pub robot_deltas: Option<Vec<[Real; 6]>>,
-    /// The robot's pose error the corrections were weighed with: the
-    /// configured one, or the estimate with
-    /// [`HandeyeSolveOptions::estimate_robot_sigma`]. `None` without
+    /// The per-view robot-pose corrections and the pose error they were
+    /// weighed with (the configured one, or the estimate with
+    /// [`HandeyeSolveOptions::estimate_robot_sigma`]). `None` without
     /// robot-pose refinement.
     #[serde(default)]
-    pub robot_pose_sigma: Option<RobotPoseSigma>,
+    pub robot_refinement: Option<RobotRefinement>,
     /// Mean reprojection error in pixels (computed post-optimization).
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors in pixels.
@@ -322,10 +320,13 @@ pub fn optimize_handeye(
         vec![solved_pose(&solution.params, "target")?; dataset.num_views()]
     };
 
-    let robot_deltas = opts
-        .refine_robot_poses
-        .then(|| robot_poses::solved_deltas(&solution.params, dataset.num_views()))
-        .transpose()?;
+    let robot_refinement = match robot_pose_sigma {
+        Some(sigma) => Some(RobotRefinement {
+            deltas: robot_poses::solved_deltas(&solution.params, dataset.num_views())?,
+            sigma,
+        }),
+        None => None,
+    };
 
     let params = HandeyeParams {
         cameras,
@@ -333,8 +334,11 @@ pub fn optimize_handeye(
         handeye,
         target_poses,
     };
-    let (mean_reproj_error, per_cam_reproj_errors) =
-        compute_handeye_reproj_error(&dataset, &params, robot_deltas.as_deref())?;
+    let (mean_reproj_error, per_cam_reproj_errors) = compute_handeye_reproj_error(
+        &dataset,
+        &params,
+        robot_refinement.as_ref().map(|r| r.deltas.as_slice()),
+    )?;
     let labels = RigLabelling {
         cameras: &specs,
         multi_camera: dataset.data.num_cameras > 1,
@@ -347,8 +351,7 @@ pub fn optimize_handeye(
         params,
         uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
         report: solution.solve_report,
-        robot_deltas,
-        robot_pose_sigma,
+        robot_refinement,
         mean_reproj_error,
         per_cam_reproj_errors,
     })

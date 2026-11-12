@@ -89,41 +89,82 @@ class SolverConfig:
 
 
 @dataclass(slots=True)
-class RobotPoseConfig:
-    """Shared robot-pose refinement settings for hand-eye BA.
+class RobotPosePrior:
+    """The robot's accuracy as a zero-mean prior on the per-view pose
+    corrections of :class:`RobotPoseConfig`.
 
-    With ``refine``, every view's robot pose gets an se(3) correction in
-    the gripper frame under a zero-mean prior: ``rot_sigma`` (radians) and
-    ``trans_sigma`` (metres) are the standard deviations of the tool's
-    orientation and position error per gripper axis. The prior is weighed
-    against the corner residuals at their estimated pixel noise. With
-    ``estimate_sigma`` (the default) they are starting values: the solve
-    estimates the robot's error from the corrections and reports it as the
-    export's ``robot_pose_sigma``. Without it the result's covariance takes
-    them as the robot's true accuracy.
+    ``rot_sigma`` (radians) and ``trans_sigma`` (metres) are the standard
+    deviations of the tool's orientation and position error per gripper
+    axis. The prior is weighed against the corner residuals at their
+    estimated pixel noise. With ``estimate_sigma`` (the default) they are
+    starting values: the solve estimates the robot's error from the
+    corrections and reports it as the export's ``robot_refinement.sigma``.
+    Without it the result's covariance takes them as the robot's true
+    accuracy.
     """
 
-    refine: bool = True
     rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
     trans_sigma: float = 0.001
     estimate_sigma: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "refine": bool(self.refine),
             "rot_sigma": float(self.rot_sigma),
             "trans_sigma": float(self.trans_sigma),
             "estimate_sigma": bool(self.estimate_sigma),
         }
 
+
+@dataclass(slots=True)
+class RobotPoseConfig:
+    """Shared robot-pose refinement settings for hand-eye BA.
+
+    By default (``RobotPoseConfig()``) every view's robot pose gets an se(3)
+    correction in the gripper frame under the prior ``prior``
+    (:class:`RobotPosePrior`). :meth:`exact` takes the robot poses as exact:
+    ``prior`` is ``None``.
+    """
+
+    prior: RobotPosePrior | None = field(default_factory=RobotPosePrior)
+
+    @classmethod
+    def exact(cls) -> "RobotPoseConfig":
+        """Take the robot poses as exact: no corrections, no prior."""
+        return cls(prior=None)
+
+    @classmethod
+    def refine(
+        cls,
+        rot_sigma: float = 0.5 * 3.141592653589793 / 180.0,
+        trans_sigma: float = 0.001,
+        estimate_sigma: bool = True,
+    ) -> "RobotPoseConfig":
+        """Refine the robot poses under the prior given."""
+        return cls(prior=RobotPosePrior(rot_sigma, trans_sigma, estimate_sigma))
+
+    def to_payload(self) -> dict[str, Any]:
+        if self.prior is None:
+            return {"kind": "exact"}
+        return {"kind": "refine", **self.prior.to_payload()}
+
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "RobotPoseConfig":
-        cfg = cls()
+        kind = mapping.get("kind")
+        if kind == "exact":
+            extra = set(mapping) - {"kind"}
+            if extra:
+                raise ValueError(f"unknown RobotPoseConfig field: {sorted(extra)[0]}")
+            return cls.exact()
+        if kind != "refine":
+            raise ValueError(f"RobotPoseConfig kind must be 'exact' or 'refine', got {kind!r}")
+        prior = RobotPosePrior()
         for key, value in mapping.items():
-            if not hasattr(cfg, key):
+            if key == "kind":
+                continue
+            if not hasattr(prior, key):
                 raise ValueError(f"unknown RobotPoseConfig field: {key}")
-            setattr(cfg, key, value)
-        return cfg
+            setattr(prior, key, value)
+        return cls(prior=prior)
 
 
 @dataclass(slots=True)
@@ -144,6 +185,38 @@ class RobotPoseSigma:
             return None
         return cls(
             rot_sigma=float(payload["rot_sigma"]), trans_sigma=float(payload["trans_sigma"])
+        )
+
+
+@dataclass(slots=True)
+class RobotRefinement:
+    """The robot-pose correction a refining hand-eye solve estimated.
+
+    ``deltas`` holds one se(3) tangent ``[rx, ry, rz, tx, ty, tz]`` per view,
+    in the gripper frame: the view's corrected pose is
+    ``base_se3_gripper · exp(delta)``. ``sigma`` is the robot's pose error the
+    corrections were weighed with (estimated with
+    ``robot_poses.prior.estimate_sigma``).
+    """
+
+    deltas: list[list[float]]
+    sigma: RobotPoseSigma
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "deltas": [[float(v) for v in d] for d in self.deltas],
+            "sigma": self.sigma.to_payload(),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> "RobotRefinement | None":
+        if payload is None:
+            return None
+        sigma = RobotPoseSigma.from_payload(cast(Mapping[str, Any], payload["sigma"]))
+        assert sigma is not None
+        return cls(
+            deltas=[[float(v) for v in d] for d in cast(list[Any], payload["deltas"])],
+            sigma=sigma,
         )
 
 
@@ -2289,12 +2362,11 @@ class SingleCamHandeyeExport(_ExportResiduals):
 
     camera: Camera
     handeye: SingleCamHandeyeSolution
-    robot_deltas: list[list[float]] | None
+    robot_refinement: RobotRefinement | None
+    """The per-view robot-pose corrections and the pose error they were
+    weighed with; ``None`` without refinement."""
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    robot_pose_sigma: RobotPoseSigma | None = None
-    """The robot's pose error the corrections were weighed with (estimated
-    with ``robot_poses.estimate_sigma``); ``None`` without refinement."""
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -2308,9 +2380,8 @@ class SingleCamHandeyeExport(_ExportResiduals):
             export=dict(payload),
             camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
             handeye=_camera_solution_from_payload(cast(Mapping[str, Any], payload["handeye"])),
-            robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
-            robot_pose_sigma=RobotPoseSigma.from_payload(
-                cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
+            robot_refinement=RobotRefinement.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("robot_refinement"))
             ),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
@@ -2359,12 +2430,11 @@ class RigHandeyeExport(_ExportResiduals):
     cameras: list[Camera]
     cam_se3_rig: list[Pose]
     handeye: RigHandeyeSolution
-    robot_deltas: list[list[float]] | None
+    robot_refinement: RobotRefinement | None
+    """The per-view robot-pose corrections and the pose error they were
+    weighed with; ``None`` without refinement."""
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    robot_pose_sigma: RobotPoseSigma | None = None
-    """The robot's pose error the corrections were weighed with (estimated
-    with ``robot_poses.estimate_sigma``); ``None`` without refinement."""
     rig_se3_target: list[Pose] = field(default_factory=list)
     """Each view's rig-from-target pose, through the hand-eye chain."""
     uncertainty: ParameterUncertainty = field(
@@ -2386,9 +2456,8 @@ class RigHandeyeExport(_ExportResiduals):
             "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
             "rig_se3_target": [p.to_payload() for p in self.rig_se3_target],
             "handeye": self.handeye.to_payload(),
-            "robot_deltas": self.robot_deltas,
-            "robot_pose_sigma": (
-                None if self.robot_pose_sigma is None else self.robot_pose_sigma.to_payload()
+            "robot_refinement": (
+                None if self.robot_refinement is None else self.robot_refinement.to_payload()
             ),
             "mean_reproj_error": float(self.mean_reproj_error),
             "per_cam_reproj_errors": [float(v) for v in self.per_cam_reproj_errors],
@@ -2404,9 +2473,8 @@ class RigHandeyeExport(_ExportResiduals):
                 for p in cast(list[Any], payload["cam_se3_rig"])
             ],
             handeye=_rig_solution_from_payload(cast(Mapping[str, Any], payload["handeye"])),
-            robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
-            robot_pose_sigma=RobotPoseSigma.from_payload(
-                cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
+            robot_refinement=RobotRefinement.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("robot_refinement"))
             ),
             rig_se3_target=[
                 Pose.from_payload(cast(Mapping[str, Any], p))
@@ -2564,25 +2632,18 @@ class RigLaserlineDataset:
 class RigLaserlineDeviceInput:
     """Input for rig laserline device calibration.
 
-    The ``initial_planes_cam`` warm-start field accepts the same
-    [`LaserPlane`] dataclass returned by
-    [`RigLaserlineDeviceExport.laser_planes_cam`], so the canonical
-    restart pattern ``initial_planes_cam=previous.laser_planes_cam``
-    works directly without manual conversion.
+    Seed the laser planes through
+    :meth:`RigLaserlineDeviceSession.step_init_with_seed`
+    (:class:`PlaneManualInit`); the one-shot call fits them linearly.
     """
 
     dataset: RigLaserlineDataset
     upstream: RigUpstreamCalibration
-    initial_planes_cam: list[LaserPlane] | None = None
 
     def to_payload(self) -> dict[str, Any]:
-        initial: list[dict[str, Any]] | None = None
-        if self.initial_planes_cam is not None:
-            initial = [plane.to_payload() for plane in self.initial_planes_cam]
         return {
             "dataset": self.dataset.to_payload(),
             "upstream": self.upstream.to_payload(),
-            "initial_planes_cam": initial,
         }
 
 
@@ -2884,12 +2945,11 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
     handeye: RigHandeyeSolution
-    robot_deltas: list[list[float]] | None
+    robot_refinement: RobotRefinement | None
+    """The per-view robot-pose corrections and the pose error they were
+    weighed with; ``None`` without refinement."""
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    robot_pose_sigma: RobotPoseSigma | None = None
-    """The robot's pose error the corrections were weighed with (estimated
-    with ``robot_poses.estimate_sigma``); ``None`` without refinement."""
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -2923,9 +2983,8 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
                 for p in cast(list[Any], payload["rig_se3_target"])
             ],
             handeye=_rig_solution_from_payload(cast(Mapping[str, Any], payload["handeye"])),
-            robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
-            robot_pose_sigma=RobotPoseSigma.from_payload(
-                cast(Mapping[str, Any] | None, payload.get("robot_pose_sigma"))
+            robot_refinement=RobotRefinement.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("robot_refinement"))
             ),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[

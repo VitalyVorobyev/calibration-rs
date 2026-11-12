@@ -54,7 +54,7 @@ JsonObject: TypeAlias = dict[str, Any]
 JsonArray: TypeAlias = list[Any]
 
 # A robot pose correction `[rx, ry, rz, tx, ty, tz]`, the element of an
-# export's `robot_deltas`. The schema has it as an anonymous fixed-size array,
+# export's `robot_refinement.deltas`. The schema has it as an anonymous fixed-size array,
 # so it has no generated name.
 Se3Delta: TypeAlias = tuple[float, float, float, float, float, float] | list[float]
 

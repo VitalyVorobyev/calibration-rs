@@ -25,6 +25,7 @@ mod common;
 use common::laser::{board, laser_intrinsics, laser_pixels_for_view, laser_truth, poses};
 use common::{PIXEL_SIGMA, gauss};
 use std::time::Instant;
+use vision_calibration::common::config::RobotPoseConfig;
 use vision_calibration::common::{CalibratedCameras, RigLaserlineView, RobotPoseMeta};
 use vision_calibration::control::RunControl;
 use vision_calibration::core::{
@@ -177,8 +178,8 @@ fn calibrated_rig(seed: u64) -> CalibratedRig {
     let mut config = RigHandeyeLaserlineConfig::default();
     config.handeye.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
     // The synthetic robot poses are exact.
-    config.handeye.handeye_optimize.robot_poses.refine = false;
-    config.joint_optimize.robot_poses.refine = false;
+    config.handeye.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
+    config.joint_optimize.robot_poses = RobotPoseConfig::Exact;
     let mut session = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
     session.set_config(config).unwrap();
     session

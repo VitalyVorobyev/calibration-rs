@@ -426,31 +426,6 @@
       ],
       "type": "object"
     },
-    "LaserPlane": {
-      "description": "Laser plane in camera frame: unit normal + signed distance.\n\nThe plane equation is: n̂ · p + d = 0\nwhere p is a point in camera coordinates.\n\nA plane is valid by construction: its normal has unit length (within\n`1e-9`) and every value is finite, and a plane read from JSON is checked\nthe same way.",
-      "properties": {
-        "distance": {
-          "description": "Signed distance from camera origin",
-          "format": "double",
-          "type": "number"
-        },
-        "normal": {
-          "description": "Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.",
-          "items": {
-            "format": "double",
-            "type": "number"
-          },
-          "maxItems": 3,
-          "minItems": 3,
-          "type": "array"
-        }
-      },
-      "required": [
-        "normal",
-        "distance"
-      ],
-      "type": "object"
-    },
     "LaserlineMeta": {
       "description": "Metadata for a laserline view (laser pixels + optional weights).",
       "properties": {
@@ -873,16 +848,6 @@
         "dataset": {
           "$ref": "#/$defs/RigLaserlineDataset",
           "description": "Per-view, per-camera observations."
-        },
-        "initial_planes_cam": {
-          "description": "Optional per-camera initial plane in camera frame. If `None`, each\ncamera's plane is fitted in closed form from its laser pixels.",
-          "items": {
-            "$ref": "#/$defs/LaserPlane"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
         },
         "upstream": {
           "$ref": "#/$defs/RigUpstreamCalibration",

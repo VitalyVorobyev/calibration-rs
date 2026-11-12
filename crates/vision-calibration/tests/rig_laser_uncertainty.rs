@@ -22,6 +22,7 @@ mod common;
 use common::laser::{board, laser_intrinsics, laser_pixels_for_view, laser_truth, poses};
 use common::{PIXEL_SIGMA, gauss, scatter_over_stated, without_calibration_share};
 use std::time::Instant;
+use vision_calibration::common::config::RobotPoseConfig;
 use vision_calibration::common::{
     CalibratedCameras, HandeyeSolution, RigLaserlineView, RobotPoseMeta,
 };
@@ -159,7 +160,7 @@ fn rig_handeye_export(seed: u64) -> vision_calibration::rig_handeye::RigHandeyeE
     // The extrinsics are refined with the hand-eye, so the calibration's
     // covariance holds them; the synthetic robot poses are exact.
     config.handeye_optimize.refine_cam_se3_rig = true;
-    config.handeye_optimize.robot_poses.refine = false;
+    config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
     let mut session = CalibrationSession::<RigHandeyeProblem>::new();
     session.set_config(config).unwrap();
     session
@@ -218,7 +219,6 @@ fn rig_laser_export(
         .set_input(RigLaserlineDeviceInput {
             dataset: laser_dataset(seed),
             upstream,
-            initial_planes_cam: None,
         })
         .unwrap();
     vision_calibration::rig_laserline_device::run_calibration(&mut session).unwrap();

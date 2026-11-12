@@ -16,6 +16,7 @@ use vision_calibration_core::{
 use vision_calibration_optim::RobotPoseMeta;
 
 use super::*;
+use crate::common::config::{RobotPoseConfig, RobotPosePrior};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem, run_calibration};
 use crate::session::CalibrationSession;
 
@@ -192,11 +193,13 @@ impl Scene {
         let mut config = RigHandeyeConfig::default();
         config.handeye_init.handeye_mode = self.mode;
         config.handeye_optimize.refine_cam_se3_rig = true;
-        let robot = &mut config.handeye_optimize.robot_poses;
-        robot.refine = self.refine;
-        robot.estimate_sigma = false;
-        robot.rot_sigma = ROBOT_ROT;
-        robot.trans_sigma = ROBOT_TRANS;
+        config.handeye_optimize.robot_poses = if self.refine {
+            let mut prior = RobotPosePrior::new(ROBOT_ROT, ROBOT_TRANS);
+            prior.estimate_sigma = false;
+            RobotPoseConfig::Refine(prior)
+        } else {
+            RobotPoseConfig::Exact
+        };
         let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_config(config).unwrap();
         session
@@ -235,7 +238,7 @@ fn empty_export() -> RigHandeyeExport {
             "gripper_se3_rig": Iso3::identity(),
             "base_se3_target": Iso3::identity(),
         },
-        "robot_deltas": null,
+        "robot_refinement": null,
         "mean_reproj_error": 0.0,
         "per_cam_reproj_errors": [],
     }))
@@ -418,11 +421,6 @@ fn inputs_are_checked() {
     };
     let err = predict_with_robot_poses(&no_covariance, &[pose], &board(), &SIZES).unwrap_err();
     assert!(matches!(err, Error::CovarianceUnavailable { .. }), "{err}");
-
-    let mut no_sigma = scene.export.clone();
-    no_sigma.robot_deltas = Some(vec![[0.0; 6]; BASE]);
-    let err = predict_with_robot_poses(&no_sigma, &[pose], &board(), &SIZES).unwrap_err();
-    assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

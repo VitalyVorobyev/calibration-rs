@@ -467,28 +467,82 @@ impl SolverConfig {
 /// Shared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint
 /// rig+hand-eye+laser BA config (`JointOptimizeConfig`).
 ///
-/// With `refine`, every view's measured robot pose gets an se(3) correction
-/// in the gripper frame, `base_se3_gripper · exp(δ)`, under a zero-mean
-/// prior with the standard deviations below: the tool's orientation error
-/// about each gripper axis and its position error along each, the figures
-/// a robot's accuracy is stated in. The prior is weighed
-/// against the corner residuals at their noise level, which the solve
-/// estimates (one solve at 1 px, then one from that solution at the noise
-/// its residuals show), so the result and its covariance are the
-/// maximum-likelihood ones for a robot whose error has these standard
-/// deviations. The covariance takes them as the robot's true accuracy:
-/// state them, rather than leave a loose default, to get honest hand-eye
-/// and target standard deviations. Without `refine` the robot poses are
-/// taken as exact.
+/// [`Refine`](Self::Refine) gives every view's measured robot pose an se(3)
+/// correction in the gripper frame, `base_se3_gripper · exp(δ)`, under a
+/// zero-mean prior (see [`RobotPosePrior`]). [`Exact`](Self::Exact) takes the
+/// robot poses as exact. Serialized as `{"kind": "exact"}` or
+/// `{"kind": "refine", "rot_sigma": …, "trans_sigma": …, "estimate_sigma": …}`.
+/// The default is `Refine` with the default prior: robot pose errors are
+/// rarely below the corner noise, and taking them as exact pushes them into
+/// the camera parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RobotPoseConfig {
+    /// The robot poses are taken as exact.
+    Exact,
+    /// Per-view se(3) corrections under the prior.
+    Refine(RobotPosePrior),
+}
+
+impl Default for RobotPoseConfig {
+    fn default() -> Self {
+        Self::Refine(RobotPosePrior::default())
+    }
+}
+
+impl RobotPoseConfig {
+    /// Validate the prior when the poses are refined.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::InvalidInput`] naming the invalid field.
+    pub fn validate(&self) -> Result<(), crate::Error> {
+        match self {
+            Self::Exact => Ok(()),
+            Self::Refine(prior) => prior.validate(),
+        }
+    }
+
+    /// The prior when the poses are refined.
+    pub fn prior(&self) -> Option<&RobotPosePrior> {
+        match self {
+            Self::Exact => None,
+            Self::Refine(prior) => Some(prior),
+        }
+    }
+
+    /// `(refine, rot_sigma, trans_sigma, estimate_sigma)` for the solver
+    /// options, whose sigmas are ignored when not refining.
+    pub(crate) fn solver_terms(&self) -> (bool, f64, f64, bool) {
+        let prior = self.prior().cloned().unwrap_or_default();
+        (
+            self.prior().is_some(),
+            prior.rot_sigma,
+            prior.trans_sigma,
+            prior.estimate_sigma,
+        )
+    }
+}
+
+/// The robot's accuracy as a zero-mean prior on the per-view pose
+/// corrections of [`RobotPoseConfig::Refine`].
+///
+/// The standard deviations are the tool's orientation error about each
+/// gripper axis and its position error along each, the figures a robot's
+/// accuracy is stated in. The prior is weighed against the corner residuals
+/// at their noise level, which the solve estimates (one solve at 1 px, then
+/// one from that solution at the noise its residuals show), so the result and
+/// its covariance are the maximum-likelihood ones for a robot whose error has
+/// these standard deviations. The covariance takes them as the robot's true
+/// accuracy: state them, rather than leave a loose default, to get honest
+/// hand-eye and target standard deviations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
-pub struct RobotPoseConfig {
-    /// Refine the robot poses with per-view se(3) corrections. On by
-    /// default: robot pose errors are rarely below the corner noise, and
-    /// taking them as exact pushes them into the camera parameters.
-    pub refine: bool,
+pub struct RobotPosePrior {
     /// Standard deviation of the tool's orientation error about each gripper
     /// axis (radians, > 0). Default 0.5°, a loose bound for an industrial
     /// arm.
@@ -501,18 +555,17 @@ pub struct RobotPoseConfig {
     /// `rot_sigma` and `trans_sigma`: each prior's variance factor is
     /// estimated from the corrections and their redundancy, and the solve
     /// repeats until it settles. The export reports the estimate
-    /// (`robot_pose_sigma`). On by default: the stated accuracy of an arm is
-    /// rarely its error in one calibration, and a prior that is too loose
-    /// or too tight misstates the hand-eye and target standard deviations.
-    /// Off, `rot_sigma` and `trans_sigma` are taken as the robot's true
-    /// accuracy.
+    /// (`robot_refinement.sigma`). On by default: the stated accuracy of an
+    /// arm is rarely its error in one calibration, and a prior that is too
+    /// loose or too tight misstates the hand-eye and target standard
+    /// deviations. Off, `rot_sigma` and `trans_sigma` are taken as the
+    /// robot's true accuracy.
     pub estimate_sigma: bool,
 }
 
-impl Default for RobotPoseConfig {
+impl Default for RobotPosePrior {
     fn default() -> Self {
         Self {
-            refine: true,
             rot_sigma: 0.5_f64.to_radians(),
             trans_sigma: 1.0e-3,
             estimate_sigma: true,
@@ -520,29 +573,32 @@ impl Default for RobotPoseConfig {
     }
 }
 
-impl RobotPoseConfig {
-    /// Validate that `rot_sigma`/`trans_sigma` are strictly positive.
-    ///
-    /// Called from `validate_config` of `SingleCamHandeyeConfig`,
-    /// `RigHandeyeConfig`, and `RigHandeyeLaserlineConfig`. Whether the check is gated on
-    /// `self.refine` is each caller's own choice — the problem types
-    /// disagree on this (`SingleCamHandeyeProblem` only requires positive
-    /// sigmas when `refine` is enabled; the rig problem types always
-    /// validate) and this helper preserves each site's own
-    /// behavior rather than picking one.
+impl RobotPosePrior {
+    /// A prior with the given standard deviations (radians, metres) and the
+    /// default `estimate_sigma` (on).
+    pub fn new(rot_sigma: f64, trans_sigma: f64) -> Self {
+        Self {
+            rot_sigma,
+            trans_sigma,
+            ..Self::default()
+        }
+    }
+
+    /// Validate that `rot_sigma` and `trans_sigma` are finite and strictly
+    /// positive.
     ///
     /// # Errors
     ///
-    /// Returns [`crate::Error::InvalidInput`] naming the non-positive field.
+    /// Returns [`crate::Error::InvalidInput`] naming the invalid field.
     pub fn validate(&self) -> Result<(), crate::Error> {
-        if self.rot_sigma <= 0.0 {
+        if !(self.rot_sigma.is_finite() && self.rot_sigma > 0.0) {
             return Err(crate::Error::invalid_input(
-                "robot_rot_sigma must be positive",
+                "rot_sigma must be positive and finite",
             ));
         }
-        if self.trans_sigma <= 0.0 {
+        if !(self.trans_sigma.is_finite() && self.trans_sigma > 0.0) {
             return Err(crate::Error::invalid_input(
-                "robot_trans_sigma must be positive",
+                "trans_sigma must be positive and finite",
             ));
         }
         Ok(())
@@ -701,9 +757,10 @@ mod tests {
     #[test]
     fn robot_pose_config_default() {
         let cfg = RobotPoseConfig::default();
-        assert!(cfg.refine);
-        assert!((cfg.rot_sigma - 0.5_f64.to_radians()).abs() < 1e-15);
-        assert!((cfg.trans_sigma - 1.0e-3).abs() < 1e-15);
+        let prior = cfg.prior().expect("the default refines the robot poses");
+        assert!((prior.rot_sigma - 0.5_f64.to_radians()).abs() < 1e-15);
+        assert!((prior.trans_sigma - 1.0e-3).abs() < 1e-15);
+        assert!(prior.estimate_sigma);
     }
 
     #[test]
@@ -864,24 +921,44 @@ mod tests {
 
     #[test]
     fn robot_pose_config_validate_rejects_non_positive_rot_sigma() {
-        let cfg = RobotPoseConfig {
-            rot_sigma: 0.0,
-            ..Default::default()
-        };
+        let cfg = RobotPoseConfig::Refine(RobotPosePrior::new(0.0, 1.0e-3));
         let err = cfg.validate().expect_err("zero rot_sigma must be rejected");
-        assert!(err.to_string().contains("robot_rot_sigma"));
+        assert!(err.to_string().contains("rot_sigma"));
     }
 
     #[test]
     fn robot_pose_config_validate_rejects_non_positive_trans_sigma() {
-        let cfg = RobotPoseConfig {
-            trans_sigma: -1.0,
-            ..Default::default()
-        };
+        let cfg = RobotPoseConfig::Refine(RobotPosePrior::new(0.01, -1.0));
         let err = cfg
             .validate()
             .expect_err("negative trans_sigma must be rejected");
-        assert!(err.to_string().contains("robot_trans_sigma"));
+        assert!(err.to_string().contains("trans_sigma"));
+    }
+
+    #[test]
+    fn robot_pose_config_exact_ignores_the_prior() {
+        assert!(RobotPoseConfig::Exact.validate().is_ok());
+        assert!(RobotPoseConfig::Exact.prior().is_none());
+    }
+
+    #[test]
+    fn robot_pose_config_json_shape() {
+        let exact = serde_json::to_value(RobotPoseConfig::Exact).unwrap();
+        assert_eq!(exact, serde_json::json!({"kind": "exact"}));
+        let refine = RobotPoseConfig::Refine(RobotPosePrior::new(0.01, 0.002));
+        let json = serde_json::to_value(&refine).unwrap();
+        assert_eq!(json["kind"], "refine");
+        assert_eq!(json["rot_sigma"], 0.01);
+        assert_eq!(json["trans_sigma"], 0.002);
+        assert_eq!(json["estimate_sigma"], true);
+        let back: RobotPoseConfig = serde_json::from_value(json).unwrap();
+        let prior = back.prior().expect("refine");
+        assert_eq!((prior.rot_sigma, prior.trans_sigma), (0.01, 0.002));
+        // The old flat shape is rejected, not silently read.
+        let old = serde_json::json!({
+            "refine": true, "rot_sigma": 0.01, "trans_sigma": 0.002, "estimate_sigma": true
+        });
+        assert!(serde_json::from_value::<RobotPoseConfig>(old).is_err());
     }
 
     #[test]

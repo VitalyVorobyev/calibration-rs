@@ -32,7 +32,7 @@ use crate::problems::handeye::{RobotPoseMeta, apply_robot_delta};
 use crate::problems::laserline_bundle::LaserlineResidualType;
 use crate::problems::laserline_rig_bundle::{RigLaserlineDataset, RigLaserlineView};
 use crate::problems::rig_extrinsics::{camera_models, resolve_camera_fix};
-use crate::problems::robot_poses::{self, RobotPoseSigma, Weighting};
+use crate::problems::robot_poses::{self, RobotPoseSigma, RobotRefinement, Weighting};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -282,15 +282,12 @@ pub struct RigHandeyeLaserlineEstimate {
     pub mean_reproj_error_px: f64,
     /// Per-camera stats (reprojection + laser, both pixel and metric).
     pub per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats>,
-    /// Optional optimized per-view robot pose deltas
-    /// `[rx, ry, rz, tx, ty, tz]`.
-    pub robot_deltas: Option<Vec<[Real; 6]>>,
-    /// The robot's pose error the corrections were weighed with: the
-    /// configured one, or the estimate with
-    /// [`RigHandeyeLaserlineSolveOptions::estimate_robot_sigma`]. `None`
+    /// The per-view robot-pose corrections and the pose error they were
+    /// weighed with (the configured one, or the estimate with
+    /// [`RigHandeyeLaserlineSolveOptions::estimate_robot_sigma`]). `None`
     /// without robot-pose refinement.
     #[serde(default)]
-    pub robot_pose_sigma: Option<RobotPoseSigma>,
+    pub robot_refinement: Option<RobotRefinement>,
     /// Covariance of the refined parameters, labelled as the rig hand-eye
     /// result's, plus each camera's laser plane in its camera frame
     /// (`cam<i>.plane.nx … cam<i>.plane.d`).
@@ -382,10 +379,13 @@ pub fn optimize_rig_handeye_laserline(
         planes_cam,
     };
 
-    let robot_deltas = opts
-        .refine_robot_poses
-        .then(|| robot_poses::solved_deltas(&solution.params, dataset.num_views()))
-        .transpose()?;
+    let robot_refinement = match robot_pose_sigma {
+        Some(sigma) => Some(RobotRefinement {
+            deltas: robot_poses::solved_deltas(&solution.params, dataset.num_views())?,
+            sigma,
+        }),
+        None => None,
+    };
 
     let planes_rig: Vec<LaserPlane> = params
         .planes_cam
@@ -394,8 +394,11 @@ pub fn optimize_rig_handeye_laserline(
         .map(|(plane, rig_se3_cam)| plane.transform_by(rig_se3_cam))
         .collect();
 
-    let (mean_reproj_error_px, per_cam_stats) =
-        compute_stats(&dataset, &params, robot_deltas.as_deref())?;
+    let (mean_reproj_error_px, per_cam_stats) = compute_stats(
+        &dataset,
+        &params,
+        robot_refinement.as_ref().map(|r| r.deltas.as_slice()),
+    )?;
 
     Ok(RigHandeyeLaserlineEstimate {
         params,
@@ -403,8 +406,7 @@ pub fn optimize_rig_handeye_laserline(
         report: solution.solve_report,
         mean_reproj_error_px,
         per_cam_stats,
-        robot_deltas,
-        robot_pose_sigma,
+        robot_refinement,
         uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
     })
 }

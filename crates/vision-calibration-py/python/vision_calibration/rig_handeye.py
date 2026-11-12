@@ -42,6 +42,7 @@ from .rig_extrinsics import (
     IntrinsicsManualInit,
     RigInitResult,
     RigManualInit,
+    RigPoses,
     _target_poses,
 )
 from .session import (
@@ -72,6 +73,7 @@ __all__ = [
     "RigManualInit",
     "RigOptimizeOptions",
     "RigOptimizeResult",
+    "RigPoses",
 ]
 
 

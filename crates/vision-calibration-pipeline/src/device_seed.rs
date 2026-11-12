@@ -21,7 +21,7 @@ use vision_calibration_core::{FxFyCxCy, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::HandeyeMode;
 
 use crate::planar_intrinsics;
-use crate::rig_handeye::{self, HandeyeManualInit, RigManualInit};
+use crate::rig_handeye::{self, HandeyeManualInit, RigManualInit, RigPoses};
 
 // The schema types every consumer of this module needs, re-exported so the
 // facade can expose the full device-spec surface from one place.
@@ -122,10 +122,9 @@ pub fn rig_intrinsics_seed(
 /// caller's `camera_ids` order. Translations are converted to the
 /// pipeline's world unit (metres).
 ///
-/// This is deliberately *not* a `RigManualInit`: the manual-init contract couples
-/// `cam_se3_rig` with the data-dependent per-view `rig_se3_target`
-/// (both-or-neither), so combining the nominals with per-view estimates is
-/// the caller's job.
+/// This is deliberately *not* a `RigManualInit`: a rig seed (`RigPoses`)
+/// couples `cam_se3_rig` with the data-dependent per-view `rig_se3_target`,
+/// so combining the nominals with per-view estimates is the caller's job.
 pub fn nominal_cam_se3_rig(
     spec: &DeviceSpec,
     camera_ids: &[&str],
@@ -149,8 +148,7 @@ pub fn nominal_cam_se3_rig(
 
 /// Full rig-stage seed: nominal `cam_se3_rig` from the mechanical layout,
 /// combined with per-view `rig_se3_target` anchored on measured per-camera
-/// target poses (the two fields are coupled — both must be seeded
-/// together).
+/// target poses (the two are coupled: a rig seed carries both).
 ///
 /// `cam_se3_target` is `[view][cam] -> Option<cam_se3_target>` in the
 /// same camera order as `camera_ids` (the shape returned by
@@ -176,8 +174,7 @@ pub fn rig_layout_seed(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(RigManualInit {
-        cam_se3_rig: Some(cam_se3_rig),
-        rig_se3_target: Some(rig_se3_target),
+        poses: Some(RigPoses::new(cam_se3_rig, rig_se3_target)),
     })
 }
 
@@ -438,8 +435,10 @@ mod tests {
         // View 0: only cam0 sees the target; view 1: only cam1.
         let poses = vec![vec![Some(target_pose), None], vec![None, Some(target_pose)]];
         let seed = rig_layout_seed(&spec, &["cam0", "cam1"], &poses).unwrap();
-        let cam_se3_rig = seed.cam_se3_rig.unwrap();
-        let rig_se3_target = seed.rig_se3_target.unwrap();
+        let RigPoses {
+            cam_se3_rig,
+            rig_se3_target,
+        } = seed.poses.unwrap();
         assert_eq!(rig_se3_target.len(), 2);
         // View 1 (identity mount): rig_se3_target == the raw target pose.
         assert!(

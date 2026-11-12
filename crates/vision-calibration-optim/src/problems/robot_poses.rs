@@ -79,6 +79,22 @@ impl RobotPoseSigma {
     }
 }
 
+/// The robot-pose correction a hand-eye solve estimated with
+/// `refine_robot_poses`.
+///
+/// Absent from a result when the robot poses were taken as exact.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RobotRefinement {
+    /// Per-view robot-pose corrections, one se(3) tangent
+    /// `[rx, ry, rz, tx, ty, tz]` per view, in the gripper frame: the view's
+    /// corrected pose is `base_se3_gripper · exp(δ)`.
+    pub deltas: Vec<[f64; 6]>,
+    /// The robot's pose error the corrections were weighed with: the
+    /// configured one, or the estimate when it was estimated.
+    pub sigma: RobotPoseSigma,
+}
+
 /// How the robot-pose priors are weighed in one solve.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Weighting {
@@ -278,4 +294,24 @@ pub(crate) fn solved_deltas(
             Ok([d[0], d[1], d[2], d[3], d[4], d[5]])
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn robot_refinement_json_roundtrip() {
+        let refinement = RobotRefinement {
+            deltas: vec![[0.0; 6], [1e-3, 0.0, 0.0, 0.0, 2e-4, 0.0]],
+            sigma: RobotPoseSigma {
+                rot_sigma: 1e-3,
+                trans_sigma: 5e-4,
+            },
+        };
+        let json = serde_json::to_string(&refinement).unwrap();
+        assert!(json.contains("\"deltas\"") && json.contains("\"sigma\""));
+        let back: RobotRefinement = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, refinement);
+    }
 }

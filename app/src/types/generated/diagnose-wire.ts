@@ -1357,22 +1357,35 @@ export interface RigHandeyeExport {
    */
   rig_se3_target?: Iso3Schema[];
   /**
-   * Per-view robot pose corrections (if refinement enabled).
-   * Each element is [rx, ry, rz, tx, ty, tz] in se(3).
+   * The per-view robot-pose corrections and the pose error they were
+   * weighed with: the configured `robot_poses` prior, or its estimate with
+   * `estimate_sigma`. Only present if robot refinement was enabled.
    */
-  robot_deltas?: [number, number, number, number, number, number][] | null;
-  /**
-   * The robot's pose error the corrections were weighed with: the
-   * configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-   * with `robot_poses.estimate_sigma`. Only present if robot refinement
-   * was enabled.
-   */
-  robot_pose_sigma?: RobotPoseSigma | null;
+  robot_refinement?: RobotRefinement | null;
   /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.
    */
   uncertainty?: Uncertainty;
+}
+/**
+ * The robot-pose correction a hand-eye solve estimated with
+ * `refine_robot_poses`.
+ *
+ * Absent from a result when the robot poses were taken as exact.
+ */
+export interface RobotRefinement {
+  /**
+   * Per-view robot-pose corrections, one se(3) tangent
+   * `[rx, ry, rz, tx, ty, tz]` per view, in the gripper frame: the view's
+   * corrected pose is `base_se3_gripper · exp(δ)`.
+   */
+  deltas: [number, number, number, number, number, number][];
+  /**
+   * The robot's pose error the corrections were weighed with: the
+   * configured one, or the estimate when it was estimated.
+   */
+  sigma: RobotPoseSigma;
 }
 /**
  * A robot's pose error: the standard deviations of the tool's orientation
@@ -1438,16 +1451,11 @@ export interface RigHandeyeLaserlineExport {
    */
   rig_se3_target: Iso3Schema[];
   /**
-   * Optional optimized robot pose deltas.
+   * The per-view robot-pose corrections and the pose error they were
+   * weighed with: the configured `robot_poses` prior, or its estimate with
+   * `estimate_sigma`. Only present if robot refinement was enabled.
    */
-  robot_deltas?: [number, number, number, number, number, number][] | null;
-  /**
-   * The robot's pose error the corrections were weighed with: the
-   * configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-   * with `robot_poses.estimate_sigma`. Only present if robot refinement
-   * was enabled.
-   */
-  robot_pose_sigma?: RobotPoseSigma | null;
+  robot_refinement?: RobotRefinement | null;
   /**
    * Covariance of the jointly refined parameters, labelled as the export
    * fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
@@ -1614,17 +1622,11 @@ export interface SingleCamHandeyeExport {
    */
   per_cam_reproj_errors: number[];
   /**
-   * Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).
-   * Only present if robot refinement was enabled.
+   * The per-view robot-pose corrections and the pose error they were
+   * weighed with: the configured `robot_poses` prior, or its estimate with
+   * `estimate_sigma`. Only present if robot refinement was enabled.
    */
-  robot_deltas?: [number, number, number, number, number, number][] | null;
-  /**
-   * The robot's pose error the corrections were weighed with: the
-   * configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-   * with `robot_poses.estimate_sigma`. Only present if robot refinement
-   * was enabled.
-   */
-  robot_pose_sigma?: RobotPoseSigma | null;
+  robot_refinement?: RobotRefinement | null;
   /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.

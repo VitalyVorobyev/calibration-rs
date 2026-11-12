@@ -9,12 +9,11 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraFix, CameraModelSpec, CameraParams, Iso3, Real, RigDataset, RigView, RigViewObs,
-    Uncertainty,
+    CameraFix, CameraModelSpec, CameraParams, Iso3, RigDataset, RigView, RigViewObs, Uncertainty,
 };
 use vision_calibration_optim::{
     HandeyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset, RigHandeyeLaserlineEstimate,
-    RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView, RigLaserlineDataset, RobotPoseSigma,
+    RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView, RigLaserlineDataset, RobotRefinement,
     RobustLoss, compute_rig_laserline_feature_residuals, handeye_observer_se3_target,
 };
 
@@ -203,15 +202,11 @@ pub struct RigHandeyeLaserlineExport {
     pub rig_se3_target: Vec<Iso3>,
     /// The hand-eye and the target reference pose of the calibration's mode.
     pub handeye: HandeyeSolution,
-    /// Optional optimized robot pose deltas.
-    pub robot_deltas: Option<Vec<[Real; 6]>>,
-
-    /// The robot's pose error the corrections were weighed with: the
-    /// configured `robot_poses.rot_sigma` / `trans_sigma`, or their estimate
-    /// with `robot_poses.estimate_sigma`. Only present if robot refinement
-    /// was enabled.
+    /// The per-view robot-pose corrections and the pose error they were
+    /// weighed with: the configured `robot_poses` prior, or its estimate with
+    /// `estimate_sigma`. Only present if robot refinement was enabled.
     #[serde(default)]
-    pub robot_pose_sigma: Option<RobotPoseSigma>,
+    pub robot_refinement: Option<RobotRefinement>,
     /// Mean target reprojection error (pixels).
     pub mean_reproj_error: f64,
     /// Per-camera target reprojection errors (pixels).
@@ -345,7 +340,10 @@ pub(crate) fn export_joint(
         &params.handeye,
         &params.target_ref,
         &robot_poses,
-        estimate.robot_deltas.as_deref(),
+        estimate
+            .robot_refinement
+            .as_ref()
+            .map(|r| r.deltas.as_slice()),
     );
     let mut per_feature_residuals = rig_target_residuals(
         &params.cameras,
@@ -384,8 +382,7 @@ pub(crate) fn export_joint(
         cam_se3_rig,
         rig_se3_target,
         handeye: solution,
-        robot_deltas: estimate.robot_deltas.clone(),
-        robot_pose_sigma: estimate.robot_pose_sigma,
+        robot_refinement: estimate.robot_refinement.clone(),
         mean_reproj_error: estimate.mean_reproj_error_px,
         per_cam_reproj_errors: estimate
             .per_cam_stats
@@ -463,7 +460,7 @@ mod tests {
             LaserlineResidualType::PointToPlane
         );
         assert_eq!(restored.joint_optimize.laser_weight, 1.0e4);
-        assert!(restored.joint_optimize.robot_poses.refine);
+        assert!(restored.joint_optimize.robot_poses.prior().is_some());
         assert!(restored.joint_optimize.fix.is_empty());
     }
 

@@ -20,7 +20,7 @@
       "refine_sensor": true,
       "robot_poses": {
         "estimate_sigma": true,
-        "refine": true,
+        "kind": "refine",
         "rot_sigma": 0.008726646259971648,
         "trans_sigma": 0.001
       }
@@ -58,7 +58,7 @@
     "laser_weight": 10000.0,
     "robot_poses": {
       "estimate_sigma": true,
-      "refine": true,
+      "kind": "refine",
       "rot_sigma": 0.008726646259971648,
       "trans_sigma": 0.001
     },

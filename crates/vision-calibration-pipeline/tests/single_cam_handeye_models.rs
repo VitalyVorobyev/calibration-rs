@@ -11,7 +11,7 @@ use vision_calibration_core::{
     SensorParams,
 };
 use vision_calibration_pipeline::common::RobotPoseMeta;
-use vision_calibration_pipeline::common::config::CameraConfig;
+use vision_calibration_pipeline::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration_pipeline::session::CalibrationSession;
 use vision_calibration_pipeline::single_cam_handeye::{
     IntrinsicsManualInit, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeProblem,
@@ -113,7 +113,7 @@ fn brown_conrady() -> DistortionParams {
 fn config(model: CameraModelSpec) -> SingleCamHandeyeConfig {
     let mut config = SingleCamHandeyeConfig::default();
     config.camera = CameraConfig::new(model);
-    config.robot_poses.refine = false;
+    config.robot_poses = RobotPoseConfig::Exact;
     config
 }
 

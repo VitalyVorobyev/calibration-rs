@@ -156,6 +156,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ```
 
+- **Configs, seeds and exports cannot state impossible combinations**
+  (breaking). Five shapes changed:
+
+  - `RobotPoseConfig` is an enum, `exact` or `refine` with its prior
+    (`RobotPosePrior`: `rot_sigma`, `trans_sigma`, `estimate_sigma`). The
+    sigmas used to sit beside a `refine` flag that made them meaningless,
+    and the problems checked them differently; now a `refine` prior is
+    validated the same way everywhere, and an `exact` config has none.
+
+    ```json
+    // before
+    { "robot_poses": { "refine": true, "rot_sigma": 0.0087, "trans_sigma": 0.001, "estimate_sigma": true } }
+    { "robot_poses": { "refine": false, "rot_sigma": 0.0087, "trans_sigma": 0.001, "estimate_sigma": true } }
+    // after
+    { "robot_poses": { "kind": "refine", "rot_sigma": 0.0087, "trans_sigma": 0.001, "estimate_sigma": true } }
+    { "robot_poses": { "kind": "exact" } }
+    ```
+
+    ```rust
+    // before
+    config.robot_poses.refine = false;
+    // after
+    config.robot_poses = RobotPoseConfig::Exact;
+    config.robot_poses = RobotPoseConfig::Refine(RobotPosePrior::new(0.0087, 1e-3));
+    ```
+
+    Python: `RobotPoseConfig.exact()`, `RobotPoseConfig.refine(rot_sigma=...,
+    trans_sigma=..., estimate_sigma=...)` and the field `prior`.
+
+  - The robot-pose correction of a hand-eye result is one optional value,
+    `robot_refinement { deltas, sigma }`, in the single-camera, rig and
+    rig-laser exports (and in `HandeyeEstimate`). It replaces the two
+    optional fields `robot_deltas` and `robot_pose_sigma`, which were always
+    set together.
+
+    ```json
+    // before
+    { "robot_deltas": [[0, 0, 0, 0, 0, 0]], "robot_pose_sigma": { "rot_sigma": 0.001, "trans_sigma": 0.0005 } }
+    // after
+    { "robot_refinement": { "deltas": [[0, 0, 0, 0, 0, 0]], "sigma": { "rot_sigma": 0.001, "trans_sigma": 0.0005 } } }
+    ```
+
+    Python: `export.robot_refinement.deltas` and `.sigma`.
+
+  - `RigManualInit` seeds the rig poses as one `poses: Option<RigPoses>`
+    (`RigPoses::new(cam_se3_rig, rig_se3_target)`) in place of the two
+    options that had to be set together.
+
+    ```rust
+    // before
+    seed.cam_se3_rig = Some(cam_se3_rig);
+    seed.rig_se3_target = Some(rig_se3_target);
+    // after
+    seed.poses = Some(RigPoses::new(cam_se3_rig, rig_se3_target));
+    ```
+
+    Python: `RigManualInit(poses=RigPoses(cam_se3_rig=..., rig_se3_target=...))`.
+
+  - `RigHandeyeConfig.manual_init` now seeds `step_intrinsics_init_all` as it
+    already seeded `run_calibration`; a step-by-step run with a configured
+    seed starts from it instead of a full auto-init.
+    `step_intrinsics_init_all_with_seed` takes an explicit seed that
+    overrides the config's.
+
+  - `RigLaserlineDeviceInput` no longer has `initial_planes_cam`; seed the
+    laser planes with `step_init_with_seed(PlaneManualInit { planes_cam })`
+    (Python: `RigLaserlineDeviceSession.step_init_with_seed`).
+
+    ```rust
+    // before
+    RigLaserlineDeviceInput { dataset, upstream, initial_planes_cam: Some(planes) }
+    // after
+    RigLaserlineDeviceInput { dataset, upstream }
+    ```
+
 ### Fixed
 
 - A hand-eye session whose `handeye_mode` was changed after solving exported

@@ -76,7 +76,7 @@ pub struct RigHandeyeConfig {
 session.update_config(|c| {
     c.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
     c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
-    c.handeye_optimize.robot_poses.refine = true;
+    c.handeye_optimize.robot_poses = RobotPoseConfig::Refine(RobotPosePrior::new(0.01, 0.002));
 })?;
 ```
 
