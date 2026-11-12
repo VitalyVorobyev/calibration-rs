@@ -70,6 +70,11 @@ evidence behind ADR 0011.
   degeneracy made quantitative.
 - [Rectification](rectification.md) — short pack: Scheimpflug tilt as a
   normalized-plane homography; row-alignment evidence.
+- [MVG measurements](mvg-measurements.md) — object pose, laser points,
+  metrology and the dense cloud: the implicit-function σ of each, the
+  calibration's covariance as consider parameters, what each holds exact,
+  the Monte-Carlo gates, and the drift-gated board measurement of the
+  regression suite.
 - [Ringgrid bias](ringgrid-bias.md) — the projective ellipse-center bias
   is removed inside the `ringgrid` detector; the ring-grid reprojection
   floor is small-marker localization noise.

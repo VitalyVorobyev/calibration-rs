@@ -1570,8 +1570,13 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
                     .as_ref()
                     .map(|c| format!("  truth {:+.2}σ ({})", c.z(), c.label))
                     .unwrap_or_default();
+                let measurement = report
+                    .largest_measurement_change
+                    .as_ref()
+                    .map(|c| format!("  measurement {:+.2e}σ ({})", c.z(), c.label))
+                    .unwrap_or_default();
                 println!(
-                    "{verdict} {:<24} {:>7.2} s{largest}{truth}",
+                    "{verdict} {:<24} {:>7.2} s{largest}{truth}{measurement}",
                     report.id, report.seconds
                 );
                 for failure in &report.failures {

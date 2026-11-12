@@ -26,6 +26,7 @@ use sha2::{Digest, Sha256};
 pub use vision_calibration_dataset::samples::{FetchSource, parse_checksums, safe_relative_path};
 
 pub use super::corners::PublishedCorners;
+pub use super::measure::MeasureBoard;
 
 /// Name of the checksum file next to `suite.toml`.
 pub const CHECKSUM_FILE: &str = "SHA256SUMS";
@@ -93,6 +94,12 @@ pub struct SuiteEntry {
     /// Drift tolerance against the reference result.
     #[serde(default)]
     pub tolerance: Tolerance,
+    /// Also measure the board in the entry's held-out views with a stereo
+    /// calibration of its other views, and check the measured lengths and
+    /// their σ against the reference. Needs a two-camera `rig_extrinsics`
+    /// entry.
+    #[serde(default)]
+    pub measure_board: Option<MeasureBoard>,
 }
 
 /// Allowed difference between a number in a result and in its reference:
@@ -168,6 +175,11 @@ impl Suite {
                 corners
                     .validate()
                     .with_context(|| format!("suite entry {:?}: corners", entry.id))?;
+            }
+            if let Some(measure) = &entry.measure_board {
+                measure
+                    .validate()
+                    .with_context(|| format!("suite entry {:?}: measure_board", entry.id))?;
             }
             if let Some(FetchSource::Files { base_url }) = &entry.fetch {
                 ensure!(

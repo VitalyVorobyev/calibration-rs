@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::manifest::Tolerance;
+use super::measure::BoardMeasurement;
 
 /// A stored calibration result: `results/<id>/calibration-rs.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,10 @@ pub struct ReferenceResult {
     /// The problem's full export: every estimated parameter and the
     /// reprojection statistics.
     pub export: Value,
+    /// For an entry with `measure_board`, the measurement of its held-out
+    /// boards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measure_board: Option<BoardMeasurement>,
 }
 
 /// One value of a result that differs from its reference.

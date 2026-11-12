@@ -11,6 +11,8 @@
 //! - [`compare`] — other libraries' results against the references.
 //! - [`corners`] — observations from the corner files a publisher released
 //!   with its images.
+//! - [`measure`] — an entry's held-out boards measured with a stereo
+//!   calibration of its other views (`measure_board`).
 //! - `fetch` (feature `tier-b`) — an image entry's files, downloaded from
 //!   their publisher into a local cache and checksum-verified.
 //! - `freeze` (feature `tier-b`) — dataset manifest + images, or fetched
@@ -21,8 +23,11 @@
 //! value for value or, with [`Gate::Sigma`], parameter by parameter in
 //! units of the reference's standard deviations. A synthetic entry is also
 //! checked against its truth: every parameter within [`TRUTH_SIGMA`] of its
-//! true value, in units of the result's own σ. [`bless_entry`] writes the
-//! reference; [`freeze_synthetic_entry`] writes a synthetic entry's data.
+//! true value, in units of the result's own σ. An entry with
+//! `measure_board` also measures its held-out boards and compares the
+//! lengths and their σ with the reference's ([`measure`]). [`bless_entry`]
+//! writes the reference; [`freeze_synthetic_entry`] writes a synthetic
+//! entry's data.
 
 pub mod compare;
 pub mod corners;
@@ -33,6 +38,7 @@ pub mod fetch;
 #[cfg(feature = "tier-b")]
 pub mod freeze;
 pub mod manifest;
+pub mod measure;
 pub mod observations;
 pub mod reference;
 pub mod significance;
@@ -77,6 +83,9 @@ pub struct EntryReport {
     /// For a synthetic entry, the largest error against the truth in units
     /// of the result's σ.
     pub largest_truth_error: Option<ParameterChange>,
+    /// For an entry with `measure_board`, the largest change of a measured
+    /// length from the reference, in units of its stated σ.
+    pub largest_measurement_change: Option<ParameterChange>,
 }
 
 /// What a check compares against the reference.
@@ -176,6 +185,7 @@ pub fn check_entry(suite: &Suite, entry: &SuiteEntry, options: CheckOptions) -> 
         failures: outcome.failures,
         largest_change: outcome.largest_change,
         largest_truth_error: outcome.largest_truth_error,
+        largest_measurement_change: outcome.largest_measurement_change,
     }
 }
 
@@ -184,6 +194,7 @@ struct Outcome {
     failures: Vec<String>,
     largest_change: Option<ParameterChange>,
     largest_truth_error: Option<ParameterChange>,
+    largest_measurement_change: Option<ParameterChange>,
 }
 
 fn largest(changes: &[ParameterChange]) -> Option<ParameterChange> {
@@ -231,6 +242,8 @@ fn check_failures(suite: &Suite, entry: &SuiteEntry, options: CheckOptions) -> R
         None => Vec::new(),
     };
     listed.extend(beyond(&truth_errors, TRUTH_SIGMA, "off the truth by"));
+    let measurement = check_measurement(suite, entry, options, &reference)?;
+    listed.extend(measurement.listed);
     failures.extend(listed.iter().take(MAX_LISTED_DRIFTS).cloned());
     if listed.len() > MAX_LISTED_DRIFTS {
         failures.push(format!(
@@ -242,6 +255,71 @@ fn check_failures(suite: &Suite, entry: &SuiteEntry, options: CheckOptions) -> R
         failures,
         largest_change: largest(&changes),
         largest_truth_error: largest(&truth_errors),
+        largest_measurement_change: largest(&measurement.changes),
+    })
+}
+
+/// What [`check_measurement`] found.
+#[derive(Default)]
+struct MeasurementCheck {
+    /// Failure lines.
+    listed: Vec<String>,
+    /// Each measured length's change, in units of its σ.
+    changes: Vec<ParameterChange>,
+}
+
+impl MeasurementCheck {
+    fn failed(line: &str) -> Self {
+        Self {
+            listed: vec![line.into()],
+            changes: Vec::new(),
+        }
+    }
+}
+
+/// Measure an entry's held-out boards, when it asks for it, and compare
+/// the measurement with the reference's.
+fn check_measurement(
+    suite: &Suite,
+    entry: &SuiteEntry,
+    options: CheckOptions,
+    reference: &ReferenceResult,
+) -> Result<MeasurementCheck> {
+    let (spec, expected) = match (&entry.measure_board, &reference.measure_board) {
+        (None, None) => return Ok(MeasurementCheck::default()),
+        (None, Some(_)) => {
+            return Ok(MeasurementCheck::failed(
+                "the reference has a measure_board result the entry does not ask for",
+            ));
+        }
+        (Some(_), None) => {
+            return Ok(MeasurementCheck::failed(
+                "the reference has no measure_board result (run suite bless)",
+            ));
+        }
+        (Some(spec), Some(expected)) => (spec, expected),
+    };
+    let set = load_observations(suite, &entry.id)?;
+    let actual = measure::measure_board(&set, entry.config.as_ref(), options.backend, spec)
+        .context("measure_board")?;
+    let changes = measure::measurement_changes(expected, &actual);
+    let listed = match options.gate {
+        Gate::Exact => drifts(
+            &serde_json::to_value(expected)?,
+            &serde_json::to_value(&actual)?,
+            entry.tolerance,
+        )
+        .into_iter()
+        .map(|d| format!("/measure_board{}: {} → {}", d.path, d.expected, d.actual))
+        .collect(),
+        Gate::Sigma(k) => match &changes {
+            Ok(changes) => beyond(changes, k, "changed by"),
+            Err(err) => vec![format!("measure_board: {err:#}")],
+        },
+    };
+    Ok(MeasurementCheck {
+        listed,
+        changes: changes.unwrap_or_default(),
     })
 }
 
@@ -284,16 +362,30 @@ pub(crate) fn write_compact(path: &std::path::Path, value: &impl serde::Serializ
     std::fs::write(path, text).with_context(|| format!("write {}", path.display()))
 }
 
-/// Calibrate an entry and store the export as its reference result.
+/// Calibrate an entry and store the export as its reference result, with
+/// the measurement of its held-out boards when it has `measure_board`.
 ///
 /// # Errors
 ///
 /// Fails when the calibration fails or the file cannot be written.
 pub fn bless_entry(suite: &Suite, entry: &SuiteEntry) -> Result<()> {
+    let measure_board = match &entry.measure_board {
+        Some(spec) => Some(
+            measure::measure_board(
+                &load_observations(suite, &entry.id)?,
+                entry.config.as_ref(),
+                None,
+                spec,
+            )
+            .context("measure_board")?,
+        ),
+        None => None,
+    };
     let reference = ReferenceResult {
         suite_version: suite.manifest.suite_version.clone(),
         producer: format!("calibration-rs {}", env!("CARGO_PKG_VERSION")),
         export: calibrate_entry(suite, entry, None)?,
+        measure_board,
     };
     let path = suite.reference_path(&entry.id);
     if let Some(dir) = path.parent() {

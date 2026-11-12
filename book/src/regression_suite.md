@@ -16,7 +16,7 @@ plain JSON, other calibration tools can run on exactly the same data.
 | `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | None stated |
 | `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | None stated |
 | `ds8` | `rig_handeye` | Three cameras on a Denso arm, 33 of 42 poses with a complete 10×14 chessboard (52 mm) | U.S. public domain |
-| `opencv_stereo` | `rig_extrinsics` | OpenCV's pinhole stereo sample: 13 views of a 6×9 chessboard (squares of 1) turned by 90° in most views, 640×480 | Apache-2.0 |
+| `opencv_stereo` | `rig_extrinsics` | OpenCV's pinhole stereo sample: 13 views of a 6×9 chessboard (squares of 1) turned by 90° in most views, 640×480; also measures its held-out boards ([below](#measuring-a-board)) | Apache-2.0 |
 | `opencv_fisheye_left` | `planar_intrinsics` | Kannala-Brandt fisheye: 34 views of an 8×6 chessboard (24.4 mm), 1280×800, left camera | None stated |
 | `opencv_fisheye_right` | `planar_intrinsics` | The same 34 views, right camera | None stated |
 | `opencv_fisheye_stereo` | `rig_extrinsics` | Both fisheye cameras together | None stated |
@@ -243,6 +243,37 @@ compares every estimated parameter the truth names with its true value, in
 units of the result's own standard deviation (a pose by the right
 perturbation `T_true⁻¹ · T`), and fails the entry when one is 5σ or more
 off. Each entry reports its largest error against the truth.
+
+## Measuring a board
+
+The suite also gates measurements, not only calibrations. An entry with
+`measure_board` runs the procedure of
+[Measuring a Board with a Stereo Calibration](mvg_measure_board.md) on its
+observations, so it needs no images: the even views calibrate a stereo rig
+with the entry's config, every held-out (odd) view seen by both cameras is
+triangulated in one call with the pixel noise the calibration states, and
+every pair of corners on one board row or column, 1 to 7 squares apart, is
+measured with `metrology::distance` and compared with the board's size:
+
+```toml
+measure_board = { square_size_m = 1.0 }   # the board's square, in the unit of its target points
+```
+
+`opencv_stereo` is such an entry: 7 views calibrate, 6 held-out boards of
+54 corners give 2070 lengths. Its reference result holds, next to the export,
+`measure_board`: the measuring calibration (its views, mean reprojection
+error, view scatter and per-camera pixel noise) and, for each held-out view
+and over all of them, per length in squares, the number of pairs, the mean
+and RMS error, the mean stated σ and the RMS of the error over σ. The totals
+are the table of the chapter's pinhole pair.
+
+`suite check` measures again and compares every number with the reference,
+within the entry's tolerance, so a change to the triangulation, the
+calibration's share of a point's covariance or the distance's σ fails the
+entry. With `--sigma k` it compares each row's mean error, in units of the
+row's mean stated σ (which bounds the σ of a mean of correlated lengths);
+`--backend` runs the measuring calibration on that backend. `suite bless`
+writes the measurement with the export.
 
 ## Comparing with other libraries
 

@@ -163,104 +163,12 @@ names the failing track. Failure modes:
 - **Identical cameras** (zero baseline): rejected
   (`triangulation_rejects_identical_cameras`).
 
-## Laser points
+## Measurements
 
-A laser-line pixel `u` seen by rig camera `k` lies on the viewing ray and on
-the camera's laser plane `nᵀp + d = 0`, which fixes one point. The point
-solves `F(p; u, θ, n, d) = [π(p; θ) − u; nᵀp + d] = 0` (`vision_mvg::laser`):
-the ray's intersection `p = t b`, `t = −d / (nᵀb)`, is the start, polished by
-Newton steps on `F` to 1e-9 px so the forward model holds exactly (Brown–
-Conrady undistortion is iterative; the forward projection is closed form).
-`t ≤ 0` (the plane behind the camera) and `|nᵀb| ≤ 1e-9` (a grazing ray) are
-typed errors; the incidence `asin|nᵀb|` is reported. Rays beyond 90° from the
-axis (a fisheye) need nothing special: `p` is a 3-vector throughout.
-
-First order, with `A = [∂π/∂p; nᵀ]` (3×3, camera frame):
-
-```text
-∂p/∂u = A⁻¹ [I₂; 0]      ∂p/∂θ = −A⁻¹ [∂π/∂θ; 0]
-∂p/∂n = −A⁻¹ [0; pᵀ]     ∂p/∂d = −A⁻¹ [0; 1]
-```
-
-`q = R p + t` (`rig_se3_cam = (R, t)`) is the rig-frame point. The camera's
-extrinsic is perturbed as `cam_se3_rig · Exp(ω, v)` (the tangent of the
-export's covariance), which moves `q` by `[q]ₓ ω − v`. With the calibration's
-covariance `Σ_c` over the coordinates it lists (camera `θ`, plane, extrinsic,
-all with their correlations) and the pixels' stated `Σ_u`,
-
-```text
-Σ_q = J_c Σ_c J_cᵀ + blockdiag(J_u Σ_u J_uᵀ)
-```
-
-over all points of a call (the calibration is shared, so they are
-correlated). The plane's normal enters through its three components; its
-covariance is rank 2 (⟂ `n`), so the unconstrained derivative is exact to
-first order. The σ is conditional on what the calibration held fixed, and the
-pixel noise is the laser-peak detector's, stated. Cost `O(N² |c|)`, `3N×3N`
-memory.
-
-**Evidence.** The derivatives against central differences (camera fields,
-renormalised plane, camera 1's extrinsic tangent, pixel) agree to 3e-8
-relative. Monte Carlo in parameter space (4000 draws of the camera, plane and
-extrinsic from a synthetic `Σ_c` with camera-plane correlations, a rank-2
-plane block, and fresh pixels): per-point 3×3 sample against stated, relative
-Frobenius error 0.015–0.036 (gate 0.08), a cross block 0.021 (gate 0.1); the
-pixel-only variant 0.013–0.034; dropping the camera×plane cross terms moves
-the stated σ by 0.23. End to end (`tests/laser_uncertainty.rs`, 300
-calibrations of a laserline device from 0.3 px pixels, eight plane points at
-0.1 px): depth scatter over stated σ 1.02 (gate 0.85–1.15), the length between
-two points 0.99 (gate 0.8–1.25); the σ from the pixels alone is 0.017 mm
-against 4.7 mm.
-
-### In the robot's frames
-
-A rig with a hand-eye `H` (`gripper_se3_rig` eye-in-hand, `rig_se3_base`
-eye-to-hand) measures in the gripper or base frame. Capture `k`'s pose in the
-measurement's frame, `rig_se3_world`, is the chain of `H` and the robot's
-`P = base_se3_gripper`, and its right perturbation is `ξ = A ε_h + B ε_r`
-(`Ad(T) = [[R, 0], [[t]ₓR, R]]` over `[ω, v]`):
-
-| mode, frame | `rig_se3_world` | `A` | `B` |
-|---|---|---|---|
-| eye-in-hand, gripper | `H⁻¹` | `−Ad(H)` | — |
-| eye-in-hand, base | `(P H)⁻¹` | `−Ad(P H)` | `−Ad(P)` |
-| eye-to-hand, base | `H` | `I` | — |
-| eye-to-hand, gripper | `H P` | `Ad(P⁻¹)` | `I` |
-
-A laser point `x = rig_se3_world⁻¹ q` rotates every rig-frame derivative by
-the capture's rotation and moves with `ξ` by `[x]ₓ ω − v`, so `J_c` gains the
-hand-eye's six columns `[[x]ₓ, −I] A` under its covariance labels (correlated
-with the cameras, planes and extrinsics) and each robot pose six columns
-`[[x]ₓ, −I] B` with its stated `Σ_r`, block-diagonal against `Σ_c`. A
-triangulated point goes through the builder: the capture's pose is a fixed
-SE3 block (`Problem::add_rig_pose`) whose tangent joins the consider
-coordinates with `Cov(ξ, c) = A Cov(h, c)`, `Cov(ξ_k, ξ_l) = A_k Σ_hh A_lᵀ +
-δ_kl B_k Σ_rk B_kᵀ`, and `S Σ_c Sᵀ` does the rest.
-
-**Evidence.** `A` and `B` against central differences of the chain, both
-modes and frames: under 1e-7 (core, `handeye.rs`). The laser point's
-hand-eye, robot, camera and extrinsic columns in the robot frame against
-central differences of the whole measurement: 7e-10 relative. Monte Carlo
-in parameter space (4000 draws of the camera, plane, extrinsic and hand-eye
-from a `Σ_c` with hand-eye×camera and hand-eye×plane correlations, the robot
-poses at 1 mrad / 0.8 mm, fresh pixels; points of two captures): per-point
-3×3 sample against stated 0.016–0.056 (gate 0.08), cross blocks across and
-within captures 0.027–0.047 (gate 0.1), in the base frame eye-in-hand and
-the gripper frame eye-to-hand. Triangulated points of two stations in the
-same frames (`vision-mvg/tests/robot_frames.rs`, 3000 draws): worst point
-block 0.024 / 0.059, cross block 0.020 / 0.060; dropping the hand-eye×camera
-cross terms moves the stated σ by 0.17 / 0.16, the robot's share by 0.20 /
-0.21. End to end (`tests/handeye_frame_uncertainty.rs`, 300 joint rig
-hand-eye laserline calibrations from 0.3 px, a held-out station with the
-robot at 0.1 mrad / 50 µm, points at 0.1 px, base frame): scatter over
-stated 1.008 for the laser points (RMS σ 0.100 mm) and 1.011 for the
-triangulated ones (0.45 mm). The shares of the laser points' σ: pixels
-0.047 mm, the calibration with its correlations 0.068 mm in all, the robot
-0.073 mm (in quadrature); without the hand-eye's cross terms the σ is
-0.41 mm (scatter/stated 0.29), without the robot 0.068 mm (1.59). The
-calibration fixes the board's pose in the base frame, so its hand-eye
-errs against its planes and cameras: holding the hand-eye exact with the
-cameras' and planes' σ (0.29 mm) overstates too.
+Laser points (a pixel on a calibrated plane), measurements in the robot's
+frames, the object pose, metrology and the dense cloud, with the
+calibration's share of their σ and the evidence for it, are in
+[mvg-measurements.md](mvg-measurements.md).
 
 ## Identifiability and degeneracies
 

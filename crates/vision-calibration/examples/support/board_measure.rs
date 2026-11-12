@@ -1,9 +1,11 @@
 //! Measuring a board of known geometry with a calibrated stereo rig.
 //!
 //! The logic of the `measure_board` example, kept apart so a test can run it
-//! on synthetic data without the network.
+//! on synthetic data without the network, and the regression suite on the
+//! committed observations of `opencv_stereo`.
 
-// The example and its test each use a part of this module.
+// The example, its test and the regression suite each use a part of this
+// module.
 #![allow(dead_code)]
 
 use anyhow::{Context, Result, ensure};
