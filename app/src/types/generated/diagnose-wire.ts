@@ -604,6 +604,11 @@ export interface LaserlineDeviceExport {
    */
   per_cam_reproj_errors: number[];
   /**
+   * Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+   * Reading an export of another version is an error.
+   */
+  schema_version: number;
+  /**
    * Laserline statistics payload.
    */
   stats: LaserlineStats;
@@ -1159,6 +1164,11 @@ export interface PlanarIntrinsicsExport {
    */
   per_cam_reproj_errors: number[];
   /**
+   * Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+   * Reading an export of another version is an error.
+   */
+  schema_version: number;
+  /**
    * Covariance of the calibrated parameters: `fx ± σ` (and `tilt_x ± σ`
    * for a tilted sensor), correlations, and the noise level the residuals
    * imply.
@@ -1313,6 +1323,11 @@ export interface RigExtrinsicsExport {
    */
   rig_se3_target: Iso3Schema[];
   /**
+   * Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+   * Reading an export of another version is an error.
+   */
+  schema_version: number;
+  /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.
    */
@@ -1367,6 +1382,11 @@ export interface RigHandeyeExport {
    * `estimate_sigma`. Only present if robot refinement was enabled.
    */
   robot_refinement?: RobotRefinement | null;
+  /**
+   * Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+   * Reading an export of another version is an error.
+   */
+  schema_version: number;
   /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.
@@ -1461,6 +1481,11 @@ export interface RigHandeyeLaserlineExport {
    * `estimate_sigma`. Only present if robot refinement was enabled.
    */
   robot_refinement?: RobotRefinement | null;
+  /**
+   * Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+   * Reading an export of another version is an error.
+   */
+  schema_version: number;
   /**
    * Covariance of the jointly refined parameters, labelled as the export
    * fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
@@ -1566,6 +1591,11 @@ export interface RigLaserlineDeviceExport {
    */
   rig_se3_target?: Iso3Schema[];
   /**
+   * Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+   * Reading an export of another version is an error.
+   */
+  schema_version: number;
+  /**
    * Covariance of the laser planes in their camera frames
    * (`cam1.plane.nx … cam1.plane.d`). When the upstream calibration
    * carries its covariance, the planes' carries its share, and the
@@ -1632,6 +1662,11 @@ export interface SingleCamHandeyeExport {
    * `estimate_sigma`. Only present if robot refinement was enabled.
    */
   robot_refinement?: RobotRefinement | null;
+  /**
+   * Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+   * Reading an export of another version is an error.
+   */
+  schema_version: number;
   /**
    * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
    * the noise level the residuals imply.

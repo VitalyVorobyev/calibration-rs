@@ -83,6 +83,7 @@ class LaserResultUncertaintyTest(unittest.TestCase):
         }
         result = vc.RigLaserlineDeviceExport.from_payload(
             {
+                "schema_version": 1,
                 "laser_planes_rig": [plane, plane],
                 "laser_planes_cam": [plane, plane],
                 "per_cam_stats": [stats, stats],

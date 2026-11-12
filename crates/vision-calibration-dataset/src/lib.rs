@@ -50,10 +50,11 @@ pub use device_spec::{
 pub use load::ManifestError;
 pub use sniff::{SniffError, sniff_folder};
 pub use spec::{
-    CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec,
-    DetectorSpec, ImageNoiseSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis, PoseColumnMap,
-    PoseConvention, PosePairing, ProblemKind, RobotPoseFormat, RobotPoseSource, RotationFormat,
-    TargetSpec, TransformConvention, TranslationUnits,
+    CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec,
+    DATASET_SPEC_VERSION, DatasetSpec, DetectorSpec, ImageNoiseSpec, ImagePattern,
+    LaserExtractionSpec, LaserScanAxis, PoseColumnMap, PoseConvention, PosePairing, ProblemKind,
+    RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, TransformConvention,
+    TranslationUnits,
 };
 pub use validator::{ValidationError, validate};
 

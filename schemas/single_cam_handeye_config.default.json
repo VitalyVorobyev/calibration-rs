@@ -1,0 +1,40 @@
+{
+  "camera": {
+    "fix": {},
+    "model": {
+      "distortion": "brown_conrady5",
+      "projection": "pinhole",
+      "sensor": "identity"
+    }
+  },
+  "handeye_init": {
+    "handeye_mode": "eye_in_hand",
+    "method": "tsai_lenz",
+    "min_motion_angle_deg": 5.0
+  },
+  "handeye_optimize": {
+    "reprojection_loss": {
+      "kind": "none"
+    },
+    "robot_poses": {
+      "estimate_sigma": true,
+      "kind": "refine",
+      "rot_sigma": 0.008726646259971648,
+      "trans_sigma": 0.001
+    }
+  },
+  "intrinsics_init": {
+    "fix_k3": true,
+    "iterations": 2
+  },
+  "intrinsics_optimize": {
+    "reprojection_loss": {
+      "kind": "none"
+    }
+  },
+  "solver": {
+    "backend": "tiny_solver",
+    "max_iters": 50,
+    "verbosity": 0
+  }
+}

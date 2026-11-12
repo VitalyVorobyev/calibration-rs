@@ -31,7 +31,7 @@ use vision_calibration_optim::{
     apply_robot_delta,
 };
 
-use crate::common::HandeyeSolution;
+use crate::common::{HandeyeSolution, read_export};
 use crate::laserline_device::LaserlineDeviceInput;
 use crate::rig_handeye::RigHandeyeExport;
 use crate::rig_handeye_laserline::RigHandeyeLaserlineInput;
@@ -770,10 +770,12 @@ fn load_upstream_export(path: &Path) -> Result<RigHandeyeExport, RunError> {
         path: path.to_path_buf(),
         message: format!("read failed: {e}"),
     })?;
-    serde_json::from_str(&text).map_err(|e| RunError::UpstreamCalibration {
+    let not_an_export = |e: &dyn std::fmt::Display| RunError::UpstreamCalibration {
         path: path.to_path_buf(),
         message: format!("not a rig hand-eye export: {e}"),
-    })
+    };
+    let value = serde_json::from_str(&text).map_err(|e| not_an_export(&e))?;
+    read_export(value).map_err(|e| not_an_export(&e))
 }
 
 /// Per-view rig→target pose through the frozen hand-eye chain
@@ -894,7 +896,7 @@ fn rig_se3_target_from_chain(export: &RigHandeyeExport, base_se3_gripper: &Iso3)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ProblemKind;
+    use crate::common::{ProblemKind, VersionedExport};
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use vision_calibration_core::{
@@ -1296,6 +1298,7 @@ mod tests {
         };
         RigHandeyeExport {
             kind: ProblemKind::RigHandeye,
+            schema_version: RigHandeyeExport::SCHEMA_VERSION,
             cameras: (0..num_cameras)
                 .map(|_| pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default())))
                 .collect(),
@@ -1383,6 +1386,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn an_upstream_export_of_another_format_version_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut export = serde_json::to_value(upstream_export(2)).unwrap();
+        let path = dir.path().join("upstream.json");
+        std::fs::write(&path, serde_json::to_string(&export).unwrap()).unwrap();
+        load_upstream_export(&path).unwrap();
+
+        export["schema_version"] = 2.into();
+        std::fs::write(&path, serde_json::to_string(&export).unwrap()).unwrap();
+        let err = load_upstream_export(&path).unwrap_err();
+        let RunError::UpstreamCalibration { message, .. } = &err else {
+            panic!("expected UpstreamCalibration, got {err:?}");
+        };
+        assert!(message.contains("schema_version 2"), "{message}");
+        assert!(message.contains("reads 1"), "{message}");
     }
 
     #[test]

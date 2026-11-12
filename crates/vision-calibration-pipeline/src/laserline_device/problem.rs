@@ -16,7 +16,7 @@ use vision_calibration_optim::{
 use crate::common::config::{
     CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig, check_laser_residual,
 };
-use crate::common::{ExportDiagnostics, ProblemKind};
+use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
@@ -233,6 +233,11 @@ pub struct LaserlineDeviceEstimate {
 pub struct LaserlineDeviceExport {
     /// Export-type discriminator — always [`ProblemKind::LaserlineDevice`].
     pub kind: ProblemKind,
+
+    /// Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+    /// Reading an export of another version is an error.
+    #[serde(deserialize_with = "read_schema_version::<_, LaserlineDeviceExport>")]
+    pub schema_version: u32,
     /// The calibrated camera, in its model.
     pub camera: CameraParams,
     /// Per-view target poses (`cam_se3_target`).
@@ -257,6 +262,10 @@ pub struct LaserlineDeviceExport {
     /// debugging, not part of the result.
     #[serde(default)]
     pub diagnostics: ExportDiagnostics,
+}
+
+impl VersionedExport for LaserlineDeviceExport {
+    const SCHEMA_VERSION: u32 = 1;
 }
 
 impl ProblemState for LaserlineDeviceProblem {
@@ -354,6 +363,7 @@ impl ProblemType for LaserlineDeviceProblem {
         per_feature_residuals.laser_hist_per_cam = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {
             kind: ProblemKind::LaserlineDevice,
+            schema_version: LaserlineDeviceExport::SCHEMA_VERSION,
             camera: output.estimate.params.camera.clone(),
             cam_se3_target: output.estimate.params.cam_se3_target.clone(),
             laser_plane: output.estimate.params.laser_plane.clone(),

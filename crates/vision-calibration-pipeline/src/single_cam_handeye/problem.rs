@@ -19,7 +19,7 @@ use crate::common::config::{
     CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, IntrinsicsOptimizeConfig,
     RobotPoseConfig, SolverConfig,
 };
-use crate::common::{ExportDiagnostics, ProblemKind};
+use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
@@ -245,6 +245,11 @@ pub struct SingleCamHandeyeExport {
     /// Export-type discriminator — always [`ProblemKind::SingleCamHandeye`].
     pub kind: ProblemKind,
 
+    /// Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+    /// Reading an export of another version is an error.
+    #[serde(deserialize_with = "read_schema_version::<_, SingleCamHandeyeExport>")]
+    pub schema_version: u32,
+
     /// Calibrated camera, in the configured model.
     pub camera: CameraParams,
 
@@ -270,6 +275,10 @@ pub struct SingleCamHandeyeExport {
     /// the noise level the residuals imply.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+
+impl VersionedExport for SingleCamHandeyeExport {
+    const SCHEMA_VERSION: u32 = 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,6 +465,7 @@ impl ProblemType for SingleCamHandeyeProblem {
         per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
         Ok(SingleCamHandeyeExport {
             kind: ProblemKind::SingleCamHandeye,
+            schema_version: SingleCamHandeyeExport::SCHEMA_VERSION,
             camera,
             handeye: solution,
             robot_refinement: output.robot_refinement.clone(),

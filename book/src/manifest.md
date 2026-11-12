@@ -36,7 +36,7 @@ rotation_format = "matrix4x4_row_major"
 translation_units = "m"
 ```
 
-Paths are relative to the directory that holds the manifest unless they are absolute. TOML is the usual authoring format; the same structure is valid JSON, and a field reference generated from the JSON schema is in [Manifest Field Reference](manifest_reference.md).
+`version` is required and is the manifest format version, `1`; a manifest without it, or with another number, is rejected with a validation error naming the supported version. Paths are relative to the directory that holds the manifest unless they are absolute. TOML is the usual authoring format; the same structure is valid JSON, and a field reference generated from the JSON schema is in [Manifest Field Reference](manifest_reference.md).
 
 ## Topologies
 
@@ -215,4 +215,4 @@ The `vision_calibration::device_seed` functions derive [manual-init seeds](manua
 
 ## JSON Schema
 
-The manifest types derive a JSON Schema, and `cargo xtask emit-schemas` writes it to `app/src/schemas/dataset_spec.json`. The app generates its manifest form from that file, so every field the Rust type accepts is editable without hand-writing TOML; external tools can use it for validation and completion in an editor. [Manifest Field Reference](manifest_reference.md) renders the schema as tables.
+The manifest types derive a JSON Schema, and `cargo xtask emit-schemas` writes it to `schemas/dataset_spec.json` (the device specification's is `schemas/device_spec.json`). The app generates its manifest form from that file, so every field the Rust type accepts is editable without hand-writing TOML; external tools can use it for validation and completion in an editor. [Manifest Field Reference](manifest_reference.md) renders the schema as tables.

@@ -497,6 +497,7 @@
     "per_cam_reproj_errors": [
       0.23663358381145363
     ],
+    "schema_version": 1,
     "uncertainty": {
       "covariance": [
         [

@@ -10,7 +10,7 @@
 
 use super::*;
 
-use crate::common::ProblemKind;
+use crate::common::{ProblemKind, VersionedExport};
 use nalgebra::{SVector, Translation3, UnitQuaternion, Vector3};
 use vision_calibration_core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, NoMeta, PerFeatureResiduals, Pinhole,
@@ -282,6 +282,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
     per_feature_residuals.target = target;
     let export = RigHandeyeExport {
         kind: ProblemKind::RigHandeye,
+        schema_version: RigHandeyeExport::SCHEMA_VERSION,
         cameras: cameras.iter().map(pinhole_camera_params).collect(),
         cam_se3_rig: cam_se3_rig.clone(),
         rig_se3_target: rig_se3_target.clone(),

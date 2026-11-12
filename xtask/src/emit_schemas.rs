@@ -1,13 +1,15 @@
 //! Emit JSON Schemas for the workspace's serialized types, and the files
 //! generated from them.
 //!
-//! - Config schemas go to `app/src/schemas/<name>.json`, plus
+//! - Config schemas and the dataset manifest's go to both
+//!   `app/src/schemas/<name>.json` and `schemas/<name>.json`, plus
 //!   `<name>.default.json` (the type's `Default` value) for every config that
-//!   has one. The Tauri app reads the schemas at build time to drive
+//!   has one. The Tauri app reads its copy at build time to drive
 //!   schema-driven forms in the Run workspace; the defaults feed the app's
 //!   form round-trip tests.
 //! - The input, export and quality schemas — what a workflow reads and what
-//!   it returns — and the progress report a long call streams go to `schemas/<name>.json`, for tools that consume the
+//!   it returns — the progress report a long call streams and the device
+//!   specification's go to `schemas/<name>.json`, for tools that consume the
 //!   results. Inputs and thresholds describe what deserializes, exports and
 //!   reports what serializes.
 //! - The suite's observation, truth and external-result formats go to
@@ -32,7 +34,7 @@ use std::path::{Path, PathBuf};
 use vision_calibration_bench::suite::compare::ExternalResult;
 use vision_calibration_bench::suite::{ObservationSet, Truth};
 use vision_calibration_core::Progress;
-use vision_calibration_dataset::DatasetSpec;
+use vision_calibration_dataset::{DatasetSpec, DeviceSpec};
 use vision_calibration_optim::ProjectionUncertainty;
 use vision_calibration_pipeline::analysis::{
     CandidateGrid, PredictedRigUncertainty, PredictedUncertainty, QualityReport, QualityThresholds,
@@ -196,6 +198,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         writes::<PredictedRigUncertainty>("predicted_rig_uncertainty", "PredictedRigUncertainty"),
         writes::<RankedRobotPose>("ranked_robot_pose", "RankedRobotPose"),
         writes::<Progress>("progress", "Progress"),
+        plain("device_spec", schema_value::<DeviceSpec>()),
     ];
     let suite = vec![
         plain("observation_set", schema_value::<ObservationSet>()),
@@ -215,7 +218,12 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
     )?;
     files += 1;
 
-    for (dir, emitted) in [(&app_dir, &app), (&api_dir, &api), (&suite_dir, &suite)] {
+    for (dir, emitted) in [
+        (&app_dir, &app),
+        (&api_dir, &app),
+        (&api_dir, &api),
+        (&suite_dir, &suite),
+    ] {
         if !check {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }

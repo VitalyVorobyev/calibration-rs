@@ -813,14 +813,14 @@
       ]
     },
     "version": {
-      "default": 1,
-      "description": "Format-version sentinel. Always `1` for now; bumped on\nbreaking schema revisions.",
+      "description": "Manifest format version; must be [`DATASET_SPEC_VERSION`] (`1`).\nRequired: a manifest without it, or with another value, is rejected.",
       "format": "uint32",
       "minimum": 0,
       "type": "integer"
     }
   },
   "required": [
+    "version",
     "cameras",
     "target",
     "topology"

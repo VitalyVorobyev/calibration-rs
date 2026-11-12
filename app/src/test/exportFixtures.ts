@@ -51,6 +51,7 @@ export const LASER_RESIDUAL: LaserFeatureResidual = {
  * residual to draw. */
 export const PLANAR_EXPORT_FIXTURE = {
   kind: "planar_intrinsics",
+  schema_version: 1,
   camera: { sensor: { type: "identity" } },
   diagnostics: {
     per_feature_residuals: { target: [TARGET_RESIDUAL] },

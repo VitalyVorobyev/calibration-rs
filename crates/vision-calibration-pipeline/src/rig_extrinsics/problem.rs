@@ -13,7 +13,7 @@ use crate::common::config::{
     CameraConfig, CameraOverride, IntrinsicsInitConfig, IntrinsicsOptimizeConfig, RigConfig,
     SolverConfig, rig_camera_for, validate_rig_camera_indices, validate_rig_cameras,
 };
-use crate::common::{ExportDiagnostics, ProblemKind};
+use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
 use crate::rig_family::{RigStages, RigStagesState, inverse_poses, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -97,6 +97,11 @@ pub struct RigExtrinsicsExport {
     /// Export-type discriminator — always [`ProblemKind::RigExtrinsics`].
     pub kind: ProblemKind,
 
+    /// Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+    /// Reading an export of another version is an error.
+    #[serde(deserialize_with = "read_schema_version::<_, RigExtrinsicsExport>")]
+    pub schema_version: u32,
+
     /// Per-camera calibrated parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
 
@@ -128,6 +133,10 @@ pub struct RigExtrinsicsExport {
     /// the noise level the residuals imply.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+
+impl VersionedExport for RigExtrinsicsExport {
+    const SCHEMA_VERSION: u32 = 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -331,6 +340,7 @@ impl ProblemType for RigExtrinsicsProblem {
             rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
         Ok(RigExtrinsicsExport {
             kind: ProblemKind::RigExtrinsics,
+            schema_version: RigExtrinsicsExport::SCHEMA_VERSION,
             cameras: params.cameras.clone(),
             cam_se3_rig,
             rig_se3_target,

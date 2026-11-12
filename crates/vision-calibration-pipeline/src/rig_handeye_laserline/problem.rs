@@ -2,7 +2,9 @@
 
 use crate::Error;
 use crate::common::config::{RobotPoseConfig, SolverConfig, check_laser_residual};
-use crate::common::{ExportDiagnostics, HandeyeSolution, ProblemKind};
+use crate::common::{
+    ExportDiagnostics, HandeyeSolution, ProblemKind, VersionedExport, read_schema_version,
+};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{
     PlaneOptimizeConfig, RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
@@ -188,6 +190,11 @@ impl Default for JointOptimizeConfig {
 pub struct RigHandeyeLaserlineExport {
     /// Export-type discriminator — always [`ProblemKind::RigHandeyeLaserline`].
     pub kind: ProblemKind,
+
+    /// Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+    /// Reading an export of another version is an error.
+    #[serde(deserialize_with = "read_schema_version::<_, RigHandeyeLaserlineExport>")]
+    pub schema_version: u32,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
     /// Per-camera laser planes in camera frame.
@@ -228,6 +235,10 @@ pub struct RigHandeyeLaserlineExport {
     /// each camera's laser plane in its camera frame (`cam1.plane.nx`).
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+
+impl VersionedExport for RigHandeyeLaserlineExport {
+    const SCHEMA_VERSION: u32 = 1;
 }
 
 /// Joint rig hand-eye laserline problem.
@@ -385,6 +396,7 @@ pub(crate) fn export_joint(
 
     Ok(RigHandeyeLaserlineExport {
         kind: ProblemKind::RigHandeyeLaserline,
+        schema_version: RigHandeyeLaserlineExport::SCHEMA_VERSION,
         laser_planes_rig: estimate.laser_planes_rig.clone(),
         laser_planes_cam: params.laser_planes_cam.clone(),
         per_cam_stats: estimate.per_cam_stats.clone(),

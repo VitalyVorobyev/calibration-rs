@@ -1,0 +1,14 @@
+{
+  "optimize": {
+    "laser_loss": {
+      "kind": "huber",
+      "scale": 1.0
+    },
+    "laser_residual_type": "line_dist_normalized"
+  },
+  "solver": {
+    "backend": "tiny_solver",
+    "max_iters": 200,
+    "verbosity": 0
+  }
+}

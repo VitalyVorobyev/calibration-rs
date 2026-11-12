@@ -13,7 +13,7 @@ use vision_calibration_optim::{
 };
 
 use crate::Error;
-use crate::common::{ExportDiagnostics, ProblemKind};
+use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_export};
 use crate::laserline_device::LaserlineDeviceExport;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
@@ -179,12 +179,13 @@ pub(crate) fn split_camera_label(label: &str) -> (usize, &str) {
 /// # Errors
 ///
 /// [`Error::Serde`] when the value has no known `kind` or does not
-/// deserialize as that export.
+/// deserialize as that export; [`Error::UnsupportedExportVersion`] when its
+/// `schema_version` is not the one this library reads.
 pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn CalibratedCameras>, Error> {
-    fn typed<T: CalibratedCameras + DeserializeOwned + 'static>(
+    fn typed<T: CalibratedCameras + VersionedExport + DeserializeOwned + 'static>(
         export: serde_json::Value,
     ) -> Result<Box<dyn CalibratedCameras>, Error> {
-        Ok(Box::new(serde_json::from_value::<T>(export)?))
+        Ok(Box::new(read_export::<T>(export)?))
     }
     let kind: ProblemKind = serde_json::from_value(
         export
@@ -419,6 +420,7 @@ mod tests {
 
         let rig_laser: RigLaserlineDeviceExport = serde_json::from_value(json!({
             "kind": "rig_laserline_device",
+            "schema_version": 1,
             "laser_planes_rig": [plane(-0.3), plane(-0.4)],
             "laser_planes_cam": [plane(-0.3), plane(-0.4)],
             "per_cam_stats": [],
@@ -436,6 +438,7 @@ mod tests {
 
         let handeye: RigHandeyeLaserlineExport = serde_json::from_value(json!({
             "kind": "rig_handeye_laserline",
+            "schema_version": 1,
             "laser_planes_rig": [plane(-0.3), plane(-0.4)],
             "laser_planes_cam": [plane(-0.3), plane(-0.4)],
             "per_cam_stats": [],

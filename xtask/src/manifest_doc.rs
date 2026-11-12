@@ -55,7 +55,7 @@ const HEADER: &str = "\
 Every field of the dataset manifest, generated from its JSON Schema. The prose \
 chapter [The Dataset Manifest](manifest.md) explains how the pieces fit \
 together; this page is the exhaustive list. The schema itself is \
-`app/src/schemas/dataset_spec.json` in the repository, and the desktop app \
+`schemas/dataset_spec.json` in the repository, and the desktop app \
 builds its manifest form from it.
 
 Paths in a manifest are relative to the directory that holds it unless they \

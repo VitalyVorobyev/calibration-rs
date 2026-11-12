@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **Exports and manifests carry their format version** (breaking). Every
+  `*Export` has a required `schema_version` right after `kind`, `1` for all
+  seven; an export without it, or with another number, is rejected with an
+  error naming both versions, by the Rust readers, the Python `*Export`
+  classes and the app. The dataset manifest's `version` is required (it used
+  to default to `1`) and must be `1`. Add `"schema_version": 1` to saved
+  exports and `version = 1` to manifests that lack it.
+
 - **Serialized enums are snake_case** (breaking). Every enum value in a
   config, input or export is now spelled in snake_case, like the rest of the
   JSON (`"tiny_solver"`, `"eye_in_hand"` in manifests). Saved configs and

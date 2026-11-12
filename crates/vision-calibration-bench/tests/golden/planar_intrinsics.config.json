@@ -1,0 +1,25 @@
+{
+  "camera": {
+    "fix": {},
+    "model": {
+      "distortion": "brown_conrady5",
+      "projection": "pinhole",
+      "sensor": "identity"
+    }
+  },
+  "intrinsics_init": {
+    "fix_k3": true,
+    "iterations": 2
+  },
+  "optimize": {
+    "fix_poses": [],
+    "reprojection_loss": {
+      "kind": "none"
+    }
+  },
+  "solver": {
+    "backend": "tiny_solver",
+    "max_iters": 120,
+    "verbosity": 0
+  }
+}

@@ -1438,6 +1438,12 @@
       },
       "type": "array"
     },
+    "schema_version": {
+      "description": "Format version of this export, [`VersionedExport::SCHEMA_VERSION`].\nReading an export of another version is an error.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
     "uncertainty": {
       "$ref": "#/$defs/Uncertainty",
       "default": {
@@ -1451,6 +1457,7 @@
   },
   "required": [
     "kind",
+    "schema_version",
     "laser_planes_rig",
     "laser_planes_cam",
     "per_cam_stats",

@@ -2343,6 +2343,22 @@ class RankedRobotPose:
             projection_sigma_reduction_px=float(payload["projection_sigma_reduction_px"]),
         )
 
+_EXPORT_SCHEMA_VERSION = 1
+"""The export format version this package reads; the Rust library writes it
+as ``schema_version`` in every export."""
+
+
+def _check_export_version(payload: Mapping[str, Any]) -> None:
+    """Reject an export written in another format version, before any other
+    field is read."""
+    version = payload.get("schema_version")
+    if version != _EXPORT_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported export schema_version {version!r} "
+            f"(this package reads {_EXPORT_SCHEMA_VERSION})"
+        )
+
+
 class _ExportResiduals:
     """The typed per-feature residuals of a result's export JSON."""
 
@@ -2393,6 +2409,7 @@ class PlanarIntrinsicsExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarIntrinsicsExport":
+        _check_export_version(payload)
         poses = [
             Pose.from_payload(cast(Mapping[str, Any], p))
             for p in cast(list[Any], payload["cam_se3_target"])
@@ -2559,6 +2576,7 @@ class SingleCamHandeyeExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "SingleCamHandeyeExport":
+        _check_export_version(payload)
         return cls(
             export=dict(payload),
             camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
@@ -2591,6 +2609,7 @@ class RigExtrinsicsExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigExtrinsicsExport":
+        _check_export_version(payload)
         return cls(
             export=dict(payload),
             cameras=_cameras_from_payload(payload),
@@ -2648,6 +2667,7 @@ class RigHandeyeExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeExport":
+        _check_export_version(payload)
         return cls(
             export=dict(payload),
             cameras=_cameras_from_payload(payload),
@@ -2703,6 +2723,7 @@ class LaserlineDeviceExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceExport":
+        _check_export_version(payload)
         return cls(
             export=dict(payload),
             camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
@@ -2889,6 +2910,7 @@ class RigLaserlineDeviceExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineDeviceExport":
+        _check_export_version(payload)
         return cls(
             export=dict(payload),
             laser_planes_rig=[
@@ -3148,6 +3170,7 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlineExport":
+        _check_export_version(payload)
         return cls(
             export=dict(payload),
             laser_planes_rig=[

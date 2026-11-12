@@ -29,10 +29,13 @@ pub mod config;
 
 mod cameras;
 mod diagnostics;
+mod export_version;
 mod handeye;
 pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use diagnostics::ExportDiagnostics;
+pub(crate) use export_version::read_schema_version;
+pub use export_version::{VersionedExport, check_export_version, read_export};
 pub use handeye::HandeyeSolution;
 pub(crate) use vision_calibration_dataset::ProblemKind;
 // Input and output types shared by several problem types: the robot pose of
