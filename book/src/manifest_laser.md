@@ -118,7 +118,7 @@ class ColumnPeak:
         return np.array(points).reshape(-1, 2)
 
 
-result = vc.calibrate_dataset("data/my_laser_rig/dataset.toml", laser_extractor=ColumnPeak())
+result = vc.calibrate_dataset("data/my_laser_rig/dataset.toml", laser_extractor=ColumnPeak()).export
 ```
 
 An exception the extractor raises fails the run with a `RunError` of `kind == "laser_extraction"`.

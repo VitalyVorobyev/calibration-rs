@@ -9,7 +9,21 @@ from __future__ import annotations
 
 import math
 
+from typing import Any, Mapping
+
 import vision_calibration as vc
+
+
+def run_payload(problem: str, payload: Any, config: Mapping[str, Any] | None = None) -> Any:
+    """A session of ``problem`` (a problem module's name) run on an input
+    payload and exported: what ``<problem>.run_calibration`` does for the
+    typed input, for tests that start from committed payloads."""
+    session = getattr(vc, "".join(part.capitalize() for part in problem.split("_")) + "Session")()
+    session.set_input(payload)
+    if config is not None:
+        session.set_config(config)
+    session.run_calibration()
+    return session.export()
 
 
 def euler_rot_xyz(ax: float, ay: float, az: float) -> list[list[float]]:

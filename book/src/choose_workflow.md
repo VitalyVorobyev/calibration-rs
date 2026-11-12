@@ -22,16 +22,16 @@ The workflow follows from the hardware: how many cameras there are, whether
 a robot moves the camera or the target, and whether a laser projects a line
 for triangulation.
 
-| Your system | Workflow | Manifest `topology` | Python runner |
+| Your system | Workflow | Manifest `topology` | Python runner (`vc.<module>.run_calibration`) |
 |---|---|---|---|
-| One camera; you want its intrinsics and distortion | [Planar intrinsics](planar_intrinsics.md) | `planar_intrinsics` | `run_planar_intrinsics` |
-| One camera on a robot, or a fixed camera watching a target the robot holds | [Single-camera hand-eye](handeye_workflow.md) | `single_cam_handeye` | `run_single_cam_handeye` |
-| Two or more rigidly mounted cameras: a stereo pair or a multi-camera rig | [Rig extrinsics](rig_extrinsics.md) | `rig_extrinsics` | `run_rig_extrinsics` |
-| A camera rig on a robot, or a fixed rig watching the robot's target | [Rig hand-eye](rig_handeye.md) | `rig_handeye` | `run_rig_handeye` |
-| One camera and a laser line projector mounted together | [Laserline device](laserline.md) | `laserline_device` | `run_laserline_device` |
-| A rig on a robot with one laser per camera, rig already calibrated | [Rig laserline device](scheimpflug_laser_rigs.md) | `rig_laserline_device` | `run_rig_laserline_device` |
-| The same rig with the rig, hand-eye and laser planes in one solve | [Rig hand-eye laserline](scheimpflug_laser_rigs.md) | `rig_handeye_laserline` | `run_rig_handeye_laserline` |
-| One camera and its laser on a robot, with the camera, plane and hand-eye in one solve | [Rig hand-eye laserline](scheimpflug_laser_rigs.md#one-camera) (a rig of one) | `rig_handeye_laserline` | `run_rig_handeye_laserline` |
+| One camera; you want its intrinsics and distortion | [Planar intrinsics](planar_intrinsics.md) | `planar_intrinsics` | `planar_intrinsics.run_calibration` |
+| One camera on a robot, or a fixed camera watching a target the robot holds | [Single-camera hand-eye](handeye_workflow.md) | `single_cam_handeye` | `single_cam_handeye.run_calibration` |
+| Two or more rigidly mounted cameras: a stereo pair or a multi-camera rig | [Rig extrinsics](rig_extrinsics.md) | `rig_extrinsics` | `rig_extrinsics.run_calibration` |
+| A camera rig on a robot, or a fixed rig watching the robot's target | [Rig hand-eye](rig_handeye.md) | `rig_handeye` | `rig_handeye.run_calibration` |
+| One camera and a laser line projector mounted together | [Laserline device](laserline.md) | `laserline_device` | `laserline_device.run_calibration` |
+| A rig on a robot with one laser per camera, rig already calibrated | [Rig laserline device](scheimpflug_laser_rigs.md) | `rig_laserline_device` | `rig_laserline_device.run_calibration` |
+| The same rig with the rig, hand-eye and laser planes in one solve | [Rig hand-eye laserline](scheimpflug_laser_rigs.md) | `rig_handeye_laserline` | `rig_handeye_laserline.run_calibration` |
+| One camera and its laser on a robot, with the camera, plane and hand-eye in one solve | [Rig hand-eye laserline](scheimpflug_laser_rigs.md#one-camera) (a rig of one) | `rig_handeye_laserline` | `rig_handeye_laserline.run_calibration` |
 
 Each workflow also calibrates the intrinsics of every camera it uses: a rig
 does not need a planar-intrinsics run per camera first. The hand-eye

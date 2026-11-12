@@ -15,7 +15,7 @@ from typing import Any, cast
 from . import _vision_calibration as _native
 from .common import _StepOptions
 from .models import (
-    Camera,
+    CameraParams,
     Distortion,
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
@@ -25,7 +25,8 @@ from .models import (
     Pose,
     ScheimpflugSensor,
 )
-from .session import CalibrationSession, _camera, _floats, _payload, _poses, _seed_payload
+from .session import CalibrationSession, _run_calibration, _camera, _floats, _payload, _poses, _seed_payload
+from .types import ProgressCallback
 
 __all__ = [
     "DeviceInitOptions",
@@ -34,6 +35,7 @@ __all__ = [
     "DeviceOptimizeOptions",
     "DeviceOptimizeResult",
     "LaserlineDeviceSession",
+    "run_calibration",
 ]
 
 
@@ -87,7 +89,7 @@ class DeviceManualInit:
 class DeviceInitResult:
     """The initial camera, poses and laser plane."""
 
-    camera: Camera
+    camera: CameraParams
     cam_se3_target: list[Pose]
     """Per-view camera-from-target."""
     laser_plane: LaserPlane
@@ -158,3 +160,30 @@ class LaserlineDeviceSession(
     def step_optimize(self, options: DeviceOptimizeOptions | None = None) -> DeviceOptimizeResult:
         """Refine the camera, poses and plane jointly."""
         return DeviceOptimizeResult.from_payload(self._native.step_optimize(_payload(options)))
+
+
+def run_calibration(
+    input: LaserlineDeviceInput,
+    config: LaserlineDeviceConfig | None = None,
+    *,
+    progress: ProgressCallback | None = None,
+) -> LaserlineDeviceExport:
+    """Run the laserline device calibration end to end: the session's ``run_calibration`` and
+    ``export`` in one call.
+
+    ``config`` defaults to the problem's defaults. ``progress``, when given,
+    is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping); raising from it
+    stops the run and the exception propagates, as does Ctrl-C
+    (:class:`KeyboardInterrupt`).
+
+    Raises
+    ------
+    TypeError
+        ``input`` or ``config`` is not the problem's dataclass.
+    ValueError
+        The input or config is invalid.
+    RuntimeError
+        The calibration failed.
+    """
+    return _run_calibration(LaserlineDeviceSession, input, config, progress, LaserlineDeviceInput, LaserlineDeviceConfig)

@@ -205,7 +205,7 @@ def _eye_to_hand_config() -> vc.RigHandeyeLaserlineConfig:
 
 class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
     def test_joint_solve_recovers_synthetic_geometry(self) -> None:
-        result = vc.run_rig_handeye_laserline(_synthetic_dataset(), _eye_to_hand_config())
+        result = vc.rig_handeye_laserline.run_calibration(_synthetic_dataset(), _eye_to_hand_config())
 
         self.assertIsInstance(result, vc.RigHandeyeLaserlineExport)
         # Two cameras, one laser plane each, one per-camera stats block each.
@@ -239,11 +239,11 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
 
     def test_dict_input_is_rejected_with_type_error(self) -> None:
         with self.assertRaises(TypeError):
-            vc.run_rig_handeye_laserline({"num_cameras": 2, "views": []}, _eye_to_hand_config())
+            vc.rig_handeye_laserline.run_calibration({"num_cameras": 2, "views": []}, _eye_to_hand_config())
 
     def test_dict_config_is_rejected_with_type_error(self) -> None:
         with self.assertRaises(TypeError):
-            vc.run_rig_handeye_laserline(_synthetic_dataset(), {"joint_optimize": {}})
+            vc.rig_handeye_laserline.run_calibration(_synthetic_dataset(), {"joint_optimize": {}})
 
     def test_invalid_input_surfaces_value_error(self) -> None:
         # A typed-but-empty dataset still takes the runtime path; Rust
@@ -251,7 +251,7 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
         # (not TypeError, which is reserved for wrong Python types).
         empty = vc.RigHandeyeLaserlineInput(num_cameras=2, views=[])
         with self.assertRaises(ValueError):
-            vc.run_rig_handeye_laserline(empty, _eye_to_hand_config())
+            vc.rig_handeye_laserline.run_calibration(empty, _eye_to_hand_config())
 
 
 if __name__ == "__main__":

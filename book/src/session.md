@@ -247,7 +247,7 @@ not fit raise `ValueError`; a numerical failure raises `RuntimeError`.
 Ctrl-C stops a running step with `KeyboardInterrupt`. `set_progress` gives
 the session a callable that receives every report as a dict
 (`{"kind": "iteration", "iter": 3, "max_iters": 50, "cost": 12.5}`); raising
-from it stops the step, and the exception propagates. The `run_*` functions,
+from it stops the step, and the exception propagates. Each module's `run_calibration`,
 `calibrate_dataset` and the `build_*_input` converters take the callable as
 their `progress` argument:
 
@@ -256,5 +256,5 @@ def show(report):
     if report["kind"] == "detection":
         print(f"detected {report['done']}/{report['total']}")
 
-result = vc.calibrate_dataset("data/kuka_1/dataset.toml", progress=show)
+result = vc.calibrate_dataset("data/kuka_1/dataset.toml", progress=show).export
 ```

@@ -79,7 +79,7 @@ Pose recovery, triangulation, bundle adjustment and rectification all take the p
 
 ## In Python
 
-`vision_calibration.mvg` measures with a calibration. Each function takes the calibration **result** (what a `run_*` function or a session returns, or an export loaded as a dict) and builds the rig from it, so there is no rig object to construct. Poses are `4x4` numpy matrices with the same naming as above, and every σ and covariance is a numpy array:
+`vision_calibration.mvg` measures with a calibration. Each function takes the calibration **result** (what a `run_calibration` function or a session returns, or an export loaded as a dict) and builds the rig from it, so there is no rig object to construct. Poses are `4x4` numpy matrices with the same naming as above, and every σ and covariance is a numpy array:
 
 ```python
 import numpy as np

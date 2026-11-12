@@ -70,18 +70,18 @@ fn main() -> anyhow::Result<()> {
 ```
 
 In Python, `vc.html_report` takes a result or an export loaded from JSON;
-`dataset_runner.camera_image_sizes` reads the sizes from a manifest:
+`calibrate_dataset` returns the sizes as `image_sizes`, and
+`dataset_runner.camera_image_sizes` reads them from a manifest without running it:
 
 ```python
 from pathlib import Path
 import vision_calibration as vc
-from vision_calibration.dataset_runner import camera_image_sizes
 
 manifest = Path("data/my_camera/dataset.toml")
-result = vc.calibrate_dataset(manifest)
+run = vc.calibrate_dataset(manifest)
 page = vc.html_report(
-    result,
-    image_sizes=camera_image_sizes(manifest),
+    run.export,
+    image_sizes=run.image_sizes,
     title="Bench camera",
 )
 (manifest.parent / "report.html").write_text(page, encoding="utf-8")

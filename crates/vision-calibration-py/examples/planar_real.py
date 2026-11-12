@@ -37,7 +37,7 @@ def load_dataset() -> vc.PlanarIntrinsicsInput:
 def main() -> None:
     print("=== Planar Intrinsics Calibration (Real Images, Python) ===")
     dataset = load_dataset()
-    result = vc.run_planar_intrinsics(dataset)
+    result = vc.planar_intrinsics.run_calibration(dataset)
     k = result.camera.intrinsics
     d = result.camera.distortion
 

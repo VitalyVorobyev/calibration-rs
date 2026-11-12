@@ -28,7 +28,7 @@ def _camera(distortion: str, sensor: str = "identity") -> vc.CameraConfig:
 class SingleCamHandeyeCameraTest(unittest.TestCase):
     def test_distortion_model_reaches_the_result(self) -> None:
         cfg = vc.SingleCamHandeyeConfig(camera=_camera("division1"))
-        result = vc.run_single_cam_handeye(handeye_synthetic.make_input(), cfg)
+        result = vc.single_cam_handeye.run_calibration(handeye_synthetic.make_input(), cfg)
         self.assertIsInstance(result.camera.sensor, vc.IdentitySensor)
         self.assertIsInstance(result.camera.distortion, vc.Division1Distortion)
         self.assertLess(result.mean_reproj_error, 1e-3)
@@ -37,14 +37,14 @@ class SingleCamHandeyeCameraTest(unittest.TestCase):
         cfg = vc.SingleCamHandeyeConfig(camera=_camera("brown_conrady5"))
         cfg.camera.fix = vc.CameraFix(sensor=["tilt_x"])
         with self.assertRaises(Exception) as ctx:
-            vc.run_single_cam_handeye(handeye_synthetic.make_input(), cfg)
+            vc.single_cam_handeye.run_calibration(handeye_synthetic.make_input(), cfg)
         self.assertIn("tilt_x", str(ctx.exception))
 
 
 class LaserlineDeviceCameraTest(unittest.TestCase):
     def test_distortion_model_reaches_the_result(self) -> None:
         cfg = vc.LaserlineDeviceConfig(camera=_camera("rational8"))
-        result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)
+        result = vc.laserline_device.run_calibration(laserline_device_session.make_input(), cfg)
         camera = result.camera
         self.assertIsInstance(camera.sensor, vc.IdentitySensor)
         self.assertIsInstance(camera.distortion, vc.Rational8Distortion)
@@ -54,7 +54,7 @@ class LaserlineDeviceCameraTest(unittest.TestCase):
         cfg = vc.LaserlineDeviceConfig(
             camera=_camera("brown_conrady5", sensor="scheimpflug")
         )
-        result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)
+        result = vc.laserline_device.run_calibration(laserline_device_session.make_input(), cfg)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
 
 

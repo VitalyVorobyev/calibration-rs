@@ -20,7 +20,7 @@ KINDS = {
 
 
 def _planar_result() -> vc.PlanarIntrinsicsExport:
-    return vc.run_planar_intrinsics(planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig())
+    return vc.planar_intrinsics.run_calibration(planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig())
 
 
 def _check(report: vc.QualityReport, kind: str) -> vc.QualityCheck:
@@ -97,7 +97,7 @@ class AssessTest(unittest.TestCase):
     def test_unobservable_parameters_fail_and_are_named(self) -> None:
         # The fixture's views do not separate a sensor tilt from a
         # principal-point shift.
-        result = vc.run_planar_intrinsics(
+        result = vc.planar_intrinsics.run_calibration(
             planar_calibration_dataset(8),
             vc.PlanarIntrinsicsConfig(
                 camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug"))
@@ -127,7 +127,7 @@ class AssessTest(unittest.TestCase):
             ],
         )
         config = vc.RigExtrinsicsConfig(rig=vc.RigConfig(refine_intrinsics=False))
-        result = vc.run_rig_extrinsics(dataset, config)
+        result = vc.rig_extrinsics.run_calibration(dataset, config)
         report = vc.assess(result, image_sizes=[(1024, 576)] * 2)
         for camera in (0, 1):
             check = next(

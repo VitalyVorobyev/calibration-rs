@@ -28,13 +28,13 @@ from .common import (
     RigOptimizeOptions,
 )
 from .models import (
-    Camera,
+    CameraParams,
     HandeyeMode,
     Pose,
     RigHandeyeConfig,
     RigHandeyeExport,
     RigHandeyeInput,
-    RigHandeyeSolution,
+    HandeyeSolution,
     _rig_solution_from_payload,
 )
 from .rig_extrinsics import (
@@ -46,6 +46,7 @@ from .rig_extrinsics import (
     _target_poses,
 )
 from .session import (
+    _run_calibration,
     CalibrationSession,
     _cameras,
     _floats,
@@ -53,6 +54,7 @@ from .session import (
     _poses,
     _seed_payload,
 )
+from .types import ProgressCallback
 
 __all__ = [
     "EyeInHandManualInit",
@@ -74,6 +76,7 @@ __all__ = [
     "RigOptimizeOptions",
     "RigOptimizeResult",
     "RigPoses",
+    "run_calibration",
 ]
 
 
@@ -129,14 +132,14 @@ class EyeToHandManualInit:
 
 HandeyeManualInit: TypeAlias = EyeInHandManualInit | EyeToHandManualInit
 """The hand-eye seed of a session: one class per mode, named like the
-export's :data:`RigHandeyeSolution`."""
+export's :data:`HandeyeSolution`."""
 
 
 @dataclass(frozen=True, slots=True)
 class IntrinsicsOptimizeResult:
     """The refined cameras and target poses of the intrinsics stage."""
 
-    cameras: list[Camera]
+    cameras: list[CameraParams]
     per_cam_reproj_errors: list[float]
     """Mean reprojection error per camera, pixels."""
     cam_se3_target: list[list[Pose | None]]
@@ -177,7 +180,7 @@ class HandeyeInitResult:
     """The linear hand-eye estimate: the hand-eye and target pose of the
     session's mode, both always set."""
 
-    handeye: RigHandeyeSolution
+    handeye: HandeyeSolution
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeInitResult:
@@ -274,3 +277,30 @@ class RigHandeyeSession(CalibrationSession[RigHandeyeInput, RigHandeyeConfig, Ri
         return HandeyeOptimizeResult.from_payload(
             self._native.step_handeye_optimize(_payload(options))
         )
+
+
+def run_calibration(
+    input: RigHandeyeInput,
+    config: RigHandeyeConfig | None = None,
+    *,
+    progress: ProgressCallback | None = None,
+) -> RigHandeyeExport:
+    """Run the rig hand-eye calibration end to end: the session's ``run_calibration`` and
+    ``export`` in one call.
+
+    ``config`` defaults to the problem's defaults. ``progress``, when given,
+    is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping); raising from it
+    stops the run and the exception propagates, as does Ctrl-C
+    (:class:`KeyboardInterrupt`).
+
+    Raises
+    ------
+    TypeError
+        ``input`` or ``config`` is not the problem's dataclass.
+    ValueError
+        The input or config is invalid.
+    RuntimeError
+        The calibration failed.
+    """
+    return _run_calibration(RigHandeyeSession, input, config, progress, RigHandeyeInput, RigHandeyeConfig)

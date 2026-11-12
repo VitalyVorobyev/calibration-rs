@@ -155,7 +155,7 @@ def main() -> None:
     config = vc.RigExtrinsicsConfig()
     if model is not None:
         config.camera.model = model
-    result = vc.run_rig_extrinsics(dataset, config)
+    result = vc.rig_extrinsics.run_calibration(dataset, config)
     scatter = result.uncertainty.view_scatter
     print(
         f"calibration: mean reprojection error {result.mean_reproj_error:.3f} px, "

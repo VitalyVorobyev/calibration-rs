@@ -89,7 +89,7 @@ def make_input() -> vc.RigHandeyeInput:
 def main() -> None:
     print("=== Rig Hand-Eye Calibration (Synthetic, Python) ===")
     payload = make_input()
-    result = vc.run_rig_handeye(payload)
+    result = vc.rig_handeye.run_calibration(payload)
     base_mm = baseline_m(result.cam_se3_rig) * 1000.0
 
     print(f"Views: {len(payload.views)}, cameras: {payload.num_cameras}")

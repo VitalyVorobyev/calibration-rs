@@ -200,7 +200,7 @@ the fetchable entries from the `suite fetch` cache.
 ```
 
 - `problem` names the problem type and `input` is its input, the same payload
-  `CalibrationSession::set_input` takes in Rust and the `run_*` functions take
+  `CalibrationSession::set_input` takes in Rust and each module's `run_calibration` takes
   in Python (see [Data Types Quick Reference](types_reference.md)). Rig inputs
   hold `num_cameras` and, per view, one observation per camera in `cameras`
   order, `null` where that camera did not see the target.

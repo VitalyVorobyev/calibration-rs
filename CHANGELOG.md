@@ -465,8 +465,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configs, and their `schema_version` is bumped, so a session saved before
   this release is refused with a version error.
 
+- **Python names are the Rust names; `calibrate_dataset` is the library's
+  runner** (breaking, Python). Where a Python name and its Rust type
+  disagreed, the Python name follows Rust, one capability has one path, and
+  `calibrate_dataset` returns what the Rust runner returns.
+
+  | Before | After |
+  |---|---|
+  | `vc.ParameterUncertainty` | `vc.ParameterCovariance` |
+  | `vc.Camera` | `vc.CameraParams` |
+  | `vc.RigHandeyeSolution` | `vc.HandeyeSolution` |
+  | `vc.run_planar_intrinsics(input, config)` | `vc.planar_intrinsics.run_calibration(input, config)` |
+  | `vc.run_single_cam_handeye(...)` | `vc.single_cam_handeye.run_calibration(...)` |
+  | `vc.run_rig_extrinsics(...)` | `vc.rig_extrinsics.run_calibration(...)` |
+  | `vc.run_rig_handeye(...)` | `vc.rig_handeye.run_calibration(...)` |
+  | `vc.run_laserline_device(...)` | `vc.laserline_device.run_calibration(...)` |
+  | `vc.run_rig_laserline_device(...)` | `vc.rig_laserline_device.run_calibration(...)` |
+  | `vc.run_rig_handeye_laserline(...)` | `vc.rig_handeye_laserline.run_calibration(...)` |
+  | `dataset_runner.CalibrationResult` | `dataset_runner.CalibrationExport` |
+
+  `calibrate_dataset` now runs the Rust runner: the manifest's topology picks
+  the converter and the problem there, not in Python. It returns a
+  `dataset_runner.DatasetCalibration` (the export, `image_sizes`,
+  `usable_views`, `total_views` and the `rejected` detections) instead of
+  the export alone, and its arguments are unchanged:
+
+  ```python
+  # before
+  result = vc.calibrate_dataset(manifest, cache=cache)
+  # after
+  run = vc.calibrate_dataset(manifest, cache=cache)
+  result = run.export
+  report = vc.assess(result, image_sizes=run.image_sizes)
+  ```
+
+  The one-shot `run_calibration` of a problem module runs a session, so an
+  input the problem rejects while running raises `ValueError`, as it does
+  from the session, where `run_*` raised `RuntimeError`.
+
+  A config dataclass of another topology than the manifest's raises
+  `ValueError` before any image is read, and a manifest payload that does not
+  parse raises `ValueError` rather than `TypeError`.
+
 ### Fixed
 
+- `calibrate_dataset` asks for a manifest's missing `pose_pairing`
+  (`RunError::AskUser`) before it reads any image; it used to report the
+  first unreadable image instead.
 - A hand-eye session whose `handeye_mode` was changed after solving exported
   its result in the new mode: the export took the mode from the current
   config, which a config change does not clear. The export now reads the

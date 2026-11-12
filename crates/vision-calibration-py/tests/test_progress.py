@@ -40,8 +40,8 @@ class ProgressTest(unittest.TestCase):
 
     def test_progress_sees_steps_and_iterations_and_changes_nothing(self) -> None:
         reports: list[dict[str, Any]] = []
-        observed = vc.run_planar_intrinsics(self.dataset, progress=reports.append)
-        plain = vc.run_planar_intrinsics(self.dataset)
+        observed = vc.planar_intrinsics.run_calibration(self.dataset, progress=reports.append)
+        plain = vc.planar_intrinsics.run_calibration(self.dataset)
         self.assertEqual(observed, plain)
 
         steps = [r["name"] for r in reports if r["kind"] == "step"]
@@ -62,7 +62,7 @@ class ProgressTest(unittest.TestCase):
                 raise Stop
 
         with self.assertRaises(Stop):
-            vc.run_planar_intrinsics(self.dataset, progress=stop_at_second_iteration)
+            vc.planar_intrinsics.run_calibration(self.dataset, progress=stop_at_second_iteration)
         # The run stopped at the next check: nothing after the raise.
         self.assertEqual(reports[-1]["kind"], "iteration")
         self.assertEqual(reports[-1]["iter"], 2)
@@ -74,7 +74,7 @@ class ProgressTest(unittest.TestCase):
                 _thread.interrupt_main()
 
         with self.assertRaises(KeyboardInterrupt):
-            vc.run_planar_intrinsics(self.dataset, progress=interrupt)
+            vc.planar_intrinsics.run_calibration(self.dataset, progress=interrupt)
 
     def test_a_session_stopped_in_a_step_keeps_no_result(self) -> None:
         session = vc.PlanarIntrinsicsSession()
@@ -97,7 +97,7 @@ class ProgressTest(unittest.TestCase):
         session.run_calibration()
         self.assertTrue(session.has_output)
         self.assertEqual(
-            session.export(), vc.run_planar_intrinsics(self.dataset)
+            session.export(), vc.planar_intrinsics.run_calibration(self.dataset)
         )
 
 

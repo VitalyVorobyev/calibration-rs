@@ -17,6 +17,7 @@ use crate::single_cam_handeye::SingleCamHandeyeInput;
 
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
+use super::require_pose_pairing;
 use super::{
     Detection, ImageProgress, RejectedDetection, RunError, detect_features, expand_camera_images,
     features_to_obs, pattern_repr, target_to_detector_config,
@@ -60,17 +61,7 @@ pub fn build_single_cam_handeye_input(
     let detector_config = target_to_detector_config(spec)?;
     validate(spec)?;
 
-    if spec.pose_pairing.is_none() {
-        return Err(RunError::AskUser {
-            field: "pose_pairing".into(),
-            prompt: "Hand-eye topologies need to know how images align with robot poses. \
-                     Pick by_index (pose row i pairs with the i-th image in natural-sort \
-                     order) or shared_filename_token (a regex extracts the pose id from \
-                     filenames)."
-                .into(),
-            suggestions: vec!["by_index".into(), "shared_filename_token".into()],
-        });
-    }
+    require_pose_pairing(spec)?;
 
     // The validator enforces exactly one camera and the presence of
     // robot_poses + pose_convention for this topology.

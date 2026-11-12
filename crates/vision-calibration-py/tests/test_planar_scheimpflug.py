@@ -19,20 +19,20 @@ def _tilted_config(**kwargs: object) -> vc.PlanarIntrinsicsConfig:
 
 class PlanarScheimpflugTest(unittest.TestCase):
     def test_public_bindings_run(self) -> None:
-        result = vc.run_planar_intrinsics(_make_dataset(), _tilted_config())
+        result = vc.planar_intrinsics.run_calibration(_make_dataset(), _tilted_config())
         self.assertGreaterEqual(result.mean_reproj_error, 0.0)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
         self.assertEqual(result.export["camera"]["sensor"]["type"], "scheimpflug")
 
     def test_untilted_camera_has_identity_sensor(self) -> None:
-        result = vc.run_planar_intrinsics(_make_dataset())
+        result = vc.planar_intrinsics.run_calibration(_make_dataset())
         self.assertIsInstance(result.camera.sensor, vc.IdentitySensor)
 
     def test_explicit_fix_lists_reach_the_solver(self) -> None:
         cfg = _tilted_config()
         cfg.camera.fix = vc.CameraFix(sensor=["tilt_x", "tilt_y"])
-        result = vc.run_planar_intrinsics(_make_dataset(), cfg)
+        result = vc.planar_intrinsics.run_calibration(_make_dataset(), cfg)
         self.assertAlmostEqual(result.camera.sensor.tilt_x, 0.0, places=9)
         self.assertAlmostEqual(result.camera.sensor.tilt_y, 0.0, places=9)
 
@@ -40,7 +40,7 @@ class PlanarScheimpflugTest(unittest.TestCase):
         cfg = _tilted_config()
         cfg.camera.fix = vc.CameraFix(sensor=["tilt_z"])
         with self.assertRaises(ValueError):
-            vc.run_planar_intrinsics(_make_dataset(), cfg)
+            vc.planar_intrinsics.run_calibration(_make_dataset(), cfg)
 
     def test_config_payload_roundtrip(self) -> None:
         cfg = _tilted_config()
@@ -57,7 +57,7 @@ class PlanarScheimpflugTest(unittest.TestCase):
         # RuntimeError. RuntimeError is reserved for genuine runtime failures
         # (solver divergence, export/pythonize errors).
         with self.assertRaises(ValueError) as ctx:
-            vc.run_planar_intrinsics(
+            vc.planar_intrinsics.run_calibration(
                 _make_dataset(),
                 _tilted_config(solver=vc.SolverConfig(max_iters=0)),
             )
@@ -70,18 +70,18 @@ class PlanarScheimpflugTest(unittest.TestCase):
         dataset = _make_dataset()
         dataset.views = dataset.views[:2]
         with self.assertRaises(ValueError) as ctx:
-            vc.run_planar_intrinsics(dataset, _tilted_config())
+            vc.planar_intrinsics.run_calibration(dataset, _tilted_config())
         message = str(ctx.exception)
         self.assertIn("invalid input", message)
         self.assertIn("insufficient data", message)
 
     def test_high_level_api_rejects_mapping_inputs(self) -> None:
         with self.assertRaises(TypeError) as cfg_ctx:
-            vc.run_planar_intrinsics(_make_dataset(), {"max_iters": 50})
+            vc.planar_intrinsics.run_calibration(_make_dataset(), {"max_iters": 50})
         self.assertIn("config must be PlanarIntrinsicsConfig", str(cfg_ctx.exception))
 
         with self.assertRaises(TypeError) as input_ctx:
-            vc.run_planar_intrinsics({"views": []}, _tilted_config())
+            vc.planar_intrinsics.run_calibration({"views": []}, _tilted_config())
         self.assertIn("input must be PlanarIntrinsicsInput", str(input_ctx.exception))
 
 

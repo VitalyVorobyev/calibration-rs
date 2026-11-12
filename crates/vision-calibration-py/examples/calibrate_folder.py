@@ -8,7 +8,7 @@ what it lists under `_unresolved` (at least the board), delete that list and
 run again. The second run detects the board, calibrates and prints each
 camera's parameters with their uncertainty and a quality verdict.
 
-    python calibrate_folder.py <folder> <width> <height>
+    python calibrate_folder.py <folder>
 """
 
 from __future__ import annotations
@@ -21,10 +21,9 @@ import vision_calibration as vc
 
 
 def main() -> None:
-    if len(sys.argv) != 4:
-        sys.exit("usage: calibrate_folder.py <folder> <image width> <image height>")
+    if len(sys.argv) != 2:
+        sys.exit("usage: calibrate_folder.py <folder>")
     folder = Path(sys.argv[1])
-    image_size = (int(sys.argv[2]), int(sys.argv[3]))
 
     # 1. Draft the manifest. The sniffer reads file and folder names only and
     #    lists what it cannot know, such as the board, under `_unresolved`.
@@ -37,9 +36,11 @@ def main() -> None:
         return
 
     # 2. Calibrate: detect the board in every image (cached for the next run),
-    #    then run the workflow the manifest's topology names.
+    #    then run the workflow the manifest's topology names. The run also
+    #    carries the cameras' image sizes and the views it left out.
     cache = vc.FsDetectionCache(folder / ".detections")
-    result = vc.calibrate_dataset(manifest, cache=cache)
+    run = vc.calibrate_dataset(manifest, cache=cache)
+    result = run.export
 
     # 3. Each camera and the uncertainty of its parameters. With several
     #    cameras, a camera's covariance labels carry its index (`cam1.fx`).
@@ -56,7 +57,7 @@ def main() -> None:
         print("no covariance:", u.reason)
 
     # 4. The verdict: pass, warn or fail, and why.
-    report = vc.assess(result, image_sizes=[image_size] * len(cameras))
+    report = vc.assess(result, image_sizes=run.image_sizes)
     print("verdict:", report.verdict)
     for check in report.checks:
         if check.status != "pass":

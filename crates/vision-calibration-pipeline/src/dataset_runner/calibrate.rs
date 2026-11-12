@@ -12,7 +12,7 @@ use super::{
     Detection, LaserPixelExtractor, RejectedDetection, RunError, build_laserline_device_input,
     build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
     build_rig_handeye_laserline_input, build_rig_laserline_device_input,
-    build_single_cam_handeye_input, camera_image_sizes,
+    build_single_cam_handeye_input, camera_image_sizes, require_pose_pairing,
 };
 use crate::Error;
 use crate::common::{CalibratedCameras, ExportDiagnostics};
@@ -337,6 +337,9 @@ pub fn calibrate_dataset(
     if needs_laser {
         laser()?;
     }
+    // An open choice in the manifest is asked before any image is read.
+    vision_calibration_dataset::validate(spec).map_err(RunError::from)?;
+    require_pose_pairing(spec)?;
     // A camera whose images differ in size fails here, before any detection.
     let image_sizes = camera_image_sizes(spec, base_dir)?;
 
@@ -569,6 +572,41 @@ mod tests {
             matches!(
                 err,
                 CalibrateDatasetError::Calibration(Error::InvalidInput { .. })
+            ),
+            "{err:?}"
+        );
+    }
+
+    /// An open choice in the manifest is asked before any image is read: the
+    /// glob matches nothing, so reading images would fail first.
+    #[test]
+    fn an_open_pose_pairing_is_asked_before_reading_images() {
+        let spec: DatasetSpec = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "topology": "single_cam_handeye",
+            "cameras": [{ "id": "cam0", "images": { "kind": "glob", "pattern": "missing/*.png" } }],
+            "target": { "kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.02 },
+            "robot_poses": { "path": "poses.txt", "format": "rowmajor4x4" },
+            "pose_convention": {
+                "transform": "t_base_tcp",
+                "rotation_format": "matrix4x4_row_major",
+                "translation_units": "m"
+            },
+        }))
+        .unwrap();
+        let err = calibrate_dataset(
+            &spec,
+            Path::new("."),
+            None,
+            Detection::Uncached,
+            None,
+            &RunControl::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                CalibrateDatasetError::Run(RunError::AskUser { ref field, .. }) if field == "pose_pairing"
             ),
             "{err:?}"
         );

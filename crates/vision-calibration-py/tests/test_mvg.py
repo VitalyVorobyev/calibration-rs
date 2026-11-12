@@ -77,12 +77,12 @@ def _stereo_result() -> vc.RigExtrinsicsExport:
             for view in payload["views"]
         ],
     )
-    return vc.run_rig_extrinsics(dataset)
+    return vc.rig_extrinsics.run_calibration(dataset)
 
 
 def _laser_result() -> vc.LaserlineDeviceExport:
     payload = json.loads((OBSERVATIONS / "synth_laserline.json").read_text())["input"]
-    return vc.run_laserline_device(
+    return vc.laserline_device.run_calibration(
         vc.LaserlineDeviceInput(
             views=[
                 vc.LaserlineView(

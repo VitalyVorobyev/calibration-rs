@@ -988,6 +988,48 @@ fn cached_or_detected(
     Ok((detected, false))
 }
 
+/// The manifest's `pose_pairing`, or [`RunError::AskUser`] for a topology
+/// that needs one and leaves it open. One place for the question, so every
+/// converter and [`calibrate_dataset`](crate::dataset_runner::calibrate_dataset)
+/// asks it the same way, before any image is read.
+pub(crate) fn require_pose_pairing(
+    spec: &DatasetSpec,
+) -> Result<Option<&vision_calibration_dataset::PosePairing>, RunError> {
+    let prompt = match spec.topology {
+        ProblemKind::SingleCamHandeye => {
+            "Hand-eye topologies need to know how images align with robot poses. \
+             Pick by_index (pose row i pairs with the i-th image in natural-sort \
+             order) or shared_filename_token (a regex extracts the pose id from \
+             filenames)."
+        }
+        ProblemKind::LaserlineDevice => {
+            "Laser topologies need to know how laser frames align with target \
+             frames. Pick by_index (the i-th laser image pairs with the i-th \
+             target image in natural-sort order) or shared_filename_token (a \
+             regex extracts a shared view token from both filename sets)."
+        }
+        ProblemKind::RigExtrinsics
+        | ProblemKind::RigHandeye
+        | ProblemKind::RigLaserlineDevice
+        | ProblemKind::RigHandeyeLaserline => {
+            "Rig topologies need to know how per-camera images align into views. \
+             Pick by_index (same count and order everywhere) or \
+             shared_filename_token (a regex extracts a view token from filenames)."
+        }
+        // Planar intrinsics pairs nothing; a future topology states its own
+        // question here.
+        _ => return Ok(spec.pose_pairing.as_ref()),
+    };
+    match &spec.pose_pairing {
+        Some(pairing) => Ok(Some(pairing)),
+        None => Err(RunError::AskUser {
+            field: "pose_pairing".into(),
+            prompt: prompt.into(),
+            suggestions: vec!["by_index".into(), "shared_filename_token".into()],
+        }),
+    }
+}
+
 /// Decode an image file's bytes to 8-bit grayscale, cropped to `roi`
 /// (`[x, y, width, height]`) when given: the frame detectors and laser
 /// extractors read, whose pixel coordinates are ROI-local.

@@ -24,7 +24,7 @@ from typing import Any, ClassVar, Generic, Protocol, TypeVar, cast
 
 from .models import (
     _DISTORTION_TAG_BY_TYPE,
-    Camera,
+    CameraParams,
     Pose,
     _camera_from_payload,
     _distortion_to_payload,
@@ -147,16 +147,38 @@ def _poses(values: Any) -> list[Pose]:
     return [_pose(v) for v in cast(Sequence[Any], values)]
 
 
-def _camera(value: Any) -> Camera:
+def _camera(value: Any) -> CameraParams:
     return _camera_from_payload(cast(Mapping[str, Any], value))
 
 
-def _cameras(values: Any) -> list[Camera]:
+def _cameras(values: Any) -> list[CameraParams]:
     return [_camera(v) for v in cast(Sequence[Any], values)]
 
 
 def _floats(values: Any) -> list[float]:
     return [float(v) for v in cast(Sequence[Any], values)]
+
+
+def _run_calibration(
+    session_type: type[CalibrationSession[Any, Any, _ExportT]],
+    input: Any,
+    config: Any,
+    progress: ProgressCallback | None,
+    input_type: type[Any],
+    config_type: type[Any],
+) -> _ExportT:
+    """A problem module's ``run_calibration``: a session of ``session_type``
+    given the typed input and config, run and exported."""
+    for value, expected, name in ((input, input_type, "input"), (config, config_type, "config")):
+        if (value is not None or name == "input") and not isinstance(value, expected):
+            raise TypeError(f"{name} must be {expected.__name__}, got {type(value).__name__}")
+    session = session_type()
+    session.set_input(input)
+    if config is not None:
+        session.set_config(config)
+    session.set_progress(progress)
+    session.run_calibration()
+    return session.export()
 
 
 class CalibrationSession(Generic[_InputT, _ConfigT, _ExportT]):

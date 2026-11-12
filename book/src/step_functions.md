@@ -149,7 +149,7 @@ session.step_rig_init_with_seed(
 )
 ```
 
-The one-shot `run_<problem>` functions (`run_planar_intrinsics`, `run_rig_extrinsics`, ...) are the pipeline functions: a session, `run_calibration` and `export` in one call.
+The one-shot `run_calibration` of each problem (in Python `planar_intrinsics.run_calibration`, `rig_extrinsics.run_calibration`, ...) is the pipeline function: a session, its `run_calibration` and `export` in one call.
 
 ## Recommendation
 

@@ -10,16 +10,15 @@ from pathlib import Path
 import numpy as np
 
 import vision_calibration as vc
-from vision_calibration._api import _run_laserline_device_raw
 
-from _fixtures import planar_calibration_dataset
+from _fixtures import planar_calibration_dataset, run_payload
 
 OBSERVATIONS = Path(__file__).resolve().parents[3] / "regression/observations"
 
 
 class PerFeatureResidualsTest(unittest.TestCase):
     def test_planar_result_has_a_target_table(self) -> None:
-        result = vc.run_planar_intrinsics(planar_calibration_dataset(4))
+        result = vc.planar_intrinsics.run_calibration(planar_calibration_dataset(4))
         res = result.per_feature_residuals
         self.assertIsInstance(res, vc.PerFeatureResiduals)
         self.assertEqual(len(res.target), 4 * 48)
@@ -39,7 +38,7 @@ class PerFeatureResidualsTest(unittest.TestCase):
 
     def test_laser_result_has_laser_tables(self) -> None:
         payload = json.loads((OBSERVATIONS / "synth_laserline.json").read_text())["input"]
-        res = _run_laserline_device_raw(payload).per_feature_residuals
+        res = run_payload("laserline_device", payload).per_feature_residuals
         pixels = sum(len(view["meta"]["laser_pixels"]) for view in payload)
         self.assertEqual(len(res.laser), pixels)
         self.assertFalse(np.isnan(res.laser.residual_px).any())

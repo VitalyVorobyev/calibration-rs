@@ -2,7 +2,7 @@
 
 This chapter calibrates a camera twice, each time in Rust and in Python. The first run uses synthetic data: a planar board seen from several poses, the two-step calibration (linear initialization, then non-linear refinement), and the intrinsics and reprojection error it recovers. The second run, [Calibrate Your Own Images](#calibrate-your-own-images), starts from a folder of board images and ends with the camera, the uncertainty of each parameter and a quality verdict.
 
-Both interfaces drive the same solvers and expose the same workflow: a session per problem type with its step functions, and a one-call runner per workflow (`run_calibration` in Rust; `run_planar_intrinsics`, `run_rig_extrinsics`, ... in Python). The Rust program below steps through a session; the Python program uses the runner, and [Step by Step in Python](#step-by-step-in-python) shows the session.
+Both interfaces drive the same solvers and expose the same workflow: a session per problem type with its step functions, and a one-call runner per workflow (`run_calibration` in Rust; `planar_intrinsics.run_calibration`, `rig_extrinsics.run_calibration`, ... in Python). The Rust program below steps through a session; the Python program uses the runner, and [Step by Step in Python](#step-by-step-in-python) shows the session.
 
 ## Install
 
@@ -131,7 +131,7 @@ views = [
 
 # 3. Build the input and run the calibration (initialization + refinement)
 dataset = vc.PlanarIntrinsicsInput(views=views)
-result = vc.run_planar_intrinsics(dataset)
+result = vc.planar_intrinsics.run_calibration(dataset)
 
 # 4. Inspect the result
 k = result.camera.intrinsics
@@ -277,7 +277,7 @@ if not manifest.exists():
 
 # 2. Detect (cached for the next run) and calibrate.
 cache = vc.FsDetectionCache(folder / ".detections")
-result = vc.calibrate_dataset(manifest, cache=cache)
+result = vc.calibrate_dataset(manifest, cache=cache).export
 
 # 3. The camera and the uncertainty of its parameters.
 k, u = result.camera.intrinsics, result.uncertainty
@@ -341,7 +341,7 @@ fn main() -> anyhow::Result<()> {
 
 ```python
 manifest = vc.samples.fetch("opencv_left")
-result = vc.calibrate_dataset(manifest)
+result = vc.calibrate_dataset(manifest).export
 ```
 
 The cache is `vision-calibration` in the platform's cache directory; the `VISION_CALIBRATION_DATA` environment variable, or a directory passed to `fetch`, puts it elsewhere. The example program above runs on a fetched sample's folder as on your own. The fisheye sample needs a fisheye camera model in its configuration ([Fisheye Projection](fisheye.md)).
@@ -383,7 +383,7 @@ config = vc.PlanarIntrinsicsConfig(
     optimize=vc.PlanarOptimizeConfig(reprojection_loss=vc.robust_huber(1.0)),
     solver=vc.SolverConfig(max_iters=80),
 )
-result = vc.run_planar_intrinsics(dataset, config)
+result = vc.planar_intrinsics.run_calibration(dataset, config)
 result = vc.calibrate_dataset("my_board_images/dataset.json", config)  # from a manifest
 ```
 
@@ -391,7 +391,7 @@ result = vc.calibrate_dataset("my_board_images/dataset.json", config)  # from a 
 
 ### Step 1: Linear Initialization
 
-`step_init` (`session.step_init()` in Python; `run_planar_intrinsics` runs it first):
+`step_init` (`session.step_init()` in Python; `planar_intrinsics.run_calibration` runs it first):
 
 1. Computes a homography from each view's 2D-3D correspondences using DLT (direct linear transform)
 2. Estimates intrinsics $K$ from the homographies using Zhang's method

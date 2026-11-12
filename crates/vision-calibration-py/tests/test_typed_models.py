@@ -33,7 +33,7 @@ class TypedModelParsingTest(unittest.TestCase):
             "sensor": {"type": "identity"},
         }
 
-        cam = vc.Camera.from_payload(payload)
+        cam = vc.CameraParams.from_payload(payload)
         self.assertIsInstance(cam.projection, vc.PinholeProjection)
         self.assertIsInstance(cam.sensor, vc.IdentitySensor)
         self.assertAlmostEqual(cam.intrinsics.fx, 800.0)
@@ -76,7 +76,7 @@ class TypedModelParsingTest(unittest.TestCase):
             },
         }
 
-        cam = vc.Camera.from_payload(payload)
+        cam = vc.CameraParams.from_payload(payload)
         assert isinstance(cam.sensor, vc.ScheimpflugSensor)
         self.assertAlmostEqual(cam.sensor.tilt_x, 0.015)
         self.assertAlmostEqual(cam.sensor.tilt_y, -0.012)

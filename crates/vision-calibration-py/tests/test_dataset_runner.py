@@ -71,7 +71,7 @@ class DetectTargetTest(unittest.TestCase):
         for r, t in _images.board_poses(6):
             features = vc.detect_target(_images.render_board(r, t), _images.TARGET)
             views.append(vc.PlanarView(observation=features.to_observation()))
-        result = vc.run_planar_intrinsics(vc.PlanarIntrinsicsInput(views=views))
+        result = vc.planar_intrinsics.run_calibration(vc.PlanarIntrinsicsInput(views=views))
         self.assertAlmostEqual(result.camera.intrinsics.fx, _images.FX, delta=0.03 * _images.FX)
 
     def test_corner_covariance_is_opt_in(self) -> None:
@@ -163,7 +163,12 @@ class ManifestRunTest(unittest.TestCase):
             run = dataset_runner.build_planar_input(spec, base_dir=root, cache=cache)
             self.assertEqual((run.usable_views, run.total_views), (8, 8))
             self.assertEqual([p.name for p in run.view_paths][:2], ["view_00.png", "view_01.png"])
-            result = vc.calibrate_dataset(spec, base_dir=root, cache=cache)
+            calibrated = vc.calibrate_dataset(spec, base_dir=root, cache=cache)
+            assert isinstance(calibrated, dataset_runner.DatasetCalibration)
+            self.assertEqual((calibrated.usable_views, calibrated.total_views), (8, 8))
+            self.assertEqual(calibrated.image_sizes, [(640, 480)])
+            self.assertEqual(calibrated.rejected, [])
+            result = calibrated.export
             assert isinstance(result, vc.PlanarIntrinsicsExport)
             k = result.camera.intrinsics
             self.assertAlmostEqual(k.fx, _images.FX, delta=0.03 * _images.FX)
@@ -227,7 +232,8 @@ class ManifestRunTest(unittest.TestCase):
             extractor = _images.ColumnPeakExtractor()
             with self.assertRaises(ValueError):  # the laser topologies need an extractor
                 vc.calibrate_dataset(spec, base_dir=root)
-            result = vc.calibrate_dataset(spec, base_dir=root, laser_extractor=extractor)
+            calibrated = vc.calibrate_dataset(spec, base_dir=root, laser_extractor=extractor)
+            result = calibrated.export
             assert isinstance(result, vc.LaserlineDeviceExport)
             self.assertEqual(extractor.calls, 6)
             plane = result.laser_plane
@@ -271,6 +277,10 @@ class ManifestRunTest(unittest.TestCase):
                 dataset_runner.build_planar_input(spec)
             with self.assertRaises(ValueError):
                 vc.calibrate_dataset({**spec, "topology": "stereo"}, base_dir=root)
+            # A config of another topology is refused before any image is read.
+            with self.assertRaises(ValueError) as ctx:
+                vc.calibrate_dataset(spec, vc.RigExtrinsicsConfig(), base_dir=root)
+            self.assertIn("RigExtrinsics", str(ctx.exception))
 
     def test_an_open_convention_asks_the_user(self) -> None:
         # Checked before any image is read: no images needed.
@@ -301,9 +311,11 @@ class ManifestRunTest(unittest.TestCase):
             cache = vc.FsDetectionCache(tmp)
             run = dataset_runner.build_single_cam_handeye_input(KUKA / "dataset.toml", cache=cache)
             self.assertEqual(run.total_views, 30)
-            result = vc.calibrate_dataset(
+            calibrated = vc.calibrate_dataset(
                 KUKA / "dataset.toml", vc.SingleCamHandeyeConfig(), cache=cache
             )
+            self.assertEqual(calibrated.total_views, 30)
+            result = calibrated.export
             assert isinstance(result, vc.SingleCamHandeyeExport)
             self.assertEqual(result.handeye.mode, "eye_in_hand")
             self.assertIsInstance(result.handeye, vc.CameraEyeInHand)

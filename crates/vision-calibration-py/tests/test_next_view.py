@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import vision_calibration as vc
-from vision_calibration._api import _run_rig_handeye_raw
-from _fixtures import planar_calibration_dataset
+from _fixtures import planar_calibration_dataset, run_payload
 
 IMAGE = (1280, 720)
 #: The fixture's 8 × 6 board of 40 mm cells.
@@ -25,7 +24,7 @@ def _noisy_result(seed: int = 7, sigma: float = 0.2) -> vc.PlanarIntrinsicsExpor
         obs.points_2d = [
             (x + rng.gauss(0.0, sigma), y + rng.gauss(0.0, sigma)) for x, y in obs.points_2d
         ]
-    return vc.run_planar_intrinsics(dataset, vc.PlanarIntrinsicsConfig())
+    return vc.planar_intrinsics.run_calibration(dataset, vc.PlanarIntrinsicsConfig())
 
 
 class NextViewTest(unittest.TestCase):
@@ -118,7 +117,7 @@ class RobotPoseTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         input, cls.candidates, cls.points, cls.sizes = _rig_handeye()
-        cls.result = _run_rig_handeye_raw(input)
+        cls.result = run_payload("rig_handeye", input)
 
     def test_prediction_shrinks_the_covariance(self) -> None:
         predicted = vc.predict_with_robot_poses(

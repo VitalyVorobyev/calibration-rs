@@ -39,6 +39,7 @@ use crate::rig_laserline_device::RigLaserlineDeviceInput;
 
 use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
+use super::require_pose_pairing;
 use super::{
     Detection, ImageProgress, RejectedDetection, RunError, decode_gray, detect_features,
     expand_camera_images, expand_image_pattern, features_to_obs, pattern_repr, rig::build_rig_core,
@@ -155,17 +156,8 @@ pub fn build_laserline_device_input(
     let detector_config = target_to_detector_config(spec)?;
     validate(spec)?;
 
-    let Some(pairing) = &spec.pose_pairing else {
-        return Err(RunError::AskUser {
-            field: "pose_pairing".into(),
-            prompt: "Laser topologies need to know how laser frames align with target \
-                     frames. Pick by_index (the i-th laser image pairs with the i-th \
-                     target image in natural-sort order) or shared_filename_token (a \
-                     regex extracts a shared view token from both filename sets)."
-                .into(),
-            suggestions: vec!["by_index".into(), "shared_filename_token".into()],
-        });
-    };
+    let pairing = require_pose_pairing(spec)?
+        .expect("every rig and laser topology needs a pairing; require_pose_pairing asks for it");
 
     // The validator enforces exactly one camera with laser_images.
     let camera = spec

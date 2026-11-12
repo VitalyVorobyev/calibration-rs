@@ -46,7 +46,7 @@ def make_input() -> vc.PlanarIntrinsicsInput:
 def main() -> None:
     print("=== Planar Intrinsics Calibration (Synthetic Data, Python) ===")
     payload = make_input()
-    result = vc.run_planar_intrinsics(payload)
+    result = vc.planar_intrinsics.run_calibration(payload)
     k = result.camera.intrinsics
     d = result.camera.distortion
 
