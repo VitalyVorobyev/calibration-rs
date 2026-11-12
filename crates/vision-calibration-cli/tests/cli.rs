@@ -32,6 +32,15 @@ fn path(p: &Path) -> &str {
 /// board's x and y axes and centred at `offset` metres in front of the
 /// camera, rendered with 4 × 4 supersampling on a grey background.
 fn render(rx: f64, ry: f64, offset: [f64; 3]) -> GrayImage {
+    render_pose(
+        &Rotation3::from_euler_angles(rx, ry, 0.0),
+        Vector3::from(offset),
+    )
+}
+
+/// A pinhole view of the board at `cam_se3_board = (r, t)`, rendered as
+/// [`render`] does.
+fn render_pose(r: &Rotation3<f64>, t: Vector3<f64>) -> GrayImage {
     let k = Matrix3::new(
         FOCAL_PX,
         0.0,
@@ -43,8 +52,6 @@ fn render(rx: f64, ry: f64, offset: [f64; 3]) -> GrayImage {
         0.0,
         1.0,
     );
-    let r = Rotation3::from_euler_angles(rx, ry, 0.0);
-    let t = Vector3::from(offset);
     // Board plane (z = 0, origin at its centre) to pixels.
     let h =
         k * Matrix3::from_columns(&[r.matrix().column(0).into(), r.matrix().column(1).into(), t]);
@@ -81,19 +88,21 @@ fn render(rx: f64, ry: f64, offset: [f64; 3]) -> GrayImage {
     })
 }
 
+/// The eight tilted views `write_views` renders: `(rx, ry, offset)`.
+const VIEWS: [(f64, f64, [f64; 3]); 8] = [
+    (0.3, 0.0, [0.03, 0.02, 0.55]),
+    (-0.3, 0.0, [-0.03, -0.02, 0.6]),
+    (0.0, 0.3, [0.04, -0.02, 0.55]),
+    (0.0, -0.3, [-0.04, 0.02, 0.6]),
+    (0.25, 0.25, [0.0, 0.03, 0.6]),
+    (-0.25, 0.25, [0.03, 0.0, 0.55]),
+    (0.25, -0.25, [-0.03, 0.0, 0.6]),
+    (-0.25, -0.25, [0.0, -0.03, 0.55]),
+];
+
 /// Eight tilted views of the board, in `dir`.
 fn write_views(dir: &Path) {
-    let views = [
-        (0.3, 0.0, [0.03, 0.02, 0.55]),
-        (-0.3, 0.0, [-0.03, -0.02, 0.6]),
-        (0.0, 0.3, [0.04, -0.02, 0.55]),
-        (0.0, -0.3, [-0.04, 0.02, 0.6]),
-        (0.25, 0.25, [0.0, 0.03, 0.6]),
-        (-0.25, 0.25, [0.03, 0.0, 0.55]),
-        (0.25, -0.25, [-0.03, 0.0, 0.6]),
-        (-0.25, -0.25, [0.0, -0.03, 0.55]),
-    ];
-    for (n, (rx, ry, offset)) in views.into_iter().enumerate() {
+    for (n, (rx, ry, offset)) in VIEWS.into_iter().enumerate() {
         render(rx, ry, offset)
             .save(dir.join(format!("view{n:02}.png")))
             .unwrap();
@@ -261,4 +270,320 @@ fn usage_errors_and_listings() {
         ]),
         1
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The other workflows
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Baseline of the two-camera rig: camera 1 sits this far along camera 0's x.
+const BASELINE_M: f64 = 0.06;
+
+fn read_json(path: &Path) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// A rig manifest over `cam0/` and `cam1/` in `dir`, each holding the eight
+/// views; camera 1 is camera 0 moved `BASELINE_M` along x.
+fn write_rig(dir: &Path) -> std::path::PathBuf {
+    for (camera, shift) in [("cam0", 0.0), ("cam1", BASELINE_M)] {
+        std::fs::create_dir_all(dir.join(camera)).unwrap();
+        for (n, (rx, ry, [x, y, z])) in VIEWS.into_iter().enumerate() {
+            render(rx, ry, [x - shift, y, z])
+                .save(dir.join(camera).join(format!("view{n:02}.png")))
+                .unwrap();
+        }
+    }
+    let manifest = dir.join("rig.toml");
+    std::fs::write(
+        &manifest,
+        r#"version = 1
+topology = "rig_extrinsics"
+description = "rendered stereo pair"
+
+[[cameras]]
+id = "left"
+images = { kind = "glob", pattern = "cam0/*.png" }
+
+[[cameras]]
+id = "right"
+images = { kind = "glob", pattern = "cam1/*.png" }
+
+[target]
+kind = "chessboard"
+rows = 6
+cols = 8
+square_size_m = 0.03
+
+[pose_pairing]
+kind = "by_index"
+"#,
+    )
+    .unwrap();
+    manifest
+}
+
+#[test]
+fn a_rig_run_recovers_the_baseline_and_writes_the_report() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let manifest = write_rig(dir);
+    assert_eq!(vcal(&["check", path(&manifest)]), 0);
+
+    let out = dir.join("out");
+    assert_eq!(
+        vcal(&["run", path(&manifest), "-o", path(&out), "--report"]),
+        0
+    );
+    let export = read_json(&out.join("calibration.json"));
+    assert_eq!(export["cameras"].as_array().unwrap().len(), 2);
+    for camera in export["cameras"].as_array().unwrap() {
+        let fx = camera["intrinsics"]["fx"].as_f64().unwrap();
+        assert!((fx - FOCAL_PX).abs() < 3.0, "fx = {fx}");
+    }
+    // cam_se3_rig[1] moves camera 0's frame to camera 1's: BASELINE_M along -x.
+    let t = &export["cam_se3_rig"][1]["translation"];
+    let t: Vec<f64> = t
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    assert!(
+        (t[0] + BASELINE_M).abs() < 0.003,
+        "baseline {t:?}, truth {BASELINE_M}"
+    );
+    assert!(t[1].abs() < 0.003 && t[2].abs() < 0.003, "{t:?}");
+
+    // The report names both cameras by their manifest ids.
+    let page = std::fs::read_to_string(out.join("report.html")).unwrap();
+    assert!(page.starts_with("<!doctype html>"));
+    assert!(page.contains("Camera 0 (left)") && page.contains("Camera 1 (right)"));
+    assert!(page.contains("rig_extrinsics: rendered stereo pair"));
+    assert_eq!(page.matches("<section class=\"camera\">").count(), 2);
+}
+
+/// Ground truth of the hand-eye run: the camera in the gripper frame.
+fn tcp_se3_cam() -> vision_calibration::nalgebra::Isometry3<f64> {
+    vision_calibration::nalgebra::Isometry3::from_parts(
+        Vector3::new(0.02, 0.03, 0.05).into(),
+        vision_calibration::nalgebra::UnitQuaternion::from_euler_angles(0.1, -0.2, 0.15),
+    )
+}
+
+/// A single-camera hand-eye manifest in `dir`: the eight views and one
+/// `T_base_tcp` per view, for a camera on the gripper that looks at a board
+/// fixed in the base frame (the base frame is the board's).
+fn write_handeye(dir: &Path) -> std::path::PathBuf {
+    use vision_calibration::nalgebra::{Isometry3, UnitQuaternion};
+
+    let mut poses = String::new();
+    for (n, (rx, ry, offset)) in VIEWS.into_iter().enumerate() {
+        let r = Rotation3::from_euler_angles(rx, ry, 0.0);
+        let t = Vector3::from(offset);
+        render_pose(&r, t)
+            .save(dir.join(format!("view{n:02}.png")))
+            .unwrap();
+        let cam_se3_board =
+            Isometry3::from_parts(t.into(), UnitQuaternion::from_rotation_matrix(&r));
+        // base = board, so base_se3_tcp = board_se3_cam * cam_se3_tcp.
+        let base_se3_tcp = cam_se3_board.inverse() * tcp_se3_cam().inverse();
+        let m = base_se3_tcp.to_homogeneous();
+        let row: Vec<String> = (0..4)
+            .flat_map(|i| (0..4).map(move |j| (i, j)))
+            .map(|(i, j)| format!("{:.12}", m[(i, j)]))
+            .collect();
+        poses.push_str(&row.join(" "));
+        poses.push('\n');
+    }
+    std::fs::write(dir.join("poses.txt"), poses).unwrap();
+    let manifest = dir.join("handeye.toml");
+    std::fs::write(
+        &manifest,
+        r#"version = 1
+topology = "single_cam_handeye"
+
+[[cameras]]
+id = "cam0"
+images = { kind = "glob", pattern = "view*.png" }
+
+[target]
+kind = "chessboard"
+rows = 6
+cols = 8
+square_size_m = 0.03
+
+[robot_poses]
+path = "poses.txt"
+format = "rowmajor4x4"
+
+[pose_pairing]
+kind = "by_index"
+
+[pose_convention]
+transform = "t_base_tcp"
+rotation_format = "matrix4x4_row_major"
+translation_units = "m"
+"#,
+    )
+    .unwrap();
+    manifest
+}
+
+#[test]
+fn a_hand_eye_run_goes_from_a_manifest_to_the_export() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let manifest = write_handeye(dir);
+    assert_eq!(vcal(&["check", path(&manifest)]), 0);
+
+    let out = dir.join("out");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 0);
+    let export = read_json(&out.join("calibration.json"));
+    assert_eq!(export["kind"], "single_cam_handeye");
+    let fx = export["camera"]["intrinsics"]["fx"].as_f64().unwrap();
+    assert!((fx - FOCAL_PX).abs() < 3.0, "fx = {fx}");
+    let handeye = &export["handeye"];
+    assert_eq!(handeye["mode"], "eye_in_hand");
+    let pose = &handeye["gripper_se3_cam"];
+    let t: Vec<f64> = pose["translation"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    let truth = tcp_se3_cam().translation.vector;
+    for (value, truth) in t.iter().zip(truth.iter()) {
+        assert!((value - truth).abs() < 0.005, "{t:?} vs {truth:?}");
+    }
+    let q: Vec<f64> = pose["rotation"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    let estimated = vision_calibration::nalgebra::UnitQuaternion::from_quaternion(
+        vision_calibration::nalgebra::Quaternion::new(q[3], q[0], q[1], q[2]),
+    );
+    let error = estimated.angle_to(&tcp_se3_cam().rotation);
+    assert!(error < 0.05, "hand-eye rotation off by {error} rad");
+}
+
+/// A run whose verdict is fail still calibrates and writes its files, and
+/// exits with status 3. Views that cover a small part of the image do that.
+#[test]
+fn a_failed_verdict_exits_3_after_writing_the_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    // The board 1.6 m away covers a few percent of the image.
+    for (n, (rx, ry, [x, y, _])) in VIEWS.into_iter().enumerate() {
+        render(rx, ry, [x, y, 1.6])
+            .save(dir.join(format!("view{n:02}.png")))
+            .unwrap();
+    }
+    assert_eq!(vcal(&["init", path(dir)]), 0);
+    complete_manifest(dir);
+    let out = dir.join("out");
+    let manifest = dir.join("dataset.toml");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 3);
+    assert!(out.join("calibration.json").exists());
+    let report = read_json(&out.join("quality.json"));
+    assert_eq!(report["verdict"], "fail");
+}
+
+/// The command line has no laser-line extractor: a laser manifest is an
+/// error before any image is read, and nothing is written.
+#[test]
+fn a_laser_manifest_is_refused_before_detection() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    write_views(dir);
+    for n in 0..VIEWS.len() {
+        std::fs::copy(
+            dir.join(format!("view{n:02}.png")),
+            dir.join(format!("laser{n:02}.png")),
+        )
+        .unwrap();
+    }
+    let manifest = dir.join("laser.toml");
+    std::fs::write(
+        &manifest,
+        r#"version = 1
+topology = "laserline_device"
+
+[[cameras]]
+id = "cam0"
+images = { kind = "glob", pattern = "view*.png" }
+laser_images = { kind = "glob", pattern = "laser*.png" }
+
+[target]
+kind = "chessboard"
+rows = 6
+cols = 8
+square_size_m = 0.03
+
+[pose_pairing]
+kind = "by_index"
+"#,
+    )
+    .unwrap();
+    let out = dir.join("out");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 1);
+    // The error came before detection: no cache, no output.
+    assert!(!dir.join(".detections").exists());
+    assert!(!out.exists());
+}
+
+/// A report that cannot be written leaves none of the three files.
+#[test]
+fn a_report_that_cannot_be_written_leaves_no_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    write_views(dir);
+    assert_eq!(vcal(&["init", path(dir)]), 0);
+    complete_manifest(dir);
+    let manifest = dir.join("dataset.toml");
+    let out = dir.join("out");
+    // A directory where the report goes.
+    std::fs::create_dir_all(out.join("report.html")).unwrap();
+    assert_eq!(
+        vcal(&["run", path(&manifest), "-o", path(&out), "--report"]),
+        1
+    );
+    let left: Vec<_> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(left, ["report.html"], "{left:?}");
+}
+
+/// The extension of a configuration file names its format whatever its case.
+#[test]
+fn a_config_file_extension_is_matched_ignoring_case() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    write_views(dir);
+    assert_eq!(vcal(&["init", path(dir)]), 0);
+    complete_manifest(dir);
+    let manifest = dir.join("dataset.toml");
+    let config = dir.join("CONFIG.TOML");
+    std::fs::write(
+        &config,
+        "camera.model = { projection = \"pinhole\", distortion = \"none\", sensor = \"identity\" }\n",
+    )
+    .unwrap();
+    let out = dir.join("out");
+    assert_eq!(
+        vcal(&[
+            "run",
+            path(&manifest),
+            "-o",
+            path(&out),
+            "-c",
+            path(&config)
+        ]),
+        0
+    );
+    let export = read_json(&out.join("calibration.json"));
+    assert_eq!(export["camera"]["distortion"]["type"], "none");
 }

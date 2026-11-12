@@ -554,6 +554,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`RunError::AskUser`) before it reads any image; it used to report the
   first unreadable image instead.
 
+- `vcal run --report` writes its files all or none. A report that could not
+  be written used to leave `calibration.json` and `quality.json` behind; the
+  run now stops with the error and leaves the output directory as it was.
+- `vcal run -c` reads a configuration file named `config.TOML` (any case of
+  the extension) as TOML; it was read as JSON and failed.
+
 - `rig_handeye::step_handeye_init` and `step_handeye_init_with_seed` that
   failed (the closed-form solve finding too little robot rotation, say) left
   the previous run's initialization in place, and `step_handeye_optimize`

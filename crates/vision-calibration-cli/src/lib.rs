@@ -457,15 +457,14 @@ fn calibrate(
 
     let out = out.map_or(base.clone(), Path::to_path_buf);
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
+    // Every file is built before any is written, and written all or none: a
+    // run that cannot write its report leaves no half-written result.
     let export_path = out.join("calibration.json");
     let report_path = out.join("quality.json");
-    write_json(&export_path, export)?;
-    write_json(&report_path, &report)?;
-    say!(
-        "wrote {} and {}",
-        export_path.display(),
-        report_path.display()
-    );
+    let mut files = vec![
+        (export_path.clone(), json_text(export)?),
+        (report_path.clone(), json_text(&report)?),
+    ];
     if html {
         let mut options = ReportOptions::default();
         let what = spec
@@ -475,10 +474,16 @@ fn calibrate(
         options.title = format!("{}: {what}", name(&spec.topology));
         options.camera_names = spec.cameras.iter().map(|c| c.id.clone()).collect();
         let page = html_report(export, &run.image_sizes, &options)?;
-        let page_path = out.join("report.html");
-        std::fs::write(&page_path, page)
-            .with_context(|| format!("writing {}", page_path.display()))?;
-        say!("wrote {}", page_path.display());
+        files.insert(0, (out.join("report.html"), page));
+    }
+    write_all(&files)?;
+    say!(
+        "wrote {} and {}",
+        export_path.display(),
+        report_path.display()
+    );
+    if html {
+        say!("wrote {}", out.join("report.html").display());
     }
     Ok(if report.verdict == Verdict::Fail {
         VERDICT_FAIL
@@ -492,7 +497,10 @@ fn calibrate(
 fn configuration(topology: ProblemKind, path: &Path) -> Result<CalibrationConfig> {
     let context = || format!("reading the configuration {}", path.display());
     let text = std::fs::read_to_string(path).with_context(context)?;
-    let changes: Value = if path.extension().is_some_and(|e| e == "toml") {
+    let changes: Value = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+    {
         toml::from_str(&text).with_context(context)?
     } else {
         serde_json::from_str(&text).with_context(context)?
@@ -521,9 +529,39 @@ fn merge(base: &mut Value, changes: &Value) {
     }
 }
 
-fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    let text = serde_json::to_string_pretty(value)?;
-    std::fs::write(path, text + "\n").with_context(|| format!("writing {}", path.display()))
+fn json_text(value: &impl Serialize) -> Result<String> {
+    Ok(serde_json::to_string_pretty(value)? + "\n")
+}
+
+/// Writes every file or none: each goes to a temporary sibling first, and
+/// the files take their names only once all of them are written, in the
+/// order given (put the likeliest to fail first). A failure removes the
+/// temporary files, so the directory is as it was unless a later rename
+/// fails after an earlier one succeeded.
+fn write_all(files: &[(PathBuf, String)]) -> Result<()> {
+    let staged = |path: &Path| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(".partial");
+        PathBuf::from(name)
+    };
+    let cleanup = || {
+        for (path, _) in files {
+            let _ = std::fs::remove_file(staged(path));
+        }
+    };
+    for (path, text) in files {
+        if let Err(err) = std::fs::write(staged(path), text) {
+            cleanup();
+            return Err(err).with_context(|| format!("writing {}", path.display()));
+        }
+    }
+    for (path, _) in files {
+        if let Err(err) = std::fs::rename(staged(path), path) {
+            cleanup();
+            return Err(err).with_context(|| format!("writing {}", path.display()));
+        }
+    }
+    Ok(())
 }
 
 fn sample(command: SampleCommand) -> Result<()> {
