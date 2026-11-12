@@ -319,6 +319,53 @@ jobs:
           cargo test --release --locked -p vision-calibration-optim
           --test feature_covariance -- --ignored
 
+  # Exit criterion 9: the package and `vcal` work from an install, without
+  # the source tree. The wheel goes into a fresh venv and the examples run
+  # from a copy outside the checkout; `vcal` is installed and run from an
+  # empty directory.
+  install-smoke:
+    name: Install smoke (wheel + vcal)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip maturin
+          maturin build --release --locked -m crates/vision-calibration-py/Cargo.toml -o "$RUNNER_TEMP/dist"
+
+      - name: Run the examples from the installed wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install "$RUNNER_TEMP"/dist/*.whl
+          cp -r crates/vision-calibration-py/examples "$RUNNER_TEMP/examples"
+          cd "$RUNNER_TEMP/examples"
+          for example in planar_synthetic.py handeye_synthetic.py rig_handeye_synthetic.py; do
+            echo "::group::$example"
+            "$RUNNER_TEMP/venv/bin/python" "$example"
+            echo "::endgroup::"
+          done
+
+      - name: Install vcal and run it outside the checkout
+        run: |
+          cargo install --locked --path crates/vision-calibration-cli --root "$RUNNER_TEMP/vcal"
+          mkdir -p "$RUNNER_TEMP/empty" && cd "$RUNNER_TEMP/empty"
+          "$RUNNER_TEMP/vcal/bin/vcal" --version
+          "$RUNNER_TEMP/vcal/bin/vcal" sample list
+
   python-runtime:
     name: Python Runtime Tests
     runs-on: ubuntu-latest
