@@ -35,15 +35,24 @@ where
     }
 }
 
-/// Deserializes the export `value` holds, checking its `schema_version`
-/// before any other field is interpreted.
+/// Deserializes the export the JSON text `json` holds, checking its
+/// `schema_version` before any other field is interpreted.
 ///
 /// # Errors
 ///
 /// [`Error::UnsupportedExportVersion`] when `schema_version` is a different
-/// version than the one this library writes; [`Error::Serde`] when it is
-/// missing or the value does not deserialize.
-pub fn read_export<E>(value: serde_json::Value) -> Result<E, Error>
+/// version than the one this library writes; [`Error::Serde`] when `json` is
+/// not JSON, the version is missing or the export does not deserialize.
+pub fn read_export<E>(json: &str) -> Result<E, Error>
+where
+    E: VersionedExport + DeserializeOwned,
+{
+    let value = serde_json::from_str(json).map_err(Error::serde)?;
+    read_export_value(value)
+}
+
+/// [`read_export`] over a parsed document.
+pub(crate) fn read_export_value<E>(value: serde_json::Value) -> Result<E, Error>
 where
     E: VersionedExport + DeserializeOwned,
 {
@@ -55,12 +64,12 @@ where
             expected: E::SCHEMA_VERSION,
         });
     }
-    Ok(serde_json::from_value(value)?)
+    serde_json::from_value(value).map_err(Error::serde)
 }
 
-/// Checks the `schema_version` of the export `value` holds against the
-/// version this library writes for the export's `kind`, without reading
-/// anything else.
+/// Checks the `schema_version` of the export the JSON text `json` holds
+/// against the version this library writes for the export's `kind`, without
+/// reading anything else.
 ///
 /// For a reader that keeps the export as JSON, such as the desktop app's
 /// import.
@@ -68,8 +77,9 @@ where
 /// # Errors
 ///
 /// [`Error::UnsupportedExportVersion`] when the versions differ;
-/// [`Error::Serde`] when `kind` or `schema_version` is missing or unknown.
-pub fn check_export_version(value: &serde_json::Value) -> Result<(), Error> {
+/// [`Error::Serde`] when `json` is not JSON or `kind` or `schema_version`
+/// is missing or unknown.
+pub fn check_export_version(json: &str) -> Result<(), Error> {
     use crate::common::ProblemKind;
     use crate::laserline_device::LaserlineDeviceExport;
     use crate::planar_intrinsics::PlanarIntrinsicsExport;
@@ -79,13 +89,15 @@ pub fn check_export_version(value: &serde_json::Value) -> Result<(), Error> {
     use crate::rig_laserline_device::RigLaserlineDeviceExport;
     use crate::single_cam_handeye::SingleCamHandeyeExport;
 
+    let value: serde_json::Value = serde_json::from_str(json).map_err(Error::serde)?;
     let field = |name: &str| {
-        value.get(name).cloned().ok_or_else(|| {
-            <serde_json::Error as serde::de::Error>::custom(format!("missing field `{name}`"))
-        })
+        value
+            .get(name)
+            .cloned()
+            .ok_or_else(|| Error::Serde(format!("missing field `{name}`")))
     };
-    let kind: ProblemKind = serde_json::from_value(field("kind")?)?;
-    let got: u64 = serde_json::from_value(field("schema_version")?)?;
+    let kind: ProblemKind = serde_json::from_value(field("kind")?).map_err(Error::serde)?;
+    let got: u64 = serde_json::from_value(field("schema_version")?).map_err(Error::serde)?;
     let expected = match kind {
         ProblemKind::PlanarIntrinsics => PlanarIntrinsicsExport::SCHEMA_VERSION,
         ProblemKind::SingleCamHandeye => SingleCamHandeyeExport::SCHEMA_VERSION,
@@ -94,6 +106,11 @@ pub fn check_export_version(value: &serde_json::Value) -> Result<(), Error> {
         ProblemKind::RigHandeye => RigHandeyeExport::SCHEMA_VERSION,
         ProblemKind::RigLaserlineDevice => RigLaserlineDeviceExport::SCHEMA_VERSION,
         ProblemKind::RigHandeyeLaserline => RigHandeyeLaserlineExport::SCHEMA_VERSION,
+        other => {
+            return Err(Error::invalid_input(format!(
+                "export kind {other:?} is not supported by this version"
+            )));
+        }
     };
     if got == u64::from(expected) {
         Ok(())
@@ -110,7 +127,7 @@ mod tests {
     #[test]
     fn a_foreign_version_is_a_typed_error_naming_both() {
         let export = json!({ "kind": "planar_intrinsics", "schema_version": 7 });
-        let err = check_export_version(&export).unwrap_err();
+        let err = check_export_version(&export.to_string()).unwrap_err();
         assert!(
             matches!(
                 err,
@@ -128,10 +145,10 @@ mod tests {
     #[test]
     fn the_current_version_passes_and_a_missing_one_is_an_error() {
         let current = json!({ "kind": "rig_handeye", "schema_version": 1 });
-        check_export_version(&current).unwrap();
+        check_export_version(&current.to_string()).unwrap();
         let missing = json!({ "kind": "rig_handeye" });
         assert!(matches!(
-            check_export_version(&missing),
+            check_export_version(&missing.to_string()),
             Err(Error::Serde(_))
         ));
     }
@@ -142,7 +159,7 @@ mod tests {
         // The rest of the payload is not an export at all: the version is
         // what is reported.
         let err = read_export::<PlanarIntrinsicsExport>(
-            json!({ "kind": "planar_intrinsics", "schema_version": 2, "camera": 3 }),
+            &json!({ "kind": "planar_intrinsics", "schema_version": 2, "camera": 3 }).to_string(),
         )
         .unwrap_err();
         assert!(

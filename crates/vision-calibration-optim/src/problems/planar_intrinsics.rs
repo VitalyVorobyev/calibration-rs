@@ -30,6 +30,7 @@ use vision_calibration_core::{
 /// Optimization result for planar intrinsics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct PlanarIntrinsicsParams {
     /// Refined camera model (model-agnostic serializable parameters).
     pub camera: CameraParams,
@@ -106,6 +107,7 @@ impl PlanarIntrinsicsParams {
 
 /// Output of planar intrinsics optimization.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PlanarIntrinsicsEstimate {
     /// Refined camera and poses.
     pub params: PlanarIntrinsicsParams,
@@ -116,6 +118,22 @@ pub struct PlanarIntrinsicsEstimate {
     /// Covariance of the estimated camera parameters and poses.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+impl PlanarIntrinsicsEstimate {
+    /// A [`PlanarIntrinsicsEstimate`] with the given fields.
+    pub fn new(
+        params: PlanarIntrinsicsParams,
+        report: SolveReport,
+        mean_reproj_error: f64,
+        uncertainty: Uncertainty,
+    ) -> Self {
+        Self {
+            params,
+            report,
+            mean_reproj_error,
+            uncertainty,
+        }
+    }
 }
 
 /// Solve options for planar intrinsics, for any camera model.

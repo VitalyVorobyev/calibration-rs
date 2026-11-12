@@ -327,6 +327,7 @@ impl SensorParams {
 /// Serializable camera parameters for building a runtime model.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct CameraParams {
     /// Projection model parameters.
     pub projection: ProjectionParams,
@@ -342,6 +343,51 @@ pub struct CameraParams {
 pub type CameraModel = Camera<Real, AnyProjection, AnyDistortion, AnySensor, FxFyCxCy<Real>>;
 
 impl CameraParams {
+    /// Parameters of a camera from its four parts: the projection, the
+    /// distortion and the sensor model parameters, and the pinhole
+    /// intrinsics.
+    pub fn new(
+        projection: ProjectionParams,
+        distortion: DistortionParams,
+        sensor: SensorParams,
+        intrinsics: FxFyCxCy<Real>,
+    ) -> Self {
+        Self {
+            projection,
+            distortion,
+            sensor,
+            intrinsics,
+        }
+    }
+
+    /// These parameters with the projection replaced.
+    #[must_use]
+    pub fn with_projection(mut self, projection: ProjectionParams) -> Self {
+        self.projection = projection;
+        self
+    }
+
+    /// These parameters with the distortion replaced.
+    #[must_use]
+    pub fn with_distortion(mut self, distortion: DistortionParams) -> Self {
+        self.distortion = distortion;
+        self
+    }
+
+    /// These parameters with the sensor replaced.
+    #[must_use]
+    pub fn with_sensor(mut self, sensor: SensorParams) -> Self {
+        self.sensor = sensor;
+        self
+    }
+
+    /// These parameters with the pinhole intrinsics replaced.
+    #[must_use]
+    pub fn with_intrinsics(mut self, intrinsics: FxFyCxCy<Real>) -> Self {
+        self.intrinsics = intrinsics;
+        self
+    }
+
     /// The model spec of these parameters, or `None` for a general
     /// [`SensorParams::Homography`] sensor, which no spec describes.
     pub fn spec(&self) -> Option<CameraModelSpec> {

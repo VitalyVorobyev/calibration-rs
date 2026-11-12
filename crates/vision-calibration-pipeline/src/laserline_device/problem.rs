@@ -393,12 +393,12 @@ mod tests {
         distortion: BrownConrady5<f64>,
         sensor: SensorParams,
     ) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 { params: distortion },
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 { params: distortion },
             sensor,
             intrinsics,
-        }
+        )
     }
 
     fn make_synthetic_scenario() -> (LaserlineDataset, LaserlineDeviceEstimate) {
@@ -466,20 +466,8 @@ mod tests {
             plane,
         )
         .unwrap();
-        let estimate = LaserlineEstimate {
-            params,
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
-            uncertainty: Default::default(),
-        };
-        let stats = LaserlineStats {
-            mean_reproj_error: 0.0,
-            mean_laser_error: 0.0,
-            per_view_reproj_errors: vec![0.0, 0.0, 0.0],
-            per_view_laser_errors: vec![0.0, 0.0, 0.0],
-        };
+        let estimate = LaserlineEstimate::new(params, SolveReport::new(0.0, 0), Default::default());
+        let stats = LaserlineStats::new(0.0, 0.0, vec![0.0, 0.0, 0.0], vec![0.0, 0.0, 0.0]);
         (views, LaserlineDeviceEstimate { estimate, stats })
     }
 
@@ -581,20 +569,8 @@ mod tests {
         )
         .unwrap();
         let output = LaserlineDeviceEstimate {
-            estimate: LaserlineEstimate {
-                params,
-                report: SolveReport {
-                    final_cost: 0.0,
-                    num_iters: 0,
-                },
-                uncertainty: Default::default(),
-            },
-            stats: LaserlineStats {
-                mean_reproj_error: 0.0,
-                mean_laser_error: 0.0,
-                per_view_reproj_errors: vec![0.0],
-                per_view_laser_errors: vec![0.0],
-            },
+            estimate: LaserlineEstimate::new(params, SolveReport::new(0.0, 0), Default::default()),
+            stats: LaserlineStats::new(0.0, 0.0, vec![0.0], vec![0.0]),
         };
 
         let export =

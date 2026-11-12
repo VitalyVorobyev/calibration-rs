@@ -41,12 +41,12 @@
 //! };
 //! use vision_calibration_optim::camera_parameters;
 //!
-//! let camera = CameraParams {
-//!     projection: ProjectionParams::Pinhole,
-//!     distortion: DistortionParams::BrownConrady5 { params: BrownConrady5::default() },
-//!     sensor: SensorParams::Identity,
-//!     intrinsics: FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
-//! };
+//! let camera = CameraParams::new(
+//!     ProjectionParams::Pinhole,
+//!     DistortionParams::BrownConrady5 { params: BrownConrady5::default() },
+//!     SensorParams::Identity,
+//!     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+//! );
 //! let labels: Vec<&str> = camera_parameters(&camera)?.iter().map(|(label, _)| *label).collect();
 //! assert_eq!(labels[..4], ["fx", "fy", "cx", "cy"]);
 //! assert!(labels.contains(&"k1"));

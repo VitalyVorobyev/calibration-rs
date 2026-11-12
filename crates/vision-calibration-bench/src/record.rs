@@ -702,10 +702,7 @@ mod tests {
             convergence: Convergence {
                 init_ok: true,
                 converged: true,
-                report: SolveReport {
-                    final_cost: 1.5,
-                    num_iters: 12,
-                },
+                report: SolveReport::new(1.5, 12),
             },
             fit: Fit {
                 overall: stats,
@@ -909,17 +906,14 @@ mod tests {
             residual(0, 1, 2.0),
             residual(1, 0, 1.0),
         ];
-        let level = vision_calibration_pipeline::analysis::LevelReport {
-            level: ReprojLevel::Intrinsic,
-            overall: LevelStats::from_residuals(&residuals),
-            per_camera: vec![LevelStats::from_residuals(&residuals[..2])],
-            per_view: vec![LevelStats::from_residuals(&residuals)],
+        let level = vision_calibration_pipeline::analysis::LevelReport::new(
+            ReprojLevel::Intrinsic,
+            LevelStats::from_residuals(&residuals),
+            vec![LevelStats::from_residuals(&residuals[..2])],
+            vec![LevelStats::from_residuals(&residuals)],
             residuals,
-        };
-        let report = ReprojReport {
-            headline_px: level.overall.mean,
-            levels: vec![level],
-        };
+        );
+        let report = ReprojReport::new(level.overall.mean, vec![level]);
 
         let (compact, sidecar) = compact_reproj_report_with_limit("ds", report, 2);
         assert_eq!(compact.levels[0].residual_count, 3);
@@ -933,25 +927,22 @@ mod tests {
     fn compact_report_headline_matches_most_constrained_level() {
         let intrinsic_residuals = vec![residual(0, 0, 0.1), residual(0, 1, 0.2)];
         let handeye_residuals = vec![residual(0, 0, 1.1), residual(0, 1, 1.3)];
-        let intrinsic = vision_calibration_pipeline::analysis::LevelReport {
-            level: ReprojLevel::Intrinsic,
-            overall: LevelStats::from_residuals(&intrinsic_residuals),
-            per_camera: vec![LevelStats::from_residuals(&intrinsic_residuals)],
-            per_view: vec![LevelStats::from_residuals(&intrinsic_residuals)],
-            residuals: intrinsic_residuals,
-        };
-        let handeye = vision_calibration_pipeline::analysis::LevelReport {
-            level: ReprojLevel::Handeye,
-            overall: LevelStats::from_residuals(&handeye_residuals),
-            per_camera: vec![LevelStats::from_residuals(&handeye_residuals)],
-            per_view: vec![LevelStats::from_residuals(&handeye_residuals)],
-            residuals: handeye_residuals,
-        };
+        let intrinsic = vision_calibration_pipeline::analysis::LevelReport::new(
+            ReprojLevel::Intrinsic,
+            LevelStats::from_residuals(&intrinsic_residuals),
+            vec![LevelStats::from_residuals(&intrinsic_residuals)],
+            vec![LevelStats::from_residuals(&intrinsic_residuals)],
+            intrinsic_residuals,
+        );
+        let handeye = vision_calibration_pipeline::analysis::LevelReport::new(
+            ReprojLevel::Handeye,
+            LevelStats::from_residuals(&handeye_residuals),
+            vec![LevelStats::from_residuals(&handeye_residuals)],
+            vec![LevelStats::from_residuals(&handeye_residuals)],
+            handeye_residuals,
+        );
         let expected_headline = handeye.overall.mean;
-        let report = ReprojReport {
-            headline_px: expected_headline,
-            levels: vec![intrinsic, handeye],
-        };
+        let report = ReprojReport::new(expected_headline, vec![intrinsic, handeye]);
 
         let (compact, _sidecar) = compact_reproj_report_with_limit("handeye", report, 4);
         assert_eq!(compact.headline_px, expected_headline);

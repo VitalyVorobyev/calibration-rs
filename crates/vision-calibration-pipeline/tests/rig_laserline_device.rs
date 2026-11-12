@@ -143,12 +143,12 @@ fn make_dataset() -> (
     }
 
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();
-    let camera = vision_calibration_core::CameraParams {
-        projection: vision_calibration_core::ProjectionParams::Pinhole,
-        distortion: vision_calibration_core::DistortionParams::BrownConrady5 { params: distortion },
-        sensor: vision_calibration_core::SensorParams::Scheimpflug { params: sensor },
+    let camera = vision_calibration_core::CameraParams::new(
+        vision_calibration_core::ProjectionParams::Pinhole,
+        vision_calibration_core::DistortionParams::BrownConrady5 { params: distortion },
+        vision_calibration_core::SensorParams::Scheimpflug { params: sensor },
         intrinsics,
-    };
+    );
     let upstream = RigUpstreamCalibration {
         cameras: vec![camera.clone(), camera],
         cam_se3_rig: rig_se3_cam.iter().map(|t| t.inverse()).collect(),
@@ -268,9 +268,9 @@ fn pinhole_upstream_converges_rig_laserline() {
     let cameras: Vec<_> = upstream
         .cameras
         .iter()
-        .map(|c| vision_calibration_core::CameraParams {
-            sensor: vision_calibration_core::SensorParams::Identity,
-            ..c.clone()
+        .map(|c| {
+            c.clone()
+                .with_sensor(vision_calibration_core::SensorParams::Identity)
         })
         .collect();
     let export: RigHandeyeExport = serde_json::from_value(serde_json::json!({

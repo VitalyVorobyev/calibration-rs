@@ -48,6 +48,7 @@ pub enum ViewPose {
 /// The information a view carries about a camera's parameters, per unit
 /// pixel variance.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ViewInformation {
     /// The camera's parameter labels, in the order of
     /// [`camera_parameters`](crate::camera_parameters).
@@ -187,9 +188,9 @@ mod tests {
     };
 
     fn camera() -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1: -0.1,
                     k2: 0.02,
@@ -199,14 +200,14 @@ mod tests {
                     iters: 8,
                 },
             },
-            sensor: SensorParams::Identity,
-            intrinsics: FxFyCxCy {
+            SensorParams::Identity,
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 810.0,
                 cx: 320.0,
                 cy: 240.0,
             },
-        }
+        )
     }
 
     fn board() -> Vec<Pt3> {
@@ -229,14 +230,14 @@ mod tests {
         let DistortionParams::BrownConrady5 { params } = base.distortion else {
             unreachable!()
         };
-        let cam = CameraParams {
-            intrinsics: FxFyCxCy {
+        let cam = base
+            .with_intrinsics(FxFyCxCy {
                 fx: theta[0],
                 fy: theta[1],
                 cx: theta[2],
                 cy: theta[3],
-            },
-            distortion: DistortionParams::BrownConrady5 {
+            })
+            .with_distortion(DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1: theta[4],
                     k2: theta[5],
@@ -245,11 +246,9 @@ mod tests {
                     p2: theta[8],
                     ..params
                 },
-            },
-            ..base
-        }
-        .build()
-        .unwrap();
+            })
+            .build()
+            .unwrap();
         let tangent = Iso3::new(
             Vector3::new(delta[3], delta[4], delta[5]),
             Vector3::new(delta[0], delta[1], delta[2]),
@@ -320,21 +319,21 @@ mod tests {
     #[test]
     fn a_fisheye_view_beyond_ninety_degrees_has_information() {
         use vision_calibration_core::DistortionKind;
-        let fisheye = CameraParams {
-            projection: ProjectionParams::Equidistant,
-            distortion: DistortionParams::from_values(
+        let fisheye = CameraParams::new(
+            ProjectionParams::Equidistant,
+            DistortionParams::from_values(
                 DistortionKind::KannalaBrandt4,
                 &[-0.02, 0.002, 0.0, 0.0],
             )
             .unwrap(),
-            sensor: SensorParams::Identity,
-            intrinsics: FxFyCxCy {
+            SensorParams::Identity,
+            FxFyCxCy {
                 fx: 300.0,
                 fy: 300.0,
                 cx: 640.0,
                 cy: 400.0,
             },
-        };
+        );
         // A board beside the camera, partly behind its image plane.
         let beside = Iso3::from_parts(
             Translation3::new(0.25, -0.09, 0.05),

@@ -92,6 +92,7 @@ impl EssentialEstimate {
 
 /// Result of robust homography estimation.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HomographyEstimate {
     /// The estimated homography matrix.
     pub homography: Mat3,
@@ -768,14 +769,12 @@ mod tests {
         let rig = rig();
         let matches = stereo_matches_with_outliers();
 
-        let opts = RansacOptions {
-            max_iters: 500,
-            thresh: 3.0,
-            min_inliers: 10,
-            confidence: 0.99,
-            seed: 42,
-            refit_on_inliers: true,
-        };
+        let opts = RansacOptions::new(3.0)
+            .with_max_iters(500)
+            .with_min_inliers(10)
+            .with_confidence(0.99)
+            .with_seed(42)
+            .with_refit_on_inliers(true);
 
         let est =
             estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
@@ -823,24 +822,20 @@ mod tests {
     fn essential_ransac_rejects_outliers_at_sigma_threshold() {
         let rig = rig();
         let (matches, n_in) = thirty_percent_outliers();
-        let opts = RansacOptions {
-            max_iters: 2000,
-            min_inliers: 8,
-            seed: 7,
-            ..RansacOptions::new(3.0)
-        };
+        let opts = RansacOptions::new(3.0)
+            .with_max_iters(2000)
+            .with_min_inliers(8)
+            .with_seed(7);
         let est =
             estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
         assert_eq!(est.inliers.len(), n_in, "inlier count");
         assert!(est.inliers.iter().all(|&i| i < n_in), "an outlier survived");
 
         // A threshold of 1e5 σ accepts everything.
-        let loose = RansacOptions {
-            max_iters: 50,
-            min_inliers: 8,
-            seed: 7,
-            ..RansacOptions::new(1.0e5)
-        };
+        let loose = RansacOptions::new(1.0e5)
+            .with_max_iters(50)
+            .with_min_inliers(8)
+            .with_seed(7);
         let est =
             estimate_essential(&rig, [0, 0], &matches, &loose, &RunControl::default()).unwrap();
         assert_eq!(est.inliers.len(), matches.len());
@@ -934,14 +929,12 @@ mod tests {
             Pt2::new(-2.0, 4.0),
         ));
 
-        let opts = RansacOptions {
-            max_iters: 500,
-            thresh: 0.001,
-            min_inliers: 6,
-            confidence: 0.99,
-            seed: 42,
-            refit_on_inliers: true,
-        };
+        let opts = RansacOptions::new(0.001)
+            .with_max_iters(500)
+            .with_min_inliers(6)
+            .with_confidence(0.99)
+            .with_seed(42)
+            .with_refit_on_inliers(true);
 
         let est = estimate_homography(&corrs, &opts).unwrap();
         assert!(
@@ -961,14 +954,12 @@ mod tests {
         let rig = rig();
         let matches = stereo_matches_with_outliers();
 
-        let opts = RansacOptions {
-            max_iters: 500,
-            thresh: 3.0,
-            min_inliers: 10,
-            confidence: 0.99,
-            seed: 42,
-            refit_on_inliers: true,
-        };
+        let opts = RansacOptions::new(3.0)
+            .with_max_iters(500)
+            .with_min_inliers(10)
+            .with_confidence(0.99)
+            .with_seed(42)
+            .with_refit_on_inliers(true);
 
         let result =
             recover_relative_pose_robust(&rig, [0, 0], &matches, &opts, &RunControl::default())
@@ -990,14 +981,12 @@ mod tests {
         let rig = rig();
         let matches = stereo_matches_with_outliers();
 
-        let opts = RansacOptions {
-            max_iters: 200,
-            thresh: 3.0,
-            min_inliers: 10,
-            confidence: 0.99,
-            seed: 123,
-            refit_on_inliers: true,
-        };
+        let opts = RansacOptions::new(3.0)
+            .with_max_iters(200)
+            .with_min_inliers(10)
+            .with_confidence(0.99)
+            .with_seed(123)
+            .with_refit_on_inliers(true);
 
         let r1 = estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
         let r2 = estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()).unwrap();
@@ -1068,14 +1057,12 @@ mod tests {
         let rig = rig();
         let matches = stereo_matches_with_outliers();
 
-        let opts_refit = RansacOptions {
-            max_iters: 500,
-            thresh: 3.0,
-            min_inliers: 10,
-            confidence: 0.99,
-            seed: 77,
-            refit_on_inliers: true,
-        };
+        let opts_refit = RansacOptions::new(3.0)
+            .with_max_iters(500)
+            .with_min_inliers(10)
+            .with_confidence(0.99)
+            .with_seed(77)
+            .with_refit_on_inliers(true);
 
         let est = estimate_essential(&rig, [0, 0], &matches, &opts_refit, &RunControl::default())
             .expect("RANSAC with refit must succeed");

@@ -120,7 +120,7 @@ fn compute(
     }
     let s = params.downscale.max(1);
 
-    let rig = calibrated_cameras(export.clone())
+    let rig = calibrated_cameras(&export.to_string())
         .map_err(|e| format!("calibration decode: {e}"))?
         .calibrated_rig()
         .map_err(|e| format!("calibration decode: {e}"))?;
@@ -163,12 +163,10 @@ fn compute(
     let min_d = (disp_nominal * 0.6).round().max(0.0) as i32;
     let num_d = (disp_nominal * 0.85).round().max(16.0) as i32;
 
-    let mut opts = BlockMatchOptions {
-        min_disparity: min_d,
-        num_disparities: num_d,
-        block_size: params.block_size,
-        ..Default::default()
-    };
+    let mut opts = BlockMatchOptions::default();
+    opts.min_disparity = min_d;
+    opts.num_disparities = num_d;
+    opts.block_size = params.block_size;
     if params.semi_global {
         opts.semi_global = true;
     } else {

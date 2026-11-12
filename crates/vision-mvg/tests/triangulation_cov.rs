@@ -266,9 +266,9 @@ fn an_unrefinable_track_has_no_covariance() {
 /// draws the refined points are closer to the truth on average.
 #[test]
 fn refinement_improves_on_the_linear_estimate_for_a_fisheye() {
-    let fisheye = CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    let fisheye = CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: 0.02,
                 k2: -0.002,
@@ -277,14 +277,14 @@ fn refinement_improves_on_the_linear_estimate_for_a_fisheye() {
                 iters: 0,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 300.0,
             fy: 300.0,
             cx: 640.0,
             cy: 480.0,
         },
-    };
+    );
     let rig = stereo(fisheye, Uncertainty::default());
     let mut rng = Rng(11);
     // Points up to ~100 degrees off the axis.

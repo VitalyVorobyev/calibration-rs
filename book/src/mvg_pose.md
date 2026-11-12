@@ -83,10 +83,8 @@ use vision_calibration_core::RansacOptions;
 use vision_calibration::control::RunControl;
 use vision_calibration::mvg::robust::{estimate_essential, recover_relative_pose_robust};
 
-let opts = RansacOptions {
-    min_inliers: 12,
-    ..RansacOptions::new(3.0)   // weighted Sampson error, in σ of the stated noise
-};
+let opts = RansacOptions::new(3.0)   // weighted Sampson error, in σ of the stated noise
+    .with_min_inliers(12);
 let robust = recover_relative_pose_robust(&rig, [0, 0], &matches, &opts, &RunControl::default())?;
 // robust.second_se3_first, robust.essential, robust.inliers (indices), robust.inlier_rms
 if let Some(cov) = robust.pose_covariance() {

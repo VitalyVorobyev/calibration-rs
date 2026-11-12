@@ -124,6 +124,7 @@ pub struct CameraSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case", tag = "kind")]
+#[non_exhaustive]
 pub enum ImagePattern {
     /// Single shell-glob pattern, evaluated relative to the manifest
     /// directory. Example: `"cam0/*.png"`.
@@ -199,6 +200,7 @@ pub enum LaserScanAxis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case", tag = "kind")]
+#[non_exhaustive]
 pub enum TargetSpec {
     /// Standard checkerboard. Counts are interior corners
     /// (i.e. `9x6` ⇒ a 10×7 black-and-white square grid).
@@ -309,6 +311,7 @@ pub struct DetectorSpec {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum CornerStrategySpec {
     /// The ChESS response. Fast; the default.
     #[default]
@@ -396,6 +399,7 @@ pub struct CornerCovarianceSpec {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ImageNoiseSpec {
     /// Estimate the noise from each image. Unreliable on JPEG or demosaiced
     /// images, where a corner then reports no covariance and the run fails.
@@ -442,6 +446,7 @@ pub struct RobotPoseSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RobotPoseFormat {
     /// Comma-separated values with a header row.
     Csv,
@@ -502,6 +507,7 @@ pub struct PoseColumnMap {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ProblemKind {
     /// Single camera, planar target — `PlanarIntrinsicsProblem` (any camera
     /// model, including a tilted sensor).
@@ -529,6 +535,7 @@ pub enum ProblemKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case", tag = "kind")]
+#[non_exhaustive]
 pub enum PosePairing {
     /// All cameras have the same number of images, paired by index
     /// (`image[i]` from cam0 ↔ `image[i]` from cam1 ↔ `pose[i]`).
@@ -568,6 +575,7 @@ pub struct PoseConvention {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum TransformConvention {
     /// `T_base_tcp` — gripper pose in the robot base frame (KUKA, UR
     /// default).
@@ -585,6 +593,7 @@ pub enum TransformConvention {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RotationFormat {
     /// Hamilton quaternion as `[qx, qy, qz, qw]`.
     QuatXyzw,
@@ -608,6 +617,7 @@ pub enum RotationFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum TranslationUnits {
     /// Metres (SI, preferred).
     M,

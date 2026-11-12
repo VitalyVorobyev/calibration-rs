@@ -78,6 +78,7 @@ impl PixelMatch {
 
 /// A triangulated 3D point with quality diagnostics.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct TriangulatedPoint {
     /// Reconstructed 3D position, in the frame the triangulation's poses
     /// define (the world frame, or the first camera's frame for a relative

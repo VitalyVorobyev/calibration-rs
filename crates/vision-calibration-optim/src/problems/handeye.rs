@@ -106,6 +106,7 @@ impl HandeyeDataset {
 /// - `target_poses`: the mode's target pose(s): `base_se3_target`
 ///   (eye-in-hand) or `gripper_se3_target` (eye-to-hand)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct HandeyeParams {
     /// Per-camera camera parameters, each in its own model.
     pub cameras: Vec<CameraParams>,
@@ -123,6 +124,22 @@ pub struct HandeyeParams {
     ///   - `EyeToHand`: the first pose is the initial `gripper_se3_target` (`T_G_T`)
     /// - Per-view target mode (`relax_target_poses = true`): one pose per view is required.
     pub target_poses: Vec<Iso3>,
+}
+impl HandeyeParams {
+    /// A [`HandeyeParams`] with the given fields.
+    pub fn new(
+        cameras: Vec<CameraParams>,
+        rig_se3_cam: Vec<Iso3>,
+        handeye: Iso3,
+        target_poses: Vec<Iso3>,
+    ) -> Self {
+        Self {
+            cameras,
+            rig_se3_cam,
+            handeye,
+            target_poses,
+        }
+    }
 }
 
 /// Solve options for hand-eye calibration.
@@ -184,6 +201,7 @@ impl Default for HandeyeSolveOptions {
 
 /// Result of hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct HandeyeEstimate {
     /// The mode the hand-eye was solved in: it says which pose
     /// [`HandeyeParams::handeye`] and the target pose are.
@@ -205,6 +223,28 @@ pub struct HandeyeEstimate {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
+}
+impl HandeyeEstimate {
+    /// A [`HandeyeEstimate`] with the given fields.
+    pub fn new(
+        mode: HandeyeMode,
+        params: HandeyeParams,
+        uncertainty: Uncertainty,
+        report: SolveReport,
+        robot_refinement: Option<RobotRefinement>,
+        mean_reproj_error: f64,
+        per_cam_reproj_errors: Vec<f64>,
+    ) -> Self {
+        Self {
+            mode,
+            params,
+            uncertainty,
+            report,
+            robot_refinement,
+            mean_reproj_error,
+            per_cam_reproj_errors,
+        }
+    }
 }
 
 /// Apply a per-view se(3) robot pose correction `[rx, ry, rz, tx, ty, tz]` to

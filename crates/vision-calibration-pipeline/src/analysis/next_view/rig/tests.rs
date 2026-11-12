@@ -31,25 +31,27 @@ const ROBOT_ROT: f64 = 2e-4;
 const ROBOT_TRANS: f64 = 2e-4;
 
 fn cameras() -> Vec<CameraParams> {
-    let camera = |f: f64, k1: f64| CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 {
-            params: BrownConrady5 {
-                k1,
-                k2: 0.02,
-                k3: 0.0,
-                p1: 0.0005,
-                p2: -0.0003,
-                iters: 8,
+    let camera = |f: f64, k1: f64| {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
+                params: BrownConrady5 {
+                    k1,
+                    k2: 0.02,
+                    k3: 0.0,
+                    p1: 0.0005,
+                    p2: -0.0003,
+                    iters: 8,
+                },
             },
-        },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
-            fx: f,
-            fy: f,
-            cx: 640.0,
-            cy: 480.0,
-        },
+            SensorParams::Identity,
+            FxFyCxCy {
+                fx: f,
+                fy: f,
+                cx: 640.0,
+                cy: 480.0,
+            },
+        )
     };
     vec![camera(1000.0, -0.08), camera(1100.0, -0.05)]
 }

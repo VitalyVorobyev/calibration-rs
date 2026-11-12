@@ -12,12 +12,12 @@ use vision_calibration_optim::{
 };
 
 fn camera(k: FxFyCxCy<Real>, dist: BrownConrady5<Real>, sensor: SensorParams) -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: dist },
+    CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 { params: dist },
         sensor,
-        intrinsics: k,
-    }
+        k,
+    )
 }
 
 fn tilt(camera: &CameraParams) -> ScheimpflugParams {
@@ -162,11 +162,11 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         })
         .collect::<Vec<_>>();
 
-    let initial = RigExtrinsicsParams {
-        cameras: cameras_init,
-        rig_se3_cam: vec![cam0_to_rig_gt, cam1_to_rig_init],
-        rig_se3_target: rig_se3_target_init,
-    };
+    let initial = RigExtrinsicsParams::new(
+        cameras_init,
+        vec![cam0_to_rig_gt, cam1_to_rig_init],
+        rig_se3_target_init,
+    );
 
     // Break gauge: fix cam0 pose. Both cameras keep k3 fixed and solve the
     // tangential terms (the tilted camera's default would fix them).

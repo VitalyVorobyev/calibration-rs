@@ -30,21 +30,21 @@ fn model() -> CameraModelSpec {
 }
 
 fn truth() -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::from_values(
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::from_values(
             DistortionKind::KannalaBrandt4,
             &[-0.02, 0.002, -0.0001, 0.0],
         )
         .unwrap(),
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 300.0,
             fy: 302.0,
             cx: 640.0,
             cy: 400.0,
         },
-    }
+    )
 }
 
 fn assert_recovered(camera: &CameraParams, stage: &str) {

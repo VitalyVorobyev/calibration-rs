@@ -251,6 +251,7 @@ pub fn compute_rig_laserline_feature_residuals(
 
 /// Result of rig-level laserline calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigLaserlineEstimate {
     /// Per-camera laser plane expressed in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
@@ -974,12 +975,12 @@ mod tests {
         }
 
         let dataset = RigLaserlineDataset::new(views, 2).unwrap();
-        let camera = vision_calibration_core::CameraParams {
-            projection: vision_calibration_core::ProjectionParams::Pinhole,
-            distortion: vision_calibration_core::DistortionParams::BrownConrady5 { params: dist },
-            sensor: vision_calibration_core::SensorParams::Scheimpflug { params: sensor },
-            intrinsics: intr,
-        };
+        let camera = vision_calibration_core::CameraParams::new(
+            vision_calibration_core::ProjectionParams::Pinhole,
+            vision_calibration_core::DistortionParams::BrownConrady5 { params: dist },
+            vision_calibration_core::SensorParams::Scheimpflug { params: sensor },
+            intr,
+        );
         let upstream = RigLaserlineUpstream {
             cameras: vec![camera.clone(), camera],
             rig_se3_cam: rig_se3_cam.to_vec(),

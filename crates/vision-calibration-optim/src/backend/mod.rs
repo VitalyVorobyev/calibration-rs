@@ -34,6 +34,7 @@ use tiny_solver_backend::TinySolverBackend;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SolverBackend {
     /// `tiny-solver`: dynamic-size forward-mode dual numbers; a robust loss
     /// enters through the Triggs correction (second-order exact).
@@ -83,6 +84,7 @@ impl Default for BackendSolveOptions {
 /// Summary of backend solve outcome.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct SolveReport {
     /// The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual
     /// blocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without
@@ -91,6 +93,15 @@ pub struct SolveReport {
     /// Number of outer solver iterations executed.
     #[serde(default)]
     pub num_iters: usize,
+}
+impl SolveReport {
+    /// A [`SolveReport`] with the given fields.
+    pub fn new(final_cost: f64, num_iters: usize) -> Self {
+        Self {
+            final_cost,
+            num_iters,
+        }
+    }
 }
 
 /// Solver output from a backend.

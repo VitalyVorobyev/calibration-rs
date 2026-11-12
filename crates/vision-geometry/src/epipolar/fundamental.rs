@@ -490,14 +490,12 @@ mod tests {
             Pt2::new(300.0, 10.0),
         ]);
 
-        let opts = RansacOptions {
-            max_iters: 500,
-            thresh: 1e-3,
-            min_inliers: inlier_count.saturating_sub(2),
-            confidence: 0.99,
-            seed: 123,
-            refit_on_inliers: true,
-        };
+        let opts = RansacOptions::new(1e-3)
+            .with_max_iters(500)
+            .with_min_inliers(inlier_count.saturating_sub(2))
+            .with_confidence(0.99)
+            .with_seed(123)
+            .with_refit_on_inliers(true);
 
         let (f, inliers) = fundamental_8point_ransac(&pts1, &pts2, &opts).unwrap();
 

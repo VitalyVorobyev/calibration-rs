@@ -33,6 +33,7 @@ pub use vision_calibration_dataset::{
 
 /// Failures when deriving seeds from a [`DeviceSpec`].
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DeviceSeedError {
     /// The spec has no camera with the requested id.
     #[error("device spec has no camera with id `{id}`")]

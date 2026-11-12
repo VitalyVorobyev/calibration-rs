@@ -43,12 +43,12 @@ let spec = CameraModelSpec::new(
     DistortionKind::KannalaBrandt4,
     SensorKind::Identity,
 );
-let camera = CameraParams {
-    projection: ProjectionParams::Equidistant,
-    distortion: DistortionParams::from_values(spec.distortion, &[-0.02, 0.002, 0.0, 0.0])?,
-    sensor: SensorParams::Identity,
-    intrinsics: FxFyCxCy { fx: 300.0, fy: 300.0, cx: 640.0, cy: 400.0 },
-};
+let camera = CameraParams::new(
+    ProjectionParams::Equidistant,
+    DistortionParams::from_values(spec.distortion, &[-0.02, 0.002, 0.0, 0.0])?,
+    SensorParams::Identity,
+    FxFyCxCy { fx: 300.0, fy: 300.0, cx: 640.0, cy: 400.0 },
+);
 let model = camera.build()?;
 ```
 

@@ -637,23 +637,20 @@ mod tests {
             vision_calibration_core::BrownConrady5::default(),
         );
 
-        HandeyeEstimate {
-            mode: HandeyeMode::EyeInHand,
-            params: HandeyeParams {
-                cameras: vec![vision_calibration_core::pinhole_camera_params(&camera)],
-                rig_se3_cam: vec![Iso3::identity()],
-                handeye: Iso3::identity(),
-                target_poses: vec![Iso3::identity()],
-            },
-            uncertainty: Default::default(),
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
-            robot_refinement: None,
-            mean_reproj_error: 0.0,
-            per_cam_reproj_errors: vec![0.0],
-        }
+        HandeyeEstimate::new(
+            HandeyeMode::EyeInHand,
+            HandeyeParams::new(
+                vec![vision_calibration_core::pinhole_camera_params(&camera)],
+                vec![Iso3::identity()],
+                Iso3::identity(),
+                vec![Iso3::identity()],
+            ),
+            Default::default(),
+            SolveReport::new(0.0, 0),
+            None,
+            0.0,
+            vec![0.0],
+        )
     }
 
     #[test]

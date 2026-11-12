@@ -200,6 +200,7 @@ fn percentile_linear(sorted: &[f64], q: f64) -> f64 {
 
 /// One constraint level of a [`ReprojReport`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LevelReport {
     /// Which constraint level produced these residuals.
     pub level: ReprojLevel,
@@ -212,6 +213,24 @@ pub struct LevelReport {
     pub per_view: Vec<LevelStats>,
     /// Per-corner residual records for this level.
     pub residuals: Vec<TargetFeatureResidual>,
+}
+impl LevelReport {
+    /// A [`LevelReport`] with the given fields.
+    pub fn new(
+        level: ReprojLevel,
+        overall: LevelStats,
+        per_camera: Vec<LevelStats>,
+        per_view: Vec<LevelStats>,
+        residuals: Vec<TargetFeatureResidual>,
+    ) -> Self {
+        Self {
+            level,
+            overall,
+            per_camera,
+            per_view,
+            residuals,
+        }
+    }
 }
 
 impl LevelReport {
@@ -264,6 +283,7 @@ impl LevelReport {
 /// A hierarchical reprojection-error report: one [`LevelReport`] per constraint
 /// level, plus a single headline number.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ReprojReport {
     /// The most-constrained level's `overall.mean` (pixels): `Handeye` if
     /// present, else `RigExtrinsic`, else `Intrinsic`. Equals the calibration's
@@ -272,15 +292,34 @@ pub struct ReprojReport {
     /// Levels, ordered least-constrained first.
     pub levels: Vec<LevelReport>,
 }
+impl ReprojReport {
+    /// A [`ReprojReport`] with the given fields.
+    pub fn new(headline_px: f64, levels: Vec<LevelReport>) -> Self {
+        Self {
+            headline_px,
+            levels,
+        }
+    }
+}
 
 /// Rig-stage poses used to evaluate a rig-hand-eye solve before the robot /
 /// hand-eye chain constrains the target pose.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigStageReprojection {
     /// Per-camera extrinsics `cam_se3_rig` (`T_C_R`) from rig BA.
     pub cam_se3_rig: Vec<Iso3>,
     /// Per-view target poses `rig_se3_target` (`T_R_T`) from rig BA.
     pub rig_se3_target: Vec<Iso3>,
+}
+impl RigStageReprojection {
+    /// A [`RigStageReprojection`] with the given fields.
+    pub fn new(cam_se3_rig: Vec<Iso3>, rig_se3_target: Vec<Iso3>) -> Self {
+        Self {
+            cam_se3_rig,
+            rig_se3_target,
+        }
+    }
 }
 
 impl ReprojReport {

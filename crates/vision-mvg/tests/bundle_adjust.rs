@@ -77,9 +77,9 @@ fn pinhole(fx: f64) -> CameraParams {
 }
 
 fn fisheye() -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: 0.02,
                 k2: -0.002,
@@ -88,14 +88,14 @@ fn fisheye() -> CameraParams {
                 iters: 0,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 300.0,
             fy: 300.0,
             cx: 640.0,
             cy: 480.0,
         },
-    }
+    )
 }
 
 fn rig_of(a: CameraParams, b: CameraParams, uncertainty: Uncertainty) -> CalibratedRig {

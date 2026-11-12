@@ -95,9 +95,9 @@ fn eye_in_hand_scheimpflug_converges() {
     let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
 
     // The sensor tilt starts at zero.
-    let cameras_init = vec![CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 {
+    let cameras_init = vec![CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 {
             params: BrownConrady5 {
                 k1: -0.18,
                 k2: 0.03,
@@ -107,27 +107,27 @@ fn eye_in_hand_scheimpflug_converges() {
                 iters: 8,
             },
         },
-        sensor: SensorParams::Scheimpflug {
+        SensorParams::Scheimpflug {
             params: ScheimpflugParams::default(),
         },
-        intrinsics: FxFyCxCy {
+        FxFyCxCy {
             fx: 810.0,
             fy: 790.0,
             cx: 645.0,
             cy: 365.0,
         },
-    }];
+    )];
     let handeye_init = Isometry3::from_parts(
         Translation3::new(0.048, 0.032, 0.148),
         Rotation3::from_euler_angles(0.098, -0.048, 0.148).into(),
     );
 
-    let initial = HandeyeParams {
-        cameras: cameras_init,
-        rig_se3_cam: vec![rig_se3_cam_gt],
-        handeye: handeye_init,
-        target_poses: vec![Isometry3::identity()],
-    };
+    let initial = HandeyeParams::new(
+        cameras_init,
+        vec![rig_se3_cam_gt],
+        handeye_init,
+        vec![Isometry3::identity()],
+    );
 
     // The tangential terms are solved (a tilted sensor's default fixes them).
     let opts = HandeyeSolveOptions {

@@ -485,14 +485,12 @@ mod tests {
         w_all.push(Pt2::new(-0.2, 0.3));
         img_all.push(Pt2::new(-5.0, 7.0));
 
-        let opts = RansacOptions {
-            max_iters: 200,
-            thresh: 0.1,
-            min_inliers: 4,
-            confidence: 0.99,
-            seed: 7,
-            refit_on_inliers: true,
-        };
+        let opts = RansacOptions::new(0.1)
+            .with_max_iters(200)
+            .with_min_inliers(4)
+            .with_confidence(0.99)
+            .with_seed(7)
+            .with_refit_on_inliers(true);
 
         let (h, inliers) = dlt_homography_ransac(&w_all, &img_all, &opts).unwrap();
 

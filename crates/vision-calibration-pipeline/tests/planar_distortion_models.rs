@@ -82,7 +82,7 @@ fn assert_projection_uncertainty(export: &impl CalibratedCameras) {
 /// The export, read back from its JSON as its cameras, names the same
 /// parameter values its camera has.
 fn assert_camera_parameters_from_json(export: &impl serde::Serialize, fx: f64) {
-    let cameras = calibrated_cameras(serde_json::to_value(export).unwrap()).unwrap();
+    let cameras = calibrated_cameras(&serde_json::to_string(&export).unwrap()).unwrap();
     assert_eq!(cameras.camera_parameter("fx"), Some(fx));
     assert_eq!(cameras.camera_parameter("cam_se3_target.rx"), None);
     assert_eq!(cameras.camera_parameter("cam1.fx"), None);

@@ -12,15 +12,12 @@ use vision_calibration_core::{
 
 /// A pinhole camera with Brown-Conrady distortion and a tilted sensor.
 fn scheimpflug_params() -> CameraParams {
-    CameraParams {
-        sensor: SensorParams::Scheimpflug {
-            params: ScheimpflugParams {
-                tilt_x: 0.03,
-                tilt_y: -0.02,
-            },
+    pinhole_params(-0.12).with_sensor(SensorParams::Scheimpflug {
+        params: ScheimpflugParams {
+            tilt_x: 0.03,
+            tilt_y: -0.02,
         },
-        ..pinhole_params(-0.12)
-    }
+    })
 }
 
 /// `camera` with its parameters replaced by the flat vector `theta`.
@@ -29,17 +26,17 @@ fn with_theta(camera: &CameraParams, theta: &[f64]) -> CameraParams {
     let (i, rest) = theta.split_at(blocks[0].len());
     let (p, rest) = rest.split_at(blocks[1].len());
     let (d, s) = rest.split_at(blocks[2].len());
-    CameraParams {
-        projection: ProjectionParams::from_values(camera.projection.kind(), p).unwrap(),
-        distortion: DistortionParams::from_values(camera.distortion.kind(), d).unwrap(),
-        sensor: SensorParams::from_values(camera.sensor.kind().unwrap(), s).unwrap(),
-        intrinsics: FxFyCxCy {
+    CameraParams::new(
+        ProjectionParams::from_values(camera.projection.kind(), p).unwrap(),
+        DistortionParams::from_values(camera.distortion.kind(), d).unwrap(),
+        SensorParams::from_values(camera.sensor.kind().unwrap(), s).unwrap(),
+        FxFyCxCy {
             fx: i[0],
             fy: i[1],
             cx: i[2],
             cy: i[3],
         },
-    }
+    )
 }
 
 fn theta_labels(camera: &CameraParams) -> Vec<String> {

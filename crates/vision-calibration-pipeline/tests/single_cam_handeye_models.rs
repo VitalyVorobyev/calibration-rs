@@ -87,17 +87,17 @@ fn input(camera: &CameraParams) -> SingleCamHandeyeInput {
 }
 
 fn truth(distortion: DistortionParams, sensor: SensorParams) -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
+    CameraParams::new(
+        ProjectionParams::Pinhole,
         distortion,
         sensor,
-        intrinsics: FxFyCxCy {
+        FxFyCxCy {
             fx: 800.0,
             fy: 790.0,
             cx: 640.0,
             cy: 360.0,
         },
-    }
+    )
 }
 
 fn brown_conrady() -> DistortionParams {

@@ -87,6 +87,7 @@ impl CalibrationConfig {
             ProblemKind::RigHandeye => Self::RigHandeye(Default::default()),
             ProblemKind::RigLaserlineDevice => Self::RigLaserlineDevice(Default::default()),
             ProblemKind::RigHandeyeLaserline => Self::RigHandeyeLaserline(Default::default()),
+            other => unreachable!("{other:?} has no problem type in this version"),
         }
     }
 

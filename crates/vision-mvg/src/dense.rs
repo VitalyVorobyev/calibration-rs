@@ -151,6 +151,7 @@ impl GrayImage {
 /// test validity; never compare disparity values with `!=` or `<` directly
 /// because those comparisons return `false` for `NaN`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DisparityMap {
     width: usize,
     height: usize,
@@ -253,6 +254,7 @@ impl DisparityMap {
 
 /// Options controlling [`match_block`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BlockMatchOptions {
     /// Minimum disparity searched, in pixels (usually `0`).
     pub min_disparity: i32,

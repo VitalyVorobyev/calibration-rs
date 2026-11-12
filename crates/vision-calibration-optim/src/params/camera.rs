@@ -266,18 +266,12 @@ pub(crate) fn unpack_camera(
             Ok(block(slot)?.as_slice().to_vec())
         }
     };
-    Ok(CameraParams {
-        intrinsics: unpack_intrinsics(block("cam")?.as_view())?,
-        projection: ProjectionParams::from_values(
-            spec.projection,
-            &values("proj", spec.projection.dim())?,
-        )?,
-        distortion: DistortionParams::from_values(
-            spec.distortion,
-            &values("dist", spec.distortion.dim())?,
-        )?,
-        sensor: SensorParams::from_values(spec.sensor, &values("sensor", spec.sensor.dim())?)?,
-    })
+    Ok(CameraParams::new(
+        ProjectionParams::from_values(spec.projection, &values("proj", spec.projection.dim())?)?,
+        DistortionParams::from_values(spec.distortion, &values("dist", spec.distortion.dim())?)?,
+        SensorParams::from_values(spec.sensor, &values("sensor", spec.sensor.dim())?)?,
+        unpack_intrinsics(block("cam")?.as_view())?,
+    ))
 }
 
 /// The values of a camera's blocks in factor order (`[intrinsics,
@@ -320,9 +314,9 @@ mod tests {
     };
 
     fn camera(sensor: SensorParams) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1: -0.1,
                     k2: 0.02,
@@ -333,13 +327,13 @@ mod tests {
                 },
             },
             sensor,
-            intrinsics: FxFyCxCy {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 790.0,
                 cx: 320.0,
                 cy: 240.0,
             },
-        }
+        )
     }
 
     #[test]

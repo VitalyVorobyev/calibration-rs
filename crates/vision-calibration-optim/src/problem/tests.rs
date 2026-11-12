@@ -567,9 +567,9 @@ pub(super) struct Scene {
 }
 
 pub(super) fn scene(noise: f64) -> Scene {
-    let camera = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 {
+    let camera = CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 {
             params: BrownConrady5 {
                 k1: -0.12,
                 k2: 0.03,
@@ -579,14 +579,14 @@ pub(super) fn scene(noise: f64) -> Scene {
                 iters: 8,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 820.0,
             fy: 810.0,
             cx: 640.0,
             cy: 360.0,
         },
-    };
+    );
     let board = grid_points(9, 6, 0.03);
     let poses = tilted_board_poses(&seeded_tilts(8, 0.4, 7), (0.12, 0.075), 0.45, 0.02);
     let model = camera.build().unwrap();

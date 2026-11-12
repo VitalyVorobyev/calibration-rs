@@ -11,12 +11,11 @@ use vision_calibration::mvg::dense::{match_block, BlockMatchOptions, GrayImage};
 
 // `left` / `right` are rectified grayscale images: `rect.rectify_image(0, ..)?`
 // and `rect.rectify_image(1, ..)?` of the raw pair (see Stereo from a Calibration).
-let disp = match_block(&left, &right, &BlockMatchOptions {
-    min_disparity: 0,
-    num_disparities: 64,   // search [min, min + num)
-    block_size: 9,         // odd; larger = smoother, fewer matches near edges
-    ..Default::default()
-})?;
+let mut options = BlockMatchOptions::default();
+options.min_disparity = 0;
+options.num_disparities = 64; // search [min, min + num)
+options.block_size = 9;       // odd; larger = smoother, fewer matches near edges
+let disp = match_block(&left, &right, &options)?;
 // disp.get(x, y) is x_left − x_right in pixels, or NaN where the matcher abstains.
 ```
 

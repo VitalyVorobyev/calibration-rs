@@ -26,6 +26,7 @@ pub type RigExtrinsicsDataset = RigDataset<NoMeta>;
 
 /// Result of rig extrinsics optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigExtrinsicsParams {
     /// Per-camera calibrated parameters, each in its own model.
     pub cameras: Vec<CameraParams>,
@@ -34,9 +35,24 @@ pub struct RigExtrinsicsParams {
     /// Per-view target poses in the rig frame (`rig_se3_target`, `T_R_T`).
     pub rig_se3_target: Vec<Iso3>,
 }
+impl RigExtrinsicsParams {
+    /// A [`RigExtrinsicsParams`] with the given fields.
+    pub fn new(
+        cameras: Vec<CameraParams>,
+        rig_se3_cam: Vec<Iso3>,
+        rig_se3_target: Vec<Iso3>,
+    ) -> Self {
+        Self {
+            cameras,
+            rig_se3_cam,
+            rig_se3_target,
+        }
+    }
+}
 
 /// Output of rig extrinsics optimization.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigExtrinsicsEstimate {
     /// Refined rig extrinsics parameters.
     pub params: RigExtrinsicsParams,
@@ -49,6 +65,24 @@ pub struct RigExtrinsicsEstimate {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
+}
+impl RigExtrinsicsEstimate {
+    /// A [`RigExtrinsicsEstimate`] with the given fields.
+    pub fn new(
+        params: RigExtrinsicsParams,
+        uncertainty: Uncertainty,
+        report: SolveReport,
+        mean_reproj_error: f64,
+        per_cam_reproj_errors: Vec<f64>,
+    ) -> Self {
+        Self {
+            params,
+            uncertainty,
+            report,
+            mean_reproj_error,
+            per_cam_reproj_errors,
+        }
+    }
 }
 
 /// Solve options for rig extrinsics.

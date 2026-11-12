@@ -319,9 +319,9 @@ mod tests {
     };
 
     fn camera(fx: f64, k1: f64) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1,
                     k2: 0.0,
@@ -331,14 +331,14 @@ mod tests {
                     iters: 8,
                 },
             },
-            sensor: SensorParams::Identity,
-            intrinsics: FxFyCxCy {
+            SensorParams::Identity,
+            FxFyCxCy {
                 fx,
                 fy: fx,
                 cx: 320.0,
                 cy: 240.0,
             },
-        }
+        )
     }
 
     #[test]

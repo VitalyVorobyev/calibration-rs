@@ -154,17 +154,17 @@ fn main() -> Result<()> {
 fn camera_params(intr: &RefIntrinsic) -> Result<CameraParams> {
     let m = &intr.matrix;
     let (distortion, tilt) = split_opencv_distortion(&intr.distortion)?;
-    Ok(CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: distortion },
-        sensor: SensorParams::Scheimpflug { params: tilt },
-        intrinsics: FxFyCxCy {
+    Ok(CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 { params: distortion },
+        SensorParams::Scheimpflug { params: tilt },
+        FxFyCxCy {
             fx: m[0][0],
             fy: m[1][1],
             cx: m[0][2],
             cy: m[1][2],
         },
-    })
+    ))
 }
 
 /// A spread of 3-D points (camera-0 frame, metres) near the rig's working

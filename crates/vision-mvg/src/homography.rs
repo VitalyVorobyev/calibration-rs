@@ -13,6 +13,7 @@ use vision_calibration_core::{Mat3, Pt2, Real, Vec3};
 
 /// Result of decomposing a homography into motion and plane normal.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HomographyDecomposition {
     /// Rotation from view 1 to view 2.
     pub r: Mat3,

@@ -59,9 +59,9 @@ impl Rng {
 
 /// A 300 px/rad equidistant fisheye with Kannala-Brandt distortion.
 fn fisheye() -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: 0.02,
                 k2: -0.002,
@@ -70,14 +70,14 @@ fn fisheye() -> CameraParams {
                 iters: 0,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 300.0,
             fy: 300.0,
             cx: 640.0,
             cy: 480.0,
         },
-    }
+    )
 }
 
 /// An 800 px pinhole with barrel distortion.
@@ -164,12 +164,10 @@ impl Scene {
 }
 
 fn ransac() -> RansacOptions {
-    RansacOptions {
-        max_iters: 200,
-        min_inliers: 60,
-        seed: 3,
-        ..RansacOptions::new(5.0)
-    }
+    RansacOptions::new(5.0)
+        .with_max_iters(200)
+        .with_min_inliers(60)
+        .with_seed(3)
 }
 
 /// An orthonormal basis of the plane perpendicular to the unit `t`.

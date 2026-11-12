@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **Public types are `#[non_exhaustive]`; foreign error types are no longer
+  exposed** (breaking). The library's signatures name only its own types and
+  `nalgebra`:
+  - `Error::Serde`, `DeviceSpecError::Json`, `RunError::BadGlob` and
+    `RunError::Decode` carry the rendered message (and the path or pattern)
+    as a `String`, no longer a `serde_json`, `glob` or `image` error.
+  - `common::calibrated_cameras`, `common::check_export_version` and
+    `common::read_export` take the export's JSON text (`&str`) instead of a
+    `serde_json::Value`: pass `&std::fs::read_to_string(path)?` or
+    `&value.to_string()`.
+  - Enums that will grow a variant need a `_` arm in a `match`:
+    `UncertaintyUnavailable`, `ResidualKind`, `FrameKind`, `ProblemKind`,
+    `RobustLoss`, `SolverBackend`, `LaserlineResidualType`, `RobotPose`
+    (information), `Detection`, the manifest enums (`TargetSpec`,
+    `ImagePattern`, `PosePairing`, `RobotPoseFormat`, `RotationFormat`,
+    `TransformConvention`, `TranslationUnits`, `CornerStrategySpec`,
+    `ImageNoiseSpec`), `CornerStrategy`, `ImageNoise` and the error enums
+    (`RunError`, `DeviceSeedError`, `DeviceSpecError`, `SniffError`,
+    `CacheError`, `ValidationError`). `RunError` gains
+    `UnsupportedOption` for a manifest value this version does not support.
+  - Result structs can no longer be built with a struct literal outside the
+    library, and a pattern over them needs `..`: `CameraParams`, the
+    `*Estimate` and `*Params` of the optimization problems, `SolveReport`,
+    `LaserlineStats`, `RobotPoseSigma`, `RobotRefinement`,
+    `ProjectionUncertainty`, `LevelReport`, `ReprojReport`,
+    `RigStageReprojection`, and the multiple-view results (`RelativePose`,
+    `SceneDiagnostics`, `HomographyEstimate`, `HomographyDecomposition`,
+    `StereoRectification`, `RectifiedMatch`, `DisparityMap`, `DenseCloud`,
+    `DensePoint`, `TriangulatedPoint`). Build them with `Type::new(..)`;
+    `CameraParams` also has `with_projection`, `with_distortion`,
+    `with_sensor` and `with_intrinsics` to change one part.
+  - `RansacOptions` is built with `RansacOptions::new(thresh)` and the
+    `with_max_iters`, `with_min_inliers`, `with_confidence`, `with_seed` and
+    `with_refit_on_inliers` methods, no longer with `..RansacOptions::new(t)`.
+    `BlockMatchOptions` is built from `BlockMatchOptions::default()` by
+    assigning the fields to change.
+
 - **Exports and manifests carry their format version** (breaking). Every
   `*Export` has a required `schema_version` right after `kind`, `1` for all
   seven; an export without it, or with another number, is rejected with an

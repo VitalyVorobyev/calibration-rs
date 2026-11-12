@@ -18,15 +18,16 @@ use rand::{SeedableRng, rngs::StdRng};
 ///
 /// There is deliberately no `Default`: the inlier threshold has no unit-free
 /// default. Build options with [`RansacOptions::new`] and override other
-/// fields with struct-update syntax:
+/// fields with the `with_*` methods:
 ///
 /// ```
 /// use vision_calibration_core::RansacOptions;
-/// let opts = RansacOptions { max_iters: 500, ..RansacOptions::new(2.0) };
+/// let opts = RansacOptions::new(2.0).with_max_iters(500);
 /// assert_eq!(opts.thresh, 2.0);
 /// ```
 #[doc(hidden)]
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RansacOptions {
     /// Maximum number of RANSAC iterations.
     pub max_iters: usize,
@@ -67,6 +68,41 @@ impl RansacOptions {
             seed: 1_234_567,
             refit_on_inliers: true,
         }
+    }
+
+    /// These options with `max_iters` replaced.
+    #[must_use]
+    pub fn with_max_iters(mut self, max_iters: usize) -> Self {
+        self.max_iters = max_iters;
+        self
+    }
+
+    /// These options with `min_inliers` replaced.
+    #[must_use]
+    pub fn with_min_inliers(mut self, min_inliers: usize) -> Self {
+        self.min_inliers = min_inliers;
+        self
+    }
+
+    /// These options with `confidence` replaced.
+    #[must_use]
+    pub fn with_confidence(mut self, confidence: f64) -> Self {
+        self.confidence = confidence;
+        self
+    }
+
+    /// These options with the random-number generator `seed` replaced.
+    #[must_use]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// These options with `refit_on_inliers` replaced.
+    #[must_use]
+    pub fn with_refit_on_inliers(mut self, refit_on_inliers: bool) -> Self {
+        self.refit_on_inliers = refit_on_inliers;
+        self
     }
 
     /// Check that the options are usable: `thresh` finite and positive,
@@ -428,14 +464,12 @@ mod tests {
     }
 
     fn default_opts() -> RansacOptions {
-        RansacOptions {
-            max_iters: 500,
-            thresh: 0.05,
-            min_inliers: 6,
-            confidence: 0.99,
-            seed: 42,
-            refit_on_inliers: true,
-        }
+        RansacOptions::new(0.05)
+            .with_max_iters(500)
+            .with_min_inliers(6)
+            .with_confidence(0.99)
+            .with_seed(42)
+            .with_refit_on_inliers(true)
     }
 
     #[test]

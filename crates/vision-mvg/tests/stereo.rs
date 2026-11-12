@@ -55,9 +55,9 @@ fn brown_conrady(fx: f64, fy: f64, cx: f64, cy: f64) -> CameraParams {
 }
 
 fn fisheye(f: f64, cx: f64, cy: f64) -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: 0.02,
                 k2: -0.002,
@@ -66,14 +66,14 @@ fn fisheye(f: f64, cx: f64, cy: f64) -> CameraParams {
                 iters: 0,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: f,
             fy: f,
             cx,
             cy,
         },
-    }
+    )
 }
 
 fn scheimpflug(fx: f64, cx: f64, tilt: ScheimpflugParams) -> CameraParams {

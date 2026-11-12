@@ -162,18 +162,17 @@ fn run_solve(
     poses: &[Iso3],
 ) -> (PlanarIntrinsicsParams, f64) {
     let initial = PlanarIntrinsicsParams::new(
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: seed_distortion,
-            // Seed the tilt near GT (mount angle is known on the supported path).
-            sensor: SensorParams::Scheimpflug {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            seed_distortion,
+            SensorParams::Scheimpflug {
                 params: ScheimpflugParams {
                     tilt_x: 0.04,
                     tilt_y: -0.015,
                 },
             },
-            intrinsics: seed_intrinsics(),
-        },
+            seed_intrinsics(),
+        ),
         poses.to_vec(),
     )
     .expect("valid seed");

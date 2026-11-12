@@ -561,20 +561,19 @@ fn rejects_general_homography_sensor() {
         dataset, poses_gt, ..
     } = build_synthetic_scenario(0.0);
 
-    let bad_camera = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::None,
-        // identity-valued homography, but still a non-Identity sensor variant
-        sensor: SensorParams::Homography {
+    let bad_camera = CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::None,
+        SensorParams::Homography {
             h: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         },
-        intrinsics: FxFyCxCy {
+        FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
         },
-    };
+    );
     let init = PlanarIntrinsicsParams::new(bad_camera, poses_gt).unwrap();
     let err = optimize_planar_intrinsics(
         &dataset,

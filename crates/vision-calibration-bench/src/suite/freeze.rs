@@ -86,6 +86,7 @@ pub fn freeze_manifest(
         | ProblemKind::RigHandeyeLaserline => {
             bail!("freezing {:?} needs a laser-line extractor", spec.topology)
         }
+        other => bail!("freezing {other:?} is not supported"),
     };
 
     let cameras = spec

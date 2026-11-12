@@ -1362,10 +1362,10 @@ pub mod tier_b {
 
         // Hierarchical report: Intrinsic floor (free per-(cam,view) PnP) +
         // Handeye level (board pose through the robot + hand-eye chain).
-        let rig_stage = RigStageReprojection {
-            cam_se3_rig: rig_stage_output.cam_se3_rig,
-            rig_se3_target: rig_stage_output.rig_se3_target,
-        };
+        let rig_stage = RigStageReprojection::new(
+            rig_stage_output.cam_se3_rig,
+            rig_stage_output.rig_se3_target,
+        );
         let (reproj_report, residual_sidecar) = split_reproj_report(
             entry,
             rig_handeye_report_with_rig_stage(&export, &dataset_for_report, &rig_stage).ok(),
@@ -1610,12 +1610,12 @@ pub mod tier_b {
         poses: Vec<Iso3>,
     ) -> Result<PlanarIntrinsicsParams> {
         PlanarIntrinsicsParams::new(
-            CameraParams {
-                projection: ProjectionParams::Pinhole,
-                distortion: DistortionParams::BrownConrady5 { params: distortion },
-                sensor: SensorParams::Scheimpflug { params: sensor },
+            CameraParams::new(
+                ProjectionParams::Pinhole,
+                DistortionParams::BrownConrady5 { params: distortion },
+                SensorParams::Scheimpflug { params: sensor },
                 intrinsics,
-            },
+            ),
             poses,
         )
         .map_err(|e| anyhow::anyhow!("{e}"))
@@ -2162,6 +2162,7 @@ pub mod tier_b {
             TargetSpec::Charuco { .. } => "charuco",
             TargetSpec::Puzzleboard { .. } => "puzzleboard",
             TargetSpec::Ringgrid { .. } => "ringgrid",
+            _ => "unknown",
         }
     }
 
@@ -2634,13 +2635,13 @@ pub mod tier_b {
 
         let handeye = *rig_export.handeye.handeye().pose();
         let target_ref = *rig_export.handeye.target_pose();
-        let joint_initial = RigHandeyeLaserlineParams {
-            cameras: rig_export.cameras.clone(),
-            rig_se3_cam: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
+        let joint_initial = RigHandeyeLaserlineParams::new(
+            rig_export.cameras.clone(),
+            rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
             handeye,
             target_ref,
-            laser_planes_cam: laser_export.laser_planes_cam.clone(),
-        };
+            laser_export.laser_planes_cam.clone(),
+        );
 
         // Intrinsics and the low-order radial terms free; k3, the tangential
         // terms and any sensor tilt held.
@@ -2783,10 +2784,7 @@ pub mod tier_b {
     /// `Fit`; this keeps `Convergence.report` populated without inventing
     /// solver internals.
     fn synth_report(mean_reproj_px: f64) -> SolveReport {
-        SolveReport {
-            final_cost: mean_reproj_px,
-            num_iters: 0,
-        }
+        SolveReport::new(mean_reproj_px, 0)
     }
 
     fn artifacts_from_planar(
@@ -3151,10 +3149,7 @@ pub mod tier_b {
                         stats: stats.clone(),
                         solver_mean_reproj_error: stats.mean,
                         mean_crosscheck_abs_diff: 0.0,
-                        solve_report: SolveReport {
-                            final_cost: 1.0,
-                            num_iters: 3,
-                        },
+                        solve_report: SolveReport::new(1.0, 3),
                         note: None,
                     },
                     diagnostic_cases: Vec::new(),

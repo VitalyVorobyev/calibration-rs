@@ -9,6 +9,7 @@ use thiserror::Error;
 
 /// Validation failure modes.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum ValidationError {
     /// The manifest declares a format version this build does not read.
     #[error("unsupported manifest version {got} (supported: {supported})")]

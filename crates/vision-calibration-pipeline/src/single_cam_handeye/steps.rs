@@ -584,12 +584,12 @@ pub fn step_handeye_optimize(
     let dataset = HandeyeDataset::new(views, 1, config.handeye_init.handeye_mode)?;
 
     // Build initial params
-    let initial = HandeyeParams {
-        cameras: vec![camera],
-        rig_se3_cam: vec![Iso3::identity()], // Single cam = rig frame
+    let initial = HandeyeParams::new(
+        vec![camera],
+        vec![Iso3::identity()], // Single cam = rig frame
         handeye,
-        target_poses: vec![target_pose],
-    };
+        vec![target_pose],
+    );
 
     // The camera is the rig: its extrinsics stay the identity.
     let solve_opts = handeye_solve_opts(

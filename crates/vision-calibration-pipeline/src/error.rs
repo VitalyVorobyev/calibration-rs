@@ -52,9 +52,10 @@ pub enum Error {
         expected: u32,
     },
 
-    /// Error propagated from a JSON serialization/deserialization step.
+    /// A JSON serialization or deserialization step failed; the message
+    /// is the parser's own description, with the position when it has one.
     #[error("serialization error: {0}")]
-    Serde(#[from] serde_json::Error),
+    Serde(String),
 
     /// Error propagated from the core crate.
     #[error(transparent)]
@@ -92,6 +93,11 @@ impl From<vision_calibration_core::Cancelled> for Error {
 }
 
 impl Error {
+    /// A JSON failure as [`Error::Serde`], keeping its rendered message.
+    pub(crate) fn serde(err: serde_json::Error) -> Self {
+        Self::Serde(err.to_string())
+    }
+
     /// Construct an [`Error::InvalidInput`] with the given reason.
     pub(crate) fn invalid_input(reason: impl Into<String>) -> Self {
         Self::InvalidInput {

@@ -25,6 +25,7 @@ use schemars::JsonSchema;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum CornerStrategy {
     /// The ChESS response ([`default_chess_config`]). Fast; the default.
     #[default]
@@ -105,6 +106,7 @@ pub struct CornerCovariance {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ImageNoise {
     /// Estimate the noise from each image. Unreliable on JPEG or demosaiced
     /// images, where a corner then reports no covariance.

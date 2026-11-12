@@ -13,7 +13,7 @@ use vision_calibration_optim::{
 };
 
 use crate::Error;
-use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_export};
+use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_export_value};
 use crate::laserline_device::LaserlineDeviceExport;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
@@ -174,25 +174,28 @@ pub(crate) fn split_camera_label(label: &str) -> (usize, &str) {
         .unwrap_or((0, label))
 }
 
-/// The export a JSON value holds, by its `kind` field, as its cameras.
+/// The export the JSON text `json` holds, by its `kind` field, as its
+/// cameras.
 ///
 /// # Errors
 ///
-/// [`Error::Serde`] when the value has no known `kind` or does not
+/// [`Error::Serde`] when `json` is not JSON, has no known `kind` or does not
 /// deserialize as that export; [`Error::UnsupportedExportVersion`] when its
 /// `schema_version` is not the one this library reads.
-pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn CalibratedCameras>, Error> {
+pub fn calibrated_cameras(json: &str) -> Result<Box<dyn CalibratedCameras>, Error> {
     fn typed<T: CalibratedCameras + VersionedExport + DeserializeOwned + 'static>(
         export: serde_json::Value,
     ) -> Result<Box<dyn CalibratedCameras>, Error> {
-        Ok(Box::new(read_export::<T>(export)?))
+        Ok(Box::new(read_export_value::<T>(export)?))
     }
+    let export: serde_json::Value = serde_json::from_str(json).map_err(Error::serde)?;
     let kind: ProblemKind = serde_json::from_value(
         export
             .get("kind")
             .cloned()
             .unwrap_or(serde_json::Value::Null),
-    )?;
+    )
+    .map_err(Error::serde)?;
     match kind {
         ProblemKind::PlanarIntrinsics => typed::<PlanarIntrinsicsExport>(export),
         ProblemKind::SingleCamHandeye => typed::<SingleCamHandeyeExport>(export),
@@ -201,6 +204,9 @@ pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn Calibrate
         ProblemKind::RigHandeye => typed::<RigHandeyeExport>(export),
         ProblemKind::RigLaserlineDevice => typed::<RigLaserlineDeviceExport>(export),
         ProblemKind::RigHandeyeLaserline => typed::<RigHandeyeLaserlineExport>(export),
+        other => Err(Error::invalid_input(format!(
+            "export kind {other:?} is not supported by this version"
+        ))),
     }
 }
 

@@ -464,7 +464,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// Returns an error if serialization fails.
     pub fn to_json(&self) -> Result<String, Error> {
         // Pin metadata identity/version to the problem type contract on write.
-        let mut value = serde_json::to_value(self).map_err(Error::Serde)?;
+        let mut value = serde_json::to_value(self).map_err(Error::serde)?;
         let metadata = value
             .get_mut("metadata")
             .and_then(serde_json::Value::as_object_mut)
@@ -477,7 +477,7 @@ impl<P: ProblemType> CalibrationSession<P> {
             "schema_version".to_string(),
             serde_json::Value::Number(P::schema_version().into()),
         );
-        serde_json::to_string_pretty(&value).map_err(Error::Serde)
+        serde_json::to_string_pretty(&value).map_err(Error::serde)
     }
 
     /// Deserialize session from JSON string.
@@ -489,7 +489,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// - Problem type does not match `P::name()`
     /// - Schema version does not match `P::schema_version()`
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        let session: Self = serde_json::from_str(json)?;
+        let session: Self = serde_json::from_str(json).map_err(Error::serde)?;
         let expected_problem_type = P::name();
         let expected_schema_version = P::schema_version();
 

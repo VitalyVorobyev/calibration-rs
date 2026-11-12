@@ -186,6 +186,7 @@ pub fn rho(loss: RobustLoss, s: f64) -> f64 {
         }
         RobustLoss::Cauchy { scale: k } => k * k * (1.0 + s / (k * k)).ln(),
         RobustLoss::Arctan { scale: k } => k * s.atan2(k),
+        other => panic!("no robust-loss value for {other:?} in the solver bench"),
     }
 }
 
@@ -310,19 +311,19 @@ mod tests {
     }
 
     fn cam(fx: f64) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5::default(),
             },
-            sensor: SensorParams::Identity,
-            intrinsics: FxFyCxCy {
+            SensorParams::Identity,
+            FxFyCxCy {
                 fx,
                 fy: fx,
                 cx: 640.0,
                 cy: 480.0,
             },
-        }
+        )
     }
 
     #[test]

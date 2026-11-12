@@ -30,6 +30,16 @@ where
         .map_err(|err| PyTypeError::new_err(format!("invalid {name} payload: {err}")))
 }
 
+/// The cameras of a calibration export payload, by its `kind`.
+pub(crate) fn parse_cameras(
+    payload: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<Box<dyn vision_calibration::common::CalibratedCameras>> {
+    let value: serde_json::Value = parse_payload(payload, name)?;
+    vision_calibration::common::calibrated_cameras(&value.to_string())
+        .map_err(|err| PyTypeError::new_err(format!("invalid {name} payload: {err}")))
+}
+
 pub(crate) fn parse_optional_payload<T>(
     payload: Option<&Bound<'_, PyAny>>,
     name: &str,
@@ -380,9 +390,7 @@ fn projection_uncertainty(
     image_size: &Bound<'_, PyAny>,
 ) -> PyResult<Py<PyAny>> {
     let image_size: [u32; 2] = parse_payload(image_size, "image_size")?;
-    let export: serde_json::Value = parse_payload(export, "export")?;
-    let export = vision_calibration::common::calibrated_cameras(export)
-        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))?;
+    let export = parse_cameras(export, "export")?;
     let map = export
         .projection_uncertainty(camera, image_size)
         .map_err(analysis_err)?;
@@ -430,9 +438,7 @@ fn assess(
         parse_optional_payload(thresholds, "thresholds")?.unwrap_or_default();
     let image_sizes: Vec<[u32; 2]> =
         parse_optional_payload(image_sizes, "image_sizes")?.unwrap_or_default();
-    let export: serde_json::Value = parse_payload(export, "export")?;
-    let export = vision_calibration::common::calibrated_cameras(export)
-        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))?;
+    let export = parse_cameras(export, "export")?;
     let report = vision_calibration::analysis::assess(export.as_ref(), &image_sizes, &thresholds)
         .map_err(|err| match &err {
         vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
@@ -484,9 +490,7 @@ fn html_report(
     options.thresholds = parse_optional_payload(thresholds, "thresholds")?.unwrap_or_default();
     let image_sizes: Vec<[u32; 2]> =
         parse_optional_payload(image_sizes, "image_sizes")?.unwrap_or_default();
-    let export: serde_json::Value = parse_payload(export, "export")?;
-    let export = vision_calibration::common::calibrated_cameras(export)
-        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))?;
+    let export = parse_cameras(export, "export")?;
     vision_calibration::analysis::html_report(export.as_ref(), &image_sizes, &options).map_err(
         |err| match &err {
             vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),

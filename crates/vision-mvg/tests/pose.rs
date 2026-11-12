@@ -70,9 +70,9 @@ fn pinhole(fx: f64, k1: f64) -> CameraParams {
 }
 
 fn fisheye() -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: 0.02,
                 k2: -0.002,
@@ -81,14 +81,14 @@ fn fisheye() -> CameraParams {
                 iters: 0,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 300.0,
             fy: 300.0,
             cx: 640.0,
             cy: 480.0,
         },
-    }
+    )
 }
 
 /// The covariance of a two-camera rig's parameters at 1e-20: nothing, but
@@ -356,10 +356,7 @@ fn ransac_in_sigma_recovers_the_inliers() {
         }
     }
     let mut opts = PoseOptions::default();
-    opts.ransac = Some(RansacOptions {
-        min_inliers: 12,
-        ..RansacOptions::new(3.0)
-    });
+    opts.ransac = Some(RansacOptions::new(3.0).with_min_inliers(12));
     let pose = estimate_pose(&rig, &obs, &opts).unwrap();
     let missed: Vec<usize> = (0..obs.len())
         .filter(|i| !outliers.contains(i) && !pose.inliers.contains(i))
@@ -406,10 +403,7 @@ fn ransac_on_a_fisheye_with_a_planar_object() {
         obs[i].pixel.y -= 35.0;
     }
     let mut opts = PoseOptions::default();
-    opts.ransac = Some(RansacOptions {
-        min_inliers: 12,
-        ..RansacOptions::new(3.0)
-    });
+    opts.ransac = Some(RansacOptions::new(3.0).with_min_inliers(12));
     let pose = estimate_pose(&rig, &obs, &opts).unwrap();
     let expected: Vec<usize> = (0..obs.len()).filter(|i| !outliers.contains(i)).collect();
     assert_eq!(pose.inliers, expected);
@@ -559,11 +553,11 @@ fn errors_are_typed_and_come_before_any_work() {
         o.pixel = Point2::new(rng.uniform() * 1280.0, rng.uniform() * 960.0);
     }
     let mut ransac = PoseOptions::default();
-    ransac.ransac = Some(RansacOptions {
-        min_inliers: 20,
-        max_iters: 200,
-        ..RansacOptions::new(3.0)
-    });
+    ransac.ransac = Some(
+        RansacOptions::new(3.0)
+            .with_min_inliers(20)
+            .with_max_iters(200),
+    );
     assert!(matches!(
         estimate_pose(&rig, &scrambled, &ransac),
         Err(MvgError::NoConsensus)
