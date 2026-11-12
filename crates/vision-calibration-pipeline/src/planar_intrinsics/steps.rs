@@ -74,7 +74,7 @@ pub struct IntrinsicsManualInit {
     pub sensor: Option<ScheimpflugParams>,
     /// Manual per-view poses (camera-from-target). `None` means recover from
     /// homographies using whichever intrinsics are in effect.
-    pub poses: Option<Vec<Iso3>>,
+    pub cam_se3_target: Option<Vec<Iso3>>,
 }
 
 /// Options for filtering observations based on reprojection error.
@@ -116,8 +116,8 @@ impl Default for IntrinsicsFilterOptions {
 pub struct IntrinsicsInitResult {
     /// Initial camera, in the configured model.
     pub camera: CameraParams,
-    /// Initial per-view target poses (`camera_se3_target`).
-    pub poses: Vec<Iso3>,
+    /// Initial per-view target poses (`cam_se3_target`).
+    pub cam_se3_target: Vec<Iso3>,
 }
 
 /// Typed return value of [`step_optimize`].
@@ -175,7 +175,7 @@ pub struct IntrinsicsOptimizeResult {
 ///   Scheimpflug.
 /// - `manual.distortion` is `Some` and of another kind than the camera's
 ///   distortion model.
-/// - `manual.poses` is `Some` but its length does not match the view count.
+/// - `manual.cam_se3_target` is `Some` but its length does not match the view count.
 /// - The views do not determine the intrinsics, or a homography or the
 ///   auto-init computation fails.
 pub fn step_init_with_seed(
@@ -194,8 +194,8 @@ pub fn step_init_with_seed(
     if let Err(e) = check_camera_seed(
         model,
         &seed,
-        manual.poses.as_deref(),
-        "poses",
+        manual.cam_se3_target.as_deref(),
+        "cam_se3_target",
         dataset.num_views(),
     ) {
         session.log_failure("init", e.to_string());
@@ -212,7 +212,7 @@ pub fn step_init_with_seed(
         }
     };
     let mut provenance = Provenance::of_camera_seed(model, &seed);
-    provenance.note("poses", manual.poses.is_some());
+    provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
     let tilted = model.sensor == SensorKind::Scheimpflug;
     // From-scratch (no intrinsics seed) Scheimpflug auto-init is experimental — it
     // can land in a wrong tilt/focal basin under the tilt↔focal↔distortion
@@ -226,7 +226,7 @@ pub fn step_init_with_seed(
     };
 
     let camera = bootstrap.camera;
-    let poses = manual.poses.unwrap_or(bootstrap.poses);
+    let poses = manual.cam_se3_target.unwrap_or(bootstrap.cam_se3_target);
     let state = &mut session.state;
     state.initial_camera = Some(camera.clone());
     // A user-provided tilt seed is trusted directly by `step_optimize`.
@@ -246,7 +246,10 @@ pub fn step_init_with_seed(
             provenance.source()
         ),
     );
-    Ok(IntrinsicsInitResult { camera, poses })
+    Ok(IntrinsicsInitResult {
+        camera,
+        cam_se3_target: poses,
+    })
 }
 
 /// Initialize intrinsics and poses from observations using full auto-init.
@@ -485,7 +488,7 @@ fn optimize_tilted(
                 distortion: with_leading_radial(&initial.camera.distortion, k1_seed),
                 ..initial.camera.clone()
             },
-            camera_se3_target: initial.camera_se3_target.clone(),
+            cam_se3_target: initial.cam_se3_target.clone(),
         };
         // Sub-step A0: adapt poses to the seeded k1, holding k1 and intrinsics
         // fixed. Without this, the Gauss-Newton gradient in A1 is computed with
@@ -592,7 +595,7 @@ pub fn step_filter(
     let output = session.require_output()?.clone();
     let input = session.require_input()?.clone();
 
-    let poses = &output.params.camera_se3_target;
+    let poses = &output.params.cam_se3_target;
     if input.views.len() != poses.len() {
         return Err(Error::invalid_input(format!(
             "pose count ({}) must match view count ({})",
@@ -995,7 +998,7 @@ mod tests {
                 params: BrownConrady5::default(),
             }),
             sensor: None,
-            poses: Some(auto_poses),
+            cam_se3_target: Some(auto_poses),
         };
         step_init_with_seed(&mut session, manual, None).unwrap();
         step_optimize(&mut session, None).unwrap();
@@ -1017,12 +1020,12 @@ mod tests {
 
         // Test dataset has 4 views; supply only 1 pose.
         let manual = IntrinsicsManualInit {
-            poses: Some(vec![Iso3::identity()]),
+            cam_se3_target: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
         let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
         assert!(
-            err.to_string().contains("manual poses count"),
+            err.to_string().contains("manual cam_se3_target count"),
             "unexpected error: {}",
             err
         );
@@ -1052,7 +1055,7 @@ mod tests {
         let notes = init_entry.notes.as_deref().unwrap_or("");
         assert!(notes.contains("manual: intrinsics"), "notes: {}", notes);
         assert!(notes.contains("auto: distortion"), "notes: {}", notes);
-        assert!(notes.contains("poses"), "notes: {}", notes);
+        assert!(notes.contains("cam_se3_target"), "notes: {}", notes);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1154,7 +1157,7 @@ mod tests {
         let output = session.output().expect("output");
         assert!(output.mean_reproj_error.is_finite());
         assert!(output.mean_reproj_error < 1.0);
-        assert_eq!(output.params.camera_se3_target.len(), 5);
+        assert_eq!(output.params.cam_se3_target.len(), 5);
         assert!(matches!(
             output.params.camera.sensor,
             SensorParams::Scheimpflug { .. }
@@ -1163,7 +1166,7 @@ mod tests {
         let export = session.export().expect("export");
         assert_eq!(export.kind, crate::common::ExportKind::PlanarIntrinsics);
         assert!(matches!(
-            export.params.camera.sensor,
+            export.camera.sensor,
             SensorParams::Scheimpflug { .. }
         ));
     }
@@ -1186,7 +1189,7 @@ mod tests {
                 params: BrownConrady5::default(),
             }),
             sensor: Some(sensor_gt),
-            poses: None,
+            cam_se3_target: None,
         };
         step_init_with_seed(&mut session, manual, None).expect("seeded init");
         assert!(session.state.initial_sensor_manual);
@@ -1220,7 +1223,7 @@ mod tests {
                 params: BrownConrady5::default(),
             }),
             sensor: Some(ScheimpflugParams::default()),
-            poses: None,
+            cam_se3_target: None,
         };
         step_init_with_seed(&mut session, manual, None).expect("seeded init");
         step_optimize(&mut session, None).expect("step_optimize");

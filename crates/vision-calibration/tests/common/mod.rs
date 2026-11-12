@@ -72,11 +72,11 @@ pub fn truth() -> Truth {
     }
 }
 
-/// The pixels of `points` seen through `camera_se3_target`, with noise of
+/// The pixels of `points` seen through `cam_se3_target`, with noise of
 /// σ [`PIXEL_SIGMA`] keyed by `seed` and `view`.
 pub fn project(
     camera: &CameraParams,
-    camera_se3_target: &Iso3,
+    cam_se3_target: &Iso3,
     points: &[Pt3],
     seed: u64,
     view: usize,
@@ -88,7 +88,7 @@ pub fn project(
         .enumerate()
         .map(|(i, p)| {
             let q = model
-                .project_point(&camera_se3_target.transform_point(p))
+                .project_point(&cam_se3_target.transform_point(p))
                 .unwrap();
             Pt2::new(
                 q.x + PIXEL_SIGMA * gauss(key(i, 0)),

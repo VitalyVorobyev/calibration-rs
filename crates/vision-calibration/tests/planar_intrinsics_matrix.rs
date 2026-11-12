@@ -247,9 +247,6 @@ fn planar_export_is_a_rig_of_one() {
     let rig = export.calibrated_rig().expect("rig");
     assert_eq!(rig.num_cameras(), 1);
     assert_eq!(rig.cam_se3_rig(), &[Iso3::identity()]);
-    assert_eq!(
-        rig.cameras()[0].intrinsics.fx,
-        export.params.camera.intrinsics.fx
-    );
+    assert_eq!(rig.cameras()[0].intrinsics.fx, export.camera.intrinsics.fx);
     assert_eq!(rig.uncertainty(), export.parameter_uncertainty());
 }

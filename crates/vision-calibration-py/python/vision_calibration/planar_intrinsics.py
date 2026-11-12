@@ -61,14 +61,14 @@ class IntrinsicsManualInit:
     camera's own distortion kind (``camera.model.distortion``) and is used
     as given; another kind is an error. ``sensor`` seeds the tilt of a
     Scheimpflug camera; an untilted camera takes only a zero tilt. A seeded
-    tilt is used as given and refined directly instead of swept. ``poses``
+    tilt is used as given and refined directly instead of swept. ``cam_se3_target``
     are camera-from-target, one per view.
     """
 
     intrinsics: PinholeIntrinsics | None = None
     distortion: Distortion | None = None
     sensor: ScheimpflugSensor | None = None
-    poses: list[Pose] | None = None
+    cam_se3_target: list[Pose] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return _seed_payload(
@@ -76,7 +76,7 @@ class IntrinsicsManualInit:
                 "intrinsics": self.intrinsics,
                 "distortion": self.distortion,
                 "sensor": self.sensor,
-                "poses": self.poses,
+                "cam_se3_target": self.cam_se3_target,
             }
         )
 
@@ -87,12 +87,12 @@ class IntrinsicsInitResult:
 
     camera: Camera
     """The initial camera, in the configured model."""
-    poses: list[Pose]
-    """Per-view ``camera_se3_target``."""
+    cam_se3_target: list[Pose]
+    """Per-view ``cam_se3_target``."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsInitResult:
-        return cls(camera=_camera(payload["camera"]), poses=_poses(payload["poses"]))
+        return cls(camera=_camera(payload["camera"]), cam_se3_target=_poses(payload["cam_se3_target"]))
 
 
 @dataclass(frozen=True, slots=True)

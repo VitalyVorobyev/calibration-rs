@@ -24,7 +24,7 @@ pub(crate) struct SingleCamHandeyeState {
     pub initial_camera: Option<CameraParams>,
 
     /// Initial target poses (cam_se3_target) per view from PnP.
-    pub initial_target_poses: Option<Vec<Iso3>>,
+    pub initial_cam_se3_target: Option<Vec<Iso3>>,
 
     // ─────────────────────────────────────────────────────────────────────────
     // From intrinsics optimization
@@ -33,7 +33,7 @@ pub(crate) struct SingleCamHandeyeState {
     pub optimized_camera: Option<CameraParams>,
 
     /// Optimized target poses (cam_se3_target) per view.
-    pub optimized_target_poses: Option<Vec<Iso3>>,
+    pub optimized_cam_se3_target: Option<Vec<Iso3>>,
 
     /// Mean reprojection error after intrinsics optimization.
     pub intrinsics_reproj_error: Option<f64>,
@@ -57,12 +57,12 @@ pub(crate) struct SingleCamHandeyeState {
 impl SingleCamHandeyeState {
     /// Check if intrinsics initialization has been run.
     pub fn has_intrinsics_init(&self) -> bool {
-        self.initial_camera.is_some() && self.initial_target_poses.is_some()
+        self.initial_camera.is_some() && self.initial_cam_se3_target.is_some()
     }
 
     /// Check if intrinsics optimization has been run.
     pub fn has_intrinsics_optimized(&self) -> bool {
-        self.optimized_camera.is_some() && self.optimized_target_poses.is_some()
+        self.optimized_camera.is_some() && self.optimized_cam_se3_target.is_some()
     }
 
     /// Check if hand-eye initialization has been run.
@@ -125,7 +125,7 @@ mod tests {
 
         let state = SingleCamHandeyeState {
             initial_camera: Some(camera),
-            initial_target_poses: Some(vec![Iso3::identity()]),
+            initial_cam_se3_target: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
         assert!(state.has_intrinsics_init());
@@ -145,9 +145,9 @@ mod tests {
 
         let mut state = SingleCamHandeyeState {
             initial_camera: Some(camera),
-            initial_target_poses: Some(vec![Iso3::identity()]),
+            initial_cam_se3_target: Some(vec![Iso3::identity()]),
             initial_handeye: Some(SingleCamHandeyeSolution::EyeInHand {
-                gripper_se3_camera: Iso3::identity(),
+                gripper_se3_cam: Iso3::identity(),
                 base_se3_target: Iso3::identity(),
             }),
             handeye_final_cost: Some(0.001),
@@ -180,11 +180,11 @@ mod tests {
                     iters: 8,
                 },
             )),
-            initial_target_poses: Some(vec![Iso3::identity()]),
+            initial_cam_se3_target: Some(vec![Iso3::identity()]),
             handeye_final_cost: Some(0.001),
             handeye_reproj_error: Some(0.5),
             initial_handeye: Some(SingleCamHandeyeSolution::EyeInHand {
-                gripper_se3_camera: Iso3::identity(),
+                gripper_se3_cam: Iso3::identity(),
                 base_se3_target: Iso3::identity(),
             }),
             ..Default::default()

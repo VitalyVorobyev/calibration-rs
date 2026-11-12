@@ -100,7 +100,7 @@ for (point, pixel) in fiducials.iter().zip(&part_pixels) {
 }
 
 let solution = solve(&problem, &SolveOptions::default())?;
-let camera_se3_part = solution.pose(part).unwrap();
+let cam_se3_part = solution.pose(part).unwrap();
 ```
 
 Each reprojection names how its point reaches the camera (`PoseChain`:

@@ -61,8 +61,8 @@ struct ScoredScheimpflugSeed {
 
 #[derive(Debug, Clone)]
 struct GoodRigContext {
-    cam_to_rig: Vec<Iso3>,
-    rig_from_target: Vec<Iso3>,
+    rig_se3_cam: Vec<Iso3>,
+    rig_se3_target: Vec<Iso3>,
 }
 
 /// The tilted cameras of one rig intrinsics stage: each solved as it comes
@@ -119,7 +119,7 @@ impl TiltedRecovery {
         self,
         cameras: &mut [CameraParams],
         per_cam_reproj_errors: &mut [f64],
-        per_cam_target_poses: &mut [Vec<Option<Iso3>>],
+        cam_se3_target: &mut [Vec<Option<Iso3>>],
         backend_opts: BackendSolveOptions,
         reference_camera_idx: usize,
     ) -> Result<(), Error> {
@@ -130,7 +130,7 @@ impl TiltedRecovery {
             &self.work_items,
             cameras,
             per_cam_reproj_errors,
-            per_cam_target_poses,
+            cam_se3_target,
             backend_opts,
             reference_camera_idx,
         )
@@ -266,7 +266,7 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
     work_items: &[ScheimpflugCameraWork],
     cameras: &mut [CameraParams],
     per_cam_reproj_errors: &mut [f64],
-    per_cam_target_poses: &mut [Vec<Option<Iso3>>],
+    cam_se3_target: &mut [Vec<Option<Iso3>>],
     backend_opts: BackendSolveOptions,
     reference_camera_idx: usize,
 ) -> Result<(), Error> {
@@ -277,12 +277,9 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
     let Some(nominal) = build_nominal_scheimpflug_seed(cameras, &good_indices) else {
         return Ok(());
     };
-    let rig_context = build_good_scheimpflug_rig_context(
-        per_cam_target_poses,
-        &good_indices,
-        reference_camera_idx,
-    )
-    .ok();
+    let rig_context =
+        build_good_scheimpflug_rig_context(cam_se3_target, &good_indices, reference_camera_idx)
+            .ok();
 
     for item in work_items {
         let cam_idx = item.cam_idx;
@@ -298,7 +295,7 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
             nominal,
             rig_context.as_ref(),
             cameras,
-            per_cam_target_poses.len(),
+            cam_se3_target.len(),
             &backend_opts,
         )?
         else {
@@ -315,8 +312,8 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
             cameras[cam_idx] = candidate.params.camera.clone();
             per_cam_reproj_errors[cam_idx] = candidate.mean_reproj_error;
             for (local_idx, &global_idx) in item.valid_indices.iter().enumerate() {
-                per_cam_target_poses[global_idx][cam_idx] =
-                    Some(candidate.params.camera_se3_target[local_idx]);
+                cam_se3_target[global_idx][cam_idx] =
+                    Some(candidate.params.cam_se3_target[local_idx]);
             }
         }
     }
@@ -371,11 +368,11 @@ fn good_nominal_scheimpflug_indices(cameras: &[CameraParams], errors: &[f64]) ->
 }
 
 fn build_good_scheimpflug_rig_context(
-    per_cam_target_poses: &[Vec<Option<Iso3>>],
+    cam_se3_target: &[Vec<Option<Iso3>>],
     good_indices: &[usize],
     reference_camera_idx: usize,
 ) -> Result<GoodRigContext, Error> {
-    if per_cam_target_poses.is_empty() || good_indices.len() < 2 {
+    if cam_se3_target.is_empty() || good_indices.len() < 2 {
         return Err(Error::invalid_input(
             "need at least two good cameras with target poses",
         ));
@@ -384,7 +381,7 @@ fn build_good_scheimpflug_rig_context(
         .iter()
         .position(|&idx| idx == reference_camera_idx)
         .unwrap_or(0);
-    let reduced: Vec<Vec<Option<Iso3>>> = per_cam_target_poses
+    let reduced: Vec<Vec<Option<Iso3>>> = cam_se3_target
         .iter()
         .map(|view| {
             good_indices
@@ -400,15 +397,15 @@ fn build_good_scheimpflug_rig_context(
                 "good-camera rig context initialization failed: {e}"
             ))
         })?;
-    let num_cameras = per_cam_target_poses[0].len();
-    let mut cam_to_rig = vec![Iso3::identity(); num_cameras];
+    let num_cameras = cam_se3_target[0].len();
+    let mut rig_se3_cam = vec![Iso3::identity(); num_cameras];
     for (reduced_idx, &cam_idx) in good_indices.iter().enumerate() {
-        cam_to_rig[cam_idx] = reduced_extrinsics.cam_to_rig[reduced_idx];
+        rig_se3_cam[cam_idx] = reduced_extrinsics.rig_se3_cam[reduced_idx];
     }
 
     Ok(GoodRigContext {
-        cam_to_rig,
-        rig_from_target: reduced_extrinsics.rig_from_target,
+        rig_se3_cam,
+        rig_se3_target: reduced_extrinsics.rig_se3_target,
     })
 }
 
@@ -568,9 +565,9 @@ fn score_bad_scheimpflug_seed_against_good_rig(
     params: &PlanarIntrinsicsParams,
     context: &GoodRigContext,
 ) -> Option<f64> {
-    let cam_to_rig =
-        estimate_candidate_cam_to_rig(params, &item.valid_indices, &context.rig_from_target)?;
-    let cam_from_rig = cam_to_rig.inverse();
+    let rig_se3_cam =
+        estimate_candidate_rig_se3_cam(params, &item.valid_indices, &context.rig_se3_target)?;
+    let cam_from_rig = rig_se3_cam.inverse();
     let Ok(camera) = params.camera.build() else {
         return None;
     };
@@ -578,11 +575,11 @@ fn score_bad_scheimpflug_seed_against_good_rig(
         .valid_indices
         .iter()
         .enumerate()
-        .filter(|&(_, &global_idx)| global_idx < context.rig_from_target.len())
+        .filter(|&(_, &global_idx)| global_idx < context.rig_se3_target.len())
         .map(|(local_idx, &global_idx)| {
             (
                 &item.dataset.views[local_idx].obs,
-                cam_from_rig * context.rig_from_target[global_idx],
+                cam_from_rig * context.rig_se3_target[global_idx],
             )
         });
     mean_reprojection(&camera, views)
@@ -596,10 +593,10 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
     num_views: usize,
     backend_opts: &BackendSolveOptions,
 ) -> Result<Option<PlanarIntrinsicsEstimate>, Error> {
-    let Some(initial_cam_to_rig) = estimate_candidate_cam_to_rig(
+    let Some(initial_rig_se3_cam) = estimate_candidate_rig_se3_cam(
         candidate_params,
         &item.valid_indices,
-        &context.rig_from_target,
+        &context.rig_se3_target,
     ) else {
         return Ok(None);
     };
@@ -607,11 +604,11 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
 
     let mut rig_cameras = cameras.to_vec();
     rig_cameras[item.cam_idx] = candidate_params.camera.clone();
-    let mut cam_to_rig = context.cam_to_rig.clone();
-    if cam_to_rig.len() != cameras.len() {
+    let mut rig_se3_cam = context.rig_se3_cam.clone();
+    if rig_se3_cam.len() != cameras.len() {
         return Ok(None);
     }
-    cam_to_rig[item.cam_idx] = initial_cam_to_rig;
+    rig_se3_cam[item.cam_idx] = initial_rig_se3_cam;
 
     let mut fix_extrinsics = vec![true; cameras.len()];
     fix_extrinsics[item.cam_idx] = false;
@@ -622,8 +619,8 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
         .ok_or_else(|| Error::invalid_input("a rig camera has a general homography sensor"))?;
     let initial = RigExtrinsicsParams {
         cameras: rig_cameras,
-        cam_to_rig,
-        rig_from_target: context.rig_from_target.clone(),
+        rig_se3_cam,
+        rig_se3_target: context.rig_se3_target.clone(),
     };
     let solve_opts = RigExtrinsicsSolveOptions {
         robust_loss: item.solve_opts.robust_loss,
@@ -652,13 +649,13 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
     }
 
     let camera = &result.params.cameras[item.cam_idx];
-    let cam_from_rig = result.params.cam_to_rig[item.cam_idx].inverse();
+    let cam_from_rig = result.params.rig_se3_cam[item.cam_idx].inverse();
     let mut poses = Vec::with_capacity(item.valid_indices.len());
     for &global_idx in &item.valid_indices {
-        if global_idx >= result.params.rig_from_target.len() {
+        if global_idx >= result.params.rig_se3_target.len() {
             return Ok(None);
         }
-        poses.push(cam_from_rig * result.params.rig_from_target[global_idx]);
+        poses.push(cam_from_rig * result.params.rig_se3_target[global_idx]);
     }
     let params = PlanarIntrinsicsParams::new(camera.clone(), poses)?;
     Ok(Some(PlanarIntrinsicsEstimate {
@@ -696,18 +693,17 @@ fn bad_camera_only_scheimpflug_rig_dataset(
     RigDataset::new(views, num_cameras).map_err(Error::from)
 }
 
-fn estimate_candidate_cam_to_rig(
+fn estimate_candidate_rig_se3_cam(
     params: &PlanarIntrinsicsParams,
     valid_indices: &[usize],
-    rig_from_target: &[Iso3],
+    rig_se3_target: &[Iso3],
 ) -> Option<Iso3> {
     let mut candidates = Vec::with_capacity(valid_indices.len());
     for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
-        if global_idx >= rig_from_target.len() || local_idx >= params.camera_se3_target.len() {
+        if global_idx >= rig_se3_target.len() || local_idx >= params.cam_se3_target.len() {
             continue;
         }
-        candidates
-            .push(rig_from_target[global_idx] * params.camera_se3_target[local_idx].inverse());
+        candidates.push(rig_se3_target[global_idx] * params.cam_se3_target[local_idx].inverse());
     }
     average_isometries(&candidates).ok()
 }
@@ -881,13 +877,13 @@ fn mean_scheimpflug_reproj(dataset: &PlanarDataset, params: &PlanarIntrinsicsPar
     let views = dataset
         .views
         .iter()
-        .zip(params.camera_se3_target.iter())
+        .zip(params.cam_se3_target.iter())
         .map(|(view, pose)| (&view.obs, *pose));
     mean_reprojection(&camera, views).unwrap_or(f64::INFINITY)
 }
 
 /// The mean of the finite reprojection errors (px) of `camera` over the
-/// points of each view at its pose (`camera_se3_target`); `None` without
+/// points of each view at its pose (`cam_se3_target`); `None` without
 /// one.
 fn mean_reprojection<'a>(
     camera: &CameraModel,

@@ -162,10 +162,10 @@ pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
     }
 }
 
-/// Metadata carrying the per-view pose `camera_se3_target`.
+/// Metadata carrying the per-view pose `cam_se3_target`.
 pub struct TargetPose {
     /// Pose of target frame in camera frame (`T_C_T`).
-    pub camera_se3_target: Iso3,
+    pub cam_se3_target: Iso3,
 }
 
 /// Compute mean per-point reprojection error for a calibrated camera and posed views.
@@ -187,7 +187,7 @@ pub fn compute_mean_reproj_error<C: CameraProject>(
 
     for view in views {
         for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
-            let p_cam = view.meta.camera_se3_target * p3d;
+            let p_cam = view.meta.cam_se3_target * p3d;
             if let Some(projected) = camera.project_camera_point(&p_cam.coords) {
                 let error = (projected - *p2d).norm();
                 total_error += error;
@@ -384,7 +384,7 @@ pub fn compute_rig_reprojection_stats_per_camera<C: CameraProject, Meta>(
 /// `projected_px = None` and `error_px = None` so the diagnose UI can
 /// distinguish "feature absent" from "projection diverged".
 ///
-/// All records carry `camera = 0`. Records are pose-major: outer = view
+/// All records carry `camera = 0`. Records are view-major: outer = view
 /// index, inner = feature index in that view's `points_3d`.
 ///
 /// Convenience wrapper around [`compute_planar_target_residuals_views`] that
@@ -392,13 +392,13 @@ pub fn compute_rig_reprojection_stats_per_camera<C: CameraProject, Meta>(
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if `camera_se3_target.len() != dataset.num_views()`.
+/// Returns [`Error::InvalidInput`] if `cam_se3_target.len() != dataset.num_views()`.
 pub fn compute_planar_target_residuals<C: CameraProject>(
     camera: &C,
     dataset: &PlanarDataset,
-    camera_se3_target: &[Iso3],
+    cam_se3_target: &[Iso3],
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
-    compute_planar_target_residuals_views(camera, &dataset.views, camera_se3_target)
+    compute_planar_target_residuals_views(camera, &dataset.views, cam_se3_target)
 }
 
 /// Like [`compute_planar_target_residuals`] but operates on a generic
@@ -411,23 +411,23 @@ pub fn compute_planar_target_residuals<C: CameraProject>(
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if `camera_se3_target.len() != views.len()`.
+/// Returns [`Error::InvalidInput`] if `cam_se3_target.len() != views.len()`.
 pub fn compute_planar_target_residuals_views<C: CameraProject, Meta>(
     camera: &C,
     views: &[View<Meta>],
-    camera_se3_target: &[Iso3],
+    cam_se3_target: &[Iso3],
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
-    if camera_se3_target.len() != views.len() {
+    if cam_se3_target.len() != views.len() {
         return Err(Error::invalid_input(format!(
-            "camera_se3_target count {} != view count {}",
-            camera_se3_target.len(),
+            "cam_se3_target count {} != view count {}",
+            cam_se3_target.len(),
             views.len()
         )));
     }
 
     let mut out = Vec::new();
     for (view_idx, view) in views.iter().enumerate() {
-        let pose = camera_se3_target[view_idx];
+        let pose = cam_se3_target[view_idx];
         for (feature_idx, (p3d, p2d)) in view
             .obs
             .points_3d
@@ -441,7 +441,7 @@ pub fn compute_planar_target_residuals_views<C: CameraProject, Meta>(
                 *p2d,
                 view.obs.covariance(feature_idx),
                 TargetFeatureResidual {
-                    pose: view_idx,
+                    view: view_idx,
                     camera: 0,
                     feature: feature_idx,
                     target_xyz_m: [p3d.x, p3d.y, p3d.z],
@@ -475,7 +475,7 @@ fn target_feature_residual(
 /// dataset, mirroring [`compute_rig_reprojection_stats_per_camera`].
 ///
 /// Transform chain: `cam_se3_target = cam_se3_rig[cam] * rig_se3_target[view]`.
-/// Records are emitted pose-major: outer = view, inner = camera (camera-`None`
+/// Records are emitted view-major: outer = view, inner = camera (camera-`None`
 /// slots skipped), innermost = feature index in that view+camera's
 /// `points_3d`. Failed projections become records with `projected_px` and
 /// `error_px` set to `None`.
@@ -539,7 +539,7 @@ where
                     *p2d,
                     obs.covariance(feature_idx),
                     TargetFeatureResidual {
-                        pose: view_idx,
+                        view: view_idx,
                         camera: cam_idx,
                         feature: feature_idx,
                         target_xyz_m: [p3d.x, p3d.y, p3d.z],
@@ -726,7 +726,7 @@ mod tests {
         let residuals = compute_planar_target_residuals(&camera, &dataset, &[pose])?;
         assert_eq!(residuals.len(), 4);
         for (i, r) in residuals.iter().enumerate() {
-            assert_eq!(r.pose, 0);
+            assert_eq!(r.view, 0);
             assert_eq!(r.camera, 0);
             assert_eq!(r.feature, i);
             assert_eq!(
@@ -813,12 +813,12 @@ mod tests {
             assert!(r.projected_px.is_some());
             assert!(r.error_px.unwrap() < 1e-9);
         }
-        // Iteration order: pose-major, then camera (0 before 1), then feature.
+        // Iteration order: view-major, then camera (0 before 1), then feature.
         assert_eq!(residuals[0].camera, 0);
         assert_eq!(residuals[3].camera, 0);
         assert_eq!(residuals[4].camera, 1);
         assert_eq!(residuals[7].camera, 1);
-        // Feature index resets per (pose, camera) slot.
+        // Feature index resets per (view, camera) slot.
         assert_eq!(residuals[0].feature, 0);
         assert_eq!(residuals[3].feature, 3);
         assert_eq!(residuals[4].feature, 0);
@@ -879,12 +879,12 @@ mod tests {
             compute_rig_target_residuals(&[cam0, cam1], &dataset, &cam_se3_rig, &rig_se3_target)?;
         assert_eq!(residuals.len(), 12);
         // First 4 records are pose=0 cam=0; next 4 are pose=1 cam=0; last 4 are pose=1 cam=1.
-        assert_eq!((residuals[0].pose, residuals[0].camera), (0, 0));
-        assert_eq!((residuals[3].pose, residuals[3].camera), (0, 0));
-        assert_eq!((residuals[4].pose, residuals[4].camera), (1, 0));
-        assert_eq!((residuals[7].pose, residuals[7].camera), (1, 0));
-        assert_eq!((residuals[8].pose, residuals[8].camera), (1, 1));
-        assert_eq!((residuals[11].pose, residuals[11].camera), (1, 1));
+        assert_eq!((residuals[0].view, residuals[0].camera), (0, 0));
+        assert_eq!((residuals[3].view, residuals[3].camera), (0, 0));
+        assert_eq!((residuals[4].view, residuals[4].camera), (1, 0));
+        assert_eq!((residuals[7].view, residuals[7].camera), (1, 0));
+        assert_eq!((residuals[8].view, residuals[8].camera), (1, 1));
+        assert_eq!((residuals[11].view, residuals[11].camera), (1, 1));
         Ok(())
     }
 

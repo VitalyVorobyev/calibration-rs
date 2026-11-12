@@ -52,7 +52,7 @@ fn make_dataset() -> (
         Translation3::new(0.12, 0.0, 0.0),
         Rotation3::identity().into(),
     );
-    let cam_to_rig = [cam0_to_rig, cam1_to_rig];
+    let rig_se3_cam = [cam0_to_rig, cam1_to_rig];
 
     let handeye_gt = Isometry3::from_parts(
         Translation3::new(0.05, 0.03, 0.15),
@@ -91,7 +91,7 @@ fn make_dataset() -> (
     let mut views = Vec::new();
     for robot_pose in &robot_poses {
         let mut cam_obs = Vec::new();
-        for (cam_idx, c2r) in cam_to_rig.iter().enumerate() {
+        for (cam_idx, c2r) in rig_se3_cam.iter().enumerate() {
             let mut pts3 = Vec::new();
             let mut pts2 = Vec::new();
             for y in -2..=2i32 {

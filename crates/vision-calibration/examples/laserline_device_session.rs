@@ -163,10 +163,10 @@ fn main() -> anyhow::Result<()> {
 
     println!(
         "Calibrated intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-        export.params.camera.intrinsics.fx,
-        export.params.camera.intrinsics.fy,
-        export.params.camera.intrinsics.cx,
-        export.params.camera.intrinsics.cy,
+        export.camera.intrinsics.fx,
+        export.camera.intrinsics.fy,
+        export.camera.intrinsics.cx,
+        export.camera.intrinsics.cy,
     );
     println!(
         "Mean reproj error: {:.3} px, mean laser error: {:.3}",

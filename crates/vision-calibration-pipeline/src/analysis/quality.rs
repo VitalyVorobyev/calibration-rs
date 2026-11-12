@@ -861,7 +861,7 @@ fn view_outliers(
     let mut views: BTreeMap<usize, (f64, usize)> = BTreeMap::new();
     for residual in target.iter().filter(|r| r.camera == camera) {
         if let Some(error) = error_of(residual).filter(|e| e.is_finite()) {
-            let entry = views.entry(residual.pose).or_default();
+            let entry = views.entry(residual.view).or_default();
             entry.0 += error / sigma;
             entry.1 += 1;
         }

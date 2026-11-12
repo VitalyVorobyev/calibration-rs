@@ -160,7 +160,7 @@ let seed = HandeyeManualInit::EyeInHand {
 step_handeye_init_with_seed(&mut session, seed, None)?;
 ```
 
-The variant must be the one of `handeye_init.handeye_mode`; a seed of the other mode is an `Error::InvalidInput`, raised before any work. A pose left `None` is estimated. If you seed the hand-eye but not the target pose, the target pose is derived from the chain through the first view. `single_cam_handeye::HandeyeManualInit` has the same shape with the camera named where the rig is (`gripper_se3_camera`, `camera_se3_base`). The step's result carries the same value: `init.handeye` is the `HandeyeSolution` (or `SingleCamHandeyeSolution`) of the mode, with both poses set. In Python the seed is an `EyeInHandManualInit` or an `EyeToHandManualInit`, from `rig_handeye` or `single_cam_handeye`.
+The variant must be the one of `handeye_init.handeye_mode`; a seed of the other mode is an `Error::InvalidInput`, raised before any work. A pose left `None` is estimated. If you seed the hand-eye but not the target pose, the target pose is derived from the chain through the first view. `single_cam_handeye::HandeyeManualInit` has the same shape with the camera named where the rig is (`gripper_se3_cam`, `cam_se3_base`). The step's result carries the same value: `init.handeye` is the `HandeyeSolution` (or `SingleCamHandeyeSolution`) of the mode, with both poses set. In Python the seed is an `EyeInHandManualInit` or an `EyeToHandManualInit`, from `rig_handeye` or `single_cam_handeye`.
 
 ### Staged rig laser calibration
 

@@ -118,7 +118,7 @@ pub struct SingleCamHandeyeConfig {
 /// internally tagged by `mode`:
 ///
 /// ```json
-/// {"mode": "eye_in_hand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+/// {"mode": "eye_in_hand", "gripper_se3_cam": {…}, "base_se3_target": {…}}
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -126,13 +126,13 @@ pub struct SingleCamHandeyeConfig {
 pub enum SingleCamHandeyeSolution {
     /// The camera rides on the gripper; the target stands in the base frame.
     EyeInHand {
-        /// The camera's pose on the gripper (`gripper_se3_camera`, camera
+        /// The camera's pose on the gripper (`gripper_se3_cam`, camera
         /// frame → gripper frame).
         #[cfg_attr(
             feature = "schemars",
             schemars(with = "vision_calibration_core::Iso3Schema")
         )]
-        gripper_se3_camera: Iso3,
+        gripper_se3_cam: Iso3,
         /// The target's pose in the robot's base frame (`base_se3_target`).
         #[cfg_attr(
             feature = "schemars",
@@ -142,13 +142,13 @@ pub enum SingleCamHandeyeSolution {
     },
     /// The camera stands in the base frame; the target rides on the gripper.
     EyeToHand {
-        /// The base's pose in the camera (`camera_se3_base`, base frame →
+        /// The base's pose in the camera (`cam_se3_base`, base frame →
         /// camera frame).
         #[cfg_attr(
             feature = "schemars",
             schemars(with = "vision_calibration_core::Iso3Schema")
         )]
-        camera_se3_base: Iso3,
+        cam_se3_base: Iso3,
         /// The target's pose on the gripper (`gripper_se3_target`).
         #[cfg_attr(
             feature = "schemars",
@@ -159,17 +159,17 @@ pub enum SingleCamHandeyeSolution {
 }
 
 impl SingleCamHandeyeSolution {
-    /// The solution of `mode` from its hand-eye pose (`gripper_se3_camera`
-    /// eye-in-hand, `camera_se3_base` eye-to-hand) and its target pose
+    /// The solution of `mode` from its hand-eye pose (`gripper_se3_cam`
+    /// eye-in-hand, `cam_se3_base` eye-to-hand) and its target pose
     /// (`base_se3_target`, `gripper_se3_target`).
     pub fn new(mode: HandeyeMode, handeye: Iso3, target: Iso3) -> Self {
         match mode {
             HandeyeMode::EyeInHand => Self::EyeInHand {
-                gripper_se3_camera: handeye,
+                gripper_se3_cam: handeye,
                 base_se3_target: target,
             },
             HandeyeMode::EyeToHand => Self::EyeToHand {
-                camera_se3_base: handeye,
+                cam_se3_base: handeye,
                 gripper_se3_target: target,
             },
         }
@@ -187,14 +187,12 @@ impl SingleCamHandeyeSolution {
     pub fn handeye(&self) -> Handeye {
         match *self {
             Self::EyeInHand {
-                gripper_se3_camera, ..
+                gripper_se3_cam, ..
             } => Handeye::EyeInHand {
-                gripper_se3_rig: gripper_se3_camera,
+                gripper_se3_rig: gripper_se3_cam,
             },
-            Self::EyeToHand {
-                camera_se3_base, ..
-            } => Handeye::EyeToHand {
-                rig_se3_base: camera_se3_base,
+            Self::EyeToHand { cam_se3_base, .. } => Handeye::EyeToHand {
+                rig_se3_base: cam_se3_base,
             },
         }
     }
@@ -286,12 +284,12 @@ pub struct SingleCamHandeyeExport {
 /// #     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
 /// #     BrownConrady5::default(),
 /// # );
-/// # let gripper_se3_camera = poses::make_iso((0.1, -0.05, 0.02), (0.05, -0.03, 0.1));
+/// # let gripper_se3_cam = poses::make_iso((0.1, -0.05, 0.02), (0.05, -0.03, 0.1));
 /// # let base_se3_target = poses::make_iso((0.0, 0.0, 0.0), (-0.1, -0.1, 1.0));
 /// # let board = planar::grid_points(6, 5, 0.05);
 /// # let stations = poses::robot_stations(8, 7);
 /// # let observe = |base_se3_gripper: &vision_calibration_core::Iso3| {
-/// #     let cam_se3_target = (base_se3_gripper * gripper_se3_camera).inverse() * base_se3_target;
+/// #     let cam_se3_target = (base_se3_gripper * gripper_se3_cam).inverse() * base_se3_target;
 /// #     planar::project_view_all(&camera, &cam_se3_target, &board)
 /// # };
 ///
@@ -309,10 +307,10 @@ pub struct SingleCamHandeyeExport {
 /// step_handeye_optimize(&mut session, None)?; // joint bundle adjustment
 ///
 /// let export = session.export()?;
-/// let SingleCamHandeyeSolution::EyeInHand { gripper_se3_camera: estimate, .. } = export.handeye else {
+/// let SingleCamHandeyeSolution::EyeInHand { gripper_se3_cam: estimate, .. } = export.handeye else {
 ///     panic!("an eye-in-hand export");
 /// };
-/// assert!((estimate.translation.vector - gripper_se3_camera.translation.vector).norm() < 1e-4);
+/// assert!((estimate.translation.vector - gripper_se3_cam.translation.vector).norm() < 1e-4);
 /// # Ok(())
 /// # }
 /// ```
@@ -589,11 +587,11 @@ mod tests {
         for (mode, keys) in [
             (
                 HandeyeMode::EyeInHand,
-                ["gripper_se3_camera", "base_se3_target"],
+                ["gripper_se3_cam", "base_se3_target"],
             ),
             (
                 HandeyeMode::EyeToHand,
-                ["camera_se3_base", "gripper_se3_target"],
+                ["cam_se3_base", "gripper_se3_target"],
             ),
         ] {
             let solution = SingleCamHandeyeSolution::new(mode, handeye, target);

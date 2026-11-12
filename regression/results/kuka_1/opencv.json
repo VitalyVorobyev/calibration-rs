@@ -13,7 +13,7 @@
     "k3": 0.0
   },
   "poses": {
-    "gripper_se3_camera": {
+    "gripper_se3_cam": {
       "rotation": [
         -0.49971008253533056,
         0.5251694382169244,

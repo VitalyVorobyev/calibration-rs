@@ -63,7 +63,7 @@
           0.6925150987175367
         ]
       },
-      "gripper_se3_camera": {
+      "gripper_se3_cam": {
         "rotation": [
           -0.5008120437201038,
           0.5248514496877091,
@@ -785,12 +785,12 @@
         "k2",
         "p1",
         "p2",
-        "gripper_se3_camera.rx",
-        "gripper_se3_camera.ry",
-        "gripper_se3_camera.rz",
-        "gripper_se3_camera.tx",
-        "gripper_se3_camera.ty",
-        "gripper_se3_camera.tz",
+        "gripper_se3_cam.rx",
+        "gripper_se3_cam.ry",
+        "gripper_se3_cam.rz",
+        "gripper_se3_cam.tx",
+        "gripper_se3_cam.ty",
+        "gripper_se3_cam.tz",
         "base_se3_target.rx",
         "base_se3_target.ry",
         "base_se3_target.rz",
@@ -813,7 +813,7 @@
             "weight": 1.0
           },
           {
-            "label": "gripper_se3_camera.tz",
+            "label": "gripper_se3_cam.tz",
             "weight": 0.7995630823892023
           },
           {

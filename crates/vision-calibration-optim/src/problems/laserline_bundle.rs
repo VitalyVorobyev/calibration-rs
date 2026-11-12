@@ -95,12 +95,12 @@ pub struct LaserlineParams {
     /// The camera, in its model: any distortion kind, and an identity or
     /// Scheimpflug sensor.
     pub camera: CameraParams,
-    /// Per-view target poses (`camera_se3_target`).
+    /// Per-view target poses (`cam_se3_target`).
     #[cfg_attr(
         feature = "schemars",
         schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
     )]
-    pub poses: Vec<Iso3>,
+    pub cam_se3_target: Vec<Iso3>,
     /// Laser plane parameters in camera frame.
     pub plane: LaserPlane,
 }
@@ -110,14 +110,18 @@ impl LaserlineParams {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InsufficientData`] if `poses` is empty.
-    pub fn new(camera: CameraParams, poses: Vec<Iso3>, plane: LaserPlane) -> Result<Self, Error> {
-        if poses.is_empty() {
+    /// Returns [`Error::InsufficientData`] if `cam_se3_target` is empty.
+    pub fn new(
+        camera: CameraParams,
+        cam_se3_target: Vec<Iso3>,
+        plane: LaserPlane,
+    ) -> Result<Self, Error> {
+        if cam_se3_target.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
         }
         Ok(Self {
             camera,
-            poses,
+            cam_se3_target,
             plane,
         })
     }
@@ -237,11 +241,11 @@ pub fn compute_laserline_stats(
     params: &LaserlineParams,
     residual_type: LaserlineResidualType,
 ) -> Result<LaserlineStats, Error> {
-    if dataset.len() != params.poses.len() {
+    if dataset.len() != params.cam_se3_target.len() {
         return Err(Error::invalid_input(format!(
             "dataset has {} views but {} poses",
             dataset.len(),
-            params.poses.len()
+            params.cam_se3_target.len()
         )));
     }
 
@@ -258,7 +262,7 @@ pub fn compute_laserline_stats(
     let mut total_laser_count = 0usize;
 
     for (view_idx, view) in dataset.iter().enumerate() {
-        let pose = &params.poses[view_idx];
+        let pose = &params.cam_se3_target[view_idx];
         let pose_vec = iso3_to_se3_dvec(pose);
 
         let mut view_reproj_sum = 0.0;
@@ -336,14 +340,14 @@ pub fn compute_laserline_stats(
 /// Per-pixel laser residual records and per-view projected laser lines.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LaserResidualRecords {
-    /// One record per laser pixel, pose-major.
+    /// One record per laser pixel, view-major.
     pub features: Vec<vision_calibration_core::LaserFeatureResidual>,
     /// The projected laser line of each view with laser pixels.
     pub lines: Vec<vision_calibration_core::LaserLineTrace>,
 }
 
 /// Compute per-pixel laser residual records for every laser observation in the
-/// dataset, indexed pose-major, and each view's projected laser line.
+/// dataset, indexed view-major, and each view's projected laser line.
 ///
 /// For each `(view, laser_pixel)` in the dataset the record carries:
 /// - `residual_m`: signed point-to-plane distance in meters between the
@@ -363,11 +367,11 @@ pub fn compute_laserline_feature_residuals(
     dataset: &LaserlineDataset,
     params: &LaserlineParams,
 ) -> Result<LaserResidualRecords, Error> {
-    if dataset.len() != params.poses.len() {
+    if dataset.len() != params.cam_se3_target.len() {
         return Err(Error::invalid_input(format!(
             "dataset has {} views but {} poses",
             dataset.len(),
-            params.poses.len()
+            params.cam_se3_target.len()
         )));
     }
 
@@ -375,7 +379,7 @@ pub fn compute_laserline_feature_residuals(
     let mut out = LaserResidualRecords::default();
     for (view_idx, view) in dataset.iter().enumerate() {
         camera.view_residuals(
-            &params.poses[view_idx],
+            &params.cam_se3_target[view_idx],
             &params.plane,
             &view.meta.laser_pixels,
             (view_idx, 0),
@@ -421,7 +425,7 @@ impl LaserCameraModel {
     }
 
     /// Append the records of one view's laser pixels and its projected laser
-    /// line; `slot` is `(pose, camera)`.
+    /// line; `slot` is `(view, camera)`.
     pub(crate) fn view_residuals(
         &self,
         cam_se3_target: &Iso3,
@@ -438,7 +442,7 @@ impl LaserCameraModel {
         for (feature, px) in pixels.iter().enumerate() {
             let point = target_plane_point(&self.camera, cam_se3_target, px);
             let mut residual = vision_calibration_core::LaserFeatureResidual::default();
-            residual.pose = pose;
+            residual.view = pose;
             residual.camera = camera;
             residual.feature = feature;
             residual.observed_px = [px.x, px.y];
@@ -455,7 +459,7 @@ impl LaserCameraModel {
         }
         if let Some(points_px) = self.laser_line_px(cam_se3_target, plane, &points) {
             let mut line = vision_calibration_core::LaserLineTrace::default();
-            line.pose = pose;
+            line.view = pose;
             line.camera = camera;
             line.points_px = points_px;
             out.lines.push(line);
@@ -656,7 +660,7 @@ pub(crate) enum HeldParameter {
     /// A camera parameter, by its label (`fx`, `k1`, `tilt_x`).
     Camera(String),
     /// Coordinate `index` (`rx ry rz tx ty tz`) of the right-perturbation
-    /// tangent of view `view`'s `camera_se3_target`.
+    /// tangent of view `view`'s `cam_se3_target`.
     Pose { view: usize, index: usize },
 }
 
@@ -743,11 +747,11 @@ fn build_laserline_ir(
     if dataset.is_empty() {
         return Err(Error::invalid_input("need at least one view"));
     }
-    if dataset.len() != initial.poses.len() {
+    if dataset.len() != initial.cam_se3_target.len() {
         return Err(Error::invalid_input(format!(
             "dataset has {} views but {} initial poses",
             dataset.len(),
-            initial.poses.len()
+            initial.cam_se3_target.len()
         )));
     }
     for (idx, view) in dataset.iter().enumerate() {
@@ -775,7 +779,7 @@ fn build_laserline_ir(
 
     // Add pose parameter blocks (one per view)
     let mut pose_ids = Vec::new();
-    for (i, pose) in initial.poses.iter().enumerate() {
+    for (i, pose) in initial.cam_se3_target.iter().enumerate() {
         let fixed = if opts.fix_poses.contains(&i) {
             FixedMask::all_fixed(7)
         } else {
@@ -1086,7 +1090,7 @@ mod tests {
         assert_eq!(residuals.len(), laser_pixels.len());
         assert_eq!(records.lines.len(), 1);
         for (i, r) in residuals.iter().enumerate() {
-            assert_eq!(r.pose, 0);
+            assert_eq!(r.view, 0);
             assert_eq!(r.camera, 0);
             assert_eq!(r.feature, i);
             let res_m = r.residual_m.expect("ray intersects target plane");

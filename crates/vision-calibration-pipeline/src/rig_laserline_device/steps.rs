@@ -153,7 +153,7 @@ fn linear_plane_init(
         let rig_se3_target = input.upstream.rig_se3_target[view_idx];
         views.push(LinearLaserlineView {
             laser_pixels,
-            camera_se3_target: rig_to_cam * rig_se3_target,
+            cam_se3_target: rig_to_cam * rig_se3_target,
         });
     }
     if views.is_empty() {
@@ -197,7 +197,7 @@ pub fn step_optimize(
 
     let upstream = RigLaserlineUpstream {
         cameras: input.upstream.cameras,
-        cam_to_rig: inverse_poses(&input.upstream.cam_se3_rig),
+        rig_se3_cam: inverse_poses(&input.upstream.cam_se3_rig),
         rig_se3_target: input.upstream.rig_se3_target,
         uncertainty: input.upstream.uncertainty,
     };

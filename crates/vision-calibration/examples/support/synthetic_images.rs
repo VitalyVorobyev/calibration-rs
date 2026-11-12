@@ -122,7 +122,7 @@ pub fn write_fixture(out_dir: &Path) -> Result<FixtureSummary> {
                 .map_err(|e| anyhow::anyhow!("view {view_idx}: {e}"))?,
         ));
         let mut frame = FrameRef::default();
-        frame.pose = view_idx;
+        frame.view = view_idx;
         frame.path = PathBuf::from(rel_path);
         frames.push(frame);
     }

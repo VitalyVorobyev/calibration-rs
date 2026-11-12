@@ -60,7 +60,7 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         session.set_input(self.dataset)
         init = session.step_init()
         self.assertIsInstance(init, planar_intrinsics.IntrinsicsInitResult)
-        self.assertEqual(len(init.poses), 10)
+        self.assertEqual(len(init.cam_se3_target), 10)
         self.assertIsInstance(init.camera.sensor, vc.IdentitySensor)
         self.assertAlmostEqual(init.camera.intrinsics.fx, 800.0, delta=8.0)
         optimized = session.step_optimize()
@@ -202,7 +202,7 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         session = vc.SingleCamHandeyeSession()
         session.set_input(payload)
         init = session.step_intrinsics_init()
-        self.assertEqual(len(init.target_poses), len(payload["views"]))
+        self.assertEqual(len(init.cam_se3_target), len(payload["views"]))
         optimized = session.step_intrinsics_optimize()
         self.assertLess(optimized.mean_reproj_error, 1.0)
         handeye = session.step_handeye_init(vc.HandeyeInitOptions(min_motion_angle_deg=5.0))
@@ -245,7 +245,7 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         estimate = session.step_handeye_init()
         seeded = session.step_handeye_init_with_seed(
             single_cam_handeye.EyeInHandManualInit(
-                gripper_se3_camera=estimate.handeye.gripper_se3_camera,
+                gripper_se3_cam=estimate.handeye.gripper_se3_cam,
                 base_se3_target=estimate.handeye.base_se3_target,
             )
         )
@@ -269,7 +269,7 @@ class RigExtrinsicsSessionTest(unittest.TestCase):
         session.set_config(config)
         init = session.step_intrinsics_init_all()
         self.assertEqual(len(init.cameras), 2)
-        self.assertEqual(len(init.per_cam_target_poses), len(payload["views"]))
+        self.assertEqual(len(init.cam_se3_target), len(payload["views"]))
         session.step_intrinsics_optimize_all()
         rig = session.step_rig_init()
         self.assertEqual(len(rig.initial_cam_se3_rig), 2)
@@ -344,7 +344,7 @@ class LaserlineDeviceSessionTest(unittest.TestCase):
         self.assertEqual(len(optimized.per_view_laser_errors), len(payload))
         result = session.export()
         reference = _run_laserline_device_raw(payload)
-        self.assertEqual(result.params.plane, reference.params.plane)
+        self.assertEqual(result.laser_plane, reference.laser_plane)
 
     def test_a_seeded_plane_has_no_fit_rmse(self) -> None:
         session = vc.LaserlineDeviceSession()

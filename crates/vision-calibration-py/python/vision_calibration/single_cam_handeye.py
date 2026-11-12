@@ -63,14 +63,14 @@ class IntrinsicsManualInit:
     """Manual seeds of the intrinsics stage; a field left ``None`` is
     estimated.
 
-    The fields mean what they mean for planar intrinsics; ``target_poses``
+    The fields mean what they mean for planar intrinsics; ``cam_se3_target``
     are camera-from-target, one per view.
     """
 
     intrinsics: PinholeIntrinsics | None = None
     distortion: Distortion | None = None
     sensor: ScheimpflugSensor | None = None
-    target_poses: list[Pose] | None = None
+    cam_se3_target: list[Pose] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return _seed_payload(
@@ -78,7 +78,7 @@ class IntrinsicsManualInit:
                 "intrinsics": self.intrinsics,
                 "distortion": self.distortion,
                 "sensor": self.sensor,
-                "target_poses": self.target_poses,
+                "cam_se3_target": self.cam_se3_target,
             }
         )
 
@@ -92,7 +92,7 @@ class EyeInHandManualInit:
     seed of the other mode raises before any work.
     """
 
-    gripper_se3_camera: Pose | None = None
+    gripper_se3_cam: Pose | None = None
     base_se3_target: Pose | None = None
     mode: ClassVar[HandeyeMode] = "eye_in_hand"
 
@@ -101,7 +101,7 @@ class EyeInHandManualInit:
             "mode": self.mode,
             **_seed_payload(
                 {
-                    "gripper_se3_camera": self.gripper_se3_camera,
+                    "gripper_se3_cam": self.gripper_se3_cam,
                     "base_se3_target": self.base_se3_target,
                 }
             ),
@@ -117,7 +117,7 @@ class EyeToHandManualInit:
     seed of the other mode raises before any work.
     """
 
-    camera_se3_base: Pose | None = None
+    cam_se3_base: Pose | None = None
     gripper_se3_target: Pose | None = None
     mode: ClassVar[HandeyeMode] = "eye_to_hand"
 
@@ -126,7 +126,7 @@ class EyeToHandManualInit:
             "mode": self.mode,
             **_seed_payload(
                 {
-                    "camera_se3_base": self.camera_se3_base,
+                    "cam_se3_base": self.cam_se3_base,
                     "gripper_se3_target": self.gripper_se3_target,
                 }
             ),
@@ -143,11 +143,11 @@ class IntrinsicsInitResult:
     """The initial camera and per-view target poses of the intrinsics stage."""
 
     camera: Camera
-    target_poses: list[Pose]
+    cam_se3_target: list[Pose]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsInitResult:
-        return cls(camera=_camera(payload["camera"]), target_poses=_poses(payload["target_poses"]))
+        return cls(camera=_camera(payload["camera"]), cam_se3_target=_poses(payload["cam_se3_target"]))
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +155,7 @@ class IntrinsicsOptimizeResult:
     """The refined camera and target poses of the intrinsics stage."""
 
     camera: Camera
-    target_poses: list[Pose]
+    cam_se3_target: list[Pose]
     mean_reproj_error: float
     """Mean reprojection error, pixels."""
 
@@ -163,7 +163,7 @@ class IntrinsicsOptimizeResult:
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsOptimizeResult:
         return cls(
             camera=_camera(payload["camera"]),
-            target_poses=_poses(payload["target_poses"]),
+            cam_se3_target=_poses(payload["cam_se3_target"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
         )
 

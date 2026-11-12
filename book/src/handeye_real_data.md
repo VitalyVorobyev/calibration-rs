@@ -96,13 +96,13 @@ Robot pose refinements (30 views):
 Estimated robot error: 0.043° / 0.45mm per axis
 ```
 
-The joint hand-eye error matches the intrinsics-only error: every view is explained through one shared `gripper_se3_camera` and one shared `base_se3_target`, and the small per-view robot-pose corrections (0.12° and 1.3 mm at most) absorb the kinematic noise, and the solve estimates the arm's error from them: 0.043° and 0.45 mm per axis. A correction acts in the gripper frame, so its rotation and translation are the tool's orientation and position errors. A hand-eye error far above the intrinsics-only error points at robot-pose noise, mechanical play or a wrong pose convention.
+The joint hand-eye error matches the intrinsics-only error: every view is explained through one shared `gripper_se3_cam` and one shared `base_se3_target`, and the small per-view robot-pose corrections (0.12° and 1.3 mm at most) absorb the kinematic noise, and the solve estimates the arm's error from them: 0.043° and 0.45 mm per axis. A correction acts in the gripper frame, so its rotation and translation are the tool's orientation and position errors. A hand-eye error far above the intrinsics-only error points at robot-pose noise, mechanical play or a wrong pose convention.
 
 ## Interpreting Results
 
 Key outputs of the export (eye-in-hand):
 
-- **Hand-eye transform** (`gripper_se3_camera`): translation magnitude should match the physical camera-to-gripper distance. Rotation should reflect the mounting orientation.
+- **Hand-eye transform** (`gripper_se3_cam`): translation magnitude should match the physical camera-to-gripper distance. Rotation should reflect the mounting orientation.
 - **Target in base** (`base_se3_target`): the calibration board's position in the robot base frame. Verify against the known physical setup.
 - **Reprojection error** (`mean_reproj_error`): under 1 px indicates a good calibration; above 3 px suggests problems.
 

@@ -560,7 +560,7 @@ fn parse_target_points(
 /// export:
 ///     A planar intrinsics export.
 /// candidates:
-///     ``camera_se3_target`` poses, serde `Iso3` payloads.
+///     ``cam_se3_target`` poses, serde `Iso3` payloads.
 /// target_points:
 ///     The target's points in its own frame, metres, ``[[x, y, z], ...]``.
 /// image_size:
@@ -753,7 +753,7 @@ fn rank_robot_poses(
 /// Returns
 /// -------
 /// list[dict]
-///     ``camera_se3_target`` poses, serde `Iso3` payloads.
+///     ``cam_se3_target`` poses, serde `Iso3` payloads.
 ///
 /// Raises
 /// ------

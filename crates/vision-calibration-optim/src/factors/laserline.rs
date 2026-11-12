@@ -336,7 +336,7 @@ pub(crate) fn laser_line_distance<T: RealField>(
 /// target-corner reprojection and a rig-level laser residual share the exact
 /// same chain semantics.
 ///
-/// - `cam_to_rig`: 7D SE3 `T_rig_from_cam`.
+/// - `rig_se3_cam`: 7D SE3 `T_rig_from_cam`.
 /// - `handeye`:   7D SE3 — `gripper_se3_rig` (EyeInHand) or `rig_se3_base`
 ///   (EyeToHand).
 /// - `target_ref`: 7D SE3 — `base_se3_target` (EyeInHand) or
@@ -344,27 +344,27 @@ pub(crate) fn laser_line_distance<T: RealField>(
 /// - `robot_se3`: known `base_se3_gripper` for this view.
 #[allow(clippy::too_many_arguments)]
 fn compose_cam_se3_target_with_delta_generic<T: RealField>(
-    cam_to_rig: DVectorView<'_, T>,
+    rig_se3_cam: DVectorView<'_, T>,
     handeye: DVectorView<'_, T>,
     target_ref: DVectorView<'_, T>,
     robot_se3: [f64; 7],
     robot_delta: Option<DVectorView<'_, T>>,
     mode: HandeyeMode,
 ) -> (UnitQuaternion<T>, Vector3<T>) {
-    debug_assert!(cam_to_rig.len() == 7, "cam_to_rig must be 7 SE3");
+    debug_assert!(rig_se3_cam.len() == 7, "rig_se3_cam must be 7 SE3");
     debug_assert!(handeye.len() == 7, "handeye must be 7 SE3");
     debug_assert!(target_ref.len() == 7, "target_ref must be 7 SE3");
 
     let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
-        cam_to_rig[3].clone(),
-        cam_to_rig[0].clone(),
-        cam_to_rig[1].clone(),
-        cam_to_rig[2].clone(),
+        rig_se3_cam[3].clone(),
+        rig_se3_cam[0].clone(),
+        rig_se3_cam[1].clone(),
+        rig_se3_cam[2].clone(),
     ));
     let extr_t = Vector3::new(
-        cam_to_rig[4].clone(),
-        cam_to_rig[5].clone(),
-        cam_to_rig[6].clone(),
+        rig_se3_cam[4].clone(),
+        rig_se3_cam[5].clone(),
+        rig_se3_cam[6].clone(),
     );
     let handeye_q = UnitQuaternion::from_quaternion(Quaternion::new(
         handeye[3].clone(),
@@ -760,7 +760,7 @@ mod tests {
     /// against flipped inverses.
     ///
     /// Conventions (mirror the hand-eye reprojection chains):
-    /// - `cam_to_rig` param ≡ T_rig_from_cam (forward maps cam→rig).
+    /// - `rig_se3_cam` param ≡ T_rig_from_cam (forward maps cam→rig).
     /// - EyeInHand: `handeye` = T_gripper_from_rig; `target_ref` = T_base_from_target.
     /// - EyeToHand: `handeye` = T_rig_from_base;    `target_ref` = T_gripper_from_target.
     /// - Robot data: `robot_se3` = T_base_from_gripper (as published by the robot).
@@ -787,7 +787,7 @@ mod tests {
         let t_base_from_gripper: Isometry3<f64> =
             Isometry3::from_parts(Translation3::new(0.50, 0.10, 0.20), rot_xyz(0.2, 0.2, 0.2));
 
-        let cam_to_rig = pack(&t_rig_from_cam);
+        let rig_se3_cam = pack(&t_rig_from_cam);
         let handeye = pack(&handeye_iso);
         let target_ref = pack(&target_ref_iso);
         let robot_arr = pack_arr(&t_base_from_gripper);
@@ -798,7 +798,7 @@ mod tests {
             * t_base_from_gripper.inverse()
             * target_ref_iso;
         let (r, t) = compose_cam_se3_target_with_delta_generic::<f64>(
-            cam_to_rig.as_view(),
+            rig_se3_cam.as_view(),
             handeye.as_view(),
             target_ref.as_view(),
             robot_arr,
@@ -821,7 +821,7 @@ mod tests {
         let t_ct_eth: Isometry3<f64> =
             t_rig_from_cam.inverse() * handeye_iso * t_base_from_gripper * target_ref_iso;
         let (r2, t2) = compose_cam_se3_target_with_delta_generic::<f64>(
-            cam_to_rig.as_view(),
+            rig_se3_cam.as_view(),
             handeye.as_view(),
             target_ref.as_view(),
             robot_arr,

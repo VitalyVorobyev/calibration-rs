@@ -126,7 +126,7 @@ The steps `step_init` and `step_optimize` are available for finer control. `data
 `RigHandeyeLaserlineProblem` solves the whole chain jointly: it runs rig hand-eye, initializes the per-camera laser planes from the frozen hand-eye geometry, then refines rig, hand-eye, and laser parameters together.
 
 <a id="one-camera"></a>
-**One camera.** A single laser head on a robot is a rig of one camera: `num_cameras: 1`, one target and one laser slot per view. The camera's frame is the rig's, so the hand-eye is the camera's (`gripper_se3_rig` is `gripper_se3_camera`). Its camera, laser plane and hand-eye come out of one solve, in one camera frame.
+**One camera.** A single laser head on a robot is a rig of one camera: `num_cameras: 1`, one target and one laser slot per view. The camera's frame is the rig's, so the hand-eye is the camera's (`gripper_se3_rig` is `gripper_se3_cam`). Its camera, laser plane and hand-eye come out of one solve, in one camera frame.
 
 ```rust
 pub struct RigHandeyeLaserlineConfig {

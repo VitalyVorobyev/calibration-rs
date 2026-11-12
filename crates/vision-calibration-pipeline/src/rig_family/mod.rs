@@ -46,7 +46,7 @@ pub(crate) struct RigIntrinsicsBootstrap {
     /// Per-camera initial parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
     /// `[view][cam] -> Option<Iso3>`, `cam_se3_target` (T_C_T).
-    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
+    pub cam_se3_target: Vec<Vec<Option<Iso3>>>,
     /// Which seeds were given, for the session log.
     pub provenance: Provenance,
 }
@@ -89,7 +89,7 @@ where
     let provenance = seed_provenance(&seeds, &models);
 
     let mut cameras = Vec::with_capacity(num_cameras);
-    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
+    let mut cam_se3_target: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
 
     for (cam_idx, model) in models.iter().enumerate() {
         let cam_views = extract_views(cam_idx);
@@ -110,7 +110,7 @@ where
             bootstrap_camera(cam_idx, *model, &planar_dataset, &seed, init_opts)?;
 
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
-            per_cam_target_poses[global_idx][cam_idx] = Some(camera_bootstrap.poses[local_idx]);
+            cam_se3_target[global_idx][cam_idx] = Some(camera_bootstrap.cam_se3_target[local_idx]);
         }
 
         cameras.push(camera_bootstrap.camera);
@@ -118,7 +118,7 @@ where
 
     Ok(RigIntrinsicsBootstrap {
         cameras,
-        per_cam_target_poses,
+        cam_se3_target,
         provenance,
     })
 }
@@ -266,12 +266,12 @@ pub(crate) fn rig_camera_models(cameras: &[CameraParams]) -> Result<Vec<CameraMo
 ///
 /// # Errors
 ///
-/// [`Error`] when `camera_se3_target` is empty.
+/// [`Error`] when `cam_se3_target` is empty.
 pub(crate) fn tilted_planar_params(
     intrinsics: FxFyCxCy<Real>,
     distortion: BrownConrady5<Real>,
     sensor: ScheimpflugParams,
-    camera_se3_target: Vec<Iso3>,
+    cam_se3_target: Vec<Iso3>,
 ) -> Result<PlanarIntrinsicsParams, Error> {
     Ok(PlanarIntrinsicsParams::new(
         CameraParams {
@@ -280,7 +280,7 @@ pub(crate) fn tilted_planar_params(
             sensor: SensorParams::Scheimpflug { params: sensor },
             intrinsics,
         },
-        camera_se3_target,
+        cam_se3_target,
     )?)
 }
 
@@ -370,7 +370,7 @@ pub(crate) fn without_meta<M>(dataset: &RigDataset<M>) -> RigDataset<NoMeta> {
     }
 }
 
-/// The inverse of each pose: `cam_to_rig` from `cam_se3_rig` and back.
+/// The inverse of each pose: `rig_se3_cam` from `cam_se3_rig` and back.
 pub(crate) fn inverse_poses(poses: &[Iso3]) -> Vec<Iso3> {
     poses.iter().map(|t| t.inverse()).collect()
 }
@@ -451,7 +451,7 @@ pub(crate) fn linear_handeye(
             observer_se3_target,
             min_motion_angle_deg,
         )
-        .map(|e| (e.gripper_se3_camera, e.base_se3_target))
+        .map(|e| (e.gripper_se3_cam, e.base_se3_target))
         .map_err(|e| Error::numerical(format!("linear hand-eye estimation failed: {e}"))),
         HandeyeMode::EyeToHand => estimate_eye_to_hand(
             method,
@@ -459,7 +459,7 @@ pub(crate) fn linear_handeye(
             observer_se3_target,
             min_motion_angle_deg,
         )
-        .map(|e| (e.camera_se3_base, e.gripper_se3_target))
+        .map(|e| (e.cam_se3_base, e.gripper_se3_target))
         .map_err(|e| Error::numerical(format!("linear gripper->target estimation failed: {e}"))),
     }
 }
@@ -591,7 +591,7 @@ mod tests {
                 .iter()
                 .all(|c| c.spec() == Some(untilted().model))
         );
-        assert_eq!(result.per_cam_target_poses.len(), num_views);
+        assert_eq!(result.cam_se3_target.len(), num_views);
         for cam in &result.cameras {
             let k = cam.intrinsics;
             assert!((k.fx - k_gt.fx).abs() / k_gt.fx < 0.05, "fx off");

@@ -205,7 +205,7 @@ pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn Calibrate
 
 impl CalibratedCameras for PlanarIntrinsicsExport {
     fn camera_params(&self) -> Vec<CameraParams> {
-        vec![self.params.camera.clone()]
+        vec![self.camera.clone()]
     }
 
     fn cam_se3_rig(&self) -> Vec<Iso3> {
@@ -245,11 +245,11 @@ impl CalibratedCameras for SingleCamHandeyeExport {
 
 impl CalibratedCameras for LaserlineDeviceExport {
     fn camera_params(&self) -> Vec<CameraParams> {
-        vec![self.params.camera.clone()]
+        vec![self.camera.clone()]
     }
 
     fn laser_planes_cam(&self) -> Vec<LaserPlane> {
-        vec![self.params.plane.clone()]
+        vec![self.laser_plane.clone()]
     }
 
     fn cam_se3_rig(&self) -> Vec<Iso3> {

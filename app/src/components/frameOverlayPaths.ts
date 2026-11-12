@@ -63,11 +63,11 @@ function circle(cx: number, cy: number, r: number): string {
   return `M${n(cx - r)} ${n(cy)}a${n(r)} ${n(r)} 0 1 0 ${n(2 * r)} 0a${n(r)} ${n(r)} 0 1 0 ${n(-2 * r)} 0`;
 }
 
-function ofFrame<T extends { pose: number; camera: number }>(
+function ofFrame<T extends { view: number; camera: number }>(
   all: readonly T[],
   frame: Pick<FrameKey, "pose" | "camera">,
 ): T[] {
-  return all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
+  return all.filter((r) => r.view === frame.pose && r.camera === frame.camera);
 }
 
 /** Group `d` fragments by colour, keeping first-seen order. */
@@ -117,7 +117,7 @@ export function buildLaserOverlay(
   unit: number,
 ): LaserOverlayPaths {
   const records = ofFrame(all, frame);
-  const trace = lines.find((l) => l.pose === frame.pose && l.camera === frame.camera);
+  const trace = lines.find((l) => l.view === frame.pose && l.camera === frame.camera);
   const line =
     trace && trace.points_px.length >= 2
       ? trace.points_px

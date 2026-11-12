@@ -10,7 +10,7 @@ use vision_calibration::core::{NoiseLevel, Uncertainty};
 let export = session.export()?;
 match &export.uncertainty {
     Uncertainty::Available(cov) => {
-        let fx = export.params.camera.intrinsics.fx;
+        let fx = export.camera.intrinsics.fx;
         println!("fx = {fx:.1} ± {:.2} px", cov.std_dev("fx").unwrap());
         println!("corr(fx, cx) = {:.2}", cov.correlation("fx", "cx").unwrap());
         for noise in &cov.noise {
@@ -52,7 +52,7 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   - the poses a result reports once, under their export names, with six
     labels each (`<pose>.rx` … `<pose>.tz`, see `views` below):
     `cam_se3_rig` per camera, the hand-eye pose (`gripper_se3_rig` or
-    `rig_se3_base`, `gripper_se3_camera` or `camera_se3_base` for a single
+    `rig_se3_base`, `gripper_se3_cam` or `cam_se3_base` for a single
     camera) and the target pose (`base_se3_target` or `gripper_se3_target`);
   - a laser plane `n · p + d = 0` in its camera's frame: `plane.nx`,
     `plane.ny`, `plane.nz` and `plane.d` (metres). The normal is a unit
@@ -63,12 +63,12 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   root of a diagonal entry, and `correlation(a, b)` the normalized
   off-diagonal one.
 - **`views`**: the parameters that belong to one view, each view's block
-  separately: the board pose `camera_se3_target` for intrinsics results,
+  separately: the board pose `cam_se3_target` for intrinsics results,
   `rig_se3_target` for rig results, and the robot-pose correction
   `robot_delta` for hand-eye results that refine the robot poses. A pose's
   six labels are `rx, ry, rz` (radians) and `tx, ty, tz` (metres) of the
   perturbation `T · Exp(δ)` on the right. Both are expressed in the pose's
-  source frame, which is the target frame for `camera_se3_target`. The
+  source frame, which is the target frame for `cam_se3_target`. The
   correlation of a view's parameters with the shared ones is not reported.
 - **`fixed`**: the parameters the solve held fixed, such as `k3` with the
   default configuration, or `cam0.cam_se3_rig`, the reference camera that

@@ -518,7 +518,7 @@ def predict_with_views(
     """The covariance a planar calibration would have with more views of its
     target, predicted without a re-solve.
 
-    Each candidate is a ``camera_se3_target`` pose. The target's points are
+    Each candidate is a ``cam_se3_target`` pose. The target's points are
     projected through the current estimate (those behind the camera or outside
     the image are dropped); the view's information about the camera, with its
     own pose marginalized, is added to the result's, on the pixel noise scale
@@ -529,7 +529,7 @@ def predict_with_views(
     result:
         A planar intrinsics result, or its export JSON loaded as a dict.
     candidates:
-        Candidate target poses (``camera_se3_target``), all added together.
+        Candidate target poses (``cam_se3_target``), all added together.
     target_points:
         The target's points in its own frame, metres.
     image_size:

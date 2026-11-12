@@ -337,13 +337,13 @@ impl<'a> RigPlanner<'a> {
         let mut points: Vec<Vec<Vec<Pt3>>> = vec![vec![Vec::new(); cameras]; views];
         for record in &export.diagnostics.per_feature_residuals.target {
             let slot = points
-                .get_mut(record.pose)
+                .get_mut(record.view)
                 .and_then(|view| view.get_mut(record.camera))
                 .ok_or_else(|| {
                     Error::invalid_input(format!(
                         "a feature residual names view {} of camera {}, but the result has {views} \
                          views of {cameras} cameras",
-                        record.pose, record.camera
+                        record.view, record.camera
                     ))
                 })?;
             slot.push(Pt3::from(record.target_xyz_m));

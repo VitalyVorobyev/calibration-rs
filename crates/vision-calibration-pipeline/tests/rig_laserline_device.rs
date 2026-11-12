@@ -55,7 +55,7 @@ fn make_dataset() -> (
         Translation3::new(0.15, 0.0, 0.0),
         Rotation3::identity().into(),
     );
-    let cam_to_rig = [cam0_to_rig, cam1_to_rig];
+    let rig_se3_cam = [cam0_to_rig, cam1_to_rig];
 
     let rig_se3_target = vec![
         Isometry3::from_parts(
@@ -84,7 +84,7 @@ fn make_dataset() -> (
     // Per-camera GT planes in camera frame.
     let planes_cam_gt: Vec<LaserPlane> = planes_rig_gt
         .iter()
-        .zip(cam_to_rig.iter())
+        .zip(rig_se3_cam.iter())
         .map(|(p_rig, t)| p_rig.transform_by(&t.inverse()))
         .collect();
 
@@ -95,7 +95,7 @@ fn make_dataset() -> (
         let mut cam_obs = Vec::new();
         let mut laser_obs = Vec::new();
         for cam_idx in 0..2 {
-            let cam_se3_target = cam_to_rig[cam_idx].inverse() * rig_pose;
+            let cam_se3_target = rig_se3_cam[cam_idx].inverse() * rig_pose;
 
             // Target correspondences.
             let mut pts3 = Vec::new();
@@ -151,7 +151,7 @@ fn make_dataset() -> (
     };
     let upstream = RigUpstreamCalibration {
         cameras: vec![camera.clone(), camera],
-        cam_se3_rig: cam_to_rig.iter().map(|t| t.inverse()).collect(),
+        cam_se3_rig: rig_se3_cam.iter().map(|t| t.inverse()).collect(),
         rig_se3_target,
         uncertainty: Default::default(),
     };

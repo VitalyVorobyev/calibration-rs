@@ -8,7 +8,7 @@ matches the problem, and writes ``regression/results/<id>/opencv.json``:
       "producer": "opencv 4.12.0",
       "method": "calibrateCameraExtended (CALIB_FIX_K3)",
       "parameters": {"fx": ..., "k1": ...},      # by calibration-rs label
-      "poses": {"gripper_se3_camera": {...}},    # by calibration-rs export name
+      "poses": {"gripper_se3_cam": {...}},    # by calibration-rs export name
       "sigma": {"fx": ...},                       # OpenCV's standard deviations
       "mean_reproj_error": ...                    # mean Euclidean distance, px
     }
@@ -296,7 +296,7 @@ def robot_world_handeye(
     cam: Camera, base_se3_gripper: list[np.ndarray]
 ) -> tuple[np.ndarray, np.ndarray]:
     """``calibrateRobotWorldHandEye`` (Shah) on one camera's views:
-    returns ``(gripper_se3_camera, base_se3_target)``."""
+    returns ``(gripper_se3_cam, base_se3_target)``."""
     gripper_se3_base = [np.linalg.inv(t) for t in base_se3_gripper]
     r_b2w, t_b2w, r_g2c, t_g2c = cv2.calibrateRobotWorldHandEye(
         [p[:3, :3] for p in cam.poses],
@@ -304,7 +304,7 @@ def robot_world_handeye(
         [t[:3, :3] for t in gripper_se3_base],
         [t[:3, 3] for t in gripper_se3_base],
     )
-    # base2world = target_se3_base, gripper2cam = camera_se3_gripper.
+    # base2world = target_se3_base, gripper2cam = cam_se3_gripper.
     return np.linalg.inv(from_rt(r_g2c, t_g2c)), np.linalg.inv(from_rt(r_b2w, t_b2w))
 
 
@@ -313,17 +313,17 @@ def single_cam_handeye(entry: dict[str, Any], obs: dict[str, Any]) -> dict[str, 
     views = obs["input"]["views"]
     cam = Camera(*observations([v["obs"] for v in views]), size, cv2.CALIB_FIX_K3)
     robot = [to_matrix(v["meta"]["base_se3_gripper"]) for v in views]
-    gripper_se3_camera, base_se3_target = robot_world_handeye(cam, robot)
+    gripper_se3_cam, base_se3_target = robot_world_handeye(cam, robot)
     # The hand-eye chain's own reprojection: target → base → gripper → camera.
     chain = [
-        np.linalg.inv(gripper_se3_camera) @ np.linalg.inv(t_bg) @ base_se3_target
+        np.linalg.inv(gripper_se3_cam) @ np.linalg.inv(t_bg) @ base_se3_target
         for t_bg in robot
     ]
     return {
         "method": "calibrateCameraExtended (CALIB_FIX_K3), calibrateRobotWorldHandEye (Shah)",
         "parameters": cam.parameters(),
         "poses": {
-            "gripper_se3_camera": to_pose(gripper_se3_camera),
+            "gripper_se3_cam": to_pose(gripper_se3_cam),
             "base_se3_target": to_pose(base_se3_target),
         },
         "sigma": cam.sigma(),

@@ -15,11 +15,11 @@ the planar family's — see [planar-intrinsics.md](planar-intrinsics.md).
 Hand-eye adds the rigid unknown `X` and a single fixed target pose `Y`, wired
 two ways (`HandeyeMode`, `handeye_observer_se3_target`):
 
-- **EyeInHand** — camera on the gripper. `X = gripper_se3_camera` (`T_G_C`),
+- **EyeInHand** — camera on the gripper. `X = gripper_se3_cam` (`T_G_C`),
   `Y = base_se3_target` (`T_B_T`); per view
   `T_C_T_i = (T_B_G_i · X)^{-1} · Y = X^{-1} · T_G_B_i · Y`.
 - **EyeToHand** — camera fixed in the scene, target on the gripper.
-  `X = camera_se3_base` (`T_C_B`), `Y = gripper_se3_target` (`T_G_T`); per view
+  `X = cam_se3_base` (`T_C_B`), `Y = gripper_se3_target` (`T_G_T`); per view
   `T_C_T_i = X · T_B_G_i · Y`.
 
 `T_C_T_i` then projects the board through the shared camera. For a rig the
@@ -40,15 +40,15 @@ linear solver's own matrix→quaternion conversions use the non-iterative
 
 Both modes are the robot-world equation `A_i X = Z B_i` with `A_i = T_B_G_i`
 (`linear::handeye`, `estimate_eye_in_hand` / `estimate_eye_to_hand`, both
-taking `camera_se3_target` per view):
+taking `cam_se3_target` per view):
 
 | mode | `B_i` | `X` | `Z` |
 |---|---|---|---|
-| EyeInHand | `T_T_C_i` | `gripper_se3_camera` | `base_se3_target` |
-| EyeToHand | `T_C_T_i` | `gripper_se3_target` | `base_se3_camera` (returned inverted, `camera_se3_base`) |
+| EyeInHand | `T_T_C_i` | `gripper_se3_cam` | `base_se3_target` |
+| EyeToHand | `T_C_T_i` | `gripper_se3_target` | `base_se3_cam` (returned inverted, `cam_se3_base`) |
 
 For the rig the observer is the rig frame (`rig_se3_target`), and EyeToHand's
-`camera_se3_base` is the rig's `T_R_B`. `HandeyeMethod` selects the solver
+`cam_se3_base` is the rig's `T_R_B`. `HandeyeMethod` selects the solver
 (`handeye_init.method`, per-step `HandeyeInitOptions::method`; default
 `tsai_lenz`, unchanged results).
 
@@ -260,7 +260,7 @@ rank-deficient `(R_A − I)` blocks). Empirically (matrix test below):
 (EyeInHand, 9 robot stations, 63-point board, `fx ∈ {800, 1200}`.) The reproj
 column tracks `0.765·a` (0.115, 0.230). EyeToHand shows the translation
 sensitivity of a *distant, derived* pose: at `a = 0.20 px` the directly
-estimated `gripper_se3_target` recovers to ~0.1 mm, while `camera_se3_base`
+estimated `gripper_se3_target` recovers to ~0.1 mm, while `cam_se3_base`
 (target ~1.2 m away) drifts to ~8 mm.
 
 ## Evidence

@@ -109,11 +109,11 @@ def _normalize(v):
 
 def _synthetic_dataset() -> vc.RigHandeyeLaserlineInput:
     ident = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
-    cam_to_rig = [
+    rig_se3_cam = [
         _pose(ident, [-0.10, 0.0, 0.0]),
         _pose(_rot_axis_angle([0, 0, 1], 0.05), [0.10, 0.0, 0.0]),
     ]
-    cam_se3_rig = [_pose_inv(p) for p in cam_to_rig]
+    cam_se3_rig = [_pose_inv(p) for p in rig_se3_cam]
     handeye = _pose(_rot_axis_angle([0, 1, 0], 0.1), [0.15, -0.02, 0.30])  # rig_se3_base
     target_ref = _pose(_rot_axis_angle([1, 0, 0], -0.05), [0.02, 0.0, -0.03])  # gripper_se3_target
     planes_cam = [(_normalize([0.1, 0.0, 1.0]), -0.30), (_normalize([-0.05, 0.05, 1.0]), -0.35)]

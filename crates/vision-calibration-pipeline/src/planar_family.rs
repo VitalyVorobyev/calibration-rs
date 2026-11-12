@@ -77,7 +77,7 @@ pub(crate) struct CameraBootstrap {
     /// The camera's initial parameters, in its model.
     pub camera: CameraParams,
     /// Per-view target poses (`cam_se3_target`), one per dataset view.
-    pub poses: Vec<Iso3>,
+    pub cam_se3_target: Vec<Iso3>,
 }
 
 /// Check a distortion seed is a distortion of `model`'s kind: a seed is a
@@ -328,7 +328,10 @@ fn bootstrap_pinhole(
     if let Some(distortion) = &seed.distortion {
         camera.distortion = distortion.clone();
     }
-    Ok(CameraBootstrap { camera, poses })
+    Ok(CameraBootstrap {
+        camera,
+        cam_se3_target: poses,
+    })
 }
 
 /// Linear bootstrap of an untilted equidistant (fisheye) camera: seeded
@@ -364,7 +367,10 @@ fn bootstrap_fisheye(
             camera.distortion = distortion.clone();
         }
         let poses = bearing_poses(cam_idx, dataset, &camera)?;
-        return Ok(CameraBootstrap { camera, poses });
+        return Ok(CameraBootstrap {
+            camera,
+            cam_se3_target: poses,
+        });
     }
     let init = estimate_equidistant_intrinsics(dataset, opts).map_err(|e| {
         Error::numerical(format!(
@@ -377,7 +383,7 @@ fn bootstrap_fisheye(
     }
     Ok(CameraBootstrap {
         camera,
-        poses: init.poses,
+        cam_se3_target: init.poses,
     })
 }
 

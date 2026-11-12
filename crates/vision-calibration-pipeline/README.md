@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
     assert!(!checkpoint.is_empty());
 
     let export = session.export()?;
-    println!("fx = {:.2} px", export.params.camera.intrinsics.fx);
+    println!("fx = {:.2} px", export.camera.intrinsics.fx);
     Ok(())
 }
 ```

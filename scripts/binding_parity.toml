@@ -190,7 +190,7 @@
 "planar_intrinsics::PlanarIntrinsicsEstimate" = "session.CalibrationSession.output"
 "planar_intrinsics::PlanarIntrinsicsExport" = "PlanarIntrinsicsExport"
 "planar_intrinsics::PlanarIntrinsicsInput" = "PlanarIntrinsicsInput"
-"planar_intrinsics::PlanarIntrinsicsParams" = "types.PlanarIntrinsicsParams"
+"planar_intrinsics::PlanarIntrinsicsParams" = "session.CalibrationSession.output"
 "planar_intrinsics::PlanarIntrinsicsProblem" = "PlanarIntrinsicsSession"
 "planar_intrinsics::run_calibration" = ["run_planar_intrinsics", "session.CalibrationSession.run_calibration"]
 "planar_intrinsics::run_calibration_with_filtering" = "planar_intrinsics.PlanarIntrinsicsSession.run_calibration_with_filtering"

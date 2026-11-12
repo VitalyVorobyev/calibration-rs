@@ -195,7 +195,7 @@ fn with_tilt(initial: &PlanarIntrinsicsParams, tilt: ScheimpflugParams) -> Plana
             sensor: SensorParams::Scheimpflug { params: tilt },
             ..initial.camera.clone()
         },
-        camera_se3_target: initial.camera_se3_target.clone(),
+        cam_se3_target: initial.cam_se3_target.clone(),
     }
 }
 

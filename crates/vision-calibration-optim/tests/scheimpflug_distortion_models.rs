@@ -290,7 +290,7 @@ fn scheimpflug_rational8_round_trip() {
     );
 
     let cam = built_camera(&params);
-    let rms_check = reproj_rms(&cam, &dataset, &params.camera_se3_target);
+    let rms_check = reproj_rms(&cam, &dataset, &params.cam_se3_target);
     assert!(
         rms_check < 1e-2,
         "Rational8 direct reproj RMS: {rms_check:.4e}"
@@ -357,7 +357,7 @@ fn scheimpflug_thinprism9_round_trip() {
     );
 
     let cam = built_camera(&params);
-    let rms_check = reproj_rms(&cam, &dataset, &params.camera_se3_target);
+    let rms_check = reproj_rms(&cam, &dataset, &params.cam_se3_target);
     assert!(
         rms_check < 1e-2,
         "ThinPrism9 direct reproj RMS: {rms_check:.4e}"
@@ -400,7 +400,7 @@ fn scheimpflug_division1_round_trip() {
     );
 
     let cam = built_camera(&params);
-    let rms_check = reproj_rms(&cam, &dataset, &params.camera_se3_target);
+    let rms_check = reproj_rms(&cam, &dataset, &params.cam_se3_target);
     assert!(
         rms_check < 1e-2,
         "Division1 direct reproj RMS: {rms_check:.4e}"

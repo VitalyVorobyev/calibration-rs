@@ -38,7 +38,6 @@ const TARGET_MANIFEST_EXPORT = PLANAR_EXPORT_FIXTURE;
 // (`hasLaser` in index.tsx).
 const LASER_MANIFEST_EXPORT = {
   kind: "laserline_device",
-  params: {},
   stats: {},
   diagnostics: {
     per_feature_residuals: { target: [], laser: [LASER_RESIDUAL] },

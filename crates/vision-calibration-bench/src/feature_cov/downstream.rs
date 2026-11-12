@@ -77,8 +77,8 @@ impl Route {
                 vision_calibration::single_cam_handeye::run_calibration(&mut session)?;
                 let export = session.export()?;
                 let label = match export.handeye {
-                    SingleCamHandeyeSolution::EyeInHand { .. } => "gripper_se3_camera",
-                    SingleCamHandeyeSolution::EyeToHand { .. } => "camera_se3_base",
+                    SingleCamHandeyeSolution::EyeInHand { .. } => "gripper_se3_cam",
+                    SingleCamHandeyeSolution::EyeToHand { .. } => "cam_se3_base",
                 };
                 Ok(Solved {
                     cam_se3_rig: Vec::new(),

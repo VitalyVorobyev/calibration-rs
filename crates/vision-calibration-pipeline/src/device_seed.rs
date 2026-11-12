@@ -152,7 +152,7 @@ pub fn nominal_cam_se3_rig(
 /// target poses (the two fields are coupled — both must be seeded
 /// together).
 ///
-/// `per_cam_target_poses` is `[view][cam] -> Option<cam_se3_target>` in the
+/// `cam_se3_target` is `[view][cam] -> Option<cam_se3_target>` in the
 /// same camera order as `camera_ids` (the shape returned by
 /// `step_intrinsics_init_all*`). For each view, the first camera with an
 /// observed pose anchors it:
@@ -160,10 +160,10 @@ pub fn nominal_cam_se3_rig(
 pub fn rig_layout_seed(
     spec: &DeviceSpec,
     camera_ids: &[&str],
-    per_cam_target_poses: &[Vec<Option<Iso3>>],
+    cam_se3_target: &[Vec<Option<Iso3>>],
 ) -> Result<RigManualInit, DeviceSeedError> {
     let cam_se3_rig = nominal_cam_se3_rig(spec, camera_ids)?;
-    let rig_se3_target = per_cam_target_poses
+    let rig_se3_target = cam_se3_target
         .iter()
         .enumerate()
         .map(|(view, cams)| {
@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(sensor.tilt_y, 0.0);
         assert!(seed.intrinsics.is_some());
         assert!(seed.distortion.is_none());
-        assert!(seed.poses.is_none());
+        assert!(seed.cam_se3_target.is_none());
 
         let mut spec = rig_spec();
         spec.cameras[0].scheimpflug = None;

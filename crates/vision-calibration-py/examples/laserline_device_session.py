@@ -122,8 +122,8 @@ def main() -> None:
     print("=== Laserline Device Calibration (Synthetic, Python) ===")
     payload = make_input()
     result = vc.run_laserline_device(payload)
-    intr = result.params.camera.intrinsics
-    plane = result.params.plane
+    intr = result.camera.intrinsics
+    plane = result.laser_plane
 
     print(f"Views: {len(payload.views)}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")

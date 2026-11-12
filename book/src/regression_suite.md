@@ -231,7 +231,7 @@ covariance uses (see [Parameter Uncertainty](uncertainty.md)):
 {
   "parameters": { "fx": 1000.0, "fy": 990.0, "k1": -0.12, "plane.nx": 0.287 },
   "poses": {
-    "gripper_se3_camera": { "rotation": [0.05, -0.02, 0.01, 0.998], "translation": [0.05, -0.03, 0.08] }
+    "gripper_se3_cam": { "rotation": [0.05, -0.02, 0.01, 0.998], "translation": [0.05, -0.03, 0.08] }
   }
 }
 ```

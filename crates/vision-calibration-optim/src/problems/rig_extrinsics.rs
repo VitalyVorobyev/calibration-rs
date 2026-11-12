@@ -29,10 +29,10 @@ pub type RigExtrinsicsDataset = RigDataset<NoMeta>;
 pub struct RigExtrinsicsParams {
     /// Per-camera calibrated parameters, each in its own model.
     pub cameras: Vec<CameraParams>,
-    /// Per-camera extrinsics (`camera -> rig`, `T_R_C`).
-    pub cam_to_rig: Vec<Iso3>,
-    /// Per-view rig poses (`target -> rig`, `T_R_T`).
-    pub rig_from_target: Vec<Iso3>,
+    /// Per-camera extrinsics (`rig_se3_cam`, `T_R_C`).
+    pub rig_se3_cam: Vec<Iso3>,
+    /// Per-view target poses in the rig frame (`rig_se3_target`, `T_R_T`).
+    pub rig_se3_target: Vec<Iso3>,
 }
 
 /// Output of rig extrinsics optimization.
@@ -166,17 +166,17 @@ fn build_rig_extrinsics_ir(
             dataset.num_cameras
         )));
     }
-    if initial.cam_to_rig.len() != dataset.num_cameras {
+    if initial.rig_se3_cam.len() != dataset.num_cameras {
         return Err(Error::invalid_input(format!(
-            "cam_to_rig count {} != num_cameras {}",
-            initial.cam_to_rig.len(),
+            "rig_se3_cam count {} != num_cameras {}",
+            initial.rig_se3_cam.len(),
             dataset.num_cameras
         )));
     }
-    if initial.rig_from_target.len() != dataset.num_views() {
+    if initial.rig_se3_target.len() != dataset.num_views() {
         return Err(Error::invalid_input(format!(
-            "rig_from_target count {} != num_views {}",
-            initial.rig_from_target.len(),
+            "rig_se3_target count {} != num_views {}",
+            initial.rig_se3_target.len(),
             dataset.num_views()
         )));
     }
@@ -213,7 +213,7 @@ fn build_rig_extrinsics_ir(
         let key = format!("extr/{}", cam_idx);
         let id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
         extr_ids.push(id);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.cam_to_rig[cam_idx]));
+        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_se3_cam[cam_idx]));
     }
 
     // 3. Per-view rig poses + residuals
@@ -225,7 +225,7 @@ fn build_rig_extrinsics_ir(
         };
         let key = format!("rig_pose/{}", view_idx);
         let rig_pose_id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_from_target[view_idx]));
+        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_se3_target[view_idx]));
 
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
             let Some(obs) = cam_obs else { continue };
@@ -287,15 +287,15 @@ pub fn optimize_rig_extrinsics(
         .enumerate()
         .map(|(i, spec)| unpack_camera(&solution.params, *spec, Some(i)))
         .collect::<Result<Vec<_>, Error>>()?;
-    let cam_to_rig = (0..dataset.num_cameras)
+    let rig_se3_cam = (0..dataset.num_cameras)
         .map(|i| solved_pose(&solution.params, &format!("extr/{i}")))
         .collect::<Result<Vec<_>, Error>>()?;
-    let rig_from_target = (0..dataset.num_views())
+    let rig_se3_target = (0..dataset.num_views())
         .map(|i| solved_pose(&solution.params, &format!("rig_pose/{i}")))
         .collect::<Result<Vec<_>, Error>>()?;
 
     let (mean_reproj_error, per_cam_reproj_errors) =
-        rig_reprojection_errors(&dataset, &cameras, &cam_to_rig, &rig_from_target)?;
+        rig_reprojection_errors(&dataset, &cameras, &rig_se3_cam, &rig_se3_target)?;
 
     let labels = RigLabelling {
         cameras: &specs,
@@ -308,8 +308,8 @@ pub fn optimize_rig_extrinsics(
     Ok(RigExtrinsicsEstimate {
         params: RigExtrinsicsParams {
             cameras,
-            cam_to_rig,
-            rig_from_target,
+            rig_se3_cam,
+            rig_se3_target,
         },
         uncertainty,
         report: solution.solve_report,
@@ -324,16 +324,16 @@ pub fn optimize_rig_extrinsics(
 fn rig_reprojection_errors(
     dataset: &RigExtrinsicsDataset,
     cameras: &[CameraParams],
-    cam_to_rig: &[Iso3],
-    rig_from_target: &[Iso3],
+    rig_se3_cam: &[Iso3],
+    rig_se3_target: &[Iso3],
 ) -> Result<(f64, Vec<f64>), Error> {
     let models = camera_models(cameras)?;
-    let cam_se3_rig: Vec<Iso3> = cam_to_rig.iter().map(|t| t.inverse()).collect();
+    let cam_se3_rig: Vec<Iso3> = rig_se3_cam.iter().map(|t| t.inverse()).collect();
     let mut sums = ReprojectionSums::new(dataset.num_cameras);
     for (view_idx, view) in dataset.views.iter().enumerate() {
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
             let Some(obs) = cam_obs else { continue };
-            let cam_se3_target = cam_se3_rig[cam_idx] * rig_from_target[view_idx];
+            let cam_se3_target = cam_se3_rig[cam_idx] * rig_se3_target[view_idx];
             for (p3d, p2d) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
                 let p_cam = cam_se3_target.transform_point(p3d);
                 let error = models[cam_idx]

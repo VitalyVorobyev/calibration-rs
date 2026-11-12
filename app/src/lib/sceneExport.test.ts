@@ -38,11 +38,9 @@ describe("adaptSceneExport", () => {
     const laser = {
       kind: "laserline_device",
       diagnostics: { per_feature_residuals: { target: [], laser: [] } },
-      params: {
-        camera: TILTED_CAMERA,
-        plane: PLANE,
-        poses: [POSE, POSE],
-      },
+      camera: TILTED_CAMERA,
+      laser_plane: PLANE,
+      cam_se3_target: [POSE, POSE],
     } as unknown as AnyExport;
 
     const adapted = adaptSceneExport(laser);
@@ -53,7 +51,7 @@ describe("adaptSceneExport", () => {
     expect(adapted.cam_se3_rig).toEqual([
       { rotation: [0, 0, 0, 1], translation: [0, 0, 0] },
     ]);
-    // camera_se3_target poses become rig_se3_target.
+    // cam_se3_target poses become rig_se3_target.
     expect(adapted.rig_se3_target).toHaveLength(2);
     // Plane appears in both rig and camera frame (they coincide).
     expect(adapted.laser_planes_rig).toEqual([PLANE]);
@@ -64,7 +62,7 @@ describe("adaptSceneExport", () => {
     const bare = {
       kind: "laserline_device",
       diagnostics: { per_feature_residuals: { target: [] } },
-      params: { camera: CAMERA },
+      camera: CAMERA,
     } as unknown as AnyExport;
     const adapted = adaptSceneExport(bare);
     expect(adapted.cameras).toBeUndefined();

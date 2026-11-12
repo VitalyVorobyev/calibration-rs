@@ -151,17 +151,17 @@ impl RigHandeyeLaserlineDataset {
 pub struct RigHandeyeLaserlineParams {
     /// Per-camera camera parameters, each in its own model.
     pub cameras: Vec<CameraParams>,
-    /// Per-camera `cam_to_rig` (T_rig_from_cam).
-    pub cam_to_rig: Vec<Iso3>,
+    /// Per-camera extrinsics (`rig_se3_cam`, `T_R_C`).
+    pub rig_se3_cam: Vec<Iso3>,
     /// Hand-eye transform.
     ///
     /// - `EyeInHand`: `gripper_se3_rig` (T_G_R).
     /// - `EyeToHand`: `rig_se3_base` (T_R_B).
     pub handeye: Iso3,
-    /// Fixed target reference pose.
+    /// The fixed target reference pose, named by the mode:
     ///
-    /// - `EyeInHand`: `base_se3_target` (T_B_T).
-    /// - `EyeToHand`: `gripper_se3_target` (T_G_T).
+    /// - `EyeInHand`: `base_se3_target` (`T_B_T`).
+    /// - `EyeToHand`: `gripper_se3_target` (`T_G_T`).
     pub target_ref: Iso3,
     /// Per-camera laser plane expressed in camera frame.
     pub planes_cam: Vec<LaserPlane>,
@@ -274,7 +274,7 @@ pub struct RigHandeyeLaserlineEstimate {
     /// Refined parameters.
     pub params: RigHandeyeLaserlineParams,
     /// Per-camera laser plane expressed in rig frame (convenience: derived
-    /// from `params.planes_cam` + `params.cam_to_rig`).
+    /// from `params.planes_cam` + `params.rig_se3_cam`).
     pub planes_rig: Vec<LaserPlane>,
     /// Backend solve report.
     pub report: SolveReport,
@@ -345,7 +345,7 @@ pub fn optimize_rig_handeye_laserline(
         .enumerate()
         .map(|(i, spec)| unpack_camera(&solution.params, *spec, Some(i)))
         .collect::<Result<Vec<_>, Error>>()?;
-    let cam_to_rig = (0..dataset.num_cameras)
+    let rig_se3_cam = (0..dataset.num_cameras)
         .map(|cam_idx| {
             se3_dvec_to_iso3(
                 solution
@@ -376,7 +376,7 @@ pub fn optimize_rig_handeye_laserline(
 
     let params = RigHandeyeLaserlineParams {
         cameras,
-        cam_to_rig,
+        rig_se3_cam,
         handeye,
         target_ref,
         planes_cam,
@@ -390,8 +390,8 @@ pub fn optimize_rig_handeye_laserline(
     let planes_rig: Vec<LaserPlane> = params
         .planes_cam
         .iter()
-        .zip(params.cam_to_rig.iter())
-        .map(|(plane, cam_to_rig)| plane.transform_by(cam_to_rig))
+        .zip(params.rig_se3_cam.iter())
+        .map(|(plane, rig_se3_cam)| plane.transform_by(rig_se3_cam))
         .collect();
 
     let (mean_reproj_error_px, per_cam_stats) =
@@ -442,12 +442,12 @@ fn compute_stats(
         .map(crate::params::camera::camera_spec)
         .collect::<Result<Vec<_>, Error>>()?;
 
-    let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
+    let cam_se3_rig: Vec<Iso3> = params.rig_se3_cam.iter().map(|t| t.inverse()).collect();
 
     // Pack params into DVectors (re-used across residual evals).
     let camera_dvecs: Vec<Vec<DVector<f64>>> =
         params.cameras.iter().map(camera_block_values).collect();
-    let extr_dvecs: Vec<DVector<f64>> = params.cam_to_rig.iter().map(iso3_to_se3_dvec).collect();
+    let extr_dvecs: Vec<DVector<f64>> = params.rig_se3_cam.iter().map(iso3_to_se3_dvec).collect();
     let handeye_dv = iso3_to_se3_dvec(&params.handeye);
     let target_ref_dv = iso3_to_se3_dvec(&params.target_ref);
     let plane_n_dvecs: Vec<DVector<f64>> = params.planes_cam.iter().map(normal_to_dvec).collect();
@@ -643,8 +643,8 @@ fn build_ir(
     if initial.cameras.len() != n {
         return Err(Error::invalid_input("cameras count mismatch"));
     }
-    if initial.cam_to_rig.len() != n {
-        return Err(Error::invalid_input("cam_to_rig count mismatch"));
+    if initial.rig_se3_cam.len() != n {
+        return Err(Error::invalid_input("rig_se3_cam count mismatch"));
     }
     if initial.planes_cam.len() != n {
         return Err(Error::invalid_input("planes_cam count mismatch"));
@@ -705,7 +705,7 @@ fn build_ir(
         let key = format!("extr/{cam_idx}");
         let id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
         extr_ids.push(id);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.cam_to_rig[cam_idx]));
+        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_se3_cam[cam_idx]));
     }
     // 5. Hand-eye.
     let handeye_fixed = if opts.fix_handeye {
@@ -935,8 +935,8 @@ mod tests {
             intrinsics: intr_gt,
         };
 
-        // cam_to_rig = T_R_C (forward takes cam→rig coordinates).
-        let cam_to_rig_gt = vec![
+        // rig_se3_cam = T_R_C (forward takes cam→rig coordinates).
+        let rig_se3_cam_gt = vec![
             Isometry3::from_parts(
                 Translation3::new(-0.10, 0.0, 0.0),
                 UnitQuaternion::identity(),
@@ -971,7 +971,7 @@ mod tests {
 
         let params_gt = RigHandeyeLaserlineParams {
             cameras: vec![cam_gt; 2],
-            cam_to_rig: cam_to_rig_gt.clone(),
+            rig_se3_cam: rig_se3_cam_gt.clone(),
             handeye: handeye_gt,
             target_ref: target_ref_gt,
             planes_cam: planes_cam_gt.clone(),
@@ -979,7 +979,7 @@ mod tests {
 
         // Synthesize observations using the ground-truth chain.
         let pts = target_points();
-        let cam_se3_rig_gt: Vec<Iso3> = cam_to_rig_gt.iter().map(|t| t.inverse()).collect();
+        let cam_se3_rig_gt: Vec<Iso3> = rig_se3_cam_gt.iter().map(|t| t.inverse()).collect();
         let cam_models = camera_models(&params_gt.cameras).unwrap();
 
         let mut dataset_views = Vec::new();
@@ -1112,9 +1112,9 @@ mod tests {
         let mut s1 = tilt(&mut initial.cameras[1]);
         s1.tilt_y += 0.01;
         initial.cameras[1].sensor = SensorParams::Scheimpflug { params: s1 };
-        initial.cam_to_rig[1] = Isometry3::from_parts(
-            initial.cam_to_rig[1].translation * Translation3::new(0.001, 0.001, 0.0),
-            initial.cam_to_rig[1].rotation,
+        initial.rig_se3_cam[1] = Isometry3::from_parts(
+            initial.rig_se3_cam[1].translation * Translation3::new(0.001, 0.001, 0.0),
+            initial.rig_se3_cam[1].rotation,
         );
         initial.handeye = Isometry3::from_parts(
             initial.handeye.translation,

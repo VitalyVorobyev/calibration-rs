@@ -110,7 +110,7 @@ class IntrinsicsInitResult:
     """The initial per-camera estimate."""
 
     cameras: list[Camera]
-    per_cam_target_poses: list[list[Pose | None]]
+    cam_se3_target: list[list[Pose | None]]
     """``[view][camera]`` camera-from-target; ``None`` where the camera did
     not see the target."""
 
@@ -118,7 +118,7 @@ class IntrinsicsInitResult:
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsInitResult:
         return cls(
             cameras=_cameras(payload["cameras"]),
-            per_cam_target_poses=_target_poses(payload["per_cam_target_poses"]),
+            cam_se3_target=_target_poses(payload["cam_se3_target"]),
         )
 
 

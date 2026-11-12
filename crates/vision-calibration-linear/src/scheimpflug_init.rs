@@ -75,7 +75,7 @@ pub struct ScheimpflugIntrinsicsLinearInit {
     pub camera: PinholeCamera,
     /// Initial Scheimpflug sensor tilt.
     pub sensor: ScheimpflugParams,
-    /// Initial target-to-camera poses (`camera_se3_target`).
+    /// Initial target-to-camera poses (`cam_se3_target`).
     pub poses: Vec<Iso3>,
     /// Mean full-model reprojection error of the initialized seed, in pixels.
     pub mean_reproj_error: Real,
@@ -96,7 +96,7 @@ struct CandidateSeed {
 /// Estimate Scheimpflug intrinsics, distortion, tilt, and per-view poses.
 ///
 /// The input observations are pixel coordinates in the image frame. The
-/// returned poses are `camera_se3_target`, matching the rest of the planar
+/// returned poses are `cam_se3_target`, matching the rest of the planar
 /// calibration pipeline.
 ///
 /// # Errors

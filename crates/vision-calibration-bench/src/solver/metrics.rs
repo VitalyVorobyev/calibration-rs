@@ -25,7 +25,7 @@ pub struct ModelParams {
     pub cameras: Vec<CameraParams>,
     /// Rig extrinsics `cam_se3_rig`, reference camera at index 0.
     pub cam_se3_rig: Vec<Iso3>,
-    /// Hand-eye transform (`gripper_se3_camera` / `gripper_se3_rig`).
+    /// Hand-eye transform (`gripper_se3_cam` / `gripper_se3_rig`).
     pub handeye: Option<Iso3>,
     /// Target pose in the robot base (`base_se3_target`), for hand-eye
     /// scenes.
@@ -233,7 +233,7 @@ impl QualityMetrics {
             objective += rho(loss, s);
             sq_all += s;
             n_all += 1;
-            if !outlier_set.contains(&(f.pose, f.camera, f.feature)) {
+            if !outlier_set.contains(&(f.view, f.camera, f.feature)) {
                 sq_in += s;
                 n_in += 1;
             }
@@ -355,7 +355,7 @@ mod tests {
     fn evaluate_separates_inliers_from_outliers() {
         let mk = |pose, feature, e| {
             let mut r = TargetFeatureResidual::default();
-            r.pose = pose;
+            r.view = pose;
             r.feature = feature;
             r.error_px = Some(e);
             r

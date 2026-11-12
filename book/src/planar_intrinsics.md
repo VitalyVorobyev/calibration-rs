@@ -140,7 +140,7 @@ step_init_with_seed(&mut session, seed, None)?;
 step_optimize(&mut session, None)?;
 ```
 
-The export is the same `PlanarIntrinsicsExport`; `params.camera.sensor` holds
+The export is the same `PlanarIntrinsicsExport`; `camera.sensor` holds
 the calibrated tilt and the covariance reports `tilt_x ± σ`. A device spec
 derives the seed with `device_seed::scheimpflug_seed`.
 
@@ -168,7 +168,7 @@ step_optimize(&mut session, None)?;
 
 // Export results
 let export = session.export()?;
-let k = export.params.camera.intrinsics;
+let k = export.camera.intrinsics;
 println!("Final fx={:.1}, fy={:.1}", k.fx, k.fy);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 ```

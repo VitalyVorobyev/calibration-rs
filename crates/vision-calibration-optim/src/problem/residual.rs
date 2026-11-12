@@ -85,7 +85,7 @@ pub enum Noise {
 
 /// The SE3 pose a block stores (`[qx, qy, qz, qw, tx, ty, tz]`), at any
 /// scalar type: the transform from the frame the pose is of into the frame
-/// it is in, such as `camera_se3_target`.
+/// it is in, such as `cam_se3_target`.
 ///
 /// # Panics
 ///

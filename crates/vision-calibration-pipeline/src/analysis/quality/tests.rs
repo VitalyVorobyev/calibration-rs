@@ -47,7 +47,7 @@ fn unavailable(reason: UncertaintyUnavailable) -> Uncertainty {
 #[allow(clippy::field_reassign_with_default)]
 fn residual(pose: usize, camera: usize, observed: [f64; 2], error: f64) -> TargetFeatureResidual {
     let mut r = TargetFeatureResidual::default();
-    r.pose = pose;
+    r.view = pose;
     r.camera = camera;
     r.observed_px = observed;
     r.projected_px = Some(observed);
@@ -58,7 +58,7 @@ fn residual(pose: usize, camera: usize, observed: [f64; 2], error: f64) -> Targe
 #[allow(clippy::field_reassign_with_default)]
 fn frame(pose: usize, camera: usize, roi: Option<[u32; 2]>) -> FrameRef {
     let mut f = FrameRef::default();
-    f.pose = pose;
+    f.view = pose;
     f.camera = camera;
     f.path = PathBuf::from(format!("pose{pose}.png"));
     f.roi = roi.map(|[w, h]| {
@@ -454,10 +454,7 @@ fn a_stated_isotropic_covariance_reproduces_the_unweighted_solve() {
     let var = NOISE_PX * NOISE_PX;
     let stated = calibrate_stating(&poses, Some(PointCovariance::new(var, 0.0, var).unwrap()));
 
-    let (a, b) = (
-        plain.params.camera.intrinsics,
-        stated.params.camera.intrinsics,
-    );
+    let (a, b) = (plain.camera.intrinsics, stated.camera.intrinsics);
     assert!(
         (a.fx - b.fx).abs() < 1e-6 && (a.cx - b.cx).abs() < 1e-6,
         "{a:?} vs {b:?}"
@@ -618,7 +615,7 @@ fn view_outliers_name_views_far_above_the_noise() {
     assert!((m.value - 6.0).abs() < 1e-9);
     assert_eq!(m.unit, Unit::Sigma);
 
-    residuals.retain(|r| r.pose != 3);
+    residuals.retain(|r| r.view != 3);
     assert_eq!(
         view_outliers(&residuals, &uncertainty, 0, &thresholds).status,
         CheckStatus::Pass
@@ -652,7 +649,7 @@ fn view_outliers_prefer_the_cameras_own_noise() {
 
 #[test]
 fn correlations_above_the_limit_are_named_per_camera() {
-    let params = calibrate(&well_covered_poses()).params.camera;
+    let params = calibrate(&well_covered_poses()).camera;
     // cam1's fx and cx correlate at 0.995; its plane and cam0 do not count.
     let labels = ["cam0.fx", "cam1.fx", "cam1.cx", "cam1.plane.d"];
     let m = vec![
@@ -716,7 +713,7 @@ fn covariance_linearity_warns_above_the_limit_naming_the_combination() {
 
 #[test]
 fn the_focal_lengths_correlating_is_not_a_warning() {
-    let params = calibrate(&well_covered_poses()).params.camera;
+    let params = calibrate(&well_covered_poses()).camera;
     let m = vec![
         vec![1.0, 0.9999, 0.1],
         vec![0.9999, 1.0, 0.1],
@@ -735,7 +732,7 @@ fn a_camera_held_fixed_has_no_projection_check() {
         panic!("expected a covariance");
     };
     // Keep only the pose blocks, as a rig solve with fixed intrinsics does.
-    cov.labels = vec!["camera_se3_target.rx".into()];
+    cov.labels = vec!["cam_se3_target.rx".into()];
     cov.covariance = vec![vec![1e-6]];
     let report = assess(&export, &[IMAGE], &QualityThresholds::default()).unwrap();
     let c = check(&report, CheckKind::ProjectionSigma);

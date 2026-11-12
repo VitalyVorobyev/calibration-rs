@@ -6,11 +6,11 @@ The four result workspaces work on the currently loaded export. Load one with **
 
 `⌘1`, the default workspace: the residual viewer.
 
-- Step through `(pose, camera)` frames with the pose and camera steppers or the arrow keys. The source image renders with the detected corners colour-coded by reprojection error, a heatmap on which the brightest corners are the worst. These are the [per-feature residuals](per_feature_residuals.md) of the export.
+- Step through `(view, camera)` frames with the pose and camera steppers or the arrow keys. The source image renders with the detected corners colour-coded by reprojection error, a heatmap on which the brightest corners are the worst. These are the [per-feature residuals](per_feature_residuals.md) of the export.
 - A histogram panel summarizes the distribution under the cursor's region of interest.
 - **Compare mode** shows two frames side by side with a linked viewport, so pan and zoom stay in sync.
 - The **laser frame** toggle switches a target frame to its paired laser frame and shows the point-to-plane residuals instead of the corner reprojection error.
-- **Stats** opens a side panel with a sortable per-pose residual table (mean, median and maximum in pixels, and the feature count; click a row to jump the viewer to that pose) and, for multi-camera exports, a cameras by poses residual matrix coloured by mean error (click a cell to jump to that `(pose, camera)`).
+- **Stats** opens a side panel with a sortable per-pose residual table (mean, median and maximum in pixels, and the feature count; click a row to jump the viewer to that pose) and, for multi-camera exports, a cameras by poses residual matrix coloured by mean error (click a cell to jump to that `(view, camera)`).
 - **Uncertainty** shows the result's [parameter uncertainty](uncertainty.md): a table of each estimated parameter's value and σ (angles in degrees, translations in millimetres; poses show σ only), the parameters held fixed, the residual noise, a correlation heatmap of |ρ| (hover a cell for the signed value) and the [projection σ map](uncertainty_projection.md) of the camera on screen, computed at its frame's size. A result without a covariance says why, for example which parameters the data does not determine. Rig results hold each camera's intrinsics fixed in the final solve unless `rig.refine_intrinsics` is set, so their projection map is unavailable by default.
 
 ## 3D Viewer

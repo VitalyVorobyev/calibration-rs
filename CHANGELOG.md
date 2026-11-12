@@ -67,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   init = session.step_handeye_init_with_seed(seed)  # init.handeye.gripper_se3_rig
   ```
 
-  The single-camera seed follows with `gripper_se3_camera` / `camera_se3_base`
+  The single-camera seed follows with `gripper_se3_cam` / `cam_se3_base`
   (`single_cam_handeye.EyeInHandManualInit`, `EyeToHandManualInit`).
 
 - **`CalibrationSession` keeps its fields behind methods** (breaking). The
@@ -105,6 +105,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   // after
   let img = GrayImage::new(w, h, pixels)?;
   let rect = rectification.rectify_image(0, &img, w, h)?;
+
+- **Exports are flat and poses use one spelling** (breaking). The
+  `planar_intrinsics` and `laserline_device` exports no longer wrap their
+  result in `params`: the camera, the per-view poses and the laser plane sit
+  at the top level, like in the other five exports. Every pose names its
+  camera frame `cam`, as `cam_se3_rig` always did, and a view index is called
+  `view`. Saved exports, residual records and image manifests written before
+  need the renames below; the uncertainty labels follow
+  (`camera_se3_target.rx` is now `cam_se3_target.rx`).
+
+  ```json
+  // before (planar_intrinsics)
+  { "kind": "planar_intrinsics",
+    "params": { "camera": { ... }, "camera_se3_target": [ ... ] },
+    "mean_reproj_error": 0.4, "per_cam_reproj_errors": [0.4], ... }
+  // after
+  { "kind": "planar_intrinsics",
+    "camera": { ... }, "cam_se3_target": [ ... ],
+    "mean_reproj_error": 0.4, "per_cam_reproj_errors": [0.4], ... }
+  ```
+
+  The `laserline_device` export reads `{ kind, camera, cam_se3_target,
+  laser_plane, stats, ... }`; its `params.poses` is `cam_se3_target` and
+  `params.plane` is `laser_plane`.
+
+  | Before | After |
+  |---|---|
+  | `camera_se3_target` (planar and laserline per-view poses, hand-eye views) | `cam_se3_target` |
+  | `gripper_se3_camera`, `camera_se3_base` (single-camera hand-eye) | `gripper_se3_cam`, `cam_se3_base` |
+  | `RigExtrinsicsParams.cam_to_rig`, `.rig_from_target` | `rig_se3_cam`, `rig_se3_target` |
+  | `HandeyeParams.cam_to_rig`, `RigHandeyeLaserlineParams.cam_to_rig`, `RigLaserlineUpstream.cam_to_rig` | `rig_se3_cam` |
+  | `LaserlineParams.poses` | `cam_se3_target` |
+  | `IntrinsicsManualInit.poses`, `IntrinsicsInitResult.poses`, `DeviceManualInit.poses`, `DeviceInitResult.poses` | `cam_se3_target` |
+  | single-camera hand-eye `IntrinsicsManualInit.target_poses`, `IntrinsicsInitResult.target_poses`, `IntrinsicsOptimizeResult.target_poses` | `cam_se3_target` |
+  | rig `per_cam_target_poses` (`[view][cam]`, the target's pose in each camera) | `cam_se3_target` |
+  | `TargetFeatureResidual.pose`, `LaserFeatureResidual.pose`, `LaserLineTrace.pose`, `FrameRef.pose` | `view` |
+  | `export.params.camera`, `.params.camera_se3_target` (planar) | `export.camera`, `export.cam_se3_target` |
+  | `export.params.camera`, `.params.poses`, `.params.plane` (laserline) | `export.camera`, `export.cam_se3_target`, `export.laser_plane` |
+  | Python `LaserlineDeviceExport.params` (`LaserlineParams`) | `camera`, `cam_se3_target`, `laser_plane` |
+  | Python `res.target.pose` | `res.target.view` |
+
+  ```rust
+  // before
+  let k = export.params.camera.intrinsics;
+  let plane = laserline_export.params.plane;
+  // after
+  let k = export.camera.intrinsics;
+  let plane = laserline_export.laser_plane;
+
   ```
 
 ### Fixed

@@ -10,7 +10,7 @@ target). Ambiguous transform naming is a common source of silent bugs.
 Rigid transforms are named `<to>_se3_<from>`: `a_se3_b` maps coordinates
 from frame `b` to frame `a`. `T_C_W` and `cam_se3_world` are the same
 world-to-camera transform. Common names: `base_se3_gripper`,
-`gripper_se3_camera` (the eye-in-hand result), `cam_se3_rig`.
+`gripper_se3_cam` (the eye-in-hand result), `cam_se3_rig`.
 
 - **Storage:** SE(3) is stored as `[qx, qy, qz, qw, tx, ty, tz]` (Hamilton
   quaternion, scalar last, then translation), which is also the convention

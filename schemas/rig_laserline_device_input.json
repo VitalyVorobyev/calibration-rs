@@ -1040,7 +1040,7 @@
           "type": "array"
         },
         "labels": {
-          "description": "Labels of the view's parameters, e.g. `camera_se3_target.rx`.",
+          "description": "Labels of the view's parameters, e.g. `cam_se3_target.rx`.",
           "items": {
             "type": "string"
           },

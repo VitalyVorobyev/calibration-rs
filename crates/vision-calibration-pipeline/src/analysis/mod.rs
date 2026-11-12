@@ -54,7 +54,7 @@
 //! # Per-corner records
 //!
 //! Every level reuses the workspace per-corner record [`TargetFeatureResidual`],
-//! so a viewer can drill into a single `(pose, camera, feature)` at any level
+//! so a viewer can drill into a single `(view, camera, feature)` at any level
 //! without a parallel struct. Each record already carries `projected_px`, so a
 //! diagnose UI can draw overlay arrows directly from any [`LevelReport`].
 //!
@@ -238,7 +238,7 @@ impl LevelReport {
             if let Some(slot) = per_camera_buf.get_mut(r.camera) {
                 slot.push(e);
             }
-            if let Some(slot) = per_view_buf.get_mut(r.pose) {
+            if let Some(slot) = per_view_buf.get_mut(r.view) {
                 slot.push(e);
             }
         }
@@ -327,8 +327,8 @@ pub fn planar_intrinsics_report<M>(
     export: &PlanarIntrinsicsExport,
     views: &[View<M>],
 ) -> Result<ReprojReport, Error> {
-    let cam = export.params.build_camera()?;
-    let k = export.params.camera.intrinsics;
+    let cam = export.camera.build()?;
+    let k = export.camera.intrinsics;
     let residuals = if !export.diagnostics.per_feature_residuals.target.is_empty() {
         export.diagnostics.per_feature_residuals.target.clone()
     } else {
@@ -525,7 +525,7 @@ where
 // Intrinsic floor (the only genuinely new computation)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Solve the per-view board pose `camera_se3_target` (`T_C_W`) for one
+/// Solve the per-view board pose `cam_se3_target` (`T_C_W`) for one
 /// `(camera, view)`: a linear seed (from bearings for a planar target, EPnP
 /// otherwise) refined by a pose-only Gauss-Newton minimization of reprojection
 /// error through the *full* calibrated camera model, so the intrinsic level is
@@ -582,7 +582,7 @@ where
     }
 }
 
-/// Pose-only Gauss-Newton refinement of `camera_se3_target` (`T_C_W`).
+/// Pose-only Gauss-Newton refinement of `cam_se3_target` (`T_C_W`).
 ///
 /// Minimizes `Σ‖project(camera, pose·p3d) − p2d‖²` over the 6-DOF pose with a
 /// numeric Jacobian on the left se(3) tangent (rotation first, then translation),
@@ -685,7 +685,7 @@ fn apply_left_tangent(pose: &Iso3, delta: &SVector<f64, 6>) -> Iso3 {
 
 /// Largest `pose` index across a residual slice, or 0 if empty.
 fn max_pose(residuals: &[TargetFeatureResidual]) -> usize {
-    residuals.iter().map(|r| r.pose).max().unwrap_or(0)
+    residuals.iter().map(|r| r.view).max().unwrap_or(0)
 }
 
 /// Intrinsic floor for a generic single-camera view slice.
@@ -732,7 +732,7 @@ where
     out
 }
 
-/// Reproject one view's corners under `camera_se3_target` and push one
+/// Reproject one view's corners under `cam_se3_target` and push one
 /// [`TargetFeatureResidual`] per corner with the given `pose` / `camera` index.
 ///
 /// `TargetFeatureResidual` is `#[non_exhaustive]` in the core crate, so it cannot
@@ -742,14 +742,14 @@ where
 fn push_view_residuals(
     out: &mut Vec<TargetFeatureResidual>,
     camera: &impl CameraProject,
-    camera_se3_target: &Iso3,
+    cam_se3_target: &Iso3,
     obs_3d: &[Pt3],
     obs_2d: &[Pt2],
     view_idx: usize,
     cam_idx: usize,
 ) {
     for (feature, (p3d, p2d)) in obs_3d.iter().zip(obs_2d.iter()).enumerate() {
-        let p_cam = camera_se3_target * p3d;
+        let p_cam = cam_se3_target * p3d;
         let (projected_px, error_px) = match camera.project_camera_point(&p_cam.coords) {
             Some(proj) => (
                 Some([proj.x, proj.y]),
@@ -758,7 +758,7 @@ fn push_view_residuals(
             None => (None, None),
         };
         let mut r = TargetFeatureResidual::default();
-        r.pose = view_idx;
+        r.view = view_idx;
         r.camera = cam_idx;
         r.feature = feature;
         r.target_xyz_m = [p3d.x, p3d.y, p3d.z];

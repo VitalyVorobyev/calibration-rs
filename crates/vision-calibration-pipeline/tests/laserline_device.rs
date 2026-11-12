@@ -197,7 +197,7 @@ fn pipeline_converges_pinhole() {
     run_calibration(&mut session).unwrap();
 
     let export = session.export().unwrap();
-    let params = &export.params;
+    let params = &export;
 
     let json = serde_json::to_string(&export).unwrap();
     let _: LaserlineDeviceExport = serde_json::from_str(&json).unwrap();
@@ -206,7 +206,7 @@ fn pipeline_converges_pinhole() {
     let rig = export.calibrated_rig().unwrap();
     assert_eq!(
         rig.laser_plane(0).unwrap().distance(),
-        params.plane.distance()
+        params.laser_plane.distance()
     );
 
     assert!(matches!(params.camera.sensor, SensorParams::Identity));
@@ -215,7 +215,7 @@ fn pipeline_converges_pinhole() {
     assert!(fx_err < 0.05, "fx error too large: {:.3}%", fx_err * 100.0);
     assert!(fy_err < 0.05, "fy error too large: {:.3}%", fy_err * 100.0);
 
-    let normal_dot = params.plane.normal().dot(&plane_gt.normal());
+    let normal_dot = params.laser_plane.normal().dot(&plane_gt.normal());
     assert!(normal_dot.is_finite(), "plane normal dot is not finite");
     let normal_angle = normal_dot.abs().min(1.0).acos().to_degrees();
     assert!(
@@ -270,7 +270,7 @@ fn pipeline_converges_scheimpflug() {
     let rig = export.calibrated_rig().unwrap();
     assert_eq!(
         rig.laser_plane(0).unwrap().distance(),
-        export.params.plane.distance()
+        export.laser_plane.distance()
     );
 
     // Default: a laserline device's mount tilt is held at its seed, as is
@@ -286,7 +286,7 @@ fn pipeline_converges_scheimpflug() {
         step_init_with_seed(&mut session, seed, None).unwrap();
         step_optimize(&mut session, None).unwrap();
         let export = session.export().unwrap();
-        let SensorParams::Scheimpflug { params } = export.params.camera.sensor else {
+        let SensorParams::Scheimpflug { params } = export.camera.sensor else {
             panic!("tilted camera expected");
         };
         assert_eq!(
@@ -306,7 +306,7 @@ fn pipeline_converges_scheimpflug() {
     step_init_with_seed(&mut session, seed, None).unwrap();
     step_optimize(&mut session, None).unwrap();
     let export = session.export().unwrap();
-    let SensorParams::Scheimpflug { params } = export.params.camera.sensor else {
+    let SensorParams::Scheimpflug { params } = export.camera.sensor else {
         panic!("tilted camera expected");
     };
     assert_eq!(
@@ -321,7 +321,7 @@ fn tilted() -> CameraModelSpec {
 }
 
 fn assert_tilt(export: &LaserlineDeviceExport, sensor_gt: ScheimpflugParams) {
-    let SensorParams::Scheimpflug { params: est } = export.params.camera.sensor else {
+    let SensorParams::Scheimpflug { params: est } = export.camera.sensor else {
         panic!("tilted camera expected");
     };
     assert!(
@@ -369,7 +369,7 @@ fn every_distortion_kind_calibrates() {
         session.set_config(config).unwrap();
         run_calibration(&mut session).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
         let export = session.export().unwrap();
-        let camera = &export.params.camera;
+        let camera = &export.camera;
         assert_eq!(camera.spec().map(|s| s.distortion), Some(kind));
         let fx_err = (camera.intrinsics.fx - intrinsics_gt.fx).abs() / intrinsics_gt.fx;
         assert!(fx_err < 0.05, "{kind:?}: fx error {:.3}%", fx_err * 100.0);

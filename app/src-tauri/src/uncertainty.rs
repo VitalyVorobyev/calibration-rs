@@ -52,24 +52,22 @@ mod tests {
     fn planar_export() -> serde_json::Value {
         json!({
             "kind": "planar_intrinsics",
-            "params": {
-                "camera": {
-                    "projection": {"type": "pinhole"},
-                    "distortion": {"type": "none"},
-                    "sensor": {"type": "identity"},
-                    "intrinsics": {
-                        "fx": 800.0, "fy": 800.0, "cx": 320.0, "cy": 240.0
-                    }
-                },
-                "camera_se3_target": [identity()]
+            "camera": {
+                "projection": {"type": "pinhole"},
+                "distortion": {"type": "none"},
+                "sensor": {"type": "identity"},
+                "intrinsics": {
+                    "fx": 800.0, "fy": 800.0, "cx": 320.0, "cy": 240.0
+                }
             },
+            "cam_se3_target": [identity()],
             "report": {"final_cost": 0.0, "num_iters": 1},
             "mean_reproj_error": 0.1,
             "per_cam_reproj_errors": [0.1],
             "per_feature_residuals": {"target": []},
             "uncertainty": {
                 "status": "available",
-                "labels": ["cx", "cy", "camera_se3_target.rx"],
+                "labels": ["cx", "cy", "cam_se3_target.rx"],
                 "covariance": [[0.25, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.0, 1e-6]],
                 "noise": [{"kind": "reprojection", "sigma": 0.1, "count": 100}],
                 "num_residuals": 100,
@@ -80,7 +78,7 @@ mod tests {
 
     #[test]
     fn values_cover_camera_parameters_only() {
-        let labels = ["cx", "camera_se3_target.rx", "fx"].map(String::from);
+        let labels = ["cx", "cam_se3_target.rx", "fx"].map(String::from);
         let values = camera_parameter_values(&planar_export(), &labels).unwrap();
         assert_eq!(values, [Some(320.0), None, Some(800.0)]);
     }

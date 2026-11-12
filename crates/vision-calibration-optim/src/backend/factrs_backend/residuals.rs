@@ -247,7 +247,7 @@ macro_rules! camera_residual {
 }
 
 camera_residual! {
-    /// Reprojection, `[camera, camera_se3_target]`.
+    /// Reprojection, `[camera, cam_se3_target]`.
     ReprojSinglePose: Residual2 { residual2, residual2_values, residual2_jacobian },
     Reproj, out = 2,
     chain = [V2 pose: SE3]
@@ -261,7 +261,7 @@ camera_residual! {
 }
 
 camera_residual! {
-    /// Reprojection of an estimated point, `[camera, camera_se3_target,
+    /// Reprojection of an estimated point, `[camera, cam_se3_target,
     /// point]`.
     ReprojFreePose: Residual3 { residual3, residual3_values, residual3_jacobian },
     ReprojFree, out = 2,
@@ -291,7 +291,7 @@ camera_residual! {
 }
 
 camera_residual! {
-    /// Laser, `[camera, camera_se3_target, plane]`.
+    /// Laser, `[camera, cam_se3_target, plane]`.
     LaserSinglePose: Residual3 { residual3, residual3_values, residual3_jacobian },
     Laser, out = 1,
     chain = [V2 pose: SE3, V3 plane: PlaneVar]

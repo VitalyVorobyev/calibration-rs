@@ -6,33 +6,6 @@
  */
 
 /**
- * What a frame depicts, distinguishing target images from laser-on images.
- *
- * Laser problem types capture two images per `(pose, camera)` slot: one of
- * the calibration target and one with the laser line on. Both can appear in
- * the same [`ImageManifest`], discriminated by [`FrameRef::kind`].
- *
- * Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
- * which keeps exports without laser frames byte-stable and forward-readable.
- */
-export type FrameKind = "target" | "laser";
-/**
- * Identifies which calibration `*Export` a JSON payload holds.
- *
- * One variant per pipeline problem type, serialized as the snake_case module
- * name in the `kind` field of every `*Export`. Consumers (the desktop app's
- * `detectExportKind`, downstream tooling) read this single tag rather than
- * sniffing field presence.
- */
-export type ExportKind =
-  | "planar_intrinsics"
-  | "single_cam_handeye"
-  | "laserline_device"
-  | "rig_extrinsics"
-  | "rig_handeye"
-  | "rig_laserline_device"
-  | "rig_handeye_laserline";
-/**
  * Serializable distortion model parameters.
  */
 export type DistortionParams =
@@ -216,6 +189,33 @@ export type SensorParams =
       tilt_y: number;
       type: "scheimpflug";
     };
+/**
+ * What a frame depicts, distinguishing target images from laser-on images.
+ *
+ * Laser problem types capture two images per `(view, camera)` slot: one of
+ * the calibration target and one with the laser line on. Both can appear in
+ * the same [`ImageManifest`], discriminated by [`FrameRef::kind`].
+ *
+ * Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
+ * which keeps exports without laser frames byte-stable and forward-readable.
+ */
+export type FrameKind = "target" | "laser";
+/**
+ * Identifies which calibration `*Export` a JSON payload holds.
+ *
+ * One variant per pipeline problem type, serialized as the snake_case module
+ * name in the `kind` field of every `*Export`. Consumers (the desktop app's
+ * `detectExportKind`, downstream tooling) read this single tag rather than
+ * sniffing field presence.
+ */
+export type ExportKind =
+  | "planar_intrinsics"
+  | "single_cam_handeye"
+  | "laserline_device"
+  | "rig_extrinsics"
+  | "rig_handeye"
+  | "rig_laserline_device"
+  | "rig_handeye_laserline";
 /**
  * The uncertainty of a result's estimated parameters.
  */
@@ -414,7 +414,7 @@ export type RunStage = "detect" | "solve" | "export";
  * internally tagged by `mode`:
  *
  * ```json
- * {"mode": "eye_in_hand", "gripper_se3_camera": {…}, "base_se3_target": {…}}
+ * {"mode": "eye_in_hand", "gripper_se3_cam": {…}, "base_se3_target": {…}}
  * ```
  */
 export type SingleCamHandeyeSolution =
@@ -424,18 +424,18 @@ export type SingleCamHandeyeSolution =
        */
       base_se3_target: Iso3Schema;
       /**
-       * The camera's pose on the gripper (`gripper_se3_camera`, camera
+       * The camera's pose on the gripper (`gripper_se3_cam`, camera
        * frame → gripper frame).
        */
-      gripper_se3_camera: Iso3Schema;
+      gripper_se3_cam: Iso3Schema;
       mode: "eye_in_hand";
     }
   | {
       /**
-       * The base's pose in the camera (`camera_se3_base`, base frame →
+       * The base's pose in the camera (`cam_se3_base`, base frame →
        * camera frame).
        */
-      camera_se3_base: Iso3Schema;
+      cam_se3_base: Iso3Schema;
       /**
        * The target's pose on the gripper (`gripper_se3_target`).
        */
@@ -570,6 +570,14 @@ export interface EpipolarOverlay {
  */
 export interface LaserlineDeviceExport {
   /**
+   * Per-view target poses (`cam_se3_target`).
+   */
+  cam_se3_target: Iso3Schema[];
+  /**
+   * The calibrated camera, in its model.
+   */
+  camera: CameraParams;
+  /**
    * Residuals and the image manifest: evidence for viewers and
    * debugging, not part of the result.
    */
@@ -579,14 +587,13 @@ export interface LaserlineDeviceExport {
    */
   kind: ExportKind;
   /**
+   * The laser plane in the camera frame.
+   */
+  laser_plane: LaserPlane;
+  /**
    * Mean reprojection error (pixels).
    */
   mean_reproj_error: number;
-  /**
-   * The calibrated camera, the laser plane (camera frame) and the
-   * per-view target poses.
-   */
-  params: LaserlineParams;
   /**
    * Per-camera reprojection errors (single element for single-camera workflows).
    */
@@ -600,6 +607,79 @@ export interface LaserlineDeviceExport {
    * the noise level the residuals imply.
    */
   uncertainty?: Uncertainty;
+}
+/**
+ * JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).
+ *
+ * `nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and
+ * parameter types that embed [`Iso3`] annotate the field with
+ * `#[cfg_attr(feature = "schemars", schemars(with = "Iso3Schema"))]`
+ * (or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact
+ * serde wire format of `Isometry3`:
+ * `{ "rotation": [qx, qy, qz, qw], "translation": [tx, ty, tz] }`.
+ *
+ * It exists only to describe that shape to `schemars`; it is never
+ * constructed at runtime.
+ */
+export interface Iso3Schema {
+  /**
+   * Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).
+   *
+   * @minItems 4
+   * @maxItems 4
+   */
+  rotation: [number, number, number, number];
+  /**
+   * Translation `[tx, ty, tz]` in meters.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  translation: [number, number, number];
+}
+/**
+ * Serializable camera parameters for building a runtime model.
+ */
+export interface CameraParams {
+  /**
+   * Distortion model parameters.
+   */
+  distortion: DistortionParams;
+  /**
+   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
+   */
+  intrinsics: FxFyCxCy;
+  /**
+   * Projection model parameters.
+   */
+  projection: ProjectionParams;
+  /**
+   * Sensor model parameters.
+   */
+  sensor: SensorParams;
+}
+/**
+ * Standard pinhole intrinsics: focal lengths and principal point in pixels.
+ *
+ * The pixel grid is assumed orthogonal, so `K` carries no skew term.
+ */
+export interface FxFyCxCy {
+  /**
+   * Principal point X coordinate in pixels.
+   */
+  cx: number;
+  /**
+   * Principal point Y coordinate in pixels.
+   */
+  cy: number;
+  /**
+   * Focal length in pixels along X.
+   */
+  fx: number;
+  /**
+   * Focal length in pixels along Y.
+   */
+  fy: number;
 }
 /**
  * Evidence about how an export's result was reached: what a viewer or a
@@ -633,8 +713,8 @@ export interface ExportDiagnostics {
  */
 export interface ImageManifest {
   /**
-   * One entry per `(pose, camera)` slot the viewer can render.
-   * Pose-major; aligns with the indexing of `PerFeatureResiduals.target`.
+   * One entry per `(view, camera)` slot the viewer can render.
+   * View-major; aligns with the indexing of `PerFeatureResiduals.target`.
    */
   frames: FrameRef[];
   /**
@@ -643,7 +723,7 @@ export interface ImageManifest {
   root: string;
 }
 /**
- * Reference to a single image (or sub-image) for one `(pose, camera)`.
+ * Reference to a single image (or sub-image) for one `(view, camera)`.
  */
 export interface FrameRef {
   /**
@@ -660,12 +740,8 @@ export interface FrameRef {
    */
   path: string;
   /**
-   * Pose / view index in the input dataset.
-   */
-  pose: number;
-  /**
    * Sub-image rectangle in pixel coordinates. `None` means the entire
-   * image is this `(pose, camera)`. Used for tiled multi-camera frames.
+   * image is this `(view, camera)`. Used for tiled multi-camera frames.
    *
    * **Coordinate convention:** see the module-level `# Coordinate
    * convention` block. ROI is a render-time crop hint only —
@@ -676,6 +752,10 @@ export interface FrameRef {
    * drawing.
    */
   roi?: PixelRect | null;
+  /**
+   * View index in the input dataset.
+   */
+  view: number;
 }
 /**
  * Inclusive-exclusive pixel rectangle: `[x, x+w) × [y, y+h)`.
@@ -710,7 +790,7 @@ export interface PixelRect {
  */
 export interface PerFeatureResiduals {
   /**
-   * Per-laser-pixel residual records, pose-major.
+   * Per-laser-pixel residual records, view-major.
    */
   laser?: LaserFeatureResidual[];
   /**
@@ -719,11 +799,11 @@ export interface PerFeatureResiduals {
   laser_hist_per_camera?: FeatureResidualHistogram[] | null;
   /**
    * The projected laser line of each (view, camera) with laser pixels,
-   * pose-major.
+   * view-major.
    */
   laser_lines?: LaserLineTrace[];
   /**
-   * Per-target-corner reprojection records, pose-major.
+   * Per-target-corner reprojection records, view-major.
    */
   target?: TargetFeatureResidual[];
   /**
@@ -751,10 +831,6 @@ export interface LaserFeatureResidual {
    */
   observed_px: [number, number];
   /**
-   * Pose / view index in the input dataset.
-   */
-  pose: number;
-  /**
    * Point-to-plane distance in meters between the back-projected ray and
    * the calibrated laser plane. `None` if the ray does not intersect.
    */
@@ -766,6 +842,10 @@ export interface LaserFeatureResidual {
    * laser and target planes have no line in common.
    */
   residual_px?: number | null;
+  /**
+   * View index in the input dataset.
+   */
+  view: number;
 }
 /**
  * Aggregate residual histogram for a (set of) reprojection error samples.
@@ -816,9 +896,9 @@ export interface LaserLineTrace {
    */
   points_px: [number, number][];
   /**
-   * Pose / view index in the input dataset.
+   * View index in the input dataset.
    */
-  pose: number;
+  view: number;
 }
 /**
  * Reprojection record for a single target feature in a single view.
@@ -852,10 +932,6 @@ export interface TargetFeatureResidual {
    */
   observed_px: [number, number];
   /**
-   * Pose / view index in the input dataset.
-   */
-  pose: number;
-  /**
    * Projected pixel using the calibrated camera + recovered pose.
    * `None` when projection diverges (point behind camera, distortion failure).
    *
@@ -870,68 +946,10 @@ export interface TargetFeatureResidual {
    * @maxItems 3
    */
   target_xyz_m: [number, number, number];
-}
-/**
- * Initial values for laserline bundle adjustment.
- */
-export interface LaserlineParams {
   /**
-   * The camera, in its model: any distortion kind, and an identity or
-   * Scheimpflug sensor.
+   * View index in the input dataset.
    */
-  camera: CameraParams;
-  /**
-   * Laser plane parameters in camera frame.
-   */
-  plane: LaserPlane;
-  /**
-   * Per-view target poses (`camera_se3_target`).
-   */
-  poses: Iso3Schema[];
-}
-/**
- * Serializable camera parameters for building a runtime model.
- */
-export interface CameraParams {
-  /**
-   * Distortion model parameters.
-   */
-  distortion: DistortionParams;
-  /**
-   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
-   */
-  intrinsics: FxFyCxCy;
-  /**
-   * Projection model parameters.
-   */
-  projection: ProjectionParams;
-  /**
-   * Sensor model parameters.
-   */
-  sensor: SensorParams;
-}
-/**
- * Standard pinhole intrinsics: focal lengths and principal point in pixels.
- *
- * The pixel grid is assumed orthogonal, so `K` carries no skew term.
- */
-export interface FxFyCxCy {
-  /**
-   * Principal point X coordinate in pixels.
-   */
-  cx: number;
-  /**
-   * Principal point Y coordinate in pixels.
-   */
-  cy: number;
-  /**
-   * Focal length in pixels along X.
-   */
-  fx: number;
-  /**
-   * Focal length in pixels along Y.
-   */
-  fy: number;
+  view: number;
 }
 /**
  * Laser plane in camera frame: unit normal + signed distance.
@@ -955,35 +973,6 @@ export interface LaserPlane {
    * @maxItems 3
    */
   normal: [number, number, number];
-}
-/**
- * JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).
- *
- * `nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and
- * parameter types that embed [`Iso3`] annotate the field with
- * `#[cfg_attr(feature = "schemars", schemars(with = "Iso3Schema"))]`
- * (or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact
- * serde wire format of `Isometry3`:
- * `{ "rotation": [qx, qy, qz, qw], "translation": [tx, ty, tz] }`.
- *
- * It exists only to describe that shape to `schemars`; it is never
- * constructed at runtime.
- */
-export interface Iso3Schema {
-  /**
-   * Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).
-   *
-   * @minItems 4
-   * @maxItems 4
-   */
-  rotation: [number, number, number, number];
-  /**
-   * Translation `[tx, ty, tz]` in meters.
-   *
-   * @minItems 3
-   * @maxItems 3
-   */
-  translation: [number, number, number];
 }
 /**
  * Summary statistics for a laserline calibration result.
@@ -1126,7 +1115,7 @@ export interface ViewCovariance {
    */
   covariance: number[][];
   /**
-   * Labels of the view's parameters, e.g. `camera_se3_target.rx`.
+   * Labels of the view's parameters, e.g. `cam_se3_target.rx`.
    */
   labels: string[];
   /**
@@ -1138,6 +1127,15 @@ export interface ViewCovariance {
  * Export format for planar intrinsics calibration.
  */
 export interface PlanarIntrinsicsExport {
+  /**
+   * Per-view target poses (`cam_se3_target`).
+   */
+  cam_se3_target: Iso3Schema[];
+  /**
+   * The calibrated camera, in its model; `camera.sensor` states whether a
+   * tilted sensor was calibrated.
+   */
+  camera: CameraParams;
   /**
    * Residuals and the image manifest: evidence for viewers and
    * debugging, not part of the result.
@@ -1152,11 +1150,6 @@ export interface PlanarIntrinsicsExport {
    */
   mean_reproj_error: number;
   /**
-   * Calibrated parameters; `params.camera.sensor` states whether a tilted
-   * sensor was calibrated.
-   */
-  params: PlanarIntrinsicsParams;
-  /**
    * Per-camera reprojection errors (single element for single-camera workflows).
    */
   per_cam_reproj_errors: number[];
@@ -1166,19 +1159,6 @@ export interface PlanarIntrinsicsExport {
    * imply.
    */
   uncertainty?: Uncertainty;
-}
-/**
- * Optimization result for planar intrinsics.
- */
-export interface PlanarIntrinsicsParams {
-  /**
-   * Refined camera model (model-agnostic serializable parameters).
-   */
-  camera: CameraParams;
-  /**
-   * Refined target-to-camera poses.
-   */
-  camera_se3_target: Iso3Schema[];
 }
 /**
  * Why a project command failed. `kind` is what the UI branches on;

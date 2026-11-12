@@ -598,7 +598,7 @@ fn run_single_cam_handeye_topology(
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
-    // Single camera ⇒ the planar manifest shape (pose = kept-view
+    // Single camera ⇒ the planar manifest shape (view = kept-view
     // index, camera = 0) applies directly.
     if let Err(boxed) = splice_image_manifest(
         &mut export,
@@ -647,7 +647,7 @@ fn run_laserline_topology(
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
-    // Single camera ⇒ planar manifest shape (pose = kept-view index,
+    // Single camera ⇒ planar manifest shape (view = kept-view index,
     // camera = 0) for the target frames, plus the aligned laser frames
     // (ADR 0016 §5).
     if let Err(boxed) = splice_image_manifest(
@@ -836,8 +836,8 @@ fn planar_image_manifest(
 ) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::with_capacity(view_paths.len());
-    for (pose, path) in view_paths.iter().enumerate() {
-        frames.push(frame_ref(pose, 0, path, &base_abs, roi)?);
+    for (view, path) in view_paths.iter().enumerate() {
+        frames.push(frame_ref(view, 0, path, &base_abs, roi)?);
     }
     Ok(manifest_from_frames(frames))
 }
@@ -853,12 +853,12 @@ fn laserline_image_manifest(
 ) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::with_capacity(view_paths.len() + laser_paths.len());
-    for (pose, path) in view_paths.iter().enumerate() {
-        frames.push(frame_ref(pose, 0, path, &base_abs, roi)?);
+    for (view, path) in view_paths.iter().enumerate() {
+        frames.push(frame_ref(view, 0, path, &base_abs, roi)?);
     }
-    for (pose, path) in laser_paths.iter().enumerate() {
+    for (view, path) in laser_paths.iter().enumerate() {
         frames.push(frame_ref_of_kind(
-            pose,
+            view,
             0,
             path,
             &base_abs,
@@ -879,11 +879,11 @@ fn rig_laserline_image_manifest(
 ) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::new();
-    for (pose, cameras) in view_paths.iter().enumerate() {
+    for (view, cameras) in view_paths.iter().enumerate() {
         for (camera, maybe_path) in cameras.iter().enumerate() {
             if let Some(path) = maybe_path {
                 frames.push(frame_ref(
-                    pose,
+                    view,
                     camera,
                     path,
                     &base_abs,
@@ -892,11 +892,11 @@ fn rig_laserline_image_manifest(
             }
         }
     }
-    for (pose, cameras) in laser_paths.iter().enumerate() {
+    for (view, cameras) in laser_paths.iter().enumerate() {
         for (camera, maybe_path) in cameras.iter().enumerate() {
             if let Some(path) = maybe_path {
                 frames.push(frame_ref_of_kind(
-                    pose,
+                    view,
                     camera,
                     path,
                     &base_abs,
@@ -918,11 +918,11 @@ fn rig_image_manifest(
 ) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::new();
-    for (pose, cameras) in view_paths.iter().enumerate() {
+    for (view, cameras) in view_paths.iter().enumerate() {
         for (camera, maybe_path) in cameras.iter().enumerate() {
             if let Some(path) = maybe_path {
                 frames.push(frame_ref(
-                    pose,
+                    view,
                     camera,
                     path,
                     &base_abs,
@@ -941,7 +941,7 @@ fn canonical_base(base_dir: &Path) -> Result<PathBuf, String> {
 }
 
 fn frame_ref(
-    pose: usize,
+    view: usize,
     camera: usize,
     path: &Path,
     base_abs: &Path,
@@ -958,7 +958,7 @@ fn frame_ref(
         )
     })?;
     let mut frame = FrameRef::default();
-    frame.pose = pose;
+    frame.view = view;
     frame.camera = camera;
     frame.path = rel.to_path_buf();
     frame.roi = roi.map(pixel_rect);
@@ -966,14 +966,14 @@ fn frame_ref(
 }
 
 fn frame_ref_of_kind(
-    pose: usize,
+    view: usize,
     camera: usize,
     path: &Path,
     base_abs: &Path,
     kind: FrameKind,
     roi: Option<[u32; 4]>,
 ) -> Result<FrameRef, String> {
-    let mut frame = frame_ref(pose, camera, path, base_abs, roi)?;
+    let mut frame = frame_ref(view, camera, path, base_abs, roi)?;
     frame.kind = kind;
     Ok(frame)
 }
@@ -1340,12 +1340,12 @@ mod tests {
         let manifest = rig_image_manifest(&view_paths, base, &spec).unwrap();
         assert_eq!(manifest.frames.len(), 3);
         let f = &manifest.frames[2];
-        assert_eq!((f.pose, f.camera), (1, 0));
+        assert_eq!((f.view, f.camera), (1, 0));
         assert_eq!(f.path, PathBuf::from("cam0/b.png"));
         assert_eq!(f.roi, Some(pixel_rect([0, 0, 720, 540])));
         // No frame for the None slot.
         assert!(
-            !manifest.frames.iter().any(|f| f.pose == 1 && f.camera == 1),
+            !manifest.frames.iter().any(|f| f.view == 1 && f.camera == 1),
             "None slots must not produce frames"
         );
     }
@@ -1392,7 +1392,8 @@ mod tests {
 
     #[test]
     fn image_manifest_splice_lands_in_export_json() {
-        let mut export = json!({"params": {}, "diagnostics": {"per_feature_residuals": {}}});
+        let mut export =
+            json!({"kind": "planar_intrinsics", "diagnostics": {"per_feature_residuals": {}}});
         let mut manifest = ImageManifest::default();
         manifest.root = PathBuf::from(".");
         splice_image_manifest(&mut export, Ok(manifest)).unwrap();
@@ -1743,7 +1744,7 @@ mod tests {
             "kuka_1 mean reprojection error {mean_px:.3} px (expected ~1.2)"
         );
         assert!(
-            s.export["handeye"]["gripper_se3_camera"].is_object(),
+            s.export["handeye"]["gripper_se3_cam"].is_object(),
             "eye-in-hand"
         );
         let frames = s.export["image_manifest"]["frames"].as_array().unwrap();

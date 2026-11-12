@@ -207,7 +207,7 @@ fn main() -> Result<()> {
             // rig init consumes (ADR 0011 couples the two fields).
             Some(spec) => {
                 let rig_seed =
-                    device_seed::rig_layout_seed(spec, &camera_ids, &intr_opt.per_cam_target_poses)
+                    device_seed::rig_layout_seed(spec, &camera_ids, &intr_opt.cam_se3_target)
                         .context("derive rig layout seed from device spec")?;
                 let _rig_init = rh::step_rig_init_with_seed(&mut rig_session, rig_seed, None)?;
                 println!(
@@ -383,10 +383,10 @@ fn main() -> Result<()> {
         )?;
         let handeye = *rig_export.handeye.handeye().pose();
         let target_ref = *rig_export.handeye.target_pose();
-        let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
+        let rig_se3_cam: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
         let joint_initial = RigHandeyeLaserlineParams {
             cameras: rig_export.cameras.clone(),
-            cam_to_rig,
+            rig_se3_cam,
             handeye,
             target_ref,
             planes_cam: laser_export.laser_planes_cam.clone(),
@@ -442,7 +442,7 @@ fn main() -> Result<()> {
         joint_cam_se3_rig = Some(
             joint_est
                 .params
-                .cam_to_rig
+                .rig_se3_cam
                 .iter()
                 .map(|t| t.inverse())
                 .collect(),
@@ -1070,7 +1070,7 @@ fn build_image_manifest(poses: &[PoseEntry], tile_w: u32, tile_h: u32) -> ImageM
             roi.w = tile_w;
             roi.h = tile_h;
             let mut frame = FrameRef::default();
-            frame.pose = pose_idx;
+            frame.view = pose_idx;
             frame.camera = cam_idx;
             frame.path = PathBuf::from(&pose.target_image);
             frame.roi = Some(roi);

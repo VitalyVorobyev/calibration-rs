@@ -282,7 +282,7 @@ impl CameraSpecLayout for CameraModelSpec {
 /// poses are chain data, not parameter blocks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ReprojChain {
-    /// Blocks: `[camera_se3_target]`. `P_camera = pose * P_target`.
+    /// Blocks: `[cam_se3_target]`. `P_camera = pose * P_target`.
     SinglePose,
     /// Blocks: `[extrinsics, pose]` (rig extrinsics).
     /// `P_camera = extr^-1 * pose * P_target`.
@@ -322,7 +322,7 @@ impl ReprojChain {
             role,
         };
         match self {
-            ReprojChain::SinglePose => vec![se3("camera_se3_target")],
+            ReprojChain::SinglePose => vec![se3("cam_se3_target")],
             ReprojChain::TwoSe3 => vec![se3("extrinsics"), se3("pose")],
             ReprojChain::Rig => vec![se3("cam_se3_rig"), se3("rig_se3_target")],
             ReprojChain::Handeye { .. } => {
@@ -350,7 +350,7 @@ impl ReprojChain {
 /// present, comes last.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LaserChain {
-    /// Blocks: `[camera_se3_target, plane_normal, plane_distance]`.
+    /// Blocks: `[cam_se3_target, plane_normal, plane_distance]`.
     SinglePose,
     /// Blocks: `[cam_se3_rig, handeye, target_ref, plane_normal,
     /// plane_distance]` (rig + hand-eye).
@@ -404,7 +404,7 @@ impl LaserChain {
         };
         match self {
             LaserChain::SinglePose => {
-                let mut v = vec![se3("camera_se3_target")];
+                let mut v = vec![se3("cam_se3_target")];
                 v.extend(plane);
                 v
             }

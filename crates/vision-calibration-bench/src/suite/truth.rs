@@ -3,7 +3,7 @@
 //!
 //! `truth/<id>.json` names each true value by the label the result's
 //! covariance uses: scalars (`fx`, `cam1.k1`, `plane.nx`, `cam1.plane.d`)
-//! under `parameters`, poses (`gripper_se3_camera`, `cam1.cam_se3_rig`)
+//! under `parameters`, poses (`gripper_se3_cam`, `cam1.cam_se3_rig`)
 //! under `poses`, so a parameter's error is read off by its label. A
 //! label the truth does not name is not checked.
 
