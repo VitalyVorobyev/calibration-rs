@@ -3,7 +3,7 @@
 //!
 //! - [`refine_homography`]: minimize symmetric transfer error
 
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{DVector, RealField};
 use vision_calibration_core::{Mat3, Pt2, Real};
 use vision_calibration_optim::RobustLoss;
@@ -70,19 +70,19 @@ impl Residual for HomographyTransfer {
 ///
 /// # Errors
 ///
-/// [`MvgError::InsufficientData`] for fewer than 4 correspondences,
-/// [`MvgError::CountMismatch`] for different numbers of points,
-/// [`MvgError::InvalidInput`] for a non-finite or all-zero `h_init`, and
-/// [`MvgError::Numerical`] when the solve fails to run.
+/// [`Error::InsufficientData`] for fewer than 4 correspondences,
+/// [`Error::CountMismatch`] for different numbers of points,
+/// [`Error::InvalidInput`] for a non-finite or all-zero `h_init`, and
+/// [`Error::Numerical`] when the solve fails to run.
 pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     if pts1.len() < 4 {
-        return Err(MvgError::InsufficientData {
+        return Err(Error::InsufficientData {
             need: 4,
             got: pts1.len(),
         });
     }
     if pts1.len() != pts2.len() {
-        return Err(MvgError::CountMismatch {
+        return Err(Error::CountMismatch {
             expected: pts1.len(),
             got: pts2.len(),
         });
@@ -93,24 +93,20 @@ pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Ma
         .map(|(r, c)| h_init[(r, c)])
         .collect();
     if h_vec.iter().any(|v| !v.is_finite()) {
-        return Err(MvgError::invalid_input(
-            "the initial homography is not finite",
-        ));
+        return Err(Error::invalid_input("the initial homography is not finite"));
     }
     let (anchor, largest) = h_vec.iter().enumerate().fold((0, 0.0_f64), |best, (i, v)| {
         if v.abs() > best.1 { (i, v.abs()) } else { best }
     });
     if largest == 0.0 {
-        return Err(MvgError::invalid_input(
-            "the initial homography is all zero",
-        ));
+        return Err(Error::invalid_input("the initial homography is all zero"));
     }
     for v in &mut h_vec {
         *v /= largest;
     }
 
     let numerical = |e: vision_calibration_optim::Error| {
-        MvgError::numerical(format!("homography refinement: {e}"))
+        Error::numerical(format!("homography refinement: {e}"))
     };
     let mut problem = Problem::new();
     let block = problem
@@ -134,7 +130,7 @@ pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Ma
     let solution = solve(&problem, &options).map_err(numerical)?;
     let values = solution
         .value(block)
-        .ok_or_else(|| MvgError::numerical("homography refinement: no solution block"))?;
+        .ok_or_else(|| Error::numerical("homography refinement: no solution block"))?;
     let mut h = Mat3::from_row_slice(values);
 
     // Normalize so h[2,2] = 1.

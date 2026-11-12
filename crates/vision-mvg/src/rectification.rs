@@ -45,7 +45,7 @@ use crate::bearing::{bearing, camera_model};
 use crate::dense::GrayImage;
 use crate::triangulation::{RigObservation, Triangulation, triangulate};
 use crate::types::Captures;
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::Matrix4;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::RunControl;
@@ -153,9 +153,9 @@ pub struct StereoRectification {
 ///
 /// # Errors
 ///
-/// [`MvgError::InvalidInput`] for equal or out-of-range camera indices, or a
+/// [`Error::InvalidInput`] for equal or out-of-range camera indices, or a
 /// `scale` or `k_rect` that is not finite and positive;
-/// [`MvgError::Degenerate`] for coincident camera centres.
+/// [`Error::Degenerate`] for coincident camera centres.
 pub fn rectify(
     rig: &CalibratedRig,
     cameras: [usize; 2],
@@ -163,7 +163,7 @@ pub fn rectify(
 ) -> Result<StereoRectification> {
     let [a, b] = cameras;
     if a == b {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "a stereo pair needs two different cameras, got {a} twice"
         )));
     }
@@ -174,7 +174,7 @@ pub fn rectify(
         Some(k) => k,
         None => {
             if !(opts.scale.is_finite() && opts.scale > 0.0) {
-                return Err(MvgError::invalid_input(format!(
+                return Err(Error::invalid_input(format!(
                     "rectification scale must be finite and positive, got {}",
                     opts.scale
                 )));
@@ -194,7 +194,7 @@ pub fn rectify(
         && k_rect.fx > 0.0
         && k_rect.fy > 0.0;
     if !valid {
-        return Err(MvgError::invalid_input(
+        return Err(Error::invalid_input(
             "the rectified intrinsics must be finite with positive focal lengths",
         ));
     }
@@ -207,7 +207,7 @@ pub fn rectify(
     let centre = left_se3_right.translation.vector;
     let baseline = centre.norm();
     if !(baseline.is_finite() && baseline > EPS) {
-        return Err(MvgError::degenerate(
+        return Err(Error::degenerate(
             "zero baseline: the two optical centres coincide",
         ));
     }
@@ -305,7 +305,7 @@ impl StereoRectification {
     ///
     /// # Errors
     ///
-    /// [`MvgError::InvalidInput`] when `side` is not 0 or 1, or `width` or
+    /// [`Error::InvalidInput`] when `side` is not 0 or 1, or `width` or
     /// `height` is zero.
     pub fn rectify_image(
         &self,
@@ -315,7 +315,7 @@ impl StereoRectification {
         height: usize,
     ) -> Result<GrayImage> {
         if side > 1 {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "rectify_image: side must be 0 (left) or 1 (right), got {side}"
             )));
         }
@@ -419,10 +419,10 @@ impl StereoRectification {
     ///
     /// # Errors
     ///
-    /// [`MvgError::InvalidInput`] when `rig` differs from the one rectified,
+    /// [`Error::InvalidInput`] when `rig` differs from the one rectified,
     /// or a match has no raw pixel in a camera; otherwise the errors of
     /// [`triangulate()`](crate::triangulation::triangulate()), whose messages
-    /// number the matches as tracks, including [`MvgError::Cancelled`].
+    /// number the matches as tracks, including [`Error::Cancelled`].
     pub fn triangulate(
         &self,
         rig: &CalibratedRig,
@@ -438,7 +438,7 @@ impl StereoRectification {
             .map(|(i, m)| {
                 let right = Pt2::new(m.left.x - m.disparity, m.left.y);
                 let missing = |side: usize| {
-                    MvgError::invalid_input(format!(
+                    Error::invalid_input(format!(
                         "match {i}: no raw pixel in camera {} for rectified pixel ({}, {}) \
                          with disparity {}",
                         self.cameras[side], m.left.x, m.left.y, m.disparity
@@ -472,7 +472,7 @@ impl StereoRectification {
         if same_rig {
             Ok(())
         } else {
-            Err(MvgError::invalid_input(
+            Err(Error::invalid_input(
                 "the rig is not the one this rectification was built from",
             ))
         }
@@ -542,7 +542,7 @@ mod tests {
     fn rejects_bad_inputs() {
         let r = rig(0.1);
         let opts = RectifyOptions::default();
-        let invalid = |e: MvgError| matches!(e, MvgError::InvalidInput { .. });
+        let invalid = |e: Error| matches!(e, Error::InvalidInput { .. });
         assert!(invalid(rectify(&r, [0, 0], &opts).unwrap_err()));
         assert!(invalid(rectify(&r, [0, 2], &opts).unwrap_err()));
         for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
@@ -563,7 +563,7 @@ mod tests {
         };
         assert!(invalid(rectify(&r, [0, 1], &bad_k).unwrap_err()));
         let err = rectify(&rig(0.0), [0, 1], &opts).unwrap_err();
-        assert!(matches!(err, MvgError::Degenerate { .. }), "{err:?}");
+        assert!(matches!(err, Error::Degenerate { .. }), "{err:?}");
     }
 
     #[test]
@@ -603,7 +603,7 @@ mod tests {
         let err = rect
             .triangulate(&rig(0.2), &m, noise, &RunControl::default())
             .unwrap_err();
-        assert!(matches!(err, MvgError::InvalidInput { .. }), "{err:?}");
+        assert!(matches!(err, Error::InvalidInput { .. }), "{err:?}");
         assert!(
             rect.triangulate(&rig(0.12), &m, noise, &RunControl::default())
                 .is_ok()

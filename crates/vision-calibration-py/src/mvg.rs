@@ -32,7 +32,7 @@ use vision_calibration::mvg::robust::{
 use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
 use vision_calibration::mvg::types::PixelMatch;
 use vision_calibration::mvg::types::{Captures, Correspondence2D};
-use vision_calibration::mvg::{MvgError, RansacOptions};
+use vision_calibration::mvg::{self, RansacOptions};
 use vision_calibration::nalgebra::{
     DMatrix, Matrix3, Matrix6, Rotation3, Translation3, UnitQuaternion,
 };
@@ -51,13 +51,13 @@ use crate::validation::value_err;
 /// An error of the MVG layer as a Python exception: an input the caller can
 /// fix (a count, an index, a value) is a `ValueError`; a degenerate geometry
 /// or a numerical failure a `RuntimeError`.
-fn mvg_err(err: MvgError) -> PyErr {
+fn mvg_err(err: mvg::Error) -> PyErr {
     use vision_calibration::core::Error as CoreError;
     match &err {
-        MvgError::InvalidInput { .. }
-        | MvgError::InsufficientData { .. }
-        | MvgError::CountMismatch { .. }
-        | MvgError::Core(CoreError::InvalidInput { .. } | CoreError::InsufficientData { .. }) => {
+        mvg::Error::InvalidInput { .. }
+        | mvg::Error::InsufficientData { .. }
+        | mvg::Error::CountMismatch { .. }
+        | mvg::Error::Core(CoreError::InvalidInput { .. } | CoreError::InsufficientData { .. }) => {
             value_err(err.to_string())
         }
         _ => runtime_err(err.to_string()),

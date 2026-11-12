@@ -401,11 +401,11 @@ pub(crate) mod rig_laserline_device {
         /// `CalibrationSession<RigLaserlineDeviceProblem>`.
         RigLaserlineDeviceSession = "RigLaserlineDeviceSession", RigLaserlineDeviceProblem;
         steps {
-            step_init(PlaneInitOptions) -> ();
-            step_optimize(PlaneOptimizeOptions) -> ();
+            step_init(PlaneInitOptions) -> PlaneInitResult;
+            step_optimize(PlaneOptimizeOptions) -> PlaneOptimizeResult;
         }
         seeded {
-            step_init_with_seed(PlaneManualInit, PlaneInitOptions) -> ();
+            step_init_with_seed(PlaneManualInit, PlaneInitOptions) -> PlaneInitResult;
         }
     }
 }

@@ -161,7 +161,7 @@ use vision_calibration::dataset::DatasetSpec;
 use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{Detection, build_single_cam_handeye_input};
 use vision_calibration::detect::FsDetectionCache;
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{SingleCamHandeyeProblem, run_calibration};
 
 let base_dir = Path::new("data/kuka_1");

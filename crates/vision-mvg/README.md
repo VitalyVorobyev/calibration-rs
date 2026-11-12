@@ -68,7 +68,7 @@ let matches: Vec<PixelMatch> = (0..8)
 let pose = recover_relative_pose(&rig, [0, 0], &matches)?;
 println!("second_se3_first = {:?}", pose.second_se3_first);
 println!("scene: {:?}", pose.scene);
-# Ok::<(), vision_mvg::MvgError>(())
+# Ok::<(), vision_mvg::Error>(())
 ```
 
 The pixel noise is stated, never assumed: every `PixelMatch` carries the

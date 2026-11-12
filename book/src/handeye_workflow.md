@@ -201,7 +201,7 @@ In eye-to-hand mode the pixel-to-3D chain for a fixed camera observing a gripper
 ## Complete Example
 
 ```rust
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::*;
 
 let views: Vec<SingleCamHandeyeView> = /* load data */;

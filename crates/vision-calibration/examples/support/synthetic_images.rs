@@ -27,8 +27,10 @@ use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FrameRef, FxFyCxCy, ImageManifest, Iso3, PlanarDataset, Pt2,
     Pt3, View, make_pinhole_camera,
 };
-use vision_calibration::planar_intrinsics::{PlanarIntrinsicsExport, step_init, step_optimize};
-use vision_calibration::prelude::{CalibrationSession, PlanarIntrinsicsProblem};
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init, step_optimize,
+};
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::noise::UniformPixelNoise;
 
 // ─── Fixture parameters (kept here so the regression test can mirror them) ──

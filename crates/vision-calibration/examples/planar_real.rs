@@ -19,12 +19,15 @@ mod handeye_io;
 use anyhow::Result;
 use std::io::{self, Write};
 use std::path::Path;
-use vision_calibration::core::{DistortionParams, NoiseLevel, Uncertainty};
+use vision_calibration::core::{
+    CorrespondenceView, DistortionParams, NoiseLevel, PlanarDataset, Uncertainty, View,
+};
 use vision_calibration::dataset::samples;
 use vision_calibration::planar_intrinsics::{
-    IntrinsicsFilterOptions, run_calibration_with_filtering, step_init, step_optimize,
+    IntrinsicsFilterOptions, PlanarIntrinsicsProblem, run_calibration_with_filtering, step_init,
+    step_optimize,
 };
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 
 fn main() -> Result<()> {
     println!("=== Planar Intrinsics Calibration (Real Images) ===\n");

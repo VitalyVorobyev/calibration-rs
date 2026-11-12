@@ -389,12 +389,20 @@ class RigLaserlineDeviceSessionTest(unittest.TestCase):
         }
         session = vc.RigLaserlineDeviceSession()
         session.set_input(payload)
-        session.step_init()
-        session.step_optimize()
+        init = session.step_init()
+        self.assertEqual(len(init.laser_planes_cam), 2)
+        self.assertTrue(all(rmse is not None for rmse in init.plane_rmse))
+        optimized = session.step_optimize()
+        self.assertEqual(len(optimized.laser_planes_rig), 2)
+        self.assertEqual(len(optimized.per_cam_stats), 2)
+        self.assertGreaterEqual(optimized.mean_reproj_error, 0.0)
         planes = session.export().laser_planes_cam
         self.assertEqual(len(planes), 2)
         # Seeded with its own optimum, the solve stays there.
-        session.step_init_with_seed(rig_laserline_device.PlaneManualInit(laser_planes_cam=planes))
+        seeded_init = session.step_init_with_seed(
+            rig_laserline_device.PlaneManualInit(laser_planes_cam=planes)
+        )
+        self.assertEqual(seeded_init.plane_rmse, [None, None])
         session.step_optimize(vc.PlaneOptimizeOptions(max_iters=30))
         for seeded, plane in zip(session.export().laser_planes_cam, planes):
             self.assertAlmostEqual(seeded.distance, plane.distance, places=6)

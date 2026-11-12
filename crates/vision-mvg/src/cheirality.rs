@@ -5,8 +5,9 @@
 //! cameras. These functions count and select the correct pose.
 
 #[cfg(test)]
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use vision_calibration_core::{Mat3, Vec3};
+use vision_geometry::epipolar::PoseCandidate;
 
 /// Count the matches whose point lies ahead along both bearings.
 ///
@@ -44,16 +45,16 @@ pub fn cheirality_count(r: &Mat3, t: &Vec3, b1: &[Vec3], b2: &[Vec3]) -> usize {
 /// along with the number of points passing the cheirality check. Returns
 /// `None` if no candidate has any valid points.
 pub fn select_pose(
-    candidates: &[(Mat3, Vec3)],
+    candidates: &[PoseCandidate],
     pts1: &[Vec3],
     pts2: &[Vec3],
 ) -> Option<(Mat3, Vec3, usize)> {
     let mut best: Option<(Mat3, Vec3, usize)> = None;
 
-    for (r, t) in candidates {
-        let count = cheirality_count(r, t, pts1, pts2);
+    for c in candidates {
+        let count = cheirality_count(&c.rotation, &c.translation, pts1, pts2);
         if count > best.as_ref().map_or(0, |b| b.2) {
-            best = Some((*r, *t, count));
+            best = Some((c.rotation, c.translation, count));
         }
     }
 
@@ -73,18 +74,18 @@ pub fn select_pose(
 #[cfg(test)]
 pub fn recover_pose_from_essential(e: &Mat3, pts1: &[Vec3], pts2: &[Vec3]) -> Result<(Mat3, Vec3)> {
     if pts1.len() != pts2.len() {
-        return Err(MvgError::CountMismatch {
+        return Err(Error::CountMismatch {
             expected: pts1.len(),
             got: pts2.len(),
         });
     }
     if pts1.is_empty() {
-        return Err(MvgError::InsufficientData { need: 1, got: 0 });
+        return Err(Error::InsufficientData { need: 1, got: 0 });
     }
     let candidates = vision_geometry::epipolar::decompose_essential(e)?;
     select_pose(&candidates, pts1, pts2)
         .map(|(r, t, _)| (r, t))
-        .ok_or(MvgError::NoValidPose)
+        .ok_or(Error::NoValidPose)
 }
 
 #[cfg(test)]

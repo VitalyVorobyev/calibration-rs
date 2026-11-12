@@ -249,11 +249,17 @@ fn every_problem_follows_the_vocabulary() {
     ) -> Result<rh::HandeyeOptimizeResult, Error> = rh::step_handeye_optimize;
 
     type Rld = session::CalibrationSession<rld::RigLaserlineDeviceProblem>;
-    let _: fn(&mut Rld, Option<rld::PlaneInitOptions>) -> Result<(), Error> = rld::step_init;
-    let _: fn(&mut Rld, rld::PlaneManualInit, Option<rld::PlaneInitOptions>) -> Result<(), Error> =
-        rld::step_init_with_seed;
-    let _: fn(&mut Rld, Option<rld::PlaneOptimizeOptions>) -> Result<(), Error> =
-        rld::step_optimize;
+    let _: fn(&mut Rld, Option<rld::PlaneInitOptions>) -> Result<rld::PlaneInitResult, Error> =
+        rld::step_init;
+    let _: fn(
+        &mut Rld,
+        rld::PlaneManualInit,
+        Option<rld::PlaneInitOptions>,
+    ) -> Result<rld::PlaneInitResult, Error> = rld::step_init_with_seed;
+    let _: fn(
+        &mut Rld,
+        Option<rld::PlaneOptimizeOptions>,
+    ) -> Result<rld::PlaneOptimizeResult, Error> = rld::step_optimize;
 
     // The joint rig laser problem has no steps; its seeded runner takes the
     // warm start's `JointManualInit`.
@@ -274,10 +280,31 @@ fn every_problem_follows_the_vocabulary() {
 }
 
 #[test]
-fn prelude_compiles_for_hello_world_surface() {
-    use vision_calibration::prelude::*;
-
-    let _session: Option<CalibrationSession<PlanarIntrinsicsProblem>> = None;
+fn types_in_facade_signatures_are_nameable() {
+    // A type a facade function returns, or a public field holds, can be named.
+    let _: Option<core::Ray<core::Real>> = None;
+    let _: Option<core::FixedParams> = None;
+    let _: Option<core::HomographySensor<core::Real>> = None;
+    let _: Option<mvg::solvers::GeometryError> = None;
+    let _: Option<dataset::ValidationError> = None;
+    let _: Option<dataset::RobotPoseSource> = None;
+    let _: Option<dataset::PoseConvention> = None;
+    let _: Option<dataset::PoseColumnMap> = None;
+    let _: Option<dataset::TransformConvention> = None;
+    let _: Option<dataset::TranslationUnits> = None;
+    let _: Option<dataset::RotationFormat> = None;
+    let _: Option<dataset::RobotPoseFormat> = None;
+    let _: Option<dataset::ChessCornersDetectorSpec> = None;
+    let _: Option<dataset::CornerStrategySpec> = None;
+    let _: Option<dataset::CornerCovarianceSpec> = None;
+    let _: Option<dataset::ImageNoiseSpec> = None;
+    let _: Option<laserline_device::LaserlineParams> = None;
+    let _: Option<laserline_device::LaserlineStats> = None;
+    let _: Option<laserline_device::LaserlineEstimate> = None;
+    let _: Option<rig_handeye_laserline::RigHandeyeLaserlineParams> = None;
+    let _: Option<rig_handeye_laserline::RigHandeyeLaserlinePerCamStats> = None;
+    let _: Option<init::PlaneFitView> = None;
+    let _: Option<init::pnp::PoseEstimate> = None;
 }
 
 #[test]
@@ -302,10 +329,12 @@ fn mvg_module_surface_compiles() {
     let _: Option<mvg::dense::BlockMatchOptions> = None;
     let _: Option<mvg::types::Correspondence2D> = None;
     let _: Option<mvg::types::PixelMatch> = None;
-    let _: Option<mvg::MvgError> = None;
-    let _: Option<Result<(), mvg::MvgError>> = None;
+    let _: Option<mvg::Error> = None;
+    let _: Option<Result<(), mvg::Error>> = None;
     let _ = mvg::solvers::dlt_homography;
-    let _ = mvg::solvers::dlt_homography_ransac;
+    let _: Option<mvg::solvers::FundamentalEstimate> = None;
+    let _: Option<mvg::solvers::PoseCandidate> = None;
+    let _: Option<mvg::residuals::EpipolarLineDistance> = None;
     let _ = mvg::solvers::fundamental_8point_ransac;
     let _ = mvg::solvers::rq_decompose;
     let _ = mvg::solvers::dlt_camera_matrix;

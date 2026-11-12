@@ -132,9 +132,12 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
     Ok(p)
 }
 
-/// RQ decomposition of a 3×3 matrix.
+/// RQ decomposition of a 3×3 matrix: `m = K R`.
 ///
-/// Returns `(K, R)` with `K` upper-triangular and `R` orthonormal.
+/// Returns `(K, R)` in the order of the product, with `K` upper-triangular
+/// (positive diagonal) and `R` orthonormal. The pair is a tuple, not a named
+/// type, because the factor order is the convention of the decomposition
+/// itself (`scipy.linalg.rq` returns the same pair).
 pub fn rq_decompose(m: &Mat3) -> (Mat3, Mat3) {
     let j = Mat3::new(0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0);
 

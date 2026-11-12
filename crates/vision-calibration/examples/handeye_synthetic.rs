@@ -21,7 +21,7 @@ use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, Pt2, Pt3, make_pinhole_camera,
 };
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView, step_handeye_init,
     step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,

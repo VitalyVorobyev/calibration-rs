@@ -19,11 +19,11 @@ mod observations;
 
 use anyhow::{Result, ensure};
 use vision_calibration::core::{Iso3, NoiseLevel, Uncertainty};
-use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsInput, RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all,
     step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
 };
+use vision_calibration::session::CalibrationSession;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();

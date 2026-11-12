@@ -26,12 +26,12 @@ mod observations;
 
 use anyhow::{Result, ensure};
 use vision_calibration::core::{CameraParams, DistortionParams, FxFyCxCy, Iso3};
-use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     IntrinsicsManualInit, RigExtrinsicsInput, RigExtrinsicsProblem, RigManualInit, RigPoses,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init_with_seed,
     step_rig_optimize,
 };
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::session::LogEntry;
 
 fn main() -> Result<()> {

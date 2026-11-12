@@ -35,7 +35,7 @@ use vision_calibration_core::{
 /// The camera pose must be known (typically from PnP solution using
 /// calibration features in the same view).
 #[derive(Debug, Clone)]
-pub struct LaserlineView {
+pub struct PlaneFitView {
     /// 2D pixel observations along the laser line
     pub laser_pixels: Vec<Pt2>,
     /// Camera-to-target transform (T_C_T) from calibration features
@@ -185,7 +185,7 @@ impl LaserlinePlaneSolver {
     /// - Total points across views >= 3
     /// - Views must be at sufficiently different angles to break collinearity
     pub fn from_views<P, D, Sm, K>(
-        views: &[LaserlineView],
+        views: &[PlaneFitView],
         camera: &Camera<Real, P, D, Sm, K>,
     ) -> Result<LinearPlaneEstimate, Error>
     where
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn from_views_insufficient_views() {
         let camera = make_test_camera();
-        let view = LaserlineView {
+        let view = PlaneFitView {
             laser_pixels: vec![Pt2::new(100.0, 100.0), Pt2::new(200.0, 100.0)],
             cam_se3_target: Iso3::identity(),
         };
@@ -411,7 +411,7 @@ mod tests {
         // Generate laser pixels that project to the laser plane
         // For a horizontal laser line at z=-0.5 in camera frame,
         // we simulate pixels along the laser line
-        let view1 = LaserlineView {
+        let view1 = PlaneFitView {
             laser_pixels: vec![
                 Pt2::new(400.0, 480.0),
                 Pt2::new(640.0, 480.0),
@@ -420,7 +420,7 @@ mod tests {
             cam_se3_target: pose1,
         };
 
-        let view2 = LaserlineView {
+        let view2 = PlaneFitView {
             laser_pixels: vec![
                 Pt2::new(400.0, 520.0),
                 Pt2::new(640.0, 520.0),

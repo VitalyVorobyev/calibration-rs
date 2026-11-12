@@ -20,11 +20,11 @@ use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, Pt3, RigDataset, RigView,
     RigViewObs, make_pinhole_camera,
 };
-use vision_calibration::prelude::*;
 use vision_calibration::rig_handeye::{
     RigHandeyeInput, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,
     step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
 };
+use vision_calibration::session::CalibrationSession;
 
 fn main() -> Result<()> {
     println!("=== Multi-Camera Rig Hand-Eye Calibration (Synthetic) ===\n");

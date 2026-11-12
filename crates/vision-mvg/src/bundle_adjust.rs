@@ -19,7 +19,7 @@
 //! - **Scale.** [`Scale`] has no default. [`Scale::Rig`] takes it from the
 //!   rig's extrinsics (the baseline between two cameras that see the same
 //!   capture); [`Scale::Distance`] from a stated distance between two points.
-//!   A call without a workable scale is an [`MvgError::InvalidInput`] before
+//!   A call without a workable scale is an [`Error::InvalidInput`] before
 //!   any work, never a silent choice.
 //!
 //! The covariance is in that gauge: capture 0 has none, and the scale's
@@ -27,7 +27,7 @@
 //! [`Scale::Distance`]) is part of it.
 
 use crate::triangulation::{RigObservation, sub_covariance, track_views, with_context};
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{DVector, Matrix6, RealField};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::RunControl;
@@ -242,7 +242,7 @@ impl Residual for PointDistance {
 ///
 /// # Errors
 ///
-/// [`MvgError::InvalidInput`], naming the item and before any solve, for
+/// [`Error::InvalidInput`], naming the item and before any solve, for
 /// different numbers of points and tracks; a track with fewer than 2
 /// observations; a camera or capture index out of range; a non-finite
 /// initial pose or point; a pixel without a finite viewing ray; capture 0
@@ -251,8 +251,8 @@ impl Residual for PointDistance {
 /// cannot fix (see its variants) or with invalid numbers;
 /// [`Use::Prior`] with a rig without a covariance; and a problem the
 /// builder rejects, such as an initial point that does not project.
-/// [`MvgError::Numerical`] when the solve fails to run;
-/// [`MvgError::Cancelled`] when `opts.control`'s token is cancelled. A solve that stops
+/// [`Error::Numerical`] when the solve fails to run;
+/// [`Error::Cancelled`] when `opts.control`'s token is cancelled. A solve that stops
 /// short of convergence is not an error: the result stands and its
 /// uncertainty says [`UncertaintyUnavailable::NotConverged`](vision_calibration_core::UncertaintyUnavailable::NotConverged).
 pub fn bundle_adjust(
@@ -300,13 +300,13 @@ pub fn bundle_adjust(
             // Indices were validated.
             let (Some(camera), Some(capture)) = (blocks.camera(obs.camera), captures[obs.capture])
             else {
-                return Err(MvgError::numerical(format!(
+                return Err(Error::numerical(format!(
                     "track {i}: camera {} or capture {} missing from the problem",
                     obs.camera, obs.capture
                 )));
             };
             let Some(chain) = blocks.chain(obs.camera, capture) else {
-                return Err(MvgError::numerical(format!(
+                return Err(Error::numerical(format!(
                     "track {i}: no chain for camera {}",
                     obs.camera
                 )));
@@ -369,7 +369,7 @@ pub fn bundle_adjust(
                         .camera(k)
                         .and_then(|id| solution.camera(id))
                         .ok_or_else(|| {
-                            MvgError::numerical(format!("camera {k} missing from the solution"))
+                            Error::numerical(format!("camera {k} missing from the solution"))
                         })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -415,7 +415,7 @@ fn validate(
     opts: &BundleAdjustOptions,
 ) -> Result<Vec<bool>> {
     if points.len() != tracks.len() {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "{} points but {} tracks: tracks[i] observes points[i]",
             points.len(),
             tracks.len()
@@ -425,14 +425,14 @@ fn validate(
         let finite = pose.translation.vector.iter().all(|v| v.is_finite())
             && pose.rotation.coords.iter().all(|v| v.is_finite());
         if !finite {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "capture {k}: the initial pose is not finite"
             )));
         }
     }
     for (i, p) in points.iter().enumerate() {
         if !p.coords.iter().all(|v| v.is_finite()) {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "point {i}: the initial point is not finite"
             )));
         }
@@ -447,7 +447,7 @@ fn validate(
         }
     }
     if !observed.first().copied().unwrap_or(false) {
-        return Err(MvgError::invalid_input(
+        return Err(Error::invalid_input(
             "capture 0 has no observations, but it defines the world frame",
         ));
     }
@@ -457,14 +457,14 @@ fn validate(
         cameras.sort_unstable();
         cameras.dedup();
         if cameras.len() < 2 {
-            return Err(MvgError::invalid_input(
+            return Err(Error::invalid_input(
                 "one capture seen by one camera: there is nothing to adjust, which needs at \
                  least two captures or two cameras",
             ));
         }
     }
     if opts.calibration == Use::Prior && rig.uncertainty().covariance().is_none() {
-        return Err(MvgError::invalid_input(
+        return Err(Error::invalid_input(
             "Use::Prior needs a rig with a covariance; use Use::Consider for one without",
         ));
     }
@@ -476,24 +476,24 @@ fn validate(
             sigma,
         } => {
             if a >= points.len() || b >= points.len() {
-                return Err(MvgError::invalid_input(format!(
+                return Err(Error::invalid_input(format!(
                     "Scale::Distance: points {a} and {b} must be in range: {} points given",
                     points.len()
                 )));
             }
             if a == b {
-                return Err(MvgError::invalid_input(format!(
+                return Err(Error::invalid_input(format!(
                     "Scale::Distance: a distance needs two distinct points, got {a} twice"
                 )));
             }
             if !(distance.is_finite() && distance > 0.0 && sigma.is_finite() && sigma > 0.0) {
-                return Err(MvgError::invalid_input(format!(
+                return Err(Error::invalid_input(format!(
                     "Scale::Distance: distance {distance} and sigma {sigma} must be finite and \
                      positive"
                 )));
             }
             if (points[a] - points[b]).norm() == 0.0 {
-                return Err(MvgError::invalid_input(format!(
+                return Err(Error::invalid_input(format!(
                     "Scale::Distance: the initial points {a} and {b} coincide"
                 )));
             }
@@ -507,7 +507,7 @@ fn validate(
 fn check_rig_scale(rig: &CalibratedRig, tracks: &[Vec<RigObservation>]) -> Result<()> {
     let hint = "state a Scale::Distance instead";
     if rig.num_cameras() < 2 {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "Scale::Rig needs a rig of two or more cameras; {hint}"
         )));
     }
@@ -528,7 +528,7 @@ fn check_rig_scale(rig: &CalibratedRig, tracks: &[Vec<RigObservation>]) -> Resul
     if fixes_scale {
         Ok(())
     } else {
-        Err(MvgError::invalid_input(format!(
+        Err(Error::invalid_input(format!(
             "Scale::Rig needs a capture observed by two cameras with distinct centres; {hint}"
         )))
     }
@@ -549,7 +549,7 @@ fn reprojection_rms(
             let in_camera = rig.cam_se3_rig()[obs.camera] * rig_se3_world[obs.capture] * point;
             let model = rig.model(obs.camera).expect("camera index was validated");
             let pixel = model.project_point(&in_camera).ok_or_else(|| {
-                MvgError::numerical(format!(
+                Error::numerical(format!(
                     "track {i}: the adjusted point does not project in camera {}",
                     obs.camera
                 ))
@@ -600,10 +600,10 @@ fn calibration_share(uncertainty: &Uncertainty) -> Uncertainty {
 }
 
 /// An input the builder or the solve rejects is invalid input; its message says why.
-fn builder_error(e: vision_calibration_optim::Error) -> MvgError {
+fn builder_error(e: vision_calibration_optim::Error) -> Error {
     match e {
-        vision_calibration_optim::Error::Cancelled => MvgError::Cancelled,
-        vision_calibration_optim::Error::InvalidInput { reason } => MvgError::invalid_input(reason),
-        other => MvgError::numerical(format!("bundle adjustment: {other}")),
+        vision_calibration_optim::Error::Cancelled => Error::Cancelled,
+        vision_calibration_optim::Error::InvalidInput { reason } => Error::invalid_input(reason),
+        other => Error::numerical(format!("bundle adjustment: {other}")),
     }
 }

@@ -5,14 +5,14 @@
 //! normalized coordinates do not exist. Every projection model is central (the
 //! ray starts at the camera centre), so the ray's origin is ignored.
 
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{Matrix2, Matrix3x2};
 use vision_calibration_core::{CalibratedRig, CameraModel, Pt2, Real, Vec3};
 
 /// Camera `camera` of the rig, or `InvalidInput` when out of range.
 pub(crate) fn camera_model(rig: &CalibratedRig, camera: usize) -> Result<&CameraModel> {
     rig.model(camera).ok_or_else(|| {
-        MvgError::invalid_input(format!(
+        Error::invalid_input(format!(
             "camera {camera} out of range: the rig has {} cameras",
             rig.num_cameras()
         ))
@@ -31,7 +31,7 @@ pub(crate) fn bearing(model: &CameraModel, pixel: &Pt2, index: usize) -> Result<
     let d = model.backproject_pixel(pixel).direction;
     let n = d.norm();
     if !(n.is_finite() && n > 0.0) {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "pixel {index} ({}, {}) has no finite viewing ray",
             pixel.x, pixel.y
         )));
@@ -40,7 +40,7 @@ pub(crate) fn bearing(model: &CameraModel, pixel: &Pt2, index: usize) -> Result<
     let back = model.project_point_c(&b);
     match back {
         Some(p) if (p - pixel).norm() <= ROUND_TRIP_TOL_PX => Ok(b),
-        _ => Err(MvgError::invalid_input(format!(
+        _ => Err(Error::invalid_input(format!(
             "pixel {index} ({}, {}) is outside the region where the camera model \
              inverts: no viewing ray projects onto it",
             pixel.x, pixel.y
@@ -74,7 +74,7 @@ pub(crate) fn bearing_with_jacobian(
 
     let b = bearing(model, pixel, index)?;
     let fail = || {
-        MvgError::invalid_input(format!(
+        Error::invalid_input(format!(
             "pixel {index} ({}, {}): the camera's projection has no usable derivative there",
             pixel.x, pixel.y
         ))
@@ -207,6 +207,6 @@ mod tests {
         let model = pinhole_params(-0.3).build().unwrap();
         assert!(bearing(&model, &Pt2::new(640.0 + 400.0, 480.0), 0).is_ok());
         let err = bearing(&model, &Pt2::new(640.0 + 700.0, 480.0), 7).unwrap_err();
-        assert!(matches!(err, MvgError::InvalidInput { .. }), "{err:?}");
+        assert!(matches!(err, Error::InvalidInput { .. }), "{err:?}");
     }
 }

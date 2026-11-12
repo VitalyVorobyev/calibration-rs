@@ -474,7 +474,7 @@ fn a_rig_without_a_covariance_says_why() {
     assert!(cloud.point_covariance(0).is_none());
     let err = cloud.covariance(&[0, 1]).unwrap_err();
     assert!(
-        matches!(&err, MvgError::InvalidInput { reason } if reason.contains("CalibrationWithoutCovariance")),
+        matches!(&err, Error::InvalidInput { reason } if reason.contains("CalibrationWithoutCovariance")),
         "{err:?}"
     );
     assert!(PointSet::from_dense_cloud(&cloud, &[0, 1]).is_err());
@@ -486,7 +486,7 @@ fn rejects_bad_inputs() {
     let rig = fix.rig();
     let rect = rectify(&rig, [1, 2], &RectifyOptions::default()).unwrap();
     let map = map_of(&MATCHES);
-    let invalid = |e: MvgError| matches!(e, MvgError::InvalidInput { .. });
+    let invalid = |e: Error| matches!(e, Error::InvalidInput { .. });
     for sigma_d in [-0.1, f64::NAN, f64::INFINITY] {
         assert!(invalid(rect.dense_cloud(&rig, &map, sigma_d).unwrap_err()));
     }

@@ -9,9 +9,13 @@
 //! Run with: `cargo run -p vision-calibration --example planar_synthetic`
 
 use anyhow::Result;
-use vision_calibration::core::{DistortionParams, make_pinhole_camera};
-use vision_calibration::planar_intrinsics::{run_calibration, step_init, step_optimize};
-use vision_calibration::prelude::*;
+use vision_calibration::core::{
+    BrownConrady5, DistortionParams, FxFyCxCy, PlanarDataset, View, make_pinhole_camera,
+};
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsProblem, run_calibration, step_init, step_optimize,
+};
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::planar;
 
 fn main() -> Result<()> {

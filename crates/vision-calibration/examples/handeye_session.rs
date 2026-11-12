@@ -23,7 +23,7 @@ use anyhow::Result;
 use std::io::{self, Write};
 use vision_calibration::common::RobotPoseMeta;
 use vision_calibration::dataset::samples;
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::SingleCamHandeyeSolution;
 use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,

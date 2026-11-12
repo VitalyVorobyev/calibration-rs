@@ -7,12 +7,14 @@ linearly, ``step_optimize`` refines them. ``run_calibration`` runs both.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from . import _vision_calibration as _native
 from .common import _StepOptions
 from .models import (
+    LaserlineStats,
     LaserPlane,
     RigLaserlineDeviceConfig,
     RigLaserlineDeviceExport,
@@ -22,8 +24,10 @@ from .session import CalibrationSession, _payload, _seed_payload
 
 __all__ = [
     "PlaneInitOptions",
+    "PlaneInitResult",
     "PlaneManualInit",
     "PlaneOptimizeOptions",
+    "PlaneOptimizeResult",
     "RigLaserlineDeviceSession",
 ]
 
@@ -55,6 +59,53 @@ class PlaneManualInit:
         return _seed_payload({"laser_planes_cam": self.laser_planes_cam})
 
 
+@dataclass(frozen=True, slots=True)
+class PlaneInitResult:
+    """The initial laser planes."""
+
+    laser_planes_cam: list[LaserPlane]
+    """One plane per camera, in that camera's frame."""
+    plane_rmse: list[float | None]
+    """Per camera, the RMS distance of the laser points to the fitted plane,
+    metres; ``None`` for a seeded plane."""
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> PlaneInitResult:
+        return cls(
+            laser_planes_cam=_planes(payload["laser_planes_cam"]),
+            plane_rmse=[None if v is None else float(v) for v in payload["plane_rmse"]],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PlaneOptimizeResult:
+    """The refined laser planes and their per-camera statistics."""
+
+    laser_planes_rig: list[LaserPlane]
+    """One plane per camera, in the rig frame."""
+    laser_planes_cam: list[LaserPlane]
+    """One plane per camera, in that camera's frame."""
+    mean_reproj_error: float
+    """Mean target reprojection error over the cameras, pixels."""
+    per_cam_stats: list[LaserlineStats]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> PlaneOptimizeResult:
+        return cls(
+            laser_planes_rig=_planes(payload["laser_planes_rig"]),
+            laser_planes_cam=_planes(payload["laser_planes_cam"]),
+            mean_reproj_error=float(payload["mean_reproj_error"]),
+            per_cam_stats=[
+                LaserlineStats.from_payload(cast(Mapping[str, Any], v))
+                for v in payload["per_cam_stats"]
+            ],
+        )
+
+
+def _planes(values: Any) -> list[LaserPlane]:
+    return [LaserPlane.from_payload(cast(Mapping[str, Any], v)) for v in values]
+
+
 class RigLaserlineDeviceSession(
     CalibrationSession[RigLaserlineDeviceInput, RigLaserlineDeviceConfig, RigLaserlineDeviceExport]
 ):
@@ -66,18 +117,20 @@ class RigLaserlineDeviceSession(
 
     __slots__ = ()
 
-    def step_init(self, options: PlaneInitOptions | None = None) -> None:
+    def step_init(self, options: PlaneInitOptions | None = None) -> PlaneInitResult:
         """Fit each camera's laser plane linearly."""
-        self._native.step_init(_payload(options))
+        return PlaneInitResult.from_payload(self._native.step_init(_payload(options)))
 
     def step_init_with_seed(
         self,
         seed: PlaneManualInit,
         options: PlaneInitOptions | None = None,
-    ) -> None:
+    ) -> PlaneInitResult:
         """``step_init`` from manual seeds."""
-        self._native.step_init_with_seed(_payload(seed), _payload(options))
+        return PlaneInitResult.from_payload(
+            self._native.step_init_with_seed(_payload(seed), _payload(options))
+        )
 
-    def step_optimize(self, options: PlaneOptimizeOptions | None = None) -> None:
+    def step_optimize(self, options: PlaneOptimizeOptions | None = None) -> PlaneOptimizeResult:
         """Refine the laser planes."""
-        self._native.step_optimize(_payload(options))
+        return PlaneOptimizeResult.from_payload(self._native.step_optimize(_payload(options)))

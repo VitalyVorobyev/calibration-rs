@@ -10,7 +10,7 @@ use crate::cheirality;
 use crate::robust::bearing_pairs;
 use crate::triangulation::{ViewRay, triangulate_views, with_context};
 use crate::types::{PixelMatch, TriangulatedPoint};
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use serde::Serialize;
 use vision_calibration_core::{CalibratedRig, Iso3, Mat3, Real, Vec3};
@@ -195,9 +195,9 @@ pub(crate) fn iso_from_rt(r: &Mat3, t: &Vec3) -> Iso3 {
 ///
 /// # Errors
 ///
-/// [`MvgError::InsufficientData`] for fewer than 5 matches,
-/// [`MvgError::InvalidInput`] for a camera index out of range or a pixel with
-/// no finite viewing ray, [`MvgError::NoValidPose`] when no candidate passes
+/// [`Error::InsufficientData`] for fewer than 5 matches,
+/// [`Error::InvalidInput`] for a camera index out of range or a pixel with
+/// no finite viewing ray, [`Error::NoValidPose`] when no candidate passes
 /// cheirality, and an error naming the match when it cannot be triangulated.
 pub fn recover_relative_pose(
     rig: &CalibratedRig,
@@ -206,7 +206,7 @@ pub fn recover_relative_pose(
 ) -> Result<RelativePose> {
     let n = matches.len();
     if n < 5 {
-        return Err(MvgError::InsufficientData { need: 5, got: n });
+        return Err(Error::InsufficientData { need: 5, got: n });
     }
 
     let pairs = bearing_pairs(rig, cameras, matches)?;
@@ -241,7 +241,7 @@ pub fn recover_relative_pose(
     }
 
     if all_candidates.is_empty() {
-        return Err(MvgError::NoValidPose);
+        return Err(Error::NoValidPose);
     }
 
     let mut best_r = None;
@@ -269,9 +269,9 @@ pub fn recover_relative_pose(
         }
     }
 
-    let r = best_r.ok_or(MvgError::NoValidPose)?;
-    let t = best_t.ok_or(MvgError::NoValidPose)?;
-    let e = best_e.ok_or(MvgError::NoValidPose)?;
+    let r = best_r.ok_or(Error::NoValidPose)?;
+    let t = best_t.ok_or(Error::NoValidPose)?;
+    let e = best_e.ok_or(Error::NoValidPose)?;
     let second_se3_first = iso_from_rt(&r, &t);
 
     // Two views: the first camera at the origin, the second at the pose.
@@ -437,11 +437,11 @@ mod tests {
         let m = matches(&rig, &gt, &scene());
         assert!(matches!(
             recover_relative_pose(&rig, [0, 0], &m[..4]),
-            Err(MvgError::InsufficientData { need: 5, got: 4 })
+            Err(Error::InsufficientData { need: 5, got: 4 })
         ));
         assert!(matches!(
             recover_relative_pose(&rig, [0, 3], &m),
-            Err(MvgError::InvalidInput { .. })
+            Err(Error::InvalidInput { .. })
         ));
     }
 }

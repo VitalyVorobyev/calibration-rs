@@ -148,7 +148,7 @@ since $T_{R,C_0} = I$ (camera 0 is the reference).
 ## Complete Example
 
 ```rust
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::rig_extrinsics::*;
 
 let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();

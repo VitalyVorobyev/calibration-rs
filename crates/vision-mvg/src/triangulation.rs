@@ -13,7 +13,7 @@
 
 use crate::bearing::{bearing, camera_model};
 use crate::types::{Captures, TriangulatedPoint};
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::SMatrix;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::RunControl;
@@ -193,11 +193,11 @@ pub(crate) fn sub_covariance<const N: usize>(
 /// capture index out of range, a pixel without a finite viewing ray or a
 /// degenerate (zero-parallax) system is an error whose message names the
 /// track by its index in `tracks`; so is a refinement that fails to run.
-/// [`MvgError::InvalidInput`] for a robot frame the rig cannot serve (no
+/// [`Error::InvalidInput`] for a robot frame the rig cannot serve (no
 /// hand-eye, or a frame the variant of [`Captures`] does not state). A
 /// refinement that stops short of convergence is not an error: the points are
 /// returned as they stand and the uncertainty says
-/// [`UncertaintyUnavailable::NotConverged`]. [`MvgError::Cancelled`] when
+/// [`UncertaintyUnavailable::NotConverged`]. [`Error::Cancelled`] when
 /// `control`'s token is cancelled; the refinement reports each iteration to
 /// `control`'s observers, and an observer cannot change the result.
 pub fn triangulate(
@@ -267,7 +267,7 @@ pub fn triangulate(
             let camera = blocks.camera(obs.camera);
             let chain = blocks.chain(obs.camera, capture);
             let (Some(camera), Some(chain)) = (camera, chain) else {
-                return Err(MvgError::numerical(format!(
+                return Err(Error::numerical(format!(
                     "track {i}: camera {} missing from the problem",
                     obs.camera
                 )));
@@ -319,15 +319,15 @@ pub fn triangulate(
     })
 }
 
-fn refine_error(e: vision_calibration_optim::Error) -> MvgError {
+fn refine_error(e: vision_calibration_optim::Error) -> Error {
     if matches!(e, vision_calibration_optim::Error::Cancelled) {
-        return MvgError::Cancelled;
+        return Error::Cancelled;
     }
-    MvgError::numerical(format!("refining the points: {e}"))
+    Error::numerical(format!("refining the points: {e}"))
 }
 
-fn refine_error_in(context: &str, e: vision_calibration_optim::Error) -> MvgError {
-    MvgError::numerical(format!("{context}: refining the points: {e}"))
+fn refine_error_in(context: &str, e: vision_calibration_optim::Error) -> Error {
+    Error::numerical(format!("{context}: refining the points: {e}"))
 }
 
 /// The views of one track, with their bearings.
@@ -337,7 +337,7 @@ pub(crate) fn track_views<'a>(
     track: &[RigObservation],
 ) -> Result<Vec<ViewRay<'a>>> {
     if track.len() < 2 {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "has {} observation(s); triangulation needs at least 2",
             track.len()
         )));
@@ -345,7 +345,7 @@ pub(crate) fn track_views<'a>(
     let mut views = Vec::with_capacity(track.len());
     for (j, obs) in track.iter().enumerate() {
         let rig_pose = rig_se3_world.get(obs.capture).ok_or_else(|| {
-            MvgError::invalid_input(format!(
+            Error::invalid_input(format!(
                 "observation {j}: capture {} out of range: {} rig poses given",
                 obs.capture,
                 rig_se3_world.len()
@@ -364,16 +364,13 @@ pub(crate) fn track_views<'a>(
 }
 
 /// Prefix the message of an error with the item it concerns.
-pub(crate) fn with_context(context: &str, err: MvgError) -> MvgError {
+pub(crate) fn with_context(context: &str, err: Error) -> Error {
     match err {
-        MvgError::InvalidInput { reason } => {
-            MvgError::invalid_input(format!("{context}: {reason}"))
+        Error::InvalidInput { reason } => Error::invalid_input(format!("{context}: {reason}")),
+        Error::Degenerate { reason } | Error::Geometry(GeometryError::Degenerate { reason }) => {
+            Error::degenerate(format!("{context}: {reason}"))
         }
-        MvgError::Degenerate { reason }
-        | MvgError::Geometry(GeometryError::Degenerate { reason }) => {
-            MvgError::degenerate(format!("{context}: {reason}"))
-        }
-        other => MvgError::numerical(format!("{context}: {other}")),
+        other => Error::numerical(format!("{context}: {other}")),
     }
 }
 
@@ -646,7 +643,7 @@ mod tests {
                 &[vec![good[0], good[0]]],
                 &RunControl::default()
             ),
-            Err(MvgError::Degenerate { .. })
+            Err(Error::Degenerate { .. })
         ));
     }
 }

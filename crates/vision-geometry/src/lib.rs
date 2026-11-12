@@ -8,7 +8,7 @@
 //! # Modules
 //!
 //! - [`epipolar`] — Fundamental and essential matrix estimation, decomposition
-//! - [`homography`] — Normalized DLT homography estimation with optional RANSAC
+//! - [`homography`] — Normalized DLT homography estimation
 //! - [`triangulation`] — N-view linear (DLT) triangulation from bearings
 //! - [`pnp`] — Perspective-n-Point pose solvers (DLT, EPnP, P3P, DLT + RANSAC)
 //! - [`camera_matrix`] — Camera projection matrix estimation and RQ decomposition

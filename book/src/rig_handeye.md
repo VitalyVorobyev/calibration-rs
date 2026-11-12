@@ -88,7 +88,7 @@ Set `camera.model.sensor` to `SensorKind::Scheimpflug` for a rig of tilted-senso
 ## Complete Example
 
 ```rust
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::rig_handeye::*;
 use vision_calibration::common::HandeyeSolution;
 use vision_calibration::optim::{HandeyeMode, RobustLoss};

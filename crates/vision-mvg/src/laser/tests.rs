@@ -786,7 +786,7 @@ fn errors_name_the_observation() {
         &[LaserObservation::new(0, 0, centre, noise(0.1))],
     )
     .unwrap_err();
-    assert!(matches!(err, MvgError::Degenerate { .. }), "{err}");
+    assert!(matches!(err, Error::Degenerate { .. }), "{err}");
 
     // A plane behind the camera.
     let behind = CalibratedRig::single(pinhole_params(0.0), Uncertainty::default())

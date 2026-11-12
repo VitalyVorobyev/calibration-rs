@@ -1,7 +1,7 @@
 //! Homography estimation (plane-induced projective transform).
 //!
-//! Implements the normalized Direct Linear Transform (DLT) and a robust
-//! RANSAC wrapper. The homography `H` maps points from one plane to another:
+//! Implements the normalized Direct Linear Transform (DLT); the robust
+//! (RANSAC) estimate is `vision_mvg::robust::estimate_homography`. The homography `H` maps points from one plane to another:
 //! `x' ~ H x`.
 //!
 //! Input points should be in consistent units; normalization is applied
@@ -11,9 +11,7 @@ use crate::math::ensure_finite;
 use crate::{GeometryError, Result};
 use nalgebra::DMatrix;
 use vision_calibration_core::linalg::{mat3_from_vec, normalize_points_2d, null_space};
-use vision_calibration_core::{
-    Estimator, Mat3, Pt2, RansacOptions, from_homogeneous, ransac_fit, to_homogeneous,
-};
+use vision_calibration_core::{Mat3, Pt2};
 
 /// Return `true` if all points are (approximately) collinear.
 ///
@@ -175,117 +173,10 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     Ok(h_mat)
 }
 
-/// Estimate a homography using DLT inside a RANSAC loop.
-///
-/// Returns the best homography and the indices of inliers.
-///
-/// **Threshold unit:** `opts.thresh` is compared with the (non-squared)
-/// forward transfer error `|H src - dst|`, the Euclidean distance in the unit
-/// of `dst` (pixels for image points).
-///
-/// # Errors
-///
-/// [`GeometryError::InvalidInput`] if `opts.thresh` is not finite and
-/// positive, [`GeometryError::InsufficientData`] for fewer than 4
-/// correspondences, [`GeometryError::CountMismatch`] for unequal slices and
-/// [`GeometryError::NoConsensus`] if no model reaches `opts.min_inliers`.
-pub fn dlt_homography_ransac(
-    src: &[Pt2],
-    dst: &[Pt2],
-    opts: &RansacOptions,
-) -> Result<(Mat3, Vec<usize>)> {
-    opts.validate().map_err(|e| GeometryError::InvalidInput {
-        reason: e.to_string(),
-    })?;
-    let n = src.len();
-    if n < 4 {
-        return Err(GeometryError::InsufficientData { need: 4, got: n });
-    }
-    if dst.len() != n {
-        return Err(GeometryError::CountMismatch {
-            expected: n,
-            got: dst.len(),
-        });
-    }
-
-    #[derive(Clone)]
-    struct HomographyDatum {
-        w: Pt2,
-        i: Pt2,
-    }
-
-    struct HomographyEst;
-
-    impl Estimator for HomographyEst {
-        type Datum = HomographyDatum;
-        type Model = Mat3;
-
-        const MIN_SAMPLES: usize = 4;
-
-        fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model> {
-            let mut src = Vec::with_capacity(sample_indices.len());
-            let mut dst = Vec::with_capacity(sample_indices.len());
-            for &idx in sample_indices {
-                src.push(data[idx].w);
-                dst.push(data[idx].i);
-            }
-            dlt_homography(&src, &dst).ok()
-        }
-
-        fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
-            let p = to_homogeneous(&datum.w);
-            let proj = model * p;
-            let proj_pt = from_homogeneous(&proj);
-            let du = proj_pt.x - datum.i.x;
-            let dv = proj_pt.y - datum.i.y;
-            (du * du + dv * dv).sqrt()
-        }
-
-        fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
-            if sample_indices.len() < 3 {
-                return false;
-            }
-            let p0 = data[sample_indices[0]].w;
-            let p1 = data[sample_indices[1]].w;
-            let p2 = data[sample_indices[2]].w;
-            let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-            area.abs() < 1e-9
-        }
-
-        fn refit(data: &[Self::Datum], inliers: &[usize]) -> Option<Self::Model> {
-            if inliers.len() < 4 {
-                return None;
-            }
-            let mut src = Vec::with_capacity(inliers.len());
-            let mut dst = Vec::with_capacity(inliers.len());
-            for &idx in inliers {
-                src.push(data[idx].w);
-                dst.push(data[idx].i);
-            }
-            dlt_homography(&src, &dst).ok()
-        }
-    }
-
-    let data: Vec<HomographyDatum> = src
-        .iter()
-        .cloned()
-        .zip(dst.iter().cloned())
-        .map(|(w, i)| HomographyDatum { w, i })
-        .collect();
-
-    let res = ransac_fit::<HomographyEst>(&data, opts);
-    if !res.success {
-        return Err(GeometryError::NoConsensus);
-    }
-
-    let h = res.model.expect("success guarantees a model");
-    Ok((h, res.inliers))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{Pt2, RansacOptions};
+    use vision_calibration_core::Pt2;
 
     #[test]
     fn basic_homography() {
@@ -461,41 +352,5 @@ mod tests {
             elapsed.as_secs_f64() < 2.0,
             "dense DLT took {elapsed:?} — perf regression (AᵀA eigen path lost?)"
         );
-    }
-
-    #[test]
-    fn homography_ransac_handles_outliers() {
-        let w = vec![
-            Pt2::new(0.0, 0.0),
-            Pt2::new(1.0, 0.0),
-            Pt2::new(1.0, 1.0),
-            Pt2::new(0.0, 1.0),
-        ];
-        let img_inliers = vec![
-            Pt2::new(0.0, 0.0),
-            Pt2::new(2.0, 0.0),
-            Pt2::new(2.0, 2.0),
-            Pt2::new(0.0, 2.0),
-        ];
-
-        let mut w_all = w.clone();
-        let mut img_all = img_inliers.clone();
-        w_all.push(Pt2::new(0.5, 0.5));
-        img_all.push(Pt2::new(10.0, -3.0));
-        w_all.push(Pt2::new(-0.2, 0.3));
-        img_all.push(Pt2::new(-5.0, 7.0));
-
-        let opts = RansacOptions::new(0.1)
-            .with_max_iters(200)
-            .with_min_inliers(4)
-            .with_confidence(0.99)
-            .with_seed(7)
-            .with_refit_on_inliers(true);
-
-        let (h, inliers) = dlt_homography_ransac(&w_all, &img_all, &opts).unwrap();
-
-        assert!(inliers.len() >= 4);
-        let scale = h[(0, 0)];
-        assert!((scale - 2.0).abs() < 1e-2);
     }
 }

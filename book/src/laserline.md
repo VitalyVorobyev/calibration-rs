@@ -145,7 +145,7 @@ Since calibration residuals (in pixels) and laser residuals may have different s
 ## Complete Example
 
 ```rust
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::laserline_device::*;
 
 let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();

@@ -39,7 +39,7 @@
 //! images. For large inputs, downscale first (as the real-data example does) or
 //! tile the search.
 
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 
 // ---------------------------------------------------------------------------
 // Buffer types
@@ -59,16 +59,16 @@ impl GrayImage {
     ///
     /// # Errors
     ///
-    /// [`MvgError::InvalidInput`] if `width` or `height` is zero or
+    /// [`Error::InvalidInput`] if `width` or `height` is zero or
     /// `data.len() != width * height`.
     pub fn new(width: usize, height: usize, data: Vec<u8>) -> Result<Self> {
         if width == 0 || height == 0 {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "GrayImage: an image needs at least one pixel, got {width}×{height}"
             )));
         }
         if Some(data.len()) != width.checked_mul(height) {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "GrayImage: {width}×{height} needs {} pixels, got {}",
                 width.saturating_mul(height),
                 data.len()
@@ -164,10 +164,10 @@ impl DisparityMap {
     ///
     /// # Errors
     ///
-    /// [`MvgError::InvalidInput`] if `data.len() != width * height`.
+    /// [`Error::InvalidInput`] if `data.len() != width * height`.
     pub fn new(width: usize, height: usize, data: Vec<f32>) -> Result<Self> {
         if Some(data.len()) != width.checked_mul(height) {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "DisparityMap: {width}×{height} needs {} values, got {}",
                 width.saturating_mul(height),
                 data.len()
@@ -367,7 +367,7 @@ const INVALID_CORR: f32 = f32::NEG_INFINITY;
 ///
 /// # Errors
 ///
-/// Returns [`MvgError::InvalidInput`] if the two images differ in size, if
+/// Returns [`Error::InvalidInput`] if the two images differ in size, if
 /// `block_size` is even or zero, if `num_disparities <= 0`, or if either image
 /// is smaller than the matching window.
 pub fn match_block(
@@ -377,26 +377,26 @@ pub fn match_block(
 ) -> Result<DisparityMap> {
     let (w, h) = (left.width, left.height);
     if right.width != w || right.height != h {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "left ({w}x{h}) and right ({}x{}) images must have equal dimensions",
             right.width, right.height
         )));
     }
     if opts.block_size == 0 || opts.block_size.is_multiple_of(2) {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "block_size must be odd and >= 1, got {}",
             opts.block_size
         )));
     }
     if opts.num_disparities <= 0 {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "num_disparities must be positive, got {}",
             opts.num_disparities
         )));
     }
     let r = opts.block_size / 2;
     if w < opts.block_size || h < opts.block_size {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "image {w}x{h} is smaller than the {0}x{0} matching window",
             opts.block_size
         )));
@@ -910,7 +910,7 @@ mod tests {
         let a = GrayImage::new(10, 10, vec![0; 100]).unwrap();
         let b = GrayImage::new(12, 10, vec![0; 120]).unwrap();
         let err = match_block(&a, &b, &BlockMatchOptions::default()).unwrap_err();
-        assert!(matches!(err, MvgError::InvalidInput { .. }));
+        assert!(matches!(err, Error::InvalidInput { .. }));
     }
 
     #[test]
@@ -926,7 +926,7 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(matches!(err, MvgError::InvalidInput { .. }));
+        assert!(matches!(err, Error::InvalidInput { .. }));
     }
 
     #[test]
@@ -942,7 +942,7 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(matches!(err, MvgError::InvalidInput { .. }));
+        assert!(matches!(err, Error::InvalidInput { .. }));
     }
 
     #[test]

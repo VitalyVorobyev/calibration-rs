@@ -21,4 +21,4 @@ mod ransac;
 pub use dlt::dlt;
 pub use epnp::epnp;
 pub use p3p::p3p;
-pub use ransac::dlt_ransac;
+pub use ransac::{PoseEstimate, dlt_ransac};

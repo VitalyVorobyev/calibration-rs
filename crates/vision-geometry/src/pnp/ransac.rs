@@ -10,6 +10,16 @@ use vision_calibration_core::{
     RansacOptions, Real, ransac_fit,
 };
 
+/// A camera pose with the correspondences that agree with it.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PoseEstimate {
+    /// The pose `cam_se3_world`.
+    pub pose: Iso3,
+    /// Indices of the inlier correspondences.
+    pub inliers: Vec<usize>,
+}
+
 /// Robust PnP using DLT inside a RANSAC loop.
 ///
 /// Returns the best pose and inlier indices.
@@ -22,7 +32,7 @@ pub fn dlt_ransac(
     image: &[Pt2],
     k: &FxFyCxCy<Real>,
     opts: &RansacOptions,
-) -> Result<(Iso3, Vec<usize>), GeometryError> {
+) -> Result<PoseEstimate, GeometryError> {
     opts.validate().map_err(|e| GeometryError::InvalidInput {
         reason: e.to_string(),
     })?;
@@ -93,8 +103,10 @@ pub fn dlt_ransac(
             "ransac failed to find a consensus PnP solution",
         ));
     }
-    let pose = res.model.expect("success guarantees a model");
-    Ok((pose, res.inliers))
+    Ok(PoseEstimate {
+        pose: res.model.expect("success guarantees a model"),
+        inliers: res.inliers,
+    })
 }
 
 #[cfg(test)]
@@ -149,7 +161,7 @@ mod tests {
             .with_seed(77)
             .with_refit_on_inliers(true);
 
-        let (est, inliers) = dlt_ransac(&world, &image, &k, &opts).unwrap();
+        let PoseEstimate { pose: est, inliers } = dlt_ransac(&world, &image, &k, &opts).unwrap();
 
         assert!(inliers.len() >= inlier_count.saturating_sub(2));
         assert!(inliers.len() < world.len());

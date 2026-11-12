@@ -47,7 +47,7 @@
 use super::StereoRectification;
 use crate::dense::DisparityMap;
 use crate::sensitivity::{camera_coordinates, skew};
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{DMatrix, Dyn, Matrix2x3, Matrix3, Matrix3x2, Matrix3x6, OMatrix, U3, Vector3};
 use serde::Serialize;
 use vision_calibration_core::{
@@ -174,7 +174,7 @@ impl StereoRectification {
     ///
     /// # Errors
     ///
-    /// [`MvgError::InvalidInput`] when `rig` differs from the one rectified,
+    /// [`Error::InvalidInput`] when `rig` differs from the one rectified,
     /// for a `sigma_d` that is negative or not finite, for a camera model
     /// with a general sensor homography (its parameters have no derivative),
     /// and for a covariance that lists part of a camera's extrinsic (a pose
@@ -187,7 +187,7 @@ impl StereoRectification {
     ) -> Result<DenseCloud> {
         self.check_rig(rig)?;
         if !(sigma_d.is_finite() && sigma_d >= 0.0) {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "the disparity's sigma must be finite and non-negative, got {sigma_d}"
             )));
         }
@@ -234,7 +234,7 @@ impl StereoRectification {
         let mut side = |s: usize| -> Result<Side> {
             let k = self.cameras[s];
             let jacobian = CameraJacobian::new(&rig.cameras()[k])
-                .map_err(|e| MvgError::invalid_input(format!("camera {k}: {e}")))?;
+                .map_err(|e| Error::invalid_input(format!("camera {k}: {e}")))?;
             let coordinates = camera_coordinates(rig, covariance, k, &jacobian)?;
             let mut column = |at: usize| {
                 index.push(at);
@@ -382,13 +382,13 @@ impl DenseCloud {
     ///
     /// # Errors
     ///
-    /// [`MvgError::InvalidInput`] when the points have no covariance (the
+    /// [`Error::InvalidInput`] when the points have no covariance (the
     /// message gives the reason) or an index is out of range;
-    /// [`MvgError::Numerical`] when a camera's projection has no usable
+    /// [`Error::Numerical`] when a camera's projection has no usable
     /// derivative at a point. The message names the point.
     pub fn covariance(&self, indices: &[usize]) -> Result<DMatrix<Real>> {
         let share = self.share.as_ref().map_err(|reason| {
-            MvgError::invalid_input(format!(
+            Error::invalid_input(format!(
                 "the points have no covariance: the uncertainty is unavailable ({reason:?})"
             ))
         })?;
@@ -397,13 +397,13 @@ impl DenseCloud {
         let mut g_d = Vec::with_capacity(k);
         for (row, &i) in indices.iter().enumerate() {
             let p = self.points.get(i).ok_or_else(|| {
-                MvgError::invalid_input(format!(
+                Error::invalid_input(format!(
                     "point index {i} is out of range for {} points",
                     self.len()
                 ))
             })?;
             let (g_i, _) = share.jacobian(&p.point.coords).ok_or_else(|| {
-                MvgError::numerical(format!(
+                Error::numerical(format!(
                     "point {i}: a camera's projection has no usable derivative there"
                 ))
             })?;

@@ -40,7 +40,7 @@ disp = mvg.match_block(left, right, mvg.BlockMatchOptions(num_disparities=64, bl
 | `subpixel` | on | parabolic refinement of the peak |
 | `semi_global`, `sgm_p1`, `sgm_p2` | off, 0.1, 1.5 | semi-global aggregation (below) |
 
-`match_block` returns an `MvgError::InvalidInput` for images of different sizes, an even or zero `block_size`, a non-positive `num_disparities`, or images smaller than the window. The result is a `DisparityMap` with `get`, `is_valid`, `valid_count` and `valid_range`.
+`match_block` returns an `mvg::Error::InvalidInput` for images of different sizes, an even or zero `block_size`, a non-positive `num_disparities`, or images smaller than the window. The result is a `DisparityMap` with `get`, `is_valid`, `valid_count` and `valid_range`.
 
 ## Semi-Global Matching
 

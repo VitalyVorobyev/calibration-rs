@@ -12,7 +12,7 @@ use vision_calibration_core::{
     Uncertainty, UncertaintyUnavailable, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_core::{CancelToken, Progress, RunControl};
-use vision_mvg::MvgError;
+use vision_mvg::Error;
 use vision_mvg::pose::{ObjectPose, PoseObservation, PoseOptions, estimate_pose};
 
 /// A deterministic generator (SplitMix64) with normal draws.
@@ -495,7 +495,7 @@ fn errors_are_typed_and_come_before_any_work() {
     let message = |obs: &[PoseObservation], opts: &PoseOptions| -> String {
         match estimate_pose(&rig, obs, opts) {
             Err(e) => {
-                assert!(matches!(e, MvgError::InvalidInput { .. }), "{e}");
+                assert!(matches!(e, Error::InvalidInput { .. }), "{e}");
                 e.to_string()
             }
             Ok(_) => panic!("expected an error"),
@@ -530,7 +530,7 @@ fn errors_are_typed_and_come_before_any_work() {
     ransac.ransac = Some(RansacOptions::new(-1.0));
     assert!(matches!(
         estimate_pose(&rig, &good, &ransac),
-        Err(MvgError::Core(_))
+        Err(Error::Core(_))
     ));
 
     // Collinear points have no pose.
@@ -543,7 +543,7 @@ fn errors_are_typed_and_come_before_any_work() {
         .collect();
     assert!(matches!(
         estimate_pose(&rig, &line, &opts),
-        Err(MvgError::Geometry(_))
+        Err(Error::Geometry(_))
     ));
 
     // RANSAC finds no consensus in pure noise.
@@ -560,7 +560,7 @@ fn errors_are_typed_and_come_before_any_work() {
     );
     assert!(matches!(
         estimate_pose(&rig, &scrambled, &ransac),
-        Err(MvgError::NoConsensus)
+        Err(Error::NoConsensus)
     ));
 }
 
@@ -594,5 +594,5 @@ fn pose_reports_iterations_and_cancels() {
     token.cancel();
     opts.control = RunControl::new().with_cancel(token);
     let err = estimate_pose(&rig, &obs, &opts).unwrap_err();
-    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
 }

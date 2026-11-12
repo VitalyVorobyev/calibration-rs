@@ -32,14 +32,14 @@
 //! assert!((d.value - 0.1).abs() < 1e-12);
 //! // Only the error along the segment counts: sqrt(2) * 0.2 mm.
 //! assert!((d.sigma - 2.0_f64.sqrt() * 2.0e-4).abs() < 1e-9);
-//! # Ok::<(), vision_mvg::MvgError>(())
+//! # Ok::<(), vision_mvg::Error>(())
 //! ```
 
 use crate::bundle_adjust::BundleAdjustment;
 use crate::laser::LaserTriangulation;
 use crate::rectification::DenseCloud;
 use crate::triangulation::Triangulation;
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{DMatrix, DVector, RealField, SMatrix, SVector, SymmetricEigen, Vector3};
 use num_dual::{DualDVec64, DualSVec64, gradient, jacobian};
 use serde::Serialize;
@@ -75,7 +75,7 @@ impl PointSet {
     pub fn new(points: Vec<Pt3>, covariance: DMatrix<Real>) -> Result<Self> {
         let n = 3 * points.len();
         if covariance.nrows() != n || covariance.ncols() != n {
-            return Err(MvgError::InvalidInput {
+            return Err(Error::InvalidInput {
                 reason: format!(
                     "{} points need a {n}x{n} covariance, got {}x{}",
                     points.len(),
@@ -88,25 +88,25 @@ impl PointSet {
             .iter()
             .any(|p| !p.coords.iter().all(|c| c.is_finite()))
         {
-            return Err(MvgError::InvalidInput {
+            return Err(Error::InvalidInput {
                 reason: "a point is not finite".into(),
             });
         }
         if !covariance.iter().all(|c| c.is_finite()) {
-            return Err(MvgError::InvalidInput {
+            return Err(Error::InvalidInput {
                 reason: "the covariance is not finite".into(),
             });
         }
         let scale = covariance.iter().fold(0.0_f64, |m, c| m.max(c.abs()));
         for r in 0..n {
             if covariance[(r, r)] < 0.0 {
-                return Err(MvgError::InvalidInput {
+                return Err(Error::InvalidInput {
                     reason: format!("the covariance has a negative variance at row {r}"),
                 });
             }
             for c in 0..r {
                 if (covariance[(r, c)] - covariance[(c, r)]).abs() > 1e-9 * scale {
-                    return Err(MvgError::InvalidInput {
+                    return Err(Error::InvalidInput {
                         reason: format!("the covariance is not symmetric at ({r}, {c})"),
                     });
                 }
@@ -119,7 +119,7 @@ impl PointSet {
     /// covariance and the cross terms are zero.
     pub fn independent(points: Vec<Pt3>, covariances: &[Mat3]) -> Result<Self> {
         if points.len() != covariances.len() {
-            return Err(MvgError::CountMismatch {
+            return Err(Error::CountMismatch {
                 expected: points.len(),
                 got: covariances.len(),
             });
@@ -176,7 +176,7 @@ impl PointSet {
                     unreachable!("an available uncertainty has a covariance")
                 }
             };
-            return Err(MvgError::InvalidInput {
+            return Err(Error::InvalidInput {
                 reason: format!(
                     "point 0 has no covariance: the uncertainty is unavailable ({reason})"
                 ),
@@ -186,7 +186,7 @@ impl PointSet {
         for i in 0..points.len() {
             for axis in ["x", "y", "z"] {
                 let label = format!("p{i}.{axis}");
-                index.push(c.index(&label).ok_or_else(|| MvgError::InvalidInput {
+                index.push(c.index(&label).ok_or_else(|| Error::InvalidInput {
                     reason: format!("point {i} has no covariance ({label} is not in it)"),
                 })?);
             }
@@ -238,12 +238,12 @@ impl PointSet {
     fn check_indices(&self, indices: &[usize]) -> Result<()> {
         for (k, &i) in indices.iter().enumerate() {
             if i >= self.len() {
-                return Err(MvgError::InvalidInput {
+                return Err(Error::InvalidInput {
                     reason: format!("point index {i} is out of range for {} points", self.len()),
                 });
             }
             if indices[..k].contains(&i) {
-                return Err(MvgError::InvalidInput {
+                return Err(Error::InvalidInput {
                     reason: format!("point index {i} is repeated"),
                 });
             }
@@ -346,7 +346,7 @@ fn distance_gradient(set: &PointSet, a: usize, b: usize) -> Result<(Real, DVecto
         .expect("two points are six coordinates");
     let (value, grad) = value_and_gradient(distance_fn, x);
     if value <= 0.0 {
-        return Err(MvgError::Degenerate {
+        return Err(Error::Degenerate {
             reason: format!("points {a} and {b} coincide: the distance has no gradient"),
         });
     }
@@ -376,7 +376,7 @@ fn angle_gradient(
         .expect("three points are nine coordinates");
     for (p, q) in [(a, vertex), (b, vertex)] {
         if (set.points[p] - set.points[q]).norm() == 0.0 {
-            return Err(MvgError::Degenerate {
+            return Err(Error::Degenerate {
                 reason: format!("points {p} and {q} coincide: the angle is undefined"),
             });
         }
@@ -386,7 +386,7 @@ fn angle_gradient(
         set.points[b] - set.points[vertex],
     );
     if u.cross(&w).norm() == 0.0 {
-        return Err(MvgError::Degenerate {
+        return Err(Error::Degenerate {
             reason: format!(
                 "points {a}, {vertex} and {b} are collinear: the angle (0 or pi) has no gradient"
             ),
@@ -470,7 +470,7 @@ fn plane_core(set: &PointSet, indices: &[usize]) -> Result<PlaneCore> {
     set.check_indices(indices)?;
     let k = indices.len();
     if k < 3 {
-        return Err(MvgError::InvalidInput {
+        return Err(Error::InvalidInput {
             reason: format!("a plane needs at least 3 points, got {k}"),
         });
     }
@@ -489,7 +489,7 @@ fn plane_core(set: &PointSet, indices: &[usize]) -> Result<PlaneCore> {
     order.sort_by(|&a, &b| eigen.eigenvalues[a].total_cmp(&eigen.eigenvalues[b]));
     let [smallest, middle, largest] = order.map(|i| eigen.eigenvalues[i]);
     if largest <= 0.0 || middle < COLLINEAR_RATIO * largest {
-        return Err(MvgError::Degenerate {
+        return Err(Error::Degenerate {
             reason: "the plane's points are collinear".into(),
         });
     }
@@ -512,13 +512,13 @@ fn plane_core(set: &PointSet, indices: &[usize]) -> Result<PlaneCore> {
         &x,
     );
     let hessian: SMatrix<Real, 3, 3> = jac.fixed_view::<3, 3>(0, 0).into_owned();
-    let inverse = hessian.try_inverse().ok_or_else(|| MvgError::Degenerate {
+    let inverse = hessian.try_inverse().ok_or_else(|| Error::Degenerate {
         reason: "the plane fit is singular (its points do not determine a plane)".into(),
     })?;
     let sensitivity =
         -DMatrix::from_iterator(3, 3, inverse.iter().copied()) * jac.columns(3, 3 * k);
     if !sensitivity.iter().all(|s| s.is_finite()) {
-        return Err(MvgError::Degenerate {
+        return Err(Error::Degenerate {
             reason: "the plane fit is singular (its points do not determine a plane)".into(),
         });
     }

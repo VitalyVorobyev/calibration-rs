@@ -82,31 +82,42 @@ pub fn symmetric_epipolar_distance(f: &Mat3, c: &Correspondence2D) -> Real {
     symmetric_epipolar_distance_squared(f, c).abs().sqrt()
 }
 
+/// The distances of a correspondence's points to their epipolar lines.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct EpipolarLineDistance {
+    /// Distance from `pt1` to the epipolar line `Fᵀ x₂` in the first image
+    /// (`INFINITY` for a degenerate line).
+    pub in_first: Real,
+    /// Distance from `pt2` to the epipolar line `F x₁` in the second image
+    /// (`INFINITY` for a degenerate line).
+    pub in_second: Real,
+}
+
 /// Point-to-epipolar-line distance in each image.
-///
-/// Returns `(d1, d2)` where:
-/// - `d1` = distance from `pt2` to the epipolar line `F x₁` in image 2
-/// - `d2` = distance from `pt1` to the epipolar line `Fᵀ x₂` in image 1
-pub fn epipolar_line_distance(f: &Mat3, c: &Correspondence2D) -> (Real, Real) {
+pub fn epipolar_line_distance(f: &Mat3, c: &Correspondence2D) -> EpipolarLineDistance {
     let x1 = nalgebra::Vector3::new(c.pt1.x, c.pt1.y, 1.0);
     let x2 = nalgebra::Vector3::new(c.pt2.x, c.pt2.y, 1.0);
 
     let l2 = f * x1; // epipolar line in image 2
     let l1 = f.transpose() * x2; // epipolar line in image 1
 
-    let d1 = if l2.x * l2.x + l2.y * l2.y > Real::EPSILON {
+    let in_second = if l2.x * l2.x + l2.y * l2.y > Real::EPSILON {
         (l2.x * c.pt2.x + l2.y * c.pt2.y + l2.z).abs() / (l2.x * l2.x + l2.y * l2.y).sqrt()
     } else {
         Real::INFINITY
     };
 
-    let d2 = if l1.x * l1.x + l1.y * l1.y > Real::EPSILON {
+    let in_first = if l1.x * l1.x + l1.y * l1.y > Real::EPSILON {
         (l1.x * c.pt1.x + l1.y * c.pt1.y + l1.z).abs() / (l1.x * l1.x + l1.y * l1.y).sqrt()
     } else {
         Real::INFINITY
     };
 
-    (d1, d2)
+    EpipolarLineDistance {
+        in_first,
+        in_second,
+    }
 }
 
 /// The epipolar constraint of a bearing pair over its first-order standard
@@ -268,9 +279,9 @@ mod tests {
     fn epipolar_line_distance_zero_for_exact() {
         let (e, corrs) = make_essential();
         for c in &corrs {
-            let (d1, d2) = epipolar_line_distance(&e, c);
-            assert!(d1 < 1e-10, "d1 too large: {}", d1);
-            assert!(d2 < 1e-10, "d2 too large: {}", d2);
+            let d = epipolar_line_distance(&e, c);
+            assert!(d.in_second < 1e-10, "in_second too large: {}", d.in_second);
+            assert!(d.in_first < 1e-10, "in_first too large: {}", d.in_first);
         }
     }
 
