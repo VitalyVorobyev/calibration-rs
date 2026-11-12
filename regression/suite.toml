@@ -28,6 +28,13 @@
 # `image_1`, ...), the `problem` (`planar_intrinsics` or `rig_extrinsics`),
 # the `object` file of target points and, per camera, its `points` file and
 # `image_size`. The files are fetched like images.
+#
+# `measure_board` (a two-camera `rig_extrinsics` entry) also measures a
+# board of known size: the even views calibrate, the odd views' corners are
+# triangulated and the distances along board rows and columns, 1 to 7
+# squares, are compared with `square_size_m`. The reference result stores
+# the errors and stated σ per held-out view and length, and `suite check`
+# gates them like the calibration.
 
 suite_version = "2026.1"
 
@@ -81,6 +88,7 @@ citation = "OpenCV, samples/data/left01.jpg to left14.jpg and right01.jpg to rig
 source_url = "https://github.com/opencv/opencv/tree/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data"
 manifest = "../data/opencv_stereo/dataset.toml"
 fetch = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv/d195a5ad7eb52aafc3585e494a9af2dc06a3b111/samples/data/" }
+measure_board = { square_size_m = 1.0 }
 
 # Fisheye entries: OpenCV's own fisheye test set, frozen from the corner
 # files OpenCV publishes with the images (`corners`), so calibration-rs and

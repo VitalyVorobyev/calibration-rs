@@ -566,6 +566,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reprojection error of 0 (`rig_laserline_device`) or infinity (a tilted
   planar camera): the calibration fails with an error instead.
 
+### Added
+
+- **The regression suite gates a measurement.** The `opencv_stereo` entry
+  also measures its held-out boards: its even views calibrate a stereo rig,
+  the corners of each odd view are triangulated with the calibration's
+  uncertainty, and the 2070 distances along board rows and columns, 1 to 7
+  squares, are compared with the board's size. The reference result stores
+  the mean and RMS error, the mean stated σ and the RMS of error over σ per
+  held-out view and length, and `calib-bench suite check` fails on any
+  change (with `--sigma k`, on a mean length that moves by `k` of its σ).
+  A suite entry asks for it with `measure_board = { square_size_m = ... }`.
+
 ## [0.18.0] - 2026-11-06
 
 ### Migration

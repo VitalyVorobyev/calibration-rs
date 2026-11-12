@@ -170,6 +170,23 @@ fn calibrate<P>(
 where
     P: ProblemType,
 {
+    Ok(serde_json::to_value(calibrate_typed(
+        name, input, overrides, backend, run,
+    )?)?)
+}
+
+/// [`ProblemInput::calibrate`] for one problem type, returning its export
+/// as the type it is.
+pub(crate) fn calibrate_typed<P>(
+    name: &str,
+    input: &P::Input,
+    overrides: Option<&Value>,
+    backend: Option<SolverBackend>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), PipelineError>,
+) -> Result<P::Export>
+where
+    P: ProblemType,
+{
     let mut config = serde_json::to_value(P::Config::default())?;
     if let Some(overrides) = overrides {
         merge(&mut config, overrides);
@@ -183,7 +200,7 @@ where
     session.set_config(config)?;
     session.set_input(input.clone())?;
     run(&mut session).with_context(|| format!("{name} calibration failed"))?;
-    Ok(serde_json::to_value(session.export()?)?)
+    Ok(session.export()?)
 }
 
 /// Set the `backend` of every `solver` table in `config`, however deep.
