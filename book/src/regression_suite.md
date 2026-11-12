@@ -19,7 +19,7 @@ plain JSON, other calibration tools can run on exactly the same data.
 | `opencv_stereo` | `rig_extrinsics` | OpenCV's pinhole stereo sample: 13 views of a 6×9 chessboard (squares of 1) turned by 90° in most views, 640×480; also measures its held-out boards ([below](#measuring-a-board)) | Apache-2.0 |
 | `opencv_fisheye_left` | `planar_intrinsics` | Kannala-Brandt fisheye: 34 views of an 8×6 chessboard (24.4 mm), 1280×800, left camera | None stated |
 | `opencv_fisheye_right` | `planar_intrinsics` | The same 34 views, right camera | None stated |
-| `opencv_fisheye_stereo` | `rig_extrinsics` | Both fisheye cameras together | None stated |
+| `opencv_fisheye_stereo` | `rig_extrinsics` | Both fisheye cameras together; also measures its held-out boards ([below](#measuring-a-board)) | None stated |
 | `synth_planar` | `planar_intrinsics` | Synthetic: 20 views of a 13×9 board, 0.5 px noise | CC0 |
 | `synth_scheimpflug` | `planar_intrinsics` | Synthetic: a tilted (Scheimpflug) sensor, 20 views, 0.5 px noise | CC0 |
 | `synth_handeye` | `single_cam_handeye` | Synthetic: eye-in-hand, 20 robot stations, 0.5 px noise | CC0 |
@@ -265,7 +265,11 @@ measure_board = { square_size_m = 1.0 }   # the board's square, in the unit of i
 error, view scatter and per-camera pixel noise) and, for each held-out view
 and over all of them, per length in squares, the number of pairs, the mean
 and RMS error, the mean stated σ and the RMS of the error over σ. The totals
-are the table of the chapter's pinhole pair.
+are the table of the chapter's pinhole pair. `opencv_fisheye_stereo` is the
+other, through the Kannala-Brandt model: 17 views calibrate, and 17 held-out
+boards of 48 corners give 4896 lengths. Its corners are OpenCV's published
+ones, not the chapter's own detection, so its numbers differ from the
+chapter's fisheye table.
 
 `suite check` measures again and compares every number with the reference,
 within the entry's tolerance, so a change to the triangulation, the

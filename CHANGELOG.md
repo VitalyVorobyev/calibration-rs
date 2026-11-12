@@ -565,6 +565,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   held-out view and length, and `calib-bench suite check` fails on any
   change (with `--sigma k`, on a mean length that moves by `k` of its σ).
   A suite entry asks for it with `measure_board = { square_size_m = ... }`.
+  `opencv_fisheye_stereo` measures its held-out boards the same way, through
+  the Kannala-Brandt model: 4896 lengths over 17 held-out views.
 
 - **`init` offers the fisheye and distortion initializers.**
   `estimate_planar_pose_from_bearings` (a board's pose from pixel bearings),

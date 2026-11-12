@@ -4,38 +4,7 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 (AGENTS.md §11); the CHANGELOG and git history record what landed. The
 [ROADMAP](ROADMAP.md) gives the phases and gates these serve. Track headings
 match the ROADMAP; each says its phase. Dependencies are named as
-`Needs: <ID>`. Phase 1b tracks are listed in the order they run.
-
-## Multiple-view geometry — MVG (Phase 1b)
-
-Measurements from a calibrated system with error bars, designed in ADR
-0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
-and propagates the calibration's covariance as consider parameters. Today
-MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
-two-view functions take matches with their stated noise (`PixelMatch`), and
-triangulation refines the points and returns their covariance, the
-calibration's share included, and bundle adjustment refines capture poses
-and points through the builder (Consider or Prior, robust losses, an explicit
-gauge, covariance). The robust two-view functions refine through the builder
-and return the covariance of `E` and of the relative pose from the stated
-pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
-`StereoRectification::triangulate` and `StereoRectification::dense_cloud`
-carry the calibration's share.
-
-- [~] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
-  (a cross-repo change). Parked by the maintainer (2026-11-06): it would give
-  that image-processing library, which has its own f32 camera model and a
-  pixel → ray → plane path without σ, a dependency on the calibration facade.
-  That is an architecture decision for `vision-metrology`, not part of the
-  1.0 path. Reopen when `vision-metrology` needs measurements with σ.
-- [~] MVG-HANDEYE-STAGED - A staged laser export (`rig_laserline_device`)
-  lists the hand-eye with its cross terms to the planes, so its rig measures
-  in the gripper or base frame with the hand-eye's σ: its upstream maps the
-  hand-eye into per-view board poses it does not report, and a rig built
-  from it with `with_handeye` counts the hand-eye exact. Parked: the joint
-  `rig_handeye_laserline` export carries it; reopen when a staged laser
-  user needs robot-frame points with the hand-eye's share.
-
+`Needs: <ID>`.
 
 ## Parameter uncertainty (Phase 2)
 
@@ -149,9 +118,42 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   the best, a fixed-tilt mode of `estimate_scheimpflug_intrinsics_iterative`.
   Gate: those draws and that camera reach the full-seed result, no other
   result moves; measured on both backends.
+- [ ] REPORT-SECTIONS - The HTML report (`analysis::html_report`, shared by
+  `vcal` and the app) renders the quality checks and one section per
+  camera. A hand-eye export shows no hand-eye (the pose, its σ, the robot
+  refinement), and a laser export shows no planes. Add those sections
+  (additive). Gate: `vision-calibration-bench/tests/html_report.rs` checks
+  them for every problem type.
 
 ## Multiple-view geometry (Phase 2)
 
+Measurements from a calibrated system with error bars, designed in ADR
+0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
+and propagates the calibration's covariance as consider parameters. Today
+MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
+two-view functions take matches with their stated noise (`PixelMatch`), and
+triangulation refines the points and returns their covariance, the
+calibration's share included, and bundle adjustment refines capture poses
+and points through the builder (Consider or Prior, robust losses, an explicit
+gauge, covariance). The robust two-view functions refine through the builder
+and return the covariance of `E` and of the relative pose from the stated
+pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
+`StereoRectification::triangulate` and `StereoRectification::dense_cloud`
+carry the calibration's share.
+
+- [~] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
+  (a cross-repo change). Parked by the maintainer (2026-11-06): it would give
+  that image-processing library, which has its own f32 camera model and a
+  pixel → ray → plane path without σ, a dependency on the calibration facade.
+  That is an architecture decision for `vision-metrology`, not part of the
+  1.0 path. Reopen when `vision-metrology` needs measurements with σ.
+- [~] MVG-HANDEYE-STAGED - A staged laser export (`rig_laserline_device`)
+  lists the hand-eye with its cross terms to the planes, so its rig measures
+  in the gripper or base frame with the hand-eye's σ: its upstream maps the
+  hand-eye into per-view board poses it does not report, and a rig built
+  from it with `with_handeye` counts the hand-eye exact. Parked: the joint
+  `rig_handeye_laserline` export carries it; reopen when a staged laser
+  user needs robot-frame points with the hand-eye's share.
 - [ ] MVG-TWO-VIEW - Two-view robustness and uncertainty:
   - optimal two-view triangulation (Lindstrom);
   - covariance of F and H (E and the relative pose have theirs from the
@@ -203,6 +205,14 @@ were. What is left reorganizes them around the project.
 - [ ] B-QUAL-TS7 - Move to TypeScript 7. **Blocked**: `typescript-eslint`
   rejects TS 7 (typescript-eslint#10940), and adopting it would drop the
   type-aware lint config. Revisit when typescript-eslint supports TS 7.
+- [ ] APP-RUN-DISPATCH - The app's `run.rs` keeps its own topology dispatch
+  (`run_*_topology`) beside `dataset_runner::calibrate_dataset`, which
+  Python and `vcal` share. It keeps it for per-stage progress events and
+  the image manifest it splices into each export. Move it onto
+  `calibrate_dataset` with a `RunControl` built from its cancel token and
+  observer, and surface the returned `rejected`, `usable_views` and
+  `image_sizes`. Needs: DATA-VIEW-IDENTITY (which puts the manifest in
+  every export). Gate: the app's run tests, and no `run_*_topology` left.
 
 ## Solver backends and performance (Phase 2)
 

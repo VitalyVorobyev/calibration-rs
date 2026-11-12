@@ -20,15 +20,17 @@ itself in four ways:
 
 ## State
 
-Pre-1.0 (0.x). The version rule is AGENTS.md §8: a breaking release is a
-minor (`0.x.0`) with migration notes, everything else a patch (`0.x.y`).
-The published packages are listed in AGENTS.md.
+Phase 1b is done and the v1.0 exit criteria hold (swept 2026-11-12). The
+release is a `1.0.0-rc` series: the `semver-rc` CI job fails a pull request
+that breaks the API of the latest rc, and 1.0.0 follows an rc that needed no
+break. From 1.0 the version rule is standard SemVer (AGENTS.md §8). The
+published packages are listed in AGENTS.md.
 
 ## Phases
 
 **Phase 1** (done, 0.12) built the foundation. **Phase 1b** makes the
 library clear to use, extensible and measured, and holds every remaining
-breaking change; it ends with v1.0. **Phase 2** adds capability in 1.x
+breaking change; it ends with v1.0 (done, 1.0.0-rc.1). **Phase 2** adds capability in 1.x
 without breaking the API. The book and app tracks are not bound by semver
 and run alongside. Track names below match the backlog headings.
 
@@ -41,7 +43,7 @@ matches real split-half scatter (`r` 1.03 pooled); the quality report;
 Python parity enforced in CI; the public regression suite fetched from its
 publishers; the API audit and the public-dependency policy.
 
-### Phase 1b — Usable, extensible, measured
+### Phase 1b — Usable, extensible, measured (done)
 
 The 0.12 review found a library that calibrates well but is not ready to
 freeze: a first real-image run needs a source checkout, a user cannot add
@@ -119,13 +121,10 @@ geometry takes a bare `K`, carries no covariance and has no demonstration.
 
 ## Ordering
 
-Phase 1b runs USE first (cheap, and it unblocks every later demo), then
-the CLI, then EXT, whose public residual API MVG bundle adjustment is the
-first user of, then the MVG chain (ADR 0028 → calibrated cameras in →
-the problem builder for measurements → observation noise → triangulation
-σ → BA → stereo → metrology → Python → the real-data walk-through), then CORRECT and LEAN. The browser
-demos follow MVG σ, since they show it. The release is a `1.0.0-rc`
-series once the exit criteria hold.
+Phase 1b ran USE, the CLI, EXT, the MVG chain, CORRECT and LEAN, then a
+pre-release review that froze the wire contract and the facade. The
+release is a `1.0.0-rc` series. The browser demos follow MVG σ, since they
+show it.
 
 Phase 2 tracks are independent of each other and are picked by need.
 

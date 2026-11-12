@@ -132,6 +132,7 @@ citation = "OpenCV test data (opencv_extra), testdata/cv/cameracalibration/fishe
 source_url = "https://github.com/opencv/opencv_extra/tree/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY"
 fetch = { kind = "files", base_url = "https://raw.githubusercontent.com/opencv/opencv_extra/ebf9366b3845efe1e54bf2440cf238fd68905bab/testdata/cv/cameracalibration/fisheye/calib-3_stereo_from_JY/" }
 config = { camera = { model = { projection = "equidistant", distortion = "kannala_brandt4" } } }
+measure_board = { square_size_m = 0.0244 }
 
 [entry.corners]
 format = "opencv_storage"
