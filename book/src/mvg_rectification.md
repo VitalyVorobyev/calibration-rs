@@ -84,6 +84,6 @@ Measured on a stereo rig calibrated 200 times from noisy board views spread over
 
 ## Failure Modes
 
-`rectify` fails with a typed error before any work: the same camera twice, a camera out of range, or a `scale` or `k_rect` that is not finite and positive is `MvgError::InvalidInput`; coincident camera centres (a zero baseline) is `MvgError::Degenerate`. `triangulate` returns `InvalidInput` for a rig other than the one rectified, or for a match whose rectified pixel has no raw pixel in a camera.
+`rectify` fails with a typed error before any work: the same camera twice, a camera out of range, or a `scale` or `k_rect` that is not finite and positive is `mvg::Error::InvalidInput`; coincident camera centres (a zero baseline) is `mvg::Error::Degenerate`. `triangulate` returns `InvalidInput` for a rig other than the one rectified, or for a match whose rectified pixel has no raw pixel in a camera.
 
 A baseline along the optical axis (forward stereo) is handled, but the rectified field of view degrades as the baseline leaves the image plane.

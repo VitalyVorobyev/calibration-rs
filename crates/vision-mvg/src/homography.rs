@@ -8,7 +8,7 @@
 //! - **Decomposition**: recover candidate (R, t, n) from H
 //! - **Construction**: build H from known pose and plane normal
 
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use vision_calibration_core::{Mat3, Pt2, Real, Vec3};
 
 /// Result of decomposing a homography into motion and plane normal.
@@ -38,7 +38,7 @@ pub fn homography_transfer(h: &Mat3, pt: &Pt2) -> Pt2 {
 pub fn homography_transfer_inverse(h: &Mat3, pt: &Pt2) -> Result<Pt2> {
     let h_inv = h
         .try_inverse()
-        .ok_or_else(|| MvgError::degenerate("singular homography"))?;
+        .ok_or_else(|| Error::degenerate("singular homography"))?;
     Ok(homography_transfer(&h_inv, pt))
 }
 
@@ -54,7 +54,7 @@ pub fn homography_transfer_inverse(h: &Mat3, pt: &Pt2) -> Result<Pt2> {
 /// plane normal must face the camera).
 pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
     if h.iter().any(|v| !v.is_finite()) {
-        return Err(MvgError::degenerate("homography has non-finite entries"));
+        return Err(Error::degenerate("homography has non-finite entries"));
     }
     // Normalize H by its middle singular value so that σ2 = 1, and by its
     // sign so that det(H) > 0. H is defined up to scale, sign included, but
@@ -68,7 +68,7 @@ pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
     let s3 = svd_h.singular_values[2];
 
     if s3 <= 1e-12 * s1 {
-        return Err(MvgError::degenerate("degenerate homography (rank < 3)"));
+        return Err(Error::degenerate("degenerate homography (rank < 3)"));
     }
 
     let sign = if h.determinant() < 0.0 { -1.0 } else { 1.0 };
@@ -124,8 +124,8 @@ pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
         let r_approx = m * basis.transpose();
 
         let svd_r = r_approx.svd(true, true);
-        let u = svd_r.u.ok_or_else(|| MvgError::numerical("SVD failed"))?;
-        let vt = svd_r.v_t.ok_or_else(|| MvgError::numerical("SVD failed"))?;
+        let u = svd_r.u.ok_or_else(|| Error::numerical("SVD failed"))?;
+        let vt = svd_r.v_t.ok_or_else(|| Error::numerical("SVD failed"))?;
         let mut r = u * vt;
         if r.determinant() < 0.0 {
             r = -r;

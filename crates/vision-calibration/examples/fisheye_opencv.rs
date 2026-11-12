@@ -17,13 +17,16 @@ mod observations;
 
 use anyhow::Result;
 use vision_calibration::core::{
-    CameraModelSpec, CameraParams, DistortionKind, ProjectionKind, SensorKind, Uncertainty,
+    CameraModelSpec, CameraParams, DistortionKind, PlanarDataset, ProjectionKind, SensorKind,
+    Uncertainty,
 };
-use vision_calibration::planar_intrinsics::{PlanarIntrinsicsConfig, step_init, step_optimize};
-use vision_calibration::prelude::*;
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init, step_optimize,
+};
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsProblem, run_calibration,
 };
+use vision_calibration::session::CalibrationSession;
 
 /// The Kannala-Brandt fisheye model of OpenCV's `cv::fisheye`.
 fn fisheye() -> CameraModelSpec {

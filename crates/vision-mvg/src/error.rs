@@ -5,12 +5,12 @@ use vision_calibration_core::linalg::MathError;
 use vision_geometry::GeometryError;
 
 /// Convenience alias for results returned by this crate.
-pub type Result<T> = std::result::Result<T, MvgError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors returned by public APIs in `vision-mvg`.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum MvgError {
+pub enum Error {
     /// Input data is invalid for reasons other than count.
     #[error("invalid input: {reason}")]
     InvalidInput {
@@ -68,7 +68,7 @@ pub enum MvgError {
     Core(#[from] CoreError),
 }
 
-impl From<MathError> for MvgError {
+impl From<MathError> for Error {
     /// Map a shared-solver failure into this crate's typed error.
     fn from(e: MathError) -> Self {
         // `MathError` is `#[non_exhaustive]`; degrade to a generic numerical
@@ -77,22 +77,22 @@ impl From<MathError> for MvgError {
     }
 }
 
-impl MvgError {
-    /// Convenience constructor for [`MvgError::InvalidInput`].
+impl Error {
+    /// Convenience constructor for [`Error::InvalidInput`].
     pub(crate) fn invalid_input(reason: impl Into<String>) -> Self {
         Self::InvalidInput {
             reason: reason.into(),
         }
     }
 
-    /// Convenience constructor for [`MvgError::Degenerate`].
+    /// Convenience constructor for [`Error::Degenerate`].
     pub(crate) fn degenerate(reason: impl Into<String>) -> Self {
         Self::Degenerate {
             reason: reason.into(),
         }
     }
 
-    /// Convenience constructor for [`MvgError::Numerical`].
+    /// Convenience constructor for [`Error::Numerical`].
     pub(crate) fn numerical(msg: impl Into<String>) -> Self {
         Self::Numerical(msg.into())
     }

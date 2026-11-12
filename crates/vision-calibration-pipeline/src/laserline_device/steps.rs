@@ -7,9 +7,7 @@ use vision_calibration_core::{
     CameraModel, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta,
     PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
 };
-use vision_calibration_linear::laserline::{
-    LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
-};
+use vision_calibration_linear::laserline::{LaserlinePlaneSolver, PlaneFitView};
 use vision_calibration_optim::{
     LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, RobustLoss, compute_laserline_stats,
     optimize_laserline,
@@ -141,10 +139,10 @@ fn linear_plane_init(
     camera: &CameraModel,
     poses: &[Iso3],
 ) -> Result<(LaserPlane, f64), Error> {
-    let views: Vec<LinearLaserlineView> = input
+    let views: Vec<PlaneFitView> = input
         .iter()
         .zip(poses.iter())
-        .map(|(view, pose)| LinearLaserlineView {
+        .map(|(view, pose)| PlaneFitView {
             laser_pixels: view.meta.laser_pixels.clone(),
             cam_se3_target: *pose,
         })

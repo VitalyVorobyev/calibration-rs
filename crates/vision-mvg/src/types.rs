@@ -4,7 +4,7 @@
 //! [`PixelMatch`] for the calibrated two-view functions and [`Captures`] for
 //! the frame a measurement is stated in.
 
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::Matrix6;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
@@ -159,13 +159,13 @@ impl Captures<'_> {
     ///
     /// # Errors
     ///
-    /// [`MvgError::InvalidInput`] for a robot frame and a rig without a
+    /// [`Error::InvalidInput`] for a robot frame and a rig without a
     /// hand-eye, and for a frame the variant does not serve (see the
     /// variants).
     pub(crate) fn resolve(&self, rig: &CalibratedRig) -> Result<Vec<CapturePose>> {
         let on_robot = |frame: RobotFrame, robot: Option<&RobotPose>| -> Result<CapturePose> {
             let handeye = rig.handeye().ok_or_else(|| {
-                MvgError::invalid_input(format!(
+                Error::invalid_input(format!(
                     "points in the {} frame need the calibration's hand-eye; the rig has none",
                     frame.name()
                 ))
@@ -175,14 +175,14 @@ impl Captures<'_> {
                 (true, None) => Iso3::identity(),
                 (false, Some(robot)) => *robot.base_se3_gripper(),
                 (true, Some(_)) => {
-                    return Err(MvgError::invalid_input(format!(
+                    return Err(Error::invalid_input(format!(
                         "the rig is fixed in the {} frame: state the points there with \
                          Captures::Handeye, the robot's pose does not enter",
                         frame.name()
                     )));
                 }
                 (false, None) => {
-                    return Err(MvgError::invalid_input(format!(
+                    return Err(Error::invalid_input(format!(
                         "the rig moves in the {} frame with the robot: state the robot's \
                          pose at each capture with Captures::Robot",
                         frame.name()

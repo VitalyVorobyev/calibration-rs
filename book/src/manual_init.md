@@ -51,7 +51,7 @@ cargo run -p vision-calibration --example manual_init --release
 ### 1. Run the automatic pipeline once
 
 ```rust
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::rig_extrinsics::{
     IntrinsicsManualInit, RigExtrinsicsProblem, RigManualInit, RigPoses,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,

@@ -98,7 +98,7 @@
 //! let pose = recover_relative_pose(&rig, [0, 0], &matches)?;
 //! assert!((pose.second_se3_first.translation.vector - t.normalize()).norm() < 1e-6);
 //! assert_eq!(pose.points.len(), 12);
-//! # Ok::<(), vision_mvg::MvgError>(())
+//! # Ok::<(), vision_mvg::Error>(())
 //! ```
 
 mod bearing;
@@ -121,7 +121,7 @@ mod test_support;
 pub mod triangulation;
 pub mod types;
 
-pub use error::MvgError;
+pub use error::Error;
 pub(crate) use error::Result;
 
 #[cfg(doctest)]

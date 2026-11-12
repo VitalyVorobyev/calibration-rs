@@ -32,7 +32,7 @@ use crate::cheirality::{cheirality_count, select_pose};
 use crate::residuals;
 use crate::triangulation::sub_covariance;
 use crate::types::{Correspondence2D, PixelMatch};
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{
     DVector, Matrix2, Matrix6, RealField, Rotation3, SMatrix, Translation3, UnitQuaternion, Vector3,
 };
@@ -246,8 +246,8 @@ fn refine(
     control: &RunControl,
 ) -> Result<Fit> {
     let fail = |e: vision_calibration_optim::Error| match e {
-        vision_calibration_optim::Error::Cancelled => MvgError::Cancelled,
-        e => MvgError::numerical(format!("refining the relative pose: {e}")),
+        vision_calibration_optim::Error::Cancelled => Error::Cancelled,
+        e => Error::numerical(format!("refining the relative pose: {e}")),
     };
     let mut problem = Problem::new();
     let q = start.rotation.as_ref().coords;
@@ -281,7 +281,7 @@ fn refine(
     let (Some(rotation), Some(direction)) =
         (solution.rotation(rotation), solution.value(direction))
     else {
-        return Err(MvgError::numerical(
+        return Err(Error::numerical(
             "the relative pose is missing from the solution",
         ));
     };
@@ -302,8 +302,8 @@ fn physical_motion(e: &Mat3, pairs: &[BearingPair], used: &[usize]) -> Result<Mo
     let (b1, b2) = bearings(pairs, used);
     let (r, t) = select_pose(&candidates, &b1, &b2)
         .map(|(r, t, _)| (r, t))
-        .or_else(|| candidates.first().copied())
-        .ok_or_else(|| MvgError::numerical("the essential matrix has no decomposition"))?;
+        .or_else(|| candidates.first().map(|c| (c.rotation, c.translation)))
+        .ok_or_else(|| Error::numerical("the essential matrix has no decomposition"))?;
     Ok(Motion::new(&r, &t))
 }
 
@@ -506,11 +506,11 @@ pub(crate) fn bearing_pairs(
 ///
 /// # Errors
 ///
-/// [`MvgError::Core`] if `opts.thresh` is not finite and positive,
-/// [`MvgError::InsufficientData`] for fewer than 5 matches,
-/// [`MvgError::InvalidInput`] for a camera index out of range or a pixel with no
-/// finite viewing ray, [`MvgError::NoConsensus`] if no model reaches
-/// `opts.min_inliers`, and [`MvgError::Cancelled`] when `control`'s token is
+/// [`Error::Core`] if `opts.thresh` is not finite and positive,
+/// [`Error::InsufficientData`] for fewer than 5 matches,
+/// [`Error::InvalidInput`] for a camera index out of range or a pixel with no
+/// finite viewing ray, [`Error::NoConsensus`] if no model reaches
+/// `opts.min_inliers`, and [`Error::Cancelled`] when `control`'s token is
 /// cancelled.
 pub fn estimate_essential(
     rig: &CalibratedRig,
@@ -539,7 +539,7 @@ fn checked_pairs(
 ) -> Result<Vec<BearingPair>> {
     opts.validate()?;
     if matches.len() < 5 {
-        return Err(MvgError::InsufficientData {
+        return Err(Error::InsufficientData {
             need: 5,
             got: matches.len(),
         });
@@ -560,7 +560,7 @@ struct Settled {
 fn settle(pairs: &[BearingPair], opts: &RansacOptions, control: &RunControl) -> Result<Settled> {
     let result = ransac_fit::<EssentialEstimator>(pairs, opts);
     if !result.success {
-        return Err(MvgError::NoConsensus);
+        return Err(Error::NoConsensus);
     }
     let minimal = result.model.expect("success guarantees model");
     let mut inliers = result.inliers;
@@ -612,16 +612,16 @@ const FINAL_REFITS: usize = 5;
 ///
 /// # Errors
 ///
-/// [`MvgError::Core`] if `opts.thresh` is not finite and positive,
-/// [`MvgError::InsufficientData`] for fewer than 4 correspondences and
-/// [`MvgError::NoConsensus`] if no model reaches `opts.min_inliers`.
+/// [`Error::Core`] if `opts.thresh` is not finite and positive,
+/// [`Error::InsufficientData`] for fewer than 4 correspondences and
+/// [`Error::NoConsensus`] if no model reaches `opts.min_inliers`.
 pub fn estimate_homography(
     corrs: &[Correspondence2D],
     opts: &RansacOptions,
 ) -> Result<HomographyEstimate> {
     opts.validate()?;
     if corrs.len() < 4 {
-        return Err(MvgError::InsufficientData {
+        return Err(Error::InsufficientData {
             need: 4,
             got: corrs.len(),
         });
@@ -629,7 +629,7 @@ pub fn estimate_homography(
 
     let result = ransac_fit::<HomographyEstimator>(corrs, opts);
     if !result.success {
-        return Err(MvgError::NoConsensus);
+        return Err(Error::NoConsensus);
     }
 
     Ok(HomographyEstimate {
@@ -691,7 +691,7 @@ fn ahead_of_both(
 ) -> Result<Fit> {
     let (b1, b2) = bearings(pairs, inliers);
     let candidates = vision_geometry::epipolar::decompose_essential(&fit.motion.essential())?;
-    let (r, t, best) = select_pose(&candidates, &b1, &b2).ok_or(MvgError::NoValidPose)?;
+    let (r, t, best) = select_pose(&candidates, &b1, &b2).ok_or(Error::NoValidPose)?;
     let own = cheirality_count(
         &fit.motion.rotation_matrix(),
         &fit.motion.direction,
@@ -850,7 +850,7 @@ mod tests {
             assert!(
                 matches!(
                     estimate_essential(&rig, [0, 0], &matches, &opts, &RunControl::default()),
-                    Err(MvgError::Core(_))
+                    Err(Error::Core(_))
                 ),
                 "essential accepted thresh {bad}"
             );
@@ -859,7 +859,7 @@ mod tests {
                 .map(|m| Correspondence2D::new(m.pt1, m.pt2))
                 .collect();
             assert!(
-                matches!(estimate_homography(&plain, &opts), Err(MvgError::Core(_))),
+                matches!(estimate_homography(&plain, &opts), Err(Error::Core(_))),
                 "homography accepted thresh {bad}"
             );
             assert!(
@@ -871,7 +871,7 @@ mod tests {
                         &opts,
                         &RunControl::default()
                     ),
-                    Err(MvgError::Core(_))
+                    Err(Error::Core(_))
                 ),
                 "pose accepted thresh {bad}"
             );
@@ -884,7 +884,7 @@ mod tests {
         let opts = RansacOptions::new(3.0);
         assert!(matches!(
             estimate_essential(&rig(), [0, 1], &matches, &opts, &RunControl::default()),
-            Err(MvgError::InvalidInput { .. })
+            Err(Error::InvalidInput { .. })
         ));
     }
 
@@ -1017,7 +1017,7 @@ mod tests {
         // flipped direction.
         let others: Vec<Motion> = candidates
             .iter()
-            .map(|(r, t)| Motion::new(r, t))
+            .map(|c| Motion::new(&c.rotation, &c.translation))
             .filter(|m| {
                 m.rotation.angle_to(&truth.rotation) > 1e-3
                     || m.direction.dot(&truth.direction) < 0.0

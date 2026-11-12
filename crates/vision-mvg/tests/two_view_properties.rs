@@ -102,7 +102,8 @@ fn essential_skew_t_r_is_consistent_and_decomposes() {
         // The GT (R, t̂) must appear among the four decomposition candidates.
         let candidates = decompose_essential(&e).unwrap();
         let mut found = false;
-        for (r_est, t_est) in &candidates {
+        for c in &candidates {
+            let (r_est, t_est) = (&c.rotation, &c.translation);
             let d = r_est.transpose() * r;
             let cos = ((d.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
             let ang = cos.acos().to_degrees();

@@ -51,7 +51,7 @@ Deterministic two-view solvers, all free functions in per-topic modules:
 
 | Module | Functions |
 |--------|-----------|
-| `homography` | `dlt_homography`, `dlt_homography_ransac` |
+| `homography` | `dlt_homography` |
 | `epipolar` | `fundamental_8point`, `essential_5point` |
 | `triangulation` | `triangulate_point_linear` |
 | `camera_matrix` | `dlt_camera_matrix` |

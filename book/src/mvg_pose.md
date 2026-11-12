@@ -116,7 +116,7 @@ Two views do not observe the length of the translation, so $|t| = 1$ is the **ga
 
 **Checked against Monte-Carlo.** A fisheye with an anisotropic, correlated pixel noise matched with a distorted pinhole, 120 points and 600 draws of the noise: the scatter of each of the five pose coordinates is 0.98 to 1.06 times its σ, and that of $E$'s entries 1.03 times (pooled).
 
-`estimate_essential` and `recover_relative_pose_robust` take a `RunControl` as their last argument (in Python, `progress=`): its observers receive each iteration of the refinement and its token stops the call with `MvgError::Cancelled`.
+`estimate_essential` and `recover_relative_pose_robust` take a `RunControl` as their last argument (in Python, `progress=`): its observers receive each iteration of the refinement and its token stops the call with `mvg::Error::Cancelled`.
 
 ## Triangulating Points from N Views
 
@@ -155,7 +155,7 @@ found.points[0].point, found.points[0].parallax_deg
 cov = found.point_covariance(0)                       # (3, 3) in m², or None
 ```
 
-The last argument is a `RunControl` ([Sessions](session.md) describes it): its observers receive each iteration of the point refinement and its token stops the call with `MvgError::Cancelled`. `PoseOptions::control` and `BundleAdjustOptions::control` do the same for `estimate_pose` and `bundle_adjust`, and `StereoRectification::triangulate`, `estimate_essential` and `recover_relative_pose_robust` take a control as `triangulate` does. In Python these functions take `progress=`, a callable given each report; raising from it, or Ctrl-C, stops the call.
+The last argument is a `RunControl` ([Sessions](session.md) describes it): its observers receive each iteration of the point refinement and its token stops the call with `mvg::Error::Cancelled`. `PoseOptions::control` and `BundleAdjustOptions::control` do the same for `estimate_pose` and `bundle_adjust`, and `StereoRectification::triangulate`, `estimate_essential` and `recover_relative_pose_robust` take a control as `triangulate` does. In Python these functions take `progress=`, a callable given each report; raising from it, or Ctrl-C, stops the call.
 
 Camera $i$ at capture $k$ sees the world through `rig.cam_se3_rig()[i] * rig_se3_world[k]` (with `Captures::World`), so a moving rig, several cameras and a single moving camera are all the same call. The call is all-or-nothing: a track with fewer than two observations, an index out of range or a zero-parallax system is an error that names the track.
 

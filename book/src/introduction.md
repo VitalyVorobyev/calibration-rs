@@ -57,7 +57,7 @@ Readers familiar with OpenCV's calibration module will find analogous functional
 |--------|---------------|
 | `cv::calibrateCamera` | Planar intrinsics pipeline (Zhang init + bundle adjustment) |
 | `cv::solvePnP` | `pnp::p3p()`, `pnp::dlt()` |
-| `cv::findHomography` | `dlt_homography()`, `dlt_homography_ransac()` |
+| `cv::findHomography` | `dlt_homography()`, `estimate_homography()` |
 | `cv::findFundamentalMat` | `fundamental_8point()` |
 | `cv::findEssentialMat` | `essential_5point()` |
 | `cv::stereoCalibrate` | Rig extrinsics pipeline |

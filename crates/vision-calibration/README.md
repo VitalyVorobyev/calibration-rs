@@ -34,8 +34,9 @@ vision-calibration = { version = "0.18", features = ["synthetic"] }
 Eight synthetic views of an 8×6 board (40 mm pitch) calibrate a camera:
 
 ```rust
-use vision_calibration::planar_intrinsics::run_calibration;
-use vision_calibration::prelude::*;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
 use vision_calibration::synthetic::{planar, poses};
 
 fn main() -> anyhow::Result<()> {
@@ -110,7 +111,6 @@ options.
 | `core`, `optim` | Math types and camera models; the optimization vocabulary (robust losses, solver backends, projection uncertainty) |
 | `mvg` | Two-view solvers and N-view MVG (triangulation, bundle adjustment, rectification, dense stereo) |
 | `synthetic` | Deterministic synthetic data generation (feature `synthetic`) |
-| `prelude` | Convenient re-exports |
 
 ## Examples
 

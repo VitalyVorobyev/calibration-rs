@@ -3,11 +3,10 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
-use vision_calibration_linear::laserline::{
-    LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
-};
+use vision_calibration_linear::laserline::{LaserlinePlaneSolver, PlaneFitView};
 use vision_calibration_optim::{
-    LaserlineSolveOptions, RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
+    LaserlineSolveOptions, LaserlineStats, RigLaserlineSolveOptions, RigLaserlineUpstream,
+    optimize_rig_laserline,
 };
 
 use crate::rig_family::inverse_poses;
@@ -52,6 +51,37 @@ pub struct PlaneManualInit {
     pub laser_planes_cam: Option<Vec<LaserPlane>>,
 }
 
+/// Typed return value of [`step_init`] / [`step_init_with_seed`].
+///
+/// Carries the seeded-or-fitted initial planes. The same planes are also
+/// written into `session.state`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct PlaneInitResult {
+    /// Initial per-camera laser planes (camera frame).
+    pub laser_planes_cam: Vec<LaserPlane>,
+    /// Per camera, the RMSE of the linear plane fit (meters); `None` for a
+    /// plane supplied as a manual seed.
+    pub plane_rmse: Vec<Option<f64>>,
+}
+
+/// Typed return value of [`step_optimize`].
+///
+/// The refined planes and the per-camera statistics; the planes are also the
+/// session's output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct PlaneOptimizeResult {
+    /// Per-camera laser plane in the rig frame.
+    pub laser_planes_rig: Vec<LaserPlane>,
+    /// Per-camera laser plane in the camera's own frame.
+    pub laser_planes_cam: Vec<LaserPlane>,
+    /// Mean target reprojection error in pixels, averaged over the cameras.
+    pub mean_reproj_error: f64,
+    /// Per-camera mean reprojection error and laser residual.
+    pub per_cam_stats: Vec<LaserlineStats>,
+}
+
 /// Initialize per-camera laser planes from any combination of manual seeds and
 /// auto-estimation.
 ///
@@ -71,7 +101,7 @@ pub fn step_init_with_seed(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
     manual: PlaneManualInit,
     opts: Option<PlaneInitOptions>,
-) -> Result<(), Error> {
+) -> Result<PlaneInitResult, Error> {
     let PlaneInitOptions {} = opts.unwrap_or_default();
     session.validate()?;
     let input = session.require_input()?;
@@ -88,25 +118,39 @@ pub fn step_init_with_seed(
         return Err(Error::invalid_input(msg));
     }
 
-    let (planes, source): (Vec<LaserPlane>, &'static str) = match manual.laser_planes_cam {
-        Some(p) => (p, "(manual: laser_planes_cam)"),
-        None => {
-            let fitted: Result<Vec<LaserPlane>, Error> = (0..input.dataset.num_cameras)
-                .map(|cam_idx| linear_plane_init(input, cam_idx))
-                .collect();
-            match fitted {
-                Ok(planes) => (planes, "(auto: linear fit)"),
-                Err(err) => {
-                    session.log_failure("init", err.to_string());
-                    return Err(err);
+    let (planes, plane_rmse, source): (Vec<LaserPlane>, Vec<Option<f64>>, &'static str) =
+        match manual.laser_planes_cam {
+            Some(p) => {
+                let rmse = vec![None; p.len()];
+                (p, rmse, "(manual: laser_planes_cam)")
+            }
+            None => {
+                let fitted: Result<Vec<(LaserPlane, f64)>, Error> = (0..input.dataset.num_cameras)
+                    .map(|cam_idx| linear_plane_init(input, cam_idx))
+                    .collect();
+                match fitted {
+                    Ok(fits) => {
+                        let (planes, rmse): (Vec<_>, Vec<_>) = fits.into_iter().unzip();
+                        (
+                            planes,
+                            rmse.into_iter().map(Some).collect(),
+                            "(auto: linear fit)",
+                        )
+                    }
+                    Err(err) => {
+                        session.log_failure("init", err.to_string());
+                        return Err(err);
+                    }
                 }
             }
-        }
-    };
+        };
 
-    session.state.initial_planes_cam = Some(planes);
+    session.state.initial_planes_cam = Some(planes.clone());
     session.log_success_with_notes("init", format!("initial planes set {source}"));
-    Ok(())
+    Ok(PlaneInitResult {
+        laser_planes_cam: planes,
+        plane_rmse,
+    })
 }
 
 /// Initialize per-camera laser planes by the linear fit.
@@ -115,12 +159,12 @@ pub fn step_init_with_seed(
 pub fn step_init(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
     opts: Option<PlaneInitOptions>,
-) -> Result<(), Error> {
+) -> Result<PlaneInitResult, Error> {
     step_init_with_seed(session, PlaneManualInit::default(), opts)
 }
 
 /// The closed-form plane of camera `cam_idx` from its laser pixels on the
-/// upstream's target poses.
+/// upstream's target poses, with the RMSE of the fit (meters).
 ///
 /// # Errors
 ///
@@ -130,7 +174,7 @@ pub fn step_init(
 fn linear_plane_init(
     input: &super::problem::RigLaserlineDeviceInput,
     cam_idx: usize,
-) -> Result<LaserPlane, Error> {
+) -> Result<(LaserPlane, f64), Error> {
     let rig_to_cam = input.upstream.cam_se3_rig[cam_idx];
     let camera = input.upstream.cameras[cam_idx]
         .build()
@@ -146,7 +190,7 @@ fn linear_plane_init(
             continue;
         };
         let rig_se3_target = input.upstream.rig_se3_target[view_idx];
-        views.push(LinearLaserlineView {
+        views.push(PlaneFitView {
             laser_pixels,
             cam_se3_target: rig_to_cam * rig_se3_target,
         });
@@ -163,8 +207,9 @@ fn linear_plane_init(
              in PlaneManualInit::laser_planes_cam"
         ))
     })?;
-    LaserPlane::new(estimate.normal.into_inner(), estimate.distance)
-        .map_err(|e| Error::invalid_input(format!("camera {cam_idx}: laser plane: {e}")))
+    let plane = LaserPlane::new(estimate.normal.into_inner(), estimate.distance)
+        .map_err(|e| Error::invalid_input(format!("camera {cam_idx}: laser plane: {e}")))?;
+    Ok((plane, estimate.rmse))
 }
 
 /// Optimize per-camera laser planes and express them in rig frame.
@@ -175,7 +220,7 @@ fn linear_plane_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
     opts: Option<PlaneOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<PlaneOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
 
@@ -236,7 +281,12 @@ pub fn step_optimize(
             estimate.laser_planes_rig.len()
         ),
     );
-    Ok(())
+    Ok(PlaneOptimizeResult {
+        laser_planes_rig: estimate.laser_planes_rig,
+        laser_planes_cam: estimate.laser_planes_cam,
+        mean_reproj_error: mean_reproj,
+        per_cam_stats: estimate.per_cam_stats,
+    })
 }
 
 /// Run full rig laserline calibration (init + optimize).

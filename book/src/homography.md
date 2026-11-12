@@ -61,15 +61,22 @@ With $N > 4$, the system is overdetermined and the SVD solution minimizes the al
 
 ## RANSAC Wrapper
 
-For real data with potential mismatched correspondences, `mvg::solvers::dlt_homography_ransac` wraps the DLT solver in RANSAC:
+For real data with potential mismatched correspondences, `mvg::robust::estimate_homography` wraps the DLT solver in RANSAC:
 
 ```rust
-let (H, inliers) = dlt_homography_ransac(&world_pts, &image_pts, &opts)?;
+use vision_calibration::mvg::types::Correspondence2D;
+
+let corrs: Vec<Correspondence2D> = world_pts
+    .iter()
+    .zip(&image_pts)
+    .map(|(w, i)| Correspondence2D::new(*w, *i))
+    .collect();
+let estimate = estimate_homography(&corrs, &opts)?;
+// estimate.homography, estimate.inliers, estimate.inlier_rms
 ```
 
 - `MIN_SAMPLES = 4`
-- **Residual**: Euclidean reprojection error in pixels: $\| \text{dehomogenize}(H \mathbf{x}) - \mathbf{x}' \|$
-- **Degeneracy check**: Tests if the first 3 world points are collinear (a degenerate configuration for homography estimation)
+- **Residual**: symmetric transfer error, $\sqrt{\| H \mathbf{x} - \mathbf{x}' \|^2 + \| H^{-1} \mathbf{x}' - \mathbf{x} \|^2}$, in the unit of the points (pixels for pixel correspondences)
 
 > **OpenCV equivalence**: `cv::findHomography` with `RANSAC` method.
 
@@ -81,10 +88,12 @@ use vision_calibration::mvg::solvers::dlt_homography;
 let H = dlt_homography(&world_2d, &image_2d)?;
 
 // With RANSAC
-let opts = RansacOptions::new(3.0)   // threshold in pixels (forward transfer error)
+use vision_calibration::mvg::RansacOptions;
+use vision_calibration::mvg::robust::estimate_homography;
+let opts = RansacOptions::new(3.0)   // threshold in pixels (symmetric transfer error)
     .with_max_iters(1000)
     .with_confidence(0.99);
-let (H, inliers) = dlt_homography_ransac(&world_2d, &image_2d, &opts)?;
+let estimate = estimate_homography(&corrs, &opts)?;
 ```
 
 ## Geometric Interpretation

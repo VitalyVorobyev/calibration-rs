@@ -13,7 +13,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::RobustLoss;
 use vision_calibration_optim::problem::Use;
-use vision_mvg::MvgError;
+use vision_mvg::Error;
 use vision_mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
 use vision_mvg::triangulation::{RigObservation, triangulate};
 use vision_mvg::types::Captures;
@@ -355,7 +355,7 @@ fn one_moving_camera_takes_its_scale_from_a_distance() {
             &tracks,
             &BundleAdjustOptions::new(scale),
         ) {
-            Err(MvgError::InvalidInput { reason }) => reason,
+            Err(Error::InvalidInput { reason }) => reason,
             other => panic!("expected InvalidInput, got {:?}", other.map(|_| ())),
         }
     };
@@ -396,7 +396,7 @@ fn invalid_inputs_are_refused() {
                    opts: &BundleAdjustOptions|
      -> String {
         match bundle_adjust(rig, poses, points, tracks, opts) {
-            Err(MvgError::InvalidInput { reason }) => reason,
+            Err(Error::InvalidInput { reason }) => reason,
             other => panic!("expected InvalidInput, got {:?}", other.map(|_| ())),
         }
     };
@@ -734,7 +734,7 @@ fn bundle_adjust_cancels_with_a_typed_error() {
             cancel.cancel();
         });
     let err = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap_err();
-    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
     assert_eq!(*reports.lock().unwrap(), 1, "stopped within one iteration");
 
     let token = CancelToken::new();
@@ -742,7 +742,7 @@ fn bundle_adjust_cancels_with_a_typed_error() {
     let (control, seen) = recording(RunControl::new().with_cancel(token));
     opts.control = control;
     let err = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap_err();
-    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
     assert!(seen.lock().unwrap().is_empty());
 }
 
@@ -780,5 +780,5 @@ fn triangulate_reports_and_cancels() {
         &RunControl::new().with_cancel(token),
     )
     .unwrap_err();
-    assert!(matches!(err, MvgError::Cancelled), "{err:?}");
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
 }

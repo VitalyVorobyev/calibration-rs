@@ -33,10 +33,10 @@ use vision_calibration::core::{
 use vision_calibration::dataset::{DatasetSpec, TargetSpec, samples};
 use vision_calibration::dataset_runner::{Detection, build_rig_extrinsics_input};
 use vision_calibration::detect::FsDetectionCache;
-use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsProblem, run_calibration,
 };
+use vision_calibration::session::CalibrationSession;
 
 /// A stereo sample this example measures: the camera model it is calibrated
 /// with, and the unit its lengths are printed in.

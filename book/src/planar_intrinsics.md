@@ -151,8 +151,8 @@ derives the seed with `device_seed::scheimpflug_seed`.
 ## Complete Example
 
 ```rust
-use vision_calibration::prelude::*;
-use vision_calibration::planar_intrinsics::{step_init, step_optimize};
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
 
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_input(dataset)?;

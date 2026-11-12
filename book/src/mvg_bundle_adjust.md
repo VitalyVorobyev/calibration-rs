@@ -44,7 +44,7 @@ adjusted.pose_covariance(1)     # (6, 6), capture 1 (capture 0 is the gauge: Non
 
 The observations are the ones [`triangulate`](mvg_pose.md) takes: `RigObservation::new(capture, camera, pixel, noise)`, grouped into tracks, with the noise of each pixel stated as a `PointCovariance`. A pixel is weighted by its covariance, and the stated noise is also what the result's covariance is built from. The result carries the refined `rig_se3_world` and `points`, the `rig` (the given one, or the refined one under a prior), the `uncertainty`, the solver's `report` and the RMS reprojection distance in pixels (`√2 σ` for isotropic noise of `σ` per axis).
 
-Everything is checked before any solve, and a mistake is an `MvgError::InvalidInput` naming the track, point or capture: points and tracks that do not pair up, a track with fewer than two observations, an index out of range, a non-finite start, fewer than two captures (or one capture seen by one camera, where there is nothing to adjust), and a gauge the data cannot fix.
+Everything is checked before any solve, and a mistake is an `mvg::Error::InvalidInput` naming the track, point or capture: points and tracks that do not pair up, a track with fewer than two observations, an index out of range, a non-finite start, fewer than two captures (or one capture seen by one camera, where there is nothing to adjust), and a gauge the data cannot fix.
 
 ## The Gauge
 

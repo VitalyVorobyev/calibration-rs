@@ -20,7 +20,9 @@
 //!
 //! ```
 //! use vision_calibration::planar_intrinsics::{step_init, step_optimize};
-//! use vision_calibration::prelude::*;
+//! use vision_calibration::session::CalibrationSession;
+//! use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+//! use vision_calibration::core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
 //! use vision_calibration::synthetic::{planar, poses};
 //! # fn main() -> anyhow::Result<()> {
 //!
@@ -75,7 +77,7 @@
 //!
 //! ## Foundation Crates (Advanced Users)
 //!
-//! - [`core`] - Math types, camera models, RANSAC primitives
+//! - [`core`] - Math types and camera models
 //! - [`optim`] - Non-linear least-squares optimization, and
 //!   [`optim::problem`] for a problem of your own
 //! - [`init`] - Closed-form initial values (Zhang, PnP, hand-eye, planes)
@@ -331,6 +333,10 @@ pub mod laserline_device {
         DeviceOptimizeResult,
     };
 
+    // Parameters and statistics of the estimate; the rig laser problems
+    // report `LaserlineStats` per camera.
+    pub use vision_calibration_optim::{LaserlineEstimate, LaserlineParams, LaserlineStats};
+
     // Step functions
     pub use vision_calibration_pipeline::laserline_device::{
         run_calibration, step_init, step_init_with_seed, step_optimize,
@@ -427,9 +433,10 @@ pub mod rig_laserline_device {
         RigLaserlineDataset, RigUpstreamCalibration,
     };
 
-    // Step options and manual seeds
+    // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_laserline_device::{
-        PlaneInitOptions, PlaneManualInit, PlaneOptimizeOptions,
+        PlaneInitOptions, PlaneInitResult, PlaneManualInit, PlaneOptimizeOptions,
+        PlaneOptimizeResult,
     };
 
     // Step functions
@@ -455,6 +462,9 @@ pub mod rig_handeye_laserline {
     // Manual seeds
     pub use vision_calibration_pipeline::rig_handeye_laserline::JointManualInit;
 
+    // Parameters and per-camera statistics of the estimate
+    pub use vision_calibration_optim::{RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats};
+
     // Pipeline functions
     pub use vision_calibration_pipeline::rig_handeye_laserline::{
         run_calibration, run_calibration_with_seed,
@@ -465,7 +475,7 @@ pub mod rig_handeye_laserline {
 // Foundation Crates (Advanced Users)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Core math types, camera models, and RANSAC primitives.
+/// Core math types and camera models.
 ///
 /// Re-exports selected foundational types from `vision_calibration_core`. The
 /// per-feature residual types (`ReprojectionStats`, `PerFeatureResiduals`, …)
@@ -474,13 +484,13 @@ pub mod core {
     pub use vision_calibration_core::{
         BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel, CameraModelSpec,
         CameraParams, CombinationTerm, CorrespondenceView, DistortionKind, DistortionParams,
-        Division, Equidistant, FrameKind, FrameRef, FxFyCxCy, Handeye, IdentitySensor,
-        ImageManifest, Iso3, KannalaBrandt4, LaserPlane, Mat3, NoMeta, NoiseLevel,
-        ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset, PointCovariance,
-        ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Real, ResidualKind,
-        ResidualNoise, RigDataset, RigView, RigViewObs, RobotFrame, RobotPose, ScheimpflugParams,
-        SecondOrderError, SensorKind, SensorModel, SensorParams, ThinPrism, Uncertainty,
-        UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
+        Division, Equidistant, FixedParams, FrameKind, FrameRef, FxFyCxCy, Handeye,
+        HomographySensor, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4, LaserPlane, Mat3,
+        NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
+        PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Ray, Real,
+        ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs, RobotFrame, RobotPose,
+        ScheimpflugParams, SecondOrderError, SensorKind, SensorModel, SensorParams, ThinPrism,
+        Uncertainty, UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
         make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
     };
 
@@ -505,8 +515,11 @@ pub mod core {
 pub mod dataset {
     pub use vision_calibration_dataset::samples;
     pub use vision_calibration_dataset::{
-        CameraSource, DatasetSpec, DetectorSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis,
-        ManifestError, PosePairing, ProblemKind, SniffError, TargetSpec, sniff_folder,
+        CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec,
+        DatasetSpec, DetectorSpec, ImageNoiseSpec, ImagePattern, LaserExtractionSpec,
+        LaserScanAxis, ManifestError, PoseColumnMap, PoseConvention, PosePairing, ProblemKind,
+        RobotPoseFormat, RobotPoseSource, RotationFormat, SniffError, TargetSpec,
+        TransformConvention, TranslationUnits, ValidationError, sniff_folder,
     };
 }
 
@@ -563,24 +576,32 @@ pub mod detect {
 /// `vision_calibration::mvg::rectification::rectify` or
 /// `vision_calibration::mvg::dense::match_block`.
 pub mod mvg {
-    /// RANSAC settings taken by the robust estimators in [`robust`].
+    /// RANSAC settings taken by the robust estimators in [`robust`] and
+    /// [`solvers`].
     pub use vision_calibration_core::RansacOptions;
     pub use vision_mvg::{
-        MvgError, bundle_adjust, dense, homography, laser, metrology, pose, pose_recovery,
+        Error, bundle_adjust, dense, homography, laser, metrology, pose, pose_recovery,
         rectification, residuals, robust, triangulation, types,
     };
 
     /// Deterministic closed-form solvers, on normalized or pixel coordinates.
+    ///
+    /// Every solver here, and the PnP solvers of [`init::pnp`](crate::init::pnp),
+    /// returns [`GeometryError`](solvers::GeometryError) on invalid or
+    /// degenerate input. The robust homography estimate is
+    /// [`robust::estimate_homography`].
     pub mod solvers {
+        /// The error of the closed-form solvers.
+        pub use vision_geometry::GeometryError;
         pub use vision_geometry::camera_matrix::{
             CameraMatrixDecomposition, Mat34, decompose_camera_matrix, dlt_camera_matrix,
             rq_decompose,
         };
         pub use vision_geometry::epipolar::{
-            decompose_essential, essential_5point, fundamental_7point, fundamental_8point,
-            fundamental_8point_ransac,
+            FundamentalEstimate, PoseCandidate, decompose_essential, essential_5point,
+            fundamental_7point, fundamental_8point, fundamental_8point_ransac,
         };
-        pub use vision_geometry::homography::{dlt_homography, dlt_homography_ransac};
+        pub use vision_geometry::homography::dlt_homography;
         pub use vision_geometry::triangulation::triangulate_point_linear;
     }
 }
@@ -627,7 +648,8 @@ pub mod optim {
 /// steps.
 ///
 /// Each returns this module's [`Error`](init::Error), which `?` converts
-/// into [`crate::Error`]. Plane homographies come from
+/// into [`crate::Error`]; the [`pnp`](init::pnp) solvers return
+/// [`mvg::solvers::GeometryError`]. Plane homographies come from
 /// [`mvg::solvers::dlt_homography`].
 pub mod init {
     /// The error the initializers return.
@@ -648,7 +670,9 @@ pub mod init {
         IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
     };
     /// A plane through 3D points, such as laser points in the camera frame.
-    pub use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LinearPlaneEstimate};
+    pub use vision_calibration_linear::laserline::{
+        LaserlinePlaneSolver, LinearPlaneEstimate, PlaneFitView,
+    };
     /// A target's pose from its plane homography and the intrinsics.
     pub use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
     /// Zhang's pinhole intrinsics from three or more plane homographies.
@@ -674,26 +698,6 @@ pub mod synthetic {
     pub use vision_calibration_core::synthetic::planar;
     /// Board poses, robot stations, rig layouts, and the pose-error metric.
     pub use vision_calibration_core::synthetic::poses;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Prelude (Quick Start)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Minimal re-exports for planar "hello world" calibration; the crate-level
-/// quick start uses them.
-pub mod prelude {
-    /// Session framework for calibration workflows.
-    pub use vision_calibration_pipeline::session::CalibrationSession;
-
-    /// Planar intrinsics problem type for hello-world calibration.
-    pub use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsProblem;
-
-    /// Core geometry and dataset types used in minimal planar workflows.
-    pub use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCy, PlanarDataset, Pt2, Pt3, View,
-        make_pinhole_camera,
-    };
 }
 
 /// Result analysis: a quality verdict, an HTML report, next-view planning and

@@ -17,7 +17,7 @@ decomposition.
 |--------|-------------|
 | `math` | Hartley normalization and small linear-algebra helpers |
 | `epipolar` | Fundamental and essential matrix estimation and decomposition |
-| `homography` | Normalized DLT homography estimation with optional RANSAC |
+| `homography` | Normalized DLT homography estimation |
 | `triangulation` | Linear DLT triangulation of bearings from multiple views |
 | `pnp` | Camera pose from 3D-2D points: DLT, P3P, EPnP, DLT in RANSAC |
 | `camera_matrix` | Camera matrix estimation and RQ decomposition |

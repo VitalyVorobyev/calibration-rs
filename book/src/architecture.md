@@ -42,7 +42,7 @@ Deterministic two-view and pose solvers, all free functions in per-topic modules
 
 | Module | Functions |
 |--------|-----------|
-| `homography` | `dlt_homography`, `dlt_homography_ransac` |
+| `homography` | `dlt_homography` |
 | `epipolar` | `fundamental_8point`, `essential_5point` |
 | `triangulation` | `triangulate_point_linear` |
 | `camera_matrix` | `dlt_camera_matrix` |
@@ -96,7 +96,7 @@ The session framework providing production-ready workflows:
 Unified facade crate that re-exports everything through a clean module hierarchy:
 
 ```rust
-use vision_calibration::prelude::*;            // Minimal planar hello-world imports
+use vision_calibration::session::CalibrationSession;  // Session framework
 use vision_calibration::planar_intrinsics::*;  // Planar workflow
 use vision_calibration::core::*;               // Math types
 use vision_calibration::mvg::solvers;          // Closed-form solvers

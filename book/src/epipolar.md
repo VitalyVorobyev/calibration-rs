@@ -107,7 +107,8 @@ Both solvers have RANSAC wrappers for outlier rejection:
 
 ```rust
 // vision_calibration::mvg::solvers::fundamental_8point_ransac
-let (F, inliers) = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
+let estimate = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
+// estimate.fundamental, estimate.inliers
 ```
 
 Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`mvg::solvers::essential_5point`) returns multiple candidates and is used directly; the calibrated `mvg::robust::estimate_essential` wraps it in RANSAC on bearings, scoring each match by its covariance-weighted Sampson error: the epipolar constraint over its first-order σ, from the pixels' stated noise (see [Pose Recovery and Triangulation](mvg_pose.md)).

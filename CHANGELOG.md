@@ -9,6 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **The facade reaches every type it uses, each by one path** (breaking).
+  - The `prelude` module is gone. Import from the modules:
+
+    ```rust
+    // before
+    use vision_calibration::prelude::*;
+    // after
+    use vision_calibration::core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
+    use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+    use vision_calibration::session::CalibrationSession;
+    ```
+
+  - `mvg::MvgError` is `mvg::Error` (and `vision_mvg::MvgError` is
+    `vision_mvg::Error`), like the `Error` of every other module.
+  - `mvg::solvers::dlt_homography_ransac` is removed: the robust homography
+    is `mvg::robust::estimate_homography`, which scores the symmetric
+    transfer error and returns a `HomographyEstimate`.
+
+    ```rust
+    // before
+    let (h, inliers) = dlt_homography_ransac(&src, &dst, &opts)?;
+    // after
+    let corrs: Vec<Correspondence2D> = src.iter().zip(&dst)
+        .map(|(s, d)| Correspondence2D::new(*s, *d)).collect();
+    let HomographyEstimate { homography: h, inliers, .. } = estimate_homography(&corrs, &opts)?;
+    ```
+
+  - Tuples became named types: `fundamental_8point_ransac` returns a
+    `FundamentalEstimate { fundamental, inliers }`, `init::pnp::dlt_ransac` a
+    `PoseEstimate { pose, inliers }`, `decompose_essential` a
+    `Vec<PoseCandidate>` (`rotation`, `translation`) and
+    `mvg::residuals::epipolar_line_distance` an `EpipolarLineDistance`
+    (`in_first`, `in_second`). `rq_decompose` keeps its `(K, R)` pair, the
+    order of the product `M = K R`.
+
+    ```rust
+    // before
+    let (f, inliers) = fundamental_8point_ransac(&p1, &p2, &opts)?;
+    let (d1, d2) = epipolar_line_distance(&f, &c);
+    // after
+    let FundamentalEstimate { fundamental: f, inliers } = fundamental_8point_ransac(&p1, &p2, &opts)?;
+    let EpipolarLineDistance { in_second: d1, in_first: d2 } = epipolar_line_distance(&f, &c);
+    ```
+
+  - `rig_laserline_device::step_init`, `step_init_with_seed` and
+    `step_optimize` return a `PlaneInitResult` (the initial planes and each
+    fit's RMSE) and a `PlaneOptimizeResult` (the planes in the rig and camera
+    frames, the mean reprojection error and the per-camera statistics) instead
+    of `()`; in Python the session's steps return the same values.
+  - `common::CalibratedCameras` is sealed: the library's exports implement
+    it, and a type of yours cannot.
+  - `RansacOptions` is documented API of the robust estimators
+    (`mvg::RansacOptions`).
+  - New names for types the facade returned but did not export:
+    `core::Ray`, `core::FixedParams`, `core::HomographySensor`,
+    `dataset::ValidationError` and the manifest field types
+    (`RobotPoseSource`, `PoseConvention`, `PoseColumnMap`,
+    `TransformConvention`, `TranslationUnits`, `RotationFormat`,
+    `RobotPoseFormat`, `ChessCornersDetectorSpec`, `CornerStrategySpec`,
+    `CornerCovarianceSpec`, `ImageNoiseSpec`), so a hand-eye manifest can be
+    built in code; `laserline_device::{LaserlineParams, LaserlineEstimate,
+    LaserlineStats}`; `rig_handeye_laserline::{RigHandeyeLaserlineParams,
+    RigHandeyeLaserlinePerCamStats}`; `mvg::solvers::GeometryError`, the error
+    of the closed-form solvers and of `init::pnp`; `init::PlaneFitView`, the
+    input of `init::LaserlinePlaneSolver` (it was `LaserlineView`).
+
 - **Public types are `#[non_exhaustive]`; foreign error types are no longer
   exposed** (breaking). The library's signatures name only its own types and
   `nalgebra`:

@@ -15,8 +15,8 @@ pub use problem::{
     RigLaserlineDeviceInput, RigLaserlineDeviceProblem, RigUpstreamCalibration,
 };
 pub use steps::{
-    PlaneInitOptions, PlaneManualInit, PlaneOptimizeOptions, run_calibration, step_init,
-    step_init_with_seed, step_optimize,
+    PlaneInitOptions, PlaneInitResult, PlaneManualInit, PlaneOptimizeOptions, PlaneOptimizeResult,
+    run_calibration, step_init, step_init_with_seed, step_optimize,
 };
 // The input's dataset type and the plane solve's estimate (the problem's
 // output); the per-view type is shared, in `common`.

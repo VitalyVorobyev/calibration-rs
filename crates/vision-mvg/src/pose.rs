@@ -19,7 +19,7 @@
 
 use crate::bearing::{bearing, camera_model};
 use crate::triangulation::sub_covariance;
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{Matrix6, Vector2};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -189,14 +189,14 @@ impl ObjectPose {
 ///
 /// # Errors
 ///
-/// [`MvgError::InvalidInput`], before any solve, for a camera index out of
+/// [`Error::InvalidInput`], before any solve, for a camera index out of
 /// range, a non-finite object point or pixel, a pixel without a finite
 /// viewing ray, and fewer than 4 observations in the initializing camera (or
-/// fewer than 4 of them ahead of it); [`MvgError::Core`] for invalid RANSAC
-/// options; [`MvgError::NoConsensus`] when RANSAC finds no model;
-/// [`MvgError::Geometry`] when the closed-form start is degenerate (collinear
-/// points); [`MvgError::Numerical`] when the refinement fails to run;
-/// [`MvgError::Cancelled`] when `opts.control`'s token is cancelled. A
+/// fewer than 4 of them ahead of it); [`Error::Core`] for invalid RANSAC
+/// options; [`Error::NoConsensus`] when RANSAC finds no model;
+/// [`Error::Geometry`] when the closed-form start is degenerate (collinear
+/// points); [`Error::Numerical`] when the refinement fails to run;
+/// [`Error::Cancelled`] when `opts.control`'s token is cancelled. A
 /// refinement that stops short of convergence is not an error: the pose
 /// stands and the uncertainty says
 /// [`UncertaintyUnavailable::NotConverged`](vision_calibration_core::UncertaintyUnavailable::NotConverged).
@@ -229,7 +229,7 @@ pub fn estimate_pose(
         }
     }
     if data.len() < 4 {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "only {} observation(s) of camera {start_camera} lie ahead of it; a pose needs at least 4",
             data.len()
         )));
@@ -241,7 +241,7 @@ pub fn estimate_pose(
             let result = ransac_fit::<StartEstimator>(&data, ransac);
             match (result.success, result.model) {
                 (true, Some(pose)) => pose,
-                _ => return Err(MvgError::NoConsensus),
+                _ => return Err(Error::NoConsensus),
             }
         }
     };
@@ -255,7 +255,7 @@ pub fn estimate_pose(
         Some(ransac) => select(rig, observations, &rig_se3_object, ransac.thresh),
     };
     if inliers.len() < 4 {
-        return Err(MvgError::NoConsensus);
+        return Err(Error::NoConsensus);
     }
 
     // Refine; with RANSAC re-select by the refined pose and refine again
@@ -308,15 +308,15 @@ fn validate(rig: &CalibratedRig, observations: &[PoseObservation]) -> Result<usi
     let mut counts = vec![0_usize; rig.num_cameras()];
     for (i, obs) in observations.iter().enumerate() {
         camera_model(rig, obs.camera).map_err(|e| match e {
-            MvgError::InvalidInput { reason } => {
-                MvgError::invalid_input(format!("observation {i}: {reason}"))
+            Error::InvalidInput { reason } => {
+                Error::invalid_input(format!("observation {i}: {reason}"))
             }
             other => other,
         })?;
         let finite = obs.object.coords.iter().all(|v| v.is_finite())
             && obs.pixel.coords.iter().all(|v| v.is_finite());
         if !finite {
-            return Err(MvgError::invalid_input(format!(
+            return Err(Error::invalid_input(format!(
                 "observation {i}: the object point or the pixel is not finite"
             )));
         }
@@ -328,9 +328,9 @@ fn validate(rig: &CalibratedRig, observations: &[PoseObservation]) -> Result<usi
         .enumerate()
         .rev()
         .max_by_key(|&(_, &c)| c)
-        .ok_or_else(|| MvgError::invalid_input("the rig has no cameras"))?;
+        .ok_or_else(|| Error::invalid_input("the rig has no cameras"))?;
     if count < 4 {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "the camera with the most observations (camera {camera}) has {count}; a pose needs at least 4"
         )));
     }
@@ -379,8 +379,8 @@ fn refine(
     control: &RunControl,
 ) -> Result<(Iso3, Uncertainty)> {
     let fail = |e: vision_calibration_optim::Error| match e {
-        vision_calibration_optim::Error::Cancelled => MvgError::Cancelled,
-        e => MvgError::numerical(format!("refining the pose: {e}")),
+        vision_calibration_optim::Error::Cancelled => Error::Cancelled,
+        e => Error::numerical(format!("refining the pose: {e}")),
     };
     let mut problem = Problem::new();
     let blocks = problem
@@ -392,7 +392,7 @@ fn refine(
         let (Some(camera), Some(chain)) =
             (blocks.camera(obs.camera), blocks.chain(obs.camera, object))
         else {
-            return Err(MvgError::numerical(format!(
+            return Err(Error::numerical(format!(
                 "observation {i}: camera {} missing from the problem",
                 obs.camera
             )));
@@ -406,7 +406,7 @@ fn refine(
                 PixelNoise::Stated(obs.noise),
                 loss,
             )
-            .map_err(|e| MvgError::numerical(format!("observation {i}: refining the pose: {e}")))?;
+            .map_err(|e| Error::numerical(format!("observation {i}: refining the pose: {e}")))?;
     }
     // `SolveOptions` is non-exhaustive: start from its default.
     let mut solve_options = SolveOptions::default();
@@ -414,7 +414,7 @@ fn refine(
     let solution = solve(&problem, &solve_options).map_err(fail)?;
     let pose = solution
         .pose(object)
-        .ok_or_else(|| MvgError::numerical("the object pose is missing from the solution"))?;
+        .ok_or_else(|| Error::numerical("the object pose is missing from the solution"))?;
     Ok((pose, solution.uncertainty))
 }
 

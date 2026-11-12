@@ -13,6 +13,8 @@ mod essential;
 mod fundamental;
 pub(crate) mod polynomial;
 
-pub use decomposition::decompose_essential;
+pub use decomposition::{PoseCandidate, decompose_essential};
 pub use essential::{essential_5point, essential_linear};
-pub use fundamental::{fundamental_7point, fundamental_8point, fundamental_8point_ransac};
+pub use fundamental::{
+    FundamentalEstimate, fundamental_7point, fundamental_8point, fundamental_8point_ransac,
+};

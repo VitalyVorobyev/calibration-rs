@@ -46,6 +46,12 @@ pub use vision_calibration_optim::{
     RobotRefinement,
 };
 
+/// The supertrait that seals [`CalibratedCameras`]: the exports of this crate
+/// implement it, so a method added to the trait later is not a breaking change.
+pub(crate) mod sealed {
+    pub trait Sealed {}
+}
+
 use serde::{Deserialize, Serialize};
 
 /// Options for an intrinsics initialization step.

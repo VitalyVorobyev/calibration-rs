@@ -20,7 +20,7 @@ use vision_calibration_core::{
     PointCovariance, Pt2, Pt3, RobotFrame, RobotPose, RunControl, Uncertainty, make_pinhole_camera,
     pinhole_camera_params,
 };
-use vision_mvg::MvgError;
+use vision_mvg::Error;
 use vision_mvg::triangulation::{RigObservation, triangulate};
 use vision_mvg::types::Captures;
 
@@ -407,7 +407,7 @@ fn robot_frames_are_checked() {
 
     let invalid = |captures: Captures<'_>, rig: &CalibratedRig| {
         let err = triangulate(rig, captures, &tracks, &control).unwrap_err();
-        assert!(matches!(err, MvgError::InvalidInput { .. }), "{err}");
+        assert!(matches!(err, Error::InvalidInput { .. }), "{err}");
         err.to_string()
     };
     let m = invalid(Captures::Handeye(RobotFrame::Base), &rig);

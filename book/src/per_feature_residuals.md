@@ -37,7 +37,7 @@ The examples below use the stereo chessboard rig of [Stereo Rig with Real Data](
 No configuration is needed: the records are always populated.
 
 ```rust
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::rig_extrinsics::{RigExtrinsicsProblem, run_calibration};
 
 let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();

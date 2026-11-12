@@ -94,10 +94,11 @@ Both solvers have RANSAC variants for handling outliers:
 
 ```rust
 // DLT PnP + RANSAC
-let (pose, inliers) = dlt_ransac(
+let estimate = dlt_ransac(
     &world_pts, &image_pts, &K,
     &RansacOptions::new(5.0) // pixel reprojection error
 )?;
+// estimate.pose, estimate.inliers
 ```
 
 The DLT PnP solver uses `MIN_SAMPLES = 6` with RANSAC. P3P (`p3p()`) returns up to 4 candidates and is intended for manual disambiguation (e.g., using a 4th point), not as a RANSAC estimator.

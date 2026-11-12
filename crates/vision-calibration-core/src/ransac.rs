@@ -11,10 +11,9 @@ use crate::Error;
 use rand::prelude::IndexedRandom;
 use rand::{SeedableRng, rngs::StdRng};
 
-/// Configuration parameters for the generic RANSAC engine.
-///
-/// Algorithm-internal scaffolding: this is the machinery the linear estimators
-/// use for robust fitting, not a curated part of the public calibration API.
+/// Settings of the robust (RANSAC) estimators: the inlier threshold, the
+/// iteration budget, the consensus size and the seed that makes a run
+/// reproducible.
 ///
 /// There is deliberately no `Default`: the inlier threshold has no unit-free
 /// default. Build options with [`RansacOptions::new`] and override other
@@ -25,7 +24,6 @@ use rand::{SeedableRng, rngs::StdRng};
 /// let opts = RansacOptions::new(2.0).with_max_iters(500);
 /// assert_eq!(opts.thresh, 2.0);
 /// ```
-#[doc(hidden)]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RansacOptions {
@@ -139,7 +137,8 @@ impl RansacOptions {
 /// Check the `success` flag before using the model; if it is `false`, then
 /// `model` will be `None` and the other fields are unspecified.
 ///
-/// Algorithm-internal scaffolding (see [`RansacOptions`]).
+/// The engine behind the robust estimators, which take [`RansacOptions`];
+/// not part of the stable API.
 #[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct RansacResult<M> {
@@ -171,7 +170,8 @@ impl<M> Default for RansacResult<M> {
 ///
 /// Implement this for your geometric models: lines, planes, homographies, etc.
 ///
-/// Algorithm-internal scaffolding (see [`RansacOptions`]).
+/// The engine behind the robust estimators, which take [`RansacOptions`];
+/// not part of the stable API.
 #[doc(hidden)]
 pub trait Estimator {
     /// Input datum type (for example one correspondence or measurement).
@@ -260,7 +260,8 @@ fn is_better_model(
 /// budget, it returns a [`RansacResult`] with `success == false` and
 /// `model == None`.
 ///
-/// Algorithm-internal scaffolding (see [`RansacOptions`]).
+/// The engine behind the robust estimators, which take [`RansacOptions`];
+/// not part of the stable API.
 #[doc(hidden)]
 #[cfg_attr(
     feature = "tracing",

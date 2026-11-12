@@ -68,15 +68,17 @@ pip install vision-calibration
 ```
 
 The Rust facade is module-first — reach for `vision_calibration::<workflow>::…`
-or `vision_calibration::prelude::*` rather than broad top-level imports.
+rather than broad top-level imports: `session::CalibrationSession`,
+`planar_intrinsics::PlanarIntrinsicsProblem`, `core::PlanarDataset`.
 
 ## Quick start
 
 Calibrate a single camera's intrinsics from planar correspondences:
 
 ```rust
-use vision_calibration::prelude::*;
-use vision_calibration::planar_intrinsics::{step_init, step_optimize};
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+use vision_calibration::core::PlanarDataset;
 
 let dataset: PlanarDataset = /* your 2D↔3D correspondences, N views */;
 

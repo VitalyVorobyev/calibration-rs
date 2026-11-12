@@ -303,7 +303,8 @@ mod tests {
         let mut found_good_decomp = false;
         for e in &sols {
             let decomps = crate::epipolar::decompose_essential(e).unwrap();
-            for (r_est, t_est) in &decomps {
+            for c in &decomps {
+                let (r_est, t_est) = (&c.rotation, &c.translation);
                 let r_diff: Mat3 = r_est.transpose() * rot.matrix();
                 let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
                 let ang_deg = cos_theta.acos().to_degrees();

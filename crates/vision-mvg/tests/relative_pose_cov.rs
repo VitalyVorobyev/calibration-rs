@@ -17,7 +17,7 @@ use vision_calibration_core::{
     Mat3, PointCovariance, ProjectionParams, Pt2, Pt3, RansacOptions, RunControl, SensorParams,
     Uncertainty, Vec3, make_pinhole_camera, pinhole_camera_params,
 };
-use vision_mvg::MvgError;
+use vision_mvg::Error;
 use vision_mvg::robust::{estimate_essential, recover_relative_pose_robust};
 use vision_mvg::types::PixelMatch;
 
@@ -318,10 +318,10 @@ fn the_uncertainty_is_labelled_and_a_cancelled_run_returns_none() {
     let cancelled = RunControl::new().with_cancel(token);
     assert!(matches!(
         recover_relative_pose_robust(&scene.rig, [0, 1], &matches, &ransac(), &cancelled),
-        Err(MvgError::Cancelled)
+        Err(Error::Cancelled)
     ));
     assert!(matches!(
         estimate_essential(&scene.rig, [0, 1], &matches, &ransac(), &cancelled),
-        Err(MvgError::Cancelled)
+        Err(Error::Cancelled)
     ));
 }

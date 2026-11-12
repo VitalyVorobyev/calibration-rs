@@ -226,6 +226,16 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     Ok(solutions.into_iter().map(|(_, f)| f).collect())
 }
 
+/// A fundamental matrix with the correspondences that agree with it.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct FundamentalEstimate {
+    /// The fundamental matrix: `x₂ᵀ F x₁ = 0` on the inliers.
+    pub fundamental: Mat3,
+    /// Indices of the inlier correspondences.
+    pub inliers: Vec<usize>,
+}
+
 /// Robust fundamental matrix estimation using the 8-point algorithm inside RANSAC.
 ///
 /// Returns the best model and the indices of inliers.
@@ -245,7 +255,7 @@ pub fn fundamental_8point_ransac(
     pts1: &[Pt2],
     pts2: &[Pt2],
     opts: &RansacOptions,
-) -> Result<(Mat3, Vec<usize>)> {
+) -> Result<FundamentalEstimate> {
     opts.validate().map_err(|e| GeometryError::InvalidInput {
         reason: e.to_string(),
     })?;
@@ -313,8 +323,10 @@ pub fn fundamental_8point_ransac(
     if !res.success {
         return Err(GeometryError::NoConsensus);
     }
-    let f = res.model.expect("success guarantees a model");
-    Ok((f, res.inliers))
+    Ok(FundamentalEstimate {
+        fundamental: res.model.expect("success guarantees a model"),
+        inliers: res.inliers,
+    })
 }
 
 #[cfg(test)]
@@ -497,7 +509,10 @@ mod tests {
             .with_seed(123)
             .with_refit_on_inliers(true);
 
-        let (f, inliers) = fundamental_8point_ransac(&pts1, &pts2, &opts).unwrap();
+        let FundamentalEstimate {
+            fundamental: f,
+            inliers,
+        } = fundamental_8point_ransac(&pts1, &pts2, &opts).unwrap();
 
         assert!(inliers.len() >= inlier_count.saturating_sub(2));
         assert!(inliers.len() < pts1.len());

@@ -45,7 +45,7 @@ use crate::bearing::{bearing, camera_model};
 use crate::sensitivity::{POSE_AXES, camera_coordinates, skew};
 use crate::triangulation::{sub_covariance, with_context};
 use crate::types::{CapturePose, Captures};
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::{DMatrix, Matrix2, Matrix3, Matrix3x6, Matrix6, Vector2, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
@@ -171,14 +171,14 @@ impl LaserTriangulation {
 ///
 /// # Errors
 ///
-/// [`MvgError::InvalidInput`] for a camera or capture out of range, a camera
+/// [`Error::InvalidInput`] for a camera or capture out of range, a camera
 /// without a laser plane, a pixel without a finite viewing ray or a camera
 /// model with a general sensor homography, a robot frame the rig cannot
 /// serve (no hand-eye, or a frame the variant of [`Captures`] does not
 /// state), and for a covariance that lists part of a camera's extrinsic (a
-/// pose is estimated whole or held); [`MvgError::Degenerate`] for a ray
+/// pose is estimated whole or held); [`Error::Degenerate`] for a ray
 /// parallel to its plane or meeting it behind the camera;
-/// [`MvgError::Numerical`] when the projection has no usable derivative at
+/// [`Error::Numerical`] when the projection has no usable derivative at
 /// the point. The message names the observation.
 pub fn triangulate_laser(
     rig: &CalibratedRig,
@@ -212,7 +212,7 @@ fn locate(
     for (i, obs) in observations.iter().enumerate() {
         let context = format!("observation {i}");
         let capture = poses.get(obs.capture).ok_or_else(|| {
-            MvgError::invalid_input(format!(
+            Error::invalid_input(format!(
                 "{context}: capture {} out of range: {} captures given",
                 obs.capture,
                 poses.len()
@@ -220,14 +220,14 @@ fn locate(
         })?;
         let model = camera_model(rig, obs.camera).map_err(|e| with_context(&context, e))?;
         let plane = rig.laser_plane(obs.camera).ok_or_else(|| {
-            MvgError::invalid_input(format!(
+            Error::invalid_input(format!(
                 "{context}: camera {} has no laser plane",
                 obs.camera
             ))
         })?;
         if cameras[obs.camera].is_none() {
             let jacobian = CameraJacobian::new(&rig.cameras()[obs.camera])
-                .map_err(|e| MvgError::invalid_input(format!("{context}: {e}")))?;
+                .map_err(|e| Error::invalid_input(format!("{context}: {e}")))?;
             cameras[obs.camera] = Some(jacobian);
         }
         let jacobian = cameras[obs.camera].as_ref().expect("built above");
@@ -237,13 +237,13 @@ fn locate(
         let b = bearing(model, &obs.pixel, i).map_err(|e| with_context(&context, e))?;
         let along = n.dot(&b);
         if along.abs() <= MIN_INCIDENCE_SINE {
-            return Err(MvgError::degenerate(format!(
+            return Err(Error::degenerate(format!(
                 "{context}: the viewing ray is parallel to the laser plane"
             )));
         }
         let t = -d / along;
         if !(t.is_finite() && t > 0.0) {
-            return Err(MvgError::degenerate(format!(
+            return Err(Error::degenerate(format!(
                 "{context}: the viewing ray meets the laser plane behind the camera"
             )));
         }
@@ -251,7 +251,7 @@ fn locate(
         // Polish p on [π(p) − u; nᵀp + d] = 0 with Newton steps.
         let u = Vector2::new(obs.pixel.x, obs.pixel.y);
         let no_derivative = || {
-            MvgError::numerical(format!(
+            Error::numerical(format!(
                 "{context}: the camera's projection has no usable derivative at the point"
             ))
         };
@@ -276,14 +276,14 @@ fn locate(
                 .try_inverse()
                 .filter(|m| m.iter().all(|v| v.is_finite()))
                 .ok_or_else(|| {
-                    MvgError::degenerate(format!(
+                    Error::degenerate(format!(
                         "{context}: the pixel and the plane do not determine the point \
                          (singular system)"
                     ))
                 })?;
             if miss.norm() < PIXEL_TOLERANCE || step == MAX_STEPS {
                 if miss.norm() > PIXEL_FAILURE {
-                    return Err(MvgError::numerical(format!(
+                    return Err(Error::numerical(format!(
                         "{context}: the point does not converge ({} px off the pixel)",
                         miss.norm()
                     )));

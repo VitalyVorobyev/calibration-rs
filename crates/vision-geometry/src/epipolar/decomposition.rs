@@ -31,9 +31,19 @@ pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
     Ok(u * s_mat * v_t)
 }
 
+/// One of the four relative poses an essential matrix decomposes into.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct PoseCandidate {
+    /// The rotation `R`, a proper rotation (determinant +1).
+    pub rotation: Mat3,
+    /// The translation direction `t`, unit length.
+    pub translation: Vec3,
+}
+
 /// Decompose an essential matrix into candidate rotation and translation pairs.
 ///
-/// Returns four possible `(R, t)` pairs; the correct one can be selected by
+/// Returns four possible poses (`rotation`, `translation`); the correct one can be selected by
 /// cheirality checks on triangulated points. The translation is unit-length
 /// (direction only).
 ///
@@ -48,7 +58,7 @@ pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
 ///
 /// A valid estimated `E` (even from a noisy 8-point solve) has raw `σ₀ ≈ σ₁ > 0`,
 /// so the threshold of 0.1 is conservative.
-pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
+pub fn decompose_essential(e: &Mat3) -> Result<Vec<PoseCandidate>> {
     ensure_finite("essential matrix", e.iter())?;
     // Degeneracy check on the RAW input — before projection.
     // This catches rank-1 inputs like diag(1,0,0) that survive projection
@@ -95,17 +105,18 @@ pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
 
     let t = u.column(2).normalize();
 
-    let mut solutions = vec![
-        (r1, t.into_owned()),
-        (r1, (-t).into_owned()),
-        (r2, t.into_owned()),
-        (r2, (-t).into_owned()),
-    ];
+    let mut solutions: Vec<PoseCandidate> = [(r1, t), (r1, -t), (r2, t), (r2, -t)]
+        .into_iter()
+        .map(|(rotation, translation)| PoseCandidate {
+            rotation,
+            translation: translation.into_owned(),
+        })
+        .collect();
 
-    for (r, t) in solutions.iter_mut() {
-        if r.determinant() < 0.0 {
-            *r = -*r;
-            *t = -*t;
+    for c in solutions.iter_mut() {
+        if c.rotation.determinant() < 0.0 {
+            c.rotation = -c.rotation;
+            c.translation = -c.translation;
         }
     }
 
@@ -173,7 +184,11 @@ mod tests {
         let solutions = decompose_essential(&e).unwrap();
 
         let mut found = false;
-        for (r_est, t_est) in solutions {
+        for PoseCandidate {
+            rotation: r_est,
+            translation: t_est,
+        } in solutions
+        {
             let r_diff = r_est.transpose() * rot.matrix();
             let trace = r_diff.trace();
             let cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0);

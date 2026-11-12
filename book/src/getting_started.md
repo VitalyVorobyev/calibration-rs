@@ -40,9 +40,9 @@ Each program builds a synthetic camera with known intrinsics and Brown-Conrady d
 
 ```rust
 use anyhow::Result;
-use vision_calibration::core::make_pinhole_camera;
-use vision_calibration::planar_intrinsics::{step_init, step_optimize};
-use vision_calibration::prelude::*;
+use vision_calibration::core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::planar;
 
 fn main() -> Result<()> {

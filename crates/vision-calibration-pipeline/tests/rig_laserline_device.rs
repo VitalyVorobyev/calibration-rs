@@ -190,10 +190,37 @@ fn pipeline_converges_rig_laserline() {
     session.set_input(input).unwrap();
     let mut seed = PlaneManualInit::default();
     seed.laser_planes_cam = Some(initial_planes_cam);
-    step_init_with_seed(&mut session, seed, None).unwrap();
-    step_optimize(&mut session, None).unwrap();
+    let init = step_init_with_seed(&mut session, seed, None).unwrap();
+    assert_eq!(init.laser_planes_cam.len(), 2);
+    assert!(
+        init.plane_rmse.iter().all(Option::is_none),
+        "a seeded plane has no fit RMSE"
+    );
+    let optimized = step_optimize(&mut session, None).unwrap();
 
     let export = session.export().unwrap();
+
+    // The step result carries what the export reports.
+    for (got, reported) in optimized
+        .laser_planes_rig
+        .iter()
+        .zip(&export.laser_planes_rig)
+    {
+        assert_eq!(got.distance(), reported.distance());
+    }
+    for (got, reported) in optimized
+        .laser_planes_cam
+        .iter()
+        .zip(&export.laser_planes_cam)
+    {
+        assert_eq!(got.distance(), reported.distance());
+    }
+    assert_eq!(optimized.laser_planes_rig.len(), 2);
+    assert_eq!(optimized.per_cam_stats.len(), 2);
+    assert!(optimized.mean_reproj_error.is_finite() && optimized.mean_reproj_error < 1.0);
+    let json = serde_json::to_string(&optimized).unwrap();
+    let _: vision_calibration_pipeline::rig_laserline_device::PlaneOptimizeResult =
+        serde_json::from_str(&json).unwrap();
 
     // JSON round-trip.
     let json = serde_json::to_string(&export).unwrap();
@@ -240,6 +267,30 @@ fn pipeline_converges_rig_laserline() {
         "export-level mean reproj: {}",
         export.mean_reproj_error
     );
+}
+
+/// The unseeded `step_init` reports each camera's linear fit and its RMSE.
+#[test]
+fn the_linear_init_reports_each_fits_rmse() {
+    use vision_calibration_pipeline::rig_laserline_device::{PlaneInitResult, step_init};
+
+    let (dataset, upstream, _) = make_dataset();
+    let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
+    session
+        .set_input(RigLaserlineDeviceInput { dataset, upstream })
+        .unwrap();
+    let init = step_init(&mut session, None).unwrap();
+    assert_eq!(init.laser_planes_cam.len(), 2);
+    assert_eq!(init.plane_rmse.len(), 2);
+    for rmse in &init.plane_rmse {
+        let rmse = rmse.expect("a fitted plane has an RMSE");
+        assert!(
+            rmse.is_finite() && rmse < 1e-6,
+            "noise-free fit, rmse {rmse}"
+        );
+    }
+    let json = serde_json::to_string(&init).unwrap();
+    let _: PlaneInitResult = serde_json::from_str(&json).unwrap();
 }
 
 #[test]

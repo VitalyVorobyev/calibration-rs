@@ -9,7 +9,7 @@
 //! [`CameraJacobian::labels`], and its `cam_se3_rig` (the right perturbation
 //! `cam_se3_rig · Exp(ω, v)`), with the labels the exports use.
 
-use crate::{MvgError, Result};
+use crate::{Error, Result};
 use nalgebra::Matrix3;
 use vision_calibration_core::{CalibratedRig, ParameterCovariance, Real, Vec3};
 use vision_calibration_optim::CameraJacobian;
@@ -47,7 +47,7 @@ pub(crate) fn camera_prefix(rig: &CalibratedRig, k: usize) -> String {
 ///
 /// # Errors
 ///
-/// [`MvgError::InvalidInput`] for a covariance that lists part of the
+/// [`Error::InvalidInput`] for a covariance that lists part of the
 /// camera's `cam_se3_rig`: a pose is estimated whole or held.
 pub(crate) fn camera_coordinates(
     rig: &CalibratedRig,
@@ -80,7 +80,7 @@ pub(crate) fn camera_coordinates(
                 .collect(),
         )
     } else if pose.iter().any(|(_, at)| at.is_some()) {
-        return Err(MvgError::invalid_input(format!(
+        return Err(Error::invalid_input(format!(
             "camera {k}: the covariance lists part of its cam_se3_rig; a pose is \
              estimated whole or held"
         )));

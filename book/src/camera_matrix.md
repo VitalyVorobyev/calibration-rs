@@ -79,7 +79,8 @@ println!("Intrinsics: {:?}", decomp.k);
 println!("Rotation: {:?}", decomp.r);
 println!("Translation: {:?}", decomp.t);
 
-// Or just RQ decompose any 3×3 matrix (`mvg::solvers::rq_decompose`)
+// Or just RQ decompose any 3×3 matrix (`mvg::solvers::rq_decompose`):
+// `M = K R`, with `K` upper-triangular and `R` orthonormal
 let (K, R) = rq_decompose(&M);
 ```
 

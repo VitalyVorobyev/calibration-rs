@@ -9,7 +9,7 @@ use vision_calibration_core::{
     BrownConrady5, CalibratedRig, FxFyCxCy, Mat3, Pt3, Real, Uncertainty, UncertaintyUnavailable,
     Vec3, make_pinhole_camera, pinhole_camera_params,
 };
-use vision_mvg::MvgError;
+use vision_mvg::Error;
 use vision_mvg::metrology::{PointSet, angle, distance, fit_plane, point_to_plane};
 use vision_mvg::triangulation::{RigObservation, triangulate};
 use vision_mvg::types::Captures;
@@ -94,7 +94,7 @@ fn independent_points_have_the_textbook_sigma() {
 // Error cases
 // ---------------------------------------------------------------------------
 
-fn error_text<T>(r: Result<T, MvgError>) -> String {
+fn error_text<T>(r: Result<T, Error>) -> String {
     r.err().expect("an error").to_string()
 }
 
@@ -103,11 +103,11 @@ fn degenerate_and_invalid_inputs_are_typed_errors() {
     let line = tiny_set((0..5).map(|i| Pt3::new(0.1 * i as f64, 0.0, 1.0)).collect());
     assert!(matches!(
         fit_plane(&line, &[0, 1, 2, 3]),
-        Err(MvgError::Degenerate { .. })
+        Err(Error::Degenerate { .. })
     ));
     assert!(matches!(
         fit_plane(&line, &[0, 1]),
-        Err(MvgError::InvalidInput { .. })
+        Err(Error::InvalidInput { .. })
     ));
     assert!(error_text(fit_plane(&line, &[0, 1, 1])).contains("repeated"));
     assert!(error_text(fit_plane(&line, &[0, 1, 9])).contains("out of range"));
@@ -119,7 +119,7 @@ fn degenerate_and_invalid_inputs_are_typed_errors() {
     let coincident = tiny_set(vec![Pt3::new(0.0, 0.0, 1.0), Pt3::new(0.0, 0.0, 1.0)]);
     assert!(matches!(
         distance(&coincident, 0, 1),
-        Err(MvgError::Degenerate { .. })
+        Err(Error::Degenerate { .. })
     ));
 
     // Bad covariances.
@@ -134,7 +134,7 @@ fn degenerate_and_invalid_inputs_are_typed_errors() {
     assert!(PointSet::new(p, nan).is_err());
     assert!(matches!(
         PointSet::independent(vec![Pt3::origin()], &[]),
-        Err(MvgError::CountMismatch { .. })
+        Err(Error::CountMismatch { .. })
     ));
 }
 
@@ -401,10 +401,10 @@ fn a_straight_angle_is_degenerate() {
     let line = tiny_set((0..3).map(|i| Pt3::new(0.1 * i as f64, 0.0, 1.0)).collect());
     assert!(matches!(
         angle(&line, 0, 1, 2),
-        Err(MvgError::Degenerate { .. })
+        Err(Error::Degenerate { .. })
     ));
     assert!(matches!(
         angle(&line, 1, 0, 2),
-        Err(MvgError::Degenerate { .. })
+        Err(Error::Degenerate { .. })
     ));
 }
