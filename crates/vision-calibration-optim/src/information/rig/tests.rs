@@ -28,33 +28,33 @@ fn cameras() -> Vec<CameraParams> {
         },
     };
     vec![
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: brown_conrady(-0.08),
-            sensor: SensorParams::Identity,
-            intrinsics: FxFyCxCy {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            brown_conrady(-0.08),
+            SensorParams::Identity,
+            FxFyCxCy {
                 fx: 1000.0,
                 fy: 1000.0,
                 cx: 640.0,
                 cy: 480.0,
             },
-        },
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: brown_conrady(-0.05),
-            sensor: SensorParams::Scheimpflug {
+        ),
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            brown_conrady(-0.05),
+            SensorParams::Scheimpflug {
                 params: ScheimpflugParams {
                     tilt_x: 0.02,
                     tilt_y: -0.015,
                 },
             },
-            intrinsics: FxFyCxCy {
+            FxFyCxCy {
                 fx: 1100.0,
                 fy: 1095.0,
                 cx: 630.0,
                 cy: 490.0,
             },
-        },
+        ),
     ]
 }
 
@@ -117,17 +117,17 @@ fn camera_from(theta: &[f64], like: &CameraParams) -> CameraParams {
     let spec = like.spec().unwrap();
     let (proj, rest) = theta[4..].split_at(spec.projection.dim());
     let (dist, sensor) = rest.split_at(spec.distortion.dim());
-    CameraParams {
-        intrinsics: FxFyCxCy {
+    CameraParams::new(
+        ProjectionParams::from_values(spec.projection, proj).unwrap(),
+        DistortionParams::from_values(spec.distortion, dist).unwrap(),
+        SensorParams::from_values(spec.sensor, sensor).unwrap(),
+        FxFyCxCy {
             fx: theta[0],
             fy: theta[1],
             cx: theta[2],
             cy: theta[3],
         },
-        projection: ProjectionParams::from_values(spec.projection, proj).unwrap(),
-        distortion: DistortionParams::from_values(spec.distortion, dist).unwrap(),
-        sensor: SensorParams::from_values(spec.sensor, sensor).unwrap(),
-    }
+    )
 }
 
 /// `T · Exp(h eₖ)`: one tangent coordinate at a time is exactly the SE(3)

@@ -123,12 +123,12 @@ impl Scene {
     }
 
     fn initial(&self) -> HandeyeParams {
-        HandeyeParams {
-            cameras: vec![pinhole_camera_params(&self.camera)],
-            rig_se3_cam: vec![Iso3::identity()],
-            handeye: self.gripper_se3_cam,
-            target_poses: vec![self.base_se3_target],
-        }
+        HandeyeParams::new(
+            vec![pinhole_camera_params(&self.camera)],
+            vec![Iso3::identity()],
+            self.gripper_se3_cam,
+            vec![self.base_se3_target],
+        )
     }
 
     /// Gaussian pixel noise `px` and robot poses perturbed on every view by

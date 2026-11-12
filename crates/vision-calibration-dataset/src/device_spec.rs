@@ -202,14 +202,16 @@ pub struct LaserPlaneSpec {
 
 /// Loading/validation failures for [`DeviceSpec`].
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DeviceSpecError {
     /// The sidecar file could not be read.
     #[error("failed to read device spec: {0}")]
     Io(#[from] std::io::Error),
 
-    /// The sidecar file is not valid `DeviceSpec` JSON.
+    /// The sidecar file is not valid `DeviceSpec` JSON; the message is the
+    /// parser's own description, with the position when it has one.
     #[error("failed to parse device spec JSON: {0}")]
-    Json(#[from] serde_json::Error),
+    Json(String),
 
     /// The file declares a newer format version than this build supports.
     #[error("unsupported device-spec version {got} (max supported {max})")]
@@ -268,7 +270,8 @@ impl DeviceSpec {
     /// Load and validate a device spec from a JSON sidecar file.
     pub fn from_path(path: &Path) -> Result<Self, DeviceSpecError> {
         let raw = std::fs::read_to_string(path)?;
-        let spec: Self = serde_json::from_str(&raw)?;
+        let spec: Self =
+            serde_json::from_str(&raw).map_err(|e| DeviceSpecError::Json(e.to_string()))?;
         spec.validate()?;
         Ok(spec)
     }

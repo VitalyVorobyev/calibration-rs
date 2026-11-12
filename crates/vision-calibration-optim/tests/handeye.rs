@@ -161,12 +161,12 @@ fn eye_in_hand_calibration_converges() {
         .map(|(k, d)| pinhole_camera_params(&make_pinhole_camera(*k, *d)))
         .collect();
 
-    let initial = HandeyeParams {
-        cameras: cameras_init,
-        rig_se3_cam: vec![cam0_to_rig_init],
-        handeye: handeye_init,
-        target_poses: target_poses_init,
-    };
+    let initial = HandeyeParams::new(
+        cameras_init,
+        vec![cam0_to_rig_init],
+        handeye_init,
+        target_poses_init,
+    );
 
     // Solve options - fix camera 0 extrinsics for gauge freedom
     let opts = HandeyeSolveOptions {
@@ -484,18 +484,18 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
 
     let dataset = HandeyeDataset::new(views.clone(), 1, HandeyeMode::EyeInHand).unwrap();
     let num_views = dataset.num_views();
-    let init = HandeyeParams {
-        cameras: vec![pinhole_camera_params(&make_pinhole_camera(
+    let init = HandeyeParams::new(
+        vec![pinhole_camera_params(&make_pinhole_camera(
             intrinsics_gt,
             distortion_gt,
         ))],
-        rig_se3_cam: vec![rig_se3_cam_gt],
-        handeye: Isometry3::from_parts(
+        vec![rig_se3_cam_gt],
+        Isometry3::from_parts(
             Translation3::new(0.038, -0.021, 0.118),
             Rotation3::from_euler_angles(0.052, -0.028, 0.075).into(),
         ),
-        target_poses: vec![target_pose_gt],
-    };
+        vec![target_pose_gt],
+    );
 
     let base_opts = HandeyeSolveOptions {
         fix: vec![CameraFix::all(init.cameras[0].spec().unwrap())],

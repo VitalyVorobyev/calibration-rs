@@ -15,8 +15,8 @@ use crate::problems::planar_intrinsics::{
 };
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFix, CameraParams, CorrespondenceView, FxFyCxCy, PlanarDataset, Real, ScheimpflugParams,
-    SensorParams, View,
+    CameraFix, CorrespondenceView, FxFyCxCy, PlanarDataset, Real, ScheimpflugParams, SensorParams,
+    View,
 };
 
 /// Generous bounds centered on an intrinsics estimate: focals within
@@ -191,10 +191,10 @@ fn frozen_pp_opts(
 /// `initial` with its sensor tilt replaced.
 fn with_tilt(initial: &PlanarIntrinsicsParams, tilt: ScheimpflugParams) -> PlanarIntrinsicsParams {
     PlanarIntrinsicsParams {
-        camera: CameraParams {
-            sensor: SensorParams::Scheimpflug { params: tilt },
-            ..initial.camera.clone()
-        },
+        camera: initial
+            .camera
+            .clone()
+            .with_sensor(SensorParams::Scheimpflug { params: tilt }),
         cam_se3_target: initial.cam_se3_target.clone(),
     }
 }
@@ -334,7 +334,7 @@ mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
     use vision_calibration_core::{
-        BrownConrady5, Camera, CorrespondenceView, DistortionParams, Iso3, Pinhole,
+        BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionParams, Iso3, Pinhole,
         ProjectionParams, Pt2, Pt3, View,
     };
 
@@ -425,21 +425,21 @@ mod tests {
     /// The cold start of `staged_init_recovers_large_tilt_from_cold_start`.
     fn cold_start(poses: &[Iso3]) -> PlanarIntrinsicsParams {
         PlanarIntrinsicsParams::new(
-            CameraParams {
-                projection: ProjectionParams::Pinhole,
-                distortion: DistortionParams::BrownConrady5 {
+            CameraParams::new(
+                ProjectionParams::Pinhole,
+                DistortionParams::BrownConrady5 {
                     params: BrownConrady5::default(),
                 },
-                sensor: SensorParams::Scheimpflug {
+                SensorParams::Scheimpflug {
                     params: ScheimpflugParams::default(),
                 },
-                intrinsics: FxFyCxCy {
+                FxFyCxCy {
                     fx: 1150.0 * 1.05,
                     fy: 1155.0 * 1.05,
                     cx: 360.0,
                     cy: 270.0,
                 },
-            },
+            ),
             poses.to_vec(),
         )
         .unwrap()
@@ -539,9 +539,9 @@ mod tests {
         // Cold start: focal 5% off, principal point at a nominal center (not the
         // true off-center pp), zero distortion, and crucially tilt = 0.
         let initial = PlanarIntrinsicsParams::new(
-            CameraParams {
-                projection: ProjectionParams::Pinhole,
-                distortion: DistortionParams::BrownConrady5 {
+            CameraParams::new(
+                ProjectionParams::Pinhole,
+                DistortionParams::BrownConrady5 {
                     params: BrownConrady5 {
                         k1: 0.0,
                         k2: 0.0,
@@ -551,19 +551,19 @@ mod tests {
                         iters: 8,
                     },
                 },
-                sensor: SensorParams::Scheimpflug {
+                SensorParams::Scheimpflug {
                     params: ScheimpflugParams {
                         tilt_x: 0.0,
                         tilt_y: 0.0,
                     },
                 },
-                intrinsics: FxFyCxCy {
+                FxFyCxCy {
                     fx: 1150.0 * 1.05,
                     fy: 1155.0 * 1.05,
                     cx: 360.0,
                     cy: 270.0,
                 },
-            },
+            ),
             poses.clone(),
         )
         .unwrap();

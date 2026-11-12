@@ -483,13 +483,13 @@ fn optimize_tilted(
     for &k1_seed in &k1_seeds {
         // Sweep the leading barrel coefficient (k1 for BC5/Rational8/ThinPrism9,
         // lambda for Division1).
-        let seed_initial = PlanarIntrinsicsParams {
-            camera: CameraParams {
-                distortion: with_leading_radial(&initial.camera.distortion, k1_seed),
-                ..initial.camera.clone()
-            },
-            cam_se3_target: initial.cam_se3_target.clone(),
-        };
+        let seed_initial = PlanarIntrinsicsParams::new(
+            initial
+                .camera
+                .clone()
+                .with_distortion(with_leading_radial(&initial.camera.distortion, k1_seed)),
+            initial.cam_se3_target.clone(),
+        )?;
         // Sub-step A0: adapt poses to the seeded k1, holding k1 and intrinsics
         // fixed. Without this, the Gauss-Newton gradient in A1 is computed with
         // poses biased for k1=0, which can push k1 back toward zero even when

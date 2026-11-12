@@ -1061,17 +1061,17 @@ impl Solution {
         let projection = next(spec.projection.dim())?;
         let distortion = next(spec.distortion.dim())?;
         let sensor = next(spec.sensor.dim())?;
-        Some(CameraParams {
-            intrinsics: FxFyCxCy {
+        Some(CameraParams::new(
+            ProjectionParams::from_values(spec.projection, projection).ok()?,
+            DistortionParams::from_values(spec.distortion, distortion).ok()?,
+            SensorParams::from_values(spec.sensor, sensor).ok()?,
+            FxFyCxCy {
                 fx: intrinsics[0],
                 fy: intrinsics[1],
                 cx: intrinsics[2],
                 cy: intrinsics[3],
             },
-            projection: ProjectionParams::from_values(spec.projection, projection).ok()?,
-            distortion: DistortionParams::from_values(spec.distortion, distortion).ok()?,
-            sensor: SensorParams::from_values(spec.sensor, sensor).ok()?,
-        })
+        ))
     }
 }
 

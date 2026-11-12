@@ -11,10 +11,8 @@
 use numpy::{
     PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods,
 };
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use vision_calibration::common::calibrated_cameras;
 use vision_calibration::core::{
     CalibratedRig, CameraParams, FxFyCxCy, Iso3, PointCovariance, Pt2, Pt3, RobotFrame, RobotPose,
     Uncertainty,
@@ -42,9 +40,9 @@ use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::Use;
 
 use crate::control::PyRunControl;
+use crate::runtime_err;
 use crate::session::{parse_checked, parse_optional_checked, to_py};
 use crate::validation::value_err;
-use crate::{parse_payload, runtime_err};
 
 // ---------------------------------------------------------------------------
 // Boundary helpers
@@ -68,9 +66,7 @@ fn mvg_err(err: MvgError) -> PyErr {
 
 /// The calibrated rig a calibration result (an export payload) describes.
 fn rig_of(result: &Bound<'_, PyAny>) -> PyResult<CalibratedRig> {
-    let export: serde_json::Value = parse_payload(result, "result")?;
-    let cameras = calibrated_cameras(export)
-        .map_err(|err| PyTypeError::new_err(format!("invalid calibration result: {err}")))?;
+    let cameras = crate::parse_cameras(result, "result")?;
     cameras
         .calibrated_rig()
         .map_err(|err| value_err(err.to_string()))
@@ -245,14 +241,12 @@ struct RansacPayload {
 
 impl From<RansacPayload> for RansacOptions {
     fn from(p: RansacPayload) -> Self {
-        Self {
-            max_iters: p.max_iters,
-            thresh: p.thresh,
-            min_inliers: p.min_inliers,
-            confidence: p.confidence,
-            seed: p.seed,
-            refit_on_inliers: p.refit_on_inliers,
-        }
+        RansacOptions::new(p.thresh)
+            .with_max_iters(p.max_iters)
+            .with_min_inliers(p.min_inliers)
+            .with_confidence(p.confidence)
+            .with_seed(p.seed)
+            .with_refit_on_inliers(p.refit_on_inliers)
     }
 }
 
@@ -833,19 +827,18 @@ pub(crate) fn mvg_match_block<'py>(
     options: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyArray2<f32>>> {
     let p: BlockMatchPayload = parse_checked(options, "options")?;
-    let opts = BlockMatchOptions {
-        min_disparity: p.min_disparity,
-        num_disparities: p.num_disparities,
-        block_size: p.block_size,
-        min_correlation: p.min_correlation,
-        uniqueness_ratio: p.uniqueness_ratio,
-        lr_consistency: p.lr_consistency,
-        lr_max_diff: p.lr_max_diff,
-        subpixel: p.subpixel,
-        semi_global: p.semi_global,
-        sgm_p1: p.sgm_p1,
-        sgm_p2: p.sgm_p2,
-    };
+    let mut opts = BlockMatchOptions::default();
+    opts.min_disparity = p.min_disparity;
+    opts.num_disparities = p.num_disparities;
+    opts.block_size = p.block_size;
+    opts.min_correlation = p.min_correlation;
+    opts.uniqueness_ratio = p.uniqueness_ratio;
+    opts.lr_consistency = p.lr_consistency;
+    opts.lr_max_diff = p.lr_max_diff;
+    opts.subpixel = p.subpixel;
+    opts.semi_global = p.semi_global;
+    opts.sgm_p1 = p.sgm_p1;
+    opts.sgm_p2 = p.sgm_p2;
     let (l, r) = (gray_image(&left, "left")?, gray_image(&right, "right")?);
     let map = py.detach(|| match_block(&l, &r, &opts)).map_err(mvg_err)?;
     let shape = [map.height(), map.width()];

@@ -28,17 +28,17 @@
 //!     CameraParams, DistortionParams, FxFyCxCy, ProjectionParams, SensorParams,
 //! };
 //!
-//! let params = CameraParams {
-//!     projection: ProjectionParams::Pinhole,
-//!     distortion: DistortionParams::None,
-//!     sensor: SensorParams::Identity,
-//!     intrinsics: FxFyCxCy {
+//! let params = CameraParams::new(
+//!     ProjectionParams::Pinhole,
+//!     DistortionParams::None,
+//!     SensorParams::Identity,
+//!     FxFyCxCy {
 //!         fx: 800.0,
 //!         fy: 800.0,
 //!         cx: 640.0,
 //!         cy: 360.0,
 //!     },
-//! };
+//! );
 //! // `build` is fallible only for a `SensorParams::Homography` that is
 //! // not invertible; an identity sensor always succeeds.
 //! let cam = params.build()?;

@@ -543,11 +543,7 @@ pub(crate) fn optimize_rig<P: RigStages>(
         .map(|i| i == rig.reference_camera_idx)
         .collect();
 
-    let initial = RigExtrinsicsParams {
-        cameras,
-        rig_se3_cam: inverse_poses(cam_se3_rig),
-        rig_se3_target,
-    };
+    let initial = RigExtrinsicsParams::new(cameras, inverse_poses(cam_se3_rig), rig_se3_target);
     let solve_opts = RigExtrinsicsSolveOptions {
         robust_loss: rig.reprojection_loss,
         fix,

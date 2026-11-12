@@ -575,20 +575,17 @@ mod tests {
         let _ = View::<NoMeta>::without_meta; // silence unused import warning if any
         let dataset = RigDataset::new(views, 2).unwrap();
 
-        let output = RigExtrinsicsEstimate {
-            params: RigExtrinsicsParams {
-                cameras: vec![pinhole_camera_params(&cam0), pinhole_camera_params(&cam1)],
+        let output = RigExtrinsicsEstimate::new(
+            RigExtrinsicsParams::new(
+                vec![pinhole_camera_params(&cam0), pinhole_camera_params(&cam1)],
                 rig_se3_cam,
                 rig_se3_target,
-            },
-            uncertainty: Default::default(),
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
-            mean_reproj_error: 0.0,
-            per_cam_reproj_errors: vec![0.0, 0.0],
-        };
+            ),
+            Default::default(),
+            SolveReport::new(0.0, 0),
+            0.0,
+            vec![0.0, 0.0],
+        );
 
         let export =
             RigExtrinsicsProblem::export(&dataset, &output, &RigExtrinsicsConfig::default())
@@ -669,20 +666,17 @@ mod tests {
         };
         let dataset = RigDataset::new(vec![view], 2).unwrap();
 
-        let output = RigExtrinsicsEstimate {
-            params: RigExtrinsicsParams {
-                cameras: vec![pinhole_camera_params(&camera); 2],
+        let output = RigExtrinsicsEstimate::new(
+            RigExtrinsicsParams::new(
+                vec![pinhole_camera_params(&camera); 2],
                 rig_se3_cam,
                 rig_se3_target,
-            },
-            uncertainty: Default::default(),
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
-            mean_reproj_error: 0.0,
-            per_cam_reproj_errors: vec![0.0, 0.0],
-        };
+            ),
+            Default::default(),
+            SolveReport::new(0.0, 0),
+            0.0,
+            vec![0.0, 0.0],
+        );
         let export =
             RigExtrinsicsProblem::export(&dataset, &output, &RigExtrinsicsConfig::default())
                 .expect("export");
@@ -749,20 +743,17 @@ mod tests {
             },
         };
         let dataset = RigDataset::new(vec![view], 2).unwrap();
-        let output = RigExtrinsicsEstimate {
-            params: RigExtrinsicsParams {
-                cameras: vec![pinhole_camera_params(&camera); 2],
+        let output = RigExtrinsicsEstimate::new(
+            RigExtrinsicsParams::new(
+                vec![pinhole_camera_params(&camera); 2],
                 rig_se3_cam,
                 rig_se3_target,
-            },
-            uncertainty: Default::default(),
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
-            mean_reproj_error: 0.0,
-            per_cam_reproj_errors: vec![0.0, 0.0],
-        };
+            ),
+            Default::default(),
+            SolveReport::new(0.0, 0),
+            0.0,
+            vec![0.0, 0.0],
+        );
         RigExtrinsicsProblem::export(&dataset, &output, &RigExtrinsicsConfig::default())
             .expect("export")
     }

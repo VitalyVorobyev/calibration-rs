@@ -27,6 +27,7 @@ use crate::spec::{
 
 /// Errors raised while sniffing a dataset folder.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SniffError {
     /// The root path is not a readable directory.
     #[error("{0:?} is not a readable directory")]

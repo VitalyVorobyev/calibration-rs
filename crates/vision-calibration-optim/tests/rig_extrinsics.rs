@@ -165,11 +165,11 @@ fn stereo_rig_extrinsics_converges() {
         .map(|(k, d)| pinhole_camera_params(&make_pinhole_camera(*k, *d)))
         .collect::<Vec<_>>();
 
-    let initial = RigExtrinsicsParams {
-        cameras: cameras_init,
-        rig_se3_cam: vec![cam0_to_rig_init, cam1_to_rig_init],
-        rig_se3_target: rig_se3_target_init,
-    };
+    let initial = RigExtrinsicsParams::new(
+        cameras_init,
+        vec![cam0_to_rig_init, cam1_to_rig_init],
+        rig_se3_target_init,
+    );
 
     // Solve options - fix camera 0 extrinsics to remove gauge freedom
     let opts = RigExtrinsicsSolveOptions {
@@ -322,11 +322,8 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
     };
     for kind in DistortionKind::ALL {
         for sensor in [SensorParams::Identity, tilted.clone()] {
-            let camera = |sensor: SensorParams, k: FxFyCxCy<Real>| CameraParams {
-                projection: ProjectionParams::Pinhole,
-                distortion: distortion_of(kind),
-                sensor,
-                intrinsics: k,
+            let camera = |sensor: SensorParams, k: FxFyCxCy<Real>| {
+                CameraParams::new(ProjectionParams::Pinhole, distortion_of(kind), sensor, k)
             };
             let k = FxFyCxCy {
                 fx: 800.0,
@@ -385,20 +382,20 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                 cx: 644.0,
                 cy: 357.0,
             };
-            let initial = RigExtrinsicsParams {
-                cameras: vec![
+            let initial = RigExtrinsicsParams::new(
+                vec![
                     camera(SensorParams::Identity, k_init),
                     camera(sensor.clone(), k_init),
                 ],
-                rig_se3_cam: vec![
+                vec![
                     Isometry3::identity(),
                     Isometry3::from_parts(
                         Translation3::new(0.115, 0.012, 0.003),
                         Rotation3::from_euler_angles(0.004, 0.046, 0.018).into(),
                     ),
                 ],
-                rig_se3_target: rig_se3_target.clone(),
-            };
+                rig_se3_target.clone(),
+            );
             let opts = RigExtrinsicsSolveOptions {
                 fix_extrinsics: vec![true, false],
                 ..Default::default()

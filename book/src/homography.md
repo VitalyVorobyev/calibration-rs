@@ -81,11 +81,9 @@ use vision_calibration::mvg::solvers::dlt_homography;
 let H = dlt_homography(&world_2d, &image_2d)?;
 
 // With RANSAC
-let opts = RansacOptions {
-    max_iters: 1000,
-    confidence: 0.99,
-    ..RansacOptions::new(3.0)   // threshold in pixels (forward transfer error)
-};
+let opts = RansacOptions::new(3.0)   // threshold in pixels (forward transfer error)
+    .with_max_iters(1000)
+    .with_confidence(0.99);
 let (H, inliers) = dlt_homography_ransac(&world_2d, &image_2d, &opts)?;
 ```
 

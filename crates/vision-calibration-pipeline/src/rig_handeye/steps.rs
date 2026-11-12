@@ -475,12 +475,12 @@ pub fn step_handeye_optimize(
         vec![true; input.num_cameras]
     };
 
-    let initial = HandeyeParams {
+    let initial = HandeyeParams::new(
         cameras,
-        rig_se3_cam: inverse_poses(cam_se3_rig),
+        inverse_poses(cam_se3_rig),
         handeye,
-        target_poses: vec![mode_target_pose],
-    };
+        vec![mode_target_pose],
+    );
     let solve_opts = handeye_solve_opts(
         refine.reprojection_loss,
         fix,

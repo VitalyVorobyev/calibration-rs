@@ -57,6 +57,7 @@ use vision_calibration_optim::CameraJacobian;
 
 /// One point of a [`DenseCloud`].
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct DensePoint {
     /// The point in the **rig frame**, in the rig's length unit (metres for
     /// a calibration in metres).
@@ -81,6 +82,7 @@ pub struct DensePoint {
 /// [`metrology`](crate::metrology) through
 /// [`PointSet::from_dense_cloud`](crate::metrology::PointSet::from_dense_cloud).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DenseCloud {
     points: Vec<DensePoint>,
     sigma_d: Real,

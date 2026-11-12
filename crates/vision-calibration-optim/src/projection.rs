@@ -40,6 +40,7 @@ const PIXEL_TOLERANCE: f64 = 1e-9;
 /// of where the ray through the node projects.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct ProjectionUncertainty {
     /// `[width, height]` of the image, pixels.
     pub image_size: [u32; 2],
@@ -420,9 +421,9 @@ mod tests {
     };
 
     fn camera(sensor: SensorParams) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1: -0.1,
                     k2: 0.02,
@@ -433,13 +434,13 @@ mod tests {
                 },
             },
             sensor,
-            intrinsics: FxFyCxCy {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 810.0,
                 cx: 320.0,
                 cy: 240.0,
             },
-        }
+        )
     }
 
     fn covariance(labels: &[&str], variances: &[f64]) -> ParameterCovariance {
@@ -481,9 +482,9 @@ mod tests {
             },
             _ => SensorParams::Identity,
         };
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1: t(4),
                     k2: t(5),
@@ -494,13 +495,13 @@ mod tests {
                 },
             },
             sensor,
-            intrinsics: FxFyCxCy {
+            FxFyCxCy {
                 fx: t(0),
                 fy: t(1),
                 cx: t(2),
                 cy: t(3),
             },
-        }
+        )
     }
 
     /// Central differences of the core camera model's projection of `ray`.
@@ -532,17 +533,17 @@ mod tests {
     fn a_fisheye_ray_beyond_ninety_degrees_has_an_exact_jacobian() {
         use vision_calibration_core::DistortionKind;
         let kind = DistortionKind::KannalaBrandt4;
-        let params = CameraParams {
-            projection: ProjectionParams::Equidistant,
-            distortion: DistortionParams::from_values(kind, &[-0.02, 0.002, -0.0001, 0.0]).unwrap(),
-            sensor: SensorParams::Identity,
-            intrinsics: FxFyCxCy {
+        let params = CameraParams::new(
+            ProjectionParams::Equidistant,
+            DistortionParams::from_values(kind, &[-0.02, 0.002, -0.0001, 0.0]).unwrap(),
+            SensorParams::Identity,
+            FxFyCxCy {
                 fx: 300.0,
                 fy: 302.0,
                 cx: 640.0,
                 cy: 400.0,
             },
-        };
+        );
         let model = CameraVector::new(&params).unwrap();
         let built = params.build().unwrap();
         // About 107° off-axis.
@@ -555,16 +556,17 @@ mod tests {
 
         let theta = model.theta.clone();
         let project = |theta: &DVector<f64>| {
-            let camera = CameraParams {
-                distortion: DistortionParams::from_values(kind, &theta.as_slice()[4..]).unwrap(),
-                intrinsics: FxFyCxCy {
+            let camera = params
+                .clone()
+                .with_distortion(
+                    DistortionParams::from_values(kind, &theta.as_slice()[4..]).unwrap(),
+                )
+                .with_intrinsics(FxFyCxCy {
                     fx: theta[0],
                     fy: theta[1],
                     cx: theta[2],
                     cy: theta[3],
-                },
-                ..params.clone()
-            };
+                });
             let q = camera.build().unwrap().project_point_c(&ray).unwrap();
             Vector2::new(q.x, q.y)
         };
@@ -607,32 +609,33 @@ mod tests {
         for projection in ProjectionKind::ALL {
             for distortion in DistortionKind::ALL {
                 for sensor in SensorKind::ALL {
-                    let params = CameraParams {
-                        projection: ProjectionParams::from_values(projection, &[]).unwrap(),
-                        distortion: DistortionParams::from_values(
+                    let params = CameraParams::new(
+                        ProjectionParams::from_values(projection, &[]).unwrap(),
+                        DistortionParams::from_values(
                             distortion,
                             &values(distortion.param_names()),
                         )
                         .unwrap(),
-                        sensor: SensorParams::from_values(sensor, &values(sensor.param_names()))
-                            .unwrap(),
-                        intrinsics: FxFyCxCy {
+                        SensorParams::from_values(sensor, &values(sensor.param_names())).unwrap(),
+                        FxFyCxCy {
                             fx: 640.0,
                             fy: 650.0,
                             cx: 320.0,
                             cy: 240.0,
                         },
-                    };
-                    let rebuild = |blocks: &[Vec<f64>; 4]| CameraParams {
-                        projection: ProjectionParams::from_values(projection, &blocks[1]).unwrap(),
-                        distortion: DistortionParams::from_values(distortion, &blocks[2]).unwrap(),
-                        sensor: SensorParams::from_values(sensor, &blocks[3]).unwrap(),
-                        intrinsics: FxFyCxCy {
-                            fx: blocks[0][0],
-                            fy: blocks[0][1],
-                            cx: blocks[0][2],
-                            cy: blocks[0][3],
-                        },
+                    );
+                    let rebuild = |blocks: &[Vec<f64>; 4]| {
+                        CameraParams::new(
+                            ProjectionParams::from_values(projection, &blocks[1]).unwrap(),
+                            DistortionParams::from_values(distortion, &blocks[2]).unwrap(),
+                            SensorParams::from_values(sensor, &blocks[3]).unwrap(),
+                            FxFyCxCy {
+                                fx: blocks[0][0],
+                                fy: blocks[0][1],
+                                cx: blocks[0][2],
+                                cy: blocks[0][3],
+                            },
+                        )
                     };
                     let pixel_of = |camera: &CameraParams, p: &Vector3<f64>| {
                         let q = camera.build().unwrap().project_point_c(p).unwrap();

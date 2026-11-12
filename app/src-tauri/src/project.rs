@@ -373,7 +373,7 @@ fn write_report(
     use vision_calibration::dataset::DatasetSpec;
     use vision_calibration::dataset_runner::camera_image_sizes;
 
-    let Ok(cameras) = vision_calibration::common::calibrated_cameras(export.clone()) else {
+    let Ok(cameras) = vision_calibration::common::calibrated_cameras(&export.to_string()) else {
         return Ok(());
     };
     let spec = serde_json::from_value::<DatasetSpec>(manifest.clone()).ok();

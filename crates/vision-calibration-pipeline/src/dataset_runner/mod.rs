@@ -95,6 +95,7 @@ pub use view_filter::{RejectReason, RejectedDetection};
 
 /// Errors produced by the dataset-driven runner.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum RunError {
     /// Manifest failed structural validation. Wraps the underlying
     /// [`ValidationError`].
@@ -108,6 +109,16 @@ pub enum RunError {
     UnsupportedTopology {
         /// The offending topology.
         topology: ProblemKind,
+    },
+
+    /// A manifest option has a value this version does not support (one
+    /// that a newer manifest format added).
+    #[error("{option} {value} is not supported by this version")]
+    UnsupportedOption {
+        /// The manifest option.
+        option: &'static str,
+        /// Its value, as the manifest states it.
+        value: String,
     },
 
     /// Target type is not supported by any registered detector.
@@ -138,16 +149,15 @@ pub enum RunError {
         base: PathBuf,
     },
 
-    /// Glob crate refused to compile the user's pattern.
-    #[error("camera {camera_id:?}: invalid glob pattern {pattern:?} ({source})")]
+    /// A camera's image pattern is not a valid glob.
+    #[error("camera {camera_id:?}: invalid glob pattern {pattern:?} ({message})")]
     BadGlob {
         /// The offending camera id.
         camera_id: String,
         /// The pattern that failed to parse.
         pattern: String,
-        /// Underlying glob compile error.
-        #[source]
-        source: glob::PatternError,
+        /// Why the pattern is invalid.
+        message: String,
     },
 
     /// Cameras expanded to different image counts under `by_index`
@@ -200,13 +210,12 @@ pub enum RunError {
     Io(#[from] std::io::Error),
 
     /// Image decode failure.
-    #[error("decoding image {path}: {source}")]
+    #[error("decoding image {path}: {message}")]
     Decode {
         /// File that failed to decode.
         path: PathBuf,
-        /// Underlying error.
-        #[source]
-        source: image::ImageError,
+        /// What the decoder reported.
+        message: String,
     },
 
     /// A camera's images differ in size. One camera's intrinsics hold for
@@ -478,27 +487,46 @@ pub enum CovarianceFault {
 /// destructuring below is exhaustive on purpose: adding a knob to the
 /// manifest without wiring it through here is a compile error, not a silently
 /// ignored setting.
-fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
+fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> Result<ChessCornersConfig, RunError> {
     let ChessCornersDetectorSpec {
         strategy,
         threshold_value,
         min_corner_strength,
         covariance,
     } = spec;
-    ChessCornersConfig {
-        strategy: strategy.map(|s| match s {
-            CornerStrategySpec::Chess => CornerStrategy::Chess,
-            CornerStrategySpec::Radon => CornerStrategy::Radon,
-        }),
-        threshold_value,
-        min_corner_strength,
-        covariance: covariance.map(|CornerCovarianceSpec { image_noise }| CornerCovariance {
-            image_noise: match image_noise {
+    let unsupported =
+        |option: &'static str, value: String| RunError::UnsupportedOption { option, value };
+    let strategy = strategy
+        .map(|s| match s {
+            CornerStrategySpec::Chess => Ok(CornerStrategy::Chess),
+            CornerStrategySpec::Radon => Ok(CornerStrategy::Radon),
+            other => Err(unsupported(
+                "detector.chess_corners.strategy",
+                format!("{other:?}"),
+            )),
+        })
+        .transpose()?;
+    let covariance = covariance
+        .map(|CornerCovarianceSpec { image_noise }| {
+            let image_noise = match image_noise {
                 ImageNoiseSpec::Estimate => ImageNoise::Estimate,
                 ImageNoiseSpec::Stated(sigma) => ImageNoise::Stated(sigma),
-            },
-        }),
-    }
+                other => {
+                    return Err(unsupported(
+                        "detector.chess_corners.covariance.image_noise",
+                        format!("{other:?}"),
+                    ));
+                }
+            };
+            Ok(CornerCovariance { image_noise })
+        })
+        .transpose()?;
+    Ok(ChessCornersConfig {
+        strategy,
+        threshold_value,
+        min_corner_strength,
+        covariance,
+    })
 }
 
 fn target_to_detector_config(spec: &DatasetSpec) -> Result<DetectorConfig, RunError> {
@@ -544,6 +572,7 @@ fn detector_config(
     let chess_corners = detector
         .and_then(|d| d.chess_corners)
         .map(lower_chess_corners)
+        .transpose()?
         .filter(|c| *c != ChessCornersConfig::default());
     let refuse_chess_override = |name: &'static str| -> Result<(), RunError> {
         match chess_corners {
@@ -627,6 +656,9 @@ fn detector_config(
                 marker_ring_width_m: *marker_ring_width_m,
             }))
         }
+        other => Err(RunError::UnsupportedTarget {
+            kind: format!("{other:?}"),
+        }),
     }
 }
 
@@ -684,9 +716,9 @@ pub fn camera_image_sizes(spec: &DatasetSpec, base_dir: &Path) -> Result<Vec<[u3
             let mut first: Option<(&PathBuf, [u32; 2])> = None;
             for path in &images {
                 let (width, height) =
-                    image::image_dimensions(path).map_err(|source| RunError::Decode {
+                    image::image_dimensions(path).map_err(|e| RunError::Decode {
                         path: path.clone(),
-                        source,
+                        message: e.to_string(),
                     })?;
                 let size = [width, height];
                 match first {
@@ -743,7 +775,7 @@ fn expand_image_pattern(
             let entries = glob::glob(&resolved).map_err(|e| RunError::BadGlob {
                 camera_id: camera_id.to_string(),
                 pattern: pattern.clone(),
-                source: e,
+                message: e.to_string(),
             })?;
             let mut paths: Vec<PathBuf> = entries
                 .filter_map(|r| r.ok())
@@ -767,6 +799,10 @@ fn expand_image_pattern(
             }
             Ok(resolved)
         }
+        other => Err(RunError::UnsupportedOption {
+            option: "images",
+            value: format!("{other:?}"),
+        }),
     }
 }
 
@@ -825,6 +861,7 @@ fn pattern_repr(p: &ImagePattern) -> String {
     match p {
         ImagePattern::Glob { pattern } => pattern.clone(),
         ImagePattern::List { paths } => format!("<list of {} paths>", paths.len()),
+        other => format!("{other:?}"),
     }
 }
 
@@ -961,7 +998,7 @@ pub(crate) fn decode_gray(
 ) -> Result<image::GrayImage, RunError> {
     let img = image::load_from_memory(bytes).map_err(|e| RunError::Decode {
         path: image_path.to_path_buf(),
-        source: e,
+        message: e.to_string(),
     })?;
     let img = match roi {
         Some(roi) => {
@@ -1236,6 +1273,7 @@ mod tests {
                 covariance: Some(CornerCovarianceSpec::default()),
                 ..ChessCornersDetectorSpec::default()
             })
+            .unwrap()
             .covariance,
             Some(CornerCovariance {
                 image_noise: ImageNoise::Estimate
@@ -1243,7 +1281,7 @@ mod tests {
         );
         assert_eq!(
             lowered,
-            lower_chess_corners(spec.detector.unwrap().chess_corners.unwrap())
+            lower_chess_corners(spec.detector.unwrap().chess_corners.unwrap()).unwrap()
         );
     }
 

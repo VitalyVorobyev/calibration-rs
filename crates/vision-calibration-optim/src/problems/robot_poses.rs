@@ -59,11 +59,21 @@ const MAX_REWEIGHTS: usize = 10;
 /// error about each gripper axis and of its position error along each.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RobotPoseSigma {
     /// Orientation error, radians.
     pub rot_sigma: f64,
     /// Position error, metres.
     pub trans_sigma: f64,
+}
+impl RobotPoseSigma {
+    /// A [`RobotPoseSigma`] with the given fields.
+    pub fn new(rot_sigma: f64, trans_sigma: f64) -> Self {
+        Self {
+            rot_sigma,
+            trans_sigma,
+        }
+    }
 }
 
 impl RobotPoseSigma {
@@ -85,6 +95,7 @@ impl RobotPoseSigma {
 /// Absent from a result when the robot poses were taken as exact.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RobotRefinement {
     /// Per-view robot-pose corrections, one se(3) tangent
     /// `[rx, ry, rz, tx, ty, tz]` per view, in the gripper frame: the view's
@@ -93,6 +104,12 @@ pub struct RobotRefinement {
     /// The robot's pose error the corrections were weighed with: the
     /// configured one, or the estimate when it was estimated.
     pub sigma: RobotPoseSigma,
+}
+impl RobotRefinement {
+    /// A [`RobotRefinement`] with the given fields.
+    pub fn new(deltas: Vec<[f64; 6]>, sigma: RobotPoseSigma) -> Self {
+        Self { deltas, sigma }
+    }
 }
 
 /// How the robot-pose priors are weighed in one solve.

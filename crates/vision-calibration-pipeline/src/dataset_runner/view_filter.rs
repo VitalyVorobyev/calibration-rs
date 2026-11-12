@@ -93,6 +93,7 @@ impl LabelScope {
             | ProblemKind::RigHandeye
             | ProblemKind::RigLaserlineDevice
             | ProblemKind::RigHandeyeLaserline => Self::Fixed,
+            other => unreachable!("{other:?} has no converter in this version"),
         }
     }
 }
@@ -108,6 +109,7 @@ fn is_rig(topology: ProblemKind) -> bool {
         | ProblemKind::RigHandeye
         | ProblemKind::RigLaserlineDevice
         | ProblemKind::RigHandeyeLaserline => true,
+        other => unreachable!("{other:?} has no converter in this version"),
     }
 }
 

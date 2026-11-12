@@ -91,6 +91,7 @@ pub type LaserlineDataset = Vec<LaserlineView>;
 /// Initial values for laserline bundle adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct LaserlineParams {
     /// The camera, in its model: any distortion kind, and an identity or
     /// Scheimpflug sensor.
@@ -130,6 +131,7 @@ impl LaserlineParams {
 /// Result of laserline bundle adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct LaserlineEstimate {
     /// Refined bundle parameters.
     pub params: LaserlineParams,
@@ -142,10 +144,21 @@ pub struct LaserlineEstimate {
     #[serde(default)]
     pub uncertainty: Uncertainty,
 }
+impl LaserlineEstimate {
+    /// A [`LaserlineEstimate`] with the given fields.
+    pub fn new(params: LaserlineParams, report: SolveReport, uncertainty: Uncertainty) -> Self {
+        Self {
+            params,
+            report,
+            uncertainty,
+        }
+    }
+}
 
 /// Summary statistics for a laserline calibration result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct LaserlineStats {
     /// Mean reprojection error for calibration points (pixels).
     pub mean_reproj_error: f64,
@@ -156,11 +169,28 @@ pub struct LaserlineStats {
     /// Per-view mean laser residual (same units as `mean_laser_error`).
     pub per_view_laser_errors: Vec<f64>,
 }
+impl LaserlineStats {
+    /// A [`LaserlineStats`] with the given fields.
+    pub fn new(
+        mean_reproj_error: f64,
+        mean_laser_error: f64,
+        per_view_reproj_errors: Vec<f64>,
+        per_view_laser_errors: Vec<f64>,
+    ) -> Self {
+        Self {
+            mean_reproj_error,
+            mean_laser_error,
+            per_view_reproj_errors,
+            per_view_laser_errors,
+        }
+    }
+}
 
 /// Type of laser plane residual to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum LaserlineResidualType {
     /// Point-to-plane distance (original approach).
     ///
@@ -894,12 +924,12 @@ mod tests {
         distortion: BrownConrady5<Real>,
         sensor: SensorParams,
     ) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 { params: distortion },
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 { params: distortion },
             sensor,
             intrinsics,
-        }
+        )
     }
 
     fn tilt(sensor: ScheimpflugParams) -> SensorParams {

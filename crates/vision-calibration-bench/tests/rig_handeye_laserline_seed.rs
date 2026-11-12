@@ -216,13 +216,10 @@ fn a_seed_that_does_not_fit_is_invalid_input_before_any_solve() {
         (
             "robot_refinement.deltas",
             with_export(&|e| {
-                e.robot_refinement = Some(RobotRefinement {
-                    deltas: vec![[0.0; 6]],
-                    sigma: RobotPoseSigma {
-                        rot_sigma: 1.0e-3,
-                        trans_sigma: 1.0e-3,
-                    },
-                })
+                e.robot_refinement = Some(RobotRefinement::new(
+                    vec![[0.0; 6]],
+                    RobotPoseSigma::new(1.0e-3, 1.0e-3),
+                ))
             }),
         ),
         (

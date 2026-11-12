@@ -355,11 +355,13 @@ fn bootstrap_fisheye(
     if model.sensor != SensorKind::Identity {
         return Err(unsupported_sensor(model.sensor));
     }
-    let fisheye_camera = |intrinsics, k1, k2| CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: embed_coefficients(&[("k1", k1), ("k2", k2)], model.distortion),
-        sensor: SensorParams::Identity,
-        intrinsics,
+    let fisheye_camera = |intrinsics, k1, k2| {
+        CameraParams::new(
+            ProjectionParams::Equidistant,
+            embed_coefficients(&[("k1", k1), ("k2", k2)], model.distortion),
+            SensorParams::Identity,
+            intrinsics,
+        )
     };
     if let Some(intrinsics) = seed.intrinsics {
         let mut camera = fisheye_camera(intrinsics, 0.0, 0.0);
@@ -429,12 +431,12 @@ fn camera_params(
     tilt: Option<ScheimpflugParams>,
     model: CameraModelSpec,
 ) -> Result<CameraParams, Error> {
-    Ok(CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: embed_distortion(&camera.dist, model.distortion),
-        sensor: planar_sensor(model.sensor, tilt)?,
-        intrinsics: camera.k,
-    })
+    Ok(CameraParams::new(
+        ProjectionParams::Pinhole,
+        embed_distortion(&camera.dist, model.distortion),
+        planar_sensor(model.sensor, tilt)?,
+        camera.k,
+    ))
 }
 
 /// The seeded intrinsics (zero distortion), or Zhang's method; the caller

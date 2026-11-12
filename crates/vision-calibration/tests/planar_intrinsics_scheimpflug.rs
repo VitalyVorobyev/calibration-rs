@@ -329,9 +329,9 @@ fn tilt_seed_without_intrinsics_fits_the_intrinsics_at_the_seeded_tilt() {
         tilt_x: -0.20,
         tilt_y: 0.03,
     };
-    let truth = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 {
+    let truth = CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 {
             params: BrownConrady5 {
                 k1: -0.12,
                 k2: 0.04,
@@ -341,14 +341,14 @@ fn tilt_seed_without_intrinsics_fits_the_intrinsics_at_the_seeded_tilt() {
                 iters: 8,
             },
         },
-        sensor: SensorParams::Scheimpflug { params: gt_sensor },
-        intrinsics: FxFyCxCy {
+        SensorParams::Scheimpflug { params: gt_sensor },
+        FxFyCxCy {
             fx: 1000.0,
             fy: 990.0,
             cx: 640.0,
             cy: 480.0,
         },
-    };
+    );
     let (nx, ny, spacing, views) = (13, 9, 0.04, 20);
     let center = BoardExtent::from_grid(nx, ny, spacing).center();
     let board_poses = poses::tilted_board_poses(

@@ -119,6 +119,10 @@ pub(crate) fn pair_views(
                 .collect();
             Ok(PairedViews { paths, tokens })
         }
+        other => Err(RunError::UnsupportedOption {
+            option: "pairing",
+            value: format!("{other:?}"),
+        }),
     }
 }
 

@@ -80,6 +80,7 @@ impl Default for RectifyOptions {
 
 /// A match on the rectified pair: the left rectified pixel and its disparity.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RectifiedMatch {
     /// The pixel in the rectified left image.
     pub left: Pt2,
@@ -98,6 +99,7 @@ impl RectifiedMatch {
 /// set of intrinsics and an orientation whose x axis is the baseline, so
 /// matches lie on one row. Built by [`rectify`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct StereoRectification {
     cameras: [usize; 2],
     models: [CameraModel; 2],

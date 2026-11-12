@@ -54,6 +54,7 @@ impl Uncertainty {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum UncertaintyUnavailable {
     /// The solve stopped on its iteration budget, short of a minimum.
     NotConverged,
@@ -262,6 +263,7 @@ impl NoiseLevel {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ResidualKind {
     /// Target reprojection error, pixels.
     Reprojection,

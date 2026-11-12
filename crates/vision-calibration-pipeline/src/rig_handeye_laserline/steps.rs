@@ -273,11 +273,11 @@ fn joint_initial_from_exports(
 ) -> Result<RigHandeyeLaserlineParams, Error> {
     let handeye = *rig_export.handeye.handeye().pose();
     let target_ref = *rig_export.handeye.target_pose();
-    Ok(RigHandeyeLaserlineParams {
-        cameras: rig_export.cameras.clone(),
-        rig_se3_cam: inverse_poses(&rig_export.cam_se3_rig),
+    Ok(RigHandeyeLaserlineParams::new(
+        rig_export.cameras.clone(),
+        inverse_poses(&rig_export.cam_se3_rig),
         handeye,
         target_ref,
-        laser_planes_cam: laser_export.laser_planes_cam.clone(),
-    })
+        laser_export.laser_planes_cam.clone(),
+    ))
 }

@@ -320,6 +320,7 @@ fn loss_name(loss: RobustLoss) -> &'static str {
         RobustLoss::Huber { .. } => "huber",
         RobustLoss::Cauchy { .. } => "cauchy",
         RobustLoss::Arctan { .. } => "arctan",
+        _ => "other",
     }
 }
 
@@ -614,9 +615,9 @@ fn synth_camera(c: &CameraParams) -> Result<CameraModel> {
 /// A pinhole camera with Brown-Conrady `k1`, `k2` (the rest zero) and a
 /// straight sensor.
 fn pinhole(fx: f64, fy: f64, cx: f64, cy: f64, k1: f64, k2: f64) -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 {
+    CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 {
             params: BrownConrady5 {
                 k1,
                 k2,
@@ -626,17 +627,17 @@ fn pinhole(fx: f64, fy: f64, cx: f64, cy: f64, k1: f64, k2: f64) -> CameraParams
                 iters: 8,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy { fx, fy, cx, cy },
-    }
+        SensorParams::Identity,
+        FxFyCxCy { fx, fy, cx, cy },
+    )
 }
 
 /// A Kannala-Brandt fisheye camera: equidistant projection, `KannalaBrandt4`
 /// coefficients `k`, straight sensor.
 fn fisheye(fx: f64, fy: f64, cx: f64, cy: f64, k: [f64; 4]) -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: k[0],
                 k2: k[1],
@@ -645,9 +646,9 @@ fn fisheye(fx: f64, fy: f64, cx: f64, cy: f64, k: [f64; 4]) -> CameraParams {
                 iters: 8,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy { fx, fy, cx, cy },
-    }
+        SensorParams::Identity,
+        FxFyCxCy { fx, fy, cx, cy },
+    )
 }
 
 /// `KannalaBrandt4` coefficients of the fisheye scenes' cameras: a lens

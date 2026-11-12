@@ -83,17 +83,17 @@ fn truth(model: Model) -> CameraParams {
             },
         ),
     };
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
+    CameraParams::new(
+        ProjectionParams::Pinhole,
         distortion,
         sensor,
-        intrinsics: FxFyCxCy {
+        FxFyCxCy {
             fx: 1000.0,
             fy: 1000.0,
             cx: 640.0,
             cy: 480.0,
         },
-    }
+    )
 }
 
 /// A 9 × 7 board of 30 mm cells.

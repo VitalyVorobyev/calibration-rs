@@ -712,6 +712,10 @@ fn laser_paths_by_token(
             }
             Ok(map)
         }
+        other => Err(RunError::UnsupportedOption {
+            option: "pairing",
+            value: format!("{other:?}"),
+        }),
     }
 }
 
@@ -774,8 +778,7 @@ fn load_upstream_export(path: &Path) -> Result<RigHandeyeExport, RunError> {
         path: path.to_path_buf(),
         message: format!("not a rig hand-eye export: {e}"),
     };
-    let value = serde_json::from_str(&text).map_err(|e| not_an_export(&e))?;
-    read_export(value).map_err(|e| not_an_export(&e))
+    read_export(&text).map_err(|e| not_an_export(&e))
 }
 
 /// Per-view rig→target pose through the frozen hand-eye chain
@@ -1602,13 +1605,10 @@ mod tests {
         seed_rig_views(tmp.path(), &cache, 3);
         let spec = rig_laserline_spec(tmp.path(), 3);
         let mut upstream = upstream_export(2);
-        upstream.robot_refinement = Some(vision_calibration_optim::RobotRefinement {
-            deltas: vec![[0.0; 6], [0.0, 0.0, 0.0, 0.05, 0.0, 0.0], [0.0; 6]],
-            sigma: vision_calibration_optim::RobotPoseSigma {
-                rot_sigma: 1.0e-3,
-                trans_sigma: 1.0e-3,
-            },
-        });
+        upstream.robot_refinement = Some(vision_calibration_optim::RobotRefinement::new(
+            vec![[0.0; 6], [0.0, 0.0, 0.0, 0.05, 0.0, 0.0], [0.0; 6]],
+            vision_calibration_optim::RobotPoseSigma::new(1.0e-3, 1.0e-3),
+        ));
         std::fs::write(
             tmp.path().join("rig_handeye_export.json"),
             serde_json::to_string(&upstream).unwrap(),

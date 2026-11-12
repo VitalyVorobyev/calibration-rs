@@ -460,14 +460,14 @@ mod tests {
     };
 
     fn pinhole_params(k: K<f64>) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BC5::default(),
             },
-            sensor: SensorParams::Identity,
-            intrinsics: k,
-        }
+            SensorParams::Identity,
+            k,
+        )
     }
 
     /// Synthetic 2-camera pinhole rig: project a known 3D point through

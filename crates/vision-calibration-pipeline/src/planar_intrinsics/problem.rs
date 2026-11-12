@@ -460,9 +460,7 @@ mod tests {
             vision_calibration_optim::RobustLoss::Huber { scale } => {
                 assert!((scale - 2.5).abs() < 1e-12);
             }
-            vision_calibration_optim::RobustLoss::None
-            | vision_calibration_optim::RobustLoss::Cauchy { .. }
-            | vision_calibration_optim::RobustLoss::Arctan { .. } => {
+            _ => {
                 panic!(
                     "expected Huber loss after roundtrip, got {:?}",
                     restored.optimize.reprojection_loss
@@ -510,9 +508,7 @@ mod tests {
             vision_calibration_optim::RobustLoss::Cauchy { scale } => {
                 assert!((scale - 1.0).abs() < 1e-12);
             }
-            vision_calibration_optim::RobustLoss::None
-            | vision_calibration_optim::RobustLoss::Huber { .. }
-            | vision_calibration_optim::RobustLoss::Arctan { .. } => {
+            _ => {
                 panic!("expected Cauchy loss, got {:?}", opts.robust_loss);
             }
         }
@@ -557,15 +553,12 @@ mod tests {
             vec![vision_calibration_core::Iso3::identity()],
         )
         .expect("valid params");
-        let output = PlanarIntrinsicsEstimate {
+        let output = PlanarIntrinsicsEstimate::new(
             params,
-            report: SolveReport {
-                final_cost: 1.23e-3,
-                num_iters: 0,
-            },
-            mean_reproj_error: 0.42,
-            uncertainty: Default::default(),
-        };
+            SolveReport::new(1.23e-3, 0),
+            0.42,
+            Default::default(),
+        );
 
         let dummy_view = vision_calibration_core::View::without_meta(
             vision_calibration_core::CorrespondenceView::new(
@@ -649,15 +642,12 @@ mod tests {
 
         let params = PlanarIntrinsicsParams::from_pinhole(camera, vec![pose, pose, pose])
             .expect("valid params");
-        let output = PlanarIntrinsicsEstimate {
+        let output = PlanarIntrinsicsEstimate::new(
             params,
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
-            mean_reproj_error: 0.0,
-            uncertainty: Default::default(),
-        };
+            SolveReport::new(0.0, 0),
+            0.0,
+            Default::default(),
+        );
 
         let export =
             PlanarIntrinsicsProblem::export(&dataset, &output, &PlanarIntrinsicsConfig::default())
@@ -724,15 +714,12 @@ mod tests {
         let dataset = vision_calibration_core::PlanarDataset::new(vec![view]).unwrap();
         let params =
             PlanarIntrinsicsParams::from_pinhole(camera, vec![pose]).expect("valid params");
-        let output = PlanarIntrinsicsEstimate {
+        let output = PlanarIntrinsicsEstimate::new(
             params,
-            report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
-            mean_reproj_error: 0.0,
-            uncertainty: Default::default(),
-        };
+            SolveReport::new(0.0, 0),
+            0.0,
+            Default::default(),
+        );
         let export =
             PlanarIntrinsicsProblem::export(&dataset, &output, &PlanarIntrinsicsConfig::default())
                 .expect("export");

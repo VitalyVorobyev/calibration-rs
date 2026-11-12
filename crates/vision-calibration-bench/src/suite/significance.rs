@@ -92,7 +92,7 @@ impl<'a> Resolver<'a> {
     pub(super) fn new(export: &'a Value) -> Result<Self> {
         Ok(Self {
             export,
-            cameras: calibrated_cameras(export.clone())?,
+            cameras: calibrated_cameras(&export.to_string())?,
         })
     }
 

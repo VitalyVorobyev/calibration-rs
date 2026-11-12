@@ -63,12 +63,12 @@ fn truth_k() -> FxFyCxCy<Real> {
 
 /// A camera of `kind` with `sensor` and intrinsics `k`.
 fn camera(kind: DistortionKind, sensor: &SensorParams, k: FxFyCxCy<Real>) -> CameraParams {
-    CameraParams {
-        projection: vision_calibration_core::ProjectionParams::Pinhole,
-        distortion: distortion_of(kind),
-        sensor: sensor.clone(),
-        intrinsics: k,
-    }
+    CameraParams::new(
+        vision_calibration_core::ProjectionParams::Pinhole,
+        distortion_of(kind),
+        sensor.clone(),
+        k,
+    )
 }
 
 /// The start of every solve: intrinsics off by about 1 %.
@@ -199,15 +199,15 @@ fn handeye_solves_every_camera_model() {
                 })
                 .collect();
             let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
-            let initial = HandeyeParams {
-                cameras: vec![camera(kind, &sensor, perturbed_k())],
-                rig_se3_cam: vec![Iso3::identity()],
-                handeye: Isometry3::from_parts(
+            let initial = HandeyeParams::new(
+                vec![camera(kind, &sensor, perturbed_k())],
+                vec![Iso3::identity()],
+                Isometry3::from_parts(
                     Translation3::new(0.052, -0.028, 0.118),
                     Rotation3::from_euler_angles(0.104, -0.048, 0.197).into(),
                 ),
-                target_poses: vec![base_se3_target],
-            };
+                vec![base_se3_target],
+            );
             let opts = HandeyeSolveOptions {
                 fix_extrinsics: vec![true],
                 ..Default::default()
@@ -420,19 +420,19 @@ fn joint_rig_laserline_solves_every_camera_model() {
                 HandeyeMode::EyeInHand,
             )
             .unwrap();
-            let initial = RigHandeyeLaserlineParams {
-                cameras: vec![
+            let initial = RigHandeyeLaserlineParams::new(
+                vec![
                     scene.cameras[0].clone(),
                     camera(kind, &sensor, perturbed_k()),
                 ],
-                rig_se3_cam: scene.rig_se3_cam.to_vec(),
-                handeye: Isometry3::from_parts(
+                scene.rig_se3_cam.to_vec(),
+                Isometry3::from_parts(
                     Translation3::new(0.052, -0.028, 0.118),
                     Rotation3::from_euler_angles(0.104, -0.048, 0.197).into(),
                 ),
-                target_ref: base_se3_target,
-                laser_planes_cam: scene.planes_cam.iter().map(perturbed_plane).collect(),
-            };
+                base_se3_target,
+                scene.planes_cam.iter().map(perturbed_plane).collect(),
+            );
             let opts = RigHandeyeLaserlineSolveOptions {
                 fix_extrinsics: vec![true, true],
                 fix_planes: vec![false, false],

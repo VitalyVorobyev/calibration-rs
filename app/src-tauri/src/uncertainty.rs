@@ -11,7 +11,7 @@ use vision_calibration::common::{CalibratedCameras, calibrated_cameras};
 use vision_calibration::optim::ProjectionUncertainty;
 
 fn cameras(export: &serde_json::Value) -> Result<Box<dyn CalibratedCameras>, String> {
-    calibrated_cameras(export.clone()).map_err(|e| format!("export is unreadable: {e}"))
+    calibrated_cameras(&export.to_string()).map_err(|e| format!("export is unreadable: {e}"))
 }
 
 /// The value of each labelled parameter that is a camera parameter

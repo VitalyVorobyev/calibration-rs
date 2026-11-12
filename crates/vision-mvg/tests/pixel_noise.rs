@@ -71,9 +71,9 @@ fn pose(rx: f64, ry: f64, rz: f64, t: Vec3) -> Iso3 {
 
 /// A 300 px/rad equidistant fisheye with Kannala-Brandt distortion.
 fn fisheye() -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: 0.02,
                 k2: -0.002,
@@ -82,14 +82,14 @@ fn fisheye() -> CameraParams {
                 iters: 0,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 300.0,
             fy: 300.0,
             cx: 640.0,
             cy: 480.0,
         },
-    }
+    )
 }
 
 /// A pinhole of focal length `f` px with barrel distortion.
@@ -156,12 +156,10 @@ fn noisy_matches(
 }
 
 fn opts(thresh: f64, min_inliers: usize) -> RansacOptions {
-    RansacOptions {
-        max_iters: 3000,
-        min_inliers,
-        seed: 11,
-        ..RansacOptions::new(thresh)
-    }
+    RansacOptions::new(thresh)
+        .with_max_iters(3000)
+        .with_min_inliers(min_inliers)
+        .with_seed(11)
 }
 
 /// The RMS of the weighted error over the inliers of the estimated `E` is

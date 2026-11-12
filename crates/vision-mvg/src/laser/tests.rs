@@ -14,15 +14,12 @@ fn noise(sigma: f64) -> PointCovariance {
 
 /// A pinhole camera with Brown-Conrady distortion and a tilted sensor.
 fn scheimpflug_params() -> CameraParams {
-    CameraParams {
-        sensor: SensorParams::Scheimpflug {
-            params: ScheimpflugParams {
-                tilt_x: 0.04,
-                tilt_y: -0.03,
-            },
+    pinhole_params(-0.12).with_sensor(SensorParams::Scheimpflug {
+        params: ScheimpflugParams {
+            tilt_x: 0.04,
+            tilt_y: -0.03,
         },
-        ..pinhole_params(-0.12)
-    }
+    })
 }
 
 /// The flat parameter vector of a camera, in the order of `CameraJacobian::labels`.
@@ -36,17 +33,17 @@ fn with_theta(camera: &CameraParams, theta: &[f64]) -> CameraParams {
     let (i, rest) = theta.split_at(blocks[0].len());
     let (p, rest) = rest.split_at(blocks[1].len());
     let (d, s) = rest.split_at(blocks[2].len());
-    CameraParams {
-        projection: ProjectionParams::from_values(camera.projection.kind(), p).unwrap(),
-        distortion: DistortionParams::from_values(camera.distortion.kind(), d).unwrap(),
-        sensor: SensorParams::from_values(camera.sensor.kind().unwrap(), s).unwrap(),
-        intrinsics: vision_calibration_core::FxFyCxCy {
+    CameraParams::new(
+        ProjectionParams::from_values(camera.projection.kind(), p).unwrap(),
+        DistortionParams::from_values(camera.distortion.kind(), d).unwrap(),
+        SensorParams::from_values(camera.sensor.kind().unwrap(), s).unwrap(),
+        vision_calibration_core::FxFyCxCy {
             fx: i[0],
             fy: i[1],
             cx: i[2],
             cy: i[3],
         },
-    }
+    )
 }
 
 fn plane(n: [f64; 3], d: f64) -> LaserPlane {

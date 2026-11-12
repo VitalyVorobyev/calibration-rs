@@ -25,9 +25,9 @@ use vision_calibration_pipeline::{
 /// A frontal camera with real tangential distortion, so a linear fit of
 /// `p1`, `p2` is far from zero.
 fn truth() -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 {
+    CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 {
             params: BrownConrady5 {
                 k1: -0.2,
                 k2: 0.05,
@@ -36,14 +36,14 @@ fn truth() -> CameraParams {
                 ..BrownConrady5::default()
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 800.0,
             fy: 790.0,
             cx: 640.0,
             cy: 360.0,
         },
-    }
+    )
 }
 
 /// The default camera with `p1`, `p2` (and the default `k3`) held.

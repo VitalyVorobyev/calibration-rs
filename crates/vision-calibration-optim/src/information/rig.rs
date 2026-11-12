@@ -55,6 +55,7 @@ pub struct RigHandeyeGeometry<'a> {
 
 /// How a view's robot pose enters the calibration.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum RobotPose {
     /// The robot pose is taken as exact.
     Exact,
@@ -72,6 +73,7 @@ pub enum RobotPose {
 /// The information a view carries about labelled parameters, per unit
 /// pixel variance.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RigViewInformation {
     /// The parameters, labelled as a rig hand-eye covariance labels them:
     /// each camera's parameters (prefixed `cam<i>.` with more than one

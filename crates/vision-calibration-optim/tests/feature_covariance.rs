@@ -380,11 +380,11 @@ fn rig_study(runs: u64) -> Study {
         ),
     ];
     let rig_se3_target = board_poses();
-    let initial = RigExtrinsicsParams {
-        cameras: cameras.iter().map(pinhole_camera_params).collect(),
-        rig_se3_cam: rig_se3_cam.to_vec(),
-        rig_se3_target: rig_se3_target.clone(),
-    };
+    let initial = RigExtrinsicsParams::new(
+        cameras.iter().map(pinhole_camera_params).collect(),
+        rig_se3_cam.to_vec(),
+        rig_se3_target.clone(),
+    );
     let truth_cam1 = rig_se3_cam[1].inverse();
     let mut study = Study::default();
     for seed in 0..runs {

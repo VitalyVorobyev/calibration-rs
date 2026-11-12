@@ -244,9 +244,9 @@ fn truth() -> PlanarIntrinsicsParams {
         )
     });
     PlanarIntrinsicsParams::new(
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1: -0.08,
                     k2: 0.04,
@@ -256,19 +256,19 @@ fn truth() -> PlanarIntrinsicsParams {
                     iters: 8,
                 },
             },
-            sensor: SensorParams::Scheimpflug {
+            SensorParams::Scheimpflug {
                 params: ScheimpflugParams {
                     tilt_x: 0.05,
                     tilt_y: -0.02,
                 },
             },
-            intrinsics: FxFyCxCy {
+            FxFyCxCy {
                 fx: 1150.0,
                 fy: 1155.0,
                 cx: 372.0,
                 cy: 258.0,
             },
-        },
+        ),
         poses.to_vec(),
     )
     .unwrap()
@@ -474,11 +474,11 @@ fn rig_extrinsics_covariance_matches_monte_carlo() {
         ),
     ];
     let rig_se3_target = board_poses();
-    let initial = RigExtrinsicsParams {
-        cameras: cameras.iter().map(pinhole_camera_params).collect(),
-        rig_se3_cam: rig_se3_cam.to_vec(),
-        rig_se3_target: rig_se3_target.clone(),
-    };
+    let initial = RigExtrinsicsParams::new(
+        cameras.iter().map(pinhole_camera_params).collect(),
+        rig_se3_cam.to_vec(),
+        rig_se3_target.clone(),
+    );
 
     let mut mc = MonteCarlo::default();
     for seed in 0..RUNS {
@@ -570,12 +570,12 @@ impl EyeInHand {
     }
 
     fn initial(&self) -> HandeyeParams {
-        HandeyeParams {
-            cameras: vec![pinhole_camera_params(&self.camera)],
-            rig_se3_cam: vec![Iso3::identity()],
-            handeye: self.gripper_se3_cam,
-            target_poses: vec![self.base_se3_target],
-        }
+        HandeyeParams::new(
+            vec![pinhole_camera_params(&self.camera)],
+            vec![Iso3::identity()],
+            self.gripper_se3_cam,
+            vec![self.base_se3_target],
+        )
     }
 
     /// The dataset with pixel noise and the given (observed) robot poses.

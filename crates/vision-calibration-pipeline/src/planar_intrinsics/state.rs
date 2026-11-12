@@ -110,9 +110,9 @@ mod tests {
     }
 
     fn camera(sensor: SensorParams) -> CameraParams {
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
                 params: BrownConrady5 {
                     k1: -0.1,
                     k2: 0.05,
@@ -123,13 +123,13 @@ mod tests {
                 },
             },
             sensor,
-            intrinsics: FxFyCxCy {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 320.0,
                 cy: 240.0,
             },
-        }
+        )
     }
 
     #[test]

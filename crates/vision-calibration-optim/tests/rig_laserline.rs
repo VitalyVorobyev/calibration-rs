@@ -142,12 +142,12 @@ fn stereo_rig_laserline_recovers_planes() {
 
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();
 
-    let camera = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: dist },
-        sensor: SensorParams::Scheimpflug { params: sensor },
-        intrinsics: intr,
-    };
+    let camera = CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 { params: dist },
+        SensorParams::Scheimpflug { params: sensor },
+        intr,
+    );
     let upstream = RigLaserlineUpstream {
         cameras: vec![camera.clone(), camera],
         rig_se3_cam: rig_se3_cam.to_vec(),

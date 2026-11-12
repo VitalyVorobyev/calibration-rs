@@ -17,6 +17,7 @@ use vision_calibration_core::{CalibratedRig, Iso3, Mat3, Real, Vec3};
 
 /// Result of relative pose recovery.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct RelativePose {
     /// Pose of the first camera's frame in the second's (`second_se3_first`).
     ///
@@ -44,6 +45,7 @@ const PURE_ROTATION_PARALLAX_DEG: Real = 0.1;
 
 /// Diagnostics about a two-view scene configuration.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct SceneDiagnostics {
     /// Median parallax angle in degrees across triangulated points.
     pub median_parallax_deg: Real,

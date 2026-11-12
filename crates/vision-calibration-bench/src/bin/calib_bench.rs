@@ -1824,10 +1824,7 @@ mod tests {
             convergence: Convergence {
                 init_ok: true,
                 converged: true,
-                report: SolveReport {
-                    final_cost: 1.0,
-                    num_iters: 2,
-                },
+                report: SolveReport::new(1.0, 2),
             },
             fit: Fit {
                 overall: stats,

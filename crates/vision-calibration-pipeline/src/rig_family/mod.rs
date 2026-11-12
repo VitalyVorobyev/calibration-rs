@@ -276,12 +276,12 @@ pub(crate) fn tilted_planar_params(
     cam_se3_target: Vec<Iso3>,
 ) -> Result<PlanarIntrinsicsParams, Error> {
     Ok(PlanarIntrinsicsParams::new(
-        CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 { params: distortion },
-            sensor: SensorParams::Scheimpflug { params: sensor },
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 { params: distortion },
+            SensorParams::Scheimpflug { params: sensor },
             intrinsics,
-        },
+        ),
         cam_se3_target,
     )?)
 }

@@ -19,12 +19,12 @@ fn bc_camera(
     distortion: BrownConrady5<Real>,
     sensor: SensorParams,
 ) -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: distortion },
+    CameraParams::new(
+        ProjectionParams::Pinhole,
+        DistortionParams::BrownConrady5 { params: distortion },
         sensor,
         intrinsics,
-    }
+    )
 }
 
 #[test]

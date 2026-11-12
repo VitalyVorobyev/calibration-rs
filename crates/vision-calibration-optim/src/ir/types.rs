@@ -110,6 +110,7 @@ impl FixedMask {
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RobustLoss {
     /// No robustification (plain squared residual).
     #[default]

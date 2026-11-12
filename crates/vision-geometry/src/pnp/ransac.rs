@@ -142,14 +142,12 @@ mod tests {
             ));
         }
 
-        let opts = RansacOptions {
-            max_iters: 500,
-            thresh: 1.0,
-            min_inliers: inlier_count.saturating_sub(2),
-            confidence: 0.99,
-            seed: 77,
-            refit_on_inliers: true,
-        };
+        let opts = RansacOptions::new(1.0)
+            .with_max_iters(500)
+            .with_min_inliers(inlier_count.saturating_sub(2))
+            .with_confidence(0.99)
+            .with_seed(77)
+            .with_refit_on_inliers(true);
 
         let (est, inliers) = dlt_ransac(&world, &image, &k, &opts).unwrap();
 

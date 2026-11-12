@@ -28,6 +28,7 @@ use crate::{DetectorConfig, Feature};
 
 /// Errors raised by [`DetectionCache`] implementations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum CacheError {
     /// I/O failure inside the cache backend.
     #[error("cache I/O error: {0}")]

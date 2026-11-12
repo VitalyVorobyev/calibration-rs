@@ -474,12 +474,10 @@ impl DenseMatcher for BlockMatcher {
         right: &GrayBuffer,
         opts: &DenseMatchOptions,
     ) -> DisparityMap {
-        let mopts = mvgd::BlockMatchOptions {
-            min_disparity: opts.min_disparity,
-            num_disparities: opts.num_disparities,
-            block_size: opts.block_size,
-            ..Default::default()
-        };
+        let mut mopts = mvgd::BlockMatchOptions::default();
+        mopts.min_disparity = opts.min_disparity;
+        mopts.num_disparities = opts.num_disparities;
+        mopts.block_size = opts.block_size;
         let matched =
             mvgd::GrayImage::new(left.width, left.height, left.data.clone()).and_then(|l| {
                 let r = mvgd::GrayImage::new(right.width, right.height, right.data.clone())?;

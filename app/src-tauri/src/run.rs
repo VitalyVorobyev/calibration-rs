@@ -430,6 +430,10 @@ fn run_blocking(
             started,
             ctx,
         ),
+        other => RunResponse::Failed {
+            category: "unsupported_topology".into(),
+            message: format!("topology {other:?} is not supported by this version"),
+        },
     }
 }
 
@@ -1021,6 +1025,7 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::Validation(_) => "validation",
         RunError::UnsupportedTopology { .. } => "unsupported_topology",
         RunError::UnsupportedTarget { .. } => "unsupported_target",
+        RunError::UnsupportedOption { .. } => "unsupported_option",
         RunError::InvalidTargetConfig { .. } | RunError::CovarianceUnsupported { .. } => {
             "invalid_target_config"
         }
@@ -1046,6 +1051,7 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::InsufficientLaserViews { .. } => "insufficient_views",
         RunError::UpstreamCalibration { .. } => "upstream_calibration",
         RunError::Cancelled => "cancelled",
+        _ => "unknown",
     }
 }
 

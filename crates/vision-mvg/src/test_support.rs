@@ -43,9 +43,9 @@ pub(crate) fn pinhole_rig(k1: f64) -> CalibratedRig {
 
 /// A 300 px/rad equidistant fisheye with Kannala–Brandt distortion.
 pub(crate) fn fisheye_params() -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Equidistant,
-        distortion: DistortionParams::KannalaBrandt4 {
+    CameraParams::new(
+        ProjectionParams::Equidistant,
+        DistortionParams::KannalaBrandt4 {
             params: KannalaBrandt4 {
                 k1: 0.02,
                 k2: -0.002,
@@ -54,14 +54,14 @@ pub(crate) fn fisheye_params() -> CameraParams {
                 iters: 0,
             },
         },
-        sensor: SensorParams::Identity,
-        intrinsics: FxFyCxCy {
+        SensorParams::Identity,
+        FxFyCxCy {
             fx: 300.0,
             fy: 300.0,
             cx: 640.0,
             cy: 480.0,
         },
-    }
+    )
 }
 
 /// The pixel where camera `camera` of `rig` sees the camera-frame point `p`.

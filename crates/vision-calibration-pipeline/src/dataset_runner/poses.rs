@@ -61,6 +61,7 @@ pub(crate) fn load_robot_poses(
         }
         RobotPoseFormat::Counted4x4 => return parse_counted_matrices(&text, convention, &path),
         RobotPoseFormat::Csv | RobotPoseFormat::Json | RobotPoseFormat::Jsonl => {}
+        other => return Err(unsupported_pose_format(other)),
     }
 
     // The matrix-field shape (one nested 4×4 array per row) doesn't
@@ -97,6 +98,7 @@ pub(crate) fn load_robot_poses(
         RobotPoseFormat::Rowmajor4x4 | RobotPoseFormat::Counted4x4 => {
             unreachable!("handled by the early return above")
         }
+        other => return Err(unsupported_pose_format(other)),
     };
 
     rows.iter()
@@ -131,6 +133,14 @@ fn json_values(format: RobotPoseFormat, text: &str, path: &Path) -> Result<Vec<V
         RobotPoseFormat::Csv | RobotPoseFormat::Rowmajor4x4 | RobotPoseFormat::Counted4x4 => {
             unreachable!("json_values is only called for json/jsonl formats")
         }
+        other => Err(unsupported_pose_format(other)),
+    }
+}
+
+fn unsupported_pose_format(format: RobotPoseFormat) -> RunError {
+    RunError::UnsupportedOption {
+        option: "robot_poses.format",
+        value: format!("{format:?}"),
     }
 }
 
@@ -308,6 +318,12 @@ fn parse_pose_row(
     let scale = match convention.translation_units {
         TranslationUnits::M => 1.0,
         TranslationUnits::Mm => 1e-3,
+        other => {
+            return Err(RunError::UnsupportedOption {
+                option: "robot_poses.convention.translation_units",
+                value: format!("{other:?}"),
+            });
+        }
     };
     let translation = Vector3::new(
         get_f64(&columns.tx)? * scale,
@@ -321,6 +337,12 @@ fn parse_pose_row(
         // the base (see module docs).
         TransformConvention::TBaseTcp | TransformConvention::TWorldTcp => pose,
         TransformConvention::TTcpBase | TransformConvention::TTcpWorld => pose.inverse(),
+        other => {
+            return Err(RunError::UnsupportedOption {
+                option: "robot_poses.convention.transform",
+                value: format!("{other:?}"),
+            });
+        }
     };
 
     Ok(ParsedPose {
@@ -417,6 +439,10 @@ pub(crate) fn match_poses_to_tokens(
                 })
                 .collect()
         }
+        other => Err(RunError::UnsupportedOption {
+            option: "pairing",
+            value: format!("{other:?}"),
+        }),
     }
 }
 
@@ -523,6 +549,12 @@ fn pose_from_matrix_values(
     let scale = match convention.translation_units {
         TranslationUnits::M => 1.0,
         TranslationUnits::Mm => 1e-3,
+        other => {
+            return Err(RunError::UnsupportedOption {
+                option: "pose_convention.translation_units",
+                value: format!("{other:?}"),
+            });
+        }
     };
     let translation = Vector3::new(values[3] * scale, values[7] * scale, values[11] * scale);
 
@@ -530,6 +562,12 @@ fn pose_from_matrix_values(
     let base_se3_gripper = match convention.transform {
         TransformConvention::TBaseTcp | TransformConvention::TWorldTcp => pose,
         TransformConvention::TTcpBase | TransformConvention::TTcpWorld => pose.inverse(),
+        other => {
+            return Err(RunError::UnsupportedOption {
+                option: "pose_convention.transform",
+                value: format!("{other:?}"),
+            });
+        }
     };
 
     Ok(ParsedPose {
@@ -647,6 +685,9 @@ fn rotation_from_values(
                 &Rotation3::from_matrix_unchecked(r),
             ))
         }
+        other => Err(format!(
+            "rotation format {other:?} is not supported by this version"
+        )),
     }
 }
 

@@ -74,6 +74,7 @@ pub(crate) fn run_error_kind(err: &RustRunError) -> &'static str {
         RustRunError::Validation(_) => "validation",
         RustRunError::UnsupportedTopology { .. } => "unsupported_topology",
         RustRunError::UnsupportedTarget { .. } => "unsupported_target",
+        RustRunError::UnsupportedOption { .. } => "unsupported_option",
         RustRunError::InvalidTargetConfig { .. } => "invalid_target_config",
         RustRunError::EmptyImageMatch { .. } => "empty_image_match",
         RustRunError::BadGlob { .. } => "bad_glob",
@@ -98,6 +99,7 @@ pub(crate) fn run_error_kind(err: &RustRunError) -> &'static str {
         RustRunError::InsufficientLaserViews { .. } => "insufficient_laser_views",
         RustRunError::UpstreamCalibration { .. } => "upstream_calibration",
         RustRunError::Cancelled => "cancelled",
+        _ => "unknown",
     }
 }
 
@@ -135,6 +137,7 @@ pub(crate) fn sniff_err(py: Python<'_>, err: RustSniffError) -> PyErr {
         RustSniffError::NotADirectory(_) => "not_a_directory",
         RustSniffError::NoCameras(_) => "no_cameras",
         RustSniffError::Io { .. } => "io",
+        _ => "unknown",
     };
     let exc = SniffError::new_err(err.to_string());
     match exc.value(py).setattr("kind", kind) {

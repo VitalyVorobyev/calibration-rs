@@ -74,6 +74,7 @@ pub struct ImageManifest {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum FrameKind {
     /// Image of the calibration target (chessboard / ChArUco / …).
     #[default]

@@ -529,6 +529,11 @@ fn observability(uncertainty: &Uncertainty) -> QualityCheck {
                 None,
                 "the result depends on a calibration without covariance",
             ),
+            _ => QualityCheck::not_applicable(
+                kind,
+                None,
+                "the result has no covariance, for a reason this version does not assess",
+            ),
         },
     }
 }
@@ -995,6 +1000,7 @@ fn no_covariance(uncertainty: &Uncertainty) -> String {
         UncertaintyUnavailable::CalibrationWithoutCovariance => {
             "the calibration it depends on has none"
         }
+        _ => "of a reason this version does not describe",
     };
     format!("the result has no parameter covariance: {why}")
 }

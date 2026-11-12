@@ -34,6 +34,7 @@ mod handeye;
 pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use diagnostics::ExportDiagnostics;
+pub(crate) use export_version::read_export_value;
 pub(crate) use export_version::read_schema_version;
 pub use export_version::{VersionedExport, check_export_version, read_export};
 pub use handeye::HandeyeSolution;

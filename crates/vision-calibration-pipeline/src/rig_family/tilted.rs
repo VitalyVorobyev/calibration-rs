@@ -178,20 +178,20 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
         };
         // Each linear seed starts from zero distortion in the camera's model.
         let params = PlanarIntrinsicsParams::new(
-            CameraParams {
-                distortion: embed_distortion(
+            initial
+                .camera
+                .clone()
+                .with_distortion(embed_distortion(
                     &BrownConrady5 {
                         iters: 8,
                         ..BrownConrady5::default()
                     },
                     distortion_kind,
-                ),
-                sensor: SensorParams::Scheimpflug {
+                ))
+                .with_sensor(SensorParams::Scheimpflug {
                     params: init.sensor,
-                },
-                intrinsics: init.camera.k,
-                ..initial.camera.clone()
-            },
+                })
+                .with_intrinsics(init.camera.k),
             init.poses,
         )?;
         if !seeds.iter().any(|(s, _)| {
@@ -617,11 +617,8 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
         .map(|c| c.spec().map(CameraFix::all))
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| Error::invalid_input("a rig camera has a general homography sensor"))?;
-    let initial = RigExtrinsicsParams {
-        cameras: rig_cameras,
-        rig_se3_cam,
-        rig_se3_target: context.rig_se3_target.clone(),
-    };
+    let initial =
+        RigExtrinsicsParams::new(rig_cameras, rig_se3_cam, context.rig_se3_target.clone());
     let solve_opts = RigExtrinsicsSolveOptions {
         robust_loss: item.solve_opts.robust_loss,
         fix,
@@ -658,13 +655,12 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
         poses.push(cam_from_rig * result.params.rig_se3_target[global_idx]);
     }
     let params = PlanarIntrinsicsParams::new(camera.clone(), poses)?;
-    Ok(Some(PlanarIntrinsicsEstimate {
+    Ok(Some(PlanarIntrinsicsEstimate::new(
         params,
-        report: result.report,
-        mean_reproj_error: mean,
-        // Derived from the rig solve, not solved on its own.
-        uncertainty: Uncertainty::default(),
-    }))
+        result.report,
+        mean,
+        Uncertainty::default(),
+    )))
 }
 
 fn bad_camera_only_scheimpflug_rig_dataset(
@@ -859,15 +855,12 @@ fn nominal_tight_refine_solve_opts(
 }
 
 fn scheimpflug_estimate_from_scored_seed(seed: ScoredScheimpflugSeed) -> PlanarIntrinsicsEstimate {
-    PlanarIntrinsicsEstimate {
-        params: seed.params,
-        report: SolveReport {
-            final_cost: seed.score * seed.score,
-            num_iters: 0,
-        },
-        mean_reproj_error: seed.score,
-        uncertainty: Uncertainty::default(),
-    }
+    PlanarIntrinsicsEstimate::new(
+        seed.params,
+        SolveReport::new(seed.score * seed.score, 0),
+        seed.score,
+        Uncertainty::default(),
+    )
 }
 
 fn mean_scheimpflug_reproj(dataset: &PlanarDataset, params: &PlanarIntrinsicsParams) -> f64 {

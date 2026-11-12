@@ -148,6 +148,7 @@ impl RigHandeyeLaserlineDataset {
 
 /// Initial / refined parameters for joint rig + hand-eye + laser BA.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeLaserlineParams {
     /// Per-camera camera parameters, each in its own model.
     pub cameras: Vec<CameraParams>,
@@ -165,6 +166,24 @@ pub struct RigHandeyeLaserlineParams {
     pub target_ref: Iso3,
     /// Per-camera laser plane expressed in camera frame.
     pub laser_planes_cam: Vec<LaserPlane>,
+}
+impl RigHandeyeLaserlineParams {
+    /// A [`RigHandeyeLaserlineParams`] with the given fields.
+    pub fn new(
+        cameras: Vec<CameraParams>,
+        rig_se3_cam: Vec<Iso3>,
+        handeye: Iso3,
+        target_ref: Iso3,
+        laser_planes_cam: Vec<LaserPlane>,
+    ) -> Self {
+        Self {
+            cameras,
+            rig_se3_cam,
+            handeye,
+            target_ref,
+            laser_planes_cam,
+        }
+    }
 }
 
 /// Solve options for joint rig + hand-eye + laser BA.
@@ -244,6 +263,7 @@ impl Default for RigHandeyeLaserlineSolveOptions {
 /// Per-camera statistics for [`RigHandeyeLaserlineEstimate`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RigHandeyeLaserlinePerCamStats {
     /// Mean target-corner reprojection error (pixels).
     pub mean_reproj_error: f64,
@@ -270,6 +290,7 @@ pub struct RigHandeyeLaserlinePerCamStats {
 
 /// Result of joint rig + hand-eye + laser BA.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeLaserlineEstimate {
     /// Refined parameters.
     pub params: RigHandeyeLaserlineParams,
@@ -935,12 +956,12 @@ mod tests {
             tilt_x: 0.05,
             tilt_y: 0.0,
         };
-        let cam_gt = CameraParams {
-            projection: ProjectionParams::Pinhole,
-            distortion: DistortionParams::BrownConrady5 { params: dist_gt },
-            sensor: SensorParams::Scheimpflug { params: sensor_gt },
-            intrinsics: intr_gt,
-        };
+        let cam_gt = CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 { params: dist_gt },
+            SensorParams::Scheimpflug { params: sensor_gt },
+            intr_gt,
+        );
 
         // rig_se3_cam = T_R_C (forward takes cam→rig coordinates).
         let rig_se3_cam_gt = vec![

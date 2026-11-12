@@ -391,13 +391,13 @@ fn main() -> Result<()> {
         let handeye = *rig_export.handeye.handeye().pose();
         let target_ref = *rig_export.handeye.target_pose();
         let rig_se3_cam: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
-        let joint_initial = RigHandeyeLaserlineParams {
-            cameras: rig_export.cameras.clone(),
+        let joint_initial = RigHandeyeLaserlineParams::new(
+            rig_export.cameras.clone(),
             rig_se3_cam,
             handeye,
             target_ref,
-            laser_planes_cam: laser_export.laser_planes_cam.clone(),
-        };
+            laser_export.laser_planes_cam.clone(),
+        );
         let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|r| r.deltas.clone());
         let (joint_initial_mean, _) = evaluate_rig_handeye_laserline(
             &joint_dataset,
