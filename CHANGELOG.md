@@ -509,6 +509,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `calibrate_dataset` asks for a manifest's missing `pose_pairing`
+  (`RunError::AskUser`) before it reads any image; it used to report the
+  first unreadable image instead.
 - A hand-eye session whose `handeye_mode` was changed after solving exported
   its result in the new mode: the export took the mode from the current
   config, which a config change does not clear. The export now reads the
