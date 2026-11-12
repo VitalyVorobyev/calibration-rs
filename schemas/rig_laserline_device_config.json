@@ -1,0 +1,175 @@
+{
+  "$defs": {
+    "LaserlineResidualType": {
+      "description": "Type of laser plane residual to use.",
+      "oneOf": [
+        {
+          "const": "point_to_plane",
+          "description": "Point-to-plane distance (original approach).\n\nUndistorts pixel, back-projects to 3D ray, intersects with target plane,\ncomputes 3D point in camera frame, measures signed distance to laser plane.\nResidual: 1D distance in meters.",
+          "type": "string"
+        },
+        {
+          "const": "line_dist_normalized",
+          "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "PlaneOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The laser-plane refinement of a rig laserline calibration\n(`step_optimize`): each camera's plane fitted to its laser pixels, the\ncameras and the target poses held at the upstream calibration. The\ntarget corners only place the target; with everything they constrain\nheld, they have no loss or weight here.",
+      "properties": {
+        "laser_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the laser residuals, its scale in the residual's unit:\npixels for the line distance, meters for point-to-plane. Default\nHuber at 1, a pixel for the line distance; for point-to-plane a\nscale of 1 m is plain least squares in effect, so state one in\nmeters to robustify it."
+        },
+        "laser_residual_type": {
+          "$ref": "#/$defs/LaserlineResidualType",
+          "description": "The laser residual: the line distance in pixels (the default) or the\npoint-to-plane distance in meters."
+        }
+      },
+      "required": [
+        "laser_residual_type",
+        "laser_loss"
+      ],
+      "type": "object"
+    },
+    "RobustLoss": {
+      "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
+      "oneOf": [
+        {
+          "description": "No robustification (plain squared residual).",
+          "properties": {
+            "kind": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Huber loss: quadratic up to `‖r‖ = scale`, linear beyond.",
+          "properties": {
+            "kind": {
+              "const": "huber",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Transition residual norm, in residual units (pixels for\nreprojection).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "scale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cauchy loss: logarithmic growth, influence decreasing beyond\n`‖r‖ ≈ scale`.",
+          "properties": {
+            "kind": {
+              "const": "cauchy",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Residual norm where down-weighting sets in, in residual units.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "scale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Arctangent loss: bounded, influence vanishing for large residuals.",
+          "properties": {
+            "kind": {
+              "const": "arctan",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Transition in squared-residual units: down-weighting sets in near\n`‖r‖ ≈ √scale`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "scale"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SolverBackend": {
+      "description": "Which engine linearizes the problem.\n\nBoth run the same Levenberg–Marquardt loop over the same residual\nkernels and reach the same minimizer; they differ in how they build the\nJacobian and how they fold in a robust loss.",
+      "oneOf": [
+        {
+          "const": "tiny_solver",
+          "description": "`tiny-solver`: dynamic-size forward-mode dual numbers; a robust loss\nenters through the Triggs correction (second-order exact).",
+          "type": "string"
+        },
+        {
+          "const": "factrs",
+          "description": "`factrs`: static-size forward-mode dual numbers; a robust loss enters\nthrough iterative reweighting (each block scaled by `√ρ′`).",
+          "type": "string"
+        }
+      ]
+    },
+    "SolverConfig": {
+      "additionalProperties": false,
+      "description": "The solver engine: iteration budget, verbosity and backend, shared by\nevery problem's non-linear stages.\n\nIt holds engine settings only. What a stage minimizes — its robust losses\nand weights — belongs to the stage's own group (`optimize`,\n`intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named\nby the residual family it applies to (`reprojection_loss`,\n`laser_loss`).\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "properties": {
+        "backend": {
+          "$ref": "#/$defs/SolverBackend",
+          "default": "tiny_solver",
+          "description": "Engine that linearizes the problem for the Levenberg–Marquardt loop.\nBoth reach the same minimizer; see [`SolverBackend`]."
+        },
+        "max_iters": {
+          "description": "Maximum iterations for the non-linear optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Configuration for rig laserline calibration.\n\nGrouped by stage. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (three parameters per camera), so iterations are nearly\nfree.",
+  "properties": {
+    "optimize": {
+      "$ref": "#/$defs/PlaneOptimizeConfig",
+      "description": "Laser-plane refinement stage settings (`step_optimize`)."
+    },
+    "solver": {
+      "$ref": "#/$defs/SolverConfig",
+      "description": "Solver engine settings."
+    }
+  },
+  "required": [
+    "optimize",
+    "solver"
+  ],
+  "title": "RigLaserlineDeviceConfig",
+  "type": "object"
+}

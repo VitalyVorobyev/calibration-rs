@@ -15,7 +15,7 @@ use vision_calibration_optim::{
 };
 
 use crate::common::config::{CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig};
-use crate::common::{ExportDiagnostics, ProblemKind};
+use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
@@ -186,6 +186,11 @@ impl PlanarIntrinsicsConfig {
 pub struct PlanarIntrinsicsExport {
     /// Export-type discriminator — always [`ProblemKind::PlanarIntrinsics`].
     pub kind: ProblemKind,
+
+    /// Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+    /// Reading an export of another version is an error.
+    #[serde(deserialize_with = "read_schema_version::<_, PlanarIntrinsicsExport>")]
+    pub schema_version: u32,
     /// The calibrated camera, in its model; `camera.sensor` states whether a
     /// tilted sensor was calibrated.
     pub camera: CameraParams,
@@ -208,6 +213,10 @@ pub struct PlanarIntrinsicsExport {
     /// imply.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+
+impl VersionedExport for PlanarIntrinsicsExport {
+    const SCHEMA_VERSION: u32 = 1;
 }
 
 impl ProblemState for PlanarIntrinsicsProblem {
@@ -286,6 +295,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
         Ok(PlanarIntrinsicsExport {
             kind: ProblemKind::PlanarIntrinsics,
+            schema_version: PlanarIntrinsicsExport::SCHEMA_VERSION,
             camera: output.params.camera.clone(),
             cam_se3_target: output.params.cam_se3_target.clone(),
             mean_reproj_error: output.mean_reproj_error,
@@ -774,6 +784,7 @@ mod tests {
         .expect("valid params");
         let mut export = PlanarIntrinsicsExport {
             kind: ProblemKind::PlanarIntrinsics,
+            schema_version: PlanarIntrinsicsExport::SCHEMA_VERSION,
             camera: params.camera,
             cam_se3_target: params.cam_se3_target,
             mean_reproj_error: 0.0,

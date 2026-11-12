@@ -1,0 +1,830 @@
+{
+  "$defs": {
+    "CameraSource": {
+      "additionalProperties": false,
+      "description": "Per-camera image source.",
+      "properties": {
+        "id": {
+          "description": "Stable camera identifier (e.g. `\"cam0\"`). Used as a key in\npose pairings and downstream exports.",
+          "type": "string"
+        },
+        "images": {
+          "$ref": "#/$defs/ImagePattern",
+          "description": "Glob pattern (e.g. `\"cam0/*.png\"`) or explicit list of image\npaths, relative to the manifest's directory unless absolute."
+        },
+        "laser_images": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImagePattern"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Laser-frame image source for the laser topologies.\nOne laser image per view, captured by the same sensor with the\nline projector on; `roi_xywh` applies to laser frames too.\nLaser images pair with target views through `pose_pairing`."
+        },
+        "roi_xywh": {
+          "description": "Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.\nWhen set, only the cropped region is fed to the detector and\nstored in the export's image manifest.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "images"
+      ],
+      "type": "object"
+    },
+    "ChessCornersDetectorSpec": {
+      "additionalProperties": false,
+      "description": "ChESS corner extractor overrides. The manifest's copy of the detector's\nChESS options (see [`DetectorSpec`]).",
+      "properties": {
+        "covariance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CornerCovarianceSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Attach the detector's per-corner position covariance to every\nobservation. Absent (the default) = off.\n\nThe covariance is the image noise propagated through the corner\nlocalizer, plus the localizer's systematic-error model. When present,\na calibration weights each corner by it (whitened residuals) and its\nreport gives the unit-weight scale factor σ̂₀ instead of an RMS in\npixels.\n\nOff by default, and not recommended for calibration. On real\nchessboard and ChArUco images, weighting by it did not improve the\naccuracy on held-out views and made it slightly worse on some\ncameras; its stated uncertainty was no closer to the real scatter.\n\nSupported by the `chessboard` and `charuco` targets only: the\nPuzzleBoard detector runs on an upscaled image, for which no\ncovariance is reported, and ring grids have none. A manifest that\nsets it for another target is an error."
+        },
+        "min_corner_strength": {
+          "description": "Minimum corner strength for a detected corner to enter the grid\nbuilder. `None` keeps the detector default (`33.0`). The floor is on\nthe strategy's response scale; under Radon the default never binds.\n\nThe default drops weakly-firing corners, which is the right trade\nwhenever corners are plentiful. Set `0.0` to disable it on small or\nsoft image tiles, where the floor can remove a third of the board and\nthe resulting sparse view conditions worse than the weak corners did.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CornerStrategySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Corner detector. `None` keeps ChESS."
+        },
+        "threshold_value": {
+          "description": "Acceptance threshold on the corner response. `None` keeps the\nstrategy's default.\n\nUnder ChESS it is an absolute floor on the raw response: a corner is\nkept when its response exceeds it. Under Radon it is a fraction in\n`(0, 1]` of the frame's maximum response.\n\nA sibling `threshold_mode` key is rejected by `deny_unknown_fields`:\nthe corner detector has no threshold mode.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "CornerCovarianceSpec": {
+      "additionalProperties": false,
+      "description": "Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].\nThe manifest's copy of the detector's covariance options (see\n[`DetectorSpec`]).",
+      "properties": {
+        "image_noise": {
+          "$ref": "#/$defs/ImageNoiseSpec",
+          "default": "estimate",
+          "description": "The image noise that the propagated covariance is expressed in.\nDefaults to `estimate`: the noise is estimated from each image, which\nis unreliable on JPEG or demosaiced images; give `stated` for those."
+        }
+      },
+      "type": "object"
+    },
+    "CornerStrategySpec": {
+      "description": "The corner detector a chessboard-like detector runs. The manifest's copy\nof the detector's corner strategy (see [`DetectorSpec`]).",
+      "oneOf": [
+        {
+          "const": "chess",
+          "description": "The ChESS response. Fast; the default.",
+          "type": "string"
+        },
+        {
+          "const": "radon",
+          "description": "The whole-image Radon response. Several times slower than ChESS, and\nless biased at a corner's sub-pixel position on sharp, finely sampled\nboards (e.g. rendered ones).",
+          "type": "string"
+        }
+      ]
+    },
+    "DetectorSpec": {
+      "additionalProperties": false,
+      "description": "Target-detector overrides. These options affect feature detection\nonly; they are hashed into the detection-cache key by the runner.\n\nThe manifest declares its own detector types (this one,\n[`ChessCornersDetectorSpec`], [`CornerStrategySpec`],\n[`CornerCovarianceSpec`], [`ImageNoiseSpec`]) instead of reusing the\ndetector crate's: the manifest crate and the detector crate do not depend\non each other, so a manifest is read and validated without the detectors.\nThe runner maps each to its detector counterpart, which has the same JSON\nspelling.",
+      "properties": {
+        "chess_corners": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChessCornersDetectorSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ChESS corner extractor options shared by chessboard-like\ndetectors (plain chessboard and ChArUco)."
+        },
+        "min_features_per_view": {
+          "description": "Minimum detected features for a view (or a camera's slot in a rig\nview) to be kept, in every topology. `None` keeps the runner default\n(4, the homography minimum). Raise it for detectors whose sparse\ndetections are unreliable — e.g. ring-grid decodes with < 8 markers\nare noisy enough to poison a solve. A plain chessboard needs no\nfloor to stay consistent: where views share one target frame the\nrunner already keeps only views that span the whole board.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ImageNoiseSpec": {
+      "description": "The pixel-noise level behind a corner covariance: estimated from the\nimage, or stated by the user. The manifest's copy of the detector's\nimage-noise option (see [`DetectorSpec`]).\n\nIn JSON / TOML: `\"estimate\"` or `{ stated = 2.0 }`.",
+      "oneOf": [
+        {
+          "const": "estimate",
+          "description": "Estimate the noise from each image. Unreliable on JPEG or demosaiced\nimages, where a corner then reports no covariance and the run fails.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The standard deviation of the image's pixel noise, in gray levels of\nthe 8-bit image (finite and `>= 0`), e.g. the standard deviation of\nthe difference of two frames of a static scene divided by `√2`.",
+          "properties": {
+            "stated": {
+              "format": "float",
+              "type": "number"
+            }
+          },
+          "required": [
+            "stated"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ImagePattern": {
+      "description": "How image paths for a camera are listed.",
+      "oneOf": [
+        {
+          "description": "Single shell-glob pattern, evaluated relative to the manifest\ndirectory. Example: `\"cam0/*.png\"`.",
+          "properties": {
+            "kind": {
+              "const": "glob",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "The glob pattern.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Explicit ordered list of paths.",
+          "properties": {
+            "kind": {
+              "const": "list",
+              "type": "string"
+            },
+            "paths": {
+              "description": "Paths relative to the manifest directory unless absolute.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LaserExtractionSpec": {
+      "additionalProperties": false,
+      "description": "Laser-line extraction parameters. Consumed by the\nrunner's injected `LaserPixelExtractor`; hashed (canonical JSON)\ninto the detection-cache key so edits re-extract.",
+      "properties": {
+        "min_points": {
+          "default": 20,
+          "description": "Minimum extracted points for a usable laser view. Views below\nthe bar are dropped (single camera) or become gap slots (rig).\nMust be at least 2 (a line needs two points); 0/1 would let an\nempty extraction pass as usable and leave the plane\nunconstrained.",
+          "format": "uint32",
+          "minimum": 2,
+          "type": "integer"
+        },
+        "neg_thresh": {
+          "default": 4.0,
+          "description": "Negative-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "pos_thresh": {
+          "default": 4.0,
+          "description": "Positive-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "scan_axis": {
+          "$ref": "#/$defs/LaserScanAxis",
+          "default": "cols",
+          "description": "Scan direction. `cols` walks image columns (one point per\ncolumn; for laser lines running mostly left-to-right), `rows`\nwalks image rows."
+        },
+        "sigma": {
+          "default": 1.2,
+          "description": "Gaussian derivative sigma in pixels for the edge detector.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "LaserScanAxis": {
+      "description": "Laser scan direction.",
+      "oneOf": [
+        {
+          "const": "cols",
+          "description": "One detection per image column.",
+          "type": "string"
+        },
+        {
+          "const": "rows",
+          "description": "One detection per image row.",
+          "type": "string"
+        }
+      ]
+    },
+    "PoseColumnMap": {
+      "additionalProperties": false,
+      "description": "Mapping from user-defined column / field names to the canonical\npose fields. All seven of `tx, ty, tz, qx, qy, qz, qw` are required\nwhen `rotation_format` is a quaternion; the runner rejects partial\nmappings as a fail-fast event.",
+      "properties": {
+        "pose_id": {
+          "description": "Optional view-id column (string or integer). When absent, the\npose row index is used as the implicit pose id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rotation": {
+          "description": "Rotation columns. Length and meaning depend on the\n`pose_convention.rotation_format`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tx": {
+          "description": "Translation x column.",
+          "type": "string"
+        },
+        "ty": {
+          "description": "Translation y column.",
+          "type": "string"
+        },
+        "tz": {
+          "description": "Translation z column.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx",
+        "ty",
+        "tz",
+        "rotation"
+      ],
+      "type": "object"
+    },
+    "PoseConvention": {
+      "additionalProperties": false,
+      "description": "Frame conventions for the robot pose stream.\n\nAll three components are required (no defaults). Each is a closed\nenum so the runtime supports a finite, validated set of conventions.",
+      "properties": {
+        "rotation_format": {
+          "$ref": "#/$defs/RotationFormat",
+          "description": "How rotation is parameterised in the file."
+        },
+        "transform": {
+          "$ref": "#/$defs/TransformConvention",
+          "description": "Which transform the pose row encodes."
+        },
+        "translation_units": {
+          "$ref": "#/$defs/TranslationUnits",
+          "description": "Translation units in the file."
+        }
+      },
+      "required": [
+        "transform",
+        "rotation_format",
+        "translation_units"
+      ],
+      "type": "object"
+    },
+    "PosePairing": {
+      "description": "How per-camera image lists align across views and (optionally)\nalign with robot poses.",
+      "oneOf": [
+        {
+          "description": "All cameras have the same number of images, paired by index\n(`image[i]` from cam0 ↔ `image[i]` from cam1 ↔ `pose[i]`).",
+          "properties": {
+            "kind": {
+              "const": "by_index",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A regex applied to filenames extracts a shared \"view token\"\n(e.g. timestamp or pose id). All cameras and the pose file\nmust produce the same set of tokens.",
+          "properties": {
+            "group": {
+              "description": "Name of the capture group whose value identifies the view.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "shared_filename_token",
+              "type": "string"
+            },
+            "regex": {
+              "description": "Regex with at least one named capture group.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "regex",
+            "group"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProblemKind": {
+      "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "Single camera, planar target — `PlanarIntrinsicsProblem` (any camera\nmodel, including a tilted sensor).",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "Single camera mounted on a robot — `SingleCamHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "Camera + laser plane — `LaserlineDeviceProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "Multi-camera rig, target only — `RigExtrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "Multi-camera rig + robot — `RigHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye_laserline",
+          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
+          "type": "string"
+        }
+      ]
+    },
+    "RobotPoseFormat": {
+      "description": "Robot-pose file format.",
+      "oneOf": [
+        {
+          "const": "csv",
+          "description": "Comma-separated values with a header row.",
+          "type": "string"
+        },
+        {
+          "const": "json",
+          "description": "JSON array of objects.",
+          "type": "string"
+        },
+        {
+          "const": "jsonl",
+          "description": "JSONL (one JSON object per line).",
+          "type": "string"
+        },
+        {
+          "const": "rowmajor4x4",
+          "description": "Headerless text: each non-empty line is 16 whitespace-separated\nfloats forming a row-major 4×4 homogeneous transform (KUKA-style\nexports). Requires `pose_convention.rotation_format =\n\"matrix4x4_row_major\"` and no `columns` mapping.",
+          "type": "string"
+        },
+        {
+          "const": "counted4x4",
+          "description": "Headerless text: the matrix count, then that many row-major 4×4\nhomogeneous transforms as whitespace-separated floats on any number\nof lines (the layout of the robot-world hand-eye datasets of Tabb\nand Ahmad Yousef). Same requirements as `rowmajor4x4`.",
+          "type": "string"
+        }
+      ]
+    },
+    "RobotPoseSource": {
+      "additionalProperties": false,
+      "description": "Where and how robot poses are stored on disk.",
+      "properties": {
+        "columns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoseColumnMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be\nabsent for `rowmajor4x4` and `counted4x4`, whose matrix layout is\nfixed."
+        },
+        "format": {
+          "$ref": "#/$defs/RobotPoseFormat",
+          "description": "File-format selector."
+        },
+        "matrix_field": {
+          "description": "For `json` / `jsonl` files whose rows store the whole pose as a\nsingle nested 4×4 (or flat-16) array field, names that field\n(e.g. `\"tcp2base\"`). Mutually exclusive with `columns`; requires\n`pose_convention.rotation_format = matrix4x4_row_major`.\nTranslation comes from the matrix's fourth column, scaled by\n`translation_units`. No `pose_id` ⇒ `by_index` pairing only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Path to the pose file, relative to the manifest directory\nunless absolute.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "format"
+      ],
+      "type": "object"
+    },
+    "RotationFormat": {
+      "description": "Rotation parameterisation in the file.",
+      "oneOf": [
+        {
+          "const": "quat_xyzw",
+          "description": "Hamilton quaternion as `[qx, qy, qz, qw]`.",
+          "type": "string"
+        },
+        {
+          "const": "quat_wxyz",
+          "description": "Hamilton quaternion as `[qw, qx, qy, qz]`.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_deg",
+          "description": "Intrinsic XYZ Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_rad",
+          "description": "Intrinsic XYZ Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_deg",
+          "description": "Intrinsic ZYX Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_rad",
+          "description": "Intrinsic ZYX Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "axis_angle_rad",
+          "description": "Axis-angle vector (length encodes magnitude, radians).",
+          "type": "string"
+        },
+        {
+          "const": "matrix4x4_row_major",
+          "description": "Row-major 4×4 homogeneous matrix flattened across 16 columns.",
+          "type": "string"
+        }
+      ]
+    },
+    "TargetSpec": {
+      "description": "Calibration-target metadata. Tagged on `kind`.",
+      "oneOf": [
+        {
+          "description": "Standard checkerboard. Counts are interior corners\n(i.e. `9x6` ⇒ a 10×7 black-and-white square grid).\n\nA plain chessboard has no markers: each view is labelled from the\ndetection's own top-left corner. Where views share one target frame\n(single-camera hand-eye and every rig topology) the runner therefore\nkeeps a view only when its corners reach every edge of the board.\nIn a rig, each camera's labels are turned to agree with the other\ncameras of the view, so a board seen turned is kept. Where the target\nis fixed through the views (hand-eye), the board must appear the same\nway up in every image of camera 0 (`cols` across and `rows` down);\na board seen turned by 90° is dropped, and one seen upside down, or a\nsquare board seen turned by 90°, cannot be told apart. Use a ChArUco\nor PuzzleBoard target to calibrate a shared frame from partial views.",
+          "properties": {
+            "cols": {
+              "description": "Number of interior corners across the board (the image's\ncolumns axis when the board is seen as declared).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "chessboard",
+              "type": "string"
+            },
+            "rows": {
+              "description": "Number of interior corners down the board (the image's rows\naxis when the board is seen as declared).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "ChArUco board. Marker IDs and dictionary live here so detection\nis fully deterministic from the manifest.",
+          "properties": {
+            "cols": {
+              "description": "Number of squares along the cols axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "dictionary": {
+              "description": "ArUco dictionary identifier (e.g. `\"DICT_4X4_50\"`). The\ndetector validates this against the supported set.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "charuco",
+              "type": "string"
+            },
+            "marker_size_m": {
+              "description": "Edge length of an embedded marker in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of squares along the rows axis (full grid, not\ninterior corners).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m",
+            "marker_size_m",
+            "dictionary"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Puzzleboard target: a self-identifying chessboard. The layout name\ncarries the board's dimensions, so the manifest fully determines\ndetection.",
+          "properties": {
+            "cell_size_m": {
+              "description": "Edge length of one cell in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "puzzleboard",
+              "type": "string"
+            },
+            "layout": {
+              "description": "Board dimensions as `puzzle_<rows>x<cols>` (e.g.\n`\"puzzle_12x12\"`; the `puzzle_` prefix is optional).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "layout",
+            "cell_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Coded ring-grid target (the `ringgrid` crate). The board is a\nhex-lattice of self-identifying ring markers; its geometry mirrors\n`ringgrid::BoardLayout` so the manifest fully determines detection.",
+          "properties": {
+            "kind": {
+              "const": "ringgrid",
+              "type": "string"
+            },
+            "long_row_cols": {
+              "description": "Number of columns in the longest (even-indexed) row. Shorter\nrows are derived by the hex-lattice layout.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "marker_inner_radius_m": {
+              "description": "Inner ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "marker_outer_radius_m": {
+              "description": "Outer ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "marker_ring_width_m": {
+              "description": "Width of each ring band in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "pitch_m": {
+              "description": "Center-to-center spacing between adjacent markers in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of marker rows.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "pitch_m",
+            "rows",
+            "long_row_cols",
+            "marker_outer_radius_m",
+            "marker_inner_radius_m",
+            "marker_ring_width_m"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TransformConvention": {
+      "description": "Which transform a pose row encodes.",
+      "oneOf": [
+        {
+          "const": "t_base_tcp",
+          "description": "`T_base_tcp` — gripper pose in the robot base frame (KUKA, UR\ndefault).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_base",
+          "description": "`T_tcp_base` — base pose in the gripper frame (some ABB exports).",
+          "type": "string"
+        },
+        {
+          "const": "t_world_tcp",
+          "description": "`T_world_tcp` — gripper pose in a fixed world frame (less\ncommon; some lab-frame setups).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_world",
+          "description": "`T_tcp_world` — world pose in the gripper frame.",
+          "type": "string"
+        }
+      ]
+    },
+    "TranslationUnits": {
+      "description": "Translation units in the file.",
+      "oneOf": [
+        {
+          "const": "m",
+          "description": "Metres (SI, preferred).",
+          "type": "string"
+        },
+        {
+          "const": "mm",
+          "description": "Millimetres (some ABB / Fanuc exports).",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Top-level dataset manifest. Authoritative description of where\nthe user's calibration data lives and how to interpret it.",
+  "properties": {
+    "_unresolved": {
+      "description": "Field paths the manifest generator could not determine.\nValidated to be empty before the runner accepts the manifest.\nPopulated as e.g. `[\"pose_convention.transform\"]`.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cameras": {
+      "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (a single-camera topology requires exactly\none entry, a rig topology at least two, `rig_handeye_laserline` at\nleast one).",
+      "items": {
+        "$ref": "#/$defs/CameraSource"
+      },
+      "type": "array"
+    },
+    "description": {
+      "description": "Free-form human-readable description.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detector": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DetectorSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Detector-stage overrides shared by target families. Defaults\npreserve the detector's built-in behavior."
+    },
+    "laser": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LaserExtractionSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Laser-line extraction parameters for the laser topologies.\n`None` means defaults — extraction tuning has safe\ndefaults and is not a fail-fast ambiguity. Rejected on\nnon-laser topologies."
+    },
+    "pose_convention": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PoseConvention"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Frame conventions for robot poses. **No defaults** — every\ncomponent is required when `robot_poses` is set."
+    },
+    "pose_pairing": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PosePairing"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How per-camera images are paired across views (and optionally\nwith robot poses). `None` is permitted only where pairing is\nirrelevant: a single camera without robot poses."
+    },
+    "robot_poses": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RobotPoseSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Robot-pose source for hand-eye topologies. `None` for\npure-intrinsics calibrations."
+    },
+    "target": {
+      "$ref": "#/$defs/TargetSpec",
+      "description": "Calibration-target specification. Tagged enum on `kind`."
+    },
+    "topology": {
+      "$ref": "#/$defs/ProblemKind",
+      "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
+    },
+    "upstream_calibration": {
+      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "description": "Manifest format version; must be [`DATASET_SPEC_VERSION`] (`1`).\nRequired: a manifest without it, or with another value, is rejected.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "cameras",
+    "target",
+    "topology"
+  ],
+  "title": "DatasetSpec",
+  "type": "object"
+}

@@ -1,0 +1,32 @@
+{
+  "cameras": [
+    {
+      "id": "cam0",
+      "images": {
+        "kind": "glob",
+        "pattern": "*.png"
+      }
+    }
+  ],
+  "description": "kuka_1",
+  "pose_convention": {
+    "rotation_format": "matrix4x4_row_major",
+    "transform": "t_base_tcp",
+    "translation_units": "m"
+  },
+  "pose_pairing": {
+    "kind": "by_index"
+  },
+  "robot_poses": {
+    "format": "rowmajor4x4",
+    "path": "RobotPosesVec.txt"
+  },
+  "target": {
+    "cols": 28,
+    "kind": "chessboard",
+    "rows": 17,
+    "square_size_m": 0.02
+  },
+  "topology": "single_cam_handeye",
+  "version": 1
+}

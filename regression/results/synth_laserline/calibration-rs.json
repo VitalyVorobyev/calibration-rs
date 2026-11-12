@@ -344,6 +344,7 @@
     "per_cam_reproj_errors": [
       0.6644331010095789
     ],
+    "schema_version": 1,
     "stats": {
       "mean_laser_error": 0.41614602196087014,
       "mean_reproj_error": 0.6644331010095789,

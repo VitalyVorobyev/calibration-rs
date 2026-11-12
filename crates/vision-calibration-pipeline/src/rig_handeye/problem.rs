@@ -18,7 +18,9 @@ use crate::common::config::{
     IntrinsicsOptimizeConfig, RigConfig, RobotPoseConfig, SolverConfig, rig_camera_for,
     validate_rig_camera_indices, validate_rig_cameras,
 };
-use crate::common::{ExportDiagnostics, HandeyeSolution, ProblemKind};
+use crate::common::{
+    ExportDiagnostics, HandeyeSolution, ProblemKind, VersionedExport, read_schema_version,
+};
 use crate::rig_family::{
     IntrinsicsManualInit, RigStages, RigStagesState, inverse_poses, rig_target_residuals,
 };
@@ -152,6 +154,11 @@ pub struct RigHandeyeExport {
     /// Export-type discriminator — always [`ProblemKind::RigHandeye`].
     pub kind: ProblemKind,
 
+    /// Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+    /// Reading an export of another version is an error.
+    #[serde(deserialize_with = "read_schema_version::<_, RigHandeyeExport>")]
+    pub schema_version: u32,
+
     /// Per-camera calibrated parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
 
@@ -198,6 +205,10 @@ pub struct RigHandeyeExport {
     /// the noise level the residuals imply.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+
+impl VersionedExport for RigHandeyeExport {
+    const SCHEMA_VERSION: u32 = 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,6 +454,7 @@ impl ProblemType for RigHandeyeProblem {
             rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
         Ok(RigHandeyeExport {
             kind: ProblemKind::RigHandeye,
+            schema_version: RigHandeyeExport::SCHEMA_VERSION,
             cameras: params.cameras.clone(),
             cam_se3_rig,
             rig_se3_target: rig_se3_target.clone(),

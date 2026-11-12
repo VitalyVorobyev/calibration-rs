@@ -52,6 +52,7 @@ mod tests {
     fn planar_export() -> serde_json::Value {
         json!({
             "kind": "planar_intrinsics",
+            "schema_version": 1,
             "camera": {
                 "projection": {"type": "pinhole"},
                 "distortion": {"type": "none"},

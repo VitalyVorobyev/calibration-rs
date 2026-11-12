@@ -136,6 +136,14 @@ Every algorithmic change ships with tests:
 
 Tolerances: ~5 % for linear init, < 1 % after optimization.
 
+**Golden fixtures** (`crates/vision-calibration-bench/tests/golden/`) pin the shape
+of every export, session, default config and the manifest: the key paths and
+value types, not the numbers. A failing `golden_shapes` test means a wire
+format changed: bump the matching version (the export's `SCHEMA_VERSION`,
+`ProblemType::schema_version()` for the session, or `DATASET_SPEC_VERSION`),
+then regenerate the fixtures with `GOLDEN_BLESS=1 cargo test -p
+vision-calibration-bench --test golden_shapes` and commit them with the bump.
+
 ## 7) Dependencies and MSRV
 
 * Core stays lightweight; heavy dependencies elsewhere go behind features.

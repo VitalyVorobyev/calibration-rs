@@ -43,6 +43,15 @@ pub enum Error {
     #[error("numerical failure: {0}")]
     Numerical(String),
 
+    /// An export was written in a format version this library does not read.
+    #[error("unsupported export schema_version {got} (this library reads {expected})")]
+    UnsupportedExportVersion {
+        /// The `schema_version` the export carries.
+        got: u64,
+        /// The version this library reads for that export type.
+        expected: u32,
+    },
+
     /// Error propagated from a JSON serialization/deserialization step.
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),

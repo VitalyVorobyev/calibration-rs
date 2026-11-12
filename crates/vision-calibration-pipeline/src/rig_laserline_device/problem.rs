@@ -14,7 +14,7 @@ use vision_calibration_optim::{
 };
 
 use crate::common::config::{SolverConfig, check_laser_residual};
-use crate::common::{ExportDiagnostics, ProblemKind};
+use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
 use crate::rig_family::{per_camera_histograms, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -185,6 +185,11 @@ impl Default for PlaneOptimizeConfig {
 pub struct RigLaserlineDeviceExport {
     /// Export-type discriminator — always [`ProblemKind::RigLaserlineDevice`].
     pub kind: ProblemKind,
+
+    /// Format version of this export, [`VersionedExport::SCHEMA_VERSION`].
+    /// Reading an export of another version is an error.
+    #[serde(deserialize_with = "read_schema_version::<_, RigLaserlineDeviceExport>")]
+    pub schema_version: u32,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
     /// Per-camera laser planes in their own camera frames.
@@ -232,6 +237,10 @@ pub struct RigLaserlineDeviceExport {
     /// its own, so each camera has its own noise levels.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+
+impl VersionedExport for RigLaserlineDeviceExport {
+    const SCHEMA_VERSION: u32 = 1;
 }
 
 /// Rig laserline calibration problem.
@@ -384,6 +393,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
         per_feature_residuals.laser_lines = laser.lines;
         Ok(RigLaserlineDeviceExport {
             kind: ProblemKind::RigLaserlineDevice,
+            schema_version: RigLaserlineDeviceExport::SCHEMA_VERSION,
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),
             per_cam_stats: output.per_cam_stats.clone(),
@@ -410,6 +420,7 @@ mod tests {
         // upstream calibration setup needed to drive `export()`.
         RigLaserlineDeviceExport {
             kind: ProblemKind::RigLaserlineDevice,
+            schema_version: RigLaserlineDeviceExport::SCHEMA_VERSION,
             laser_planes_rig: Vec::new(),
             laser_planes_cam: Vec::new(),
             per_cam_stats: Vec::new(),

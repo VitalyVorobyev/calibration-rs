@@ -185,7 +185,8 @@ pub mod common {
         CalibratedCameras, ExportDiagnostics, HandeyeEstimate, HandeyeInitOptions,
         HandeyeOptimizeOptions, HandeyeParams, HandeyeSolution, IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions, RigInitOptions, RigLaserlineView, RigOptimizeOptions,
-        RobotPoseMeta, RobotPoseSigma, RobotRefinement, calibrated_cameras,
+        RobotPoseMeta, RobotPoseSigma, RobotRefinement, VersionedExport, calibrated_cameras,
+        check_export_version,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`

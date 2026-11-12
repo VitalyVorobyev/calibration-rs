@@ -568,6 +568,7 @@
         ]
       }
     ],
+    "schema_version": 1,
     "uncertainty": {
       "covariance": [
         [

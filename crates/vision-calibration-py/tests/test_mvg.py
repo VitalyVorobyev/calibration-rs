@@ -575,6 +575,7 @@ class MvgTest(unittest.TestCase):
         robot_pose = _transform(_rotation(0.3, 0.1, -0.5), (0.5, 0.1, 0.4))
         on_robot = {
             "kind": "rig_handeye_laserline",
+            "schema_version": 1,
             "laser_planes_rig": [export["laser_plane"]],
             "laser_planes_cam": [export["laser_plane"]],
             "per_cam_stats": [],

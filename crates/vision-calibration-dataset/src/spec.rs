@@ -22,9 +22,8 @@ use schemars::JsonSchema;
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DatasetSpec {
-    /// Format-version sentinel. Always `1` for now; bumped on
-    /// breaking schema revisions.
-    #[serde(default = "default_version")]
+    /// Manifest format version; must be [`DATASET_SPEC_VERSION`] (`1`).
+    /// Required: a manifest without it, or with another value, is rejected.
     pub version: u32,
 
     /// Per-camera image sources. Length must match the topology's
@@ -87,9 +86,8 @@ pub struct DatasetSpec {
     pub description: Option<String>,
 }
 
-fn default_version() -> u32 {
-    1
-}
+/// The manifest format version this library reads and writes.
+pub const DATASET_SPEC_VERSION: u32 = 1;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Camera source

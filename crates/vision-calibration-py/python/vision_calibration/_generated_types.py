@@ -385,6 +385,11 @@ class _DatasetSpecRequired(TypedDict):
     will dispatch to.
     """
 
+    version: int
+    """Manifest format version; must be `DATASET_SPEC_VERSION` (`1`).
+    Required: a manifest without it, or with another value, is rejected.
+    """
+
 
 class DatasetSpec(_DatasetSpecRequired, total=False):
     """Top-level dataset manifest. Authoritative description of where
@@ -434,11 +439,6 @@ class DatasetSpec(_DatasetSpecRequired, total=False):
     `ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
     laserline calibration computes its own hand-eye warm start and does not
     use this field.
-    """
-
-    version: int
-    """Format-version sentinel. Always `1` for now; bumped on
-    breaking schema revisions.
     """
 
 
@@ -1314,6 +1314,11 @@ class LaserlineDeviceExport(TypedDict):
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (single element for single-camera workflows)."""
 
+    schema_version: int
+    """Format version of this export, `VersionedExport::SCHEMA_VERSION`.
+    Reading an export of another version is an error.
+    """
+
     stats: LaserlineStats
     """Laserline statistics payload."""
 
@@ -1565,6 +1570,11 @@ class PlanarIntrinsicsExport(TypedDict):
 
     per_cam_reproj_errors: list[float]
     """Per-camera reprojection errors (single element for single-camera workflows)."""
+
+    schema_version: int
+    """Format version of this export, `VersionedExport::SCHEMA_VERSION`.
+    Reading an export of another version is an error.
+    """
 
     uncertainty: Uncertainty
     """Covariance of the calibrated parameters: `fx ± σ` (and `tilt_x ± σ`
@@ -2309,6 +2319,11 @@ class RigExtrinsicsExport(TypedDict):
     rig_se3_target: list[Iso3]
     """Per-view rig poses: `rig_se3_target` (T_R_T)."""
 
+    schema_version: int
+    """Format version of this export, `VersionedExport::SCHEMA_VERSION`.
+    Reading an export of another version is an error.
+    """
+
     uncertainty: Uncertainty
     """Covariance of the calibrated parameters: `fx ± σ`, correlations, and
     the noise level the residuals imply.
@@ -2444,6 +2459,11 @@ class RigHandeyeExport(TypedDict):
     `estimate_sigma`. Only present if robot refinement was enabled.
     """
 
+    schema_version: int
+    """Format version of this export, `VersionedExport::SCHEMA_VERSION`.
+    Reading an export of another version is an error.
+    """
+
     uncertainty: Uncertainty
     """Covariance of the calibrated parameters: `fx ± σ`, correlations, and
     the noise level the residuals imply.
@@ -2532,6 +2552,11 @@ class RigHandeyeLaserlineExport(TypedDict):
     """The per-view robot-pose corrections and the pose error they were
     weighed with: the configured `robot_poses` prior, or its estimate with
     `estimate_sigma`. Only present if robot refinement was enabled.
+    """
+
+    schema_version: int
+    """Format version of this export, `VersionedExport::SCHEMA_VERSION`.
+    Reading an export of another version is an error.
     """
 
     uncertainty: Uncertainty
@@ -2716,6 +2741,11 @@ class RigLaserlineDeviceExport(TypedDict):
 
     rig_se3_target: list[Iso3]
     """Frozen upstream per-view rig poses `T_R_T`."""
+
+    schema_version: int
+    """Format version of this export, `VersionedExport::SCHEMA_VERSION`.
+    Reading an export of another version is an error.
+    """
 
     uncertainty: Uncertainty
     """Covariance of the laser planes in their camera frames
@@ -3193,6 +3223,11 @@ class SingleCamHandeyeExport(TypedDict):
     """The per-view robot-pose corrections and the pose error they were
     weighed with: the configured `handeye_optimize.robot_poses` prior, or its estimate with
     `estimate_sigma`. Only present if robot refinement was enabled.
+    """
+
+    schema_version: int
+    """Format version of this export, `VersionedExport::SCHEMA_VERSION`.
+    Reading an export of another version is an error.
     """
 
     uncertainty: Uncertainty

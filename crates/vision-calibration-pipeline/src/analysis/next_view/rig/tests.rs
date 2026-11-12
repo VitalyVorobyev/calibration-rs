@@ -231,6 +231,7 @@ fn stations() -> Vec<Iso3> {
 fn empty_export() -> RigHandeyeExport {
     serde_json::from_value(serde_json::json!({
         "kind": "rig_handeye",
+        "schema_version": 1,
         "cameras": [],
         "cam_se3_rig": [],
         "handeye": {

@@ -1455,6 +1455,12 @@
       "default": null,
       "description": "The per-view robot-pose corrections and the pose error they were\nweighed with: the configured `handeye_optimize.robot_poses` prior, or its estimate with\n`estimate_sigma`. Only present if robot refinement was enabled."
     },
+    "schema_version": {
+      "description": "Format version of this export, [`VersionedExport::SCHEMA_VERSION`].\nReading an export of another version is an error.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
     "uncertainty": {
       "$ref": "#/$defs/Uncertainty",
       "default": {
@@ -1468,6 +1474,7 @@
   },
   "required": [
     "kind",
+    "schema_version",
     "camera",
     "handeye",
     "robot_refinement",

@@ -1,0 +1,293 @@
+{
+  "$defs": {
+    "CameraDeviceSpec": {
+      "additionalProperties": false,
+      "description": "Datasheet values for one camera.",
+      "properties": {
+        "focal_mm": {
+          "description": "Lens focal length in millimetres (datasheet value).",
+          "format": "double",
+          "type": "number"
+        },
+        "id": {
+          "description": "Stable camera identifier matching the dataset manifest\n(`CameraSource::id`).",
+          "type": "string"
+        },
+        "pixel_pitch_um": {
+          "description": "Sensor pixel pitch in micrometres (datasheet value).",
+          "format": "double",
+          "type": "number"
+        },
+        "principal_point_px": {
+          "description": "Nominal principal point in pixels. `None` defaults to the\nresolution center at derivation time.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "resolution_px": {
+          "description": "`[width, height]` of the images actually calibrated, in pixels.\nFor tiled multi-camera sensors this is the tile size, not the\nfull sensor.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "scheimpflug": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScheimpflugMountSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Scheimpflug mount tilt. `None` means a frontal (untilted) sensor."
+        }
+      },
+      "required": [
+        "id",
+        "focal_mm",
+        "pixel_pitch_um",
+        "resolution_px"
+      ],
+      "type": "object"
+    },
+    "CameraMountSpec": {
+      "additionalProperties": false,
+      "description": "Nominal mount pose of one camera in the rig frame.",
+      "properties": {
+        "id": {
+          "description": "Camera id, matching [`DeviceSpec::cameras`].",
+          "type": "string"
+        },
+        "rig_se3_cam": {
+          "$ref": "#/$defs/NominalPoseSpec",
+          "description": "Camera pose in the rig frame (`T_R_C` — maps camera-frame points\ninto the rig frame). This is what a mechanical drawing states;\nderivation inverts it into the `cam_se3_rig` the manual-init\nsurface expects."
+        }
+      },
+      "required": [
+        "id",
+        "rig_se3_cam"
+      ],
+      "type": "object"
+    },
+    "HandeyeMountSpec": {
+      "description": "How the rig is mounted relative to the robot. The tag fixes the frame\nmeaning of the nominal pose, so the two hand-eye modes cannot be\nconfused.",
+      "oneOf": [
+        {
+          "description": "Rig mounted on the gripper: the nominal is `gripper_se3_rig`\n(`T_G_R`).",
+          "properties": {
+            "gripper_se3_rig": {
+              "$ref": "#/$defs/NominalPoseSpec",
+              "description": "Rig pose in the gripper frame."
+            },
+            "mode": {
+              "const": "eye_in_hand",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "gripper_se3_rig"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Rig fixed in the workcell, target on the gripper: the nominal is\n`rig_se3_base` (`T_R_B`).",
+          "properties": {
+            "mode": {
+              "const": "eye_to_hand",
+              "type": "string"
+            },
+            "rig_se3_base": {
+              "$ref": "#/$defs/NominalPoseSpec",
+              "description": "Robot-base pose in the rig frame."
+            }
+          },
+          "required": [
+            "mode",
+            "rig_se3_base"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LaserPlaneSpec": {
+      "additionalProperties": false,
+      "description": "Nominal laser plane `{p : n·p = d}` in the **rig** frame, keyed to its\npaired camera.",
+      "properties": {
+        "camera_id": {
+          "description": "The camera this laser is paired with, matching\n[`DeviceSpec::cameras`].",
+          "type": "string"
+        },
+        "distance_mm": {
+          "description": "Signed plane distance `d` in millimetres.",
+          "format": "double",
+          "type": "number"
+        },
+        "normal": {
+          "description": "Unit plane normal in the rig frame.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "camera_id",
+        "normal",
+        "distance_mm"
+      ],
+      "type": "object"
+    },
+    "NominalPoseSpec": {
+      "additionalProperties": false,
+      "description": "Human-friendly nominal SE(3) pose: fixed-axes XYZ roll-pitch-yaw in\ndegrees (`R = Rz(yaw)·Ry(pitch)·Rx(roll)`, nalgebra\n`from_euler_angles` convention) plus a translation in millimetres.",
+      "properties": {
+        "rpy_deg": {
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "`[roll, pitch, yaw]` in degrees, fixed-axes XYZ.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "translation_mm": {
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "Translation in millimetres.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RigLayoutSpec": {
+      "additionalProperties": false,
+      "description": "Nominal rig mechanical layout from the drawing: camera mounts, the\nhand-eye mounting, and laser-plane nominals.",
+      "properties": {
+        "cameras": {
+          "description": "Nominal camera mount poses, keyed by camera id. Every id must\nexist in [`DeviceSpec::cameras`]; cameras without a known mount\nmay be omitted.",
+          "items": {
+            "$ref": "#/$defs/CameraMountSpec"
+          },
+          "type": "array"
+        },
+        "handeye": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HandeyeMountSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How the rig relates to the robot. `None` when the dataset has no\nrobot (pure intrinsics/extrinsics)."
+        },
+        "laser_planes": {
+          "description": "Nominal laser planes, one per camera-laser pair.",
+          "items": {
+            "$ref": "#/$defs/LaserPlaneSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cameras"
+      ],
+      "type": "object"
+    },
+    "ScheimpflugMountSpec": {
+      "additionalProperties": false,
+      "description": "Mechanically-set Scheimpflug sensor tilt, in degrees.\n\nMaps onto `ScheimpflugParams { tilt_x, tilt_y }` (radians) at\nderivation time.",
+      "properties": {
+        "tilt_x_deg": {
+          "default": 0.0,
+          "description": "Tilt about the sensor x axis, degrees.",
+          "format": "double",
+          "type": "number"
+        },
+        "tilt_y_deg": {
+          "default": 0.0,
+          "description": "Tilt about the sensor y axis, degrees.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Top-level device specification. Describes the capture hardware, not the\ncaptured data (that is [`DatasetSpec`](crate::DatasetSpec)'s job).",
+  "properties": {
+    "cameras": {
+      "description": "Per-camera hardware specifications. Non-empty; ids unique and\nmatching the dataset manifest's camera ids (e.g. `\"cam0\"`).",
+      "items": {
+        "$ref": "#/$defs/CameraDeviceSpec"
+      },
+      "type": "array"
+    },
+    "description": {
+      "description": "Free-form provenance note (device model, drawing revision, …).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rig": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RigLayoutSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Nominal rig mechanical layout. `None` for single-camera devices."
+    },
+    "version": {
+      "default": 1,
+      "description": "Format-version sentinel. Always `1` for now; bumped on breaking\nschema revisions.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cameras"
+  ],
+  "title": "DeviceSpec",
+  "type": "object"
+}

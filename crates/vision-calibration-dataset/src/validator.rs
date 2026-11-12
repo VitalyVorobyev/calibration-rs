@@ -2,14 +2,23 @@
 //! otherwise surface as a fail-fast `AskUser` event downstream.
 
 use crate::spec::{
-    CornerStrategySpec, DatasetSpec, ImageNoiseSpec, ImagePattern, ProblemKind, RobotPoseFormat,
-    RobotPoseSource, RotationFormat,
+    CornerStrategySpec, DATASET_SPEC_VERSION, DatasetSpec, ImageNoiseSpec, ImagePattern,
+    ProblemKind, RobotPoseFormat, RobotPoseSource, RotationFormat,
 };
 use thiserror::Error;
 
 /// Validation failure modes.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ValidationError {
+    /// The manifest declares a format version this build does not read.
+    #[error("unsupported manifest version {got} (supported: {supported})")]
+    UnsupportedVersion {
+        /// Version found in the manifest.
+        got: u32,
+        /// The version this build reads.
+        supported: u32,
+    },
+
     /// The manifest still has unresolved fields. The
     /// runner refuses to dispatch until they are filled in.
     #[error("manifest has unresolved fields: {0:?}")]
@@ -129,6 +138,12 @@ pub enum ValidationError {
 /// the filesystem (e.g. doesn't expand globs). Callers
 /// should reject the manifest as soon as any error fires.
 pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
+    if spec.version != DATASET_SPEC_VERSION {
+        return Err(ValidationError::UnsupportedVersion {
+            got: spec.version,
+            supported: DATASET_SPEC_VERSION,
+        });
+    }
     if !spec.unresolved.is_empty() {
         return Err(ValidationError::Unresolved(spec.unresolved.clone()));
     }
@@ -483,6 +498,27 @@ mod tests {
     fn minimal_planar_chessboard_validates() {
         let spec = planar_chessboard_minimal();
         validate(&spec).unwrap();
+    }
+
+    #[test]
+    fn unknown_manifest_version_is_rejected() {
+        let mut spec = planar_chessboard_minimal();
+        spec.version = DATASET_SPEC_VERSION + 1;
+        assert_eq!(
+            validate(&spec).unwrap_err(),
+            ValidationError::UnsupportedVersion {
+                got: DATASET_SPEC_VERSION + 1,
+                supported: DATASET_SPEC_VERSION
+            }
+        );
+    }
+
+    #[test]
+    fn manifest_without_version_does_not_parse() {
+        let json = serde_json::to_value(planar_chessboard_minimal()).unwrap();
+        let mut obj = json.as_object().unwrap().clone();
+        obj.remove("version");
+        assert!(serde_json::from_value::<DatasetSpec>(obj.into()).is_err());
     }
 
     #[test]

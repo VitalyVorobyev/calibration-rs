@@ -275,6 +275,7 @@ fn pinhole_upstream_converges_rig_laserline() {
         .collect();
     let export: RigHandeyeExport = serde_json::from_value(serde_json::json!({
         "kind": "rig_handeye",
+        "schema_version": 1,
         "cameras": cameras,
         "cam_se3_rig": upstream.cam_se3_rig,
         "rig_se3_target": upstream.rig_se3_target,

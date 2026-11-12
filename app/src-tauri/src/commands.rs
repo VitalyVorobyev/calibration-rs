@@ -51,6 +51,8 @@ pub async fn load_export<R: Runtime>(
     let bytes = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     let export: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", p.display()))?;
+    vision_calibration::common::check_export_version(&export)
+        .map_err(|e| format!("{}: {e}", p.display()))?;
     let export_dir = dunce::canonicalize(&parent)
         .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?;
     if let Some(images) = image_root(&export, &export_dir) {

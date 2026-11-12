@@ -251,6 +251,7 @@
         "trans_sigma": 0.000011200250303742837
       }
     },
+    "schema_version": 1,
     "uncertainty": {
       "covariance": [
         [

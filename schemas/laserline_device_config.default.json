@@ -1,0 +1,34 @@
+{
+  "camera": {
+    "fix": {},
+    "model": {
+      "distortion": "brown_conrady5",
+      "projection": "pinhole",
+      "sensor": "identity"
+    }
+  },
+  "intrinsics_init": {
+    "fix_k3": true,
+    "iterations": 2
+  },
+  "optimize": {
+    "fix_plane": false,
+    "fix_poses": [],
+    "laser_loss": {
+      "kind": "huber",
+      "scale": 1.0
+    },
+    "laser_residual_type": "line_dist_normalized",
+    "laser_weight": 1.0,
+    "reprojection_loss": {
+      "kind": "huber",
+      "scale": 1.0
+    },
+    "reprojection_weight": 1.0
+  },
+  "solver": {
+    "backend": "tiny_solver",
+    "max_iters": 50,
+    "verbosity": 0
+  }
+}

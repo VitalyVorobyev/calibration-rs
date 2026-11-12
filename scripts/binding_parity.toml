@@ -319,6 +319,8 @@
 "mvg::types" = ["mvg.PixelMatch", "mvg.TriangulatedPoint", "mvg.RobotCaptures"]
 
 [rust_only]
+"common::VersionedExport" = "the export types name their format version; Python reads it as the schema_version key of the export payload, which every *Export.from_payload checks"
+"common::check_export_version" = "Python checks the schema_version of an export in every *Export.from_payload and in the native readers behind projection_uncertainty and assess"
 "control::CancelToken" = "Python stops a long call with Ctrl-C (KeyboardInterrupt) or by raising from its progress callable, which cancels the token the binding holds"
 "detect::CharucoConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"
 "detect::ChessCornersConfig" = "Python detects a manifest target and detector section with detect_target; the typed configs are the Rust spelling of those sections"

@@ -21,6 +21,7 @@ pub(super) fn rig_export(fx1: f64, cam1: &Iso3, delta_rx: f64) -> Value {
     };
     json!({
         "kind": "rig_handeye",
+        "schema_version": 1,
         "cameras": [camera(800.0), camera(fx1)],
         "cam_se3_rig": [Iso3::identity(), cam1],
         "rig_se3_target": [Iso3::identity(), Iso3::identity()],
