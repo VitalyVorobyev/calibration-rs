@@ -10,10 +10,12 @@ use vision_calibration_core::{
     CameraParams, Iso3, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
     build_feature_histogram, compute_planar_target_residuals,
 };
-use vision_calibration_optim::{PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions};
+use vision_calibration_optim::{
+    PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions, RobustLoss,
+};
 
 use crate::common::config::{CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig};
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ProblemKind};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
@@ -89,23 +91,15 @@ const DEFAULT_MAX_ITERS: usize = 120;
 
 /// Configuration for planar intrinsics calibration.
 ///
-/// Grouped by stage: linear-init and non-linear-solve settings live in the
-/// shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs, and the
-/// camera model with its fix lists in [`CameraConfig`].
+/// Grouped by stage: the camera model with its fix lists in
+/// [`CameraConfig`], the linear initialization in [`IntrinsicsInitConfig`],
+/// the non-linear refinement in [`PlanarOptimizeConfig`], and the solver
+/// engine in [`SolverConfig`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct PlanarIntrinsicsConfig {
-    /// Linear-initialization stage settings. The linear stage fits only the
-    /// distortion terms the camera's solves estimate.
-    pub init: IntrinsicsInitConfig,
-
-    /// Non-linear solve stage settings. `solver.max_iters` defaults to 120,
-    /// sized for a tilted sensor's tilt valley; the solver stops at
-    /// convergence, so the cap only bounds runs that do not converge.
-    pub solver: SolverConfig,
-
     /// The camera model and its fixed parameters.
     ///
     /// Any distortion kind with an identity sensor; a Scheimpflug sensor
@@ -114,24 +108,51 @@ pub struct PlanarIntrinsicsConfig {
     #[serde(default)]
     pub camera: CameraConfig,
 
-    /// Indices of poses to fix during optimization (e.g., \[0\] to fix first
-    /// pose). Default: none — the board fixes the target frame, and a fixed
-    /// pose makes the reported uncertainty conditional on it.
-    pub fix_poses: Vec<usize>,
+    /// Linear-initialization stage settings (`step_init`). The linear stage
+    /// fits only the distortion terms the camera's solves estimate.
+    pub intrinsics_init: IntrinsicsInitConfig,
+
+    /// Non-linear refinement stage settings (`step_optimize`).
+    pub optimize: PlanarOptimizeConfig,
+
+    /// Solver engine settings. `solver.max_iters` defaults to 120, sized for
+    /// a tilted sensor's tilt valley; the solver stops at convergence, so
+    /// the cap only bounds runs that do not converge.
+    pub solver: SolverConfig,
 }
 
 impl Default for PlanarIntrinsicsConfig {
     fn default() -> Self {
         Self {
-            init: IntrinsicsInitConfig::default(),
+            camera: CameraConfig::default(),
+            intrinsics_init: IntrinsicsInitConfig::default(),
+            optimize: PlanarOptimizeConfig::default(),
             solver: SolverConfig {
                 max_iters: DEFAULT_MAX_ITERS,
                 ..SolverConfig::default()
             },
-            camera: CameraConfig::default(),
-            fix_poses: Vec::new(),
         }
     }
+}
+
+/// The non-linear refinement stage of a planar intrinsics calibration
+/// (`step_optimize`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+#[serde(deny_unknown_fields)]
+pub struct PlanarOptimizeConfig {
+    /// Robust loss on the target-corner reprojection residuals; its scale is
+    /// in pixels. Default `none`: plain least squares, the
+    /// maximum-likelihood estimate under Gaussian corner noise. A tilted
+    /// sensor's tilt sweep runs plain least squares and applies this loss
+    /// in its final solve.
+    pub reprojection_loss: RobustLoss,
+
+    /// Indices of poses to fix during optimization (e.g., \[0\] to fix first
+    /// pose). Default: none — the board fixes the target frame, and a fixed
+    /// pose makes the reported uncertainty conditional on it.
+    pub fix_poses: Vec<usize>,
 }
 
 impl PlanarIntrinsicsConfig {
@@ -141,17 +162,18 @@ impl PlanarIntrinsicsConfig {
     }
 
     /// Convert to vision-calibration-linear initialization options, with
-    /// `iterations` overriding `init.iterations` when set.
+    /// `iterations` overriding `intrinsics_init.iterations` when set.
     pub(crate) fn init_opts(&self, iterations: Option<usize>) -> CameraInitOptions {
-        self.init.camera_init_opts(iterations, &self.camera)
+        self.intrinsics_init
+            .camera_init_opts(iterations, &self.camera)
     }
 
     /// Convert to vision-calibration-optim solve options.
     pub(crate) fn solve_opts(&self) -> PlanarIntrinsicsSolveOptions {
         PlanarIntrinsicsSolveOptions {
-            robust_loss: self.solver.robust_loss,
+            robust_loss: self.optimize.reprojection_loss,
             fix: self.camera.fix.clone(),
-            fix_poses: self.fix_poses.clone(),
+            fix_poses: self.optimize.fix_poses.clone(),
             bounds: None,
         }
     }
@@ -162,8 +184,8 @@ impl PlanarIntrinsicsConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanarIntrinsicsExport {
-    /// Export-type discriminator — always [`ExportKind::PlanarIntrinsics`].
-    pub kind: ExportKind,
+    /// Export-type discriminator — always [`ProblemKind::PlanarIntrinsics`].
+    pub kind: ProblemKind,
     /// The calibrated camera, in its model; `camera.sensor` states whether a
     /// tilted sensor was calibrated.
     pub camera: CameraParams,
@@ -203,7 +225,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
     }
 
     fn schema_version() -> u32 {
-        1
+        2
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
@@ -232,7 +254,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.init.iterations == 0 {
+        if config.intrinsics_init.iterations == 0 {
             return Err(Error::invalid_input("init.iterations must be positive"));
         }
         config.camera.validate_single_camera()
@@ -261,9 +283,9 @@ impl ProblemType for PlanarIntrinsicsProblem {
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
         let mut per_feature_residuals = PerFeatureResiduals::default();
         per_feature_residuals.target = target;
-        per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
+        per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
         Ok(PlanarIntrinsicsExport {
-            kind: ExportKind::PlanarIntrinsics,
+            kind: ProblemKind::PlanarIntrinsics,
             camera: output.params.camera.clone(),
             cam_se3_target: output.params.cam_se3_target.clone(),
             mean_reproj_error: output.mean_reproj_error,
@@ -401,10 +423,13 @@ mod tests {
         let config = PlanarIntrinsicsConfig {
             solver: SolverConfig {
                 max_iters: 100,
-                robust_loss: vision_calibration_optim::RobustLoss::Huber { scale: 2.5 },
                 ..Default::default()
             },
-            init: IntrinsicsInitConfig {
+            optimize: PlanarOptimizeConfig {
+                reprojection_loss: RobustLoss::Huber { scale: 2.5 },
+                ..Default::default()
+            },
+            intrinsics_init: IntrinsicsInitConfig {
                 fix_k3: false,
                 ..Default::default()
             },
@@ -419,9 +444,9 @@ mod tests {
         let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.solver.max_iters, 100);
-        assert!(!restored.init.fix_k3);
+        assert!(!restored.intrinsics_init.fix_k3);
         assert_eq!(restored.camera, config.camera);
-        match restored.solver.robust_loss {
+        match restored.optimize.reprojection_loss {
             vision_calibration_optim::RobustLoss::Huber { scale } => {
                 assert!((scale - 2.5).abs() < 1e-12);
             }
@@ -430,7 +455,7 @@ mod tests {
             | vision_calibration_optim::RobustLoss::Arctan { .. } => {
                 panic!(
                     "expected Huber loss after roundtrip, got {:?}",
-                    restored.solver.robust_loss
+                    restored.optimize.reprojection_loss
                 );
             }
         }
@@ -439,13 +464,13 @@ mod tests {
     #[test]
     fn problem_name_and_version() {
         assert_eq!(PlanarIntrinsicsProblem::name(), "planar_intrinsics_v2");
-        assert_eq!(PlanarIntrinsicsProblem::schema_version(), 1);
+        assert_eq!(PlanarIntrinsicsProblem::schema_version(), 2);
     }
 
     #[test]
     fn init_opts_conversion() {
         let config = PlanarIntrinsicsConfig {
-            init: IntrinsicsInitConfig {
+            intrinsics_init: IntrinsicsInitConfig {
                 iterations: 5,
                 fix_k3: true,
             },
@@ -462,11 +487,10 @@ mod tests {
     #[test]
     fn solve_opts_conversion() {
         let config = PlanarIntrinsicsConfig {
-            solver: SolverConfig {
-                robust_loss: vision_calibration_optim::RobustLoss::Cauchy { scale: 1.0 },
-                ..Default::default()
+            optimize: PlanarOptimizeConfig {
+                reprojection_loss: RobustLoss::Cauchy { scale: 1.0 },
+                fix_poses: vec![0, 1],
             },
-            fix_poses: vec![0, 1],
             ..Default::default()
         };
 
@@ -545,13 +569,7 @@ mod tests {
         let export = PlanarIntrinsicsProblem::export(
             &dummy_input,
             &output,
-            &PlanarIntrinsicsConfig {
-                solver: SolverConfig {
-                    robust_loss: RobustLoss::None,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
+            &PlanarIntrinsicsConfig::default(),
         )
         .expect("export");
 
@@ -568,7 +586,7 @@ mod tests {
         let hist = export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .as_ref()
             .expect("planar export emits a single-camera histogram");
         assert_eq!(hist.len(), 1);
@@ -651,7 +669,7 @@ mod tests {
         let hist = &export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .as_ref()
             .unwrap()[0];
         assert_eq!(hist.count, 12);
@@ -719,18 +737,15 @@ mod tests {
             restored
                 .diagnostics
                 .per_feature_residuals
-                .target_hist_per_camera,
-            export
-                .diagnostics
-                .per_feature_residuals
-                .target_hist_per_camera
+                .target_hist_per_cam,
+            export.diagnostics.per_feature_residuals.target_hist_per_cam
         );
         assert!(restored.diagnostics.per_feature_residuals.laser.is_empty());
         assert!(
             restored
                 .diagnostics
                 .per_feature_residuals
-                .laser_hist_per_camera
+                .laser_hist_per_cam
                 .is_none()
         );
         // ADR 0014: image_manifest defaults to None and absent from the wire
@@ -758,7 +773,7 @@ mod tests {
         )
         .expect("valid params");
         let mut export = PlanarIntrinsicsExport {
-            kind: ExportKind::PlanarIntrinsics,
+            kind: ProblemKind::PlanarIntrinsics,
             camera: params.camera,
             cam_se3_target: params.cam_se3_target,
             mean_reproj_error: 0.0,

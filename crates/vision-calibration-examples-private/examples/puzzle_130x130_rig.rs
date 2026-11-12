@@ -134,7 +134,10 @@ fn main() -> Result<()> {
     let mut cfg = RigHandeyeConfig::default();
     cfg.solver.max_iters = 200;
     cfg.solver.verbosity = 1;
-    cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    let huber = RobustLoss::Huber { scale: 1.0 };
+    cfg.intrinsics_optimize.reprojection_loss = huber;
+    cfg.rig.reprojection_loss = huber;
+    cfg.handeye_optimize.reprojection_loss = huber;
     // Sensor rig is rigidly mounted in the robot base frame; the puzzleboard
     // target is held by the robot end-effector → hand-to-eye / EyeToHand.
     cfg.handeye_init.handeye_mode = HandeyeMode::EyeToHand;
@@ -330,7 +333,7 @@ fn main() -> Result<()> {
     let mut laser_cfg = RigLaserlineDeviceConfig::default();
     laser_cfg.solver.max_iters = 200;
     laser_cfg.solver.verbosity = 1;
-    laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
+    laser_cfg.optimize.laser_residual_type = LaserlineResidualType::PointToPlane;
     laser_session.set_config(laser_cfg)?;
 
     let t0 = Instant::now();
@@ -338,7 +341,7 @@ fn main() -> Result<()> {
     println!("stage 3 (rig laserline): {:.2?}", t0.elapsed());
 
     let laser_export = laser_session.export()?;
-    for (i, stats) in laser_export.per_camera_stats.iter().enumerate() {
+    for (i, stats) in laser_export.per_cam_stats.iter().enumerate() {
         println!(
             "  camera {i}: reproj={:.4}px, laser={:.4}px/m",
             stats.mean_reproj_error, stats.mean_laser_error
@@ -382,7 +385,7 @@ fn main() -> Result<()> {
         rig_se3_cam,
         handeye,
         target_ref,
-        planes_cam: laser_export.laser_planes_cam.clone(),
+        laser_planes_cam: laser_export.laser_planes_cam.clone(),
     };
     let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|r| r.deltas.clone());
     let (joint_initial_mean, joint_initial_stats) = evaluate_rig_handeye_laserline(
@@ -432,7 +435,7 @@ fn main() -> Result<()> {
     // getting below 1 px reproj / 0.1 mm laser σ needs improvements
     // upstream (shared-intrinsics rig or sub-pixel detection).
     joint_opts.laser_weight = 1e4;
-    joint_opts.calib_weight = 1.0;
+    joint_opts.reprojection_weight = 1.0;
     joint_opts.refine_robot_poses = true;
     joint_opts.robot_rot_sigma = robot_prior.rot_sigma;
     joint_opts.robot_trans_sigma = robot_prior.trans_sigma;
@@ -455,20 +458,20 @@ fn main() -> Result<()> {
     println!("  solve final_cost = {:.3e}", joint_est.report.final_cost);
     println!(
         "  mean reproj after joint BA: {:.4} px",
-        joint_est.mean_reproj_error_px
+        joint_est.mean_reproj_error
     );
     for (i, s) in joint_est.per_cam_stats.iter().enumerate() {
         println!(
             "    cam {i}: reproj={:.4}px max={:.2}px hist={:?}  laser={:.5}m ({:.1}μm) max={:.5}m hist={:?}  laser_px={:.4}px max={:.2}px",
-            s.mean_reproj_error_px,
-            s.max_reproj_error_px,
-            s.reproj_histogram_px,
-            s.mean_laser_err_m,
-            s.mean_laser_err_m * 1e6,
-            s.max_laser_err_m,
+            s.mean_reproj_error,
+            s.max_reproj_error,
+            s.reproj_histogram,
+            s.mean_laser_error_m,
+            s.mean_laser_error_m * 1e6,
+            s.max_laser_error_m,
             s.laser_histogram_m,
-            s.mean_laser_err_px,
-            s.max_laser_err_px
+            s.mean_laser_error_px,
+            s.max_laser_error_px
         );
     }
     print_param_deltas(&joint_initial, &joint_est.params);
@@ -477,7 +480,7 @@ fn main() -> Result<()> {
             .as_ref()
             .map(|r| r.deltas.as_slice()),
     );
-    for (i, p) in joint_est.planes_rig.iter().enumerate() {
+    for (i, p) in joint_est.laser_planes_rig.iter().enumerate() {
         let n = p.normal().into_inner();
         println!(
             "  plane (rig) {i}: n=({:+.4}, {:+.4}, {:+.4}), d={:+.4} m",
@@ -626,15 +629,15 @@ fn print_joint_stats(label: &str, stats: &[RigHandeyeLaserlinePerCamStats]) {
     for (i, s) in stats.iter().enumerate() {
         println!(
             "    [{label}] cam {i}: reproj={:.4}px max={:.2}px hist={:?} laser={:.5}m ({:.1}μm) max={:.5}m hist={:?} laser_px={:.4}px max={:.2}px counts=({}/{})",
-            s.mean_reproj_error_px,
-            s.max_reproj_error_px,
-            s.reproj_histogram_px,
-            s.mean_laser_err_m,
-            s.mean_laser_err_m * 1e6,
-            s.max_laser_err_m,
+            s.mean_reproj_error,
+            s.max_reproj_error,
+            s.reproj_histogram,
+            s.mean_laser_error_m,
+            s.mean_laser_error_m * 1e6,
+            s.max_laser_error_m,
             s.laser_histogram_m,
-            s.mean_laser_err_px,
-            s.max_laser_err_px,
+            s.mean_laser_error_px,
+            s.max_laser_error_px,
             s.reproj_count,
             s.laser_count
         );
@@ -692,7 +695,7 @@ fn print_param_deltas(
     for (a, b) in initial
         .planes_cam
         .iter()
-        .zip(final_params.planes_cam.iter())
+        .zip(final_params.laser_planes_cam.iter())
     {
         let dot = a
             .normal()

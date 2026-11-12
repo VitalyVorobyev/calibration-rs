@@ -22,11 +22,11 @@
 //! manifest names its images, target and workflow:
 //!
 //! ```
-//! use vision_calibration_dataset::{Topology, samples};
+//! use vision_calibration_dataset::{ProblemKind, samples};
 //!
 //! let sample = samples::sample("opencv_left")?;
 //! let spec = sample.manifest();
-//! assert_eq!(spec.topology, Topology::PlanarIntrinsics);
+//! assert_eq!(spec.topology, ProblemKind::PlanarIntrinsics);
 //! assert!(spec.unresolved.is_empty());
 //! println!("{}: {} ({})", sample.id, sample.description, sample.licence);
 //! # Ok::<(), vision_calibration_dataset::samples::FetchError>(())
@@ -52,8 +52,8 @@ pub use sniff::{SniffError, sniff_folder};
 pub use spec::{
     CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec,
     DetectorSpec, ImageNoiseSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis, PoseColumnMap,
-    PoseConvention, PosePairing, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
-    Topology, TransformConvention, TranslationUnits,
+    PoseConvention, PosePairing, ProblemKind, RobotPoseFormat, RobotPoseSource, RotationFormat,
+    TargetSpec, TransformConvention, TranslationUnits,
 };
 pub use validator::{ValidationError, validate};
 

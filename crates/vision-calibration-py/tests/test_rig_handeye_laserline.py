@@ -212,7 +212,7 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
         self.assertEqual(len(result.cameras), 2)
         self.assertEqual(len(result.laser_planes_cam), 2)
         self.assertEqual(len(result.laser_planes_rig), 2)
-        self.assertEqual(len(result.per_camera_stats), 2)
+        self.assertEqual(len(result.per_cam_stats), 2)
         self.assertEqual(len(result.per_cam_reproj_errors), 2)
 
         # EyeToHand mode is echoed back with the mode's two poses, and only them.
@@ -233,9 +233,9 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
             # hand-eye solve under-determined and fx drifts along a scale
             # ambiguity. This assertion is the guard on fixture conditioning.
             self.assertAlmostEqual(cam.intrinsics.fx, 900.0, delta=1.0)
-        for stats in result.per_camera_stats:
+        for stats in result.per_cam_stats:
             self.assertGreater(stats.laser_count, 0)
-            self.assertLess(stats.mean_laser_err_m, 1e-6)
+            self.assertLess(stats.mean_laser_error_m, 1e-6)
 
     def test_dict_input_is_rejected_with_type_error(self) -> None:
         with self.assertRaises(TypeError):

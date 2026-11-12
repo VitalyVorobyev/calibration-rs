@@ -436,7 +436,7 @@ fn public_api_converges_with_deterministic_noise() {
     };
     let dataset = make_noisy_dataset(sensor_gt, 0.15);
     let mut config = tilted_config();
-    config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
 
     let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
     assert!(result.mean_reproj_error < 2.0);
@@ -476,7 +476,7 @@ fn public_api_rejects_view_with_too_few_points() {
 fn public_api_rejects_invalid_config() {
     let dataset = make_dataset(ScheimpflugParams::default());
     let mut config = tilted_config();
-    config.init.iterations = 0;
+    config.intrinsics_init.iterations = 0;
     let err = run_pipeline(&dataset, config).expect_err("expected invalid config");
     assert!(err.to_string().contains("iterations must be positive"));
 }
@@ -484,19 +484,19 @@ fn public_api_rejects_invalid_config() {
 #[test]
 fn scheimpflug_config_json_roundtrip() {
     let mut config = tilted_config();
-    config.init.iterations = 3;
+    config.intrinsics_init.iterations = 3;
     config.solver.max_iters = 75;
-    config.solver.robust_loss = RobustLoss::Cauchy { scale: 0.9 };
+    config.optimize.reprojection_loss = RobustLoss::Cauchy { scale: 0.9 };
     config.camera.fix = CameraFix {
         sensor: Some(vec!["tilt_x".into()]),
         ..CameraFix::default()
     };
     let json = serde_json::to_string(&config).expect("serialize config");
     let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).expect("deserialize config");
-    assert_eq!(restored.init.iterations, 3);
+    assert_eq!(restored.intrinsics_init.iterations, 3);
     assert_eq!(restored.solver.max_iters, 75);
     assert!(matches!(
-        restored.solver.robust_loss,
+        restored.optimize.reprojection_loss,
         RobustLoss::Cauchy { scale } if (scale - 0.9).abs() < 1e-12
     ));
     assert_eq!(restored.camera, config.camera);

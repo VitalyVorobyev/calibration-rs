@@ -191,7 +191,7 @@ fn main() -> Result<()> {
         config.solver.max_iters = max_iters;
         // k1,k2 free; k3 + tangential fixed (default radial_only); both
         // Scheimpflug tilts free; robust loss for the detector outlier tail.
-        config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        config.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
         // Spec-derived coarse prior (ADR 0011): fx = fy from lens focal /
@@ -313,7 +313,7 @@ fn sweep_solve_camera(
     let mut config = PlanarIntrinsicsConfig::default();
     config.camera.model.sensor = SensorKind::Scheimpflug;
     config.solver.max_iters = max_iters;
-    config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
     config.camera.model.distortion = model;
     session.set_config(config)?;
 

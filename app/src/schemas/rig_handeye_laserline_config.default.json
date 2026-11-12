@@ -18,6 +18,9 @@
       "refine_cam_se3_rig": false,
       "refine_intrinsics": true,
       "refine_sensor": true,
+      "reprojection_loss": {
+        "kind": "none"
+      },
       "robot_poses": {
         "estimate_sigma": true,
         "kind": "refine",
@@ -25,29 +28,30 @@
         "trans_sigma": 0.001
       }
     },
-    "intrinsics": {
+    "intrinsics_init": {
       "fix_k3": true,
       "iterations": 2
+    },
+    "intrinsics_optimize": {
+      "reprojection_loss": {
+        "kind": "none"
+      }
     },
     "rig": {
       "reference_camera_idx": 0,
       "refine_intrinsics": true,
-      "refine_sensor": true
+      "refine_sensor": true,
+      "reprojection_loss": {
+        "kind": "none"
+      }
     },
     "solver": {
       "backend": "tiny_solver",
       "max_iters": 50,
-      "robust_loss": {
-        "kind": "none"
-      },
       "verbosity": 0
     }
   },
   "joint_optimize": {
-    "calib_loss": {
-      "kind": "none"
-    },
-    "calib_weight": 1.0,
     "fix": [],
     "fix_handeye": false,
     "fix_target_ref": false,
@@ -56,30 +60,34 @@
     },
     "laser_residual_type": "point_to_plane",
     "laser_weight": 10000.0,
+    "reprojection_loss": {
+      "kind": "none"
+    },
+    "reprojection_weight": 1.0,
     "robot_poses": {
       "estimate_sigma": true,
       "kind": "refine",
       "rot_sigma": 0.008726646259971648,
       "trans_sigma": 0.001
-    },
-    "solver": {
-      "backend": "tiny_solver",
-      "max_iters": 30,
-      "robust_loss": {
-        "kind": "none"
-      },
-      "verbosity": 0
     }
   },
   "laserline_init": {
-    "laser_residual_type": "point_to_plane",
+    "optimize": {
+      "laser_loss": {
+        "kind": "huber",
+        "scale": 1.0
+      },
+      "laser_residual_type": "point_to_plane"
+    },
     "solver": {
       "backend": "tiny_solver",
       "max_iters": 200,
-      "robust_loss": {
-        "kind": "none"
-      },
       "verbosity": 0
     }
+  },
+  "solver": {
+    "backend": "tiny_solver",
+    "max_iters": 30,
+    "verbosity": 0
   }
 }

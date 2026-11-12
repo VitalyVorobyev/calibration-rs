@@ -1,7 +1,7 @@
 import type { ExportDiagnostics, FrameKey } from "../types";
 import type {
   CameraParams,
-  ExportKind as WireExportKind,
+  ProblemKind as WireExportKind,
   Iso3Schema,
   LaserPlane,
   Uncertainty,

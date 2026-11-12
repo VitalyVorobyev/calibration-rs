@@ -1,7 +1,7 @@
 //! Step runner for joint rig hand-eye laserline calibration.
 
 use crate::Error;
-use crate::common::ExportKind;
+use crate::common::ProblemKind;
 use crate::rig_family::inverse_poses;
 use crate::rig_handeye::{
     RigHandeyeExport, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
@@ -39,7 +39,7 @@ use super::problem::{
 ///   per view, if it has corrections), and the configured
 ///   `handeye_init.handeye_mode` with its hand-eye transform and target
 ///   reference pose.
-/// - `planes_cam` — one laser plane per camera, each in its camera's frame
+/// - `laser_planes_cam` — one laser plane per camera, each in its camera's frame
 ///   (a design value, say). The `laserline_init` stage refines these
 ///   instead of fitting its starting planes linearly.
 ///
@@ -52,7 +52,7 @@ pub struct JointManualInit {
     pub rig_handeye: Option<RigHandeyeExport>,
     /// Per-camera laser planes (camera frame) the `laserline_init` stage
     /// starts from.
-    pub planes_cam: Option<Vec<LaserPlane>>,
+    pub laser_planes_cam: Option<Vec<LaserPlane>>,
 }
 
 /// Run the full joint rig hand-eye laserline pipeline.
@@ -98,8 +98,8 @@ pub fn run_calibration_with_seed(
     if manual.rig_handeye.is_some() {
         seeded.push("rig_handeye");
     }
-    if manual.planes_cam.is_some() {
-        seeded.push("planes_cam");
+    if manual.laser_planes_cam.is_some() {
+        seeded.push("laser_planes_cam");
     }
 
     // The warm-start runs report their own steps after these.
@@ -130,7 +130,7 @@ pub fn run_calibration_with_seed(
     laser_session.set_config(config.laserline_init.clone())?;
     laser_session.set_control(session.control().clone());
     let plane_seed = PlaneManualInit {
-        planes_cam: manual.planes_cam,
+        laser_planes_cam: manual.laser_planes_cam,
     };
     laser_session.begin_step("init")?;
     step_init_with_seed(&mut laser_session, plane_seed, None)?;
@@ -151,9 +151,9 @@ pub fn run_calibration_with_seed(
         config.joint_optimize.robot_poses.solver_terms();
     let joint_opts = RigHandeyeLaserlineSolveOptions {
         laser_residual_type: config.joint_optimize.laser_residual_type,
-        calib_loss: config.joint_optimize.calib_loss,
+        reprojection_loss: config.joint_optimize.reprojection_loss,
         laser_loss: config.joint_optimize.laser_loss,
-        calib_weight: config.joint_optimize.calib_weight,
+        reprojection_weight: config.joint_optimize.reprojection_weight,
         laser_weight: config.joint_optimize.laser_weight,
         fix: joint_fix(
             &config.joint_optimize,
@@ -169,17 +169,14 @@ pub fn run_calibration_with_seed(
         estimate_robot_sigma,
         initial_robot_deltas,
     };
-    let backend_opts = config
-        .joint_optimize
-        .solver
-        .backend_options(session.control());
+    let backend_opts = config.solver.backend_options(session.control());
 
     let estimate =
         optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)?;
     session.set_output(estimate.clone());
     let mut notes = format!(
         "mean_reproj={:.3}px, final_cost={:.3e}",
-        estimate.mean_reproj_error_px, estimate.report.final_cost
+        estimate.mean_reproj_error, estimate.report.final_cost
     );
     if !seeded.is_empty() {
         notes.push_str(&format!(" (manual: {})", seeded.join(", ")));
@@ -202,7 +199,7 @@ fn check_manual_init(
     let n_views = input.num_views();
     if let Some(export) = &manual.rig_handeye {
         let fail = |what: String| Err(Error::invalid_input(format!("seed rig_handeye: {what}")));
-        if export.kind != ExportKind::RigHandeye {
+        if export.kind != ProblemKind::RigHandeye {
             return fail(format!(
                 "export kind {:?}, expected RigHandeye",
                 export.kind
@@ -246,11 +243,11 @@ fn check_manual_init(
             ));
         }
     }
-    if let Some(planes) = &manual.planes_cam
+    if let Some(planes) = &manual.laser_planes_cam
         && planes.len() != n_cams
     {
         return Err(Error::invalid_input(format!(
-            "seed planes_cam: {} planes, expected {n_cams} (one per camera)",
+            "seed laser_planes_cam: {} planes, expected {n_cams} (one per camera)",
             planes.len()
         )));
     }
@@ -281,6 +278,6 @@ fn joint_initial_from_exports(
         rig_se3_cam: inverse_poses(&rig_export.cam_se3_rig),
         handeye,
         target_ref,
-        planes_cam: laser_export.laser_planes_cam.clone(),
+        laser_planes_cam: laser_export.laser_planes_cam.clone(),
     })
 }

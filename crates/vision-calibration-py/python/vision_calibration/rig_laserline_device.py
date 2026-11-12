@@ -49,10 +49,10 @@ class PlaneManualInit:
     in that camera's frame. Seeds skip the linear plane fit and override the
     input's initial planes."""
 
-    planes_cam: list[LaserPlane] | None = None
+    laser_planes_cam: list[LaserPlane] | None = None
 
     def to_payload(self) -> dict[str, Any]:
-        return _seed_payload({"planes_cam": self.planes_cam})
+        return _seed_payload({"laser_planes_cam": self.laser_planes_cam})
 
 
 class RigLaserlineDeviceSession(

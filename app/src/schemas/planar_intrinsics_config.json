@@ -127,7 +127,7 @@
     },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
-      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `intrinsics_init` config\ngroup.",
       "properties": {
         "fix_k3": {
           "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera: a\nterm the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
@@ -143,6 +143,30 @@
       "required": [
         "iterations",
         "fix_k3"
+      ],
+      "type": "object"
+    },
+    "PlanarOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The non-linear refinement stage of a planar intrinsics calibration\n(`step_optimize`).",
+      "properties": {
+        "fix_poses": {
+          "description": "Indices of poses to fix during optimization (e.g., \\[0\\] to fix first\npose). Default: none — the board fixes the target frame, and a fixed\npose makes the reported uncertainty conditional on it.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels. Default `none`: plain least squares, the\nmaximum-likelihood estimate under Gaussian corner noise. A tilted\nsensor's tilt sweep runs plain least squares and applies this loss\nin its final solve."
+        }
+      },
+      "required": [
+        "reprojection_loss",
+        "fix_poses"
       ],
       "type": "object"
     },
@@ -268,7 +292,7 @@
     },
     "SolverConfig": {
       "additionalProperties": false,
-      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "description": "The solver engine: iteration budget, verbosity and backend, shared by\nevery problem's non-linear stages.\n\nIt holds engine settings only. What a stage minimizes — its robust losses\nand weights — belongs to the stage's own group (`optimize`,\n`intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named\nby the residual family it applies to (`reprojection_loss`,\n`laser_loss`).\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "backend": {
           "$ref": "#/$defs/SolverBackend",
@@ -281,10 +305,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "robust_loss": {
-          "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss function for outlier handling."
-        },
         "verbosity": {
           "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
           "format": "uint",
@@ -294,15 +314,14 @@
       },
       "required": [
         "max_iters",
-        "verbosity",
-        "robust_loss"
+        "verbosity"
       ],
       "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for planar intrinsics calibration.\n\nGrouped by stage: linear-init and non-linear-solve settings live in the\nshared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs, and the\ncamera model with its fix lists in [`CameraConfig`].",
+  "description": "Configuration for planar intrinsics calibration.\n\nGrouped by stage: the camera model with its fix lists in\n[`CameraConfig`], the linear initialization in [`IntrinsicsInitConfig`],\nthe non-linear refinement in [`PlanarOptimizeConfig`], and the solver\nengine in [`SolverConfig`].",
   "properties": {
     "camera": {
       "$ref": "#/$defs/CameraConfig",
@@ -316,28 +335,23 @@
       },
       "description": "The camera model and its fixed parameters.\n\nAny distortion kind with an identity sensor; a Scheimpflug sensor\nneeds a distortion model. A tilted sensor's solve without a tilt seed\nruns a multi-start tilt sweep (see `step_optimize`)."
     },
-    "fix_poses": {
-      "description": "Indices of poses to fix during optimization (e.g., \\[0\\] to fix first\npose). Default: none — the board fixes the target frame, and a fixed\npose makes the reported uncertainty conditional on it.",
-      "items": {
-        "format": "uint",
-        "minimum": 0,
-        "type": "integer"
-      },
-      "type": "array"
-    },
-    "init": {
+    "intrinsics_init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
-      "description": "Linear-initialization stage settings. The linear stage fits only the\ndistortion terms the camera's solves estimate."
+      "description": "Linear-initialization stage settings (`step_init`). The linear stage\nfits only the distortion terms the camera's solves estimate."
+    },
+    "optimize": {
+      "$ref": "#/$defs/PlanarOptimizeConfig",
+      "description": "Non-linear refinement stage settings (`step_optimize`)."
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
-      "description": "Non-linear solve stage settings. `solver.max_iters` defaults to 120,\nsized for a tilted sensor's tilt valley; the solver stops at\nconvergence, so the cap only bounds runs that do not converge."
+      "description": "Solver engine settings. `solver.max_iters` defaults to 120, sized for\na tilted sensor's tilt valley; the solver stops at convergence, so\nthe cap only bounds runs that do not converge."
     }
   },
   "required": [
-    "init",
-    "solver",
-    "fix_poses"
+    "intrinsics_init",
+    "optimize",
+    "solver"
   ],
   "title": "PlanarIntrinsicsConfig",
   "type": "object"

@@ -94,15 +94,6 @@
       "additionalProperties": false,
       "description": "Bundle-adjustment options for laserline device calibration.",
       "properties": {
-        "calib_loss": {
-          "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss for calibration reprojection residuals."
-        },
-        "calib_weight": {
-          "description": "Global weight for calibration residuals.",
-          "format": "double",
-          "type": "number"
-        },
         "fix_plane": {
           "description": "Fix laser plane parameters during optimization.",
           "type": "boolean"
@@ -118,22 +109,31 @@
         },
         "laser_loss": {
           "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss for laser residuals. Its scale is in the residual's unit:\npixels for the line distance (the default residual), meters for\npoint-to-plane."
+          "description": "Robust loss on the laser residuals. Its scale is in the residual's\nunit: pixels for the line distance (the default residual), meters for\npoint-to-plane."
         },
         "laser_residual_type": {
           "$ref": "#/$defs/LaserlineResidualType",
           "description": "Laser residual type."
         },
         "laser_weight": {
-          "description": "Global weight for laser residuals.",
+          "description": "Weight of the laser residuals.",
+          "format": "double",
+          "type": "number"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels."
+        },
+        "reprojection_weight": {
+          "description": "Weight of the reprojection residuals.",
           "format": "double",
           "type": "number"
         }
       },
       "required": [
-        "calib_loss",
+        "reprojection_loss",
         "laser_loss",
-        "calib_weight",
+        "reprojection_weight",
         "laser_weight",
         "fix_poses",
         "fix_plane",
@@ -178,7 +178,7 @@
     },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
-      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `intrinsics_init` config\ngroup.",
       "properties": {
         "fix_k3": {
           "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera: a\nterm the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
@@ -334,7 +334,7 @@
     },
     "SolverConfig": {
       "additionalProperties": false,
-      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "description": "The solver engine: iteration budget, verbosity and backend, shared by\nevery problem's non-linear stages.\n\nIt holds engine settings only. What a stage minimizes — its robust losses\nand weights — belongs to the stage's own group (`optimize`,\n`intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named\nby the residual family it applies to (`reprojection_loss`,\n`laser_loss`).\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "backend": {
           "$ref": "#/$defs/SolverBackend",
@@ -347,10 +347,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "robust_loss": {
-          "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss function for outlier handling."
-        },
         "verbosity": {
           "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
           "format": "uint",
@@ -360,8 +356,7 @@
       },
       "required": [
         "max_iters",
-        "verbosity",
-        "robust_loss"
+        "verbosity"
       ],
       "type": "object"
     }
@@ -382,23 +377,23 @@
       },
       "description": "The camera model and the parameters the bundle adjustment holds\nfixed. Any distortion kind, and an identity or Scheimpflug sensor;\nthe line-distance laser residual needs a projection that keeps lines\nstraight. A Scheimpflug sensor's tilt is held by default at the\nmanual-init `sensor` seed (zero when unseeded): a device's mount tilt\nis measured separately. An explicit `fix.sensor` list estimates it\ninstead (`[]` refines both angles; unseeded, the tilt then comes from\nthe linear tilt sweep and a staged multi-start)."
     },
-    "init": {
+    "intrinsics_init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
-      "description": "Per-camera linear-initialization stage settings. The linear stage\nfits only the distortion terms the bundle adjustment estimates\n([`Self::effective_fix`])."
+      "description": "Linear-initialization stage settings (`step_init`). The linear stage\nfits only the distortion terms the bundle adjustment estimates\n([`Self::effective_fix`]). A Scheimpflug camera whose tilt is\nestimated and not seeded is solved alone by the staged tilt\nmulti-start before the plane fit, in plain least squares."
     },
     "optimize": {
       "$ref": "#/$defs/DeviceOptimizeConfig",
-      "description": "Bundle-adjustment options."
+      "description": "Bundle-adjustment stage settings (`step_optimize`)."
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
-      "description": "Non-linear solve stage settings.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`optimize.calib_loss`,\n`optimize.laser_loss`). `max_iters`, `verbosity` and `backend` apply."
+      "description": "Solver engine settings."
     }
   },
   "required": [
-    "init",
-    "solver",
-    "optimize"
+    "intrinsics_init",
+    "optimize",
+    "solver"
   ],
   "title": "LaserlineDeviceConfig",
   "type": "object"

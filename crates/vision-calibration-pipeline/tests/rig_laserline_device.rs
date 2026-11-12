@@ -189,7 +189,7 @@ fn pipeline_converges_rig_laserline() {
     let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
     session.set_input(input).unwrap();
     let mut seed = PlaneManualInit::default();
-    seed.planes_cam = Some(initial_planes_cam);
+    seed.laser_planes_cam = Some(initial_planes_cam);
     step_init_with_seed(&mut session, seed, None).unwrap();
     step_optimize(&mut session, None).unwrap();
 
@@ -219,8 +219,8 @@ fn pipeline_converges_rig_laserline() {
     }
 
     // Reprojection stats present.
-    assert_eq!(export.per_camera_stats.len(), 2);
-    for (i, stats) in export.per_camera_stats.iter().enumerate() {
+    assert_eq!(export.per_cam_stats.len(), 2);
+    for (i, stats) in export.per_cam_stats.iter().enumerate() {
         assert!(
             stats.mean_reproj_error < 1.0,
             "cam{i} mean reproj error too large: {}",
@@ -533,4 +533,48 @@ fn an_unseeded_camera_without_laser_pixels_is_an_error() {
     session.set_input(input).unwrap();
     let err = run_calibration(&mut session).unwrap_err().to_string();
     assert!(err.contains("camera 1"), "{err}");
+}
+
+/// The plane stage's `optimize.laser_loss` is read: with a few gross laser
+/// outliers, the default Huber loss recovers camera 0's plane closer to the
+/// truth than plain least squares does, on both backends.
+#[test]
+fn the_laser_loss_robustifies_the_plane_fit() {
+    use vision_calibration_optim::RobustLoss;
+
+    let (mut dataset, upstream, planes_rig_gt) = make_dataset();
+    // Displace every fourth laser pixel of camera 0 by 25 px across the
+    // stripe: outliers far outside the 1 px Huber scale.
+    for view in &mut dataset.views {
+        if let Some(Some(pixels)) = view.laser_pixels.get_mut(0) {
+            for p in pixels.iter_mut().step_by(4) {
+                p.y += 25.0;
+            }
+        }
+    }
+    let plane_error = |loss: RobustLoss, backend: SolverBackend| {
+        let mut config = RigLaserlineDeviceConfig::default();
+        config.optimize.laser_loss = loss;
+        config.solver.backend = backend;
+        let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
+        session.set_config(config).unwrap();
+        session
+            .set_input(RigLaserlineDeviceInput {
+                dataset: dataset.clone(),
+                upstream: upstream.clone(),
+            })
+            .unwrap();
+        run_calibration(&mut session).unwrap();
+        let got = &session.export().unwrap().laser_planes_rig[0];
+        let gt = &planes_rig_gt[0];
+        gt.normal().dot(&got.normal()).abs().min(1.0).acos()
+    };
+    for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
+        let robust = plane_error(RobustLoss::Huber { scale: 1.0 }, backend);
+        let plain = plane_error(RobustLoss::None, backend);
+        assert!(
+            robust < 0.5 * plain,
+            "{backend:?}: Huber {robust:.2e} rad, plain {plain:.2e} rad"
+        );
+    }
 }

@@ -278,7 +278,7 @@ fn single_cam_handeye() {
         .unwrap();
     let mut config = session.config().clone();
     config.camera = CameraConfig::new(model());
-    config.robot_poses = RobotPoseConfig::Exact;
+    config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
     session.set_config(config).unwrap();
     vision_calibration_pipeline::single_cam_handeye::run_calibration(&mut session).unwrap();
     let export = session.export().unwrap();

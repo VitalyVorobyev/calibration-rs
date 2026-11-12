@@ -50,7 +50,7 @@ step_optimize(&mut session, Some(opts))?;
 
 ```rust
 // Re-run optimization with different settings (without re-initializing)
-session.update_config(|c| c.solver.robust_loss = RobustLoss::Cauchy { scale: 3.0 })?;
+session.update_config(|c| c.optimize.reprojection_loss = RobustLoss::Cauchy { scale: 3.0 })?;
 step_optimize(&mut session, None)?;
 ```
 

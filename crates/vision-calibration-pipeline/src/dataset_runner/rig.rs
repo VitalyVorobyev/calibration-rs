@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use vision_calibration_core::{NoMeta, RigDataset, RigView, RigViewObs, RunControl};
-use vision_calibration_dataset::{DatasetSpec, Topology, validate};
+use vision_calibration_dataset::{DatasetSpec, ProblemKind, validate};
 use vision_calibration_detect::Feature;
 use vision_calibration_optim::RobotPoseMeta;
 
@@ -54,7 +54,7 @@ pub fn build_rig_extrinsics_input(
     detection: Detection<'_>,
     control: &RunControl,
 ) -> Result<RigRunResult<NoMeta>, RunError> {
-    if spec.topology != Topology::RigExtrinsics {
+    if spec.topology != ProblemKind::RigExtrinsics {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -83,7 +83,7 @@ pub fn build_rig_handeye_input(
     detection: Detection<'_>,
     control: &RunControl,
 ) -> Result<RigRunResult<RobotPoseMeta>, RunError> {
-    if spec.topology != Topology::RigHandeye {
+    if spec.topology != ProblemKind::RigHandeye {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -402,7 +402,7 @@ mod tests {
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
-            topology: Topology::RigExtrinsics,
+            topology: ProblemKind::RigExtrinsics,
             pose_pairing: Some(PosePairing::ByIndex),
             pose_convention: None,
             unresolved: vec![],
@@ -595,7 +595,7 @@ mod tests {
             vec!["cam0/a.png", "cam0/b.png"],
             vec!["cam1/a.png", "cam1/b.png"],
         ]);
-        spec.topology = Topology::RigHandeye;
+        spec.topology = ProblemKind::RigHandeye;
         let filter = ViewFilter::for_spec(&spec);
         let (grid, scope) = filter.rig_chessboard().unwrap();
         let mut detected: Vec<Vec<Option<Vec<Feature>>>> = vec![
@@ -740,7 +740,7 @@ mod tests {
         assert!(matches!(err, RunError::UnsupportedTopology { .. }));
 
         let mut spec2 = rig_spec(&[vec!["a.png"], vec!["b.png"]]);
-        spec2.topology = Topology::RigHandeye;
+        spec2.topology = ProblemKind::RigHandeye;
         let err2 = build_rig_extrinsics_input(
             &spec2,
             tmp.path(),
@@ -758,7 +758,7 @@ mod tests {
             vec!["cam0/img_0.png", "cam0/img_1.png", "cam0/img_2.png"],
             vec!["cam1/img_0.png", "cam1/img_1.png", "cam1/img_2.png"],
         ]);
-        spec.topology = Topology::RigHandeye;
+        spec.topology = ProblemKind::RigHandeye;
         spec.robot_poses = Some(RobotPoseSource {
             path: PathBuf::from("poses.csv"),
             format: RobotPoseFormat::Csv,

@@ -192,7 +192,7 @@
     },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
-      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `intrinsics_init` config\ngroup.",
       "properties": {
         "fix_k3": {
           "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera: a\nterm the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
@@ -208,6 +208,20 @@
       "required": [
         "iterations",
         "fix_k3"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The per-camera intrinsics refinement stage (`intrinsics_optimize`): each\ncamera solved on its own views, before the joint stages.\n\nShared by the single-camera hand-eye and the two rig problems. The\nstage's iteration budget and backend come from `solver`.",
+      "properties": {
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals of this\nstage; its scale is in pixels. Default `none`: plain least squares,\nthe maximum-likelihood estimate under Gaussian corner noise. The\nlater stages have their own: a redescending loss (`cauchy`,\n`arctan`) needs a good start, so a convex `huber` here and the\nredescending one in the final stage is a sound pairing."
+        }
+      },
+      "required": [
+        "reprojection_loss"
       ],
       "type": "object"
     },
@@ -365,6 +379,25 @@
         }
       ]
     },
+    "SingleCamHandeyeOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The hand-eye bundle adjustment of a single-camera hand-eye calibration\n(`step_handeye_optimize`): the camera, the hand-eye transform, the\ntarget pose and, by default, the robot poses refined together, the\ncamera's `fix` lists held.",
+      "properties": {
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels. Default `none`."
+        },
+        "robot_poses": {
+          "$ref": "#/$defs/RobotPoseConfig",
+          "description": "Robot-pose refinement."
+        }
+      },
+      "required": [
+        "reprojection_loss",
+        "robot_poses"
+      ],
+      "type": "object"
+    },
     "SolverBackend": {
       "description": "Which engine linearizes the problem.\n\nBoth run the same Levenberg–Marquardt loop over the same residual\nkernels and reach the same minimizer; they differ in how they build the\nJacobian and how they fold in a robust loss.",
       "oneOf": [
@@ -382,7 +415,7 @@
     },
     "SolverConfig": {
       "additionalProperties": false,
-      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "description": "The solver engine: iteration budget, verbosity and backend, shared by\nevery problem's non-linear stages.\n\nIt holds engine settings only. What a stage minimizes — its robust losses\nand weights — belongs to the stage's own group (`optimize`,\n`intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named\nby the residual family it applies to (`reprojection_loss`,\n`laser_loss`).\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "backend": {
           "$ref": "#/$defs/SolverBackend",
@@ -395,10 +428,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "robust_loss": {
-          "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss function for outlier handling."
-        },
         "verbosity": {
           "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
           "format": "uint",
@@ -408,15 +437,14 @@
       },
       "required": [
         "max_iters",
-        "verbosity",
-        "robust_loss"
+        "verbosity"
       ],
       "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped by stage: per-camera linear init, the camera model, hand-eye\nlinear init, non-linear solve, and robot-pose refinement each live in\ntheir own shared sub-struct. Every group's own `Default` is the plain\nworkspace default (no per-problem override is needed here, unlike\n`PlanarIntrinsicsConfig`'s iteration cap).",
+  "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped by stage, in the order the steps run: the camera model, the\nintrinsics linear init and refinement, the hand-eye linear init and\nbundle adjustment, and the solver engine. Every group's own `Default` is\nthe plain workspace default (no per-problem override is needed here,\nunlike `PlanarIntrinsicsConfig`'s iteration cap).\n\nTwo stages solve the target corners, each with its own\n`reprojection_loss`: `intrinsics_optimize` and `handeye_optimize`. A\nrobust calibration sets both; the final stage's loss is the estimator.",
   "properties": {
     "camera": {
       "$ref": "#/$defs/CameraConfig",
@@ -432,26 +460,31 @@
     },
     "handeye_init": {
       "$ref": "#/$defs/HandeyeInitConfig",
-      "description": "Hand-eye linear-initialization stage settings."
+      "description": "Hand-eye linear-initialization stage settings (`step_handeye_init`)."
     },
-    "intrinsics": {
+    "handeye_optimize": {
+      "$ref": "#/$defs/SingleCamHandeyeOptimizeConfig",
+      "description": "Hand-eye bundle-adjustment stage settings (`step_handeye_optimize`)."
+    },
+    "intrinsics_init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
-      "description": "Per-camera linear-initialization stage settings. The linear stage\nfits only the distortion terms the camera's solves estimate."
+      "description": "Linear-initialization stage settings (`step_intrinsics_init`). The\nlinear stage fits only the distortion terms the camera's solves\nestimate."
     },
-    "robot_poses": {
-      "$ref": "#/$defs/RobotPoseConfig",
-      "description": "Robot-pose refinement settings for the hand-eye bundle adjustment."
+    "intrinsics_optimize": {
+      "$ref": "#/$defs/IntrinsicsOptimizeConfig",
+      "description": "Intrinsics refinement stage settings (`step_intrinsics_optimize`)."
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
-      "description": "Non-linear solve stage settings."
+      "description": "Solver engine settings, for both non-linear stages."
     }
   },
   "required": [
-    "intrinsics",
+    "intrinsics_init",
+    "intrinsics_optimize",
     "handeye_init",
-    "solver",
-    "robot_poses"
+    "handeye_optimize",
+    "solver"
   ],
   "title": "SingleCamHandeyeConfig",
   "type": "object"

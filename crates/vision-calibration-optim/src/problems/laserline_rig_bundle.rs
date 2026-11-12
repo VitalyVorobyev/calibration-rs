@@ -257,7 +257,7 @@ pub struct RigLaserlineEstimate {
     /// Per-camera laser plane expressed in the camera's own frame.
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Per-camera stats (mean reprojection + laser residual).
-    pub per_camera_stats: Vec<LaserlineStats>,
+    pub per_cam_stats: Vec<LaserlineStats>,
     /// Covariance of the laser planes in their camera frames
     /// (`cam<i>.plane.nx … cam<i>.plane.d`). With an upstream covariance it
     /// carries the upstream's share (consider parameters) and lists the
@@ -327,7 +327,7 @@ pub fn optimize_rig_laserline(
 
     let mut laser_planes_cam = Vec::with_capacity(n);
     let mut laser_planes_rig = Vec::with_capacity(n);
-    let mut per_camera_stats = Vec::with_capacity(n);
+    let mut per_cam_stats = Vec::with_capacity(n);
     let mut per_camera_uncertainty = Vec::with_capacity(n);
     let mut share = upstream
         .uncertainty
@@ -411,11 +411,11 @@ pub fn optimize_rig_laserline(
             )?);
         }
 
-        let plane_cam = est.params.plane.clone();
+        let plane_cam = est.params.laser_plane.clone();
         let plane_rig = plane_cam.transform_by(&rig_se3_cam);
         laser_planes_cam.push(plane_cam);
         laser_planes_rig.push(plane_rig);
-        per_camera_stats.push(stats);
+        per_cam_stats.push(stats);
         per_camera_uncertainty.push(est.uncertainty);
     }
 
@@ -435,7 +435,7 @@ pub fn optimize_rig_laserline(
     Ok(RigLaserlineEstimate {
         laser_planes_rig,
         laser_planes_cam,
-        per_camera_stats,
+        per_cam_stats,
         uncertainty,
     })
 }

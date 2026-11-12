@@ -101,7 +101,7 @@ pub struct CornerCovariance {
 
 /// The pixel-noise level behind a corner covariance.
 ///
-/// In JSON: `"estimate"` or `{"known": 2.0}`.
+/// In JSON: `"estimate"` or `{"stated": 2.0}`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -112,14 +112,14 @@ pub enum ImageNoise {
     Estimate,
     /// The standard deviation of the image's pixel noise, in gray levels of
     /// the 8-bit image; finite and `>= 0`.
-    Known(f32),
+    Stated(f32),
 }
 
 /// Lower the corner-detector half of the override.
 ///
 /// # Errors
 ///
-/// [`DetectError::InvalidConfig`] for a known image noise that is not finite
+/// [`DetectError::InvalidConfig`] for a stated image noise that is not finite
 /// or is negative, before any detection.
 pub(crate) fn chess_config_for_override(
     override_cfg: Option<ChessCornersConfig>,
@@ -134,12 +134,12 @@ pub(crate) fn chess_config_for_override(
     if let Some(covariance) = override_cfg.and_then(|cfg| cfg.covariance) {
         let noise = match covariance.image_noise {
             ImageNoise::Estimate => NoiseLevel::Estimate,
-            ImageNoise::Known(sigma) if sigma.is_finite() && sigma >= 0.0 => {
+            ImageNoise::Stated(sigma) if sigma.is_finite() && sigma >= 0.0 => {
                 NoiseLevel::Known(sigma)
             }
-            ImageNoise::Known(sigma) => {
+            ImageNoise::Stated(sigma) => {
                 return Err(DetectError::InvalidConfig(format!(
-                    "chess_corners.covariance.image_noise.known must be finite and >= 0 \
+                    "chess_corners.covariance.image_noise.stated must be finite and >= 0 \
                      (gray levels), got {sigma}"
                 )));
             }
@@ -269,7 +269,7 @@ mod tests {
             }
         );
         assert_eq!(
-            lower(with_noise(ImageNoise::Known(2.0))).uncertainty,
+            lower(with_noise(ImageNoise::Stated(2.0))).uncertainty,
             Uncertainty::Propagated {
                 noise: NoiseLevel::Known(2.0)
             }
@@ -279,16 +279,16 @@ mod tests {
         expected.uncertainty = Uncertainty::Propagated {
             noise: NoiseLevel::Known(2.0),
         };
-        assert_eq!(lower(with_noise(ImageNoise::Known(2.0))), expected);
+        assert_eq!(lower(with_noise(ImageNoise::Stated(2.0))), expected);
     }
 
     #[test]
-    fn invalid_known_noise_is_rejected() {
+    fn invalid_stated_noise_is_rejected() {
         for bad in [-1.0, f32::NAN, f32::INFINITY] {
-            let err = chess_config_for_override(with_noise(ImageNoise::Known(bad))).unwrap_err();
+            let err = chess_config_for_override(with_noise(ImageNoise::Stated(bad))).unwrap_err();
             assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
         }
-        assert!(chess_config_for_override(with_noise(ImageNoise::Known(0.0))).is_ok());
+        assert!(chess_config_for_override(with_noise(ImageNoise::Stated(0.0))).is_ok());
     }
 
     #[test]
@@ -299,8 +299,8 @@ mod tests {
                 ImageNoise::Estimate,
             ),
             (
-                r#"{"covariance":{"image_noise":{"known":2.0}}}"#,
-                ImageNoise::Known(2.0),
+                r#"{"covariance":{"image_noise":{"stated":2.0}}}"#,
+                ImageNoise::Stated(2.0),
             ),
         ] {
             let cfg: ChessCornersConfig = serde_json::from_str(json).unwrap();

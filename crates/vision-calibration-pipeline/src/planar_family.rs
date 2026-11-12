@@ -14,7 +14,7 @@ use vision_calibration_core::{
 };
 
 use crate::Error;
-use crate::common::config::{CameraConfig, CameraInitOptions, SolverConfig};
+use crate::common::config::{CameraConfig, CameraInitOptions};
 use vision_calibration_linear::prelude::{
     EquidistantInitOptions, IterativeIntrinsicsOptions, dlt_homography,
     estimate_equidistant_intrinsics, estimate_intrinsics_iterative,
@@ -26,8 +26,8 @@ use vision_calibration_linear::scheimpflug_init::{
 };
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
-    PlanarIntrinsicsSolveOptions, ScheimpflugStagedInitOptions, optimize_planar_intrinsics,
-    optimize_scheimpflug_intrinsics_staged,
+    PlanarIntrinsicsSolveOptions, RobustLoss, ScheimpflugStagedInitOptions,
+    optimize_planar_intrinsics, optimize_scheimpflug_intrinsics_staged,
 };
 
 fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
@@ -481,10 +481,10 @@ fn estimate_camera_poses(
 /// (fitted to distorted points) in the solve.
 pub(crate) fn camera_solve_opts(
     camera: &CameraConfig,
-    solver: &SolverConfig,
+    reprojection_loss: RobustLoss,
 ) -> PlanarIntrinsicsSolveOptions {
     PlanarIntrinsicsSolveOptions {
-        robust_loss: solver.robust_loss,
+        robust_loss: reprojection_loss,
         fix: camera.fix.clone(),
         fix_poses: Vec::new(),
         bounds: None,
@@ -504,10 +504,10 @@ pub(crate) fn optimize_camera(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsParams,
     camera: &CameraConfig,
-    solver: &SolverConfig,
+    reprojection_loss: RobustLoss,
     backend_opts: BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsEstimate, Error> {
-    let solve_opts = camera_solve_opts(camera, solver);
+    let solve_opts = camera_solve_opts(camera, reprojection_loss);
     match camera.model.sensor {
         SensorKind::Identity => {
             optimize_planar_intrinsics(dataset, initial, solve_opts, backend_opts).map_err(|e| {
@@ -623,7 +623,7 @@ mod tests {
                 DistortionKind::BrownConrady5,
                 sensor,
             ));
-            let opts = camera_solve_opts(&camera, &SolverConfig::default());
+            let opts = camera_solve_opts(&camera, RobustLoss::None);
             assert!(opts.fix_poses.is_empty(), "{sensor:?}");
         }
     }

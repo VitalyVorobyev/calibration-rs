@@ -248,7 +248,11 @@ fn synthetic_laserline_calibration_smoke_test() {
     assert!(fy_error < 0.06, "fy error {:.3}% > 6%", fy_error * 100.0);
 
     // Check laser plane converged (within 5 degrees)
-    let normal_dot = result.params.plane.normal().dot(&laser_plane.normal());
+    let normal_dot = result
+        .params
+        .laser_plane
+        .normal()
+        .dot(&laser_plane.normal());
     let normal_angle_deg = normal_dot.abs().acos().to_degrees();
 
     println!("Laser plane normal angle error: {:.2}°", normal_angle_deg);
@@ -457,7 +461,11 @@ fn synthetic_laserline_line_dist_normalized_converges() {
     assert!(fx_error < 0.06, "fx error {:.3}% > 6%", fx_error * 100.0);
     assert!(fy_error < 0.06, "fy error {:.3}% > 6%", fy_error * 100.0);
 
-    let normal_dot = result.params.plane.normal().dot(&laser_plane.normal());
+    let normal_dot = result
+        .params
+        .laser_plane
+        .normal()
+        .dot(&laser_plane.normal());
     let normal_angle_deg = normal_dot.abs().acos().to_degrees();
 
     println!(
@@ -689,7 +697,7 @@ fn compare_point_plane_vs_line_dist() {
 
     let normal_angle_point = result_point
         .params
-        .plane
+        .laser_plane
         .normal()
         .dot(&laser_plane.normal())
         .abs()
@@ -697,7 +705,7 @@ fn compare_point_plane_vs_line_dist() {
         .to_degrees();
     let normal_angle_line = result_line
         .params
-        .plane
+        .laser_plane
         .normal()
         .dot(&laser_plane.normal())
         .abs()

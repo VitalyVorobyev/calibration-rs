@@ -78,19 +78,34 @@ pub enum RobustLoss {
 }
 ```
 
-Each non-laser problem type exposes the loss function via its shared
-`solver: SolverConfig` group:
+The `solver` group holds engine settings only (`max_iters`, `verbosity`,
+`backend`). Each optimize stage carries the robust loss of the residual family
+it solves: `reprojection_loss` for target corners, `laser_loss` for laser
+residuals. There is one loss per stage, so a convex Huber in the per-camera
+intrinsics stage and a redescending Cauchy in the final stage is expressible:
 
 ```rust
 session.update_config(|c| {
-    c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
+    c.optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
 ```
 
-Laser-carrying stages (laserline device, rig-handeye-laserline) do not use
-`solver.robust_loss` — they track calibration and laser residuals as
-independent families with their own `calib_loss`/`laser_loss` fields
-instead.
+To make a whole problem robust, set the loss in every stage that solves the
+corners:
+
+| Problem | Stages that take a `reprojection_loss` |
+|---|---|
+| planar intrinsics | `optimize` |
+| single-camera hand-eye | `intrinsics_optimize`, `handeye_optimize` |
+| rig extrinsics | `intrinsics_optimize`, `rig` |
+| rig hand-eye | `intrinsics_optimize`, `rig`, `handeye_optimize` |
+| laserline device | `optimize` (`reprojection_loss` and `laser_loss`) |
+| rig laserline device | `optimize` (`laser_loss`; the per-camera stages come from the upstream calibration) |
+| rig hand-eye laserline | `joint_optimize` (`reprojection_loss` and `laser_loss`), plus the hand-eye and laserline-init groups it embeds |
+
+The default is `None` everywhere, except the laser stages, which default to
+Huber with scale 1.0. The laserline device's initial camera-only tilt solve
+(the cold start of a Scheimpflug sensor) is plain least squares.
 
 The backend applies the loss function during residual evaluation, modifying both the cost and the Jacobian.
 

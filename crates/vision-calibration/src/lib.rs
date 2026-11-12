@@ -178,23 +178,24 @@ pub mod control {
 ///
 /// The nested [`common::config`] module holds the sibling set of shared
 /// **config** sub-structs — the grouped building blocks embedded
-/// by top-level `*Config` types (`init: IntrinsicsInitConfig`, `solver:
-/// SolverConfig`, ...).
+/// by top-level `*Config` types (`intrinsics_init: IntrinsicsInitConfig`,
+/// `solver: SolverConfig`, ...).
 pub mod common {
     pub use vision_calibration_pipeline::common::{
-        CalibratedCameras, ExportDiagnostics, ExportKind, HandeyeEstimate, HandeyeInitOptions,
+        CalibratedCameras, ExportDiagnostics, HandeyeEstimate, HandeyeInitOptions,
         HandeyeOptimizeOptions, HandeyeParams, HandeyeSolution, IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions, RigInitOptions, RigLaserlineView, RigOptimizeOptions,
         RobotPoseMeta, RobotPoseSigma, RobotRefinement, calibrated_cameras,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
-    /// types: the camera model, per-camera linear init, non-linear solve,
-    /// robot-pose refinement, hand-eye linear init, and rig frame options.
+    /// types: the camera model, per-camera linear init and refinement, the
+    /// solver engine, robot-pose refinement, hand-eye linear init, and the
+    /// rig stage.
     pub mod config {
         pub use vision_calibration_pipeline::common::config::{
-            CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig,
-            RobotPoseConfig, RobotPosePrior, SolverConfig,
+            CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig,
+            IntrinsicsOptimizeConfig, RigConfig, RobotPoseConfig, RobotPosePrior, SolverConfig,
         };
     }
 }
@@ -250,7 +251,7 @@ pub mod planar_intrinsics {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::planar_intrinsics::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsExport,
-        PlanarIntrinsicsInput, PlanarIntrinsicsProblem,
+        PlanarIntrinsicsInput, PlanarIntrinsicsProblem, PlanarOptimizeConfig,
     };
 
     // Step options, manual seeds and step results
@@ -284,7 +285,7 @@ pub mod single_cam_handeye {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::single_cam_handeye::{
         SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
-        SingleCamHandeyeProblem, SingleCamHandeyeSolution,
+        SingleCamHandeyeOptimizeConfig, SingleCamHandeyeProblem, SingleCamHandeyeSolution,
     };
 
     // Input views
@@ -416,8 +417,8 @@ pub mod rig_handeye {
 pub mod rig_laserline_device {
     // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_laserline_device::{
-        RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
-        RigLaserlineDeviceProblem, RigLaserlineEstimate,
+        PlaneOptimizeConfig, RigLaserlineDeviceConfig, RigLaserlineDeviceExport,
+        RigLaserlineDeviceInput, RigLaserlineDeviceProblem, RigLaserlineEstimate,
     };
 
     // Input parts
@@ -504,7 +505,7 @@ pub mod dataset {
     pub use vision_calibration_dataset::samples;
     pub use vision_calibration_dataset::{
         CameraSource, DatasetSpec, DetectorSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis,
-        ManifestError, PosePairing, SniffError, TargetSpec, Topology, sniff_folder,
+        ManifestError, PosePairing, ProblemKind, SniffError, TargetSpec, sniff_folder,
     };
 }
 

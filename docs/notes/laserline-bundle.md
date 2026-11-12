@@ -69,8 +69,8 @@ E = Σ_i Σ_j ρ_c‖ π(K,d,sensor,T_i·X_j) − u_ij ‖²   (target corners, 
   + Σ_i Σ_k ρ_l · r(K,d,sensor,T_i, n̂,d ; q_ik)²    (laser stripe, 1D)
 ```
 
-`ρ_c` / `ρ_l` are `calib_loss` / `laser_loss` (default Huber 1 px each); a
-loss scale is in its residual's unit. Per-family weights `calib_weight` /
+`ρ_c` / `ρ_l` are `reprojection_loss` / `laser_loss` (default Huber 1 px each); a
+loss scale is in its residual's unit. Per-family weights `reprojection_weight` /
 `laser_weight` default to 1. The laser residual `r` has two forms
 (`LaserlineResidualType`, `factors::laserline`):
 

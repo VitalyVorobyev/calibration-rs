@@ -128,15 +128,15 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         session = vc.PlanarIntrinsicsSession("bench A")
         self.assertIsNone(session.input)
         self.assertFalse(session.has_input)
-        session.set_config(vc.PlanarIntrinsicsConfig(fix_poses=[0]))
-        self.assertEqual(session.config.fix_poses, [0])
+        session.set_config(vc.PlanarIntrinsicsConfig(optimize=vc.PlanarOptimizeConfig(fix_poses=[0])))
+        self.assertEqual(session.config.optimize.fix_poses, [0])
         session.set_input(self.dataset)
         session.run_calibration()
         first = session.export(notes="first")
         restored = vc.PlanarIntrinsicsSession.from_json(session.to_json())
         self.assertEqual(restored.metadata.description, "bench A")
         self.assertEqual(restored.metadata.problem_type, session.metadata.problem_type)
-        self.assertEqual(restored.config.fix_poses, [0])
+        self.assertEqual(restored.config.optimize.fix_poses, [0])
         self.assertTrue(restored.has_output)
         # JSON keeps every float to within an ulp.
         self.assertAlmostEqual(
@@ -358,9 +358,9 @@ class LaserlineDeviceSessionTest(unittest.TestCase):
         session = vc.LaserlineDeviceSession()
         session.set_input(observation("synth_laserline"))
         init = session.step_init()
-        seeded = session.step_init_with_seed(laserline_device.DeviceManualInit(plane=init.plane))
+        seeded = session.step_init_with_seed(laserline_device.DeviceManualInit(laser_plane=init.laser_plane))
         self.assertIsNone(seeded.plane_rmse)
-        self.assertEqual(seeded.plane, init.plane)
+        self.assertEqual(seeded.laser_plane, init.laser_plane)
 
 
 class RigLaserlineDeviceSessionTest(unittest.TestCase):
@@ -394,7 +394,7 @@ class RigLaserlineDeviceSessionTest(unittest.TestCase):
         planes = session.export().laser_planes_cam
         self.assertEqual(len(planes), 2)
         # Seeded with its own optimum, the solve stays there.
-        session.step_init_with_seed(rig_laserline_device.PlaneManualInit(planes_cam=planes))
+        session.step_init_with_seed(rig_laserline_device.PlaneManualInit(laser_planes_cam=planes))
         session.step_optimize(vc.PlaneOptimizeOptions(max_iters=30))
         for seeded, plane in zip(session.export().laser_planes_cam, planes):
             self.assertAlmostEqual(seeded.distance, plane.distance, places=6)
@@ -476,7 +476,7 @@ class RigHandeyeLaserlineSessionTest(unittest.TestCase):
         planes = vc.RigHandeyeLaserlineSession()
         planes.set_input(payload)
         planes.run_calibration_with_seed(
-            rig_handeye_laserline.JointManualInit(planes_cam=unseeded.laser_planes_cam)
+            rig_handeye_laserline.JointManualInit(laser_planes_cam=unseeded.laser_planes_cam)
         )
         for plane, reference in zip(planes.export().laser_planes_cam, unseeded.laser_planes_cam):
             self.assertAlmostEqual(plane.distance, reference.distance, places=6)
@@ -486,8 +486,8 @@ class RigHandeyeLaserlineSessionTest(unittest.TestCase):
         session = vc.RigHandeyeLaserlineSession()
         session.set_input(payload)
         plane = vc.LaserPlane(normal_xyz=(0.0, 0.0, 1.0), distance=-0.3)
-        with self.assertRaisesRegex(ValueError, "planes_cam"):
-            session.run_calibration_with_seed(rig_handeye_laserline.JointManualInit(planes_cam=[plane]))
+        with self.assertRaisesRegex(ValueError, "laser_planes_cam"):
+            session.run_calibration_with_seed(rig_handeye_laserline.JointManualInit(laser_planes_cam=[plane]))
         self.assertFalse(session.has_output)
 
 

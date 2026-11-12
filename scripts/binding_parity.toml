@@ -41,7 +41,6 @@
 "analysis::rank_candidates" = "rank_candidates"
 "analysis::rank_robot_poses" = "rank_robot_poses"
 "common::ExportDiagnostics" = "types.ExportDiagnostics"
-"common::ExportKind" = "types.ExportKind"
 "common::HandeyeInitOptions" = "HandeyeInitOptions"
 "common::HandeyeOptimizeOptions" = "HandeyeOptimizeOptions"
 "common::HandeyeSolution" = ["RigEyeInHand", "RigEyeToHand", "RigHandeyeSolution"]
@@ -53,6 +52,7 @@
 "common::config::CameraOverride" = "CameraOverride"
 "common::config::HandeyeInitConfig" = "HandeyeInitConfig"
 "common::config::IntrinsicsInitConfig" = "IntrinsicsInitConfig"
+"common::config::IntrinsicsOptimizeConfig" = "IntrinsicsOptimizeConfig"
 "common::config::RigConfig" = "RigConfig"
 "common::config::RobotPoseConfig" = "RobotPoseConfig"
 "common::config::RobotPosePrior" = "RobotPosePrior"
@@ -124,7 +124,7 @@
     "samples.fetch",
 ]
 "dataset::TargetSpec" = "types.TargetSpec"
-"dataset::Topology" = "types.Topology"
+"dataset::ProblemKind" = "types.ProblemKind"
 "dataset::sniff_folder" = "sniff_folder"
 "dataset_runner::CovarianceFault" = "RunError"
 "dataset_runner::HandeyeRunResult" = "dataset_runner.HandeyeRunResult"
@@ -162,6 +162,9 @@
 "laserline_device::DeviceInitResult" = "laserline_device.DeviceInitResult"
 "laserline_device::DeviceManualInit" = "laserline_device.DeviceManualInit"
 "laserline_device::DeviceOptimizeConfig" = "DeviceOptimizeConfig"
+"planar_intrinsics::PlanarOptimizeConfig" = "PlanarOptimizeConfig"
+"rig_laserline_device::PlaneOptimizeConfig" = "PlaneOptimizeConfig"
+"single_cam_handeye::SingleCamHandeyeOptimizeConfig" = "SingleCamHandeyeOptimizeConfig"
 "laserline_device::DeviceOptimizeOptions" = "DeviceOptimizeOptions"
 "laserline_device::DeviceOptimizeResult" = "laserline_device.DeviceOptimizeResult"
 "laserline_device::LaserlineDeviceConfig" = "LaserlineDeviceConfig"

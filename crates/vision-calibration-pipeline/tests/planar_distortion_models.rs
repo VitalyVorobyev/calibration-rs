@@ -145,7 +145,7 @@ fn run_pipeline(
     config.camera.model.distortion = model;
     // Allow k3 for the extended models; it doesn't affect them but keeps
     // BC5 test consistent.
-    config.init.fix_k3 = false;
+    config.intrinsics_init.fix_k3 = false;
     config.solver.max_iters = 100;
 
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();

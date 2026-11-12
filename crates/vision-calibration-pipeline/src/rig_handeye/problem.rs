@@ -8,17 +8,17 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraParams, Iso3, RigDataset, Uncertainty};
 use vision_calibration_optim::{
-    HandeyeEstimate, RobotPoseMeta, RobotRefinement, handeye_observer_se3_target,
+    HandeyeEstimate, RobotPoseMeta, RobotRefinement, RobustLoss, handeye_observer_se3_target,
 };
 #[cfg(test)]
-use vision_calibration_optim::{HandeyeParams, RobustLoss, SolveReport};
+use vision_calibration_optim::{HandeyeParams, SolveReport};
 
 use crate::common::config::{
-    CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig,
-    RobotPoseConfig, SolverConfig, rig_camera_for, validate_rig_camera_indices,
-    validate_rig_cameras,
+    CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig,
+    IntrinsicsOptimizeConfig, RigConfig, RobotPoseConfig, SolverConfig, rig_camera_for,
+    validate_rig_camera_indices, validate_rig_cameras,
 };
-use crate::common::{ExportDiagnostics, ExportKind, HandeyeSolution};
+use crate::common::{ExportDiagnostics, HandeyeSolution, ProblemKind};
 use crate::rig_family::{
     IntrinsicsManualInit, RigStages, RigStagesState, inverse_poses, rig_target_residuals,
 };
@@ -45,6 +45,11 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 /// Grouped by stage. Every camera has the model of `camera` unless
 /// `camera_overrides` names it, so one rig can mix lenses and sensors.
 ///
+/// Three stages solve the target corners, each with its own
+/// `reprojection_loss`: `intrinsics_optimize` (each camera alone), `rig`
+/// (the rig bundle adjustment) and `handeye_optimize`. A robust calibration
+/// sets all three; the final stage's loss is the estimator.
+///
 /// The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge; an extra per-view pose constraint would be
 /// redundant and mildly pessimizing (as for `RigExtrinsicsConfig`).
@@ -54,15 +59,6 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigHandeyeConfig {
-    /// Per-camera linear-initialization stage settings. The linear stage
-    /// fits only the distortion terms each camera's solves estimate.
-    pub intrinsics: IntrinsicsInitConfig,
-    /// Optional manual seeds for the per-camera intrinsics stage. They seed
-    /// `step_intrinsics_init_all` and `run_calibration` alike;
-    /// `step_intrinsics_init_all_with_seed` takes an explicit seed that
-    /// overrides this one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manual_init: Option<IntrinsicsManualInit>,
     /// The camera model of every rig camera and the parameters its solves
     /// hold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a
     /// multi-start tilt sweep; seed its tilt through `manual_init`.
@@ -72,14 +68,29 @@ pub struct RigHandeyeConfig {
     /// camera index.
     #[serde(default)]
     pub camera_overrides: Vec<CameraOverride>,
-    /// Rig frame options (reference camera, rig-BA scope).
+    /// Optional manual seeds for the per-camera intrinsics stage. They seed
+    /// `step_intrinsics_init_all` and `run_calibration` alike;
+    /// `step_intrinsics_init_all_with_seed` takes an explicit seed that
+    /// overrides this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_init: Option<IntrinsicsManualInit>,
+    /// Per-camera linear-initialization stage settings
+    /// (`step_intrinsics_init_all`). The linear stage fits only the
+    /// distortion terms each camera's solves estimate.
+    pub intrinsics_init: IntrinsicsInitConfig,
+    /// Per-camera refinement stage settings (`step_intrinsics_optimize_all`).
+    pub intrinsics_optimize: IntrinsicsOptimizeConfig,
+    /// Rig stage settings (`step_rig_init`, `step_rig_optimize`): the
+    /// reference camera, and the scope and loss of the rig bundle
+    /// adjustment.
     pub rig: RigConfig,
-    /// Hand-eye linear initialization options.
+    /// Hand-eye linear-initialization stage settings (`step_handeye_init`).
     pub handeye_init: HandeyeInitConfig,
-    /// Non-linear solve stage settings.
-    pub solver: SolverConfig,
-    /// Final hand-eye bundle-adjustment options.
+    /// Final hand-eye bundle-adjustment stage settings
+    /// (`step_handeye_optimize`).
     pub handeye_optimize: HandeyeOptimizeConfig,
+    /// Solver engine settings, for every non-linear stage.
+    pub solver: SolverConfig,
 }
 
 impl RigHandeyeConfig {
@@ -89,13 +100,16 @@ impl RigHandeyeConfig {
     }
 }
 
-/// Final hand-eye bundle-adjustment options; robot-pose refinement lives in
-/// the shared [`RobotPoseConfig`] group.
+/// The final hand-eye bundle adjustment of a rig hand-eye calibration
+/// (`step_handeye_optimize`): its loss, robot-pose refinement and scope.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct HandeyeOptimizeConfig {
+    /// Robust loss on the target-corner reprojection residuals; its scale is
+    /// in pixels. Default `none`.
+    pub reprojection_loss: RobustLoss,
     /// Robot-pose refinement settings for the final hand-eye BA.
     pub robot_poses: RobotPoseConfig,
     /// Refine each camera's intrinsics and distortion in the hand-eye BA,
@@ -117,6 +131,7 @@ pub struct HandeyeOptimizeConfig {
 impl Default for HandeyeOptimizeConfig {
     fn default() -> Self {
         Self {
+            reprojection_loss: RobustLoss::None,
             robot_poses: RobotPoseConfig::default(),
             refine_intrinsics: true,
             refine_cam_se3_rig: false,
@@ -134,8 +149,8 @@ impl Default for HandeyeOptimizeConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeExport {
-    /// Export-type discriminator — always [`ExportKind::RigHandeye`].
-    pub kind: ExportKind,
+    /// Export-type discriminator — always [`ProblemKind::RigHandeye`].
+    pub kind: ProblemKind,
 
     /// Per-camera calibrated parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
@@ -275,8 +290,11 @@ impl RigStages for RigHandeyeProblem {
     fn camera_for(config: &RigHandeyeConfig, index: usize) -> CameraConfig {
         config.camera_for(index)
     }
-    fn intrinsics_config(config: &RigHandeyeConfig) -> &IntrinsicsInitConfig {
-        &config.intrinsics
+    fn intrinsics_init_config(config: &RigHandeyeConfig) -> &IntrinsicsInitConfig {
+        &config.intrinsics_init
+    }
+    fn intrinsics_optimize_config(config: &RigHandeyeConfig) -> &IntrinsicsOptimizeConfig {
+        &config.intrinsics_optimize
     }
     fn rig_config(config: &RigHandeyeConfig) -> &RigConfig {
         &config.rig
@@ -303,7 +321,7 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn schema_version() -> u32 {
-        2
+        3
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
@@ -354,7 +372,7 @@ impl ProblemType for RigHandeyeProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics.iterations == 0 {
+        if config.intrinsics_init.iterations == 0 {
             return Err(Error::invalid_input(
                 "intrinsics.iterations must be positive",
             ));
@@ -424,7 +442,7 @@ impl ProblemType for RigHandeyeProblem {
         let per_feature_residuals =
             rig_target_residuals(&params.cameras, input, &cam_se3_rig, &rig_se3_target)?;
         Ok(RigHandeyeExport {
-            kind: ExportKind::RigHandeye,
+            kind: ProblemKind::RigHandeye,
             cameras: params.cameras.clone(),
             cam_se3_rig,
             rig_se3_target: rig_se3_target.clone(),
@@ -536,19 +554,20 @@ mod tests {
         let config = RigHandeyeConfig {
             solver: SolverConfig {
                 max_iters: 100,
-                robust_loss: RobustLoss::Huber { scale: 2.5 },
                 ..SolverConfig::default()
             },
             rig: RigConfig {
                 reference_camera_idx: 1,
                 refine_intrinsics: true,
                 refine_sensor: false,
+                reprojection_loss: RobustLoss::Huber { scale: 2.5 },
             },
             handeye_init: HandeyeInitConfig {
                 handeye_mode: HandeyeMode::EyeToHand,
                 ..HandeyeInitConfig::default()
             },
             handeye_optimize: HandeyeOptimizeConfig {
+                reprojection_loss: RobustLoss::Cauchy { scale: 1.5 },
                 robot_poses: RobotPoseConfig::Exact,
                 ..HandeyeOptimizeConfig::default()
             },
@@ -560,6 +579,18 @@ mod tests {
 
         assert_eq!(restored.solver.max_iters, 100);
         assert_eq!(restored.rig.reference_camera_idx, 1);
+        assert_eq!(
+            restored.rig.reprojection_loss,
+            RobustLoss::Huber { scale: 2.5 }
+        );
+        assert_eq!(
+            restored.handeye_optimize.reprojection_loss,
+            RobustLoss::Cauchy { scale: 1.5 }
+        );
+        assert_eq!(
+            restored.intrinsics_optimize.reprojection_loss,
+            RobustLoss::None
+        );
         assert!(restored.rig.refine_intrinsics);
         assert!(matches!(
             restored.handeye_optimize.robot_poses,
@@ -580,7 +611,7 @@ mod tests {
     #[test]
     fn problem_name_and_version() {
         assert_eq!(RigHandeyeProblem::name(), "rig_handeye_v2");
-        assert_eq!(RigHandeyeProblem::schema_version(), 2);
+        assert_eq!(RigHandeyeProblem::schema_version(), 3);
     }
 
     fn make_dummy_output() -> HandeyeEstimate {

@@ -49,7 +49,7 @@ impl Arm {
     /// `None` for an arm without covariance.
     fn image_noise(self) -> Option<ImageNoiseSpec> {
         match self {
-            Arm::Known1 => Some(ImageNoiseSpec::Known(1.0)),
+            Arm::Known1 => Some(ImageNoiseSpec::Stated(1.0)),
             Arm::Estimated => Some(ImageNoiseSpec::Estimate),
             Arm::Uniform | Arm::UniformNoise => None,
         }

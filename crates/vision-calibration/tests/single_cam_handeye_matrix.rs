@@ -171,7 +171,7 @@ fn solve_on(
     let mut config = SingleCamHandeyeConfig::default();
     config.handeye_init.handeye_mode = mode;
     if !refine_robot_poses {
-        config.robot_poses = RobotPoseConfig::Exact;
+        config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
     }
     config.solver.backend = backend;
     session.set_config(config).expect("config");

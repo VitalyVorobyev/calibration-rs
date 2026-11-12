@@ -387,7 +387,7 @@ pub mod tier_b {
 
     #[derive(Debug, Clone)]
     struct JointV5Result {
-        mean_reproj_error_px: f64,
+        mean_reproj_error: f64,
         per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats>,
         laser_metrics: LaserMetrics,
     }
@@ -557,7 +557,7 @@ pub mod tier_b {
         let per_camera_hist = export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .clone()
             .unwrap_or_else(|| vec![FeatureResidualHistogram::default()]);
 
@@ -739,7 +739,7 @@ pub mod tier_b {
         config.camera.model = tilted_bc5_model();
         config.solver.max_iters = 120;
         config.solver.backend = backend;
-        config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        config.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config).context("set_config failed")?;
 
         progress_label(label, "seeded scheimpflug init");
@@ -805,7 +805,7 @@ pub mod tier_b {
         let per_camera_hist = export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .clone()
             .unwrap_or_else(|| vec![FeatureResidualHistogram::default()]);
         let fit = Fit {
@@ -969,7 +969,7 @@ pub mod tier_b {
         let per_camera_hist = export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .clone()
             .unwrap_or_else(|| vec![FeatureResidualHistogram::default(); n_cam]);
 
@@ -1128,7 +1128,7 @@ pub mod tier_b {
         let per_camera_hist = export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .clone()
             .unwrap_or_else(|| vec![FeatureResidualHistogram::default()]);
 
@@ -1312,7 +1312,7 @@ pub mod tier_b {
         let per_camera_hist = export
             .diagnostics
             .per_feature_residuals
-            .target_hist_per_camera
+            .target_hist_per_cam
             .clone()
             .unwrap_or_else(|| vec![FeatureResidualHistogram::default(); n_cam]);
         let mut fit = Fit {
@@ -1329,11 +1329,11 @@ pub mod tier_b {
                 .iter()
                 .map(reproj_stats_from_joint_cam)
                 .collect();
-            fit.reported_mean_reproj_px = joint.mean_reproj_error_px;
+            fit.reported_mean_reproj_px = joint.mean_reproj_error;
             fit.reported_per_cam_px = joint
                 .per_cam_stats
                 .iter()
-                .map(|s| s.mean_reproj_error_px)
+                .map(|s| s.mean_reproj_error)
                 .collect();
         }
 
@@ -1343,7 +1343,7 @@ pub mod tier_b {
             report: synth_report(
                 joint_result
                     .as_ref()
-                    .map(|j| j.mean_reproj_error_px)
+                    .map(|j| j.mean_reproj_error)
                     .unwrap_or(export.mean_reproj_error),
             ),
         };
@@ -2601,7 +2601,7 @@ pub mod tier_b {
         laser_cfg.solver.max_iters = 200;
         laser_cfg.solver.backend = entry.solver_backend();
         laser_cfg.solver.verbosity = 0;
-        laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
+        laser_cfg.optimize.laser_residual_type = LaserlineResidualType::PointToPlane;
         laser_session
             .set_config(laser_cfg)
             .context("set laserline config failed")?;
@@ -2612,7 +2612,7 @@ pub mod tier_b {
             .context("export laserline stage failed")?;
 
         let mut laser_metrics = observations.metrics;
-        apply_laserline_stage_stats(&mut laser_metrics, &laser_export.per_camera_stats);
+        apply_laserline_stage_stats(&mut laser_metrics, &laser_export.per_cam_stats);
 
         let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|robot| {
             let deltas = &robot.deltas;
@@ -2639,7 +2639,7 @@ pub mod tier_b {
             rig_se3_cam: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
             handeye,
             target_ref,
-            planes_cam: laser_export.laser_planes_cam.clone(),
+            laser_planes_cam: laser_export.laser_planes_cam.clone(),
         };
 
         // Intrinsics and the low-order radial terms free; k3, the tangential
@@ -2671,7 +2671,7 @@ pub mod tier_b {
         let joint_opts = RigHandeyeLaserlineSolveOptions {
             laser_residual_type: LaserlineResidualType::PointToPlane,
             laser_weight: 1.0e4,
-            calib_weight: 1.0,
+            reprojection_weight: 1.0,
             refine_robot_poses: true,
             robot_rot_sigma,
             robot_trans_sigma,
@@ -2692,7 +2692,7 @@ pub mod tier_b {
         apply_joint_laser_stats(&mut laser_metrics, &joint_est.per_cam_stats);
 
         Ok(Some(JointV5Result {
-            mean_reproj_error_px: joint_est.mean_reproj_error_px,
+            mean_reproj_error: joint_est.mean_reproj_error,
             per_cam_stats: joint_est.per_cam_stats,
             laser_metrics,
         }))
@@ -2727,15 +2727,15 @@ pub mod tier_b {
     ) {
         for (metric, stat) in metrics.per_camera.iter_mut().zip(stats) {
             metric.plane_residual_m = Some(ReprojectionStats::from_summary(
-                stat.mean_laser_err_m,
-                stat.mean_laser_err_m,
-                stat.max_laser_err_m,
+                stat.mean_laser_error_m,
+                stat.mean_laser_error_m,
+                stat.max_laser_error_m,
                 stat.laser_count,
             ));
             metric.line_residual_px = Some(ReprojectionStats::from_summary(
-                stat.mean_laser_err_px,
-                stat.mean_laser_err_px,
-                stat.max_laser_err_px,
+                stat.mean_laser_error_px,
+                stat.mean_laser_error_px,
+                stat.max_laser_error_px,
                 stat.laser_count,
             ));
             metric.inlier_ratio = Some(1.0);
@@ -2749,27 +2749,27 @@ pub mod tier_b {
         }
         let mean = stats
             .iter()
-            .map(|s| s.mean_reproj_error_px * s.reproj_count as f64)
+            .map(|s| s.mean_reproj_error * s.reproj_count as f64)
             .sum::<f64>()
             / total_count as f64;
         let rms = (stats
             .iter()
-            .map(|s| s.mean_reproj_error_px.powi(2) * s.reproj_count as f64)
+            .map(|s| s.mean_reproj_error.powi(2) * s.reproj_count as f64)
             .sum::<f64>()
             / total_count as f64)
             .sqrt();
         let max = stats
             .iter()
-            .map(|s| s.max_reproj_error_px)
+            .map(|s| s.max_reproj_error)
             .fold(0.0_f64, f64::max);
         ReprojectionStats::from_summary(mean, rms, max, total_count)
     }
 
     fn reproj_stats_from_joint_cam(stat: &RigHandeyeLaserlinePerCamStats) -> ReprojectionStats {
         ReprojectionStats::from_summary(
-            stat.mean_reproj_error_px,
-            stat.mean_reproj_error_px,
-            stat.max_reproj_error_px,
+            stat.mean_reproj_error,
+            stat.mean_reproj_error,
+            stat.max_reproj_error,
             stat.reproj_count,
         )
     }

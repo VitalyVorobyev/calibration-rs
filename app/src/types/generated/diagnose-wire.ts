@@ -201,21 +201,26 @@ export type SensorParams =
  */
 export type FrameKind = "target" | "laser";
 /**
- * Identifies which calibration `*Export` a JSON payload holds.
+ * The calibration problem a dataset is for, and the kind of an export.
  *
- * One variant per pipeline problem type, serialized as the snake_case module
- * name in the `kind` field of every `*Export`. Consumers (the desktop app's
- * `detectExportKind`, downstream tooling) read this single tag rather than
- * sniffing field presence.
+ * One value per problem type, serialized as its snake_case name
+ * (`"planar_intrinsics"`, …). A manifest names it in its `topology` field,
+ * which selects the problem a run dispatches to; every export carries it in
+ * its `kind` field, so a consumer narrows on one value instead of probing
+ * which fields are present. The tag is required on deserialize.
+ *
+ * A problem kind describes the data (how many cameras, robot poses, laser
+ * images), not the camera model: a tilted (Scheimpflug) single camera is a
+ * `planar_intrinsics` dataset whose calibration config names the sensor.
  */
-export type ExportKind =
+export type ProblemKind =
   | "planar_intrinsics"
   | "single_cam_handeye"
   | "laserline_device"
   | "rig_extrinsics"
   | "rig_handeye"
-  | "rig_laserline_device"
-  | "rig_handeye_laserline";
+  | "rig_handeye_laserline"
+  | "rig_laserline_device";
 /**
  * The uncertainty of a result's estimated parameters.
  */
@@ -583,9 +588,9 @@ export interface LaserlineDeviceExport {
    */
   diagnostics?: ExportDiagnostics;
   /**
-   * Export-type discriminator — always [`ExportKind::LaserlineDevice`].
+   * Export-type discriminator — always [`ProblemKind::LaserlineDevice`].
    */
-  kind: ExportKind;
+  kind: ProblemKind;
   /**
    * The laser plane in the camera frame.
    */
@@ -796,7 +801,7 @@ export interface PerFeatureResiduals {
   /**
    * Per-camera laser pixel-distance histogram (length = `num_cameras`).
    */
-  laser_hist_per_camera?: FeatureResidualHistogram[] | null;
+  laser_hist_per_cam?: FeatureResidualHistogram[] | null;
   /**
    * The projected laser line of each (view, camera) with laser pixels,
    * view-major.
@@ -809,7 +814,7 @@ export interface PerFeatureResiduals {
   /**
    * Per-camera target reprojection histogram (length = `num_cameras`).
    */
-  target_hist_per_camera?: FeatureResidualHistogram[] | null;
+  target_hist_per_cam?: FeatureResidualHistogram[] | null;
 }
 /**
  * Reprojection record for a single laser pixel in a single view.
@@ -1142,9 +1147,9 @@ export interface PlanarIntrinsicsExport {
    */
   diagnostics?: ExportDiagnostics;
   /**
-   * Export-type discriminator — always [`ExportKind::PlanarIntrinsics`].
+   * Export-type discriminator — always [`ProblemKind::PlanarIntrinsics`].
    */
-  kind: ExportKind;
+  kind: ProblemKind;
   /**
    * Mean reprojection error (pixels).
    */
@@ -1292,9 +1297,9 @@ export interface RigExtrinsicsExport {
    */
   diagnostics?: ExportDiagnostics;
   /**
-   * Export-type discriminator — always [`ExportKind::RigExtrinsics`].
+   * Export-type discriminator — always [`ProblemKind::RigExtrinsics`].
    */
-  kind: ExportKind;
+  kind: ProblemKind;
   /**
    * Mean reprojection error (pixels).
    */
@@ -1336,9 +1341,9 @@ export interface RigHandeyeExport {
    */
   handeye: HandeyeSolution;
   /**
-   * Export-type discriminator — always [`ExportKind::RigHandeye`].
+   * Export-type discriminator — always [`ProblemKind::RigHandeye`].
    */
-  kind: ExportKind;
+  kind: ProblemKind;
   /**
    * Mean reprojection error (pixels).
    */
@@ -1423,9 +1428,9 @@ export interface RigHandeyeLaserlineExport {
    */
   handeye: HandeyeSolution;
   /**
-   * Export-type discriminator — always [`ExportKind::RigHandeyeLaserline`].
+   * Export-type discriminator — always [`ProblemKind::RigHandeyeLaserline`].
    */
-  kind: ExportKind;
+  kind: ProblemKind;
   /**
    * Per-camera laser planes in camera frame.
    */
@@ -1445,7 +1450,7 @@ export interface RigHandeyeLaserlineExport {
   /**
    * Joint per-camera stats.
    */
-  per_camera_stats: RigHandeyeLaserlinePerCamStats[];
+  per_cam_stats: RigHandeyeLaserlinePerCamStats[];
   /**
    * Per-view target poses `rig_se3_target` (T_R_T).
    */
@@ -1482,27 +1487,27 @@ export interface RigHandeyeLaserlinePerCamStats {
   /**
    * Maximum absolute laser point-to-plane distance (meters).
    */
-  max_laser_err_m: number;
+  max_laser_error_m: number;
   /**
    * Maximum absolute laser line-distance in undistorted pixel space (pixels).
    */
-  max_laser_err_px: number;
+  max_laser_error_px: number;
   /**
    * Maximum target-corner reprojection error (pixels).
    */
-  max_reproj_error_px: number;
+  max_reproj_error: number;
   /**
    * Mean laser point-to-plane distance (meters).
    */
-  mean_laser_err_m: number;
+  mean_laser_error_m: number;
   /**
    * Mean laser line-distance in undistorted pixel space (pixels).
    */
-  mean_laser_err_px: number;
+  mean_laser_error_px: number;
   /**
    * Mean target-corner reprojection error (pixels).
    */
-  mean_reproj_error_px: number;
+  mean_reproj_error: number;
   /**
    * Number of target corner residuals evaluated for this camera.
    */
@@ -1513,7 +1518,7 @@ export interface RigHandeyeLaserlinePerCamStats {
    * @minItems 5
    * @maxItems 5
    */
-  reproj_histogram_px: [number, number, number, number, number];
+  reproj_histogram: [number, number, number, number, number];
 }
 /**
  * Export format for rig laserline calibration.
@@ -1535,9 +1540,9 @@ export interface RigLaserlineDeviceExport {
    */
   diagnostics?: ExportDiagnostics;
   /**
-   * Export-type discriminator — always [`ExportKind::RigLaserlineDevice`].
+   * Export-type discriminator — always [`ProblemKind::RigLaserlineDevice`].
    */
-  kind: ExportKind;
+  kind: ProblemKind;
   /**
    * Per-camera laser planes in their own camera frames.
    */
@@ -1555,7 +1560,7 @@ export interface RigLaserlineDeviceExport {
   /**
    * Per-camera stats (reprojection + laser residuals).
    */
-  per_camera_stats: LaserlineStats[];
+  per_cam_stats: LaserlineStats[];
   /**
    * Frozen upstream per-view rig poses `T_R_T`.
    */
@@ -1610,9 +1615,9 @@ export interface SingleCamHandeyeExport {
    */
   handeye: SingleCamHandeyeSolution;
   /**
-   * Export-type discriminator — always [`ExportKind::SingleCamHandeye`].
+   * Export-type discriminator — always [`ProblemKind::SingleCamHandeye`].
    */
-  kind: ExportKind;
+  kind: ProblemKind;
   /**
    * Mean reprojection error (pixels).
    */
@@ -1623,7 +1628,7 @@ export interface SingleCamHandeyeExport {
   per_cam_reproj_errors: number[];
   /**
    * The per-view robot-pose corrections and the pose error they were
-   * weighed with: the configured `robot_poses` prior, or its estimate with
+   * weighed with: the configured `handeye_optimize.robot_poses` prior, or its estimate with
    * `estimate_sigma`. Only present if robot refinement was enabled.
    */
   robot_refinement?: RobotRefinement | null;

@@ -102,7 +102,7 @@ pub struct LaserlineParams {
     )]
     pub cam_se3_target: Vec<Iso3>,
     /// Laser plane parameters in camera frame.
-    pub plane: LaserPlane,
+    pub laser_plane: LaserPlane,
 }
 
 impl LaserlineParams {
@@ -114,7 +114,7 @@ impl LaserlineParams {
     pub fn new(
         camera: CameraParams,
         cam_se3_target: Vec<Iso3>,
-        plane: LaserPlane,
+        laser_plane: LaserPlane,
     ) -> Result<Self, Error> {
         if cam_se3_target.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
@@ -122,7 +122,7 @@ impl LaserlineParams {
         Ok(Self {
             camera,
             cam_se3_target,
-            plane,
+            laser_plane,
         })
     }
 }
@@ -183,9 +183,9 @@ pub enum LaserlineResidualType {
 #[derive(Debug, Clone)]
 pub struct LaserlineSolveOptions {
     /// Robust loss applied to calibration reprojection residuals
-    pub calib_loss: RobustLoss,
+    pub reprojection_loss: RobustLoss,
     /// Global weight multiplier for calibration reprojection residuals.
-    pub calib_weight: f64,
+    pub reprojection_weight: f64,
     /// Robust loss applied to laser residuals. Its scale is in the residual's
     /// unit: pixels for the line distance, meters for point-to-plane.
     pub laser_loss: RobustLoss,
@@ -211,8 +211,8 @@ pub struct LaserlineSolveOptions {
 impl Default for LaserlineSolveOptions {
     fn default() -> Self {
         Self {
-            calib_loss: RobustLoss::Huber { scale: 1.0 },
-            calib_weight: 1.0,
+            reprojection_loss: RobustLoss::Huber { scale: 1.0 },
+            reprojection_weight: 1.0,
             // 1 px, as for the corners: the default residual is the line
             // distance in pixels.
             laser_loss: RobustLoss::Huber { scale: 1.0 },
@@ -250,8 +250,8 @@ pub fn compute_laserline_stats(
     }
 
     let camera = LaserCameraModel::new(&params.camera)?;
-    let plane_normal = normal_to_dvec(&params.plane);
-    let plane_distance = distance_to_dvec(&params.plane);
+    let plane_normal = normal_to_dvec(&params.laser_plane);
+    let plane_distance = distance_to_dvec(&params.laser_plane);
 
     let mut per_view_reproj_errors = Vec::with_capacity(dataset.len());
     let mut per_view_laser_errors = Vec::with_capacity(dataset.len());
@@ -380,7 +380,7 @@ pub fn compute_laserline_feature_residuals(
     for (view_idx, view) in dataset.iter().enumerate() {
         camera.view_residuals(
             &params.cam_se3_target[view_idx],
-            &params.plane,
+            &params.laser_plane,
             &view.meta.laser_pixels,
             (view_idx, 0),
             &mut out,
@@ -813,8 +813,11 @@ fn build_laserline_ir(
         distance_fixed,
         None,
     );
-    initial_map.insert(normal_name.to_owned(), normal_to_dvec(&initial.plane));
-    initial_map.insert(distance_name.to_owned(), distance_to_dvec(&initial.plane));
+    initial_map.insert(normal_name.to_owned(), normal_to_dvec(&initial.laser_plane));
+    initial_map.insert(
+        distance_name.to_owned(),
+        distance_to_dvec(&initial.laser_plane),
+    );
 
     // Add residual blocks
     for (view_idx, view) in dataset.iter().enumerate() {
@@ -829,10 +832,10 @@ fn build_laserline_ir(
             .enumerate()
         {
             let sqrt_info =
-                ReprojSqrtInfo::for_point(&view.obs, pt_idx).weighted(opts.calib_weight);
+                ReprojSqrtInfo::for_point(&view.obs, pt_idx).weighted(opts.reprojection_weight);
             ir.add_residual_block(ResidualBlock {
                 params: camera_blocks.with(&[pose_id]),
-                loss: opts.calib_loss,
+                loss: opts.reprojection_loss,
                 factor: FactorKind::ReprojPoint {
                     model: spec,
                     chain: ReprojChain::SinglePose,

@@ -125,7 +125,10 @@ fn main() -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(60);
     cfg.solver.verbosity = 0;
-    cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    let huber = RobustLoss::Huber { scale: 1.0 };
+    cfg.intrinsics_optimize.reprojection_loss = huber;
+    cfg.rig.reprojection_loss = huber;
+    cfg.handeye_optimize.reprojection_loss = huber;
     cfg.handeye_init.handeye_mode = handeye_mode;
     // Match the oracle's lens config: k1,k2 free; k3 + tangential fixed; both
     // Scheimpflug tilts free.

@@ -419,10 +419,10 @@ fn optimize_tilted(
     let fix_poses = if trust_seed_tilt {
         Vec::new()
     } else {
-        config.fix_poses.clone()
+        config.optimize.fix_poses.clone()
     };
     let solve_opts = PlanarIntrinsicsSolveOptions {
-        robust_loss: config.solver.robust_loss,
+        robust_loss: config.optimize.reprojection_loss,
         fix: config.camera.fix.clone(),
         fix_poses,
         bounds: None,
@@ -1164,7 +1164,7 @@ mod tests {
         ));
         // One export kind for both sensors; the camera says what was calibrated.
         let export = session.export().expect("export");
-        assert_eq!(export.kind, crate::common::ExportKind::PlanarIntrinsics);
+        assert_eq!(export.kind, crate::common::ProblemKind::PlanarIntrinsics);
         assert!(matches!(
             export.camera.sensor,
             SensorParams::Scheimpflug { .. }

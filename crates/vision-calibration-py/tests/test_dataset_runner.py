@@ -79,7 +79,7 @@ class DetectTargetTest(unittest.TestCase):
         image = _images.render_board(r, t)
         plain = vc.detect_target(image, _images.TARGET)
         self.assertIsNone(plain.cov_px)
-        detector = {"chess_corners": {"covariance": {"image_noise": {"known": 2.0}}}}
+        detector = {"chess_corners": {"covariance": {"image_noise": {"stated": 2.0}}}}
         features = vc.detect_target(image, _images.TARGET, detector)
         assert features.cov_px is not None
         self.assertEqual(features.cov_px.shape, (len(features), 3))

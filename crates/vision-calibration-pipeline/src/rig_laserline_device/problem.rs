@@ -9,12 +9,12 @@ use vision_calibration_core::{
     CameraParams, Iso3, NoMeta, RigDataset, RigView, RigViewObs, Uncertainty,
 };
 use vision_calibration_optim::{
-    LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
+    LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate, RobustLoss,
     compute_rig_laserline_feature_residuals, handeye_upstream_uncertainty,
 };
 
 use crate::common::config::{SolverConfig, check_laser_residual};
-use crate::common::{ExportDiagnostics, ExportKind};
+use crate::common::{ExportDiagnostics, ProblemKind};
 use crate::rig_family::{per_camera_histograms, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -123,30 +123,57 @@ pub struct RigLaserlineDeviceInput {
 ///
 /// Grouped by stage. `solver.max_iters` defaults to 200: this stage
 /// refines only per-camera laser-plane parameters against an already-frozen
-/// rig geometry (1 DOF per view per camera), so iterations are nearly free.
+/// rig geometry (three parameters per camera), so iterations are nearly
+/// free.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigLaserlineDeviceConfig {
-    /// Non-linear solve stage settings. `robust_loss` is **not consulted**
-    /// by this problem — the underlying per-camera laserline solver picks
-    /// its own calibration/laser robust losses (frozen upstream geometry,
-    /// so only the laser-plane fit actually moves).
+    /// Laser-plane refinement stage settings (`step_optimize`).
+    pub optimize: PlaneOptimizeConfig,
+    /// Solver engine settings.
     pub solver: SolverConfig,
-    /// Laser residual type (point-to-plane vs line-distance).
-    pub laser_residual_type: LaserlineResidualType,
 }
 
 impl Default for RigLaserlineDeviceConfig {
     fn default() -> Self {
         Self {
+            optimize: PlaneOptimizeConfig::default(),
             solver: SolverConfig {
                 max_iters: 200,
-                verbosity: 0,
                 ..SolverConfig::default()
             },
+        }
+    }
+}
+
+/// The laser-plane refinement of a rig laserline calibration
+/// (`step_optimize`): each camera's plane fitted to its laser pixels, the
+/// cameras and the target poses held at the upstream calibration. The
+/// target corners only place the target; with everything they constrain
+/// held, they have no loss or weight here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+#[serde(deny_unknown_fields)]
+pub struct PlaneOptimizeConfig {
+    /// The laser residual: the line distance in pixels (the default) or the
+    /// point-to-plane distance in meters.
+    pub laser_residual_type: LaserlineResidualType,
+    /// Robust loss on the laser residuals, its scale in the residual's unit:
+    /// pixels for the line distance, meters for point-to-plane. Default
+    /// Huber at 1, a pixel for the line distance; for point-to-plane a
+    /// scale of 1 m is plain least squares in effect, so state one in
+    /// meters to robustify it.
+    pub laser_loss: RobustLoss,
+}
+
+impl Default for PlaneOptimizeConfig {
+    fn default() -> Self {
+        Self {
             laser_residual_type: LaserlineResidualType::default(),
+            laser_loss: RobustLoss::Huber { scale: 1.0 },
         }
     }
 }
@@ -156,14 +183,14 @@ impl Default for RigLaserlineDeviceConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigLaserlineDeviceExport {
-    /// Export-type discriminator — always [`ExportKind::RigLaserlineDevice`].
-    pub kind: ExportKind,
+    /// Export-type discriminator — always [`ProblemKind::RigLaserlineDevice`].
+    pub kind: ProblemKind,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
     /// Per-camera laser planes in their own camera frames.
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Per-camera stats (reprojection + laser residuals).
-    pub per_camera_stats: Vec<LaserlineStats>,
+    pub per_cam_stats: Vec<LaserlineStats>,
 
     /// Frozen upstream cameras, echoed so the export is self-contained for
     /// downstream viewers (3D rig scene, epipolar) — same field name as
@@ -226,7 +253,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
     }
 
     fn schema_version() -> u32 {
-        1
+        2
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
@@ -275,9 +302,9 @@ impl ProblemType for RigLaserlineDeviceProblem {
         for (i, camera) in input.upstream.cameras.iter().enumerate() {
             if let Some(model) = camera.spec() {
                 check_laser_residual(
-                    config.laser_residual_type,
+                    config.optimize.laser_residual_type,
                     model,
-                    &format!("laser_residual_type (camera {i})"),
+                    &format!("optimize.laser_residual_type (camera {i})"),
                 )?;
             }
         }
@@ -330,7 +357,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
             &upstream.rig_se3_target,
             &output.laser_planes_cam,
         )?;
-        per_feature_residuals.laser_hist_per_camera = Some(per_camera_histograms(n, |cam| {
+        per_feature_residuals.laser_hist_per_cam = Some(per_camera_histograms(n, |cam| {
             laser
                 .features
                 .iter()
@@ -356,10 +383,10 @@ impl ProblemType for RigLaserlineDeviceProblem {
         per_feature_residuals.laser = laser.features;
         per_feature_residuals.laser_lines = laser.lines;
         Ok(RigLaserlineDeviceExport {
-            kind: ExportKind::RigLaserlineDevice,
+            kind: ProblemKind::RigLaserlineDevice,
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),
-            per_camera_stats: output.per_camera_stats.clone(),
+            per_cam_stats: output.per_cam_stats.clone(),
             cameras: upstream.cameras.clone(),
             cam_se3_rig: upstream.cam_se3_rig.clone(),
             rig_se3_target: upstream.rig_se3_target.clone(),
@@ -382,10 +409,10 @@ mod tests {
         // tests can. This keeps the manifest tests independent of the
         // upstream calibration setup needed to drive `export()`.
         RigLaserlineDeviceExport {
-            kind: ExportKind::RigLaserlineDevice,
+            kind: ProblemKind::RigLaserlineDevice,
             laser_planes_rig: Vec::new(),
             laser_planes_cam: Vec::new(),
-            per_camera_stats: Vec::new(),
+            per_cam_stats: Vec::new(),
             cameras: Vec::new(),
             cam_se3_rig: Vec::new(),
             rig_se3_target: Vec::new(),

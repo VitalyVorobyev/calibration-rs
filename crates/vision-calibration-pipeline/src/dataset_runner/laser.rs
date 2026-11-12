@@ -23,7 +23,7 @@ use serde_json::Value;
 
 use vision_calibration_core::{Iso3, Pt2, RunControl, View};
 use vision_calibration_dataset::{
-    DatasetSpec, ImagePattern, LaserExtractionSpec, PosePairing, Topology, validate,
+    DatasetSpec, ImagePattern, LaserExtractionSpec, PosePairing, ProblemKind, validate,
 };
 use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, GrayImageView};
 use vision_calibration_optim::{
@@ -147,7 +147,7 @@ pub fn build_laserline_device_input(
 ) -> Result<LaserlineRunResult, RunError> {
     // Same gate ordering as the other converters: topology + target +
     // validation + pairing config before any filesystem access.
-    if spec.topology != Topology::LaserlineDevice {
+    if spec.topology != ProblemKind::LaserlineDevice {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -291,7 +291,7 @@ pub fn build_rig_laserline_device_input(
     laser_extractor: &dyn LaserPixelExtractor,
     control: &RunControl,
 ) -> Result<RigLaserlineRunResult, RunError> {
-    if spec.topology != Topology::RigLaserlineDevice {
+    if spec.topology != ProblemKind::RigLaserlineDevice {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -486,7 +486,7 @@ pub fn build_rig_handeye_laserline_input(
     laser_extractor: &dyn LaserPixelExtractor,
     control: &RunControl,
 ) -> Result<RigHandeyeLaserlineRunResult, RunError> {
-    if spec.topology != Topology::RigHandeyeLaserline {
+    if spec.topology != ProblemKind::RigHandeyeLaserline {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
         });
@@ -894,7 +894,7 @@ fn rig_se3_target_from_chain(export: &RigHandeyeExport, base_se3_gripper: &Iso3)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ExportKind;
+    use crate::common::ProblemKind;
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use vision_calibration_core::{
@@ -1031,7 +1031,7 @@ mod tests {
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
-            topology: Topology::LaserlineDevice,
+            topology: ProblemKind::LaserlineDevice,
             pose_pairing: Some(PosePairing::ByIndex),
             pose_convention: None,
             unresolved: vec![],
@@ -1295,7 +1295,7 @@ mod tests {
             cy: 240.0,
         };
         RigHandeyeExport {
-            kind: ExportKind::RigHandeye,
+            kind: ProblemKind::RigHandeye,
             cameras: (0..num_cameras)
                 .map(|_| pinhole_camera_params(&make_pinhole_camera(k, BrownConrady5::default())))
                 .collect(),
@@ -1354,7 +1354,7 @@ mod tests {
             }),
             laser: None,
             upstream_calibration: Some(PathBuf::from("rig_handeye_export.json")),
-            topology: Topology::RigLaserlineDevice,
+            topology: ProblemKind::RigLaserlineDevice,
             pose_pairing: Some(PosePairing::ByIndex),
             pose_convention: Some(PoseConvention {
                 transform: TransformConvention::TBaseTcp,
@@ -1443,7 +1443,7 @@ mod tests {
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         seed_rig_views(tmp.path(), &cache, 3);
         let mut spec = rig_laserline_spec(tmp.path(), 3);
-        spec.topology = Topology::RigHandeyeLaserline;
+        spec.topology = ProblemKind::RigHandeyeLaserline;
         spec.upstream_calibration = None;
         let fake = FakeLaser::new(30);
 
@@ -1699,7 +1699,7 @@ mod tests {
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let fake = FakeLaser::new(30);
         let mut spec = laserline_spec(&["a.png"], &["b.png"]);
-        spec.topology = Topology::PlanarIntrinsics;
+        spec.topology = ProblemKind::PlanarIntrinsics;
         assert!(matches!(
             build_laserline_device_input(
                 &spec,

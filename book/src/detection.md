@@ -84,10 +84,10 @@ The chessboard and ChArUco detectors can report, for every corner, the covarianc
 
 ```toml
 [detector.chess_corners.covariance]
-image_noise = { known = 2.0 }
+image_noise = { stated = 2.0 }
 ```
 
-`image_noise` is `"estimate"` (the default when the section is present) or `{ known = σ }`, the standard deviation of the image's pixel noise in gray levels of the 8-bit image (finite and at least 0), for example the standard deviation of the difference of two frames of a static scene divided by √2.
+`image_noise` is `"estimate"` (the default when the section is present) or `{ stated = σ }`, the standard deviation of the image's pixel noise in gray levels of the 8-bit image (finite and at least 0), for example the standard deviation of the difference of two frames of a static scene divided by √2.
 
 With the section present, every observation carries the covariances in `cov_px` (px², `[xx, xy, yy]` in `Feature::cov_px`), the residuals are whitened by them, and the report gives the unit-weight scale factor σ̂₀ instead of an RMS in pixels; see [Per-Point Covariance](uncertainty_point_covariance.md). Positions are identical with and without it.
 

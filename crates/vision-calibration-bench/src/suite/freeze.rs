@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use vision_calibration_core::RunControl;
-use vision_calibration_dataset::{DatasetSpec, Topology};
+use vision_calibration_dataset::{DatasetSpec, ProblemKind};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
     Detection as DetectionMode, build_planar_input, build_rig_extrinsics_input,
@@ -41,7 +41,7 @@ pub fn freeze_manifest(
 
     // First accepted image per camera, for the camera's image size.
     let (input, first_paths): (ProblemInput, Vec<Option<PathBuf>>) = match spec.topology {
-        Topology::PlanarIntrinsics => {
+        ProblemKind::PlanarIntrinsics => {
             let run = build_planar_input(
                 &spec,
                 data_root,
@@ -51,7 +51,7 @@ pub fn freeze_manifest(
             let first = vec![run.view_paths.first().cloned()];
             (ProblemInput::PlanarIntrinsics(run.input), first)
         }
-        Topology::SingleCamHandeye => {
+        ProblemKind::SingleCamHandeye => {
             let run = build_single_cam_handeye_input(
                 &spec,
                 data_root,
@@ -61,7 +61,7 @@ pub fn freeze_manifest(
             let first = vec![run.view_paths.first().cloned()];
             (ProblemInput::SingleCamHandeye(run.input), first)
         }
-        Topology::RigExtrinsics => {
+        ProblemKind::RigExtrinsics => {
             let run = build_rig_extrinsics_input(
                 &spec,
                 data_root,
@@ -71,7 +71,7 @@ pub fn freeze_manifest(
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
             (ProblemInput::RigExtrinsics(run.input), first)
         }
-        Topology::RigHandeye => {
+        ProblemKind::RigHandeye => {
             let run = build_rig_handeye_input(
                 &spec,
                 data_root,
@@ -81,9 +81,9 @@ pub fn freeze_manifest(
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
             (ProblemInput::RigHandeye(run.input), first)
         }
-        Topology::LaserlineDevice
-        | Topology::RigLaserlineDevice
-        | Topology::RigHandeyeLaserline => {
+        ProblemKind::LaserlineDevice
+        | ProblemKind::RigLaserlineDevice
+        | ProblemKind::RigHandeyeLaserline => {
             bail!("freezing {:?} needs a laser-line extractor", spec.topology)
         }
     };

@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use vision_calibration_dataset::{DatasetSpec, TargetSpec, Topology};
+use vision_calibration_dataset::{DatasetSpec, ProblemKind, TargetSpec};
 use vision_calibration_detect::Feature;
 
 use super::RunError;
@@ -85,29 +85,29 @@ pub(super) enum LabelScope {
 }
 
 impl LabelScope {
-    fn of(topology: Topology) -> Self {
+    fn of(topology: ProblemKind) -> Self {
         match topology {
-            Topology::PlanarIntrinsics | Topology::LaserlineDevice => Self::Image,
-            Topology::RigExtrinsics => Self::View,
-            Topology::SingleCamHandeye
-            | Topology::RigHandeye
-            | Topology::RigLaserlineDevice
-            | Topology::RigHandeyeLaserline => Self::Fixed,
+            ProblemKind::PlanarIntrinsics | ProblemKind::LaserlineDevice => Self::Image,
+            ProblemKind::RigExtrinsics => Self::View,
+            ProblemKind::SingleCamHandeye
+            | ProblemKind::RigHandeye
+            | ProblemKind::RigLaserlineDevice
+            | ProblemKind::RigHandeyeLaserline => Self::Fixed,
         }
     }
 }
 
 /// Whether `topology` has more than one camera per view, so that a
 /// chessboard's labels are matched across the cameras of a view.
-fn is_rig(topology: Topology) -> bool {
+fn is_rig(topology: ProblemKind) -> bool {
     match topology {
-        Topology::PlanarIntrinsics | Topology::LaserlineDevice | Topology::SingleCamHandeye => {
-            false
-        }
-        Topology::RigExtrinsics
-        | Topology::RigHandeye
-        | Topology::RigLaserlineDevice
-        | Topology::RigHandeyeLaserline => true,
+        ProblemKind::PlanarIntrinsics
+        | ProblemKind::LaserlineDevice
+        | ProblemKind::SingleCamHandeye => false,
+        ProblemKind::RigExtrinsics
+        | ProblemKind::RigHandeye
+        | ProblemKind::RigLaserlineDevice
+        | ProblemKind::RigHandeyeLaserline => true,
     }
 }
 
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(square.extent(&labels(9, 9, &[])), Ok(BoardExtent::Declared));
     }
 
-    fn spec(topology: Topology, target: TargetSpec) -> DatasetSpec {
+    fn spec(topology: ProblemKind, target: TargetSpec) -> DatasetSpec {
         DatasetSpec {
             version: 1,
             cameras: vec![],
@@ -462,16 +462,16 @@ mod tests {
     #[test]
     fn only_topologies_that_share_labels_require_the_whole_board() {
         let partial = labels(12, 10, &[]);
-        for topology in [Topology::PlanarIntrinsics, Topology::LaserlineDevice] {
+        for topology in [ProblemKind::PlanarIntrinsics, ProblemKind::LaserlineDevice] {
             let filter = ViewFilter::for_spec(&spec(topology, chessboard()));
             assert_eq!(filter.check(&partial), Ok(()), "{topology:?}");
         }
         for topology in [
-            Topology::SingleCamHandeye,
-            Topology::RigExtrinsics,
-            Topology::RigHandeye,
-            Topology::RigLaserlineDevice,
-            Topology::RigHandeyeLaserline,
+            ProblemKind::SingleCamHandeye,
+            ProblemKind::RigExtrinsics,
+            ProblemKind::RigHandeye,
+            ProblemKind::RigLaserlineDevice,
+            ProblemKind::RigHandeyeLaserline,
         ] {
             let filter = ViewFilter::for_spec(&spec(topology, chessboard()));
             assert_eq!(
@@ -488,22 +488,22 @@ mod tests {
             layout: "puzzle_10x14".into(),
             cell_size_m: SQUARE,
         };
-        let filter = ViewFilter::for_spec(&spec(Topology::RigHandeye, target));
+        let filter = ViewFilter::for_spec(&spec(ProblemKind::RigHandeye, target));
         assert_eq!(filter.check(&labels(4, 3, &[])), Ok(()));
     }
 
     #[test]
     fn a_turned_board_is_rejected_by_single_camera_hand_eye_only() {
         let turned = labels(10, 14, &[]);
-        let filter = ViewFilter::for_spec(&spec(Topology::SingleCamHandeye, chessboard()));
+        let filter = ViewFilter::for_spec(&spec(ProblemKind::SingleCamHandeye, chessboard()));
         assert_eq!(filter.check(&turned), Err(RejectReason::TurnedChessboard));
         assert!(filter.rig_chessboard().is_none());
         // A rig matches it with the view's other cameras instead.
         for (topology, scope) in [
-            (Topology::RigExtrinsics, LabelScope::View),
-            (Topology::RigHandeye, LabelScope::Fixed),
-            (Topology::RigLaserlineDevice, LabelScope::Fixed),
-            (Topology::RigHandeyeLaserline, LabelScope::Fixed),
+            (ProblemKind::RigExtrinsics, LabelScope::View),
+            (ProblemKind::RigHandeye, LabelScope::Fixed),
+            (ProblemKind::RigLaserlineDevice, LabelScope::Fixed),
+            (ProblemKind::RigHandeyeLaserline, LabelScope::Fixed),
         ] {
             let filter = ViewFilter::for_spec(&spec(topology, chessboard()));
             assert_eq!(filter.check(&turned), Ok(()), "{topology:?}");
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn the_feature_floor_is_checked_first() {
-        let filter = ViewFilter::for_spec(&spec(Topology::RigHandeye, chessboard()));
+        let filter = ViewFilter::for_spec(&spec(ProblemKind::RigHandeye, chessboard()));
         assert_eq!(
             filter.check(&labels(3, 1, &[])),
             Err(RejectReason::TooFewFeatures)

@@ -38,7 +38,7 @@
 //!
 //! Reprojection histograms use fixed bucket edges `[1.0, 2.0, 5.0, 10.0]`
 //! pixels — five buckets `[<=1, <=2, <=5, <=10, >10]`. This matches the
-//! existing `RigHandeyeLaserlinePerCamStats::reproj_histogram_px` so per-camera
+//! existing `RigHandeyeLaserlinePerCamStats::reproj_histogram` so per-camera
 //! aggregates are comparable across the workspace.
 
 use serde::{Deserialize, Serialize};
@@ -169,10 +169,10 @@ pub struct PerFeatureResiduals {
     pub laser_lines: Vec<LaserLineTrace>,
     /// Per-camera target reprojection histogram (length = `num_cameras`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_hist_per_camera: Option<Vec<FeatureResidualHistogram>>,
+    pub target_hist_per_cam: Option<Vec<FeatureResidualHistogram>>,
     /// Per-camera laser pixel-distance histogram (length = `num_cameras`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub laser_hist_per_camera: Option<Vec<FeatureResidualHistogram>>,
+    pub laser_hist_per_cam: Option<Vec<FeatureResidualHistogram>>,
 }
 
 #[cfg(test)]
@@ -216,8 +216,8 @@ mod tests {
         let p = PerFeatureResiduals::default();
         assert!(p.target.is_empty());
         assert!(p.laser.is_empty());
-        assert!(p.target_hist_per_camera.is_none());
-        assert!(p.laser_hist_per_camera.is_none());
+        assert!(p.target_hist_per_cam.is_none());
+        assert!(p.laser_hist_per_cam.is_none());
     }
 
     #[test]
@@ -258,14 +258,14 @@ mod tests {
                 camera: 0,
                 points_px: vec![[100.0, 200.0], [400.0, 200.4], [700.0, 200.5]],
             }],
-            target_hist_per_camera: Some(vec![FeatureResidualHistogram {
+            target_hist_per_cam: Some(vec![FeatureResidualHistogram {
                 bucket_edges_px: REPROJECTION_HISTOGRAM_EDGES_PX,
                 counts: [120, 30, 5, 0, 0],
                 count: 155,
                 mean: 0.55,
                 max: 3.2,
             }]),
-            laser_hist_per_camera: None,
+            laser_hist_per_cam: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         let restored: PerFeatureResiduals = serde_json::from_str(&json).unwrap();
@@ -314,7 +314,7 @@ mod tests {
         let p: PerFeatureResiduals = serde_json::from_str(json).unwrap();
         assert!(p.target.is_empty());
         assert!(p.laser.is_empty());
-        assert!(p.target_hist_per_camera.is_none());
-        assert!(p.laser_hist_per_camera.is_none());
+        assert!(p.target_hist_per_cam.is_none());
+        assert!(p.laser_hist_per_cam.is_none());
     }
 }

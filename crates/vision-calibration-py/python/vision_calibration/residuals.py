@@ -194,8 +194,8 @@ class PerFeatureResiduals:
     target: TargetFeatureResiduals
     laser: LaserFeatureResiduals
     laser_lines: list[LaserLineTrace]
-    target_hist_per_camera: list[FeatureResidualHistogram] | None
-    laser_hist_per_camera: list[FeatureResidualHistogram] | None
+    target_hist_per_cam: list[FeatureResidualHistogram] | None
+    laser_hist_per_cam: list[FeatureResidualHistogram] | None
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any] | None) -> PerFeatureResiduals:
@@ -211,6 +211,6 @@ class PerFeatureResiduals:
                 LaserLineTrace.from_payload(cast(Mapping[str, Any], t))
                 for t in cast(Sequence[Any], payload.get("laser_lines", []))
             ],
-            target_hist_per_camera=_histograms(payload.get("target_hist_per_camera")),
-            laser_hist_per_camera=_histograms(payload.get("laser_hist_per_camera")),
+            target_hist_per_cam=_histograms(payload.get("target_hist_per_cam")),
+            laser_hist_per_cam=_histograms(payload.get("laser_hist_per_cam")),
         )

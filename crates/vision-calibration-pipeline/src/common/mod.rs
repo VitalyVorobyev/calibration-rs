@@ -15,27 +15,26 @@
 //!
 //! The [`config`] submodule holds the sibling set of shared **config**
 //! sub-structs — the grouped building blocks that top-level
-//! `*Config` types embed (`init: IntrinsicsInitConfig`, `solver:
+//! `*Config` types embed (`intrinsics_init: IntrinsicsInitConfig`, `solver:
 //! SolverConfig`, ...). Those are persisted configuration; the types at this
 //! module's top level are ephemeral per-call step overrides. Keeping them in
 //! separate modules avoids confusing the two.
 //!
-//! [`ExportKind`] is the shared export vocabulary: the serde
-//! discriminator every `*Export` carries. [`CalibratedCameras`] reads any
-//! export's cameras and their projection uncertainty.
+//! [`CalibratedCameras`] reads any export's cameras and their projection
+//! uncertainty. Every `*Export` carries its problem kind, the manifest
+//! crate's `ProblemKind`, in its `kind` field.
 
 /// Shared config sub-structs embedded by grouped top-level `*Config` types.
 pub mod config;
 
 mod cameras;
 mod diagnostics;
-mod export_kind;
 mod handeye;
 pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use diagnostics::ExportDiagnostics;
-pub use export_kind::ExportKind;
 pub use handeye::HandeyeSolution;
+pub(crate) use vision_calibration_dataset::ProblemKind;
 // Input and output types shared by several problem types: the robot pose of
 // a hand-eye view, a rig view with laser pixels, and the hand-eye estimate.
 pub use vision_calibration_optim::{

@@ -46,7 +46,7 @@
     },
     "ChessCornersDetectorSpec": {
       "additionalProperties": false,
-      "description": "ChESS corner extractor overrides.",
+      "description": "ChESS corner extractor overrides. The manifest's copy of the detector's\nChESS options (see [`DetectorSpec`]).",
       "properties": {
         "covariance": {
           "anyOf": [
@@ -91,18 +91,18 @@
     },
     "CornerCovarianceSpec": {
       "additionalProperties": false,
-      "description": "Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].",
+      "description": "Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].\nThe manifest's copy of the detector's covariance options (see\n[`DetectorSpec`]).",
       "properties": {
         "image_noise": {
           "$ref": "#/$defs/ImageNoiseSpec",
           "default": "estimate",
-          "description": "The image noise that the propagated covariance is expressed in.\nDefaults to `estimate`: the noise is estimated from each image, which\nis unreliable on JPEG or demosaiced images; give `known` for those."
+          "description": "The image noise that the propagated covariance is expressed in.\nDefaults to `estimate`: the noise is estimated from each image, which\nis unreliable on JPEG or demosaiced images; give `stated` for those."
         }
       },
       "type": "object"
     },
     "CornerStrategySpec": {
-      "description": "The corner detector a chessboard-like detector runs.",
+      "description": "The corner detector a chessboard-like detector runs. The manifest's copy\nof the detector's corner strategy (see [`DetectorSpec`]).",
       "oneOf": [
         {
           "const": "chess",
@@ -118,7 +118,7 @@
     },
     "DetectorSpec": {
       "additionalProperties": false,
-      "description": "Target-detector overrides. These options affect feature detection\nonly; they are hashed into the detection-cache key by the runner.",
+      "description": "Target-detector overrides. These options affect feature detection\nonly; they are hashed into the detection-cache key by the runner.\n\nThe manifest declares its own detector types (this one,\n[`ChessCornersDetectorSpec`], [`CornerStrategySpec`],\n[`CornerCovarianceSpec`], [`ImageNoiseSpec`]) instead of reusing the\ndetector crate's: the manifest crate and the detector crate do not depend\non each other, so a manifest is read and validated without the detectors.\nThe runner maps each to its detector counterpart, which has the same JSON\nspelling.",
       "properties": {
         "chess_corners": {
           "anyOf": [
@@ -144,7 +144,7 @@
       "type": "object"
     },
     "ImageNoiseSpec": {
-      "description": "The pixel-noise level behind a corner covariance.\n\nIn JSON / TOML: `\"estimate\"` or `{ known = 2.0 }`.",
+      "description": "The pixel-noise level behind a corner covariance: estimated from the\nimage, or stated by the user. The manifest's copy of the detector's\nimage-noise option (see [`DetectorSpec`]).\n\nIn JSON / TOML: `\"estimate\"` or `{ stated = 2.0 }`.",
       "oneOf": [
         {
           "const": "estimate",
@@ -155,13 +155,13 @@
           "additionalProperties": false,
           "description": "The standard deviation of the image's pixel noise, in gray levels of\nthe 8-bit image (finite and `>= 0`), e.g. the standard deviation of\nthe difference of two frames of a static scene divided by `√2`.",
           "properties": {
-            "known": {
+            "stated": {
               "format": "float",
               "type": "number"
             }
           },
           "required": [
-            "known"
+            "stated"
           ],
           "type": "object"
         }
@@ -364,6 +364,46 @@
             "group"
           ],
           "type": "object"
+        }
+      ]
+    },
+    "ProblemKind": {
+      "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "Single camera, planar target — `PlanarIntrinsicsProblem` (any camera\nmodel, including a tilted sensor).",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "Single camera mounted on a robot — `SingleCamHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "Camera + laser plane — `LaserlineDeviceProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "Multi-camera rig, target only — `RigExtrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "Multi-camera rig + robot — `RigHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye_laserline",
+          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
+          "type": "string"
         }
       ]
     },
@@ -636,46 +676,6 @@
         }
       ]
     },
-    "Topology": {
-      "description": "Calibration topology — selects the problem-type dispatch.\n\nA topology describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
-      "oneOf": [
-        {
-          "const": "planar_intrinsics",
-          "description": "Single camera, planar target — `PlanarIntrinsicsProblem` (any camera\nmodel, including a tilted sensor).",
-          "type": "string"
-        },
-        {
-          "const": "single_cam_handeye",
-          "description": "Single camera mounted on a robot — `SingleCamHandeyeProblem`.",
-          "type": "string"
-        },
-        {
-          "const": "laserline_device",
-          "description": "Camera + laser plane — `LaserlineDeviceProblem`.",
-          "type": "string"
-        },
-        {
-          "const": "rig_extrinsics",
-          "description": "Multi-camera rig, target only — `RigExtrinsicsProblem`.",
-          "type": "string"
-        },
-        {
-          "const": "rig_handeye",
-          "description": "Multi-camera rig + robot — `RigHandeyeProblem`.",
-          "type": "string"
-        },
-        {
-          "const": "rig_handeye_laserline",
-          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
-          "type": "string"
-        },
-        {
-          "const": "rig_laserline_device",
-          "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
-          "type": "string"
-        }
-      ]
-    },
     "TransformConvention": {
       "description": "Which transform a pose row encodes.",
       "oneOf": [
@@ -802,11 +802,11 @@
       "description": "Calibration-target specification. Tagged enum on `kind`."
     },
     "topology": {
-      "$ref": "#/$defs/Topology",
+      "$ref": "#/$defs/ProblemKind",
       "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
     },
     "upstream_calibration": {
-      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
+      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
       "type": [
         "string",
         "null"

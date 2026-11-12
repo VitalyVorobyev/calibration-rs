@@ -161,7 +161,7 @@ result estimated: each camera's intrinsics and distortion, each camera's
 `cam_se3_rig`, the hand-eye and the target pose, in the coordinates the
 covariance reports them. A robot pose adds no unknown when the calibration
 took the robot poses as exact. A calibration that corrected them
-(`robot_poses` as `refine`, the default) corrects the candidate's too: the
+(`handeye_optimize.robot_poses` as `refine`, the default) corrects the candidate's too: the
 correction is marginalized under the result's robot pose error, weighed
 against its reprojection noise as the solve weighed it.
 

@@ -12,22 +12,29 @@
     "method": "tsai_lenz",
     "min_motion_angle_deg": 5.0
   },
-  "intrinsics": {
+  "handeye_optimize": {
+    "reprojection_loss": {
+      "kind": "none"
+    },
+    "robot_poses": {
+      "estimate_sigma": true,
+      "kind": "refine",
+      "rot_sigma": 0.008726646259971648,
+      "trans_sigma": 0.001
+    }
+  },
+  "intrinsics_init": {
     "fix_k3": true,
     "iterations": 2
   },
-  "robot_poses": {
-    "estimate_sigma": true,
-    "kind": "refine",
-    "rot_sigma": 0.008726646259971648,
-    "trans_sigma": 0.001
+  "intrinsics_optimize": {
+    "reprojection_loss": {
+      "kind": "none"
+    }
   },
   "solver": {
     "backend": "tiny_solver",
     "max_iters": 50,
-    "robust_loss": {
-      "kind": "none"
-    },
     "verbosity": 0
   }
 }

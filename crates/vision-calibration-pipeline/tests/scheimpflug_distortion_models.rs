@@ -130,7 +130,7 @@ fn tilted_config(model: DistortionKind) -> PlanarIntrinsicsConfig {
     config.solver.max_iters = 200;
     // Free k3 so the linear stage does not clamp a coefficient the extended
     // models want.
-    config.init.fix_k3 = false;
+    config.intrinsics_init.fix_k3 = false;
     config
 }
 

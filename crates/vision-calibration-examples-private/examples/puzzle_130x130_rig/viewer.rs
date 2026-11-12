@@ -109,7 +109,7 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
     let stage4 = build_stage(StageBuildInput {
         id: "stage4",
         label: "Joint rig + hand-eye + laser BA",
-        mean_reproj_error_px: input.joint_est.mean_reproj_error_px,
+        mean_reproj_error_px: input.joint_est.mean_reproj_error,
         final_cost: Some(input.joint_est.report.final_cost),
         detected: input.detected,
         params: &input.joint_est.params,
@@ -170,8 +170,8 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
                     scheimpflug,
                     cam_se3_rig: iso_record(&input.joint_est.params.rig_se3_cam[idx].inverse()),
                     rig_se3_cam: iso_record(&input.joint_est.params.rig_se3_cam[idx]),
-                    laser_plane_camera: plane_record(&input.joint_est.params.planes_cam[idx]),
-                    laser_plane_rig: plane_record(&input.joint_est.planes_rig[idx]),
+                    laser_plane_camera: plane_record(&input.joint_est.params.laser_planes_cam[idx]),
+                    laser_plane_rig: plane_record(&input.joint_est.laser_planes_rig[idx]),
                 })
             })
             .collect::<Result<Vec<_>>>()?,
@@ -251,13 +251,13 @@ fn build_stage(input: StageBuildInput<'_>) -> Result<ViewerStage> {
                 let laser_line_px = laser_line_endpoints_px(
                     camera_model,
                     &cam_se3_target,
-                    &input.params.planes_cam[cam_idx],
+                    &input.params.laser_planes_cam[cam_idx],
                 );
                 for (feature_idx, px) in pixels.iter().enumerate() {
                     let residual_m = laser_point_to_plane_residual_m(
                         camera_model,
                         &cam_se3_target,
-                        &input.params.planes_cam[cam_idx],
+                        &input.params.laser_planes_cam[cam_idx],
                         px,
                     );
                     let residual_px =
@@ -302,7 +302,7 @@ fn stage_geometry(params: &RigHandeyeLaserlineParams) -> Result<StageGeometry> {
             .enumerate()
             .map(|(idx, camera)| {
                 let (intrinsics, distortion, scheimpflug) = camera_arrays(camera)?;
-                let plane_rig = params.planes_cam[idx].transform_by(&params.rig_se3_cam[idx]);
+                let plane_rig = params.laser_planes_cam[idx].transform_by(&params.rig_se3_cam[idx]);
                 Ok(StageCameraRecord {
                     index: idx,
                     intrinsics,
@@ -310,7 +310,7 @@ fn stage_geometry(params: &RigHandeyeLaserlineParams) -> Result<StageGeometry> {
                     scheimpflug,
                     cam_se3_rig: iso_record(&params.rig_se3_cam[idx].inverse()),
                     rig_se3_cam: iso_record(&params.rig_se3_cam[idx]),
-                    laser_plane_camera: plane_record(&params.planes_cam[idx]),
+                    laser_plane_camera: plane_record(&params.laser_planes_cam[idx]),
                     laser_plane_rig: plane_record(&plane_rig),
                 })
             })

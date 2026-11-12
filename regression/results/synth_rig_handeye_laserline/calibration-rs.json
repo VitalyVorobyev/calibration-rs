@@ -80,7 +80,7 @@
     ],
     "diagnostics": {
       "per_feature_residuals": {
-        "laser_hist_per_camera": [
+        "laser_hist_per_cam": [
           {
             "bucket_edges_px": [
               1.0,
@@ -118,7 +118,7 @@
             "mean": 0.5396875637087482
           }
         ],
-        "target_hist_per_camera": [
+        "target_hist_per_cam": [
           {
             "bucket_edges_px": [
               1.0,
@@ -229,7 +229,7 @@
       0.6671988211944062,
       0.6575199015774003
     ],
-    "per_camera_stats": [
+    "per_cam_stats": [
       {
         "laser_count": 820,
         "laser_histogram_m": [
@@ -239,14 +239,14 @@
           0,
           0
         ],
-        "max_laser_err_m": 0.0006791149526091944,
-        "max_laser_err_px": 1.7157068143251752,
-        "max_reproj_error_px": 1.2346687350661554,
-        "mean_laser_err_m": 0.00021911076933335544,
-        "mean_laser_err_px": 0.5651300024206479,
-        "mean_reproj_error_px": 0.6671988211944062,
+        "max_laser_error_m": 0.0006791149526091944,
+        "max_laser_error_px": 1.7157068143251752,
+        "max_reproj_error": 1.2346687350661554,
+        "mean_laser_error_m": 0.00021911076933335544,
+        "mean_laser_error_px": 0.5651300024206479,
+        "mean_reproj_error": 0.6671988211944062,
         "reproj_count": 2340,
-        "reproj_histogram_px": [
+        "reproj_histogram": [
           2131,
           209,
           0,
@@ -263,14 +263,14 @@
           0,
           0
         ],
-        "max_laser_err_m": 0.0006212723975409506,
-        "max_laser_err_px": 2.419482685004572,
-        "max_reproj_error_px": 1.2305951430875155,
-        "mean_laser_err_m": 0.00018440251046788532,
-        "mean_laser_err_px": 0.6813259586751164,
-        "mean_reproj_error_px": 0.6575199015774003,
+        "max_laser_error_m": 0.0006212723975409506,
+        "max_laser_error_px": 2.419482685004572,
+        "max_reproj_error": 1.2305951430875155,
+        "mean_laser_error_m": 0.00018440251046788532,
+        "mean_laser_error_px": 0.6813259586751164,
+        "mean_reproj_error": 0.6575199015774003,
         "reproj_count": 2340,
-        "reproj_histogram_px": [
+        "reproj_histogram": [
           2165,
           175,
           0,

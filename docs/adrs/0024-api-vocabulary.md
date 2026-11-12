@@ -102,24 +102,52 @@ models natively (the camera classes).
 
 ### Config shape
 
-- Configs are grouped by stage (`init`, `intrinsics`, `rig`,
-  `handeye_init`, `handeye_optimize`, `solver`, `optimize`, …), never flat
-  boolean bags. A group that pairs a stage with an action spells it
-  `<stage>_<action>`, matching the step and its options
-  (`handeye_optimize` ↔ `step_handeye_optimize` ↔ `HandeyeOptimizeOptions`).
-- A group's type is `<Stage><Action>Config` (`HandeyeOptimizeConfig`,
-  `DeviceOptimizeConfig`, `JointOptimizeConfig`; the joint rig laser solve
-  is the `Joint` stage).
+- Configs are grouped by stage, in the order the steps run, never flat
+  boolean bags; a problem has no top-level stage fields. A stage has one
+  group name in every problem: `camera`, `camera_overrides`,
+  `intrinsics_init`, `intrinsics_optimize`, `rig`, `handeye_init`,
+  `handeye_optimize`, `optimize` (a problem's single refinement step,
+  `step_optimize`), `joint_optimize`, `solver`. A group that pairs a stage
+  with an action spells it `<stage>_<action>`, matching the step and its
+  options (`handeye_optimize` ↔ `step_handeye_optimize` ↔
+  `HandeyeOptimizeOptions`).
+- A group's type is `<Stage><Action>Config` (`IntrinsicsOptimizeConfig`,
+  `HandeyeOptimizeConfig`, `DeviceOptimizeConfig`, `PlaneOptimizeConfig`,
+  `JointOptimizeConfig`; the joint rig laser solve is the `Joint` stage).
+  Where two problems' groups of one stage differ in content, the problem
+  names the type (`PlanarOptimizeConfig`, `SingleCamHandeyeOptimizeConfig`).
 - A field does not repeat its group's stage: `rig.refine_intrinsics`,
-  `rig.refine_sensor`, `intrinsics.iterations` (the same name as
+  `rig.refine_sensor`, `intrinsics_init.iterations` (the same name as
   `IntrinsicsInitOptions::iterations`, which overrides it). One name per
   concept wins over this rule: `handeye_init.handeye_mode` keeps the name
   the mode has in every input and export.
 - Shared stages are defined once in
   `vision_calibration_pipeline::common::config` and reused:
-  `IntrinsicsInitConfig`, `SolverConfig` (`max_iters`, `verbosity`,
-  `robust_loss`, `backend`), `RobotPoseConfig`, `HandeyeInitConfig`,
-  `RigConfig`.
+  `IntrinsicsInitConfig`, `IntrinsicsOptimizeConfig`, `SolverConfig`,
+  `RobotPoseConfig`, `HandeyeInitConfig`, `RigConfig`.
+- `solver` is the solver engine only: `max_iters`, `verbosity`, `backend`.
+  What a stage minimizes is the stage's own: each refinement stage carries
+  the robust loss (and, in a stage that solves two families, the weight) of
+  each residual family it solves, named by the family —
+  `reprojection_loss`, `reprojection_weight` for the target corners,
+  `laser_loss`, `laser_weight` for the laser residuals. A loss scale is in
+  its residual's unit.
+- One loss per refinement stage, not one per problem. A problem's stages
+  are a continuation toward one estimate, and the final stage's loss is the
+  estimator; a loss per stage lets a convex loss (`huber`) bring the early
+  stages into the basin a redescending one (`cauchy`, `arctan`) needs at
+  the end, which one loss per problem cannot say. It also composes: a
+  problem that nests another's config (`rig_handeye_laserline.handeye`)
+  keeps that problem's losses for its warm start and has its own for the
+  joint stage. The price is that a robust problem sets the loss in every
+  stage that solves the corners; each problem's rustdoc lists them. Internal
+  sub-solves that only start a stage (a tilt sweep, the laserline device's
+  camera-only tilt start) run plain least squares.
+- A config field is read for its problem, or it does not exist: no field
+  is documented as "not consulted".
+- A problem that runs another problem as a warm start nests that problem's
+  whole config (`handeye: RigHandeyeConfig`); its own stages are configured
+  beside it in the same grammar, with its own top-level `solver`.
 - A camera is configured by one `camera: CameraConfig { model, fix }`
   group (ADR 0005). Its parameters are fixed by name, per slot
   (`fix.distortion: ["k3"]`), validated against the chosen model. Per-view
@@ -128,11 +156,21 @@ models natively (the camera classes).
   (`reference_camera_idx`) only; fixing a view pose as well is redundant.
 - Iteration counts and verbosity are plain values with concrete
   per-problem defaults, documented on the field; never `Option`.
-- Non-laser problems have one `robust_loss`. Laser stages keep separate
-  target and laser losses and weights, because corners and laser stripes
-  are different residual families; a loss scale is in its residual's unit.
 - Every problem type accepts every camera model; rigs add per-camera
   overrides of `camera`.
+
+### Results use one name per statistic
+
+A statistic, a laser plane and a problem kind have one name in every
+export, estimate, parameter set and seed: `mean_reproj_error` (pixels, no
+unit suffix), `per_cam_stats`, `per_cam_reproj_errors`,
+`target_hist_per_cam`, `laser_planes_rig`, `laser_planes_cam`,
+`laser_plane`. A unit suffix appears only where one statistic is reported
+in two units (`mean_laser_error_m`, `mean_laser_error_px`). The manifest's
+`topology` and an export's `kind` are one enum,
+`vision_calibration_dataset::ProblemKind`, in the manifest crate because it
+is a leaf the pipeline depends on. A stated noise level is `Stated` wherever
+it appears (`Noise::Stated`, `ImageNoiseSpec::Stated`).
 
 ### Renames are hard
 

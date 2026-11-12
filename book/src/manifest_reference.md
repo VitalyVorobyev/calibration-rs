@@ -14,7 +14,7 @@ Top-level dataset manifest. Authoritative description of where the user's calibr
 |---|---|---|---|---|
 | `cameras` | array of [CameraSource](#camerasource) | yes | | Per-camera image sources. Length must match the topology's expected camera count (a single-camera topology requires exactly one entry, a rig topology at least two, `rig_handeye_laserline` at least one). |
 | `target` | [TargetSpec](#targetspec) | yes | | Calibration-target specification. Tagged enum on `kind`. |
-| `topology` | [Topology](#topology) | yes | | Calibration topology — selects which problem type the runner will dispatch to. |
+| `topology` | [ProblemKind](#problemkind) | yes | | Calibration topology — selects which problem type the runner will dispatch to. |
 | `_unresolved` | array of string | no | | Field paths the manifest generator could not determine. Validated to be empty before the runner accepts the manifest. Populated as e.g. `["pose_convention.transform"]`. |
 | `description` | string | no | | Free-form human-readable description. |
 | `detector` | [DetectorSpec](#detectorspec) | no | | Detector-stage overrides shared by target families. Defaults preserve the detector's built-in behavior. |
@@ -22,7 +22,7 @@ Top-level dataset manifest. Authoritative description of where the user's calibr
 | `pose_convention` | [PoseConvention](#poseconvention) | no | | Frame conventions for robot poses. **No defaults** — every component is required when `robot_poses` is set. |
 | `pose_pairing` | [PosePairing](#posepairing) | no | | How per-camera images are paired across views (and optionally with robot poses). `None` is permitted only where pairing is irrelevant: a single camera without robot poses. |
 | `robot_poses` | [RobotPoseSource](#robotposesource) | no | | Robot-pose source for hand-eye topologies. `None` for pure-intrinsics calibrations. |
-| `upstream_calibration` | string | no | | Path to a frozen upstream `RigHandeyeExport` JSON, relative to the manifest directory unless absolute. Required for `Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye laserline calibration computes its own hand-eye warm start and does not use this field. |
+| `upstream_calibration` | string | no | | Path to a frozen upstream `RigHandeyeExport` JSON, relative to the manifest directory unless absolute. Required for `ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye laserline calibration computes its own hand-eye warm start and does not use this field. |
 | `version` | integer | no | `1` | Format-version sentinel. Always `1` for now; bumped on breaking schema revisions. |
 
 Unknown fields are rejected.
@@ -102,11 +102,13 @@ A plain chessboard has no markers: each view is labelled from the detection's ow
 | `pitch_m` | number | yes | Center-to-center spacing between adjacent markers in metres. |
 | `rows` | integer | yes | Number of marker rows. |
 
-## Topology
+## ProblemKind
 
-Calibration topology — selects the problem-type dispatch.
+The calibration problem a dataset is for, and the kind of an export.
 
-A topology describes the data (how many cameras, robot poses, laser images), not the camera model: a tilted (Scheimpflug) single camera is a `planar_intrinsics` dataset whose calibration config names the sensor.
+One value per problem type, serialized as its snake_case name (`"planar_intrinsics"`, …). A manifest names it in its `topology` field, which selects the problem a run dispatches to; every export carries it in its `kind` field, so a consumer narrows on one value instead of probing which fields are present. The tag is required on deserialize.
+
+A problem kind describes the data (how many cameras, robot poses, laser images), not the camera model: a tilted (Scheimpflug) single camera is a `planar_intrinsics` dataset whose calibration config names the sensor.
 
 | Value | Description |
 |---|---|
@@ -122,6 +124,8 @@ A topology describes the data (how many cameras, robot poses, laser images), not
 
 Target-detector overrides. These options affect feature detection only; they are hashed into the detection-cache key by the runner.
 
+The manifest declares its own detector types (this one, [`ChessCornersDetectorSpec`], [`CornerStrategySpec`], [`CornerCovarianceSpec`], [`ImageNoiseSpec`]) instead of reusing the detector crate's: the manifest crate and the detector crate do not depend on each other, so a manifest is read and validated without the detectors. The runner maps each to its detector counterpart, which has the same JSON spelling.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `chess_corners` | [ChessCornersDetectorSpec](#chesscornersdetectorspec) | no | ChESS corner extractor options shared by chessboard-like detectors (plain chessboard and ChArUco). |
@@ -131,7 +135,7 @@ Unknown fields are rejected.
 
 ## ChessCornersDetectorSpec
 
-ChESS corner extractor overrides.
+ChESS corner extractor overrides. The manifest's copy of the detector's ChESS options (see [`DetectorSpec`]).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -144,19 +148,19 @@ Unknown fields are rejected.
 
 ## CornerCovarianceSpec
 
-Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].
+Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`]. The manifest's copy of the detector's covariance options (see [`DetectorSpec`]).
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image_noise` | [ImageNoiseSpec](#imagenoisespec) | no | `"estimate"` | The image noise that the propagated covariance is expressed in. Defaults to `estimate`: the noise is estimated from each image, which is unreliable on JPEG or demosaiced images; give `known` for those. |
+| `image_noise` | [ImageNoiseSpec](#imagenoisespec) | no | `"estimate"` | The image noise that the propagated covariance is expressed in. Defaults to `estimate`: the noise is estimated from each image, which is unreliable on JPEG or demosaiced images; give `stated` for those. |
 
 Unknown fields are rejected.
 
 ## ImageNoiseSpec
 
-The pixel-noise level behind a corner covariance.
+The pixel-noise level behind a corner covariance: estimated from the image, or stated by the user. The manifest's copy of the detector's image-noise option (see [`DetectorSpec`]).
 
-In JSON / TOML: `"estimate"` or `{ known = 2.0 }`.
+In JSON / TOML: `"estimate"` or `{ stated = 2.0 }`.
 
 Tagged on `kind`; the fields depend on the variant.
 
@@ -166,13 +170,13 @@ Tagged on `kind`; the fields depend on the variant.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `known` | number | yes |  |
+| `stated` | number | yes |  |
 
 Unknown fields are rejected.
 
 ## CornerStrategySpec
 
-The corner detector a chessboard-like detector runs.
+The corner detector a chessboard-like detector runs. The manifest's copy of the detector's corner strategy (see [`DetectorSpec`]).
 
 | Value | Description |
 |---|---|

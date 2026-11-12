@@ -345,46 +345,6 @@
       ],
       "type": "object"
     },
-    "ExportKind": {
-      "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
-      "oneOf": [
-        {
-          "const": "planar_intrinsics",
-          "description": "[`PlanarIntrinsicsExport`](crate::planar_intrinsics::PlanarIntrinsicsExport).",
-          "type": "string"
-        },
-        {
-          "const": "single_cam_handeye",
-          "description": "[`SingleCamHandeyeExport`](crate::single_cam_handeye::SingleCamHandeyeExport).",
-          "type": "string"
-        },
-        {
-          "const": "laserline_device",
-          "description": "[`LaserlineDeviceExport`](crate::laserline_device::LaserlineDeviceExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_extrinsics",
-          "description": "[`RigExtrinsicsExport`](crate::rig_extrinsics::RigExtrinsicsExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_handeye",
-          "description": "[`RigHandeyeExport`](crate::rig_handeye::RigHandeyeExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_laserline_device",
-          "description": "[`RigLaserlineDeviceExport`](crate::rig_laserline_device::RigLaserlineDeviceExport).",
-          "type": "string"
-        },
-        {
-          "const": "rig_handeye_laserline",
-          "description": "[`RigHandeyeLaserlineExport`](crate::rig_handeye_laserline::RigHandeyeLaserlineExport).",
-          "type": "string"
-        }
-      ]
-    },
     "FeatureResidualHistogram": {
       "description": "Aggregate residual histogram for a (set of) reprojection error samples.\n\nBuckets are fixed at `[<=1, <=2, <=5, <=10, >10]` pixels — see\n[`REPROJECTION_HISTOGRAM_EDGES_PX`].",
       "properties": {
@@ -838,7 +798,7 @@
           },
           "type": "array"
         },
-        "laser_hist_per_camera": {
+        "laser_hist_per_cam": {
           "description": "Per-camera laser pixel-distance histogram (length = `num_cameras`).",
           "items": {
             "$ref": "#/$defs/FeatureResidualHistogram"
@@ -862,7 +822,7 @@
           },
           "type": "array"
         },
-        "target_hist_per_camera": {
+        "target_hist_per_cam": {
           "description": "Per-camera target reprojection histogram (length = `num_cameras`).",
           "items": {
             "$ref": "#/$defs/FeatureResidualHistogram"
@@ -910,6 +870,46 @@
         "h"
       ],
       "type": "object"
+    },
+    "ProblemKind": {
+      "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "Single camera, planar target — `PlanarIntrinsicsProblem` (any camera\nmodel, including a tilted sensor).",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "Single camera mounted on a robot — `SingleCamHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "Camera + laser plane — `LaserlineDeviceProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "Multi-camera rig, target only — `RigExtrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "Multi-camera rig + robot — `RigHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye_laserline",
+          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
+          "type": "string"
+        }
+      ]
     },
     "ProjectionParams": {
       "description": "Serializable projection model parameters.",
@@ -1052,32 +1052,32 @@
           "minItems": 5,
           "type": "array"
         },
-        "max_laser_err_m": {
+        "max_laser_error_m": {
           "description": "Maximum absolute laser point-to-plane distance (meters).",
           "format": "double",
           "type": "number"
         },
-        "max_laser_err_px": {
+        "max_laser_error_px": {
           "description": "Maximum absolute laser line-distance in undistorted pixel space (pixels).",
           "format": "double",
           "type": "number"
         },
-        "max_reproj_error_px": {
+        "max_reproj_error": {
           "description": "Maximum target-corner reprojection error (pixels).",
           "format": "double",
           "type": "number"
         },
-        "mean_laser_err_m": {
+        "mean_laser_error_m": {
           "description": "Mean laser point-to-plane distance (meters).",
           "format": "double",
           "type": "number"
         },
-        "mean_laser_err_px": {
+        "mean_laser_error_px": {
           "description": "Mean laser line-distance in undistorted pixel space (pixels).",
           "format": "double",
           "type": "number"
         },
-        "mean_reproj_error_px": {
+        "mean_reproj_error": {
           "description": "Mean target-corner reprojection error (pixels).",
           "format": "double",
           "type": "number"
@@ -1088,7 +1088,7 @@
           "minimum": 0,
           "type": "integer"
         },
-        "reproj_histogram_px": {
+        "reproj_histogram": {
           "description": "Reprojection error histogram with buckets `[<=1, <=2, <=5, <=10, >10]` pixels.",
           "items": {
             "format": "uint",
@@ -1101,15 +1101,15 @@
         }
       },
       "required": [
-        "mean_reproj_error_px",
+        "mean_reproj_error",
         "reproj_count",
-        "max_reproj_error_px",
-        "reproj_histogram_px",
-        "mean_laser_err_m",
-        "max_laser_err_m",
+        "max_reproj_error",
+        "reproj_histogram",
+        "mean_laser_error_m",
+        "max_laser_error_m",
         "laser_histogram_m",
-        "mean_laser_err_px",
-        "max_laser_err_px",
+        "mean_laser_error_px",
+        "max_laser_error_px",
         "laser_count"
       ],
       "type": "object"
@@ -1544,8 +1544,8 @@
       "description": "The hand-eye and the target reference pose of the calibration's mode."
     },
     "kind": {
-      "$ref": "#/$defs/ExportKind",
-      "description": "Export-type discriminator — always [`ExportKind::RigHandeyeLaserline`]."
+      "$ref": "#/$defs/ProblemKind",
+      "description": "Export-type discriminator — always [`ProblemKind::RigHandeyeLaserline`]."
     },
     "laser_planes_cam": {
       "description": "Per-camera laser planes in camera frame.",
@@ -1574,7 +1574,7 @@
       },
       "type": "array"
     },
-    "per_camera_stats": {
+    "per_cam_stats": {
       "description": "Joint per-camera stats.",
       "items": {
         "$ref": "#/$defs/RigHandeyeLaserlinePerCamStats"
@@ -1615,7 +1615,7 @@
     "kind",
     "laser_planes_rig",
     "laser_planes_cam",
-    "per_camera_stats",
+    "per_cam_stats",
     "cameras",
     "cam_se3_rig",
     "rig_se3_target",

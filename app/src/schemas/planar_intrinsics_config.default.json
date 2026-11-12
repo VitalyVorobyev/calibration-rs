@@ -7,17 +7,19 @@
       "sensor": "identity"
     }
   },
-  "fix_poses": [],
-  "init": {
+  "intrinsics_init": {
     "fix_k3": true,
     "iterations": 2
+  },
+  "optimize": {
+    "fix_poses": [],
+    "reprojection_loss": {
+      "kind": "none"
+    }
   },
   "solver": {
     "backend": "tiny_solver",
     "max_iters": 120,
-    "robust_loss": {
-      "kind": "none"
-    },
     "verbosity": 0
   }
 }

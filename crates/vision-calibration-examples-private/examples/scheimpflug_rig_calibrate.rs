@@ -148,7 +148,10 @@ fn main() -> Result<()> {
     let mut cfg = RigHandeyeConfig::default();
     cfg.solver.max_iters = 200;
     cfg.solver.verbosity = 1;
-    cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    let huber = RobustLoss::Huber { scale: 1.0 };
+    cfg.intrinsics_optimize.reprojection_loss = huber;
+    cfg.rig.reprojection_loss = huber;
+    cfg.handeye_optimize.reprojection_loss = huber;
     // EyeToHand: established by the empirical convention check (3× lower
     // rigid-robot hand-eye residual than EyeInHand, overruling the EyeInHand
     // claim in `dataset.json`). `SCHEIMPFLUG_RIG_HANDEYE=eye_in_hand` re-runs that
@@ -355,7 +358,7 @@ fn main() -> Result<()> {
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
         laser_cfg.solver.max_iters = 200;
         laser_cfg.solver.verbosity = 1;
-        laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
+        laser_cfg.optimize.laser_residual_type = LaserlineResidualType::PointToPlane;
         laser_session.set_config(laser_cfg)?;
 
         let t0 = Instant::now();
@@ -363,7 +366,7 @@ fn main() -> Result<()> {
         println!("stage 3 (rig laserline): {:.2?}", t0.elapsed());
 
         let laser_export = laser_session.export()?;
-        for (i, stats) in laser_export.per_camera_stats.iter().enumerate() {
+        for (i, stats) in laser_export.per_cam_stats.iter().enumerate() {
             println!(
                 "  camera {i}: reproj={:.4}px, laser={:.4}",
                 stats.mean_reproj_error, stats.mean_laser_error
@@ -393,7 +396,7 @@ fn main() -> Result<()> {
             rig_se3_cam,
             handeye,
             target_ref,
-            planes_cam: laser_export.laser_planes_cam.clone(),
+            laser_planes_cam: laser_export.laser_planes_cam.clone(),
         };
         let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|r| r.deltas.clone());
         let (joint_initial_mean, _) = evaluate_rig_handeye_laserline(
@@ -418,7 +421,7 @@ fn main() -> Result<()> {
             ..Default::default()
         };
         joint_opts.laser_weight = 1e4;
-        joint_opts.calib_weight = 1.0;
+        joint_opts.reprojection_weight = 1.0;
         joint_opts.refine_robot_poses = true;
         joint_opts.robot_rot_sigma = robot_prior.rot_sigma;
         joint_opts.robot_trans_sigma = robot_prior.trans_sigma;
@@ -441,7 +444,7 @@ fn main() -> Result<()> {
         println!("stage 4 (joint BA): {:.2?}", t0.elapsed());
         println!(
             "  mean reproj after joint BA: {:.4} px",
-            joint_est.mean_reproj_error_px
+            joint_est.mean_reproj_error
         );
         joint_cam_se3_rig = Some(
             joint_est
@@ -456,18 +459,18 @@ fn main() -> Result<()> {
         for (i, s) in joint_est.per_cam_stats.iter().enumerate() {
             println!(
                 "    cam {i}: reproj={:.4}px max={:.2}px  laser={:.4}mm max={:.4}mm (n={})",
-                s.mean_reproj_error_px,
-                s.max_reproj_error_px,
-                s.mean_laser_err_m * 1e3,
-                s.max_laser_err_m * 1e3,
+                s.mean_reproj_error,
+                s.max_reproj_error,
+                s.mean_laser_error_m * 1e3,
+                s.max_laser_error_m * 1e3,
                 s.laser_count
             );
-            sigmas.push(s.mean_laser_err_m * 1e3);
-            reprojs.push(s.mean_reproj_error_px);
+            sigmas.push(s.mean_laser_error_m * 1e3);
+            reprojs.push(s.mean_reproj_error);
         }
         joint_stats_sigma_mm = Some(sigmas);
         joint_reproj_px = Some(reprojs);
-        laser_planes_cam = Some(joint_est.params.planes_cam.clone());
+        laser_planes_cam = Some(joint_est.params.laser_planes_cam.clone());
     }
 
     // ─── Oracle comparison ──────────────────────────────────────────────────

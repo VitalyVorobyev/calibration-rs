@@ -308,7 +308,7 @@ fn camera_route(entry: &BenchEntry, spec: &DatasetSpec, camera: usize) -> Result
     let planar = |camera_config, init, solver| {
         let mut config = PlanarIntrinsicsConfig::default();
         config.camera = camera_config;
-        config.init = init;
+        config.intrinsics_init = init;
         config.solver = solver;
         config
     };
@@ -327,14 +327,18 @@ fn camera_route(entry: &BenchEntry, spec: &DatasetSpec, camera: usize) -> Result
         ProblemKind::SingleCamHandeye => {
             let c = single_cam_handeye_config(entry);
             CameraRoute {
-                config: planar(c.camera, c.intrinsics, c.solver),
+                config: planar(c.camera, c.intrinsics_init, c.solver),
                 seed: None,
             }
         }
         ProblemKind::RigExtrinsics => {
             let c = rig_extrinsics_config(entry);
             CameraRoute {
-                config: planar(c.camera_for(camera), c.intrinsics.clone(), c.solver.clone()),
+                config: planar(
+                    c.camera_for(camera),
+                    c.intrinsics_init.clone(),
+                    c.solver.clone(),
+                ),
                 seed: None,
             }
         }
@@ -357,7 +361,11 @@ fn camera_route(entry: &BenchEntry, spec: &DatasetSpec, camera: usize) -> Result
                 seed
             });
             CameraRoute {
-                config: planar(c.camera_for(camera), c.intrinsics.clone(), c.solver.clone()),
+                config: planar(
+                    c.camera_for(camera),
+                    c.intrinsics_init.clone(),
+                    c.solver.clone(),
+                ),
                 seed,
             }
         }

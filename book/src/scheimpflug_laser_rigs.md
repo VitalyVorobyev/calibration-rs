@@ -80,8 +80,8 @@ Given a frozen rig calibration, `RigLaserlineDeviceProblem` fits one laser plane
 
 ```rust
 pub struct RigLaserlineDeviceConfig {
+    pub optimize: PlaneOptimizeConfig,              // laser_residual_type, laser_loss
     pub solver: SolverConfig,                       // max_iters defaults to 200
-    pub laser_residual_type: LaserlineResidualType,
 }
 
 pub struct RigLaserlineDeviceInput {
@@ -103,7 +103,7 @@ let upstream = rig_export.to_upstream_calibration(rig_export.rig_se3_target.clon
 let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
 session.set_input(RigLaserlineDeviceInput { dataset, upstream })?;
 run_calibration(&mut session)?;
-let export = session.export()?; // laser_planes_rig, laser_planes_cam, per_camera_stats, ...
+let export = session.export()?; // laser_planes_rig, laser_planes_cam, per_cam_stats, ...
 ```
 
 `to_upstream_calibration` takes one board pose per laser view, through the hand-eye chain: the export's own `rig_se3_target` when the laser views are its views, or the chain at the laser views' robot poses (`EyeInHand`: `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`; `EyeToHand`: `T_R_T = T_R_B · T_B_G · T_G_T`).
@@ -131,9 +131,11 @@ The steps `step_init` and `step_optimize` are available for finer control. `data
 pub struct RigHandeyeLaserlineConfig {
     pub handeye: RigHandeyeConfig,                  // warm-start stage (incl. `camera`)
     pub laserline_init: RigLaserlineDeviceConfig,   // plane-initialization stage
-    pub joint_optimize: JointOptimizeConfig,        // solver, calib_loss, laser_loss,
-                                                    // calib_weight, laser_weight, fix,
+    pub joint_optimize: JointOptimizeConfig,        // reprojection_loss, laser_loss,
+                                                    // reprojection_weight, laser_weight,
+                                                    // laser_residual_type, fix,
                                                     // fix_handeye, ...
+    pub solver: SolverConfig,                       // max_iters defaults to 30
 }
 ```
 
@@ -153,12 +155,12 @@ use vision_calibration::rig_handeye_laserline::{RigHandeyeLaserlineProblem, run_
 let mut session = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
 session.set_input(input)?;
 run_calibration(&mut session)?;
-let export = session.export()?; // cam_se3_rig, handeye (gripper_se3_rig and base_se3_target), laser_planes_rig, per_camera_stats, ...
+let export = session.export()?; // cam_se3_rig, handeye (gripper_se3_rig and base_se3_target), laser_planes_rig, per_cam_stats, ...
 ```
 
-When the rig and its hand-eye are already calibrated (a staged procedure that checks each stage before the next), or the laser planes are known from the design, `run_calibration_with_seed` starts the joint solve from them: its `JointManualInit` takes a `RigHandeyeExport` of the same views (`rig_handeye`) and one plane per camera in camera frame (`planes_cam`). [Seeding with Prior Knowledge](manual_init.md#staged-rig-laser-calibration) shows both.
+When the rig and its hand-eye are already calibrated (a staged procedure that checks each stage before the next), or the laser planes are known from the design, `run_calibration_with_seed` starts the joint solve from them: its `JointManualInit` takes a `RigHandeyeExport` of the same views (`rig_handeye`) and one plane per camera in camera frame (`laser_planes_cam`). [Seeding with Prior Knowledge](manual_init.md#staged-rig-laser-calibration) shows both.
 
-As in the single-camera laser problem, calibration and laser residuals use separate robust losses (`joint_optimize.calib_loss`, `joint_optimize.laser_loss`); `joint_optimize.solver.robust_loss` is not consulted.
+As in the single-camera laser problem, corner and laser residuals use separate robust losses (`joint_optimize.reprojection_loss`, `joint_optimize.laser_loss`). The embedded `handeye` and `laserline_init` configs keep their own stage losses (`handeye.intrinsics_optimize`, `handeye.rig`, `handeye.handeye_optimize`, `laserline_init.optimize.laser_loss`); the `solver` group holds the engine settings of the joint stage.
 
 ## Examples
 

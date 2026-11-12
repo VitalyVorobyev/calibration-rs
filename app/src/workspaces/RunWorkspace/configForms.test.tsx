@@ -59,7 +59,7 @@ describe("config form (SchemaValueForm)", () => {
   it("renders top-level fields from the schema", () => {
     renderForm(() => {});
     // Nested objects are labelled groups; the plain enum is a labelled picker.
-    expect(screen.getByRole("group", { name: "Init" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Intrinsics init" })).toBeTruthy();
     expect(screen.getByRole("group", { name: "Solver" })).toBeTruthy();
     const model = screen.getByRole("group", { name: "Model" });
     expect(within(model).getByRole("combobox", { name: "Distortion" }).textContent).toBe(
@@ -90,7 +90,7 @@ describe("config form (SchemaValueForm)", () => {
   it("propagates a nested boolean toggle", () => {
     const onValueChange = vi.fn();
     renderForm(onValueChange);
-    const init = screen.getByRole("group", { name: "Init" });
+    const init = screen.getByRole("group", { name: "Intrinsics init" });
     const k3 = within(init).getByRole("switch", { name: "Fix k3" });
     expect(k3.getAttribute("aria-checked")).toBe("true"); // fix_k3 defaults to true
 
@@ -98,8 +98,10 @@ describe("config form (SchemaValueForm)", () => {
 
     expect(onValueChange).toHaveBeenCalledTimes(1);
     const next = onValueChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
-    expect(next.init.fix_k3).toBe(false);
-    expect(next.init.iterations).toBe(DEFAULT_PLANAR_CONFIG.init.iterations);
+    expect(next.intrinsics_init.fix_k3).toBe(false);
+    expect(next.intrinsics_init.iterations).toBe(
+      DEFAULT_PLANAR_CONFIG.intrinsics_init.iterations,
+    );
   });
 
   it("propagates a plain-string enum change", () => {
@@ -116,18 +118,20 @@ describe("config form (SchemaValueForm)", () => {
   it("propagates an internally-tagged enum variant switch (RobustLoss)", () => {
     const onValueChange = vi.fn();
     renderForm(onValueChange);
-    const solver = screen.getByRole("group", { name: "Solver" });
-    const robustLoss = within(solver).getByRole("combobox", { name: "Robust loss" });
+    const optimize = screen.getByRole("group", { name: "Optimize" });
+    const robustLoss = within(optimize).getByRole("combobox", {
+      name: "Reprojection loss",
+    });
     expect(robustLoss.textContent).toBe("none");
 
     choose(robustLoss, "huber");
 
     expect(onValueChange).toHaveBeenCalledTimes(1);
     const next = onValueChange.mock.calls[0]![0] as {
-      solver: { robust_loss: { kind?: string; scale?: number } };
+      optimize: { reprojection_loss: { kind?: string; scale?: number } };
     };
-    expect(Object.keys(next.solver.robust_loss)).toEqual(["kind", "scale"]);
-    expect(typeof next.solver.robust_loss.scale).toBe("number");
+    expect(Object.keys(next.optimize.reprojection_loss)).toEqual(["kind", "scale"]);
+    expect(typeof next.optimize.reprojection_loss.scale).toBe("number");
   });
 
   it("propagates the sensor choice", () => {

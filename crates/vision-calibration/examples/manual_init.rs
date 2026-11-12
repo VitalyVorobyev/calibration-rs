@@ -292,7 +292,7 @@ fn print_per_feature_residuals_summary(
         total - with_value
     );
 
-    if let Some(hists) = pf.target_hist_per_camera.as_ref() {
+    if let Some(hists) = pf.target_hist_per_cam.as_ref() {
         for (i, h) in hists.iter().enumerate() {
             println!(
                 "    cam {i}: count={} mean={:.4}px max={:.4}px buckets <=1={} <=2={} <=5={} <=10={} >10={}",

@@ -43,8 +43,8 @@ pub struct MyProblem;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MyConfig {
+    pub intrinsics_init: IntrinsicsInitConfig,
     pub solver: SolverConfig,
-    pub init: IntrinsicsInitConfig,
 }
 
 // `MyInput`, `MyEstimate` and `MyExport` are ordinary
@@ -84,7 +84,7 @@ impl ProblemType for MyProblem {
 }
 ```
 
-Shared config groups (`SolverConfig`, `IntrinsicsInitConfig`, `RobotPoseConfig`, `HandeyeInitConfig`, `RigConfig`) live in `common/config.rs`; embed them as named fields rather than re-declaring the same settings flat.
+Shared config groups (`SolverConfig`, `IntrinsicsInitConfig`, `IntrinsicsOptimizeConfig`, `RobotPoseConfig`, `HandeyeInitConfig`, `RigConfig`) live in `common/config.rs`; embed them as named fields rather than re-declaring the same settings flat. `SolverConfig` holds engine settings only; a stage's robust loss lives in that stage's own group, named by residual family (`reprojection_loss`).
 
 ## Step 3: Implement Step Functions (`steps.rs`)
 

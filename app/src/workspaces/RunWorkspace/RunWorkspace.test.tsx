@@ -39,18 +39,17 @@ pattern = "*.png"
 `;
 
 const DEFAULT_CONFIG = {
-  init: { iterations: 2, fix_k3: true },
+  intrinsics_init: { iterations: 2, fix_k3: true },
   solver: {
     max_iters: 50,
     verbosity: 0,
-    robust_loss: { kind: "none" },
     backend: "tiny_solver",
   },
   camera: {
     model: { projection: "pinhole", distortion: "brown_conrady5", sensor: "identity" },
     fix: {},
   },
-  fix_poses: [],
+  optimize: { reprojection_loss: { kind: "none" }, fix_poses: [] },
 };
 
 const RUN_SUCCESS_RESPONSE = {

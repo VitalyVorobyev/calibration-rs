@@ -33,9 +33,9 @@ class PerFeatureResidualsTest(unittest.TestCase):
         )
         self.assertEqual(len(res.laser), 0)
         self.assertEqual(res.laser.residual_m.shape, (0,))
-        assert res.target_hist_per_camera is not None
-        self.assertEqual(res.target_hist_per_camera[0].count, 4 * 48)
-        self.assertEqual(res.target_hist_per_camera[0].bucket_edges_px, (1.0, 2.0, 5.0, 10.0))
+        assert res.target_hist_per_cam is not None
+        self.assertEqual(res.target_hist_per_cam[0].count, 4 * 48)
+        self.assertEqual(res.target_hist_per_cam[0].bucket_edges_px, (1.0, 2.0, 5.0, 10.0))
 
     def test_laser_result_has_laser_tables(self) -> None:
         payload = json.loads((OBSERVATIONS / "synth_laserline.json").read_text())["input"]
@@ -78,7 +78,7 @@ class PerFeatureResidualsTest(unittest.TestCase):
         self.assertEqual(int(res.target.camera[0]), 1)
         self.assertEqual(float(res.laser.residual_m[0]), 0.001)
         self.assertTrue(math.isnan(res.laser.residual_px[0]))
-        self.assertIsNone(res.target_hist_per_camera)
+        self.assertIsNone(res.target_hist_per_cam)
         self.assertEqual(len(vc.PerFeatureResiduals.from_payload(None).target), 0)
 
 

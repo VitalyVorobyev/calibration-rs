@@ -8,9 +8,10 @@
 
 use nalgebra::{Rotation3, Vector3};
 use vision_calibration::Error;
-use vision_calibration::common::{ExportKind, HandeyeSolution, RobotPoseSigma, RobotRefinement};
+use vision_calibration::common::{HandeyeSolution, RobotPoseSigma, RobotRefinement};
 use vision_calibration::core::{Iso3, LaserPlane};
 use vision_calibration::core::{RigDataset, RigView, RigViewObs};
+use vision_calibration::dataset::ProblemKind;
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::rig_handeye::{
     RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem, run_calibration as run_rig_handeye,
@@ -91,7 +92,7 @@ fn seeded(f: &Fixture, seed: JointManualInit) -> RigHandeyeLaserlineExport {
 fn seed(rig_handeye: Option<RigHandeyeExport>, planes: Option<Vec<LaserPlane>>) -> JointManualInit {
     let mut seed = JointManualInit::default();
     seed.rig_handeye = rig_handeye;
-    seed.planes_cam = planes;
+    seed.laser_planes_cam = planes;
     seed
 }
 
@@ -180,7 +181,7 @@ fn seed_round_trips_through_json() {
     );
     // An empty seed is an empty object, and fields left out are `None`.
     let empty: JointManualInit = serde_json::from_str("{}").unwrap();
-    assert!(empty.rig_handeye.is_none() && empty.planes_cam.is_none());
+    assert!(empty.rig_handeye.is_none() && empty.laser_planes_cam.is_none());
 }
 
 #[test]
@@ -195,7 +196,10 @@ fn a_seed_that_does_not_fit_is_invalid_input_before_any_solve() {
         seed(Some(e), None)
     };
     let cases: Vec<(&str, JointManualInit)> = vec![
-        ("kind", with_export(&|e| e.kind = ExportKind::RigExtrinsics)),
+        (
+            "kind",
+            with_export(&|e| e.kind = ProblemKind::RigExtrinsics),
+        ),
         (
             "cameras",
             with_export(&|e| {

@@ -32,7 +32,7 @@ class IntrinsicsInitConfig:
     """Shared per-camera linear-initialization stage.
 
     Zhang's method plus an iterative Brown-Conrady distortion fit. Shared by
-    every intrinsics-bearing problem's ``init``/``intrinsics`` config group.
+    every intrinsics-bearing problem's ``intrinsics_init`` config group.
     The fit estimates only the distortion terms the camera's solves estimate
     (its ``camera.fix`` lists), and holds the tangential terms while a sensor
     tilt is estimated.
@@ -61,11 +61,12 @@ class IntrinsicsInitConfig:
 
 @dataclass(slots=True)
 class SolverConfig:
-    """Shared non-linear solve stage settings."""
+    """Solver engine settings: iteration cap, verbosity and backend. The
+    robust loss of each residual family lives in the stage's own
+    ``reprojection_loss`` / ``laser_loss``."""
 
     max_iters: int = 50
     verbosity: int = 0
-    robust_loss: RobustLoss = field(default_factory=lambda: {"kind": "none"})
     #: Engine that linearizes the problem: ``"tiny_solver"`` (default) or
     #: ``"factrs"``. Both reach the same minimizer.
     backend: SolverBackend = "tiny_solver"
@@ -74,7 +75,6 @@ class SolverConfig:
         return {
             "max_iters": int(self.max_iters),
             "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
             "backend": str(self.backend),
         }
 
@@ -84,6 +84,102 @@ class SolverConfig:
         for key, value in mapping.items():
             if not hasattr(cfg, key):
                 raise ValueError(f"unknown SolverConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+def _loss_none() -> RobustLoss:
+    return {"kind": "none"}
+
+
+def _loss_huber() -> RobustLoss:
+    return {"kind": "huber", "scale": 1.0}
+
+
+@dataclass(slots=True)
+class IntrinsicsOptimizeConfig:
+    """The per-camera intrinsics refinement stage (``intrinsics_optimize``):
+    each camera solved on its own views before the joint stages.
+
+    ``reprojection_loss`` is the robust loss on the target-corner reprojection
+    residuals of this stage (scale in pixels). The default ``none`` is plain
+    least squares. A redescending loss (``cauchy``, ``arctan``) needs a good
+    start, so a convex ``huber`` here and the redescending one in the final
+    stage is a sound pairing.
+    """
+
+    reprojection_loss: RobustLoss = field(default_factory=_loss_none)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"reprojection_loss": cast(Any, self.reprojection_loss)}
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "IntrinsicsOptimizeConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown IntrinsicsOptimizeConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
+class PlanarOptimizeConfig:
+    """Non-linear refinement stage of planar intrinsics calibration.
+
+    ``reprojection_loss`` is the robust loss on the reprojection residuals
+    (scale in pixels; default ``none``). ``fix_poses`` lists the views whose
+    poses stay fixed (default none: the board fixes the target frame, and a
+    fixed pose makes the reported uncertainty conditional on it).
+    """
+
+    reprojection_loss: RobustLoss = field(default_factory=_loss_none)
+    fix_poses: list[int] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "reprojection_loss": cast(Any, self.reprojection_loss),
+            "fix_poses": [int(i) for i in self.fix_poses],
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "PlanarOptimizeConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if key == "fix_poses":
+                cfg.fix_poses = [int(i) for i in cast(list[Any], value)]
+            elif key == "reprojection_loss":
+                cfg.reprojection_loss = cast(RobustLoss, value)
+            else:
+                raise ValueError(f"unknown PlanarOptimizeConfig field: {key}")
+        return cfg
+
+
+@dataclass(slots=True)
+class PlaneOptimizeConfig:
+    """Laser-plane refinement stage of rig laserline device calibration (the
+    ``optimize`` group).
+
+    ``laser_residual_type`` picks the laser residual; ``laser_loss`` is the
+    robust loss on it, its scale in the residual's unit (pixels for the line
+    distance, metres for point-to-plane).
+    """
+
+    laser_loss: RobustLoss = field(default_factory=_loss_huber)
+    laser_residual_type: LaserlineResidualType = "line_dist_normalized"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "laser_loss": cast(Any, self.laser_loss),
+            "laser_residual_type": self.laser_residual_type,
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "PlaneOptimizeConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown PlaneOptimizeConfig field: {key}")
             setattr(cfg, key, value)
         return cfg
 
@@ -165,6 +261,42 @@ class RobotPoseConfig:
                 raise ValueError(f"unknown RobotPoseConfig field: {key}")
             setattr(prior, key, value)
         return cls(prior=prior)
+
+
+@dataclass(slots=True)
+class SingleCamHandeyeOptimizeConfig:
+    """The final hand-eye bundle adjustment of single-camera hand-eye
+    calibration (the ``handeye_optimize`` group).
+
+    ``reprojection_loss`` is the robust loss on the reprojection residuals
+    (scale in pixels; default ``none``); ``robot_poses`` sets robot-pose
+    refinement.
+    """
+
+    reprojection_loss: RobustLoss = field(default_factory=_loss_none)
+    robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "reprojection_loss": cast(Any, self.reprojection_loss),
+            "robot_poses": self.robot_poses.to_payload(),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "SingleCamHandeyeOptimizeConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if key == "robot_poses":
+                cfg.robot_poses = (
+                    value
+                    if isinstance(value, RobotPoseConfig)
+                    else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "reprojection_loss":
+                cfg.reprojection_loss = cast(RobustLoss, value)
+            else:
+                raise ValueError(f"unknown SingleCamHandeyeOptimizeConfig field: {key}")
+        return cfg
 
 
 @dataclass(slots=True)
@@ -267,12 +399,16 @@ class RigConfig:
     #: (default), so the result's covariance includes it; ``False`` holds it
     #: at the camera's own estimate. No effect for untilted cameras.
     refine_sensor: bool = True
+    #: Robust loss on the target-corner reprojection residuals of the rig
+    #: bundle adjustment (scale in pixels). Default ``none``.
+    reprojection_loss: RobustLoss = field(default_factory=_loss_none)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "reference_camera_idx": int(self.reference_camera_idx),
             "refine_intrinsics": bool(self.refine_intrinsics),
             "refine_sensor": bool(self.refine_sensor),
+            "reprojection_loss": cast(Any, self.reprojection_loss),
         }
 
     @classmethod
@@ -763,34 +899,35 @@ class LaserlineDeviceInput:
 class PlanarIntrinsicsConfig:
     """Configuration for planar intrinsics calibration.
 
-    Grouped configuration: linear-init and non-linear-solve settings live in
-    the shared :class:`IntrinsicsInitConfig` / :class:`SolverConfig`
-    sub-objects, and ``camera`` (a :class:`CameraConfig`) selects the camera
+    Grouped by stage: ``intrinsics_init`` (:class:`IntrinsicsInitConfig`) is
+    the linear initialization, ``optimize`` (:class:`PlanarOptimizeConfig`)
+    the non-linear refinement, ``solver`` (:class:`SolverConfig`) the engine,
+    and ``camera`` (a :class:`CameraConfig`) selects the camera
     model and which of its parameters stay fixed. A tilted (Scheimpflug)
     sensor is ``camera.model.sensor = "scheimpflug"``. ``solver.max_iters``
     defaults to 120: the tilt valley needs more headroom than a plain
     intrinsics solve.
     """
 
-    init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    intrinsics_init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
     solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=120))
     camera: CameraConfig = field(default_factory=CameraConfig)
-    fix_poses: list[int] = field(default_factory=list)
+    optimize: PlanarOptimizeConfig = field(default_factory=PlanarOptimizeConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "init": self.init.to_payload(),
+            "intrinsics_init": self.intrinsics_init.to_payload(),
             "solver": self.solver.to_payload(),
             "camera": self.camera.to_payload(),
-            "fix_poses": [int(i) for i in self.fix_poses],
+            "optimize": self.optimize.to_payload(),
         }
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "PlanarIntrinsicsConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if key == "init":
-                cfg.init = (
+            if key == "intrinsics_init":
+                cfg.intrinsics_init = (
                     value
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
@@ -807,8 +944,12 @@ class PlanarIntrinsicsConfig:
                     if isinstance(value, CameraConfig)
                     else CameraConfig.from_payload(cast(Mapping[str, Any], value))
                 )
-            elif key == "fix_poses":
-                cfg.fix_poses = [int(i) for i in cast(list[Any], value)]
+            elif key == "optimize":
+                cfg.optimize = (
+                    value
+                    if isinstance(value, PlanarOptimizeConfig)
+                    else PlanarOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
             else:
                 raise ValueError(f"unknown PlanarIntrinsicsConfig field: {key}")
         return cfg
@@ -818,36 +959,49 @@ class PlanarIntrinsicsConfig:
 class SingleCamHandeyeConfig:
     """Configuration for single-camera hand-eye calibration.
 
-    Grouped configuration: per-camera linear init, the camera model
-    (``camera``, a :class:`CameraConfig`: any distortion model, an untilted
-    or a Scheimpflug sensor), hand-eye linear init, non-linear solve, and
-    robot-pose refinement each live in their own shared sub-object.
+    Grouped by stage: the camera model (``camera``, a :class:`CameraConfig`:
+    any distortion model, an untilted or a Scheimpflug sensor), the
+    per-camera ``intrinsics_init`` and ``intrinsics_optimize`` stages, the
+    ``handeye_init`` linear stage, the final ``handeye_optimize`` bundle
+    adjustment (loss and robot-pose refinement) and the ``solver`` engine.
     """
 
-    intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
+    intrinsics_init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    intrinsics_optimize: IntrinsicsOptimizeConfig = field(
+        default_factory=IntrinsicsOptimizeConfig
+    )
     handeye_init: HandeyeInitConfig = field(default_factory=HandeyeInitConfig)
+    handeye_optimize: SingleCamHandeyeOptimizeConfig = field(
+        default_factory=SingleCamHandeyeOptimizeConfig
+    )
     solver: SolverConfig = field(default_factory=SolverConfig)
-    robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "intrinsics": self.intrinsics.to_payload(),
             "camera": self.camera.to_payload(),
+            "intrinsics_init": self.intrinsics_init.to_payload(),
+            "intrinsics_optimize": self.intrinsics_optimize.to_payload(),
             "handeye_init": self.handeye_init.to_payload(),
+            "handeye_optimize": self.handeye_optimize.to_payload(),
             "solver": self.solver.to_payload(),
-            "robot_poses": self.robot_poses.to_payload(),
         }
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "SingleCamHandeyeConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if key == "intrinsics":
-                cfg.intrinsics = (
+            if key == "intrinsics_init":
+                cfg.intrinsics_init = (
                     value
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "intrinsics_optimize":
+                cfg.intrinsics_optimize = (
+                    value
+                    if isinstance(value, IntrinsicsOptimizeConfig)
+                    else IntrinsicsOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "camera":
                 cfg.camera = _camera_config_from_value(value)
@@ -863,11 +1017,13 @@ class SingleCamHandeyeConfig:
                     if isinstance(value, SolverConfig)
                     else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
-            elif key == "robot_poses":
-                cfg.robot_poses = (
+            elif key == "handeye_optimize":
+                cfg.handeye_optimize = (
                     value
-                    if isinstance(value, RobotPoseConfig)
-                    else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, SingleCamHandeyeOptimizeConfig)
+                    else SingleCamHandeyeOptimizeConfig.from_mapping(
+                        cast(Mapping[str, Any], value)
+                    )
                 )
             else:
                 raise ValueError(f"unknown SingleCamHandeyeConfig field: {key}")
@@ -881,20 +1037,25 @@ class RigExtrinsicsConfig:
     Grouped configuration. ``camera`` is the camera model shared by every rig
     camera (a tilted sensor is ``camera.model.sensor = "scheimpflug"``);
     ``camera_overrides`` replaces it for individual cameras, so a rig can mix
-    models.
+    models. ``intrinsics_init`` / ``intrinsics_optimize`` are the per-camera
+    stages, ``rig`` the rig bundle adjustment.
     """
 
-    intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    intrinsics_init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     camera_overrides: list[CameraOverride] = field(default_factory=list)
+    intrinsics_optimize: IntrinsicsOptimizeConfig = field(
+        default_factory=IntrinsicsOptimizeConfig
+    )
     rig: RigConfig = field(default_factory=RigConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "intrinsics": self.intrinsics.to_payload(),
+            "intrinsics_init": self.intrinsics_init.to_payload(),
             "camera": self.camera.to_payload(),
             "camera_overrides": [o.to_payload() for o in self.camera_overrides],
+            "intrinsics_optimize": self.intrinsics_optimize.to_payload(),
             "rig": self.rig.to_payload(),
             "solver": self.solver.to_payload(),
         }
@@ -903,11 +1064,17 @@ class RigExtrinsicsConfig:
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigExtrinsicsConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if key == "intrinsics":
-                cfg.intrinsics = (
+            if key == "intrinsics_init":
+                cfg.intrinsics_init = (
                     value
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "intrinsics_optimize":
+                cfg.intrinsics_optimize = (
+                    value
+                    if isinstance(value, IntrinsicsOptimizeConfig)
+                    else IntrinsicsOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "camera":
                 cfg.camera = _camera_config_from_value(value)
@@ -935,12 +1102,15 @@ class HandeyeOptimizeConfig:
     """Final hand-eye optimization options (the ``handeye_optimize`` group of
     :class:`RigHandeyeConfig`).
 
-    ``robot_poses`` sets robot-pose refinement; ``refine_intrinsics``
+    ``reprojection_loss`` is the robust loss on the reprojection residuals
+    (scale in pixels; default ``none``); ``robot_poses`` sets robot-pose
+    refinement; ``refine_intrinsics``
     (default) refines each camera's intrinsics, ``refine_cam_se3_rig`` the rig
     extrinsics, and ``refine_sensor`` (default) each tilted camera's sensor
     tilt.
     """
 
+    reprojection_loss: RobustLoss = field(default_factory=_loss_none)
     robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
     refine_intrinsics: bool = True
     refine_cam_se3_rig: bool = False
@@ -948,6 +1118,7 @@ class HandeyeOptimizeConfig:
 
     def to_payload(self) -> dict[str, Any]:
         return {
+            "reprojection_loss": cast(Any, self.reprojection_loss),
             "robot_poses": self.robot_poses.to_payload(),
             "refine_intrinsics": bool(self.refine_intrinsics),
             "refine_cam_se3_rig": bool(self.refine_cam_se3_rig),
@@ -964,6 +1135,8 @@ class HandeyeOptimizeConfig:
                     if isinstance(value, RobotPoseConfig)
                     else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
+            elif key == "reprojection_loss":
+                cfg.reprojection_loss = cast(RobustLoss, value)
             elif key in ("refine_intrinsics", "refine_cam_se3_rig", "refine_sensor"):
                 setattr(cfg, key, bool(value))
             else:
@@ -982,9 +1155,12 @@ class RigHandeyeConfig:
     Rust-only.)
     """
 
-    intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    intrinsics_init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     camera_overrides: list[CameraOverride] = field(default_factory=list)
+    intrinsics_optimize: IntrinsicsOptimizeConfig = field(
+        default_factory=IntrinsicsOptimizeConfig
+    )
     rig: RigConfig = field(default_factory=RigConfig)
     handeye_init: HandeyeInitConfig = field(default_factory=HandeyeInitConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
@@ -992,9 +1168,10 @@ class RigHandeyeConfig:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "intrinsics": self.intrinsics.to_payload(),
+            "intrinsics_init": self.intrinsics_init.to_payload(),
             "camera": self.camera.to_payload(),
             "camera_overrides": [o.to_payload() for o in self.camera_overrides],
+            "intrinsics_optimize": self.intrinsics_optimize.to_payload(),
             "rig": self.rig.to_payload(),
             "handeye_init": self.handeye_init.to_payload(),
             "solver": self.solver.to_payload(),
@@ -1005,11 +1182,17 @@ class RigHandeyeConfig:
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if key == "intrinsics":
-                cfg.intrinsics = (
+            if key == "intrinsics_init":
+                cfg.intrinsics_init = (
                     value
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "intrinsics_optimize":
+                cfg.intrinsics_optimize = (
+                    value
+                    if isinstance(value, IntrinsicsOptimizeConfig)
+                    else IntrinsicsOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "camera":
                 cfg.camera = _camera_config_from_value(value)
@@ -1052,9 +1235,9 @@ class DeviceOptimizeConfig:
     :class:`LaserlineDeviceConfig`.
     """
 
-    calib_loss: RobustLoss = field(default_factory=lambda: {"kind": "huber", "scale": 1.0})
-    laser_loss: RobustLoss = field(default_factory=lambda: {"kind": "huber", "scale": 1.0})
-    calib_weight: float = 1.0
+    reprojection_loss: RobustLoss = field(default_factory=_loss_huber)
+    reprojection_weight: float = 1.0
+    laser_loss: RobustLoss = field(default_factory=_loss_huber)
     laser_weight: float = 1.0
     fix_poses: list[int] = field(default_factory=list)
     fix_plane: bool = False
@@ -1062,9 +1245,9 @@ class DeviceOptimizeConfig:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "calib_loss": cast(Any, self.calib_loss),
+            "reprojection_loss": cast(Any, self.reprojection_loss),
+            "reprojection_weight": float(self.reprojection_weight),
             "laser_loss": cast(Any, self.laser_loss),
-            "calib_weight": float(self.calib_weight),
             "laser_weight": float(self.laser_weight),
             "fix_poses": [int(i) for i in self.fix_poses],
             "fix_plane": bool(self.fix_plane),
@@ -1095,14 +1278,14 @@ class LaserlineDeviceConfig:
     both angles).
     """
 
-    init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    intrinsics_init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
     optimize: DeviceOptimizeConfig = field(default_factory=DeviceOptimizeConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "init": self.init.to_payload(),
+            "intrinsics_init": self.intrinsics_init.to_payload(),
             "camera": self.camera.to_payload(),
             "solver": self.solver.to_payload(),
             "optimize": self.optimize.to_payload(),
@@ -1112,8 +1295,8 @@ class LaserlineDeviceConfig:
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "LaserlineDeviceConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if key == "init":
-                cfg.init = (
+            if key == "intrinsics_init":
+                cfg.intrinsics_init = (
                     value
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
@@ -2651,19 +2834,20 @@ class RigLaserlineDeviceInput:
 class RigLaserlineDeviceConfig:
     """Configuration for rig laserline device calibration.
 
-    Grouped configuration. ``solver.max_iters`` defaults to 200: this stage
+    Grouped configuration: ``optimize`` (:class:`PlaneOptimizeConfig`) holds
+    the laser residual and its loss. ``solver.max_iters`` defaults to 200: this stage
     refines only per-camera laser-plane parameters against an
     already-frozen rig geometry (1 DOF per view per camera), so iterations
     are nearly free.
     """
 
+    optimize: PlaneOptimizeConfig = field(default_factory=PlaneOptimizeConfig)
     solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=200))
-    laser_residual_type: LaserlineResidualType = "line_dist_normalized"
 
     def to_payload(self) -> dict[str, Any]:
         return {
+            "optimize": self.optimize.to_payload(),
             "solver": self.solver.to_payload(),
-            "laser_residual_type": self.laser_residual_type,
         }
 
     @classmethod
@@ -2678,8 +2862,12 @@ class RigLaserlineDeviceConfig:
                     if isinstance(value, SolverConfig)
                     else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
-            elif key == "laser_residual_type":
-                cfg.laser_residual_type = cast(LaserlineResidualType, value)
+            elif key == "optimize":
+                cfg.optimize = (
+                    value
+                    if isinstance(value, PlaneOptimizeConfig)
+                    else PlaneOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
             else:
                 raise ValueError(f"unknown RigLaserlineDeviceConfig field: {key}")
         return cfg
@@ -2691,7 +2879,7 @@ class RigLaserlineDeviceExport(_ExportResiduals):
 
     laser_planes_rig: list[LaserPlane]
     laser_planes_cam: list[LaserPlane]
-    per_camera_stats: list[LaserlineStats]
+    per_cam_stats: list[LaserlineStats]
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
@@ -2711,9 +2899,9 @@ class RigLaserlineDeviceExport(_ExportResiduals):
                 LaserPlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_cam"])
             ],
-            per_camera_stats=[
+            per_cam_stats=[
                 LaserlineStats.from_payload(cast(Mapping[str, Any], s))
-                for s in cast(list[Any], payload["per_camera_stats"])
+                for s in cast(list[Any], payload["per_cam_stats"])
             ],
             uncertainty=ParameterUncertainty.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
@@ -2779,16 +2967,15 @@ class JointOptimizeConfig:
     camera's model. Empty (the default) gives every camera the stage
     default: intrinsics and the low-order radial terms (``k1``, ``k2``; the
     division model's ``lambda``) refined, the higher-order distortion terms
-    and the sensor tilt held. Laser and target residuals carry independent
-    robust losses (``calib_loss`` / ``laser_loss``); the shared
-    ``solver.robust_loss`` is not consulted by this stage.
+    and the sensor tilt held. Reprojection and laser residuals carry
+    independent robust losses (``reprojection_loss`` / ``laser_loss``). The
+    iteration budget and backend come from the config's top-level ``solver``.
     """
 
-    solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=30))
     laser_residual_type: LaserlineResidualType = "point_to_plane"
-    calib_loss: RobustLoss = field(default_factory=lambda: {"kind": "none"})
-    laser_loss: RobustLoss = field(default_factory=lambda: {"kind": "none"})
-    calib_weight: float = 1.0
+    reprojection_loss: RobustLoss = field(default_factory=_loss_none)
+    laser_loss: RobustLoss = field(default_factory=_loss_none)
+    reprojection_weight: float = 1.0
     laser_weight: float = 1.0e4
     fix: list[CameraFix] = field(default_factory=list)
     fix_handeye: bool = False
@@ -2797,11 +2984,10 @@ class JointOptimizeConfig:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "solver": self.solver.to_payload(),
             "laser_residual_type": self.laser_residual_type,
-            "calib_loss": cast(Any, self.calib_loss),
+            "reprojection_loss": cast(Any, self.reprojection_loss),
             "laser_loss": cast(Any, self.laser_loss),
-            "calib_weight": float(self.calib_weight),
+            "reprojection_weight": float(self.reprojection_weight),
             "laser_weight": float(self.laser_weight),
             "fix": [f.to_payload() for f in self.fix],
             "fix_handeye": bool(self.fix_handeye),
@@ -2813,13 +2999,7 @@ class JointOptimizeConfig:
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "JointOptimizeConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if key == "solver":
-                cfg.solver = (
-                    value
-                    if isinstance(value, SolverConfig)
-                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
-                )
-            elif key == "fix":
+            if key == "fix":
                 cfg.fix = [
                     f if isinstance(f, CameraFix) else CameraFix.from_payload(f)
                     for f in cast(list[Any], value)
@@ -2844,7 +3024,8 @@ class RigHandeyeLaserlineConfig:
     Three warm-started stages: the rig hand-eye stage (``handeye``), the
     frozen-geometry laser plane init (``laserline_init``, defaults to a
     point-to-plane residual), and the final joint bundle adjustment
-    (``joint_optimize``).
+    (``joint_optimize``). ``solver`` is the joint stage's engine settings
+    (``max_iters`` defaults to 30).
     """
 
     handeye: RigHandeyeConfig = field(
@@ -2852,18 +3033,20 @@ class RigHandeyeLaserlineConfig:
     )
     laserline_init: RigLaserlineDeviceConfig = field(
         default_factory=lambda: RigLaserlineDeviceConfig(
-            laser_residual_type="point_to_plane"
+            optimize=PlaneOptimizeConfig(laser_residual_type="point_to_plane")
         )
     )
     joint_optimize: JointOptimizeConfig = field(
         default_factory=JointOptimizeConfig
     )
+    solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=30))
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "handeye": self.handeye.to_payload(),
             "laserline_init": self.laserline_init.to_payload(),
             "joint_optimize": self.joint_optimize.to_payload(),
+            "solver": self.solver.to_payload(),
         }
 
     @classmethod
@@ -2896,6 +3079,12 @@ class RigHandeyeLaserlineConfig:
                         cast(Mapping[str, Any], value)
                     )
                 )
+            elif key == "solver":
+                cfg.solver = (
+                    value
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
             else:
                 raise ValueError(
                     f"unknown RigHandeyeLaserlineConfig field: {key}"
@@ -2907,29 +3096,29 @@ class RigHandeyeLaserlineConfig:
 class RigHandeyeLaserlinePerCamStats:
     """Per-camera statistics for a joint rig hand-eye laserline result."""
 
-    mean_reproj_error_px: float
+    mean_reproj_error: float
     reproj_count: int
-    max_reproj_error_px: float
-    reproj_histogram_px: list[int]
-    mean_laser_err_m: float
-    max_laser_err_m: float
+    max_reproj_error: float
+    reproj_histogram: list[int]
+    mean_laser_error_m: float
+    max_laser_error_m: float
     laser_histogram_m: list[int]
-    mean_laser_err_px: float
-    max_laser_err_px: float
+    mean_laser_error_px: float
+    max_laser_error_px: float
     laser_count: int
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlinePerCamStats":
         return cls(
-            mean_reproj_error_px=float(payload["mean_reproj_error_px"]),
+            mean_reproj_error=float(payload["mean_reproj_error"]),
             reproj_count=int(payload["reproj_count"]),
-            max_reproj_error_px=float(payload["max_reproj_error_px"]),
-            reproj_histogram_px=[int(v) for v in cast(list[Any], payload["reproj_histogram_px"])],
-            mean_laser_err_m=float(payload["mean_laser_err_m"]),
-            max_laser_err_m=float(payload["max_laser_err_m"]),
+            max_reproj_error=float(payload["max_reproj_error"]),
+            reproj_histogram=[int(v) for v in cast(list[Any], payload["reproj_histogram"])],
+            mean_laser_error_m=float(payload["mean_laser_error_m"]),
+            max_laser_error_m=float(payload["max_laser_error_m"]),
             laser_histogram_m=[int(v) for v in cast(list[Any], payload["laser_histogram_m"])],
-            mean_laser_err_px=float(payload["mean_laser_err_px"]),
-            max_laser_err_px=float(payload["max_laser_err_px"]),
+            mean_laser_error_px=float(payload["mean_laser_error_px"]),
+            max_laser_error_px=float(payload["max_laser_error_px"]),
             laser_count=int(payload["laser_count"]),
         )
 
@@ -2940,7 +3129,7 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
 
     laser_planes_rig: list[LaserPlane]
     laser_planes_cam: list[LaserPlane]
-    per_camera_stats: list[RigHandeyeLaserlinePerCamStats]
+    per_cam_stats: list[RigHandeyeLaserlinePerCamStats]
     cameras: list[Camera]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
@@ -2969,9 +3158,9 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
                 LaserPlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_cam"])
             ],
-            per_camera_stats=[
+            per_cam_stats=[
                 RigHandeyeLaserlinePerCamStats.from_payload(cast(Mapping[str, Any], s))
-                for s in cast(list[Any], payload["per_camera_stats"])
+                for s in cast(list[Any], payload["per_cam_stats"])
             ],
             cameras=_cameras_from_payload(payload),
             cam_se3_rig=[

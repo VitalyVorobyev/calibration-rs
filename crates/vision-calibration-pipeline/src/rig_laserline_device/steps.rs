@@ -7,7 +7,7 @@ use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
 use vision_calibration_optim::{
-    RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
+    LaserlineSolveOptions, RigLaserlineSolveOptions, RigLaserlineUpstream, optimize_rig_laserline,
 };
 
 use crate::rig_family::inverse_poses;
@@ -43,13 +43,13 @@ pub struct PlaneOptimizeOptions {
 /// part of `input.upstream` and is *not* a manual-init concern
 /// — it's an input contract. Only the laser planes are seedable here.
 ///
-/// When `planes_cam` is `Some`, the linear plane fit is skipped entirely. Length must equal
+/// When `laser_planes_cam` is `Some`, the linear plane fit is skipped entirely. Length must equal
 /// `input.dataset.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PlaneManualInit {
     /// Per-camera laser planes (camera frame). `None` runs the linear fit.
-    pub planes_cam: Option<Vec<LaserPlane>>,
+    pub laser_planes_cam: Option<Vec<LaserPlane>>,
 }
 
 /// Initialize per-camera laser planes from any combination of manual seeds and
@@ -58,13 +58,13 @@ pub struct PlaneManualInit {
 /// This is the load-bearing init function. [`step_init`] is a thin delegate with
 /// `PlaneManualInit::default()`.
 ///
-/// The laser planes are `manual.planes_cam` if `Some`, else a closed-form
+/// The laser planes are `manual.laser_planes_cam` if `Some`, else a closed-form
 /// linear fit per camera.
 ///
 /// # Errors
 ///
 /// - Input not set.
-/// - `manual.planes_cam.len() != input.dataset.num_cameras`.
+/// - `manual.laser_planes_cam.len() != input.dataset.num_cameras`.
 /// - Without a seed, a camera whose linear fit fails (no laser pixels, or
 ///   pixels that do not determine a plane): the error names it.
 pub fn step_init_with_seed(
@@ -76,11 +76,11 @@ pub fn step_init_with_seed(
     session.validate()?;
     let input = session.require_input()?;
 
-    if let Some(p) = &manual.planes_cam
+    if let Some(p) = &manual.laser_planes_cam
         && p.len() != input.dataset.num_cameras
     {
         let msg = format!(
-            "manual planes_cam length ({}) != num_cameras ({})",
+            "manual laser_planes_cam length ({}) != num_cameras ({})",
             p.len(),
             input.dataset.num_cameras
         );
@@ -88,8 +88,8 @@ pub fn step_init_with_seed(
         return Err(Error::invalid_input(msg));
     }
 
-    let (planes, source): (Vec<LaserPlane>, &'static str) = match manual.planes_cam {
-        Some(p) => (p, "(manual: planes_cam)"),
+    let (planes, source): (Vec<LaserPlane>, &'static str) = match manual.laser_planes_cam {
+        Some(p) => (p, "(manual: laser_planes_cam)"),
         None => {
             let fitted: Result<Vec<LaserPlane>, Error> = (0..input.dataset.num_cameras)
                 .map(|cam_idx| linear_plane_init(input, cam_idx))
@@ -126,7 +126,7 @@ pub fn step_init(
 ///
 /// [`Error::InvalidInput`] naming the camera when its model does not build,
 /// it saw no laser pixels, or its pixels do not determine a plane (a seed in
-/// `PlaneManualInit::planes_cam` then starts the solve).
+/// `PlaneManualInit::laser_planes_cam` then starts the solve).
 fn linear_plane_init(
     input: &super::problem::RigLaserlineDeviceInput,
     cam_idx: usize,
@@ -154,13 +154,13 @@ fn linear_plane_init(
     if views.is_empty() {
         return Err(Error::invalid_input(format!(
             "camera {cam_idx}: no view has laser pixels, so its laser plane cannot be \
-             initialized; seed it in PlaneManualInit::planes_cam"
+             initialized; seed it in PlaneManualInit::laser_planes_cam"
         )));
     }
     let estimate = LaserlinePlaneSolver::from_views(&views, &camera).map_err(|e| {
         Error::invalid_input(format!(
             "camera {cam_idx}: the linear laser-plane fit failed ({e}); seed the plane \
-             in PlaneManualInit::planes_cam"
+             in PlaneManualInit::laser_planes_cam"
         ))
     })?;
     LaserPlane::new(estimate.normal.into_inner(), estimate.distance)
@@ -198,8 +198,11 @@ pub fn step_optimize(
     };
 
     let solve_opts = RigLaserlineSolveOptions {
-        laser_residual_type: cfg.laser_residual_type,
-        ..RigLaserlineSolveOptions::default()
+        laserline: LaserlineSolveOptions {
+            laser_loss: cfg.optimize.laser_loss,
+            ..LaserlineSolveOptions::default()
+        },
+        laser_residual_type: cfg.optimize.laser_residual_type,
     };
     let backend_opts =
         cfg.solver
@@ -220,11 +223,11 @@ pub fn step_optimize(
     };
 
     let mean_reproj: f64 = estimate
-        .per_camera_stats
+        .per_cam_stats
         .iter()
         .map(|s| s.mean_reproj_error)
         .sum::<f64>()
-        / estimate.per_camera_stats.len().max(1) as f64;
+        / estimate.per_cam_stats.len().max(1) as f64;
     session.set_output(estimate.clone());
     session.log_success_with_notes(
         "optimize",

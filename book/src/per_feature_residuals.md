@@ -8,15 +8,15 @@ Every `*Export` therefore carries per-feature residual records, so a consumer (t
 
 Every export has a `diagnostics` group (`ExportDiagnostics`) holding `per_feature_residuals: PerFeatureResiduals` and, when the images are known, the `image_manifest`. The container is always present (empty by default); empty inner vectors mean "this problem type does not produce observations of that flavour". For example, `PlanarIntrinsicsExport.diagnostics.per_feature_residuals.laser` is always empty.
 
-Each export also serializes a required `kind` discriminator (`ExportKind`, snake_case: `"planar_intrinsics"`, `"rig_handeye"`, ...) as its first field, so a consumer that loads raw JSON can narrow on the single tag instead of probing which fields are present.
+Each export also serializes a required `kind` discriminator (`vision_calibration::dataset::ProblemKind`, the same enum as the manifest's `topology`, snake_case: `"planar_intrinsics"`, `"rig_handeye"`, ...) as its first field, so a consumer that loads raw JSON can narrow on the single tag instead of probing which fields are present.
 
 ```text
 PerFeatureResiduals
 ├─ target: Vec<TargetFeatureResidual>     // per-corner reprojection records
 ├─ laser:  Vec<LaserFeatureResidual>      // per-pixel laser residuals
 ├─ laser_lines: Vec<LaserLineTrace>       // the projected laser line of each view
-├─ target_hist_per_camera: Option<Vec<FeatureResidualHistogram>>
-└─ laser_hist_per_camera:  Option<Vec<FeatureResidualHistogram>>
+├─ target_hist_per_cam: Option<Vec<FeatureResidualHistogram>>
+└─ laser_hist_per_cam:  Option<Vec<FeatureResidualHistogram>>
 ```
 
 A target record carries an explicit `(view, camera, feature)` triple, the 3D target point `target_xyz_m`, the `observed_px` and `projected_px` pixels and the `error_px` between them. Records are view-major: the outer loop is the view, the inner loop the camera (cameras without an observation in that view are skipped), the innermost the feature index in that view's and camera's `points_3d`.
@@ -55,7 +55,7 @@ let with_value = pf.target.iter().filter(|r| r.error_px.is_some()).count();
 println!("{total} target records ({with_value} converged, {} divergent)",
          total - with_value);
 
-if let Some(hists) = pf.target_hist_per_camera.as_ref() {
+if let Some(hists) = pf.target_hist_per_cam.as_ref() {
     for (i, h) in hists.iter().enumerate() {
         println!("cam {i}: count={} mean={:.4}px max={:.4}px buckets {:?}",
                  h.count, h.mean, h.max, h.counts);
@@ -151,7 +151,7 @@ worst = np.argsort(-np.nan_to_num(res.target.error_px))[:5]
 for i in worst:
     print(res.target.view[i], res.target.camera[i], res.target.feature[i],
           f"{res.target.error_px[i]:.3f}")
-print(res.target_hist_per_camera[0].counts)
+print(res.target_hist_per_cam[0].counts)
 ```
 
 ## Where Else They Show Up

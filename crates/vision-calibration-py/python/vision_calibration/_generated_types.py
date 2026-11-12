@@ -224,7 +224,9 @@ CheckStatus: TypeAlias = Literal["pass", "warn", "fail", "not_applicable"]
 
 
 class ChessCornersDetectorSpec(TypedDict, total=False):
-    """ChESS corner extractor overrides."""
+    """ChESS corner extractor overrides. The manifest's copy of the detector's
+    ChESS options (see `DetectorSpec`).
+    """
 
     covariance: CornerCovarianceSpec | None
     """Attach the detector's per-corner position covariance to every
@@ -290,17 +292,21 @@ class CombinationTerm(TypedDict):
 
 
 class CornerCovarianceSpec(TypedDict, total=False):
-    """Per-corner covariance options; see `ChessCornersDetectorSpec::covariance`."""
+    """Per-corner covariance options; see `ChessCornersDetectorSpec::covariance`.
+    The manifest's copy of the detector's covariance options (see
+    `DetectorSpec`).
+    """
 
     image_noise: ImageNoiseSpec
     """The image noise that the propagated covariance is expressed in.
     Defaults to `estimate`: the noise is estimated from each image, which
-    is unreliable on JPEG or demosaiced images; give `known` for those.
+    is unreliable on JPEG or demosaiced images; give `stated` for those.
     """
 
 
 CornerStrategySpec: TypeAlias = Literal["chess", "radon"]
-"""The corner detector a chessboard-like detector runs.
+"""The corner detector a chessboard-like detector runs. The manifest's copy
+of the detector's corner strategy (see `DetectorSpec`).
 
 - ``"chess"``: The ChESS response. Fast; the default.
 - ``"radon"``: The whole-image Radon response. Several times slower than ChESS, and
@@ -374,7 +380,7 @@ class _DatasetSpecRequired(TypedDict):
     target: TargetSpec
     """Calibration-target specification. Tagged enum on `kind`."""
 
-    topology: Topology
+    topology: ProblemKind
     """Calibration topology — selects which problem type the runner
     will dispatch to.
     """
@@ -425,7 +431,7 @@ class DatasetSpec(_DatasetSpecRequired, total=False):
     upstream_calibration: str | None
     """Path to a frozen upstream `RigHandeyeExport` JSON, relative to
     the manifest directory unless absolute. Required for
-    `Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
+    `ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
     laserline calibration computes its own hand-eye warm start and does not
     use this field.
     """
@@ -439,6 +445,14 @@ class DatasetSpec(_DatasetSpecRequired, total=False):
 class DetectorSpec(TypedDict, total=False):
     """Target-detector overrides. These options affect feature detection
     only; they are hashed into the detection-cache key by the runner.
+
+    The manifest declares its own detector types (this one,
+    `ChessCornersDetectorSpec`, `CornerStrategySpec`,
+    `CornerCovarianceSpec`, `ImageNoiseSpec`) instead of reusing the
+    detector crate's: the manifest crate and the detector crate do not depend
+    on each other, so a manifest is read and validated without the detectors.
+    The runner maps each to its detector counterpart, which has the same JSON
+    spelling.
     """
 
     chess_corners: ChessCornersDetectorSpec | None
@@ -460,12 +474,6 @@ class DetectorSpec(TypedDict, total=False):
 class DeviceOptimizeConfig(TypedDict):
     """Bundle-adjustment options for laserline device calibration."""
 
-    calib_loss: RobustLoss
-    """Robust loss for calibration reprojection residuals."""
-
-    calib_weight: float
-    """Global weight for calibration residuals."""
-
     fix_plane: bool
     """Fix laser plane parameters during optimization."""
 
@@ -478,8 +486,8 @@ class DeviceOptimizeConfig(TypedDict):
     """
 
     laser_loss: RobustLoss
-    """Robust loss for laser residuals. Its scale is in the residual's unit:
-    pixels for the line distance (the default residual), meters for
+    """Robust loss on the laser residuals. Its scale is in the residual's
+    unit: pixels for the line distance (the default residual), meters for
     point-to-plane.
     """
 
@@ -487,7 +495,15 @@ class DeviceOptimizeConfig(TypedDict):
     """Laser residual type."""
 
     laser_weight: float
-    """Global weight for laser residuals."""
+    """Weight of the laser residuals."""
+
+    reprojection_loss: RobustLoss
+    """Robust loss on the target-corner reprojection residuals; its scale is
+    in pixels.
+    """
+
+    reprojection_weight: float
+    """Weight of the reprojection residuals."""
 
 
 DistortionKind: TypeAlias = Literal[
@@ -680,32 +696,6 @@ class ExportDiagnostics(_ExportDiagnosticsRequired, total=False):
     """
 
 
-ExportKind: TypeAlias = Literal[
-    "planar_intrinsics",
-    "single_cam_handeye",
-    "laserline_device",
-    "rig_extrinsics",
-    "rig_handeye",
-    "rig_laserline_device",
-    "rig_handeye_laserline",
-]
-"""Identifies which calibration `*Export` a JSON payload holds.
-
-One variant per pipeline problem type, serialized as the snake_case module
-name in the `kind` field of every `*Export`. Consumers (the desktop app's
-`detectExportKind`, downstream tooling) read this single tag rather than
-sniffing field presence.
-
-- ``"planar_intrinsics"``: `PlanarIntrinsicsExport`.
-- ``"single_cam_handeye"``: `SingleCamHandeyeExport`.
-- ``"laserline_device"``: `LaserlineDeviceExport`.
-- ``"rig_extrinsics"``: `RigExtrinsicsExport`.
-- ``"rig_handeye"``: `RigHandeyeExport`.
-- ``"rig_laserline_device"``: `RigLaserlineDeviceExport`.
-- ``"rig_handeye_laserline"``: `RigHandeyeLaserlineExport`.
-"""
-
-
 class FeatureResidualHistogram(TypedDict):
     """Aggregate residual histogram for a (set of) reprojection error samples.
 
@@ -883,13 +873,18 @@ class _HandeyeOptimizeConfigRequired(TypedDict):
     includes the intrinsics.
     """
 
+    reprojection_loss: RobustLoss
+    """Robust loss on the target-corner reprojection residuals; its scale is
+    in pixels. Default `none`.
+    """
+
     robot_poses: RobotPoseConfig
     """Robot-pose refinement settings for the final hand-eye BA."""
 
 
 class HandeyeOptimizeConfig(_HandeyeOptimizeConfigRequired, total=False):
-    """Final hand-eye bundle-adjustment options; robot-pose refinement lives in
-    the shared `RobotPoseConfig` group.
+    """The final hand-eye bundle adjustment of a rig hand-eye calibration
+    (`step_handeye_optimize`): its loss, robot-pose refinement and scope.
     """
 
     refine_sensor: bool
@@ -959,19 +954,21 @@ class ImageManifest(TypedDict):
     """Image root directory, relative to the export file's directory."""
 
 
-class ImageNoiseSpec_Known(TypedDict):
+class ImageNoiseSpec_Stated(TypedDict):
     """The standard deviation of the image's pixel noise, in gray levels of
     the 8-bit image (finite and `>= 0`), e.g. the standard deviation of
     the difference of two frames of a static scene divided by `√2`.
     """
 
-    known: float
+    stated: float
 
 
-ImageNoiseSpec: TypeAlias = Literal["estimate"] | ImageNoiseSpec_Known
-"""The pixel-noise level behind a corner covariance.
+ImageNoiseSpec: TypeAlias = Literal["estimate"] | ImageNoiseSpec_Stated
+"""The pixel-noise level behind a corner covariance: estimated from the
+image, or stated by the user. The manifest's copy of the detector's
+image-noise option (see `DetectorSpec`).
 
-In JSON / TOML: `"estimate"` or `{ known = 2.0 }`.
+In JSON / TOML: `"estimate"` or `{ stated = 2.0 }`.
 
 - ``"estimate"``: Estimate the noise from each image. Unreliable on JPEG or demosaiced
   images, where a corner then reports no covariance and the run fails.
@@ -1004,7 +1001,8 @@ class IntrinsicsInitConfig(TypedDict):
     """Per-camera linear-initialization stage (Zhang's method + iterative
     Brown-Conrady distortion fit).
 
-    Shared by every intrinsics-bearing problem's `init` config group.
+    Shared by every intrinsics-bearing problem's `intrinsics_init` config
+    group.
     """
 
     fix_k3: bool
@@ -1058,6 +1056,24 @@ class IntrinsicsManualInit(TypedDict, total=False):
     """
 
 
+class IntrinsicsOptimizeConfig(TypedDict):
+    """The per-camera intrinsics refinement stage (`intrinsics_optimize`): each
+    camera solved on its own views, before the joint stages.
+
+    Shared by the single-camera hand-eye and the two rig problems. The
+    stage's iteration budget and backend come from `solver`.
+    """
+
+    reprojection_loss: RobustLoss
+    """Robust loss on the target-corner reprojection residuals of this
+    stage; its scale is in pixels. Default `none`: plain least squares,
+    the maximum-likelihood estimate under Gaussian corner noise. The
+    later stages have their own: a redescending loss (`cauchy`,
+    `arctan`) needs a good start, so a convex `huber` here and the
+    redescending one in the final stage is a sound pairing.
+    """
+
+
 class Iso3(TypedDict):
     """JSON Schema proxy for `Iso3` (`nalgebra::Isometry3<f64>`).
 
@@ -1082,12 +1098,6 @@ class Iso3(TypedDict):
 class _JointOptimizeConfigRequired(TypedDict):
     """The keys of `JointOptimizeConfig` that every payload has."""
 
-    calib_loss: RobustLoss
-    """Robust loss applied to target residuals."""
-
-    calib_weight: float
-    """Weight for target corner residuals."""
-
     fix_handeye: bool
     """Fix the hand-eye transform during the joint stage."""
 
@@ -1095,25 +1105,26 @@ class _JointOptimizeConfigRequired(TypedDict):
     """Fix the target reference pose during the joint stage."""
 
     laser_loss: RobustLoss
-    """Robust loss applied to laser residuals."""
+    """Robust loss on the laser residuals, its scale in the residual's unit
+    (meters for point-to-plane, pixels for the line distance).
+    """
 
     laser_residual_type: LaserlineResidualType
     """Which laser residual drives the joint solve."""
 
     laser_weight: float
-    """Weight for laser residuals."""
+    """Weight of the laser residuals."""
+
+    reprojection_loss: RobustLoss
+    """Robust loss on the target-corner reprojection residuals; its scale is
+    in pixels.
+    """
+
+    reprojection_weight: float
+    """Weight of the reprojection residuals."""
 
     robot_poses: RobotPoseConfig
     """Robot-pose refinement settings for the joint stage."""
-
-    solver: SolverConfig
-    """Non-linear solve stage settings for the joint stage.
-
-    `robust_loss` is **not consulted** by this problem: laser-carrying
-    stages track calibration and laser residuals as independent families
-    with their own robust losses (`calib_loss`, `laser_loss`).
-    `max_iters`, `verbosity` and `backend` apply.
-    """
 
 
 class JointOptimizeConfig(_JointOptimizeConfigRequired, total=False):
@@ -1243,23 +1254,19 @@ LaserScanAxis: TypeAlias = Literal["cols", "rows"]
 class _LaserlineDeviceConfigRequired(TypedDict):
     """The keys of `LaserlineDeviceConfig` that every payload has."""
 
-    init: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. The linear stage
+    intrinsics_init: IntrinsicsInitConfig
+    """Linear-initialization stage settings (`step_init`). The linear stage
     fits only the distortion terms the bundle adjustment estimates
-    (`Self::effective_fix`).
+    (`Self::effective_fix`). A Scheimpflug camera whose tilt is
+    estimated and not seeded is solved alone by the staged tilt
+    multi-start before the plane fit, in plain least squares.
     """
 
     optimize: DeviceOptimizeConfig
-    """Bundle-adjustment options."""
+    """Bundle-adjustment stage settings (`step_optimize`)."""
 
     solver: SolverConfig
-    """Non-linear solve stage settings.
-
-    `robust_loss` is **not consulted** by this problem: laser-carrying
-    stages track calibration and laser residuals as independent families
-    with their own robust losses (`optimize.calib_loss`,
-    `optimize.laser_loss`). `max_iters`, `verbosity` and `backend` apply.
-    """
+    """Solver engine settings."""
 
 
 class LaserlineDeviceConfig(_LaserlineDeviceConfigRequired, total=False):
@@ -1295,8 +1302,8 @@ class LaserlineDeviceExport(TypedDict):
     debugging, not part of the result.
     """
 
-    kind: ExportKind
-    """Export-type discriminator — always `ExportKind::LaserlineDevice`."""
+    kind: ProblemKind
+    """Export-type discriminator — always `ProblemKind::LaserlineDevice`."""
 
     laser_plane: LaserPlane
     """The laser plane in the camera frame."""
@@ -1467,7 +1474,7 @@ class PerFeatureResiduals(TypedDict, total=False):
     laser: list[LaserFeatureResidual]
     """Per-laser-pixel residual records, view-major."""
 
-    laser_hist_per_camera: list[FeatureResidualHistogram] | None
+    laser_hist_per_cam: list[FeatureResidualHistogram] | None
     """Per-camera laser pixel-distance histogram (length = `num_cameras`)."""
 
     laser_lines: list[LaserLineTrace]
@@ -1478,7 +1485,7 @@ class PerFeatureResiduals(TypedDict, total=False):
     target: list[TargetFeatureResidual]
     """Per-target-corner reprojection records, view-major."""
 
-    target_hist_per_camera: list[FeatureResidualHistogram] | None
+    target_hist_per_cam: list[FeatureResidualHistogram] | None
     """Per-camera target reprojection histogram (length = `num_cameras`)."""
 
 
@@ -1501,30 +1508,28 @@ class PixelRect(TypedDict):
 class _PlanarIntrinsicsConfigRequired(TypedDict):
     """The keys of `PlanarIntrinsicsConfig` that every payload has."""
 
-    fix_poses: list[int]
-    """Indices of poses to fix during optimization (e.g., \\[0\\] to fix first
-    pose). Default: none — the board fixes the target frame, and a fixed
-    pose makes the reported uncertainty conditional on it.
+    intrinsics_init: IntrinsicsInitConfig
+    """Linear-initialization stage settings (`step_init`). The linear stage
+    fits only the distortion terms the camera's solves estimate.
     """
 
-    init: IntrinsicsInitConfig
-    """Linear-initialization stage settings. The linear stage fits only the
-    distortion terms the camera's solves estimate.
-    """
+    optimize: PlanarOptimizeConfig
+    """Non-linear refinement stage settings (`step_optimize`)."""
 
     solver: SolverConfig
-    """Non-linear solve stage settings. `solver.max_iters` defaults to 120,
-    sized for a tilted sensor's tilt valley; the solver stops at
-    convergence, so the cap only bounds runs that do not converge.
+    """Solver engine settings. `solver.max_iters` defaults to 120, sized for
+    a tilted sensor's tilt valley; the solver stops at convergence, so
+    the cap only bounds runs that do not converge.
     """
 
 
 class PlanarIntrinsicsConfig(_PlanarIntrinsicsConfigRequired, total=False):
     """Configuration for planar intrinsics calibration.
 
-    Grouped by stage: linear-init and non-linear-solve settings live in the
-    shared `IntrinsicsInitConfig` / `SolverConfig` sub-structs, and the
-    camera model with its fix lists in `CameraConfig`.
+    Grouped by stage: the camera model with its fix lists in
+    `CameraConfig`, the linear initialization in `IntrinsicsInitConfig`,
+    the non-linear refinement in `PlanarOptimizeConfig`, and the solver
+    engine in `SolverConfig`.
     """
 
     camera: CameraConfig
@@ -1552,8 +1557,8 @@ class PlanarIntrinsicsExport(TypedDict):
     debugging, not part of the result.
     """
 
-    kind: ExportKind
-    """Export-type discriminator — always `ExportKind::PlanarIntrinsics`."""
+    kind: ProblemKind
+    """Export-type discriminator — always `ProblemKind::PlanarIntrinsics`."""
 
     mean_reproj_error: float
     """Mean reprojection error (pixels)."""
@@ -1578,6 +1583,26 @@ class PlanarIntrinsicsInput(TypedDict):
     """Sequence of planar calibration views."""
 
 
+class PlanarOptimizeConfig(TypedDict):
+    """The non-linear refinement stage of a planar intrinsics calibration
+    (`step_optimize`).
+    """
+
+    fix_poses: list[int]
+    """Indices of poses to fix during optimization (e.g., \\[0\\] to fix first
+    pose). Default: none — the board fixes the target frame, and a fixed
+    pose makes the reported uncertainty conditional on it.
+    """
+
+    reprojection_loss: RobustLoss
+    """Robust loss on the target-corner reprojection residuals; its scale is
+    in pixels. Default `none`: plain least squares, the
+    maximum-likelihood estimate under Gaussian corner noise. A tilted
+    sensor's tilt sweep runs plain least squares and applies this loss
+    in its final solve.
+    """
+
+
 class PlanarView(TypedDict):
     """Single-camera observation view with attached metadata."""
 
@@ -1586,6 +1611,28 @@ class PlanarView(TypedDict):
 
     obs: CorrespondenceView
     """2D-3D correspondences observed in this view."""
+
+
+class PlaneOptimizeConfig(TypedDict):
+    """The laser-plane refinement of a rig laserline calibration
+    (`step_optimize`): each camera's plane fitted to its laser pixels, the
+    cameras and the target poses held at the upstream calibration. The
+    target corners only place the target; with everything they constrain
+    held, they have no loss or weight here.
+    """
+
+    laser_loss: RobustLoss
+    """Robust loss on the laser residuals, its scale in the residual's unit:
+    pixels for the line distance, meters for point-to-plane. Default
+    Huber at 1, a pixel for the line distance; for point-to-plane a
+    scale of 1 m is plain least squares in effect, so state one in
+    meters to robustify it.
+    """
+
+    laser_residual_type: LaserlineResidualType
+    """The laser residual: the line distance in pixels (the default) or the
+    point-to-plane distance in meters.
+    """
 
 
 class PointCovariance(TypedDict):
@@ -1752,6 +1799,38 @@ class PredictedUncertainty(TypedDict):
     """Per candidate, in order, the target points that land in the image.
     A candidate with fewer than four adds no information.
     """
+
+
+ProblemKind: TypeAlias = Literal[
+    "planar_intrinsics",
+    "single_cam_handeye",
+    "laserline_device",
+    "rig_extrinsics",
+    "rig_handeye",
+    "rig_handeye_laserline",
+    "rig_laserline_device",
+]
+"""The calibration problem a dataset is for, and the kind of an export.
+
+One value per problem type, serialized as its snake_case name
+(`"planar_intrinsics"`, …). A manifest names it in its `topology` field,
+which selects the problem a run dispatches to; every export carries it in
+its `kind` field, so a consumer narrows on one value instead of probing
+which fields are present. The tag is required on deserialize.
+
+A problem kind describes the data (how many cameras, robot poses, laser
+images), not the camera model: a tilted (Scheimpflug) single camera is a
+`planar_intrinsics` dataset whose calibration config names the sensor.
+
+- ``"planar_intrinsics"``: Single camera, planar target — `PlanarIntrinsicsProblem` (any camera
+  model, including a tilted sensor).
+- ``"single_cam_handeye"``: Single camera mounted on a robot — `SingleCamHandeyeProblem`.
+- ``"laserline_device"``: Camera + laser plane — `LaserlineDeviceProblem`.
+- ``"rig_extrinsics"``: Multi-camera rig, target only — `RigExtrinsicsProblem`.
+- ``"rig_handeye"``: Multi-camera rig + robot — `RigHandeyeProblem`.
+- ``"rig_handeye_laserline"``: Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.
+- ``"rig_laserline_device"``: Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.
+"""
 
 
 class Progress_Detection(TypedDict):
@@ -2125,9 +2204,15 @@ class _RigConfigRequired(TypedDict):
     stereo rigs).
     """
 
+    reprojection_loss: RobustLoss
+    """Robust loss on the target-corner reprojection residuals of the rig
+    bundle adjustment; its scale is in pixels. Default `none`.
+    """
+
 
 class RigConfig(_RigConfigRequired, total=False):
-    """Multi-camera rig frame options: reference-camera gauge and rig-BA scope.
+    """The rig stage: the reference-camera gauge, and the scope and loss of the
+    rig bundle adjustment.
 
     The `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.
     """
@@ -2149,16 +2234,23 @@ class RigConfig(_RigConfigRequired, total=False):
 class _RigExtrinsicsConfigRequired(TypedDict):
     """The keys of `RigExtrinsicsConfig` that every payload has."""
 
-    intrinsics: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. The linear stage
-    fits only the distortion terms each camera's solves estimate.
+    intrinsics_init: IntrinsicsInitConfig
+    """Per-camera linear-initialization stage settings
+    (`step_intrinsics_init_all`). The linear stage fits only the
+    distortion terms each camera's solves estimate.
     """
 
+    intrinsics_optimize: IntrinsicsOptimizeConfig
+    """Per-camera refinement stage settings (`step_intrinsics_optimize_all`)."""
+
     rig: RigConfig
-    """Rig frame options (reference camera, rig-BA scope)."""
+    """Rig stage settings (`step_rig_init`, `step_rig_optimize`): the
+    reference camera, and the scope and loss of the rig bundle
+    adjustment.
+    """
 
     solver: SolverConfig
-    """Non-linear solve stage settings."""
+    """Solver engine settings, for every non-linear stage."""
 
 
 class RigExtrinsicsConfig(_RigExtrinsicsConfigRequired, total=False):
@@ -2166,6 +2258,11 @@ class RigExtrinsicsConfig(_RigExtrinsicsConfigRequired, total=False):
 
     Grouped by stage. Every camera has the model of `camera` unless
     `camera_overrides` names it, so one rig can mix lenses and sensors.
+
+    Two stages solve the target corners, each with its own
+    `reprojection_loss`: `intrinsics_optimize` (each camera alone) and `rig`
+    (the rig bundle adjustment). A robust calibration sets both; the final
+    stage's loss is the estimator.
 
     The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
     the full 6-DOF rig gauge; an extra per-view pose constraint would be
@@ -2200,8 +2297,8 @@ class RigExtrinsicsExport(TypedDict):
     debugging, not part of the result.
     """
 
-    kind: ExportKind
-    """Export-type discriminator — always `ExportKind::RigExtrinsics`."""
+    kind: ProblemKind
+    """Export-type discriminator — always `ProblemKind::RigExtrinsics`."""
 
     mean_reproj_error: float
     """Mean reprojection error (pixels)."""
@@ -2242,21 +2339,30 @@ class _RigHandeyeConfigRequired(TypedDict):
     """The keys of `RigHandeyeConfig` that every payload has."""
 
     handeye_init: HandeyeInitConfig
-    """Hand-eye linear initialization options."""
+    """Hand-eye linear-initialization stage settings (`step_handeye_init`)."""
 
     handeye_optimize: HandeyeOptimizeConfig
-    """Final hand-eye bundle-adjustment options."""
-
-    intrinsics: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. The linear stage
-    fits only the distortion terms each camera's solves estimate.
+    """Final hand-eye bundle-adjustment stage settings
+    (`step_handeye_optimize`).
     """
 
+    intrinsics_init: IntrinsicsInitConfig
+    """Per-camera linear-initialization stage settings
+    (`step_intrinsics_init_all`). The linear stage fits only the
+    distortion terms each camera's solves estimate.
+    """
+
+    intrinsics_optimize: IntrinsicsOptimizeConfig
+    """Per-camera refinement stage settings (`step_intrinsics_optimize_all`)."""
+
     rig: RigConfig
-    """Rig frame options (reference camera, rig-BA scope)."""
+    """Rig stage settings (`step_rig_init`, `step_rig_optimize`): the
+    reference camera, and the scope and loss of the rig bundle
+    adjustment.
+    """
 
     solver: SolverConfig
-    """Non-linear solve stage settings."""
+    """Solver engine settings, for every non-linear stage."""
 
 
 class RigHandeyeConfig(_RigHandeyeConfigRequired, total=False):
@@ -2264,6 +2370,11 @@ class RigHandeyeConfig(_RigHandeyeConfigRequired, total=False):
 
     Grouped by stage. Every camera has the model of `camera` unless
     `camera_overrides` names it, so one rig can mix lenses and sensors.
+
+    Three stages solve the target corners, each with its own
+    `reprojection_loss`: `intrinsics_optimize` (each camera alone), `rig`
+    (the rig bundle adjustment) and `handeye_optimize`. A robust calibration
+    sets all three; the final stage's loss is the estimator.
 
     The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
     the full 6-DOF rig gauge; an extra per-view pose constraint would be
@@ -2309,8 +2420,8 @@ class RigHandeyeExport(TypedDict):
     handeye: HandeyeSolution
     """The hand-eye and the target reference pose of the calibration's mode."""
 
-    kind: ExportKind
-    """Export-type discriminator — always `ExportKind::RigHandeye`."""
+    kind: ProblemKind
+    """Export-type discriminator — always `ProblemKind::RigHandeye`."""
 
     mean_reproj_error: float
     """Mean reprojection error (pixels)."""
@@ -2350,16 +2461,33 @@ class RigHandeyeInput(TypedDict):
 
 
 class RigHandeyeLaserlineConfig(TypedDict):
-    """Configuration for joint rig hand-eye laserline calibration."""
+    """Configuration for joint rig hand-eye laserline calibration.
+
+    The calibration runs two warm-start problems and then its own joint
+    solve. Each warm start is configured by its problem's whole config —
+    `handeye` a rig hand-eye calibration, `laserline_init` a rig laserline
+    calibration of the planes against that frozen geometry — and every one
+    of their fields applies to that stage. The joint bundle adjustment is
+    configured by `joint_optimize` and `solver`, the same shape as a
+    single-camera laserline device's `optimize` and `solver`.
+    """
 
     handeye: RigHandeyeConfig
-    """Warm-start rig hand-eye stage."""
+    """The warm-start rig hand-eye calibration: cameras, extrinsics,
+    hand-eye transform and target reference pose. Its `rig`
+    reference camera also fixes the rig gauge of the joint solve.
+    """
 
     joint_optimize: JointOptimizeConfig
-    """Final joint bundle adjustment stage."""
+    """The joint bundle-adjustment stage."""
 
     laserline_init: RigLaserlineDeviceConfig
-    """Frozen-geometry laser plane initialization stage."""
+    """The warm-start laser-plane fit against the frozen hand-eye geometry."""
+
+    solver: SolverConfig
+    """Solver engine settings of the joint stage. `max_iters` defaults to
+    30: the stage starts from both warm starts and needs few iterations.
+    """
 
 
 class RigHandeyeLaserlineExport(TypedDict):
@@ -2379,8 +2507,8 @@ class RigHandeyeLaserlineExport(TypedDict):
     handeye: HandeyeSolution
     """The hand-eye and the target reference pose of the calibration's mode."""
 
-    kind: ExportKind
-    """Export-type discriminator — always `ExportKind::RigHandeyeLaserline`."""
+    kind: ProblemKind
+    """Export-type discriminator — always `ProblemKind::RigHandeyeLaserline`."""
 
     laser_planes_cam: list[LaserPlane]
     """Per-camera laser planes in camera frame."""
@@ -2394,7 +2522,7 @@ class RigHandeyeLaserlineExport(TypedDict):
     per_cam_reproj_errors: list[float]
     """Per-camera target reprojection errors (pixels)."""
 
-    per_camera_stats: list[RigHandeyeLaserlinePerCamStats]
+    per_cam_stats: list[RigHandeyeLaserlinePerCamStats]
     """Joint per-camera stats."""
 
     rig_se3_target: list[Iso3]
@@ -2434,28 +2562,28 @@ class RigHandeyeLaserlinePerCamStats(TypedDict):
     `[<=0.1mm, <=1mm, <=10mm, <=100mm, >100mm]`.
     """
 
-    max_laser_err_m: float
+    max_laser_error_m: float
     """Maximum absolute laser point-to-plane distance (meters)."""
 
-    max_laser_err_px: float
+    max_laser_error_px: float
     """Maximum absolute laser line-distance in undistorted pixel space (pixels)."""
 
-    max_reproj_error_px: float
+    max_reproj_error: float
     """Maximum target-corner reprojection error (pixels)."""
 
-    mean_laser_err_m: float
+    mean_laser_error_m: float
     """Mean laser point-to-plane distance (meters)."""
 
-    mean_laser_err_px: float
+    mean_laser_error_px: float
     """Mean laser line-distance in undistorted pixel space (pixels)."""
 
-    mean_reproj_error_px: float
+    mean_reproj_error: float
     """Mean target-corner reprojection error (pixels)."""
 
     reproj_count: int
     """Number of target corner residuals evaluated for this camera."""
 
-    reproj_histogram_px: tuple[int, int, int, int, int] | list[int]
+    reproj_histogram: tuple[int, int, int, int, int] | list[int]
     """Reprojection error histogram with buckets `[<=1, <=2, <=5, <=10, >10]` pixels."""
 
 
@@ -2540,18 +2668,15 @@ class RigLaserlineDeviceConfig(TypedDict):
 
     Grouped by stage. `solver.max_iters` defaults to 200: this stage
     refines only per-camera laser-plane parameters against an already-frozen
-    rig geometry (1 DOF per view per camera), so iterations are nearly free.
+    rig geometry (three parameters per camera), so iterations are nearly
+    free.
     """
 
-    laser_residual_type: LaserlineResidualType
-    """Laser residual type (point-to-plane vs line-distance)."""
+    optimize: PlaneOptimizeConfig
+    """Laser-plane refinement stage settings (`step_optimize`)."""
 
     solver: SolverConfig
-    """Non-linear solve stage settings. `robust_loss` is **not consulted**
-    by this problem — the underlying per-camera laserline solver picks
-    its own calibration/laser robust losses (frozen upstream geometry,
-    so only the laser-plane fit actually moves).
-    """
+    """Solver engine settings."""
 
 
 class RigLaserlineDeviceExport(TypedDict):
@@ -2571,8 +2696,8 @@ class RigLaserlineDeviceExport(TypedDict):
     debugging, not part of the result.
     """
 
-    kind: ExportKind
-    """Export-type discriminator — always `ExportKind::RigLaserlineDevice`."""
+    kind: ProblemKind
+    """Export-type discriminator — always `ProblemKind::RigLaserlineDevice`."""
 
     laser_planes_cam: list[LaserPlane]
     """Per-camera laser planes in their own camera frames."""
@@ -2586,7 +2711,7 @@ class RigLaserlineDeviceExport(TypedDict):
     reprojection.
     """
 
-    per_camera_stats: list[LaserlineStats]
+    per_cam_stats: list[LaserlineStats]
     """Per-camera stats (reprojection + laser residuals)."""
 
     rig_se3_target: list[Iso3]
@@ -3000,28 +3125,36 @@ class _SingleCamHandeyeConfigRequired(TypedDict):
     """The keys of `SingleCamHandeyeConfig` that every payload has."""
 
     handeye_init: HandeyeInitConfig
-    """Hand-eye linear-initialization stage settings."""
+    """Hand-eye linear-initialization stage settings (`step_handeye_init`)."""
 
-    intrinsics: IntrinsicsInitConfig
-    """Per-camera linear-initialization stage settings. The linear stage
-    fits only the distortion terms the camera's solves estimate.
+    handeye_optimize: SingleCamHandeyeOptimizeConfig
+    """Hand-eye bundle-adjustment stage settings (`step_handeye_optimize`)."""
+
+    intrinsics_init: IntrinsicsInitConfig
+    """Linear-initialization stage settings (`step_intrinsics_init`). The
+    linear stage fits only the distortion terms the camera's solves
+    estimate.
     """
 
-    robot_poses: RobotPoseConfig
-    """Robot-pose refinement settings for the hand-eye bundle adjustment."""
+    intrinsics_optimize: IntrinsicsOptimizeConfig
+    """Intrinsics refinement stage settings (`step_intrinsics_optimize`)."""
 
     solver: SolverConfig
-    """Non-linear solve stage settings."""
+    """Solver engine settings, for both non-linear stages."""
 
 
 class SingleCamHandeyeConfig(_SingleCamHandeyeConfigRequired, total=False):
     """Configuration for single-camera hand-eye calibration.
 
-    Grouped by stage: per-camera linear init, the camera model, hand-eye
-    linear init, non-linear solve, and robot-pose refinement each live in
-    their own shared sub-struct. Every group's own `Default` is the plain
-    workspace default (no per-problem override is needed here, unlike
-    `PlanarIntrinsicsConfig`'s iteration cap).
+    Grouped by stage, in the order the steps run: the camera model, the
+    intrinsics linear init and refinement, the hand-eye linear init and
+    bundle adjustment, and the solver engine. Every group's own `Default` is
+    the plain workspace default (no per-problem override is needed here,
+    unlike `PlanarIntrinsicsConfig`'s iteration cap).
+
+    Two stages solve the target corners, each with its own
+    `reprojection_loss`: `intrinsics_optimize` and `handeye_optimize`. A
+    robust calibration sets both; the final stage's loss is the estimator.
     """
 
     camera: CameraConfig
@@ -3047,8 +3180,8 @@ class SingleCamHandeyeExport(TypedDict):
     handeye: SingleCamHandeyeSolution
     """The hand-eye and the target pose of the calibration's mode."""
 
-    kind: ExportKind
-    """Export-type discriminator — always `ExportKind::SingleCamHandeye`."""
+    kind: ProblemKind
+    """Export-type discriminator — always `ProblemKind::SingleCamHandeye`."""
 
     mean_reproj_error: float
     """Mean reprojection error (pixels)."""
@@ -3058,7 +3191,7 @@ class SingleCamHandeyeExport(TypedDict):
 
     robot_refinement: RobotRefinement | None
     """The per-view robot-pose corrections and the pose error they were
-    weighed with: the configured `robot_poses` prior, or its estimate with
+    weighed with: the configured `handeye_optimize.robot_poses` prior, or its estimate with
     `estimate_sigma`. Only present if robot refinement was enabled.
     """
 
@@ -3073,6 +3206,22 @@ class SingleCamHandeyeInput(TypedDict):
 
     views: list[SingleCamHandeyeView]
     """Per-view observations with robot poses."""
+
+
+class SingleCamHandeyeOptimizeConfig(TypedDict):
+    """The hand-eye bundle adjustment of a single-camera hand-eye calibration
+    (`step_handeye_optimize`): the camera, the hand-eye transform, the
+    target pose and, by default, the robot poses refined together, the
+    camera's `fix` lists held.
+    """
+
+    reprojection_loss: RobustLoss
+    """Robust loss on the target-corner reprojection residuals; its scale is
+    in pixels. Default `none`.
+    """
+
+    robot_poses: RobotPoseConfig
+    """Robot-pose refinement."""
 
 
 class SingleCamHandeyeSolution_EyeInHand(TypedDict):
@@ -3152,15 +3301,19 @@ class _SolverConfigRequired(TypedDict):
     max_iters: int
     """Maximum iterations for the non-linear optimizer."""
 
-    robust_loss: RobustLoss
-    """Robust loss function for outlier handling."""
-
     verbosity: int
     """Verbosity level (0 = silent, 1 = summary, 2+ = detailed)."""
 
 
 class SolverConfig(_SolverConfigRequired, total=False):
-    """Non-linear solve stage options shared across problem types.
+    """The solver engine: iteration budget, verbosity and backend, shared by
+    every problem's non-linear stages.
+
+    It holds engine settings only. What a stage minimizes — its robust losses
+    and weights — belongs to the stage's own group (`optimize`,
+    `intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named
+    by the residual family it applies to (`reprojection_loss`,
+    `laser_loss`).
 
     `max_iters` has no single workspace-wide default — problems override it
     per solve-stage cost. Documented per-problem defaults: 50 standard; 120
@@ -3327,32 +3480,6 @@ TargetSpec: TypeAlias = (
     | TargetSpec_Ringgrid
 )
 """Calibration-target metadata. Tagged on `kind`."""
-
-
-Topology: TypeAlias = Literal[
-    "planar_intrinsics",
-    "single_cam_handeye",
-    "laserline_device",
-    "rig_extrinsics",
-    "rig_handeye",
-    "rig_handeye_laserline",
-    "rig_laserline_device",
-]
-"""Calibration topology — selects the problem-type dispatch.
-
-A topology describes the data (how many cameras, robot poses, laser
-images), not the camera model: a tilted (Scheimpflug) single camera is a
-`planar_intrinsics` dataset whose calibration config names the sensor.
-
-- ``"planar_intrinsics"``: Single camera, planar target — `PlanarIntrinsicsProblem` (any camera
-  model, including a tilted sensor).
-- ``"single_cam_handeye"``: Single camera mounted on a robot — `SingleCamHandeyeProblem`.
-- ``"laserline_device"``: Camera + laser plane — `LaserlineDeviceProblem`.
-- ``"rig_extrinsics"``: Multi-camera rig, target only — `RigExtrinsicsProblem`.
-- ``"rig_handeye"``: Multi-camera rig + robot — `RigHandeyeProblem`.
-- ``"rig_handeye_laserline"``: Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.
-- ``"rig_laserline_device"``: Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.
-"""
 
 
 TransformConvention: TypeAlias = Literal[
@@ -3571,7 +3698,6 @@ __all__ = [
     "DistortionParams_Rational",
     "DistortionParams_ThinPrism",
     "ExportDiagnostics",
-    "ExportKind",
     "FeatureResidualHistogram",
     "FrameKind",
     "FrameRef",
@@ -3585,12 +3711,13 @@ __all__ = [
     "HandeyeSolution_EyeToHand",
     "ImageManifest",
     "ImageNoiseSpec",
-    "ImageNoiseSpec_Known",
+    "ImageNoiseSpec_Stated",
     "ImagePattern",
     "ImagePattern_Glob",
     "ImagePattern_List",
     "IntrinsicsInitConfig",
     "IntrinsicsManualInit",
+    "IntrinsicsOptimizeConfig",
     "Iso3",
     "JointOptimizeConfig",
     "LaserExtractionSpec",
@@ -3613,7 +3740,9 @@ __all__ = [
     "PlanarIntrinsicsConfig",
     "PlanarIntrinsicsExport",
     "PlanarIntrinsicsInput",
+    "PlanarOptimizeConfig",
     "PlanarView",
+    "PlaneOptimizeConfig",
     "PointCovariance",
     "PoseColumnMap",
     "PoseConvention",
@@ -3622,6 +3751,7 @@ __all__ = [
     "PosePairing_SharedFilenameToken",
     "PredictedRigUncertainty",
     "PredictedUncertainty",
+    "ProblemKind",
     "Progress",
     "Progress_Detection",
     "Progress_Iteration",
@@ -3685,6 +3815,7 @@ __all__ = [
     "SingleCamHandeyeConfig",
     "SingleCamHandeyeExport",
     "SingleCamHandeyeInput",
+    "SingleCamHandeyeOptimizeConfig",
     "SingleCamHandeyeSolution",
     "SingleCamHandeyeSolution_EyeInHand",
     "SingleCamHandeyeSolution_EyeToHand",
@@ -3697,7 +3828,6 @@ __all__ = [
     "TargetSpec_Chessboard",
     "TargetSpec_Puzzleboard",
     "TargetSpec_Ringgrid",
-    "Topology",
     "TransformConvention",
     "TranslationUnits",
     "Uncertainty",

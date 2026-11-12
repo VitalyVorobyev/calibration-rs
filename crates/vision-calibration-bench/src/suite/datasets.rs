@@ -104,7 +104,7 @@ fn bench_entry(id: &str, spec: DatasetSpec, data_root: PathBuf) -> BenchEntry {
         id: id.to_owned(),
         visibility: Visibility::Public,
         tiers: vec![Tier::B],
-        problem: spec.topology.into(),
+        problem: spec.topology,
         data_root,
         spec: Some(SpecRef::Inline(Box::new(spec))),
         detector: None,
