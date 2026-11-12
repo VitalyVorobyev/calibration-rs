@@ -159,7 +159,15 @@ let seed = HandeyeManualInit::EyeInHand {
 step_handeye_init_with_seed(&mut session, seed, None)?;
 ```
 
-The variant must be the one of `handeye_init.handeye_mode`; a seed of the other mode is an `Error::InvalidInput`, raised before any work. A pose left `None` is estimated. If you seed the hand-eye but not the target pose, the target pose is derived from the chain through the first view. `single_cam_handeye::HandeyeManualInit` has the same shape with the camera named where the rig is (`gripper_se3_cam`, `cam_se3_base`). The step's result carries the same value: `init.handeye` is the `HandeyeSolution` (or `SingleCamHandeyeSolution`) of the mode, with both poses set. In Python the seed is an `EyeInHandManualInit` or an `EyeToHandManualInit`, from `rig_handeye` or `single_cam_handeye`.
+The variant must be the one of `handeye_init.handeye_mode`; a seed of the other mode is an `Error::InvalidInput`, raised before any work. A seeded pose is used as given, and a pose left `None` is estimated:
+
+- **Both seeded**: the seed is the initialization.
+- **One seeded**: the other closes through the first view, so that the mode's chain puts the target where the rig saw it there. The closed-form solve does not run. In eye-in-hand mode the chain is $T_{R,T} = (T_{B,G} \cdot T_{G,R})^{-1} \cdot T_{B,T}$, in eye-to-hand mode $T_{R,T} = T_{R,B} \cdot T_{B,G} \cdot T_{G,T}$.
+- **Neither seeded**: the closed-form solver of `handeye_init.method` gives both, as `step_handeye_init` does.
+
+The rules are the same in both modes, for either pose. A run replaces the previous initialization, and a run that fails once it has started (the closed-form solve finding too little rotation, say) leaves none, so `step_handeye_optimize` never starts from an earlier one.
+
+A single camera is a rig of one camera whose frame is the camera's. `single_cam_handeye::HandeyeManualInit` has the same variants and rules, with the camera named where the rig is: `EyeInHand { gripper_se3_cam, base_se3_target }` and `EyeToHand { cam_se3_base, gripper_se3_target }`. The step's result carries the same value: `init.handeye` is the `HandeyeSolution` (or `SingleCamHandeyeSolution`) of the mode, with both poses set. In Python the seed is an `EyeInHandManualInit` or an `EyeToHandManualInit`, from `rig_handeye` or `single_cam_handeye`.
 
 ### Staged rig laser calibration
 

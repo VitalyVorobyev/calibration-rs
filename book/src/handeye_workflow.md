@@ -196,7 +196,7 @@ config.handeye_init.handeye_mode = HandeyeMode::EyeToHand;
 session.set_config(config)?;
 ```
 
-In eye-to-hand mode the pixel-to-3D chain for a fixed camera observing a gripper-mounted target composes as $T_{C,T} = T_{C,B} \cdot T_{B,G} \cdot T_{G,T}$, the same identity `step_handeye_init_with_seed` uses to derive `cam_se3_base` when only `gripper_se3_target` is seeded (see [Seeding with Prior Knowledge](manual_init.md#hand-eye-coupling)).
+In eye-to-hand mode the pixel-to-3D chain for a fixed camera observing a gripper-mounted target composes as $T_{C,T} = T_{C,B} \cdot T_{B,G} \cdot T_{G,T}$, the identity `step_handeye_init_with_seed` closes through the first view when only one of `cam_se3_base` and `gripper_se3_target` is seeded (see [Manual Initialization](manual_init.md#hand-eye-seeds)).
 
 ## Complete Example
 

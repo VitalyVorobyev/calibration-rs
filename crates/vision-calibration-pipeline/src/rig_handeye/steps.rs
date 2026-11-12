@@ -7,19 +7,16 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraParams, Iso3};
-use vision_calibration_optim::{HandeyeDataset, HandeyeMode, HandeyeParams, optimize_handeye};
+use vision_calibration_optim::HandeyeMode;
 
 use crate::common::{
     HandeyeInitOptions, HandeyeOptimizeOptions, HandeyeSolution, IntrinsicsInitOptions,
     IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
 };
-use crate::planar_family::Provenance;
-use crate::rig_family::{
-    self, check_camera_models, handeye_solve_opts, inverse_poses, linear_handeye, rig_ba_fix,
-    rig_ba_notes,
-};
+use crate::rig_family::{self, init_handeye, inverse_poses, optimize_handeye_stage, rig_ba_notes};
 pub use crate::rig_family::{
-    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit, RigPoses,
+    HandeyeOptimizeResult, IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult,
+    RigManualInit, RigPoses,
 };
 use crate::session::CalibrationSession;
 
@@ -36,9 +33,9 @@ use super::problem::RigHandeyeProblem;
 /// be the one of `session.config.handeye_init.handeye_mode`; any other is an
 /// [`Error::InvalidInput`] before any work.
 ///
-/// A pose left `None` is estimated: with the hand-eye seeded and the target
-/// pose not, the target pose closes through the first view; otherwise the
-/// closed-form solver of `handeye_init.method` provides what is missing.
+/// A pose left `None` is estimated. With one pose seeded the other closes
+/// through the first view, without the closed-form solve; with neither
+/// seeded, the closed-form solver of `handeye_init.method` gives both.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 #[non_exhaustive]
@@ -139,16 +136,6 @@ pub struct HandeyeInitResult {
     /// The initial hand-eye and target pose of the configured mode; both
     /// poses are always present.
     pub handeye: HandeyeSolution,
-}
-
-/// Typed return value of [`step_handeye_optimize`] for rig hand-eye calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct HandeyeOptimizeResult {
-    /// Mean reprojection error in pixels after the final hand-eye BA.
-    pub mean_reproj_error: f64,
-    /// Final solver cost from the hand-eye BA.
-    pub final_cost: f64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,111 +276,40 @@ pub fn step_rig_optimize(
     Ok(result)
 }
 
-/// Initialize hand-eye transform from robot poses and rig poses.
+/// Initialize the hand-eye stage from any combination of manual seeds and
+/// estimation, on the rig poses of the rig bundle adjustment.
+/// [`step_handeye_init`] is this step with nothing seeded.
 ///
-/// Uses the closed-form solver of `handeye_init.method`.
+/// The seed's variant must be the one of
+/// `session.config.handeye_init.handeye_mode`. A seeded pose is used as
+/// given. With one pose seeded the other closes through the first view
+/// (the mode's chain puts the target where the rig saw it), without the
+/// closed-form solve; with neither seeded, the closed-form solver of
+/// `handeye_init.method` gives both. The previous initialization is cleared
+/// once the step starts its work, so a failed run leaves none behind.
 ///
 /// Requires [`step_rig_optimize`] to be run first.
 ///
 /// # Errors
 ///
-/// - Input not set
-/// - Rig optimization not run
-/// - Linear hand-eye estimation fails
+/// - [`Error::InvalidInput`] when the seed's variant is not the configured
+///   mode's, raised before any work.
+/// - Input not set, rig optimization not run.
+/// - The closed-form solve fails (nothing seeded).
 pub fn step_handeye_init_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: HandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<HandeyeInitResult, Error> {
-    session.validate()?;
-    let handeye_mode = session.config.handeye_init.handeye_mode;
-    if manual.mode() != handeye_mode {
-        return Err(Error::invalid_input(format!(
-            "hand-eye seed is {:?}, the config's handeye_init.handeye_mode is {handeye_mode:?}",
-            manual.mode()
-        )));
-    }
-    let input = session.require_input()?;
-
-    if !session.state.has_rig_optimized() {
-        return Err(Error::not_available(
-            "rig optimization results (call step_rig_optimize first)",
-        ));
-    }
-
-    let opts = opts.unwrap_or_default();
-    let min_angle = opts
-        .min_motion_angle_deg
-        .unwrap_or(session.config.handeye_init.min_motion_angle_deg);
-    let method = opts.method.unwrap_or(session.config.handeye_init.method);
-
-    let robot_poses: Vec<Iso3> = input
-        .views
-        .iter()
-        .map(|v| v.meta.base_se3_gripper)
-        .collect();
-    let rig_se3_target = session
-        .state
-        .rig_ba_rig_se3_target
-        .clone()
-        .ok_or_else(|| Error::not_available("rig_se3_target from rig BA"))?;
-
-    let (seeded_handeye, seeded_target) = manual.poses();
-    let (handeye_label, target_label) = match handeye_mode {
-        HandeyeMode::EyeInHand => ("gripper_se3_rig", "base_se3_target"),
-        HandeyeMode::EyeToHand => ("rig_se3_base", "gripper_se3_target"),
-    };
-    let mut provenance = Provenance::default();
-    provenance.note(handeye_label, seeded_handeye.is_some());
-    provenance.note(target_label, seeded_target.is_some());
-
-    // The linear solve gives the hand-eye and the mode's target pose
-    // together; a seeded hand-eye closes the target pose through the first view.
-    let (handeye, estimated_target_pose) = match seeded_handeye {
-        Some(t) => (t, None),
-        None => {
-            let (handeye, target) = linear_handeye(
-                handeye_mode,
-                method,
-                &robot_poses,
-                &rig_se3_target,
-                min_angle,
-            )
-            .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))?;
-            (handeye, Some(target))
-        }
-    };
-
-    let target_pose = seeded_target.unwrap_or_else(|| {
-        estimated_target_pose.unwrap_or_else(|| match handeye_mode {
-            HandeyeMode::EyeInHand => robot_poses[0] * handeye * rig_se3_target[0],
-            HandeyeMode::EyeToHand => {
-                // handeye = T_R_B. Chain: T_R_T = T_R_B * T_B_G * T_G_T.
-                // T_G_T = (T_B_G)^-1 * (T_R_B)^-1 * T_R_T = robot_poses[0]^-1 * handeye^-1 * T_R_T.
-                robot_poses[0].inverse() * handeye.inverse() * rig_se3_target[0]
-            }
-        })
-    });
-
-    let solution = HandeyeSolution::new(handeye_mode, handeye, target_pose);
-    session.state.initial_handeye = Some(solution);
-
-    session.log_success_with_notes(
-        "handeye_init",
-        format!(
-            "translation_norm={:.4}m {}",
-            handeye.translation.vector.norm(),
-            provenance.source()
-        ),
-    );
-
-    Ok(HandeyeInitResult { handeye: solution })
+    let handeye = init_handeye(session, manual.mode(), manual.poses(), opts)?;
+    Ok(HandeyeInitResult { handeye })
 }
 
-/// Initialize hand-eye transform using the closed-form solver of
-/// `handeye_init.method`.
+/// Initialize the hand-eye transform using full auto-init (the closed-form
+/// solver of `handeye_init.method`).
 ///
-/// Convenience wrapper around [`step_handeye_init_with_seed`] with default seeds.
+/// Convenience wrapper around [`step_handeye_init_with_seed`] with nothing
+/// seeded.
 pub fn step_handeye_init(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
@@ -405,10 +321,12 @@ pub fn step_handeye_init(
 /// Optimize hand-eye calibration using bundle adjustment.
 ///
 /// This step jointly optimizes:
-/// - Per-camera intrinsics
-/// - Per-camera extrinsics (cam_se3_rig) - optionally
-/// - Hand-eye transform (mode-dependent)
-/// - Fixed target pose (mode-dependent)
+/// - Per-camera intrinsics, as `handeye_optimize.refine_intrinsics` and
+///   `refine_sensor` say
+/// - Per-camera extrinsics (`cam_se3_rig`), when
+///   `handeye_optimize.refine_cam_se3_rig`
+/// - The hand-eye transform
+/// - The target pose of the mode
 /// - Optionally: per-view robot pose corrections
 ///
 /// Requires [`step_handeye_init`] to be run first.
@@ -416,107 +334,13 @@ pub fn step_handeye_init(
 /// # Errors
 ///
 /// - Input not set
-/// - Hand-eye initialization not run
+/// - Hand-eye initialization not run, or run in another mode
 /// - Optimization fails
 pub fn step_handeye_optimize(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeOptimizeOptions>,
 ) -> Result<HandeyeOptimizeResult, Error> {
-    session.validate()?;
-    let input = session.require_input()?;
-
-    if !session.state.has_handeye_init() {
-        return Err(Error::not_available(
-            "hand-eye initialization (call step_handeye_init first)",
-        ));
-    }
-
-    let opts = opts.unwrap_or_default();
-    let config = &session.config;
-
-    let cameras = session
-        .state
-        .rig
-        .cameras
-        .clone()
-        .ok_or_else(|| Error::not_available("per-camera intrinsics"))?;
-    check_camera_models(&cameras, |i| config.camera_for(i).model)?;
-    let cam_se3_rig = session
-        .state
-        .rig_ba_cam_se3_rig
-        .as_ref()
-        .ok_or_else(|| Error::not_available("cam_se3_rig from rig BA"))?;
-    let solution = session
-        .state
-        .initial_handeye
-        .ok_or_else(|| Error::not_available("initial handeye"))?;
-    if solution.mode() != config.handeye_init.handeye_mode {
-        return Err(Error::not_available(
-            "initial handeye of the configured mode (call step_handeye_init again)",
-        ));
-    }
-    let (handeye, mode_target_pose) = (*solution.handeye().pose(), *solution.target_pose());
-
-    let refine = &config.handeye_optimize;
-    let fix = (0..input.num_cameras)
-        .map(|i| {
-            rig_ba_fix(
-                &config.camera_for(i),
-                refine.refine_intrinsics,
-                refine.refine_sensor,
-            )
-        })
-        .collect();
-    let fix_extrinsics: Vec<bool> = if refine.refine_cam_se3_rig {
-        (0..input.num_cameras)
-            .map(|i| i == config.rig.reference_camera_idx)
-            .collect()
-    } else {
-        vec![true; input.num_cameras]
-    };
-
-    let initial = HandeyeParams::new(
-        cameras,
-        inverse_poses(cam_se3_rig),
-        handeye,
-        vec![mode_target_pose],
-    );
-    let solve_opts = handeye_solve_opts(
-        refine.reprojection_loss,
-        fix,
-        fix_extrinsics,
-        &refine.robot_poses,
-    );
-    let backend_opts =
-        config
-            .solver
-            .step_backend_options(session.control(), opts.max_iters, opts.verbosity);
-    let handeye_dataset = HandeyeDataset::new(
-        input.views.clone(),
-        input.num_cameras,
-        config.handeye_init.handeye_mode,
-    )?;
-    let output = match optimize_handeye(handeye_dataset, initial, solve_opts, backend_opts) {
-        Ok(r) => r,
-        Err(e) => {
-            session.log_failure("handeye_optimize", e.to_string());
-            return Err(Error::from(e));
-        }
-    };
-
-    let final_cost = output.report.final_cost;
-    let mean_reproj_error = output.mean_reproj_error;
-    session.state.final_cost = Some(final_cost);
-    session.state.final_reproj_error = Some(mean_reproj_error);
-
-    session.set_output(output);
-
-    session.log_success_with_notes("handeye_optimize", format!("final_cost={final_cost:.2e}"));
-
-    Ok(HandeyeOptimizeResult {
-        mean_reproj_error,
-        final_cost,
-    })
+    optimize_handeye_stage(session, opts)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -894,62 +718,6 @@ mod tests {
         assert_eq!(back, seed);
         let bare: HandeyeManualInit = serde_json::from_str(r#"{"mode":"eye_to_hand"}"#).unwrap();
         assert_eq!(bare, HandeyeManualInit::unseeded(HandeyeMode::EyeToHand));
-    }
-
-    #[test]
-    fn step_set_handeye_init_eye_to_hand_recovers_target_on_gripper() {
-        // Regression test: in EyeToHand mode the
-        // auto-derive of the target pose from a manual `handeye` seed must
-        // use `handeye.inverse()`, since `handeye = T_R_B` and the chain is
-        // T_R_T = T_R_B * T_B_G * T_G_T, so T_G_T = T_B_G^-1 * T_R_B^-1 * T_R_T.
-        let input = make_test_input();
-        let robot_poses: Vec<Iso3> = input
-            .views
-            .iter()
-            .map(|v| v.meta.base_se3_gripper)
-            .collect();
-
-        // Ground-truth EyeToHand: rig fixed in robot base, target on gripper.
-        let t_r_b = make_iso((0.4, -0.2, 0.1), (0.5, -0.3, 0.2));
-        let t_g_t = make_iso((0.15, 0.0, -0.1), (0.05, 0.04, 0.03));
-        let rig_se3_target: Vec<Iso3> = robot_poses.iter().map(|tbg| t_r_b * tbg * t_g_t).collect();
-
-        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
-        session.set_input(input).unwrap();
-        session
-            .set_config(super::super::problem::RigHandeyeConfig {
-                handeye_init: crate::common::config::HandeyeInitConfig {
-                    handeye_mode: HandeyeMode::EyeToHand,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .unwrap();
-
-        // Simulate post-rig-BA state.
-        session.state.rig_ba_cam_se3_rig = Some(vec![
-            Iso3::identity();
-            session.require_input().unwrap().num_cameras
-        ]);
-        session.state.rig_ba_rig_se3_target = Some(rig_se3_target);
-
-        // Pin handeye to ground truth so the test isolates the
-        // target-pose auto-derive arithmetic from DLT precision.
-        let manual = HandeyeManualInit::EyeToHand {
-            rig_se3_base: Some(t_r_b),
-            gripper_se3_target: None,
-        };
-        step_handeye_init_with_seed(&mut session, manual, None).unwrap();
-
-        let recovered = *session.state.initial_handeye.unwrap().target_pose();
-        let dt = (recovered.translation.vector - t_g_t.translation.vector).norm();
-        let dq = recovered
-            .rotation
-            .rotation_to(&t_g_t.rotation)
-            .angle()
-            .abs();
-        assert!(dt < 1e-9, "T_G_T translation mismatch: |Δt|={dt}");
-        assert!(dq < 1e-9, "T_G_T rotation mismatch: angle={dq}");
     }
 
     #[test]

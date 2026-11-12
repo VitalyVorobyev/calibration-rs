@@ -3,18 +3,25 @@
 //! Internal to the pipeline crate. Holds the rig stages the rig problem
 //! types open with ([`stages`]: each camera's intrinsics on its own views,
 //! then the rig extrinsics), the recovery of tilted cameras those stages
-//! run ([`tilted`]), and the rig-level helpers of the rig, hand-eye and
-//! laser workflows: the export residuals, the hand-eye initialization and
-//! solve options. The per-camera bootstrap and refinement each camera runs
-//! live in [`crate::planar_family`]. Each rig camera has its own model
-//! ([`CameraModelSpec`]): the rig's `camera` config, or a per-camera
-//! override, so one rig can mix lenses.
+//! run ([`tilted`]), the hand-eye stages the single-camera and rig hand-eye
+//! problem types close with ([`handeye`]: a single camera is a one-camera
+//! rig), and the rig-level helpers of the rig, hand-eye and laser
+//! workflows, such as the export residuals. The per-camera bootstrap and
+//! refinement each camera runs live in [`crate::planar_family`]. Each rig
+//! camera has its own model ([`CameraModelSpec`]): the rig's `camera`
+//! config, or a per-camera override, so one rig can mix lenses.
 //!
-//! The step sequences beyond the rig stages, the residual blocks and the
-//! export shapes stay per problem module.
+//! The other step sequences, the residual blocks and the export shapes stay
+//! per problem module.
 
+mod handeye;
 mod stages;
 mod tilted;
+
+pub use handeye::HandeyeOptimizeResult;
+pub(crate) use handeye::{
+    HandeyePoses, HandeyeStages, handeye_solve_opts, init_handeye, optimize_handeye_stage,
+};
 
 pub use stages::{
     IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit, RigPoses,
@@ -25,7 +32,7 @@ pub(crate) use stages::{
 };
 
 use crate::Error;
-use crate::common::config::{CameraConfig, IntrinsicsInitConfig, RobotPoseConfig};
+use crate::common::config::{CameraConfig, IntrinsicsInitConfig};
 use crate::planar_family::{
     CameraSeed, Provenance, bootstrap_camera, check_distortion_seed, check_sensor_seed,
 };
@@ -35,12 +42,7 @@ use vision_calibration_core::{
     ProjectionParams, Real, RigDataset, RigView, ScheimpflugParams, SensorKind, SensorParams, View,
     build_feature_histogram, compute_rig_target_residuals,
 };
-use vision_calibration_linear::handeye::{
-    HandeyeMethod, estimate_eye_in_hand, estimate_eye_to_hand,
-};
-use vision_calibration_optim::{
-    HandeyeMode, HandeyeSolveOptions, PlanarIntrinsicsParams, RobustLoss,
-};
+use vision_calibration_optim::PlanarIntrinsicsParams;
 
 /// Bootstrap result for the per-camera intrinsics stage.
 #[derive(Debug, Clone)]
@@ -423,72 +425,6 @@ pub(crate) fn rig_target_residuals<M>(
     }));
     residuals.target = target;
     Ok(residuals)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hand-eye
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// The closed-form hand-eye estimate of `mode` by `method`: the hand-eye
-/// transform and the mode's fixed target pose, from the robot poses and
-/// the observer's (a camera's, or a rig's) target poses.
-///
-/// - `EyeInHand`: (`gripper_se3_observer`, `base_se3_target`).
-/// - `EyeToHand`: (`observer_se3_base`, `gripper_se3_target`).
-///
-/// # Errors
-///
-/// [`Error::Numerical`] when the linear solve fails.
-pub(crate) fn linear_handeye(
-    mode: HandeyeMode,
-    method: HandeyeMethod,
-    base_se3_gripper: &[Iso3],
-    observer_se3_target: &[Iso3],
-    min_motion_angle_deg: f64,
-) -> Result<(Iso3, Iso3), Error> {
-    match mode {
-        HandeyeMode::EyeInHand => estimate_eye_in_hand(
-            method,
-            base_se3_gripper,
-            observer_se3_target,
-            min_motion_angle_deg,
-        )
-        .map(|e| (e.gripper_se3_cam, e.base_se3_target))
-        .map_err(|e| Error::numerical(format!("linear hand-eye estimation failed: {e}"))),
-        HandeyeMode::EyeToHand => estimate_eye_to_hand(
-            method,
-            base_se3_gripper,
-            observer_se3_target,
-            min_motion_angle_deg,
-        )
-        .map(|e| (e.cam_se3_base, e.gripper_se3_target))
-        .map_err(|e| Error::numerical(format!("linear gripper->target estimation failed: {e}"))),
-    }
-}
-
-/// The hand-eye bundle adjustment of one fixed target with the hand-eye
-/// transform free, each camera holding `fix`, the extrinsics held where
-/// `fix_extrinsics`, and the robot poses refined as `robot_poses` says.
-pub(crate) fn handeye_solve_opts(
-    robust_loss: RobustLoss,
-    fix: Vec<CameraFix>,
-    fix_extrinsics: Vec<bool>,
-    robot_poses: &RobotPoseConfig,
-) -> HandeyeSolveOptions {
-    let (refine_robot_poses, robot_rot_sigma, robot_trans_sigma, estimate_robot_sigma) =
-        robot_poses.solver_terms();
-    HandeyeSolveOptions {
-        robust_loss,
-        fix,
-        fix_extrinsics,
-        fix_handeye: false,
-        fix_target_poses: Vec::new(),
-        relax_target_poses: false,
-        refine_robot_poses,
-        robot_rot_sigma,
-        robot_trans_sigma,
-        estimate_robot_sigma,
-    }
 }
 
 #[cfg(test)]
