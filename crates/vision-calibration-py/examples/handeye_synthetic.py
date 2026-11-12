@@ -64,7 +64,7 @@ def make_input() -> vc.SingleCamHandeyeInput:
 def main() -> None:
     print("=== Single-Camera Hand-Eye Calibration (Synthetic, Python) ===")
     payload = make_input()
-    result = vc.run_single_cam_handeye(payload)
+    result = vc.single_cam_handeye.run_calibration(payload)
     k = result.camera.intrinsics
 
     print(f"Views: {len(payload.views)}")

@@ -22,14 +22,8 @@ from vision_calibration import (
     rig_laserline_device,
     single_cam_handeye,
 )
-from vision_calibration._api import (
-    _run_laserline_device_raw,
-    _run_rig_handeye_laserline_raw,
-    _run_rig_extrinsics_raw,
-    _run_single_cam_handeye_raw,
-)
 
-from _fixtures import fisheye_calibration_dataset, planar_calibration_dataset
+from _fixtures import fisheye_calibration_dataset, planar_calibration_dataset, run_payload
 
 OBSERVATIONS = Path(__file__).resolve().parents[3] / "regression/observations"
 
@@ -66,7 +60,7 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         optimized = session.step_optimize()
         self.assertLess(optimized.mean_reproj_error, 1e-6)
         result = session.export()
-        reference = vc.run_planar_intrinsics(self.dataset)
+        reference = vc.planar_intrinsics.run_calibration(self.dataset)
         self.assertEqual(result.camera, reference.camera)
         self.assertEqual([e.operation for e in session.log], ["init", "optimize"])
         self.assertTrue(all(e.success for e in session.log))
@@ -210,7 +204,7 @@ class SingleCamHandeyeSessionTest(unittest.TestCase):
         refined = session.step_handeye_optimize()
         result = session.export()
         self.assertAlmostEqual(result.mean_reproj_error, refined.mean_reproj_error, places=9)
-        reference = _run_single_cam_handeye_raw(payload)
+        reference = run_payload("single_cam_handeye", payload)
         self.assertIsInstance(result.handeye, vc.CameraEyeInHand)
         self.assertEqual(result.handeye, reference.handeye)
 
@@ -275,7 +269,7 @@ class RigExtrinsicsSessionTest(unittest.TestCase):
         self.assertEqual(len(rig.initial_cam_se3_rig), 2)
         refined = session.step_rig_optimize(vc.RigOptimizeOptions(max_iters=100))
         self.assertLess(refined.mean_reproj_error, 1.0)
-        reference = _run_rig_extrinsics_raw(payload, config.to_payload())
+        reference = run_payload("rig_extrinsics", payload, config.to_payload())
         self.assertEqual(session.export().cam_se3_rig, reference.cam_se3_rig)
 
     def test_seeded_rig_init_is_the_seed(self) -> None:
@@ -351,7 +345,7 @@ class LaserlineDeviceSessionTest(unittest.TestCase):
         self.assertLess(optimized.mean_reproj_error, 1.0)
         self.assertEqual(len(optimized.per_view_laser_errors), len(payload))
         result = session.export()
-        reference = _run_laserline_device_raw(payload)
+        reference = run_payload("laserline_device", payload)
         self.assertEqual(result.laser_plane, reference.laser_plane)
 
     def test_a_seeded_plane_has_no_fit_rmse(self) -> None:
@@ -445,7 +439,7 @@ class RigHandeyeLaserlineSessionTest(unittest.TestCase):
         session.set_input(payload)
         session.run_calibration()
         result = session.export()
-        reference = _run_rig_handeye_laserline_raw(payload)
+        reference = run_payload("rig_handeye_laserline", payload)
         self.assertEqual(result.cam_se3_rig, reference.cam_se3_rig)
         self.assertEqual(len(result.laser_planes_rig), 2)
 

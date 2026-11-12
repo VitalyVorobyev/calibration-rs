@@ -21,7 +21,7 @@ from .common import (
     RigOptimizeOptions,
 )
 from .models import (
-    Camera,
+    CameraParams,
     Distortion,
     PinholeIntrinsics,
     Pose,
@@ -31,6 +31,7 @@ from .models import (
     ScheimpflugSensor,
 )
 from .session import (
+    _run_calibration,
     CalibrationSession,
     _cameras,
     _floats,
@@ -39,6 +40,7 @@ from .session import (
     _poses,
     _seed_payload,
 )
+from .types import ProgressCallback
 
 __all__ = [
     "IntrinsicsInitOptions",
@@ -50,9 +52,10 @@ __all__ = [
     "RigInitOptions",
     "RigInitResult",
     "RigManualInit",
-    "RigPoses",
     "RigOptimizeOptions",
     "RigOptimizeResult",
+    "RigPoses",
+    "run_calibration",
 ]
 
 
@@ -124,7 +127,7 @@ def _target_poses(values: Any) -> list[list[Pose | None]]:
 class IntrinsicsInitResult:
     """The initial per-camera estimate."""
 
-    cameras: list[Camera]
+    cameras: list[CameraParams]
     cam_se3_target: list[list[Pose | None]]
     """``[view][camera]`` camera-from-target; ``None`` where the camera did
     not see the target."""
@@ -141,7 +144,7 @@ class IntrinsicsInitResult:
 class IntrinsicsOptimizeResult:
     """The refined cameras of the intrinsics stage."""
 
-    cameras: list[Camera]
+    cameras: list[CameraParams]
     per_cam_reproj_errors: list[float]
     """Mean reprojection error per camera, pixels."""
 
@@ -177,7 +180,7 @@ class RigOptimizeResult:
     mean_reproj_error: float
     """Mean reprojection error over the rig, pixels."""
     per_cam_reproj_errors: list[float]
-    cameras: list[Camera]
+    cameras: list[CameraParams]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> RigOptimizeResult:
@@ -242,3 +245,30 @@ class RigExtrinsicsSession(
     def step_rig_optimize(self, options: RigOptimizeOptions | None = None) -> RigOptimizeResult:
         """Bundle-adjust the rig."""
         return RigOptimizeResult.from_payload(self._native.step_rig_optimize(_payload(options)))
+
+
+def run_calibration(
+    input: RigExtrinsicsInput,
+    config: RigExtrinsicsConfig | None = None,
+    *,
+    progress: ProgressCallback | None = None,
+) -> RigExtrinsicsExport:
+    """Run the rig extrinsics calibration end to end: the session's ``run_calibration`` and
+    ``export`` in one call.
+
+    ``config`` defaults to the problem's defaults. ``progress``, when given,
+    is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping); raising from it
+    stops the run and the exception propagates, as does Ctrl-C
+    (:class:`KeyboardInterrupt`).
+
+    Raises
+    ------
+    TypeError
+        ``input`` or ``config`` is not the problem's dataclass.
+    ValueError
+        The input or config is invalid.
+    RuntimeError
+        The calibration failed.
+    """
+    return _run_calibration(RigExtrinsicsSession, input, config, progress, RigExtrinsicsInput, RigExtrinsicsConfig)

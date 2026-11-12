@@ -1,26 +1,20 @@
 """High-level Python wrappers around the Rust extension.
 
-Public runner functions accept typed dataclasses from :mod:`vision_calibration.models`
-and return typed result dataclasses.
-
-Low-level raw helpers (prefixed with ``_run_*_raw``) are kept for interop paths
-that need direct serde payload control.
+The analysis functions (``assess``, ``projection_uncertainty``, the next-view
+planners) take the exports of :mod:`vision_calibration.models` and return
+typed result dataclasses; ``robust_*`` build the robust-loss values.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence, TypeVar, cast
+from typing import Any, Mapping, Sequence, cast
 
 from . import _vision_calibration as _native
 from .models import (
-    Camera,
+    CameraParams,
     CandidateGrid,
-    LaserlineDeviceInput,
-    LaserlineDeviceConfig,
     LaserlineDeviceExport,
-    PlanarIntrinsicsConfig,
     PlanarIntrinsicsExport,
-    PlanarIntrinsicsInput,
     Pose,
     PredictedRigUncertainty,
     PredictedUncertainty,
@@ -29,29 +23,14 @@ from .models import (
     RankedCandidate,
     RankedRobotPose,
     QualityThresholds,
-    RigExtrinsicsConfig,
-    RigExtrinsicsInput,
     RigExtrinsicsExport,
-    RigHandeyeConfig,
-    RigHandeyeInput,
-    RigHandeyeLaserlineConfig,
-    RigHandeyeLaserlineInput,
     RigHandeyeLaserlineExport,
     RigHandeyeExport,
-    RigLaserlineDataset,
-    RigLaserlineDeviceConfig,
-    RigLaserlineDeviceInput,
     RigLaserlineDeviceExport,
     RigUpstreamCalibration,
-    RigHandeyeExport,
-    SingleCamHandeyeConfig,
-    SingleCamHandeyeInput,
     SingleCamHandeyeExport,
 )
 from ._generated_types import RobustLoss
-from .types import ProgressCallback
-
-_T = TypeVar("_T")
 
 
 def robust_none() -> RobustLoss:
@@ -72,218 +51,6 @@ def robust_cauchy(scale: float) -> RobustLoss:
 def robust_arctan(scale: float) -> RobustLoss:
     """Build a serde-compatible Arctan robust loss payload."""
     return {"kind": "arctan", "scale": float(scale)}
-
-
-def _ensure_type(value: Any, expected_type: type[_T], name: str) -> _T:
-    if not isinstance(value, expected_type):
-        raise TypeError(
-            f"{name} must be {expected_type.__name__}, got {type(value).__name__}"
-        )
-    return value
-
-
-def _ensure_optional_type(
-    value: Any,
-    expected_type: type[_T],
-    name: str,
-) -> _T | None:
-    if value is None:
-        return None
-    return _ensure_type(value, expected_type, name)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Low-level raw helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _run_planar_intrinsics_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
-) -> PlanarIntrinsicsExport:
-    raw = cast(dict[str, Any], _native.run_planar_intrinsics(input_payload, config_payload, progress))
-    return PlanarIntrinsicsExport.from_payload(raw)
-
-
-def _run_single_cam_handeye_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
-) -> SingleCamHandeyeExport:
-    raw = cast(dict[str, Any], _native.run_single_cam_handeye(input_payload, config_payload, progress))
-    return SingleCamHandeyeExport.from_payload(raw)
-
-
-def _run_rig_extrinsics_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
-) -> RigExtrinsicsExport:
-    raw = cast(dict[str, Any], _native.run_rig_extrinsics(input_payload, config_payload, progress))
-    return RigExtrinsicsExport.from_payload(raw)
-
-
-def _run_rig_handeye_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
-) -> RigHandeyeExport:
-    raw = cast(dict[str, Any], _native.run_rig_handeye(input_payload, config_payload, progress))
-    return RigHandeyeExport.from_payload(raw)
-
-
-def _run_laserline_device_raw(
-    input_payload: list[dict[str, Any]],
-    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
-) -> LaserlineDeviceExport:
-    raw = cast(dict[str, Any], _native.run_laserline_device(input_payload, config_payload, progress))
-    return LaserlineDeviceExport.from_payload(raw)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# High-level typed API
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def run_planar_intrinsics(
-    input: PlanarIntrinsicsInput,
-    config: PlanarIntrinsicsConfig | None = None,    *,
-    progress: ProgressCallback | None = None,
-) -> PlanarIntrinsicsExport:
-    """Run planar intrinsics calibration with typed input/config objects.
-
-    ``progress``, when given, is called with each progress report (a
-    :data:`~vision_calibration.types.Progress` mapping) as the run detects,
-    steps and iterates; raising from it stops the run and the exception
-    propagates. Ctrl-C stops the run and raises :class:`KeyboardInterrupt`.
-    The same holds for every ``run_*`` function.
-    """
-    dataset = _ensure_type(input, PlanarIntrinsicsInput, "input")
-    cfg = _ensure_optional_type(config, PlanarIntrinsicsConfig, "config")
-    return _run_planar_intrinsics_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-        progress,
-    )
-
-
-def run_single_cam_handeye(
-    input: SingleCamHandeyeInput,
-    config: SingleCamHandeyeConfig | None = None,    *,
-    progress: ProgressCallback | None = None,
-) -> SingleCamHandeyeExport:
-    """Run single-camera hand-eye calibration with typed input/config objects."""
-    dataset = _ensure_type(input, SingleCamHandeyeInput, "input")
-    cfg = _ensure_optional_type(config, SingleCamHandeyeConfig, "config")
-    return _run_single_cam_handeye_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-        progress,
-    )
-
-
-def run_rig_extrinsics(
-    input: RigExtrinsicsInput,
-    config: RigExtrinsicsConfig | None = None,    *,
-    progress: ProgressCallback | None = None,
-) -> RigExtrinsicsExport:
-    """Run rig extrinsics calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigExtrinsicsInput, "input")
-    cfg = _ensure_optional_type(config, RigExtrinsicsConfig, "config")
-    return _run_rig_extrinsics_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-        progress,
-    )
-
-
-def run_rig_handeye(
-    input: RigHandeyeInput,
-    config: RigHandeyeConfig | None = None,    *,
-    progress: ProgressCallback | None = None,
-) -> RigHandeyeExport:
-    """Run rig hand-eye calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigHandeyeInput, "input")
-    cfg = _ensure_optional_type(config, RigHandeyeConfig, "config")
-    return _run_rig_handeye_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-        progress,
-    )
-
-
-def run_laserline_device(
-    input: LaserlineDeviceInput,
-    config: LaserlineDeviceConfig | None = None,    *,
-    progress: ProgressCallback | None = None,
-) -> LaserlineDeviceExport:
-    """Run laserline-device calibration with typed input/config objects."""
-    dataset = _ensure_type(input, LaserlineDeviceInput, "input")
-    cfg = _ensure_optional_type(config, LaserlineDeviceConfig, "config")
-    return _run_laserline_device_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-        progress,
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Rig laserline device
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _run_rig_laserline_device_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
-) -> RigLaserlineDeviceExport:
-    raw = cast(
-        dict[str, Any],
-        _native.run_rig_laserline_device(input_payload, config_payload, progress),
-    )
-    return RigLaserlineDeviceExport.from_payload(raw)
-
-
-def run_rig_laserline_device(
-    input: RigLaserlineDeviceInput,
-    config: RigLaserlineDeviceConfig | None = None,    *,
-    progress: ProgressCallback | None = None,
-) -> RigLaserlineDeviceExport:
-    """Run rig laserline device calibration with typed input/config objects."""
-    inp = _ensure_type(input, RigLaserlineDeviceInput, "input")
-    cfg = _ensure_optional_type(config, RigLaserlineDeviceConfig, "config")
-    return _run_rig_laserline_device_raw(
-        inp.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-        progress,
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Rig hand-eye laserline (joint)
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _run_rig_handeye_laserline_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,    progress: ProgressCallback | None = None,
-) -> RigHandeyeLaserlineExport:
-    raw = cast(
-        dict[str, Any],
-        _native.run_rig_handeye_laserline(input_payload, config_payload, progress),
-    )
-    return RigHandeyeLaserlineExport.from_payload(raw)
-
-
-def run_rig_handeye_laserline(
-    input: RigHandeyeLaserlineInput,
-    config: RigHandeyeLaserlineConfig | None = None,    *,
-    progress: ProgressCallback | None = None,
-) -> RigHandeyeLaserlineExport:
-    """Run joint rig hand-eye laserline calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigHandeyeLaserlineInput, "input")
-    cfg = _ensure_optional_type(config, RigHandeyeLaserlineConfig, "config")
-    return _run_rig_handeye_laserline_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-        progress,
-    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -655,7 +422,7 @@ def rank_robot_poses(
 
 
 def candidate_poses(
-    camera: Camera | Mapping[str, Any],
+    camera: CameraParams | Mapping[str, Any],
     target_points: Sequence[Point3],
     image_size: tuple[int, int],
     grid: CandidateGrid,

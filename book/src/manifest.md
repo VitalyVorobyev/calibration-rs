@@ -188,7 +188,7 @@ Each result lists the detections it dropped in `rejected`, each with its camera,
 import vision_calibration as vc
 
 cache = vc.FsDetectionCache("cache/kuka_1")
-result = vc.calibrate_dataset("data/kuka_1/dataset.toml", vc.SingleCamHandeyeConfig(), cache=cache)
+result = vc.calibrate_dataset("data/kuka_1/dataset.toml", vc.SingleCamHandeyeConfig(), cache=cache).export
 print(result.handeye.mode, f"{result.mean_reproj_error:.3f} px")
 ```
 

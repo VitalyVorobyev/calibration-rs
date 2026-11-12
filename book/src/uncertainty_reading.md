@@ -27,7 +27,7 @@ match &export.uncertainty {
 ### Python
 
 ```python
-result = vc.run_planar_intrinsics(dataset, vc.PlanarIntrinsicsConfig())
+result = vc.planar_intrinsics.run_calibration(dataset, vc.PlanarIntrinsicsConfig())
 u = result.uncertainty
 if u.available:
     print(f"fx = {result.camera.intrinsics.fx:.1f} ± {u.std_dev('fx'):.2f} px")

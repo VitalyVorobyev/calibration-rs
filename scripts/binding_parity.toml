@@ -8,6 +8,19 @@
 # its modules (`types.X` are the generated payload TypedDicts);
 # `module.Class.member`; or `builtins.X` for a Python built-in.
 
+# Python-native spellings kept on purpose (ADR 0024, "Python"):
+#   CameraModel          the built camera model, the Rust `CameraModel`
+#   PinholeIntrinsics    `FxFyCxCy`; Python names the pinhole matrix by what it is
+#   Division1Distortion, Rational8Distortion, ThinPrism9Distortion
+#                        `Division`, `RationalPolynomial`, `ThinPrism`, each with
+#                        the `Distortion` suffix Python's flat namespace needs and
+#                        the coefficient count its payload carries
+#   Features             the numpy columns of `Vec<Feature>`; `CachedFeatures` is
+#                        the cache's one-field wrapper around that vector
+#   RigEyeInHand, RigEyeToHand, CameraEyeInHand, CameraEyeToHand
+#                        the variants of `HandeyeSolution` and
+#                        `SingleCamHandeyeSolution`, one class per mode
+
 [bound]
 "control::Progress" = "types.Progress"
 "control::RunControl" = ["types.ProgressCallback", "session.CalibrationSession.set_progress"]
@@ -43,7 +56,7 @@
 "common::ExportDiagnostics" = "types.ExportDiagnostics"
 "common::HandeyeInitOptions" = "HandeyeInitOptions"
 "common::HandeyeOptimizeOptions" = "HandeyeOptimizeOptions"
-"common::HandeyeSolution" = ["RigEyeInHand", "RigEyeToHand", "RigHandeyeSolution"]
+"common::HandeyeSolution" = ["RigEyeInHand", "RigEyeToHand", "HandeyeSolution"]
 "common::IntrinsicsInitOptions" = "IntrinsicsInitOptions"
 "common::IntrinsicsOptimizeOptions" = "IntrinsicsOptimizeOptions"
 "common::RigInitOptions" = "RigInitOptions"
@@ -64,7 +77,7 @@
 "core::CameraFix" = "CameraFix"
 "core::CameraModel" = "CameraModel"
 "core::CameraModelSpec" = "CameraModelSpec"
-"core::CameraParams" = ["Camera", "types.CameraParams"]
+"core::CameraParams" = ["CameraParams", "types.CameraParams"]
 "core::CombinationTerm" = "CombinationTerm"
 "core::CorrespondenceView" = ["Observation", "types.CorrespondenceView"]
 "core::DistortionKind" = "types.DistortionKind"
@@ -80,7 +93,7 @@
 "core::KannalaBrandt4" = "KannalaBrandt4Distortion"
 "core::NoMeta" = "types.NoMeta"
 "core::NoiseLevel" = "models.ResidualNoise.whitened"
-"core::ParameterCovariance" = ["ParameterUncertainty", "types.ParameterCovariance"]
+"core::ParameterCovariance" = ["ParameterCovariance", "types.ParameterCovariance"]
 "core::PinholeCamera" = "CameraModel"
 "core::PixelRect" = "types.PixelRect"
 "core::PlanarDataset" = ["PlanarIntrinsicsInput", "types.PlanarIntrinsicsInput"]
@@ -101,13 +114,13 @@
 "core::SensorKind" = "types.SensorKind"
 "core::SensorParams" = "types.SensorParams"
 "core::ThinPrism" = "ThinPrism9Distortion"
-"core::Uncertainty" = ["ParameterUncertainty", "types.Uncertainty"]
+"core::Uncertainty" = ["ParameterCovariance", "types.Uncertainty"]
 "core::UncertaintyUnavailable" = "types.UncertaintyUnavailable"
 "core::View" = ["PlanarView", "SingleCamHandeyeView"]
 "core::ViewCovariance" = "ViewCovariance"
 "core::distort_to_pixel" = "camera.CameraModel.project"
 "core::make_pinhole_camera" = "CameraModel"
-"core::pinhole_camera_params" = "Camera"
+"core::pinhole_camera_params" = "CameraParams"
 "core::pixel_to_normalized" = "camera.CameraModel.unproject"
 "dataset::CameraSource" = "types.CameraSource"
 "dataset::ChessCornersDetectorSpec" = "types.ChessCornersDetectorSpec"
@@ -151,8 +164,8 @@
 "dataset_runner::RigRunResult" = "dataset_runner.RigRunResult"
 "dataset_runner::CalibrateDatasetError" = ["RunError", "AskUserError", "builtins.ValueError", "builtins.RuntimeError"]
 "dataset_runner::CalibrationConfig" = "dataset_runner.CalibrationConfig"
-"dataset_runner::CalibrationExport" = "dataset_runner.CalibrationResult"
-"dataset_runner::DatasetCalibration" = "calibrate_dataset"
+"dataset_runner::CalibrationExport" = "dataset_runner.CalibrationExport"
+"dataset_runner::DatasetCalibration" = "dataset_runner.DatasetCalibration"
 "dataset_runner::calibrate_dataset" = "calibrate_dataset"
 "dataset_runner::camera_image_sizes" = "dataset_runner.camera_image_sizes"
 "dataset_runner::RunError" = ["RunError", "AskUserError"]
@@ -187,7 +200,7 @@
 "laserline_device::LaserlineDeviceProblem" = "LaserlineDeviceSession"
 "laserline_device::LaserlineEstimate" = "session.CalibrationSession.output"
 "laserline_device::LaserlineStats" = "LaserlineStats"
-"laserline_device::run_calibration" = ["run_laserline_device", "session.CalibrationSession.run_calibration"]
+"laserline_device::run_calibration" = ["laserline_device.run_calibration", "session.CalibrationSession.run_calibration"]
 "laserline_device::step_init" = "laserline_device.LaserlineDeviceSession.step_init"
 "laserline_device::step_init_with_seed" = "laserline_device.LaserlineDeviceSession.step_init_with_seed"
 "laserline_device::step_optimize" = "laserline_device.LaserlineDeviceSession.step_optimize"
@@ -213,7 +226,7 @@
 "planar_intrinsics::PlanarIntrinsicsInput" = "PlanarIntrinsicsInput"
 "planar_intrinsics::PlanarIntrinsicsParams" = "session.CalibrationSession.output"
 "planar_intrinsics::PlanarIntrinsicsProblem" = "PlanarIntrinsicsSession"
-"planar_intrinsics::run_calibration" = ["run_planar_intrinsics", "session.CalibrationSession.run_calibration"]
+"planar_intrinsics::run_calibration" = ["planar_intrinsics.run_calibration", "session.CalibrationSession.run_calibration"]
 "planar_intrinsics::run_calibration_with_filtering" = "planar_intrinsics.PlanarIntrinsicsSession.run_calibration_with_filtering"
 "planar_intrinsics::step_filter" = "planar_intrinsics.PlanarIntrinsicsSession.step_filter"
 "planar_intrinsics::step_init" = "planar_intrinsics.PlanarIntrinsicsSession.step_init"
@@ -231,7 +244,7 @@
 "rig_extrinsics::RigManualInit" = "rig_extrinsics.RigManualInit"
 "rig_extrinsics::RigPoses" = "rig_extrinsics.RigPoses"
 "rig_extrinsics::RigOptimizeResult" = "rig_extrinsics.RigOptimizeResult"
-"rig_extrinsics::run_calibration" = ["run_rig_extrinsics", "session.CalibrationSession.run_calibration"]
+"rig_extrinsics::run_calibration" = ["rig_extrinsics.run_calibration", "session.CalibrationSession.run_calibration"]
 "rig_extrinsics::step_intrinsics_init_all" = "rig_extrinsics.RigExtrinsicsSession.step_intrinsics_init_all"
 "rig_extrinsics::step_intrinsics_init_all_with_seed" = "rig_extrinsics.RigExtrinsicsSession.step_intrinsics_init_all_with_seed"
 "rig_extrinsics::step_intrinsics_optimize_all" = "rig_extrinsics.RigExtrinsicsSession.step_intrinsics_optimize_all"
@@ -253,7 +266,7 @@
 "rig_handeye::RigManualInit" = "rig_handeye.RigManualInit"
 "rig_handeye::RigPoses" = "rig_handeye.RigPoses"
 "rig_handeye::RigOptimizeResult" = "rig_handeye.RigOptimizeResult"
-"rig_handeye::run_calibration" = ["run_rig_handeye", "session.CalibrationSession.run_calibration"]
+"rig_handeye::run_calibration" = ["rig_handeye.run_calibration", "session.CalibrationSession.run_calibration"]
 "rig_handeye::step_handeye_init" = "rig_handeye.RigHandeyeSession.step_handeye_init"
 "rig_handeye::step_handeye_init_with_seed" = "rig_handeye.RigHandeyeSession.step_handeye_init_with_seed"
 "rig_handeye::step_handeye_optimize" = "rig_handeye.RigHandeyeSession.step_handeye_optimize"
@@ -272,7 +285,7 @@
 "rig_handeye_laserline::RigHandeyeLaserlineInput" = "RigHandeyeLaserlineInput"
 "rig_handeye_laserline::RigHandeyeLaserlineProblem" = "RigHandeyeLaserlineSession"
 "rig_handeye_laserline::RigHandeyeLaserlineView" = "RigHandeyeLaserlineView"
-"rig_handeye_laserline::run_calibration" = ["run_rig_handeye_laserline", "session.CalibrationSession.run_calibration"]
+"rig_handeye_laserline::run_calibration" = ["rig_handeye_laserline.run_calibration", "session.CalibrationSession.run_calibration"]
 "rig_handeye_laserline::run_calibration_with_seed" = "rig_handeye_laserline.RigHandeyeLaserlineSession.run_calibration_with_seed"
 "rig_laserline_device::PlaneInitOptions" = "PlaneInitOptions"
 "rig_laserline_device::PlaneInitResult" = "rig_laserline_device.PlaneInitResult"
@@ -287,7 +300,7 @@
 "rig_laserline_device::RigLaserlineEstimate" = "session.CalibrationSession.output"
 "common::RigLaserlineView" = "RigLaserlineView"
 "rig_laserline_device::RigUpstreamCalibration" = "RigUpstreamCalibration"
-"rig_laserline_device::run_calibration" = ["run_rig_laserline_device", "session.CalibrationSession.run_calibration"]
+"rig_laserline_device::run_calibration" = ["rig_laserline_device.run_calibration", "session.CalibrationSession.run_calibration"]
 "rig_laserline_device::step_init" = "rig_laserline_device.RigLaserlineDeviceSession.step_init"
 "rig_laserline_device::step_init_with_seed" = "rig_laserline_device.RigLaserlineDeviceSession.step_init_with_seed"
 "rig_laserline_device::step_optimize" = "rig_laserline_device.RigLaserlineDeviceSession.step_optimize"
@@ -308,7 +321,7 @@
 "single_cam_handeye::SingleCamHandeyeProblem" = "SingleCamHandeyeSession"
 "single_cam_handeye::SingleCamHandeyeSolution" = ["CameraEyeInHand", "CameraEyeToHand", "SingleCamHandeyeSolution"]
 "single_cam_handeye::SingleCamHandeyeView" = "SingleCamHandeyeView"
-"single_cam_handeye::run_calibration" = ["run_single_cam_handeye", "session.CalibrationSession.run_calibration"]
+"single_cam_handeye::run_calibration" = ["single_cam_handeye.run_calibration", "session.CalibrationSession.run_calibration"]
 "single_cam_handeye::step_handeye_init" = "single_cam_handeye.SingleCamHandeyeSession.step_handeye_init"
 "single_cam_handeye::step_handeye_init_with_seed" = "single_cam_handeye.SingleCamHandeyeSession.step_handeye_init_with_seed"
 "single_cam_handeye::step_handeye_optimize" = "single_cam_handeye.SingleCamHandeyeSession.step_handeye_optimize"
@@ -397,7 +410,7 @@
 "mvg::solvers::rq_decompose" = "closed-form building block of the measurement functions; Python measures through triangulate / estimate_pose / recover_relative_pose / bundle_adjust, and numpy / OpenCV cover raw linear algebra"
 "mvg::solvers::FundamentalEstimate" = "closed-form building block of the measurement functions; Python measures through triangulate / estimate_pose / recover_relative_pose / bundle_adjust, and numpy / OpenCV cover raw linear algebra"
 "mvg::solvers::PoseCandidate" = "closed-form building block of the measurement functions; Python measures through triangulate / estimate_pose / recover_relative_pose / bundle_adjust, and numpy / OpenCV cover raw linear algebra"
-"optim::camera_parameters" = "the labelled parameter vector of a camera; Python's ParameterUncertainty carries the labels"
+"optim::camera_parameters" = "the labelled parameter vector of a camera; Python's ParameterCovariance carries the labels"
 "rig_extrinsics::RigExtrinsicsParams" = "the estimate's parameter block; Python reads the estimate as session output and the result as RigExtrinsicsExport"
 "laserline_device::LaserlineParams" = "the estimate's parameter block; Python reads the estimate as session output and the result as LaserlineDeviceExport"
 "rig_handeye_laserline::RigHandeyeLaserlineParams" = "the estimate's parameter block; Python reads the estimate as session output and the result as RigHandeyeLaserlineExport"

@@ -21,7 +21,7 @@ from .common import (
     IntrinsicsOptimizeOptions,
 )
 from .models import (
-    Camera,
+    CameraParams,
     Distortion,
     HandeyeMode,
     PinholeIntrinsics,
@@ -34,17 +34,19 @@ from .models import (
     _camera_solution_from_payload,
 )
 from .session import (
+    _run_calibration,
     CalibrationSession,
     _camera,
     _payload,
     _poses,
     _seed_payload,
 )
+from .types import ProgressCallback
 
 __all__ = [
-    "HandeyeInitOptions",
     "EyeInHandManualInit",
     "EyeToHandManualInit",
+    "HandeyeInitOptions",
     "HandeyeInitResult",
     "HandeyeManualInit",
     "HandeyeOptimizeOptions",
@@ -55,6 +57,7 @@ __all__ = [
     "IntrinsicsOptimizeOptions",
     "IntrinsicsOptimizeResult",
     "SingleCamHandeyeSession",
+    "run_calibration",
 ]
 
 
@@ -142,7 +145,7 @@ export's :data:`SingleCamHandeyeSolution`."""
 class IntrinsicsInitResult:
     """The initial camera and per-view target poses of the intrinsics stage."""
 
-    camera: Camera
+    camera: CameraParams
     cam_se3_target: list[Pose]
 
     @classmethod
@@ -154,7 +157,7 @@ class IntrinsicsInitResult:
 class IntrinsicsOptimizeResult:
     """The refined camera and target poses of the intrinsics stage."""
 
-    camera: Camera
+    camera: CameraParams
     cam_se3_target: list[Pose]
     mean_reproj_error: float
     """Mean reprojection error, pixels."""
@@ -254,3 +257,30 @@ class SingleCamHandeyeSession(
         return HandeyeOptimizeResult.from_payload(
             self._native.step_handeye_optimize(_payload(options))
         )
+
+
+def run_calibration(
+    input: SingleCamHandeyeInput,
+    config: SingleCamHandeyeConfig | None = None,
+    *,
+    progress: ProgressCallback | None = None,
+) -> SingleCamHandeyeExport:
+    """Run the single-camera hand-eye calibration end to end: the session's ``run_calibration`` and
+    ``export`` in one call.
+
+    ``config`` defaults to the problem's defaults. ``progress``, when given,
+    is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping); raising from it
+    stops the run and the exception propagates, as does Ctrl-C
+    (:class:`KeyboardInterrupt`).
+
+    Raises
+    ------
+    TypeError
+        ``input`` or ``config`` is not the problem's dataclass.
+    ValueError
+        The input or config is invalid.
+    RuntimeError
+        The calibration failed.
+    """
+    return _run_calibration(SingleCamHandeyeSession, input, config, progress, SingleCamHandeyeInput, SingleCamHandeyeConfig)

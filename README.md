@@ -102,7 +102,7 @@ obs = vc.Observation(
     points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
 )
 dataset = vc.PlanarIntrinsicsInput(views=[vc.PlanarView(observation=obs)] * 3)
-result = vc.run_planar_intrinsics(
+result = vc.planar_intrinsics.run_calibration(
     dataset,
     vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(max_iters=80)),
 )

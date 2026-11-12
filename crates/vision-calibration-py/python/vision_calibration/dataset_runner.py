@@ -1,7 +1,8 @@
 """Manifest-driven runs: from a dataset manifest to a calibration result.
 
 :func:`calibrate_dataset` reads a manifest, detects the target in every
-image, builds the problem's input, calibrates and returns the result. The
+image, builds the problem's input, calibrates and returns a
+:class:`DatasetCalibration`: the export and what detection kept. The
 ``build_*_input`` functions stop after the input, for a run driven step by
 step through a session. :func:`detect_target` runs a manifest's target
 detector on one numpy image.
@@ -15,16 +16,18 @@ images pair with robot poses, which way a pose transforms) raises
 
     from vision_calibration.dataset_runner import calibrate_dataset
 
-    result = calibrate_dataset("data/kuka_1/dataset.toml")
+    run = calibrate_dataset("data/kuka_1/dataset.toml")
+    print(f"{run.usable_views} of {run.total_views} views used")
+    print(run.export.mean_reproj_error)
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -44,7 +47,6 @@ from ._generated_types import RigHandeyeLaserlineInput as _RigHandeyeLaserlineIn
 from ._generated_types import RigLaserlineDeviceInput as _RigLaserlineDeviceInputPayload
 from ._generated_types import SingleCamHandeyeInput as _SingleCamHandeyeInputPayload
 from .detect import Features, FsDetectionCache
-from .laserline_device import LaserlineDeviceSession
 from .models import (
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
@@ -61,17 +63,13 @@ from .models import (
     SingleCamHandeyeConfig,
     SingleCamHandeyeExport,
 )
-from .planar_intrinsics import PlanarIntrinsicsSession
-from .rig_extrinsics import RigExtrinsicsSession
-from .rig_handeye import RigHandeyeSession
-from .rig_handeye_laserline import RigHandeyeLaserlineSession
-from .rig_laserline_device import RigLaserlineDeviceSession
-from .session import CalibrationSession
-from .single_cam_handeye import SingleCamHandeyeSession
 from .types import ProgressCallback
 
 __all__ = [
     "AskUserError",
+    "CalibrationConfig",
+    "CalibrationExport",
+    "DatasetCalibration",
     "HandeyeRunResult",
     "LaserPixelExtractor",
     "LaserlineRunResult",
@@ -120,7 +118,7 @@ CalibrationConfig = (
     | Mapping[str, Any]
 )
 
-CalibrationResult = (
+CalibrationExport = (
     PlanarIntrinsicsExport
     | SingleCamHandeyeExport
     | RigExtrinsicsExport
@@ -504,20 +502,34 @@ def build_rig_handeye_laserline_input(
     )
 
 
-# Each problem kind's input builder and session class.
-_PROBLEM_KINDS: dict[str, tuple[Callable[..., Any], type[CalibrationSession[Any, Any, Any]], bool]] = {
-    "planar_intrinsics": (build_planar_input, PlanarIntrinsicsSession, False),
-    "single_cam_handeye": (build_single_cam_handeye_input, SingleCamHandeyeSession, False),
-    "rig_extrinsics": (build_rig_extrinsics_input, RigExtrinsicsSession, False),
-    "rig_handeye": (build_rig_handeye_input, RigHandeyeSession, False),
-    "laserline_device": (build_laserline_device_input, LaserlineDeviceSession, True),
-    "rig_laserline_device": (build_rig_laserline_device_input, RigLaserlineDeviceSession, True),
-    "rig_handeye_laserline": (
-        build_rig_handeye_laserline_input,
-        RigHandeyeLaserlineSession,
-        True,
-    ),
+# Each manifest topology's config and export classes.
+_PROBLEMS: dict[str, tuple[type[Any], type[Any]]] = {
+    "planar_intrinsics": (PlanarIntrinsicsConfig, PlanarIntrinsicsExport),
+    "single_cam_handeye": (SingleCamHandeyeConfig, SingleCamHandeyeExport),
+    "rig_extrinsics": (RigExtrinsicsConfig, RigExtrinsicsExport),
+    "rig_handeye": (RigHandeyeConfig, RigHandeyeExport),
+    "laserline_device": (LaserlineDeviceConfig, LaserlineDeviceExport),
+    "rig_laserline_device": (RigLaserlineDeviceConfig, RigLaserlineDeviceExport),
+    "rig_handeye_laserline": (RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetCalibration:
+    """The result of :func:`calibrate_dataset`: the export and what detection
+    kept."""
+
+    export: CalibrationExport
+    """The calibration's export, the manifest topology's export class."""
+    image_sizes: list[tuple[int, int]]
+    """Each camera's image size ``(width, height)`` in pixels, in camera
+    order: the ``image_sizes`` that :func:`~vision_calibration.assess` takes."""
+    usable_views: int
+    """Views that entered the calibration."""
+    total_views: int
+    """Views the manifest's images formed before screening."""
+    rejected: list[RejectedDetection] = field(default_factory=list)
+    """Detections left out, with the reason for each."""
 
 
 def calibrate_dataset(
@@ -529,7 +541,7 @@ def calibrate_dataset(
     force_redetect: bool = False,
     laser_extractor: LaserPixelExtractor | None = None,
     progress: ProgressCallback | None = None,
-) -> CalibrationResult:
+) -> DatasetCalibration:
     """Calibrate a dataset from its manifest.
 
     The manifest's ``topology`` selects the problem: its images are detected
@@ -544,7 +556,9 @@ def calibrate_dataset(
     config:
         The problem's config, e.g. a
         :class:`~vision_calibration.models.SingleCamHandeyeConfig` for a
-        ``single_cam_handeye`` manifest.
+        ``single_cam_handeye`` manifest. A config dataclass of another
+        topology than the manifest's raises :class:`ValueError`; a payload
+        mapping is read as the manifest's own.
     base_dir:
         Directory the manifest's relative paths resolve against; defaults to
         the manifest file's directory, required for a payload.
@@ -563,8 +577,10 @@ def calibrate_dataset(
 
     Returns
     -------
-    The topology's export dataclass, e.g.
-    :class:`~vision_calibration.models.SingleCamHandeyeExport`.
+    A :class:`DatasetCalibration`: the topology's export dataclass (e.g.
+    :class:`~vision_calibration.models.SingleCamHandeyeExport`) in
+    ``export``, the cameras' image sizes, the view counts and the rejected
+    detections.
 
     Raises
     ------
@@ -573,49 +589,40 @@ def calibrate_dataset(
     RunError
         The manifest is invalid, or detection or pairing failed.
     ValueError
-        The config is invalid, or the problem rejects the detected input.
+        The config is invalid or for another topology, a laser topology has
+        no ``laser_extractor``, or the problem rejects the detected input.
     RuntimeError
         The calibration itself failed.
     KeyboardInterrupt
         Ctrl-C stopped the run.
     """
-    spec = cast(
-        Mapping[str, Any],
-        _native.load_manifest(os.fspath(manifest))
-        if isinstance(manifest, (str, os.PathLike))
-        else manifest,
-    )
-    topology = str(spec.get("topology"))
-    entry = _PROBLEM_KINDS.get(topology)
-    if entry is None:
-        raise ValueError(f"unknown manifest topology {topology!r}")
-    build, session_type, needs_laser = entry
-    if needs_laser:
-        if laser_extractor is None:
-            raise ValueError(f"a {topology} manifest needs a laser_extractor")
-        run = build(
-            manifest,
-            laser_extractor,
-            base_dir=base_dir,
-            cache=cache,
-            force_redetect=force_redetect,
-            progress=progress,
-        )
-    else:
-        run = build(
-            manifest,
-            base_dir=base_dir,
-            cache=cache,
-            force_redetect=force_redetect,
-            progress=progress,
-        )
-    session = session_type()
-    session.set_input(run.input)
+    config_topology: str | None = None
+    config_payload: Any = None
     if config is not None:
-        session.set_config(config)
-    session.set_progress(progress)
-    session.run_calibration()
-    return cast(CalibrationResult, session.export())
+        config_topology = next(
+            (name for name, (config_type, _) in _PROBLEMS.items() if isinstance(config, config_type)),
+            None,
+        )
+        config_payload = config.to_payload() if hasattr(config, "to_payload") else dict(config)
+    raw = _native.calibrate_dataset(
+        _manifest_arg(manifest),
+        config_payload,
+        config_topology,
+        _base_dir_arg(base_dir),
+        _cache_arg(cache),
+        force_redetect,
+        None if laser_extractor is None else _LaserAdapter(laser_extractor),
+        progress,
+    )
+    export_payload = raw["export"]
+    export_type = _PROBLEMS[export_payload["kind"]][1]
+    return DatasetCalibration(
+        export=export_type.from_payload(export_payload),
+        image_sizes=[(int(w), int(h)) for w, h in raw["image_sizes"]],
+        usable_views=int(raw["usable_views"]),
+        total_views=int(raw["total_views"]),
+        rejected=_rejected(raw["rejected"]),
+    )
 
 
 def camera_image_sizes(

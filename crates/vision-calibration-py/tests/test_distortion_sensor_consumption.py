@@ -54,7 +54,7 @@ class PlanarDistortionModelConsumptionTest(unittest.TestCase):
         cfg = vc.PlanarIntrinsicsConfig(
             camera=vc.CameraConfig(model=vc.CameraModelSpec(distortion=model))  # type: ignore[arg-type]
         )
-        return vc.run_planar_intrinsics(self.dataset, cfg)
+        return vc.planar_intrinsics.run_calibration(self.dataset, cfg)
 
     def test_none_model_yields_no_distortion_dataclass(self) -> None:
         # `DistortionKind::None` solves fine and exports `{"type": "none"}`; the
@@ -99,7 +99,7 @@ class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
                 model=vc.CameraModelSpec(distortion="division1", sensor="scheimpflug")
             )
         )
-        result = vc.run_planar_intrinsics(planar_calibration_dataset(), cfg)
+        result = vc.planar_intrinsics.run_calibration(planar_calibration_dataset(), cfg)
         # The Scheimpflug result camera is polymorphic on distortion too, while
         # still carrying the Scheimpflug sensor tilt.
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
@@ -112,18 +112,18 @@ class RigCameraOverrideConsumptionTest(unittest.TestCase):
         cfg = vc.RigExtrinsicsConfig(
             camera_overrides=[vc.CameraOverride(camera=9)]
         )
-        with self.assertRaisesRegex(RuntimeError, "out of range"):
-            vc.run_rig_extrinsics(_rig_extrinsics_dataset(), cfg)
+        with self.assertRaisesRegex(ValueError, "out of range"):
+            vc.rig_extrinsics.run_calibration(_rig_extrinsics_dataset(), cfg)
 
     def test_rig_extrinsics_rejects_duplicate_override(self) -> None:
         cfg = vc.RigExtrinsicsConfig(
             camera_overrides=[vc.CameraOverride(0), vc.CameraOverride(0)]
         )
         with self.assertRaises(ValueError):
-            vc.run_rig_extrinsics(_rig_extrinsics_dataset(), cfg)
+            vc.rig_extrinsics.run_calibration(_rig_extrinsics_dataset(), cfg)
 
     def test_rig_extrinsics_result_cameras_are_typed(self) -> None:
-        result = vc.run_rig_extrinsics(
+        result = vc.rig_extrinsics.run_calibration(
             _rig_extrinsics_dataset(), vc.RigExtrinsicsConfig()
         )
         for cam in result.cameras:

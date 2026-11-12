@@ -10,6 +10,7 @@ shape, or a generated type that misdescribes it, fails here.
 
 from __future__ import annotations
 
+import contextlib
 import types
 import typing
 import unittest
@@ -72,18 +73,20 @@ def shape_errors(value: Any, tp: Any, path: str = "$") -> list[str]:
 
 
 class _Recorder:
-    """Stands in for the extension module, recording each call's payloads."""
+    """Stands in for the extension module's functions, or for one of its
+    session objects, recording each call's payloads."""
 
-    def __init__(self, native: Any) -> None:
+    def __init__(self, native: Any, prefix: str, calls: list[tuple[str, tuple[Any, ...], Any]]) -> None:
         self._native = native
-        self.calls: list[tuple[str, tuple[Any, ...], Any]] = []
+        self._prefix = prefix
+        self.calls = calls
 
     def __getattr__(self, name: str) -> Any:
         target = getattr(self._native, name)
 
         def call(*args: Any) -> Any:
             result = target(*args)
-            self.calls.append((name, args, result))
+            self.calls.append((self._prefix + name, args, result))
             return result
 
         return call
@@ -109,35 +112,62 @@ class GeneratedShapesTest(unittest.TestCase):
                 self.assertConforms(getattr(vc, name)().to_payload(), getattr(gen, name))
 
     def test_workflow_payloads_match_the_schema(self) -> None:
-        recorder = _Recorder(vc_api._native)
-        with mock.patch.object(vc_api, "_native", recorder):
-            planar = vc.run_planar_intrinsics(planar_calibration_dataset(), vc.PlanarIntrinsicsConfig())
+        calls: list[tuple[str, tuple[Any, ...], Any]] = []
+        sessions = {
+            "PlanarIntrinsics": vc.PlanarIntrinsicsSession,
+            "RigExtrinsics": vc.RigExtrinsicsSession,
+            "RigHandeyeLaserline": vc.RigHandeyeLaserlineSession,
+        }
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(vc_api, "_native", _Recorder(vc_api._native, "", calls))
+            )
+            for problem, session_type in sessions.items():
+                native_type = session_type._native_type
+                stack.enter_context(
+                    mock.patch.object(
+                        session_type,
+                        "_native_type",
+                        lambda description, native_type=native_type, problem=problem: _Recorder(
+                            native_type(description), f"{problem}.", calls
+                        ),
+                    )
+                )
+            planar = vc.planar_intrinsics.run_calibration(
+                planar_calibration_dataset(), vc.PlanarIntrinsicsConfig()
+            )
             vc.assess(planar, vc.QualityThresholds(), [(1280, 720)])
             vc.projection_uncertainty(planar, (1280, 720))
-            vc.run_rig_extrinsics(_rig_extrinsics_dataset(), vc.RigExtrinsicsConfig())
-            vc.run_rig_handeye_laserline(_synthetic_dataset(), _eye_to_hand_config())
+            vc.rig_extrinsics.run_calibration(_rig_extrinsics_dataset(), vc.RigExtrinsicsConfig())
+            vc.rig_handeye_laserline.run_calibration(_synthetic_dataset(), _eye_to_hand_config())
 
-        expected = {
-            "run_planar_intrinsics": "PlanarIntrinsics",
-            "run_rig_extrinsics": "RigExtrinsics",
-            "run_rig_handeye_laserline": "RigHandeyeLaserline",
-        }
         seen = set()
-        for name, args, result in recorder.calls:
+        for name, args, result in calls:
+            problem, _, method = name.rpartition(".")
+            if problem not in sessions and method not in ("assess", "projection_uncertainty"):
+                continue
             seen.add(name)
             with self.subTest(name):
-                if name in expected:
-                    problem = expected[name]
+                if method == "set_input":
                     self.assertConforms(args[0], getattr(gen, f"{problem}Input"))
-                    self.assertConforms(args[1], getattr(gen, f"{problem}Config"))
+                elif method == "set_config":
+                    self.assertConforms(args[0], getattr(gen, f"{problem}Config"))
+                elif method == "export":
                     self.assertConforms(result, getattr(gen, f"{problem}Export"))
-                elif name == "assess":
+                elif method == "assess":
                     self.assertConforms(args[0], gen.PlanarIntrinsicsExport)
                     self.assertConforms(args[1], gen.QualityThresholds)
                     self.assertConforms(result, gen.QualityReport)
-                elif name == "projection_uncertainty":
+                elif method == "projection_uncertainty":
                     self.assertConforms(result, gen.ProjectionUncertainty)
-        self.assertEqual(seen, {*expected, "assess", "projection_uncertainty"})
+        expected = {
+            f"{problem}.{method}"
+            for problem in sessions
+            for method in ("set_input", "set_config", "export")
+        }
+        self.assertEqual(seen & expected, expected)
+        self.assertIn("assess", seen)
+        self.assertIn("projection_uncertainty", seen)
 
     def test_a_partial_config_is_not_a_config(self) -> None:
         # The library reads a config whole: a key the schema requires cannot
@@ -145,7 +175,7 @@ class GeneratedShapesTest(unittest.TestCase):
         partial = {"solver": {"max_iters": 5}}
         self.assertNotEqual(shape_errors(partial, gen.PlanarIntrinsicsConfig), [])
         with self.assertRaises(TypeError):
-            vc_api._native.run_planar_intrinsics(planar_calibration_dataset().to_payload(), partial)
+            vc.PlanarIntrinsicsSession().set_config(partial)
 
     def test_types_module_reexports_the_generated_types(self) -> None:
         for name in gen.__all__:

@@ -53,7 +53,7 @@ let model = camera.build()?;
 ```
 
 In Python the same camera is
-`vc.Camera(intrinsics=..., distortion=vc.KannalaBrandt4Distortion(...),
+`vc.CameraParams(intrinsics=..., distortion=vc.KannalaBrandt4Distortion(...),
 projection=vc.EquidistantProjection())`, and `vc.CameraModel` projects and
 back-projects it.
 

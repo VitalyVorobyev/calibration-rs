@@ -20,7 +20,8 @@ from .models import (
     RigLaserlineDeviceExport,
     RigLaserlineDeviceInput,
 )
-from .session import CalibrationSession, _payload, _seed_payload
+from .session import CalibrationSession, _run_calibration, _payload, _seed_payload
+from .types import ProgressCallback
 
 __all__ = [
     "PlaneInitOptions",
@@ -29,6 +30,7 @@ __all__ = [
     "PlaneOptimizeOptions",
     "PlaneOptimizeResult",
     "RigLaserlineDeviceSession",
+    "run_calibration",
 ]
 
 
@@ -134,3 +136,30 @@ class RigLaserlineDeviceSession(
     def step_optimize(self, options: PlaneOptimizeOptions | None = None) -> PlaneOptimizeResult:
         """Refine the laser planes."""
         return PlaneOptimizeResult.from_payload(self._native.step_optimize(_payload(options)))
+
+
+def run_calibration(
+    input: RigLaserlineDeviceInput,
+    config: RigLaserlineDeviceConfig | None = None,
+    *,
+    progress: ProgressCallback | None = None,
+) -> RigLaserlineDeviceExport:
+    """Run the rig laserline device calibration end to end: the session's ``run_calibration`` and
+    ``export`` in one call.
+
+    ``config`` defaults to the problem's defaults. ``progress``, when given,
+    is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping); raising from it
+    stops the run and the exception propagates, as does Ctrl-C
+    (:class:`KeyboardInterrupt`).
+
+    Raises
+    ------
+    TypeError
+        ``input`` or ``config`` is not the problem's dataclass.
+    ValueError
+        The input or config is invalid.
+    RuntimeError
+        The calibration failed.
+    """
+    return _run_calibration(RigLaserlineDeviceSession, input, config, progress, RigLaserlineDeviceInput, RigLaserlineDeviceConfig)

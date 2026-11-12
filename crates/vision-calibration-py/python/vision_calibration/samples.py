@@ -7,7 +7,7 @@ writes the sample's manifest next to the files::
     import vision_calibration as vc
 
     manifest = vc.samples.fetch("opencv_left")
-    result = vc.calibrate_dataset(manifest)
+    result = vc.calibrate_dataset(manifest).export
 
 Files already in the cache and matching their checksum are not downloaded
 again. The cache is :func:`cache_dir` unless ``cache`` names another; the

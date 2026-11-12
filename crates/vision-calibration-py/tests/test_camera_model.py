@@ -12,8 +12,8 @@ import vision_calibration as vc
 from _fixtures import planar_calibration_dataset
 
 
-def brown_conrady() -> vc.Camera:
-    return vc.Camera(
+def brown_conrady() -> vc.CameraParams:
+    return vc.CameraParams(
         intrinsics=vc.PinholeIntrinsics(fx=800.0, fy=780.0, cx=640.0, cy=360.0),
         distortion=vc.BrownConradyDistortion(
             k1=-0.21, k2=0.08, k3=0.0, p1=0.001, p2=-0.0005, iters=8
@@ -21,8 +21,8 @@ def brown_conrady() -> vc.Camera:
     )
 
 
-def scheimpflug() -> vc.Camera:
-    return vc.Camera(
+def scheimpflug() -> vc.CameraParams:
+    return vc.CameraParams(
         intrinsics=vc.PinholeIntrinsics(fx=1200.0, fy=1190.0, cx=512.0, cy=384.0),
         distortion=vc.Division1Distortion(lambda_=-0.05),
         sensor=vc.ScheimpflugSensor(tilt_x=0.05, tilt_y=-0.03),
@@ -39,7 +39,7 @@ def points(n: int, seed: int = 7) -> np.ndarray:
 class CameraModelTest(unittest.TestCase):
     def test_pinhole_projection_is_k_times_the_normalized_point(self) -> None:
         cam = vc.CameraModel(
-            vc.Camera(
+            vc.CameraParams(
                 intrinsics=vc.PinholeIntrinsics(fx=800.0, fy=780.0, cx=640.0, cy=360.0),
                 distortion=vc.NoDistortion(),
             )
@@ -52,7 +52,7 @@ class CameraModelTest(unittest.TestCase):
 
     def test_fisheye_sees_beyond_ninety_degrees(self) -> None:
         cam = vc.CameraModel(
-            vc.Camera(
+            vc.CameraParams(
                 intrinsics=vc.PinholeIntrinsics(fx=300.0, fy=300.0, cx=640.0, cy=400.0),
                 distortion=vc.KannalaBrandt4Distortion(k1=-0.02, k2=0.002, k3=0.0, k4=0.0, iters=8),
                 projection=vc.EquidistantProjection(),
@@ -68,7 +68,7 @@ class CameraModelTest(unittest.TestCase):
         back /= np.linalg.norm(back, axis=1, keepdims=True)
         np.testing.assert_allclose(back, dirs, rtol=0, atol=1e-9)
         self.assertEqual(cam.params["projection"]["type"], "equidistant")
-        self.assertIsInstance(vc.Camera.from_payload(cam.params).projection, vc.EquidistantProjection)
+        self.assertIsInstance(vc.CameraParams.from_payload(cam.params).projection, vc.EquidistantProjection)
 
     def test_unproject_and_undistort_invert_project(self) -> None:
         for camera in (brown_conrady(), scheimpflug()):
@@ -116,7 +116,7 @@ class CameraModelTest(unittest.TestCase):
         payload = brown_conrady().to_payload()
         cam = vc.CameraModel(payload)
         self.assertEqual(cam.params["intrinsics"]["fx"], 800.0)
-        result = vc.run_planar_intrinsics(planar_calibration_dataset())
+        result = vc.planar_intrinsics.run_calibration(planar_calibration_dataset())
         cam = vc.CameraModel(result.camera)
         # The result's residual table agrees with projecting its own poses.
         residuals = result.per_feature_residuals.target

@@ -16,7 +16,7 @@ from typing import Any
 from . import _vision_calibration as _native
 from .common import IntrinsicsInitOptions, IntrinsicsOptimizeOptions, _StepOptions
 from .models import (
-    Camera,
+    CameraParams,
     Distortion,
     PinholeIntrinsics,
     PlanarIntrinsicsConfig,
@@ -25,7 +25,8 @@ from .models import (
     Pose,
     ScheimpflugSensor,
 )
-from .session import CalibrationSession, _camera, _payload, _poses, _seed_payload
+from .session import CalibrationSession, _run_calibration, _camera, _payload, _poses, _seed_payload
+from .types import ProgressCallback
 
 __all__ = [
     "IntrinsicsFilterOptions",
@@ -35,6 +36,7 @@ __all__ = [
     "IntrinsicsOptimizeOptions",
     "IntrinsicsOptimizeResult",
     "PlanarIntrinsicsSession",
+    "run_calibration",
 ]
 
 
@@ -85,7 +87,7 @@ class IntrinsicsManualInit:
 class IntrinsicsInitResult:
     """The initial estimate of ``step_init`` / ``step_init_with_seed``."""
 
-    camera: Camera
+    camera: CameraParams
     """The initial camera, in the configured model."""
     cam_se3_target: list[Pose]
     """Per-view ``cam_se3_target``."""
@@ -157,3 +159,30 @@ class PlanarIntrinsicsSession(
     ) -> None:
         """Calibrate, filter outliers, and calibrate again."""
         self._native.run_calibration_with_filtering(_payload(options))
+
+
+def run_calibration(
+    input: PlanarIntrinsicsInput,
+    config: PlanarIntrinsicsConfig | None = None,
+    *,
+    progress: ProgressCallback | None = None,
+) -> PlanarIntrinsicsExport:
+    """Run the planar intrinsics calibration end to end: the session's ``run_calibration`` and
+    ``export`` in one call.
+
+    ``config`` defaults to the problem's defaults. ``progress``, when given,
+    is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping); raising from it
+    stops the run and the exception propagates, as does Ctrl-C
+    (:class:`KeyboardInterrupt`).
+
+    Raises
+    ------
+    TypeError
+        ``input`` or ``config`` is not the problem's dataclass.
+    ValueError
+        The input or config is invalid.
+    RuntimeError
+        The calibration failed.
+    """
+    return _run_calibration(PlanarIntrinsicsSession, input, config, progress, PlanarIntrinsicsInput, PlanarIntrinsicsConfig)

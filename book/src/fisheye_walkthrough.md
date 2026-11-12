@@ -92,7 +92,7 @@ dataset = vc.PlanarIntrinsicsInput(
 )
 fisheye = vc.CameraModelSpec(projection="equidistant", distortion="kannala_brandt4")
 config = vc.PlanarIntrinsicsConfig(camera=vc.CameraConfig(model=fisheye))
-result = vc.run_planar_intrinsics(dataset, config)
+result = vc.planar_intrinsics.run_calibration(dataset, config)
 
 k, d = result.camera.intrinsics, result.camera.distortion
 print(f"fx={k.fx:.3f} fy={k.fy:.3f} cx={k.cx:.3f} cy={k.cy:.3f}")
@@ -103,7 +103,7 @@ print(f"mean reprojection error {result.mean_reproj_error:.4f} px")
 The stereo pair takes a `vc.RigExtrinsicsInput` of `vc.RigExtrinsicsView`s
 (one `vc.Observation` per camera) and a
 `vc.RigExtrinsicsConfig(camera=vc.CameraConfig(model=fisheye))`, run with
-`vc.run_rig_extrinsics`.
+`vc.rig_extrinsics.run_calibration`.
 
 ## Against OpenCV
 

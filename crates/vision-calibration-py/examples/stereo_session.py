@@ -35,7 +35,7 @@ def load_dataset() -> vc.RigExtrinsicsInput:
 def main() -> None:
     print("=== Stereo Rig Calibration Session (Python) ===")
     dataset = load_dataset()
-    result = vc.run_rig_extrinsics(dataset)
+    result = vc.rig_extrinsics.run_calibration(dataset)
     base_mm = baseline_m(result.cam_se3_rig) * 1000.0
 
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")

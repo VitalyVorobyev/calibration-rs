@@ -9,13 +9,13 @@ on numpy images, and calibrated cameras that project numpy arrays.
 
 | Runner | Session | Workflow |
 |---|---|---|
-| `run_planar_intrinsics` | `PlanarIntrinsicsSession` | Planar intrinsics (pinhole or tilted Scheimpflug sensor) |
-| `run_single_cam_handeye` | `SingleCamHandeyeSession` | Single-camera hand-eye |
-| `run_laserline_device` | `LaserlineDeviceSession` | Camera + laser plane |
-| `run_rig_extrinsics` | `RigExtrinsicsSession` | Multi-camera rig extrinsics |
-| `run_rig_handeye` | `RigHandeyeSession` | Rig + hand-eye |
-| `run_rig_laserline_device` | `RigLaserlineDeviceSession` | Rig laser plane (frozen rig hand-eye input) |
-| `run_rig_handeye_laserline` | `RigHandeyeLaserlineSession` | Joint rig + hand-eye + laser plane |
+| `planar_intrinsics.run_calibration` | `PlanarIntrinsicsSession` | Planar intrinsics (pinhole or tilted Scheimpflug sensor) |
+| `single_cam_handeye.run_calibration` | `SingleCamHandeyeSession` | Single-camera hand-eye |
+| `laserline_device.run_calibration` | `LaserlineDeviceSession` | Camera + laser plane |
+| `rig_extrinsics.run_calibration` | `RigExtrinsicsSession` | Multi-camera rig extrinsics |
+| `rig_handeye.run_calibration` | `RigHandeyeSession` | Rig + hand-eye |
+| `rig_laserline_device.run_calibration` | `RigLaserlineDeviceSession` | Rig laser plane (frozen rig hand-eye input) |
+| `rig_handeye_laserline.run_calibration` | `RigHandeyeLaserlineSession` | Joint rig + hand-eye + laser plane |
 
 ## Install
 
@@ -49,7 +49,7 @@ config = vc.PlanarIntrinsicsConfig(
     solver=vc.SolverConfig(max_iters=80),
 )
 
-result = vc.run_planar_intrinsics(dataset, config)
+result = vc.planar_intrinsics.run_calibration(dataset, config)
 print(result.mean_reproj_error)
 ```
 
@@ -63,7 +63,7 @@ hand-eye and laserline-device configs have a `camera` field, and the rig
 configs take the same `camera` for every rig camera, plus `camera_overrides`
 to give individual cameras their own model and fix lists
 (`vc.CameraOverride(camera=1, model=vc.CameraModelSpec(sensor="scheimpflug"))`).
-Results report each camera as a `Camera`: its intrinsics plus one model per
+Results report each camera as a `CameraParams`: its intrinsics plus one model per
 slot (`projection`, `distortion`, `sensor`), as configured.
 
 ## Sessions and steps
@@ -103,7 +103,7 @@ naming the field to set; other runner failures raise `RunError` with a `kind`.
 ```python
 manifest = vc.samples.fetch("kuka_1")       # a sample dataset, downloaded once
 cache = vc.FsDetectionCache("cache/kuka_1")
-result = vc.calibrate_dataset(manifest, cache=cache)
+result = vc.calibrate_dataset(manifest, cache=cache).export
 ```
 
 `vc.samples.catalogue()` lists the sample datasets with their licence and

@@ -1,6 +1,6 @@
 """Multiple-view geometry: measurements from a calibration.
 
-Every function takes a **calibration result** (what a ``run_*`` function or a
+Every function takes a **calibration result** (what a ``run_calibration`` function or a
 session returns, or an export JSON loaded as a dict) and works through the
 calibrated rig it describes: the cameras, where each sits in the rig, the
 laser planes of a laser calibration and the covariance of the estimated
@@ -45,7 +45,7 @@ from numpy.typing import ArrayLike, NDArray
 from . import _vision_calibration as _native
 from ._api import CalibrationResult
 from ._generated_types import RobustLoss
-from .models import Camera, ParameterUncertainty, PinholeIntrinsics, PointCovariance
+from .models import CameraParams, ParameterCovariance, PinholeIntrinsics, PointCovariance
 from .types import ProgressCallback
 
 __all__ = [
@@ -458,7 +458,7 @@ class Triangulation(_PointCovariances):
 
     points: list[TriangulatedPoint]
     """One point per track, in the world frame, with its diagnostics."""
-    uncertainty: ParameterUncertainty
+    uncertainty: ParameterCovariance
     """The joint covariance of every refined point's coordinates, m², with the
     labels ``p{i}.x``, ``p{i}.y``, ``p{i}.z`` for track ``i``; or the reason it
     is unavailable."""
@@ -472,7 +472,7 @@ class Triangulation(_PointCovariances):
                 TriangulatedPoint.from_payload(cast(Mapping[str, Any], p))
                 for p in payload["points"]
             ],
-            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            uncertainty=ParameterCovariance.from_payload(uncertainty),
             _joint=_Joint(uncertainty),
         )
 
@@ -505,7 +505,7 @@ class LaserTriangulation(_PointCovariances):
 
     points: list[LaserPoint]
     """One point per observation, in the rig frame."""
-    uncertainty: ParameterUncertainty
+    uncertainty: ParameterCovariance
     """The joint covariance of the points' coordinates, as in :class:`Triangulation`."""
     _joint: _Joint = field(repr=False, compare=False)
 
@@ -516,7 +516,7 @@ class LaserTriangulation(_PointCovariances):
             points=[
                 LaserPoint.from_payload(cast(Mapping[str, Any], p)) for p in payload["points"]
             ],
-            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            uncertainty=ParameterCovariance.from_payload(uncertainty),
             _joint=_Joint(uncertainty),
         )
 
@@ -564,7 +564,7 @@ class EssentialEstimate:
     inlier_rms: float
     """RMS weighted Sampson error over the inliers, in σ: about 1 when the
     stated noise describes the pixels."""
-    uncertainty: ParameterUncertainty
+    uncertainty: ParameterCovariance
     """Covariance of the nine entries of ``essential`` (``essential.e00`` ...
     ``essential.e22``, row-major; rank 5) from the inliers' stated noise, or
     the reason it is unavailable."""
@@ -577,7 +577,7 @@ class EssentialEstimate:
             essential=_matrix(payload["essential"], 3, 3),
             inliers=[int(i) for i in payload["inliers"]],
             inlier_rms=float(payload["inlier_rms"]),
-            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            uncertainty=ParameterCovariance.from_payload(uncertainty),
             _joint=_Joint(uncertainty),
         )
 
@@ -646,7 +646,7 @@ class RobustRelativePose:
     """Indices of the inlier matches: those the pose is fitted to."""
     inlier_rms: float
     """RMS weighted Sampson error over the inliers, in σ."""
-    uncertainty: ParameterUncertainty
+    uncertainty: ParameterCovariance
     """Covariance of the pose in the gauge ``|t| = 1``: ``rotation.rx``,
     ``.ry``, ``.rz`` (rad, right-perturbation tangent of the rotation) and
     ``direction.x``, ``.y``, ``.z`` (the unit translation's components; rank
@@ -661,7 +661,7 @@ class RobustRelativePose:
             essential=_matrix(payload["essential"], 3, 3),
             inliers=[int(i) for i in payload["inliers"]],
             inlier_rms=float(payload["inlier_rms"]),
-            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            uncertainty=ParameterCovariance.from_payload(uncertainty),
             _joint=_Joint(uncertainty),
         )
 
@@ -680,7 +680,7 @@ class ObjectPose:
     """``(4, 4)`` pose of the object in the rig frame (object to rig)."""
     inliers: list[int]
     """Indices into the observations of those the pose uses."""
-    uncertainty: ParameterUncertainty
+    uncertainty: ParameterCovariance
     """Covariance over the right-perturbation tangent with the labels
     ``object.rx``, ``.ry``, ``.rz`` (rad) and ``object.tx``, ``.ty``, ``.tz``
     (m); or the reason it is unavailable."""
@@ -694,7 +694,7 @@ class ObjectPose:
         return cls(
             rig_se3_object=_pose_matrix(payload["rig_se3_object"]),
             inliers=[int(i) for i in payload["inliers"]],
-            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            uncertainty=ParameterCovariance.from_payload(uncertainty),
             reprojection_rms_px=float(payload["reprojection_rms_px"]),
             _joint=_Joint(uncertainty),
         )
@@ -714,11 +714,11 @@ class BundleAdjustment:
     """``(K, 4, 4)`` refined capture poses; capture 0 is the fixed gauge."""
     points: NDArray[np.float64]
     """``(N, 3)`` refined points, metres."""
-    cameras: list[Camera]
+    cameras: list[CameraParams]
     """The rig's cameras after the solve (refined under ``calibration="prior"``)."""
     cam_se3_rig: NDArray[np.float64]
     """``(C, 4, 4)`` camera poses in the rig after the solve."""
-    uncertainty: ParameterUncertainty
+    uncertainty: ParameterCovariance
     """Joint covariance of the refined captures (``capture{k}.rx`` ... ``.tz``)
     and points (``p{i}.x`` ... ``.z``), in the stated gauge."""
     final_cost: float
@@ -733,9 +733,9 @@ class BundleAdjustment:
         return cls(
             rig_se3_world=_poses_array(payload["rig_se3_world"]),
             points=points,
-            cameras=[Camera.from_payload(c) for c in payload["cameras"]],
+            cameras=[CameraParams.from_payload(c) for c in payload["cameras"]],
             cam_se3_rig=_poses_array(payload["cam_se3_rig"]),
-            uncertainty=ParameterUncertainty.from_payload(uncertainty),
+            uncertainty=ParameterCovariance.from_payload(uncertainty),
             final_cost=float(payload["final_cost"]),
             num_iters=int(payload["num_iters"]),
             reprojection_rms_px=float(payload["reprojection_rms_px"]),
@@ -1120,7 +1120,7 @@ class PointSet:
 
     @classmethod
     def _from_joint(
-        cls, points: NDArray[np.float64], joint: _Joint, uncertainty: ParameterUncertainty
+        cls, points: NDArray[np.float64], joint: _Joint, uncertainty: ParameterCovariance
     ) -> PointSet:
         if joint.covariance is None:
             raise ValueError(

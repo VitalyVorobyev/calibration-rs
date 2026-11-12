@@ -69,7 +69,7 @@ import vision_calibration as vc
 # `views`: one vc.RigExtrinsicsView per frame, with a vc.Observation (or None)
 # per camera; `dataset` wraps them.
 dataset = vc.RigExtrinsicsInput(num_cameras=2, views=views)
-result = vc.run_rig_extrinsics(dataset)
+result = vc.rig_extrinsics.run_calibration(dataset)
 print(result.mean_reproj_error, result.per_cam_reproj_errors)
 ```
 

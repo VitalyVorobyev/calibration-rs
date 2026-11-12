@@ -31,7 +31,7 @@ class SolverBackendTest(unittest.TestCase):
         results = {}
         for backend in ("tiny_solver", "factrs"):
             cfg = vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(backend=backend))
-            results[backend] = vc.run_planar_intrinsics(dataset, cfg)
+            results[backend] = vc.planar_intrinsics.run_calibration(dataset, cfg)
         for backend, result in results.items():
             k = result.camera.intrinsics
             self.assertAlmostEqual(k.fx, 800.0, delta=1e-3, msg=backend)

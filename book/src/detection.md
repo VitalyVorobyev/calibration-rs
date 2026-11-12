@@ -149,7 +149,7 @@ for path in ["data/kuka_1/01.png", "data/kuka_1/02.png", "data/kuka_1/03.png"]:
     features = vc.detect_target(gray, target)
     print(path, len(features), "corners")
     views.append(vc.PlanarView(observation=features.to_observation()))
-result = vc.run_planar_intrinsics(vc.PlanarIntrinsicsInput(views=views))
+result = vc.planar_intrinsics.run_calibration(vc.PlanarIntrinsicsInput(views=views))
 ```
 
 `vc.reject_ambiguous_detection(features)` returns the detection, or an empty one when two features share an image point.

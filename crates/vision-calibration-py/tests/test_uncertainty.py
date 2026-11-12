@@ -24,7 +24,7 @@ def _available_payload() -> dict:
 
 class ParameterUncertaintyParsingTest(unittest.TestCase):
     def test_available_payload_reads_std_dev_and_correlation(self) -> None:
-        u = vc.ParameterUncertainty.from_payload(_available_payload())
+        u = vc.ParameterCovariance.from_payload(_available_payload())
         self.assertTrue(u.available)
         self.assertAlmostEqual(u.std_dev("fx"), 2.0)
         self.assertAlmostEqual(u.correlation("fx", "cx"), -0.6)
@@ -37,11 +37,11 @@ class ParameterUncertaintyParsingTest(unittest.TestCase):
     def test_a_custom_family_is_read_by_its_name(self) -> None:
         payload = _available_payload()
         payload["noise"].append({"kind": {"custom": "range"}, "sigma": 1e-4, "count": 3})
-        u = vc.ParameterUncertainty.from_payload(payload)
+        u = vc.ParameterCovariance.from_payload(payload)
         self.assertEqual([n.kind for n in u.noise], ["reprojection", "range"])
 
     def test_unavailable_payload_keeps_the_reason(self) -> None:
-        u = vc.ParameterUncertainty.from_payload(
+        u = vc.ParameterCovariance.from_payload(
             {
                 "status": "unavailable",
                 "reason": {"kind": "rank_deficient", "unobservable": ["cx", "cy"]},
@@ -54,7 +54,7 @@ class ParameterUncertaintyParsingTest(unittest.TestCase):
             u.std_dev("fx")
 
     def test_missing_payload_is_not_computed(self) -> None:
-        u = vc.ParameterUncertainty.from_payload(None)
+        u = vc.ParameterCovariance.from_payload(None)
         self.assertFalse(u.available)
         self.assertEqual(u.reason, "not_computed")
 
@@ -92,13 +92,13 @@ class LaserResultUncertaintyTest(unittest.TestCase):
         )
         self.assertAlmostEqual(result.uncertainty.std_dev("cam1.plane.d"), 2e-4)
         self.assertEqual([n.camera for n in result.uncertainty.noise], [0, 1])
-        shared = vc.ParameterUncertainty.from_payload(_available_payload())
+        shared = vc.ParameterCovariance.from_payload(_available_payload())
         self.assertIsNone(shared.noise[0].camera)
 
 
 class ResultUncertaintyTest(unittest.TestCase):
     def test_planar_result_carries_the_covariance(self) -> None:
-        result = vc.run_planar_intrinsics(
+        result = vc.planar_intrinsics.run_calibration(
             planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig()
         )
         u = result.uncertainty
@@ -119,7 +119,7 @@ class ResultUncertaintyTest(unittest.TestCase):
                 {"label": "cam0.cx", "weight": -0.7},
             ],
         }
-        u = vc.ParameterUncertainty.from_payload(payload)
+        u = vc.ParameterCovariance.from_payload(payload)
         assert u.second_order is not None
         self.assertEqual(u.second_order.max_scatter_ratio, 2.9)
         self.assertEqual(u.second_order.nees_ratio, 1.6)
@@ -127,13 +127,13 @@ class ResultUncertaintyTest(unittest.TestCase):
             [(t.label, t.weight) for t in u.second_order.combination],
             [("cam1.cam_se3_rig.ry", 1.0), ("cam0.cx", -0.7)],
         )
-        self.assertIsNone(vc.ParameterUncertainty.from_payload(_available_payload()).second_order)
+        self.assertIsNone(vc.ParameterCovariance.from_payload(_available_payload()).second_order)
 
     def test_scheimpflug_reports_the_tilt_principal_point_degeneracy(self) -> None:
         # The fixture camera has no tilt, and its views do not separate a
         # sensor tilt from a principal-point shift: the result names them
         # instead of reporting a meaningless covariance.
-        result = vc.run_planar_intrinsics(
+        result = vc.planar_intrinsics.run_calibration(
             planar_calibration_dataset(8),
             vc.PlanarIntrinsicsConfig(
                 camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug"))
@@ -164,7 +164,7 @@ class ResultUncertaintyTest(unittest.TestCase):
                 for view in payload["views"]
             ],
         )
-        result = vc.run_rig_extrinsics(dataset)
+        result = vc.rig_extrinsics.run_calibration(dataset)
         u = result.uncertainty
         self.assertTrue(u.available, u.reason)
         # The final rig solve refines the intrinsics by default, so each
@@ -180,7 +180,7 @@ class ResultUncertaintyTest(unittest.TestCase):
 
 class ProjectionUncertaintyTest(unittest.TestCase):
     def test_planar_result_maps_the_image(self) -> None:
-        result = vc.run_planar_intrinsics(
+        result = vc.planar_intrinsics.run_calibration(
             planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig()
         )
         p = vc.projection_uncertainty(result, (1280, 720))
@@ -193,7 +193,7 @@ class ProjectionUncertaintyTest(unittest.TestCase):
         self.assertEqual(vc.projection_uncertainty(result.export, (1280, 720)), p)
 
     def test_a_camera_without_covariance_is_a_value_error(self) -> None:
-        result = vc.run_planar_intrinsics(
+        result = vc.planar_intrinsics.run_calibration(
             planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig()
         )
         with self.assertRaises(ValueError):

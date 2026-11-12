@@ -109,7 +109,7 @@ def load_dataset() -> vc.SingleCamHandeyeInput:
 def main() -> None:
     print("=== Single-Camera Hand-Eye Session (Real Images, Python) ===")
     dataset = load_dataset()
-    result = vc.run_single_cam_handeye(dataset)
+    result = vc.single_cam_handeye.run_calibration(dataset)
     cam = result.camera.intrinsics
 
     print(f"Hand-eye mode: {result.handeye.mode}")

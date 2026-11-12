@@ -1686,7 +1686,7 @@ def _tagged_from_payload(kind: str, table: Mapping[str, type], payload: Mapping[
 
 
 @dataclass(slots=True)
-class Camera:
+class CameraParams:
     """A calibrated camera: intrinsics plus one model per slot (projection,
     distortion, sensor), the ``CameraParams`` of a result.
 
@@ -1712,7 +1712,7 @@ class Camera:
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "Camera":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "CameraParams":
         """Parse from the ``CameraParams`` serde payload shape.
 
         Raises ``ValueError`` for a projection or sensor this package does
@@ -1906,7 +1906,7 @@ class SecondOrderError:
 
 
 @dataclass(slots=True)
-class ParameterUncertainty:
+class ParameterCovariance:
     """Covariance of a result's estimated parameters.
 
     Parameters are named by labels such as ``"fx"``, ``"k1"`` or ``"tilt_x"``;
@@ -1946,7 +1946,7 @@ class ParameterUncertainty:
     reason_labels: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any] | None) -> "ParameterUncertainty":
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> "ParameterCovariance":
         if payload is None:
             return cls(available=False, reason="not_computed")
         if payload["status"] == "unavailable":
@@ -2231,7 +2231,7 @@ class PredictedUncertainty:
     scales the candidates' information.
     """
 
-    covariance: ParameterUncertainty
+    covariance: ParameterCovariance
     projection: ProjectionUncertainty
     visible_points: list[int]
     effective_noise_px: float
@@ -2241,7 +2241,7 @@ class PredictedUncertainty:
         covariance = dict(cast(Mapping[str, Any], payload["covariance"]))
         covariance["status"] = "available"
         return cls(
-            covariance=ParameterUncertainty.from_payload(covariance),
+            covariance=ParameterCovariance.from_payload(covariance),
             projection=ProjectionUncertainty.from_payload(
                 cast(Mapping[str, Any], payload["projection"])
             ),
@@ -2293,7 +2293,7 @@ class PredictedRigUncertainty:
     information.
     """
 
-    covariance: ParameterUncertainty
+    covariance: ParameterCovariance
     projection: list[ProjectionUncertainty]
     visible_points: list[list[int]]
     effective_noise_px: float
@@ -2303,7 +2303,7 @@ class PredictedRigUncertainty:
         covariance = dict(cast(Mapping[str, Any], payload["covariance"]))
         covariance["status"] = "available"
         return cls(
-            covariance=ParameterUncertainty.from_payload(covariance),
+            covariance=ParameterCovariance.from_payload(covariance),
             projection=[
                 ProjectionUncertainty.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["projection"])
@@ -2375,11 +2375,11 @@ class _ExportResiduals:
         )
 
 
-def _camera_from_payload(payload: Mapping[str, Any]) -> Camera:
-    return Camera.from_payload(payload)
+def _camera_from_payload(payload: Mapping[str, Any]) -> CameraParams:
+    return CameraParams.from_payload(payload)
 
 
-def _cameras_from_payload(payload: Mapping[str, Any]) -> list[Camera]:
+def _cameras_from_payload(payload: Mapping[str, Any]) -> list[CameraParams]:
     return [
         _camera_from_payload(cast(Mapping[str, Any], c))
         for c in cast(list[Any], payload["cameras"])
@@ -2388,7 +2388,7 @@ def _cameras_from_payload(payload: Mapping[str, Any]) -> list[Camera]:
 
 @dataclass(slots=True)
 class PlanarIntrinsicsExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_planar_intrinsics`.
+    """Result from :func:`vision_calibration.planar_intrinsics.run_calibration`.
 
     ``camera.distortion`` is one of the :data:`Distortion` variants, matching
     ``camera.model.distortion`` in the config (Brown-Conrady by default).
@@ -2396,12 +2396,12 @@ class PlanarIntrinsicsExport(_ExportResiduals):
     Scheimpflug sensor, otherwise an :class:`IdentitySensor`.
     """
 
-    camera: Camera
+    camera: CameraParams
     cam_se3_target: list[Pose]
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    uncertainty: ParameterCovariance = field(
+        default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
     export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     """The result as the library's export JSON, as
@@ -2422,7 +2422,7 @@ class PlanarIntrinsicsExport(_ExportResiduals):
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
-            uncertainty=ParameterUncertainty.from_payload(
+            uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
         )
@@ -2472,12 +2472,12 @@ class RigEyeToHand:
         }
 
 
-RigHandeyeSolution: TypeAlias = RigEyeInHand | RigEyeToHand
+HandeyeSolution: TypeAlias = RigEyeInHand | RigEyeToHand
 """The hand-eye of a rig export and its target pose: one class per mode, so
 an export holds exactly the two poses its mode estimates."""
 
 
-def _rig_solution_from_payload(payload: Mapping[str, Any]) -> RigHandeyeSolution:
+def _rig_solution_from_payload(payload: Mapping[str, Any]) -> HandeyeSolution:
     mode = payload["mode"]
     if mode == "eye_in_hand":
         return RigEyeInHand(
@@ -2555,20 +2555,20 @@ def _camera_solution_from_payload(payload: Mapping[str, Any]) -> SingleCamHandey
 
 @dataclass(slots=True)
 class SingleCamHandeyeExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_single_cam_handeye`.
+    """Result from :func:`vision_calibration.single_cam_handeye.run_calibration`.
 
-    ``camera`` is a :class:`Camera`.
+    ``camera`` is a :class:`CameraParams`.
     """
 
-    camera: Camera
+    camera: CameraParams
     handeye: SingleCamHandeyeSolution
     robot_refinement: RobotRefinement | None
     """The per-view robot-pose corrections and the pose error they were
     weighed with; ``None`` without refinement."""
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    uncertainty: ParameterCovariance = field(
+        default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
     export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     """The result as the library's export JSON, as
@@ -2586,7 +2586,7 @@ class SingleCamHandeyeExport(_ExportResiduals):
             ),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            uncertainty=ParameterUncertainty.from_payload(
+            uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
         )
@@ -2594,14 +2594,14 @@ class SingleCamHandeyeExport(_ExportResiduals):
 
 @dataclass(slots=True)
 class RigExtrinsicsExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_rig_extrinsics`."""
+    """Result from :func:`vision_calibration.rig_extrinsics.run_calibration`."""
 
-    cameras: list[Camera]
+    cameras: list[CameraParams]
     cam_se3_rig: list[Pose]
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    uncertainty: ParameterCovariance = field(
+        default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
     export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     """The result as the library's export JSON, as
@@ -2616,7 +2616,7 @@ class RigExtrinsicsExport(_ExportResiduals):
             cam_se3_rig=[Pose.from_payload(cast(Mapping[str, Any], p)) for p in cast(list[Any], payload["cam_se3_rig"])],
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            uncertainty=ParameterUncertainty.from_payload(
+            uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
         )
@@ -2624,14 +2624,14 @@ class RigExtrinsicsExport(_ExportResiduals):
 
 @dataclass(slots=True)
 class RigHandeyeExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_rig_handeye`.
+    """Result from :func:`vision_calibration.rig_handeye.run_calibration`.
 
-    Each entry of ``cameras`` is a :class:`Camera`.
+    Each entry of ``cameras`` is a :class:`CameraParams`.
     """
 
-    cameras: list[Camera]
+    cameras: list[CameraParams]
     cam_se3_rig: list[Pose]
-    handeye: RigHandeyeSolution
+    handeye: HandeyeSolution
     robot_refinement: RobotRefinement | None
     """The per-view robot-pose corrections and the pose error they were
     weighed with; ``None`` without refinement."""
@@ -2639,8 +2639,8 @@ class RigHandeyeExport(_ExportResiduals):
     per_cam_reproj_errors: list[float]
     rig_se3_target: list[Pose] = field(default_factory=list)
     """Each view's rig-from-target pose, through the hand-eye chain."""
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    uncertainty: ParameterCovariance = field(
+        default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
     export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     """The result as the library's export JSON, as
@@ -2687,7 +2687,7 @@ class RigHandeyeExport(_ExportResiduals):
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
-            uncertainty=ParameterUncertainty.from_payload(
+            uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
         )
@@ -2695,20 +2695,20 @@ class RigHandeyeExport(_ExportResiduals):
 
 @dataclass(slots=True)
 class LaserlineDeviceExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_laserline_device`.
+    """Result from :func:`vision_calibration.laserline_device.run_calibration`.
 
     ``camera`` is the calibrated camera, ``cam_se3_target`` each view's
     target pose and ``laser_plane`` the laser plane in the camera frame.
     """
 
-    camera: Camera
+    camera: CameraParams
     cam_se3_target: list[Pose]
     laser_plane: LaserPlane
     stats: LaserlineStats
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    uncertainty: ParameterCovariance = field(
+        default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
     """Covariance of the camera's free parameters and the laser plane
     (``plane.nx`` … ``plane.d``), with each view's target pose."""
@@ -2735,7 +2735,7 @@ class LaserlineDeviceExport(_ExportResiduals):
             stats=LaserlineStats.from_payload(cast(Mapping[str, Any], payload["stats"])),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            uncertainty=ParameterUncertainty.from_payload(
+            uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
         )
@@ -2896,13 +2896,13 @@ class RigLaserlineDeviceConfig:
 
 @dataclass(slots=True)
 class RigLaserlineDeviceExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_rig_laserline_device`."""
+    """Result from :func:`vision_calibration.rig_laserline_device.run_calibration`."""
 
     laser_planes_rig: list[LaserPlane]
     laser_planes_cam: list[LaserPlane]
     per_cam_stats: list[LaserlineStats]
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    uncertainty: ParameterCovariance = field(
+        default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
     export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     """The result as the library's export JSON, as
@@ -2925,7 +2925,7 @@ class RigLaserlineDeviceExport(_ExportResiduals):
                 LaserlineStats.from_payload(cast(Mapping[str, Any], s))
                 for s in cast(list[Any], payload["per_cam_stats"])
             ],
-            uncertainty=ParameterUncertainty.from_payload(
+            uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
         )
@@ -3147,22 +3147,22 @@ class RigHandeyeLaserlinePerCamStats:
 
 @dataclass(slots=True)
 class RigHandeyeLaserlineExport(_ExportResiduals):
-    """Result from :func:`vision_calibration.run_rig_handeye_laserline`."""
+    """Result from :func:`vision_calibration.rig_handeye_laserline.run_calibration`."""
 
     laser_planes_rig: list[LaserPlane]
     laser_planes_cam: list[LaserPlane]
     per_cam_stats: list[RigHandeyeLaserlinePerCamStats]
-    cameras: list[Camera]
+    cameras: list[CameraParams]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
-    handeye: RigHandeyeSolution
+    handeye: HandeyeSolution
     robot_refinement: RobotRefinement | None
     """The per-view robot-pose corrections and the pose error they were
     weighed with; ``None`` without refinement."""
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    uncertainty: ParameterUncertainty = field(
-        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    uncertainty: ParameterCovariance = field(
+        default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
     export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     """The result as the library's export JSON, as
@@ -3202,7 +3202,7 @@ class RigHandeyeLaserlineExport(_ExportResiduals):
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
-            uncertainty=ParameterUncertainty.from_payload(
+            uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))
             ),
         )

@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
+use pyo3::exceptions::PyKeyboardInterrupt;
 use pyo3::prelude::*;
 use serde::Serialize;
 use vision_calibration::dataset::{
@@ -15,10 +16,10 @@ use vision_calibration::detect::GrayImageView;
 
 use crate::control::PyRunControl;
 use crate::detect::PyFsDetectionCache;
-use crate::errors::{fetch_err, run_err, sniff_err};
+use crate::errors::{calib_err, fetch_err, run_err, sniff_err};
 use crate::parse_payload;
 use crate::session::to_py;
-use crate::validation::value_err;
+use crate::validation::{reject_non_finite, value_err};
 use vision_calibration::control::RunControl;
 
 fn load_manifest_file(path: &Path) -> PyResult<DatasetSpec> {
@@ -39,7 +40,8 @@ fn resolve_manifest(
         });
         return Ok((spec, base));
     }
-    let spec: DatasetSpec = parse_payload(manifest, "manifest")?;
+    let spec: DatasetSpec = pythonize::depythonize(manifest)
+        .map_err(|err| value_err(format!("invalid manifest: {err}")))?;
     let base = base_dir.ok_or_else(|| {
         value_err("base_dir is required when the manifest is a mapping rather than a file")
     })?;
@@ -101,15 +103,17 @@ impl LaserPixelExtractor for PyLaserExtractor {
     }
 }
 
-/// Run a converter with the GIL released: against the given cache, refreshing
-/// it when `force_redetect` is set, or with no cache at all; reporting to
-/// `progress` and stopping on Ctrl-C (see [`PyRunControl`]).
-fn convert<T: Send>(
+/// Run a converter or the whole runner with the GIL released: against the
+/// given cache, refreshing it when `force_redetect` is set, or with no cache
+/// at all; reporting to `progress` and stopping on Ctrl-C (see
+/// [`PyRunControl`]). A failure maps through `map_err`.
+fn convert<T: Send, E: Send>(
     py: Python<'_>,
     cache: Option<PyRef<'_, PyFsDetectionCache>>,
     force_redetect: bool,
     progress: Option<Py<PyAny>>,
-    build: impl FnOnce(Detection<'_>, &RunControl) -> Result<T, runner::RunError> + Send,
+    build: impl FnOnce(Detection<'_>, &RunControl) -> Result<T, E> + Send,
+    map_err: impl FnOnce(E) -> PyErr,
 ) -> PyResult<T> {
     let control = PyRunControl::new(progress);
     let run = control.control();
@@ -125,7 +129,7 @@ fn convert<T: Send>(
         }
         None => py.detach(|| build(Detection::Uncached, run)),
     };
-    control.finish(result, |err| run_err(py, err))
+    control.finish(result, map_err)
 }
 
 /// Inspect a dataset folder and return a best-effort `DatasetSpec` payload.
@@ -274,9 +278,14 @@ macro_rules! target_converter {
             progress: Option<Py<PyAny>>,
         ) -> PyResult<Py<PyAny>> {
             let (spec, base) = resolve_manifest(manifest, base_dir)?;
-            let run = convert(py, cache, force_redetect, progress, |detection, control| {
-                runner::$name(&spec, &base, detection, control)
-            })?;
+            let run = convert(
+                py,
+                cache,
+                force_redetect,
+                progress,
+                |detection, control| runner::$name(&spec, &base, detection, control),
+                |err| run_err(py, err),
+            )?;
             to_py(
                 py,
                 &RunOutput {
@@ -310,9 +319,14 @@ macro_rules! laser_converter {
         ) -> PyResult<Py<PyAny>> {
             let (spec, base) = resolve_manifest(manifest, base_dir)?;
             let extractor = PyLaserExtractor::new(laser_extractor)?;
-            let run = convert(py, cache, force_redetect, progress, |detection, control| {
-                runner::$name(&spec, &base, detection, &extractor, control)
-            })?;
+            let run = convert(
+                py,
+                cache,
+                force_redetect,
+                progress,
+                |detection, control| runner::$name(&spec, &base, detection, &extractor, control),
+                |err| run_err(py, err),
+            )?;
             to_py(
                 py,
                 &RunOutput {
@@ -326,6 +340,102 @@ macro_rules! laser_converter {
             )
         }
     };
+}
+
+/// The result of `calibrate_dataset`: the export (which names its problem in
+/// `kind`) and what detection kept.
+#[derive(Serialize)]
+struct DatasetOutput<'a> {
+    export: &'a runner::CalibrationExport,
+    image_sizes: &'a [[u32; 2]],
+    usable_views: usize,
+    total_views: usize,
+    rejected: Vec<RejectedOutput<'a>>,
+}
+
+/// Map a `CalibrateDatasetError`: a runner error as `RunError`, a config
+/// for another topology or a missing laser extractor as `ValueError`, a
+/// calibration error as `calib_err` does.
+fn dataset_err(py: Python<'_>, err: runner::CalibrateDatasetError) -> PyErr {
+    use runner::CalibrateDatasetError as E;
+    match err {
+        E::Run(err) => run_err(py, err),
+        E::Calibration(err) => calib_err("calibration failed", err),
+        // `Cancelled` is normally replaced by the exception the progress
+        // callable raised or the Ctrl-C that cancelled the token.
+        E::Cancelled => PyKeyboardInterrupt::new_err("cancelled"),
+        other => value_err(other.to_string()),
+    }
+}
+
+/// `dataset_runner::calibrate_dataset`: the manifest's topology picks the
+/// converter and the problem; `config` is that problem's config payload,
+/// tagged as `config_topology` when the caller knows it (a mismatch with the
+/// manifest is an error) and otherwise taken for the manifest's own.
+#[pyfunction]
+#[pyo3(signature = (manifest, config=None, config_topology=None, base_dir=None, cache=None, force_redetect=false, laser_extractor=None, progress=None))]
+#[allow(clippy::too_many_arguments)] // The Python keyword arguments.
+pub(crate) fn calibrate_dataset(
+    py: Python<'_>,
+    manifest: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+    config_topology: Option<String>,
+    base_dir: Option<PathBuf>,
+    cache: Option<PyRef<'_, PyFsDetectionCache>>,
+    force_redetect: bool,
+    laser_extractor: Option<&Bound<'_, PyAny>>,
+    progress: Option<Py<PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    let (spec, base) = resolve_manifest(manifest, base_dir)?;
+    let config = match config {
+        Some(config) if !config.is_none() => {
+            reject_non_finite("config", config)?;
+            let topology = match config_topology {
+                Some(name) => name,
+                None => serde_json::to_value(spec.topology)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .ok_or_else(|| value_err("the manifest's topology has no name"))?,
+            };
+            let payload: serde_json::Value = parse_payload(config, "config")?;
+            let tagged = serde_json::json!({ "topology": topology, "config": payload });
+            let config: runner::CalibrationConfig = serde_json::from_value(tagged)
+                .map_err(|err| value_err(format!("invalid config: {err}")))?;
+            Some(config)
+        }
+        _ => None,
+    };
+    let extractor = laser_extractor
+        .filter(|object| !object.is_none())
+        .map(PyLaserExtractor::new)
+        .transpose()?;
+    let run = convert(
+        py,
+        cache,
+        force_redetect,
+        progress,
+        |detection, control| {
+            runner::calibrate_dataset(
+                &spec,
+                &base,
+                config,
+                detection,
+                extractor.as_ref().map(|e| e as &dyn LaserPixelExtractor),
+                control,
+            )
+        },
+        |err| dataset_err(py, err),
+    )?;
+    to_py(
+        py,
+        &DatasetOutput {
+            export: &run.export,
+            image_sizes: &run.image_sizes,
+            usable_views: run.usable_views,
+            total_views: run.total_views,
+            rejected: rejected_output(&run.rejected),
+        },
+    )
 }
 
 target_converter!(build_planar_input);
@@ -345,6 +455,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sample_catalogue, m)?)?;
     m.add_function(wrap_pyfunction!(fetch_sample, m)?)?;
     m.add_function(wrap_pyfunction!(sample_cache_dir, m)?)?;
+    m.add_function(wrap_pyfunction!(calibrate_dataset, m)?)?;
     m.add_function(wrap_pyfunction!(build_planar_input, m)?)?;
     m.add_function(wrap_pyfunction!(build_single_cam_handeye_input, m)?)?;
     m.add_function(wrap_pyfunction!(build_rig_extrinsics_input, m)?)?;

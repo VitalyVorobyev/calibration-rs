@@ -56,7 +56,7 @@ class PointCovarianceTest(unittest.TestCase):
 
     def test_stated_covariances_whiten_the_solve(self) -> None:
         base = planar_calibration_dataset()
-        result = vc.run_planar_intrinsics(_noisy(base, seed=3, stated=True))
+        result = vc.planar_intrinsics.run_calibration(_noisy(base, seed=3, stated=True))
         noise = result.uncertainty.noise[0]
         self.assertEqual(noise.kind, "reprojection")
         self.assertTrue(noise.whitened)
@@ -68,7 +68,7 @@ class PointCovarianceTest(unittest.TestCase):
             result.mean_reproj_error, float(target.error_px.mean()), places=9
         )
 
-        plain = vc.run_planar_intrinsics(_noisy(base, seed=3, stated=False))
+        plain = vc.planar_intrinsics.run_calibration(_noisy(base, seed=3, stated=False))
         self.assertFalse(plain.uncertainty.noise[0].whitened)
         self.assertTrue(all(math.isnan(e) for e in plain.per_feature_residuals.target.error_whitened))
 
@@ -81,7 +81,7 @@ class PointCovarianceTest(unittest.TestCase):
             )
         )
         with self.assertRaisesRegex(Exception, "per-point covariances or none"):
-            vc.run_planar_intrinsics(stated)
+            vc.planar_intrinsics.run_calibration(stated)
 
 
 if __name__ == "__main__":

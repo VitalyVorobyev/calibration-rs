@@ -22,8 +22,8 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from . import _vision_calibration as _native
-from ._generated_types import CameraParams
-from .models import Camera
+from ._generated_types import CameraParams as CameraParamsPayload
+from .models import CameraParams
 
 __all__ = ["CameraModel"]
 
@@ -51,7 +51,7 @@ class CameraModel:
     Parameters
     ----------
     camera:
-        A :class:`~vision_calibration.models.Camera` or a ``CameraParams``
+        A :class:`~vision_calibration.models.CameraParams` or a ``CameraParams``
         payload.
 
     Raises
@@ -63,18 +63,18 @@ class CameraModel:
     __slots__ = ("_native",)
 
     def __init__(
-        self, camera: Camera | CameraParams | Mapping[str, Any]
+        self, camera: CameraParams | CameraParamsPayload | Mapping[str, Any]
     ) -> None:
-        if isinstance(camera, Camera):
+        if isinstance(camera, CameraParams):
             payload: Any = camera.to_payload()
         else:
             payload = dict(camera)
         self._native: Any = _native.CameraModel(payload)
 
     @property
-    def params(self) -> CameraParams:
+    def params(self) -> CameraParamsPayload:
         """The ``CameraParams`` payload the model was built from."""
-        return cast(CameraParams, self._native.params())
+        return cast(CameraParamsPayload, self._native.params())
 
     def project(self, points_3d: ArrayLike) -> NDArray[np.float64]:
         """Project camera-frame points ``(N, 3)`` to pixels ``(N, 2)``.

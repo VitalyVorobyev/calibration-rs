@@ -21,9 +21,10 @@ from .models import (
     RigHandeyeLaserlineExport,
     RigHandeyeLaserlineInput,
 )
-from .session import CalibrationSession, _payload, _seed_payload
+from .session import CalibrationSession, _run_calibration, _payload, _seed_payload
+from .types import ProgressCallback
 
-__all__ = ["JointManualInit", "RigHandeyeLaserlineSession"]
+__all__ = ["JointManualInit", "RigHandeyeLaserlineSession", "run_calibration"]
 
 
 @dataclass(slots=True)
@@ -78,3 +79,30 @@ class RigHandeyeLaserlineSession(
     def run_calibration_with_seed(self, seed: JointManualInit) -> None:
         """``run_calibration`` from manual seeds of its warm start."""
         self._native.run_calibration_with_seed(_payload(seed))
+
+
+def run_calibration(
+    input: RigHandeyeLaserlineInput,
+    config: RigHandeyeLaserlineConfig | None = None,
+    *,
+    progress: ProgressCallback | None = None,
+) -> RigHandeyeLaserlineExport:
+    """Run the joint rig hand-eye laserline calibration end to end: the session's ``run_calibration`` and
+    ``export`` in one call.
+
+    ``config`` defaults to the problem's defaults. ``progress``, when given,
+    is called with each progress report (a
+    :data:`~vision_calibration.types.Progress` mapping); raising from it
+    stops the run and the exception propagates, as does Ctrl-C
+    (:class:`KeyboardInterrupt`).
+
+    Raises
+    ------
+    TypeError
+        ``input`` or ``config`` is not the problem's dataclass.
+    ValueError
+        The input or config is invalid.
+    RuntimeError
+        The calibration failed.
+    """
+    return _run_calibration(RigHandeyeLaserlineSession, input, config, progress, RigHandeyeLaserlineInput, RigHandeyeLaserlineConfig)
