@@ -10,8 +10,7 @@
 //! `cam_se3_rig · Exp(ω, v)`), with the labels the exports use.
 
 use crate::{Error, Result};
-use nalgebra::Matrix3;
-use vision_calibration_core::{CalibratedRig, ParameterCovariance, Real, Vec3};
+use vision_calibration_core::{CalibratedRig, ParameterCovariance};
 use vision_calibration_optim::CameraJacobian;
 
 /// The tangent coordinates of a pose, in the exports' order.
@@ -88,9 +87,4 @@ pub(crate) fn camera_coordinates(
         None
     };
     Ok(CameraCoordinates { theta, extrinsic })
-}
-
-/// `[v]ₓ`, the cross-product matrix: `[v]ₓ w = v × w`.
-pub(crate) fn skew(v: &Vec3) -> Matrix3<Real> {
-    Matrix3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
 }

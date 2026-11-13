@@ -685,7 +685,7 @@ fn print_param_deltas(
         max_extr_rot = max_extr_rot.max(d.rotation.angle());
     }
     for (a, b) in initial
-        .planes_cam
+        .laser_planes_cam
         .iter()
         .zip(final_params.laser_planes_cam.iter())
     {

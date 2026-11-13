@@ -216,14 +216,10 @@ mod tests {
     use nalgebra::Rotation3;
     use vision_calibration_core::{Pt2, Pt3, Vec3};
 
-    fn skew(v: &Vec3) -> Mat3 {
-        Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
-    }
-
     fn make_essential() -> (Mat3, Vec<Correspondence2D>) {
         let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.02);
         let t = Vec3::new(0.3, 0.05, 0.01);
-        let e = skew(&t) * rot.matrix();
+        let e = t.cross_matrix() * rot.matrix();
 
         let world = [
             Pt3::new(0.1, 0.2, 2.0),
@@ -307,7 +303,7 @@ mod tests {
     fn weighted_sampson_error_is_zero_on_exact_bearings_and_scale_invariant() {
         let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.02);
         let t = Vec3::new(0.3, 0.05, 0.01);
-        let e = skew(&t) * rot.matrix();
+        let e = t.cross_matrix() * rot.matrix();
         // Anisotropic bearing covariances (pixel-sized: 1e-3 rad scale).
         let m1 = Mat3::from_diagonal(&Vec3::new(4e-6, 1e-6, 2e-6));
         let m2 = Mat3::from_diagonal(&Vec3::new(1e-6, 3e-6, 1e-6));

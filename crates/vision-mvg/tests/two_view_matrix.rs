@@ -22,7 +22,8 @@
 
 #![allow(missing_docs)]
 
-use nalgebra::{Rotation3, Translation3, UnitQuaternion};
+use nalgebra::Rotation3;
+use vision_calibration_core::linalg::iso_from_rotation;
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
     BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Uncertainty,
@@ -175,10 +176,7 @@ fn two_view_recovers_pose_and_triangulation_across_grid_and_noise() {
 
     for cell in cells() {
         let r_gt = *Rotation3::from_euler_angles(cell.rot.0, cell.rot.1, cell.rot.2).matrix();
-        let cam1_se3_rig = Iso3::from_parts(
-            Translation3::from(cell.t),
-            UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r_gt)),
-        );
+        let cam1_se3_rig = iso_from_rotation(&r_gt, &cell.t);
         let rig = stereo_rig(cam1_se3_rig);
 
         for &noise_px in &noise_levels {

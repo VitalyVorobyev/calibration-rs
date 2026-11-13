@@ -4,7 +4,7 @@
 //! point correspondences, used by minimal solvers like P3P and EPnP.
 
 use crate::GeometryError;
-use nalgebra::{Isometry3, Rotation3, Translation3, UnitQuaternion};
+use vision_calibration_core::linalg::iso_from_rotation;
 use vision_calibration_core::{Iso3, Mat3, Pt3, Real, Vec3};
 
 /// Recover camera pose from corresponding world and camera-frame points.
@@ -40,7 +40,5 @@ pub(super) fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3, G
     let r = vision_calibration_core::linalg::project_to_so3(&h)?;
 
     let t = c_c - r * c_w;
-    let rot = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r));
-    let trans = Translation3::from(t);
-    Ok(Isometry3::from_parts(trans, rot))
+    Ok(iso_from_rotation(&r, &t))
 }

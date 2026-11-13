@@ -128,10 +128,6 @@ mod tests {
     use super::*;
     use nalgebra::Rotation3;
 
-    fn skew(v: &Vec3) -> Mat3 {
-        Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
-    }
-
     /// Regression: zero E must return Err, not fabricate four poses.
     #[test]
     fn decompose_essential_rejects_zero_matrix() {
@@ -150,7 +146,7 @@ mod tests {
         let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
         // t = 0 → E = [0]× R = 0
         let t_zero = Vec3::zeros();
-        let e = skew(&t_zero) * rot.matrix();
+        let e = t_zero.cross_matrix() * rot.matrix();
         assert!(
             decompose_essential(&e).is_err(),
             "pure-rotation E (t=0 ⟹ E=0) must return Err"
@@ -180,7 +176,7 @@ mod tests {
         let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
         let t = Vec3::new(0.1, 0.02, -0.03);
 
-        let e = skew(&t) * rot.matrix();
+        let e = t.cross_matrix() * rot.matrix();
         let solutions = decompose_essential(&e).unwrap();
 
         let mut found = false;

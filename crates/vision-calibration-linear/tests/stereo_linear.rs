@@ -104,12 +104,7 @@ fn board_point_2d(i: usize, j: usize, square: Real) -> Pt2 {
 fn pose_from_matrix(extr: &Mat4) -> Iso3 {
     let r = extr.fixed_view::<3, 3>(0, 0).into_owned();
     let t = extr.fixed_view::<3, 1>(0, 3).into_owned();
-    Iso3::from_parts(
-        nalgebra::Translation3::from(t),
-        nalgebra::UnitQuaternion::from_rotation_matrix(
-            &nalgebra::Rotation3::from_matrix_unchecked(r),
-        ),
-    )
+    vision_calibration_core::linalg::iso_from_rotation(&r, &t)
 }
 
 fn pose_error(est: &Iso3, gt: &Mat4) -> (Real, Real) {

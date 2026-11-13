@@ -94,10 +94,6 @@ mod tests {
     use nalgebra::Rotation3;
     use vision_calibration_core::Pt3;
 
-    fn skew(v: &Vec3) -> Mat3 {
-        Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
-    }
-
     fn make_stereo_data() -> (Mat3, Vec3, Vec<Vec3>, Vec<Vec3>) {
         let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
         let r = *rot.matrix();
@@ -144,7 +140,7 @@ mod tests {
     #[test]
     fn select_pose_picks_correct_candidate() {
         let (r, t, pts1, pts2) = make_stereo_data();
-        let e = skew(&t) * r;
+        let e = t.cross_matrix() * r;
 
         let candidates = vision_geometry::epipolar::decompose_essential(&e).unwrap();
         let (r_est, t_est, count) = select_pose(&candidates, &pts1, &pts2).unwrap();
@@ -169,7 +165,7 @@ mod tests {
     #[test]
     fn recover_pose_from_essential_rejects_length_mismatch() {
         let (r, t, pts1, pts2) = make_stereo_data();
-        let e = skew(&t) * r;
+        let e = t.cross_matrix() * r;
         // Give pts2 one extra point — lengths differ by 1.
         let mut pts2_long = pts2.clone();
         pts2_long.push(Vec3::new(0.0, 0.0, 1.0));
@@ -190,7 +186,7 @@ mod tests {
     #[test]
     fn recover_pose_from_essential_rejects_empty_input() {
         let (r, t, _pts1, _pts2) = make_stereo_data();
-        let e = skew(&t) * r;
+        let e = t.cross_matrix() * r;
         assert!(
             recover_pose_from_essential(&e, &[], &[]).is_err(),
             "empty input must return Err"
@@ -200,7 +196,7 @@ mod tests {
     #[test]
     fn recover_pose_from_essential_works() {
         let (r, t, pts1, pts2) = make_stereo_data();
-        let e = skew(&t) * r;
+        let e = t.cross_matrix() * r;
 
         let (r_est, t_est) = recover_pose_from_essential(&e, &pts1, &pts2).unwrap();
 

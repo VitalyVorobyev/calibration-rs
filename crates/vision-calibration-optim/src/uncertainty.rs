@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use nalgebra::{DMatrix, Matrix3};
+use nalgebra::DMatrix;
 use vision_calibration_core::{
     CombinationTerm, Iso3, NoiseLevel, ParameterCovariance, ResidualNoise, SecondOrderError,
     Uncertainty, UncertaintyUnavailable, ViewCovariance,
@@ -290,7 +290,7 @@ fn inverse_map(
         );
         let r = stored.rotation.to_rotation_matrix().into_inner();
         let t = stored.translation.vector;
-        let tr = Matrix3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0) * r;
+        let tr = t.cross_matrix() * r;
         let m = map.get_or_insert_with(|| DMatrix::identity(dim, dim));
         for a in 0..3 {
             for b in 0..3 {

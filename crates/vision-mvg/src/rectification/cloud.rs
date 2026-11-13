@@ -46,7 +46,7 @@
 
 use super::StereoRectification;
 use crate::dense::DisparityMap;
-use crate::sensitivity::{camera_coordinates, skew};
+use crate::sensitivity::camera_coordinates;
 use crate::{Error, Result};
 use nalgebra::{DMatrix, Dyn, Matrix2x3, Matrix3, Matrix3x2, Matrix3x6, OMatrix, U3, Vector3};
 use serde::Serialize;
@@ -311,7 +311,8 @@ impl CalibrationShare {
         // cam_se3_rig · Exp(ω, v) moves the camera-frame point by
         // R (−[X]ₓ ω + v).
         let mut d_xi = Matrix3x6::<Real>::zeros();
-        d_xi.fixed_view_mut::<3, 3>(0, 0).copy_from(&(-skew(x)));
+        d_xi.fixed_view_mut::<3, 3>(0, 0)
+            .copy_from(&(-x.cross_matrix()));
         d_xi.fixed_view_mut::<3, 3>(0, 3)
             .copy_from(&Matrix3::identity());
         if let Some(first) = left.extrinsic {

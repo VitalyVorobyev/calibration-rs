@@ -20,16 +20,12 @@
 
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{
-    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Uncertainty,
-    Vec3, make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CalibratedRig, FxFyCxCy, Iso3, PointCovariance, Pt2, Pt3, Uncertainty, Vec3,
+    make_pinhole_camera, pinhole_camera_params,
 };
 use vision_geometry::epipolar::{decompose_essential, fundamental_8point};
 use vision_mvg::triangulation::{RigObservation, triangulate};
 use vision_mvg::types::Captures;
-
-fn skew(v: &Vec3) -> Mat3 {
-    Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
-}
 
 /// A small, deterministic sweep of relative poses (Euler angles rad, metric t).
 fn pose_grid() -> Vec<(Rotation3<f64>, Vec3)> {
@@ -82,7 +78,7 @@ fn essential_skew_t_r_is_consistent_and_decomposes() {
             continue;
         }
         let r = *rot.matrix();
-        let e = skew(&t) * r;
+        let e = t.cross_matrix() * r;
 
         // Epipolar constraint for every GT correspondence: x₂ᵀ E x₁ = 0.
         let e_norm = e.norm();

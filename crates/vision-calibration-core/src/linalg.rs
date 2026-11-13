@@ -17,8 +17,8 @@
 //!
 //! Hartley & Zisserman, *Multiple View Geometry in Computer Vision*, 2nd ed.
 
-use crate::{Mat3, Mat4, Pt2, Pt3, Real};
-use nalgebra::{DMatrix, DVector, Matrix3x4, Schur};
+use crate::{Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec3};
+use nalgebra::{DMatrix, DVector, Matrix3x4, Rotation3, Schur, Translation3, UnitQuaternion};
 
 /// Errors returned by the fallible primitives in this module.
 ///
@@ -301,6 +301,19 @@ pub fn project_to_so3(m: &Mat3) -> Result<Mat3, MathError> {
         r = u_fixed * v_t;
     }
     Ok(r)
+}
+
+/// The rigid transform with rotation matrix `r` and translation `t`.
+///
+/// `r` must already be a rotation (orthonormal, `det = +1`), as
+/// [`project_to_so3`] returns: it is converted to a quaternion in closed
+/// form, not re-projected onto SO(3) (nalgebra's iterative
+/// `Rotation3::from_matrix` mis-converges on exact 180° rotations).
+pub fn iso_from_rotation(r: &Mat3, t: &Vec3) -> Iso3 {
+    Iso3::from_parts(
+        Translation3::from(*t),
+        UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(*r)),
+    )
 }
 
 /// Solution of a homogeneous least-squares ([`null_space`]) solve.

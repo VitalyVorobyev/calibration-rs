@@ -42,7 +42,7 @@
 //! through the second.
 
 use crate::bearing::{bearing, camera_model};
-use crate::sensitivity::{POSE_AXES, camera_coordinates, skew};
+use crate::sensitivity::{POSE_AXES, camera_coordinates};
 use crate::triangulation::{sub_covariance, with_context};
 use crate::types::{CapturePose, Captures};
 use crate::{Error, Result};
@@ -510,7 +510,7 @@ fn linearize(
         if let Some(first) = cols.extrinsic {
             let w = &s.world_rotation;
             j_c.fixed_view_mut::<3, 3>(3 * i, first)
-                .copy_from(&(w * skew(&s.q)));
+                .copy_from(&(w * s.q.cross_matrix()));
             j_c.fixed_view_mut::<3, 3>(3 * i, first + 3)
                 .copy_from(&(-w));
         }
@@ -519,7 +519,7 @@ fn linearize(
         if let Some(link) = &poses[obs.capture].robot {
             let mut d_xi = Matrix3x6::<Real>::zeros();
             d_xi.fixed_view_mut::<3, 3>(0, 0)
-                .copy_from(&skew(&point.point.coords));
+                .copy_from(&point.point.coords.cross_matrix());
             d_xi.fixed_view_mut::<3, 3>(0, 3)
                 .copy_from(&(-Matrix3::identity()));
             if let Some(first) = handeye {
