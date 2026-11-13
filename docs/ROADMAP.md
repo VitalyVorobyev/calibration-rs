@@ -118,6 +118,7 @@ geometry takes a bare `K`, carries no covariance and has no demonstration.
 |---|---|---|
 | Book | The one user guide; next, a results page generated from the regression suite and interactive demos running the library in the browser through a wasm build (MVG σ, planar σ, the camera models) | `check-docs`; every demo runs in the published book |
 | App | Rebuilt frontend on the `@vitavision/workbench` shell, organized as Project → Dataset → Detect → Calibrate → Diagnose → Use. Saved runs, reports, solver progress with cancel, installers that run without a source checkout | App gates (AGENTS.md §12) plus a frontend review with no high-severity findings |
+| Bindings and internals | One source per type and per helper: Python types generated from the Rust schemas, MVG results with a schema, the fixed problems built through the public builder | No hand-written copy of a Rust type in Python; results bit-identical or measured |
 
 ## Ordering
 

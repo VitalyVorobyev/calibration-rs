@@ -60,6 +60,45 @@ need their measurement first and stay opt-in until it is in.
   different view than it did fails; the matching cases give bit-identical
   results.
 
+## Bindings and internals (alongside)
+
+- [ ] PY-MODELS-GEN - `models.py` and the problem modules hand-write the
+  config, seed and export dataclasses (87 classes with `to_payload` /
+  `from_payload`) beside the TypedDicts `cargo xtask emit-schemas` generates
+  from the same Rust types (`_generated_types.py`); 68 names exist twice.
+  `tests/test_config_defaults.py` pins the defaults to
+  `schemas/*.default.json`, but fields and converters are still kept in
+  step by hand. Generate the dataclasses and their converters in
+  `xtask/src/py_types.rs`, keeping the class names and the Python-only
+  conveniences (`Pose`, the distortion classes) as a thin hand-written
+  layer. Gate: no hand-written class for a type the schemas describe; the
+  Python suite and the binding parity check pass unchanged.
+- [ ] PY-MVG-SCHEMA - The MVG results have no schema:
+  `vision-calibration-py/src/mvg.rs` builds JSON by hand (`json!`) and
+  `mvg.py` parses it back into hand-written dataclasses. Derive `Serialize`
+  and `JsonSchema` on the `vision-mvg` result types (or binding-side wire
+  structs), publish their schemas and generate the Python types. Needs:
+  PY-MODELS-GEN.
+- [ ] OPTIM-FIXED-ON-BUILDER - The fixed problems of `optim::problems`
+  build their IR by hand, beside the public `optim::problem` builder that
+  produces the same IR for reprojection (`add_reprojection`, `lower`); only
+  `vision-mvg` uses the builder. Give the builder the hand-eye chain and
+  the laser residuals, then build the fixed problems through it. Results
+  bit-identical on both backends.
+- [ ] MATH-ONE-SO3-LOG - Two SO(3) logarithms (`linear/src/handeye.rs`
+  `log_so3`: nalgebra angle-axis, zero below 1e-12;
+  `optim/src/problem/calibration.rs` `so3_log`: sign-fixed `atan2` with a
+  small-angle series) and two pose-from-homography functions
+  (`linear/src/planar_pose.rs`, guarded against singular columns and signed
+  on `t.z`; `geometry/src/pnp/planar.rs`, unguarded and signed on `h₃.z`)
+  differ in arithmetic. Keep one of each in the lowest crate (the guarded
+  ones), and measure what moves: the hand-eye initializers and planar PnP.
+- [ ] CI-PRIVATE-EXAMPLES - `vision-calibration-examples-private` is built
+  by no CI job, because it path-depends on the sibling `vision-metrology`
+  checkout; an example there stopped compiling unnoticed. Check it in CI
+  with that repository checked out beside this one, or move the laser
+  extraction it needs behind a feature so the rest checks alone.
+
 ## Regression suite (alongside)
 
 A versioned public suite for regression and for comparison with other
@@ -213,6 +252,17 @@ were. What is left reorganizes them around the project.
   observer, and surface the returned `rejected`, `usable_views` and
   `image_sizes`. Needs: DATA-VIEW-IDENTITY (which puts the manifest in
   every export). Gate: the app's run tests, and no `run_*_topology` left.
+- [ ] APP-WIRE-TYPES - `app/src/types.ts` hand-writes `FrameRef`,
+  `ImageManifest`, `PerFeatureResiduals` and `ExportDiagnostics` stricter
+  than the generated wire types (`types/generated/diagnose-wire.ts`): the
+  wire allows a null `roi` and `image_manifest` and an absent `target` and
+  `per_feature_residuals`, the hand-written types do not. `AnyExport`
+  (`store/types.ts`), `RunResponse` (`lib/runCalibration.ts`) and `RunRecord`
+  (`project/projectApi.ts`) mirror Rust types that are not in the wire
+  schema. Use the generated types, handle the absent cases where the
+  components read them, and emit the last three from
+  `src-tauri/src/bin/emit_schemas.rs`. Gate: no hand-written mirror of a
+  Rust type in `app/src`.
 
 ## Solver backends and performance (Phase 2)
 
