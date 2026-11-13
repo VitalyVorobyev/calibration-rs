@@ -5,70 +5,42 @@
 // Rust field.
 
 import type { StageView } from "@vitavision/stage2d";
+import type {
+  FeatureResidualHistogram,
+  FrameKind,
+  LaserFeatureResidual,
+  LaserLineTrace,
+  PixelRect,
+  TargetFeatureResidual,
+} from "./types/generated/diagnose-wire";
 
-export interface PixelRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+// The wire types the viewer reads with the same shape as their generated
+// definition are that definition.
+export type {
+  FeatureResidualHistogram,
+  FrameKind,
+  LaserFeatureResidual,
+  LaserLineTrace,
+  PixelRect,
+  TargetFeatureResidual,
+} from "./types/generated/diagnose-wire";
 
-/** What a frame depicts (ADR 0016 §5). Absent on the wire means
- * "target" — exports written before the discriminator omit it. */
-export type FrameKind = "target" | "laser";
+// The rest narrow their generated definition: the viewer reads an export
+// whose `diagnostics` group carries `per_feature_residuals` (with `target`)
+// and whose optional fields are absent rather than `null`.
 
 export interface FrameRef {
   view: number;
   camera: number;
   path: string;
   roi?: PixelRect;
+  /** Absent on the wire means "target". */
   kind?: FrameKind;
 }
 
 export interface ImageManifest {
   root: string;
   frames: FrameRef[];
-}
-
-export interface TargetFeatureResidual {
-  view: number;
-  camera: number;
-  feature: number;
-  target_xyz_m: [number, number, number];
-  observed_px: [number, number];
-  projected_px?: [number, number] | null;
-  error_px?: number | null;
-}
-
-/** Per-laser-pixel residual record (laser problem types only). */
-export interface LaserFeatureResidual {
-  view: number;
-  camera: number;
-  feature: number;
-  observed_px: [number, number];
-  /** Point-to-plane distance in meters; null when the back-projected
-   * ray does not intersect the target plane. */
-  residual_m?: number | null;
-  /** Distance to the projected laser line in pixels, as the laser solve
-   * measures it (on the undistorted image plane). */
-  residual_px?: number | null;
-}
-
-/** The calibrated laser line in one view's image: a polyline (distortion
- * bends it) spanning the view's laser pixels. */
-export interface LaserLineTrace {
-  view: number;
-  camera: number;
-  points_px: [number, number][];
-}
-
-/** Aggregate residual histogram (fixed [<=1, <=2, <=5, <=10, >10] px buckets). */
-export interface FeatureResidualHistogram {
-  bucket_edges_px: [number, number, number, number];
-  counts: [number, number, number, number, number];
-  count: number;
-  mean: number;
-  max: number;
 }
 
 export interface PerFeatureResiduals {
@@ -86,21 +58,6 @@ export interface PerFeatureResiduals {
 export interface ExportDiagnostics {
   per_feature_residuals: PerFeatureResiduals;
   image_manifest?: ImageManifest;
-}
-
-/** The subset of PlanarIntrinsicsExport the viewer reads. */
-export interface PlanarExport {
-  diagnostics: ExportDiagnostics;
-  /** Optional on the wire — older export files may omit it. */
-  mean_reproj_error?: number;
-}
-
-/** Tauri command response from `load_export`. */
-export interface LoadExportResult {
-  /** The raw export JSON. */
-  export: PlanarExport;
-  /** Absolute filesystem directory containing the export.json. */
-  export_dir: string;
 }
 
 /** A `(pose, camera)` selector entry materialised from the manifest. */

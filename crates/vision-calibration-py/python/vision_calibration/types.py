@@ -19,86 +19,16 @@ high-level API for new code.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, TypeAlias
+from typing import TypeAlias
 
 from . import _generated_types
 from ._generated_types import *  # noqa: F403 -- the generated payload types
-from ._generated_types import (
-    CameraParams,
-    DistortionKind,
-    DistortionParams,
-    DistortionParams_BrownConrady5,
-    DistortionParams_Division,
-    DistortionParams_Rational,
-    DistortionParams_ThinPrism,
-    FxFyCxCy,
-    Iso3,
-    LaserPlane,
-    ProjectionKind,
-    Progress,
-    RobustLoss_Arctan,
-    RobustLoss_Cauchy,
-    RobustLoss_Huber,
-    ScheimpflugParams,
-    SensorKind,
-    UncertaintyUnavailable,
-)
+from ._generated_types import Progress
 
 # What a long call's ``progress`` argument is called with, once per report:
 # an image read, a step begun, a solver iteration finished. Its return value
 # is ignored; raising stops the call.
 ProgressCallback: TypeAlias = Callable[[Progress], object]
 
-# Untyped JSON containers; no schema describes "any object".
-JsonObject: TypeAlias = dict[str, Any]
-JsonArray: TypeAlias = list[Any]
-
-# A robot pose correction `[rx, ry, rz, tx, ty, tz]`, the element of an
-# export's `robot_refinement.deltas`. The schema has it as an anonymous fixed-size array,
-# so it has no generated name.
-Se3Delta: TypeAlias = tuple[float, float, float, float, float, float] | list[float]
-
-# Python spellings of generated types. Each names the same type as its
-# right-hand side; new code uses the Rust name.
-Transform: TypeAlias = Iso3
-IntrinsicsPayload: TypeAlias = FxFyCxCy
-DistortionPayload: TypeAlias = DistortionParams
-DistortionParamsPayload: TypeAlias = DistortionParams
-ScheimpflugPayload: TypeAlias = ScheimpflugParams
-LaserPlanePayload: TypeAlias = LaserPlane
-DistortionModel: TypeAlias = DistortionKind
-ProjectionModel: TypeAlias = ProjectionKind
-SensorModel: TypeAlias = SensorKind
-DistortionBrownConrady5: TypeAlias = DistortionParams_BrownConrady5
-DistortionDivision: TypeAlias = DistortionParams_Division
-DistortionRational: TypeAlias = DistortionParams_Rational
-DistortionThinPrism: TypeAlias = DistortionParams_ThinPrism
-RobustLossHuber: TypeAlias = RobustLoss_Huber
-RobustLossCauchy: TypeAlias = RobustLoss_Cauchy
-RobustLossArctan: TypeAlias = RobustLoss_Arctan
-UncertaintyUnavailableReason: TypeAlias = UncertaintyUnavailable
-
-__all__ = [
-    "ProgressCallback",
-    "JsonObject",
-    "JsonArray",
-    "Se3Delta",
-    "Transform",
-    "IntrinsicsPayload",
-    "DistortionPayload",
-    "DistortionParamsPayload",
-    "ScheimpflugPayload",
-    "LaserPlanePayload",
-    "DistortionModel",
-    "ProjectionModel",
-    "SensorModel",
-    "DistortionBrownConrady5",
-    "DistortionDivision",
-    "DistortionRational",
-    "DistortionThinPrism",
-    "RobustLossHuber",
-    "RobustLossCauchy",
-    "RobustLossArctan",
-    "UncertaintyUnavailableReason",
-]
+__all__ = ["ProgressCallback"]
 __all__ += _generated_types.__all__

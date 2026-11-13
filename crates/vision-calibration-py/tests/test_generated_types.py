@@ -180,9 +180,7 @@ class GeneratedShapesTest(unittest.TestCase):
     def test_types_module_reexports_the_generated_types(self) -> None:
         for name in gen.__all__:
             self.assertIs(getattr(vc_types, name), getattr(gen, name), name)
-        self.assertIs(vc_types.Transform, gen.Iso3)
-        self.assertIs(vc_types.DistortionModel, gen.DistortionKind)
-        self.assertIs(vc_types.RobustLossHuber, gen.RobustLoss_Huber)
+        self.assertEqual(set(vc_types.__all__) - set(gen.__all__), {"ProgressCallback"})
 
 
 if __name__ == "__main__":

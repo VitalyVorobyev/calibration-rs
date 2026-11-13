@@ -525,6 +525,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   In Python `vc.IntrinsicsManualInit` and `vc.RigIntrinsicsManualInit` are
   importable from the package root; the problem modules re-export them.
 
+- **`vision_calibration.types` carries only the generated payload types and
+  `ProgressCallback`** (breaking, Python). Its other aliases are removed; use
+  the generated type each named: `Transform` → `Iso3`, `IntrinsicsPayload` →
+  `FxFyCxCy`, `DistortionPayload` and `DistortionParamsPayload` →
+  `DistortionParams`, `ScheimpflugPayload` → `ScheimpflugParams`,
+  `LaserPlanePayload` → `LaserPlane`, `DistortionModel` → `DistortionKind`,
+  `ProjectionModel` → `ProjectionKind`, `SensorModel` → `SensorKind`,
+  `DistortionBrownConrady5` / `DistortionDivision` / `DistortionRational` /
+  `DistortionThinPrism` → `DistortionParams_BrownConrady5` / `_Division` /
+  `_Rational` / `_ThinPrism`, `RobustLossHuber` / `RobustLossCauchy` /
+  `RobustLossArctan` → `RobustLoss_Huber` / `_Cauchy` / `_Arctan`,
+  `UncertaintyUnavailableReason` → `UncertaintyUnavailable`. `JsonObject`
+  and `JsonArray` are `dict[str, Any]` and `list[Any]`; `Se3Delta` is
+  `list[float]`.
+
 ### Changed
 
 - **A hand-eye seed of one pose closes the other through the first view, in
