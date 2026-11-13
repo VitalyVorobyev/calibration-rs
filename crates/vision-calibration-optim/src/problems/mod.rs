@@ -1,6 +1,7 @@
 //! Problem builders for different calibration tasks.
 
 pub mod handeye;
+mod handeye_chain;
 pub mod laserline_bundle;
 pub mod laserline_rig_bundle;
 pub mod planar_intrinsics;

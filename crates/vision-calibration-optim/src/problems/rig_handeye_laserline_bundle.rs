@@ -17,23 +17,22 @@
 //! then corrects residual inconsistencies across the stages.
 
 use crate::Error;
-use crate::backend::{self, BackendSolveOptions, SolveReport};
-use crate::ir::ReprojSqrtInfo;
+use crate::backend::{BackendSolveOptions, SolveReport};
 use crate::ir::{
-    FactorKind, FixedMask, HandeyeMode, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
-    ResidualBlock, RobustLoss,
+    FactorKind, FixedMask, HandeyeMode, LaserChain, ManifoldKind, ProblemIR, ResidualBlock,
+    RobustLoss,
 };
-use crate::params::camera::{
-    CameraBlockInput, add_camera_blocks, camera_block_values, unpack_camera,
-};
+use crate::params::camera::camera_block_values;
 use crate::params::laser_plane::{distance_to_dvec, normal_to_dvec, plane_from_split_dvec};
-use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
+use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::handeye::{RobotPoseMeta, apply_robot_delta};
+use crate::problems::handeye_chain::{
+    self, ChainInit, RobotSolve, SolvedChain, ViewChain, se3_array,
+};
 use crate::problems::laserline_bundle::LaserlineResidualType;
 use crate::problems::laserline_rig_bundle::{RigLaserlineDataset, RigLaserlineView};
-use crate::problems::rig_extrinsics::{camera_models, resolve_camera_fix};
-use crate::problems::robot_poses::{self, RobotPoseSigma, RobotRefinement, Weighting};
-use crate::uncertainty::{self, RigLabelling};
+use crate::problems::rig_extrinsics::{camera_models, resolve_camera_fix, solved_pose};
+use crate::problems::robot_poses::{RobotPoseSigma, RobotRefinement, Weighting};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -332,81 +331,24 @@ pub fn optimize_rig_handeye_laserline(
 ) -> Result<RigHandeyeLaserlineEstimate, Error> {
     let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
     let build = |weighting| build_ir(&dataset, &initial, &specs, &fixed, &opts, weighting);
-    let priors = RobotPoseSigma {
-        rot_sigma: opts.robot_rot_sigma,
-        trans_sigma: opts.robot_trans_sigma,
+    let robot = RobotSolve {
+        refine: opts.refine_robot_poses,
+        priors: RobotPoseSigma {
+            rot_sigma: opts.robot_rot_sigma,
+            trans_sigma: opts.robot_trans_sigma,
+        },
+        estimate: opts.estimate_robot_sigma,
     };
-    let (ir, solution, robot_pose_sigma) = if opts.refine_robot_poses {
-        let (ir, solution, priors) = robot_poses::solve_weighted(
-            build,
-            priors,
-            opts.estimate_robot_sigma,
-            dataset.num_views(),
-            &backend_opts,
-        )?;
-        (ir, solution, Some(priors))
-    } else {
-        let (ir, initial_map) = build(Weighting::initial(priors))?;
-        let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
-        (ir, solution, None)
-    };
-    let labels = RigLabelling {
-        cameras: &specs,
-        multi_camera: dataset.num_cameras > 1,
-        handeye_mode: Some(dataset.mode),
-    }
-    .labels(&ir, &solution);
-
-    // Extract refined parameters.
-    let cameras = specs
-        .iter()
-        .enumerate()
-        .map(|(i, spec)| unpack_camera(&solution.params, *spec, Some(i)))
-        .collect::<Result<Vec<_>, Error>>()?;
-    let rig_se3_cam = (0..dataset.num_cameras)
-        .map(|cam_idx| {
-            se3_dvec_to_iso3(
-                solution
-                    .params
-                    .get(&format!("extr/{cam_idx}"))
-                    .unwrap()
-                    .as_view(),
-            )
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-    let handeye = se3_dvec_to_iso3(solution.params.get("handeye").unwrap().as_view())?;
-    let target_ref = se3_dvec_to_iso3(solution.params.get("target_ref").unwrap().as_view())?;
-    let planes_cam = (0..dataset.num_cameras)
-        .map(|cam_idx| {
-            let normal_v = solution
-                .params
-                .get(&format!("plane_n/{cam_idx}"))
-                .unwrap()
-                .as_view();
-            let dist_v = solution
-                .params
-                .get(&format!("plane_d/{cam_idx}"))
-                .unwrap()
-                .as_view();
-            plane_from_split_dvec(normal_v, dist_v)
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-
-    let params = RigHandeyeLaserlineParams {
-        cameras,
-        rig_se3_cam,
-        handeye,
-        target_ref,
-        laser_planes_cam: planes_cam,
-    };
-
-    let robot_refinement = match robot_pose_sigma {
-        Some(sigma) => Some(RobotRefinement {
-            deltas: robot_poses::solved_deltas(&solution.params, dataset.num_views())?,
-            sigma,
-        }),
-        None => None,
-    };
+    let solution = handeye_chain::solve(
+        build,
+        robot,
+        &specs,
+        dataset.mode,
+        dataset.num_views(),
+        &backend_opts,
+    )?;
+    let params = unpack_params(&solution.params, &specs)?;
+    let robot_refinement = solution.robot_refinement(dataset.num_views())?;
 
     let laser_planes_rig: Vec<LaserPlane> = params
         .laser_planes_cam
@@ -424,11 +366,44 @@ pub fn optimize_rig_handeye_laserline(
     Ok(RigHandeyeLaserlineEstimate {
         params,
         laser_planes_rig,
-        report: solution.solve_report,
+        report: solution.report,
         mean_reproj_error,
         per_cam_stats,
         robot_refinement,
-        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
+        uncertainty: solution.uncertainty,
+    })
+}
+
+/// The refined parameters read back from the solved blocks, one camera per
+/// entry of `specs`.
+fn unpack_params(
+    solution: &HashMap<String, DVector<f64>>,
+    specs: &[CameraModelSpec],
+) -> Result<RigHandeyeLaserlineParams, Error> {
+    let SolvedChain {
+        cameras,
+        rig_se3_cam,
+        handeye,
+    } = handeye_chain::unpack(solution, specs)?;
+    let target_ref = solved_pose(solution, "target_ref")?;
+    let laser_planes_cam = (0..specs.len())
+        .map(|cam_idx| {
+            let block = |name: String| {
+                solution
+                    .get(&name)
+                    .ok_or_else(|| Error::numerical(format!("missing {name} solution block")))
+            };
+            let normal = block(format!("plane_n/{cam_idx}"))?;
+            let distance = block(format!("plane_d/{cam_idx}"))?;
+            plane_from_split_dvec(normal.as_view(), distance.as_view())
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    Ok(RigHandeyeLaserlineParams {
+        cameras,
+        rig_se3_cam,
+        handeye,
+        target_ref,
+        laser_planes_cam,
     })
 }
 
@@ -501,10 +476,7 @@ fn compute_stats(
         } else {
             view.meta.base_se3_gripper
         };
-        let robot_arr: [f64; 7] = {
-            let v = iso3_to_se3_dvec(&robot_pose);
-            [v[0], v[1], v[2], v[3], v[4], v[5], v[6]]
-        };
+        let robot_arr = se3_array(&robot_pose);
 
         // Target-corner reprojection: compute cam_se3_target per view from
         // the chain and forward-project each 3D corner. Matches the
@@ -705,45 +677,20 @@ fn build_ir(
     let mut ir = ProblemIR::new();
     let mut initial_map: HashMap<String, DVector<f64>> = HashMap::new();
 
-    let extr_fixed =
-        |cam_idx: usize| -> bool { opts.fix_extrinsics.get(cam_idx).copied().unwrap_or(false) };
     let plane_fixed =
         |cam_idx: usize| -> bool { opts.fix_planes.get(cam_idx).copied().unwrap_or(false) };
 
-    // 1. Per-camera blocks, grouped by slot.
-    let inputs: Vec<CameraBlockInput<'_>> = initial
-        .cameras
-        .iter()
-        .zip(fixed)
-        .map(|(params, fixed)| CameraBlockInput {
-            params,
-            fixed,
-            bounds: None,
-        })
-        .collect();
-    let camera_blocks = add_camera_blocks(&mut ir, &mut initial_map, &inputs, true)?;
-    // 4. Per-camera extrinsics.
-    let mut extr_ids = Vec::with_capacity(n);
-    for (cam_idx, rig_se3_cam) in initial.rig_se3_cam.iter().enumerate() {
-        let fixed = if extr_fixed(cam_idx) {
-            FixedMask::all_fixed(7)
-        } else {
-            FixedMask::all_free()
-        };
-        let key = format!("extr/{cam_idx}");
-        let id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
-        extr_ids.push(id);
-        initial_map.insert(key, iso3_to_se3_dvec(rig_se3_cam));
+    // 1. Per-camera blocks, extrinsics and hand-eye.
+    let blocks = ChainInit {
+        cameras: &initial.cameras,
+        fixed,
+        rig_se3_cam: &initial.rig_se3_cam,
+        fix_extrinsics: &opts.fix_extrinsics,
+        handeye: &initial.handeye,
+        fix_handeye: opts.fix_handeye,
     }
-    // 5. Hand-eye.
-    let handeye_fixed = if opts.fix_handeye {
-        FixedMask::all_fixed(7)
-    } else {
-        FixedMask::all_free()
-    };
-    let handeye_id = ir.add_param_block("handeye", 7, ManifoldKind::SE3, handeye_fixed, None);
-    initial_map.insert("handeye".to_string(), iso3_to_se3_dvec(&initial.handeye));
-    // 6. Target reference pose.
+    .add_blocks(&mut ir, &mut initial_map)?;
+    // 2. Target reference pose.
     let target_ref_fixed = if opts.fix_target_ref {
         FixedMask::all_fixed(7)
     } else {
@@ -755,7 +702,7 @@ fn build_ir(
         "target_ref".to_string(),
         iso3_to_se3_dvec(&initial.target_ref),
     );
-    // 7. Per-camera laser planes.
+    // 3. Per-camera laser planes.
     let mut plane_n_ids = Vec::with_capacity(n);
     let mut plane_d_ids = Vec::with_capacity(n);
     for (cam_idx, plane) in initial.laser_planes_cam.iter().enumerate() {
@@ -779,19 +726,9 @@ fn build_ir(
         initial_map.insert(key_d, distance_to_dvec(plane));
     }
 
-    // 8. Residuals per view.
+    // 4. Residuals per view.
     for (view_idx, view) in dataset.views.iter().enumerate() {
-        let robot_se3 = iso3_to_se3_dvec(&view.meta.base_se3_gripper);
-        let robot_arr: [f64; 7] = [
-            robot_se3[0],
-            robot_se3[1],
-            robot_se3[2],
-            robot_se3[3],
-            robot_se3[4],
-            robot_se3[5],
-            robot_se3[6],
-        ];
-
+        let robot_arr = se3_array(&view.meta.base_se3_gripper);
         let robot_delta_id = opts.refine_robot_poses.then(|| {
             weighting.add_view(
                 &mut ir,
@@ -800,102 +737,61 @@ fn build_ir(
                 opts.initial_robot_deltas.as_ref().map(|d| &d[view_idx]),
             )
         });
+        let view_chain = ViewChain {
+            target: target_ref_id,
+            robot_delta: robot_delta_id,
+            base_se3_gripper: robot_arr,
+            mode: dataset.mode,
+        };
 
-        for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
-            let Some(obs) = cam_obs else { continue };
-            let (params, chain) = match robot_delta_id {
-                Some(robot_delta_id) => (
-                    camera_blocks[cam_idx].with(&[
-                        extr_ids[cam_idx],
-                        handeye_id,
-                        target_ref_id,
-                        robot_delta_id,
-                    ]),
-                    ReprojChain::HandeyeRobotDelta {
-                        base_se3_gripper: robot_arr,
-                        mode: dataset.mode,
-                    },
-                ),
-                None => (
-                    camera_blocks[cam_idx].with(&[extr_ids[cam_idx], handeye_id, target_ref_id]),
-                    ReprojChain::Handeye {
-                        base_se3_gripper: robot_arr,
-                        mode: dataset.mode,
-                    },
-                ),
-            };
-            for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
-                ir.add_residual_block(ResidualBlock {
-                    params: params.clone(),
-                    loss: opts.reprojection_loss,
-                    factor: FactorKind::ReprojPoint {
+        view_chain.add_reprojections(
+            &mut ir,
+            &blocks,
+            &view.obs.cameras,
+            specs,
+            opts.reprojection_loss,
+            opts.reprojection_weight,
+        );
+        let chain = if robot_delta_id.is_some() {
+            LaserChain::RigHandeyeRobotDelta {
+                base_se3_gripper: robot_arr,
+                mode: dataset.mode,
+            }
+        } else {
+            LaserChain::RigHandeye {
+                base_se3_gripper: robot_arr,
+                mode: dataset.mode,
+            }
+        };
+        for (cam_idx, pixels_slot) in view.obs.laser_pixels.iter().enumerate() {
+            let Some(pixels) = pixels_slot else { continue };
+            let params = view_chain.params(
+                &blocks,
+                cam_idx,
+                &[plane_n_ids[cam_idx], plane_d_ids[cam_idx]],
+            );
+            for px in pixels {
+                let laser_px = [px.x, px.y];
+                let factor = match opts.laser_residual_type {
+                    LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
                         model: specs[cam_idx],
                         chain,
-                        pw: [pw.x, pw.y, pw.z],
-                        uv: [uv.x, uv.y],
-                        sqrt_info: ReprojSqrtInfo::for_point(obs, pt_idx)
-                            .weighted(opts.reprojection_weight),
+                        laser_pixel: laser_px,
+                        w: opts.laser_weight,
                     },
-                    residual_dim: 2,
+                    LaserlineResidualType::LineDistNormalized => FactorKind::LaserLineDistance {
+                        model: specs[cam_idx],
+                        chain,
+                        laser_pixel: laser_px,
+                        w: opts.laser_weight,
+                    },
+                };
+                ir.add_residual_block(ResidualBlock {
+                    params: params.clone(),
+                    loss: opts.laser_loss,
+                    factor,
+                    residual_dim: 1,
                 });
-            }
-        }
-        for (cam_idx, pixels_slot) in view.obs.laser_pixels.iter().enumerate() {
-            if let Some(pixels) = pixels_slot {
-                for px in pixels {
-                    let laser_px = [px.x, px.y];
-                    let chain = if robot_delta_id.is_some() {
-                        LaserChain::RigHandeyeRobotDelta {
-                            base_se3_gripper: robot_arr,
-                            mode: dataset.mode,
-                        }
-                    } else {
-                        LaserChain::RigHandeye {
-                            base_se3_gripper: robot_arr,
-                            mode: dataset.mode,
-                        }
-                    };
-                    let factor = match opts.laser_residual_type {
-                        LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
-                            model: specs[cam_idx],
-                            chain,
-                            laser_pixel: laser_px,
-                            w: opts.laser_weight,
-                        },
-                        LaserlineResidualType::LineDistNormalized => {
-                            FactorKind::LaserLineDistance {
-                                model: specs[cam_idx],
-                                chain,
-                                laser_pixel: laser_px,
-                                w: opts.laser_weight,
-                            }
-                        }
-                    };
-                    let residual = ResidualBlock {
-                        params: if let Some(robot_delta_id) = robot_delta_id {
-                            camera_blocks[cam_idx].with(&[
-                                extr_ids[cam_idx],
-                                handeye_id,
-                                target_ref_id,
-                                plane_n_ids[cam_idx],
-                                plane_d_ids[cam_idx],
-                                robot_delta_id,
-                            ])
-                        } else {
-                            camera_blocks[cam_idx].with(&[
-                                extr_ids[cam_idx],
-                                handeye_id,
-                                target_ref_id,
-                                plane_n_ids[cam_idx],
-                                plane_d_ids[cam_idx],
-                            ])
-                        },
-                        loss: opts.laser_loss,
-                        factor,
-                        residual_dim: 1,
-                    };
-                    ir.add_residual_block(residual);
-                }
             }
         }
     }
@@ -1114,6 +1010,50 @@ mod tests {
         let dataset =
             RigHandeyeLaserlineDataset::new(dataset_views, 2, HandeyeMode::EyeToHand).unwrap();
         (dataset, params_gt)
+    }
+
+    /// A solution without one of the problem's blocks is an error, not a
+    /// panic; with every block it reads back the values it was given.
+    #[test]
+    fn unpack_reports_a_missing_solution_block() {
+        let (dataset, params) = setup_synthetic_rig();
+        let opts = RigHandeyeLaserlineSolveOptions::default();
+        let (specs, fixed) = resolve_camera_fix(&params.cameras, &opts.fix).unwrap();
+        let priors = RobotPoseSigma {
+            rot_sigma: opts.robot_rot_sigma,
+            trans_sigma: opts.robot_trans_sigma,
+        };
+        let (_, blocks) = build_ir(
+            &dataset,
+            &params,
+            &specs,
+            &fixed,
+            &opts,
+            Weighting::initial(priors),
+        )
+        .unwrap();
+
+        let unpacked = unpack_params(&blocks, &specs).unwrap();
+        assert!(
+            (unpacked.handeye.inverse() * params.handeye)
+                .translation
+                .vector
+                .norm()
+                < 1e-12
+        );
+        assert!(
+            (unpacked.target_ref.inverse() * params.target_ref)
+                .rotation
+                .angle()
+                < 1e-12
+        );
+
+        for name in ["handeye", "target_ref", "extr/1", "plane_n/0", "plane_d/1"] {
+            let mut partial = blocks.clone();
+            partial.remove(name);
+            let err = unpack_params(&partial, &specs).expect_err(name);
+            assert!(err.to_string().contains(name), "{name}: {err}");
+        }
     }
 
     #[test]

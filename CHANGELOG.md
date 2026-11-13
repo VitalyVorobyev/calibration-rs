@@ -550,6 +550,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `optimize_rig_handeye_laserline` returns an `Error::Numerical` naming the
+  block when the solver's solution lacks one of the problem's parameter
+  blocks; it used to panic.
+
 - `calibrate_dataset` asks for a manifest's missing `pose_pairing`
   (`RunError::AskUser`) before it reads any image; it used to report the
   first unreadable image instead.
