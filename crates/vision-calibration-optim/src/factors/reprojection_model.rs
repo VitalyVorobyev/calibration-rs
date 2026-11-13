@@ -6,20 +6,6 @@ use nalgebra::{
     DVector, DVectorView, Matrix3, Quaternion, RealField, SVector, UnitQuaternion, Vector3,
 };
 
-fn skew_matrix<T: RealField>(w: &Vector3<T>) -> Matrix3<T> {
-    Matrix3::new(
-        T::zero(),
-        -w.z.clone(),
-        w.y.clone(),
-        w.z.clone(),
-        T::zero(),
-        -w.x.clone(),
-        -w.y.clone(),
-        w.x.clone(),
-        T::zero(),
-    )
-}
-
 /// `exp` of an se(3) tangent `[ω, v]`: the rotation `Exp(ω)` and the
 /// translation `V(ω) v`.
 ///
@@ -38,7 +24,7 @@ pub(crate) fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T
     let series =
         theta2.clone() <= T::from_f64(SE3_EXP_SERIES_ANGLE * SE3_EXP_SERIES_ANGLE).unwrap();
 
-    let w_hat = skew_matrix(&w);
+    let w_hat = w.cross_matrix();
     let w_hat2 = w_hat.clone() * w_hat.clone();
 
     let (b, c, rot) = if series {

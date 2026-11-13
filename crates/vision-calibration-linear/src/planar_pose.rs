@@ -5,8 +5,8 @@
 //! or from the bearings of any central camera.
 
 use crate::Error;
-use nalgebra::{Matrix3, Rotation3, SMatrix, SVector, Translation3, UnitQuaternion, Vector3};
-use vision_calibration_core::linalg::normalize_points_2d;
+use nalgebra::{Matrix3, SMatrix, SVector, Vector3};
+use vision_calibration_core::linalg::{iso_from_rotation, normalize_points_2d};
 use vision_calibration_core::{Iso3, Mat3, Pt2, Real};
 
 /// Linear pose initialisation from a homography and intrinsics.
@@ -91,7 +91,7 @@ impl PlanarPoseSolver {
             t_vec = -t_vec;
         }
 
-        Ok(build_iso(r_orth, t_vec))
+        Ok(iso_from_rotation(&r_orth, &t_vec))
     }
 }
 
@@ -199,20 +199,13 @@ pub fn estimate_planar_pose_from_bearings(
     }
     let r_orth =
         vision_calibration_core::linalg::project_to_so3(&Matrix3::from_columns(&[r1, r2, r3]))?;
-    Ok(build_iso(r_orth, t_vec))
-}
-
-fn build_iso(r_orth: Matrix3<Real>, t_vec: Vector3<Real>) -> Iso3 {
-    let rot = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r_orth));
-    let trans = Translation3::from(t_vec);
-
-    Iso3::from_parts(trans, rot)
+    Ok(iso_from_rotation(&r_orth, &t_vec))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Isometry3, Matrix3, Rotation3, Vector3};
+    use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, Vector3};
     use vision_calibration_core::FxFyCxCy;
 
     fn make_kmtx() -> Mat3 {

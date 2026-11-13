@@ -45,7 +45,6 @@ use nalgebra::{
 ///
 /// 1D residual scaled by sqrt(w): [distance * sqrt(w)]
 /// Model-generic core of the point-to-plane laser residual.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn laser_point_to_plane_core<T: RealField>(
     camera: &CameraBlocks<'_, T>,
     pose: DVectorView<'_, T>,
@@ -228,7 +227,6 @@ fn project_line_to_normalized_plane<T: RealField>(
 ///
 /// 1D residual scaled by sqrt(w): [distance_pixels * sqrt(w)], from
 /// [`laser_line_distance`]; a large constant where that is undefined.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn laser_line_dist_core<T: RealField>(
     camera: &CameraBlocks<'_, T>,
     pose: DVectorView<'_, T>,
@@ -342,7 +340,6 @@ pub(crate) fn laser_line_distance<T: RealField>(
 /// - `target_ref`: 7D SE3 — `base_se3_target` (EyeInHand) or
 ///   `gripper_se3_target` (EyeToHand).
 /// - `robot_se3`: known `base_se3_gripper` for this view.
-#[allow(clippy::too_many_arguments)]
 fn compose_cam_se3_target_with_delta_generic<T: RealField>(
     rig_se3_cam: DVectorView<'_, T>,
     handeye: DVectorView<'_, T>,

@@ -1,7 +1,7 @@
 //! A calibrated rig on a robot: its hand-eye, the robot's pose at a capture
 //! and the robot frame a measurement is stated in.
 
-use nalgebra::{Matrix3, Matrix6};
+use nalgebra::Matrix6;
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Iso3, Real};
@@ -130,7 +130,7 @@ pub struct RigInFrame {
 pub fn se3_adjoint(pose: &Iso3) -> Matrix6<Real> {
     let r = pose.rotation.to_rotation_matrix().into_inner();
     let t = pose.translation.vector;
-    let tr = Matrix3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0) * r;
+    let tr = t.cross_matrix() * r;
     let mut ad = Matrix6::zeros();
     ad.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
     ad.fixed_view_mut::<3, 3>(3, 0).copy_from(&tr);

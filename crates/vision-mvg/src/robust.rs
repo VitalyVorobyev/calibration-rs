@@ -708,9 +708,9 @@ fn ahead_of_both(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pose_recovery::iso_from_rt;
     use crate::test_support::{Lcg, iso, match_of, pinhole_rig, pixel_of};
     use nalgebra::Rotation3;
+    use vision_calibration_core::linalg::iso_from_rotation;
     use vision_calibration_core::{Pt2, Pt3};
 
     /// The ground-truth pose of the second view.
@@ -792,7 +792,7 @@ mod tests {
         let b2: Vec<_> = est.inliers.iter().map(|&i| pairs[i].b2).collect();
         let (r_est, t_est) =
             crate::cheirality::recover_pose_from_essential(&est.essential, &b1, &b2).unwrap();
-        let est_pose = iso_from_rt(&r_est, &t_est);
+        let est_pose = iso_from_rotation(&r_est, &t_est);
         assert!(rotation_error_deg(&est_pose, &gt_pose()) < 0.1);
         let cos_t = t_est
             .normalize()
@@ -1079,7 +1079,7 @@ mod tests {
         let (r_est, t_est) =
             crate::cheirality::recover_pose_from_essential(&est.essential, &b1, &b2)
                 .expect("pose decomposition must succeed");
-        assert!(rotation_error_deg(&iso_from_rt(&r_est, &t_est), &gt_pose()) < 0.1);
+        assert!(rotation_error_deg(&iso_from_rotation(&r_est, &t_est), &gt_pose()) < 0.1);
         let cos_t = t_est
             .normalize()
             .dot(&gt_pose().translation.vector.normalize());
@@ -1186,8 +1186,7 @@ mod tests {
         assert!(obs.len() >= 3000, "{} matches", obs.len());
 
         let t = cam1_se3_rig.translation.vector;
-        let skew = Mat3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0);
-        let e = skew * cam1_se3_rig.rotation.to_rotation_matrix().into_inner();
+        let e = t.cross_matrix() * cam1_se3_rig.rotation.to_rotation_matrix().into_inner();
 
         let rms_at_true_e = |scale: f64| -> f64 {
             let state = |c: &PointCovariance| {

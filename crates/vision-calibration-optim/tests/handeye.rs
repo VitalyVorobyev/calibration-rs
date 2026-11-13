@@ -303,16 +303,12 @@ fn rotation_angle(a: &Isometry3<Real>, b: &Isometry3<Real>) -> Real {
     cos_theta.acos()
 }
 
-fn skew_matrix(w: &Vector3<Real>) -> Matrix3<Real> {
-    Matrix3::new(0.0, -w.z, w.y, w.z, 0.0, -w.x, -w.y, w.x, 0.0)
-}
-
 fn se3_exp_isometry(xi: [Real; 6]) -> Isometry3<Real> {
     let w = Vector3::new(xi[0], xi[1], xi[2]);
     let v = Vector3::new(xi[3], xi[4], xi[5]);
 
     let theta = w.norm();
-    let w_hat = skew_matrix(&w);
+    let w_hat = w.cross_matrix();
     let w_hat2 = w_hat * w_hat;
 
     let (b, c) = if theta <= 1e-9 {

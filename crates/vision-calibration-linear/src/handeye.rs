@@ -25,6 +25,7 @@ use nalgebra::{
     Translation3, Unit, UnitQuaternion, Vector3, Vector4,
 };
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::linalg::iso_from_rotation;
 use vision_calibration_core::{Iso3, Real};
 
 /// The closed-form solver of a hand-eye initialization.
@@ -374,13 +375,7 @@ fn with_pair_translation(pairs: &[MotionPair], rot_x: Matrix3<Real>) -> Result<I
             .copy_from(&(rot_x * p.tra_b - p.tra_a));
     }
     let t = crate::math::ridge_lstsq(&mat_c, &vec_w, 1e-12)?;
-    Ok(iso_from(rot_x, Vector3::new(t[0], t[1], t[2])))
-}
-
-fn iso_from(rot: Matrix3<Real>, t: Vector3<Real>) -> Iso3 {
-    let rot =
-        UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(rot));
-    Isometry3::from_parts(Translation3::from(t), rot)
+    Ok(iso_from_rotation(&rot_x, &Vector3::new(t[0], t[1], t[2])))
 }
 
 // ---------- Daniilidis: dual quaternions ----------
@@ -554,8 +549,8 @@ fn shah(base_se3_gripper: &[Iso3], stream: &[Iso3]) -> Result<(Iso3, Iso3), Erro
     }
     let t = crate::math::ridge_lstsq(&c, &d, 1e-12)?;
     Ok((
-        iso_from(rot_x, Vector3::new(t[0], t[1], t[2])),
-        iso_from(rot_z, Vector3::new(t[3], t[4], t[5])),
+        iso_from_rotation(&rot_x, &Vector3::new(t[0], t[1], t[2])),
+        iso_from_rotation(&rot_z, &Vector3::new(t[3], t[4], t[5])),
     ))
 }
 

@@ -8,7 +8,7 @@
 
 use crate::math::{dlt_rank_ok, ensure_finite};
 use crate::{GeometryError, Result};
-use nalgebra::{DMatrix, Matrix3, Matrix3x4};
+use nalgebra::{DMatrix, Matrix3x4};
 use vision_calibration_core::linalg::null_space;
 use vision_calibration_core::{Iso3, Pt3, Real, Vec3};
 
@@ -61,7 +61,7 @@ pub fn triangulate_point_linear(cam_se3_world: &[Iso3], bearings: &[Vec3]) -> Re
             ));
         }
         let b = b / norm;
-        let skew = Matrix3::new(0.0, -b.z, b.y, b.z, 0.0, -b.x, -b.y, b.x, 0.0);
+        let skew = b.cross_matrix();
         let r = pose.rotation.to_rotation_matrix();
         let mut p = Matrix3x4::<Real>::zeros();
         p.fixed_view_mut::<3, 3>(0, 0).copy_from(r.matrix());

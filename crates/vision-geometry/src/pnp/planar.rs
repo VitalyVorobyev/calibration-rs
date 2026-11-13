@@ -5,8 +5,7 @@
 
 use crate::GeometryError;
 use crate::homography::dlt_homography;
-use nalgebra::{Rotation3, UnitQuaternion};
-use vision_calibration_core::linalg::project_to_so3;
+use vision_calibration_core::linalg::{iso_from_rotation, project_to_so3};
 use vision_calibration_core::{Iso3, Mat3, Pt2, Pt3, Real, Vec3};
 
 /// `T_C_W` for the points `world`, which lie on the plane through `centre`
@@ -41,14 +40,8 @@ pub(super) fn planar_pose(
     let scale = if h3.z < 0.0 { -scale } else { scale };
     let (r1, r2, t) = (h1 * scale, h2 * scale, h3 * scale);
     let r = project_to_so3(&Mat3::from_columns(&[r1, r2, r1.cross(&r2)]))?;
-    let cam_se3_plane = Iso3::from_parts(
-        t.into(),
-        UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r)),
-    );
+    let cam_se3_plane = iso_from_rotation(&r, &t);
     // World to plane coordinates: Eᵀ (p − centre).
-    let plane_se3_world = Iso3::from_parts(
-        (-(axes.transpose() * centre)).into(),
-        UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(axes.transpose())),
-    );
+    let plane_se3_world = iso_from_rotation(&axes.transpose(), &(-(axes.transpose() * centre)));
     Ok(cam_se3_plane * plane_se3_world)
 }

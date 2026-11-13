@@ -11,8 +11,8 @@ use crate::robust::bearing_pairs;
 use crate::triangulation::{ViewRay, triangulate_views, with_context};
 use crate::types::{PixelMatch, TriangulatedPoint};
 use crate::{Error, Result};
-use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use serde::Serialize;
+use vision_calibration_core::linalg::iso_from_rotation;
 use vision_calibration_core::{CalibratedRig, Iso3, Mat3, Real, Vec3};
 
 /// Result of relative pose recovery.
@@ -166,14 +166,6 @@ pub(crate) fn analyze_scene(points: &[TriangulatedPoint]) -> SceneDiagnostics {
     }
 }
 
-/// The rigid transform with rotation `r` and translation `t`.
-pub(crate) fn iso_from_rt(r: &Mat3, t: &Vec3) -> Iso3 {
-    Iso3::from_parts(
-        Translation3::from(*t),
-        UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(*r)),
-    )
-}
-
 /// Recover relative pose from calibrated correspondences using the 5-point algorithm.
 ///
 /// `matches[i].pt1` is a pixel of rig camera `cameras[0]` in the first
@@ -272,7 +264,7 @@ pub fn recover_relative_pose(
     let r = best_r.ok_or(Error::NoValidPose)?;
     let t = best_t.ok_or(Error::NoValidPose)?;
     let e = best_e.ok_or(Error::NoValidPose)?;
-    let second_se3_first = iso_from_rt(&r, &t);
+    let second_se3_first = iso_from_rotation(&r, &t);
 
     // Two views: the first camera at the origin, the second at the pose.
     let (model1, model2) = (

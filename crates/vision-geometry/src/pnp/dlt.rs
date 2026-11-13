@@ -6,9 +6,10 @@
 
 use crate::GeometryError;
 use crate::math::ensure_finite;
-use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
-use vision_calibration_core::linalg::project_to_so3;
-use vision_calibration_core::linalg::{mat34_from_vec, null_space};
+use nalgebra::DMatrix;
+use vision_calibration_core::linalg::{
+    iso_from_rotation, mat34_from_vec, null_space, project_to_so3,
+};
 use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 
 /// Direct linear PnP on all input points.
@@ -165,15 +166,13 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Geo
         t /= s;
     }
 
-    let rot = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r_orth));
-    let trans = Translation3::from(t);
-    Ok(Isometry3::from_parts(trans, rot))
+    Ok(iso_from_rotation(&r_orth, &t))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Rotation3, Translation3};
+    use nalgebra::{Isometry3, Rotation3, Translation3};
     use vision_calibration_core::{Camera, IdentitySensor, NoDistortion, Pinhole};
 
     #[test]
