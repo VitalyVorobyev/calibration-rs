@@ -10,7 +10,7 @@ Both interfaces drive the same solvers and expose the same workflow: a session p
 
 ```toml
 [dependencies]
-vision-calibration = { version = "0.18", features = ["synthetic"] }
+vision-calibration = { version = "1.0.0-rc.1", features = ["synthetic"] }
 anyhow = "1"
 ```
 
@@ -191,7 +191,7 @@ The calibration refuses a manifest whose `_unresolved` list is not empty, so a p
 
 ```toml
 [dependencies]
-vision-calibration = "0.18"
+vision-calibration = "1.0.0-rc.1"
 anyhow = "1"
 serde_json = "1"
 ```
@@ -321,7 +321,7 @@ The library downloads real calibration datasets with a manifest already filled i
 Each sample carries the citation its publisher asks for (`citation` in the catalogue). In Rust, fetching needs the `fetch` feature, which adds an HTTPS client:
 
 ```toml
-vision-calibration = { version = "0.18", features = ["fetch"] }
+vision-calibration = { version = "1.0.0-rc.1", features = ["fetch"] }
 ```
 
 ```rust,no_run
