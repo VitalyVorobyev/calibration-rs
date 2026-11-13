@@ -1,26 +1,13 @@
 """Config-payload schema tests for the calibration configs (no solver).
 
-These pin the ``to_payload()`` shape of the new/changed calibration configs to
-what the Rust ``serde`` derives expect. The failure mode they guard against is
-silent drift: a mis-named Python payload key must not be ignored so that the
-field falls back to its Rust default — a wrong result with no error. Each key name and default value asserted here was read off the Rust
-source of truth:
+These pin the ``to_payload()`` shape of non-default configs to what the Rust
+``serde`` derives expect, and check that ``from_mapping`` rejects a key Rust
+does not have. The failure mode they guard against is silent drift: a
+mis-named Python payload key must not be ignored so that the field falls back
+to its Rust default — a wrong result with no error.
 
-* ``PlanarIntrinsicsConfig`` — grouped ``intrinsics_init`` / ``solver`` /
-  ``camera`` (model + named fix lists) / ``optimize`` (``reprojection_loss``,
-  ``fix_poses``); ``max_iters`` defaults to 120.
-* ``vision-calibration-optim`` ``DistortionKind`` — ``#[serde(rename_all =
-  "snake_case")]``.
-* ``RigExtrinsicsConfig`` / ``RigHandeyeConfig`` — ``camera`` (the planar
-  ``CameraConfig`` wrapper) plus ``camera_overrides`` (a list of
-  ``{camera, model, fix}``); ``rig.refine_sensor`` and
-  ``handeye_optimize.refine_sensor``.
-* ``SingleCamHandeyeConfig`` / ``LaserlineDeviceConfig`` — ``camera`` (the
-  planar ``CameraConfig`` wrapper); no ``sensor_init`` / ``fix_camera`` /
-  ``fix_sensor``.
-* ``rig_handeye_laserline/problem.rs`` ``JointOptimizeConfig`` defaults
-  (``reprojection_weight = 1.0``, ``laser_weight = 1e4``, ``fix`` empty — the stage
-  default).
+The default payload of each problem config is compared whole with the Rust
+default in ``test_config_defaults.py``.
 """
 
 from __future__ import annotations
@@ -37,7 +24,7 @@ class DistortionModelSchemaTest(unittest.TestCase):
         # `DistortionKind` is `#[serde(rename_all = "snake_case")]`; the Python
         # Literal must carry exactly the serde spellings.
         self.assertEqual(
-            set(typing.get_args(vc_types.DistortionModel)),
+            set(typing.get_args(vc_types.DistortionKind)),
             {
                 "none",
                 "brown_conrady5",
@@ -48,32 +35,8 @@ class DistortionModelSchemaTest(unittest.TestCase):
             },
         )
 
-    def test_planar_default_payload_shape(self) -> None:
-        payload = vc.PlanarIntrinsicsConfig().to_payload()
-        self.assertEqual(set(payload), {"intrinsics_init", "solver", "camera", "optimize"})
-        self.assertEqual(
-            payload["optimize"], {"reprojection_loss": {"kind": "none"}, "fix_poses": []}
-        )
-        self.assertNotIn("robust_loss", payload["solver"])
-        self.assertEqual(
-            payload["camera"],
-            {
-                "model": {
-                    "projection": "pinhole",
-                    "distortion": "brown_conrady5",
-                    "sensor": "identity",
-                },
-                "fix": {},
-            },
-        )
-        # Planar solves default to 120 iterations (the tilt valley needs headroom).
-        self.assertEqual(payload["solver"]["max_iters"], 120)
-
     def test_init_has_no_tangential_setting(self) -> None:
         # The camera's fix lists decide the linear stage's tangential terms.
-        self.assertEqual(
-            vc.IntrinsicsInitConfig().to_payload(), {"iterations": 2, "fix_k3": True}
-        )
         with self.assertRaises(ValueError):
             vc.IntrinsicsInitConfig.from_mapping({"fix_tangential": True})
 
@@ -104,43 +67,6 @@ class DistortionModelSchemaTest(unittest.TestCase):
 
 
 class RigCameraConfigSchemaTest(unittest.TestCase):
-    def test_rig_extrinsics_camera_key_and_defaults(self) -> None:
-        payload = vc.RigExtrinsicsConfig().to_payload()
-        # A mis-named key would silently fall back to the Rust default.
-        self.assertNotIn("sensor", payload)
-        self.assertEqual(
-            payload["camera"],
-            {
-                "model": {
-                    "projection": "pinhole",
-                    "distortion": "brown_conrady5",
-                    "sensor": "identity",
-                },
-                "fix": {},
-            },
-        )
-        self.assertEqual(payload["camera_overrides"], [])
-        self.assertTrue(payload["rig"]["refine_sensor"])
-        self.assertEqual(payload["rig"]["reprojection_loss"], {"kind": "none"})
-        self.assertEqual(payload["intrinsics_optimize"], {"reprojection_loss": {"kind": "none"}})
-        self.assertIn("intrinsics_init", payload)
-
-    def test_rig_handeye_camera_key_and_defaults(self) -> None:
-        payload = vc.RigHandeyeConfig().to_payload()
-        self.assertNotIn("sensor", payload)
-        self.assertIn("camera", payload)
-        self.assertEqual(payload["camera_overrides"], [])
-        self.assertEqual(
-            payload["handeye_optimize"],
-            {
-                "reprojection_loss": {"kind": "none"},
-                "robot_poses": payload["handeye_optimize"]["robot_poses"],
-                "refine_intrinsics": True,
-                "refine_cam_se3_rig": False,
-                "refine_sensor": True,
-            },
-        )
-
     def test_camera_override_payload_shape(self) -> None:
         override = vc.CameraOverride(
             camera=1,
@@ -197,32 +123,7 @@ class RigCameraConfigSchemaTest(unittest.TestCase):
 
 
 class SingleCameraConfigSchemaTest(unittest.TestCase):
-    _DEFAULT_CAMERA = {
-        "model": {
-            "projection": "pinhole",
-            "distortion": "brown_conrady5",
-            "sensor": "identity",
-        },
-        "fix": {},
-    }
-
-    def test_single_cam_handeye_camera_key_and_roundtrip(self) -> None:
-        payload = vc.SingleCamHandeyeConfig().to_payload()
-        self.assertEqual(
-            set(payload),
-            {
-                "camera",
-                "intrinsics_init",
-                "intrinsics_optimize",
-                "handeye_init",
-                "handeye_optimize",
-                "solver",
-            },
-        )
-        self.assertEqual(
-            set(payload["handeye_optimize"]), {"reprojection_loss", "robot_poses"}
-        )
-        self.assertEqual(payload["camera"], self._DEFAULT_CAMERA)
+    def test_single_cam_handeye_camera_roundtrips(self) -> None:
         cfg = vc.SingleCamHandeyeConfig(
             camera=vc.CameraConfig(
                 model=vc.CameraModelSpec(distortion="division1", sensor="scheimpflug"),
@@ -232,14 +133,7 @@ class SingleCameraConfigSchemaTest(unittest.TestCase):
         restored = vc.SingleCamHandeyeConfig.from_mapping(cfg.to_payload())
         self.assertEqual(restored.to_payload(), cfg.to_payload())
 
-    def test_laserline_device_camera_key_and_removed_fields(self) -> None:
-        payload = vc.LaserlineDeviceConfig().to_payload()
-        self.assertEqual(set(payload), {"intrinsics_init", "camera", "solver", "optimize"})
-        self.assertEqual(payload["optimize"]["reprojection_loss"], {"kind": "huber", "scale": 1.0})
-        self.assertEqual(payload["optimize"]["reprojection_weight"], 1.0)
-        self.assertEqual(payload["camera"], self._DEFAULT_CAMERA)
-        self.assertNotIn("fix_camera", payload["optimize"])
-        self.assertNotIn("fix_sensor", payload["optimize"])
+    def test_laserline_device_camera_roundtrips_and_rejects_removed_fields(self) -> None:
         with self.assertRaises(ValueError):
             vc.LaserlineDeviceConfig.from_mapping({"sensor_init": {}})
         with self.assertRaises(ValueError):
@@ -252,48 +146,6 @@ class SingleCameraConfigSchemaTest(unittest.TestCase):
 
 
 class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):
-    def test_default_payload_has_three_warm_started_stages(self) -> None:
-        payload = vc.RigHandeyeLaserlineConfig().to_payload()
-        self.assertEqual(
-            set(payload), {"handeye", "laserline_init", "joint_optimize", "solver"}
-        )
-        self.assertEqual(payload["solver"]["max_iters"], 30)
-
-    def test_laserline_init_defaults_to_point_to_plane(self) -> None:
-        payload = vc.RigHandeyeLaserlineConfig().to_payload()
-        init = payload["laserline_init"]
-        self.assertEqual(init["optimize"]["laser_residual_type"], "point_to_plane")
-        self.assertEqual(init["optimize"]["laser_loss"], {"kind": "huber", "scale": 1.0})
-        # Rust default seeds the frozen-geometry stage at 200 iterations.
-        self.assertEqual(init["solver"]["max_iters"], 200)
-
-    def test_joint_optimize_defaults_match_rust(self) -> None:
-        ba = vc.RigHandeyeLaserlineConfig().to_payload()["joint_optimize"]
-        self.assertNotIn("solver", ba)
-        self.assertEqual(ba["laser_residual_type"], "point_to_plane")
-        self.assertEqual(ba["reprojection_loss"], {"kind": "none"})
-        self.assertEqual(ba["laser_loss"], {"kind": "none"})
-        self.assertEqual(ba["reprojection_weight"], 1.0)
-        self.assertEqual(ba["laser_weight"], 1.0e4)
-        # An empty `fix` gives every camera the stage default.
-        self.assertEqual(ba["fix"], [])
-        self.assertFalse(ba["fix_handeye"])
-        self.assertFalse(ba["fix_target_ref"])
-        self.assertEqual(
-            set(ba),
-            {
-                "laser_residual_type",
-                "reprojection_loss",
-                "laser_loss",
-                "reprojection_weight",
-                "laser_weight",
-                "fix",
-                "fix_handeye",
-                "fix_target_ref",
-                "robot_poses",
-            },
-        )
-
     def test_config_roundtrips_through_from_mapping(self) -> None:
         cfg = vc.RigHandeyeLaserlineConfig()
         restored = vc.RigHandeyeLaserlineConfig.from_mapping(cfg.to_payload())
@@ -322,17 +174,8 @@ class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):
 
 
 class RigLaserlineDeviceConfigSchemaTest(unittest.TestCase):
-    def test_default_payload(self) -> None:
+    def test_default_payload_roundtrips_and_rejects_unknown_fields(self) -> None:
         payload = vc.RigLaserlineDeviceConfig().to_payload()
-        self.assertEqual(set(payload), {"optimize", "solver"})
-        self.assertEqual(
-            payload["optimize"],
-            {
-                "laser_loss": {"kind": "huber", "scale": 1.0},
-                "laser_residual_type": "line_dist_normalized",
-            },
-        )
-        self.assertEqual(payload["solver"]["max_iters"], 200)
         restored = vc.RigLaserlineDeviceConfig.from_mapping(payload)
         self.assertEqual(restored.to_payload(), payload)
         with self.assertRaises(ValueError):
@@ -343,9 +186,6 @@ class RigLaserlineDeviceConfigSchemaTest(unittest.TestCase):
 
 class SolverConfigSchemaTest(unittest.TestCase):
     def test_solver_has_no_robust_loss(self) -> None:
-        self.assertEqual(
-            set(vc.SolverConfig().to_payload()), {"max_iters", "verbosity", "backend"}
-        )
         with self.assertRaises(ValueError):
             vc.SolverConfig.from_mapping({"robust_loss": {"kind": "none"}})
 
