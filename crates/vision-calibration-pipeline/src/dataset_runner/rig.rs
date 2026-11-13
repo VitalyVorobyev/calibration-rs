@@ -19,7 +19,7 @@ use vision_calibration_optim::RobotPoseMeta;
 
 use super::board_turn::match_rig_labels;
 use super::pairing::pair_views;
-use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
+use super::poses::{ParsedPose, load_manifest_robot_poses, match_poses_to_tokens};
 use super::require_pose_pairing;
 use super::{
     Detection, ImageProgress, RejectReason, RejectedDetection, RunError, detect_features,
@@ -60,6 +60,7 @@ pub fn build_rig_extrinsics_input(
             topology: spec.topology,
         });
     }
+    validate(spec)?;
     let RigCore {
         views,
         view_paths,
@@ -92,16 +93,8 @@ pub fn build_rig_handeye_input(
     // The robot poses load before any detection: a pose file that does not
     // parse fails the run before the expensive work. `validate` guarantees
     // both fields for the RigHandeye topology.
-    vision_calibration_dataset::validate(spec)?;
-    let source = spec
-        .robot_poses
-        .as_ref()
-        .expect("validate guarantees robot_poses for RigHandeye");
-    let convention = spec
-        .pose_convention
-        .as_ref()
-        .expect("validate guarantees pose_convention for RigHandeye");
-    let poses = load_robot_poses(source, convention, base_dir)?;
+    validate(spec)?;
+    let poses = load_manifest_robot_poses(spec, base_dir)?;
 
     let RigCore {
         views,
@@ -128,16 +121,16 @@ pub(super) struct RigCore {
     pub(super) rejected: Vec<RejectedDetection>,
 }
 
+/// Detect, screen and pair a validated rig manifest's target images.
+/// Every caller is a public converter that has run `validate(spec)`.
 pub(super) fn build_rig_core(
     spec: &DatasetSpec,
     base_dir: &Path,
     detection: Detection<'_>,
     control: &RunControl,
 ) -> Result<RigCore, RunError> {
-    // Same gate ordering as the planar converter: target + validation
-    // + pairing config before any filesystem access.
+    // Target + pairing config before any filesystem access.
     let detector_config = target_to_detector_config(spec)?;
-    validate(spec)?;
 
     let pairing = require_pose_pairing(spec)?
         .expect("every rig and laser topology needs a pairing; require_pose_pairing asks for it");

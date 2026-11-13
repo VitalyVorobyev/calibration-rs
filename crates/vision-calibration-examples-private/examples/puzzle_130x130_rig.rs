@@ -44,7 +44,7 @@ use vision_calibration::{
 };
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModelSpec, CorrespondenceView, DistortionKind,
-    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, PixelRect, PointCovariance, Pt2,
+    DistortionParams, FrameRef, FxFyCxCy, ImageManifest, Iso3, PixelRect, PointCovariance, Pt2,
     RigDataset, RigView, RigViewObs, RobotFrame, RobotPose, ScheimpflugParams, SensorKind,
     SensorParams,
 };
@@ -55,7 +55,7 @@ use vision_calibration_optim::{
     BackendSolveOptions, HandeyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset,
     RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
     RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
-    evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
+    evaluate_rig_handeye_laserline, handeye_observer_se3_target, optimize_rig_handeye_laserline,
 };
 
 const NUM_CAMERAS: usize = 6;
@@ -296,27 +296,19 @@ fn main() -> Result<()> {
     // ─── Stage 3: rig laserline calibration ────────────────────────────────
     let laserline_dataset = RigLaserlineDataset::new(detected.laserline_views.clone(), NUM_CAMERAS)
         .context("build laserline dataset")?;
-    // Per-view rig_se3_target in either mode:
-    //   EyeInHand:  T_R_T_i = T_G_R^-1 * T_B_G_i^-1 * T_B_T
-    //   EyeToHand:  T_R_T_i = T_R_B    * T_B_G_i    * T_G_T
-    let mut rig_se3_target = Vec::new();
-    for pose in &poses {
-        if !pose.has_laser() {
-            continue;
-        }
-        let base_se3_gripper = pose.base_se3_gripper();
-        let rt = match rig_export.handeye {
-            HandeyeSolution::EyeInHand {
-                gripper_se3_rig,
-                base_se3_target,
-            } => gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target,
-            HandeyeSolution::EyeToHand {
-                rig_se3_base,
-                gripper_se3_target,
-            } => rig_se3_base * base_se3_gripper * gripper_se3_target,
-        };
-        rig_se3_target.push(rt);
-    }
+    // Per-view rig_se3_target through the frozen hand-eye chain.
+    let laser_base_se3_gripper: Vec<Iso3> = poses
+        .iter()
+        .filter(|pose| pose.has_laser())
+        .map(|pose| pose.base_se3_gripper())
+        .collect();
+    let rig_se3_target = handeye_observer_se3_target(
+        rig_export.handeye.mode(),
+        rig_export.handeye.handeye().pose(),
+        rig_export.handeye.target_pose(),
+        &laser_base_se3_gripper,
+        None,
+    );
 
     // Build the upstream calibration via the unified helper.
     let upstream = rig_export

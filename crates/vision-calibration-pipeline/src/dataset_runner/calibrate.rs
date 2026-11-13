@@ -343,123 +343,65 @@ pub fn calibrate_dataset(
     // A camera whose images differ in size fails here, before any detection.
     let image_sizes = camera_image_sizes(spec, base_dir)?;
 
-    // `config.topology() == topology` was checked above, so each arm sees the
-    // config variant of its own topology.
+    // Each arm builds its problem's input from the manifest, runs every step
+    // and wraps the export. `config.topology() == topology` was checked
+    // above, so each arm sees the config variant of its own topology.
+    macro_rules! calibrate {
+        ($config:ident, $variant:ident, $module:ident, $build:expr) => {{
+            let run = $build?;
+            let export = solve(run.input, $config, crate::$module::run_calibration, control)?;
+            Ok(DatasetCalibration {
+                export: CalibrationExport::$variant(export),
+                image_sizes,
+                usable_views: run.usable_views,
+                total_views: run.total_views,
+                rejected: run.rejected,
+            })
+        }};
+    }
     match config {
-        CalibrationConfig::PlanarIntrinsics(config) => {
-            let run = build_planar_input(spec, base_dir, detection, control)?;
-            let export = solve::<PlanarIntrinsicsProblem>(
-                run.input,
-                config,
-                crate::planar_intrinsics::run_calibration,
-                control,
-            )?;
-            Ok(finish(
-                image_sizes,
-                CalibrationExport::PlanarIntrinsics(export),
-                run.usable_views,
-                run.total_views,
-                run.rejected,
-            ))
-        }
-        CalibrationConfig::SingleCamHandeye(config) => {
-            let run = build_single_cam_handeye_input(spec, base_dir, detection, control)?;
-            let export = solve::<SingleCamHandeyeProblem>(
-                run.input,
-                config,
-                crate::single_cam_handeye::run_calibration,
-                control,
-            )?;
-            Ok(finish(
-                image_sizes,
-                CalibrationExport::SingleCamHandeye(export),
-                run.usable_views,
-                run.total_views,
-                run.rejected,
-            ))
-        }
-        CalibrationConfig::LaserlineDevice(config) => {
-            let run = build_laserline_device_input(spec, base_dir, detection, laser()?, control)?;
-            let export = solve::<LaserlineDeviceProblem>(
-                run.input,
-                config,
-                crate::laserline_device::run_calibration,
-                control,
-            )?;
-            Ok(finish(
-                image_sizes,
-                CalibrationExport::LaserlineDevice(export),
-                run.usable_views,
-                run.total_views,
-                run.rejected,
-            ))
-        }
-        CalibrationConfig::RigExtrinsics(config) => {
-            let run = build_rig_extrinsics_input(spec, base_dir, detection, control)?;
-            let export = solve::<RigExtrinsicsProblem>(
-                run.input,
-                config,
-                crate::rig_extrinsics::run_calibration,
-                control,
-            )?;
-            Ok(finish(
-                image_sizes,
-                CalibrationExport::RigExtrinsics(export),
-                run.usable_views,
-                run.total_views,
-                run.rejected,
-            ))
-        }
-        CalibrationConfig::RigHandeye(config) => {
-            let run = build_rig_handeye_input(spec, base_dir, detection, control)?;
-            let export = solve::<RigHandeyeProblem>(
-                run.input,
-                config,
-                crate::rig_handeye::run_calibration,
-                control,
-            )?;
-            Ok(finish(
-                image_sizes,
-                CalibrationExport::RigHandeye(export),
-                run.usable_views,
-                run.total_views,
-                run.rejected,
-            ))
-        }
-        CalibrationConfig::RigLaserlineDevice(config) => {
-            let run =
-                build_rig_laserline_device_input(spec, base_dir, detection, laser()?, control)?;
-            let export = solve::<RigLaserlineDeviceProblem>(
-                run.input,
-                config,
-                crate::rig_laserline_device::run_calibration,
-                control,
-            )?;
-            Ok(finish(
-                image_sizes,
-                CalibrationExport::RigLaserlineDevice(export),
-                run.usable_views,
-                run.total_views,
-                run.rejected,
-            ))
-        }
-        CalibrationConfig::RigHandeyeLaserline(config) => {
-            let run =
-                build_rig_handeye_laserline_input(spec, base_dir, detection, laser()?, control)?;
-            let export = solve::<RigHandeyeLaserlineProblem>(
-                run.input,
-                config,
-                crate::rig_handeye_laserline::run_calibration,
-                control,
-            )?;
-            Ok(finish(
-                image_sizes,
-                CalibrationExport::RigHandeyeLaserline(export),
-                run.usable_views,
-                run.total_views,
-                run.rejected,
-            ))
-        }
+        CalibrationConfig::PlanarIntrinsics(c) => calibrate!(
+            c,
+            PlanarIntrinsics,
+            planar_intrinsics,
+            build_planar_input(spec, base_dir, detection, control)
+        ),
+        CalibrationConfig::SingleCamHandeye(c) => calibrate!(
+            c,
+            SingleCamHandeye,
+            single_cam_handeye,
+            build_single_cam_handeye_input(spec, base_dir, detection, control)
+        ),
+        CalibrationConfig::LaserlineDevice(c) => calibrate!(
+            c,
+            LaserlineDevice,
+            laserline_device,
+            build_laserline_device_input(spec, base_dir, detection, laser()?, control)
+        ),
+        CalibrationConfig::RigExtrinsics(c) => calibrate!(
+            c,
+            RigExtrinsics,
+            rig_extrinsics,
+            build_rig_extrinsics_input(spec, base_dir, detection, control)
+        ),
+        CalibrationConfig::RigHandeye(c) => calibrate!(
+            c,
+            RigHandeye,
+            rig_handeye,
+            build_rig_handeye_input(spec, base_dir, detection, control)
+        ),
+        CalibrationConfig::RigLaserlineDevice(c) => calibrate!(
+            c,
+            RigLaserlineDevice,
+            rig_laserline_device,
+            build_rig_laserline_device_input(spec, base_dir, detection, laser()?, control)
+        ),
+        CalibrationConfig::RigHandeyeLaserline(c) => calibrate!(
+            c,
+            RigHandeyeLaserline,
+            rig_handeye_laserline,
+            build_rig_handeye_laserline_input(spec, base_dir, detection, laser()?, control)
+        ),
     }
 }
 
@@ -475,22 +417,6 @@ fn solve<P: ProblemType>(
     session.set_control(control.clone());
     run(&mut session)?;
     session.export()
-}
-
-fn finish(
-    image_sizes: Vec<[u32; 2]>,
-    export: CalibrationExport,
-    usable_views: usize,
-    total_views: usize,
-    rejected: Vec<RejectedDetection>,
-) -> DatasetCalibration {
-    DatasetCalibration {
-        export,
-        image_sizes,
-        usable_views,
-        total_views,
-        rejected,
-    }
 }
 
 #[cfg(test)]

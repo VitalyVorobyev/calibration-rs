@@ -171,12 +171,8 @@ fn detect_route(
         }
         ProblemKind::RigHandeye => {
             let config = rig_handeye_config(entry, spec)?;
-            detect_arm(
-                arm,
-                |s| detect_rig_handeye(s, root, board, &cache).map(|(d, _)| d),
-                spec,
-            )
-            .map(|r| r.map(|d| Route::RigHandeye(Box::new(config), d.input)))
+            detect_arm(arm, |s| detect_rig_handeye(s, root, board, &cache), spec)
+                .map(|r| r.map(|d| Route::RigHandeye(Box::new(config), d.input)))
         }
         other => anyhow::bail!("{}: no downstream route for {other:?}", entry.id),
     }
