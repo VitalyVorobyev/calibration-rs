@@ -19,9 +19,8 @@ pub use problem::{
     PlanarOptimizeConfig,
 };
 pub use steps::{
-    IntrinsicsFilterOptions, IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeResult,
-    run_calibration, run_calibration_with_filtering, step_filter, step_init, step_init_with_seed,
-    step_optimize,
+    IntrinsicsFilterOptions, IntrinsicsInitResult, IntrinsicsOptimizeResult, run_calibration,
+    run_calibration_with_filtering, step_filter, step_init, step_init_with_seed, step_optimize,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

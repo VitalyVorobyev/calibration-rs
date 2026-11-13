@@ -22,6 +22,7 @@
 
 #![allow(missing_docs)]
 
+use vision_calibration::common::IntrinsicsManualInit;
 use vision_calibration::common::config::RobotPoseConfig;
 use vision_calibration::common::{HandeyeInitOptions, HandeyeOptimizeOptions, RobotPoseMeta};
 use vision_calibration::core::{
@@ -33,10 +34,9 @@ use vision_calibration::nalgebra::{Translation3, UnitQuaternion, Vector3};
 use vision_calibration::optim::SolverBackend;
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
-    HandeyeManualInit, IntrinsicsManualInit, SingleCamHandeyeConfig, SingleCamHandeyeInput,
-    SingleCamHandeyeProblem, SingleCamHandeyeSolution, SingleCamHandeyeView, step_handeye_init,
-    step_handeye_init_with_seed, step_handeye_optimize, step_intrinsics_init_with_seed,
-    step_intrinsics_optimize,
+    HandeyeManualInit, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeProblem,
+    SingleCamHandeyeSolution, SingleCamHandeyeView, step_handeye_init, step_handeye_init_with_seed,
+    step_handeye_optimize, step_intrinsics_init_with_seed, step_intrinsics_optimize,
 };
 use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
 

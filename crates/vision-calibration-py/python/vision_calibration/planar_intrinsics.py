@@ -14,18 +14,20 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import _vision_calibration as _native
-from .common import IntrinsicsInitOptions, IntrinsicsOptimizeOptions, _StepOptions
+from .common import (
+    IntrinsicsInitOptions,
+    IntrinsicsManualInit,
+    IntrinsicsOptimizeOptions,
+    _StepOptions,
+)
 from .models import (
     CameraParams,
-    Distortion,
-    PinholeIntrinsics,
     PlanarIntrinsicsConfig,
     PlanarIntrinsicsExport,
     PlanarIntrinsicsInput,
     Pose,
-    ScheimpflugSensor,
 )
-from .session import CalibrationSession, _run_calibration, _camera, _payload, _poses, _seed_payload
+from .session import CalibrationSession, _run_calibration, _camera, _payload, _poses
 from .types import ProgressCallback
 
 __all__ = [
@@ -51,36 +53,6 @@ class IntrinsicsFilterOptions(_StepOptions):
     remove_sparse_views: bool = True
     """Remove views left with fewer than ``min_points_per_view`` features;
     ``False`` makes such a view an error instead."""
-
-
-@dataclass(slots=True)
-class IntrinsicsManualInit:
-    """Manual seeds for ``step_init_with_seed``; a field left ``None`` is
-    estimated.
-
-    A seeded ``intrinsics`` skips the linear intrinsics fit (distortion then
-    starts at zero unless seeded too). The distortion seed is a model of the
-    camera's own distortion kind (``camera.model.distortion``) and is used
-    as given; another kind is an error. ``sensor`` seeds the tilt of a
-    Scheimpflug camera; an untilted camera takes only a zero tilt. A seeded
-    tilt is used as given and refined directly instead of swept. ``cam_se3_target``
-    are camera-from-target, one per view.
-    """
-
-    intrinsics: PinholeIntrinsics | None = None
-    distortion: Distortion | None = None
-    sensor: ScheimpflugSensor | None = None
-    cam_se3_target: list[Pose] | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        return _seed_payload(
-            {
-                "intrinsics": self.intrinsics,
-                "distortion": self.distortion,
-                "sensor": self.sensor,
-                "cam_se3_target": self.cam_se3_target,
-            }
-        )
 
 
 @dataclass(frozen=True, slots=True)

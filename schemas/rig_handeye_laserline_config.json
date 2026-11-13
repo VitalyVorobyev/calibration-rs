@@ -576,43 +576,6 @@
       ],
       "type": "object"
     },
-    "IntrinsicsManualInit": {
-      "description": "Manual seeds for the **per-camera intrinsics stage** of a rig\ncalibration.\n\nAll fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, Zhang's\nauto-fit is skipped for *every* camera; per-camera target poses are then\nrecovered from per-camera homographies using the seeded intrinsics. When\n`None`, each camera is auto-initialized.\n\nWhen intrinsics are seeded but distortion is not, distortion starts at\nzero; when intrinsics are auto-initialized, the fitted distortion is used\nunless distortion is seeded. Each distortion seed is a value in its\ncamera's own distortion model: its kind must equal that camera's\nconfigured distortion kind (a typed error otherwise) and it is used as\ngiven.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug\nsensor (a seeded tilt skips the tilt sweep of the linear stage); a camera\nwith an untilted sensor takes only a zero tilt.\n\nPer-camera vectors must have one entry per camera.",
-      "properties": {
-        "per_cam_distortion": {
-          "description": "Per-camera distortion seeds, each of the kind its camera's model names.",
-          "items": {
-            "$ref": "#/$defs/DistortionParams"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "per_cam_intrinsics": {
-          "description": "Per-camera intrinsics seeds. `None` runs Zhang's method per camera.",
-          "items": {
-            "$ref": "#/$defs/FxFyCxCy"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "per_cam_sensors": {
-          "default": null,
-          "description": "Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the\nothers).",
-          "items": {
-            "$ref": "#/$defs/ScheimpflugParams"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
     "IntrinsicsOptimizeConfig": {
       "additionalProperties": false,
       "description": "The per-camera intrinsics refinement stage (`intrinsics_optimize`): each\ncamera solved on its own views, before the joint stages.\n\nShared by the single-camera hand-eye and the two rig problems. The\nstage's iteration budget and backend come from `solver`.",
@@ -809,7 +772,7 @@
         "manual_init": {
           "anyOf": [
             {
-              "$ref": "#/$defs/IntrinsicsManualInit"
+              "$ref": "#/$defs/RigIntrinsicsManualInit"
             },
             {
               "type": "null"
@@ -834,6 +797,43 @@
         "handeye_optimize",
         "solver"
       ],
+      "type": "object"
+    },
+    "RigIntrinsicsManualInit": {
+      "description": "Manual seeds for the **per-camera intrinsics stage** of a rig\ncalibration.\n\nAll fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, Zhang's\nauto-fit is skipped for *every* camera; per-camera target poses are then\nrecovered from per-camera homographies using the seeded intrinsics. When\n`None`, each camera is auto-initialized.\n\nWhen intrinsics are seeded but distortion is not, distortion starts at\nzero; when intrinsics are auto-initialized, the fitted distortion is used\nunless distortion is seeded. Each distortion seed is a value in its\ncamera's own distortion model: its kind must equal that camera's\nconfigured distortion kind (a typed error otherwise) and it is used as\ngiven.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug\nsensor (a seeded tilt skips the tilt sweep of the linear stage); a camera\nwith an untilted sensor takes only a zero tilt.\n\nPer-camera vectors must have one entry per camera.",
+      "properties": {
+        "per_cam_distortion": {
+          "description": "Per-camera distortion seeds, each of the kind its camera's model names.",
+          "items": {
+            "$ref": "#/$defs/DistortionParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per_cam_intrinsics": {
+          "description": "Per-camera intrinsics seeds. `None` runs Zhang's method per camera.",
+          "items": {
+            "$ref": "#/$defs/FxFyCxCy"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per_cam_sensors": {
+          "default": null,
+          "description": "Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the\nothers).",
+          "items": {
+            "$ref": "#/$defs/ScheimpflugParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "RigLaserlineDeviceConfig": {

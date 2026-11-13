@@ -16,9 +16,10 @@ use vision_calibration_core::{
     DistortionParams, Division, FxFyCxCy, Iso3, Pinhole, PlanarDataset, Pt2, Pt3,
     RationalPolynomial, ScheimpflugParams, SensorKind, ThinPrism, View,
 };
+use vision_calibration_pipeline::common::IntrinsicsManualInit;
 use vision_calibration_pipeline::planar_intrinsics::{
-    IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem,
-    step_init_with_seed, step_optimize,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init_with_seed,
+    step_optimize,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 

@@ -21,10 +21,10 @@ so seed a coarse prior (the nominal focal length and the nominal mount tilt)
 instead of relying on the from-scratch initialization:
 
 ```rust
+use vision_calibration::common::IntrinsicsManualInit;
 use vision_calibration::core::{FxFyCxCy, ScheimpflugParams, SensorKind};
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, IntrinsicsManualInit, step_init_with_seed,
-    step_optimize,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
 
 let mut config = PlanarIntrinsicsConfig::default();
@@ -68,7 +68,7 @@ session.update_config(|c| {
 
 The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_optimize.refine_sensor`) refines the tilts there too. Both default to on: a camera's own views pin its tilt poorly, as it trades with the principal point, while the views of the whole rig pin it several times better. A tilt held at the camera's own estimate leaves its error in the focal length and the principal point, and the covariance, conditional on the held tilt, then states their σ several times too small; setting the flag to `false` holds it there, and the covariance lists it under `fixed`.
 
-Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `rig_extrinsics::IntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the linear stage's tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
+Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `common::RigIntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the linear stage's tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
 
 Each tilted camera is first calibrated from its own views, as in single-camera planar intrinsics: the linear stage holds `p1`, `p2` at zero (a tangential term and the tilt trade off, and the default fix list holds them in every later solve), and the camera's own solve frees every target pose. On clean synthetic data this solve reaches the reprojection noise floor, with the principal point and tilt at the truth within their standard deviations.
 

@@ -31,7 +31,7 @@ mod tier_b {
     use std::path::PathBuf;
 
     use anyhow::{Context, Result};
-    use vision_calibration::planar_intrinsics::IntrinsicsManualInit;
+    use vision_calibration::common::IntrinsicsManualInit;
     use vision_calibration_core::{PlanarDataset, ReprojectionStats};
 
     use crate::registry::{AcceptGate, BenchEntry};

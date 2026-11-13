@@ -31,7 +31,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{Context, Result};
-use vision_calibration::planar_intrinsics::{IntrinsicsManualInit, PlanarIntrinsicsConfig};
+use vision_calibration::common::IntrinsicsManualInit;
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
 use vision_calibration_dataset::DatasetSpec;
 
 use crate::detect::{camera_spec, detect_planar, detection_cache};

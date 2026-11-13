@@ -42,11 +42,11 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use vision_calibration::common::HandeyeSolution;
+use vision_calibration::common::{HandeyeSolution, RigIntrinsicsManualInit};
 use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration::{
     device_seed::{self, DEVICE_SPEC_FILENAME, DeviceSpec},
-    rig_handeye::{self as rh, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
+    rig_handeye::{self as rh, RigHandeyeConfig, RigHandeyeProblem},
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
     },
@@ -630,7 +630,7 @@ fn build_intrinsics_seed(
     oracle: Option<&Oracle>,
     tile_w: u32,
     tile_h: u32,
-) -> Result<IntrinsicsManualInit> {
+) -> Result<RigIntrinsicsManualInit> {
     let zero_dist = DistortionParams::BrownConrady5 {
         params: BrownConrady5 {
             k1: 0.0,
@@ -685,7 +685,7 @@ fn build_intrinsics_seed(
         other => return Err(anyhow!("unknown SCHEIMPFLUG_RIG_SEED '{other}'")),
     }
 
-    let mut manual_init = IntrinsicsManualInit::default();
+    let mut manual_init = RigIntrinsicsManualInit::default();
     manual_init.per_cam_intrinsics = Some(intrinsics);
     manual_init.per_cam_distortion = Some(distortion);
     manual_init.per_cam_sensors = Some(sensors);

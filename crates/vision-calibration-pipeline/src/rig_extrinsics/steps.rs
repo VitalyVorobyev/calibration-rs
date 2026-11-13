@@ -13,7 +13,7 @@ use crate::common::{
 };
 use crate::rig_family::{self, rig_ba_notes};
 pub use crate::rig_family::{
-    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit, RigPoses,
+    IntrinsicsInitResult, RigInitResult, RigIntrinsicsManualInit, RigManualInit, RigPoses,
 };
 use crate::session::CalibrationSession;
 
@@ -53,9 +53,9 @@ pub struct RigOptimizeResult {
 /// and auto-estimation (Zhang's method per camera).
 ///
 /// This is the load-bearing intrinsics-stage init. [`step_intrinsics_init_all`]
-/// is a thin delegate with `IntrinsicsManualInit::default()`.
+/// is a thin delegate with `RigIntrinsicsManualInit::default()`.
 ///
-/// See [`IntrinsicsManualInit`] for partial-seed semantics. Per-camera target
+/// See [`RigIntrinsicsManualInit`] for partial-seed semantics. Per-camera target
 /// poses are *always* recovered from per-camera homographies — using the seeded
 /// intrinsics if provided, otherwise the auto-fit intrinsics. Each camera is
 /// initialized in its own model (`config.camera_for(i)`), and the linear
@@ -69,7 +69,7 @@ pub struct RigOptimizeResult {
 ///   for an untilted camera.
 pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
-    manual: IntrinsicsManualInit,
+    manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<IntrinsicsInitResult, Error> {
     rig_family::init_intrinsics(session, manual, opts)
@@ -82,7 +82,7 @@ pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<IntrinsicsInitResult, Error> {
-    step_intrinsics_init_all_with_seed(session, IntrinsicsManualInit::default(), opts)
+    step_intrinsics_init_all_with_seed(session, RigIntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics for all cameras.

@@ -507,6 +507,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ValueError` before any image is read, and a manifest payload that does not
   parse raises `ValueError` rather than `TypeError`.
 
+- **One manual intrinsics seed type per family, in `common`** (breaking).
+  Planar intrinsics and single-camera hand-eye share one
+  `IntrinsicsManualInit`; the rig problems' per-camera seed is
+  `RigIntrinsicsManualInit`. Both are reached through `common` only. The
+  JSON of the seeds is unchanged; in the config schemas the definition the
+  rig hand-eye `manual_init` names is `RigIntrinsicsManualInit`.
+
+  | Before | After |
+  |---|---|
+  | `planar_intrinsics::IntrinsicsManualInit` | `common::IntrinsicsManualInit` |
+  | `single_cam_handeye::IntrinsicsManualInit` | `common::IntrinsicsManualInit` |
+  | `rig_extrinsics::IntrinsicsManualInit` | `common::RigIntrinsicsManualInit` |
+  | `rig_handeye::IntrinsicsManualInit` | `common::RigIntrinsicsManualInit` |
+  | Python `rig_extrinsics.IntrinsicsManualInit`, `rig_handeye.IntrinsicsManualInit` | `vc.RigIntrinsicsManualInit` |
+
+  In Python `vc.IntrinsicsManualInit` and `vc.RigIntrinsicsManualInit` are
+  importable from the package root; the problem modules re-export them.
+
 ### Changed
 
 - **A hand-eye seed of one pose closes the other through the first view, in

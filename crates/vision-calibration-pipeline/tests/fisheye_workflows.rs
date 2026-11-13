@@ -13,9 +13,10 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::RobotPoseMeta;
 use vision_calibration_pipeline::common::config::{CameraConfig, RobotPoseConfig};
+use vision_calibration_pipeline::common::{IntrinsicsManualInit, RigIntrinsicsManualInit};
 use vision_calibration_pipeline::session::CalibrationSession;
 use vision_calibration_pipeline::{
-    planar_intrinsics::{IntrinsicsManualInit, PlanarIntrinsicsProblem, step_init_with_seed},
+    planar_intrinsics::{PlanarIntrinsicsProblem, step_init_with_seed},
     rig_extrinsics::RigExtrinsicsProblem,
     rig_handeye::RigHandeyeProblem,
     single_cam_handeye::{SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView},
@@ -234,7 +235,7 @@ fn a_distortion_seed_of_another_kind_is_rejected() {
     let mut config = session.config().clone();
     config.camera = CameraConfig::new(model());
     session.set_config(config).unwrap();
-    let mut seed = vision_calibration_pipeline::rig_extrinsics::IntrinsicsManualInit::default();
+    let mut seed = RigIntrinsicsManualInit::default();
     seed.per_cam_distortion = Some(vec![brown_conrady; 2]);
     let err = vision_calibration_pipeline::rig_extrinsics::step_intrinsics_init_all_with_seed(
         &mut session,

@@ -7,8 +7,8 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraParams, Handeye, Iso3, PerFeatureResiduals, RigView, RigViewObs, Uncertainty, View,
-    build_feature_histogram, compute_planar_target_residuals_views,
+    CameraParams, Handeye, Iso3, RigView, RigViewObs, Uncertainty, View,
+    compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
     HandeyeDataset, HandeyeEstimate, HandeyeMode, HandeyeSolveOptions, RobotPoseMeta,
@@ -19,7 +19,10 @@ use crate::common::config::{
     CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, IntrinsicsOptimizeConfig,
     RobotPoseConfig, SolverConfig,
 };
-use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
+use crate::common::{
+    ExportDiagnostics, ProblemKind, VersionedExport, one_camera_target_residuals,
+    read_schema_version,
+};
 use crate::planar_family::check_camera_model;
 use crate::rig_family::{HandeyePoses, HandeyeStages, handeye_solve_opts};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
@@ -569,11 +572,7 @@ impl ProblemType for SingleCamHandeyeProblem {
                 .map(|r| r.deltas.as_slice()),
         );
         let target = compute_planar_target_residuals_views(&model, &input.views, &cam_se3_target)?;
-        let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
-
-        let mut per_feature_residuals = PerFeatureResiduals::default();
-        per_feature_residuals.target = target;
-        per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
+        let per_feature_residuals = one_camera_target_residuals(target);
         Ok(SingleCamHandeyeExport {
             kind: ProblemKind::SingleCamHandeye,
             schema_version: SingleCamHandeyeExport::SCHEMA_VERSION,

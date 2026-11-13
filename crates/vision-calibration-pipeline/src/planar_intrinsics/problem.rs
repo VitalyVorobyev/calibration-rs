@@ -7,15 +7,17 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
-    CameraParams, Iso3, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
-    build_feature_histogram, compute_planar_target_residuals,
+    CameraParams, Iso3, PlanarDataset, SensorKind, Uncertainty, compute_planar_target_residuals,
 };
 use vision_calibration_optim::{
     PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions, RobustLoss,
 };
 
 use crate::common::config::{CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig};
-use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
+use crate::common::{
+    ExportDiagnostics, ProblemKind, VersionedExport, one_camera_target_residuals,
+    read_schema_version,
+};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
@@ -289,10 +291,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         // error rather than panicking.
         let cam = output.params.build_camera()?;
         let target = compute_planar_target_residuals(&cam, input, &output.params.cam_se3_target)?;
-        let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
-        let mut per_feature_residuals = PerFeatureResiduals::default();
-        per_feature_residuals.target = target;
-        per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
+        let per_feature_residuals = one_camera_target_residuals(target);
         Ok(PlanarIntrinsicsExport {
             kind: ProblemKind::PlanarIntrinsics,
             schema_version: PlanarIntrinsicsExport::SCHEMA_VERSION,

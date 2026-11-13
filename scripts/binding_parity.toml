@@ -58,8 +58,10 @@
 "common::HandeyeOptimizeOptions" = "HandeyeOptimizeOptions"
 "common::HandeyeSolution" = ["RigEyeInHand", "RigEyeToHand", "HandeyeSolution"]
 "common::IntrinsicsInitOptions" = "IntrinsicsInitOptions"
+"common::IntrinsicsManualInit" = "IntrinsicsManualInit"
 "common::IntrinsicsOptimizeOptions" = "IntrinsicsOptimizeOptions"
 "common::RigInitOptions" = "RigInitOptions"
+"common::RigIntrinsicsManualInit" = ["RigIntrinsicsManualInit", "types.RigIntrinsicsManualInit"]
 "common::RigOptimizeOptions" = "RigOptimizeOptions"
 "common::config::CameraConfig" = "CameraConfig"
 "common::config::CameraOverride" = "CameraOverride"
@@ -218,7 +220,6 @@
 "optim::projection_uncertainty" = "projection_uncertainty"
 "planar_intrinsics::IntrinsicsFilterOptions" = "IntrinsicsFilterOptions"
 "planar_intrinsics::IntrinsicsInitResult" = "planar_intrinsics.IntrinsicsInitResult"
-"planar_intrinsics::IntrinsicsManualInit" = "planar_intrinsics.IntrinsicsManualInit"
 "planar_intrinsics::IntrinsicsOptimizeResult" = "planar_intrinsics.IntrinsicsOptimizeResult"
 "planar_intrinsics::PlanarIntrinsicsConfig" = "PlanarIntrinsicsConfig"
 "planar_intrinsics::PlanarIntrinsicsEstimate" = "session.CalibrationSession.output"
@@ -233,7 +234,6 @@
 "planar_intrinsics::step_init_with_seed" = "planar_intrinsics.PlanarIntrinsicsSession.step_init_with_seed"
 "planar_intrinsics::step_optimize" = "planar_intrinsics.PlanarIntrinsicsSession.step_optimize"
 "rig_extrinsics::IntrinsicsInitResult" = "rig_extrinsics.IntrinsicsInitResult"
-"rig_extrinsics::IntrinsicsManualInit" = "rig_extrinsics.IntrinsicsManualInit"
 "rig_extrinsics::IntrinsicsOptimizeResult" = "rig_extrinsics.IntrinsicsOptimizeResult"
 "rig_extrinsics::RigExtrinsicsConfig" = "RigExtrinsicsConfig"
 "rig_extrinsics::RigExtrinsicsEstimate" = "session.CalibrationSession.output"
@@ -256,7 +256,6 @@
 "rig_handeye::HandeyeOptimizeConfig" = "HandeyeOptimizeConfig"
 "rig_handeye::HandeyeOptimizeResult" = "rig_handeye.HandeyeOptimizeResult"
 "rig_handeye::IntrinsicsInitResult" = "rig_handeye.IntrinsicsInitResult"
-"rig_handeye::IntrinsicsManualInit" = ["rig_handeye.IntrinsicsManualInit", "types.IntrinsicsManualInit"]
 "rig_handeye::IntrinsicsOptimizeResult" = "rig_handeye.IntrinsicsOptimizeResult"
 "rig_handeye::RigHandeyeConfig" = "RigHandeyeConfig"
 "rig_handeye::RigHandeyeExport" = "RigHandeyeExport"
@@ -313,7 +312,6 @@
 "single_cam_handeye::HandeyeManualInit" = ["single_cam_handeye.EyeInHandManualInit", "single_cam_handeye.EyeToHandManualInit", "single_cam_handeye.HandeyeManualInit"]
 "single_cam_handeye::HandeyeOptimizeResult" = "single_cam_handeye.HandeyeOptimizeResult"
 "single_cam_handeye::IntrinsicsInitResult" = "single_cam_handeye.IntrinsicsInitResult"
-"single_cam_handeye::IntrinsicsManualInit" = "single_cam_handeye.IntrinsicsManualInit"
 "single_cam_handeye::IntrinsicsOptimizeResult" = "single_cam_handeye.IntrinsicsOptimizeResult"
 "single_cam_handeye::SingleCamHandeyeConfig" = "SingleCamHandeyeConfig"
 "single_cam_handeye::SingleCamHandeyeExport" = "SingleCamHandeyeExport"

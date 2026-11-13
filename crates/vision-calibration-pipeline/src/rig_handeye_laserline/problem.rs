@@ -21,7 +21,7 @@ use vision_calibration_optim::{
     RobustLoss, compute_rig_laserline_feature_residuals, handeye_observer_se3_target,
 };
 
-use crate::rig_family::{inverse_poses, per_camera_histograms, rig_target_residuals};
+use crate::rig_family::{add_rig_laser_residuals, inverse_poses, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeLaserlineState;
@@ -381,16 +381,7 @@ pub(crate) fn export_joint(
         &rig_se3_target,
         &params.laser_planes_cam,
     )?;
-    per_feature_residuals.laser_hist_per_cam =
-        Some(per_camera_histograms(input.num_cameras, |cam| {
-            laser
-                .features
-                .iter()
-                .filter(move |r| r.camera == cam)
-                .filter_map(|r| r.residual_px)
-        }));
-    per_feature_residuals.laser = laser.features;
-    per_feature_residuals.laser_lines = laser.lines;
+    add_rig_laser_residuals(&mut per_feature_residuals, input.num_cameras, laser);
 
     let solution = HandeyeSolution::new(mode, params.handeye, params.target_ref);
 

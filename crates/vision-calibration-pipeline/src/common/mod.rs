@@ -34,10 +34,15 @@ mod handeye;
 pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use diagnostics::ExportDiagnostics;
+pub(crate) use diagnostics::one_camera_target_residuals;
 pub(crate) use export_version::read_export_value;
 pub(crate) use export_version::read_schema_version;
 pub use export_version::{VersionedExport, check_export_version, read_export};
 pub use handeye::HandeyeSolution;
+// The manual seeds of the intrinsics stages: one camera (planar intrinsics,
+// single-camera hand-eye) and each camera of a rig (the rig problems).
+pub use crate::planar_family::IntrinsicsManualInit;
+pub use crate::rig_family::RigIntrinsicsManualInit;
 pub(crate) use vision_calibration_dataset::ProblemKind;
 // Input and output types shared by several problem types: the robot pose of
 // a hand-eye view, a rig view with laser pixels, and the hand-eye estimate.

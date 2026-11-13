@@ -125,10 +125,10 @@ and a bounded joint refine. The init log warns when the intrinsics are not
 seeded, because a from-scratch start can settle in a wrong tilt/focal basin.
 
 ```rust
+use vision_calibration::common::IntrinsicsManualInit;
 use vision_calibration::core::{FxFyCxCy, ScheimpflugParams, SensorKind};
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, IntrinsicsManualInit, step_init_with_seed,
-    step_optimize,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
 
 let mut config = PlanarIntrinsicsConfig::default();

@@ -144,8 +144,10 @@ from .common import (
     HandeyeInitOptions,
     HandeyeOptimizeOptions,
     IntrinsicsInitOptions,
+    IntrinsicsManualInit,
     IntrinsicsOptimizeOptions,
     RigInitOptions,
+    RigIntrinsicsManualInit,
     RigOptimizeOptions,
 )
 from .dataset import SniffError, sniff_folder
@@ -303,6 +305,9 @@ __all__ = [
     "DeviceOptimizeOptions",
     "PlaneInitOptions",
     "PlaneOptimizeOptions",
+    # Manual seeds of the intrinsics stages
+    "IntrinsicsManualInit",
+    "RigIntrinsicsManualInit",
     # Cameras
     "CameraModel",
     # Manifest-driven runs and detection

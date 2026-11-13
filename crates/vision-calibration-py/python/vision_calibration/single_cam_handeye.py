@@ -18,15 +18,13 @@ from .common import (
     HandeyeInitOptions,
     HandeyeOptimizeOptions,
     IntrinsicsInitOptions,
+    IntrinsicsManualInit,
     IntrinsicsOptimizeOptions,
 )
 from .models import (
     CameraParams,
-    Distortion,
     HandeyeMode,
-    PinholeIntrinsics,
     Pose,
-    ScheimpflugSensor,
     SingleCamHandeyeConfig,
     SingleCamHandeyeExport,
     SingleCamHandeyeInput,
@@ -59,31 +57,6 @@ __all__ = [
     "SingleCamHandeyeSession",
     "run_calibration",
 ]
-
-
-@dataclass(slots=True)
-class IntrinsicsManualInit:
-    """Manual seeds of the intrinsics stage; a field left ``None`` is
-    estimated.
-
-    The fields mean what they mean for planar intrinsics; ``cam_se3_target``
-    are camera-from-target, one per view.
-    """
-
-    intrinsics: PinholeIntrinsics | None = None
-    distortion: Distortion | None = None
-    sensor: ScheimpflugSensor | None = None
-    cam_se3_target: list[Pose] | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        return _seed_payload(
-            {
-                "intrinsics": self.intrinsics,
-                "distortion": self.distortion,
-                "sensor": self.sensor,
-                "cam_se3_target": self.cam_se3_target,
-            }
-        )
 
 
 @dataclass(slots=True)

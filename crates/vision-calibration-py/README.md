@@ -71,17 +71,19 @@ slot (`projection`, `distortion`, `sensor`), as configured.
 A session runs a workflow step by step, with the Rust step names. Each step
 takes its options (a dataclass; `None` fields keep the config) and returns its
 result as a dataclass; the `*_with_seed` steps take manual-init seeds. The
-problem's seeds and results live in its module (`vision_calibration.rig_extrinsics`,
-...).
+problem's results and its own seeds live in its module
+(`vision_calibration.rig_extrinsics`, ...); the intrinsics seeds several
+problems share, `IntrinsicsManualInit` (one camera) and
+`RigIntrinsicsManualInit` (each camera of a rig), sit next to the step options
+at the top level.
 
 ```python
 import vision_calibration as vc
-from vision_calibration import planar_intrinsics
 
 session = vc.PlanarIntrinsicsSession()
 session.set_input(dataset)
 init = session.step_init_with_seed(
-    planar_intrinsics.IntrinsicsManualInit(
+    vc.IntrinsicsManualInit(
         intrinsics=vc.PinholeIntrinsics(fx=800.0, fy=800.0, cx=640.0, cy=360.0)
     )
 )

@@ -7,6 +7,7 @@
 //! the laserline device — each camera in its own model
 //! ([`CameraModelSpec`]).
 
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
     DistortionParams, FxFyCxCy, Iso3, Mat3, PinholeCamera, PlanarDataset, ProjectionKind,
@@ -69,6 +70,121 @@ pub(crate) struct CameraSeed {
     /// Sensor tilt; a non-zero tilt needs a Scheimpflug camera
     /// ([`check_sensor_seed`]).
     pub sensor: Option<ScheimpflugParams>,
+}
+
+/// Manual initialization seeds of a one-camera intrinsics stage: planar
+/// intrinsics ([`step_init_with_seed`]) and the intrinsics stage of
+/// single-camera hand-eye ([`step_intrinsics_init_with_seed`]).
+///
+/// All fields are `Option<T>`:
+/// - `None` means *auto-initialize this group* (same path as the unseeded
+///   init step).
+/// - `Some(value)` means *use this value*; do not auto-initialize.
+///
+/// Partial-seed semantics:
+/// - When `intrinsics` is `Some` but `cam_se3_target` is `None`, poses are
+///   recovered from homographies using the **manual** intrinsics (not
+///   auto-estimated ones). This keeps the geometric chain consistent with the
+///   seed.
+/// - When `intrinsics` is `Some` and `distortion` is `None`, distortion
+///   starts at zero — the auto distortion fit is coupled with the iterative
+///   intrinsics estimator and does not run when intrinsics are seeded.
+/// - When `intrinsics` is `None`, the bootstrap auto-fit runs and any `Some`
+///   field overrides the corresponding bootstrap output.
+///
+/// The distortion seed is a value in the camera's own distortion model: its
+/// kind must equal `camera.model.distortion` (a typed error otherwise). It is
+/// used as given — no coefficient is converted, and the tilted sensor's
+/// tangential zeroing applies only to the auto-fit.
+///
+/// The tilt seed fits any camera when it is zero (the identity a device spec
+/// gives a frontal camera); a non-zero tilt needs a Scheimpflug sensor.
+///
+/// [`step_init_with_seed`]: crate::planar_intrinsics::step_init_with_seed
+/// [`step_intrinsics_init_with_seed`]: crate::single_cam_handeye::step_intrinsics_init_with_seed
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct IntrinsicsManualInit {
+    /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
+    pub intrinsics: Option<FxFyCxCy<Real>>,
+    /// Manual distortion seed, of the kind `camera.model.distortion` names.
+    /// `None` means auto-init (or zeros when intrinsics are also seeded — see
+    /// struct docs).
+    pub distortion: Option<DistortionParams>,
+    /// Manual sensor tilt of a Scheimpflug camera; an untilted camera takes
+    /// only a zero tilt (a typed error otherwise). `None` starts from the
+    /// auto-fit tilt (zero when intrinsics are seeded). A seeded tilt is used
+    /// as given: with auto-fitted intrinsics the linear stage fits them at
+    /// that tilt instead of sweeping the tilt, and the optimize step refines
+    /// it directly instead of running the multi-start tilt sweep.
+    pub sensor: Option<ScheimpflugParams>,
+    /// Manual per-view poses (camera-from-target). `None` means recover from
+    /// homographies using whichever intrinsics are in effect.
+    pub cam_se3_target: Option<Vec<Iso3>>,
+}
+
+/// One camera's initial estimate from [`init_camera_with_seed`].
+#[derive(Debug, Clone)]
+pub(crate) struct CameraInit {
+    /// The camera's initial parameters, in its model.
+    pub camera: CameraParams,
+    /// Per-view target poses (`cam_se3_target`): the seeded ones, or the
+    /// bootstrap's.
+    pub cam_se3_target: Vec<Iso3>,
+    /// Which inputs were seeded, for the step's log note.
+    pub provenance: Provenance,
+}
+
+impl CameraInit {
+    /// The step's log note: the initial intrinsics and the seed provenance.
+    pub(crate) fn log_note(&self) -> String {
+        let k = self.camera.intrinsics;
+        format!(
+            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
+            k.fx,
+            k.fy,
+            k.cx,
+            k.cy,
+            self.provenance.source()
+        )
+    }
+}
+
+/// Initialize one camera of `model` and its per-view target poses from the
+/// manual seeds of a one-camera intrinsics stage: check the seeds against
+/// the model and the view count ([`check_camera_seed`]), run the linear
+/// bootstrap ([`bootstrap_camera`]) and keep any seeded poses.
+///
+/// # Errors
+///
+/// Those of [`check_camera_seed`] (before any work) and of
+/// [`bootstrap_camera`].
+pub(crate) fn init_camera_with_seed(
+    model: CameraModelSpec,
+    dataset: &PlanarDataset,
+    manual: IntrinsicsManualInit,
+    init_opts: CameraInitOptions,
+) -> Result<CameraInit, Error> {
+    let seed = CameraSeed {
+        intrinsics: manual.intrinsics,
+        distortion: manual.distortion,
+        sensor: manual.sensor,
+    };
+    check_camera_seed(
+        model,
+        &seed,
+        manual.cam_se3_target.as_deref(),
+        "cam_se3_target",
+        dataset.num_views(),
+    )?;
+    let bootstrap = bootstrap_camera(0, model, dataset, &seed, init_opts)?;
+    let mut provenance = Provenance::of_camera_seed(model, &seed);
+    provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
+    Ok(CameraInit {
+        camera: bootstrap.camera,
+        cam_se3_target: manual.cam_se3_target.unwrap_or(bootstrap.cam_se3_target),
+        provenance,
+    })
 }
 
 /// One camera's linear bootstrap.

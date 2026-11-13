@@ -115,8 +115,10 @@ from .common import (
     HandeyeInitOptions as HandeyeInitOptions,
     HandeyeOptimizeOptions as HandeyeOptimizeOptions,
     IntrinsicsInitOptions as IntrinsicsInitOptions,
+    IntrinsicsManualInit as IntrinsicsManualInit,
     IntrinsicsOptimizeOptions as IntrinsicsOptimizeOptions,
     RigInitOptions as RigInitOptions,
+    RigIntrinsicsManualInit as RigIntrinsicsManualInit,
     RigOptimizeOptions as RigOptimizeOptions,
 )
 from .dataset import SniffError as SniffError, sniff_folder as sniff_folder

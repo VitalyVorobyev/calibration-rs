@@ -63,7 +63,7 @@ Joint optimization of all parameters:
 pub struct RigHandeyeConfig {
     pub intrinsics_init: IntrinsicsInitConfig, // per-camera linear init
     pub intrinsics_optimize: IntrinsicsOptimizeConfig, // per-camera refinement: reprojection_loss
-    pub manual_init: Option<IntrinsicsManualInit>, // optional per-camera seeds
+    pub manual_init: Option<RigIntrinsicsManualInit>, // optional per-camera seeds
     pub camera: CameraConfig,               // camera model + fix lists shared by every camera
     pub camera_overrides: Vec<CameraOverride>, // per-camera replacement of `camera`
     pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics, refine_sensor, reprojection_loss

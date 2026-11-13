@@ -5,7 +5,6 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraParams, Iso3, RigDataset, Uncertainty};
 use vision_calibration_optim::{
     HandeyeDataset, HandeyeEstimate, HandeyeMode, HandeyeSolveOptions, RobotPoseMeta,
@@ -17,14 +16,15 @@ use vision_calibration_optim::{HandeyeParams, SolveReport};
 use crate::common::config::{
     CameraConfig, CameraOverride, HandeyeInitConfig, IntrinsicsInitConfig,
     IntrinsicsOptimizeConfig, RigConfig, RobotPoseConfig, SolverConfig, rig_camera_for,
-    validate_rig_camera_indices, validate_rig_cameras,
+    validate_rig_cameras,
 };
 use crate::common::{
     ExportDiagnostics, HandeyeSolution, ProblemKind, VersionedExport, read_schema_version,
 };
 use crate::rig_family::{
-    HandeyePoses, HandeyeStages, IntrinsicsManualInit, RigStages, RigStagesState,
+    HandeyePoses, HandeyeStages, RigIntrinsicsManualInit, RigStages, RigStagesState,
     check_camera_models, handeye_solve_opts, inverse_poses, rig_ba_fix, rig_target_residuals,
+    validate_rig_input, validate_rig_input_config,
 };
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -77,7 +77,7 @@ pub struct RigHandeyeConfig {
     /// `step_intrinsics_init_all_with_seed` takes an explicit seed that
     /// overrides this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manual_init: Option<IntrinsicsManualInit>,
+    pub manual_init: Option<RigIntrinsicsManualInit>,
     /// Per-camera linear-initialization stage settings
     /// (`step_intrinsics_init_all`). The linear stage fits only the
     /// distortion terms each camera's solves estimate.
@@ -455,47 +455,9 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
-        stated_covariance(
-            input
-                .views
-                .iter()
-                .flat_map(|v| v.obs.cameras.iter().flatten()),
-        )?;
-        if input.num_views() < 3 {
-            return Err(Error::InsufficientData {
-                need: 3,
-                got: input.num_views(),
-            });
-        }
-
         // One camera is a rig too: the joint laser workflow's warm start
         // calibrates a single laser head as one (`rig_handeye_laserline`).
-        if input.num_cameras == 0 {
-            return Err(Error::InsufficientData { need: 1, got: 0 });
-        }
-
-        // Check each view has correct number of cameras and robot pose
-        for (i, view) in input.views.iter().enumerate() {
-            if view.obs.cameras.len() != input.num_cameras {
-                return Err(Error::invalid_input(format!(
-                    "view {} has {} cameras, expected {}",
-                    i,
-                    view.obs.cameras.len(),
-                    input.num_cameras
-                )));
-            }
-
-            // Check at least one camera has observations in this view
-            let has_obs = view.obs.cameras.iter().any(|c| c.is_some());
-            if !has_obs {
-                return Err(Error::invalid_input(format!(
-                    "view {} has no observations from any camera",
-                    i
-                )));
-            }
-        }
-
-        Ok(())
+        validate_rig_input(input, 1)
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
@@ -517,13 +479,7 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
-        if config.rig.reference_camera_idx >= input.num_cameras {
-            return Err(Error::invalid_input(format!(
-                "reference_camera_idx {} is out of range (num_cameras = {})",
-                config.rig.reference_camera_idx, input.num_cameras
-            )));
-        }
-        validate_rig_camera_indices(&config.camera_overrides, input.num_cameras)
+        validate_rig_input_config(&config.rig, &config.camera_overrides, input.num_cameras)
     }
 
     fn on_input_change() -> InvalidationPolicy {

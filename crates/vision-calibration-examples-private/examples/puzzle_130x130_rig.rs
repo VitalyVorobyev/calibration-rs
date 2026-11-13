@@ -3,7 +3,7 @@
 //! Drives the unified `rig_handeye::RigHandeyeProblem` with
 //! a Scheimpflug camera model. Per-camera intrinsics + distortion + tilt seeds
 //! are supplied via `step_intrinsics_init_all_with_seed` and the
-//! `IntrinsicsManualInit` struct. The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
+//! `RigIntrinsicsManualInit` struct. The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
 //! expressed via `camera.fix.distortion`.
 //!
 //! Pipeline:
@@ -28,7 +28,7 @@ use std::time::Instant;
 #[path = "puzzle_130x130_rig/viewer.rs"]
 mod puzzle_viewer;
 
-use vision_calibration::common::HandeyeSolution;
+use vision_calibration::common::{HandeyeSolution, RigIntrinsicsManualInit};
 use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration::{
     common::CalibratedCameras,
@@ -36,7 +36,7 @@ use vision_calibration::{
         laser::{LaserObservation, triangulate_laser},
         types::Captures,
     },
-    rig_handeye::{IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
+    rig_handeye::{RigHandeyeConfig, RigHandeyeProblem},
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
     },
@@ -179,7 +179,7 @@ fn main() -> Result<()> {
         let step_t = Instant::now();
         // Seed intrinsics + distortion + sensors per camera (homogeneous rig)
         // via the unified manual-init API.
-        let mut manual_init = IntrinsicsManualInit::default();
+        let mut manual_init = RigIntrinsicsManualInit::default();
         manual_init.per_cam_intrinsics = Some(per_cam_intrinsics_seed);
         manual_init.per_cam_distortion = Some(per_cam_distortion_seed);
         manual_init.per_cam_sensors = Some(per_cam_sensors_seed);

@@ -5,16 +5,18 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraParams, Iso3, NoMeta, RigDataset, Uncertainty};
 use vision_calibration_optim::RigExtrinsicsEstimate;
 
 use crate::common::config::{
     CameraConfig, CameraOverride, IntrinsicsInitConfig, IntrinsicsOptimizeConfig, RigConfig,
-    SolverConfig, rig_camera_for, validate_rig_camera_indices, validate_rig_cameras,
+    SolverConfig, rig_camera_for, validate_rig_cameras,
 };
 use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
-use crate::rig_family::{RigStages, RigStagesState, inverse_poses, rig_target_residuals};
+use crate::rig_family::{
+    RigStages, RigStagesState, inverse_poses, rig_target_residuals, validate_rig_input,
+    validate_rig_input_config,
+};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigExtrinsicsState;
@@ -254,48 +256,7 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
-        stated_covariance(
-            input
-                .views
-                .iter()
-                .flat_map(|v| v.obs.cameras.iter().flatten()),
-        )?;
-        if input.num_views() < 3 {
-            return Err(Error::InsufficientData {
-                need: 3,
-                got: input.num_views(),
-            });
-        }
-
-        if input.num_cameras < 2 {
-            return Err(Error::InsufficientData {
-                need: 2,
-                got: input.num_cameras,
-            });
-        }
-
-        // Check each view has correct number of cameras
-        for (i, view) in input.views.iter().enumerate() {
-            if view.obs.cameras.len() != input.num_cameras {
-                return Err(Error::invalid_input(format!(
-                    "view {} has {} cameras, expected {}",
-                    i,
-                    view.obs.cameras.len(),
-                    input.num_cameras
-                )));
-            }
-
-            // Check at least one camera has observations in this view
-            let has_obs = view.obs.cameras.iter().any(|c| c.is_some());
-            if !has_obs {
-                return Err(Error::invalid_input(format!(
-                    "view {} has no observations from any camera",
-                    i
-                )));
-            }
-        }
-
-        Ok(())
+        validate_rig_input(input, 2)
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
@@ -311,13 +272,7 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
-        if config.rig.reference_camera_idx >= input.num_cameras {
-            return Err(Error::invalid_input(format!(
-                "reference_camera_idx {} is out of range (num_cameras = {})",
-                config.rig.reference_camera_idx, input.num_cameras
-            )));
-        }
-        validate_rig_camera_indices(&config.camera_overrides, input.num_cameras)
+        validate_rig_input_config(&config.rig, &config.camera_overrides, input.num_cameras)
     }
 
     fn on_input_change() -> InvalidationPolicy {
