@@ -60,7 +60,7 @@ how precisely each camera places a ray across its image.
 
 ```toml
 # Cargo.toml
-vision-calibration = "0.18"
+vision-calibration = "1.0.0-rc.1"
 ```
 
 ```bash
