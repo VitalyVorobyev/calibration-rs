@@ -22,20 +22,17 @@
 //! hand-eye observability.
 
 use crate::Error;
-use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::backend::{BackendSolveOptions, SolveReport};
 use crate::factors::reprojection_model::se3_exp;
-use crate::ir::ReprojSqrtInfo;
-use crate::ir::{
-    FactorKind, FixedMask, HandeyeMode, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
-    RobustLoss,
-};
-use crate::params::camera::{CameraBlockInput, add_camera_blocks, unpack_camera};
+use crate::ir::{FixedMask, HandeyeMode, ManifoldKind, ProblemIR, RobustLoss};
 use crate::params::pose_se3::iso3_to_se3_dvec;
+use crate::problems::handeye_chain::{
+    self, ChainInit, RobotSolve, SolvedChain, ViewChain, se3_array,
+};
 use crate::problems::rig_extrinsics::{
     ReprojectionSums, camera_models, resolve_camera_fix, solved_pose,
 };
-use crate::problems::robot_poses::{self, RobotPoseSigma, RobotRefinement, Weighting};
-use crate::uncertainty::{self, RigLabelling};
+use crate::problems::robot_poses::{RobotPoseSigma, RobotRefinement, Weighting};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -323,35 +320,28 @@ pub fn optimize_handeye(
 ) -> Result<HandeyeEstimate, Error> {
     let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
     let build = |weighting| build_handeye_ir(&dataset, &initial, &specs, &fixed, &opts, weighting);
-    let priors = RobotPoseSigma {
-        rot_sigma: opts.robot_rot_sigma,
-        trans_sigma: opts.robot_trans_sigma,
+    let robot = RobotSolve {
+        refine: opts.refine_robot_poses,
+        priors: RobotPoseSigma {
+            rot_sigma: opts.robot_rot_sigma,
+            trans_sigma: opts.robot_trans_sigma,
+        },
+        estimate: opts.estimate_robot_sigma,
     };
-    let (ir, solution, robot_pose_sigma) = if opts.refine_robot_poses {
-        let (ir, solution, priors) = robot_poses::solve_weighted(
-            build,
-            priors,
-            opts.estimate_robot_sigma,
-            dataset.num_views(),
-            &backend_opts,
-        )?;
-        (ir, solution, Some(priors))
-    } else {
-        let (ir, initial_map) = build(Weighting::initial(priors))?;
-        let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
-        (ir, solution, None)
-    };
+    let solution = handeye_chain::solve(
+        build,
+        robot,
+        &specs,
+        dataset.mode,
+        dataset.num_views(),
+        &backend_opts,
+    )?;
 
-    let cameras = specs
-        .iter()
-        .enumerate()
-        .map(|(i, spec)| unpack_camera(&solution.params, *spec, Some(i)))
-        .collect::<Result<Vec<_>, Error>>()?;
-    let rig_se3_cam = (0..dataset.data.num_cameras)
-        .map(|i| solved_pose(&solution.params, &format!("extr/{i}")))
-        .collect::<Result<Vec<_>, Error>>()?;
-    let handeye = solved_pose(&solution.params, "handeye")?;
-
+    let SolvedChain {
+        cameras,
+        rig_se3_cam,
+        handeye,
+    } = handeye_chain::unpack(&solution.params, &specs)?;
     let target_poses = if opts.relax_target_poses {
         (0..dataset.num_views())
             .map(|i| solved_pose(&solution.params, &format!("target/{i}")))
@@ -359,14 +349,7 @@ pub fn optimize_handeye(
     } else {
         vec![solved_pose(&solution.params, "target")?; dataset.num_views()]
     };
-
-    let robot_refinement = match robot_pose_sigma {
-        Some(sigma) => Some(RobotRefinement {
-            deltas: robot_poses::solved_deltas(&solution.params, dataset.num_views())?,
-            sigma,
-        }),
-        None => None,
-    };
+    let robot_refinement = solution.robot_refinement(dataset.num_views())?;
 
     let params = HandeyeParams {
         cameras,
@@ -379,18 +362,12 @@ pub fn optimize_handeye(
         &params,
         robot_refinement.as_ref().map(|r| r.deltas.as_slice()),
     )?;
-    let labels = RigLabelling {
-        cameras: &specs,
-        multi_camera: dataset.data.num_cameras > 1,
-        handeye_mode: Some(dataset.mode),
-    }
-    .labels(&ir, &solution);
 
     Ok(HandeyeEstimate {
         mode: dataset.mode,
         params,
-        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
-        report: solution.solve_report,
+        uncertainty: solution.uncertainty,
+        report: solution.report,
         robot_refinement,
         mean_reproj_error,
         per_cam_reproj_errors,
@@ -511,43 +488,18 @@ fn build_handeye_ir(
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();
 
-    // 1. Per-camera blocks, grouped by slot.
-    let inputs: Vec<CameraBlockInput<'_>> = initial
-        .cameras
-        .iter()
-        .zip(fixed)
-        .map(|(params, fixed)| CameraBlockInput {
-            params,
-            fixed,
-            bounds: None,
-        })
-        .collect();
-    let camera_blocks = add_camera_blocks(&mut ir, &mut initial_map, &inputs, true)?;
-
-    // 2. Per-camera extrinsics
-    let mut extr_ids = Vec::new();
-    for (cam_idx, rig_se3_cam) in initial.rig_se3_cam.iter().enumerate() {
-        let fixed = if opts.fix_extrinsics.get(cam_idx).copied().unwrap_or(false) {
-            FixedMask::all_fixed(7)
-        } else {
-            FixedMask::all_free()
-        };
-        let key = format!("extr/{}", cam_idx);
-        let id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
-        extr_ids.push(id);
-        initial_map.insert(key, iso3_to_se3_dvec(rig_se3_cam));
+    // 1. Per-camera blocks, extrinsics and hand-eye transform.
+    let blocks = ChainInit {
+        cameras: &initial.cameras,
+        fixed,
+        rig_se3_cam: &initial.rig_se3_cam,
+        fix_extrinsics: &opts.fix_extrinsics,
+        handeye: &initial.handeye,
+        fix_handeye: opts.fix_handeye,
     }
+    .add_blocks(&mut ir, &mut initial_map)?;
 
-    // 3. Hand-eye transform
-    let handeye_fixed = if opts.fix_handeye {
-        FixedMask::all_fixed(7)
-    } else {
-        FixedMask::all_free()
-    };
-    let handeye_id = ir.add_param_block("handeye", 7, ManifoldKind::SE3, handeye_fixed, None);
-    initial_map.insert("handeye".to_string(), iso3_to_se3_dvec(&initial.handeye));
-
-    // 4. Target pose (fixed by default) + residuals
+    // 2. Target pose (fixed by default) + residuals
     let target_id = if opts.relax_target_poses {
         None
     } else {
@@ -577,57 +529,21 @@ fn build_handeye_ir(
             .refine_robot_poses
             .then(|| weighting.add_view(&mut ir, &mut initial_map, view_idx, None));
 
-        // Convert robot pose to SE3 array for factor
-        let robot_se3 = iso3_to_se3_dvec(&view.meta.base_se3_gripper);
-        let robot_se3_array: [f64; 7] = [
-            robot_se3[0],
-            robot_se3[1],
-            robot_se3[2],
-            robot_se3[3],
-            robot_se3[4],
-            robot_se3[5],
-            robot_se3[6],
-        ];
-
-        // Add residuals for each camera observation
-        for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
-            let Some(obs) = cam_obs else { continue };
-            let (chain_params, chain) = match robot_delta_id {
-                Some(robot_delta_id) => (
-                    camera_blocks[cam_idx].with(&[
-                        extr_ids[cam_idx],
-                        handeye_id,
-                        target_id,
-                        robot_delta_id,
-                    ]),
-                    ReprojChain::HandeyeRobotDelta {
-                        base_se3_gripper: robot_se3_array,
-                        mode: dataset.mode,
-                    },
-                ),
-                None => (
-                    camera_blocks[cam_idx].with(&[extr_ids[cam_idx], handeye_id, target_id]),
-                    ReprojChain::Handeye {
-                        base_se3_gripper: robot_se3_array,
-                        mode: dataset.mode,
-                    },
-                ),
-            };
-            for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
-                ir.add_residual_block(ResidualBlock {
-                    params: chain_params.clone(),
-                    loss: opts.robust_loss,
-                    factor: FactorKind::ReprojPoint {
-                        model: specs[cam_idx],
-                        chain,
-                        pw: [pw.x, pw.y, pw.z],
-                        uv: [uv.x, uv.y],
-                        sqrt_info: ReprojSqrtInfo::for_point(obs, pt_idx),
-                    },
-                    residual_dim: 2,
-                });
-            }
+        // Weight 1: each point keeps the information its view states.
+        ViewChain {
+            target: target_id,
+            robot_delta: robot_delta_id,
+            base_se3_gripper: se3_array(&view.meta.base_se3_gripper),
+            mode: dataset.mode,
         }
+        .add_reprojections(
+            &mut ir,
+            &blocks,
+            &view.obs.cameras,
+            specs,
+            opts.robust_loss,
+            1.0,
+        );
     }
 
     ir.validate()?;
@@ -637,6 +553,7 @@ fn build_handeye_ir(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend;
     use nalgebra::{Translation3, UnitQuaternion};
     use vision_calibration_core::{
         BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, PointCovariance, Pt2, Pt3,
