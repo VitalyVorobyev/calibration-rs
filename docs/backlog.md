@@ -4,38 +4,7 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 (AGENTS.md §11); the CHANGELOG and git history record what landed. The
 [ROADMAP](ROADMAP.md) gives the phases and gates these serve. Track headings
 match the ROADMAP; each says its phase. Dependencies are named as
-`Needs: <ID>`. Phase 1b tracks are listed in the order they run.
-
-## Multiple-view geometry — MVG (Phase 1b)
-
-Measurements from a calibrated system with error bars, designed in ADR
-0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
-and propagates the calibration's covariance as consider parameters. Today
-MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
-two-view functions take matches with their stated noise (`PixelMatch`), and
-triangulation refines the points and returns their covariance, the
-calibration's share included, and bundle adjustment refines capture poses
-and points through the builder (Consider or Prior, robust losses, an explicit
-gauge, covariance). The robust two-view functions refine through the builder
-and return the covariance of `E` and of the relative pose from the stated
-pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
-`StereoRectification::triangulate` and `StereoRectification::dense_cloud`
-carry the calibration's share.
-
-- [~] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
-  (a cross-repo change). Parked by the maintainer (2026-11-06): it would give
-  that image-processing library, which has its own f32 camera model and a
-  pixel → ray → plane path without σ, a dependency on the calibration facade.
-  That is an architecture decision for `vision-metrology`, not part of the
-  1.0 path. Reopen when `vision-metrology` needs measurements with σ.
-- [~] MVG-HANDEYE-STAGED - A staged laser export (`rig_laserline_device`)
-  lists the hand-eye with its cross terms to the planes, so its rig measures
-  in the gripper or base frame with the hand-eye's σ: its upstream maps the
-  hand-eye into per-view board poses it does not report, and a rig built
-  from it with `with_handeye` counts the hand-eye exact. Parked: the joint
-  `rig_handeye_laserline` export carries it; reopen when a staged laser
-  user needs robot-frame points with the hand-eye's share.
-
+`Needs: <ID>`.
 
 ## Parameter uncertainty (Phase 2)
 
@@ -90,6 +59,45 @@ need their measurement first and stay opt-in until it is in.
   match a typed error. Gate: a rig laser run whose upstream dropped a
   different view than it did fails; the matching cases give bit-identical
   results.
+
+## Bindings and internals (alongside)
+
+- [ ] PY-MODELS-GEN - `models.py` and the problem modules hand-write the
+  config, seed and export dataclasses (87 classes with `to_payload` /
+  `from_payload`) beside the TypedDicts `cargo xtask emit-schemas` generates
+  from the same Rust types (`_generated_types.py`); 68 names exist twice.
+  `tests/test_config_defaults.py` pins the defaults to
+  `schemas/*.default.json`, but fields and converters are still kept in
+  step by hand. Generate the dataclasses and their converters in
+  `xtask/src/py_types.rs`, keeping the class names and the Python-only
+  conveniences (`Pose`, the distortion classes) as a thin hand-written
+  layer. Gate: no hand-written class for a type the schemas describe; the
+  Python suite and the binding parity check pass unchanged.
+- [ ] PY-MVG-SCHEMA - The MVG results have no schema:
+  `vision-calibration-py/src/mvg.rs` builds JSON by hand (`json!`) and
+  `mvg.py` parses it back into hand-written dataclasses. Derive `Serialize`
+  and `JsonSchema` on the `vision-mvg` result types (or binding-side wire
+  structs), publish their schemas and generate the Python types. Needs:
+  PY-MODELS-GEN.
+- [ ] OPTIM-FIXED-ON-BUILDER - The fixed problems of `optim::problems`
+  build their IR by hand, beside the public `optim::problem` builder that
+  produces the same IR for reprojection (`add_reprojection`, `lower`); only
+  `vision-mvg` uses the builder. Give the builder the hand-eye chain and
+  the laser residuals, then build the fixed problems through it. Results
+  bit-identical on both backends.
+- [ ] MATH-ONE-SO3-LOG - Two SO(3) logarithms (`linear/src/handeye.rs`
+  `log_so3`: nalgebra angle-axis, zero below 1e-12;
+  `optim/src/problem/calibration.rs` `so3_log`: sign-fixed `atan2` with a
+  small-angle series) and two pose-from-homography functions
+  (`linear/src/planar_pose.rs`, guarded against singular columns and signed
+  on `t.z`; `geometry/src/pnp/planar.rs`, unguarded and signed on `h₃.z`)
+  differ in arithmetic. Keep one of each in the lowest crate (the guarded
+  ones), and measure what moves: the hand-eye initializers and planar PnP.
+- [ ] CI-PRIVATE-EXAMPLES - `vision-calibration-examples-private` is built
+  by no CI job, because it path-depends on the sibling `vision-metrology`
+  checkout; an example there stopped compiling unnoticed. Check it in CI
+  with that repository checked out beside this one, or move the laser
+  extraction it needs behind a feature so the rest checks alone.
 
 ## Regression suite (alongside)
 
@@ -149,9 +157,42 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   the best, a fixed-tilt mode of `estimate_scheimpflug_intrinsics_iterative`.
   Gate: those draws and that camera reach the full-seed result, no other
   result moves; measured on both backends.
+- [ ] REPORT-SECTIONS - The HTML report (`analysis::html_report`, shared by
+  `vcal` and the app) renders the quality checks and one section per
+  camera. A hand-eye export shows no hand-eye (the pose, its σ, the robot
+  refinement), and a laser export shows no planes. Add those sections
+  (additive). Gate: `vision-calibration-bench/tests/html_report.rs` checks
+  them for every problem type.
 
 ## Multiple-view geometry (Phase 2)
 
+Measurements from a calibrated system with error bars, designed in ADR
+0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
+and propagates the calibration's covariance as consider parameters. Today
+MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
+two-view functions take matches with their stated noise (`PixelMatch`), and
+triangulation refines the points and returns their covariance, the
+calibration's share included, and bundle adjustment refines capture poses
+and points through the builder (Consider or Prior, robust losses, an explicit
+gauge, covariance). The robust two-view functions refine through the builder
+and return the covariance of `E` and of the relative pose from the stated
+pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
+`StereoRectification::triangulate` and `StereoRectification::dense_cloud`
+carry the calibration's share.
+
+- [~] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
+  (a cross-repo change). Parked by the maintainer (2026-11-06): it would give
+  that image-processing library, which has its own f32 camera model and a
+  pixel → ray → plane path without σ, a dependency on the calibration facade.
+  That is an architecture decision for `vision-metrology`, not part of the
+  1.0 path. Reopen when `vision-metrology` needs measurements with σ.
+- [~] MVG-HANDEYE-STAGED - A staged laser export (`rig_laserline_device`)
+  lists the hand-eye with its cross terms to the planes, so its rig measures
+  in the gripper or base frame with the hand-eye's σ: its upstream maps the
+  hand-eye into per-view board poses it does not report, and a rig built
+  from it with `with_handeye` counts the hand-eye exact. Parked: the joint
+  `rig_handeye_laserline` export carries it; reopen when a staged laser
+  user needs robot-frame points with the hand-eye's share.
 - [ ] MVG-TWO-VIEW - Two-view robustness and uncertainty:
   - optimal two-view triangulation (Lindstrom);
   - covariance of F and H (E and the relative pose have theirs from the
@@ -203,6 +244,25 @@ were. What is left reorganizes them around the project.
 - [ ] B-QUAL-TS7 - Move to TypeScript 7. **Blocked**: `typescript-eslint`
   rejects TS 7 (typescript-eslint#10940), and adopting it would drop the
   type-aware lint config. Revisit when typescript-eslint supports TS 7.
+- [ ] APP-RUN-DISPATCH - The app's `run.rs` keeps its own topology dispatch
+  (`run_*_topology`) beside `dataset_runner::calibrate_dataset`, which
+  Python and `vcal` share. It keeps it for per-stage progress events and
+  the image manifest it splices into each export. Move it onto
+  `calibrate_dataset` with a `RunControl` built from its cancel token and
+  observer, and surface the returned `rejected`, `usable_views` and
+  `image_sizes`. Needs: DATA-VIEW-IDENTITY (which puts the manifest in
+  every export). Gate: the app's run tests, and no `run_*_topology` left.
+- [ ] APP-WIRE-TYPES - `app/src/types.ts` hand-writes `FrameRef`,
+  `ImageManifest`, `PerFeatureResiduals` and `ExportDiagnostics` stricter
+  than the generated wire types (`types/generated/diagnose-wire.ts`): the
+  wire allows a null `roi` and `image_manifest` and an absent `target` and
+  `per_feature_residuals`, the hand-written types do not. `AnyExport`
+  (`store/types.ts`), `RunResponse` (`lib/runCalibration.ts`) and `RunRecord`
+  (`project/projectApi.ts`) mirror Rust types that are not in the wire
+  schema. Use the generated types, handle the absent cases where the
+  components read them, and emit the last three from
+  `src-tauri/src/bin/emit_schemas.rs`. Gate: no hand-written mirror of a
+  Rust type in `app/src`.
 
 ## Solver backends and performance (Phase 2)
 
