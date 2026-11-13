@@ -554,6 +554,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`RunError::AskUser`) before it reads any image; it used to report the
   first unreadable image instead.
 
+- `vcal run --report` writes its files all or none. A report that could not
+  be written used to leave `calibration.json` and `quality.json` behind; the
+  run now stops with the error and leaves the output directory as it was.
+- `vcal run -c` reads a configuration file named `config.TOML` (any case of
+  the extension) as TOML; it was read as JSON and failed.
+
 - `rig_handeye::step_handeye_init` and `step_handeye_init_with_seed` that
   failed (the closed-form solve finding too little robot rotation, say) left
   the previous run's initialization in place, and `step_handeye_optimize`
@@ -614,18 +620,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An export with no target feature to average no longer reports a mean
   reprojection error of 0 (`rig_laserline_device`) or infinity (a tilted
   planar camera): the calibration fails with an error instead.
-
-### Added
-
-- **The regression suite gates a measurement.** The `opencv_stereo` entry
-  also measures its held-out boards: its even views calibrate a stereo rig,
-  the corners of each odd view are triangulated with the calibration's
-  uncertainty, and the 2070 distances along board rows and columns, 1 to 7
-  squares, are compared with the board's size. The reference result stores
-  the mean and RMS error, the mean stated σ and the RMS of error over σ per
-  held-out view and length, and `calib-bench suite check` fails on any
-  change (with `--sigma k`, on a mean length that moves by `k` of its σ).
-  A suite entry asks for it with `measure_board = { square_size_m = ... }`.
 
 ## [0.18.0] - 2026-11-06
 
