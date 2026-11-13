@@ -35,6 +35,24 @@ pub(crate) struct ParsedPose {
     pub base_se3_gripper: Iso3,
 }
 
+/// Load and normalize a manifest's robot poses: its `robot_poses` file read
+/// with its `pose_convention`. The caller has validated `spec`, which
+/// guarantees both for every topology that pairs views with robot poses.
+pub(crate) fn load_manifest_robot_poses(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+) -> Result<Vec<ParsedPose>, RunError> {
+    let source = spec
+        .robot_poses
+        .as_ref()
+        .expect("validate guarantees robot_poses for a robot-pose topology");
+    let convention = spec
+        .pose_convention
+        .as_ref()
+        .expect("validate guarantees pose_convention for a robot-pose topology");
+    load_robot_poses(source, convention, base_dir)
+}
+
 /// Load and normalize every pose row from `source`.
 pub(crate) fn load_robot_poses(
     source: &RobotPoseSource,

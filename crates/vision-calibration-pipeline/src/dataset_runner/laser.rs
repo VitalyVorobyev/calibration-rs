@@ -28,22 +28,24 @@ use vision_calibration_dataset::{
 use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, GrayImageView};
 use vision_calibration_optim::{
     LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView, RobotPoseMeta,
-    apply_robot_delta,
+    handeye_observer_se3_target,
 };
 
-use crate::common::{HandeyeSolution, read_export};
+use crate::common::read_export;
 use crate::laserline_device::LaserlineDeviceInput;
 use crate::rig_handeye::RigHandeyeExport;
 use crate::rig_handeye_laserline::RigHandeyeLaserlineInput;
 use crate::rig_laserline_device::RigLaserlineDeviceInput;
 
 use super::pairing::pair_views;
-use super::poses::{load_robot_poses, match_poses_to_tokens};
+use super::poses::{load_manifest_robot_poses, match_poses_to_tokens};
 use super::require_pose_pairing;
 use super::{
     Detection, ImageProgress, RejectedDetection, RunError, decode_gray, detect_features,
-    expand_camera_images, expand_image_pattern, features_to_obs, pattern_repr, rig::build_rig_core,
-    target_to_detector_config, view_filter::ViewFilter,
+    expand_camera_images, expand_image_pattern, features_to_obs, pattern_repr,
+    rig::{RigCore, build_rig_core},
+    target_to_detector_config,
+    view_filter::ViewFilter,
 };
 
 /// Injected laser-line extractor.
@@ -293,16 +295,8 @@ pub fn build_rig_laserline_device_input(
     // `validate` guarantees pose_pairing, robot_poses, pose_convention,
     // upstream_calibration, and laser_images on every camera for this
     // topology.
-    vision_calibration_dataset::validate(spec)?;
-    let source = spec
-        .robot_poses
-        .as_ref()
-        .expect("validate guarantees robot_poses for RigLaserlineDevice");
-    let convention = spec
-        .pose_convention
-        .as_ref()
-        .expect("validate guarantees pose_convention for RigLaserlineDevice");
-    let poses = load_robot_poses(source, convention, base_dir)?;
+    validate(spec)?;
+    let poses = load_manifest_robot_poses(spec, base_dir)?;
     let upstream_path = spec
         .upstream_calibration
         .as_ref()
@@ -316,92 +310,7 @@ pub fn build_rig_laserline_device_input(
 
     let core = build_rig_core(spec, base_dir, detection, control)?;
     let num_cameras = spec.cameras.len();
-
-    let pairing = spec
-        .pose_pairing
-        .as_ref()
-        .expect("build_rig_core checked pose_pairing");
-
-    // Laser frames pair against *all* view tokens (pre-drop) — a laser
-    // image for a view that was later dropped is not an error.
-    let laser_spec = spec.laser.unwrap_or_default();
-    let mut laser_by_token: Vec<HashMap<String, PathBuf>> = Vec::with_capacity(num_cameras);
-    for camera in &spec.cameras {
-        let laser_images = camera
-            .laser_images
-            .as_ref()
-            .expect("validate guarantees laser_images for RigLaserlineDevice");
-        laser_by_token.push(laser_paths_by_token(
-            laser_images,
-            &camera.id,
-            pairing,
-            &core.all_tokens,
-            base_dir,
-        )?);
-    }
-
-    // Per-camera laser extraction over the kept views.
-    let laser_key_configs: Vec<Value> = spec
-        .cameras
-        .iter()
-        .map(|c| laser_key_config(&laser_spec, c.roi_xywh))
-        .collect();
-    let mut laser_per_view: Vec<Vec<Option<Vec<Pt2>>>> = Vec::with_capacity(core.views.len());
-    let mut laser_paths: Vec<Vec<Option<PathBuf>>> = Vec::with_capacity(core.views.len());
-    let mut per_camera_usable = vec![0usize; num_cameras];
-    let laser_count = core
-        .views
-        .iter()
-        .map(|(_obs, token)| {
-            laser_by_token
-                .iter()
-                .filter(|by| by.contains_key(token))
-                .count()
-        })
-        .sum();
-    let mut lasers = ImageProgress::lasers(control, laser_count);
-    for (_obs, token) in &core.views {
-        let mut slots: Vec<Option<Vec<Pt2>>> = Vec::with_capacity(num_cameras);
-        let mut path_slots: Vec<Option<PathBuf>> = Vec::with_capacity(num_cameras);
-        for cam_idx in 0..num_cameras {
-            let Some(laser_path) = laser_by_token[cam_idx].get(token) else {
-                slots.push(None);
-                path_slots.push(None);
-                continue;
-            };
-            let pixels = lasers.read(|| {
-                extract_laser_pixels(
-                    laser_extractor,
-                    &laser_spec,
-                    &laser_key_configs[cam_idx],
-                    spec.cameras[cam_idx].roi_xywh,
-                    laser_path,
-                    detection,
-                )
-            })?;
-            if pixels.len() < laser_spec.min_points as usize {
-                slots.push(None);
-                path_slots.push(None);
-                continue;
-            }
-            per_camera_usable[cam_idx] += 1;
-            slots.push(Some(pixels));
-            path_slots.push(Some(laser_path.clone()));
-        }
-        laser_per_view.push(slots);
-        laser_paths.push(path_slots);
-    }
-    for (cam_idx, usable) in per_camera_usable.iter().enumerate() {
-        if *usable == 0 {
-            // A camera with zero laser observations leaves its plane
-            // unconstrained — fail fast instead of solving garbage.
-            return Err(RunError::InsufficientLaserViews {
-                camera_id: spec.cameras[cam_idx].id.clone(),
-                usable: 0,
-                total: core.views.len(),
-            });
-        }
-    }
+    let laser = extract_rig_laser(spec, base_dir, &core, detection, laser_extractor, control)?;
 
     // Robot poses → per-kept-view T_B_G, matched by pairing token.
     let kept_tokens: Vec<String> = core.views.iter().map(|(_, t)| t.clone()).collect();
@@ -445,7 +354,7 @@ pub fn build_rig_laserline_device_input(
     let views: Vec<RigLaserlineView> = core
         .views
         .into_iter()
-        .zip(laser_per_view)
+        .zip(laser.pixels)
         .map(|((obs, _token), laser_pixels)| RigLaserlineView {
             cameras: obs.cameras,
             laser_pixels,
@@ -460,7 +369,7 @@ pub fn build_rig_laserline_device_input(
     Ok(RigLaserlineRunResult {
         input: RigLaserlineDeviceInput { dataset, upstream },
         view_paths: core.view_paths,
-        laser_paths,
+        laser_paths: laser.paths,
         usable_views,
         total_views: core.total_views,
         rejected: core.rejected,
@@ -485,18 +394,64 @@ pub fn build_rig_handeye_laserline_input(
     }
     // The robot poses load before any detection, so a pose file that does
     // not parse fails the run first.
-    vision_calibration_dataset::validate(spec)?;
-    let source = spec
-        .robot_poses
-        .as_ref()
-        .expect("validate guarantees robot_poses for RigHandeyeLaserline");
-    let convention = spec
-        .pose_convention
-        .as_ref()
-        .expect("validate guarantees pose_convention for RigHandeyeLaserline");
-    let poses = load_robot_poses(source, convention, base_dir)?;
+    validate(spec)?;
+    let poses = load_manifest_robot_poses(spec, base_dir)?;
 
     let core = build_rig_core(spec, base_dir, detection, control)?;
+    let num_cameras = spec.cameras.len();
+    let laser = extract_rig_laser(spec, base_dir, &core, detection, laser_extractor, control)?;
+
+    let kept_tokens: Vec<String> = core.views.iter().map(|(_, t)| t.clone()).collect();
+    let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, core.total_views)?;
+
+    let views: Vec<RigHandeyeLaserlineView> = core
+        .views
+        .into_iter()
+        .zip(laser.pixels)
+        .zip(matched)
+        .map(
+            |(((obs, _token), laser_pixels), base_se3_gripper)| RigHandeyeLaserlineView {
+                obs: RigLaserlineView {
+                    cameras: obs.cameras,
+                    laser_pixels,
+                },
+                meta: RobotPoseMeta { base_se3_gripper },
+            },
+        )
+        .collect();
+    let usable_views = views.len();
+    Ok(RigHandeyeLaserlineRunResult {
+        input: RigHandeyeLaserlineInput { views, num_cameras },
+        view_paths: core.view_paths,
+        laser_paths: laser.paths,
+        usable_views,
+        total_views: core.total_views,
+        rejected: core.rejected,
+    })
+}
+
+/// A rig's laser frames over its kept views, `[view][camera]`: the laser
+/// pixels and the laser image each came from. A slot is `None` where the
+/// camera has no laser image for the view or fewer than `min_points` pixels.
+struct RigLaser {
+    pixels: Vec<Vec<Option<Vec<Pt2>>>>,
+    paths: Vec<Vec<Option<PathBuf>>>,
+}
+
+/// Pair every camera's laser images with the rig's views and extract the
+/// laser pixels of the kept views.
+///
+/// Laser frames pair against *all* view tokens (pre-drop): a laser image
+/// for a view that was later dropped is not an error. A camera left with no
+/// usable laser frame fails, since its plane would be unconstrained.
+fn extract_rig_laser(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    core: &RigCore,
+    detection: Detection<'_>,
+    laser_extractor: &dyn LaserPixelExtractor,
+    control: &RunControl,
+) -> Result<RigLaser, RunError> {
     let num_cameras = spec.cameras.len();
     let pairing = spec
         .pose_pairing
@@ -509,7 +464,7 @@ pub fn build_rig_handeye_laserline_input(
         let laser_images = camera
             .laser_images
             .as_ref()
-            .expect("validate guarantees laser_images for RigHandeyeLaserline");
+            .expect("validate guarantees laser_images on every camera of a rig laser topology");
         laser_by_token.push(laser_paths_by_token(
             laser_images,
             &camera.id,
@@ -524,8 +479,8 @@ pub fn build_rig_handeye_laserline_input(
         .iter()
         .map(|c| laser_key_config(&laser_spec, c.roi_xywh))
         .collect();
-    let mut laser_per_view: Vec<Vec<Option<Vec<Pt2>>>> = Vec::with_capacity(core.views.len());
-    let mut laser_paths: Vec<Vec<Option<PathBuf>>> = Vec::with_capacity(core.views.len());
+    let mut pixels: Vec<Vec<Option<Vec<Pt2>>>> = Vec::with_capacity(core.views.len());
+    let mut paths: Vec<Vec<Option<PathBuf>>> = Vec::with_capacity(core.views.len());
     let mut per_camera_usable = vec![0usize; num_cameras];
     let laser_count = core
         .views
@@ -547,7 +502,7 @@ pub fn build_rig_handeye_laserline_input(
                 path_slots.push(None);
                 continue;
             };
-            let pixels = lasers.read(|| {
+            let view_pixels = lasers.read(|| {
                 extract_laser_pixels(
                     laser_extractor,
                     &laser_spec,
@@ -557,17 +512,17 @@ pub fn build_rig_handeye_laserline_input(
                     detection,
                 )
             })?;
-            if pixels.len() < laser_spec.min_points as usize {
+            if view_pixels.len() < laser_spec.min_points as usize {
                 slots.push(None);
                 path_slots.push(None);
                 continue;
             }
             per_camera_usable[cam_idx] += 1;
-            slots.push(Some(pixels));
+            slots.push(Some(view_pixels));
             path_slots.push(Some(laser_path.clone()));
         }
-        laser_per_view.push(slots);
-        laser_paths.push(path_slots);
+        pixels.push(slots);
+        paths.push(path_slots);
     }
     for (cam_idx, usable) in per_camera_usable.iter().enumerate() {
         if *usable == 0 {
@@ -578,34 +533,7 @@ pub fn build_rig_handeye_laserline_input(
             });
         }
     }
-
-    let kept_tokens: Vec<String> = core.views.iter().map(|(_, t)| t.clone()).collect();
-    let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, core.total_views)?;
-
-    let views: Vec<RigHandeyeLaserlineView> = core
-        .views
-        .into_iter()
-        .zip(laser_per_view)
-        .zip(matched)
-        .map(
-            |(((obs, _token), laser_pixels), base_se3_gripper)| RigHandeyeLaserlineView {
-                obs: RigLaserlineView {
-                    cameras: obs.cameras,
-                    laser_pixels,
-                },
-                meta: RobotPoseMeta { base_se3_gripper },
-            },
-        )
-        .collect();
-    let usable_views = views.len();
-    Ok(RigHandeyeLaserlineRunResult {
-        input: RigHandeyeLaserlineInput { views, num_cameras },
-        view_paths: core.view_paths,
-        laser_paths,
-        usable_views,
-        total_views: core.total_views,
-        rejected: core.rejected,
-    })
+    Ok(RigLaser { pixels, paths })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -820,12 +748,15 @@ fn rig_se3_target_from_upstream(
         });
     }
 
-    let base_se3_gripper =
-        match robot_delta_for_view(export, token, kept_idx, kept_views, total_views, path)? {
-            Some(delta) => apply_robot_delta(base_se3_gripper, &delta),
-            None => *base_se3_gripper,
-        };
-    Ok(rig_se3_target_from_chain(export, &base_se3_gripper))
+    let delta = robot_delta_for_view(export, token, kept_idx, kept_views, total_views, path)?;
+    let chain = handeye_observer_se3_target(
+        export.handeye.mode(),
+        export.handeye.handeye().pose(),
+        export.handeye.target_pose(),
+        std::slice::from_ref(base_se3_gripper),
+        delta.as_ref().map(std::slice::from_ref),
+    );
+    Ok(chain[0])
 }
 
 fn robot_delta_for_view(
@@ -875,23 +806,10 @@ fn robot_delta_for_view(
     })
 }
 
-fn rig_se3_target_from_chain(export: &RigHandeyeExport, base_se3_gripper: &Iso3) -> Iso3 {
-    match export.handeye {
-        HandeyeSolution::EyeInHand {
-            gripper_se3_rig,
-            base_se3_target,
-        } => gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target,
-        HandeyeSolution::EyeToHand {
-            rig_se3_base,
-            gripper_se3_target,
-        } => rig_se3_base * base_se3_gripper * gripper_se3_target,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{ProblemKind, VersionedExport};
+    use crate::common::{HandeyeSolution, ProblemKind, VersionedExport};
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use vision_calibration_core::{

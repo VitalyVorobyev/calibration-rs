@@ -81,8 +81,8 @@ pub mod tier_b {
         BackendSolveOptions, LaserlineResidualType, PlanarIntrinsicsEstimate,
         PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigHandeyeLaserlineDataset,
         RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
-        RigLaserlineView, RobustLoss, SolveReport, SolverBackend, optimize_planar_intrinsics,
-        optimize_rig_handeye_laserline,
+        RigLaserlineView, RobustLoss, SolveReport, SolverBackend, handeye_observer_se3_target,
+        optimize_planar_intrinsics, optimize_rig_handeye_laserline,
     };
     #[cfg(feature = "laser")]
     use vision_metrology::{
@@ -2579,11 +2579,13 @@ pub mod tier_b {
         let laserline_dataset =
             vision_calibration_optim::RigLaserlineDataset::new(observations.views.clone(), n_cam)
                 .map_err(|e| anyhow::anyhow!("build RigLaserlineDataset: {e}"))?;
-        let rig_se3_target: Vec<Iso3> = observations
-            .robot_poses
-            .iter()
-            .map(|pose| rig_target_for_handeye_mode(rig_export, *pose))
-            .collect();
+        let rig_se3_target = handeye_observer_se3_target(
+            rig_export.handeye.mode(),
+            rig_export.handeye.handeye().pose(),
+            rig_export.handeye.target_pose(),
+            &observations.robot_poses,
+            None,
+        );
         let upstream = rig_export
             .to_upstream_calibration(rig_se3_target)
             .context("build rig laserline upstream from rig hand-eye export")?;
@@ -2696,19 +2698,6 @@ pub mod tier_b {
             per_cam_stats: joint_est.per_cam_stats,
             laser_metrics,
         }))
-    }
-
-    fn rig_target_for_handeye_mode(export: &RigHandeyeExport, base_se3_gripper: Iso3) -> Iso3 {
-        match export.handeye {
-            HandeyeSolution::EyeInHand {
-                gripper_se3_rig,
-                base_se3_target,
-            } => gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target,
-            HandeyeSolution::EyeToHand {
-                rig_se3_base,
-                gripper_se3_target,
-            } => rig_se3_base * base_se3_gripper * gripper_se3_target,
-        }
     }
 
     fn apply_laserline_stage_stats(

@@ -16,7 +16,7 @@ use crate::common::RobotPoseMeta;
 use crate::single_cam_handeye::SingleCamHandeyeInput;
 
 use super::pairing::pair_views;
-use super::poses::{load_robot_poses, match_poses_to_tokens};
+use super::poses::{load_manifest_robot_poses, match_poses_to_tokens};
 use super::require_pose_pairing;
 use super::{
     Detection, ImageProgress, RejectedDetection, RunError, detect_features, expand_camera_images,
@@ -92,15 +92,7 @@ pub fn build_single_cam_handeye_input(
     )?;
     let total_views = paired.paths.len();
 
-    let source = spec
-        .robot_poses
-        .as_ref()
-        .expect("validate guarantees robot_poses for SingleCamHandeye");
-    let convention = spec
-        .pose_convention
-        .as_ref()
-        .expect("validate guarantees pose_convention for SingleCamHandeye");
-    let poses = load_robot_poses(source, convention, base_dir)?;
+    let poses = load_manifest_robot_poses(spec, base_dir)?;
 
     let roi = camera.roi_xywh;
     let filter = ViewFilter::for_spec(spec);
