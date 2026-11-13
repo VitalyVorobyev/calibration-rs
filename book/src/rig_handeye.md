@@ -59,7 +59,7 @@ Joint optimization of all parameters:
 
 `RigHandeyeConfig` groups the settings by stage:
 
-```rust
+```rust,ignore
 pub struct RigHandeyeConfig {
     pub intrinsics_init: IntrinsicsInitConfig, // per-camera linear init
     pub intrinsics_optimize: IntrinsicsOptimizeConfig, // per-camera refinement: reprojection_loss
@@ -74,6 +74,13 @@ pub struct RigHandeyeConfig {
 ```
 
 ```rust
+use vision_calibration::common::config::{RobotPoseConfig, RobotPosePrior};
+use vision_calibration::optim::{HandeyeMode, RobustLoss};
+# use vision_calibration::rig_handeye::RigHandeyeProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+
 session.update_config(|c| {
     c.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
     c.intrinsics_optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
@@ -81,17 +88,21 @@ session.update_config(|c| {
     c.handeye_optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
     c.handeye_optimize.robot_poses = RobotPoseConfig::Refine(RobotPosePrior::new(0.01, 0.002));
 })?;
+# Ok(())
+# }
 ```
 
 Set `camera.model.sensor` to `SensorKind::Scheimpflug` for a rig of tilted-sensor cameras, or name single cameras in `camera_overrides` to mix lenses (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` holds one `CameraParams` per camera.
 
 ## Complete Example
 
-```rust
+```rust,no_run
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::rig_handeye::*;
 use vision_calibration::common::HandeyeSolution;
 use vision_calibration::optim::{HandeyeMode, RobustLoss};
+# fn main() -> anyhow::Result<()> {
+# let rig_dataset_with_robot_poses: RigHandeyeInput = unimplemented!("the observed rig views and robot poses");
 
 let mut session = CalibrationSession::<RigHandeyeProblem>::new();
 session.set_input(rig_dataset_with_robot_poses)?;
@@ -120,6 +131,8 @@ match export.handeye {
 println!("Baseline: {:.1} mm",
     export.cam_se3_rig[1].translation.vector.norm() * 1000.0);
 println!("Per-camera errors: {:?}", export.per_cam_reproj_errors);
+# Ok(())
+# }
 ```
 
 ## Gauge Freedom

@@ -198,7 +198,7 @@ serde_json = "1"
 
 The real-image route needs no feature flags: detection, the manifest and the dataset runner are part of the default build.
 
-```rust
+```rust,no_run
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
@@ -324,7 +324,7 @@ Each sample carries the citation its publisher asks for (`citation` in the catal
 vision-calibration = { version = "0.18", features = ["fetch"] }
 ```
 
-```rust
+```rust,no_run
 use vision_calibration::dataset::{DatasetSpec, samples};
 use vision_calibration::control::RunControl;
 use vision_calibration::dataset_runner::{Detection, calibrate_dataset};
@@ -352,28 +352,42 @@ Every workflow has a `*Config` type with the same grouped shape (`solver`, `came
 
 ### Rust
 
-```rust
+```rust,no_run
 use vision_calibration::optim::RobustLoss;
-use vision_calibration::planar_intrinsics::run_calibration;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 session.update_config(|c| {
     c.solver.max_iters = 80;
     c.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
 })?;
 run_calibration(&mut session)?; // the same two steps in one call
+# Ok(())
+# }
 ```
 
 From a manifest, the configuration names its workflow, and a configuration for a different problem kind than the manifest's is an error raised before any image is read:
 
-```rust
+```rust,no_run
+use std::path::PathBuf;
 use vision_calibration::control::RunControl;
+use vision_calibration::dataset::DatasetSpec;
 use vision_calibration::dataset_runner::{CalibrationConfig, Detection, calibrate_dataset};
+use vision_calibration::detect::FsDetectionCache;
 use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
+# fn main() -> anyhow::Result<()> {
+# let dir = PathBuf::from("my_board_images");
+# let spec = DatasetSpec::from_path(dir.join("dataset.json"))?;
+# let cache = FsDetectionCache::new(dir.join(".detections"));
 
 let mut config = PlanarIntrinsicsConfig::default();
 config.solver.max_iters = 80;
 let config = CalibrationConfig::PlanarIntrinsics(config);
 let run = calibrate_dataset(&spec, &dir, Some(config), Detection::Cached(&cache), None, &RunControl::default())?;
+# Ok(())
+# }
 ```
 
 ### Python

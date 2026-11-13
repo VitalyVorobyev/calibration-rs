@@ -132,7 +132,7 @@ Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`,
 `CameraConfig`, `HandeyeInitConfig`, `SolverConfig`, `RobotPoseConfig`) are
 reused across every hand-eye problem type:
 
-```rust
+```rust,ignore
 pub struct SingleCamHandeyeConfig {
     // The camera model (any distortion kind, an identity or Scheimpflug
     // sensor) and the parameters its solves hold fixed, named per slot.
@@ -166,7 +166,7 @@ pub struct SingleCamHandeyeConfig {
 
 Each view is a `View<RobotPoseMeta>` (aliased as `SingleCamHandeyeView`); `RobotPoseMeta` is in `vision_calibration::common`, shared with the rig hand-eye workflows:
 
-```rust
+```rust,ignore
 pub struct RobotPoseMeta {
     pub base_se3_gripper: Iso3,  // Robot pose (from kinematics)
 }
@@ -189,22 +189,29 @@ To switch to eye-to-hand:
 
 ```rust
 use vision_calibration::optim::HandeyeMode;
-use vision_calibration::single_cam_handeye::SingleCamHandeyeConfig;
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::single_cam_handeye::{SingleCamHandeyeConfig, SingleCamHandeyeProblem};
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 
 let mut config = SingleCamHandeyeConfig::default();
 config.handeye_init.handeye_mode = HandeyeMode::EyeToHand;
 session.set_config(config)?;
+# Ok(())
+# }
 ```
 
 In eye-to-hand mode the pixel-to-3D chain for a fixed camera observing a gripper-mounted target composes as $T_{C,T} = T_{C,B} \cdot T_{B,G} \cdot T_{G,T}$, the identity `step_handeye_init_with_seed` closes through the first view when only one of `cam_se3_base` and `gripper_se3_target` is seeded (see [Manual Initialization](manual_init.md#hand-eye-seeds)).
 
 ## Complete Example
 
-```rust
+```rust,no_run
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::*;
+# fn main() -> anyhow::Result<()> {
+# fn load_views() -> Vec<SingleCamHandeyeView> { unimplemented!("load data") }
 
-let views: Vec<SingleCamHandeyeView> = /* load data */;
+let views: Vec<SingleCamHandeyeView> = load_views();
 let input = SingleCamHandeyeInput::new(views)?;
 
 let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
@@ -219,12 +226,16 @@ let export = session.export()?;
 println!("Camera: {:?}", export.camera); // CameraParams, in the configured model
 println!("Hand-eye and target: {:?}", export.handeye);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
+# Ok(())
+# }
 ```
 
 ### Reading the Export
 
-```rust
-use vision_calibration::single_cam_handeye::SingleCamHandeyeSolution;
+```rust,no_run
+use vision_calibration::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeSolution};
+# fn main() {
+# let export: SingleCamHandeyeExport = unimplemented!("a hand-eye calibration's export");
 
 match export.handeye {
     SingleCamHandeyeSolution::EyeInHand { gripper_se3_cam, base_se3_target } => {
@@ -234,6 +245,7 @@ match export.handeye {
         // cam_se3_base: T_C_B, gripper_se3_target: T_G_T
     }
 }
+# }
 ```
 
 `export.handeye` holds exactly the two poses of the mode, so an export cannot carry the wrong pose for its mode. In JSON it is the `handeye` object, tagged by `mode`:

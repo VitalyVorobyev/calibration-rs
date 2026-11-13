@@ -48,7 +48,7 @@ In Rust, `html_report` takes any export and the image sizes that
 [`assess`](quality.md) takes; `dataset_runner::calibrate_dataset` returns
 them with the export:
 
-```rust
+```rust,no_run
 use std::path::Path;
 use vision_calibration::analysis::{ReportOptions, html_report};
 use vision_calibration::dataset::DatasetSpec;

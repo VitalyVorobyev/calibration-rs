@@ -63,7 +63,7 @@ More iterations are safe but rarely improve the estimate significantly. The defa
 
 ## Configuration
 
-```rust
+```rust,ignore
 pub struct IterativeIntrinsicsOptions {
     pub iterations: usize,                    // 1-3 typical (default: 2)
     pub distortion_opts: DistortionFitOptions, // Controls fix_k3, fix_tangential, iters
@@ -93,9 +93,13 @@ The iterative linear estimate is not meant to be highly accurate. Its purpose is
 
 ## API
 
-```rust
-use vision_calibration_linear::iterative_intrinsics::*;
-use vision_calibration_linear::distortion_fit::DistortionFitOptions;
+```rust,no_run
+use vision_calibration::core::PlanarDataset;
+use vision_calibration::init::{
+    DistortionFitOptions, IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
+};
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!("the observed views");
 
 let opts = IterativeIntrinsicsOptions {
     iterations: 2,
@@ -110,4 +114,6 @@ let camera = estimate_intrinsics_iterative(&dataset, opts)?;
 // camera is PinholeCamera = Camera<f64, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCy>
 // camera.k: FxFyCxCy (intrinsics)
 // camera.dist: BrownConrady5 (distortion)
+# Ok(())
+# }
 ```

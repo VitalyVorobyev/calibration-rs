@@ -71,9 +71,17 @@ Typical rotation error: 1-5°. Typical translation direction error: 5-15%. These
 
 ## API
 
-```rust
+```rust,no_run
+use vision_calibration::core::Mat3;
+use vision_calibration::init::estimate_planar_pose_from_h;
+# fn main() -> anyhow::Result<()> {
+# let K: Mat3 = unimplemented!("the camera matrix");
+# let H: Mat3 = unimplemented!("a board-to-pixel homography");
+
 let pose = estimate_planar_pose_from_h(&K, &H)?;
 // pose: Iso3 (T_C_B: board to camera transform)
+# Ok(())
+# }
 ```
 
 ## Usage in Calibration Pipeline
@@ -101,8 +109,16 @@ $\mathbf{r}_1$, $\mathbf{r}_2$ unit length, and the sign is the one that
 points $H\tilde{\mathbf{p}}_i$ along $\mathbf{b}_i$ — not $t_z > 0$, which
 fails for a board beside the camera.
 
-```rust
+```rust,no_run
+use vision_calibration::core::{Pt2, Vec3};
+use vision_calibration::init::estimate_planar_pose_from_bearings;
+# fn main() -> anyhow::Result<()> {
+# let board_xy: Vec<Pt2> = unimplemented!("the board's points");
+# let bearings: Vec<Vec3> = unimplemented!("their pixels' bearings");
+
 let pose = estimate_planar_pose_from_bearings(&board_xy, &bearings)?;
+# Ok(())
+# }
 ```
 
 For a pinhole camera, the bearings of undistorted pixels give the same

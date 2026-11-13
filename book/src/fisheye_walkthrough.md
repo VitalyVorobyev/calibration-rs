@@ -29,7 +29,7 @@ The observation file's `input` is the problem's input, so it deserializes
 straight into a `PlanarDataset`. The only setting that differs from a pinhole
 calibration is the camera model:
 
-```rust
+```rust,no_run
 use vision_calibration::core::{
     CameraModelSpec, DistortionKind, PlanarDataset, ProjectionKind, SensorKind,
 };
@@ -37,6 +37,7 @@ use vision_calibration::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
 
 let text = std::fs::read_to_string("regression/observations/opencv_fisheye_left.json")?;
 let mut file: serde_json::Value = serde_json::from_str(&text)?;
@@ -57,6 +58,8 @@ step_optimize(&mut session, None)?;
 let export = session.export()?;
 println!("{:?}", export.camera.intrinsics);
 println!("{:?}", export.camera.distortion.values()); // k1..k4
+# Ok(())
+# }
 ```
 
 `step_init` runs the [bearing-based initializer](fisheye_init.md), which

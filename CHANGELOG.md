@@ -566,6 +566,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change (with `--sigma k`, on a mean length that moves by `k` of its σ).
   A suite entry asks for it with `measure_board = { square_size_m = ... }`.
 
+- **`init` offers the fisheye and distortion initializers.**
+  `estimate_planar_pose_from_bearings` (a board's pose from pixel bearings),
+  `estimate_extrinsics_from_cam_target_poses` (a rig's extrinsics from per-camera
+  board poses, with `ExtrinsicPoses`),
+  `estimate_equidistant_intrinsics` (with `EquidistantInitOptions` and
+  `EquidistantIntrinsicsLinearInit`) initializes a Kannala-Brandt camera from
+  planar views, and `estimate_distortion_from_homographies` (with
+  `DistortionView` and `MetaHomography`) fits Brown-Conrady distortion for
+  known intrinsics, so the book's chapters on them compile against the facade.
+- **Every Rust block of the book compiles.** The book's chapters are doctests
+  of the facade crate, so `cargo test --doc -p vision-calibration` fails on
+  a block that no longer matches the API.
+
 ### Fixed
 
 - `optimize_rig_handeye_laserline` returns an `Error::Numerical` naming the

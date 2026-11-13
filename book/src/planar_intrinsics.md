@@ -52,7 +52,7 @@ After optimization, expect <2% intrinsics error and <1 px mean reprojection erro
 intrinsics-bearing problem type; `camera` names the camera model and its fixed
 parameters:
 
-```rust
+```rust,ignore
 pub struct PlanarIntrinsicsConfig {
     // The camera model and the parameters held fixed.
     pub camera: CameraConfig,
@@ -87,8 +87,14 @@ Brown-Conrady distortion and an identity (untilted) sensor.
 
 ```rust
 use vision_calibration::core::DistortionKind;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 session.update_config(|c| c.camera.model.distortion = DistortionKind::Rational8)?;
+# Ok(())
+# }
 ```
 
 `camera.fix` lists, per slot (`intrinsics`, `distortion`, `sensor`), the parameter names held fixed during the non-linear solve; a slot left `None` keeps the model's default (`k3` for Brown-Conrady). The models, their packed layouts, the defaults and when a richer model helps are in [Choosing a Distortion Model](distortion_selection.md).
@@ -124,12 +130,15 @@ tilt sweep with the principal point frozen, a refine of the winning basin,
 and a bounded joint refine. The init log warns when the intrinsics are not
 seeded, because a from-scratch start can settle in a wrong tilt/focal basin.
 
-```rust
+```rust,no_run
 use vision_calibration::common::IntrinsicsManualInit;
-use vision_calibration::core::{FxFyCxCy, ScheimpflugParams, SensorKind};
+use vision_calibration::core::{FxFyCxCy, PlanarDataset, ScheimpflugParams, SensorKind};
 use vision_calibration::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!("the observed views");
 
 let mut config = PlanarIntrinsicsConfig::default();
 config.camera.model.sensor = SensorKind::Scheimpflug;
@@ -142,6 +151,8 @@ seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 360.0, cy: 270.0 }
 seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 }); // nominal mount tilt
 step_init_with_seed(&mut session, seed, None)?;
 step_optimize(&mut session, None)?;
+# Ok(())
+# }
 ```
 
 The export is the same `PlanarIntrinsicsExport`; `camera.sensor` holds
@@ -150,9 +161,13 @@ derives the seed with `device_seed::scheimpflug_seed`.
 
 ## Complete Example
 
-```rust
+```rust,no_run
+use vision_calibration::core::PlanarDataset;
+use vision_calibration::optim::RobustLoss;
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!("the observed views");
 
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_input(dataset)?;
@@ -175,14 +190,21 @@ let export = session.export()?;
 let k = export.camera.intrinsics;
 println!("Final fx={:.1}, fy={:.1}", k.fx, k.fy);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
+# Ok(())
+# }
 ```
 
 ## Filtering (Optional Step)
 
 After optimization, views or individual observations with high reprojection error can be filtered out:
 
-```rust
-use vision_calibration::planar_intrinsics::{step_filter, IntrinsicsFilterOptions};
+```rust,no_run
+use vision_calibration::planar_intrinsics::{
+    IntrinsicsFilterOptions, PlanarIntrinsicsProblem, step_filter, step_init, step_optimize,
+};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 let mut filter_opts = IntrinsicsFilterOptions::default();
 filter_opts.max_reproj_error = 2.0;      // Remove observations > 2 px
@@ -195,6 +217,8 @@ step_init(&mut session, None)?;
 step_optimize(&mut session, None)?;
 
 // Or, in one call: run_calibration_with_filtering(&mut session, Some(filter_opts))?
+# Ok(())
+# }
 ```
 
 > **OpenCV equivalence**: `cv::calibrateCamera` performs both initialization and optimization internally. calibration-rs separates these steps for inspection and customization.

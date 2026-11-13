@@ -44,7 +44,11 @@ Session::new()
 
 The interesting part of the example is ten lines:
 
-```rust
+```rust,no_run
+use vision_calibration::rig_extrinsics::*;
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let input: RigExtrinsicsInput = unimplemented!("the observed stereo views");
 let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 session.set_input(input)?;
 
@@ -57,6 +61,8 @@ let export = session.export()?;
 let mean_reproj = export.mean_reproj_error;
 let centre = |i: usize| export.cam_se3_rig[i].inverse().translation.vector;
 let baseline = (centre(1) - centre(0)).norm();
+# Ok(())
+# }
 ```
 
 `RigExtrinsicsProblem` is a marker type: through the `ProblemType` trait it fixes the input, configuration and export types, so the session is fully typed. Each `step_*` takes an `Option<*Options>` for per-call tweaks (`max_iters`, `verbosity`, ...); `None` uses the session's config. `export()` returns a `RigExtrinsicsExport`, the stable view of the result and the handoff to other tools.
@@ -79,8 +85,12 @@ Other camera setups use other problem types with the same pattern: only the inpu
 
 A rig view holds one optional observation per camera. A camera that does not see the target in a given frame contributes `None`; the calibration copes with such views as long as each camera has enough usable views overall (at least 3).
 
-```rust
-use vision_calibration::core::{NoMeta, RigDataset, RigView, RigViewObs};
+```rust,no_run
+use vision_calibration::core::{CorrespondenceView, NoMeta, RigDataset, RigView, RigViewObs};
+# fn main() -> anyhow::Result<()> {
+# let mut views = Vec::new();
+# let left: Option<CorrespondenceView> = unimplemented!("the left camera's detection");
+# let right: Option<CorrespondenceView> = unimplemented!("the right camera's detection");
 
 views.push(RigView {
     meta: NoMeta,
@@ -90,6 +100,8 @@ views.push(RigView {
 });
 
 let input = RigDataset::new(views, 2)?; // 2 cameras
+# Ok(())
+# }
 ```
 
 Each `CorrespondenceView` is built from the detected corners with `CorrespondenceView::new(points_3d, points_2d)?`, exactly as in [Planar Intrinsics with Real Data](planar_real_data.md).
@@ -98,11 +110,14 @@ Each `CorrespondenceView` is built from the detected corners with `Correspondenc
 
 Each step returns its own result struct; keep them to report progress:
 
-```rust
+```rust,no_run
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
     step_rig_init, step_rig_optimize,
 };
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 
 step_intrinsics_init_all(&mut session, None)?;
 let intr_opt = step_intrinsics_optimize_all(&mut session, None)?;
@@ -113,17 +128,24 @@ println!("Rig BA mean reprojection error: {:.4} px", rig_opt.mean_reproj_error);
 for (i, err) in rig_opt.per_cam_reproj_errors.iter().enumerate() {
     println!("  Camera {i}: {err:.4} px");
 }
+# Ok(())
+# }
 ```
 
 `run_calibration(&mut session)` (`vision_calibration::rig_extrinsics::run_calibration`) runs the same four steps with default options in one call.
 
 Every step also appends an entry to the session log, which records what the initialization produced and which values came from manual seeds (see [Seeding with Prior Knowledge](manual_init.md)):
 
-```rust
+```rust,no_run
+# use vision_calibration::rig_extrinsics::RigExtrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() {
+# let session = CalibrationSession::<RigExtrinsicsProblem>::new();
 for entry in session.log() {
     println!("[{}] {:?} {}",
         entry.operation, entry.success, entry.notes.as_deref().unwrap_or(""));
 }
+# }
 ```
 
 `CalibrationSession` is JSON-serializable: persist it after `step_rig_init` (`session.to_json()`) and resume later with a fresh `step_rig_optimize` under different solver options (see [CalibrationSession](session.md)).
@@ -132,18 +154,26 @@ for entry in session.log() {
 
 The example reads `regression/observations/stereo_rig.json`: the corners of a 7×11 chessboard with 30 mm squares, detected in 20 image pairs of a 1024×576 stereo camera. The file is part of the [regression suite](regression_suite.md); its `input` field is a serialized `RigExtrinsicsInput`, so it loads with `serde_json`:
 
-```rust
+```rust,no_run
+use vision_calibration::rig_extrinsics::RigExtrinsicsInput;
+# fn main() -> anyhow::Result<()> {
 let text = std::fs::read_to_string("regression/observations/stereo_rig.json")?;
 let mut file: serde_json::Value = serde_json::from_str(&text)?;
 let input: RigExtrinsicsInput = serde_json::from_value(file["input"].take())?;
+# Ok(())
+# }
 ```
 
 With your own images, detect the board in each camera's image of a pair and build the `RigView` as above. Pair the images by a shared index or timestamp; a camera whose detection fails contributes `None`. The detection step is the same as in [Planar Intrinsics with Real Data](planar_real_data.md). A ChArUco board identifies its corners by their markers, so a partly visible board still yields correspondences:
 
-```rust
+```rust,no_run
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{CharucoBoardSpec, CharucoParams, MarkerLayout};
 use calib_targets::detect;
+use vision_calibration::core::{Pt2, Pt3};
+# fn main() -> anyhow::Result<()> {
+# let img: image::GrayImage = unimplemented!("a stereo frame's image");
+# let (mut points_3d, mut points_2d) = (Vec::new(), Vec::new());
 
 let board = CharucoBoardSpec::new(
     22,                       // rows
@@ -155,12 +185,14 @@ let board = CharucoBoardSpec::new(
 .with_marker_layout(MarkerLayout::OpenCvCharuco);
 let charuco_params = CharucoParams::for_board(board);
 
-let detection = detect::detect_charuco(&img, &charuco_params);
+let detection = detect::detect_charuco(&img, &charuco_params)?;
 for corner in detection.corners {
     let target = corner.target_position; // board-frame position, metres
     points_3d.push(Pt3::new(target.x as f64, target.y as f64, 0.0));
     points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
 }
+# Ok(())
+# }
 ```
 
 ## Command-Line Options

@@ -33,7 +33,7 @@ $$\exp(\boldsymbol{\xi}^\wedge) = \begin{bmatrix} \exp([\boldsymbol{\omega}]_\ti
 
 The `se3_exp` function in the factor module computes the exponential map generically over `RealField` for autodiff compatibility:
 
-```rust
+```rust,ignore
 fn se3_exp<T: RealField>(xi: &[T; 6]) -> [[T; 4]; 4]
 ```
 
@@ -85,7 +85,7 @@ No special treatment needed.
 
 The optimization IR specifies the manifold for each parameter block:
 
-```rust
+```rust,ignore
 pub enum ManifoldKind {
     Euclidean,  // R^n, standard addition
     SE3,        // 7D ambient, 6D tangent

@@ -4,11 +4,16 @@
 
 ## Usage
 
-```rust
-use vision_calibration::mvg::metrology::{PointSet, angle, distance, fit_plane, point_to_plane};
+```rust,no_run
 use vision_calibration::control::RunControl;
-use vision_calibration::mvg::triangulation::triangulate;
+use vision_calibration::core::CalibratedRig;
+use vision_calibration::mvg::metrology::{PointSet, angle, distance, fit_plane, point_to_plane};
+use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
 use vision_calibration::mvg::types::Captures;
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let tracks: Vec<Vec<RigObservation>> = unimplemented!("the corners of a board, one track per corner");
+# let all_corners: Vec<usize> = (0..49).collect();
 
 // rig:    CalibratedRig;  tracks: the corners of a board, one track per corner
 let triangulation = triangulate(&rig, Captures::Rig, &tracks, &RunControl::default())?;
@@ -20,6 +25,8 @@ let board = fit_plane(&set, &all_corners)?; // normal, distance, covariance, rms
 let height = point_to_plane(&set, &board.indices, 49)?;
 
 println!("{:.4} m ± {:.4} m", length.value, length.sigma);
+# Ok(())
+# }
 ```
 
 ```python

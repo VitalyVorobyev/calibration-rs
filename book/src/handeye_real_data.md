@@ -17,7 +17,11 @@ The example's support module (`examples/support/handeye_io.rs`) reads the square
 
 Each pose line is converted to an `Iso3`:
 
-```rust
+```rust,no_run
+use vision_calibration::core::Iso3;
+use vision_calibration::nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
+# fn main() {
+# let values: Vec<f64> = unimplemented!("a row-major 4x4 pose from the robot's file");
 let r = Matrix3::new(
     values[0], values[1], values[2],
     values[4], values[5], values[6],
@@ -26,15 +30,20 @@ let r = Matrix3::new(
 let t = Vector3::new(values[3], values[7], values[11]);
 let rot = Rotation3::from_matrix_unchecked(r);
 let pose = Iso3::from_parts(Translation3::from(t), UnitQuaternion::from_rotation_matrix(&rot));
+# }
 ```
 
 The detected views become the calibration input:
 
-```rust
+```rust,no_run
 use vision_calibration::common::RobotPoseMeta;
+use vision_calibration::core::{CorrespondenceView, Iso3};
 use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
 };
+# struct Sample { view: CorrespondenceView, robot_pose: Iso3 }
+# fn main() -> anyhow::Result<()> {
+# let samples: Vec<Sample> = unimplemented!("one detection and robot pose per image");
 
 let views: Vec<SingleCamHandeyeView> = samples
     .into_iter()
@@ -45,14 +54,20 @@ let views: Vec<SingleCamHandeyeView> = samples
     .collect();
 
 let input = SingleCamHandeyeInput::new(views)?;
+# Ok(())
+# }
 ```
 
 ## Calibration
 
-```rust
+```rust,no_run
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
-    step_handeye_init, step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
+    SingleCamHandeyeInput, SingleCamHandeyeProblem, step_handeye_init, step_handeye_optimize,
+    step_intrinsics_init, step_intrinsics_optimize,
 };
+# fn main() -> anyhow::Result<()> {
+# let input: SingleCamHandeyeInput = unimplemented!("the views built above");
 
 let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 session.set_input(input)?;
@@ -63,6 +78,8 @@ step_handeye_init(&mut session, None)?;
 let he_opt = step_handeye_optimize(&mut session, None)?;
 
 let export = session.export()?;
+# Ok(())
+# }
 ```
 
 ## Running the Example

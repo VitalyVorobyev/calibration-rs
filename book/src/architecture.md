@@ -4,7 +4,7 @@ calibration-rs is organized as a layered workspace of Rust crates plus Python bi
 
 ## Crate Dependency Graph
 
-```
+```text
 vision-calibration (facade: re-exports everything)
     │
     ├── vision-calibration-pipeline   (sessions, problem types, dataset runner)
@@ -112,7 +112,7 @@ Python bindings crate (`maturin`/PyO3) exposing high-level session workflows; pu
 
 Every calibration workflow follows the same pattern:
 
-```
+```text
 Observations (2D-3D correspondences)
     │
     ▼
@@ -127,7 +127,7 @@ Calibrated Parameters (K, distortion, poses, ...)
 
 The session framework wraps this flow with configuration, state tracking, and checkpointing:
 
-```
+```text
 CalibrationSession::new()
     │
     ▼
@@ -149,7 +149,7 @@ session.export()                   ← calibrated parameters
 
 The camera projection pipeline is built from four independent traits composed via generics:
 
-```
+```text
 pixel = K(sensor(distortion(projection(direction))))
 ```
 
@@ -159,7 +159,7 @@ Each stage can be mixed and matched. For example, a standard camera uses `Pinhol
 
 Problems are defined as an intermediate representation (IR) that is independent of any specific solver. The IR is then *compiled* to a solver-specific form:
 
-```
+```text
 Problem Builder  →  ProblemIR  →  OptimBackend::solve()
                   (generic)       (solver-specific)
 ```

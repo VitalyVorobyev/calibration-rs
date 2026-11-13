@@ -67,6 +67,11 @@ config.camera.fix.distortion = Some(vec!["k4".into(), "k5".into(), "k6".into()])
 ### Fix intrinsics or distortion terms
 
 ```rust
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+
 // Fix cx, cy but optimize fx, fy
 session.update_config(|c| {
     c.camera.fix.intrinsics = Some(vec!["cx".into(), "cy".into()]);
@@ -76,17 +81,25 @@ session.update_config(|c| {
 session.update_config(|c| {
     c.camera.fix.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
 })?;
+# Ok(())
+# }
 ```
 
 ### A tilted sensor, seeded
 
-```rust
+```rust,no_run
 use vision_calibration::common::IntrinsicsManualInit;
-use vision_calibration::core::{DistortionKind, SensorKind};
+use vision_calibration::core::{
+    DistortionKind, FxFyCxCy, PlanarDataset, ScheimpflugParams, SensorKind,
+};
 use vision_calibration::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!("the observed views");
+# let nominal_k: FxFyCxCy<f64> = unimplemented!("from the datasheet");
+# let mount_tilt: ScheimpflugParams = unimplemented!("from the mount");
 
 let mut config = PlanarIntrinsicsConfig::default();
 config.camera.model.sensor = SensorKind::Scheimpflug;    // radial-only default fix list
@@ -101,6 +114,8 @@ seed.intrinsics = Some(nominal_k);   // datasheet focal length / pixel pitch
 seed.sensor = Some(mount_tilt);      // mechanical mount angle
 step_init_with_seed(&mut session, seed, None)?;
 step_optimize(&mut session, None)?;
+# Ok(())
+# }
 ```
 
 The linear stage always produces Brown-Conrady coefficients; they are embedded into the chosen model with any extra degrees of freedom zeroed before the non-linear refinement. A `distortion` seed is a value in the chosen model itself (its kind must match `camera.model.distortion`) and replaces the fitted coefficients as given. See [Seeding with Prior Knowledge](manual_init.md) for the seeding mechanism and [Planar Intrinsics Calibration](planar_intrinsics.md#tilted-scheimpflug-sensor) for why a tilted camera starts from a seed.

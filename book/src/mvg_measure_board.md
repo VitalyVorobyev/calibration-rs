@@ -22,13 +22,25 @@ Both take a sample id: `opencv_stereo` runs the same procedure on a pinhole pair
 
 The same run is repeated with the calibration's covariance replaced by zero, which leaves the share of the pixel noise alone. The difference between the two is what the calibration's uncertainty adds.
 
-```rust
+```rust,no_run
+use vision_calibration::common::CalibratedCameras;
+use vision_calibration::control::RunControl;
+use vision_calibration::mvg::metrology::{PointSet, distance};
+use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
+use vision_calibration::mvg::types::Captures;
+# use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+# fn main() -> anyhow::Result<()> {
+# let export: RigExtrinsicsExport = unimplemented!("a stereo calibration's export");
+# let tracks: Vec<Vec<RigObservation>> = unimplemented!("one per corner seen by both cameras");
+# let (a, b, truth) = (0, 1, 0.04);
+
 let rig = export.calibrated_rig()?;
 let noise = [rig.reprojection_noise(0)?, rig.reprojection_noise(1)?];
-let tracks: Vec<Vec<RigObservation>> = /* one per corner seen by both cameras */;
 let set = PointSet::from_triangulation(&triangulate(&rig, Captures::Rig, &tracks, &RunControl::default())?)?;
 let length = distance(&set, a, b)?;           // Scalar { value, sigma }
 let error = length.value - truth;             // against the board's known size
+# Ok(())
+# }
 ```
 
 The examples keep the measurement in a few functions and print the table below; the Rust one is tested on a synthetic stereo board without the network.

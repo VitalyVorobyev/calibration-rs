@@ -6,9 +6,16 @@ The cameras come from a `CalibratedRig`, so every camera model works (a fisheye 
 
 ## Usage
 
-```rust
+```rust,no_run
+use vision_calibration::core::{CalibratedRig, Iso3, PointCovariance, Pt2, Pt3};
 use vision_calibration::mvg::bundle_adjust::{BundleAdjustOptions, Scale, bundle_adjust};
 use vision_calibration::mvg::triangulation::RigObservation;
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the cameras and where each sits in the rig");
+# let rig_se3_world: Vec<Iso3> = unimplemented!("the initial pose of the rig at each capture (world → rig)");
+# let points: Vec<Pt3> = unimplemented!("the initial world points");
+# let pixel: Pt2 = unimplemented!("a measured pixel");
+# let noise: PointCovariance = unimplemented!("its stated noise");
 
 // rig:           CalibratedRig, the cameras and where each sits in the rig
 // rig_se3_world: &[Iso3], the initial pose of the rig at each capture (world → rig)
@@ -22,6 +29,8 @@ let adjusted = bundle_adjust(&rig, &rig_se3_world, &points, &tracks, &opts)?;
 println!("RMS {:.3} px", adjusted.reprojection_rms_px);
 let cov = adjusted.point_covariance(0); // Option<Mat3>, m²
 let pose = adjusted.pose_covariance(1); // Option<Matrix6>, capture 1
+# Ok(())
+# }
 ```
 
 ```python

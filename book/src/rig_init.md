@@ -70,7 +70,13 @@ Typical accuracy: 1-5° rotation, 5-15% translation. This is refined in the rig 
 
 ## API
 
-```rust
+```rust,no_run
+use vision_calibration::core::Iso3;
+use vision_calibration::init::estimate_extrinsics_from_cam_target_poses;
+# fn main() -> anyhow::Result<()> {
+# let cam_se3_target: Vec<Vec<Option<Iso3>>> = unimplemented!("each camera's board pose per view");
+# let ref_cam_idx = 0;
+
 let extrinsic_poses = estimate_extrinsics_from_cam_target_poses(
     &cam_se3_target,    // Vec<Vec<Option<Iso3>>>: per-view, per-camera poses
     ref_cam_idx,        // usize: reference camera index
@@ -78,6 +84,8 @@ let extrinsic_poses = estimate_extrinsics_from_cam_target_poses(
 
 // extrinsic_poses.rig_se3_cam: Vec<Iso3>  (T_{R,C} for each camera)
 // extrinsic_poses.rig_se3_target: Vec<Iso3>  (T_{R,T} for each view)
+# Ok(())
+# }
 ```
 
 ## Usage in Calibration Pipeline

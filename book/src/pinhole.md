@@ -28,7 +28,7 @@ This matches the convention used by OpenCV and most computer vision libraries. A
 
 ## The `ProjectionModel` Trait
 
-```rust
+```rust,ignore
 pub trait ProjectionModel<T: RealField> {
     fn in_domain(&self, p_c: &Vector3<T>) -> bool;
     fn project(&self, p_c: &Vector3<T>) -> Point2<T>;

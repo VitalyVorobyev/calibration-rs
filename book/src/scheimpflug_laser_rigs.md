@@ -20,12 +20,15 @@ $(\tau_x, \tau_y)$. Tilt, focal length, and distortion are strongly coupled,
 so seed a coarse prior (the nominal focal length and the nominal mount tilt)
 instead of relying on the from-scratch initialization:
 
-```rust
+```rust,no_run
 use vision_calibration::common::IntrinsicsManualInit;
-use vision_calibration::core::{FxFyCxCy, ScheimpflugParams, SensorKind};
+use vision_calibration::core::{FxFyCxCy, PlanarDataset, ScheimpflugParams, SensorKind};
 use vision_calibration::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!("the observed views");
 
 let mut config = PlanarIntrinsicsConfig::default();
 config.camera.model.sensor = SensorKind::Scheimpflug;
@@ -40,6 +43,8 @@ seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 });
 step_init_with_seed(&mut session, seed, None)?;
 step_optimize(&mut session, None)?;
 let export = session.export()?;
+# Ok(())
+# }
 ```
 
 `run_calibration(&mut session)` runs the unseeded `step_init` and `step_optimize` in one call. The [Planar Intrinsics](planar_intrinsics.md#tilted-scheimpflug-sensor) chapter describes the seeded and cold-start solves.
@@ -51,6 +56,10 @@ let export = session.export()?;
 ```rust
 use vision_calibration::common::config::{CameraConfig, CameraOverride};
 use vision_calibration::core::{CameraModelSpec, DistortionKind, SensorKind};
+# use vision_calibration::rig_extrinsics::RigExtrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 
 session.update_config(|c| {
     // Every camera: tilted sensor, Brown-Conrady distortion.
@@ -64,6 +73,8 @@ session.update_config(|c| {
         CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
     )];
 })?;
+# Ok(())
+# }
 ```
 
 The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_optimize.refine_sensor`) refines the tilts there too. Both default to on: a camera's own views pin its tilt poorly, as it trades with the principal point, while the views of the whole rig pin it several times better. A tilt held at the camera's own estimate leaves its error in the focal length and the principal point, and the covariance, conditional on the held tilt, then states their σ several times too small; setting the flag to `false` holds it there, and the covariance lists it under `fixed`.
@@ -78,7 +89,7 @@ From scratch (nothing seeded, for any camera), a tilted camera's own solve can s
 
 Given a frozen rig calibration, `RigLaserlineDeviceProblem` fits one laser plane per camera and reports each plane both in the camera frame and in the rig frame.
 
-```rust
+```rust,ignore
 pub struct RigLaserlineDeviceConfig {
     pub optimize: PlaneOptimizeConfig,              // laser_residual_type, laser_loss
     pub solver: SolverConfig,                       // max_iters defaults to 200
@@ -93,10 +104,15 @@ pub struct RigLaserlineDeviceInput {
 
 `RigUpstreamCalibration` holds one `CameraParams` per camera, and each camera's laser residuals are evaluated in its own model, so the rig laser workflows accept every distortion kind and untilted and Scheimpflug cameras alike (a general homography sensor, which no camera model describes, is a typed error). The usual source is a rig hand-eye export:
 
-```rust
+```rust,no_run
 use vision_calibration::rig_laserline_device::{
-    RigLaserlineDeviceInput, RigLaserlineDeviceProblem, run_calibration,
+    RigLaserlineDataset, RigLaserlineDeviceInput, RigLaserlineDeviceProblem, run_calibration,
 };
+use vision_calibration::session::CalibrationSession;
+# use vision_calibration::rig_handeye::RigHandeyeExport;
+# fn main() -> anyhow::Result<()> {
+# let rig_export: RigHandeyeExport = unimplemented!("a hand-eye calibration's export");
+# let dataset: RigLaserlineDataset = unimplemented!("the laser views");
 
 // The laser views are the hand-eye run's views: its own board poses.
 let upstream = rig_export.to_upstream_calibration(rig_export.rig_se3_target.clone())?;
@@ -104,6 +120,8 @@ let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
 session.set_input(RigLaserlineDeviceInput { dataset, upstream })?;
 run_calibration(&mut session)?;
 let export = session.export()?; // laser_planes_rig, laser_planes_cam, per_cam_stats, ...
+# Ok(())
+# }
 ```
 
 `to_upstream_calibration` takes one board pose per laser view, through the hand-eye chain: the export's own `rig_se3_target` when the laser views are its views, or the chain at the laser views' robot poses (`EyeInHand`: `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`; `EyeToHand`: `T_R_T = T_R_B · T_B_G · T_G_T`).
@@ -127,7 +145,7 @@ The steps `step_init` and `step_optimize` are available for finer control. `data
 <a id="one-camera"></a>
 **One camera.** A single laser head on a robot is a rig of one camera: `num_cameras: 1`, one target and one laser slot per view. The camera's frame is the rig's, so the hand-eye is the camera's (`gripper_se3_rig` is `gripper_se3_cam`). Its camera, laser plane and hand-eye come out of one solve, in one camera frame.
 
-```rust
+```rust,ignore
 pub struct RigHandeyeLaserlineConfig {
     pub handeye: RigHandeyeConfig,                  // warm-start stage (incl. `camera`)
     pub laserline_init: RigLaserlineDeviceConfig,   // plane-initialization stage
@@ -149,13 +167,20 @@ laser planes. An entry's slot left out keeps the model's default, as in every
 
 The input is a `RigHandeyeLaserlineInput { views, num_cameras }`. Each `RigHandeyeLaserlineView` (exported from this module; its parts `RigLaserlineView` and `RobotPoseMeta` are in `vision_calibration::common`) carries the per-camera target observations, the laser pixels, and the robot pose (`base_se3_gripper`). There is a single entry point:
 
-```rust
-use vision_calibration::rig_handeye_laserline::{RigHandeyeLaserlineProblem, run_calibration};
+```rust,no_run
+use vision_calibration::rig_handeye_laserline::{
+    RigHandeyeLaserlineInput, RigHandeyeLaserlineProblem, run_calibration,
+};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let input: RigHandeyeLaserlineInput = unimplemented!("the observed views, laser pixels and robot poses");
 
 let mut session = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
 session.set_input(input)?;
 run_calibration(&mut session)?;
 let export = session.export()?; // cam_se3_rig, handeye (gripper_se3_rig and base_se3_target), laser_planes_rig, per_cam_stats, ...
+# Ok(())
+# }
 ```
 
 When the rig and its hand-eye are already calibrated (a staged procedure that checks each stage before the next), or the laser planes are known from the design, `run_calibration_with_seed` starts the joint solve from them: its `JointManualInit` takes a `RigHandeyeExport` of the same views (`rig_handeye`) and one plane per camera in camera frame (`laser_planes_cam`). [Seeding with Prior Knowledge](manual_init.md#staged-rig-laser-calibration) shows both.

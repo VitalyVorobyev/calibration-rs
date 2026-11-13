@@ -80,7 +80,7 @@
 //! - [`core`] - Math types and camera models
 //! - [`optim`] - Non-linear least-squares optimization, and
 //!   [`optim::problem`] for a problem of your own
-//! - [`init`] - Closed-form initial values (Zhang, PnP, hand-eye, planes)
+//! - [`init`] - Closed-form initial values (Zhang, fisheye, PnP, hand-eye, planes)
 //! - `synthetic` (feature `synthetic`) - Synthetic data generation for tests
 //!   and examples
 //!
@@ -657,8 +657,20 @@ pub mod optim {
 pub mod init {
     /// The error the initializers return.
     pub use vision_calibration_linear::Error;
-    /// Distortion-fit options of [`estimate_intrinsics_iterative`].
-    pub use vision_calibration_linear::distortion_fit::DistortionFitOptions;
+    /// Brown-Conrady distortion from homographies and known intrinsics (the
+    /// step [`estimate_intrinsics_iterative`] repeats).
+    pub use vision_calibration_linear::distortion_fit::{
+        DistortionFitOptions, DistortionView, MetaHomography, estimate_distortion_from_homographies,
+    };
+    /// Fisheye (equidistant projection, Kannala-Brandt) intrinsics from bearings,
+    /// where Zhang's homography does not hold.
+    pub use vision_calibration_linear::equidistant_init::{
+        EquidistantInitOptions, EquidistantIntrinsicsLinearInit, estimate_equidistant_intrinsics,
+    };
+    /// Rig extrinsics from each camera's pose of the same target.
+    pub use vision_calibration_linear::extrinsics::{
+        ExtrinsicPoses, estimate_extrinsics_from_cam_target_poses,
+    };
     /// Hand-eye from robot poses and target poses, eye-in-hand or
     /// eye-to-hand, by one of four closed-form methods (Tsai–Lenz,
     /// Park–Martin, Daniilidis, Shah); [`HandeyeMethod`]
@@ -676,8 +688,11 @@ pub mod init {
     pub use vision_calibration_linear::laserline::{
         LaserlinePlaneSolver, LinearPlaneEstimate, PlaneFitView,
     };
-    /// A target's pose from its plane homography and the intrinsics.
-    pub use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
+    /// A target's pose from its plane homography and the intrinsics, or from the
+    /// pixels' bearings where there is no homography.
+    pub use vision_calibration_linear::planar_pose::{
+        estimate_planar_pose_from_bearings, estimate_planar_pose_from_h,
+    };
     /// Zhang's pinhole intrinsics from three or more plane homographies.
     pub use vision_calibration_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
     /// Camera pose from 3D–2D correspondences: DLT, P3P, EPnP, and DLT in
@@ -742,3 +757,6 @@ pub mod analysis {
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
+
+#[cfg(doctest)]
+mod book_doctests;

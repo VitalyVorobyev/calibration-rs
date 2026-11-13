@@ -30,7 +30,7 @@ where $m$ is the minimum sample size. As more inliers are found, $w$ increases a
 
 calibration-rs provides a generic RANSAC engine that works with any model implementing the `Estimator` trait:
 
-```rust
+```rust,ignore
 pub trait Estimator {
     type Datum;
     type Model;
@@ -62,7 +62,7 @@ pub trait Estimator {
 
 ## Configuration
 
-```rust
+```rust,ignore
 pub struct RansacOptions {
     pub max_iters: usize,      // Maximum iterations
     pub thresh: f64,           // Inlier distance threshold
@@ -77,7 +77,7 @@ pub struct RansacOptions {
 
 ## Result
 
-```rust
+```rust,ignore
 pub struct RansacResult<M> {
     pub success: bool,
     pub model: Option<M>,

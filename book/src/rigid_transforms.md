@@ -86,7 +86,7 @@ Common transforms:
 
 calibration-rs uses nalgebra's `Isometry3<f64>` (aliased as `Iso3`) for SE(3) transforms:
 
-```rust
+```rust,ignore
 pub type Iso3 = nalgebra::Isometry3<f64>;
 ```
 

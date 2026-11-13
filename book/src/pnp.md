@@ -92,13 +92,23 @@ The 3D world points are normalized before building the system (center at origin,
 
 Both solvers have RANSAC variants for handling outliers:
 
-```rust
+```rust,no_run
+use vision_calibration::core::{FxFyCxCy, Pt2, Pt3};
+use vision_calibration::init::pnp::dlt_ransac;
+use vision_calibration::mvg::RansacOptions;
+# fn main() -> anyhow::Result<()> {
+# let world_pts: Vec<Pt3> = unimplemented!("the object's points");
+# let image_pts: Vec<Pt2> = unimplemented!("their pixels");
+# let K: FxFyCxCy<f64> = unimplemented!("the intrinsics");
+
 // DLT PnP + RANSAC
 let estimate = dlt_ransac(
     &world_pts, &image_pts, &K,
     &RansacOptions::new(5.0) // pixel reprojection error
 )?;
 // estimate.pose, estimate.inliers
+# Ok(())
+# }
 ```
 
 The DLT PnP solver uses `MIN_SAMPLES = 6` with RANSAC. P3P (`p3p()`) returns up to 4 candidates and is intended for manual disambiguation (e.g., using a 4th point), not as a RANSAC estimator.

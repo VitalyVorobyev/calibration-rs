@@ -29,13 +29,16 @@ Pixels are square ($f_x = f_y$), and $k_3$, $k_4$ start at zero; the
 non-linear refinement frees them. A coefficient the caller holds is not
 fitted and stays at zero (`EquidistantInitOptions`).
 
-```rust
-use vision_calibration_linear::equidistant_init::{
-    EquidistantInitOptions, estimate_equidistant_intrinsics,
-};
+```rust,no_run
+use vision_calibration::core::PlanarDataset;
+use vision_calibration::init::{EquidistantInitOptions, estimate_equidistant_intrinsics};
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!("at least three planar views");
 
 let init = estimate_equidistant_intrinsics(&dataset, EquidistantInitOptions::default())?;
 // init.intrinsics, init.distortion, init.poses, init.rms_error
+# Ok(())
+# }
 ```
 
 On exact views of a lens seeing up to 115° off-axis, with coefficients

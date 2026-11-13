@@ -65,7 +65,7 @@ In practice, this is solved via SVD of $A$ for numerical stability.
 
 ## Options
 
-```rust
+```rust,ignore
 pub struct DistortionFitOptions {
     pub fix_tangential: bool,  // Fix p1 = p2 = 0
     pub fix_k3: bool,          // Fix k3 = 0 (default: true)
@@ -90,10 +90,21 @@ This accuracy is sufficient for initializing non-linear refinement.
 
 ## API
 
-```rust
+```rust,no_run
+use vision_calibration::core::Mat3;
+use vision_calibration::init::{
+    DistortionFitOptions, DistortionView, estimate_distortion_from_homographies,
+};
+# fn main() -> anyhow::Result<()> {
+# let k_matrix: Mat3 = unimplemented!("the camera matrix");
+# let views: Vec<DistortionView> = unimplemented!("views with their homographies");
+# let opts = DistortionFitOptions::default();
+
 let dist = estimate_distortion_from_homographies(
     &k_matrix, &views, opts
 )?;
+# Ok(())
+# }
 ```
 
 Returns `BrownConrady5` with the estimated coefficients.

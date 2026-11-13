@@ -6,16 +6,21 @@ Given matched pixels in two calibrated views, `recover_relative_pose` finds the 
 
 Input is the rig, the camera of each view and a list of `PixelMatch`, pairs of **pixels** with their stated noise: `pt1` in rig camera `cameras[0]` at the first capture, `pt2` in rig camera `cameras[1]` at the second (`[0, 0]` for one camera that moved). Each pixel is unprojected through its camera's model into a bearing, so a distorted lens or a fisheye needs no undistortion first. The function runs the 5-point algorithm on several evenly spaced subsets of the correspondences, scores each candidate essential matrix by its covariance-weighted Sampson error (below) and by cheirality over **all** correspondences, keeps the pose for which the most points lie ahead along both bearings, and triangulates:
 
-```rust
+```rust,no_run
+use vision_calibration::core::CalibratedRig;
 use vision_calibration::mvg::pose_recovery::recover_relative_pose;
 use vision_calibration::mvg::types::PixelMatch;
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let matches: Vec<PixelMatch> = unimplemented!("(pixel and its covariance in the first view, the same in the second)");
 
-let matches: Vec<PixelMatch> = /* (pixel and its covariance in the first view, the same in the second) */;
 let rel = recover_relative_pose(&rig, [0, 0], &matches)?;
 // rel.second_se3_first : pose of the first camera's frame in the second's, unit translation
 // rel.essential        : b2ᵀ E b1 = 0 on the bearings
 // rel.points           : triangulated points with reprojection and parallax diagnostics
 // rel.scene            : parallax, pure-rotation and planarity diagnostics
+# Ok(())
+# }
 ```
 
 In Python the same call takes the calibration result itself, and the matches are `mvg.PixelMatch` values:
@@ -36,8 +41,12 @@ rel.scene              # SceneDiagnostics
 
 Every pixel of a `PixelMatch` carries its covariance (a `PointCovariance`, px²). The noise is stated, never guessed, and there are three ways to state it:
 
-```rust
-use vision_calibration::core::PointCovariance;
+```rust,no_run
+use vision_calibration::core::{CalibratedRig, PointCovariance, Pt2};
+use vision_calibration::mvg::types::PixelMatch;
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let (pt1, pt2): (Pt2, Pt2) = unimplemented!("a matched pair of pixels");
 
 // Per observation: a detector's own 2×2 covariance, elongated or correlated.
 let cov = PointCovariance::new(0.25, 0.08, 0.09)?;
@@ -46,6 +55,8 @@ let iso = PointCovariance::isotropic(0.5)?;
 // The calibration's level: the reprojection σ̂ it measured on its own data.
 let level = rig.reprojection_noise(0)?;   // camera 0 of the rig
 let m = PixelMatch::new(pt1, level, pt2, iso);
+# Ok(())
+# }
 ```
 
 `reprojection_noise` is an error when the calibration has no covariance, no reprojection level for that camera, or a level that is the dimensionless $\hat\sigma_0$ of residuals whitened by stated covariances; state the noise instead.
@@ -78,10 +89,15 @@ The 5-point estimator needs a genuinely three-dimensional scene. A near-planar c
 
 Real matches contain outliers. The `mvg::robust` wrappers put a RANSAC loop around the minimal solvers:
 
-```rust
-use vision_calibration_core::RansacOptions;
+```rust,no_run
 use vision_calibration::control::RunControl;
+use vision_calibration::core::CalibratedRig;
+use vision_calibration::mvg::RansacOptions;
 use vision_calibration::mvg::robust::{estimate_essential, recover_relative_pose_robust};
+use vision_calibration::mvg::types::PixelMatch;
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let matches: Vec<PixelMatch> = unimplemented!("the putative matches");
 
 let opts = RansacOptions::new(3.0)   // weighted Sampson error, in σ of the stated noise
     .with_min_inliers(12);
@@ -91,6 +107,8 @@ if let Some(cov) = robust.pose_covariance() {
     // 6×6 over [rx ry rz x y z]: the rotation's tangent (rad), the unit translation
     println!("σ(rotation about y) = {:.3}°", cov[(1, 1)].sqrt().to_degrees());
 }
+# Ok(())
+# }
 ```
 
 ```python
@@ -122,11 +140,14 @@ Two views do not observe the length of the translation, so $|t| = 1$ is the **ga
 
 `mvg::triangulation::triangulate` takes the rig, where the rig was at each capture (`Captures`) and, for each point, a track of observations: the pixel, its noise, the rig camera that saw it and the capture. It returns a `Triangulation`: a `TriangulatedPoint` per track in the frame of the captures, with the same diagnostics, and the joint covariance of the points. `Captures::Rig` is one capture in the rig frame and `Captures::World(&rig_se3_world)` the rig's pose at each capture, taken as exact; a rig calibrated on a robot measures in its gripper or base frame ([below](#points-in-the-robots-frames)).
 
-```rust
-use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
+```rust,no_run
 use vision_calibration::control::RunControl;
-use vision_calibration::core::PointCovariance;
+use vision_calibration::core::{CalibratedRig, PointCovariance, Pt2};
+use vision_calibration::mvg::triangulation::{RigObservation, triangulate};
 use vision_calibration::mvg::types::Captures;
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("the calibrated rig");
+# let (pixel_in_camera_0, pixel_in_camera_1): (Pt2, Pt2) = unimplemented!("a stereo pair of pixels");
 
 // One stereo capture, in the rig frame. Each pixel is stated to 0.3 px.
 let noise = PointCovariance::isotropic(0.3)?;
@@ -140,6 +161,8 @@ if let Some(cov) = found.point_covariance(0) {
     // The 3×3 covariance in m²; the depth's σ along the world z axis.
     println!("σ_z = {:.2} mm", cov[(2, 2)].sqrt() * 1e3);
 }
+# Ok(())
+# }
 ```
 
 ```python
@@ -171,11 +194,14 @@ A rig exported without a covariance still gives refined points, and the uncertai
 
 A laser line seen by a calibrated camera, with its plane known, gives a 3D point per line pixel: the viewing ray meets the plane. `mvg::laser::triangulate_laser` takes the rig, which carries each camera's laser plane (an export of a laser workflow gives such a rig from `calibrated_rig()`), and the laser pixels with their stated noise:
 
-```rust
-use vision_calibration::core::{PointCovariance, Pt2};
+```rust,no_run
+use vision_calibration::core::{CalibratedRig, PointCovariance, Pt2};
 use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
 use vision_calibration::mvg::metrology::{PointSet, distance};
 use vision_calibration::mvg::types::Captures;
+# fn main() -> anyhow::Result<()> {
+# let rig: CalibratedRig = unimplemented!("a rig with a laser plane");
+# let laser_pixels: Vec<Pt2> = unimplemented!("the laser line's pixels");
 
 // The laser-peak detector's noise, 0.1 px.
 let noise = PointCovariance::isotropic(0.1)?;
@@ -190,6 +216,8 @@ println!("{:?} seen at {:.0}°", found.points[0].point, found.points[0].incidenc
 let set = PointSet::from_laser_triangulation(&found)?;
 let length = distance(&set, 0, observations.len() - 1)?;
 println!("{:.3} m ± {:.3} mm", length.value, length.sigma * 1e3);
+# Ok(())
+# }
 ```
 
 ```python
@@ -219,10 +247,18 @@ A rig calibrated on a robot arm measures in the robot's frames: the gripper (fla
 
 Naming the other frame for either variant, or a robot frame for a rig without a hand-eye, is an error before any work.
 
-```rust
-use vision_calibration::core::{RobotFrame, RobotPose};
+```rust,no_run
+use vision_calibration::common::CalibratedCameras;
+use vision_calibration::core::{Iso3, PointCovariance, Pt2, RobotFrame, RobotPose};
 use vision_calibration::mvg::laser::{LaserObservation, triangulate_laser};
 use vision_calibration::mvg::types::Captures;
+# use vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineExport;
+# fn main() -> anyhow::Result<()> {
+# let export: RigHandeyeLaserlineExport = unimplemented!("a joint calibration's export");
+# let stations: Vec<Iso3> = unimplemented!("the robot's poses");
+# let scan: Vec<(usize, usize, Pt2)> = unimplemented!("capture, camera and pixel of the scan");
+# let single: Vec<LaserObservation> = unimplemented!("one station's pixels");
+# let noise = PointCovariance::isotropic(0.1)?;
 
 // A joint rig hand-eye laserline export: cameras, planes and hand-eye.
 let rig = export.calibrated_rig()?;
@@ -242,6 +278,8 @@ let in_base = triangulate_laser(
     &observations,
 )?;
 let in_gripper = triangulate_laser(&rig, Captures::Handeye(RobotFrame::Gripper), &single)?;
+# Ok(())
+# }
 ```
 
 ```python

@@ -11,7 +11,9 @@
 //! rule), and carry no machine-local paths.
 //!
 //! The check also keeps install snippets (`name = "X.Y"`) on the workspace's
-//! current minor version.
+//! current minor version, and keeps the book compiling: every chapter with a
+//! Rust block is a doctest of the facade crate, and no chapter has a bare
+//! code fence (rustdoc compiles a bare fence as Rust).
 
 use anyhow::{Context, Result, bail};
 use regex::Regex;
@@ -128,6 +130,7 @@ pub fn run(root: &Path) -> Result<()> {
     }
 
     findings.extend(check_install_versions(root, &files)?);
+    findings.extend(check_book_doctests(root)?);
 
     if findings.is_empty() {
         println!("check-docs: {} user-facing files clean", files.len());
@@ -137,7 +140,7 @@ pub fn run(root: &Path) -> Result<()> {
         eprintln!("{finding}");
     }
     bail!(
-        "check-docs: {} finding(s); user-facing docs must not cite internal material",
+        "check-docs: {} finding(s); user-facing docs must not cite internal material and the book must compile",
         findings.len()
     )
 }
@@ -276,6 +279,106 @@ fn install_snippet() -> Regex {
         .expect("static regex")
 }
 
+/// The facade source that includes each book chapter as a doctest.
+const BOOK_DOCTESTS: &str = "crates/vision-calibration/src/book_doctests.rs";
+
+/// Opening code fences of a Markdown text as (line number, info string).
+fn opening_fences(text: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    // The open fence: its character and length.
+    let mut open: Option<(char, usize)> = None;
+    for (idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let Some(ch) = trimmed.chars().next().filter(|c| matches!(c, '`' | '~')) else {
+            continue;
+        };
+        let len = trimmed.chars().take_while(|&c| c == ch).count();
+        if len < 3 {
+            continue;
+        }
+        let info = trimmed[len..].trim();
+        match open {
+            None => {
+                open = Some((ch, len));
+                found.push((idx + 1, info.to_string()));
+            }
+            Some((open_ch, open_len)) if ch == open_ch && len >= open_len && info.is_empty() => {
+                open = None;
+            }
+            Some(_) => {}
+        }
+    }
+    found
+}
+
+/// Whether rustdoc compiles a block with this info string as Rust.
+fn is_rust_info(info: &str) -> bool {
+    info.is_empty()
+        || info
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .any(|token| {
+                matches!(
+                    token,
+                    "rust" | "ignore" | "no_run" | "should_panic" | "compile_fail"
+                ) || token.starts_with("edition")
+            })
+}
+
+/// Every book chapter with a Rust block is included as a doctest of the
+/// facade crate; no chapter has a bare fence; the include list names no
+/// chapter that is gone or has no Rust block.
+fn check_book_doctests(root: &Path) -> Result<Vec<String>> {
+    let wired_text = fs::read_to_string(root.join(BOOK_DOCTESTS))
+        .with_context(|| format!("reading {BOOK_DOCTESTS}"))?;
+    let include =
+        Regex::new(r#"include_str!\("[./]*book/src/([^"]+\.md)"\)"#).expect("static regex");
+    let wired: Vec<String> = include
+        .captures_iter(&wired_text)
+        .map(|c| c[1].to_string())
+        .collect();
+
+    let book = root.join("book/src");
+    let mut findings = Vec::new();
+    let mut with_rust = Vec::new();
+    for path in walk(&book, &["md"])? {
+        let text = fs::read_to_string(&path)?;
+        let name = path
+            .strip_prefix(&book)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let mut has_rust = false;
+        for (line, info) in opening_fences(&text) {
+            if info.is_empty() {
+                findings.push(format!(
+                    "{}:{line}: [bare code fence] rustdoc compiles it as Rust; label it (`text` for output or a diagram)",
+                    rel(root, &path)
+                ));
+            } else if is_rust_info(&info) {
+                has_rust = true;
+            }
+        }
+        if has_rust {
+            with_rust.push(name);
+        }
+    }
+    for name in &with_rust {
+        if !wired.contains(name) {
+            findings.push(format!(
+                "book/src/{name}: [uncompiled chapter] has a Rust block but is not included in {BOOK_DOCTESTS}"
+            ));
+        }
+    }
+    for name in &wired {
+        if !with_rust.contains(name) {
+            findings.push(format!(
+                "{BOOK_DOCTESTS}: [stale include] book/src/{name} is missing or has no Rust block"
+            ));
+        }
+    }
+    Ok(findings)
+}
+
 fn rel(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
@@ -358,6 +461,26 @@ mod tests {
             .map(|r| r.name)
             .collect();
         assert_eq!(skipped, ["history narration"]);
+    }
+
+    #[test]
+    fn fences_are_found_with_their_info_strings() {
+        let text =
+            "```rust,no_run\ncode\n```\n\n  ```\nbare\n  ```\n````text\n```\n````\n~~~toml\n~~~\n";
+        let fences = opening_fences(text);
+        let infos: Vec<_> = fences.iter().map(|(_, i)| i.as_str()).collect();
+        assert_eq!(infos, ["rust,no_run", "", "text", "toml"]);
+        assert_eq!(fences[1].0, 5);
+    }
+
+    #[test]
+    fn rustdoc_compiles_bare_and_rust_fences() {
+        for info in ["", "rust", "rust,no_run", "ignore", "no_run", "edition2021"] {
+            assert!(is_rust_info(info), "{info:?} is Rust");
+        }
+        for info in ["text", "toml", "python", "bash", "json"] {
+            assert!(!is_rust_info(info), "{info:?} is not Rust");
+        }
     }
 
     #[test]

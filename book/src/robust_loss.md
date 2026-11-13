@@ -69,7 +69,7 @@ The scale $c$ sets the boundary between "inlier" and "outlier" behavior:
 
 Robust losses are selected with the `RobustLoss` enum:
 
-```rust
+```rust,ignore
 pub enum RobustLoss {
     None,
     Huber { scale: f64 },
@@ -85,9 +85,17 @@ residuals. There is one loss per stage, so a convex Huber in the per-camera
 intrinsics stage and a redescending Cauchy in the final stage is expressible:
 
 ```rust
+use vision_calibration::optim::RobustLoss;
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+
 session.update_config(|c| {
     c.optimize.reprojection_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
+# Ok(())
+# }
 ```
 
 To make a whole problem robust, set the loss in every stage that solves the

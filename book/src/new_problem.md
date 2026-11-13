@@ -25,7 +25,7 @@ and its evaluation method; no optimizer change. See the
 
 Create a new file or add to an existing file in `crates/vision-calibration-optim/src/factors/`:
 
-```rust
+```rust,ignore
 pub fn my_residual_generic<T: RealField>(
     param_a: DVectorView<'_, T>,  // optimizable parameters
     param_b: DVectorView<'_, T>,
@@ -56,7 +56,7 @@ pub fn my_residual_generic<T: RealField>(
 
 Add a new variant to `FactorKind` in `crates/vision-calibration-optim/src/ir/types.rs`:
 
-```rust
+```rust,ignore
 pub enum FactorKind {
     // ... existing variants ...
     MyNewFactor {
@@ -69,7 +69,7 @@ pub enum FactorKind {
 Describe its parameter layout in `param_layout()` — validation is derived
 from the layout, so there is no separate validation arm to write:
 
-```rust
+```rust,ignore
 FactorKind::MyNewFactor { .. } => vec![
     ParamSlotSpec { dim: 4, manifold: ManifoldKind::Euclidean, role: "param_a" },
     ParamSlotSpec { dim: 7, manifold: ManifoldKind::SE3, role: "param_b" },
@@ -78,7 +78,7 @@ FactorKind::MyNewFactor { .. } => vec![
 
 Update the `residual_dim()` and `name()` methods:
 
-```rust
+```rust,ignore
 FactorKind::MyNewFactor { .. } => 2,
 ```
 
@@ -86,7 +86,7 @@ FactorKind::MyNewFactor { .. } => 2,
 
 Create `crates/vision-calibration-optim/src/problems/my_problem.rs`:
 
-```rust
+```rust,ignore
 pub struct MyProblemParams {
     pub param_a: DVector<f64>,
     pub param_b: Iso3,
@@ -144,7 +144,7 @@ Both backends compile every factor kind. In
 factor struct implementing tiny-solver's `Factor<T>` plus a match arm in
 `compile_factor()`:
 
-```rust
+```rust,ignore
 #[derive(Debug, Clone)]
 struct TinyMyNewFactor {
     constant_data: [f64; 3],
@@ -187,7 +187,7 @@ residual and Jacobian.
 
 Write a test with synthetic ground truth in `crates/vision-calibration-optim/tests/`:
 
-```rust
+```rust,ignore
 #[test]
 fn my_problem_converges() {
     // 1. Define ground truth parameters

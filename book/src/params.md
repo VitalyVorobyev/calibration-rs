@@ -6,7 +6,7 @@ The generic `Camera<S, P, D, Sm, K>` type provides compile-time composition of c
 
 The `CameraParams` struct holds camera parameters as serializable enums:
 
-```rust
+```rust,ignore
 pub struct CameraParams {
     pub projection: ProjectionParams,
     pub distortion: DistortionParams,
@@ -17,7 +17,7 @@ pub struct CameraParams {
 
 The projection, distortion and sensor components are enums of supported variants (serialized with a `"type"` tag in snake_case); the intrinsics are the plain `{fx, fy, cx, cy}` struct:
 
-```rust
+```rust,ignore
 pub enum ProjectionParams { Pinhole }
 
 pub enum DistortionParams {
@@ -39,13 +39,21 @@ The `params` payloads are flattened in JSON, so a Brown-Conrady camera serialize
 
 The enums are `#[non_exhaustive]`: new models arrive in non-breaking releases, so a `match` on one needs a wildcard arm. Code that should work for every model reads the values instead, in the order the model's kind names them:
 
-```rust
+```rust,no_run
+use vision_calibration::core::{CameraParams, DistortionKind, DistortionParams};
+# fn main() -> anyhow::Result<()> {
+# let camera: CameraParams = unimplemented!("a calibrated camera");
+# let new_values: Vec<f64> = unimplemented!("coefficients");
+# let values: Vec<f64> = unimplemented!("eight coefficients");
+
 let d = &camera.distortion;
 for (name, value) in d.kind().param_names().iter().zip(d.values()) {
     println!("{name} = {value}");
 }
 let adjusted = d.with_values(&new_values)?;                          // same model, new coefficients
 let fresh = DistortionParams::from_values(DistortionKind::Rational8, &values)?;
+# Ok(())
+# }
 ```
 
 `ProjectionParams` and `SensorParams` have the same `kind()`, `values()` and `from_values()`, and `DistortionKind::ALL` (likewise for projections and sensors) lists the supported models.
@@ -54,8 +62,14 @@ let fresh = DistortionParams::from_values(DistortionKind::Rational8, &values)?;
 
 The `build()` method constructs a concrete `CameraModel` from serialized parameters. It returns an error if a `SensorParams::Homography` matrix is not invertible (reachable with hand-edited or corrupted files):
 
-```rust
+```rust,no_run
+use vision_calibration::core::CameraParams;
+# fn main() -> anyhow::Result<()> {
+# let params: CameraParams = unimplemented!("a calibrated camera");
+
 let camera = params.build()?;
+# Ok(())
+# }
 ```
 
 This is used internally by the session framework to reconstruct cameras from JSON-checkpointed state.
@@ -80,10 +94,19 @@ ideal = cam.undistort(pixels)                   # (N, 2) in a distortion-free pi
 
 The planar-intrinsics export holds the calibrated camera in its `camera` field and the per-view target poses in `cam_se3_target`:
 
-```rust
+```rust,no_run
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
+# fn main() -> anyhow::Result<()> {
+# let export: PlanarIntrinsicsExport = unimplemented!("a calibration's export");
+
 export.camera.intrinsics        // FxFyCxCy<f64>
+# ;
 export.camera.distortion        // DistortionParams: match on the model
+# ;
 export.camera.build()?          // CameraModel, ready to project
+# ;
+# Ok(())
+# }
 ```
 
 ## Use in Session Framework

@@ -15,7 +15,7 @@ where:
 
 The camera is a generic struct parameterized over the four model traits:
 
-```rust
+```rust,ignore
 pub struct Camera<S, P, D, Sm, K>
 where
     S: RealField,
@@ -37,7 +37,7 @@ The scalar type `S` is generic over `RealField`, enabling the same camera to wor
 
 Given a 3D point $\mathbf{P}_c = [X, Y, Z]^T$ in the camera frame, projection to pixel coordinates proceeds through the four stages:
 
-```rust
+```rust,ignore
 pub fn project_point_c(&self, p_c: &Vector3<S>) -> Option<Point2<S>>
 ```
 
@@ -53,7 +53,7 @@ pub fn project_point_c(&self, p_c: &Vector3<S>) -> Option<Point2<S>>
 
 The inverse maps a pixel to a ray in the camera frame:
 
-```rust
+```rust,ignore
 pub fn backproject_pixel(&self, px: &Point2<S>) -> Ray<S>
 ```
 
@@ -69,8 +69,11 @@ The result is a point on the $Z = 1$ plane in the camera frame, defining a ray f
 For the most common configuration (pinhole + Brown-Conrady + no tilt):
 
 ```rust
+# use vision_calibration::core::{BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole};
 type PinholeCamera = Camera<f64, Pinhole, BrownConrady5<f64>,
                             IdentitySensor, FxFyCxCy<f64>>;
+# // `vision_calibration::core::PinholeCamera` is this same type.
+# fn same(c: PinholeCamera) -> vision_calibration::core::PinholeCamera { c }
 ```
 
 The `make_pinhole_camera(k, dist)` convenience function constructs this type.

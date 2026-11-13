@@ -63,7 +63,7 @@ The fixed-point iteration converges when the Jacobian of the distortion residual
 
 ## The `DistortionModel` Trait
 
-```rust
+```rust,ignore
 pub trait DistortionModel<S: RealField> {
     fn distort(&self, n_undist: &Point2<S>) -> Point2<S>;
     fn undistort(&self, n_dist: &Point2<S>) -> Point2<S>;
@@ -72,7 +72,7 @@ pub trait DistortionModel<S: RealField> {
 
 The `BrownConrady5<S>` struct:
 
-```rust
+```rust,ignore
 pub struct BrownConrady5<S: RealField> {
     pub k1: S, pub k2: S, pub k3: S,
     pub p1: S, pub p2: S,

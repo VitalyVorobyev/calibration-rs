@@ -4,8 +4,12 @@ The covariance is part of every result. This chapter shows how to read it and wh
 
 ### Rust
 
-```rust
+```rust,no_run
 use vision_calibration::core::{NoiseLevel, Uncertainty};
+# use vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem;
+# use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
 let export = session.export()?;
 match &export.uncertainty {
@@ -22,6 +26,8 @@ match &export.uncertainty {
     }
     Uncertainty::Unavailable { reason } => println!("no covariance: {reason:?}"),
 }
+# Ok(())
+# }
 ```
 
 ### Python
