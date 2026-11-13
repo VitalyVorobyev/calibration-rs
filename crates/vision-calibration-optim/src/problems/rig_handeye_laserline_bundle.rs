@@ -724,7 +724,7 @@ fn build_ir(
     let camera_blocks = add_camera_blocks(&mut ir, &mut initial_map, &inputs, true)?;
     // 4. Per-camera extrinsics.
     let mut extr_ids = Vec::with_capacity(n);
-    for cam_idx in 0..n {
+    for (cam_idx, rig_se3_cam) in initial.rig_se3_cam.iter().enumerate() {
         let fixed = if extr_fixed(cam_idx) {
             FixedMask::all_fixed(7)
         } else {
@@ -733,7 +733,7 @@ fn build_ir(
         let key = format!("extr/{cam_idx}");
         let id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
         extr_ids.push(id);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_se3_cam[cam_idx]));
+        initial_map.insert(key, iso3_to_se3_dvec(rig_se3_cam));
     }
     // 5. Hand-eye.
     let handeye_fixed = if opts.fix_handeye {
@@ -758,7 +758,7 @@ fn build_ir(
     // 7. Per-camera laser planes.
     let mut plane_n_ids = Vec::with_capacity(n);
     let mut plane_d_ids = Vec::with_capacity(n);
-    for cam_idx in 0..n {
+    for (cam_idx, plane) in initial.laser_planes_cam.iter().enumerate() {
         let fixed_n = if plane_fixed(cam_idx) {
             FixedMask::all_fixed(3)
         } else {
@@ -772,11 +772,11 @@ fn build_ir(
         let key_n = format!("plane_n/{cam_idx}");
         let id_n = ir.add_param_block(&key_n, 3, ManifoldKind::S2, fixed_n, None);
         plane_n_ids.push(id_n);
-        initial_map.insert(key_n, normal_to_dvec(&initial.laser_planes_cam[cam_idx]));
+        initial_map.insert(key_n, normal_to_dvec(plane));
         let key_d = format!("plane_d/{cam_idx}");
         let id_d = ir.add_param_block(&key_d, 1, ManifoldKind::Euclidean, fixed_d, None);
         plane_d_ids.push(id_d);
-        initial_map.insert(key_d, distance_to_dvec(&initial.laser_planes_cam[cam_idx]));
+        initial_map.insert(key_d, distance_to_dvec(plane));
     }
 
     // 8. Residuals per view.

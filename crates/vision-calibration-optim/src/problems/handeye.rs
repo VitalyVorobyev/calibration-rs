@@ -526,7 +526,7 @@ fn build_handeye_ir(
 
     // 2. Per-camera extrinsics
     let mut extr_ids = Vec::new();
-    for cam_idx in 0..dataset.data.num_cameras {
+    for (cam_idx, rig_se3_cam) in initial.rig_se3_cam.iter().enumerate() {
         let fixed = if opts.fix_extrinsics.get(cam_idx).copied().unwrap_or(false) {
             FixedMask::all_fixed(7)
         } else {
@@ -535,7 +535,7 @@ fn build_handeye_ir(
         let key = format!("extr/{}", cam_idx);
         let id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
         extr_ids.push(id);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_se3_cam[cam_idx]));
+        initial_map.insert(key, iso3_to_se3_dvec(rig_se3_cam));
     }
 
     // 3. Hand-eye transform
