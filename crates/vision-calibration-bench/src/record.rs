@@ -599,7 +599,9 @@ pub struct LaserCamStat {
     pub images_used: usize,
     /// Extracted laser pixels.
     pub points_extracted: usize,
-    /// Extraction time in milliseconds.
+    /// Extraction time in milliseconds; `0` when every camera's region of a
+    /// frame is extracted in one pass, whose time is
+    /// [`LaserMetrics::extract_ms`].
     pub extract_ms: u64,
     /// Plane residuals in metres, once a plane fit is available.
     #[serde(default, skip_serializing_if = "Option::is_none")]

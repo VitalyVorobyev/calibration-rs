@@ -11,9 +11,9 @@
 //! What stays here, on top of the runner: the seeded official route (the
 //! device-spec seed of a Scheimpflug camera, a registry `seed`), registry
 //! config overrides, stage timing, the record, and the rig hand-eye entries'
-//! joint laserline stage — laser frames paired through the snap list,
-//! extracted with `vision-metrology`, and refined jointly with the rig
-//! hand-eye result.
+//! joint laserline stage: the shipped rig hand-eye laserline workflow on the
+//! entry's laser frames, extracted with `vision-metrology` and warm-started
+//! from the rig hand-eye result.
 
 #[cfg(feature = "tier-b")]
 pub use tier_b::{
@@ -34,7 +34,6 @@ pub mod tier_b {
 
     use anyhow::{Context, Result};
     use vision_calibration::analysis::{QualityReport, assess};
-    use vision_calibration::common::RobotPoseMeta;
     use vision_calibration::common::{CalibratedCameras, HandeyeSolution};
     use vision_calibration::core::{Iso3, RigDataset};
     use vision_calibration::planar_intrinsics::{
@@ -57,9 +56,9 @@ pub mod tier_b {
         step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
         step_rig_optimize as rh_rig_optimize,
     };
-    use vision_calibration::rig_laserline_device::{
-        RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
-        run_calibration as run_rig_laserline_device_calibration,
+    use vision_calibration::rig_handeye_laserline::{
+        JointManualInit, RigHandeyeLaserlineConfig, RigHandeyeLaserlineInput,
+        RigHandeyeLaserlineProblem, run_calibration_with_seed as run_joint_with_seed,
     };
     // Named at module scope so `DetectedScheimpflugCamera` can carry the seed;
     // the seeded route's step functions are the planar ones imported above.
@@ -77,12 +76,18 @@ pub mod tier_b {
         SensorKind, SensorParams, TargetFeatureResidual, View, compute_planar_target_residuals,
         make_pinhole_camera,
     };
+    #[cfg(feature = "laser")]
+    use vision_calibration_dataset::{LaserExtractionSpec, LaserScanAxis};
+    #[cfg(feature = "laser")]
+    use vision_calibration_detect::GrayImageView;
     use vision_calibration_optim::{
-        BackendSolveOptions, LaserlineResidualType, PlanarIntrinsicsEstimate,
-        PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigHandeyeLaserlineDataset,
-        RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
-        RigLaserlineView, RobustLoss, SolveReport, SolverBackend, handeye_observer_se3_target,
-        optimize_planar_intrinsics, optimize_rig_handeye_laserline,
+        BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+        PlanarIntrinsicsSolveOptions, RigHandeyeLaserlinePerCamStats, RobustLoss, SolveReport,
+        SolverBackend, optimize_planar_intrinsics,
+    };
+    #[cfg(feature = "laser")]
+    use vision_calibration_pipeline::dataset_runner::{
+        LaserPixelExtractor, build_rig_handeye_laserline_input,
     };
     #[cfg(feature = "laser")]
     use vision_metrology::{
@@ -98,9 +103,11 @@ pub mod tier_b {
     };
 
     use crate::detect::{
-        RigViewPaths, TimingCache, board_feature_count, camera_spec, detect_planar,
-        detect_rig_extrinsics, detect_rig_handeye, detect_single_cam_handeye, detection_cache, ms,
+        TimingCache, board_feature_count, camera_spec, detect_planar, detect_rig_extrinsics,
+        detect_rig_handeye, detect_single_cam_handeye, detection_cache, ms,
     };
+    #[cfg(feature = "laser")]
+    use crate::manifest::joint_laserline_spec;
     use crate::manifest::{dataset_spec, resolve_against};
     #[cfg(feature = "laser")]
     use crate::record::LaserCamStat;
@@ -351,11 +358,11 @@ pub mod tier_b {
         pub error_px: f64,
     }
 
+    /// The joint laserline stage's input, built by the dataset runner, and
+    /// what the bench records about its laser extraction.
     #[derive(Debug, Clone)]
-    struct LaserObservationSet {
-        views: Vec<RigLaserlineView>,
-        robot_poses: Vec<Iso3>,
-        view_indices: Vec<usize>,
+    struct JointLaserlineData {
+        input: RigHandeyeLaserlineInput,
         metrics: LaserMetrics,
     }
 
@@ -385,7 +392,7 @@ pub mod tier_b {
     }
 
     #[derive(Debug, Clone)]
-    struct JointV5Result {
+    struct JointLaserlineResult {
         mean_reproj_error: f64,
         per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats>,
         laser_metrics: LaserMetrics,
@@ -1213,7 +1220,7 @@ pub mod tier_b {
             entry,
             format!("detecting target in {} cameras", spec.cameras.len()),
         );
-        let (detected, view_paths) = detect_rig_handeye(
+        let detected = detect_rig_handeye(
             &spec,
             &entry.data_root,
             entry.board.as_ref(),
@@ -1228,22 +1235,12 @@ pub mod tier_b {
         ensure_three_views_per_camera(&spec, &detected.input)?;
 
         let n_cam = spec.cameras.len();
-        let laser_observations =
-            extract_laser_observations(entry, &spec, &detected.input, &view_paths)?;
-        let mut laser = laser_observations.as_ref().map(|obs| obs.metrics.clone());
+        let laser_data = joint_laserline_data(entry, &spec)?;
+        let mut laser = laser_data.as_ref().map(|data| data.metrics.clone());
 
         // ── Calibration ─────────────────────────────────────────────────────
         let config = rig_handeye_config(entry, &spec)?;
-        // The joint solve always refines the robot poses; the config's prior
-        // (the default when it takes them as exact) sets the weighting.
-        let robot_prior = config
-            .handeye_optimize
-            .robot_poses
-            .prior()
-            .cloned()
-            .unwrap_or_default();
-        let robot_rot_sigma = robot_prior.rot_sigma;
-        let robot_trans_sigma = robot_prior.trans_sigma;
+        let handeye_config = config.clone();
         let manual_intrinsics = config.manual_init.clone().unwrap_or_default();
         let dataset_for_report = detected.input.clone();
         let mut session = CalibrationSession::<RigHandeyeProblem>::new();
@@ -1294,13 +1291,7 @@ pub mod tier_b {
         };
 
         let export = session.export().context("session.export failed")?;
-        let joint_result = run_rig_handeye_laserline_v5(
-            entry,
-            &export,
-            laser_observations,
-            robot_rot_sigma,
-            robot_trans_sigma,
-        )?;
+        let joint_result = run_joint_laserline(entry, handeye_config, &export, laser_data)?;
         if let Some(joint) = &joint_result {
             laser = Some(joint.laser_metrics.clone());
         }
@@ -2187,20 +2178,6 @@ pub mod tier_b {
         }
     }
 
-    #[cfg(feature = "laser")]
-    fn progress_images(
-        entry: &BenchEntry,
-        stage: &str,
-        camera_id: &str,
-        image_idx: usize,
-        total: usize,
-    ) {
-        let n = image_idx + 1;
-        if n == 1 || n == total || n.is_multiple_of(10) {
-            progress(entry, format!("{stage} {camera_id}: {n}/{total} images"));
-        }
-    }
-
     #[cfg(not(feature = "laser"))]
     fn profile_laser_extraction(
         entry: &BenchEntry,
@@ -2226,7 +2203,19 @@ pub mod tier_b {
         if entry.laser.is_none() {
             return Ok(None);
         }
-        let paths: Vec<PathBuf> = laser_frames(entry)?.into_values().collect();
+        let laser_spec = joint_laserline_spec(entry, spec)?;
+        let extraction = laser_spec.laser.unwrap_or_default();
+        let paths: Vec<PathBuf> = match laser_spec
+            .cameras
+            .first()
+            .and_then(|c| c.laser_images.as_ref())
+        {
+            Some(vision_calibration_dataset::ImagePattern::List { paths }) => paths
+                .iter()
+                .map(|path| resolve_against(&entry.data_root, path))
+                .collect(),
+            _ => Vec::new(),
+        };
         let selected: Vec<_> = paths.iter().take(profile_limit).collect();
         let total_start = Instant::now();
         let mut per_camera = Vec::with_capacity(spec.cameras.len());
@@ -2245,7 +2234,13 @@ pub mod tier_b {
                 load_ms = load_ms.saturating_add(ms_since(load_start));
 
                 let stage_start = Instant::now();
-                let point_count = extract_laser_pixels(&img).len();
+                let luma = img.to_luma8();
+                let view = GrayImageView::new(luma.width(), luma.height(), luma.as_raw())
+                    .context("an image buffer holds width × height bytes")?;
+                let point_count = VmLaserExtractor
+                    .extract(view, &extraction)
+                    .map_err(|e| anyhow::anyhow!("laser extraction of {}: {e}", path.display()))?
+                    .len();
                 let elapsed = ms_since(stage_start);
                 stage_ms = stage_ms.saturating_add(elapsed);
                 max_stage_ms = max_stage_ms.max(elapsed);
@@ -2350,12 +2345,10 @@ pub mod tier_b {
     }
 
     #[cfg(not(feature = "laser"))]
-    fn extract_laser_observations(
+    fn joint_laserline_data(
         entry: &BenchEntry,
         _spec: &DatasetSpec,
-        _input: &RigDataset<RobotPoseMeta>,
-        _view_paths: &RigViewPaths,
-    ) -> Result<Option<LaserObservationSet>> {
+    ) -> Result<Option<JointLaserlineData>> {
         if entry.laser.is_some() {
             anyhow::bail!(
                 "dataset '{}' declares laser data; rebuild with --features 'tier-b laser'",
@@ -2365,349 +2358,162 @@ pub mod tier_b {
         Ok(None)
     }
 
-    /// Laser observations of the detected rig views: each view whose target
-    /// frame has a laser frame (paired through the snap list) contributes the
-    /// laser pixels every camera extracts from its region of that frame.
+    /// The joint laserline stage's input: the dataset runner's
+    /// `rig_handeye_laserline` converter on the entry's laser manifest
+    /// ([`joint_laserline_spec`]), the target detections read from the cache.
     #[cfg(feature = "laser")]
-    fn extract_laser_observations(
+    fn joint_laserline_data(
         entry: &BenchEntry,
         spec: &DatasetSpec,
-        input: &RigDataset<RobotPoseMeta>,
-        view_paths: &RigViewPaths,
-    ) -> Result<Option<LaserObservationSet>> {
+    ) -> Result<Option<JointLaserlineData>> {
         if entry.laser.is_none() {
             return Ok(None);
         }
-        let laser_frames = laser_frames(entry)?;
+        let laser_spec = joint_laserline_spec(entry, spec)?;
+        progress(entry, "extracting laser lines for the joint calibration");
+        let start = Instant::now();
+        let built = build_rig_handeye_laserline_input(
+            &laser_spec,
+            &entry.data_root,
+            DetectionMode::Cached(&detection_cache()),
+            &VmLaserExtractor,
+            &RunControl::default(),
+        )
+        .with_context(|| format!("entry `{}`: joint laserline input", entry.id))?;
+        let extract_ms = ms_since(start);
 
-        progress(
-            entry,
-            "extracting laser observations for the joint bundle adjustment",
-        );
-        let n_cam = spec.cameras.len();
-        let n_views = input.views.len();
-        let mut per_cam_images_used = vec![0usize; n_cam];
-        let mut per_cam_points = vec![0usize; n_cam];
-        let mut per_cam_ms = vec![0u64; n_cam];
-        let mut total_points = 0usize;
-        let mut total_images_used = 0usize;
-        let mut candidate_views = 0usize;
-        let total_start = Instant::now();
-        let mut views = Vec::new();
-        let mut laser_robot_poses = Vec::new();
-        let mut laser_view_indices = Vec::new();
-
-        for (view_idx, (view, paths)) in input.views.iter().zip(view_paths).enumerate() {
-            // Every camera of a tiled rig reads the same target frame.
-            let target_name = paths
-                .iter()
-                .flatten()
-                .next()
-                .and_then(|p| p.file_name())
-                .and_then(|s| s.to_str())
-                .unwrap_or_default();
-            let Some(laser_path) = laser_frames.get(target_name) else {
-                continue;
-            };
-            candidate_views += 1;
-            progress_images(entry, "laser", "all", candidate_views - 1, n_views);
-            let img = load_image(laser_path)?;
-            let mut laser_pixels = Vec::with_capacity(n_cam);
-            let mut any_laser = false;
-            for (cam_idx, camera) in spec.cameras.iter().enumerate() {
-                let cam_start = Instant::now();
-                let tile = crop_to_roi(&img, camera.roi_xywh);
-                let pixels = extract_laser_pixels(&tile);
-                per_cam_ms[cam_idx] = per_cam_ms[cam_idx].saturating_add(ms_since(cam_start));
-                if pixels.is_empty() {
-                    laser_pixels.push(None);
-                } else {
-                    any_laser = true;
-                    per_cam_images_used[cam_idx] += 1;
-                    per_cam_points[cam_idx] += pixels.len();
-                    total_points += pixels.len();
-                    laser_pixels.push(Some(pixels));
-                }
-            }
-            if any_laser {
-                total_images_used += 1;
-                views.push(RigLaserlineView {
-                    cameras: view.obs.cameras.clone(),
-                    laser_pixels,
-                });
-                laser_robot_poses.push(view.meta.base_se3_gripper);
-                laser_view_indices.push(view_idx);
-            }
-        }
-
-        if views.is_empty() {
-            return Ok(None);
-        }
-
-        let per_camera = spec
+        let views = &built.input.views;
+        let per_camera: Vec<LaserCamStat> = laser_spec
             .cameras
             .iter()
             .enumerate()
-            .map(|(cam_idx, camera)| LaserCamStat {
-                camera_id: camera.id.clone(),
-                images_total: candidate_views,
-                images_used: per_cam_images_used[cam_idx],
-                points_extracted: per_cam_points[cam_idx],
-                extract_ms: per_cam_ms[cam_idx],
-                plane_residual_m: None,
-                line_residual_px: None,
-                inlier_ratio: None,
+            .map(|(cam_idx, camera)| {
+                let slots = views
+                    .iter()
+                    .filter_map(|v| v.obs.laser_pixels[cam_idx].as_ref());
+                LaserCamStat {
+                    camera_id: camera.id.clone(),
+                    images_total: views.len(),
+                    images_used: slots.clone().count(),
+                    points_extracted: slots.map(Vec::len).sum(),
+                    // The runner extracts every camera's region of a frame
+                    // in one pass; the stage time is `LaserMetrics::extract_ms`.
+                    extract_ms: 0,
+                    plane_residual_m: None,
+                    line_residual_px: None,
+                    inlier_ratio: None,
+                }
             })
             .collect();
-
-        Ok(Some(LaserObservationSet {
-            views,
-            robot_poses: laser_robot_poses,
-            view_indices: laser_view_indices,
-            metrics: LaserMetrics {
-                per_camera,
-                total_points,
-                total_images_used,
-                extract_ms: ms_since(total_start),
-            },
+        let metrics = LaserMetrics {
+            total_points: per_camera.iter().map(|c| c.points_extracted).sum(),
+            total_images_used: views
+                .iter()
+                .filter(|v| v.obs.laser_pixels.iter().any(Option::is_some))
+                .count(),
+            extract_ms,
+            per_camera,
+        };
+        Ok(Some(JointLaserlineData {
+            input: built.input,
+            metrics,
         }))
     }
 
+    /// The `vision-metrology` laser-line extractor the runner is given: a
+    /// subpixel edge-pair scan over the manifest's axis.
     #[cfg(feature = "laser")]
-    fn extract_laser_pixels(img: &image::DynamicImage) -> Vec<Pt2> {
-        let luma = img.to_luma8();
-        let width = luma.width() as usize;
-        let height = luma.height() as usize;
-        let Ok(view) = ImageView::<u8>::from_slice(width, height, width, luma.as_raw()) else {
-            return Vec::new();
-        };
-        let cfg = LaserExtractConfig {
-            axis: ScanAxis::Cols {
-                access: ColAccess::Gather,
-            },
-            edge_cfg: Edge1DConfig {
-                sigma: 1.2,
-                pos_thresh: 4.0,
-                neg_thresh: 4.0,
-                ..Edge1DConfig::default()
-            },
-            ..LaserExtractConfig::default()
-        };
-        let mut extractor = LaserExtractor::new(cfg.edge_cfg.sigma);
-        extractor
-            .extract_line_u8(&view, 0..width, &cfg, None)
-            .points
-            .into_iter()
-            .map(|p| Pt2::new(p.x as f64, p.y as f64))
-            .collect()
-    }
+    struct VmLaserExtractor;
 
     #[cfg(feature = "laser")]
-    #[derive(serde::Deserialize)]
-    struct LaserPoseEntry {
-        target_image: Option<String>,
-        laser_image: Option<String>,
-        #[serde(rename = "type")]
-        snap_type: Option<String>,
-    }
-
-    /// The laser frame of each target frame, by target file name: the
-    /// `double_snap` entries of the entry's snap-list pose file, which name
-    /// both frames of a robot pose.
-    #[cfg(feature = "laser")]
-    fn laser_frames(entry: &BenchEntry) -> Result<std::collections::BTreeMap<String, PathBuf>> {
-        let pose_src = entry
-            .robot_poses
-            .as_ref()
-            .filter(|src| src.format == "snap_list_json")
-            .with_context(|| {
-                format!(
-                    "entry `{}` declares laser data, which pairs with target frames through \
-                     a snap_list_json pose file",
-                    entry.id
-                )
-            })?;
-        let path = entry.data_root.join(&pose_src.path);
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read laser pose list {}", path.display()))?;
-        let entries: Vec<LaserPoseEntry> = serde_json::from_str(&text)
-            .with_context(|| format!("failed to parse laser pose list {}", path.display()))?;
-        let frames: std::collections::BTreeMap<String, PathBuf> = entries
-            .into_iter()
-            .filter(|snap| snap.snap_type.as_deref() == Some("double_snap"))
-            .filter_map(|snap| Some((snap.target_image?, snap.laser_image?)))
-            .map(|(target, laser)| {
-                let target_name = Path::new(&target)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(&target)
-                    .to_string();
-                (target_name, entry.data_root.join(laser))
-            })
-            .collect();
-        anyhow::ensure!(
-            !frames.is_empty(),
-            "entry `{}`: pose list {} has no double_snap entry naming a laser frame",
-            entry.id,
-            path.display()
-        );
-        Ok(frames)
-    }
-
-    fn run_rig_handeye_laserline_v5(
-        entry: &BenchEntry,
-        rig_export: &RigHandeyeExport,
-        observations: Option<LaserObservationSet>,
-        robot_rot_sigma: f64,
-        robot_trans_sigma: f64,
-    ) -> Result<Option<JointV5Result>> {
-        let Some(observations) = observations else {
-            return Ok(None);
-        };
-        if observations.views.is_empty() {
-            return Ok(None);
+    impl LaserPixelExtractor for VmLaserExtractor {
+        fn name(&self) -> &str {
+            "vision-metrology-v0.1"
         }
 
+        fn extract(
+            &self,
+            image: GrayImageView<'_>,
+            spec: &LaserExtractionSpec,
+        ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
+            let width = image.width() as usize;
+            let height = image.height() as usize;
+            let view = ImageView::<u8>::from_slice(width, height, width, image.pixels())
+                .map_err(|e| format!("image view ({width}x{height}): {e:?}"))?;
+            let (axis, scan_len) = match spec.scan_axis {
+                LaserScanAxis::Cols => (
+                    ScanAxis::Cols {
+                        access: ColAccess::Gather,
+                    },
+                    width,
+                ),
+                LaserScanAxis::Rows => (ScanAxis::Rows, height),
+            };
+            let cfg = LaserExtractConfig {
+                axis,
+                edge_cfg: Edge1DConfig {
+                    sigma: spec.sigma as f32,
+                    pos_thresh: spec.pos_thresh as f32,
+                    neg_thresh: spec.neg_thresh as f32,
+                    ..Edge1DConfig::default()
+                },
+                ..LaserExtractConfig::default()
+            };
+            let mut extractor = LaserExtractor::new(cfg.edge_cfg.sigma);
+            Ok(extractor
+                .extract_line_u8(&view, 0..scan_len, &cfg, None)
+                .points
+                .into_iter()
+                .map(|p| [f64::from(p.x), f64::from(p.y)])
+                .collect())
+        }
+    }
+
+    /// The shipped joint rig hand-eye laserline calibration of `data`,
+    /// warm-started from the rig hand-eye result `rig_export` of the same
+    /// views under `handeye` (its stage is not run again). Every other
+    /// setting is the problem's default, on the entry's solver backend.
+    fn run_joint_laserline(
+        entry: &BenchEntry,
+        handeye: RigHandeyeConfig,
+        rig_export: &RigHandeyeExport,
+        data: Option<JointLaserlineData>,
+    ) -> Result<Option<JointLaserlineResult>> {
+        let Some(data) = data else {
+            return Ok(None);
+        };
         progress(
             entry,
             format!(
-                "laserline + joint BA over {} laser views",
-                observations.views.len()
+                "joint rig hand-eye laserline calibration over {} views",
+                data.input.num_views()
             ),
         );
-        let n_cam = entry.cameras.len();
-        let laserline_dataset =
-            vision_calibration_optim::RigLaserlineDataset::new(observations.views.clone(), n_cam)
-                .map_err(|e| anyhow::anyhow!("build RigLaserlineDataset: {e}"))?;
-        let rig_se3_target = handeye_observer_se3_target(
-            rig_export.handeye.mode(),
-            rig_export.handeye.handeye().pose(),
-            rig_export.handeye.target_pose(),
-            &observations.robot_poses,
-            None,
-        );
-        let upstream = rig_export
-            .to_upstream_calibration(rig_se3_target)
-            .context("build rig laserline upstream from rig hand-eye export")?;
-        let laserline_input = RigLaserlineDeviceInput {
-            dataset: laserline_dataset.clone(),
-            upstream,
-        };
+        let backend = entry.solver_backend();
+        let mut config = RigHandeyeLaserlineConfig::default();
+        config.handeye = handeye;
+        config.laserline_init.solver.backend = backend;
+        config.solver.backend = backend;
 
-        let mut laser_session =
-            CalibrationSession::<RigLaserlineDeviceProblem>::with_description("bench_v5_laser");
-        laser_session
-            .set_input(laserline_input)
-            .context("set laserline input failed")?;
-        let mut laser_cfg = RigLaserlineDeviceConfig::default();
-        laser_cfg.solver.max_iters = 200;
-        laser_cfg.solver.backend = entry.solver_backend();
-        laser_cfg.solver.verbosity = 0;
-        laser_cfg.optimize.laser_residual_type = LaserlineResidualType::PointToPlane;
-        laser_session
-            .set_config(laser_cfg)
-            .context("set laserline config failed")?;
-        run_rig_laserline_device_calibration(&mut laser_session)
-            .context("RigLaserlineDevice stage failed")?;
-        let laser_export = laser_session
-            .export()
-            .context("export laserline stage failed")?;
+        let mut session = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
+        session
+            .set_input(data.input)
+            .context("set joint laserline input failed")?;
+        session
+            .set_config(config)
+            .context("set joint laserline config failed")?;
+        let mut seed = JointManualInit::default();
+        seed.rig_handeye = Some(rig_export.clone());
+        run_joint_with_seed(&mut session, seed).context("joint laserline calibration failed")?;
+        let export = session.export().context("export joint laserline failed")?;
 
-        let mut laser_metrics = observations.metrics;
-        apply_laserline_stage_stats(&mut laser_metrics, &laser_export.per_cam_stats);
-
-        let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|robot| {
-            let deltas = &robot.deltas;
-            observations
-                .view_indices
-                .iter()
-                .filter_map(|&idx| deltas.get(idx).copied())
-                .collect::<Vec<_>>()
-        });
-        let initial_robot_deltas =
-            initial_robot_deltas.filter(|deltas| deltas.len() == observations.views.len());
-
-        let joint_dataset = RigHandeyeLaserlineDataset::from_rig_dataset(
-            laserline_dataset,
-            observations.robot_poses,
-            rig_export.handeye.mode(),
-        )
-        .map_err(|e| anyhow::anyhow!("build RigHandeyeLaserlineDataset: {e}"))?;
-
-        let handeye = *rig_export.handeye.handeye().pose();
-        let target_ref = *rig_export.handeye.target_pose();
-        let joint_initial = RigHandeyeLaserlineParams::new(
-            rig_export.cameras.clone(),
-            rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
-            handeye,
-            target_ref,
-            laser_export.laser_planes_cam.clone(),
-        );
-
-        // Intrinsics and the low-order radial terms free; k3, the tangential
-        // terms and any sensor tilt held.
-        let fix = rig_export
-            .cameras
-            .iter()
-            .map(|camera| {
-                let model = camera
-                    .spec()
-                    .context("rig camera with a general homography sensor")?;
-                let held = |names: &[&str], held: &[&str]| -> Option<Vec<String>> {
-                    Some(
-                        names
-                            .iter()
-                            .filter(|n| held.contains(n))
-                            .map(|n| n.to_string())
-                            .collect(),
-                    )
-                };
-                Ok(CameraFix {
-                    intrinsics: Some(Vec::new()),
-                    projection: Some(Vec::new()),
-                    distortion: held(model.distortion.param_names(), &["k3", "p1", "p2"]),
-                    sensor: held(model.sensor.param_names(), &["tilt_x", "tilt_y"]),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let joint_opts = RigHandeyeLaserlineSolveOptions {
-            laser_residual_type: LaserlineResidualType::PointToPlane,
-            laser_weight: 1.0e4,
-            reprojection_weight: 1.0,
-            refine_robot_poses: true,
-            robot_rot_sigma,
-            robot_trans_sigma,
-            initial_robot_deltas,
-            fix,
-            fix_extrinsics: (0..n_cam).map(|i| i == 0).collect(),
-            ..Default::default()
-        };
-        let backend_opts = BackendSolveOptions {
-            backend: entry.solver_backend(),
-            max_iters: 30,
-            verbosity: 0,
-            ..Default::default()
-        };
-        let joint_est =
-            optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)
-                .context("final optimize_rig_handeye_laserline failed")?;
-        apply_joint_laser_stats(&mut laser_metrics, &joint_est.per_cam_stats);
-
-        Ok(Some(JointV5Result {
-            mean_reproj_error: joint_est.mean_reproj_error,
-            per_cam_stats: joint_est.per_cam_stats,
+        let mut laser_metrics = data.metrics;
+        apply_joint_laser_stats(&mut laser_metrics, &export.per_cam_stats);
+        Ok(Some(JointLaserlineResult {
+            mean_reproj_error: export.mean_reproj_error,
+            per_cam_stats: export.per_cam_stats,
             laser_metrics,
         }))
-    }
-
-    fn apply_laserline_stage_stats(
-        metrics: &mut LaserMetrics,
-        stats: &[vision_calibration_optim::LaserlineStats],
-    ) {
-        for (metric, stat) in metrics.per_camera.iter_mut().zip(stats) {
-            metric.plane_residual_m =
-                Some(ReprojectionStats::from_errors(&stat.per_view_laser_errors));
-        }
     }
 
     fn apply_joint_laser_stats(

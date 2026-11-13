@@ -10,9 +10,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use vision_calibration_dataset::{
-    CameraSource, DatasetSpec, DetectorSpec, ImagePattern, PoseConvention, PosePairing,
-    RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, TransformConvention,
-    TranslationUnits,
+    CameraSource, DatasetSpec, DetectorSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis,
+    PoseConvention, PosePairing, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
+    TransformConvention, TranslationUnits,
 };
 
 use crate::registry::{BenchEntry, BoardGeometry, CameraLayout, PoseSource, ProblemKind, SpecRef};
@@ -52,6 +52,108 @@ pub fn dataset_spec(entry: &BenchEntry) -> Result<DatasetSpec> {
         None => lower_registry_fields(entry)
             .with_context(|| format!("entry `{}`: registry fields", entry.id)),
     }
+}
+
+/// The manifest of `entry`'s joint rig hand-eye and laser-plane calibration:
+/// its rig hand-eye manifest `spec` as a `rig_handeye_laserline` dataset.
+///
+/// Every camera reads its region of the laser frame each row of the
+/// snap-list pose file names, in row order, so laser frame `i` pairs with
+/// target view `i` and robot pose `i` (`by_index`, as the poses already do).
+/// A frame whose line the extractor does not find leaves its camera's slot
+/// empty. The extraction parameters are the entry's `laser.params`
+/// (`axis`, `sigma`, `pos_thresh`, `neg_thresh`, `min_points`) over the
+/// manifest defaults.
+///
+/// # Errors
+///
+/// An entry without `laser`, without a `snap_list_json` pose file, a pose
+/// file that cannot be read, a row that names no laser frame, or a laser
+/// parameter of the wrong type.
+pub fn joint_laserline_spec(entry: &BenchEntry, spec: &DatasetSpec) -> Result<DatasetSpec> {
+    let laser = entry
+        .laser
+        .as_ref()
+        .with_context(|| format!("entry `{}` declares no laser data", entry.id))?;
+    let pose_src = entry
+        .robot_poses
+        .as_ref()
+        .filter(|src| src.format == "snap_list_json")
+        .with_context(|| {
+            format!(
+                "entry `{}` declares laser data, which pairs with target frames through \
+                 a snap_list_json pose file",
+                entry.id
+            )
+        })?;
+    let path = resolve_against(&entry.data_root, &pose_src.path);
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("read laser pose list {}", path.display()))?;
+    let rows: Vec<SnapListRow> = serde_json::from_str(&text)
+        .with_context(|| format!("parse laser pose list {}", path.display()))?;
+    let laser_frames = rows
+        .into_iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.laser_image.map(Into::into).with_context(|| {
+                format!("pose list {} row {i} names no laser_image", path.display())
+            })
+        })
+        .collect::<Result<Vec<std::path::PathBuf>>>()?;
+
+    let mut spec = spec.clone();
+    spec.topology = ProblemKind::RigHandeyeLaserline;
+    spec.laser = Some(laser_extraction(&laser.params)?);
+    for camera in &mut spec.cameras {
+        camera.laser_images = Some(ImagePattern::List {
+            paths: laser_frames.clone(),
+        });
+    }
+    Ok(spec)
+}
+
+/// The laser frame a snap-list row names.
+#[derive(serde::Deserialize)]
+struct SnapListRow {
+    laser_image: Option<String>,
+}
+
+/// The manifest's laser extraction with a registry entry's `laser.params`
+/// over its defaults.
+fn laser_extraction(params: &serde_json::Value) -> Result<LaserExtractionSpec> {
+    let mut spec = LaserExtractionSpec::default();
+    let number = |key: &str| -> Result<Option<f64>> {
+        params
+            .get(key)
+            .map(|v| {
+                v.as_f64()
+                    .with_context(|| format!("laser.params.{key} is not a number"))
+            })
+            .transpose()
+    };
+    if let Some(axis) = params.get("axis") {
+        spec.scan_axis = match axis.as_str() {
+            Some("cols") => LaserScanAxis::Cols,
+            Some("rows") => LaserScanAxis::Rows,
+            _ => anyhow::bail!("laser.params.axis must be \"cols\" or \"rows\", got {axis}"),
+        };
+    }
+    if let Some(sigma) = number("sigma")? {
+        spec.sigma = sigma;
+    }
+    if let Some(pos_thresh) = number("pos_thresh")? {
+        spec.pos_thresh = pos_thresh;
+    }
+    if let Some(neg_thresh) = number("neg_thresh")? {
+        spec.neg_thresh = neg_thresh;
+    }
+    if let Some(min_points) = params.get("min_points") {
+        spec.min_points = min_points
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .context("laser.params.min_points is not a count")?;
+    }
+    Ok(spec)
 }
 
 /// Join `path` onto `base` unless it is already absolute.
@@ -440,6 +542,80 @@ mod tests {
             assert_eq!(convention.translation_units, units);
             assert!(matches!(spec.pose_pairing, Some(PosePairing::ByIndex)));
         }
+    }
+
+    /// A rig hand-eye entry with laser data over a snap-list pose file of
+    /// `rows` in a fresh directory.
+    fn laser_entry(name: &str, rows: serde_json::Value) -> BenchEntry {
+        let root = std::env::temp_dir().join(format!(
+            "calib-bench-manifest-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("temp dir");
+        std::fs::write(root.join("poses.json"), rows.to_string()).expect("pose list");
+        let mut e = entry(
+            ProblemKind::RigHandeye,
+            board("checkerboard"),
+            vec![
+                camera("a", "", Some([0, 0, 10, 10])),
+                camera("b", "", Some([10, 0, 10, 10])),
+            ],
+        );
+        e.data_root = root;
+        let mut source = pose_source("snap_list_json", "base_se3_gripper", Some("mm"));
+        source.path = PathBuf::from("poses.json");
+        e.robot_poses = Some(source);
+        e.laser = Some(
+            serde_json::from_value(serde_json::json!({
+                "method": "vision-metrology-edge1d",
+                "params": { "axis": "rows", "sigma": 2.0, "pos_thresh": 5.0, "min_points": 50 },
+                "residual_type": "extraction_only",
+            }))
+            .expect("laser config"),
+        );
+        e
+    }
+
+    #[test]
+    fn laser_entry_lowers_to_a_valid_joint_manifest() {
+        let e = laser_entry(
+            "valid",
+            serde_json::json!([
+                { "type": "double_snap", "target_image": "target_0.png", "laser_image": "laser_0.png" },
+                { "type": "target_snap", "target_image": "target_1.png", "laser_image": "laser_1.png" },
+            ]),
+        );
+        let spec = joint_laserline_spec(&e, &dataset_spec(&e).expect("spec")).expect("joint");
+        validate(&spec).expect("valid");
+        assert_eq!(spec.topology, ProblemKind::RigHandeyeLaserline);
+        assert!(matches!(spec.pose_pairing, Some(PosePairing::ByIndex)));
+        let laser = spec.laser.expect("laser");
+        assert_eq!(laser.scan_axis, LaserScanAxis::Rows);
+        assert_eq!((laser.sigma, laser.pos_thresh), (2.0, 5.0));
+        assert_eq!(laser.neg_thresh, LaserExtractionSpec::default().neg_thresh);
+        assert_eq!(laser.min_points, 50);
+        for camera in &spec.cameras {
+            match &camera.laser_images {
+                Some(ImagePattern::List { paths }) => assert_eq!(
+                    paths,
+                    &[PathBuf::from("laser_0.png"), PathBuf::from("laser_1.png")]
+                ),
+                other => panic!("camera {}: {other:?}", camera.id),
+            }
+        }
+    }
+
+    #[test]
+    fn a_pose_row_without_a_laser_frame_is_an_error() {
+        let e = laser_entry(
+            "missing",
+            serde_json::json!([{ "type": "target_snap", "target_image": "target_0.png" }]),
+        );
+        let err = joint_laserline_spec(&e, &dataset_spec(&e).expect("spec")).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("row 0 names no laser_image"),
+            "{err:#}"
+        );
     }
 
     #[test]

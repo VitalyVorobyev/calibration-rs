@@ -148,13 +148,13 @@ pub fn detect_rig_extrinsics(
     )
 }
 
-/// Detect a rig hand-eye dataset; returns the source paths of its views too.
+/// Detect a rig hand-eye dataset.
 pub fn detect_rig_handeye(
     spec: &DatasetSpec,
     base_dir: &Path,
     board: Option<&BoardGeometry>,
     cache: &dyn DetectionCache,
-) -> Result<(Detected<RigDataset<RobotPoseMeta>>, RigViewPaths)> {
+) -> Result<Detected<RigDataset<RobotPoseMeta>>> {
     let start = Instant::now();
     let built = build_rig_handeye_input(
         spec,
@@ -163,15 +163,14 @@ pub fn detect_rig_handeye(
         &RunControl::default(),
     )?;
     let detection_ms = ms(start.elapsed());
-    let detected = rig_detected(
+    rig_detected(
         spec,
         board,
         built.input,
         &built.view_paths,
         built.total_views,
         detection_ms,
-    )?;
-    Ok((detected, built.view_paths))
+    )
 }
 
 fn rig_detected<M>(
