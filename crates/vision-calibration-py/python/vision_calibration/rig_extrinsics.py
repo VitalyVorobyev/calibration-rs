@@ -18,17 +18,15 @@ from .common import (
     IntrinsicsInitOptions,
     IntrinsicsOptimizeOptions,
     RigInitOptions,
+    RigIntrinsicsManualInit,
     RigOptimizeOptions,
 )
 from .models import (
     CameraParams,
-    Distortion,
-    PinholeIntrinsics,
     Pose,
     RigExtrinsicsConfig,
     RigExtrinsicsExport,
     RigExtrinsicsInput,
-    ScheimpflugSensor,
 )
 from .session import (
     _run_calibration,
@@ -45,44 +43,18 @@ from .types import ProgressCallback
 __all__ = [
     "IntrinsicsInitOptions",
     "IntrinsicsInitResult",
-    "IntrinsicsManualInit",
     "IntrinsicsOptimizeOptions",
     "IntrinsicsOptimizeResult",
     "RigExtrinsicsSession",
     "RigInitOptions",
     "RigInitResult",
+    "RigIntrinsicsManualInit",
     "RigManualInit",
     "RigOptimizeOptions",
     "RigOptimizeResult",
     "RigPoses",
     "run_calibration",
 ]
-
-
-@dataclass(slots=True)
-class IntrinsicsManualInit:
-    """Manual seeds of the per-camera intrinsics stage, one entry per camera;
-    a field left ``None`` is estimated.
-
-    Seeded intrinsics skip the per-camera linear fit (distortion then starts
-    at zero unless seeded too). Each distortion seed is a model of its
-    camera's own distortion kind and is used as given; another kind is an
-    error. ``per_cam_sensors`` seeds the tilt of
-    each Scheimpflug camera; an untilted camera takes only a zero tilt.
-    """
-
-    per_cam_intrinsics: list[PinholeIntrinsics] | None = None
-    per_cam_distortion: list[Distortion] | None = None
-    per_cam_sensors: list[ScheimpflugSensor] | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        return _seed_payload(
-            {
-                "per_cam_intrinsics": self.per_cam_intrinsics,
-                "per_cam_distortion": self.per_cam_distortion,
-                "per_cam_sensors": self.per_cam_sensors,
-            }
-        )
 
 
 @dataclass(slots=True)
@@ -212,7 +184,7 @@ class RigExtrinsicsSession(
 
     def step_intrinsics_init_all_with_seed(
         self,
-        seed: IntrinsicsManualInit,
+        seed: RigIntrinsicsManualInit,
         options: IntrinsicsInitOptions | None = None,
     ) -> IntrinsicsInitResult:
         """``step_intrinsics_init_all`` from manual seeds."""

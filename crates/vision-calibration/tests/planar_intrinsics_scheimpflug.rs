@@ -3,14 +3,15 @@
 #![allow(missing_docs)]
 
 use nalgebra::{Rotation3, Translation3};
+use vision_calibration::common::IntrinsicsManualInit;
 use vision_calibration::core::{
     BrownConrady5, Camera, CameraFix, CorrespondenceView, FxFyCxCy, Iso3, Pinhole, PlanarDataset,
     Pt2, Pt3, ScheimpflugParams, SensorKind, View,
 };
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::planar_intrinsics::{
-    IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate,
-    PlanarIntrinsicsProblem, run_calibration, step_init_with_seed, step_optimize,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsProblem, run_calibration,
+    step_init_with_seed, step_optimize,
 };
 
 /// The default planar config with a Scheimpflug sensor.

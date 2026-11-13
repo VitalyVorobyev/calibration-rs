@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
 use serde::{Serialize, de::DeserializeOwned};
-use vision_calibration_pipeline::common::RobotPoseMeta;
+use vision_calibration_pipeline::common::{IntrinsicsManualInit, RobotPoseMeta};
 use vision_calibration_pipeline::{
     common::config::CameraConfig,
     laserline_device::{
@@ -9,8 +9,8 @@ use vision_calibration_pipeline::{
         LaserlineDeviceExport, LaserlineDeviceInput, LaserlineDeviceProblem,
     },
     planar_intrinsics::{
-        IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate,
-        PlanarIntrinsicsExport, PlanarIntrinsicsProblem,
+        PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsExport,
+        PlanarIntrinsicsProblem,
     },
     rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput},
     rig_handeye::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput},

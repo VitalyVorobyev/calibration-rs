@@ -7,9 +7,9 @@ step: the cameras' intrinsics (``step_intrinsics_init_all``,
 ``step_handeye_optimize``). ``run_calibration`` runs all six, seeding the
 intrinsics stage from the config's ``manual_init``.
 
-The intrinsics and rig seeds and initial results have the shapes of
+The rig seeds and initial results have the shapes of
 :mod:`vision_calibration.rig_extrinsics`, whose classes this module
-re-exports.
+re-exports; the intrinsics seed is :class:`RigIntrinsicsManualInit`.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from .common import (
     IntrinsicsInitOptions,
     IntrinsicsOptimizeOptions,
     RigInitOptions,
+    RigIntrinsicsManualInit,
     RigOptimizeOptions,
 )
 from .models import (
@@ -39,7 +40,6 @@ from .models import (
 )
 from .rig_extrinsics import (
     IntrinsicsInitResult,
-    IntrinsicsManualInit,
     RigInitResult,
     RigManualInit,
     RigPoses,
@@ -66,12 +66,12 @@ __all__ = [
     "HandeyeOptimizeResult",
     "IntrinsicsInitOptions",
     "IntrinsicsInitResult",
-    "IntrinsicsManualInit",
     "IntrinsicsOptimizeOptions",
     "IntrinsicsOptimizeResult",
     "RigHandeyeSession",
     "RigInitOptions",
     "RigInitResult",
+    "RigIntrinsicsManualInit",
     "RigManualInit",
     "RigOptimizeOptions",
     "RigOptimizeResult",
@@ -222,7 +222,7 @@ class RigHandeyeSession(CalibrationSession[RigHandeyeInput, RigHandeyeConfig, Ri
 
     def step_intrinsics_init_all_with_seed(
         self,
-        seed: IntrinsicsManualInit,
+        seed: RigIntrinsicsManualInit,
         options: IntrinsicsInitOptions | None = None,
     ) -> IntrinsicsInitResult:
         """``step_intrinsics_init_all`` from manual seeds."""

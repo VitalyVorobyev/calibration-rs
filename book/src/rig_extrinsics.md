@@ -105,7 +105,7 @@ session.update_config(|c| {
 })?;
 ```
 
-A rig of tilted cameras sets `config.camera = CameraConfig::new(CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug))` instead. Tilt seeds go through `IntrinsicsManualInit::per_cam_sensors` and `step_intrinsics_init_all_with_seed`; zero tilts need no seed (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` is one `CameraParams` per camera, stating the calibrated distortion and sensor.
+A rig of tilted cameras sets `config.camera = CameraConfig::new(CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug))` instead. Tilt seeds go through `RigIntrinsicsManualInit::per_cam_sensors` and `step_intrinsics_init_all_with_seed`; zero tilts need no seed (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` is one `CameraParams` per camera, stating the calibrated distortion and sensor.
 
 The reference camera (`rig.reference_camera_idx`) is fixed at identity, which removes the rig's 6-DOF gauge freedom; no separate pose-gauge setting is needed.
 

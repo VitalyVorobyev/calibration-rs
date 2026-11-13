@@ -41,10 +41,10 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use vision_calibration::common::HandeyeSolution;
+use vision_calibration::common::{HandeyeSolution, RigIntrinsicsManualInit};
 use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
 use vision_calibration::{
-    rig_handeye::{self as rh, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
+    rig_handeye::{self as rh, RigHandeyeConfig, RigHandeyeProblem},
     session::CalibrationSession,
 };
 use vision_calibration_core::{
@@ -202,9 +202,9 @@ fn main() -> Result<()> {
         rh::step_intrinsics_init_all(&mut session, None)?;
         println!("  intrinsics init (Zhang): {:.2?}", s.elapsed());
     } else {
-        // `IntrinsicsManualInit` is #[non_exhaustive] → build via
+        // `RigIntrinsicsManualInit` is #[non_exhaustive] → build via
         // Default and set the public fields.
-        let mut seed = IntrinsicsManualInit::default();
+        let mut seed = RigIntrinsicsManualInit::default();
         seed.per_cam_intrinsics = Some(vec![
             FxFyCxCy {
                 fx: focal_seed,

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
 use vision_calibration_core::{
-    CameraParams, Iso3, LaserPlane, PerFeatureResiduals, Uncertainty, build_feature_histogram,
+    CameraParams, Iso3, LaserPlane, Uncertainty, build_feature_histogram,
     compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{
@@ -16,7 +16,10 @@ use vision_calibration_optim::{
 use crate::common::config::{
     CameraConfig, CameraInitOptions, IntrinsicsInitConfig, SolverConfig, check_laser_residual,
 };
-use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
+use crate::common::{
+    ExportDiagnostics, ProblemKind, VersionedExport, one_camera_target_residuals,
+    read_schema_version,
+};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
@@ -349,18 +352,14 @@ impl ProblemType for LaserlineDeviceProblem {
             .build()
             .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
         let target = compute_planar_target_residuals_views(&camera, input, &params.cam_se3_target)?;
-        let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
+        let mut per_feature_residuals = one_camera_target_residuals(target);
 
         let laser = compute_laserline_feature_residuals(input, params)?;
-        let laser_hist =
-            build_feature_histogram(laser.features.iter().filter_map(|r| r.residual_px));
-
-        let mut per_feature_residuals = PerFeatureResiduals::default();
-        per_feature_residuals.target = target;
+        per_feature_residuals.laser_hist_per_cam = Some(vec![build_feature_histogram(
+            laser.features.iter().filter_map(|r| r.residual_px),
+        )]);
         per_feature_residuals.laser = laser.features;
         per_feature_residuals.laser_lines = laser.lines;
-        per_feature_residuals.target_hist_per_cam = Some(vec![target_hist]);
-        per_feature_residuals.laser_hist_per_cam = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {
             kind: ProblemKind::LaserlineDevice,
             schema_version: LaserlineDeviceExport::SCHEMA_VERSION,

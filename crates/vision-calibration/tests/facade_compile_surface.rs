@@ -137,7 +137,7 @@ fn every_problem_follows_the_vocabulary() {
     ) -> Result<pi::IntrinsicsInitResult, Error> = pi::step_init;
     let _: fn(
         &mut Pi,
-        pi::IntrinsicsManualInit,
+        common::IntrinsicsManualInit,
         Option<common::IntrinsicsInitOptions>,
     ) -> Result<pi::IntrinsicsInitResult, Error> = pi::step_init_with_seed;
     let _: fn(
@@ -155,7 +155,7 @@ fn every_problem_follows_the_vocabulary() {
     ) -> Result<sch::IntrinsicsInitResult, Error> = sch::step_intrinsics_init;
     let _: fn(
         &mut Sch,
-        sch::IntrinsicsManualInit,
+        common::IntrinsicsManualInit,
         Option<common::IntrinsicsInitOptions>,
     ) -> Result<sch::IntrinsicsInitResult, Error> = sch::step_intrinsics_init_with_seed;
     let _: fn(
@@ -196,7 +196,7 @@ fn every_problem_follows_the_vocabulary() {
     ) -> Result<re::IntrinsicsInitResult, Error> = re::step_intrinsics_init_all;
     let _: fn(
         &mut Re,
-        re::IntrinsicsManualInit,
+        common::RigIntrinsicsManualInit,
         Option<common::IntrinsicsInitOptions>,
     ) -> Result<re::IntrinsicsInitResult, Error> = re::step_intrinsics_init_all_with_seed;
     let _: fn(
@@ -220,7 +220,7 @@ fn every_problem_follows_the_vocabulary() {
     ) -> Result<rh::IntrinsicsInitResult, Error> = rh::step_intrinsics_init_all;
     let _: fn(
         &mut Rh,
-        rh::IntrinsicsManualInit,
+        common::RigIntrinsicsManualInit,
         Option<common::IntrinsicsInitOptions>,
     ) -> Result<rh::IntrinsicsInitResult, Error> = rh::step_intrinsics_init_all_with_seed;
     let _: fn(

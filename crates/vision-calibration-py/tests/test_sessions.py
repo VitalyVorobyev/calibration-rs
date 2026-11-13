@@ -277,7 +277,7 @@ class RigExtrinsicsSessionTest(unittest.TestCase):
         session.set_input(observation("synth_rig"))
         intrinsics = session.step_intrinsics_init_all()
         seeded = session.step_intrinsics_init_all_with_seed(
-            rig_extrinsics.IntrinsicsManualInit(
+            rig_extrinsics.RigIntrinsicsManualInit(
                 per_cam_intrinsics=[c.intrinsics for c in intrinsics.cameras]
             )
         )

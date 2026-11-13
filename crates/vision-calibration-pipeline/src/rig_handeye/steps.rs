@@ -15,7 +15,7 @@ use crate::common::{
 };
 use crate::rig_family::{self, init_handeye, inverse_poses, optimize_handeye_stage, rig_ba_notes};
 pub use crate::rig_family::{
-    HandeyeOptimizeResult, IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult,
+    HandeyeOptimizeResult, IntrinsicsInitResult, RigInitResult, RigIntrinsicsManualInit,
     RigManualInit, RigPoses,
 };
 use crate::session::CalibrationSession;
@@ -161,7 +161,7 @@ pub struct HandeyeInitResult {
 ///   given for an untilted camera
 pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-    manual: IntrinsicsManualInit,
+    manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<IntrinsicsInitResult, Error> {
     rig_family::init_intrinsics(session, manual, opts)
@@ -604,7 +604,7 @@ mod tests {
         session.set_input(make_test_input()).unwrap();
         session
             .set_config(super::super::problem::RigHandeyeConfig {
-                manual_init: Some(IntrinsicsManualInit {
+                manual_init: Some(RigIntrinsicsManualInit {
                     per_cam_intrinsics: Some(vec![
                         FxFyCxCy {
                             fx: 800.0,
@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn step_intrinsics_init_all_uses_the_configured_seed_and_an_explicit_seed_overrides_it() {
-        let seed = |fx: f64| IntrinsicsManualInit {
+        let seed = |fx: f64| RigIntrinsicsManualInit {
             per_cam_intrinsics: Some(vec![
                 FxFyCxCy {
                     fx,
@@ -685,9 +685,12 @@ mod tests {
 
         // An explicit seed overrides the config's.
         let mut session = session_with(Some(seed(805.0)));
-        let init =
-            step_intrinsics_init_all_with_seed(&mut session, IntrinsicsManualInit::default(), None)
-                .unwrap();
+        let init = step_intrinsics_init_all_with_seed(
+            &mut session,
+            RigIntrinsicsManualInit::default(),
+            None,
+        )
+        .unwrap();
         let notes = session.log()[0].notes.clone().expect("provenance");
         assert!(!notes.contains("manual: per_cam_intrinsics"), "{notes}");
         assert_eq!(init.cameras.len(), 2);

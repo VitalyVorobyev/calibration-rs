@@ -20,6 +20,7 @@ mod common;
 
 use common::scatter_over_stated;
 
+use vision_calibration::common::RigIntrinsicsManualInit;
 use vision_calibration::core::{
     BrownConrady5, Camera, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
     FxFyCxCy, Iso3, NoMeta, ParameterCovariance, Pinhole, RigDataset, RigView, RigViewObs,
@@ -27,7 +28,7 @@ use vision_calibration::core::{
 };
 use vision_calibration::optim::SolverBackend;
 use vision_calibration::rig_extrinsics::{
-    IntrinsicsManualInit, RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsProblem,
+    RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsProblem,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init,
     step_rig_optimize,
 };
@@ -134,7 +135,7 @@ fn per_camera_stage(
     config.solver.backend = backend;
     config.camera.model =
         CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
-    let mut seed = IntrinsicsManualInit::default();
+    let mut seed = RigIntrinsicsManualInit::default();
     seed.per_cam_sensors = Some(vec![
         ScheimpflugParams::default(),
         ScheimpflugParams {

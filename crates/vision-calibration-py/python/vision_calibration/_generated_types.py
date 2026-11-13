@@ -1021,41 +1021,6 @@ class IntrinsicsInitConfig(TypedDict):
     """Number of iterations for iterative intrinsics estimation."""
 
 
-class IntrinsicsManualInit(TypedDict, total=False):
-    """Manual seeds for the **per-camera intrinsics stage** of a rig
-    calibration.
-
-    All fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, Zhang's
-    auto-fit is skipped for *every* camera; per-camera target poses are then
-    recovered from per-camera homographies using the seeded intrinsics. When
-    `None`, each camera is auto-initialized.
-
-    When intrinsics are seeded but distortion is not, distortion starts at
-    zero; when intrinsics are auto-initialized, the fitted distortion is used
-    unless distortion is seeded. Each distortion seed is a value in its
-    camera's own distortion model: its kind must equal that camera's
-    configured distortion kind (a typed error otherwise) and it is used as
-    given.
-
-    `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug
-    sensor (a seeded tilt skips the tilt sweep of the linear stage); a camera
-    with an untilted sensor takes only a zero tilt.
-
-    Per-camera vectors must have one entry per camera.
-    """
-
-    per_cam_distortion: list[DistortionParams] | None
-    """Per-camera distortion seeds, each of the kind its camera's model names."""
-
-    per_cam_intrinsics: list[FxFyCxCy] | None
-    """Per-camera intrinsics seeds. `None` runs Zhang's method per camera."""
-
-    per_cam_sensors: list[ScheimpflugParams] | None
-    """Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
-    others).
-    """
-
-
 class IntrinsicsOptimizeConfig(TypedDict):
     """The per-camera intrinsics refinement stage (`intrinsics_optimize`): each
     camera solved on its own views, before the joint stages.
@@ -2408,7 +2373,7 @@ class RigHandeyeConfig(_RigHandeyeConfigRequired, total=False):
     camera index.
     """
 
-    manual_init: IntrinsicsManualInit | None
+    manual_init: RigIntrinsicsManualInit | None
     """Optional manual seeds for the per-camera intrinsics stage. They seed
     `step_intrinsics_init_all` and `run_calibration` alike;
     `step_intrinsics_init_all_with_seed` takes an explicit seed that
@@ -2632,6 +2597,41 @@ class RigHandeyeView(TypedDict):
 
     obs: RigViewObs
     """Per-camera observations for this rig frame."""
+
+
+class RigIntrinsicsManualInit(TypedDict, total=False):
+    """Manual seeds for the **per-camera intrinsics stage** of a rig
+    calibration.
+
+    All fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, Zhang's
+    auto-fit is skipped for *every* camera; per-camera target poses are then
+    recovered from per-camera homographies using the seeded intrinsics. When
+    `None`, each camera is auto-initialized.
+
+    When intrinsics are seeded but distortion is not, distortion starts at
+    zero; when intrinsics are auto-initialized, the fitted distortion is used
+    unless distortion is seeded. Each distortion seed is a value in its
+    camera's own distortion model: its kind must equal that camera's
+    configured distortion kind (a typed error otherwise) and it is used as
+    given.
+
+    `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug
+    sensor (a seeded tilt skips the tilt sweep of the linear stage); a camera
+    with an untilted sensor takes only a zero tilt.
+
+    Per-camera vectors must have one entry per camera.
+    """
+
+    per_cam_distortion: list[DistortionParams] | None
+    """Per-camera distortion seeds, each of the kind its camera's model names."""
+
+    per_cam_intrinsics: list[FxFyCxCy] | None
+    """Per-camera intrinsics seeds. `None` runs Zhang's method per camera."""
+
+    per_cam_sensors: list[ScheimpflugParams] | None
+    """Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
+    others).
+    """
 
 
 class RigLaserlineDataset(TypedDict):
@@ -3751,7 +3751,6 @@ __all__ = [
     "ImagePattern_Glob",
     "ImagePattern_List",
     "IntrinsicsInitConfig",
-    "IntrinsicsManualInit",
     "IntrinsicsOptimizeConfig",
     "Iso3",
     "JointOptimizeConfig",
@@ -3819,6 +3818,7 @@ __all__ = [
     "RigHandeyeLaserlinePerCamStats",
     "RigHandeyeLaserlineView",
     "RigHandeyeView",
+    "RigIntrinsicsManualInit",
     "RigLaserlineDataset",
     "RigLaserlineDeviceConfig",
     "RigLaserlineDeviceExport",

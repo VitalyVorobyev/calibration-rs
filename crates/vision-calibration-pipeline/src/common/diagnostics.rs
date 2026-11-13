@@ -1,7 +1,9 @@
 //! The diagnostics every `*Export` carries next to its result.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{ImageManifest, PerFeatureResiduals};
+use vision_calibration_core::{
+    ImageManifest, PerFeatureResiduals, TargetFeatureResidual, build_feature_histogram,
+};
 
 /// Evidence about how an export's result was reached: what a viewer or a
 /// debugging session reads, not what a consumer needs to use the
@@ -33,4 +35,16 @@ impl ExportDiagnostics {
             image_manifest: None,
         }
     }
+}
+
+/// The per-feature residuals of a one-camera calibration: its target
+/// residuals, with the histogram of the one camera.
+pub(crate) fn one_camera_target_residuals(
+    target: Vec<TargetFeatureResidual>,
+) -> PerFeatureResiduals {
+    let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
+    let mut residuals = PerFeatureResiduals::default();
+    residuals.target = target;
+    residuals.target_hist_per_cam = Some(vec![target_hist]);
+    residuals
 }

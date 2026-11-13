@@ -24,7 +24,7 @@ pub(crate) use handeye::{
 };
 
 pub use stages::{
-    IntrinsicsInitResult, IntrinsicsManualInit, RigInitResult, RigManualInit, RigPoses,
+    IntrinsicsInitResult, RigInitResult, RigIntrinsicsManualInit, RigManualInit, RigPoses,
 };
 pub(crate) use stages::{
     RigStages, RigStagesState, init_intrinsics, init_rig, optimize_intrinsics, optimize_rig,
@@ -32,7 +32,9 @@ pub(crate) use stages::{
 };
 
 use crate::Error;
-use crate::common::config::{CameraConfig, IntrinsicsInitConfig};
+use crate::common::config::{
+    CameraConfig, CameraOverride, IntrinsicsInitConfig, RigConfig, validate_rig_camera_indices,
+};
 use crate::planar_family::{
     CameraSeed, Provenance, bootstrap_camera, check_distortion_seed, check_sensor_seed,
 };
@@ -40,9 +42,9 @@ use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModel, CameraModelSpec, CameraParams, DistortionParams,
     FeatureResidualHistogram, FxFyCxCy, Iso3, NoMeta, PerFeatureResiduals, PlanarDataset,
     ProjectionParams, Real, RigDataset, RigView, ScheimpflugParams, SensorKind, SensorParams, View,
-    build_feature_histogram, compute_rig_target_residuals,
+    build_feature_histogram, compute_rig_target_residuals, stated_covariance,
 };
-use vision_calibration_optim::PlanarIntrinsicsParams;
+use vision_calibration_optim::{LaserResidualRecords, PlanarIntrinsicsParams};
 
 /// Bootstrap result for the per-camera intrinsics stage.
 #[derive(Debug, Clone)]
@@ -80,7 +82,7 @@ pub(crate) fn bootstrap_rig_intrinsics<F>(
     camera_configs: &[CameraConfig],
     num_views: usize,
     extract_views: F,
-    seeds: IntrinsicsManualInit,
+    seeds: RigIntrinsicsManualInit,
     init: &IntrinsicsInitConfig,
     iterations: Option<usize>,
 ) -> Result<RigIntrinsicsBootstrap, Error>
@@ -127,7 +129,10 @@ where
     })
 }
 
-fn validate_seeds(seeds: &IntrinsicsManualInit, models: &[CameraModelSpec]) -> Result<(), Error> {
+fn validate_seeds(
+    seeds: &RigIntrinsicsManualInit,
+    models: &[CameraModelSpec],
+) -> Result<(), Error> {
     let num_cameras = models.len();
     if let Some(s) = &seeds.per_cam_intrinsics
         && s.len() != num_cameras
@@ -167,7 +172,7 @@ fn validate_seeds(seeds: &IntrinsicsManualInit, models: &[CameraModelSpec]) -> R
     Ok(())
 }
 
-fn seed_provenance(seeds: &IntrinsicsManualInit, models: &[CameraModelSpec]) -> Provenance {
+fn seed_provenance(seeds: &RigIntrinsicsManualInit, models: &[CameraModelSpec]) -> Provenance {
     let mut provenance = Provenance::default();
     provenance.note("per_cam_intrinsics", seeds.per_cam_intrinsics.is_some());
     provenance.note("per_cam_distortion", seeds.per_cam_distortion.is_some());
@@ -374,6 +379,81 @@ pub(crate) fn without_meta<M>(dataset: &RigDataset<M>) -> RigDataset<NoMeta> {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Input validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Check the input of a rig problem type: the features state their
+/// covariance, there are at least 3 views and `min_cameras` cameras, and
+/// every view has one slot per camera and observes the target in at least
+/// one.
+///
+/// # Errors
+///
+/// [`Error::InsufficientData`] for too few views or cameras;
+/// [`Error::InvalidInput`] for a view of another camera count or without
+/// observations; the error of [`stated_covariance`].
+pub(crate) fn validate_rig_input<M>(
+    input: &RigDataset<M>,
+    min_cameras: usize,
+) -> Result<(), Error> {
+    stated_covariance(
+        input
+            .views
+            .iter()
+            .flat_map(|v| v.obs.cameras.iter().flatten()),
+    )?;
+    if input.num_views() < 3 {
+        return Err(Error::InsufficientData {
+            need: 3,
+            got: input.num_views(),
+        });
+    }
+    if input.num_cameras < min_cameras {
+        return Err(Error::InsufficientData {
+            need: min_cameras,
+            got: input.num_cameras,
+        });
+    }
+    for (i, view) in input.views.iter().enumerate() {
+        if view.obs.cameras.len() != input.num_cameras {
+            return Err(Error::invalid_input(format!(
+                "view {} has {} cameras, expected {}",
+                i,
+                view.obs.cameras.len(),
+                input.num_cameras
+            )));
+        }
+        if !view.obs.cameras.iter().any(|c| c.is_some()) {
+            return Err(Error::invalid_input(format!(
+                "view {} has no observations from any camera",
+                i
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Check a rig problem's config against an input of `num_cameras` cameras:
+/// the reference camera and every per-camera override name one of them.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming the out-of-range camera.
+pub(crate) fn validate_rig_input_config(
+    rig: &RigConfig,
+    camera_overrides: &[CameraOverride],
+    num_cameras: usize,
+) -> Result<(), Error> {
+    if rig.reference_camera_idx >= num_cameras {
+        return Err(Error::invalid_input(format!(
+            "reference_camera_idx {} is out of range (num_cameras = {})",
+            rig.reference_camera_idx, num_cameras
+        )));
+    }
+    validate_rig_camera_indices(camera_overrides, num_cameras)
+}
+
 /// The inverse of each pose: `rig_se3_cam` from `cam_se3_rig` and back.
 pub(crate) fn inverse_poses(poses: &[Iso3]) -> Vec<Iso3> {
     poses.iter().map(|t| t.inverse()).collect()
@@ -384,7 +464,7 @@ pub(crate) fn inverse_poses(poses: &[Iso3]) -> Vec<Iso3> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// One residual histogram per camera, of the values `values(camera)`.
-pub(crate) fn per_camera_histograms<I>(
+fn per_camera_histograms<I>(
     num_cameras: usize,
     values: impl Fn(usize) -> I,
 ) -> Vec<FeatureResidualHistogram>
@@ -425,6 +505,24 @@ pub(crate) fn rig_target_residuals<M>(
     }));
     residuals.target = target;
     Ok(residuals)
+}
+
+/// Add a rig calibration's per-feature laser residuals and laser lines to
+/// `residuals`, with the per-camera histograms of the `num_cameras` cameras.
+pub(crate) fn add_rig_laser_residuals(
+    residuals: &mut PerFeatureResiduals,
+    num_cameras: usize,
+    laser: LaserResidualRecords,
+) {
+    residuals.laser_hist_per_cam = Some(per_camera_histograms(num_cameras, |cam| {
+        laser
+            .features
+            .iter()
+            .filter(move |r| r.camera == cam)
+            .filter_map(|r| r.residual_px)
+    }));
+    residuals.laser = laser.features;
+    residuals.laser_lines = laser.lines;
 }
 
 #[cfg(test)]
@@ -518,7 +616,7 @@ mod tests {
             &[untilted(), untilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
-            IntrinsicsManualInit::default(),
+            RigIntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -555,7 +653,7 @@ mod tests {
             &[tilted(), tilted()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
-            IntrinsicsManualInit::default(),
+            RigIntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -605,7 +703,7 @@ mod tests {
                 &[camera.clone(), camera],
                 num_views,
                 |cam_idx| per_cam_views[cam_idx].clone(),
-                IntrinsicsManualInit {
+                RigIntrinsicsManualInit {
                     per_cam_sensors: Some(vec![sensor, sensor]),
                     ..Default::default()
                 },
@@ -635,7 +733,7 @@ mod tests {
     #[test]
     fn bootstrap_with_intrinsics_seed_skips_autofit() {
         let (per_cam_views, k_gt, num_views) = pinhole_two_camera_views();
-        let seeds = IntrinsicsManualInit {
+        let seeds = RigIntrinsicsManualInit {
             per_cam_intrinsics: Some(vec![k_gt, k_gt]),
             ..Default::default()
         };
@@ -664,7 +762,7 @@ mod tests {
             tilt_y: -0.008,
         };
         let (per_cam_views, _, num_views) = scheimpflug_two_camera_views(sensor_gt);
-        let seeds = IntrinsicsManualInit {
+        let seeds = RigIntrinsicsManualInit {
             per_cam_sensors: Some(vec![sensor_gt, sensor_gt]),
             ..Default::default()
         };
@@ -688,7 +786,7 @@ mod tests {
     #[test]
     fn bootstrap_rejects_seed_length_mismatch() {
         let (per_cam_views, k_gt, num_views) = pinhole_two_camera_views();
-        let seeds = IntrinsicsManualInit {
+        let seeds = RigIntrinsicsManualInit {
             per_cam_intrinsics: Some(vec![k_gt]), // wrong length: 1 vs 2 cameras
             ..Default::default()
         };
@@ -717,7 +815,7 @@ mod tests {
             &[untilted(), untilted()],
             num_views,
             |cam_idx| truncated[cam_idx].clone(),
-            IntrinsicsManualInit::default(),
+            RigIntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -737,7 +835,7 @@ mod tests {
             &[untilted(), division.clone()],
             num_views,
             |cam_idx| per_cam_views[cam_idx].clone(),
-            IntrinsicsManualInit::default(),
+            RigIntrinsicsManualInit::default(),
             &IntrinsicsInitConfig::default(),
             None,
         )
@@ -751,7 +849,7 @@ mod tests {
     #[test]
     fn tilt_seed_for_an_untilted_camera_must_be_zero() {
         let (per_cam_views, _, num_views) = pinhole_two_camera_views();
-        let zero = IntrinsicsManualInit {
+        let zero = RigIntrinsicsManualInit {
             per_cam_sensors: Some(vec![ScheimpflugParams::default(); 2]),
             ..Default::default()
         };
@@ -766,7 +864,7 @@ mod tests {
             )
             .is_ok()
         );
-        let tilted_seed = IntrinsicsManualInit {
+        let tilted_seed = RigIntrinsicsManualInit {
             per_cam_sensors: Some(vec![
                 ScheimpflugParams::default(),
                 ScheimpflugParams {

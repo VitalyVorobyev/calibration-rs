@@ -81,10 +81,10 @@ session.update_config(|c| {
 ### A tilted sensor, seeded
 
 ```rust
+use vision_calibration::common::IntrinsicsManualInit;
 use vision_calibration::core::{DistortionKind, SensorKind};
 use vision_calibration::planar_intrinsics::{
-    IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed,
-    step_optimize,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 

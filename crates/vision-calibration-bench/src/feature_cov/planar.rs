@@ -5,10 +5,10 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-use vision_calibration::common::CalibratedCameras;
+use vision_calibration::common::{CalibratedCameras, IntrinsicsManualInit};
 use vision_calibration::planar_intrinsics::{
-    IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem,
-    step_init_with_seed, step_optimize,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init_with_seed,
+    step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration_core::{NoMeta, NoiseLevel, PlanarDataset, Pt2, View};

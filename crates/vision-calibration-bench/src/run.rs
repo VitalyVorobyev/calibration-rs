@@ -51,9 +51,8 @@ pub mod tier_b {
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
     use vision_calibration::rig_handeye::{
-        IntrinsicsManualInit as RigIntrinsicsManualInit, RigHandeyeConfig, RigHandeyeExport,
-        RigHandeyeProblem, step_handeye_init as rh_handeye_init,
-        step_handeye_optimize as rh_handeye_optimize,
+        RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem,
+        step_handeye_init as rh_handeye_init, step_handeye_optimize as rh_handeye_optimize,
         step_intrinsics_init_all_with_seed as rh_intrinsics_init_all_with_seed,
         step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
         step_rig_optimize as rh_rig_optimize,
@@ -64,7 +63,7 @@ pub mod tier_b {
     };
     // Named at module scope so `DetectedScheimpflugCamera` can carry the seed;
     // the seeded route's step functions are the planar ones imported above.
-    use vision_calibration::planar_intrinsics::IntrinsicsManualInit;
+    use vision_calibration::common::{IntrinsicsManualInit, RigIntrinsicsManualInit};
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
         SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeProblem,

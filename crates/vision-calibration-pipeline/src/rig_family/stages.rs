@@ -58,7 +58,7 @@ use crate::session::{CalibrationSession, ProblemType};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub struct IntrinsicsManualInit {
+pub struct RigIntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's method per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
     /// Per-camera distortion seeds, each of the kind its camera's model names.
@@ -217,7 +217,7 @@ pub(crate) struct RigCamerasEstimate {
 /// Those of [`bootstrap_rig_intrinsics`], after the session's validation.
 pub(crate) fn init_intrinsics<P: RigStages>(
     session: &mut CalibrationSession<P>,
-    manual: IntrinsicsManualInit,
+    manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<IntrinsicsInitResult, Error> {
     session.validate()?;

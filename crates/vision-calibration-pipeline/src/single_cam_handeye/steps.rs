@@ -8,16 +8,10 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{
-    CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real, ScheimpflugParams,
-    View,
-};
+use vision_calibration_core::{CameraParams, Iso3, NoMeta, PlanarDataset, View};
 use vision_calibration_optim::{HandeyeMode, PlanarIntrinsicsParams};
 
-use crate::planar_family::{
-    CameraSeed, Provenance, bootstrap_camera, check_camera_model, check_camera_seed,
-    optimize_camera,
-};
+use crate::planar_family::{check_camera_model, init_camera_with_seed, optimize_camera};
 pub use crate::rig_family::HandeyeOptimizeResult;
 use crate::rig_family::{init_handeye, optimize_handeye_stage};
 use crate::session::CalibrationSession;
@@ -29,36 +23,9 @@ use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHa
 // ─────────────────────────────────────────────────────────────────────────────
 
 use crate::common::{
-    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsManualInit,
+    IntrinsicsOptimizeOptions,
 };
-
-/// Manual initialization seeds for the **intrinsics stage** of single-camera
-/// hand-eye calibration.
-///
-/// All fields are `Option<T>`. `None` means auto-init via Zhang's method (same path
-/// as plain `step_intrinsics_init`); `Some` means use the provided value. The
-/// seeds are values in the configured camera model.
-///
-/// Partial-seed semantics mirror `IntrinsicsManualInit`: when `intrinsics` is seeded
-/// but `cam_se3_target` is `None`, poses are recovered from per-view homographies
-/// using the manual intrinsics. When intrinsics are seeded and distortion is not,
-/// distortion starts at zero. A distortion seed's kind must equal the
-/// camera's configured distortion kind (a typed error otherwise) and is used
-/// as given. `sensor` seeds
-/// the tilt of a Scheimpflug camera (a seeded tilt replaces the tilt sweep);
-/// an untilted camera takes only a zero tilt.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct IntrinsicsManualInit {
-    /// Manual intrinsics seed.
-    pub intrinsics: Option<FxFyCxCy<Real>>,
-    /// Manual distortion seed, of the kind `camera.model.distortion` names.
-    pub distortion: Option<DistortionParams>,
-    /// Manual sensor tilt seed (Scheimpflug camera; zero otherwise).
-    pub sensor: Option<ScheimpflugParams>,
-    /// Manual per-view target poses (`cam_se3_target`).
-    pub cam_se3_target: Option<Vec<Iso3>>,
-}
 
 /// Manual initialization seeds for the **hand-eye stage** of single-camera
 /// hand-eye calibration.
@@ -207,61 +174,28 @@ pub fn step_intrinsics_init_with_seed(
 ) -> Result<IntrinsicsInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
-    let view_count = input.views.len();
     let opts = opts.unwrap_or_default();
     let config = &session.config;
     let model = config.camera.model;
-    let seed = CameraSeed {
-        intrinsics: manual.intrinsics,
-        distortion: manual.distortion,
-        sensor: manual.sensor,
-    };
-    if let Err(e) = check_camera_seed(
-        model,
-        &seed,
-        manual.cam_se3_target.as_deref(),
-        "cam_se3_target",
-        view_count,
-    ) {
-        session.log_failure("intrinsics_init", e.to_string());
-        return Err(e);
-    }
-    let mut provenance = Provenance::of_camera_seed(model, &seed);
-    provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
-
     let init_opts = config
         .intrinsics_init
         .camera_init_opts(opts.iterations, &config.camera);
     let planar_dataset = input_to_planar_dataset(input)?;
-    let bootstrap = match bootstrap_camera(0, model, &planar_dataset, &seed, init_opts) {
-        Ok(b) => b,
+    let init = match init_camera_with_seed(model, &planar_dataset, manual, init_opts) {
+        Ok(init) => init,
         Err(e) => {
             session.log_failure("intrinsics_init", e.to_string());
             return Err(e);
         }
     };
-    let camera = bootstrap.camera;
-    let initial_poses = manual.cam_se3_target.unwrap_or(bootstrap.cam_se3_target);
 
-    session.state.initial_camera = Some(camera.clone());
-    session.state.initial_cam_se3_target = Some(initial_poses.clone());
-
-    let k = camera.intrinsics;
-    session.log_success_with_notes(
-        "intrinsics_init",
-        format!(
-            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
-            k.fx,
-            k.fy,
-            k.cx,
-            k.cy,
-            provenance.source()
-        ),
-    );
+    session.state.initial_camera = Some(init.camera.clone());
+    session.state.initial_cam_se3_target = Some(init.cam_se3_target.clone());
+    session.log_success_with_notes("intrinsics_init", init.log_note());
 
     Ok(IntrinsicsInitResult {
-        camera,
-        cam_se3_target: initial_poses,
+        camera: init.camera,
+        cam_se3_target: init.cam_se3_target,
     })
 }
 

@@ -20,8 +20,8 @@
 use vision_calibration_core::{FxFyCxCy, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::HandeyeMode;
 
-use crate::planar_intrinsics;
-use crate::rig_handeye::{self, HandeyeManualInit, RigManualInit, RigPoses};
+use crate::common::{IntrinsicsManualInit, RigIntrinsicsManualInit};
+use crate::rig_handeye::{HandeyeManualInit, RigManualInit, RigPoses};
 
 // The schema types every consumer of this module needs, re-exported so the
 // facade can expose the full device-spec surface from one place.
@@ -88,9 +88,9 @@ pub enum DeviceSeedError {
 pub fn scheimpflug_seed(
     spec: &DeviceSpec,
     camera_id: &str,
-) -> Result<planar_intrinsics::IntrinsicsManualInit, DeviceSeedError> {
+) -> Result<IntrinsicsManualInit, DeviceSeedError> {
     let cam = lookup(spec, camera_id)?;
-    Ok(planar_intrinsics::IntrinsicsManualInit {
+    Ok(IntrinsicsManualInit {
         intrinsics: Some(intrinsics_from_camera(cam)),
         sensor: Some(sensor_from_camera(cam)),
         ..Default::default()
@@ -107,12 +107,12 @@ pub fn scheimpflug_seed(
 pub fn rig_intrinsics_seed(
     spec: &DeviceSpec,
     camera_ids: &[&str],
-) -> Result<rig_handeye::IntrinsicsManualInit, DeviceSeedError> {
+) -> Result<RigIntrinsicsManualInit, DeviceSeedError> {
     let cams = camera_ids
         .iter()
         .map(|id| lookup(spec, id))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(rig_handeye::IntrinsicsManualInit {
+    Ok(RigIntrinsicsManualInit {
         per_cam_intrinsics: Some(cams.iter().map(|c| intrinsics_from_camera(c)).collect()),
         per_cam_sensors: Some(cams.iter().map(|c| sensor_from_camera(c)).collect()),
         ..Default::default()

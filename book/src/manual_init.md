@@ -16,6 +16,8 @@ For every problem type and every initialization stage there are two things:
 - a `step_*_with_seed` function that takes a `*ManualInit` struct before its options;
 - a typed `*ManualInit` struct whose fields are all `Option<T>`. `None` means "auto-initialize this group"; `Some(value)` means "use this value verbatim, do not auto-initialize".
 
+The intrinsics stages several problems share take one seed type each, in `common`: `IntrinsicsManualInit` seeds one camera (planar intrinsics, single-camera hand-eye) and `RigIntrinsicsManualInit` each camera of a rig (rig extrinsics, rig hand-eye). The other seeds live in their problem's module.
+
 ```rust
 // Automatic path
 step_init(&mut session, None)?;
@@ -51,22 +53,23 @@ cargo run -p vision-calibration --example manual_init --release
 ### 1. Run the automatic pipeline once
 
 ```rust
+use vision_calibration::common::RigIntrinsicsManualInit;
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::rig_extrinsics::{
-    IntrinsicsManualInit, RigExtrinsicsProblem, RigManualInit, RigPoses,
+    RigExtrinsicsProblem, RigManualInit, RigPoses,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
     step_rig_init_with_seed, step_rig_optimize,
 };
 
 let mut session_a = CalibrationSession::<RigExtrinsicsProblem>::new();
 session_a.set_input(load_input()?)?;
-step_intrinsics_init_all_with_seed(&mut session_a, IntrinsicsManualInit::default(), None)?;
+step_intrinsics_init_all_with_seed(&mut session_a, RigIntrinsicsManualInit::default(), None)?;
 let intr_opt_a = step_intrinsics_optimize_all(&mut session_a, None)?;
 let rig_init_a = step_rig_init_with_seed(&mut session_a, RigManualInit::default(), None)?;
 step_rig_optimize(&mut session_a, None)?;
 ```
 
-`IntrinsicsManualInit::default()` and `RigManualInit::default()` have nothing seeded (`None` throughout), so this is exactly the automatic path: the same as `run_calibration`.
+`RigIntrinsicsManualInit::default()` and `RigManualInit::default()` have nothing seeded (`None` throughout), so this is exactly the automatic path: the same as `run_calibration`.
 
 ### 2. Capture what the stages produced
 
@@ -92,7 +95,7 @@ let per_cam_dist: Vec<BrownConrady5<f64>> = cameras_a
 let mut session_b = CalibrationSession::<RigExtrinsicsProblem>::new();
 session_b.set_input(load_input()?)?;
 
-let mut intrinsics_seed = IntrinsicsManualInit::default();
+let mut intrinsics_seed = RigIntrinsicsManualInit::default();
 intrinsics_seed.per_cam_intrinsics = Some(per_cam_k);
 intrinsics_seed.per_cam_distortion = Some(per_cam_dist);
 step_intrinsics_init_all_with_seed(&mut session_b, intrinsics_seed, None)?;
@@ -129,13 +132,13 @@ let nominal_distortion = DistortionParams::BrownConrady5 {
     params: BrownConrady5 { k1: -0.1, ..Default::default() },
 };
 
-let mut seed = IntrinsicsManualInit::default();
+let mut seed = RigIntrinsicsManualInit::default();
 seed.per_cam_intrinsics = Some(vec![datasheet_k; num_cameras]);
 seed.per_cam_distortion = Some(vec![nominal_distortion; num_cameras]);
 step_intrinsics_init_all_with_seed(&mut session, seed, None)?;
 ```
 
-This unblocks scenarios where Zhang's method fails on borderline data, for example strongly tilted Scheimpflug rigs. For those, also set `per_cam_sensors` to the nominal mount tilts: a seeded tilt is used verbatim and skips the linear stage's tilt sweep. A non-zero tilt for a camera with an identity sensor is an error; a zero tilt is accepted. `RigHandeyeConfig::manual_init` takes the same `per_cam_sensors`; it seeds `step_intrinsics_init_all` and `run_calibration` alike, and `step_intrinsics_init_all_with_seed` takes an explicit seed that overrides it. The single-camera seeds (`planar_intrinsics::IntrinsicsManualInit`, `single_cam_handeye::IntrinsicsManualInit` and `laserline_device::DeviceManualInit`) take one tilt in `sensor`, with the same rule.
+This unblocks scenarios where Zhang's method fails on borderline data, for example strongly tilted Scheimpflug rigs. For those, also set `per_cam_sensors` to the nominal mount tilts: a seeded tilt is used verbatim and skips the linear stage's tilt sweep. A non-zero tilt for a camera with an identity sensor is an error; a zero tilt is accepted. `RigHandeyeConfig::manual_init` takes the same `per_cam_sensors`; it seeds `step_intrinsics_init_all` and `run_calibration` alike, and `step_intrinsics_init_all_with_seed` takes an explicit seed that overrides it. The single-camera seeds (`common::IntrinsicsManualInit` and `laserline_device::DeviceManualInit`) take one tilt in `sensor`, with the same rule.
 
 The `device_seed` module derives these seeds from a device description (focal length in millimetres, pixel pitch, mount tilt); see [Device Specifications](manifest.md#device-specifications).
 
@@ -191,13 +194,12 @@ With the warm start a rig hand-eye session computes from the joint session's inp
 
 ## In Python
 
-The seeds are dataclasses in the problem's module, with the Rust names and fields; a field left `None` is estimated. The datasheet seed above:
+The seeds are dataclasses with the Rust names and fields; a field left `None` is estimated. The intrinsics seeds `IntrinsicsManualInit` and `RigIntrinsicsManualInit` are importable from the package root, the other seeds from the problem's module. The datasheet seed above:
 
 ```python
 import vision_calibration as vc
-from vision_calibration import rig_extrinsics
 
-seed = rig_extrinsics.IntrinsicsManualInit(
+seed = vc.RigIntrinsicsManualInit(
     per_cam_intrinsics=[vc.PinholeIntrinsics(fx=1800.0, fy=1800.0, cx=360.0, cy=270.0)] * 2,
     per_cam_distortion=[vc.BrownConradyDistortion(k1=-0.1, k2=0.0, k3=0.0, p1=0.0, p2=0.0, iters=8)] * 2,
 )

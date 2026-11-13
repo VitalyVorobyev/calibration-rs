@@ -281,7 +281,9 @@ macro_rules! session_class {
 
 pub(crate) mod planar {
     use super::*;
-    use vision_calibration::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
+    use vision_calibration::common::{
+        IntrinsicsInitOptions, IntrinsicsManualInit, IntrinsicsOptimizeOptions,
+    };
     use vision_calibration::planar_intrinsics::*;
 
     session_class! {
@@ -302,7 +304,7 @@ pub(crate) mod planar {
 pub(crate) mod single_cam_handeye {
     use super::*;
     use vision_calibration::common::{
-        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
+        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsManualInit,
         IntrinsicsOptimizeOptions,
     };
     use vision_calibration::single_cam_handeye::*;
@@ -344,7 +346,8 @@ pub(crate) mod laserline_device {
 pub(crate) mod rig_extrinsics {
     use super::*;
     use vision_calibration::common::{
-        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigIntrinsicsManualInit,
+        RigOptimizeOptions,
     };
     use vision_calibration::rig_extrinsics::*;
 
@@ -358,7 +361,7 @@ pub(crate) mod rig_extrinsics {
             step_rig_optimize(RigOptimizeOptions) -> RigOptimizeResult;
         }
         seeded {
-            step_intrinsics_init_all_with_seed(IntrinsicsManualInit, IntrinsicsInitOptions)
+            step_intrinsics_init_all_with_seed(RigIntrinsicsManualInit, IntrinsicsInitOptions)
                 -> IntrinsicsInitResult;
             step_rig_init_with_seed(RigManualInit, RigInitOptions) -> RigInitResult;
         }
@@ -369,7 +372,7 @@ pub(crate) mod rig_handeye {
     use super::*;
     use vision_calibration::common::{
         HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+        IntrinsicsOptimizeOptions, RigInitOptions, RigIntrinsicsManualInit, RigOptimizeOptions,
     };
     use vision_calibration::rig_handeye::*;
 
@@ -385,7 +388,7 @@ pub(crate) mod rig_handeye {
             step_handeye_optimize(HandeyeOptimizeOptions) -> HandeyeOptimizeResult;
         }
         seeded {
-            step_intrinsics_init_all_with_seed(IntrinsicsManualInit, IntrinsicsInitOptions)
+            step_intrinsics_init_all_with_seed(RigIntrinsicsManualInit, IntrinsicsInitOptions)
                 -> IntrinsicsInitResult;
             step_rig_init_with_seed(RigManualInit, RigInitOptions) -> RigInitResult;
             step_handeye_init_with_seed(HandeyeManualInit, HandeyeInitOptions) -> HandeyeInitResult;

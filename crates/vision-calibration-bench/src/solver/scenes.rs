@@ -11,6 +11,7 @@ use anyhow::{Result, bail};
 use nalgebra::Vector3;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
+use vision_calibration::common::{IntrinsicsManualInit, RigIntrinsicsManualInit};
 use vision_calibration::common::{RigLaserlineView, RobotPoseMeta};
 use vision_calibration::core::LaserPlane;
 use vision_calibration::core::{
@@ -22,10 +23,8 @@ use vision_calibration::core::{
 use vision_calibration::laserline_device::LaserlineMeta;
 use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDeviceInput};
 use vision_calibration::optim::{HandeyeMode, RobustLoss, SolverBackend};
-use vision_calibration::planar_intrinsics::{IntrinsicsManualInit, PlanarIntrinsicsConfig};
-use vision_calibration::rig_extrinsics::{
-    IntrinsicsManualInit as RigIntrinsicsManualInit, RigExtrinsicsConfig, RigExtrinsicsInput,
-};
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
+use vision_calibration::rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsInput};
 use vision_calibration::rig_handeye::{RigHandeyeConfig, RigHandeyeInput};
 use vision_calibration::rig_handeye_laserline::{
     RigHandeyeLaserlineConfig, RigHandeyeLaserlineInput, RigHandeyeLaserlineView,

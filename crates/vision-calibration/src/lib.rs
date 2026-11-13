@@ -168,6 +168,11 @@ pub mod control {
 ///
 /// - The step options of the stages several problems share: intrinsics,
 ///   rig and hand-eye init and optimize (`IntrinsicsInitOptions`, …).
+/// - The manual seeds of the intrinsics stages:
+///   [`IntrinsicsManualInit`](common::IntrinsicsManualInit) for one camera
+///   (planar intrinsics, single-camera hand-eye) and
+///   [`RigIntrinsicsManualInit`](common::RigIntrinsicsManualInit) for each
+///   camera of a rig (rig extrinsics, rig hand-eye).
 /// - The shared input parts: [`RobotPoseMeta`](common::RobotPoseMeta) (a
 ///   view's robot pose) and [`RigLaserlineView`](common::RigLaserlineView)
 ///   (a rig view with laser pixels).
@@ -186,9 +191,9 @@ pub mod common {
     pub use vision_calibration_pipeline::common::{
         CalibratedCameras, ExportDiagnostics, HandeyeEstimate, HandeyeInitOptions,
         HandeyeOptimizeOptions, HandeyeParams, HandeyeSolution, IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions, RigInitOptions, RigLaserlineView, RigOptimizeOptions,
-        RobotPoseMeta, RobotPoseSigma, RobotRefinement, VersionedExport, calibrated_cameras,
-        check_export_version,
+        IntrinsicsManualInit, IntrinsicsOptimizeOptions, RigInitOptions, RigIntrinsicsManualInit,
+        RigLaserlineView, RigOptimizeOptions, RobotPoseMeta, RobotPoseSigma, RobotRefinement,
+        VersionedExport, calibrated_cameras, check_export_version,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -259,8 +264,7 @@ pub mod planar_intrinsics {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::planar_intrinsics::{
-        IntrinsicsFilterOptions, IntrinsicsInitResult, IntrinsicsManualInit,
-        IntrinsicsOptimizeResult,
+        IntrinsicsFilterOptions, IntrinsicsInitResult, IntrinsicsOptimizeResult,
     };
 
     // Parameters of the estimate
@@ -297,7 +301,7 @@ pub mod single_cam_handeye {
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::single_cam_handeye::{
         HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
-        IntrinsicsManualInit, IntrinsicsOptimizeResult,
+        IntrinsicsOptimizeResult,
     };
 
     // Step functions
@@ -364,8 +368,8 @@ pub mod rig_extrinsics {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_extrinsics::{
-        IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeResult, RigInitResult,
-        RigManualInit, RigOptimizeResult, RigPoses,
+        IntrinsicsInitResult, IntrinsicsOptimizeResult, RigInitResult, RigManualInit,
+        RigOptimizeResult, RigPoses,
     };
 
     // Parameters of the estimate
@@ -404,8 +408,7 @@ pub mod rig_handeye {
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_handeye::{
         HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
-        IntrinsicsManualInit, IntrinsicsOptimizeResult, RigInitResult, RigManualInit,
-        RigOptimizeResult, RigPoses,
+        IntrinsicsOptimizeResult, RigInitResult, RigManualInit, RigOptimizeResult, RigPoses,
     };
 
     // Step functions

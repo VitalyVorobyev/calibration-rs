@@ -15,7 +15,7 @@ use vision_calibration_optim::{
 
 use crate::common::config::{SolverConfig, check_laser_residual};
 use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
-use crate::rig_family::{per_camera_histograms, rig_target_residuals};
+use crate::rig_family::{add_rig_laser_residuals, rig_target_residuals};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
@@ -366,13 +366,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
             &upstream.rig_se3_target,
             &output.laser_planes_cam,
         )?;
-        per_feature_residuals.laser_hist_per_cam = Some(per_camera_histograms(n, |cam| {
-            laser
-                .features
-                .iter()
-                .filter(move |r| r.camera == cam)
-                .filter_map(|r| r.residual_px)
-        }));
+        add_rig_laser_residuals(&mut per_feature_residuals, n, laser);
 
         // Mean over all finite per-feature reprojection errors — the
         // viewer-facing headline number (against the frozen upstream).
@@ -389,8 +383,6 @@ impl ProblemType for RigLaserlineDeviceProblem {
         }
         let mean_reproj_error = err_sum / err_count as f64;
 
-        per_feature_residuals.laser = laser.features;
-        per_feature_residuals.laser_lines = laser.lines;
         Ok(RigLaserlineDeviceExport {
             kind: ProblemKind::RigLaserlineDevice,
             schema_version: RigLaserlineDeviceExport::SCHEMA_VERSION,

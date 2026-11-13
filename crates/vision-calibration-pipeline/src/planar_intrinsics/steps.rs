@@ -11,8 +11,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFix, CameraParams, CameraProject, CorrespondenceView, DistortionKind, DistortionParams,
-    FxFyCxCy, Iso3, PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
+    CameraFix, CameraParams, CameraProject, CorrespondenceView, DistortionKind, Iso3,
+    PlanarDataset, SensorKind, SensorParams, View,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
@@ -20,9 +20,7 @@ use vision_calibration_optim::{
     optimize_planar_intrinsics, optimize_scheimpflug_intrinsics_staged, with_leading_radial,
 };
 
-use crate::planar_family::{
-    CameraSeed, Provenance, bootstrap_camera, check_camera_seed, unsupported_sensor,
-};
+use crate::planar_family::{init_camera_with_seed, unsupported_sensor};
 use crate::session::CalibrationSession;
 
 use super::problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
@@ -31,51 +29,7 @@ use super::problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
-
-/// Manual initialization seeds for planar intrinsics calibration.
-///
-/// All fields are `Option<T>`:
-/// - `None` means *auto-initialize this group* (same path as plain `step_init`).
-/// - `Some(value)` means *use this value*; do not auto-initialize.
-///
-/// Partial-seed semantics:
-/// - When `intrinsics` is `Some` but `poses` is `None`, poses are recovered from
-///   homographies using the **manual** intrinsics (not auto-estimated ones). This keeps
-///   the geometric chain consistent with the seed.
-/// - When `intrinsics` is `Some` and `distortion` is `None`, distortion defaults to
-///   `BrownConrady5::default()` (zeros) — the auto distortion fit is coupled with the
-///   iterative intrinsics estimator and does not run when intrinsics are seeded.
-/// - When `intrinsics` is `None`, the bootstrap auto-fit runs and any `Some` field
-///   overrides the corresponding bootstrap output.
-///
-/// The distortion seed is a value in the camera's own distortion model: its
-/// kind must equal `camera.model.distortion` (a typed error otherwise). It is
-/// used as given — no coefficient is converted, and the tilted sensor's
-/// tangential zeroing applies only to the auto-fit.
-///
-/// The tilt seed fits any camera when it is zero (the identity a device spec
-/// gives a frontal camera); a non-zero tilt needs a Scheimpflug sensor.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct IntrinsicsManualInit {
-    /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
-    pub intrinsics: Option<FxFyCxCy<Real>>,
-    /// Manual distortion seed, of the kind `camera.model.distortion` names. `None`
-    /// means auto-init (or zeros when intrinsics are also seeded — see struct
-    /// docs).
-    pub distortion: Option<DistortionParams>,
-    /// Manual sensor tilt of a Scheimpflug camera; an untilted camera takes
-    /// only a zero tilt (a typed error otherwise). `None` starts from the
-    /// auto-fit tilt (zero when intrinsics are seeded). A seeded tilt is used
-    /// as given: with auto-fitted intrinsics the linear stage fits them at
-    /// that tilt instead of sweeping the tilt, and `step_optimize` refines it
-    /// directly instead of running the multi-start tilt sweep.
-    pub sensor: Option<ScheimpflugParams>,
-    /// Manual per-view poses (camera-from-target). `None` means recover from
-    /// homographies using whichever intrinsics are in effect.
-    pub cam_se3_target: Option<Vec<Iso3>>,
-}
+use crate::common::{IntrinsicsInitOptions, IntrinsicsManualInit, IntrinsicsOptimizeOptions};
 
 /// Options for filtering observations based on reprojection error.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,69 +140,40 @@ pub fn step_init_with_seed(
     session.validate()?;
     let dataset = session.require_input()?;
     let model = session.config.camera.model;
-    let seed = CameraSeed {
-        intrinsics: manual.intrinsics,
-        distortion: manual.distortion,
-        sensor: manual.sensor,
-    };
-    if let Err(e) = check_camera_seed(
-        model,
-        &seed,
-        manual.cam_se3_target.as_deref(),
-        "cam_se3_target",
-        dataset.num_views(),
-    ) {
-        session.log_failure("init", e.to_string());
-        return Err(e);
-    }
-    let init_opts = session
-        .config
-        .init_opts(opts.unwrap_or_default().iterations);
-    let bootstrap = match bootstrap_camera(0, model, dataset, &seed, init_opts) {
-        Ok(b) => b,
-        Err(e) => {
-            session.log_failure("init", e.to_string());
-            return Err(e);
-        }
-    };
-    let mut provenance = Provenance::of_camera_seed(model, &seed);
-    provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
     let tilted = model.sensor == SensorKind::Scheimpflug;
     // From-scratch (no intrinsics seed) Scheimpflug auto-init is experimental — it
     // can land in a wrong tilt/focal basin under the tilt↔focal↔distortion
     // degeneracy. The supported path seeds a coarse focal + nominal mount tilt.
-    let experimental = if tilted && seed.intrinsics.is_none() {
+    let experimental = if tilted && manual.intrinsics.is_none() {
         " — WARNING: from-scratch Scheimpflug auto-init is experimental and may \
          converge to a wrong tilt/focal basin; seed a coarse focal + nominal mount \
          tilt via step_init_with_seed for stable results"
     } else {
         ""
     };
-
-    let camera = bootstrap.camera;
-    let poses = manual.cam_se3_target.unwrap_or(bootstrap.cam_se3_target);
-    let state = &mut session.state;
-    state.initial_camera = Some(camera.clone());
     // A user-provided tilt seed is trusted directly by `step_optimize`.
-    state.initial_sensor_manual = tilted && seed.sensor.is_some();
-    state.initial_poses = Some(poses.clone());
+    let sensor_manual = tilted && manual.sensor.is_some();
+    let init_opts = session
+        .config
+        .init_opts(opts.unwrap_or_default().iterations);
+    let init = match init_camera_with_seed(model, dataset, manual, init_opts) {
+        Ok(init) => init,
+        Err(e) => {
+            session.log_failure("init", e.to_string());
+            return Err(e);
+        }
+    };
+
+    let state = &mut session.state;
+    state.initial_camera = Some(init.camera.clone());
+    state.initial_sensor_manual = sensor_manual;
+    state.initial_poses = Some(init.cam_se3_target.clone());
     state.clear_optimization();
 
-    let k = camera.intrinsics;
-    session.log_success_with_notes(
-        "init",
-        format!(
-            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}{experimental}",
-            k.fx,
-            k.fy,
-            k.cx,
-            k.cy,
-            provenance.source()
-        ),
-    );
+    session.log_success_with_notes("init", format!("{}{experimental}", init.log_note()));
     Ok(IntrinsicsInitResult {
-        camera,
-        cam_se3_target: poses,
+        camera: init.camera,
+        cam_se3_target: init.cam_se3_target,
     })
 }
 
@@ -751,7 +676,8 @@ mod tests {
 
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, FxFyCxCy, Pinhole, make_pinhole_camera, synthetic::planar,
+        BrownConrady5, DistortionParams, FxFyCxCy, Pinhole, ScheimpflugParams, make_pinhole_camera,
+        synthetic::planar,
     };
 
     fn make_test_camera() -> vision_calibration_core::PinholeCamera {
