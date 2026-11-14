@@ -210,6 +210,41 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   the best, a fixed-tilt mode of `estimate_scheimpflug_intrinsics_iterative`.
   Gate: those draws and that camera reach the full-seed result, no other
   result moves; measured on both backends.
+- [ ] CAL-TILT-BOUNDS - The seeded Scheimpflug route's basin is set by its
+  joint-solve bounds, not by the problem. Evidence
+  (`notes/tilt-identifiability.md`, table B, synthetic, 7 cells × 16
+  starts): from seeds 25–50 % off in focal length, 7.5–15° in tilt and
+  100–200 px in principal point the route reaches the minimum in 4–5 of
+  16 starts per cell (10–11 end on a bound, a few in an unflagged local
+  minimum), while the unbounded joint solve from the same linear init
+  reaches it in 16 of 16 in every cell; from seeds up to 30 %, 10°, 100 px
+  both reach it always. The bounds (`fx` within [0.75, 1.5]× the seed,
+  principal point ±0.15·f, tilt ±0.35 rad) were set as a runaway guard.
+  Design: solve the joint stage unbounded and fall back to the bounded
+  solve only on a runaway (focal length outside [0.3, 3]× the seed, tilt
+  beyond 45°, principal point outside the image), or widen the window to
+  that guard; opt-in until measured. Gate: table B's bad-seed rows on both
+  backends, the real-data `calib-bench basin` (its ×0.5 and ×2 focal
+  cells, which fail today) and `calib-bench accept` unchanged; the
+  strong-distortion `k1` trap (`scheimpflug-intrinsics.md`) still avoided.
+- [ ] CAL-TILT-QUALITY - A tilted camera's quality report says why its
+  tilt is or is not determined. Evidence (`notes/tilt-identifiability.md`,
+  synthetic sweep): the tilt is the offset of the distortion centre from
+  the projective principal point, determined only through lens distortion
+  (exactly unobservable without it), so σ(tilt) runs from 0.006° to beyond
+  5° over field of view × distortion with the same views, and the existing
+  `ParameterCorrelation` check already flags the bad cells pairwise
+  (`corr(cy, tilt_x)` 0.98–1.000 wherever σ(tilt) > 0.1°; `corr(tilt, p1)`
+  −0.95 … −1.000 when `p1, p2` are freed with the tilt), but its message is
+  generic. Design: in `analysis::quality`, when a flagged pair joins a
+  Scheimpflug tilt with a principal-point coordinate, a tangential or a
+  thin-prism term, name the cause (weak or unobserved distortion: cover
+  the image corners, or hold the tilt at a known mount angle; tangential
+  or prism terms free with the tilt: hold them) and add the tilt's σ
+  inflation by its correlations, `1/√(1 − R²)` from the camera block, as
+  the measured value; additive, no threshold change. Gate: the
+  weak-distortion, narrow-field and `p`-free cells of the study get the
+  named message, the baseline cell none, on both backends.
 - [ ] REPORT-SECTIONS - The HTML report (`analysis::html_report`, shared by
   `vcal` and the app) renders the quality checks and one section per
   camera. A hand-eye export shows no hand-eye (the pose, its σ, the robot
@@ -274,6 +309,16 @@ carry the calibration's share.
   Then: how view placement changes σ, DLT with and without normalization,
   epipolar geometry, Scheimpflug tilt, hand-eye rotation diversity, robust
   losses. Needs: BOOK-WASM.
+- [ ] BOOK-TILT - State in the Scheimpflug chapter (and the rustdoc of
+  `CameraModelSpec::default_fix`) what a tilted calibration can and cannot
+  tell, from `notes/tilt-identifiability.md`: the tilt is observable only
+  through lens distortion; the views must reach the image corners (depth
+  range, board roll and board tilt do not help the tilt; board tilt is
+  still needed for the focal length); `p1, p2` and the thin-prism terms
+  are held under a tilt because a decentred lens is a tilt to first order,
+  so a real decentring `p1` is reported as a tilt of `−p1/k1` and a
+  principal-point shift of `fy·(−p1/k1)` (measured 0.19° and 4.5 px for
+  `p1 = 5e-4`, `k1 = −0.15`, six times the stated σ). Docs only.
 - [ ] BOOK-RESULTS - A results page generated from the regression suite:
   the OpenCV comparison and solver timings.
 
@@ -318,6 +363,22 @@ were. What is left reorganizes them around the project.
   Rust type in `app/src`.
 
 ## Solver backends and performance (Phase 2)
+
+- [ ] SOLVER-VALLEY-STOP - A stopping rule in units of the estimate's σ.
+  The loop stops on a 1e-5 relative cost decrease, which in a long, flat
+  valley is reached before the minimum. Evidence
+  (`notes/tilt-identifiability.md`, a tilted camera with weak distortion):
+  started at the truth, the estimates scatter only 0.69–0.82 of their
+  stated σ (the solve keeps memory of its start) against 1.04–1.15 when run
+  to a 1e-14 decrease; from a seed the default stops up to 0.66σ short.
+  Where the valley is short the two agree to 0.001σ, so nothing else
+  moves. Design: stop when the undamped Gauss-Newton step's predicted
+  decrease `½·ΔᵀJᵀJΔ` is below `ε²·σ̂²/2`, `σ̂² = 2·cost/(m − n)`, i.e. the
+  remaining step is under `ε` standard deviations in the Fisher metric
+  (`ε = 0.01`), next to the existing rules; opt-in, then the default once
+  measured. Gate: the weak-distortion Monte-Carlo ratio within 10 % of 1;
+  `calib-bench suite check` and the solver benchmark's iteration counts,
+  both backends.
 
 - [ ] TS-UPSTREAM - Propose the remaining tiny-solver fork branches upstream:
   variables no residual uses left out of the solve; a sphere manifold; the

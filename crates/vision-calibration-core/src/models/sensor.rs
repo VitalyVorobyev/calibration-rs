@@ -257,6 +257,37 @@ mod tests {
         }
     }
 
+    /// `K·H(τ) = K'·R(τ)`: the tilt homography is a rotation behind a
+    /// zero-skew pinhole `K'` (focal lengths scaled by `R₂₂`, principal point
+    /// moved to the foot of the sensor normal). Without lens distortion a
+    /// tilt is therefore indistinguishable from rotating every view and
+    /// changing `K`: only the distortion, applied before `H`, makes it
+    /// observable.
+    #[test]
+    fn tilt_is_a_rotated_pinhole() {
+        let (fx, fy, cx, cy) = (1200.0, 1210.0, 640.0, 480.0);
+        let k = Matrix3::new(fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0);
+        for &(tx, ty) in &[(0.05, -0.03), (0.35, 0.0), (-0.2, 0.25)] {
+            let h = tilt_projection_matrix(tx, ty);
+            let r = *Rotation3::from_axis_angle(&Vector3::y_axis(), -ty).matrix()
+                * *Rotation3::from_axis_angle(&Vector3::x_axis(), -tx).matrix();
+            let r22 = r[(2, 2)];
+            let k_eff = Matrix3::new(
+                fx * r22,
+                0.0,
+                cx - fx * r[(0, 2)],
+                0.0,
+                fy * r22,
+                cy - fy * r[(1, 2)],
+                0.0,
+                0.0,
+                1.0,
+            );
+            let diff = (k * h - k_eff * r).abs().max();
+            assert!(diff < 1e-9, "(τx={tx}, τy={ty}): {diff:e}");
+        }
+    }
+
     #[test]
     fn sensor_roundtrip_is_identity() {
         let sensor = ScheimpflugParams {

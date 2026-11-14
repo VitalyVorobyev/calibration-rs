@@ -55,6 +55,12 @@ evidence behind ADR 0011.
 - [Scheimpflug intrinsics](scheimpflug-intrinsics.md) — partial pack:
   tilt↔focal↔distortion identifiability, the ADR 0011 seeded solve,
   and the convergence-basin study (`calib-bench basin`).
+- [Tilt identifiability](tilt-identifiability.md) — synthetic sweep of
+  the tilted fit: the tilt is a gauge without distortion
+  (`K·H(τ) = K'·R(τ)`) and a decentred distortion with it, so it trades
+  with `p1, p2` and the thin prism to first order; the map of σ(tilt) over
+  field, distortion and view design, Monte-Carlo honesty, convergence
+  basins, four parameterizations, the stopping rule in the valley.
 - [Scheimpflug residual model](scheimpflug-residual-model.md) — what the
   tilted Brown-Conrady model leaves on a real rig: model variants on
   held-out views against the smooth-fit floor, the stopping rule, the
