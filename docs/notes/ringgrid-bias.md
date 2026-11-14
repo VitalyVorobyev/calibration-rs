@@ -134,7 +134,7 @@ such a fit leaves. Aggregate results (5422 inlier detections, 79 views):
 | σ_u / σ_v, radial / tangential | 0.27 / 0.28, 0.28 / 0.27 px: isotropic |
 | camera-fixed field (6×4 cells), variance explained | 3–10 %, cell means ≤ 0.2 px |
 | board-fixed field per camera / pooled | 2–9 % / 1.7 % |
-| between-camera correlation of board-fixed means | mean −0.02 over 15 pairs |
+| between-camera correlation of board-fixed means (image frame, see below) | mean −0.02 over 15 pairs |
 | per-view mean vector | none (noise-corrected variance ≤ 0) |
 
 Reading. Most of the error is per-detection scatter that a quartic in board
@@ -142,7 +142,11 @@ position cannot fit: isotropic, uncorrelated between neighbours, and of the
 same size in every direction about the image centre (so not a radial or
 tilt-related effect). Only ≈ 4 % of it repeats per board point, and the
 per-point offsets of different cameras are uncorrelated, so a printing error
-of the board (which all cameras share) is not what is seen. The
+of the board (which all cameras share) is not what is seen. (That
+correlation was taken in image pixels, which understates a shared board
+offset when the cameras see the board turned; `diagnose floor` now takes it
+in the board frame, see [display-target-residual.md](display-target-residual.md).
+The 4 % repeatable share above is board-frame and stands.) The
 camera-fixed field is a few percent, with cell means within their error bars
 mostly below 0.2 px: a better lens model would remove at most that, not the
 floor. The calibrated residual exceeds the smooth-fit scatter by 0.3–0.45 px
