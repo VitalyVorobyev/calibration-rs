@@ -59,8 +59,8 @@ Standing constraints:
 - **Private data.** A private dataset appears in committed text only under
   the neutral id of its bench registry entry, with aggregate numbers: no
   dataset folder names, device or customer names, and no images.
-  `privatedata/` and `crates/vision-calibration-bench/registry/` are never
-  committed (AGENTS.md §11).
+  `privatedata/` never reaches a commit (AGENTS.md §11), and neither does
+  the untracked `crates/vision-calibration-bench/registry/` directory.
 - **Disk and worktrees.** Never share a `CARGO_TARGET_DIR` between
   worktrees; build with `CARGO_INCREMENTAL=0`; prefer `--release` for
   experiments and avoid a debug build of the whole workspace unless a gate
