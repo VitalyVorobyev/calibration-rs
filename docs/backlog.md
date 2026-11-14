@@ -163,10 +163,12 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   not Gaussian, defocus PSF and pass them through the detectors to size
   the detector's centre bias against blur. With a capture (the maintainer):
   the same poses at two apertures (a chief-ray term does not change, a
-  defocus-coupled one scales with the blur), views at one image position
-  through focus on both sides (a vignetting centroid shift changes sign
-  across focus, a symmetric detector bias does not), and the rig against a
-  printed board. The harness is the bench example's `--parts field`.
+  defocus-coupled one scales with the blur) and at two focus settings, and
+  the rig against a printed board. Views through focus at one image
+  position do not decide it: signed defocus is affine in inverse depth
+  there, and on the ring-grid capture it is indistinguishable from the
+  depth term next to an image field (`notes/tilt-from-focus.md`). The
+  harness is the bench example's `--parts field` and `--parts centroid`.
 
 ## Calibration problems (Phase 2)
 
@@ -194,6 +196,31 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   Monte-Carlo with the offsets free, and the held-out gain on
   `scheimpflug_rig_ref_cam0..5`.
 
+- [ ] CAL-TILT-FOCUS - Per-feature blur as an observation, and a focus
+  term that ties the Scheimpflug tilt to the plane of sharp focus
+  (`notes/tilt-from-focus.md`). Evidence: on six ring-grid cameras a
+  5-parameter focus model (plane `π`, blur scale `κ`, in-focus blur `σ0`)
+  explains 91–96 % of the blur variance, the PoF's sign agrees with the
+  distortion tilt on all six, and the implied `pitch/m_p` is 4.75–6.14 µm
+  (11 % spread, beyond the folds): a ±0.5° unit-to-unit disagreement with
+  the distortion route that neither model explains. Design: (1) a
+  detector-agnostic optional blur σ (px) per feature next to the 2D point
+  (ring-grid photometric fits have it; corners could report an edge
+  width), carried through the dataset types and the detection cache;
+  (2) a diagnostic first: fit `σ² = σ0² + κ²(1/z − π·(x, y, 1))²` after
+  the solve in the `K'` frame (the poses' tilt rotation applied) and
+  report `π` with its view-jackknife σ, the tilt direction, the tilt
+  implied by a stated pitch and pupil magnification, and the difference
+  to the fitted tilt — the independent check; (3) only once the ±0.5°
+  is explained, an opt-in focus residual (`FactorKind` arm, both
+  backends, the covariance family map) linking `π` to the tilt through
+  `v0 = f'·pitch` and `m_p` given as priors with σ. Not a replacement for
+  the distortion route: it needs `m_p` or a reference unit. Gates: the
+  exact thick-lens synthetic of the bench example on both backends,
+  Monte-Carlo σ with view-correlated blur noise, null tilt, field
+  curvature detected; the six-camera comparison. Reopen the factor step
+  with the datasheet values (pitch, focal length, f-number, pupil
+  magnification) or a capture at two focus settings.
 - [ ] CAL-MULTI-TARGET - Several targets with unknown relative poses in one
   scene, estimated jointly.
 - [ ] CAL-TILT-SEED-INIT - A tilt seed without an intrinsics seed fits the

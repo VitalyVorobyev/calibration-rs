@@ -297,9 +297,13 @@ about `x` allows, which the defocus pattern of a Scheimpflug camera shares.
   aperture, a defocus-coupled term scales with the blur. Then the same
   rendered markers blurred with the measured, not Gaussian, defocus PSF
   through the detector, for the detector's share.
-- **Signed defocus.** Views at one image position through focus (both
-  sides of the focus surface): a centroid shift of a vignetted defocused
-  bundle changes sign across focus, a symmetric detector bias does not.
+- **Signed defocus.** Tested in [tilt-from-focus.md](tilt-from-focus.md)
+  with the fitted plane of sharp focus: at a fixed image position signed
+  defocus is affine in inverse depth, so next to an image field it is the
+  depth term (held-out 0.0868 against 0.0867); the unsigned blur is the
+  separate term. Views through focus at one image position cannot
+  separate a vignetting centroid shift from a depth (pupil) term; the same
+  poses at two focus settings or two apertures can.
 - **The display.** The same rig against a printed board removes the
   display's per-point offsets and any aliasing (sharp markers: ~0.05 px
   extra scatter, observed by the maintainer); the board-frame rows say the

@@ -68,6 +68,11 @@ evidence behind ADR 0011.
   detector alternatives on held-out views, compact empirical bases, the
   lens terms of decentred optics and their identifiability; why the
   residual-field slot is on hold.
+- [Tilt from focus](tilt-from-focus.md) — per-marker blur fits the plane
+  of sharp focus; the tilt it implies (direction with no datum, size with
+  the pixel pitch and the pupil magnification) against the distortion
+  route on exact thick-lens synthetic data and six real cameras; signed
+  defocus against depth in the residual.
 - [Display target residual](display-target-residual.md) — a PuzzleBoard on
   an e-ink display, six cameras fitted jointly on held-out captures:
   per-point in-plane offsets, board shape, cover-layer refraction and a
