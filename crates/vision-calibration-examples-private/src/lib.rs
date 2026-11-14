@@ -462,6 +462,7 @@ pub fn detect_ringgrid(
         marker_outer_radius_m: spec.marker_outer_radius_mm / 1000.0,
         marker_inner_radius_m: spec.marker_inner_radius_mm / 1000.0,
         marker_ring_width_m: ring_width_mm / 1000.0,
+        center_method: Default::default(),
     });
     let view = GrayImageView::new(tile.width(), tile.height(), tile.as_raw())
         .map_err(|e| anyhow!("ringgrid image: {e}"))?;

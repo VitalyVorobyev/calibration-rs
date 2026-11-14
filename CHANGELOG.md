@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Ring-grid targets take an optional `center_method` (`RinggridCenterMethod`
+  in `RinggridConfig`, `RinggridCenterSpec` in the manifest's `ringgrid`
+  target): `"ellipse"` (the default, unchanged) or `"photometric"`, a
+  per-marker fit of the blurred marker pattern for blurred or low-contrast
+  images. It costs about 2.5 times the detection time and keeps only the
+  markers the fit refined. Existing manifests and detection caches are
+  unaffected.
+
 ## [1.0.0-rc.1] - 2026-11-13
 
 ### Migration

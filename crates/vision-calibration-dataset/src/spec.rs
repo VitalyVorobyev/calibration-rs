@@ -269,7 +269,35 @@ pub enum TargetSpec {
         marker_inner_radius_m: f64,
         /// Width of each ring band in metres.
         marker_ring_width_m: f64,
+        /// How each marker's centre is estimated. Omitted keeps the
+        /// ellipse-based centre; `"photometric"` fits the blurred marker
+        /// pattern instead, for blurred or low-contrast images.
+        #[serde(default, skip_serializing_if = "RinggridCenterSpec::is_default")]
+        center_method: RinggridCenterSpec,
     },
+}
+
+/// The ring-grid centre estimator: the manifest's own copy of the detector's
+/// centre method, which has the same JSON spelling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RinggridCenterSpec {
+    /// The projective centre recovered from the fitted inner and outer
+    /// ellipses. Fast and accurate on sharp images; the default.
+    #[default]
+    Ellipse,
+    /// A per-marker photometric fit of the blurred marker pattern. Use it
+    /// on blurred or low-contrast images; it costs about 2.5x the detection
+    /// time, and markers it cannot refine are dropped.
+    Photometric,
+}
+
+impl RinggridCenterSpec {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -623,4 +651,34 @@ pub enum TranslationUnits {
     M,
     /// Millimetres (some ABB / Fanuc exports).
     Mm,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RINGGRID: &str = r#"{"kind":"ringgrid","pitch_m":0.02,"rows":5,"long_row_cols":5,
+        "marker_outer_radius_m":0.006,"marker_inner_radius_m":0.003,"marker_ring_width_m":0.001"#;
+
+    #[test]
+    fn ringgrid_center_method_defaults_and_roundtrips() {
+        let plain: TargetSpec = serde_json::from_str(&format!("{RINGGRID}}}")).unwrap();
+        let TargetSpec::Ringgrid { center_method, .. } = &plain else {
+            panic!("ringgrid target");
+        };
+        assert_eq!(*center_method, RinggridCenterSpec::Ellipse);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("center_method")
+        );
+
+        let photometric: TargetSpec =
+            serde_json::from_str(&format!(r#"{RINGGRID},"center_method":"photometric"}}"#))
+                .unwrap();
+        let json = serde_json::to_string(&photometric).unwrap();
+        assert!(json.contains(r#""center_method":"photometric""#), "{json}");
+        let back: TargetSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), json);
+    }
 }

@@ -2842,6 +2842,18 @@ class RigViewObs(TypedDict):
     """Per-camera observation; None if camera didn't observe in this view."""
 
 
+RinggridCenterSpec: TypeAlias = Literal["ellipse", "photometric"]
+"""The ring-grid centre estimator: the manifest's own copy of the detector's
+centre method, which has the same JSON spelling.
+
+- ``"ellipse"``: The projective centre recovered from the fitted inner and outer
+  ellipses. Fast and accurate on sharp images; the default.
+- ``"photometric"``: A per-marker photometric fit of the blurred marker pattern. Use it
+  on blurred or low-contrast images; it costs about 2.5x the detection
+  time, and markers it cannot refine are dropped.
+"""
+
+
 class RobotPoseConfig_Exact(TypedDict):
     """The robot poses are taken as exact."""
 
@@ -3480,11 +3492,8 @@ class TargetSpec_Puzzleboard(TypedDict):
     """
 
 
-class TargetSpec_Ringgrid(TypedDict):
-    """Coded ring-grid target (the `ringgrid` crate). The board is a
-    hex-lattice of self-identifying ring markers; its geometry mirrors
-    `ringgrid::BoardLayout` so the manifest fully determines detection.
-    """
+class _TargetSpec_RinggridRequired(TypedDict):
+    """The keys of `TargetSpec_Ringgrid` that every payload has."""
 
     kind: Literal["ringgrid"]
     long_row_cols: int
@@ -3506,6 +3515,19 @@ class TargetSpec_Ringgrid(TypedDict):
 
     rows: int
     """Number of marker rows."""
+
+
+class TargetSpec_Ringgrid(_TargetSpec_RinggridRequired, total=False):
+    """Coded ring-grid target (the `ringgrid` crate). The board is a
+    hex-lattice of self-identifying ring markers; its geometry mirrors
+    `ringgrid::BoardLayout` so the manifest fully determines detection.
+    """
+
+    center_method: RinggridCenterSpec
+    """How each marker's centre is estimated. Omitted keeps the
+    ellipse-based centre; `"photometric"` fits the blurred marker
+    pattern instead, for blurred or low-contrast images.
+    """
 
 
 TargetSpec: TypeAlias = (
@@ -3826,6 +3848,7 @@ __all__ = [
     "RigLaserlineView",
     "RigUpstreamCalibration",
     "RigViewObs",
+    "RinggridCenterSpec",
     "RobotPoseConfig",
     "RobotPoseConfig_Exact",
     "RobotPoseConfig_Refine",

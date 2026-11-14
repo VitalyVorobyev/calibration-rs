@@ -68,7 +68,7 @@ pub use chessboard::ChessboardConfig;
 #[cfg(feature = "puzzleboard")]
 pub use puzzleboard::PuzzleboardConfig;
 #[cfg(feature = "ringgrid")]
-pub use ringgrid::RinggridConfig;
+pub use ringgrid::{RinggridCenterMethod, RinggridConfig};
 
 mod image_view;
 

@@ -521,8 +521,8 @@ pub mod dataset {
         CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec,
         DatasetSpec, DetectorSpec, ImageNoiseSpec, ImagePattern, LaserExtractionSpec,
         LaserScanAxis, ManifestError, PoseColumnMap, PoseConvention, PosePairing, ProblemKind,
-        RobotPoseFormat, RobotPoseSource, RotationFormat, SniffError, TargetSpec,
-        TransformConvention, TranslationUnits, ValidationError, sniff_folder,
+        RinggridCenterSpec, RobotPoseFormat, RobotPoseSource, RotationFormat, SniffError,
+        TargetSpec, TransformConvention, TranslationUnits, ValidationError, sniff_folder,
     };
 }
 
@@ -561,8 +561,8 @@ pub mod detect {
     pub use vision_calibration_detect::{
         CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
         CornerCovariance, CornerStrategy, DetectError, DetectionCache, DetectorConfig, Feature,
-        FsDetectionCache, GrayImageView, ImageNoise, PuzzleboardConfig, RinggridConfig,
-        reject_ambiguous_detection,
+        FsDetectionCache, GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod,
+        RinggridConfig, reject_ambiguous_detection,
     };
 }
 

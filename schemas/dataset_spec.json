@@ -407,6 +407,21 @@
         }
       ]
     },
+    "RinggridCenterSpec": {
+      "description": "The ring-grid centre estimator: the manifest's own copy of the detector's\ncentre method, which has the same JSON spelling.",
+      "oneOf": [
+        {
+          "const": "ellipse",
+          "description": "The projective centre recovered from the fitted inner and outer\nellipses. Fast and accurate on sharp images; the default.",
+          "type": "string"
+        },
+        {
+          "const": "photometric",
+          "description": "A per-marker photometric fit of the blurred marker pattern. Use it\non blurred or low-contrast images; it costs about 2.5x the detection\ntime, and markers it cannot refine are dropped.",
+          "type": "string"
+        }
+      ]
+    },
     "RobotPoseFormat": {
       "description": "Robot-pose file format.",
       "oneOf": [
@@ -626,6 +641,10 @@
         {
           "description": "Coded ring-grid target (the `ringgrid` crate). The board is a\nhex-lattice of self-identifying ring markers; its geometry mirrors\n`ringgrid::BoardLayout` so the manifest fully determines detection.",
           "properties": {
+            "center_method": {
+              "$ref": "#/$defs/RinggridCenterSpec",
+              "description": "How each marker's centre is estimated. Omitted keeps the\nellipse-based centre; `\"photometric\"` fits the blurred marker\npattern instead, for blurred or low-contrast images."
+            },
             "kind": {
               "const": "ringgrid",
               "type": "string"
