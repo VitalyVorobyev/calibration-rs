@@ -46,13 +46,135 @@ pub struct GenCfg {
     pub field_min_deg: usize,
     /// Hold the tilt at its initial value.
     pub fix_tilt: bool,
+    /// Hold `fx fy cx cy` at their initial values.
+    pub fix_intr: bool,
+    /// Hold every distortion coefficient at its initial value.
+    pub fix_dist: bool,
     /// Degree of the out-of-plane board shape (terms of degree 2..=deg).
     pub board_deg: usize,
     /// Degree of the free image-space field (terms of degree 2..=deg).
     pub field_deg: usize,
+    /// Evaluate the field's basis at the observed pixel rather than at the
+    /// model's own (pre-field) projection. Not a camera model: the cost then
+    /// depends on the observation through the basis too, and a field whose
+    /// Jacobian approaches the identity contracts the measurement noise
+    /// instead of explaining it (errors in variables). Kept to measure that.
+    pub field_at_obs: bool,
     /// Store `c̃ = c − s·f·tan(tilt)` in place of the principal point; the
     /// signs `(s_x, s_y)` pair `cx` with `tilt_y` and `cy` with `tilt_x`.
     pub reparam: Option<(f64, f64)>,
+    /// A displacement in the sensor plane, radial from a centre: what a
+    /// sensor surface that is not flat (or a cover glass parallel to it)
+    /// does to a ray arriving from the exit pupil.
+    pub sensor: SensorTerms,
+    /// The centre of the sensor-plane terms.
+    pub sensor_centre: Centre,
+    /// An elliptic radial metric for `k1`:
+    /// `r² + e1·(x² − y²) + e2·2xy` (astigmatic distortion).
+    pub elliptic: bool,
+    /// A bicubic B-spline displacement over the image, `[cells_x, cells_y]`
+    /// uniform cells (`[0, 0]`: none), evaluated at the parametric
+    /// projection and held at the border value outside the image.
+    pub spline: [usize; 2],
+    /// Smoothness prior of the spline: σ (px) of each control point's
+    /// second difference along x and along y; `0` for none.
+    pub spline_sigma: f64,
+    /// Keep the spline orthogonal, on the fitted points, to the pixel
+    /// directions of the free camera parameters and of a rotation common to
+    /// every view, at the starting solution (a stiff linear penalty).
+    pub spline_ortho: bool,
+    /// Pass the smoothness prior to the covariance as a residual family
+    /// whose scatter is estimated (a penalty), not as known information:
+    /// the sandwich then counts only the measurement noise, not the prior's
+    /// stated σ, in the estimate's scatter.
+    pub spline_penalty: bool,
+    /// Measure the orthogonality over the covered image (one sample per
+    /// covered cell of a 24 × 18 grid, uniform weight) instead of over the
+    /// fitted points, so the camera/field split does not follow the
+    /// points' density.
+    pub spline_ortho_cover: bool,
+}
+
+/// The sensor-plane term: `Δs = −h(ρ̃)·ρ̃·ρ_ref·1e-3`, with `ρ = s − s₀` the
+/// position on the (tilted) sensor from the centre, `ρ̃ = ρ / ρ_ref`, and
+/// `h` a height in thousandths of the pupil-to-sensor distance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SensorTerms {
+    Off,
+    /// `h = Σ_{k=1..n} c_k·|ρ̃|^{2k}`: radial about the centre (a bowl; a
+    /// cover glass gives `n = 1` to third order).
+    Radial(usize),
+    /// `h` a polynomial of degree 2..=d in `ρ̃` (constant and linear
+    /// heights are the sensor distance and the tilt).
+    Poly(usize),
+}
+
+impl SensorTerms {
+    fn len(self) -> usize {
+        match self {
+            SensorTerms::Off => 0,
+            SensorTerms::Radial(n) => n,
+            SensorTerms::Poly(d) => monomials(2, d).len(),
+        }
+    }
+}
+
+/// Where the sensor-plane terms are centred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Centre {
+    /// The foot of the perpendicular from the projection centre onto the
+    /// tilted sensor: set by the tilt, no parameter.
+    Foot,
+    /// The principal point (`s = 0`).
+    Principal,
+    /// Free, started at the foot.
+    Free,
+}
+
+/// Normalizing radius of the sensor-plane terms (normalized units, about
+/// the half-width of a 720 px tile at `f ≈ 1150 px`).
+pub const RHO_REF: f64 = 0.3;
+
+/// The foot of the perpendicular from the projection centre onto the
+/// sensor of [`tilt_h`], in its sensor coordinates: `−(r₀₂, r₁₂)` of
+/// `R = Ry(τy)·Rx(τx)`.
+pub fn foot<T: RealField>(tx: T, ty: T) -> (T, T) {
+    let r02 = -(ty.clone().sin()) * tx.clone().cos();
+    let r12 = tx.sin();
+    (-r02, -r12)
+}
+
+/// The sensor-plane displacement at sensor position `(x, y)` from centre
+/// `(cx0, cy0)`, coefficients `c`.
+pub fn sensor_shift<T: RealField>(
+    terms: SensorTerms,
+    c: &[T],
+    x: T,
+    y: T,
+    cx0: T,
+    cy0: T,
+) -> (T, T) {
+    let k = |v: f64| T::from_f64(v).unwrap();
+    let (rx, ry) = ((x - cx0) / k(RHO_REF), (y - cy0) / k(RHO_REF));
+    let mut h = T::zero();
+    match terms {
+        SensorTerms::Off => {}
+        SensorTerms::Radial(n) => {
+            let r2 = rx.clone() * rx.clone() + ry.clone() * ry.clone();
+            let mut p = r2.clone();
+            for ci in c.iter().take(n) {
+                h += ci.clone() * p.clone();
+                p *= r2.clone();
+            }
+        }
+        SensorTerms::Poly(d) => {
+            for (ci, (i, j)) in c.iter().zip(monomials(2, d)) {
+                h += ci.clone() * rx.clone().powi(i) * ry.clone().powi(j);
+            }
+        }
+    }
+    let s = -(h * k(RHO_REF * 1e-3));
+    (s.clone() * rx, s * ry)
 }
 
 impl GenCfg {
@@ -66,9 +188,20 @@ impl GenCfg {
             pupil: false,
             field_min_deg: 2,
             fix_tilt: false,
+            fix_intr: false,
+            fix_dist: false,
             board_deg: 0,
             field_deg: 0,
+            field_at_obs: false,
             reparam: None,
+            sensor: SensorTerms::Off,
+            sensor_centre: Centre::Foot,
+            elliptic: false,
+            spline: [0, 0],
+            spline_sigma: 0.0,
+            spline_ortho: false,
+            spline_penalty: false,
+            spline_ortho_cover: false,
         }
     }
 }
@@ -94,6 +227,13 @@ pub struct GenParams {
     pub pupil: f64,
     pub board: Vec<f64>,
     pub field: Vec<f64>,
+    /// Sensor-plane coefficients ([`SensorTerms`]).
+    pub sensor: Vec<f64>,
+    /// `e1, e2` (elliptic metric) and the sensor centre's offset from the
+    /// foot (normalized), in that order.
+    pub misc: [f64; 4],
+    /// Spline control points (px): every `u` component, then every `v`.
+    pub spline: Vec<f64>,
     /// Board centre (metres) the board shape is expanded about.
     pub board_centre: [f64; 2],
 }
@@ -153,6 +293,9 @@ pub struct GenResidual {
     observed: [f64; 2],
     /// Normalized observed position, for the field basis.
     obs_norm: [f64; 2],
+    /// Half the image size: the field basis is in `(u − w/2)/(w/2)`.
+    half: [f64; 2],
+    field_at_obs: bool,
     board_terms: Vec<(i32, i32)>,
     field_terms: Vec<(i32, i32)>,
     board_centre: [f64; 2],
@@ -161,11 +304,72 @@ pub struct GenResidual {
     depth: bool,
     pupil: bool,
     reparam: Option<(f64, f64)>,
+    sensor: SensorTerms,
+    sensor_centre: Centre,
+    elliptic: bool,
+    spline: [usize; 2],
+    size: [f64; 2],
 }
 
-/// Block order: intr(4), dist(9), tilt(2), dc(2), depth(1), board(nb|1),
-/// field(2·nf|1), pose(7).
-const N_BLOCKS: usize = 8;
+/// Control points per axis of a uniform cubic B-spline over `cells` cells.
+pub fn spline_len(cells: [usize; 2]) -> usize {
+    if cells[0] == 0 || cells[1] == 0 {
+        0
+    } else {
+        (cells[0] + 3) * (cells[1] + 3)
+    }
+}
+
+/// The uniform cubic B-spline weights of `x` over `[0, len]` in `cells`
+/// cells: the first control index and the four weights. Outside the range
+/// the border value holds (the argument is clamped).
+pub fn bspline_axis<T: RealField>(x: T, len: f64, cells: usize) -> (usize, [T; 4]) {
+    let k = |v: f64| T::from_f64(v).unwrap();
+    let mut t = x / k(len / cells as f64);
+    if t < T::zero() {
+        t = T::zero();
+    }
+    if t > k(cells as f64) {
+        t = k(cells as f64);
+    }
+    let mut i = 0usize;
+    while i + 1 < cells && t >= k((i + 1) as f64) {
+        i += 1;
+    }
+    let f = t - k(i as f64);
+    let f2 = f.clone() * f.clone();
+    let f3 = f2.clone() * f.clone();
+    let g = T::one() - f.clone();
+    let w = [
+        g.clone() * g.clone() * g / k(6.0),
+        (k(3.0) * f3.clone() - k(6.0) * f2.clone() + k(4.0)) / k(6.0),
+        (k(-3.0) * f3.clone() + k(3.0) * f2 + k(3.0) * f + T::one()) / k(6.0),
+        f3 / k(6.0),
+    ];
+    (i, w)
+}
+
+/// The spline's displacement at pixel `(u, v)`.
+pub fn spline_eval<T: RealField>(cells: [usize; 2], size: [f64; 2], c: &[T], u: T, v: T) -> (T, T) {
+    let nx = cells[0] + 3;
+    let n = spline_len(cells);
+    let (ix, wx) = bspline_axis(u, size[0], cells[0]);
+    let (iy, wy) = bspline_axis(v, size[1], cells[1]);
+    let (mut du, mut dv) = (T::zero(), T::zero());
+    for (b, wyb) in wy.iter().enumerate() {
+        for (a, wxa) in wx.iter().enumerate() {
+            let w = wxa.clone() * wyb.clone();
+            let idx = (iy + b) * nx + ix + a;
+            du += w.clone() * c[idx].clone();
+            dv += w * c[n + idx].clone();
+        }
+    }
+    (du, dv)
+}
+
+/// Block order: intr(4), dist(9), tilt(2), dc(2), depth(2), board(nb|1),
+/// field(2·nf|1), sensor(ns|1), misc(4), spline(2·nc|1), pose(7).
+const N_BLOCKS: usize = 11;
 
 impl GenResidual {
     fn dims(&self) -> Vec<usize> {
@@ -177,6 +381,9 @@ impl GenResidual {
             2,
             self.board_terms.len().max(1),
             (2 * self.field_terms.len()).max(1),
+            self.sensor.len().max(1),
+            4,
+            (2 * spline_len(self.spline)).max(1),
             7,
         ]
     }
@@ -201,7 +408,7 @@ impl GenResidual {
                 w += b[5][k].clone() * c(1e-3 * xn.powi(i) * yn.powi(j));
             }
         }
-        let pose = se3(&b[7]);
+        let pose = se3(&b[10]);
         let pc = pose * Point3::new(c(bx), c(by), w);
         let (mut x, mut y) = (pc.x.clone() / pc.z.clone(), pc.y.clone() / pc.z.clone());
         let h = tilt_h(tx.clone(), ty.clone());
@@ -221,8 +428,15 @@ impl GenResidual {
         let (ux, uy) = (x - ox.clone(), y - oy.clone());
         let r2 = ux.clone() * ux.clone() + uy.clone() * uy.clone();
         let r4 = r2.clone() * r2.clone();
+        let r2e = if self.elliptic {
+            r2.clone()
+                + b[8][0].clone() * (ux.clone() * ux.clone() - uy.clone() * uy.clone())
+                + c(2.0) * b[8][1].clone() * ux.clone() * uy.clone()
+        } else {
+            r2.clone()
+        };
         let radial = T::one()
-            + k1 * r2.clone()
+            + k1 * r2e
             + d[1].clone() * r4.clone()
             + d[2].clone() * r4.clone() * r2.clone();
         let two = c(2.0);
@@ -243,19 +457,63 @@ impl GenResidual {
             let h = if self.pupil {
                 let s = T::one()
                     + b[4][1].clone() * (xd.clone() * xd.clone() + yd.clone() * yd.clone());
-                tilt_h(tx * s.clone(), ty * s)
+                tilt_h(tx.clone() * s.clone(), ty.clone() * s)
             } else {
                 h
             };
             (xd, yd) = apply_h(&h, xd, yd);
+            if self.sensor != SensorTerms::Off {
+                let (mut sx0, mut sy0) = match self.sensor_centre {
+                    Centre::Principal => (T::zero(), T::zero()),
+                    Centre::Foot | Centre::Free => foot(tx.clone(), ty.clone()),
+                };
+                if self.sensor_centre == Centre::Free {
+                    sx0 += b[8][2].clone();
+                    sy0 += b[8][3].clone();
+                }
+                let (dx, dy) = sensor_shift(
+                    self.sensor,
+                    b[7].as_slice(),
+                    xd.clone(),
+                    yd.clone(),
+                    sx0,
+                    sy0,
+                );
+                xd += dx;
+                yd += dy;
+            }
         }
         let mut u = fx * xd + cx;
         let mut v = fy * yd + cy;
         let nf = self.field_terms.len();
-        for (k, &(i, j)) in self.field_terms.iter().enumerate() {
-            let m = c(self.obs_norm[0].powi(i) * self.obs_norm[1].powi(j));
-            u += b[6][k].clone() * m.clone();
-            v += b[6][nf + k].clone() * m;
+        if nf > 0 {
+            let (xn, yn) = if self.field_at_obs {
+                (c(self.obs_norm[0]), c(self.obs_norm[1]))
+            } else {
+                (
+                    (u.clone() - c(self.half[0])) / c(self.half[0]),
+                    (v.clone() - c(self.half[1])) / c(self.half[1]),
+                )
+            };
+            let (mut du, mut dv) = (T::zero(), T::zero());
+            for (k, &(i, j)) in self.field_terms.iter().enumerate() {
+                let m = xn.clone().powi(i) * yn.clone().powi(j);
+                du += b[6][k].clone() * m.clone();
+                dv += b[6][nf + k].clone() * m;
+            }
+            u += du;
+            v += dv;
+        }
+        if spline_len(self.spline) > 0 {
+            let (du, dv) = spline_eval(
+                self.spline,
+                self.size,
+                b[9].as_slice(),
+                u.clone(),
+                v.clone(),
+            );
+            u += du;
+            v += dv;
         }
         (u, v)
     }
@@ -281,6 +539,9 @@ impl Residual for GenResidual {
 #[derive(Debug, Clone)]
 pub struct GenFit {
     pub params: GenParams,
+    /// The spline's cells and the image size it spans.
+    pub spline_cells: [usize; 2],
+    pub size: [f64; 2],
     pub residuals: Vec<PointResidual>,
     pub iters: usize,
     pub cost: f64,
@@ -350,7 +611,19 @@ pub fn fit(
         &pad(&init.field, 2 * field_terms.len()),
         Manifold::Euclidean,
     )?;
-    let model_blocks = [b_intr, b_dist, b_tilt, b_dc, b_depth, b_board, b_field];
+    let n_sensor = cfg.sensor.len();
+    let b_sensor = p.add_block("sensor", &pad(&init.sensor, n_sensor), Manifold::Euclidean)?;
+    let b_misc = p.add_block("misc", &init.misc, Manifold::Euclidean)?;
+    p.set_labels(b_misc, &["e1", "e2", "sc_dx", "sc_dy"])?;
+    let n_spline = spline_len(cfg.spline);
+    let b_spline = p.add_block(
+        "spline",
+        &pad(&init.spline, 2 * n_spline),
+        Manifold::Euclidean,
+    )?;
+    let model_blocks = [
+        b_intr, b_dist, b_tilt, b_dc, b_depth, b_board, b_field, b_sensor, b_misc, b_spline,
+    ];
     if free == Free::PosesOnly {
         for b in model_blocks {
             p.fix(b)?;
@@ -362,7 +635,9 @@ pub fn fit(
             .filter(|(_, n)| !cfg.free_dist.contains(n))
             .map(|(i, _)| i)
             .collect();
-        p.fix_components(b_dist, &fixed)?;
+        if !cfg.fix_dist {
+            p.fix_components(b_dist, &fixed)?;
+        }
         if !cfg.dc {
             p.fix(b_dc)?;
         }
@@ -375,8 +650,18 @@ pub fn fit(
         if cfg.fix_tilt {
             p.fix(b_tilt)?;
         }
+        if cfg.fix_intr {
+            p.fix(b_intr)?;
+        }
+        if cfg.fix_dist {
+            p.fix(b_dist)?;
+        }
         if free == Free::AllButField {
             p.fix(b_field)?;
+            p.fix(b_spline)?;
+        }
+        if n_spline == 0 {
+            p.fix(b_spline)?;
         }
         if board_terms.is_empty() {
             p.fix(b_board)?;
@@ -384,6 +669,17 @@ pub fn fit(
         if field_terms.is_empty() {
             p.fix(b_field)?;
         }
+        if n_sensor == 0 {
+            p.fix(b_sensor)?;
+        }
+        let mut misc_fixed = Vec::new();
+        if !cfg.elliptic {
+            misc_fixed.extend([0, 1]);
+        }
+        if cfg.sensor_centre != Centre::Free || n_sensor == 0 {
+            misc_fixed.extend([2, 3]);
+        }
+        p.fix_components(b_misc, &misc_fixed)?;
     }
     let (w, h) = (f64::from(image_size[0]), f64::from(image_size[1]));
     let mut pose_blocks: Vec<BlockId> = Vec::new();
@@ -396,6 +692,8 @@ pub fn fit(
                 board: [p3.x, p3.y],
                 observed: [p2.x, p2.y],
                 obs_norm: [(p2.x - w / 2.0) / (w / 2.0), (p2.y - h / 2.0) / (h / 2.0)],
+                half: [w / 2.0, h / 2.0],
+                field_at_obs: cfg.field_at_obs,
                 board_terms: board_terms.clone(),
                 field_terms: field_terms.clone(),
                 board_centre: init.board_centre,
@@ -404,6 +702,11 @@ pub fn fit(
                 depth: cfg.depth,
                 pupil: cfg.pupil,
                 reparam: cfg.reparam,
+                sensor: cfg.sensor,
+                sensor_centre: cfg.sensor_centre,
+                elliptic: cfg.elliptic,
+                spline: cfg.spline,
+                size: [w, h],
             };
             let mut blocks = model_blocks.to_vec();
             blocks.push(pb);
@@ -418,6 +721,9 @@ pub fn fit(
             )?;
             residuals.push((id, r));
         }
+    }
+    if n_spline > 0 && free != Free::PosesOnly {
+        spline_priors(&mut p, b_spline, cfg, ids, views, init, poses, [w, h])?;
     }
     let mut opts = SolveOptions::default();
     opts.max_iters = max_iters;
@@ -451,6 +757,20 @@ pub fn fit(
             Vec::new()
         } else {
             val(b_field)
+        },
+        sensor: if n_sensor == 0 {
+            Vec::new()
+        } else {
+            val(b_sensor)
+        },
+        misc: {
+            let m = val(b_misc);
+            [m[0], m[1], m[2], m[3]]
+        },
+        spline: if n_spline == 0 {
+            Vec::new()
+        } else {
+            val(b_spline)
         },
         board_centre: init.board_centre,
     };
@@ -517,6 +837,8 @@ pub fn fit(
     };
     Ok(GenFit {
         params,
+        spline_cells: cfg.spline,
+        size: [w, h],
         residuals: pts,
         iters: sol.report.num_iters,
         cost: sol.report.final_cost,
@@ -524,4 +846,340 @@ pub fn fit(
         sigma,
         corr,
     })
+}
+
+/// The model's projection of board point `board` (metres) seen at `pose`,
+/// in pixels: the forward map a synthetic scene is drawn from.
+pub fn project_point(
+    cfg: &GenCfg,
+    params: &GenParams,
+    size: [u32; 2],
+    pose: &Iso3,
+    board: [f64; 2],
+) -> [f64; 2] {
+    let (w, h) = (f64::from(size[0]), f64::from(size[1]));
+    let r = GenResidual {
+        board,
+        observed: [0.0; 2],
+        obs_norm: [0.0; 2],
+        half: [w / 2.0, h / 2.0],
+        field_at_obs: false,
+        board_terms: monomials(2, cfg.board_deg),
+        field_terms: monomials(cfg.field_min_deg, cfg.field_deg),
+        board_centre: params.board_centre,
+        dc: cfg.dc,
+        tilt_first: cfg.tilt_first,
+        depth: cfg.depth,
+        pupil: cfg.pupil,
+        reparam: None,
+        sensor: cfg.sensor,
+        sensor_centre: cfg.sensor_centre,
+        elliptic: cfg.elliptic,
+        spline: cfg.spline,
+        size: [w, h],
+    };
+    let pad = |v: &[f64], n: usize| -> DVector<f64> {
+        let mut out = v.to_vec();
+        out.resize(n.max(1), 0.0);
+        DVector::from_vec(out)
+    };
+    let q = pose.rotation.coords;
+    let t = pose.translation.vector;
+    let blocks = vec![
+        DVector::from_row_slice(&params.intr),
+        DVector::from_row_slice(&params.dist),
+        DVector::from_row_slice(&params.tilt),
+        DVector::from_row_slice(&params.dc),
+        DVector::from_vec(vec![params.depth, params.pupil]),
+        pad(&params.board, r.board_terms.len()),
+        pad(&params.field, 2 * r.field_terms.len()),
+        pad(&params.sensor, cfg.sensor.len()),
+        DVector::from_row_slice(&params.misc),
+        pad(&params.spline, 2 * spline_len(cfg.spline)),
+        DVector::from_vec(vec![q.x, q.y, q.z, q.w, t.x, t.y, t.z]),
+    ];
+    let (u, v) = r.project(&blocks);
+    [u, v]
+}
+
+/// A linear residual on the spline block: `Σ row_k·c_k`.
+#[derive(Clone)]
+struct Linear {
+    n: usize,
+    terms: Vec<(usize, f64)>,
+}
+
+impl Linear {
+    fn scaled(mut self, s: f64) -> Self {
+        self.terms.iter_mut().for_each(|t| t.1 *= s);
+        self
+    }
+}
+
+impl Residual for Linear {
+    fn dim(&self) -> usize {
+        1
+    }
+    fn block_dims(&self) -> Vec<usize> {
+        vec![self.n]
+    }
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        let mut r = T::zero();
+        for &(k, a) in &self.terms {
+            r += blocks[0][k].clone() * T::from_f64(a).unwrap();
+        }
+        DVector::from_vec(vec![r])
+    }
+}
+
+/// Stated σ of the orthogonality penalty (px). The covariance reads a
+/// stated residual as known information with this σ, which leaks into the
+/// camera's σ in proportion to it: at 1e-4 `cx, cy` state about three
+/// times their Monte-Carlo scatter and at 1e-6 they are honest, but at
+/// 1e-6 a solve started away from the optimum accepts no step (the
+/// normal equations are too stiff). A hard constraint has neither problem.
+const ORTHO_SIGMA: f64 = 1e-4;
+/// [`ORTHO_SIGMA`], or `STUDY_ORTHO_SIGMA` from the environment (a study
+/// knob).
+fn ortho_sigma() -> f64 {
+    std::env::var("STUDY_ORTHO_SIGMA")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(ORTHO_SIGMA)
+}
+
+/// Relative finite-difference step of the camera-parameter Jacobian the
+/// orthogonality constraint is built from (central differences).
+const FD_REL: f64 = 1e-6;
+
+/// The spline's smoothness prior and orthogonality penalty.
+#[allow(clippy::too_many_arguments)]
+fn spline_priors(
+    p: &mut Problem,
+    b_spline: BlockId,
+    cfg: &GenCfg,
+    ids: &[usize],
+    views: &[View<NoMeta>],
+    init: &GenParams,
+    poses: &[Iso3],
+    size: [f64; 2],
+) -> Result<()> {
+    let n = spline_len(cfg.spline);
+    let dim = 2 * n;
+    let (nx, ny) = (cfg.spline[0] + 3, cfg.spline[1] + 3);
+    if cfg.spline_sigma > 0.0 {
+        for comp in 0..2 {
+            for j in 0..ny {
+                for i in 0..nx {
+                    let at = |a: usize, b: usize| comp * n + b * nx + a;
+                    let mut add = |terms: Vec<(usize, f64)>| -> Result<()> {
+                        let r = Linear { n: dim, terms };
+                        if cfg.spline_penalty {
+                            p.add_residual(
+                                r.scaled(1.0 / cfg.spline_sigma),
+                                &[b_spline],
+                                RobustLoss::None,
+                                Noise::Estimated("smooth".into()),
+                            )?;
+                        } else {
+                            p.add_residual(
+                                r,
+                                &[b_spline],
+                                RobustLoss::None,
+                                Noise::Stated(cfg.spline_sigma),
+                            )?;
+                        }
+                        Ok(())
+                    };
+                    if i + 2 < nx {
+                        add(vec![
+                            (at(i, j), 1.0),
+                            (at(i + 1, j), -2.0),
+                            (at(i + 2, j), 1.0),
+                        ])?;
+                    }
+                    if j + 2 < ny {
+                        add(vec![
+                            (at(i, j), 1.0),
+                            (at(i, j + 1), -2.0),
+                            (at(i, j + 2), 1.0),
+                        ])?;
+                    }
+                }
+            }
+        }
+    }
+    if cfg.spline_ortho {
+        for row in ortho_rows(cfg, ids, views, init, poses, size) {
+            let terms: Vec<(usize, f64)> = row
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| **a != 0.0)
+                .map(|(k, a)| (k, *a))
+                .collect();
+            p.add_residual(
+                Linear { n: dim, terms },
+                &[b_spline],
+                RobustLoss::None,
+                Noise::Stated(ortho_sigma()),
+            )?;
+        }
+    }
+    let _ = ids;
+    Ok(())
+}
+
+/// Rows `J_jᵀ·B` (unit norm) of the orthogonality constraint: for each free
+/// camera parameter and each common rigid motion `j`, the pixel direction
+/// `J_j` it moves every fitted point in, against the spline basis `B` at
+/// the point's projection, both at the starting solution.
+pub fn ortho_rows(
+    cfg: &GenCfg,
+    _ids: &[usize],
+    views: &[View<NoMeta>],
+    init: &GenParams,
+    poses: &[Iso3],
+    size: [f64; 2],
+) -> Vec<Vec<f64>> {
+    let n = spline_len(cfg.spline);
+    let nx = cfg.spline[0] + 3;
+    let plain = GenCfg {
+        spline: [0, 0],
+        field_deg: 0,
+        ..cfg.clone()
+    };
+    let isize = [size[0] as u32, size[1] as u32];
+    // Perturbations: (parameter setter) as closures over a params copy.
+    type Setter = Box<dyn Fn(&mut GenParams, f64)>;
+    let mut dirs: Vec<(f64, Setter)> = Vec::new();
+    if !cfg.fix_intr {
+        for k in 0..4 {
+            dirs.push((
+                init.intr[k].abs().max(1.0),
+                Box::new(move |q, d| q.intr[k] += d),
+            ));
+        }
+    }
+    if !cfg.fix_dist {
+        for (k, name) in DIST_NAMES.iter().enumerate() {
+            if cfg.free_dist.contains(name) {
+                dirs.push((1.0, Box::new(move |q, d| q.dist[k] += d)));
+            }
+        }
+    }
+    if !cfg.fix_tilt {
+        for k in 0..2 {
+            dirs.push((1.0, Box::new(move |q, d| q.tilt[k] += d)));
+        }
+    }
+    let n_param = dirs.len();
+    let mut rows = vec![vec![0.0; 2 * n]; n_param + 3];
+    // Samples: (pose, board point) whose projection the constraint is
+    // measured at.
+    let mut samples: Vec<(Iso3, [f64; 2])> = Vec::new();
+    if cfg.spline_ortho_cover {
+        const GX: usize = 24;
+        const GY: usize = 18;
+        let mut covered = vec![false; GX * GY];
+        for v in views {
+            for q in &v.obs.points_2d {
+                let i = ((q.x / size[0] * GX as f64) as usize).min(GX - 1);
+                let j = ((q.y / size[1] * GY as f64) as usize).min(GY - 1);
+                covered[j * GX + i] = true;
+            }
+        }
+        // A point on the plane z = 1 whose projection is the cell centre.
+        let at_z1 = Iso3::translation(0.0, 0.0, 1.0);
+        for j in 0..GY {
+            for i in 0..GX {
+                if !covered[j * GX + i] {
+                    continue;
+                }
+                let target = [
+                    (i as f64 + 0.5) / GX as f64 * size[0],
+                    (j as f64 + 0.5) / GY as f64 * size[1],
+                ];
+                let mut x = [
+                    (target[0] - init.intr[2]) / init.intr[0],
+                    (target[1] - init.intr[3]) / init.intr[1],
+                ];
+                for _ in 0..20 {
+                    let f = project_point(&plain, init, isize, &at_z1, x);
+                    let e = [f[0] - target[0], f[1] - target[1]];
+                    if e[0].hypot(e[1]) < 1e-10 {
+                        break;
+                    }
+                    let d = 1e-7;
+                    let fx = project_point(&plain, init, isize, &at_z1, [x[0] + d, x[1]]);
+                    let fy = project_point(&plain, init, isize, &at_z1, [x[0], x[1] + d]);
+                    let (a, b) = ((fx[0] - f[0]) / d, (fy[0] - f[0]) / d);
+                    let (c, dd) = ((fx[1] - f[1]) / d, (fy[1] - f[1]) / d);
+                    let det = a * dd - b * c;
+                    x[0] -= (dd * e[0] - b * e[1]) / det;
+                    x[1] -= (-c * e[0] + a * e[1]) / det;
+                }
+                samples.push((at_z1, x));
+            }
+        }
+    } else {
+        for (view, pose) in views.iter().zip(poses) {
+            for p3 in &view.obs.points_3d {
+                samples.push((*pose, [p3.x, p3.y]));
+            }
+        }
+    }
+    {
+        for (pose, b) in &samples {
+            let (pose, b) = (pose, *b);
+            let u0 = project_point(&plain, init, isize, pose, b);
+            // Basis at the projection.
+            let (ix, wx) = bspline_axis(u0[0], size[0], cfg.spline[0]);
+            let (iy, wy) = bspline_axis(u0[1], size[1], cfg.spline[1]);
+            let mut jac: Vec<[f64; 2]> = Vec::with_capacity(n_param + 3);
+            for (scale, set) in &dirs {
+                let h = FD_REL * scale;
+                let (mut qp, mut qm) = (init.clone(), init.clone());
+                set(&mut qp, h);
+                set(&mut qm, -h);
+                let a = project_point(&plain, &qp, isize, pose, b);
+                let c = project_point(&plain, &qm, isize, pose, b);
+                jac.push([(a[0] - c[0]) / (2.0 * h), (a[1] - c[1]) / (2.0 * h)]);
+            }
+            // A rotation of the camera common to every view: its pixel
+            // pattern depends on the image position only, so a field can
+            // copy it and the poses undo it (a gauge). A common translation
+            // moves each point by its inverse depth, which no image field
+            // can copy, and is left free.
+            for m in 0..3 {
+                let h = 1e-6;
+                let delta = |s: f64| {
+                    let mut v = [0.0; 6];
+                    v[m] = s;
+                    Iso3::new(
+                        Vector3::new(v[3], v[4], v[5]),
+                        Vector3::new(v[0], v[1], v[2]),
+                    )
+                };
+                let a = project_point(&plain, init, isize, &(delta(h) * pose), b);
+                let c = project_point(&plain, init, isize, &(delta(-h) * pose), b);
+                jac.push([(a[0] - c[0]) / (2.0 * h), (a[1] - c[1]) / (2.0 * h)]);
+            }
+            for (row, j) in rows.iter_mut().zip(&jac) {
+                for (bb, wyb) in wy.iter().enumerate() {
+                    for (aa, wxa) in wx.iter().enumerate() {
+                        let k = (iy + bb) * nx + ix + aa;
+                        row[k] += j[0] * wxa * wyb;
+                        row[n + k] += j[1] * wxa * wyb;
+                    }
+                }
+            }
+        }
+    }
+    for row in &mut rows {
+        let norm = row.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm > 0.0 {
+            row.iter_mut().for_each(|v| *v /= norm);
+        }
+    }
+    rows
 }

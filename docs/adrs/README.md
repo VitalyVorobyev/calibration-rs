@@ -6,7 +6,8 @@ detail belongs in rustdoc, algorithms and evidence in
 [`docs/notes/`](../notes/README.md), rules in `AGENTS.md`, and work in
 [`docs/backlog.md`](../backlog.md).
 
-Every ADR listed here is in force. When a decision changes, edit its ADR to
+Every ADR listed here is in force, except one marked *proposed*: a design
+agreed for a backlog task and not yet implemented. When a decision changes, edit its ADR to
 state the new decision; do not append history. Numbers are stable
 identifiers and are not reused, so the sequence has gaps.
 
@@ -34,6 +35,7 @@ them; layouts, commands and component wiring go to rustdoc or
 - [0013 — Lens and sensor variants are camera slots](0013-sensor-variants.md)
 - [0011 — Seeded initialization](0011-seeded-initialization.md)
 - [0026 — Parameter uncertainty as a standard result](0026-parameter-uncertainty.md)
+- [0030 — A residual field is a camera slot](0030-camera-residual-field.md) (proposed, not implemented)
 
 ## Data and tools
 

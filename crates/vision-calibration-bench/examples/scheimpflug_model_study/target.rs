@@ -110,6 +110,9 @@ pub struct TCfg {
     /// Hold every camera's intrinsics, distortion and tilt at their initial
     /// values (the route's), so a field cannot trade with them.
     pub hold_camera: bool,
+    /// Evaluate the field's basis at the observed pixel instead of at the
+    /// model's own projection (errors in variables: see `model.rs`).
+    pub field_at_obs: bool,
 }
 
 impl TCfg {
@@ -124,6 +127,7 @@ impl TCfg {
             field_deg: 0,
             field_shared: false,
             hold_camera: false,
+            field_at_obs: false,
         }
     }
 }
@@ -211,6 +215,8 @@ struct JResidual {
     board: [f64; 2],
     observed: [f64; 2],
     obs_norm: [f64; 2],
+    half: [f64; 2],
+    field_at_obs: bool,
     board_norm: [f64; 2],
     bow_terms: Vec<(i32, i32)>,
     field_terms: Vec<(i32, i32)>,
@@ -286,10 +292,23 @@ impl JResidual {
         let mut u = b[0][0].clone() * xd + b[0][2].clone();
         let mut v = b[0][1].clone() * yd + b[0][3].clone();
         let nf = self.field_terms.len();
-        for (k, &(i, j)) in self.field_terms.iter().enumerate() {
-            let m = c(self.obs_norm[0].powi(i) * self.obs_norm[1].powi(j));
-            u += b[3][k].clone() * m.clone();
-            v += b[3][nf + k].clone() * m;
+        if nf > 0 {
+            let (xn, yn) = if self.field_at_obs {
+                (c(self.obs_norm[0]), c(self.obs_norm[1]))
+            } else {
+                (
+                    (u.clone() - c(self.half[0])) / c(self.half[0]),
+                    (v.clone() - c(self.half[1])) / c(self.half[1]),
+                )
+            };
+            let (mut du, mut dv) = (T::zero(), T::zero());
+            for (k, &(i, j)) in self.field_terms.iter().enumerate() {
+                let m = xn.clone().powi(i) * yn.clone().powi(j);
+                du += b[3][k].clone() * m.clone();
+                dv += b[3][nf + k].clone() * m;
+            }
+            u += du;
+            v += dv;
         }
         (u, v)
     }
@@ -548,6 +567,8 @@ pub fn fit(
                     board: [p3.x, p3.y],
                     observed: [p2.x, p2.y],
                     obs_norm: [(p2.x - w / 2.0) / (w / 2.0), (p2.y - h / 2.0) / (h / 2.0)],
+                    half: [w / 2.0, h / 2.0],
+                    field_at_obs: cfg.field_at_obs,
                     board_norm: [
                         (p3.x - frame.centre[0]) / frame.half,
                         (p3.y - frame.centre[1]) / frame.half,

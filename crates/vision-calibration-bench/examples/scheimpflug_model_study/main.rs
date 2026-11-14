@@ -28,11 +28,21 @@
 //!   (`target.rs`, `target_study.rs`): in-plane point offsets, an
 //!   out-of-plane shape, cover-layer refraction, a view-angle shift, with
 //!   or without an image field, scored on held-out captures; `--models`
-//!   picks a subset by name.
+//!   picks a subset by name (also for `lib` and `gen`);
+//! - `mimic`: the camera-fixed field (route + a held polynomial field)
+//!   copied without noise, its structure and what each candidate takes
+//!   from it (`mimic.rs`);
+//! - `synth`: synthetic scenes (`synth_plain_<seed>`, `synth_outside_<seed>`,
+//!   `synth_spline_<seed>` as dataset names) scored like the datasets;
+//!   `mc`: the Monte-Carlo of the B-spline field's σ (`synth.rs`).
+//!
+//! Image fields are evaluated at the model's own projection; the
+//! observation-evaluated form (`@obs`) is kept to measure why it is not a
+//! camera model.
 //!
 //! The study, and the per-point residuals for further analysis, are written
 //! to `--out`. Findings: `docs/notes/scheimpflug-residual-model.md` and
-//! `docs/notes/display-target-residual.md`.
+//! `docs/notes/display-target-residual.md`, `docs/notes/camera-residual-field.md`.
 //!
 //! ```text
 //! cargo run --release -p vision-calibration-bench --features tier-b \
@@ -62,11 +72,13 @@ use vision_calibration_core::{
     PlanarDataset, RationalPolynomial, SensorKind, SensorParams, ThinPrism, Uncertainty, View,
 };
 mod blur;
+mod mimic;
 mod model;
+mod synth;
 mod target;
 mod target_study;
 
-use model::{Free, GenCfg, GenFit, GenParams};
+use model::{Centre, Free, GenCfg, GenFit, GenParams, SensorTerms};
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions, RobustLoss, SolverBackend, optimize_planar_intrinsics,
@@ -564,6 +576,26 @@ const GEN_MODELS: &[GenCfg] = &[
         ..GenCfg::base("gen +field6")
     },
     GenCfg {
+        field_deg: 4,
+        field_at_obs: true,
+        ..GenCfg::base("gen +field4 @obs")
+    },
+    GenCfg {
+        field_deg: 4,
+        fix_intr: true,
+        fix_dist: true,
+        fix_tilt: true,
+        ..GenCfg::base("gen +field4 camera held")
+    },
+    GenCfg {
+        field_deg: 4,
+        field_at_obs: true,
+        fix_intr: true,
+        fix_dist: true,
+        fix_tilt: true,
+        ..GenCfg::base("gen +field4 @obs camera held")
+    },
+    GenCfg {
         board_deg: 4,
         field_deg: 4,
         ..GenCfg::base("gen +board4+field4")
@@ -601,6 +633,187 @@ const GEN_MODELS: &[GenCfg] = &[
         dc: true,
         ..GenCfg::base("gen +board4+depth+dc")
     },
+    // Structured candidates for the camera-fixed field.
+    GenCfg {
+        tilt_first: true,
+        dc: true,
+        ..GenCfg::base("gen tilt first +dc")
+    },
+    GenCfg {
+        free_dist: &["k1", "k2", "k3"],
+        dc: true,
+        ..GenCfg::base("gen +k3 +dc")
+    },
+    GenCfg {
+        elliptic: true,
+        ..GenCfg::base("gen +elliptic")
+    },
+    GenCfg {
+        sensor: SensorTerms::Radial(1),
+        sensor_centre: Centre::Principal,
+        ..GenCfg::base("gen sensor bowl @pp")
+    },
+    GenCfg {
+        sensor: SensorTerms::Radial(1),
+        ..GenCfg::base("gen sensor bowl @foot")
+    },
+    GenCfg {
+        sensor: SensorTerms::Radial(2),
+        ..GenCfg::base("gen sensor bowl2 @foot")
+    },
+    GenCfg {
+        sensor: SensorTerms::Radial(1),
+        sensor_centre: Centre::Free,
+        ..GenCfg::base("gen sensor bowl @free")
+    },
+    GenCfg {
+        sensor: SensorTerms::Poly(2),
+        ..GenCfg::base("gen sensor h2 @foot")
+    },
+    GenCfg {
+        sensor: SensorTerms::Poly(3),
+        ..GenCfg::base("gen sensor h3 @foot")
+    },
+    GenCfg {
+        sensor: SensorTerms::Poly(3),
+        sensor_centre: Centre::Principal,
+        ..GenCfg::base("gen sensor h3 @pp")
+    },
+    GenCfg {
+        sensor: SensorTerms::Poly(3),
+        sensor_centre: Centre::Free,
+        ..GenCfg::base("gen sensor h3 @free")
+    },
+    GenCfg {
+        sensor: SensorTerms::Poly(4),
+        ..GenCfg::base("gen sensor h4 @foot")
+    },
+    GenCfg {
+        spline: [10, 8],
+        spline_sigma: 10.0,
+        spline_ortho: true,
+        spline_ortho_cover: true,
+        ..GenCfg::base("gen spline10x8 ortho-cover s10")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 30.0,
+        spline_ortho: true,
+        spline_ortho_cover: true,
+        ..GenCfg::base("gen spline6x5 ortho-cover s30")
+    },
+    // The generic field done as a camera term: a B-spline over the image,
+    // evaluated at the model's own projection, smoothness prior σ (px).
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 0.3,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline6x5 ortho s0.3")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 1.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline6x5 ortho s1")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 3.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline6x5 ortho s3")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 10.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline6x5 ortho s10")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 30.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline6x5 ortho s30")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 100.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline6x5 ortho s100")
+    },
+    GenCfg {
+        spline: [8, 6],
+        spline_sigma: 3.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline8x6 ortho s3")
+    },
+    GenCfg {
+        spline: [4, 3],
+        spline_sigma: 3.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline4x3 ortho s3")
+    },
+    GenCfg {
+        spline: [8, 6],
+        spline_sigma: 10.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline8x6 ortho s10")
+    },
+    GenCfg {
+        spline: [4, 3],
+        spline_sigma: 10.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline4x3 ortho s10")
+    },
+    GenCfg {
+        spline: [8, 6],
+        spline_sigma: 30.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline8x6 ortho s30")
+    },
+    GenCfg {
+        spline: [4, 3],
+        spline_sigma: 30.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline4x3 ortho s30")
+    },
+    GenCfg {
+        spline: [10, 8],
+        spline_sigma: 3.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline10x8 ortho s3")
+    },
+    GenCfg {
+        spline: [10, 8],
+        spline_sigma: 10.0,
+        spline_ortho: true,
+        ..GenCfg::base("gen spline10x8 ortho s10")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 1.0,
+        fix_intr: true,
+        fix_dist: true,
+        fix_tilt: true,
+        ..GenCfg::base("gen spline6x5 held s1")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 1.0,
+        ..GenCfg::base("gen spline6x5 free s1")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 10.0,
+        fix_intr: true,
+        fix_dist: true,
+        fix_tilt: true,
+        ..GenCfg::base("gen spline6x5 held s10")
+    },
+    GenCfg {
+        spline: [6, 5],
+        spline_sigma: 10.0,
+        ..GenCfg::base("gen spline6x5 free s10")
+    },
 ];
 
 #[derive(Clone, Copy)]
@@ -629,6 +842,10 @@ struct VariantResult {
     train_median: f64,
     heldout_rms: f64,
     heldout_median: f64,
+    heldout_mean: f64,
+    /// Held-out residual norms, for pooling.
+    #[serde(skip)]
+    heldout_norms: Vec<f64>,
     /// Parameters of each fold's training fit.
     folds: Vec<ParamSummary>,
 }
@@ -674,7 +891,13 @@ fn load(args: &Args) -> Result<Vec<CameraData>> {
             entry.data_root = root.join(&entry.data_root);
         }
         let d = detect_scheimpflug_seeded_input(&entry)?;
-        let blur = blur::blur_map(&entry)?;
+        // The blur map re-runs the photometric detector on every image; only
+        // the blur part and the default parts' blur/depth summary read it.
+        let blur = if args.parts.iter().any(|p| p == "blur" || p == "lib") {
+            blur::blur_map(&entry)?
+        } else {
+            BTreeMap::new()
+        };
         let captures = d
             .view_paths
             .iter()
@@ -701,6 +924,28 @@ struct CamCtx {
     folds: Vec<(Vec<usize>, Vec<usize>)>,
     fold_routes: Vec<PlanarIntrinsicsEstimate>,
     centre: [f64; 2],
+}
+
+/// The route's solution and the folds (by view index) with their routes.
+fn make_ctx(cam: &CameraData, base: PlanarIntrinsicsEstimate, k: usize) -> Result<CamCtx> {
+    let n = cam.dataset.num_views();
+    let folds: Vec<(Vec<usize>, Vec<usize>)> = (0..k)
+        .map(|f| {
+            let test: Vec<usize> = (0..n).filter(|v| v % k == f).collect();
+            let train: Vec<usize> = (0..n).filter(|v| v % k != f).collect();
+            (train, test)
+        })
+        .collect();
+    let mut fold_routes = Vec::new();
+    for (train, _) in &folds {
+        fold_routes.push(route(&subset(&cam.dataset, train)?, &cam.seed)?);
+    }
+    Ok(CamCtx {
+        centre: board_centre(&cam.dataset),
+        base,
+        folds,
+        fold_routes,
+    })
 }
 
 fn board_centre(ds: &PlanarDataset) -> [f64; 2] {
@@ -737,6 +982,9 @@ fn gen_init(est: &PlanarIntrinsicsEstimate, centre: [f64; 2]) -> Result<GenParam
         pupil: 0.0,
         board: Vec::new(),
         field: Vec::new(),
+        sensor: Vec::new(),
+        misc: [0.0; 4],
+        spline: Vec::new(),
         board_centre: centre,
     })
 }
@@ -753,6 +1001,38 @@ fn gen_summary(f: &GenFit) -> ParamSummary {
     extra.insert("pupil_eta".into(), p.pupil);
     for (i, b) in p.board.iter().enumerate() {
         extra.insert(format!("board{i}_mm"), *b);
+    }
+    for (i, b) in p.sensor.iter().enumerate() {
+        extra.insert(format!("sensor{i}"), *b);
+    }
+    for (n, v) in ["e1", "e2", "sc_dx", "sc_dy"].iter().zip(p.misc) {
+        extra.insert(n.to_string(), v);
+    }
+    if !p.spline.is_empty() {
+        // Largest control displacement and the Lipschitz bound of the
+        // field (largest neighbouring control difference over the knot
+        // spacing, in px/px): the unprojection contracts when it is < 1.
+        let cells = f.spline_cells;
+        let (nx, ny) = (cells[0] + 3, cells[1] + 3);
+        let n = nx * ny;
+        let h = (f.size[0] / cells[0] as f64).min(f.size[1] / cells[1] as f64);
+        let mut lip: f64 = 0.0;
+        for comp in 0..2 {
+            for j in 0..ny {
+                for i in 0..nx {
+                    let c = p.spline[comp * n + j * nx + i];
+                    if i + 1 < nx {
+                        lip = lip.max((p.spline[comp * n + j * nx + i + 1] - c).abs() / h);
+                    }
+                    if j + 1 < ny {
+                        lip = lip.max((p.spline[comp * n + (j + 1) * nx + i] - c).abs() / h);
+                    }
+                }
+            }
+        }
+        let max = p.spline.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        extra.insert("spline_max_px".into(), max);
+        extra.insert("spline_lipschitz".into(), lip);
     }
     ParamSummary {
         fx: p.intr[0],
@@ -880,8 +1160,12 @@ fn evaluate(model: Model<'_>, cam: &CameraData, ctx: &CamCtx) -> Result<Eval> {
 fn main() -> Result<()> {
     let args = parse_args()?;
     std::fs::create_dir_all(&args.out)?;
-    let cams = load(&args)?;
     let part = |p: &str| args.parts.iter().any(|x| x == p);
+    let cams = if part("synth") {
+        synth_cams(&args.datasets)?
+    } else {
+        load(&args)?
+    };
 
     let mut models: Vec<Model<'_>> = Vec::new();
     if part("lib") {
@@ -889,6 +1173,9 @@ fn main() -> Result<()> {
     }
     if part("gen") {
         models.extend(GEN_MODELS.iter().map(Model::Gen));
+    }
+    if !args.models.is_empty() && !part("target") {
+        models.retain(|m| args.models.iter().any(|n| n == m.name()));
     }
 
     let mut study = Study::default();
@@ -901,7 +1188,15 @@ fn main() -> Result<()> {
     if part("target") {
         target_study::run(&cams, args.folds, &args.out, &args.models)?;
     }
-    let per_camera = !models.is_empty() || part("basin") || part("blur") || part("xcam");
+    if part("mc") {
+        for l in synth::monte_carlo(40, 7)? {
+            println!("{l}");
+        }
+    }
+    let per_camera =
+        !models.is_empty() || part("basin") || part("blur") || part("xcam") || part("mimic");
+    let mut mimic_lines: Vec<String> = Vec::new();
+    let mut mimic_maps: Vec<(String, Vec<Option<[f64; 2]>>)> = Vec::new();
     for cam in cams.iter().filter(|_| per_camera) {
         let n = cam.dataset.num_views();
         let blurred = cam.blur.len();
@@ -921,23 +1216,7 @@ fn main() -> Result<()> {
             }
         }
 
-        let folds: Vec<(Vec<usize>, Vec<usize>)> = (0..args.folds)
-            .map(|f| {
-                let test: Vec<usize> = (0..n).filter(|v| v % args.folds == f).collect();
-                let train: Vec<usize> = (0..n).filter(|v| v % args.folds != f).collect();
-                (train, test)
-            })
-            .collect();
-        let mut fold_routes = Vec::new();
-        for (train, _) in &folds {
-            fold_routes.push(route(&subset(&cam.dataset, train)?, &cam.seed)?);
-        }
-        let ctx = CamCtx {
-            centre: board_centre(&cam.dataset),
-            base,
-            folds,
-            fold_routes,
-        };
+        let ctx = make_ctx(cam, base, args.folds)?;
 
         for m in &models {
             let e = evaluate(*m, cam, &ctx)?;
@@ -961,6 +1240,11 @@ fn main() -> Result<()> {
                 .entry(m.name())
                 .or_default()
                 .push(floor_camera(&cam.id, cam.size, &e.held));
+            let norms: Vec<f64> = e
+                .held
+                .iter()
+                .map(|p| p.residual_px[0].hypot(p.residual_px[1]))
+                .collect();
             let d = dumps.entry(cam.id.clone()).or_default();
             d.insert(format!("{}|train", m.name()), e.train);
             d.insert(format!("{}|heldout", m.name()), e.held);
@@ -972,12 +1256,22 @@ fn main() -> Result<()> {
                 train_median: tm,
                 heldout_rms: hr,
                 heldout_median: hm,
+                heldout_mean: norms.iter().sum::<f64>() / norms.len().max(1) as f64,
+                heldout_norms: norms,
                 folds: e.folds,
             });
         }
 
         if part("basin") {
             study.basin.extend(basin(cam, &ctx)?);
+        }
+        if part("mimic") {
+            let m = mimic::run(cam, &ctx)?;
+            for l in &m.lines {
+                eprintln!("  {l}");
+            }
+            mimic_lines.extend(m.lines);
+            mimic_maps.push((cam.id.clone(), m.map));
         }
         if part("blur") {
             let field4 = GEN_MODELS
@@ -994,6 +1288,29 @@ fn main() -> Result<()> {
             .find(|g| g.name == "gen +field4")
             .context("field4")?;
         cross_camera(&cams, &ctxs, field4)?;
+    }
+    if !mimic_lines.is_empty() {
+        println!("\n## Mimic: candidates fitted to the noise-free field4 mapping");
+        println!("camera|model|rms px|parameters|iters");
+        for l in &mimic_lines {
+            println!("{l}");
+        }
+        for (id, m) in &mimic_maps {
+            mimic::print_map(id, m);
+        }
+        println!("\ncell-map correlation between cameras (route Δ, noise-free):");
+        for (a, (ia, ma)) in mimic_maps.iter().enumerate() {
+            let row: Vec<String> = mimic_maps
+                .iter()
+                .map(|(_, mb)| format!("{:+.2}", mimic::map_corr(ma, mb).0))
+                .collect();
+            println!(
+                "  {:>5} {}",
+                ia.rsplit('_').next().unwrap_or(""),
+                row.join(" ")
+            );
+            let _ = a;
+        }
     }
     if !transfer_lines.is_empty() {
         println!("\n## Blur transfer: camera|split|model|train->eval|rms|points");
@@ -1024,7 +1341,10 @@ fn main() -> Result<()> {
     if !models.is_empty() {
         print_summary(&study, &models);
     }
-    if let Some(first) = models.first() {
+    if let Some(first) = models
+        .first()
+        .filter(|_| cams.iter().any(|c| !c.blur.is_empty()))
+    {
         analyze_blur_depth(&cams, &study, &dumps, first.name());
     }
     if let Some(m) = models.iter().find(|m| m.name() == "tp9 all") {
@@ -1032,6 +1352,38 @@ fn main() -> Result<()> {
     }
     print_basin(&study.basin);
     Ok(())
+}
+
+/// The synthetic scenes named on the command line (`synth_<truth>_<seed>`):
+/// `plain` (the route's model), `outside` (plus a smooth field outside every
+/// parametric term).
+fn synth_cams(names: &[String]) -> Result<Vec<CameraData>> {
+    let plain = GenCfg::base("truth");
+    let truth = synth::typical();
+    names
+        .iter()
+        .map(|name| {
+            let mut it = name.split('_').skip(1);
+            let kind = it.next().unwrap_or("");
+            let seed: u64 = it.next().unwrap_or("0").parse()?;
+            match kind {
+                "plain" => {
+                    synth::scene(name, &plain, &truth, 20, (seed, seed), 0.07, &|_| [0.0; 2])
+                }
+                "outside" => synth::scene(
+                    name,
+                    &plain,
+                    &truth,
+                    20,
+                    (seed, seed),
+                    0.07,
+                    &synth::outside_field,
+                ),
+                "spline" => synth::spline_scene(name, seed, seed).map(|(c, _, _)| c),
+                other => bail!("unknown synthetic scene {other}"),
+            }
+        })
+        .collect()
 }
 
 fn print_cov_labels_once(est: &PlanarIntrinsicsEstimate) {
@@ -1437,7 +1789,40 @@ fn analyze_blur_depth(
     );
 }
 
+fn print_heldout_table(study: &Study, models: &[Model<'_>]) {
+    println!("\n## Held-out table: pooled rms / mean / median px, per-camera mean px");
+    for m in models {
+        let rows: Vec<_> = study
+            .variants
+            .iter()
+            .filter(|r| r.variant == m.name())
+            .collect();
+        let mut all: Vec<f64> = rows
+            .iter()
+            .flat_map(|r| r.heldout_norms.iter().copied())
+            .collect();
+        let n = all.len();
+        let ms: f64 = all.iter().map(|v| v * v).sum();
+        let mean: f64 = all.iter().sum();
+        all.sort_by(f64::total_cmp);
+        let median = all.get(n / 2).copied().unwrap_or(f64::NAN);
+        let cams: Vec<String> = rows
+            .iter()
+            .map(|r| format!("{:.3}", r.heldout_mean))
+            .collect();
+        println!(
+            "| {} | {:.3} / {:.3} / {:.3} | {} |",
+            m.name(),
+            (ms / n.max(1) as f64).sqrt(),
+            mean / n.max(1) as f64,
+            median,
+            cams.join(" | ")
+        );
+    }
+}
+
 fn print_summary(study: &Study, models: &[Model<'_>]) {
+    print_heldout_table(study, models);
     println!("## Variants (pooled floor: train | held-out)");
     println!("| variant | train rms | med | gap | camfield | held rms | med | gap | camfield |");
     println!("|---|---:|---:|---:|---:|---:|---:|---:|---:|");

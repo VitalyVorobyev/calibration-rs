@@ -141,23 +141,26 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 - [ ] CAM-SELECT - Model selection: compare candidate models by residual
   structure, an information criterion and held-out views. It extends the
   distortion-model-selection tutorial.
-- [ ] CAM-RESIDUAL-FIELD - An optional smooth image-space displacement
-  field on top of any camera model, for lenses the parametric families do
-  not describe. Evidence (`notes/scheimpflug-residual-model.md`): on the
-  six-camera Scheimpflug ring-grid rig a free degree-4 field takes the
-  held-out residual from 0.138 to 0.068 px RMS, the calibration-free
-  floor, and every camera's mean error below 0.075 px; no parametric
-  term comes close. A second rig against a display target
-  (`notes/display-target-residual.md`) agrees: 0.315 → 0.186 px held-out
-  RMS per-camera field (0.153 with target offsets); a field shared by the
-  cameras gets 0.242, so it is mostly per unit; with the camera held at
-  the route the field reaches only 0.280, and free it takes `k1` from −0.4
-  to −6 and folds the distortion in places. Design first: a basis with no component along the
-  intrinsics, radial and tilt terms (a monomial basis drives `k1` to −8.7),
-  bounded behaviour outside the observed region (a B-spline grid or a
-  decaying field), its unprojection, and an honest covariance (the plain
-  basis states σ up to 4 times small). Enabled per camera, chosen on
-  held-out views. Needs: CAM-SELECT for the selection rule.
+- [ ] CAM-RESIDUAL-FIELD - An optional camera-fixed displacement field on
+  top of any camera model, designed in ADR 0030 (proposed): a bicubic
+  B-spline over the image, evaluated at the model's own projection, held
+  orthogonal to the free camera parameters and a common rotation (a
+  subspace manifold), clamped outside the image, a second-difference
+  penalty chosen with the grid on held-out folds, unprojection by a
+  contraction-checked fixed point. Evidence
+  (`notes/camera-residual-field.md`): ring-grid rig held-out 0.143 →
+  0.100 px RMS, every camera's mean 0.068–0.099 px (from 0.091–0.146),
+  camera parameters within their fold scatter; display rig 0.315 → 0.248
+  (its smooth-fit floor is 0.213). The earlier 0.068 / 0.186 px came from
+  evaluating the field at the observation, which contracts the noise.
+  Gates: synthetic truth (camera + orthogonal field, and plain data with no
+  spurious gain) on both backends; Monte-Carlo σ of the camera and the
+  control points within 10 % (met by the prototype only with the
+  smoothing as a penalty and a near-hard constraint); the fold scatter of
+  `fx, tilt_x` on the display rig, doubled by the field, against the
+  view-scatter-scaled σ; held-out gain on
+  `scheimpflug_rig_ringgrid_cam0..5`. Needs: CAM-SELECT for the ladder and
+  the keep-or-drop rule.
 
 ## Calibration problems (Phase 2)
 
@@ -165,7 +168,7 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   the board geometry, opt-in. Evidence (`notes/display-target-residual.md`,
   a PuzzleBoard on an e-ink display, six cameras): offsets estimated on
   training captures take the held-out residual from 0.315 to 0.269 px
-  RMS (0.186 to 0.153 on top of an image field), 34 µm RMS, stable over
+  RMS (0.270 to 0.221 on top of an image field), 34 µm RMS, stable over
   folds, shared by the cameras in the board frame; a board shape and a
   cover layer gain nothing and are left out. Design: a target geometry
   value in core (nominal points plus an offset per point id, board frame,

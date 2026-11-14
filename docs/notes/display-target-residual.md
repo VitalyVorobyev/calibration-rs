@@ -89,40 +89,51 @@ mean per camera.
 | + cover (H2) | 0.314 / 0.267 | 0.315 / 0.268 / 0.238 | 0.311 | 0.230 | 0.236 | 0.261 | 0.303 | 0.273 |
 | + angle shift `a₃` | 0.313 / 0.267 | 0.315 / 0.268 / 0.238 | 0.311 | 0.230 | 0.236 | 0.260 | 0.303 | 0.273 |
 | + shape 4 + cover | 0.311 / 0.265 | 0.313 / 0.266 / 0.237 | 0.308 | 0.227 | 0.235 | 0.261 | 0.300 | 0.272 |
-| + field 4 (H3) | 0.180 / 0.148 | 0.186 / 0.152 / 0.128 | 0.169 | 0.137 | 0.137 | 0.141 | 0.168 | 0.162 |
+| †+ field 4 (H3) | 0.180 / 0.148 | 0.186 / 0.152 / 0.128 | 0.169 | 0.137 | 0.137 | 0.141 | 0.168 | 0.162 |
 | + field 4, camera held | 0.274 / 0.233 | 0.280 / 0.237 / 0.208 | 0.279 | 0.208 | 0.205 | 0.232 | 0.259 | 0.244 |
-| + field 4 shared by the cameras | 0.237 / 0.197 | 0.242 / 0.200 / 0.172 | 0.205 | 0.180 | 0.166 | 0.169 | 0.203 | 0.273 |
-| + offsets + field 3 | 0.152 / 0.125 | 0.161 / 0.132 / 0.112 | 0.138 | 0.118 | 0.124 | 0.125 | 0.148 | 0.142 |
-| **+ offsets + field 4** | 0.144 / 0.117 | **0.153 / 0.124 / 0.103** | 0.128 | 0.116 | 0.119 | 0.123 | 0.134 | 0.127 |
-| + offsets + field 6 | 0.133 / 0.107 | 0.145 / 0.116 / 0.095 | 0.119 | 0.108 | 0.112 | 0.115 | 0.123 | 0.117 |
-| + offsets separable + field 4 | 0.155 / 0.126 | 0.159 / 0.130 / 0.108 | 0.136 | 0.118 | 0.125 | 0.122 | 0.140 | 0.136 |
+| †+ field 4 shared by the cameras | 0.237 / 0.197 | 0.242 / 0.200 / 0.172 | 0.205 | 0.180 | 0.166 | 0.169 | 0.203 | 0.273 |
+| †+ offsets + field 3 | 0.152 / 0.125 | 0.161 / 0.132 / 0.112 | 0.138 | 0.118 | 0.124 | 0.125 | 0.148 | 0.142 |
+| †+ offsets + field 4 | 0.144 / 0.117 | 0.153 / 0.124 / 0.103 | 0.128 | 0.116 | 0.119 | 0.123 | 0.134 | 0.127 |
+| †+ offsets + field 6 | 0.133 / 0.107 | 0.145 / 0.116 / 0.095 | 0.119 | 0.108 | 0.112 | 0.115 | 0.123 | 0.117 |
+| †+ offsets separable + field 4 | 0.155 / 0.126 | 0.159 / 0.130 / 0.108 | 0.136 | 0.118 | 0.125 | 0.122 | 0.140 | 0.136 |
 | + offsets + field 4, camera held | 0.227 / 0.191 | 0.240 / 0.201 / 0.174 | 0.217 | 0.179 | 0.184 | 0.206 | 0.218 | 0.206 |
-| + offsets + field 4 + cover | 0.144 / 0.117 | 0.153 / 0.124 / 0.104 | 0.127 | 0.117 | 0.120 | 0.123 | 0.134 | 0.127 |
-| + offsets + field 4 + shape 4 | 0.142 / 0.116 | 0.151 / 0.123 / 0.102 | 0.128 | 0.114 | 0.119 | 0.122 | 0.132 | 0.124 |
-| + offsets + field 4 + shape 4 + cover | 0.141 / 0.115 | 0.150 / 0.122 / 0.101 | 0.126 | 0.114 | 0.119 | 0.120 | 0.130 | 0.123 |
+| †+ offsets + field 4 + cover | 0.144 / 0.117 | 0.153 / 0.124 / 0.104 | 0.127 | 0.117 | 0.120 | 0.123 | 0.134 | 0.127 |
+| †+ offsets + field 4 + shape 4 | 0.142 / 0.116 | 0.151 / 0.123 / 0.102 | 0.128 | 0.114 | 0.119 | 0.122 | 0.132 | 0.124 |
+| †+ offsets + field 4 + shape 4 + cover | 0.141 / 0.115 | 0.150 / 0.122 / 0.101 | 0.126 | 0.114 | 0.119 | 0.120 | 0.130 | 0.123 |
+
+† The camera-free image field of these rows was evaluated at the
+observed pixel, which is not a camera model: with `k1` free it contracts
+the detection noise instead of explaining it, so these rows overstate the
+gain ([camera-residual-field.md](camera-residual-field.md)). The
+camera-held rows are unaffected. Evaluated at the model's own projection:
+
+| model | held-out RMS / mean / median | per-camera mean |
+|---|---|---|
+| + field 4 (H3) | 0.270 / 0.229 / 0.200 | 0.194–0.273 |
+| + offsets + field 4 | 0.221 / 0.184 / 0.159 | 0.170–0.196 |
 
 Fitted values, full data, with the four training folds in brackets:
 
 | term | value | across folds / cameras |
 |---|---|---|
-| offsets per point, RMS after the similarity gauge | 33.9 µm (35.5 with the field) | folds 30.5–32.6 µm |
+| offsets per point, RMS after the similarity gauge | 33.9 µm (35.5 with the field †) | folds 30.5–32.6 µm |
 | of which: smooth (quartic in board position) | 18 µm, at most 48 µm | |
 | of which: separable rest (`dx(col)`, `dy(row)`) | 18 µm | |
 | of which: non-separable rest | 22 µm | |
 | shape, degree 2, peak-to-valley after a plane | 170 µm | folds 163–181 µm |
-| shape, degree 4 | 224 µm (346 with offsets and field) | folds 208–264 µm |
+| shape, degree 4 | 224 µm (346 with offsets and field †) | folds 208–264 µm |
 | shape 4 per camera | 3.0–7.6 mm | folds 2.4–12 mm: absorbs camera error |
 | cover `t`, alone | 1.08 ± 0.21 mm | folds 0.65–1.28; per camera −1.1 to +2.5 |
 | cover `t`, with shape 4 | −1.88 ± 0.25 mm | folds −1.6 to −2.3 |
-| cover `t`, with offsets and field 4 | −1.27 ± 0.17 mm | per camera −2.6 to +0.5 |
+| cover `t`, with offsets and field 4 † | −1.27 ± 0.17 mm | per camera −2.6 to +0.5 |
 | angle shift `a₃`, alone | +0.179 ± 0.022 mm | folds 0.176–0.186 |
-| angle shift `a₃`, with offsets and field 4 | −0.080 ± 0.018 mm | |
+| angle shift `a₃`, with offsets and field 4 † | −0.080 ± 0.018 mm | |
 
 ## Reading
 
 **The target terms that matter are in-plane.** Per-point offsets fitted on
 training captures lower every camera's held-out error (0.315 → 0.269 px
-alone, 0.186 → 0.153 on top of the field), and they take the repeatable
+alone, 0.270 → 0.221 on top of a field at the projection), and they take the repeatable
 per-point part of the held-out residual from 24.7 µm to zero. They are a
 property of the board: in the board frame, the per-point means of the six
 cameras' baseline residuals correlate +0.21 on held-out captures (+0.24 in
@@ -147,7 +158,7 @@ soaking up camera error, as on the ring-grid rig.
 `a₃ = 0.179 ± 0.022 mm`, mutually consistent with refraction through about
 1 mm (`0.185 t`) and stable over the folds. But neither changes the
 held-out residual by more than 0.0003 px, and both change sign once the
-camera model can move (`t = −1.27 mm`, `a₃ = −0.080 mm` with the field):
+camera model can move (`t = −1.27 mm`, `a₃ = −0.080 mm` with the field †):
 what they fit is camera error, not a layer. Whatever cover there is, at
 view angles up to 38° its effect beyond what the pose absorbs is below
 what this data can see.
@@ -157,23 +168,23 @@ view-angle-only shift takes after the pose (the `a₃` term above). Pixel
 locking (residual against the sub-pixel phase of the detection) is
 0.002 px in `u` and 0.005 px in `v`.
 
-**H3, the camera model, is the dominant term**, as on the ring-grid rig. A
-degree-4 image field per camera takes the held-out RMS from 0.315 to 0.186
-px. It is a property of each unit: one field shared by the six cameras gets
-only to 0.242. Like the ring-grid result, it needs the camera parameters
-free to work: with the route's camera held, the same field reaches only
-0.280, and with them free it drives `k1` from −0.41 to about −6 and
-`tilt_x` from −0.09 to between −0.08 and −0.23 rad, with the field
-cancelling most of it. The held-out numbers are real, the parameter values
-are not physical, and in places the distortion folds over (the
-board-to-image Jacobian turns singular). A field is the measure of how much
-a better camera model could gain, not that model.
+**H3, the camera model, is as large as the target term.** A degree-4
+image field per camera, evaluated at the projection, takes the held-out
+RMS from 0.315 to 0.270, the same as the per-point offsets, and the two
+add: 0.221 together. A designed field (a B-spline held orthogonal to the
+camera, per camera in its own folds) reaches 0.248 alone
+([camera-residual-field.md](camera-residual-field.md)). A field shared by
+the six cameras was measured only in the observation-evaluated form
+(†), so whether the field belongs to the lens type or to the unit is
+open.
 
 ## The floor
 
-With offsets and a degree-4 field, every camera's held-out mean is
-0.114–0.134 px (pooled RMS 0.153, mean 0.124, median 0.103); a degree-6
-field takes it to 0.108–0.123 at the price of `fy` (σ 36 px). What is left:
+With offsets and a degree-4 field at the projection, every camera's
+held-out mean is 0.170–0.196 px (pooled RMS 0.221, mean 0.184, median
+0.159), against a smooth-fit floor of 0.213 px RMS. The analysis below was
+made with the observation-evaluated field (†, pooled 0.153), so its
+per-view part is understated; its structure stands. What is left:
 
 - **A per-view smooth part, ≈ 0.09 px**: a quartic in board position per
   held-out view still explains `sqrt(0.153² − 0.124²)`. It does not repeat
@@ -194,9 +205,9 @@ field takes it to 0.108–0.123 at the price of `fy` (σ 36 px). What is left:
   an aliasing pattern that changes from view to view and is correlated
   over neighbouring corners fits that, but this data cannot prove it.
 
-So the reachable floor with this target and detector is a held-out mean of
-about 0.12 px (median 0.10); 0.1 px mean would need the depth-dependent
-camera term and a cleaner target signal.
+So no camera term reaches 0.1 px with this target and detector: the
+smooth-fit floor alone is 0.213 px RMS (mean about 0.17); a cleaner target
+signal comes first.
 
 ## What would settle the rest
 
@@ -220,7 +231,6 @@ camera term and a cleaner target signal.
 2. **No shape and no cover layer.** Both are consistent across folds when
    alone and change nothing; with the camera free they become camera-error
    absorbers. Not worth a parameter, a config field or a covariance block.
-3. **The camera field** (`CAM-RESIDUAL-FIELD`) gains most, and this
-   dataset confirms its open design problem: the gain depends on the field
-   trading with `k1` and the tilt, so the basis must span what the
-   parametric model cannot rather than what it can.
+3. **The camera field** (`CAM-RESIDUAL-FIELD`, ADR 0030) gains as much as
+   the offsets, and only in a form that is a camera model: evaluated at
+   the projection, orthogonal to the camera's parameters, bounded.

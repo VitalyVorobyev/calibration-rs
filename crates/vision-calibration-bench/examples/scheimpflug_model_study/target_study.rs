@@ -73,6 +73,17 @@ const MODELS: &[TCfg] = &[
     },
     TCfg {
         field_deg: 4,
+        field_at_obs: true,
+        ..TCfg::base("+field4 @obs")
+    },
+    TCfg {
+        offsets: Offsets::PerPoint,
+        field_deg: 4,
+        field_at_obs: true,
+        ..TCfg::base("+offsets+field4 @obs")
+    },
+    TCfg {
+        field_deg: 4,
         hold_camera: true,
         ..TCfg::base("+field4 camera-held")
     },
