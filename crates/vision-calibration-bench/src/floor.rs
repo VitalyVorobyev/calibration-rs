@@ -224,6 +224,20 @@ pub struct MarkerReport {
     /// cameras (even- and odd-indexed); `None` with fewer than two cameras or
     /// markers.
     pub split_correlation: Option<f64>,
+    /// Mean board-frame offset of every marker with enough observations,
+    /// ordered by board position.
+    pub offsets: Vec<MarkerOffset>,
+}
+
+/// Mean smooth-fit residual of one board point, pooled over views and cameras.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MarkerOffset {
+    /// Nominal board position, mm.
+    pub board_mm: [f64; 2],
+    /// Mean offset `observed − fit` in the board frame, mm.
+    pub mean_mm: [f64; 2],
+    /// Observations averaged.
+    pub count: usize,
 }
 
 /// Correlation of per-board-point mean calibrated residuals of two cameras.
@@ -880,10 +894,23 @@ fn marker_report(per_camera: &[Vec<(MarkerKey, [f64; 2])>]) -> MarkerReport {
             }
         }
     }
+    let offsets = groups
+        .iter()
+        .filter(|(_, g)| g.len() >= MIN_GROUP_OBS)
+        .map(|(key, g)| MarkerOffset {
+            board_mm: [
+                key.0 as f64 * KEY_RESOLUTION_MM,
+                key.1 as f64 * KEY_RESOLUTION_MM,
+            ],
+            mean_mm: mean2(g),
+            count: g.len(),
+        })
+        .collect();
     MarkerReport {
         components,
         split_markers,
         split_correlation: pearson(&a, &b),
+        offsets,
     }
 }
 
