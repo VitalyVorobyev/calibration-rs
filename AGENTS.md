@@ -142,10 +142,13 @@ Tolerances: ~5 % for linear init, < 1 % after optimization.
 **Golden fixtures** (`crates/vision-calibration-bench/tests/golden/`) pin the shape
 of every export, session, default config and the manifest: the key paths and
 value types, not the numbers. A failing `golden_shapes` test means a wire
-format changed: bump the matching version (the export's `SCHEMA_VERSION`,
-`ProblemType::schema_version()` for the session, or `DATASET_SPEC_VERSION`),
-then regenerate the fixtures with `GOLDEN_BLESS=1 cargo test -p
-vision-calibration-bench --test golden_shapes` and commit them with the bump.
+format changed. An added optional field (`serde(default)`, skipped when
+absent) keeps the version: regenerate the fixtures for it. A removed,
+renamed or retyped key needs the bump of the matching version (the export's
+`SCHEMA_VERSION`, `ProblemType::schema_version()` for the session, or
+`DATASET_SPEC_VERSION`) first. Regenerate with `GOLDEN_BLESS=1 cargo test -p
+vision-calibration-bench --test golden_shapes` and commit the fixtures with
+the change.
 
 ## 7) Dependencies and MSRV
 

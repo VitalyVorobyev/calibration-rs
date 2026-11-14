@@ -27,8 +27,28 @@ corner noise the residuals show (`estimate_sigma` of the `refine` prior). The
 estimate is then the maximum-likelihood one and its covariance holds: on
 synthetic eye-in-hand scenes the normalized errors had an RMS of 1.02–1.13,
 from priors that matched the robot's error and from priors ten times too
-tight or too loose. With the estimate off, the configured
-the prior's `rot_sigma` and `trans_sigma` are taken as the robot's true
+tight or too loose. Corner noise correlated within views (a view scatter
+above 1) is a different matter: each correction carries the pose-like part
+of its view's corner noise, and the estimate counts what the
+independent-noise model does not expect of it as the robot's error. On
+synthetic scenes with corner noise shifted in 4 × 4-corner tiles, the
+estimate was 2.4 and 6.1 times the simulated robot error (rotation,
+translation). The `discount_view_scatter` option of the prior (off by
+default) takes that part out at the view scatter's scale; there it brought
+the estimate to 0.95 and 1.19 times the robot's error and the hand-eye
+translation error from 0.70 to 0.19 mm. The scale is measured on the shared
+parameters, not on the poses, so the option takes it out only as far as the
+corrections resolve the remaining robot error, by two standard errors over
+the views. Where they do not, the estimate is the largest robot error they
+cannot tell from none; where the noise would explain more than the
+corrections hold, nothing is taken out. Either way that part of
+`robot_refinement.sigma` is an upper bound, and `robot_refinement.unresolved`
+names it. The option is off by default because how far the shared
+parameters' scale holds for the poses has been measured only on synthetic
+single-camera scenes. A correlated error that is itself a per-view pose,
+such as a target that moves between views, cannot be told from the robot's
+and stays in the estimate either way. With the estimate off, the prior's configured
+`rot_sigma` and `trans_sigma` are taken as the robot's true
 accuracy: too loose, and the hand-eye and target standard deviations are
 pessimistic; too tight, and they are too small, with nothing in the
 residuals to say so.

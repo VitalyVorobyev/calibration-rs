@@ -78,6 +78,7 @@
 "common::config::RobotPosePrior" = "RobotPosePrior"
 "common::RobotPoseSigma" = "RobotPoseSigma"
 "common::RobotRefinement" = "RobotRefinement"
+"common::RobotSigmaParts" = "types.RobotSigmaParts"
 "common::config::SolverConfig" = "SolverConfig"
 "core::BrownConrady5" = "BrownConradyDistortion"
 "core::Camera" = "CameraModel"

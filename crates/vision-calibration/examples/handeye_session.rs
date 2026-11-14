@@ -226,6 +226,9 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
             sigma.rot_sigma.to_degrees(),
             sigma.trans_sigma * 1000.0
         );
+        if let Some(parts) = robot.unresolved {
+            println!("  Upper bound, not resolved from the corner noise: {parts:?}");
+        }
     }
 }
 

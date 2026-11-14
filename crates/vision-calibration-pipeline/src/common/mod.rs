@@ -55,7 +55,7 @@ pub(crate) use vision_calibration_dataset::ProblemKind;
 // a hand-eye view, a rig view with laser pixels, and the hand-eye estimate.
 pub use vision_calibration_optim::{
     HandeyeEstimate, HandeyeParams, RigLaserlineView, RobotPoseMeta, RobotPoseSigma,
-    RobotRefinement,
+    RobotRefinement, RobotSigmaParts,
 };
 
 /// The supertrait that seals [`CalibratedCameras`]: the exports of this crate

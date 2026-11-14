@@ -18,6 +18,7 @@
         "kind": "none"
       },
       "robot_poses": {
+        "discount_view_scatter": false,
         "estimate_sigma": true,
         "kind": "refine",
         "rot_sigma": 0.008726646259971648,

@@ -60,7 +60,7 @@ Every problem's `*Config` embeds the same small structs by stage:
 | `IntrinsicsInitConfig` | `iterations, fix_k3` | Per-camera linear initialization; fits only the distortion terms the camera's solves estimate |
 | `SolverConfig` | `max_iters, verbosity, backend` | Solver engine |
 | `IntrinsicsOptimizeConfig` | `reprojection_loss` | Per-camera intrinsics refinement in the single-camera hand-eye and rig configs |
-| `RobotPoseConfig` | `Exact` or `Refine(RobotPosePrior { rot_sigma, trans_sigma, estimate_sigma })` | Robot-pose refinement in hand-eye bundle adjustment |
+| `RobotPoseConfig` | `Exact` or `Refine(RobotPosePrior { rot_sigma, trans_sigma, estimate_sigma, discount_view_scatter })` | Robot-pose refinement in hand-eye bundle adjustment |
 | `HandeyeInitConfig` | `handeye_mode, min_motion_angle_deg` | Hand-eye linear initialization |
 | `RigConfig` | `reference_camera_idx, refine_intrinsics, refine_sensor` | Rig frame options |
 

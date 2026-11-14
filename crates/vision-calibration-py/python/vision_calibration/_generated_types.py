@@ -2863,8 +2863,8 @@ class RobotPoseConfig_Exact(TypedDict):
     kind: Literal["exact"]
 
 
-class RobotPoseConfig_Refine(TypedDict):
-    """Per-view se(3) corrections under the prior."""
+class _RobotPoseConfig_RefineRequired(TypedDict):
+    """The keys of `RobotPoseConfig_Refine` that every payload has."""
 
     estimate_sigma: bool
     """Estimate the robot's error from the corrections, starting from
@@ -2889,6 +2889,35 @@ class RobotPoseConfig_Refine(TypedDict):
     """Standard deviation of the tool's position error along each gripper
     axis (metres, > 0). Default 1 mm, a loose bound for an industrial
     arm.
+    """
+
+
+class RobotPoseConfig_Refine(_RobotPoseConfig_RefineRequired, total=False):
+    """Per-view se(3) corrections under the prior."""
+
+    discount_view_scatter: bool
+    """With `estimate_sigma`, leave corner noise correlated within views out
+    of the estimated robot error. Each correction carries the pose-like
+    part of its view's corner noise; when the residuals are correlated
+    within views (a significant view scatter), that part is larger than
+    the independent-noise model says, and the plain estimate counts the
+    excess as the robot's. With this option the excess is taken out at
+    the view scatter's scale, measured on the shared parameters.
+
+    It helps where the correlation shifts a view's corners in patches,
+    as a detector bias over a tile of the board does: there the plain
+    estimate can be several times the robot's error and the hand-eye
+    leans on the corners more than it should. Where the corrections do
+    not resolve the remaining robot error (by two standard errors over
+    the views), the estimate stays at the largest robot error they
+    cannot tell from none; where the noise would explain more than the
+    corrections hold, nothing is taken out and the estimate is the plain
+    one. `robot_refinement.unresolved` names the parts of the estimate
+    that are such upper bounds.
+
+    Off by default: the scale comes from the shared parameters, and how
+    far it holds for the poses has been measured only on synthetic
+    single-camera scenes. Requires `estimate_sigma`.
     """
 
 
@@ -2984,12 +3013,8 @@ class RobotPoseSource(_RobotPoseSourceRequired, total=False):
     """
 
 
-class RobotRefinement(TypedDict):
-    """The robot-pose correction a hand-eye solve estimated with
-    `refine_robot_poses`.
-
-    Absent from a result when the robot poses were taken as exact.
-    """
+class _RobotRefinementRequired(TypedDict):
+    """The keys of `RobotRefinement` that every payload has."""
 
     deltas: list[tuple[float, float, float, float, float, float] | list[float]]
     """Per-view robot-pose corrections, one se(3) tangent
@@ -3001,6 +3026,33 @@ class RobotRefinement(TypedDict):
     """The robot's pose error the corrections were weighed with: the
     configured one, or the estimate when it was estimated.
     """
+
+
+class RobotRefinement(_RobotRefinementRequired, total=False):
+    """The robot-pose correction a hand-eye solve estimated with
+    `refine_robot_poses`.
+
+    Absent from a result when the robot poses were taken as exact.
+    """
+
+    unresolved: RobotSigmaParts | None
+    """The parts of an estimated `sigma` that are upper bounds rather than
+    estimates: the corrections could not separate the robot's error
+    there from corner noise correlated within views, so that part of
+    `sigma` counts some of the corner noise as the robot's. Reported only
+    when the estimate leaves view-correlated corner noise out
+    (`discount_view_scatter`); `None` when every estimated part was
+    resolved, without that option, and when `sigma` was configured.
+    """
+
+
+RobotSigmaParts: TypeAlias = Literal["rotation", "translation", "both"]
+"""Parts of a `RobotPoseSigma`: its rotation, its translation or both.
+
+- ``"rotation"``: `rot_sigma`.
+- ``"translation"``: `trans_sigma`.
+- ``"both"``: `rot_sigma` and `trans_sigma`.
+"""
 
 
 class RobustLoss_Arctan(TypedDict):
@@ -3860,6 +3912,7 @@ __all__ = [
     "RobotPoseSigma",
     "RobotPoseSource",
     "RobotRefinement",
+    "RobotSigmaParts",
     "RobustLoss",
     "RobustLoss_Arctan",
     "RobustLoss_Cauchy",

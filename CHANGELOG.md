@@ -708,6 +708,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An opt-in correction of the estimated robot error for corner noise
+  correlated within views.** With `estimate_sigma`, each robot-pose
+  correction carries the pose-like part of its view's corner noise. When the
+  residuals are correlated within views (a significant view scatter), that
+  part is larger than the independent-noise model says, and the estimate
+  counts the excess as the robot's. The new `discount_view_scatter` option
+  of the `refine` robot prior (off by default; it requires `estimate_sigma`)
+  takes the excess out at the corner noise's own view scatter, as far as the
+  corrections resolve it:
+  - Where the remaining robot share exceeds two standard errors over the
+    views, it is the estimate. On synthetic data with tile-correlated
+    corner noise the estimate went from 2.4 and 6.1 times the simulated
+    robot error (rotation, translation) to 0.95 and 1.19 times it, and the
+    hand-eye translation error from 0.70 to 0.19 mm.
+  - Where it does not, the estimate stays at the largest robot error the
+    corrections cannot tell from none, never above the plain estimate.
+  - Where the subtraction would claim more corner noise than the
+    corrections hold (noise that scatters the distortion far more than the
+    poses), nothing is taken out.
+
+  The new `robot_refinement.unresolved` (`"rotation"`, `"translation"` or
+  `"both"`, absent otherwise) names the parts of `robot_refinement.sigma`
+  that are such upper bounds. The option is off by default because the
+  scale it takes out is measured on the shared parameters, and how well it
+  holds for the poses has been measured only on synthetic single-camera
+  scenes; with it off, results are unchanged.
+
 - **The regression suite gates a measurement.** The `opencv_stereo` entry
   also measures its held-out boards: its even views calibrate a stereo rig,
   the corners of each odd view are triangulated with the calibration's

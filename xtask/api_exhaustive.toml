@@ -81,6 +81,9 @@ reason = "a laser-plane fit view is the laser pixels and the camera pose that li
 ["vision_calibration_optim::HandeyeMode"]
 reason = "a hand-eye chain is eye-in-hand or eye-to-hand"
 
+["vision_calibration_optim::RobotSigmaParts"]
+reason = "a robot pose error has a rotation and a translation part; the variants are its non-empty subsets"
+
 # ── vision_calibration_pipeline ─────────────────────────────────────────────
 
 ["vision_calibration_pipeline::Verdict"]

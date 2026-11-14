@@ -19,6 +19,7 @@ from ._generated_types import (
     HandeyeMethod,
     HandeyeMode,
     LaserlineResidualType,
+    RobotSigmaParts,
     RobustLoss,
     SolverBackend,
 )
@@ -197,17 +198,27 @@ class RobotPosePrior:
     corrections and reports it as the export's ``robot_refinement.sigma``.
     Without it the result's covariance takes them as the robot's true
     accuracy.
+
+    ``discount_view_scatter`` (off by default; requires ``estimate_sigma``)
+    leaves corner noise correlated within views out of the estimated robot
+    error, as far as the corrections resolve it. It helps where a detector
+    bias shifts a view's corners in patches; the parts of the estimate the
+    corrections do not resolve are reported in ``robot_refinement.unresolved``
+    and stay upper bounds. It is off by default because the scale it removes
+    is measured on the shared parameters, not on the poses.
     """
 
     rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
     trans_sigma: float = 0.001
     estimate_sigma: bool = True
+    discount_view_scatter: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "rot_sigma": float(self.rot_sigma),
             "trans_sigma": float(self.trans_sigma),
             "estimate_sigma": bool(self.estimate_sigma),
+            "discount_view_scatter": bool(self.discount_view_scatter),
         }
 
 
@@ -234,9 +245,12 @@ class RobotPoseConfig:
         rot_sigma: float = 0.5 * 3.141592653589793 / 180.0,
         trans_sigma: float = 0.001,
         estimate_sigma: bool = True,
+        discount_view_scatter: bool = False,
     ) -> "RobotPoseConfig":
         """Refine the robot poses under the prior given."""
-        return cls(prior=RobotPosePrior(rot_sigma, trans_sigma, estimate_sigma))
+        return cls(
+            prior=RobotPosePrior(rot_sigma, trans_sigma, estimate_sigma, discount_view_scatter)
+        )
 
     def to_payload(self) -> dict[str, Any]:
         if self.prior is None:
@@ -328,17 +342,26 @@ class RobotRefinement:
     in the gripper frame: the view's corrected pose is
     ``base_se3_gripper · exp(delta)``. ``sigma`` is the robot's pose error the
     corrections were weighed with (estimated with
-    ``robot_poses.prior.estimate_sigma``).
+    ``robot_poses.prior.estimate_sigma``). With
+    ``robot_poses.prior.discount_view_scatter``, ``unresolved`` names the
+    parts of the estimated ``sigma`` that are upper bounds rather than
+    estimates (``"rotation"``, ``"translation"`` or ``"both"``): the
+    corrections could not separate the robot's error there from corner noise
+    correlated within views. ``None`` otherwise.
     """
 
     deltas: list[list[float]]
     sigma: RobotPoseSigma
+    unresolved: RobotSigmaParts | None = None
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "deltas": [[float(v) for v in d] for d in self.deltas],
             "sigma": self.sigma.to_payload(),
         }
+        if self.unresolved is not None:
+            payload["unresolved"] = self.unresolved
+        return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any] | None) -> "RobotRefinement | None":
@@ -349,6 +372,7 @@ class RobotRefinement:
         return cls(
             deltas=[[float(v) for v in d] for d in cast(list[Any], payload["deltas"])],
             sigma=sigma,
+            unresolved=cast("RobotSigmaParts | None", payload.get("unresolved")),
         )
 
 

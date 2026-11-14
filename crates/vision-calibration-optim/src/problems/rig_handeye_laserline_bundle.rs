@@ -239,6 +239,8 @@ pub struct RigHandeyeLaserlineSolveOptions {
     /// [`Self::robot_rot_sigma`] and [`Self::robot_trans_sigma`]; see
     /// [`crate::HandeyeSolveOptions::estimate_robot_sigma`].
     pub estimate_robot_sigma: bool,
+    /// See [`crate::HandeyeSolveOptions::discount_view_scatter`].
+    pub discount_view_scatter: bool,
     /// Optional initial per-view robot pose deltas
     /// `[rx, ry, rz, tx, ty, tz]`. Used only when
     /// [`Self::refine_robot_poses`] is enabled.
@@ -262,6 +264,7 @@ impl Default for RigHandeyeLaserlineSolveOptions {
             robot_rot_sigma: std::f64::consts::PI / 360.0,
             robot_trans_sigma: 1.0e-3,
             estimate_robot_sigma: false,
+            discount_view_scatter: false,
             initial_robot_deltas: None,
         }
     }
@@ -346,6 +349,7 @@ pub fn optimize_rig_handeye_laserline(
             trans_sigma: opts.robot_trans_sigma,
         },
         estimate: opts.estimate_robot_sigma,
+        discount_view_scatter: opts.discount_view_scatter,
     };
     let solution = handeye_chain::solve(
         build,
