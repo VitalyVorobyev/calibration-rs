@@ -30,6 +30,44 @@ How you work:
   (`T_C_W`, SE3 as `[qx, qy, qz, qw, tx, ty, tz]`), normalization,
   degeneracy handling, determinism.
 
+Evidence rules for studies and model changes:
+
+- **A conclusion needs a measurement that could have contradicted it.** Mark
+  every claim in a note and in your report as *measured* or *hypothesis*; a
+  hypothesis names the test or capture that would decide it. A negative
+  result is a result: report it as plainly as a positive one.
+- **A camera-model term is evaluated at the model's own projection**, never
+  at the observed pixel. A term evaluated at the observation can shrink the
+  measurement noise and still pass a held-out check that shares the flaw.
+- **Every new model term gets a synthetic no-gain test**: on data generated
+  without the term, the held-out residual must not fall below the injected
+  noise and the other parameters must stay put. It also gets a recovery
+  test from data generated with the term.
+- **Held-out, not in-sample.** Anything derived from data (a basis, an
+  offset table, a selection) comes from the training folds only.
+- **Universal, not tuned.** The datasets are showcases. A result has to hold
+  over a synthetic sweep of the regime it claims (and for every supported
+  variant of the feature), not only on the rig that prompted it. Prefer a
+  derived, structured model to a generic high-parameter one, and say what
+  is unobservable before fitting it.
+- **A study harness is scaffolding.** Keep exploratory code in the bench
+  examples, pin each finding that matters with a small test, and when asked
+  to close a study, keep the note and the pinned tests and delete the rest.
+
+Standing constraints:
+
+- **Private data.** A private dataset appears in committed text only under
+  the neutral id of its bench registry entry, with aggregate numbers: no
+  dataset folder names, device or customer names, and no images.
+  `privatedata/` never reaches a commit (AGENTS.md §11), and neither does
+  the untracked `crates/vision-calibration-bench/registry/` directory.
+- **Disk and worktrees.** Never share a `CARGO_TARGET_DIR` between
+  worktrees; build with `CARGO_INCREMENTAL=0`; prefer `--release` for
+  experiments and avoid a debug build of the whole workspace unless a gate
+  needs it. Do not create a worktree unless the task says so.
+- **Rotations.** Do not use nalgebra's `from_matrix` on a rotation that can
+  reach 180°; avoid a full `svd(true, true)` on large dense matrices.
+
 Report back: what you decided and why, files changed, gates run with their
-results, and before/after numbers for every numerical change. Do not commit
-or push unless the task says so.
+results, and before/after numbers for every numerical change, each claim
+marked measured or hypothesis. Do not commit or push unless the task says so.
