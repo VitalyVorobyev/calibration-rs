@@ -34,6 +34,15 @@
 //!   (`linfield.rs`, `field_study.rs`); `fieldsweep`: whether candidate
 //!   lens terms stay identifiable over tilt, focal length and coverage
 //!   (`field_synth.rs`);
+//! - `focus`: the plane of sharp focus fitted to the detector's per-marker
+//!   blur and the tilt it implies, against the distortion-derived tilt
+//!   (`focus.rs`, `focus_study.rs`); `focussweep`: the same from exact
+//!   thick-lens synthetic blur over tilt, magnification, aperture, depth
+//!   range, views and noise (`--draws` Monte-Carlo draws per cell);
+//! - `centroid`: whether the defocus-coupled residual is a centroid shift
+//!   proportional to signed defocus about the fitted plane of sharp focus
+//!   (`centroid.rs`), per camera and rig-shared, against the unsigned
+//!   blur rows of `field`;
 //! - `mimic`: the camera-fixed field (route + a held polynomial field)
 //!   copied without noise, its structure and what each candidate takes
 //!   from it (`mimic.rs`);
@@ -48,7 +57,7 @@
 //! The study, and the per-point residuals for further analysis, are written
 //! to `--out`. Findings: `docs/notes/scheimpflug-residual-model.md` and
 //! `docs/notes/display-target-residual.md`, `docs/notes/camera-residual-field.md`,
-//! `docs/notes/parametric-residual-term.md`.
+//! `docs/notes/parametric-residual-term.md`, `docs/notes/tilt-from-focus.md`.
 //!
 //! ```text
 //! cargo run --release -p vision-calibration-bench --features tier-b \
@@ -78,8 +87,11 @@ use vision_calibration_core::{
     PlanarDataset, RationalPolynomial, SensorKind, SensorParams, ThinPrism, Uncertainty, View,
 };
 mod blur;
+mod centroid;
 mod field_study;
 mod field_synth;
+mod focus;
+mod focus_study;
 mod linfield;
 mod mimic;
 mod model;
@@ -165,6 +177,8 @@ struct Args {
     registry: PathBuf,
     out: PathBuf,
     folds: usize,
+    /// Monte-Carlo draws per cell of `focussweep`.
+    draws: usize,
     /// Parts to run: `lib`, `gen`, `basin` (all by default).
     parts: Vec<String>,
     /// Target-study models to run (all when empty).
@@ -176,6 +190,7 @@ fn parse_args() -> Result<Args> {
     let mut registry = None;
     let mut out = None;
     let mut folds = 4;
+    let mut draws = 40;
     let mut parts = vec!["lib".to_string(), "gen".to_string(), "basin".to_string()];
     let mut datasets = Vec::new();
     let mut models = Vec::new();
@@ -185,6 +200,7 @@ fn parse_args() -> Result<Args> {
             "--registry" => registry = it.next().map(PathBuf::from),
             "--out" => out = it.next().map(PathBuf::from),
             "--folds" => folds = it.next().context("--folds needs a value")?.parse()?,
+            "--draws" => draws = it.next().context("--draws needs a value")?.parse()?,
             "--parts" => {
                 parts = it
                     .next()
@@ -209,6 +225,7 @@ fn parse_args() -> Result<Args> {
         registry: registry.context("--registry is required")?,
         out: out.context("--out is required")?,
         folds,
+        draws,
         parts,
         models,
         datasets,
@@ -905,7 +922,7 @@ fn load(args: &Args) -> Result<Vec<CameraData>> {
         let blur = if args
             .parts
             .iter()
-            .any(|p| p == "blur" || p == "lib" || p == "field")
+            .any(|p| ["blur", "lib", "field", "focus", "centroid"].contains(&p.as_str()))
         {
             blur::blur_map(&entry)?
         } else {
@@ -1212,7 +1229,8 @@ fn main() -> Result<()> {
         || part("blur")
         || part("xcam")
         || part("mimic")
-        || part("field");
+        || part("field")
+        || part("centroid");
     let mut mimic_lines: Vec<String> = Vec::new();
     let mut mimic_maps: Vec<(String, Vec<Option<[f64; 2]>>)> = Vec::new();
     for cam in cams.iter().filter(|_| per_camera) {
@@ -1305,6 +1323,15 @@ fn main() -> Result<()> {
     }
     if part("fieldsweep") {
         field_synth::sweep()?;
+    }
+    if part("centroid") {
+        centroid::run(&cams, &ctxs)?;
+    }
+    if part("focus") {
+        focus_study::real(&cams, args.folds)?;
+    }
+    if part("focussweep") {
+        focus_study::sweep(args.draws)?;
     }
     if part("xcam") {
         let field4 = GEN_MODELS

@@ -44,10 +44,10 @@ pub fn typical() -> GenParams {
 }
 
 /// SplitMix64: a fixed, platform-independent stream.
-struct Mix(u64);
+pub struct Mix(pub u64);
 
 impl Mix {
-    fn next(&mut self) -> u64 {
+    pub fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -55,14 +55,14 @@ impl Mix {
         z ^ (z >> 31)
     }
     /// Uniform in `[0, 1)`.
-    fn unit(&mut self) -> f64 {
+    pub fn unit(&mut self) -> f64 {
         (self.next() >> 11) as f64 / (1u64 << 53) as f64
     }
-    fn range(&mut self, a: f64, b: f64) -> f64 {
+    pub fn range(&mut self, a: f64, b: f64) -> f64 {
         a + (b - a) * self.unit()
     }
     /// Standard normal (Box–Muller).
-    fn normal(&mut self) -> f64 {
+    pub fn normal(&mut self) -> f64 {
         let u1 = self.unit().max(1e-300);
         let u2 = self.unit();
         (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()

@@ -86,6 +86,9 @@ pub struct LinPoint {
     /// The blur predicted from the geometry alone (image position and
     /// depth), px.
     pub gblur: Option<f64>,
+    /// Signed defocus `κ·(1/z − π·(x, y, 1))` about the fitted plane of
+    /// sharp focus (`focus.rs`), px.
+    pub defocus: Option<f64>,
     /// Image direction of the board's x axis at the point, rad.
     pub roll: f64,
     /// Local board-to-image scale, px per mm.
@@ -208,6 +211,7 @@ pub fn linearize(
                 depth: pc.z,
                 blur: None,
                 gblur: None,
+                defocus: None,
                 roll: jx[1].atan2(jx[0]),
                 scale: det.sqrt() * 1e-3,
                 jboard: [[jx[0] * 1e-3, jx[1] * 1e-3], [jy[0] * 1e-3, jy[1] * 1e-3]],

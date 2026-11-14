@@ -380,7 +380,7 @@ pub fn build(cams: &[CameraData], ctxs: &[CamCtx]) -> Result<Vec<Rig>> {
 
 /// One camera's term for one data set: built per fold (`Some(f)`) or for
 /// the full data (`None`).
-struct Local {
+pub(crate) struct Local {
     camera_free: bool,
     basis: Option<Box<dyn Basis>>,
     penalty: Option<DMatrix<f64>>,
@@ -389,7 +389,7 @@ struct Local {
 }
 
 impl Local {
-    fn free(basis: Option<Box<dyn Basis>>) -> Self {
+    pub(crate) fn free(basis: Option<Box<dyn Basis>>) -> Self {
         Self {
             camera_free: true,
             basis,
@@ -411,22 +411,22 @@ impl Local {
 }
 
 /// A model's held-out result.
-struct Row {
+pub(crate) struct Row {
     name: String,
     /// Held-out residuals per camera (all folds).
-    held: Vec<Vec<[f64; 2]>>,
+    pub(crate) held: Vec<Vec<[f64; 2]>>,
     /// Full-data solution per camera.
-    full: Vec<CamSol>,
+    pub(crate) full: Vec<CamSol>,
     /// Fold solutions per camera.
-    folds: Vec<Vec<CamSol>>,
+    pub(crate) folds: Vec<Vec<CamSol>>,
 }
 
 impl Row {
-    fn pooled(&self) -> [f64; 3] {
+    pub(crate) fn pooled(&self) -> [f64; 3] {
         let all: Vec<[f64; 2]> = self.held.iter().flatten().copied().collect();
         linfield::stats(&all)
     }
-    fn line(&self, route: Option<f64>) -> String {
+    pub(crate) fn line(&self, route: Option<f64>) -> String {
         let s = self.pooled();
         let per: Vec<String> = self
             .held
@@ -448,7 +448,11 @@ impl Row {
     }
 }
 
-fn eval_local(rig: &Rig, name: &str, make: &dyn Fn(Option<usize>, usize) -> Local) -> Row {
+pub(crate) fn eval_local(
+    rig: &Rig,
+    name: &str,
+    make: &dyn Fn(Option<usize>, usize) -> Local,
+) -> Row {
     let mut held = Vec::new();
     let mut full = Vec::new();
     let mut folds = Vec::new();
@@ -482,7 +486,7 @@ fn eval_local(rig: &Rig, name: &str, make: &dyn Fn(Option<usize>, usize) -> Loca
 }
 
 /// A rig-shared term (one coefficient set for every camera), cameras free.
-fn eval_shared(
+pub(crate) fn eval_shared(
     rig: &Rig,
     name: &str,
     make: &dyn Fn(Option<usize>) -> Box<dyn Basis>,
@@ -554,7 +558,7 @@ fn mean_std(v: &[f64]) -> (f64, f64) {
 
 /// Jackknife sd over the folds of the local coefficient `k`, divided by the
 /// full-data σ; RMS over cameras.
-fn jack_ratio(row: &Row, k: usize, n_theta: usize) -> f64 {
+pub(crate) fn jack_ratio(row: &Row, k: usize, n_theta: usize) -> f64 {
     let mut acc = 0.0;
     let mut n = 0.0;
     for (full, folds) in row.full.iter().zip(&row.folds) {
@@ -1212,7 +1216,7 @@ fn study_rig(rig: &Rig) -> Result<RigFields> {
 }
 
 /// The φ-field of each camera fitted next to an extra term.
-fn with_term(rig: &Rig, name: &str, extra: &dyn Fn() -> Box<dyn Basis>) -> Row {
+pub(crate) fn with_term(rig: &Rig, name: &str, extra: &dyn Fn() -> Box<dyn Basis>) -> Row {
     eval_local(rig, name, &|_, _| {
         Local::free(Some(Box::new(Concat(vec![
             Box::new(rig.phi.clone()),
