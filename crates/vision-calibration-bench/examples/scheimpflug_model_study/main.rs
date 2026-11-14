@@ -29,6 +29,11 @@
 //!   out-of-plane shape, cover-layer refraction, a view-angle shift, with
 //!   or without an image field, scored on held-out captures; `--models`
 //!   picks a subset by name (also for `lib` and `gen`);
+//! - `field`: whether the camera-fixed field is a camera property, and a
+//!   compact description of it, in linearized fits about the route
+//!   (`linfield.rs`, `field_study.rs`); `fieldsweep`: whether candidate
+//!   lens terms stay identifiable over tilt, focal length and coverage
+//!   (`field_synth.rs`);
 //! - `mimic`: the camera-fixed field (route + a held polynomial field)
 //!   copied without noise, its structure and what each candidate takes
 //!   from it (`mimic.rs`);
@@ -42,7 +47,8 @@
 //!
 //! The study, and the per-point residuals for further analysis, are written
 //! to `--out`. Findings: `docs/notes/scheimpflug-residual-model.md` and
-//! `docs/notes/display-target-residual.md`, `docs/notes/camera-residual-field.md`.
+//! `docs/notes/display-target-residual.md`, `docs/notes/camera-residual-field.md`,
+//! `docs/notes/parametric-residual-term.md`.
 //!
 //! ```text
 //! cargo run --release -p vision-calibration-bench --features tier-b \
@@ -72,6 +78,9 @@ use vision_calibration_core::{
     PlanarDataset, RationalPolynomial, SensorKind, SensorParams, ThinPrism, Uncertainty, View,
 };
 mod blur;
+mod field_study;
+mod field_synth;
+mod linfield;
 mod mimic;
 mod model;
 mod synth;
@@ -893,7 +902,11 @@ fn load(args: &Args) -> Result<Vec<CameraData>> {
         let d = detect_scheimpflug_seeded_input(&entry)?;
         // The blur map re-runs the photometric detector on every image; only
         // the blur part and the default parts' blur/depth summary read it.
-        let blur = if args.parts.iter().any(|p| p == "blur" || p == "lib") {
+        let blur = if args
+            .parts
+            .iter()
+            .any(|p| p == "blur" || p == "lib" || p == "field")
+        {
             blur::blur_map(&entry)?
         } else {
             BTreeMap::new()
@@ -985,6 +998,7 @@ fn gen_init(est: &PlanarIntrinsicsEstimate, centre: [f64; 2]) -> Result<GenParam
         sensor: Vec::new(),
         misc: [0.0; 4],
         spline: Vec::new(),
+        lens: Vec::new(),
         board_centre: centre,
     })
 }
@@ -1193,8 +1207,12 @@ fn main() -> Result<()> {
             println!("{l}");
         }
     }
-    let per_camera =
-        !models.is_empty() || part("basin") || part("blur") || part("xcam") || part("mimic");
+    let per_camera = !models.is_empty()
+        || part("basin")
+        || part("blur")
+        || part("xcam")
+        || part("mimic")
+        || part("field");
     let mut mimic_lines: Vec<String> = Vec::new();
     let mut mimic_maps: Vec<(String, Vec<Option<[f64; 2]>>)> = Vec::new();
     for cam in cams.iter().filter(|_| per_camera) {
@@ -1282,6 +1300,12 @@ fn main() -> Result<()> {
         }
         ctxs.push(ctx);
     }
+    if part("field") {
+        field_study::run(&cams, &ctxs)?;
+    }
+    if part("fieldsweep") {
+        field_synth::sweep()?;
+    }
     if part("xcam") {
         let field4 = GEN_MODELS
             .iter()
@@ -1354,9 +1378,11 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// The synthetic scenes named on the command line (`synth_<truth>_<seed>`):
-/// `plain` (the route's model), `outside` (plus a smooth field outside every
-/// parametric term).
+/// The synthetic scenes named on the command line (`synth_<truth>_<seed>`,
+/// the seed optionally written `cam<n>` so that a set of scenes groups as a
+/// rig): `plain` (the route's model), `outside` (plus a smooth field outside
+/// every parametric term), `spline` (plus an orthogonal spline field), or a
+/// lens-side truth (`skew`, `b5`, `a5`, `zb3`: [`synth::lens_truth`]).
 fn synth_cams(names: &[String]) -> Result<Vec<CameraData>> {
     let plain = GenCfg::base("truth");
     let truth = synth::typical();
@@ -1365,7 +1391,7 @@ fn synth_cams(names: &[String]) -> Result<Vec<CameraData>> {
         .map(|name| {
             let mut it = name.split('_').skip(1);
             let kind = it.next().unwrap_or("");
-            let seed: u64 = it.next().unwrap_or("0").parse()?;
+            let seed: u64 = it.next().unwrap_or("0").trim_start_matches("cam").parse()?;
             match kind {
                 "plain" => {
                     synth::scene(name, &plain, &truth, 20, (seed, seed), 0.07, &|_| [0.0; 2])
@@ -1380,7 +1406,12 @@ fn synth_cams(names: &[String]) -> Result<Vec<CameraData>> {
                     &synth::outside_field,
                 ),
                 "spline" => synth::spline_scene(name, seed, seed).map(|(c, _, _)| c),
-                other => bail!("unknown synthetic scene {other}"),
+                other => match synth::lens_truth(other) {
+                    Some((cfg, params)) => {
+                        synth::scene(name, &cfg, &params, 20, (seed, seed), 0.07, &|_| [0.0; 2])
+                    }
+                    None => bail!("unknown synthetic scene {other}"),
+                },
             }
         })
         .collect()

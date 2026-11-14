@@ -38,6 +38,7 @@ pub fn typical() -> GenParams {
         sensor: Vec::new(),
         misc: [0.0; 4],
         spline: Vec::new(),
+        lens: Vec::new(),
         board_centre: [0.0; 2],
     }
 }
@@ -91,6 +92,32 @@ pub fn poses(n: usize, seed: u64) -> Vec<Iso3> {
         .collect()
 }
 
+/// Board poses like [`poses`], with the board centre spread over
+/// `±spread` of the half field of view `half_fov` (normalized units).
+pub fn poses_fov(n: usize, seed: u64, half_fov: [f64; 2], spread: f64) -> Vec<Iso3> {
+    let mut rng = Mix(seed);
+    (0..n)
+        .map(|_| {
+            let r = Rotation3::from_euler_angles(
+                rng.range(-0.45, 0.45),
+                rng.range(-0.45, 0.45),
+                rng.range(-0.6, 0.6),
+            );
+            let z = rng.range(0.17, 0.33);
+            let c = Vector3::new(
+                rng.range(-spread, spread) * half_fov[0] * z,
+                rng.range(-spread, spread) * half_fov[1] * z,
+                z,
+            );
+            let t = c - r * Vector3::new(0.0575, 0.0425, 0.0);
+            Iso3::from_parts(
+                Translation3::from(t),
+                UnitQuaternion::from_rotation_matrix(&r),
+            )
+        })
+        .collect()
+}
+
 /// A camera's synthetic views: a 24 × 18 grid at 5 mm, the points inside
 /// the image, noise `sigma_px` per axis; `seeds` are the geometry's and the
 /// noise's. `extra` adds a displacement (px) at
@@ -120,6 +147,11 @@ pub fn scene_with_poses(
     let (geom_seed, noise_seed) = seeds;
     let mut kept = Vec::new();
     let mut rng = Mix(noise_seed ^ 0x5EED);
+    // A detector-like blur with no effect on the detections: defocus about
+    // a tilted focus surface plus scatter (its own stream, so the
+    // detections do not depend on it).
+    let mut brng = Mix(noise_seed ^ 0xB1B1);
+    let mut blur = BTreeMap::new();
     let mut views = Vec::new();
     for pose in poses(n_views, geom_seed) {
         let (mut p3, mut p2) = (Vec::new(), Vec::new());
@@ -142,6 +174,10 @@ pub fn scene_with_poses(
                 {
                     continue;
                 }
+                let z = (pose * Point3::new(b[0], b[1], 0.0)).z;
+                let defocus = 6.0 * (0.25 / z - 1.0 - 0.15 * (uv[1] - 270.0) / 270.0);
+                let sigma = (0.49 + defocus * defocus).sqrt() + 0.15 * brng.normal();
+                blur.insert(crate::blur::key(uv), sigma.max(0.3));
                 p3.push(Point3::new(b[0], b[1], 0.0));
                 p2.push(Point2::new(uv[0], uv[1]));
             }
@@ -182,7 +218,7 @@ pub fn scene_with_poses(
             dataset: PlanarDataset::new(views)?,
             seed: seed_init,
             size: SIZE,
-            blur: BTreeMap::new(),
+            blur,
             captures: Vec::new(),
         },
         kept,
@@ -199,6 +235,29 @@ pub fn outside_field(uv: [f64; 2]) -> [f64; 2] {
         0.30 * x * x * y * y - 0.18 * x * x * x * y + 0.15 * y * y * y,
         0.24 * x * x * x * x - 0.21 * x * y * y * y + 0.12 * x * x * y,
     ]
+}
+
+/// A lens-side truth (`model::LensTerm`) on the typical camera, each about
+/// 0.06–0.1 px RMS over the image: `skew` (`Im w̄`), `b5` (`c̄w³ + 3cww̄²`),
+/// `a5` (degree-4 `m ±1`), `zb3` (`w̄³`).
+pub fn lens_truth(kind: &str) -> Option<(GenCfg, GenParams)> {
+    use crate::model::LensTerm;
+    let (terms, coef): (&'static [LensTerm], [f64; 2]) = match kind {
+        "skew" => (&[LensTerm::Mono(0, 1)], [0.0, 3e-4]),
+        "b5" => (&[LensTerm::NatB5], [6e-4, -4e-4]),
+        "a5" => (&[LensTerm::NatA5], [1.5e-3, 1.0e-3]),
+        "zb3" => (&[LensTerm::Mono(0, 3)], [2.5e-3, -1.5e-3]),
+        _ => return None,
+    };
+    let mut p = typical();
+    p.lens = coef.to_vec();
+    Some((
+        GenCfg {
+            lens: terms,
+            ..GenCfg::base("lens truth")
+        },
+        p,
+    ))
 }
 
 /// The spline of the proposed term in the synthetic truth.

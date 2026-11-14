@@ -1,8 +1,14 @@
 # ADR 0030: A Residual Field Is a Camera Slot Evaluated at the Model's Own Projection
 
-Status: **proposed** (backlog CAM-RESIDUAL-FIELD). Designed and prototyped in
-the bench example `scheimpflug_model_study`; not in the library. The
-evidence is [`notes/camera-residual-field.md`](../notes/camera-residual-field.md).
+Status: **on hold** (backlog CAM-RESIDUAL-FIELD, parked). Designed and
+prototyped in the bench example `scheimpflug_model_study`; not in the
+library. The evidence is
+[`notes/camera-residual-field.md`](../notes/camera-residual-field.md); a
+later study, [`notes/parametric-residual-term.md`](../notes/parametric-residual-term.md),
+finds that most of what the field removes on the studied captures is not a
+camera property (see *Revisited* at the end). The design below stays the
+right one for a camera-fixed field; whether such a field exists in the data
+that motivated it is what is on hold.
 
 ## Context
 
@@ -155,3 +161,38 @@ typed error at fit time, not a silent unprojection failure.
   every intrinsics change rescales it.
 - **The smoothness term as known information.** Measured: the control
   points' σ five to six times their Monte-Carlo scatter.
+
+## Revisited: the field on the studied captures is mostly not camera-fixed
+
+[`notes/parametric-residual-term.md`](../notes/parametric-residual-term.md)
+measured, on the same two captures (the same six cameras, two patterns on
+one e-ink display, two detectors), held out as before:
+
+- A displacement whose amplitude follows the **geometric defocus** (the
+  blur predicted from image position and depth) and one that follows
+  **inverse depth** predict held-out views better than the image-fixed
+  field (ring-grid 0.0834 px without any field against 0.1041 with the
+  field alone; with both, 0.0731, the smooth-fit floor). Fitted next to the
+  field each moves 37–44 % of it; together the field is not separately
+  determined. The same unit's defocus model carries over to the other
+  detector (−40 % of the held-out variance alone, the field −35 %).
+- Board-frame terms (the display's in-plane mapping, per-point offsets)
+  move at most 16 % of the field: it is not the display.
+- No term a decentred or tilted lens group produces carries it; the two
+  compact terms that do (`w̄²`, `w̄³`) are largely a projection of the
+  defocus coupling (they add 0.5 % / 11 % next to it).
+
+So the image-fixed average the spline fits depends on the capture's
+distribution of depth and defocus over the image. **That undercuts this
+slot as designed**: fitted on one capture, it bakes a capture-dependent
+average into the camera and carries it into every downstream workflow, and
+the held-out selection rule cannot see it, because every fold shares the
+capture's depth distribution. The held-fixed implementation on branch
+`feat/cam-field-core` should not merge on this evidence. What would reopen
+the slot: a capture that shows a field which does not change with the
+aperture and through focus (the camera-fixed part), or the coupling traced
+to the detector and fixed there, leaving a field. If the coupling is
+optical (the centroid of a defocused bundle moving with vignetting), the
+term it needs is per observation — a function of defocus and image
+position — not a camera slot.
+

@@ -93,6 +93,78 @@ pub struct GenCfg {
     /// fitted points, so the camera/field split does not follow the
     /// points' density.
     pub spline_ortho_cover: bool,
+    /// Lens-side terms: complex displacements of the distorted normalized
+    /// point before the tilt, functions of the undistorted point `w` about
+    /// the distortion centre (see [`LensTerm`]), two parameters each.
+    pub lens: &'static [LensTerm],
+    /// Components of the lens block held at their initial value.
+    pub lens_fix: &'static [usize],
+}
+
+/// A lens-side displacement `Δ(w)` in the normalized plane, `w = x + iy` the
+/// undistorted point about the distortion centre, with one complex
+/// coefficient `c` (parameters `Re c, Im c`).
+///
+/// A term `w^p·w̄^q` turns by `m = p − q − 1` under a rotation of the image
+/// about the axis. A system of rotationally symmetric surfaces, each
+/// decentred by a small vector `σ_j` (a tilted surface is a decentred
+/// centre of curvature), can only produce terms `w^p w̄^q σ^a σ̄^b` with
+/// `p − q + a − b = 1`: the derivation of the linked forms below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LensTerm {
+    /// `c·w^p·w̄^q`.
+    Mono(i32, i32),
+    /// Fifth-order distortion at second order in the decentrations:
+    /// `|w − s|⁴(w − s)` expanded gives `s̄²w³ + 6|s|²w²w̄ + 3s²ww̄²`; the
+    /// radial middle term is `k1`, the rest is `c̄·w³ + 3c·w·w̄²`
+    /// (`m = ±2`, one complex coefficient `c = Σ W511_j s_j²`).
+    NatB5,
+    /// Fifth-order distortion at first order in the decentrations:
+    /// `−(3c·w²w̄² + 2c̄·w³w̄)` (`m = ∓1` at degree 4, `c = Σ W511_j s_j`).
+    NatA5,
+}
+
+/// `(a + ib)·(c + id)`.
+fn cmul<T: RealField>(a: (T, T), b: (T, T)) -> (T, T) {
+    (
+        a.0.clone() * b.0.clone() - a.1.clone() * b.1.clone(),
+        a.0 * b.1 + a.1 * b.0,
+    )
+}
+
+/// `w^p·w̄^q`.
+fn cmono<T: RealField>(w: &(T, T), p: i32, q: i32) -> (T, T) {
+    let mut out = (T::one(), T::zero());
+    for _ in 0..p {
+        out = cmul(out, w.clone());
+    }
+    let wb = (w.0.clone(), -w.1.clone());
+    for _ in 0..q {
+        out = cmul(out, wb.clone());
+    }
+    out
+}
+
+/// The displacement of `term` with coefficient `c` at `w`.
+pub fn lens_shift<T: RealField>(term: LensTerm, c: (T, T), w: &(T, T)) -> (T, T) {
+    let k = |v: f64| T::from_f64(v).unwrap();
+    let cb = (c.0.clone(), -c.1.clone());
+    match term {
+        LensTerm::Mono(p, q) => cmul(c, cmono(w, p, q)),
+        LensTerm::NatB5 => {
+            let a = cmul(cb, cmono(w, 3, 0));
+            let b = cmul(c, cmono(w, 1, 2));
+            (a.0 + k(3.0) * b.0, a.1 + k(3.0) * b.1)
+        }
+        LensTerm::NatA5 => {
+            let a = cmul(c, cmono(w, 2, 2));
+            let b = cmul(cb, cmono(w, 3, 1));
+            (
+                -(k(3.0) * a.0 + k(2.0) * b.0),
+                -(k(3.0) * a.1 + k(2.0) * b.1),
+            )
+        }
+    }
 }
 
 /// The sensor-plane term: `Δs = −h(ρ̃)·ρ̃·ρ_ref·1e-3`, with `ρ = s − s₀` the
@@ -202,6 +274,8 @@ impl GenCfg {
             spline_ortho: false,
             spline_penalty: false,
             spline_ortho_cover: false,
+            lens: &[],
+            lens_fix: &[],
         }
     }
 }
@@ -234,6 +308,8 @@ pub struct GenParams {
     pub misc: [f64; 4],
     /// Spline control points (px): every `u` component, then every `v`.
     pub spline: Vec<f64>,
+    /// Lens-side coefficients ([`LensTerm`]), two per term.
+    pub lens: Vec<f64>,
     /// Board centre (metres) the board shape is expanded about.
     pub board_centre: [f64; 2],
 }
@@ -309,6 +385,7 @@ pub struct GenResidual {
     elliptic: bool,
     spline: [usize; 2],
     size: [f64; 2],
+    lens: &'static [LensTerm],
 }
 
 /// Control points per axis of a uniform cubic B-spline over `cells` cells.
@@ -368,8 +445,9 @@ pub fn spline_eval<T: RealField>(cells: [usize; 2], size: [f64; 2], c: &[T], u: 
 }
 
 /// Block order: intr(4), dist(9), tilt(2), dc(2), depth(2), board(nb|1),
-/// field(2·nf|1), sensor(ns|1), misc(4), spline(2·nc|1), pose(7).
-const N_BLOCKS: usize = 11;
+/// field(2·nf|1), sensor(ns|1), misc(4), spline(2·nc|1), lens(2·nl|1),
+/// pose(7).
+const N_BLOCKS: usize = 12;
 
 impl GenResidual {
     fn dims(&self) -> Vec<usize> {
@@ -384,6 +462,7 @@ impl GenResidual {
             self.sensor.len().max(1),
             4,
             (2 * spline_len(self.spline)).max(1),
+            (2 * self.lens.len()).max(1),
             7,
         ]
     }
@@ -408,7 +487,7 @@ impl GenResidual {
                 w += b[5][k].clone() * c(1e-3 * xn.powi(i) * yn.powi(j));
             }
         }
-        let pose = se3(&b[10]);
+        let pose = se3(&b[11]);
         let pc = pose * Point3::new(c(bx), c(by), w);
         let (mut x, mut y) = (pc.x.clone() / pc.z.clone(), pc.y.clone() / pc.z.clone());
         let h = tilt_h(tx.clone(), ty.clone());
@@ -443,16 +522,25 @@ impl GenResidual {
         let xy = ux.clone() * uy.clone();
         let mut xd = ux.clone() * radial.clone()
             + two.clone() * d[3].clone() * xy.clone()
-            + d[4].clone() * (r2.clone() + two.clone() * ux.clone() * ux)
+            + d[4].clone() * (r2.clone() + two.clone() * ux.clone() * ux.clone())
             + d[5].clone() * r2.clone()
             + d[6].clone() * r4.clone()
             + ox;
         let mut yd = uy.clone() * radial
-            + d[3].clone() * (r2.clone() + two.clone() * uy.clone() * uy)
+            + d[3].clone() * (r2.clone() + two.clone() * uy.clone() * uy.clone())
             + two * d[4].clone() * xy
             + d[7].clone() * r2
             + d[8].clone() * r4
             + oy;
+        if !self.lens.is_empty() {
+            let w = (ux.clone(), uy.clone());
+            for (k, term) in self.lens.iter().enumerate() {
+                let c = (b[10][2 * k].clone(), b[10][2 * k + 1].clone());
+                let (dx, dy) = lens_shift(*term, c, &w);
+                xd += dx;
+                yd += dy;
+            }
+        }
         if !self.tilt_first {
             let h = if self.pupil {
                 let s = T::one()
@@ -543,6 +631,8 @@ pub struct GenFit {
     pub spline_cells: [usize; 2],
     pub size: [f64; 2],
     pub residuals: Vec<PointResidual>,
+    /// The fitted pose of each view, in the order of `ids`.
+    pub poses: Vec<Iso3>,
     pub iters: usize,
     pub cost: f64,
     pub covariance: String,
@@ -621,8 +711,10 @@ pub fn fit(
         &pad(&init.spline, 2 * n_spline),
         Manifold::Euclidean,
     )?;
+    let n_lens = cfg.lens.len();
+    let b_lens = p.add_block("lens", &pad(&init.lens, 2 * n_lens), Manifold::Euclidean)?;
     let model_blocks = [
-        b_intr, b_dist, b_tilt, b_dc, b_depth, b_board, b_field, b_sensor, b_misc, b_spline,
+        b_intr, b_dist, b_tilt, b_dc, b_depth, b_board, b_field, b_sensor, b_misc, b_spline, b_lens,
     ];
     if free == Free::PosesOnly {
         for b in model_blocks {
@@ -659,6 +751,11 @@ pub fn fit(
         if free == Free::AllButField {
             p.fix(b_field)?;
             p.fix(b_spline)?;
+        }
+        if n_lens == 0 {
+            p.fix(b_lens)?;
+        } else if !cfg.lens_fix.is_empty() {
+            p.fix_components(b_lens, cfg.lens_fix)?;
         }
         if n_spline == 0 {
             p.fix(b_spline)?;
@@ -707,6 +804,7 @@ pub fn fit(
                 elliptic: cfg.elliptic,
                 spline: cfg.spline,
                 size: [w, h],
+                lens: cfg.lens,
             };
             let mut blocks = model_blocks.to_vec();
             blocks.push(pb);
@@ -772,6 +870,7 @@ pub fn fit(
         } else {
             val(b_spline)
         },
+        lens: if n_lens == 0 { Vec::new() } else { val(b_lens) },
         board_centre: init.board_centre,
     };
     let poses_out: Vec<Iso3> = pose_blocks
@@ -840,6 +939,7 @@ pub fn fit(
         spline_cells: cfg.spline,
         size: [w, h],
         residuals: pts,
+        poses: poses_out,
         iters: sol.report.num_iters,
         cost: sol.report.final_cost,
         covariance,
@@ -877,6 +977,7 @@ pub fn project_point(
         elliptic: cfg.elliptic,
         spline: cfg.spline,
         size: [w, h],
+        lens: cfg.lens,
     };
     let pad = |v: &[f64], n: usize| -> DVector<f64> {
         let mut out = v.to_vec();
@@ -896,6 +997,7 @@ pub fn project_point(
         pad(&params.sensor, cfg.sensor.len()),
         DVector::from_row_slice(&params.misc),
         pad(&params.spline, 2 * spline_len(cfg.spline)),
+        pad(&params.lens, 2 * cfg.lens.len()),
         DVector::from_vec(vec![q.x, q.y, q.z, q.w, t.x, t.y, t.z]),
     ];
     let (u, v) = r.project(&blocks);
@@ -1182,4 +1284,44 @@ pub fn ortho_rows(
         }
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::Complex;
+
+    /// The linked lens terms are the decentred fifth-order distortion
+    /// `|w − s|⁴(w − s)` expanded in `s`: the first-order part is
+    /// `NatA5(c = s)`, the second-order part `NatB5(c = s²)` plus the
+    /// radial `6|s|²w²w̄` (which `k1` absorbs).
+    #[test]
+    fn linked_terms_are_the_decentred_expansion() {
+        let w = Complex::new(0.23, -0.17);
+        let s = Complex::new(0.011, 0.007);
+        let f = |e: f64| {
+            let d = w - s * e;
+            d * d * d * d.conj() * d.conj()
+        };
+        let e = 1e-3;
+        let first = (f(e) - f(-e)) / (2.0 * e);
+        let second = (f(e) + f(-e)) / 2.0 - f(0.0);
+        let shift = |t: LensTerm, c: Complex<f64>| {
+            let (x, y) = lens_shift(t, (c.re, c.im), &(w.re, w.im));
+            Complex::new(x, y)
+        };
+        let a5 = shift(LensTerm::NatA5, s);
+        assert!((first - a5).norm() < 1e-9, "{first} vs {a5}");
+        let radial = w * w * w.conj() * (6.0 * s.norm_sqr());
+        let b5 = shift(LensTerm::NatB5, s * s) + radial;
+        assert!(
+            (second / (e * e) - b5).norm() < 1e-8,
+            "{} vs {b5}",
+            second / (e * e)
+        );
+        // A monomial term is `c·w^p·w̄^q`.
+        let m = shift(LensTerm::Mono(0, 3), Complex::new(0.5, -0.2));
+        let want = Complex::new(0.5, -0.2) * w.conj() * w.conj() * w.conj();
+        assert!((m - want).norm() < 1e-15);
+    }
 }

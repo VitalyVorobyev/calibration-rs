@@ -7,7 +7,10 @@ aggregate numbers only. The design decision is
 [ADR 0030](../adrs/0030-camera-residual-field.md); the earlier studies are
 [scheimpflug-residual-model.md](scheimpflug-residual-model.md) and
 [display-target-residual.md](display-target-residual.md), whose
-image-field numbers this note corrects.
+image-field numbers this note corrects. A later study,
+[parametric-residual-term.md](parametric-residual-term.md), finds that most
+of the field measured here is coupled to defocus and depth rather than
+fixed in the image, which puts ADR 0030 on hold.
 
 ## Conclusions
 

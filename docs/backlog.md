@@ -141,26 +141,32 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 - [ ] CAM-SELECT - Model selection: compare candidate models by residual
   structure, an information criterion and held-out views. It extends the
   distortion-model-selection tutorial.
-- [ ] CAM-RESIDUAL-FIELD - An optional camera-fixed displacement field on
-  top of any camera model, designed in ADR 0030 (proposed): a bicubic
-  B-spline over the image, evaluated at the model's own projection, held
-  orthogonal to the free camera parameters and a common rotation (a
-  subspace manifold), clamped outside the image, a second-difference
-  penalty chosen with the grid on held-out folds, unprojection by a
-  contraction-checked fixed point. Evidence
-  (`notes/camera-residual-field.md`): ring-grid rig held-out 0.143 →
-  0.100 px RMS, every camera's mean 0.068–0.099 px (from 0.091–0.146),
-  camera parameters within their fold scatter; display rig 0.315 → 0.248
-  (its smooth-fit floor is 0.213). The earlier 0.068 / 0.186 px came from
-  evaluating the field at the observation, which contracts the noise.
-  Gates: synthetic truth (camera + orthogonal field, and plain data with no
-  spurious gain) on both backends; Monte-Carlo σ of the camera and the
-  control points within 10 % (met by the prototype only with the
-  smoothing as a penalty and a near-hard constraint); the fold scatter of
-  `fx, tilt_x` on the display rig, doubled by the field, against the
-  view-scatter-scaled σ; held-out gain on
-  `scheimpflug_rig_ringgrid_cam0..5`. Needs: CAM-SELECT for the ladder and
-  the keep-or-drop rule.
+- [~] CAM-RESIDUAL-FIELD - An optional camera-fixed displacement field on
+  top of any camera model, designed in ADR 0030: a bicubic B-spline over
+  the image, evaluated at the model's own projection, orthogonal to the
+  free camera parameters and a common rotation, clamped outside the image,
+  a penalty chosen on held-out folds. **Parked**: on the captures that
+  motivated it, most of what the field removes is coupled to defocus and
+  depth (`notes/parametric-residual-term.md`): a defocus- and depth-coupled
+  displacement beats the image-fixed field on held-out views (ring-grid
+  0.083 against 0.104 px; with both, the 0.073 floor), moves 37–44 % of it,
+  and carries over to the second detector; the display moves at most 16 %;
+  no lens term derived from decentred optics carries it. A camera slot
+  fitted on one capture would bake a capture-dependent average into the
+  camera. A held-fixed implementation exists on `feat/cam-field-core`,
+  unmerged. Reopens with CAM-FIELD-ORIGIN: a field that stays put with the
+  aperture and through focus.
+- [ ] CAM-FIELD-ORIGIN - Decide whether the defocus-coupled part of the
+  Scheimpflug residual is optical or the detector's
+  (`notes/parametric-residual-term.md`, *What is undetermined*). Without
+  new data: render ring-grid and corner markers blurred with a measured,
+  not Gaussian, defocus PSF and pass them through the detectors to size
+  the detector's centre bias against blur. With a capture (the maintainer):
+  the same poses at two apertures (a chief-ray term does not change, a
+  defocus-coupled one scales with the blur), views at one image position
+  through focus on both sides (a vignetting centroid shift changes sign
+  across focus, a symmetric detector bias does not), and the rig against a
+  printed board. The harness is the bench example's `--parts field`.
 
 ## Calibration problems (Phase 2)
 
