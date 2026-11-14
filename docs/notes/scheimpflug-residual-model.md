@@ -60,17 +60,21 @@ mean within-camera standard deviation over the four training folds.
 | tilt `× (1 + η r²)` (pupil) | 0.132 / 0.103 | 0.133 / 0.104 | 0.111 | 19 % | 8.4 / 17 / 7.1, 5.2 | 1.8 / 0.27, 1.3 | 5–7 |
 | depth-dependent `k1` | 0.136 / 0.104 | 0.137 / 0.105 | 0.116 | 19 % | 8.3 / 16 / 6.5, 6.0 | 1.6 / 0.16, 1.0 | 4–5 |
 | board out of plane, degree 3 | 0.118 / 0.089 | 0.125 / 0.093 | 0.102 | 12 % | 7.6 / 17 / 6.5, 5.1 | 1.7 / 0.72, 1.2 | 6–7 |
-| image field, degree 2 (6) | 0.107 / 0.082 | 0.110 / 0.083 | 0.082 | 11 % | 60 / 10 / 148, 89 | 20 / 52, 25 | 33–153 |
-| image field, degree 3 only (8) | 0.105 / 0.077 | 0.108 / 0.078 | 0.079 | 9 % | 6.7 / 6.7 / 3.0, 5.2 | 2.8 / 0.27, 2.4 | 8–24 |
-| image field, degrees 2–3 (14) | 0.078 / 0.059 | 0.082 / 0.061 | 0.038 | 5 % | 11 / 9.3 / 6.9, 209 | 5.6 / 4.9, 6.4 | 40–108 |
-| image field, degrees 2–4 (24) | 0.065 / 0.047 | 0.068 / 0.049 | 0 | 5 % | 13 / 6.5 / 18, 24 | 2.5 / 3.2, 9.2 | 62–159 |
-| image field, degrees 2–6 (50) | 0.057 / 0.039 | 0.062 / 0.041 | 0 | 2 % | 132 / 11 / 84, 272 | 12 / 11, 33 | 102–328 |
+| image field 2–4 (24), at the projection | | 0.109 / 0.080 | | | 106 / 33 / 29, 82 | 40 / 51, 76 | 12–48 |
+| B-spline 10×8, orthogonal to the camera | | 0.100 / 0.064 | | | 7.8 / 18 / 6.4, 4.3 | 2.0 / 0.23, 1.6 | 9–11 |
 
 The *image field* is a polynomial displacement in normalized pixel
-coordinates added to the projection, shared by every view of a camera: an
-upper bound for what any central-camera model refinement can reach. The
-covariance is available for every variant (no bound, no rank deficiency),
-which says nothing about its honesty; see below.
+coordinates added to the projection, shared by every view of a camera,
+evaluated at the model's own projection (degrees 2–4, camera free). A
+first version of this study evaluated it at the *observed* pixel and
+reported 0.068 px held-out for degrees 2–4 (and 0.082 for 2–3, 0.062 for
+2–6): that form is not a camera model and contracts the detection noise
+once `k1` runs to −8.7, so those numbers are not a property of the
+camera. The B-spline row is the designed field of
+[camera-residual-field.md](camera-residual-field.md), which has the
+measurement, the artefact and the rest of the candidates (ring-grid
+held-out numbers there are from a later detection run: route 0.143 rather
+than 0.138 px).
 
 Per-camera mean reprojection error, held-out views (px):
 
@@ -78,16 +82,17 @@ Per-camera mean reprojection error, held-out views (px):
 |---|---:|---:|---:|---:|---:|---:|
 | bc5 `k1 k2` (default) | 0.146 | 0.091 | 0.116 | 0.115 | 0.139 | 0.125 |
 | thin prism, all free | 0.123 | 0.084 | 0.087 | 0.096 | 0.102 | 0.101 |
-| image field, degrees 2–3 | 0.085 | 0.056 | 0.061 | 0.065 | 0.094 | 0.072 |
-| image field, degrees 2–4 | 0.071 | 0.053 | 0.052 | 0.058 | 0.063 | 0.060 |
+| image field, degrees 2–4, at the projection | 0.117 | 0.074 | 0.082 | 0.089 | 0.098 | 0.092 |
+| B-spline 10×8, orthogonal to the camera | 0.099 | 0.068 | 0.072 | 0.075 | 0.087 | 0.077 |
 
-### The gap is a camera-fixed, smooth model error
+### Part of the gap is a camera-fixed, smooth model error
 
-A free image field of degree 4 brings the held-out residual to the
-smooth-fit floor (0.068 against 0.073 px; the floor is slightly
-conservative because it spends 15 terms per view). The field is fitted on
-other views than it is scored on, so it is a property of the camera, not
-of a view. Nothing else comes close:
+A designed image field (a B-spline held orthogonal to the camera's own
+parameters) takes the held-out residual from 0.143 to 0.100 px, a third
+of its variance; the field is fitted on other views than it is scored on,
+so that part is a property of the camera. The rest, `sqrt(0.100² −
+0.073²) = 0.068` px above the smooth-fit floor, changes from view to
+view. No parametric term gets the camera-fixed part:
 
 - **The parametric distortion family is not the missing piece.** `k3`,
   `p1 p2`, the rational terms and the distortion centre each lower the
@@ -107,24 +112,15 @@ of a view. Nothing else comes close:
 - **The board is flat enough.** An out-of-plane board shape lowers the
   training residual, but its coefficients disagree between the six
   cameras that look at the same board (the `x²` term ranges from +0.01 to
-  −0.65 mm), it gains half as much on held-out views, and with the image
-  field present it makes held-out views worse (0.071 against 0.068). The
+  −0.65 mm) and it gains half as much on held-out views. The
   in-plane print error is 2.5 % of the variance (`diagnose floor`). A
   shape shared by all six cameras in one joint fit, and the display-target
   case with in-plane offsets and a cover layer, are measured in
   [display-target-residual.md](display-target-residual.md).
-- **Neither the tangential nor the third-order terms alone suffice**: the
-  degree-2 field (the span of the tilt, `p` and the `r²` prism terms) and
-  the third-order field each lower the held-out RMS by about a fifth;
-  together (14 terms) they close two thirds of the gap's RMS and 90 % of
-  its variance. The fourth-order terms close the rest.
-
-The field of one camera, held, partly transfers to the others: among
-cameras 0–3 a borrowed field lowers the residual from 0.11–0.17 to
-0.08–0.12 px (own field 0.06–0.08), so a good part of it belongs to the
-lens type. Cameras 4 and 5 do not take or give a field; the degree-4
-polynomial is a poor carrier for transfer, since it trades with `k1` (it
-settles at `k1 ≈ −8.7` with the field cancelling most of it).
+- **A sensor that is not flat is not it either**: a height polynomial of
+  the sensor surface, displacing each point along its ray from the foot
+  of the sensor normal, gains 5 % centred on the foot and 20 % with a
+  free centre, at the price of the tilt (spread 70 mrad).
 
 ### Part of it depends on the blur
 
@@ -138,24 +134,24 @@ camera held), pooled RMS in px:
 | split | model | sharp → sharp | sharp → blurred | blurred → blurred | blurred → sharp |
 |---|---|---:|---:|---:|---:|
 | random halves (control) | bc5 default | 0.136 | 0.137 | 0.137 | 0.136 |
-| random halves (control) | field degree 4 | 0.064 | 0.066 | 0.063 | 0.067 |
+| random halves (control) | field degree 4 | 0.100 | 0.102 | 0.099 | 0.103 |
 | relative to position | bc5 default | 0.093 | 0.146 | 0.117 | 0.107 |
-| relative to position | field degree 4 | **0.034** | 0.111 | 0.059 | 0.058 |
-| absolute | field degree 4 | 0.032 | 0.180 | 0.062 | 0.059 |
+| relative to position | field degree 4 | **0.048** | 0.183 | 0.092 | 0.104 |
+| absolute | field degree 4 | 0.046 | 0.271 | 0.097 | 0.093 |
 
+(The field is the degree 2–4 polynomial at the projection, camera free.)
 On markers sharper than typical for their position, the field brings the
-residual to 0.034 px: the detector's floor on sharp markers. A field
-learned there does not carry to blurrier markers at the same image
-positions (0.111 against their own 0.059), while one learned on the
-blurrier markers serves the sharp ones at 0.058. So the blurrier markers
-carry an extra displacement that the sharp ones do not, and it is not a
-function of image position alone. It is the PSF-mismatch bias suspected
-of the Gaussian photometric model, or a depth effect (the relative split
-also separates views near the plane of focus from views away from it);
-this dataset cannot tell the two apart. Simple regressions of the
-residual on the blur, its gradient and the depth explain at most 3 % of
-its sum of squares (about 3 % jointly), so the dependence is not a
-simple linear one.
+residual to 0.048 px. A field learned there does not carry to blurrier
+markers at the same image positions (0.183 against their own 0.092),
+while one learned on the blurrier markers serves the sharp ones at 0.104.
+So the blurrier markers carry an extra displacement that the sharp ones do
+not, and it is not a function of image position alone. It is the
+PSF-mismatch bias suspected of the Gaussian photometric model, or a depth
+effect (the relative split also separates views near the plane of focus
+from views away from it); this dataset cannot tell the two apart. Simple
+regressions of the residual on the blur, its gradient and the depth
+explain at most 3 % of its sum of squares (about 3 % jointly), so the
+dependence is not a simple linear one.
 
 ### Not the solver
 
@@ -199,28 +195,24 @@ destroys that: with the thin-prism model the same ratio reaches 20–40.
 
 ## Conclusions
 
-1. The 0.117 px gap is a smooth, camera-fixed displacement field that the
-   Brown-Conrady + Scheimpflug family cannot represent, plus a smaller
-   blur- or depth-dependent part. A free image field of degree 4 on top
-   of the current model reaches the smooth-fit floor on held-out views and
-   puts every camera's mean error at 0.052–0.071 px.
+1. The 0.117 px gap has two parts. About a third of its variance is a
+   smooth, camera-fixed displacement that the Brown-Conrady + Scheimpflug
+   family cannot represent; a designed B-spline field removes it and puts
+   every camera's held-out mean at 0.068–0.099 px
+   ([camera-residual-field.md](camera-residual-field.md)). The rest, about
+   0.07 px RMS, changes from view to view and follows the markers' blur.
 2. No change of the defaults is supported: the fix list (only `k1, k2`
    free under a tilt), the stopping rule and the parameterization are each
    measured above and none is the limit. Freeing the thin-prism or
    tangential terms lowers the residual at the price of an unidentified
    tilt and principal point, which no default should do.
-3. A residual-field model term is the change the evidence asks for; it is
-   proposed, not implemented (backlog `CAM-RESIDUAL-FIELD`). Its design
-   problems are measured here: a plain monomial basis trades with `k1`
-   and the intrinsics (`k1 → −8.7`), a polynomial extrapolates badly
-   outside the observed region (the markers cover the lower two thirds),
-   and its stated σ is up to 4 times optimistic (jackknife ratio 0.9–3.7). It needs
-   a basis orthogonal to the parametric terms, a bounded support (a
-   B-spline grid over the image, or a field that decays outside the data)
-   and a selection rule on held-out views (`CAM-SELECT`).
-4. The blur-dependent part belongs to the detector: the sharp markers show
-   a 0.034 px floor that the blurred ones do not reach under any camera
-   model.
+3. A residual field is the camera term the evidence supports, designed in
+   ADR 0030 (backlog `CAM-RESIDUAL-FIELD`): evaluated at the model's own
+   projection (at the observation it contracts the noise and fakes a
+   gain), orthogonal to the camera's parameters, bounded, chosen on
+   held-out views.
+4. The blur-dependent part belongs to the detector or to a depth effect;
+   the camera term cannot reach it.
 
 ## What would settle the rest
 

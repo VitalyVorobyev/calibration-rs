@@ -37,6 +37,8 @@ path = "src/bin/calib_bench.rs"
 [[example]]
 name = "scheimpflug_model_study"
 required-features = ["tier-b"]
+# Its synthetic ground-truth tests run with the bench crate's tests.
+test = true
 
 [dependencies]
 vision-calibration = { workspace = true, features = ["synthetic"] }

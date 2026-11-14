@@ -59,6 +59,10 @@ evidence behind ADR 0011.
   tilted Brown-Conrady model leaves on a real rig: model variants on
   held-out views against the smooth-fit floor, the stopping rule, the
   tilt / principal-point reparameterization, blur dependence.
+- [Camera residual field](camera-residual-field.md) — the camera-fixed
+  part of the Scheimpflug residual: structured candidates against a
+  designed B-spline field on held-out views, the observation-evaluated
+  field artefact, orthogonality to the camera, Monte-Carlo σ (ADR 0030).
 - [Display target residual](display-target-residual.md) — a PuzzleBoard on
   an e-ink display, six cameras fitted jointly on held-out captures:
   per-point in-plane offsets, board shape, cover-layer refraction and a
