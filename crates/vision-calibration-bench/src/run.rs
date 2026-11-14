@@ -661,6 +661,8 @@ pub mod tier_b {
         pub image_size: [u32; 2],
         /// Wall-clock detection time in milliseconds.
         pub detection_ms: u64,
+        /// The source image behind each view of `dataset`, in view order.
+        pub view_paths: Vec<std::path::PathBuf>,
     }
 
     /// Detect `entry`'s single camera and derive its ADR 0011 seed. See
@@ -708,6 +710,7 @@ pub mod tier_b {
             detection: detected.detection,
             image_size: detected.image_sizes[0],
             detection_ms: detected.detection_ms,
+            view_paths: detected.image_paths.into_iter().next().unwrap_or_default(),
         })
     }
 

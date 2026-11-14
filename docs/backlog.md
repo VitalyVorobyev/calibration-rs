@@ -42,7 +42,10 @@ need their measurement first and stay opt-in until it is in.
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
   which results do not carry.
 - [ ] UQ-TARGET-FLATNESS - Target manufacturing and flatness error in the
-  covariance.
+  covariance. With CAL-TARGET-OFFSETS, the measured offset table's own σ
+  enters as consider parameters; flatness itself is not worth a term
+  (`notes/display-target-residual.md`: a shared shape of 0.2 mm
+  peak-to-valley changes held-out views by 0.002 px).
 
 ## Datasets and the runner (alongside)
 
@@ -144,7 +147,12 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   six-camera Scheimpflug ring-grid rig a free degree-4 field takes the
   held-out residual from 0.138 to 0.068 px RMS, the calibration-free
   floor, and every camera's mean error below 0.075 px; no parametric
-  term comes close. Design first: a basis with no component along the
+  term comes close. A second rig against a display target
+  (`notes/display-target-residual.md`) agrees: 0.315 → 0.186 px held-out
+  RMS per-camera field (0.153 with target offsets); a field shared by the
+  cameras gets 0.242, so it is mostly per unit; with the camera held at
+  the route the field reaches only 0.280, and free it takes `k1` from −0.4
+  to −6 and folds the distortion in places. Design first: a basis with no component along the
   intrinsics, radial and tilt terms (a monomial basis drives `k1` to −8.7),
   bounded behaviour outside the observed region (a B-spline grid or a
   decaying field), its unprojection, and an honest covariance (the plain
@@ -152,6 +160,30 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   held-out views. Needs: CAM-SELECT for the selection rule.
 
 ## Calibration problems (Phase 2)
+
+- [ ] CAL-TARGET-OFFSETS - A non-ideal target: per-point in-plane offsets of
+  the board geometry, opt-in. Evidence (`notes/display-target-residual.md`,
+  a PuzzleBoard on an e-ink display, six cameras): offsets estimated on
+  training captures take the held-out residual from 0.315 to 0.269 px
+  RMS (0.186 to 0.153 on top of an image field), 34 µm RMS, stable over
+  folds, shared by the cameras in the board frame; a board shape and a
+  cover layer gain nothing and are left out. Design: a target geometry
+  value in core (nominal points plus an offset per point id, board frame,
+  metres) that every planar workflow reads instead of the bare points,
+  so the offsets reach all problem types without solver changes; two
+  sources, (a) a table measured once per target and display setting,
+  applied as fixed (its σ as consider parameters, UQ-TARGET-FLATNESS), and
+  (b) an estimate: free target points in a joint multi-view, multi-camera
+  solve, gauge a planar similarity (hold two points, or four linear
+  constraints), a point free only with enough observations, exported with
+  its covariance block in the shape (a) reads. Not on by default: it needs
+  orientation diversity (several cameras or a board turned in the image),
+  else offsets trade with distortion. The separable form (`dx` per column,
+  `dy` per row) recovers two thirds of the gain with about 60 parameters
+  instead of 1250 and is a possible cheaper mode. Gate: synthetic ground truth
+  with known offsets recovered on both backends, intrinsics σ against
+  Monte-Carlo with the offsets free, and the held-out gain on
+  `scheimpflug_rig_ref_cam0..5`.
 
 - [ ] CAL-MULTI-TARGET - Several targets with unknown relative poses in one
   scene, estimated jointly.

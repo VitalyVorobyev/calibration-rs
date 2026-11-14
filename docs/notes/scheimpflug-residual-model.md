@@ -109,7 +109,10 @@ of a view. Nothing else comes close:
   cameras that look at the same board (the `x²` term ranges from +0.01 to
   −0.65 mm), it gains half as much on held-out views, and with the image
   field present it makes held-out views worse (0.071 against 0.068). The
-  in-plane print error is 2.5 % of the variance (`diagnose floor`).
+  in-plane print error is 2.5 % of the variance (`diagnose floor`). A
+  shape shared by all six cameras in one joint fit, and the display-target
+  case with in-plane offsets and a cover layer, are measured in
+  [display-target-residual.md](display-target-residual.md).
 - **Neither the tangential nor the third-order terms alone suffice**: the
   degree-2 field (the span of the tilt, `p` and the `r²` prism terms) and
   the third-order field each lower the held-out RMS by about a fifth;

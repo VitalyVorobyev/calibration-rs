@@ -28,7 +28,8 @@ pub fn blur_map(entry: &BenchEntry) -> Result<BTreeMap<(i64, i64), f64>> {
         ..
     } = spec.target
     else {
-        bail!("{} is not a ring-grid dataset", entry.id);
+        // Only the ring-grid detector fits a blur; other targets have none.
+        return Ok(BTreeMap::new());
     };
     let mm = |m: f64| (m * 1000.0) as f32;
     let layout = TargetLayout::coded_hex(

@@ -23,16 +23,23 @@
 //!   as is and measured from the tilt's valley;
 //! - `blur`: train on sharp or blurred markers (the detector's fitted blur,
 //!   `blur.rs`), score on either;
-//! - `xcam`: one camera's image field held on another.
+//! - `xcam`: one camera's image field held on another;
+//! - `target`: a non-ideal target fitted jointly over every given camera
+//!   (`target.rs`, `target_study.rs`): in-plane point offsets, an
+//!   out-of-plane shape, cover-layer refraction, a view-angle shift, with
+//!   or without an image field, scored on held-out captures; `--models`
+//!   picks a subset by name.
 //!
 //! The study, and the per-point residuals for further analysis, are written
-//! to `--out`. Findings: `docs/notes/scheimpflug-residual-model.md`.
+//! to `--out`. Findings: `docs/notes/scheimpflug-residual-model.md` and
+//! `docs/notes/display-target-residual.md`.
 //!
 //! ```text
 //! cargo run --release -p vision-calibration-bench --features tier-b \
 //!     --example scheimpflug_model_study -- \
 //!     --registry crates/vision-calibration-bench/registry/private.json \
-//!     --out <dir> [--folds 4] [--parts lib,gen,basin] <dataset-id>...
+//!     --out <dir> [--folds 4] [--parts lib,gen,basin,blur,xcam,target] \
+//!     [--models <name>,...] <dataset-id>...
 //! ```
 
 use std::collections::BTreeMap;
@@ -56,6 +63,8 @@ use vision_calibration_core::{
 };
 mod blur;
 mod model;
+mod target;
+mod target_study;
 
 use model::{Free, GenCfg, GenFit, GenParams};
 use vision_calibration_optim::{
@@ -137,6 +146,8 @@ struct Args {
     folds: usize,
     /// Parts to run: `lib`, `gen`, `basin` (all by default).
     parts: Vec<String>,
+    /// Target-study models to run (all when empty).
+    models: Vec<String>,
     datasets: Vec<String>,
 }
 
@@ -146,6 +157,7 @@ fn parse_args() -> Result<Args> {
     let mut folds = 4;
     let mut parts = vec!["lib".to_string(), "gen".to_string(), "basin".to_string()];
     let mut datasets = Vec::new();
+    let mut models = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -160,6 +172,14 @@ fn parse_args() -> Result<Args> {
                     .map(str::to_string)
                     .collect();
             }
+            "--models" => {
+                models = it
+                    .next()
+                    .context("--models needs a value")?
+                    .split(',')
+                    .map(str::to_string)
+                    .collect();
+            }
             _ if a.starts_with("--") => bail!("unknown flag {a}"),
             _ => datasets.push(a),
         }
@@ -169,6 +189,7 @@ fn parse_args() -> Result<Args> {
         out: out.context("--out is required")?,
         folds,
         parts,
+        models,
         datasets,
     })
 }
@@ -636,6 +657,8 @@ struct CameraData {
     seed: IntrinsicsManualInit,
     size: [u32; 2],
     blur: BTreeMap<(i64, i64), f64>,
+    /// The capture (image file stem) of each view.
+    captures: Vec<String>,
 }
 
 fn load(args: &Args) -> Result<Vec<CameraData>> {
@@ -652,12 +675,22 @@ fn load(args: &Args) -> Result<Vec<CameraData>> {
         }
         let d = detect_scheimpflug_seeded_input(&entry)?;
         let blur = blur::blur_map(&entry)?;
+        let captures = d
+            .view_paths
+            .iter()
+            .map(|p| {
+                p.file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            })
+            .collect();
         out.push(CameraData {
             id: id.clone(),
             dataset: d.dataset,
             seed: d.seed,
             size: d.image_size,
             blur,
+            captures,
         });
     }
     Ok(out)
@@ -865,7 +898,11 @@ fn main() -> Result<()> {
     let mut ctxs: Vec<CamCtx> = Vec::new();
     let mut transfer_lines: Vec<String> = Vec::new();
 
-    for cam in &cams {
+    if part("target") {
+        target_study::run(&cams, args.folds, &args.out, &args.models)?;
+    }
+    let per_camera = !models.is_empty() || part("basin") || part("blur") || part("xcam");
+    for cam in cams.iter().filter(|_| per_camera) {
         let n = cam.dataset.num_views();
         let blurred = cam.blur.len();
         eprintln!("== {} ({} views, {} blur entries)", cam.id, n, blurred);

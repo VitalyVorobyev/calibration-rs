@@ -73,7 +73,7 @@ impl GenCfg {
     }
 }
 
-fn monomials(min: usize, deg: usize) -> Vec<(i32, i32)> {
+pub fn monomials(min: usize, deg: usize) -> Vec<(i32, i32)> {
     let mut m = Vec::new();
     for d in min as i32..=deg as i32 {
         for i in (0..=d).rev() {
@@ -99,7 +99,7 @@ pub struct GenParams {
 }
 
 /// OpenCV's tilted-sensor homography `proj_z · Ry(τy) · Rx(τx)`.
-fn tilt_h<T: RealField>(tx: T, ty: T) -> Matrix3<T> {
+pub fn tilt_h<T: RealField>(tx: T, ty: T) -> Matrix3<T> {
     let (sx, cx) = (tx.clone().sin(), tx.cos());
     let (sy, cy) = (ty.clone().sin(), ty.cos());
     let (z, o) = (T::zero(), T::one());
@@ -141,7 +141,7 @@ fn tilt_h<T: RealField>(tx: T, ty: T) -> Matrix3<T> {
     p * r
 }
 
-fn apply_h<T: RealField>(h: &Matrix3<T>, x: T, y: T) -> (T, T) {
+pub fn apply_h<T: RealField>(h: &Matrix3<T>, x: T, y: T) -> (T, T) {
     let q = h * Vector3::new(x, y, T::one());
     (q.x.clone() / q.z.clone(), q.y.clone() / q.z.clone())
 }
