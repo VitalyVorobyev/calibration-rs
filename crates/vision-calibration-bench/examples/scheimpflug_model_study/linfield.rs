@@ -53,8 +53,9 @@ fn cam_step(p: &GenParams, k: usize) -> f64 {
     1e-6 * cam_get(p, k).abs().max(1.0)
 }
 
-/// A rigid motion `[ω, t]` applied on the left.
-fn twist(v: [f64; 6]) -> Iso3 {
+/// A rigid motion `[ω, t]` applied on the left (the pose columns'
+/// parameterization).
+pub fn twist(v: [f64; 6]) -> Iso3 {
     Iso3::new(
         Vector3::new(v[3], v[4], v[5]),
         Vector3::new(v[0], v[1], v[2]),
@@ -155,6 +156,30 @@ pub fn linearize(
     views: &[View<NoMeta>],
     poses: &[Iso3],
 ) -> Vec<LinPoint> {
+    linearize_with(params, Some(typical), size, ids, views, poses)
+}
+
+/// [`linearize`] without the typical camera's pixel directions
+/// (`cfield` left zero): for fits that use no `φ` basis, at a fraction of
+/// the cost.
+pub fn linearize_plain(
+    params: &GenParams,
+    size: [u32; 2],
+    ids: &[usize],
+    views: &[View<NoMeta>],
+    poses: &[Iso3],
+) -> Vec<LinPoint> {
+    linearize_with(params, None, size, ids, views, poses)
+}
+
+fn linearize_with(
+    params: &GenParams,
+    typical: Option<&GenParams>,
+    size: [u32; 2],
+    ids: &[usize],
+    views: &[View<NoMeta>],
+    poses: &[Iso3],
+) -> Vec<LinPoint> {
     let plain = GenCfg::base("plain");
     let proj = |p: &GenParams, pose: &Iso3, b: [f64; 2]| project_point(&plain, p, size, pose, b);
     let mut out = Vec::new();
@@ -207,7 +232,7 @@ pub fn linearize(
                 },
                 jcam,
                 jpose,
-                cfield: cam_fields(typical, size, u),
+                cfield: typical.map_or([[0.0; 2]; NCF], |t| cam_fields(t, size, u)),
                 depth: pc.z,
                 blur: None,
                 gblur: None,
@@ -954,6 +979,20 @@ pub fn predict(
     shared: Option<(&dyn Basis, &DVector<f64>)>,
     held: Option<(&dyn Basis, &DVector<f64>)>,
 ) -> Vec<[f64; 2]> {
+    predict_with_poses(pts, dtheta, local, shared, held).0
+}
+
+/// [`predict`], also returning each view's pose step (`[ω, t]`, applied
+/// on the left as [`twist`]): the back-substitution of the Schur
+/// complement, so an iterated fit can move the poses.
+pub fn predict_with_poses(
+    pts: &[LinPoint],
+    dtheta: &[f64; NCAM],
+    local: Option<(&dyn Basis, &DVector<f64>)>,
+    shared: Option<(&dyn Basis, &DVector<f64>)>,
+    held: Option<(&dyn Basis, &DVector<f64>)>,
+) -> (Vec<[f64; 2]>, BTreeMap<usize, [f64; 6]>) {
+    let mut steps = BTreeMap::new();
     let mut e: Vec<[f64; 2]> = Vec::with_capacity(pts.len());
     let mut buf = Vec::new();
     for p in pts {
@@ -996,8 +1035,11 @@ pub fn predict(
                 *ec -= (0..6).map(|m| p.jpose[m][c] * dp[m]).sum::<f64>();
             }
         }
+        if let Some(&first) = idx.first() {
+            steps.insert(pts[first].view, std::array::from_fn(|m| dp[m]));
+        }
     }
-    e
+    (e, steps)
 }
 
 /// RMS, mean and median of the residual norms.

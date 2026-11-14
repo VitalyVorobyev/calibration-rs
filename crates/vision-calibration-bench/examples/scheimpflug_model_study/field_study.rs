@@ -172,14 +172,18 @@ pub fn add_extras(pts: &mut [LinPoint], params: &GenParams, size: [u32; 2]) {
 /// a full quadratic in `(x, y, 1/z)` (`x, y` half-size-normalized pixels,
 /// `z` in units of 0.25 m).
 fn blur_row(p: &LinPoint, size: [u32; 2]) -> [f64; 10] {
+    blur_row_at(p.u, p.depth, size)
+}
+
+fn blur_row_at(u: [f64; 2], depth: f64, size: [u32; 2]) -> [f64; 10] {
     let (w, h) = (f64::from(size[0]) / 2.0, f64::from(size[1]) / 2.0);
-    let (x, y, z) = ((p.u[0] - w) / w, (p.u[1] - h) / h, 0.25 / p.depth);
+    let (x, y, z) = ((u[0] - w) / w, (u[1] - h) / h, 0.25 / depth);
     [1.0, x, y, z, x * x, x * y, y * y, x * z, y * z, z * z]
 }
 
 /// The geometric blur model fitted to the detector's blur (least squares on
 /// `σ²`), and the share of the blur variance it explains.
-fn blur_model(pts: &[LinPoint], size: [u32; 2]) -> Option<(DVector<f64>, f64)> {
+pub(crate) fn blur_model(pts: &[LinPoint], size: [u32; 2]) -> Option<(DVector<f64>, f64)> {
     let with: Vec<&LinPoint> = pts.iter().filter(|p| p.blur.is_some()).collect();
     if with.len() < 50 {
         return None;
@@ -198,8 +202,13 @@ fn blur_model(pts: &[LinPoint], size: [u32; 2]) -> Option<(DVector<f64>, f64)> {
     Some((coef, 1.0 - rss / (sd * sd * (obs.len() as f64 - 1.0))))
 }
 
-fn blur_predict(coef: &DVector<f64>, p: &LinPoint, size: [u32; 2]) -> f64 {
-    let r = blur_row(p, size);
+pub(crate) fn blur_predict(coef: &DVector<f64>, p: &LinPoint, size: [u32; 2]) -> f64 {
+    blur_predict_at(coef, p.u, p.depth, size)
+}
+
+/// [`blur_predict`] at pixel `u` and camera-frame depth `depth` (m).
+pub(crate) fn blur_predict_at(coef: &DVector<f64>, u: [f64; 2], depth: f64, size: [u32; 2]) -> f64 {
+    let r = blur_row_at(u, depth, size);
     (0..10).map(|j| r[j] * coef[j]).sum::<f64>().max(0.0).sqrt()
 }
 
