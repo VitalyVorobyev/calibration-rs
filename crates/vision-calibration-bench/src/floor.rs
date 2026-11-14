@@ -32,7 +32,10 @@
 //!    calibrated and smooth-fit magnitudes side by side. Sections 3 and 4 use
 //!    the points that are quartic-fit inliers, so all numbers describe one
 //!    point set. The three fractions are independent views of the same
-//!    residuals, not an orthogonal split.
+//!    residuals, not an orthogonal split. The board-fixed field of each
+//!    camera pair is compared in the board frame (residuals mapped by the
+//!    smooth fit's inverse Jacobian), since cameras that see the board turned
+//!    see one board offset along different image directions.
 //!
 //! Everything is deterministic: no wall-clock values, ordered maps only.
 
@@ -240,7 +243,8 @@ pub struct MarkerOffset {
     pub count: usize,
 }
 
-/// Correlation of per-board-point mean calibrated residuals of two cameras.
+/// Correlation of per-board-point mean calibrated residuals of two cameras,
+/// taken in the board frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CameraPairCorrelation {
     /// First camera label.
@@ -249,7 +253,7 @@ pub struct CameraPairCorrelation {
     pub b: String,
     /// Board points in common.
     pub markers: usize,
-    /// Pearson correlation of the mean vectors' components.
+    /// Pearson correlation of the mean vectors' board-frame components.
     pub correlation: f64,
 }
 
@@ -754,14 +758,28 @@ struct CalObs {
     key: MarkerKey,
     cell: (usize, usize),
     d: [f64; 2],
+    /// `d` in the board frame (mm), through the inverse Jacobian of the
+    /// view's smooth fit; `None` where that Jacobian is singular.
+    board: Option<[f64; 2]>,
+}
+
+/// `J⁻¹ r` for a row-major 2×2 `J`, `None` when `J` is singular.
+fn to_board(j: &[f64; 4], r: [f64; 2]) -> Option<[f64; 2]> {
+    let det = j[0] * j[3] - j[1] * j[2];
+    (det.abs() >= 1e-9).then(|| {
+        [
+            (j[3] * r[0] - j[1] * r[1]) / det,
+            (-j[2] * r[0] + j[0] * r[1]) / det,
+        ]
+    })
 }
 
 fn calibrated_observations(camera: &FloorCamera, fit: &CameraFit) -> Vec<CalObs> {
     let f = frame(camera);
     fit.views
         .iter()
-        .flat_map(|v| v.inliers.iter())
-        .filter_map(|&i| {
+        .flat_map(|v| v.inliers.iter().zip(&v.jacobian))
+        .filter_map(|(&i, j)| {
             let p = &camera.points[i];
             let d = p.residual_px.filter(|d| d.iter().all(|x| x.is_finite()))?;
             Some(CalObs {
@@ -769,6 +787,7 @@ fn calibrated_observations(camera: &FloorCamera, fit: &CameraFit) -> Vec<CalObs>
                 key: marker_key(p.board_mm),
                 cell: cell_of(f, p.observed_px),
                 d,
+                board: to_board(j, d),
             })
         })
         .collect()
@@ -842,16 +861,9 @@ fn board_frame_residuals(camera: &FloorCamera, fit: &CameraFit) -> Vec<(MarkerKe
     let mut out = Vec::new();
     for v in &fit.views {
         for ((&i, r), j) in v.inliers.iter().zip(&v.residual).zip(&v.jacobian) {
-            let det = j[0] * j[3] - j[1] * j[2];
-            if det.abs() < 1e-9 {
-                continue;
+            if let Some(m) = to_board(j, *r) {
+                out.push((marker_key(camera.points[i].board_mm), m));
             }
-            // m = J⁻¹ r.
-            let m = [
-                (j[3] * r[0] - j[1] * r[1]) / det,
-                (-j[2] * r[0] + j[0] * r[1]) / det,
-            ];
-            out.push((marker_key(camera.points[i].board_mm), m));
         }
     }
     out
@@ -975,11 +987,13 @@ pub fn analyze(cameras: &[FloorCamera]) -> Result<FloorReport> {
         .map(|(c, f)| board_frame_residuals(c, f))
         .collect();
 
-    // Between-camera correlation of the per-point means.
+    // Between-camera correlation of the per-point means, in the board frame:
+    // cameras that see the board turned see one board offset along
+    // different image directions.
     let means: Vec<BTreeMap<MarkerKey, [f64; 2]>> = cal
         .iter()
         .map(|obs| {
-            group(obs.iter().map(|o| (o.key, o.d)))
+            group(obs.iter().filter_map(|o| Some((o.key, o.board?))))
                 .into_iter()
                 .filter(|(_, g)| g.len() >= MIN_GROUP_OBS)
                 .map(|(k, g)| (k, mean2(&g)))
@@ -1182,7 +1196,7 @@ pub fn render_table(report: &FloorReport) -> String {
         &p.view_field,
     ));
     line(format!(
-        "between-camera correlation of per-point means (b): mean {} over {} pairs",
+        "between-camera correlation of per-point means (b), board frame: mean {} over {} pairs",
         opt(p.board_field_mean_correlation),
         p.board_field_pairs.len()
     ));
@@ -1300,6 +1314,9 @@ mod tests {
         field_amp_px: f64,
         cameras: usize,
         views: usize,
+        /// In-plane roll of the board added per camera index, radians (a
+        /// ring of cameras sees the board turned by its place in the ring).
+        roll_per_camera: f64,
     }
 
     /// Project a board point `(x, y)` mm through a tilted board pose placed
@@ -1351,7 +1368,7 @@ mod tests {
                     let (ax, ay, az) = (
                         angle(&mut rng, 0.3),
                         angle(&mut rng, 0.3),
-                        angle(&mut rng, 0.5),
+                        angle(&mut rng, 0.5) + cam as f64 * scene.roll_per_camera,
                     );
                     let r = nalgebra::Rotation3::from_euler_angles(ax, ay, az).into_inner();
                     let pos = [
@@ -1407,6 +1424,7 @@ mod tests {
                 field_amp_px: 0.0,
                 cameras: 2,
                 views: 12,
+                roll_per_camera: 0.0,
             },
             7,
         ))
@@ -1439,6 +1457,7 @@ mod tests {
                 field_amp_px: 0.0,
                 cameras: 2,
                 views: 12,
+                roll_per_camera: 0.0,
             },
             11,
         ))
@@ -1453,6 +1472,27 @@ mod tests {
     }
 
     #[test]
+    fn board_offsets_agree_between_cameras_that_see_the_board_turned() {
+        // Two cameras a quarter turn apart around the board: the same board
+        // offsets point in different image directions, so they agree only
+        // in the board frame.
+        let report = analyze(&make(
+            &Scene {
+                noise_px: 0.1,
+                marker_offset_rms_mm: 0.03,
+                field_amp_px: 0.0,
+                cameras: 2,
+                views: 16,
+                roll_per_camera: std::f64::consts::FRAC_PI_2,
+            },
+            17,
+        ))
+        .unwrap();
+        let r = report.pooled.board_field_mean_correlation.unwrap();
+        assert!(r > 0.5, "between-camera correlation {r}");
+    }
+
+    #[test]
     fn camera_fixed_field_is_not_a_marker_effect() {
         let report = analyze(&make(
             &Scene {
@@ -1461,6 +1501,7 @@ mod tests {
                 field_amp_px: 0.4,
                 cameras: 1,
                 views: 30,
+                roll_per_camera: 0.0,
             },
             13,
         ))
@@ -1489,6 +1530,7 @@ mod tests {
                 field_amp_px: 0.0,
                 cameras: 1,
                 views: 3,
+                roll_per_camera: 0.0,
             },
             3,
         ))
@@ -1508,6 +1550,7 @@ mod tests {
                 field_amp_px: 0.0,
                 cameras: 1,
                 views: 2,
+                roll_per_camera: 0.0,
             },
             5,
         );
