@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   markers the fit refined. Existing manifests and detection caches are
   unaffected.
 
+### Changed
+
+- The ring-grid detector is `ringgrid` 0.15.0. Its photometric centre method
+  now fits a direction-dependent blur, so photometric centres move slightly
+  (ellipse centres are unchanged). The detector version is part of the
+  detection-cache key, so ring-grid caches are rebuilt on the next run.
+
 ## [1.0.0-rc.1] - 2026-11-13
 
 ### Migration

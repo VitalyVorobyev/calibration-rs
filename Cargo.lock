@@ -2739,9 +2739,9 @@ dependencies = [
 
 [[package]]
 name = "ringgrid"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63ab536a36da81cbc085fa7bff381d60192eebab5dce7da4d1af2a915e576141"
+checksum = "9bdbd147330cd1d64209eda853281c0e11aa270034178525bbd0d41955925d47"
 dependencies = [
  "approx",
  "image",
