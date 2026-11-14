@@ -49,14 +49,14 @@ observations, and neither run shows a scale bias.
   ([tilt-identifiability](tilt-identifiability.md)).
 - **Fixing an undetermined tilt at zero is sound only with the tangential
   terms freed**: median cost 0.29× the noise floor against 2.0× with them
-  held (synthetic; `tilt-determination.md`, pending merge).
+  held (synthetic; [tilt-determination](tilt-determination.md)).
 - **Blur determines the plane of sharp focus** (0.91–0.96 of blur variance)
   and with it the tilt's direction; its size needs pixel pitch and pupil
   magnification ([tilt-from-focus](tilt-from-focus.md)).
 - **An unmodelled defocus-coupled displacement biases the
   distortion-derived tilt** by many noise σ in synthetic data, and on the
   real data accounts for 13–51 % of the gap to the focus-derived tilt
-  (`tilt-bias.md`, pending merge).
+  ([tilt-bias](tilt-bias.md)).
 - **Photometric fit residuals on real images are half structured**: sensor
   noise is white, the rest is a slowly varying intensity mismatch that is
   not a common profile (3.9 % of variance). The centre covariance that
