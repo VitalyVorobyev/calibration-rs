@@ -20,7 +20,9 @@ use calib_targets::{
     puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec},
 };
 
-use vision_calibration_detect::{DetectorConfig, GrayImageView, RinggridConfig};
+use vision_calibration_detect::{
+    DetectorConfig, GrayImageView, RinggridCenterMethod, RinggridConfig,
+};
 use vision_metrology::Edge1DConfig;
 use vision_metrology::laser::{
     ColAccess, LaserExtractConfig, LaserExtractTuning, LaserExtractor, ScanAxis,
@@ -454,6 +456,7 @@ pub fn detect_ringgrid(
     tile: &GrayImage,
     spec: &BoardRinggridSpec,
     ring_width_mm: f64,
+    center_method: RinggridCenterMethod,
 ) -> Result<CorrespondenceView> {
     let config = DetectorConfig::Ringgrid(RinggridConfig {
         pitch_m: spec.pitch_mm / 1000.0,
@@ -462,7 +465,7 @@ pub fn detect_ringgrid(
         marker_outer_radius_m: spec.marker_outer_radius_mm / 1000.0,
         marker_inner_radius_m: spec.marker_inner_radius_mm / 1000.0,
         marker_ring_width_m: ring_width_mm / 1000.0,
-        center_method: Default::default(),
+        center_method,
     });
     let view = GrayImageView::new(tile.width(), tile.height(), tile.as_raw())
         .map_err(|e| anyhow!("ringgrid image: {e}"))?;
@@ -498,12 +501,13 @@ pub fn detect_ringgrid(
 /// of every tile), so an optional `cache_path` memoizes the result as JSON:
 /// when the file exists it is loaded verbatim; otherwise detection runs and the
 /// result is written there. The caller owns cache invalidation — vary the path
-/// (e.g. by `ring_width_mm`) when the inputs change.
+/// (e.g. by `ring_width_mm` or `center_method`) when the inputs change.
 pub fn detect_ringgrid_all(
     data_dir: &Path,
     poses: &[PoseEntry],
     board: &BoardRinggridSpec,
     ring_width_mm: f64,
+    center_method: RinggridCenterMethod,
     cache_path: Option<&Path>,
 ) -> Result<Vec<Vec<Option<CorrespondenceView>>>> {
     let num_cameras = 6; // scheimpflug_rig horizontal strip = six 720×540 tiles
@@ -535,7 +539,7 @@ pub fn detect_ringgrid_all(
         let tiles = split_horizontal(&img, num_cameras);
         let mut cams: Vec<Option<CorrespondenceView>> = Vec::with_capacity(num_cameras);
         for tile in &tiles {
-            cams.push(detect_ringgrid(tile, board, ring_width_mm).ok());
+            cams.push(detect_ringgrid(tile, board, ring_width_mm, center_method).ok());
         }
         out.push(cams);
     }
