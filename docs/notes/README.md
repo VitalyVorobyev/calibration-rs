@@ -63,6 +63,11 @@ evidence behind ADR 0011.
   part of the Scheimpflug residual: structured candidates against a
   designed B-spline field on held-out views, the observation-evaluated
   field artefact, orthogonality to the camera, Monte-Carlo σ (ADR 0030).
+- [Parametric residual term](parametric-residual-term.md) — whether the
+  camera-fixed field is a camera property: defocus, depth, display and
+  detector alternatives on held-out views, compact empirical bases, the
+  lens terms of decentred optics and their identifiability; why the
+  residual-field slot is on hold.
 - [Display target residual](display-target-residual.md) — a PuzzleBoard on
   an e-ink display, six cameras fitted jointly on held-out captures:
   per-point in-plane offsets, board shape, cover-layer refraction and a
