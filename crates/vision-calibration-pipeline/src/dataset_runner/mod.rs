@@ -60,12 +60,12 @@ use vision_calibration_core::{
 };
 use vision_calibration_dataset::{
     ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
-    ImageNoiseSpec, ImagePattern, ProblemKind, TargetSpec, ValidationError,
+    ImageNoiseSpec, ImagePattern, ProblemKind, RinggridCenterSpec, TargetSpec, ValidationError,
 };
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
     CornerCovariance, CornerStrategy, DetectionCache, DetectorConfig, Feature, GrayImageView,
-    ImageNoise, PuzzleboardConfig, RinggridConfig, validate_charuco_layout,
+    ImageNoise, PuzzleboardConfig, RinggridCenterMethod, RinggridConfig, validate_charuco_layout,
 };
 
 mod board_turn;
@@ -645,8 +645,19 @@ fn detector_config(
             marker_outer_radius_m,
             marker_inner_radius_m,
             marker_ring_width_m,
+            center_method,
         } => {
             refuse_chess_override("ringgrid")?;
+            let center_method = match center_method {
+                RinggridCenterSpec::Ellipse => RinggridCenterMethod::Ellipse,
+                RinggridCenterSpec::Photometric => RinggridCenterMethod::Photometric,
+                other => {
+                    return Err(RunError::UnsupportedOption {
+                        option: "target.center_method",
+                        value: format!("{other:?}"),
+                    });
+                }
+            };
             Ok(DetectorConfig::Ringgrid(RinggridConfig {
                 pitch_m: *pitch_m,
                 rows: *rows,
@@ -654,6 +665,7 @@ fn detector_config(
                 marker_outer_radius_m: *marker_outer_radius_m,
                 marker_inner_radius_m: *marker_inner_radius_m,
                 marker_ring_width_m: *marker_ring_width_m,
+                center_method,
             }))
         }
         other => Err(RunError::UnsupportedTarget {
@@ -1387,11 +1399,13 @@ mod tests {
             marker_outer_radius_m: 0.006,
             marker_inner_radius_m: 0.003,
             marker_ring_width_m: 0.001,
+            center_method: RinggridCenterSpec::Photometric,
         };
         let spec = spec_for_target(target);
         let DetectorConfig::Ringgrid(config) = target_to_detector_config(&spec).unwrap() else {
             panic!("a ringgrid target lowers to the ringgrid detector");
         };
+        assert_eq!(config.center_method, RinggridCenterMethod::Photometric);
         assert_eq!(config.long_row_cols, 5);
         assert_eq!(config.marker_outer_radius_m, 0.006);
     }

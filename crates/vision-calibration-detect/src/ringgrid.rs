@@ -10,13 +10,43 @@
 //! marker pixel size is unknown for an arbitrary dataset image, and adaptive
 //! mode auto-selects scale tiers rather than relying on a hand-tuned prior.
 
-use ringgrid::{Detector as RinggridDetectorImpl, TargetLayout};
+use ringgrid::{
+    CenterSource, CircleRefinementMethod, Detector as RinggridDetectorImpl, TargetLayout,
+};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
 use crate::{DetectError, Feature};
+
+/// How a ring marker's centre is estimated; see [`RinggridConfig::center_method`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RinggridCenterMethod {
+    /// The projective centre recovered from the marker's fitted inner and
+    /// outer ellipses. Fast, and accurate on sharp images; the default.
+    #[default]
+    Ellipse,
+    /// A per-marker photometric fit: the marker's pixels are explained by the
+    /// printed ring and code pattern, seen through the board homography and
+    /// blurred by a fitted Gaussian PSF, over an affine background. It removes
+    /// the blur- and code-dependent bias of edge-based centres, so use it on
+    /// blurred or low-contrast images. It costs roughly 2.5x the detection
+    /// time. Only markers the fit refined are returned (a marker that fell
+    /// back to its ellipse centre is less accurate than its neighbours and is
+    /// dropped). The default stays `Ellipse` until the benefit on real
+    /// calibration data is established.
+    Photometric,
+}
+
+impl RinggridCenterMethod {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
 
 /// Coded ring-grid detector configuration. Mirrors the geometry of the
 /// ringgrid variant in `vision_calibration_dataset::TargetSpec` so the
@@ -44,6 +74,11 @@ pub struct RinggridConfig {
     pub marker_inner_radius_m: f64,
     /// Width of each ring band in metres.
     pub marker_ring_width_m: f64,
+    /// Centre estimator. Defaults to [`RinggridCenterMethod::Ellipse`]; an
+    /// omitted key keeps it, and the default is left out when serializing so
+    /// existing detection-cache entries stay valid.
+    #[serde(default, skip_serializing_if = "RinggridCenterMethod::is_default")]
+    pub center_method: RinggridCenterMethod,
 }
 
 impl RinggridConfig {
@@ -74,7 +109,10 @@ pub(crate) fn detect(
     luma: &image::GrayImage,
 ) -> Result<Vec<Feature>, DetectError> {
     let board = cfg.board_layout()?;
-    let detector = RinggridDetectorImpl::new(board);
+    let mut detector = RinggridDetectorImpl::new(board);
+    if cfg.center_method == RinggridCenterMethod::Photometric {
+        detector.config_mut().circle_refinement = CircleRefinementMethod::Photometric;
+    }
 
     // Neither `ringgrid::DetectError` variant means "no board in this
     // frame" — an empty frame yields `Ok` with zero markers.
@@ -98,6 +136,10 @@ pub(crate) fn detect(
         result
             .detected_markers
             .into_iter()
+            .filter(|marker| {
+                cfg.center_method != RinggridCenterMethod::Photometric
+                    || marker.center_source == CenterSource::Photometric
+            })
             .filter_map(|marker| {
                 marker.board_xy_mm.map(|xy_mm| Feature {
                     image_xy: marker.center,
@@ -255,8 +297,116 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
-        let back: RinggridConfig =
-            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg.center_method, RinggridCenterMethod::Ellipse);
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(
+            !json.contains("center_method"),
+            "default is omitted: {json}"
+        );
+        let back: RinggridConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(cfg, back);
+
+        let mut photometric = board_config();
+        photometric["center_method"] = json!("photometric");
+        let cfg: RinggridConfig = serde_json::from_value(photometric).unwrap();
+        assert_eq!(cfg.center_method, RinggridCenterMethod::Photometric);
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains(r#""center_method":"photometric""#), "{json}");
+        let back: RinggridConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg, back);
+    }
+
+    /// The photometric centre method keeps only photometric markers and is
+    /// at least as accurate as the default on a blurred render.
+    #[test]
+    fn photometric_centres_match_or_beat_the_default() {
+        // The photometric fit models a blurred marker and declines an
+        // unblurred render, so blur the render the way a defocused lens would.
+        let img = image::DynamicImage::ImageLuma8(image::imageops::blur(
+            &synthetic_board_image().to_luma8(),
+            2.0,
+        ));
+        let base = run(&img, &board_config()).unwrap();
+        let mut cfg = board_config();
+        cfg["center_method"] = json!("photometric");
+        let photo = run(&img, &cfg).unwrap();
+        assert!(photo.len() >= 4, "photometric found {}", photo.len());
+        assert!(photo.iter().all(|f| f.cov_px.is_none()));
+
+        // The render is frontal at a uniform scale: every marker centre is an
+        // affine image of its board position, so the fit residual of that
+        // affine map measures localisation error without ground truth.
+        let rms = |fs: &[Feature]| -> f64 {
+            // Least squares of u = c . [X, Y, 1] by the normal equations,
+            // solved with Cramer's rule.
+            let det = |m: [[f64; 3]; 3]| {
+                m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                    - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                    + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+            };
+            let mut ata = [[0.0; 3]; 3];
+            let mut atb = [[0.0; 3]; 2];
+            for f in fs {
+                let a = [f.world_xyz[0], f.world_xyz[1], 1.0];
+                for i in 0..3 {
+                    for j in 0..3 {
+                        ata[i][j] += a[i] * a[j];
+                    }
+                    atb[0][i] += a[i] * f.image_xy[0];
+                    atb[1][i] += a[i] * f.image_xy[1];
+                }
+            }
+            let d = det(ata);
+            let solve = |b: [f64; 3]| -> [f64; 3] {
+                let mut c = [0.0; 3];
+                for k in 0..3 {
+                    let mut m = ata;
+                    for r in 0..3 {
+                        m[r][k] = b[r];
+                    }
+                    c[k] = det(m) / d;
+                }
+                c
+            };
+            let c = [solve(atb[0]), solve(atb[1])];
+            let mut sum = 0.0;
+            for f in fs {
+                let a = [f.world_xyz[0], f.world_xyz[1], 1.0];
+                for (axis, ck) in c.iter().enumerate() {
+                    let pred: f64 = (0..3).map(|i| ck[i] * a[i]).sum();
+                    sum += (pred - f.image_xy[axis]).powi(2);
+                }
+            }
+            (sum / fs.len() as f64).sqrt()
+        };
+        let (rb, rp) = (rms(&base), rms(&photo));
+        // On this render the ellipse centres scatter ~0.5 px and the
+        // photometric ones ~0.015 px; the bound is loose on purpose.
+        assert!(rp < 0.5 * rb, "photometric {rp} px vs default {rb} px");
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn center_method_changes_the_cache_key() {
+        let base = RinggridConfig {
+            pitch_m: 0.02,
+            rows: 5,
+            long_row_cols: 5,
+            marker_outer_radius_m: 0.006,
+            marker_inner_radius_m: 0.003,
+            marker_ring_width_m: 0.001,
+            center_method: RinggridCenterMethod::Ellipse,
+        };
+        let photometric = RinggridConfig {
+            center_method: RinggridCenterMethod::Photometric,
+            ..base
+        };
+        let key =
+            |c| crate::CacheKey::for_detection(b"img", &crate::DetectorConfig::Ringgrid(c), None);
+        assert_ne!(key(base), key(photometric));
     }
 }

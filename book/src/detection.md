@@ -28,7 +28,7 @@ The target is chosen by the manifest's `[target]` table, `kind` being one of the
 | `chessboard` | `rows`, `cols` (interior corners), `square_size_m` | Saddle corners of a plain checkerboard |
 | `charuco` | `rows`, `cols` (squares), `square_size_m`, `marker_size_m`, `dictionary` | Chessboard corners identified by embedded ArUco markers |
 | `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Saddles of a self-identifying chessboard variant |
-| `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` | Centres of coded ring markers on a hexagonal lattice |
+| `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m`, optional `center_method` | Centres of coded ring markers on a hexagonal lattice |
 
 ### Chessboard
 
@@ -64,6 +64,20 @@ Two fixed parts of the recipe are not configurable: the image is upscaled 2x bef
 A coded ring grid is a hexagonal lattice of ring markers, each carrying a 16-sector code. A decoded marker contributes one correspondence at its centre when its code maps to a known board position. `rows` is the number of marker rows and `long_row_cols` the number of columns of the longest (even-indexed) row; the shorter rows follow from the lattice. The three radii describe one marker (outer radius, inner radius, ring-band width) and are validated against `pitch_m` when the board layout is built. Detection runs in adaptive-scale mode, since the marker pixel size is unknown for an arbitrary image.
 
 The detector fits a flat shape: a hexagonal lattice of coded rings. Rectangular lattices and plain uncoded annuli are not exposed.
+
+The optional `center_method` picks how each marker's centre is estimated. The default, `"ellipse"`, takes the projective centre of the fitted inner and outer ellipses: fast, and accurate on sharp images. On a blurred or low-contrast image the edge points of a ring carry a blur- and code-dependent bias; `"photometric"` instead fits the marker's pixels with the printed ring and code pattern, blurred by a fitted Gaussian, and removes that bias. It costs roughly 2.5 times the detection time, and it returns only the markers the fit refined, so a marker that could not be fitted is dropped rather than mixed in at lower accuracy. It stays opt-in until its benefit on real calibration data is established. It does not report a per-point covariance, so the calibration stays unweighted.
+
+```toml
+[target]
+kind = "ringgrid"
+pitch_m = 0.008
+rows = 15
+long_row_cols = 14
+marker_outer_radius_m = 0.0024
+marker_inner_radius_m = 0.0012
+marker_ring_width_m = 0.0004
+center_method = "photometric"
+```
 
 ## Corner Detector Overrides
 

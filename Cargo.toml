@@ -92,7 +92,7 @@ criterion = "0.8"
 # solver stack: `vision-calibration-detect` converts to plain arrays at its
 # boundary.
 calib-targets = { version = "0.16.1", default-features = false, features = ["image"] }
-ringgrid = "0.13.2"
+ringgrid = "0.14.0"
 
 [workspace.lints.rust]
 missing_docs = "warn"

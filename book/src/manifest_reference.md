@@ -101,6 +101,16 @@ A plain chessboard has no markers: each view is labelled from the detection's ow
 | `marker_ring_width_m` | number | yes | Width of each ring band in metres. |
 | `pitch_m` | number | yes | Center-to-center spacing between adjacent markers in metres. |
 | `rows` | integer | yes | Number of marker rows. |
+| `center_method` | [RinggridCenterSpec](#ringgridcenterspec) | no | How each marker's centre is estimated. Omitted keeps the ellipse-based centre; `"photometric"` fits the blurred marker pattern instead, for blurred or low-contrast images. |
+
+## RinggridCenterSpec
+
+The ring-grid centre estimator: the manifest's own copy of the detector's centre method, which has the same JSON spelling.
+
+| Value | Description |
+|---|---|
+| `ellipse` | The projective centre recovered from the fitted inner and outer ellipses. Fast and accurate on sharp images; the default. |
+| `photometric` | A per-marker photometric fit of the blurred marker pattern. Use it on blurred or low-contrast images; it costs about 2.5x the detection time, and markers it cannot refine are dropped. |
 
 ## ProblemKind
 

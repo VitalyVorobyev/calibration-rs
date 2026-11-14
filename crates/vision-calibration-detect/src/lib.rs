@@ -68,7 +68,7 @@ pub use chessboard::ChessboardConfig;
 #[cfg(feature = "puzzleboard")]
 pub use puzzleboard::PuzzleboardConfig;
 #[cfg(feature = "ringgrid")]
-pub use ringgrid::RinggridConfig;
+pub use ringgrid::{RinggridCenterMethod, RinggridConfig};
 
 mod image_view;
 
@@ -85,7 +85,7 @@ pub(crate) mod backend {
     #[cfg(any(feature = "chessboard", feature = "charuco", feature = "puzzleboard"))]
     pub const CALIB_TARGETS: &str = "calib-targets 0.16.1 / chess-corners 2.1.0";
     #[cfg(feature = "ringgrid")]
-    pub const RINGGRID: &str = "ringgrid 0.13.2";
+    pub const RINGGRID: &str = "ringgrid 0.14.0";
 }
 
 /// A calibration target and the detector that finds it. The set is closed:
