@@ -138,6 +138,18 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 - [ ] CAM-SELECT - Model selection: compare candidate models by residual
   structure, an information criterion and held-out views. It extends the
   distortion-model-selection tutorial.
+- [ ] CAM-RESIDUAL-FIELD - An optional smooth image-space displacement
+  field on top of any camera model, for lenses the parametric families do
+  not describe. Evidence (`notes/scheimpflug-residual-model.md`): on the
+  six-camera Scheimpflug ring-grid rig a free degree-4 field takes the
+  held-out residual from 0.138 to 0.068 px RMS, the calibration-free
+  floor, and every camera's mean error below 0.075 px; no parametric
+  term comes close. Design first: a basis with no component along the
+  intrinsics, radial and tilt terms (a monomial basis drives `k1` to −8.7),
+  bounded behaviour outside the observed region (a B-spline grid or a
+  decaying field), its unprojection, and an honest covariance (the plain
+  basis states σ up to 4 times small). Enabled per camera, chosen on
+  held-out views. Needs: CAM-SELECT for the selection rule.
 
 ## Calibration problems (Phase 2)
 

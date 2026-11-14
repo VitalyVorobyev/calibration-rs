@@ -239,4 +239,7 @@ does.
 ## Open
 
 The synthetic-GT matrix test, a written identifiability and gauge analysis
-beyond the summary above, and noise-sensitivity numbers.
+beyond the summary above, and noise-sensitivity numbers. On real data the
+model leaves a smooth camera-fixed residual of about 0.12 px that no
+parametric term removes:
+[scheimpflug-residual-model.md](scheimpflug-residual-model.md).
