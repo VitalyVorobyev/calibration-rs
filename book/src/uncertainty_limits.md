@@ -27,7 +27,11 @@ corner noise the residuals show (`estimate_sigma` of the `refine` prior). The
 estimate is then the maximum-likelihood one and its covariance holds: on
 synthetic eye-in-hand scenes the normalized errors had an RMS of 1.02–1.13,
 from priors that matched the robot's error and from priors ten times too
-tight or too loose. With the estimate off, the configured
+tight or too loose. Corner noise correlated within views (a view scatter
+above 1) is left out of it: the part of each correction it explains, at the
+view scatter's scale, is not counted as the robot's. A correlated error that
+is itself a per-view pose, such as a target that moves between views, cannot
+be told from the robot's and stays in the estimate. With the estimate off, the configured
 the prior's `rot_sigma` and `trans_sigma` are taken as the robot's true
 accuracy: too loose, and the hand-eye and target standard deviations are
 pessimistic; too tight, and they are too small, with nothing in the

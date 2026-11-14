@@ -46,6 +46,10 @@ impl Rng {
     }
 }
 
+/// The chessboard's inner corners, row-major.
+const BOARD_ROWS: usize = 17;
+const BOARD_COLS: usize = 28;
+
 /// `kuka_1`'s geometry: a 1928 × 1208 camera (fx 2060 px), a 17 × 28
 /// chessboard of 20 mm 1–1.3 m away, the board 2.8 m from the robot base,
 /// 30 robot stations.
@@ -103,11 +107,11 @@ impl Scene {
             .iter()
             .map(|c| base_se3_target * c.inverse() * gripper_se3_cam.inverse())
             .collect();
-        let board = (0..17 * 28)
+        let board = (0..BOARD_ROWS * BOARD_COLS)
             .map(|i| {
                 Pt3::new(
-                    (i % 28) as f64 * 0.02 - 0.27,
-                    (i / 28) as f64 * 0.02 - 0.16,
+                    (i % BOARD_COLS) as f64 * 0.02 - 0.27,
+                    (i / BOARD_COLS) as f64 * 0.02 - 0.16,
                     0.0,
                 )
             })
@@ -136,20 +140,46 @@ impl Scene {
     /// (`T_B_G · exp(ε)`), or with `base_frame` in the base frame
     /// (`exp(ε) · T_B_G`).
     fn dataset(&self, seed: u64, px: f64, robot: (f64, f64), base_frame: bool) -> HandeyeDataset {
+        self.correlated(seed, px, None, robot, base_frame)
+    }
+
+    /// [`Self::dataset`] with pixel noise correlated within views: with
+    /// `tiles = Some((n, tau))` the board is cut into `n × n`-corner tiles
+    /// and every corner of a tile, in each view, shares a Gaussian offset of
+    /// `tau` px per axis on top of its own `px`. The offsets are fresh per
+    /// view and per tile, so they do not look like a pose.
+    fn correlated(
+        &self,
+        seed: u64,
+        px: f64,
+        tiles: Option<(usize, f64)>,
+        robot: (f64, f64),
+        base_frame: bool,
+    ) -> HandeyeDataset {
         let mut rng = Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0xABCD);
         let views = self
             .cam_se3_target
             .iter()
             .zip(&self.base_se3_gripper)
             .map(|(c, b)| {
+                let offsets: Vec<[f64; 2]> = tiles.map_or_else(Vec::new, |(n, tau)| {
+                    (0..BOARD_ROWS.div_ceil(n) * BOARD_COLS.div_ceil(n))
+                        .map(|_| [tau * rng.gauss(), tau * rng.gauss()])
+                        .collect()
+                });
                 let (p3, p2): (Vec<Pt3>, Vec<Pt2>) = self
                     .board
                     .iter()
-                    .filter_map(|p| {
+                    .enumerate()
+                    .filter_map(|(i, p)| {
                         let uv = self.camera.project_point(&c.transform_point(p))?;
+                        let [ox, oy] = tiles.map_or([0.0; 2], |(n, _)| {
+                            let (row, col) = (i / BOARD_COLS, i % BOARD_COLS);
+                            offsets[row / n * BOARD_COLS.div_ceil(n) + col / n]
+                        });
                         Some((
                             *p,
-                            Pt2::new(uv.x + px * rng.gauss(), uv.y + px * rng.gauss()),
+                            Pt2::new(uv.x + ox + px * rng.gauss(), uv.y + oy + px * rng.gauss()),
                         ))
                     })
                     .unzip();
@@ -389,4 +419,61 @@ fn estimated_robot_sigma_recovers_the_robot_error() {
         estimated < 0.7 * fixed,
         "hand-eye error {estimated} vs {fixed}"
     );
+}
+
+/// Pixel noise correlated within views, which is not the robot's: on 0.05 px
+/// of white noise, every 4 × 4-corner tile of a view shares an offset of
+/// 0.1 px (a view scatter of 6–9). The estimated robot error lands near the
+/// simulated 1e-4 rad and 0.05 mm (0.95 and 1.13 times them over four
+/// seeds); counting the tiles' noise as the robot's, it was 2.4 and 6.1
+/// times them. With white noise of about the same size the view scatter is
+/// not significant, nothing is taken out, and the estimate is the
+/// variance-component one. A gate, run in release by CI's uncertainty job.
+#[test]
+#[ignore = "gate; run in release with --ignored"]
+fn estimated_robot_sigma_leaves_out_view_correlated_pixel_error() {
+    let robot = (1e-4, 5e-5);
+    let scene = Scene::new();
+    let solve = |seed: u64, px: f64, tiles: Option<(usize, f64)>| {
+        optimize_handeye(
+            scene.correlated(seed, px, tiles, robot, false),
+            scene.initial(),
+            HandeyeSolveOptions {
+                fix_extrinsics: vec![true],
+                refine_robot_poses: true,
+                estimate_robot_sigma: true,
+                ..Default::default()
+            },
+            BackendSolveOptions::default(),
+        )
+        .unwrap()
+    };
+    let seeds = 0..4_u64;
+    for (label, px, tiles) in [("tiled", 0.05, Some((4, 0.1))), ("white", 0.1, None)] {
+        let (mut rot, mut trans) = (0.0, 0.0);
+        for seed in seeds.clone() {
+            let est = solve(seed, px, tiles);
+            let Uncertainty::Available(cov) = &est.uncertainty else {
+                panic!("no covariance: {:?}", est.uncertainty);
+            };
+            match (tiles, cov.view_scatter) {
+                (Some(_), Some(k)) => assert!(k > 3.0, "{label} seed {seed}: view scatter {k}"),
+                (None, None) => {}
+                (_, k) => panic!("{label} seed {seed}: view scatter {k:?}"),
+            }
+            let sigma = est.robot_refinement.unwrap().sigma;
+            rot += sigma.rot_sigma / 4.0;
+            trans += sigma.trans_sigma / 4.0;
+        }
+        assert!(
+            (rot / robot.0 - 1.0).abs() < 0.25,
+            "{label}: rotation σ {rot} for {}",
+            robot.0
+        );
+        assert!(
+            (trans / robot.1 - 1.0).abs() < 0.25,
+            "{label}: translation σ {trans} for {}",
+            robot.1
+        );
+    }
 }

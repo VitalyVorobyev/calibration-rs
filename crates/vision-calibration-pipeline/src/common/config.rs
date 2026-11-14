@@ -578,7 +578,9 @@ pub struct RobotPosePrior {
     /// Estimate the robot's error from the corrections, starting from
     /// `rot_sigma` and `trans_sigma`: each prior's variance factor is
     /// estimated from the corrections and their redundancy, and the solve
-    /// repeats until it settles. The export reports the estimate
+    /// repeats until it settles. Corner noise correlated within views (a
+    /// view scatter above 1) is not counted as the robot's. The export
+    /// reports the estimate
     /// (`robot_refinement.sigma`). On by default: the stated accuracy of an
     /// arm is rarely its error in one calibration, and a prior that is too
     /// loose or too tight misstates the hand-eye and target standard

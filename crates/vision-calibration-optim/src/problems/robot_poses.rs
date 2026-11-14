@@ -22,10 +22,27 @@
 //! variance factor is `ŝ² = Σ (δ̂ₖ/σ)² / Σ rₖ`, with `rₖ = 1 − Var(δ̂ₖ)/σ²`
 //! the redundancy of the prior row (the share of it the data do not
 //! determine); `σ ← ŝ σ` and the solve repeats until both factors are 1.
+//!
+//! A correction `δ̂ₖ` is the robot's error, shrunk, plus the pose-like part
+//! of its view's pixel error, whose variance is `(Σ − Σ P Σ)ₖₖ` for white
+//! residuals (`Σ` the covariance without its view-scatter scaling, `P` the
+//! priors' information); that is the `Var(δ̂ₖ) = σ² − Σₖₖ` the factor
+//! expects. When the residuals are correlated within views, the pixel part
+//! is `k_px` times larger, and `(k_px − 1) (Σ − Σ P Σ)ₖₖ` is taken out of
+//! `δ̂ₖ²`: otherwise the view-correlated pixel error is counted as the
+//! robot's. `k_px` comes from the covariance's view scatter `k`, which
+//! measures the shared coordinates' inflation over pixel and prior rows
+//! alike; with the priors' share honest, `k_px = 1 + (k − 1) s / t` (see
+//! [`pixel_scatter`]). Like the view-scatter scaling it assumes every
+//! direction inflated alike: a correlated error that is itself a per-view
+//! pose (a target that moves between views, a per-view focus change) is
+//! indistinguishable from the robot's and stays in the estimate. The first
+//! solve, at `σ_px = 1`, weighs the priors against the wrong pixel noise, so
+//! its corrections are not the ones `Σ` describes and it takes nothing out.
 
 use std::collections::HashMap;
 
-use nalgebra::DVector;
+use nalgebra::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::ResidualKind;
 
@@ -193,7 +210,7 @@ where
     // Every solve's covariance steers the next weights; only the last one's
     // is reported, so only it gets the second-order prediction.
     let mut solution = backend::solve_first_order(&ir, &initial, backend_opts)?;
-    for _ in 0..=MAX_REWEIGHTS {
+    for pass in 0..=MAX_REWEIGHTS {
         let pixel_sigma = solution
             .noise
             .iter()
@@ -202,7 +219,7 @@ where
             .ok_or_else(|| Error::numerical("no reprojection residuals to weigh the robot poses"))?
             .max(MIN_PIXEL_SIGMA);
         let priors = if estimate {
-            estimated_priors(&ir, &solution, weighting.priors, num_views)
+            estimated_priors(&ir, &solution, weighting.priors, num_views, pass > 0)
         } else {
             weighting.priors
         };
@@ -244,11 +261,11 @@ fn estimated_priors(
     solution: &BackendSolution,
     priors: RobotPoseSigma,
     num_views: usize,
+    weighed: bool,
 ) -> RobotPoseSigma {
     let ParamUncertainty::Available(cov) = &solution.uncertainty else {
         return priors;
     };
-    // The redundancy is the noise model's: undo the view-scatter scaling.
     let model_scale = cov.view_scatter.unwrap_or(1.0);
     let row: HashMap<Coordinate, usize> = cov
         .coordinates
@@ -261,8 +278,8 @@ fn estimated_priors(
         .iter()
         .map(|p| (p.name.as_str(), p.id.0))
         .collect();
-    // [rotation, translation] × [Σ (δ/σ)², Σ redundancy]
-    let mut sums = [[0.0; 2]; 2];
+    // Every correction coordinate: its row, group, prior σ and value.
+    let mut coords = Vec::with_capacity(6 * num_views);
     for view in 0..num_views {
         let key = format!("robot_delta/{view}");
         let (Some(&id), Some(delta)) = (block.get(key.as_str()), solution.params.get(&key)) else {
@@ -280,21 +297,86 @@ fn estimated_priors(
             } else {
                 (1, priors.trans_sigma)
             };
-            sums[group][0] += (delta[k] / sigma).powi(2);
-            sums[group][1] += 1.0 - cov.matrix[(i, i)] / model_scale / (sigma * sigma);
+            coords.push((i, group, sigma, delta[k]));
         }
+    }
+    // The white covariance `Σ` (the view-scatter scaling undone), from which
+    // the redundancy is the noise model's.
+    let white = |a: usize, b: usize| cov.matrix[(a, b)] / model_scale;
+    // `(Σ P Σ)_ab`, the part of `Σ_ab` the priors supply (`P` their
+    // information, on the corrections' coordinates only).
+    let from_priors = |a: usize, b: usize| {
+        coords
+            .iter()
+            .map(|&(j, _, s, _)| white(a, j) * white(j, b) / (s * s))
+            .sum::<f64>()
+    };
+    let inflation = if weighed && model_scale > 1.0 {
+        // The shared coordinates, as the view scatter takes them.
+        let shared: Vec<usize> = cov
+            .coordinates
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| ir.params.get(c.block).is_some_and(|p| p.view().is_none()))
+            .map(|(i, _)| i)
+            .collect();
+        let n = shared.len();
+        pixel_scatter(
+            model_scale,
+            DMatrix::from_fn(n, n, |a, b| white(shared[a], shared[b])),
+            &DMatrix::from_fn(n, n, |a, b| from_priors(shared[a], shared[b])),
+        )
+    } else {
+        1.0
+    };
+    // [rotation, translation] × [Σ (δ/σ)², Σ redundancy]
+    let mut sums = [[0.0; 2]; 2];
+    for &(i, group, sigma, delta) in &coords {
+        // The pixel noise in the correction beyond what `Σ` gives it.
+        let excess = if inflation > 1.0 {
+            (inflation - 1.0) * (white(i, i) - from_priors(i, i)).max(0.0)
+        } else {
+            0.0
+        };
+        sums[group][0] += (delta / sigma).powi(2) - excess / (sigma * sigma);
+        sums[group][1] += 1.0 - white(i, i) / (sigma * sigma);
     }
     let scaled = |sigma: f64, [num, redundancy]: [f64; 2], floor: f64| {
         if redundancy < MIN_REDUNDANCY {
             sigma
         } else {
-            (sigma * (num / redundancy).sqrt()).max(floor)
+            (sigma * (num.max(0.0) / redundancy).sqrt()).max(floor)
         }
     };
     RobotPoseSigma {
         rot_sigma: scaled(priors.rot_sigma, sums[0], MIN_ROT_SIGMA),
         trans_sigma: scaled(priors.trans_sigma, sums[1], MIN_TRANS_SIGMA),
     }
+}
+
+/// The view scatter of the pixel noise alone, `k_px`: how much more the
+/// reprojection residuals' share of the estimate scatters across views than
+/// the white covariance `Σ` says, from the covariance's view scatter `k`,
+/// the white covariance `shared` of the `s` shared coordinates and the part
+/// of it the priors supply, `from_priors = (Σ P Σ)_ss`.
+///
+/// `k = 1 + tr(Σ_ss⁻¹ (Σ_J − E[Σ_J])) / s` is the shared coordinates'
+/// inflation over pixel and prior rows alike. With the priors' `σ` the
+/// robot's, only the pixel part `(Σ − Σ P Σ)_ss` is inflated, so
+/// `k s = k_px t + (s − t)` with `t = tr(Σ_ss⁻¹ (Σ − Σ P Σ)_ss)`, and
+/// `k_px = 1 + (k − 1) s / t`. Where the priors supply none of the shared
+/// coordinates (`t = s`) it is `k`. `k` itself when `Σ_ss` is singular or
+/// the pixels supply none of it.
+fn pixel_scatter(k: f64, shared: DMatrix<f64>, from_priors: &DMatrix<f64>) -> f64 {
+    let s = shared.nrows() as f64;
+    let Some(chol) = shared.cholesky() else {
+        return k;
+    };
+    let pixel_share = s - chol.solve(from_priors).trace();
+    if pixel_share <= f64::EPSILON * s {
+        return k;
+    }
+    1.0 + (k - 1.0) * s / pixel_share
 }
 
 /// The solved correction of each of `num_views` views.
@@ -316,6 +398,20 @@ pub(crate) fn solved_deltas(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pixel_scatter_counts_only_the_pixel_share() {
+        let shared = DMatrix::from_diagonal(&DVector::from_vec(vec![4.0, 1.0]));
+        // No prior share: the view scatter is the pixels'.
+        let none = DMatrix::zeros(2, 2);
+        assert!((pixel_scatter(3.0, shared.clone(), &none) - 3.0).abs() < 1e-12);
+        // The priors supply half of each coordinate: the pixels carry
+        // `t = 1` of `s = 2`, so `k_px − 1 = 2 (k − 1)`.
+        let half = DMatrix::from_diagonal(&DVector::from_vec(vec![2.0, 0.5]));
+        assert!((pixel_scatter(3.0, shared.clone(), &half) - 5.0).abs() < 1e-12);
+        // All of it from the priors: nothing to scale, `k` stands.
+        assert!((pixel_scatter(3.0, shared.clone(), &shared) - 3.0).abs() < 1e-12);
+    }
 
     #[test]
     fn robot_refinement_json_roundtrip() {
