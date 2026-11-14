@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The estimated robot pose error no longer counts view-correlated corner
+  noise as the robot's.** With `estimate_sigma`, each robot-pose correction
+  carries the pose-like part of its view's corner noise. When the residuals
+  are correlated within views (a significant view scatter), that part is
+  larger than the white noise model says, and the excess was counted as
+  robot error. It is now taken out, at the corner noise's own view scatter:
+  the covariance's view scatter with the priors' share of the shared
+  parameters removed. On synthetic data with tile-correlated corner noise
+  the estimate went from 2.4 and 6.1 times the simulated robot error
+  (rotation, translation) to 0.95 and 1.13 times it; with white corner noise
+  it is unchanged. `robot_refinement.sigma` and the hand-eye results it
+  weighs move on real data, where corner noise is correlated within views.
+  A correlated error that is itself a per-view pose cannot be told from the
+  robot's and stays in the estimate.
+
 ## [1.0.0-rc.1] - 2026-11-13
 
 ### Migration
