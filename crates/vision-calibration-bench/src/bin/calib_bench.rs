@@ -299,6 +299,9 @@ enum DiagnoseCommand {
     Handeye(DiagnoseHandeyeArgs),
     /// Diagnose per-camera Scheimpflug intrinsic floors.
     Intrinsics(DiagnoseIntrinsicsArgs),
+    /// Decompose what limits reprojection error: smooth-fit scatter and
+    /// the calibrated residual's repeatable parts.
+    Floor(DiagnoseFloorArgs),
     /// Profile detector and extractor stages without running calibration.
     Stages(DiagnoseStagesArgs),
 }
@@ -326,6 +329,21 @@ struct DiagnoseIntrinsicsArgs {
     /// Optional path to write the full JSON report.
     #[arg(long)]
     json_out: Option<PathBuf>,
+}
+
+/// Arguments for `diagnose floor`.
+#[derive(Parser)]
+struct DiagnoseFloorArgs {
+    /// Planar-intrinsics dataset ids; cameras observing the same physical
+    /// board are analysed together.
+    #[arg(long = "dataset", required = true, num_args = 1..)]
+    datasets_ids: Vec<String>,
+    /// Where the datasets come from.
+    #[command(flatten)]
+    datasets: DatasetSources,
+    /// Optional path to write the JSON report.
+    #[arg(long)]
+    out: Option<PathBuf>,
 }
 
 /// Arguments for `diagnose stages`.
@@ -992,8 +1010,36 @@ fn cmd_diagnose(args: &DiagnoseArgs) -> Result<()> {
     match &args.command {
         DiagnoseCommand::Handeye(args) => cmd_diagnose_handeye(args),
         DiagnoseCommand::Intrinsics(args) => cmd_diagnose_intrinsics(args),
+        DiagnoseCommand::Floor(args) => cmd_diagnose_floor(args),
         DiagnoseCommand::Stages(args) => cmd_diagnose_stages(args),
     }
+}
+
+#[cfg(feature = "tier-b")]
+fn cmd_diagnose_floor(args: &DiagnoseFloorArgs) -> Result<()> {
+    use vision_calibration_bench::floor;
+
+    let mut cameras = Vec::with_capacity(args.datasets_ids.len());
+    for id in &args.datasets_ids {
+        let entry = args.datasets.find(id)?;
+        cameras.push(floor::measure_entry(&entry)?);
+    }
+    let report = floor::analyze(&cameras)?;
+    if let Some(path) = &args.out {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&report)?)
+            .with_context(|| format!("write {}", path.display()))?;
+    }
+    println!("{}", floor::render_table(&report));
+    Ok(())
+}
+
+#[cfg(not(feature = "tier-b"))]
+fn cmd_diagnose_floor(_args: &DiagnoseFloorArgs) -> Result<()> {
+    anyhow::bail!("diagnose floor requires --features tier-b")
 }
 
 fn cmd_diagnose_intrinsics(args: &DiagnoseIntrinsicsArgs) -> Result<()> {

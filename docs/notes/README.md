@@ -77,7 +77,7 @@ evidence behind ADR 0011.
   regression suite.
 - [Ringgrid bias](ringgrid-bias.md) — the projective ellipse-center bias
   is removed inside the `ringgrid` detector; the ring-grid reprojection
-  floor is small-marker localization noise.
+  floor is per-detection localization scatter under defocus blur.
 - [Parameter uncertainty](uncertainty.md) — the covariance every
   calibration result carries, across all families.
 - [Detector feature covariance on real data](feature-covariance-study.md) —
