@@ -10,7 +10,7 @@ wrapping the external `ringgrid` crate; bench accept path
 above the puzzleboard sibling on the same rig (`scheimpflug_rig_ref_cam*`, ~0.27 px).
 That floor is not the projected ellipse-center bias of the ring markers: the
 bias is ~0.09 px here and is removed inside the detector. The floor is
-small-marker localization noise, and the pipeline applies no correction.
+per-detection localization scatter under defocus blur, and the pipeline applies no correction.
 
 ## Mechanism
 
@@ -62,10 +62,12 @@ predicted single-conic (outer-edge) bias is:
 | cam4 |  746 | 0.091 | 0.089 | 0.159 | 0.232 |
 | cam5 |  572 | 0.084 | 0.087 | 0.135 | 0.155 |
 
-~0.09 px mean (max ≤ 0.45 px): small because the markers span only a few
-pixels (outer radius ≈ 3–4 px) and the bias scales with the square of the
-pixel radius. That is well below both the floor and the gap to the
-puzzleboard sibling, so even uncorrected it could not explain the gap.
+~0.09 px mean (max ≤ 0.45 px). The measured image scale is ≈ 3.4–3.5 px/mm
+(`diagnose floor`), so the 4.8 mm outer radius is ≈ 16.6 px, not a few
+pixels; the bias is small because the board plane is only mildly foreshortened
+and it scales with the square of the pixel radius times the foreshortening.
+That is well below both the floor and the gap to the puzzleboard sibling, so
+even uncorrected it could not explain the gap.
 
 ## Why the pipeline applies no correction
 
@@ -106,9 +108,55 @@ same run to three decimals, validating the diagnostic. The coefficient is
 field**, and what remains is orthogonal noise. `corr(bias, radius) ≈ 0`
 shows no peripheral-growth pattern.
 
-Conclusion: the ring-grid floor is small-marker ellipse-fit / localization
-noise (markers a few pixels across, with the pencil amplifying edge-fit
-noise), not correctable projective ellipse-center bias.
+Conclusion: the projective ellipse-center bias is absent from the residual
+field. What the floor is made of is measured in the next section.
+
+## What the floor is made of
+
+`calib-bench diagnose floor --dataset scheimpflug_rig_ringgrid_cam0 …
+scheimpflug_rig_ringgrid_cam5` (module `floor.rs`; needs `--features tier-b`
+and the private data) measures it on the six cameras together. The smooth-fit
+part is calibration-free: per view, a quartic polynomial of the board position
+fitted to each image coordinate, outliers rejected, residuals scaled for the
+degrees of freedom. A camera model is a smooth map and cannot absorb what
+such a fit leaves. Aggregate results (5422 inlier detections, 79 views):
+
+| quantity | value |
+|----------|-------|
+| image scale | 3.4–3.5 px/mm (outer radius 4.8 mm ≈ 16.6 px) |
+| smooth-fit (quartic) RMS / median per camera | 0.33–0.44 / 0.22–0.30 px (pooled 0.39 / 0.26) |
+| cubic RMS (convergence check) | 0.37–0.52 px (pooled 0.44) |
+| calibrated RMS / median on the same points | 0.47–0.62 / 0.31–0.36 px (pooled 0.54 / 0.34) |
+| smooth systematic gap, `sqrt(calib² − smooth²)` | 0.31–0.45 px |
+| per-marker repeatable part (board frame) | 22 µm of 105 µm total, 4.4 % of variance |
+| split-half correlation of marker offsets | 0.29 |
+| neighbour correlation of fit residuals | −0.20 … 0 (the fit itself induces ≈ −0.1) |
+| σ_u / σ_v, radial / tangential | 0.27 / 0.28, 0.28 / 0.27 px: isotropic |
+| camera-fixed field (6×4 cells), variance explained | 3–10 %, cell means ≤ 0.2 px |
+| board-fixed field per camera / pooled | 2–9 % / 1.7 % |
+| between-camera correlation of board-fixed means | mean −0.02 over 15 pairs |
+| per-view mean vector | none (noise-corrected variance ≤ 0) |
+
+Reading. Most of the error is per-detection scatter that a quartic in board
+position cannot fit: isotropic, uncorrelated between neighbours, and of the
+same size in every direction about the image centre (so not a radial or
+tilt-related effect). Only ≈ 4 % of it repeats per board point, and the
+per-point offsets of different cameras are uncorrelated, so a printing error
+of the board (which all cameras share) is not what is seen. The
+camera-fixed field is a few percent, with cell means within their error bars
+mostly below 0.2 px: a better lens model would remove at most that, not the
+floor. The calibrated residual exceeds the smooth-fit scatter by 0.3–0.45 px
+RMS; that gap is the part a better smooth model or per-view pose freedom could
+in principle reach, and it is what remains to explain, but even closing it
+completely leaves ≈ 0.4 px of scatter.
+
+Conclusion: the ring-grid floor is dominated by per-detection localization
+scatter under defocus blur, not by marker size (the markers are ≈ 17 px in
+radius), print error or the projective centre bias, which is absent (above).
+The detector's own documentation reports ≈ 0.28 px centre error at 3 px blur
+against ≈ 0.05 px on sharp synthetic images, which matches the measured
+0.27 px per axis. Lower floors need a detector change (sharper images, or an
+estimator less sensitive to blur), not a camera-model or target change.
 
 - **Gate:** `calib-bench accept` gates each `scheimpflug_rig_ringgrid_cam*` entry at
   0.7 px (~1.4× the worst committed per-camera mean, 0.508 px).

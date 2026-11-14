@@ -789,6 +789,9 @@ pub mod tier_b {
         );
         let detected = detect_scheimpflug_seeded_input(entry)?;
         let image_sizes = [detected.image_size];
+        // Keep the detected views for the reprojection report (the dataset is
+        // moved into the solve below).
+        let views_for_report = detected.dataset.views.clone();
         let solve = solve_scheimpflug_seeded(
             detected.dataset,
             detected.seed,
@@ -821,6 +824,12 @@ pub mod tier_b {
             reported_mean_reproj_px: export.mean_reproj_error,
             reported_per_cam_px: export.per_cam_reproj_errors.clone(),
         };
+
+        // Same hierarchical report and residual sidecar as the pinhole route.
+        let (reproj_report, residual_sidecar) = split_reproj_report(
+            entry,
+            planar_intrinsics_report(&export, &views_for_report).ok(),
+        );
 
         let convergence = Convergence {
             init_ok: true,
@@ -856,8 +865,8 @@ pub mod tier_b {
             delta_to_prior: None,
             timing,
             quality: Some(quality_report(entry, &export, &image_sizes)?),
-            reproj_report: None,
-            residual_sidecar: None,
+            reproj_report,
+            residual_sidecar,
         })
     }
 
