@@ -43,3 +43,13 @@ A subagent does not see this conversation. Give it the task, the files
 involved, what is already ruled out, and what to report: files changed, gate
 results, and before/after numbers for numerical changes. When the context is
 already warm and the task is a handful of tool calls, do it inline.
+
+**An independent check before a result changes a design.** A numerical
+result that would lead to an ADR, a default, a new model term or a release
+is re-derived by a second agent that gets the code and the data but not the
+conclusion (or is re-run inline when that is a few commands). Relay a
+subagent's numbers as its numbers until then.
+
+**Studies end.** When a study's question is settled, its note and the tests
+that pin its findings stay; the exploratory harness code is deleted in the
+PR that closes it.
