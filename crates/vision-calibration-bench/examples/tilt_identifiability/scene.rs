@@ -202,7 +202,19 @@ impl Scene {
 
     /// The observations with Gaussian pixel noise of `sigma` per coordinate.
     pub fn dataset(&self, sigma: f64, seed: u64) -> PlanarDataset {
+        self.dataset_with_view_error(sigma, 0.0, seed)
+    }
+
+    /// The observations with Gaussian pixel noise of `sigma` per coordinate
+    /// plus, per view, an error shared by its corners: a quadratic field over
+    /// the board (`x̃² − ⅓`, `x̃ỹ`, `ỹ² − ⅓` per pixel axis, board coordinates
+    /// scaled to `[−1, 1]`) with Gaussian coefficients of `view_error` px (a
+    /// board that is not flat, a detector bias that changes with the view).
+    /// The independent noise draws are those of [`Scene::dataset`] whatever
+    /// `view_error` is.
+    pub fn dataset_with_view_error(&self, sigma: f64, view_error: f64, seed: u64) -> PlanarDataset {
         let mut rng = Rng::new(seed);
+        let mut field_rng = Rng::new(seed ^ 0x5EED_F1E1D);
         let views = self
             .views
             .iter()
@@ -212,10 +224,37 @@ impl Scene {
                     .iter()
                     .map(|b| Point3::new(b[0], b[1], b[2]))
                     .collect();
+                let coeffs: [f64; 6] = std::array::from_fn(|_| view_error * field_rng.normal());
+                let (lo, hi) = v.board.iter().fold(
+                    ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]),
+                    |(lo, hi), b| {
+                        (
+                            [lo[0].min(b[0]), lo[1].min(b[1])],
+                            [hi[0].max(b[0]), hi[1].max(b[1])],
+                        )
+                    },
+                );
+                let scaled = |x: f64, a: f64, b: f64| {
+                    if b > a {
+                        2.0 * (x - a) / (b - a) - 1.0
+                    } else {
+                        0.0
+                    }
+                };
                 let p2 = v
-                    .pixels
+                    .board
                     .iter()
-                    .map(|p| Point2::new(p[0] + sigma * rng.normal(), p[1] + sigma * rng.normal()))
+                    .zip(&v.pixels)
+                    .map(|(b, p)| {
+                        let (x, y) = (scaled(b[0], lo[0], hi[0]), scaled(b[1], lo[1], hi[1]));
+                        let basis = [x * x - 1.0 / 3.0, x * y, y * y - 1.0 / 3.0];
+                        let du: f64 = (0..3).map(|k| coeffs[k] * basis[k]).sum();
+                        let dv: f64 = (0..3).map(|k| coeffs[3 + k] * basis[k]).sum();
+                        Point2::new(
+                            p[0] + du + sigma * rng.normal(),
+                            p[1] + dv + sigma * rng.normal(),
+                        )
+                    })
                     .collect();
                 View::without_meta(
                     CorrespondenceView::new(p3, p2).expect("a view keeps at least 12 points"),

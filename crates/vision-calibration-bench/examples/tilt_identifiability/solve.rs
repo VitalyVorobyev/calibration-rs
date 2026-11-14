@@ -36,6 +36,10 @@ pub struct Outcome {
     pub cov: Option<LabelledCovariance>,
     /// Why the covariance is unavailable, when it is.
     pub unavailable: Option<String>,
+    /// The view-scatter factor the covariance was scaled by, when it was.
+    pub view_scatter: Option<f64>,
+    /// The fitted `cam_se3_target` of each view, in the camera's own frame.
+    pub poses: Vec<Iso3>,
 }
 
 impl Outcome {
@@ -52,14 +56,18 @@ fn short_label(label: &str) -> String {
 /// Labels and the covariance matrix of a solve's coordinates.
 type LabelledCovariance = (Vec<String>, Vec<Vec<f64>>);
 
-/// Stated σ per label, the covariance, and why it is unavailable.
-fn read_uncertainty(
-    u: &Uncertainty,
-) -> (
+/// What a solve's uncertainty says: stated σ per label, the covariance,
+/// why it is unavailable, and the view-scatter factor.
+type ReadUncertainty = (
     Vec<(String, f64)>,
     Option<LabelledCovariance>,
     Option<String>,
-) {
+    Option<f64>,
+);
+
+/// Stated σ per label, the covariance, why it is unavailable, and the
+/// view-scatter factor it was scaled by.
+fn read_uncertainty(u: &Uncertainty) -> ReadUncertainty {
     match u.covariance() {
         Some(c) => {
             let labels: Vec<String> = c.labels.iter().map(|l| short_label(l)).collect();
@@ -68,14 +76,19 @@ fn read_uncertainty(
                 .enumerate()
                 .map(|(i, l)| (l.clone(), c.covariance[i][i].max(0.0).sqrt()))
                 .collect();
-            (sigma, Some((labels, c.covariance.clone())), None)
+            (
+                sigma,
+                Some((labels, c.covariance.clone())),
+                None,
+                c.view_scatter,
+            )
         }
         None => {
             let reason = match u {
                 Uncertainty::Unavailable { reason } => format!("{reason:?}"),
                 Uncertainty::Available(_) => unreachable!("covariance() is Some for Available"),
             };
-            (Vec::new(), None, Some(reason))
+            (Vec::new(), None, Some(reason), None)
         }
     }
 }
@@ -199,7 +212,7 @@ pub fn solve_direct(
         bounds,
     };
     let est = optimize_planar_intrinsics(dataset, &initial, solve_opts, opts)?;
-    let (sigma, cov, unavailable) = read_uncertainty(&est.uncertainty);
+    let (sigma, cov, unavailable, view_scatter) = read_uncertainty(&est.uncertainty);
     Ok(Outcome {
         cam: cam_of(&est.params.camera),
         iters: est.report.num_iters,
@@ -207,6 +220,8 @@ pub fn solve_direct(
         sigma,
         cov,
         unavailable,
+        view_scatter,
+        poses: est.params.cam_se3_target.clone(),
     })
 }
 
@@ -222,7 +237,7 @@ fn pipeline_outcome(session: &CalibrationSession<PlanarIntrinsicsProblem>) -> Re
     let est = session
         .output()
         .ok_or_else(|| anyhow!("no output after step_optimize"))?;
-    let (sigma, cov, unavailable) = read_uncertainty(&est.uncertainty);
+    let (sigma, cov, unavailable, view_scatter) = read_uncertainty(&est.uncertainty);
     Ok(Outcome {
         cam: cam_of(&est.params.camera),
         iters: est.report.num_iters,
@@ -230,6 +245,8 @@ fn pipeline_outcome(session: &CalibrationSession<PlanarIntrinsicsProblem>) -> Re
         sigma,
         cov,
         unavailable,
+        view_scatter,
+        poses: est.params.cam_se3_target.clone(),
     })
 }
 
@@ -259,6 +276,20 @@ pub fn route_seeded(
     let init_cam = cam_of(&init.camera);
     step_optimize(&mut session, None)?;
     Ok((pipeline_outcome(&session)?, init_cam, init.cam_se3_target))
+}
+
+/// Step 1 of the determination procedure: the plain camera (untilted
+/// sensor, Brown-Conrady with the default fix list, so `p1, p2` free) through
+/// the pipeline's cold route (`step_init`, `step_optimize`).
+pub fn route_plain(dataset: &PlanarDataset, backend: SolverBackend) -> Result<Outcome> {
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session.set_input(dataset.clone())?;
+    let mut config = PlanarIntrinsicsConfig::default();
+    config.solver.backend = backend;
+    session.set_config(config)?;
+    step_init(&mut session, None)?;
+    step_optimize(&mut session, None)?;
+    pipeline_outcome(&session)
 }
 
 /// The cold route: `step_init` (experimental for a tilted sensor) then
@@ -336,6 +367,86 @@ pub fn solve_param(
     free: FreeSet,
     max_iters: usize,
 ) -> Result<Outcome> {
+    solve_param_with(dataset, cam, poses, param, free, max_iters, None)
+}
+
+/// A Gaussian prior on the tilt, `tilt ~ N(mean, sigma²)` per axis, weighed
+/// against the corners at a stated pixel noise.
+#[derive(Clone, Copy, Debug)]
+pub struct TiltPrior {
+    /// Prior mean `[tilt_x, tilt_y]`, radians.
+    pub mean: [f64; 2],
+    /// Prior σ per axis, radians.
+    pub sigma: f64,
+    /// The corners' noise, pixels: the prior is information in units of its
+    /// own σ, so the corners are stated at this σ too (the noise of the
+    /// untilted fit, as the library weighs robot-pose priors).
+    pub pixel_sigma: f64,
+}
+
+/// The prior's residual `tilt − mean`, stated at the prior σ.
+struct TiltPriorResidual {
+    mean: [f64; 2],
+}
+
+impl Residual for TiltPriorResidual {
+    fn dim(&self) -> usize {
+        2
+    }
+
+    fn block_dims(&self) -> Vec<usize> {
+        vec![2]
+    }
+
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        DVector::from_vec(vec![
+            blocks[0][0].clone() - T::from_f64(self.mean[0]).unwrap(),
+            blocks[0][1].clone() - T::from_f64(self.mean[1]).unwrap(),
+        ])
+    }
+}
+
+/// [`solve_param`], optionally with a tilt prior (then the tilt must be in
+/// the free set). With a prior the solve is restarted from its own result
+/// until the cost stops falling (relative decrease under 1e-12, at most 30
+/// restarts): a weak prior leaves a long valley in which the default
+/// stopping rule halts near the start, and the builder's solve has no
+/// tolerance option.
+pub fn solve_param_with(
+    dataset: &PlanarDataset,
+    cam: &Cam,
+    poses: &[Iso3],
+    param: Param,
+    free: FreeSet,
+    max_iters: usize,
+    prior: Option<TiltPrior>,
+) -> Result<Outcome> {
+    let mut out = solve_param_once(dataset, cam, poses, param, free, max_iters, prior)?;
+    if prior.is_some() {
+        for _ in 0..30 {
+            let next =
+                solve_param_once(dataset, &out.cam, &out.poses, param, free, max_iters, prior)?;
+            let rel = (out.cost - next.cost) / out.cost.max(1e-300);
+            let iters = out.iters + next.iters;
+            out = next;
+            out.iters = iters;
+            if rel < 1e-12 {
+                break;
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn solve_param_once(
+    dataset: &PlanarDataset,
+    cam: &Cam,
+    poses: &[Iso3],
+    param: Param,
+    free: FreeSet,
+    max_iters: usize,
+    prior: Option<TiltPrior>,
+) -> Result<Outcome> {
     let idx = free.indices();
     let coords = param.coords(cam);
     let dist: Vec<usize> = (4..13).filter(|i| idx.contains(i)).collect();
@@ -372,9 +483,21 @@ pub fn solve_param(
                 },
                 &[k, d, t, pose_ids[vi]],
                 RobustLoss::None,
-                Noise::Estimated("px".into()),
+                match prior {
+                    Some(p) => Noise::Stated(p.pixel_sigma),
+                    None => Noise::Estimated("px".into()),
+                },
             )?;
         }
+    }
+    if let Some(p) = prior {
+        anyhow::ensure!(tilt_free, "a tilt prior needs the tilt free");
+        problem.add_residual(
+            TiltPriorResidual { mean: p.mean },
+            &[t],
+            RobustLoss::None,
+            Noise::Stated(p.sigma),
+        )?;
     }
     let mut opts = SolveOptions::default();
     opts.max_iters = max_iters;
@@ -386,7 +509,25 @@ pub fn solve_param(
     }
     v[TX..=TY].copy_from_slice(sol.value(t).expect("own block"));
     let out_cam = param.camera(&v);
-    let (sigma, cov, unavailable) = read_uncertainty(&sol.uncertainty);
+    let (sigma, cov, unavailable, view_scatter) = read_uncertainty(&sol.uncertainty);
+    // Back to lens-frame poses: the gauge parameterization's are in the
+    // sensor-normal frame.
+    let r = crate::model::tilt_rotation(out_cam.tilt[0], out_cam.tilt[1]);
+    let q = nalgebra::UnitQuaternion::from_rotation_matrix(
+        &nalgebra::Rotation3::from_matrix_unchecked(r),
+    );
+    let out_poses = pose_ids
+        .iter()
+        .map(|&id| {
+            let p = sol.pose(id).expect("own pose block");
+            match param {
+                Param::Gauge => {
+                    Iso3::from_parts(nalgebra::Translation3::identity(), q.inverse()) * p
+                }
+                _ => p,
+            }
+        })
+        .collect();
     Ok(Outcome {
         cam: out_cam,
         iters: sol.report.num_iters,
@@ -394,5 +535,7 @@ pub fn solve_param(
         sigma,
         cov,
         unavailable,
+        view_scatter,
+        poses: out_poses,
     })
 }

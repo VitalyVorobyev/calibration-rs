@@ -449,6 +449,10 @@ Not recommended: exporting the sensor-normal pinhole `K'` as the
 "well-determined" intrinsics. It is the better-determined set only with
 weak distortion; on a narrow field the distortion centre is (F5).
 
+What to do with a tilt the data do not determine — the decision statistic,
+the cost of fixing it, priors and the frame of each answer — is
+[tilt-determination.md](tilt-determination.md).
+
 ## Hypotheses and open items
 
 - **Real-data transfer** (hypothesis): the mechanism (distortion centre vs

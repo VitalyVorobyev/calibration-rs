@@ -15,6 +15,10 @@ pub struct Size {
     pub mc_draws: usize,
     pub starts: usize,
     pub cold_draws: usize,
+    /// Noise draws per cell and noise level of the determination sweep.
+    pub det_draws: usize,
+    /// Draws per cell where the Monte-Carlo scatter is the label.
+    pub label_draws: usize,
 }
 
 impl Size {
@@ -23,6 +27,8 @@ impl Size {
             mc_draws: 100,
             starts: 16,
             cold_draws: 8,
+            det_draws: 4,
+            label_draws: 16,
         }
     }
     pub fn quick() -> Self {
@@ -30,6 +36,8 @@ impl Size {
             mc_draws: 12,
             starts: 4,
             cold_draws: 2,
+            det_draws: 1,
+            label_draws: 4,
         }
     }
 }
@@ -47,7 +55,7 @@ fn design_with(f: impl FnOnce(&mut ViewDesign)) -> ViewDesign {
 }
 
 /// A number for a table: `∞`, `—` for NaN, else `digits` significant.
-fn num(x: f64, digits: usize) -> String {
+pub fn num(x: f64, digits: usize) -> String {
     if x.is_nan() {
         "—".into()
     } else if x.is_infinite() {
@@ -65,11 +73,11 @@ fn num(x: f64, digits: usize) -> String {
     }
 }
 
-fn deg(x: f64) -> String {
+pub fn deg(x: f64) -> String {
     num(x.to_degrees(), 2)
 }
 
-fn header(cols: &[&str]) {
+pub fn header(cols: &[&str]) {
     println!("| {} |", cols.join(" | "));
     println!(
         "|{}|",
@@ -77,7 +85,7 @@ fn header(cols: &[&str]) {
     );
 }
 
-fn row(cells: &[String]) {
+pub fn row(cells: &[String]) {
     println!("| {} |", cells.join(" | "));
 }
 

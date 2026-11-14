@@ -272,6 +272,40 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   the measured value; additive, no threshold change. Gate: the
   weak-distortion, narrow-field and `p`-free cells of the study get the
   named message, the baseline cell none, on both backends.
+- [ ] CAL-TILT-DETERMINE - A Scheimpflug tilt is estimated only when the
+  data determine it (ADR 0031, proposed). Evidence
+  (`notes/tilt-determination.md`, synthetic sweep of 100 cameras × 2 view
+  designs × 2 noise levels, 1600 draws, plus 512 end-to-end draws): the
+  view-scatter-scaled σ of the tilt decides (the unscaled one calls 40 %
+  of undetermined tilts determined under per-view errors); the fixed branch
+  must free `p1, p2` (with them held it costs a median 2× and up to 31× the
+  noise floor downstream; freed, a median 0.29×, and its frame is the sensor
+  normal); a likelihood-ratio guard keeps the tilted fit where the data
+  reject the plain camera; the decentring seed `τ = atan(∓p/k1)` reached
+  the reference minimum in 512 of 512 draws. Design: `TiltPolicy::{Estimate,
+  Determine { max_sigma }}` on `CameraConfig` (Scheimpflug only), the
+  procedure in `planar_family::optimize_camera`, the `tilt_determination`
+  record (source, frame, statistic) in the export with a schema bump, the
+  `TiltDetermination` quality check; opt-in (`Estimate` stays the default)
+  until the real-data gate. Needs CAM-PARAM-PRIOR for its prior branch.
+  Gate: the study's tables reproduced through the library on both backends;
+  on the private Scheimpflug rigs the branch per camera, held-out error
+  within 5 % of `Estimate`, the decentring seed reaching the seeded route's
+  minimum; `calib-bench accept` unchanged under `Estimate`.
+- [ ] CAM-PARAM-PRIOR - Gaussian priors on camera parameters, named per slot
+  like the fix lists (`CameraConfig.prior`), one library residual weighed
+  against the measured pixel σ̂ by one re-solve as robot-pose priors are
+  (ADR 0026), counted as known information in the covariance; `DeviceSpec`
+  gains `tilt_sigma_deg`. First user: the tilt (ADR 0031). Evidence
+  (`notes/tilt-determination.md`, C): with `p1, p2` free under a tilt
+  prior the decentring is measured instead of reported as tilt (0.18° bias
+  → −0.024°) and a wrong prior moves predictions ≤ 1.6× unless flagged; the
+  solve must reach the posterior, which the raw coordinates do not (C0, a
+  σ short): run it in the gauge-aligned coordinates or with
+  SOLVER-VALLEY-STOP. Gate: posterior σ against the analytic
+  `√(1/(σ⁻² + σₚ⁻²))` within 5 %, the C1 table through the library, JSON
+  round-trips, typed errors for a prior on a fixed parameter or a
+  non-positive σ.
 - [ ] REPORT-SECTIONS - The HTML report (`analysis::html_report`, shared by
   `vcal` and the app) renders the quality checks and one section per
   camera. A hand-eye export shows no hand-eye (the pose, its σ, the robot

@@ -36,6 +36,7 @@ them; layouts, commands and component wiring go to rustdoc or
 - [0011 — Seeded initialization](0011-seeded-initialization.md)
 - [0026 — Parameter uncertainty as a standard result](0026-parameter-uncertainty.md)
 - [0030 — A residual field is a camera slot](0030-camera-residual-field.md) (on hold: the studied field is mostly not camera-fixed)
+- [0031 — A Scheimpflug tilt is estimated only when the data determine it](0031-tilt-determination.md) (proposed)
 
 ## Data and tools
 
