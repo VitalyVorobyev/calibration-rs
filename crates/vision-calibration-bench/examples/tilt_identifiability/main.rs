@@ -18,19 +18,32 @@
 //!   parameterizations through the library's solver (`solve.rs`), with the
 //!   failure modes and whether the result flags them;
 //! - `solver`: the stopping rule against a tight one, and the Jacobi
-//!   scaling's drift from the start to the solution.
+//!   scaling's drift from the start to the solution;
+//! - `determine`: whether the tilt is determined (the decision statistic
+//!   against its labels), what fixing it at zero costs downstream with the
+//!   tangential terms held or freed, and the frame each fit ends in
+//!   (`determine.rs`, `downstream.rs`, `verdict.rs`);
+//! - `prior`: a Gaussian prior on the tilt, right or wrong, with the
+//!   tangential terms held or freed (`procedure.rs`);
+//! - `rule`: the determination procedure end to end, from the plain camera
+//!   through the pipeline to the decision (`procedure.rs`).
 //!
-//! Findings: `docs/notes/tilt-identifiability.md`.
+//! Findings: `docs/notes/tilt-identifiability.md` (the first five parts)
+//! and `docs/notes/tilt-determination.md` (the last three).
 //!
 //! ```text
 //! cargo run --release -p vision-calibration-bench --example tilt_identifiability -- \
-//!     [--parts analytic,fisher,mc,basin,solver] [--quick]
+//!     [--parts analytic,fisher,mc,basin,solver,determine,prior,rule] [--quick] [--dump draws.tsv]
 //! ```
 
+mod determine;
+mod downstream;
 mod model;
+mod procedure;
 mod scene;
 mod solve;
 mod study;
+mod verdict;
 
 use anyhow::Result;
 use clap::Parser;
@@ -38,12 +51,16 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(about = "Synthetic identifiability study of the tilted camera fit")]
 struct Args {
-    /// Comma-separated parts: analytic, fisher, mc, basin, solver.
+    /// Comma-separated parts: analytic, fisher, mc, basin, solver,
+    /// determine, prior, rule.
     #[arg(long, default_value = "analytic,fisher,mc,basin,solver")]
     parts: String,
     /// Fewer Monte-Carlo draws and starts (a smoke run).
     #[arg(long)]
     quick: bool,
+    /// Write the determination sweep's draws to this tab-separated file.
+    #[arg(long)]
+    dump: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -62,6 +79,9 @@ fn main() -> Result<()> {
             "mc" => study::monte_carlo(&size)?,
             "basin" => study::basin(&size)?,
             "solver" => study::solver(&size)?,
+            "determine" => verdict::sweep(&size, args.dump.as_deref())?,
+            "prior" => procedure::prior_study(&size)?,
+            "rule" => procedure::rule_study(&size)?,
             other => anyhow::bail!("unknown part `{other}`"),
         }
         eprintln!("[{part}: {:.1} s]", started.elapsed().as_secs_f64());

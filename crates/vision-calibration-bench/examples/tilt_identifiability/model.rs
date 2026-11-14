@@ -273,6 +273,15 @@ impl Fisher {
         self.free.iter().position(|&c| c == coord)
     }
 
+    /// Covariance of two coordinates at one pixel of noise; `None` when
+    /// either is fixed or the information singular.
+    pub fn cov_of(&self, a: usize, b: usize) -> Option<f64> {
+        match (&self.cov, self.pos(a), self.pos(b)) {
+            (Some(c), Some(i), Some(j)) => Some(c[(i, j)]),
+            _ => None,
+        }
+    }
+
     /// σ of a coordinate at pixel noise `noise`; `INFINITY` when singular.
     pub fn sigma(&self, coord: usize, noise: f64) -> f64 {
         match (&self.cov, self.pos(coord)) {
@@ -318,7 +327,7 @@ impl Fisher {
 }
 
 /// The 6 tangent coordinates of a pose: `exp(δ)·P`, `δ = (ω, v)`.
-fn perturb(pose: &Iso3, delta: &[f64; 6]) -> Iso3 {
+pub fn perturb(pose: &Iso3, delta: &[f64; 6]) -> Iso3 {
     let rot = UnitQuaternion::from_scaled_axis(Vector3::new(delta[0], delta[1], delta[2]));
     Iso3::from_parts(Translation3::new(delta[3], delta[4], delta[5]), rot) * pose
 }

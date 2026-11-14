@@ -61,6 +61,11 @@ evidence behind ADR 0011.
   with `p1, p2` and the thin prism to first order; the map of σ(tilt) over
   field, distortion and view design, Monte-Carlo honesty, convergence
   basins, four parameterizations, the stopping rule in the valley.
+- [Tilt determination](tilt-determination.md) — when the data determine a
+  Scheimpflug tilt (the view-scatter-scaled σ), what fixing it costs
+  downstream (only with `p1, p2` free is it the first-order equivalent),
+  priors right and wrong, the frame each branch reports, and the procedure
+  end to end with its decentring seed (ADR 0031).
 - [Scheimpflug residual model](scheimpflug-residual-model.md) — what the
   tilted Brown-Conrady model leaves on a real rig: model variants on
   held-out views against the smooth-fit floor, the stopping rule, the
