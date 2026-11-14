@@ -40,6 +40,11 @@ required-features = ["tier-b"]
 # Its synthetic ground-truth tests run with the bench crate's tests.
 test = true
 
+[[example]]
+name = "tilt_identifiability"
+# Its tests pin the study's analytic findings.
+test = true
+
 [dependencies]
 vision-calibration = { workspace = true, features = ["synthetic"] }
 vision-calibration-core = { workspace = true, features = ["synthetic"] }

@@ -23,6 +23,14 @@ underestimates the focal length on a tilted sensor, and the solve then
 settles in a wrong tilt/focal basin. This is why the supported route is
 seeded (ADR 0011).
 
+That trade-off is the cold start's (global) problem. At the minimum the
+valley is narrower and exact in origin: without distortion a tilt is a
+common rotation of the views plus a change of `K`, so the tilt and the
+principal point are separated only by the lens distortion, and `k1`
+barely correlates with the tilt (`|ρ| ≤ 0.14`);
+[tilt-identifiability.md](tilt-identifiability.md) has the algebra and
+the map.
+
 A second trap remains once tilt is seeded: starting from `k1 = 0`, the
 fixed-tilt sub-problem has a spurious minimum near `k1 = 0`. The per-view
 poses adapt to absorb the radial distortion, and the gradient pushes `k1`
@@ -238,8 +246,9 @@ does.
 
 ## Open
 
-The synthetic-GT matrix test, a written identifiability and gauge analysis
-beyond the summary above, and noise-sensitivity numbers. On real data the
+The synthetic-GT matrix test. The identifiability and gauge analysis and
+the noise-sensitivity map are in
+[tilt-identifiability.md](tilt-identifiability.md). On real data the
 model leaves a smooth camera-fixed residual of about 0.12 px that no
 parametric term removes:
 [scheimpflug-residual-model.md](scheimpflug-residual-model.md).
