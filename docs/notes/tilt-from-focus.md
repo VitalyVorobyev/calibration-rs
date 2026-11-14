@@ -62,6 +62,12 @@ cargo run … -- --registry <any> --out <dir> --parts synth,centroid \
    unit, and with the unexplained ±0.5° unit-to-unit disagreement as its
    σ; (c) **not a replacement**. Details and what would settle the open
    points below.
+5. **Hypothesis (i) tested** ([tilt-bias.md](tilt-bias.md)): refitting
+   the route jointly with a defocus/depth law moves every camera's tilt
+   towards its focus tilt (correlation with the gap +0.74 … +0.95) but
+   closes only 13–51 % of the τx gap (by the law) and none of the
+   direction (τy) gap; the focus tilt stays rejected by the distortion
+   data. Partly supported, not the explanation.
 
 ## Derivation
 
@@ -271,7 +277,7 @@ it: (i) the routed tilt absorbs the defocus- and depth-coupled
 displacement of the parametric note (it is mirror-symmetric about the tilt
 plane, as the distortion centre's offset is) — the anti-correlation points
 this way; refitting the route with that term and re-running this
-comparison decides it; (ii) a decentred or tilted lens element tilts the
+comparison decides it (done: partly, see [tilt-bias.md](tilt-bias.md)); (ii) a decentred or tilted lens element tilts the
 image field without moving the distortion centre the same way — a
 different lens or a rotated lens (same unit) decides it; (iii) the six
 lenses differ in `m_p` or are focused differently (internal focusing
@@ -379,8 +385,8 @@ them the focus route gives an absolute tilt to compare per unit. Captures:
 the same poses at two apertures and at two focus settings (separates a
 defocus-coupled centroid shift from a depth/pupil term and the detector's
 blur response); one unit with the lens rotated 180° in its mount (a lens
-element's field tilt rotates with it, a sensor tilt does not). Analysis
-without new data: refit the route with the defocus/depth term of the
-parametric note and repeat the comparison (hypothesis (i)).
+element's field tilt rotates with it, a sensor tilt does not). The analysis
+without new data (hypothesis (i)) is in [tilt-bias.md](tilt-bias.md): the
+coupling accounts for part of the τx disagreement, not for the direction.
 
 Library sketch: backlog `CAL-TILT-FOCUS`.

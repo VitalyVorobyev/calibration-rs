@@ -43,6 +43,12 @@
 //!   proportional to signed defocus about the fitted plane of sharp focus
 //!   (`centroid.rs`), per camera and rig-shared, against the unsigned
 //!   blur rows of `field`;
+//! - `tiltbias`: the route refitted jointly with defocus/depth laws (an
+//!   iterated nonlinear fit), the focus comparison with the refitted tilt,
+//!   and the tilt held at its focus-derived value (`tiltbias.rs`);
+//!   `tiltsweep`: the bias such a displacement induces in a plain route on
+//!   synthetic cameras over tilt, distortion, field of view, depth range
+//!   and views (`tiltbias_synth.rs`);
 //! - `mimic`: the camera-fixed field (route + a held polynomial field)
 //!   copied without noise, its structure and what each candidate takes
 //!   from it (`mimic.rs`);
@@ -98,6 +104,8 @@ mod model;
 mod synth;
 mod target;
 mod target_study;
+mod tiltbias;
+mod tiltbias_synth;
 
 use model::{Centre, Free, GenCfg, GenFit, GenParams, SensorTerms};
 use vision_calibration_optim::{
@@ -919,11 +927,9 @@ fn load(args: &Args) -> Result<Vec<CameraData>> {
         let d = detect_scheimpflug_seeded_input(&entry)?;
         // The blur map re-runs the photometric detector on every image; only
         // the blur part and the default parts' blur/depth summary read it.
-        let blur = if args
-            .parts
-            .iter()
-            .any(|p| ["blur", "lib", "field", "focus", "centroid"].contains(&p.as_str()))
-        {
+        let blur = if args.parts.iter().any(|p| {
+            ["blur", "lib", "field", "focus", "centroid", "tiltbias"].contains(&p.as_str())
+        }) {
             blur::blur_map(&entry)?
         } else {
             BTreeMap::new()
@@ -1230,7 +1236,8 @@ fn main() -> Result<()> {
         || part("xcam")
         || part("mimic")
         || part("field")
-        || part("centroid");
+        || part("centroid")
+        || part("tiltbias");
     let mut mimic_lines: Vec<String> = Vec::new();
     let mut mimic_maps: Vec<(String, Vec<Option<[f64; 2]>>)> = Vec::new();
     for cam in cams.iter().filter(|_| per_camera) {
@@ -1329,6 +1336,12 @@ fn main() -> Result<()> {
     }
     if part("focus") {
         focus_study::real(&cams, args.folds)?;
+    }
+    if part("tiltbias") {
+        tiltbias::run(&cams, &ctxs)?;
+    }
+    if part("tiltsweep") {
+        tiltbias_synth::sweep(args.draws)?;
     }
     if part("focussweep") {
         focus_study::sweep(args.draws)?;

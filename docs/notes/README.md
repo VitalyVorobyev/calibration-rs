@@ -79,6 +79,11 @@ evidence behind ADR 0011.
   the pixel pitch and the pupil magnification) against the distortion
   route on exact thick-lens synthetic data and six real cameras; signed
   defocus against depth in the residual.
+- [Tilt bias](tilt-bias.md) — the route refitted jointly with
+  defocus/depth laws: how much of the focus–distortion tilt disagreement
+  the coupling explains, which laws leave the tilt identified, the
+  synthetic bias map of an unmodelled displacement, and safeguards for
+  deciding when the data determine the tilt.
 - [Display target residual](display-target-residual.md) — a PuzzleBoard on
   an e-ink display, six cameras fitted jointly on held-out captures:
   per-point in-plane offsets, board shape, cover-layer refraction and a

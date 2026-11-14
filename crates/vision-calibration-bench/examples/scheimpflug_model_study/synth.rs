@@ -95,6 +95,19 @@ pub fn poses(n: usize, seed: u64) -> Vec<Iso3> {
 /// Board poses like [`poses`], with the board centre spread over
 /// `±spread` of the half field of view `half_fov` (normalized units).
 pub fn poses_fov(n: usize, seed: u64, half_fov: [f64; 2], spread: f64) -> Vec<Iso3> {
+    poses_range(n, seed, half_fov, spread, [0.17, 0.33], [0.0575, 0.0425])
+}
+
+/// [`poses_fov`] with the board centre's distance drawn from `depth`
+/// (metres) and the board's own centre at `board_centre` (metres).
+pub fn poses_range(
+    n: usize,
+    seed: u64,
+    half_fov: [f64; 2],
+    spread: f64,
+    depth: [f64; 2],
+    board_centre: [f64; 2],
+) -> Vec<Iso3> {
     let mut rng = Mix(seed);
     (0..n)
         .map(|_| {
@@ -103,13 +116,13 @@ pub fn poses_fov(n: usize, seed: u64, half_fov: [f64; 2], spread: f64) -> Vec<Is
                 rng.range(-0.45, 0.45),
                 rng.range(-0.6, 0.6),
             );
-            let z = rng.range(0.17, 0.33);
+            let z = rng.range(depth[0], depth[1]);
             let c = Vector3::new(
                 rng.range(-spread, spread) * half_fov[0] * z,
                 rng.range(-spread, spread) * half_fov[1] * z,
                 z,
             );
-            let t = c - r * Vector3::new(0.0575, 0.0425, 0.0);
+            let t = c - r * Vector3::new(board_centre[0], board_centre[1], 0.0);
             Iso3::from_parts(
                 Translation3::from(t),
                 UnitQuaternion::from_rotation_matrix(&r),

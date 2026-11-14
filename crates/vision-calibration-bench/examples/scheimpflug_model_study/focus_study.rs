@@ -61,16 +61,16 @@ fn wrap(a: f64) -> f64 {
 
 // ───────────────────────── real data ─────────────────────────
 
-struct RealObs {
-    view: usize,
-    o: BlurObs,
+pub(crate) struct RealObs {
+    pub(crate) view: usize,
+    pub(crate) o: BlurObs,
     px: [f64; 2],
 }
 
 /// The pitch (µm) at which the thin-lens inversion of `pi` reproduces the
 /// tilt `tau`, and the azimuth of `π_xy` minus that of the tilt's axis
 /// (deg).
-fn implied(pi: &Vector3<f64>, tau: [f64; 2], fpx: f64) -> (f64, f64) {
+pub(crate) fn implied(pi: &Vector3<f64>, tau: [f64; 2], fpx: f64) -> (f64, f64) {
     let w = implied_inv_v0(pi, tau);
     let a = axis_of_tilt(tau);
     (
@@ -81,7 +81,12 @@ fn implied(pi: &Vector3<f64>, tau: [f64; 2], fpx: f64) -> (f64, f64) {
 
 /// The blur observations of `views` (dataset indices) with their poses
 /// (`poses[k]` for `views[k]`), in the `K'` frame of `tau`.
-fn real_obs(cam: &CameraData, views: &[usize], poses: &[Iso3], tau: [f64; 2]) -> Vec<RealObs> {
+pub(crate) fn real_obs(
+    cam: &CameraData,
+    views: &[usize],
+    poses: &[Iso3],
+    tau: [f64; 2],
+) -> Vec<RealObs> {
     let r = tilt_rotation(tau);
     let mut out = Vec::new();
     for (&v, pose) in views.iter().zip(poses) {
@@ -112,15 +117,37 @@ fn tilt_of(est: &vision_calibration_optim::PlanarIntrinsicsEstimate) -> Result<[
 }
 
 /// Per camera: what the cross-camera summary needs.
-struct CamResult {
-    id: String,
-    tau: [f64; 2],
-    /// Jackknife σ of the routed tilt over the view folds.
-    tau_jk: [f64; 2],
-    fpx: f64,
-    pi: Vector3<f64>,
-    pitch: f64,
-    pitch_jk: f64,
+pub(crate) struct CamResult {
+    pub(crate) id: String,
+    /// The distortion-derived tilt the focus tilt is compared with.
+    pub(crate) tau: [f64; 2],
+    /// Jackknife σ of that tilt over the view folds.
+    pub(crate) tau_jk: [f64; 2],
+    /// `f'` of the plain pinhole `K'`, px.
+    pub(crate) fpx: f64,
+    /// The plane of sharp focus in the `K'` frame, 1/m.
+    pub(crate) pi: Vector3<f64>,
+    /// The implied `pitch/m_p`, µm, and its fold jackknife σ.
+    pub(crate) pitch: f64,
+    pub(crate) pitch_jk: f64,
+}
+
+/// The cross-camera comparison of the focus tilt against the distortion
+/// tilt.
+#[derive(Debug, Clone)]
+pub(crate) struct Cross {
+    /// Mean implied `pitch/m_p` (µm), its sd, and χ² against the fold
+    /// jackknife (dof = cameras − 1).
+    pub(crate) pitch_mean: f64,
+    pub(crate) pitch_sd: f64,
+    pub(crate) chi2: f64,
+    /// Per camera at the mean pitch: focus − distortion tilt (τx, τy), rad.
+    pub(crate) diff: Vec<[f64; 2]>,
+    /// Across cameras at the mean pitch: sd of the focus and distortion τx,
+    /// and their correlation.
+    pub(crate) sd_focus: f64,
+    pub(crate) sd_dist: f64,
+    pub(crate) corr: f64,
 }
 
 pub fn real(cams: &[CameraData], folds: usize) -> Result<()> {
@@ -412,9 +439,17 @@ pub fn real(cams: &[CameraData], folds: usize) -> Result<()> {
     for s in &pitch_rows {
         println!("{s}");
     }
-    if results.len() < 2 {
-        return Ok(());
+    if results.len() >= 2 {
+        cross_camera(&results, "routed");
     }
+    Ok(())
+}
+
+/// The focus tilt against the distortion tilt over the cameras: the
+/// implied `pitch/m_p` and its consistency, then each camera's focus tilt
+/// at the mean pitch against its `label` tilt. Prints the tables of the
+/// focus note and returns the numbers.
+pub(crate) fn cross_camera(results: &[CamResult], label: &str) -> Cross {
     let ps: Vec<f64> = results.iter().map(|x| x.pitch).collect();
     let (m, sd) = mean_sd(&ps);
     let wsum: f64 = results
@@ -438,13 +473,14 @@ pub fn real(cams: &[CameraData], folds: usize) -> Result<()> {
     // At the common pitch: the focus tilt of every camera against its routed
     // tilt.
     println!(
-        "at the mean implied pitch {m:.2} µm: camera|focus τx|routed τx ± jackknife|difference|focus τy|routed τy ± jackknife"
+        "at the mean implied pitch {m:.2} µm: camera|focus τx|{label} τx ± jackknife|difference|focus τy|{label} τy ± jackknife"
     );
-    let (mut tf, mut td) = (Vec::new(), Vec::new());
-    for r in &results {
+    let (mut tf, mut td, mut diff) = (Vec::new(), Vec::new(), Vec::new());
+    for r in results {
         let t = tilt_from_pof(&r.pi, r.fpx * m * 1e-6);
         tf.push(t[0]);
         td.push(r.tau[0]);
+        diff.push([t[0] - r.tau[0], t[1] - r.tau[1]]);
         println!(
             "{}|{:+.4}|{:+.4} ± {:.4}|{:+.4}|{:+.4}|{:+.4} ± {:.4}",
             r.id.rsplit('_').next().unwrap_or(""),
@@ -469,9 +505,17 @@ pub fn real(cams: &[CameraData], folds: usize) -> Result<()> {
         c / (sf * sdd)
     };
     println!(
-        "across cameras: focus τx {mf:+.4} sd {sf:.4}, routed τx {md:+.4} sd {sdd:.4}, correlation {corr:+.2}"
+        "across cameras: focus τx {mf:+.4} sd {sf:.4}, {label} τx {md:+.4} sd {sdd:.4}, correlation {corr:+.2}"
     );
-    Ok(())
+    Cross {
+        pitch_mean: m,
+        pitch_sd: sd,
+        chi2,
+        diff,
+        sd_focus: sf,
+        sd_dist: sdd,
+        corr,
+    }
 }
 
 // ───────────────────────── synthetic ─────────────────────────

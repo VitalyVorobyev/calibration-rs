@@ -169,6 +169,10 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   there, and on the ring-grid capture it is indistinguishable from the
   depth term next to an image field (`notes/tilt-from-focus.md`). The
   harness is the bench example's `--parts field` and `--parts centroid`.
+  The same aperture capture also fixes the coupling's image-fixed part,
+  which decides how far it biases the distortion-derived tilt
+  (`notes/tilt-bias.md`: 13–51 % of the focus–distortion gap, by the
+  assumed law).
 
 ## Calibration problems (Phase 2)
 
@@ -203,7 +207,10 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   explains 91–96 % of the blur variance, the PoF's sign agrees with the
   distortion tilt on all six, and the implied `pitch/m_p` is 4.75–6.14 µm
   (11 % spread, beyond the folds): a ±0.5° unit-to-unit disagreement with
-  the distortion route that neither model explains. Design: (1) a
+  the distortion route that neither model explains; refitting the route
+  jointly with a defocus/depth law (`notes/tilt-bias.md`) moves each tilt
+  towards the focus tilt but closes only 13–51 % of the τx gap and none of
+  the direction gap. Design: (1) a
   detector-agnostic optional blur σ (px) per feature next to the 2D point
   (ring-grid photometric fits have it; corners could report an edge
   width), carried through the dataset types and the detection cache;
@@ -221,6 +228,31 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   curvature detected; the six-camera comparison. Reopen the factor step
   with the datasheet values (pitch, focal length, f-number, pupil
   magnification) or a capture at two focus settings.
+- [ ] CAL-TILT-SYSTEMATIC - A safeguard for the rule that estimates the
+  Scheimpflug tilt only when the data determine it: a small σ is not
+  enough. Evidence (`notes/tilt-bias.md`): a smooth unmodelled
+  displacement whose visible part is 0.10 px (the defocus-coupled one of
+  the ring-grid capture) biases the plain route's tilt by a median 3.5–15
+  noise σ in every regime of a synthetic sweep (tilt 0–15°, distortion,
+  field of view, depth range, views; 0.06–0.17° for the measured form at a
+  2–15° tilt, 0.4–1.8° with weak distortion); more views raise the bias in
+  σ, and the covariance's view-jackknife scale covers only part (2–3
+  stated σ left). On the capture the coupling moves the tilt by up to
+  0.008 rad against a stated 0.0018. Design: (1) a sensitivity term, the
+  tilt's shift when the camera is refitted with a nuisance displacement
+  law (depth `z̄/z − 1` × image monomials of degree 1–4 for any detector;
+  unsigned blur `|g|` × degree 0–3 when the detector reports a blur), as
+  `σ_sys`, and "determined" read from `√(σ² + σ_sys²)`; a signed-defocus
+  law cannot be the nuisance (it leaves the tilt unidentified); (2) the
+  nuisance law's held-out gain as a residual-systematics statistic; (3)
+  with blur, the focus-direction check of CAL-TILT-FOCUS (no metric
+  datum); (4) the export carries the tilt's σ, `σ_sys` with its law, the
+  statistic, the view-jackknife scale and a determination status with
+  "determined, systematics dominate" beside "determined" and "not
+  determined". Gates: the synthetic map of the bench example (`--parts
+  tiltsweep`) on both backends, null (no displacement: `σ_sys` within its
+  noise), a known displacement (`σ_sys` covers the bias), and the six
+  ring-grid cameras. Belongs with the tilt-determination design.
 - [ ] CAL-MULTI-TARGET - Several targets with unknown relative poses in one
   scene, estimated jointly.
 - [ ] CAL-TILT-SEED-INIT - A tilt seed without an intrinsics seed fits the
