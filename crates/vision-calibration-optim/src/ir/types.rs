@@ -237,7 +237,8 @@ pub enum HandeyeMode {
 }
 
 /// Camera-block layout of a [`CameraModelSpec`] in the IR: intrinsics, then
-/// the projection, distortion and sensor blocks whose dimension is non-zero.
+/// the projection, distortion, sensor and residual-field blocks whose
+/// dimension is non-zero.
 pub(crate) trait CameraSpecLayout {
     /// Number of leading camera parameter blocks implied by the spec.
     fn num_cam_blocks(self) -> usize;
@@ -250,6 +251,7 @@ impl CameraSpecLayout for CameraModelSpec {
         1 + usize::from(self.projection.dim() > 0)
             + usize::from(self.distortion.dim() > 0)
             + usize::from(self.sensor.dim() > 0)
+            + usize::from(self.field.dim() > 0)
     }
 
     fn param_slots(self) -> Vec<ParamSlotSpec> {
@@ -262,6 +264,7 @@ impl CameraSpecLayout for CameraModelSpec {
             (self.projection.dim(), "projection"),
             (self.distortion.dim(), "distortion"),
             (self.sensor.dim(), "sensor"),
+            (self.field.dim(), "field"),
         ] {
             if dim > 0 {
                 slots.push(ParamSlotSpec {
@@ -546,8 +549,9 @@ pub struct ParamSlotSpec {
 pub enum FactorKind {
     /// Reprojection residual generic over camera model and pose chain.
     ///
-    /// Parameters: the camera blocks implied by `model` (intrinsics,
-    /// then distortion / sensor blocks if their dimensions are non-zero),
+    /// Parameters: the camera blocks implied by `model` (intrinsics, then
+    /// the projection / distortion / sensor / residual-field blocks whose
+    /// dimensions are non-zero),
     /// followed by the chain blocks implied by `chain`.
     ///
     /// Residual: `L (u_obs − u_proj)`, the 2D pixel error weighed by

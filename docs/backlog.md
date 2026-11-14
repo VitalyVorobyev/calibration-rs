@@ -142,25 +142,35 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   structure, an information criterion and held-out views. It extends the
   distortion-model-selection tutorial.
 - [ ] CAM-RESIDUAL-FIELD - An optional camera-fixed displacement field on
-  top of any camera model, designed in ADR 0030 (proposed): a bicubic
-  B-spline over the image, evaluated at the model's own projection, held
-  orthogonal to the free camera parameters and a common rotation (a
-  subspace manifold), clamped outside the image, a second-difference
-  penalty chosen with the grid on held-out folds, unprojection by a
-  contraction-checked fixed point. Evidence
-  (`notes/camera-residual-field.md`): ring-grid rig held-out 0.143 →
-  0.100 px RMS, every camera's mean 0.068–0.099 px (from 0.091–0.146),
-  camera parameters within their fold scatter; display rig 0.315 → 0.248
-  (its smooth-fit floor is 0.213). The earlier 0.068 / 0.186 px came from
-  evaluating the field at the observation, which contracts the noise.
-  Gates: synthetic truth (camera + orthogonal field, and plain data with no
+  top of any camera model, designed in ADR 0030: a bicubic B-spline over
+  the image, evaluated at the model's own projection, held orthogonal to
+  the free camera parameters and a common rotation (a subspace manifold),
+  clamped outside the image, a second-difference penalty chosen with the
+  grid on held-out folds, unprojection by a contraction-checked fixed
+  point. **Done (slot):** `FieldKind`/`BSplineField`/`FieldParams` in core
+  (kernel, inverse, Lipschitz validation), `CameraParams.field` on the wire
+  (no version bump), every consumer
+  honours a field, workflows and both backends hold it fixed (the backends
+  splice a fully fixed field block in as factor data), configs reject
+  `camera.model.field`, Python `BSplineField` + `CameraParams.field`.
+  **Remaining (fit):** the subspace-manifold block on tiny-solver (factrs
+  cannot fuse it: hold fixed or route the fit to tiny-solver with a typed
+  error); the smoothness penalty counted in `H` but not in `G`; the fit
+  stage after each workflow's parametric solve and the held-out ladder
+  (needs CAM-SELECT); `camera.field` config and per-camera overrides; the
+  field's covariance block in the export and its share in projection
+  uncertainty; Python `CameraModelSpec.field`/fit options; the book
+  chapter. Evidence (`notes/camera-residual-field.md`): ring-grid rig
+  held-out 0.143 → 0.100 px RMS, every camera's mean 0.068–0.099 px (from
+  0.091–0.146), camera parameters within their fold scatter; display rig
+  0.315 → 0.248 (its smooth-fit floor is 0.213). Gates for the fit:
+  synthetic truth (camera + orthogonal field, and plain data with no
   spurious gain) on both backends; Monte-Carlo σ of the camera and the
   control points within 10 % (met by the prototype only with the
   smoothing as a penalty and a near-hard constraint); the fold scatter of
   `fx, tilt_x` on the display rig, doubled by the field, against the
   view-scatter-scaled σ; held-out gain on
-  `scheimpflug_rig_ringgrid_cam0..5`. Needs: CAM-SELECT for the ladder and
-  the keep-or-drop rule.
+  `scheimpflug_rig_ringgrid_cam0..5`.
 
 ## Calibration problems (Phase 2)
 

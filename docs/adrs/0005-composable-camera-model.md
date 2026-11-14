@@ -32,6 +32,7 @@ pixel = K(sensor(distortion(projection(p_c))))
 | Distortion | normalized → distorted normalized | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1`, `KannalaBrandt4` | the coefficients |
 | Sensor | distorted normalized → sensor plane | `Identity`, `Scheimpflug` | `tilt_x, tilt_y` |
 | K | sensor plane → pixels | one model, `fx, fy, cx, cy` | — |
+| Field | pixels → pixels | `None`, `BSpline` | control displacements ([ADR 0030](0030-camera-residual-field.md)) |
 
 The code has the `Pinhole` and `Equidistant` projections, all six
 distortion kinds and both sensors. `Eucm`, `DoubleSphere` and `Telecentric`

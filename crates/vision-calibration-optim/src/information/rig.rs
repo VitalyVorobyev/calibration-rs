@@ -146,10 +146,7 @@ pub fn rig_handeye_view_information(
                 )));
             }
             x.rows_mut(m, 3).copy_from(&p);
-            let (q, j) = jacobian(
-                |v: nalgebra::DVector<DualDVec64>| project(model.model, &v, m),
-                &x,
-            );
+            let (q, j) = jacobian(|v: nalgebra::DVector<DualDVec64>| project(model, &v, m), &x);
             if !q.iter().chain(j.iter()).all(|v| v.is_finite()) {
                 return Err(Error::numerical(format!(
                     "the projection of target point {point} by camera {i} is not finite"

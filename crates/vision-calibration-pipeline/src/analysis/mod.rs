@@ -71,8 +71,8 @@ use serde::{Deserialize, Serialize};
 use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector3, Vector6};
 
 use vision_calibration_core::{
-    Camera, CameraParams, CameraProject, DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3,
-    ProjectionModel, Pt2, Pt3, RigDataset, SensorModel, TargetFeatureResidual, View,
+    Camera, CameraParams, CameraProject, DistortionModel, FieldModel, FxFyCxCy, IntrinsicsModel,
+    Iso3, ProjectionModel, Pt2, Pt3, RigDataset, SensorModel, TargetFeatureResidual, View,
     compute_rig_target_residuals,
 };
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_bearings;
@@ -609,12 +609,13 @@ trait FloorCamera: CameraProject {
     fn bearing(&self, pixel: &Pt2) -> Vector3<f64>;
 }
 
-impl<P, D, Sm, K> FloorCamera for Camera<f64, P, D, Sm, K>
+impl<P, D, Sm, K, F> FloorCamera for Camera<f64, P, D, Sm, K, F>
 where
     P: ProjectionModel<f64>,
     D: DistortionModel<f64>,
     Sm: SensorModel<f64>,
     K: IntrinsicsModel<f64>,
+    F: FieldModel<f64>,
 {
     fn bearing(&self, pixel: &Pt2) -> Vector3<f64> {
         self.backproject_pixel(pixel).direction

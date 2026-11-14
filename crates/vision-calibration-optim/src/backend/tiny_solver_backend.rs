@@ -21,6 +21,8 @@ use tiny_solver::manifold::so3::QuaternionManifold;
 use tiny_solver::parameter_block::ParameterBlock;
 use tiny_solver::problem::{Problem, SymbolicStructure};
 
+use super::held_field::HeldField;
+
 /// tiny-solver backend adapter.
 #[derive(Debug, Clone, Copy)]
 pub struct TinySolverBackend;
@@ -114,10 +116,14 @@ impl TinySolverBackend {
         }
 
         for residual in &ir.residuals {
-            let (factor, loss) = compile_factor(residual)?;
+            // A held residual field is factor data, not a variable.
+            let held = HeldField::of(ir, residual, initial)?;
+            let held_id = held.as_ref().map(|h| h.id);
+            let (factor, loss) = compile_factor(residual, held)?;
             let param_names: Vec<&str> = residual
                 .params
                 .iter()
+                .filter(|id| Some(id.0) != held_id)
                 .map(|id| ir.params[id.0].name.as_str())
                 .collect();
             problem.add_residual_block(residual.residual_dim, &param_names, factor, loss);
@@ -333,7 +339,11 @@ impl<'ir> ResidualProbe<'ir> {
     ) -> Option<nalgebra::DMatrix<f64>> {
         let factors: Vec<_> = self.ir.residuals[range.clone()]
             .iter()
-            .map(|residual| compile_factor(residual).ok().map(|(factor, _)| factor))
+            .map(|residual| {
+                compile_factor(residual, None)
+                    .ok()
+                    .map(|(factor, _)| factor)
+            })
             .collect::<Option<_>>()?;
         let mut sum = nalgebra::DMatrix::zeros(q, moved.len());
         let mut scratch: Vec<DVector<f64>> = Vec::new();
@@ -575,7 +585,12 @@ type CompiledFactor = (
     Option<Box<dyn Loss + Send>>,
 );
 
-fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor, Error> {
+/// The tiny-solver factor of `residual`; `held` is its camera's residual
+/// field when the factor takes it as data rather than as a variable.
+fn compile_factor(
+    residual: &crate::ir::ResidualBlock,
+    held: Option<HeldField>,
+) -> Result<CompiledFactor, Error> {
     let loss = compile_loss(residual.loss);
     match &residual.factor {
         FactorKind::Se3TangentPrior { sqrt_info, .. } => {
@@ -597,6 +612,7 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
                 pw: *pw,
                 uv: *uv,
                 sqrt_info: *sqrt_info,
+                held,
             };
             Ok((Box::new(factor), loss))
         }
@@ -611,6 +627,7 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
                 chain: *chain,
                 uv: *uv,
                 sqrt_info: *sqrt_info,
+                held,
             };
             Ok((Box::new(factor), loss))
         }
@@ -626,6 +643,7 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
                 chain: *chain,
                 laser_pixel: *laser_pixel,
                 w: *w,
+                held,
             };
             Ok((Box::new(factor), loss))
         }
@@ -641,6 +659,7 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
                 chain: *chain,
                 laser_pixel: *laser_pixel,
                 w: *w,
+                held,
             };
             Ok((Box::new(factor), loss))
         }
@@ -666,6 +685,18 @@ impl Factor<DualDVec64> for TinyCustomFactor {
     }
 }
 
+/// `f` over `params` with a held residual field spliced in.
+fn with_held<T: nalgebra::RealField, R>(
+    held: &Option<HeldField>,
+    params: &[DVector<T>],
+    f: impl FnOnce(&[DVector<T>]) -> R,
+) -> R {
+    match held {
+        Some(h) => f(&h.splice(params)),
+        None => f(params),
+    }
+}
+
 #[derive(Debug, Clone)]
 struct TinyReprojFactor {
     model: CameraModelSpec,
@@ -673,10 +704,17 @@ struct TinyReprojFactor {
     pw: [f64; 3],
     uv: [f64; 2],
     sqrt_info: ReprojSqrtInfo,
+    held: Option<HeldField>,
 }
 
 impl<T: nalgebra::RealField> Factor<T> for TinyReprojFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        with_held(&self.held, params, |params| self.eval(params))
+    }
+}
+
+impl TinyReprojFactor {
+    fn eval<T: nalgebra::RealField>(&self, params: &[DVector<T>]) -> DVector<T> {
         let r = reproj_residual(
             self.model,
             &self.chain,
@@ -695,10 +733,17 @@ struct TinyReprojFreePointFactor {
     chain: ReprojChain,
     uv: [f64; 2],
     sqrt_info: ReprojSqrtInfo,
+    held: Option<HeldField>,
 }
 
 impl<T: nalgebra::RealField> Factor<T> for TinyReprojFreePointFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        with_held(&self.held, params, |params| self.eval(params))
+    }
+}
+
+impl TinyReprojFreePointFactor {
+    fn eval<T: nalgebra::RealField>(&self, params: &[DVector<T>]) -> DVector<T> {
         let r =
             reproj_free_point_residual(self.model, &self.chain, params, self.uv, &self.sqrt_info);
         DVector::from_row_slice(r.as_slice())
@@ -719,10 +764,17 @@ struct TinyLaserFactor {
     chain: LaserChain,
     laser_pixel: [f64; 2],
     w: f64,
+    held: Option<HeldField>,
 }
 
 impl<T: nalgebra::RealField> Factor<T> for TinyLaserFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        with_held(&self.held, params, |params| self.eval(params))
+    }
+}
+
+impl TinyLaserFactor {
+    fn eval<T: nalgebra::RealField>(&self, params: &[DVector<T>]) -> DVector<T> {
         let residual = match self.metric {
             LaserMetric::PointToPlane => laser_point_to_plane_residual,
             LaserMetric::LineDistance => laser_line_distance_residual,

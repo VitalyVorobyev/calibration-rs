@@ -78,9 +78,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use nalgebra::{DVector, UnitQuaternion};
 use vision_calibration_core::{
-    CameraFix, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, PointCovariance,
-    ProjectionParams, Pt2, Pt3, ResidualKind, ResidualNoise, RunControl, SensorParams, Uncertainty,
-    UncertaintyUnavailable,
+    CameraFix, CameraModelSpec, CameraParams, DistortionParams, FieldParams, FxFyCxCy, Iso3,
+    PointCovariance, ProjectionParams, Pt2, Pt3, ResidualKind, ResidualNoise, RunControl,
+    SensorParams, Uncertainty, UncertaintyUnavailable,
 };
 
 pub use calibration::{RigBlocks, Use};
@@ -102,7 +102,7 @@ use residual::Bridge;
 
 /// The slot names of a camera's blocks, in the order of
 /// [`CameraParams::blocks`].
-const CAMERA_SLOTS: [&str; 4] = ["cam", "proj", "dist", "sensor"];
+const CAMERA_SLOTS: [&str; 5] = ["cam", "proj", "dist", "sensor", "field"];
 
 /// Unit-norm tolerance of an SE3 block's quaternion and a unit vector.
 const UNIT_TOLERANCE: f64 = 1e-9;
@@ -600,11 +600,13 @@ impl Problem {
                 "camera {index}: parameters must be finite"
             )));
         }
+        // A residual field is held fixed.
         let fixed = [
-            &fixed.intrinsics,
-            &fixed.projection,
-            &fixed.distortion,
-            &fixed.sensor,
+            FixedMask::fix_indices(&fixed.intrinsics),
+            FixedMask::fix_indices(&fixed.projection),
+            FixedMask::fix_indices(&fixed.distortion),
+            FixedMask::fix_indices(&fixed.sensor),
+            FixedMask::all_fixed(spec.field.dim()),
         ];
         let mut blocks = Vec::new();
         for ((slot, values), fixed) in CAMERA_SLOTS.into_iter().zip(values).zip(fixed) {
@@ -615,7 +617,7 @@ impl Problem {
                 name: format!("camera{index}.{slot}"),
                 values: DVector::from_vec(values),
                 manifold: Manifold::Euclidean,
-                fixed: FixedMask::fix_indices(fixed),
+                fixed,
                 bounds: Vec::new(),
                 labels: None,
                 owner: Owner::Camera {
@@ -1061,17 +1063,21 @@ impl Solution {
         let projection = next(spec.projection.dim())?;
         let distortion = next(spec.distortion.dim())?;
         let sensor = next(spec.sensor.dim())?;
-        Some(CameraParams::new(
-            ProjectionParams::from_values(spec.projection, projection).ok()?,
-            DistortionParams::from_values(spec.distortion, distortion).ok()?,
-            SensorParams::from_values(spec.sensor, sensor).ok()?,
-            FxFyCxCy {
-                fx: intrinsics[0],
-                fy: intrinsics[1],
-                cx: intrinsics[2],
-                cy: intrinsics[3],
-            },
-        ))
+        let field = next(spec.field.dim())?;
+        Some(
+            CameraParams::new(
+                ProjectionParams::from_values(spec.projection, projection).ok()?,
+                DistortionParams::from_values(spec.distortion, distortion).ok()?,
+                SensorParams::from_values(spec.sensor, sensor).ok()?,
+                FxFyCxCy {
+                    fx: intrinsics[0],
+                    fy: intrinsics[1],
+                    cx: intrinsics[2],
+                    cy: intrinsics[3],
+                },
+            )
+            .with_field(FieldParams::from_values(spec.field, field).ok()?),
+        )
     }
 }
 

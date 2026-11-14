@@ -48,7 +48,8 @@ const DISTORTION_FIT_ITERS: u32 = 8;
 pub struct CameraConfig {
     /// The camera model, one kind per slot. Default: pinhole projection,
     /// Brown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity
-    /// (untilted) sensor — the model every workflow accepts.
+    /// (untilted) sensor — the model every workflow accepts. No workflow
+    /// estimates a residual field, so `model.field` must be left out.
     pub model: CameraModelSpec,
     /// Parameters held fixed during the non-linear solve, named per slot
     /// (`{"intrinsics": ["cx", "cy"], "distortion": ["k3"], "sensor":
@@ -191,7 +192,17 @@ pub(crate) fn validate_rig_cameras(
 /// a pinhole camera (untilted or Scheimpflug), the bearing-based fisheye
 /// initializer for an untilted equidistant one. Any other combination is
 /// rejected before any work rather than initialized as something it is not.
+///
+/// A residual field is not a model a workflow starts from: no workflow
+/// estimates one, so a configuration naming one is rejected rather than
+/// calibrated without it.
 fn check_projection(field: &str, model: CameraModelSpec) -> Result<(), crate::Error> {
+    if !model.field.is_none() {
+        return Err(crate::Error::invalid_input(format!(
+            "{field}.model.field: no workflow estimates a residual field; a camera carries \
+             one only as a calibrated input"
+        )));
+    }
     match (model.projection, model.sensor) {
         (ProjectionKind::Pinhole, _) | (ProjectionKind::Equidistant, SensorKind::Identity) => {
             Ok(())

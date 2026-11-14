@@ -5,10 +5,12 @@
 use nalgebra::{Point2, RealField, Vector3};
 use serde::{Deserialize, Serialize};
 
+use super::field::{FIELD_MAX_CELLS, bspline_displace, bspline_undisplace, control_grid};
 use super::{
     BrownConrady5, DistortionModel, Division, Equidistant, KannalaBrandt4, Pinhole,
     ProjectionModel, RationalPolynomial, Ray, ScheimpflugParams, SensorModel, ThinPrism,
 };
+use crate::Error;
 
 /// Names of the intrinsics parameters, in block order.
 pub const INTRINSICS_PARAM_NAMES: [&str; 4] = ["fx", "fy", "cx", "cy"];
@@ -308,6 +310,129 @@ fn scheimpflug<T: RealField>(s: &[T]) -> ScheimpflugParams<T> {
     }
 }
 
+/// Which residual field a camera carries: a smooth, camera-fixed
+/// displacement in pixels applied after the intrinsics (see
+/// [`BSplineField`](super::BSplineField)).
+///
+/// `dim() == 0` means the camera has no field and no field block.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[non_exhaustive]
+pub enum FieldKind {
+    /// No residual field; no parameter block.
+    #[default]
+    None,
+    /// A uniform bicubic B-spline over the image rectangle `[0, width] ×
+    /// [0, height]`: `2·(nx + 3)·(ny + 3)` control displacements in pixels,
+    /// the `u` components then the `v` components.
+    BSpline {
+        /// Cells `[nx, ny]` along `u` and `v`, each in `1..=1024` and at most
+        /// the image size along that axis.
+        cells: [u32; 2],
+        /// The image size `[width, height]` in pixels: the rectangle the
+        /// spline spans.
+        image_size: [u32; 2],
+    },
+}
+
+impl FieldKind {
+    /// Whether there is no field.
+    pub fn is_none(&self) -> bool {
+        matches!(self, FieldKind::None)
+    }
+
+    /// Dimension of the field parameter block (0 = no block).
+    pub fn dim(self) -> usize {
+        match self {
+            FieldKind::None => 0,
+            FieldKind::BSpline { cells, .. } => {
+                let [nx, ny] = control_grid(cells);
+                2 * nx * ny
+            }
+        }
+    }
+
+    /// Names of the field parameters, in block order: `du_<i>_<j>` for the
+    /// `u` displacement of control `(i, j)` (`i` along `u`, `j` along `v`),
+    /// then `dv_<i>_<j>`.
+    pub fn param_names(self) -> Vec<String> {
+        match self {
+            FieldKind::None => Vec::new(),
+            FieldKind::BSpline { cells, .. } => {
+                let [nx, ny] = control_grid(cells);
+                ["du", "dv"]
+                    .iter()
+                    .flat_map(|c| {
+                        (0..ny).flat_map(move |j| (0..nx).map(move |i| format!("{c}_{i}_{j}")))
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// Check the kind is in range: at least one and at most 1024 cells per
+    /// axis, no more cells than pixels, and a non-empty image.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidInput`] naming the problem.
+    pub fn validate(self) -> Result<(), Error> {
+        match self {
+            FieldKind::None => Ok(()),
+            FieldKind::BSpline { cells, image_size } => {
+                if image_size.contains(&0) {
+                    return Err(Error::invalid_input(format!(
+                        "a residual field needs the camera's image size; got {image_size:?}"
+                    )));
+                }
+                for axis in 0..2 {
+                    if cells[axis] == 0
+                        || cells[axis] > FIELD_MAX_CELLS
+                        || cells[axis] > image_size[axis]
+                    {
+                        return Err(Error::invalid_input(format!(
+                            "residual field cells {cells:?} out of range: each axis needs \
+                             1..={FIELD_MAX_CELLS} cells and no more than the image size \
+                             {image_size:?}"
+                        )));
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// The displaced pixel `u + F(u)` with field parameters `c` (in
+    /// [`param_names`](Self::param_names) order); `u` itself without a
+    /// field.
+    pub fn displace<T: RealField>(self, c: &[T], pixel: &Point2<T>) -> Point2<T> {
+        match self {
+            FieldKind::None => pixel.clone(),
+            FieldKind::BSpline { cells, image_size } => {
+                debug_assert_eq!(c.len(), self.dim(), "field block has the wrong length");
+                let (du, dv) = c.split_at(c.len() / 2);
+                bspline_displace(cells, image_size, du, dv, pixel)
+            }
+        }
+    }
+
+    /// Invert [`displace`](Self::displace): the pixel `u_par` with
+    /// `u_par + F(u_par) = pixel`, by a fixed-point iteration from `pixel`
+    /// closed by one Newton step. Converges for a field that passes
+    /// [`BSplineField::validate`](super::BSplineField::validate).
+    pub fn undisplace<T: RealField>(self, c: &[T], pixel: &Point2<T>) -> Point2<T> {
+        match self {
+            FieldKind::None => pixel.clone(),
+            FieldKind::BSpline { cells, image_size } => {
+                debug_assert_eq!(c.len(), self.dim(), "field block has the wrong length");
+                let (du, dv) = c.split_at(c.len() / 2);
+                bspline_undisplace(cells, image_size, du, dv, pixel)
+            }
+        }
+    }
+}
+
 /// A camera model: the kind in each slot. The values live in
 /// [`CameraParams`](super::CameraParams); [`CameraParams::spec`](super::CameraParams::spec)
 /// recovers the spec from them.
@@ -321,10 +446,14 @@ pub struct CameraModelSpec {
     pub distortion: DistortionKind,
     /// Sensor slot.
     pub sensor: SensorKind,
+    /// Residual-field slot; omitted from JSON when there is no field.
+    #[serde(default, skip_serializing_if = "FieldKind::is_none")]
+    pub field: FieldKind,
 }
 
 impl CameraModelSpec {
-    /// A spec from its three slots.
+    /// A spec from its projection, distortion and sensor slots, without a
+    /// residual field.
     pub const fn new(
         projection: ProjectionKind,
         distortion: DistortionKind,
@@ -334,7 +463,15 @@ impl CameraModelSpec {
             projection,
             distortion,
             sensor,
+            field: FieldKind::None,
         }
+    }
+
+    /// This spec with the residual-field slot replaced.
+    #[must_use]
+    pub const fn with_field(mut self, field: FieldKind) -> Self {
+        self.field = field;
+        self
     }
 
     /// A pinhole camera with the given distortion and sensor.

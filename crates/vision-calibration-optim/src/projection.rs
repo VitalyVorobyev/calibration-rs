@@ -245,7 +245,7 @@ impl CameraJacobian {
         for k in 0..3 {
             x[n + k] = point[k];
         }
-        let model = self.0.model;
+        let model = &self.0;
         let (q, j) = jacobian(|v: DVector<DualDVec64>| project_point(model, &v, n), &x);
         if !(q.iter().all(|v| v.is_finite()) && j.iter().all(|v| v.is_finite())) {
             return None;
@@ -260,38 +260,40 @@ impl CameraJacobian {
 
 /// The pixel of the point `v[n..n + 3]` for camera parameters `v[..n]`.
 fn project_point(
-    model: CameraModelSpec,
+    model: &CameraVector,
     v: &DVector<DualDVec64>,
     n: usize,
 ) -> SVector<DualDVec64, 2> {
-    let all = v.as_slice();
-    let (intrinsics, rest) = all.split_at(4);
-    let (projection, rest) = rest.split_at(model.projection.dim());
-    let (distortion, rest) = rest.split_at(model.distortion.dim());
-    let sensor = &rest[..model.sensor.dim()];
-    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
+    let camera = model.camera(v.as_slice());
     let point = Vector3::new(v[n].clone(), v[n + 1].clone(), v[n + 2].clone());
     let (u, w) = camera.project(&point);
     SVector::<DualDVec64, 2>::new(u, w)
 }
 
 /// A camera's parameters as one vector `θ`, in the solver's block order:
-/// intrinsics, projection, distortion, sensor.
+/// intrinsics, projection, distortion, sensor. A residual field is held
+/// fixed: it is part of the model the derivatives are taken through, not a
+/// coordinate of `θ`.
 #[derive(Debug, Clone)]
 pub(crate) struct CameraVector {
     pub(crate) model: CameraModelSpec,
     pub(crate) theta: DVector<f64>,
     pub(crate) labels: Vec<&'static str>,
+    /// The residual field's parameters, as constants.
+    field: Vec<DualDVec64>,
 }
 
 impl CameraVector {
     pub(crate) fn new(camera: &CameraParams) -> Result<Self, Error> {
+        camera.field.validate()?;
         let model = camera.spec().ok_or_else(|| {
             Error::invalid_input(
                 "projection uncertainty needs a named sensor kind, not a general homography",
             )
         })?;
-        let theta = DVector::from_vec(camera.blocks().concat());
+        let [intrinsics, projection, distortion, sensor, field] = camera.blocks();
+        let theta = DVector::from_vec([intrinsics, projection, distortion, sensor].concat());
+        let field = field.into_iter().map(DualDVec64::from_re).collect();
         let labels = INTRINSICS_PARAM_NAMES
             .iter()
             .chain(model.projection.param_names())
@@ -303,7 +305,19 @@ impl CameraVector {
             model,
             theta,
             labels,
+            field,
         })
+    }
+
+    /// The camera whose parameters `θ` lead `v`, with the held residual
+    /// field.
+    pub(crate) fn camera<'a>(&'a self, v: &'a [DualDVec64]) -> CameraBlocks<'a, DualDVec64> {
+        let m = self.model;
+        let (intrinsics, rest) = v.split_at(4);
+        let (projection, rest) = rest.split_at(m.projection.dim());
+        let (distortion, rest) = rest.split_at(m.distortion.dim());
+        let sensor = &rest[..m.sensor.dim()];
+        CameraBlocks::new(m, intrinsics, projection, distortion, sensor, &self.field)
     }
 
     /// The covariance of `θ`, zero for the parameters `covariance` does not
@@ -346,7 +360,7 @@ impl CameraVector {
     /// `∂q/∂θ` at the ray through `pixel`, found by Newton steps from the
     /// direction `guess`; `None` when the steps do not reach it.
     fn jacobian(&self, pixel: Vector2<f64>, guess: Vector3<f64>) -> Option<OMatrix<f64, U2, Dyn>> {
-        node_jacobian(self.model, &self.theta, pixel, guess)
+        node_jacobian(self, pixel, guess)
     }
 }
 
@@ -356,11 +370,11 @@ impl CameraVector {
 /// parametrized as one near it. `∂q/∂θ` holds the ray fixed, so it does
 /// not depend on that choice.
 fn node_jacobian(
-    model: CameraModelSpec,
-    theta: &DVector<f64>,
+    model: &CameraVector,
     pixel: Vector2<f64>,
     guess: Vector3<f64>,
 ) -> Option<OMatrix<f64, U2, Dyn>> {
+    let theta = &model.theta;
     let n = theta.len();
     let d = guess.try_normalize(0.0)?;
     // Any unit vector not parallel to `d` spans the tangent plane with it.
@@ -393,17 +407,12 @@ fn node_jacobian(
 /// for camera parameters `v[..n]` (`[intrinsics, projection, distortion,
 /// sensor]`, concatenated).
 fn project(
-    model: CameraModelSpec,
+    model: &CameraVector,
     v: &DVector<DualDVec64>,
     n: usize,
     basis: &[Vector3<f64>; 3],
 ) -> SVector<DualDVec64, 2> {
-    let all = v.as_slice();
-    let (intrinsics, rest) = all.split_at(4);
-    let (projection, rest) = rest.split_at(model.projection.dim());
-    let (distortion, rest) = rest.split_at(model.distortion.dim());
-    let sensor = &rest[..model.sensor.dim()];
-    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
+    let camera = model.camera(v.as_slice());
     let [d, e1, e2] = basis;
     let ray = Vector3::from_fn(|i, _| {
         DualDVec64::from_re(d[i]) + v[n].clone() * e1[i] + v[n + 1].clone() * e2[i]
@@ -624,7 +633,7 @@ mod tests {
                             cy: 240.0,
                         },
                     );
-                    let rebuild = |blocks: &[Vec<f64>; 4]| {
+                    let rebuild = |blocks: &[Vec<f64>; 5]| {
                         CameraParams::new(
                             ProjectionParams::from_values(projection, &blocks[1]).unwrap(),
                             DistortionParams::from_values(distortion, &blocks[2]).unwrap(),

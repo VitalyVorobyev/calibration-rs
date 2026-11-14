@@ -291,7 +291,7 @@ impl CalibratedRig {
 mod tests {
     use super::*;
     use crate::types::{ParameterCovariance, ResidualNoise};
-    use crate::{DistortionParams, FxFyCxCy, ProjectionParams, SensorParams};
+    use crate::{DistortionParams, FieldParams, FxFyCxCy, ProjectionParams, SensorParams};
     use nalgebra::{Translation3, UnitQuaternion};
 
     fn pinhole(fx: f64) -> CameraParams {
@@ -305,6 +305,7 @@ mod tests {
                 cx: 320.0,
                 cy: 240.0,
             },
+            field: FieldParams::None,
         }
     }
 

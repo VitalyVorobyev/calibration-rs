@@ -152,6 +152,42 @@ export type DistortionParams =
       type: "kannala_brandt4";
     };
 /**
+ * Serializable residual-field parameters.
+ */
+export type FieldParams =
+  | {
+      type: "none";
+    }
+  | {
+      /**
+       * Cells along `u` and `v`, each in `1..=1024` and at most the image
+       * size along that axis.
+       *
+       * @minItems 2
+       * @maxItems 2
+       */
+      cells: [number, number];
+      /**
+       * Control displacements of the `u` component, in pixels, row-major over
+       * the `(ny + 3) × (nx + 3)` control grid.
+       */
+      du: number[];
+      /**
+       * Control displacements of the `v` component, in pixels, laid out like
+       * [`du`](Self::du).
+       */
+      dv: number[];
+      /**
+       * The image size `[width, height]` in pixels: the rectangle the spline
+       * spans.
+       *
+       * @minItems 2
+       * @maxItems 2
+       */
+      image_size: [number, number];
+      type: "b_spline";
+    };
+/**
  * Serializable projection model parameters.
  */
 export type ProjectionParams =
@@ -655,6 +691,11 @@ export interface CameraParams {
    * Distortion model parameters.
    */
   distortion: DistortionParams;
+  /**
+   * Residual field: a smooth displacement in pixels applied after the
+   * intrinsics. Omitted from JSON when the camera has none.
+   */
+  field?: FieldParams;
   /**
    * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
    */

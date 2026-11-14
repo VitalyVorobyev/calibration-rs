@@ -35,6 +35,10 @@ pub(crate) struct BlockLabels {
     /// camera-to-rig pose of a single-camera problem; it is not listed among
     /// the fixed parameters.
     pub internal: bool,
+    /// A block that, fixed, is listed among the fixed parameters by its name
+    /// alone rather than coordinate by coordinate (a residual field's
+    /// hundreds of control displacements).
+    pub whole: bool,
 }
 
 impl BlockLabels {
@@ -54,6 +58,7 @@ impl BlockLabels {
             coordinates,
             inverse_of: None,
             internal: false,
+            whole: false,
         }
     }
 
@@ -65,6 +70,7 @@ impl BlockLabels {
             coordinates: pose_labels(name),
             inverse_of: None,
             internal: false,
+            whole: false,
         }
     }
 
@@ -80,6 +86,14 @@ impl BlockLabels {
     fn inverted(self, stored: Iso3) -> Self {
         Self {
             inverse_of: Some(stored),
+            ..self
+        }
+    }
+
+    /// List this block, when fixed, by its name alone.
+    pub(crate) fn listed_whole(self) -> Self {
+        Self {
+            whole: true,
             ..self
         }
     }
@@ -333,7 +347,7 @@ fn fixed_labels(ir: &ProblemIR, labels: &[BlockLabels]) -> Vec<String> {
         let euclidean = block.manifold == ManifoldKind::Euclidean;
         match (names.view, all_fixed) {
             (Some(view), true) => out.push(format!("view{view}.{}", names.name)),
-            (None, true) if !euclidean => out.push(names.name.clone()),
+            (None, true) if !euclidean || names.whole => out.push(names.name.clone()),
             (_, true) => {
                 out.extend((0..names.coordinates.len()).map(|i| coordinate_label(names, i)))
             }
@@ -557,6 +571,7 @@ impl RigLabelling<'_> {
                 coordinates: coordinates.iter().map(|c| prefix(c)).collect(),
                 inverse_of: None,
                 internal: false,
+                whole: false,
             }
         };
         let (handeye, target) = match self.handeye_mode {
@@ -567,7 +582,7 @@ impl RigLabelling<'_> {
             ),
         };
         if let Some(i) = index
-            && matches!(kind, "cam" | "proj" | "dist" | "sensor")
+            && matches!(kind, "cam" | "proj" | "dist" | "sensor" | "field")
             && let Some(labels) = camera_block_labels(kind, self.cameras[i], |s| {
                 if self.multi_camera {
                     format!("cam{i}.{s}")

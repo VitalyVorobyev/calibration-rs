@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- **A camera may carry a residual field** (breaking for code that builds
+  the camera types by hand; every existing file reads unchanged).
+  - `CameraParams` has a `field` member (`FieldParams::None` by default,
+    omitted from JSON when absent); `CameraParams::new` still takes four
+    parts, and `with_field` adds a field.
+  - `CameraModelSpec` has a `field` slot: a struct literal needs
+    `field: FieldKind::None`, or build the spec with `CameraModelSpec::new`
+    / `pinhole` (no field) and `with_field`.
+  - `CameraParams::blocks()` returns five blocks; the fifth is the field's
+    control displacements (empty without a field).
+  - `Camera` has a sixth type parameter, the field, defaulting to
+    `NoField`, and a public `field` member; `Camera::new` builds a camera
+    without one and `with_field` adds it. `CameraModel` carries the
+    camera's `FieldParams`.
+  - Readers of 1.0.0-rc.1 ignore `field`, so exchange a camera that has
+    one only with readers of this release or later.
+
 ### Added
 
 - Ring-grid targets take an optional `center_method` (`RinggridCenterMethod`
@@ -16,6 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   images. It costs about 2.5 times the detection time and keeps only the
   markers the fit refined. Existing manifests and detection caches are
   unaffected.
+- A camera can carry a **residual field**: a smooth, camera-fixed
+  displacement in pixels applied after the intrinsics, a uniform bicubic
+  B-spline over the image (`BSplineField`: cells, image size and control
+  displacements; `FieldKind` in the camera model). The field is evaluated
+  at the pixel the rest of the model produces and held at the border
+  outside the image; back-projection inverts it exactly. Building a camera
+  rejects a field that could fold the image (Lipschitz bound above 0.5).
+  Every path that projects or back-projects a calibrated camera honours it
+  — the camera model, reprojection residuals on both solver backends,
+  projection uncertainty, next-view planning, triangulation,
+  rectification, laser planes — and a workflow that refines with such a
+  camera, such as the rig laser calibration from upstream cameras, holds
+  the field fixed and returns it. No workflow estimates a field yet, so a
+  configuration's `camera.model.field` is rejected. Python:
+  `BSplineField` and `CameraParams.field`.
 
 ## [1.0.0-rc.1] - 2026-11-13
 

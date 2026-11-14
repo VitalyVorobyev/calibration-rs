@@ -11,7 +11,7 @@
 use std::fmt::Write as _;
 
 use serde::Serialize;
-use vision_calibration_core::{CameraParams, TargetFeatureResidual, Uncertainty};
+use vision_calibration_core::{CameraParams, FieldKind, TargetFeatureResidual, Uncertainty};
 use vision_calibration_optim::{ProjectionUncertainty, camera_parameters};
 
 use super::{CheckStatus, LevelStats, QualityReport, QualityThresholds, Verdict, assess};
@@ -700,15 +700,24 @@ fn camera_label(index: usize, name: Option<&str>) -> String {
     }
 }
 
-/// "pinhole projection · brown_conrady5 distortion · identity sensor".
+/// "pinhole projection · brown_conrady5 distortion · identity sensor", and
+/// "· 10×8 B-spline residual field" for a camera with one.
 fn model_label(camera: &CameraParams) -> String {
     match camera.spec() {
-        Some(spec) => format!(
-            "{} projection · {} distortion · {} sensor",
-            name(&spec.projection),
-            name(&spec.distortion),
-            name(&spec.sensor)
-        ),
+        Some(spec) => {
+            let field = match spec.field {
+                FieldKind::BSpline { cells, .. } => {
+                    format!(" · {}×{} B-spline residual field", cells[0], cells[1])
+                }
+                _ => String::new(),
+            };
+            format!(
+                "{} projection · {} distortion · {} sensor{field}",
+                name(&spec.projection),
+                name(&spec.distortion),
+                name(&spec.sensor)
+            )
+        }
         None => String::new(),
     }
 }

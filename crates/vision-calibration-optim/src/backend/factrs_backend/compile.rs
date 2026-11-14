@@ -26,6 +26,7 @@ use nalgebra::DVector;
 use super::residuals::build_factor;
 use super::variables::{PlaneVar, VECTOR_DIMS, se3_from_ir, se3_to_ir, with_vector_dim};
 use crate::Error;
+use crate::backend::held_field::HeldField;
 use crate::ir::{CameraSpecLayout, FactorKind, ManifoldKind, ParamBlock, ProblemIR};
 
 /// A factrs variable and the IR blocks fused into it.
@@ -66,15 +67,19 @@ enum Slot {
     PlaneDistance {
         var: usize,
     },
+    /// A held residual field: factor data, not a variable.
+    Held,
 }
 
 impl Slot {
-    fn var(self) -> usize {
+    /// The variable the block lives in; `None` for a held block.
+    fn var(self) -> Option<usize> {
         match self {
             Slot::Vector { var, .. }
             | Slot::Se3 { var }
             | Slot::PlaneNormal { var }
-            | Slot::PlaneDistance { var } => var,
+            | Slot::PlaneDistance { var } => Some(var),
+            Slot::Held => None,
         }
     }
 }
@@ -86,6 +91,8 @@ pub(super) struct Compiled {
     vars: Vec<Var>,
     /// Indexed by IR parameter id.
     slots: Vec<Slot>,
+    /// Values of the held blocks, by IR parameter id.
+    held: HashMap<usize, DVector<f64>>,
 }
 
 /// Assigns factrs variables to IR blocks.
@@ -229,10 +236,21 @@ pub(super) fn compile(
     // Variables, in first-use order over the residuals.
     let mut layout = Layout::new(ir.params.len());
     let mut factor_vars: Vec<Vec<usize>> = Vec::with_capacity(ir.residuals.len());
+    let mut factor_held: Vec<Option<HeldField>> = Vec::with_capacity(ir.residuals.len());
+    let mut held_values: HashMap<usize, DVector<f64>> = HashMap::new();
     for residual in &ir.residuals {
         let ids: Vec<usize> = residual.params.iter().map(|p| p.0).collect();
         let slots = residual.factor.param_layout();
-        let n_cam = match &residual.factor {
+        // A held residual field is factor data: it closes the camera blocks
+        // and is not part of the fused camera variable.
+        let held = HeldField::of(ir, residual, initial)?;
+        if let Some(h) = &held {
+            layout.slots[h.id] = Some(Slot::Held);
+            held_values.insert(h.id, init[h.id].clone());
+        }
+        let n_held = usize::from(held.is_some());
+        factor_held.push(held);
+        let n_cam_all = match &residual.factor {
             FactorKind::ReprojPoint { model, .. }
             | FactorKind::ReprojFreePoint { model, .. }
             | FactorKind::LaserPointToPlane { model, .. }
@@ -240,6 +258,7 @@ pub(super) fn compile(
             FactorKind::Se3TangentPrior { .. } => 0,
             FactorKind::Custom(_) => unreachable!("custom residuals are rejected above"),
         };
+        let n_cam = n_cam_all - n_held;
         let mut vars = Vec::with_capacity(6);
         if n_cam > 0 {
             let cam_ids = &ids[..n_cam];
@@ -269,7 +288,7 @@ pub(super) fn compile(
                 ir,
             )?);
         }
-        let mut j = n_cam;
+        let mut j = n_cam_all;
         while j < ids.len() {
             if slots[j].manifold == ManifoldKind::S2 {
                 // A plane normal is always followed by its distance.
@@ -312,7 +331,10 @@ pub(super) fn compile(
     // Fixed components and bounds.
     for block in &ir.params {
         let slot = slots[block.id.0];
-        let var = &mut vars[slot.var()];
+        let Some(var) = slot.var() else {
+            continue;
+        };
+        let var = &mut vars[var];
         let bounds = block.bounds.as_deref().unwrap_or_default();
         match slot {
             Slot::Vector { offset, .. } => {
@@ -342,6 +364,7 @@ pub(super) fn compile(
                     var.fixed.push(2);
                 }
             }
+            Slot::Held => unreachable!("held blocks have no variable"),
         }
         if !bounds.is_empty() {
             return Err(Error::invalid_input(format!(
@@ -358,7 +381,7 @@ pub(super) fn compile(
         let blocks: Vec<(usize, &DVector<f64>)> = slots
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.var() == index)
+            .filter(|(_, s)| s.var() == Some(index))
             .map(|(id, _)| (id, init[id]))
             .collect();
         match var.kind {
@@ -393,9 +416,9 @@ pub(super) fn compile(
 
     // Factors.
     let mut graph = Graph::with_capacity(ir.residuals.len());
-    for (residual, vars) in ir.residuals.iter().zip(&factor_vars) {
+    for ((residual, vars), held) in ir.residuals.iter().zip(&factor_vars).zip(factor_held) {
         let keys: Vec<Key> = vars.iter().map(|&v| Key(v as u64)).collect();
-        graph.add_factor(build_factor(&residual.factor, &keys, residual.loss)?);
+        graph.add_factor(build_factor(&residual.factor, &keys, residual.loss, held)?);
     }
 
     Ok(Compiled {
@@ -403,6 +426,7 @@ pub(super) fn compile(
         values,
         vars,
         slots,
+        held: held_values,
     })
 }
 
@@ -433,9 +457,12 @@ impl Compiled {
             .iter()
             .map(|block| {
                 let slot = self.slots[block.id.0];
-                let var = &self.vars[slot.var()];
+                let Some(var_index) = slot.var() else {
+                    return vec![None; block.dim];
+                };
+                let var = &self.vars[var_index];
                 let start = order
-                    .get(Key(slot.var() as u64))
+                    .get(Key(var_index as u64))
                     .expect("every variable is ordered")
                     .idx;
                 // Components of the variable this block's coordinates are.
@@ -444,6 +471,7 @@ impl Compiled {
                     Slot::Se3 { .. } => (0..6).collect(),
                     Slot::PlaneNormal { .. } => (0..2).collect(),
                     Slot::PlaneDistance { .. } => vec![2],
+                    Slot::Held => unreachable!("held blocks have no variable"),
                 };
                 components
                     .into_iter()
@@ -510,7 +538,10 @@ impl Compiled {
             .iter()
             .map(|block| {
                 let slot = self.slots[block.id.0];
-                let key = Key(slot.var() as u64);
+                let Some(var_index) = slot.var() else {
+                    return (block.name.clone(), self.held[&block.id.0].clone());
+                };
+                let key = Key(var_index as u64);
                 let v = match slot {
                     Slot::Vector { var, offset, dim } => {
                         let VarKind::Vector { dim: n } = self.vars[var].kind else {
@@ -534,6 +565,7 @@ impl Compiled {
                         let p: &PlaneVar = values.get_unchecked(key).expect("compiled variable");
                         DVector::from_element(1, p.distance)
                     }
+                    Slot::Held => unreachable!("held blocks have no variable"),
                 };
                 (block.name.clone(), v)
             })

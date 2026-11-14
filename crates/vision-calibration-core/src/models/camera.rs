@@ -1,7 +1,9 @@
 use nalgebra::{Point2, Point3, RealField, Vector3};
 use serde::{Deserialize, Serialize};
 
-use super::{DistortionModel, IntrinsicsModel, ProjectionModel, Ray, SensorModel};
+use super::{
+    DistortionModel, FieldModel, IntrinsicsModel, NoField, ProjectionModel, Ray, SensorModel,
+};
 
 /// Tiny abstraction over "anything that can project a 3D point in camera
 /// frame to a 2D pixel".
@@ -17,28 +19,35 @@ pub trait CameraProject {
     fn project_camera_point(&self, p_c: &Vector3<f64>) -> Option<Point2<f64>>;
 }
 
-impl<P, D, Sm, K> CameraProject for Camera<f64, P, D, Sm, K>
+impl<P, D, Sm, K, F> CameraProject for Camera<f64, P, D, Sm, K, F>
 where
     P: ProjectionModel<f64>,
     D: DistortionModel<f64>,
     Sm: SensorModel<f64>,
     K: IntrinsicsModel<f64>,
+    F: FieldModel<f64>,
 {
     fn project_camera_point(&self, p_c: &Vector3<f64>) -> Option<Point2<f64>> {
         self.project_point_c(p_c)
     }
 }
 
-/// A composable camera model: projection -> distortion -> sensor -> intrinsics.
+/// A composable camera model: projection -> distortion -> sensor ->
+/// intrinsics -> residual field.
+///
+/// The residual field `F` defaults to [`NoField`], the identity; a camera
+/// built from [`CameraParams`](super::CameraParams) carries its
+/// [`FieldParams`](super::FieldParams).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct Camera<S, P, D, Sm, K>
+pub struct Camera<S, P, D, Sm, K, F = NoField>
 where
     S: RealField + Copy,
     P: ProjectionModel<S>,
     D: DistortionModel<S>,
     Sm: SensorModel<S>,
     K: IntrinsicsModel<S>,
+    F: FieldModel<S>,
 {
     /// Projection model (e.g. pinhole).
     pub proj: P,
@@ -48,10 +57,12 @@ where
     pub sensor: Sm,
     /// Intrinsics model (K).
     pub k: K,
+    /// Residual field applied after the intrinsics (identity by default).
+    pub field: F,
     _phantom: core::marker::PhantomData<S>,
 }
 
-impl<S, P, D, Sm, K> Camera<S, P, D, Sm, K>
+impl<S, P, D, Sm, K> Camera<S, P, D, Sm, K, NoField>
 where
     S: RealField + Copy,
     P: ProjectionModel<S>,
@@ -59,13 +70,36 @@ where
     Sm: SensorModel<S>,
     K: IntrinsicsModel<S>,
 {
-    /// Build a camera from its component models.
+    /// Build a camera from its component models, without a residual field.
     pub fn new(proj: P, dist: D, sensor: Sm, k: K) -> Self {
         Self {
             proj,
             dist,
             sensor,
             k,
+            field: NoField,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<S, P, D, Sm, K, F> Camera<S, P, D, Sm, K, F>
+where
+    S: RealField + Copy,
+    P: ProjectionModel<S>,
+    D: DistortionModel<S>,
+    Sm: SensorModel<S>,
+    K: IntrinsicsModel<S>,
+    F: FieldModel<S>,
+{
+    /// This camera with its residual field replaced.
+    pub fn with_field<G: FieldModel<S>>(self, field: G) -> Camera<S, P, D, Sm, K, G> {
+        Camera {
+            proj: self.proj,
+            dist: self.dist,
+            sensor: self.sensor,
+            k: self.k,
+            field,
             _phantom: core::marker::PhantomData,
         }
     }
@@ -81,7 +115,7 @@ where
         let n_u = self.proj.project(p_c);
         let n_d = self.dist.distort(&n_u);
         let s = self.sensor.normalized_to_sensor(&n_d);
-        Some(self.k.sensor_to_pixel(&s))
+        Some(self.field.displace(&self.k.sensor_to_pixel(&s)))
     }
 
     /// Project a 3D point in camera coordinates into pixel coordinates.
@@ -93,7 +127,7 @@ where
 
     /// The camera ray through a pixel.
     pub fn backproject_pixel(&self, px: &Point2<S>) -> Ray<S> {
-        let s = self.k.pixel_to_sensor(px);
+        let s = self.k.pixel_to_sensor(&self.field.undisplace(px));
         let n_d = self.sensor.sensor_to_normalized(&s);
         let n_u = self.dist.undistort(&n_d);
         self.proj.unproject(&n_u)

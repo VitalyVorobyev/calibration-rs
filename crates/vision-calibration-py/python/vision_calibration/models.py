@@ -1686,22 +1686,90 @@ def _tagged_from_payload(kind: str, table: Mapping[str, type], payload: Mapping[
 
 
 @dataclass(slots=True)
+class BSplineField:
+    """A camera's residual field (serde tag ``b_spline``): a smooth
+    displacement in pixels applied after the intrinsics,
+    ``pixel = F(K(sensor(distortion(projection(p)))))``.
+
+    A uniform bicubic B-spline over the image rectangle
+    ``[0, width] x [0, height]`` in ``cells = (nx, ny)`` cells, with
+    ``(nx + 3) * (ny + 3)`` control displacements per component, row by row
+    (``v`` index outer, ``u`` index inner). A pixel outside the image takes
+    the displacement of the nearest border point. Building a camera checks
+    that the field cannot fold the image (its Lipschitz bound is at most
+    0.5), which also makes back-projection converge.
+    """
+
+    cells: tuple[int, int]
+    image_size: tuple[int, int]
+    du: list[float]
+    dv: list[float]
+
+    def __post_init__(self) -> None:
+        cx, cy = self.cells
+        width, height = self.image_size
+        self.cells = (int(cx), int(cy))
+        self.image_size = (int(width), int(height))
+        self.du = [float(v) for v in self.du]
+        self.dv = [float(v) for v in self.dv]
+        n = (self.cells[0] + 3) * (self.cells[1] + 3)
+        if len(self.du) != n or len(self.dv) != n:
+            raise ValueError(
+                f"a residual field of {self.cells} cells has {n} control displacements per "
+                f"component; got {len(self.du)} (u) and {len(self.dv)} (v)"
+            )
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to the ``FieldParams`` serde payload shape."""
+        return {
+            "type": "b_spline",
+            "cells": list(self.cells),
+            "image_size": list(self.image_size),
+            "du": list(self.du),
+            "dv": list(self.dv),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "BSplineField | None":
+        """Parse a ``FieldParams`` payload; ``None`` for ``{"type": "none"}``.
+
+        Raises ``ValueError`` for a field kind this package does not know.
+        """
+        tag = payload.get("type")
+        if tag == "none":
+            return None
+        if tag != "b_spline":
+            raise ValueError(f"unknown residual field type: {tag!r}")
+        cells = cast(list[int], payload["cells"])
+        size = cast(list[int], payload["image_size"])
+        return cls(
+            cells=(int(cells[0]), int(cells[1])),
+            image_size=(int(size[0]), int(size[1])),
+            du=list(cast(list[float], payload["du"])),
+            dv=list(cast(list[float], payload["dv"])),
+        )
+
+
+@dataclass(slots=True)
 class CameraParams:
     """A calibrated camera: intrinsics plus one model per slot (projection,
-    distortion, sensor), the ``CameraParams`` of a result.
+    distortion, sensor, residual field), the ``CameraParams`` of a result.
 
     ``projection`` defaults to :class:`PinholeProjection` and ``sensor`` to
     :class:`IdentitySensor`; ``distortion`` is any :data:`Distortion` model.
+    ``field`` is the camera's :class:`BSplineField`, or ``None`` (the
+    default) for a camera without one.
     """
 
     intrinsics: PinholeIntrinsics
     distortion: Distortion
     projection: Projection = field(default_factory=PinholeProjection)
     sensor: Sensor = field(default_factory=IdentitySensor)
+    field: BSplineField | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Convert to the ``CameraParams`` serde payload shape."""
-        return {
+        payload: dict[str, Any] = {
             "projection": {
                 "type": _PROJECTION_TAG_BY_TYPE[type(self.projection)],
                 **self.projection.to_payload(),
@@ -1710,14 +1778,18 @@ class CameraParams:
             "sensor": {"type": _SENSOR_TAG_BY_TYPE[type(self.sensor)], **self.sensor.to_payload()},
             "intrinsics": self.intrinsics.to_payload(),
         }
+        if self.field is not None:
+            payload["field"] = self.field.to_payload()
+        return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "CameraParams":
         """Parse from the ``CameraParams`` serde payload shape.
 
-        Raises ``ValueError`` for a projection or sensor this package does
-        not know (a general homography sensor included).
+        Raises ``ValueError`` for a projection, sensor or residual field this
+        package does not know (a general homography sensor included).
         """
+        field_payload = payload.get("field")
         return cls(
             intrinsics=PinholeIntrinsics.from_payload(cast(Mapping[str, Any], payload["intrinsics"])),
             distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["distortion"])),
@@ -1726,6 +1798,11 @@ class CameraParams:
             ),
             sensor=_tagged_from_payload(
                 "sensor", _SENSOR_BY_TAG, cast(Mapping[str, Any], payload["sensor"])
+            ),
+            field=(
+                None
+                if field_payload is None
+                else BSplineField.from_payload(cast(Mapping[str, Any], field_payload))
             ),
         )
 

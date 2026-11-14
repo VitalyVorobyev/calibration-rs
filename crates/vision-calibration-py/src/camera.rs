@@ -14,7 +14,8 @@ use crate::{parse_payload, runtime_err};
 const DETACH_MIN_LEN: usize = 1024;
 
 /// A camera model built from `CameraParams`: projection, distortion, sensor
-/// (identity or Scheimpflug tilt) and intrinsics.
+/// (identity or Scheimpflug tilt), intrinsics and an optional residual
+/// field.
 #[pyclass(
     module = "vision_calibration._vision_calibration",
     name = "CameraModel",

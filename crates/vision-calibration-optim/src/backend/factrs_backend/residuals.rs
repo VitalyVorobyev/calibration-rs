@@ -22,6 +22,7 @@ use nalgebra::{DVector, RealField};
 use super::robust::IrRobustCost;
 use super::variables::{PlaneVar, se3_to_ir};
 use crate::Error;
+use crate::backend::held_field::HeldField;
 use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
 use crate::factors::reprojection_model::{reproj_free_point_residual, reproj_residual};
 use crate::ir::{CameraModelSpec, FactorKind, LaserChain, ReprojChain, ReprojSqrtInfo, RobustLoss};
@@ -85,11 +86,16 @@ struct Reproj {
     pw: [f64; 3],
     uv: [f64; 2],
     sqrt_info: ReprojSqrtInfo,
+    held: Option<HeldField>,
 }
 
 impl Reproj {
     fn model(&self) -> CameraModelSpec {
         self.model
+    }
+
+    fn held(&self) -> Option<&HeldField> {
+        self.held.as_ref()
     }
 
     fn eval<T: RealField>(&self, params: &[DVector<T>]) -> VectorX<T> {
@@ -112,11 +118,16 @@ struct ReprojFree {
     chain: ReprojChain,
     uv: [f64; 2],
     sqrt_info: ReprojSqrtInfo,
+    held: Option<HeldField>,
 }
 
 impl ReprojFree {
     fn model(&self) -> CameraModelSpec {
         self.model
+    }
+
+    fn held(&self) -> Option<&HeldField> {
+        self.held.as_ref()
     }
 
     fn eval<T: RealField>(&self, params: &[DVector<T>]) -> VectorX<T> {
@@ -141,11 +152,16 @@ struct Laser {
     chain: LaserChain,
     laser_pixel: [f64; 2],
     w: f64,
+    held: Option<HeldField>,
 }
 
 impl Laser {
     fn model(&self) -> CameraModelSpec {
         self.model
+    }
+
+    fn held(&self) -> Option<&HeldField> {
+        self.held.as_ref()
     }
 
     fn eval<T: RealField>(&self, params: &[DVector<T>]) -> VectorX<T> {
@@ -237,8 +253,12 @@ macro_rules! camera_residual {
                 camera: VectorVar<N, T>,
                 $($v: <$VT as factrs::variables::Variable>::Alias<T>,)*
             ) -> VectorX<T> {
-                let mut params = Vec::with_capacity(9);
+                let mut params = Vec::with_capacity(10);
                 push_camera(self.payload.model(), &camera, &mut params);
+                // A held residual field closes the camera blocks.
+                if let Some(held) = self.payload.held() {
+                    params.push(held.block());
+                }
                 $($v.push_blocks(&mut params);)*
                 self.payload.eval(&params)
             }
@@ -389,6 +409,7 @@ pub(super) fn build_factor(
     factor: &FactorKind,
     keys: &[Key],
     loss: RobustLoss,
+    held: Option<HeldField>,
 ) -> Result<Factor, Error> {
     let robust = IrRobustCost(loss);
     match factor {
@@ -416,6 +437,7 @@ pub(super) fn build_factor(
                 pw: *pw,
                 uv: *uv,
                 sqrt_info: *sqrt_info,
+                held,
             };
             macro_rules! mk {
                 ($n:literal) => {{
@@ -471,6 +493,7 @@ pub(super) fn build_factor(
                 chain: *chain,
                 uv: *uv,
                 sqrt_info: *sqrt_info,
+                held,
             };
             macro_rules! mk {
                 ($n:literal) => {{
@@ -523,6 +546,7 @@ pub(super) fn build_factor(
                 chain: *chain,
                 laser_pixel: *laser_pixel,
                 w: *w,
+                held,
             };
             macro_rules! mk {
                 ($n:literal) => {{

@@ -6,7 +6,7 @@
 
 use crate::{
     Camera, Iso3, Pt2, Pt3, Real, Vec2, Vec3,
-    models::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel},
+    models::{DistortionModel, FieldModel, IntrinsicsModel, ProjectionModel, SensorModel},
 };
 
 use super::noise::UniformPixelNoise;
@@ -57,8 +57,8 @@ const STRIPE_SAMPLES: usize = 41;
 /// Returns an empty vector for degenerate views: the plane parallel to the
 /// board, the stripe missing the board, or a stripe shorter than 0.05 (5 cm
 /// for a scene in metres).
-pub fn laser_stripe_pixels<P, D, Sm, K>(
-    camera: &Camera<Real, P, D, Sm, K>,
+pub fn laser_stripe_pixels<P, D, Sm, K, F>(
+    camera: &Camera<Real, P, D, Sm, K, F>,
     cam_se3_target: &Iso3,
     plane_normal: &Vec3,
     plane_distance: Real,
@@ -71,6 +71,7 @@ where
     D: DistortionModel<Real>,
     Sm: SensorModel<Real>,
     K: IntrinsicsModel<Real>,
+    F: FieldModel<Real>,
 {
     // Laser plane expressed in the target frame (board is z = 0 there).
     let n = cam_se3_target

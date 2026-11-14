@@ -58,6 +58,7 @@ from .models import (
     RobotPoseSigma,
     RobotRefinement,
     ScheimpflugSensor,
+    BSplineField,
     SolverConfig,
     RigExtrinsicsConfig,
     RigExtrinsicsInput,

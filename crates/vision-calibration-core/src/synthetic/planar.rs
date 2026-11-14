@@ -6,7 +6,7 @@
 
 use crate::{
     Camera, CorrespondenceView, Error, Iso3, Pt2, Pt3, Real, Vec2,
-    models::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel},
+    models::{DistortionModel, FieldModel, IntrinsicsModel, ProjectionModel, SensorModel},
 };
 
 use super::noise::UniformPixelNoise;
@@ -105,8 +105,8 @@ pub fn poses_yaw_y_z(
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if any point is not projectable (e.g. behind the camera).
-pub fn project_view_all<P, D, Sm, K>(
-    camera: &Camera<Real, P, D, Sm, K>,
+pub fn project_view_all<P, D, Sm, K, F>(
+    camera: &Camera<Real, P, D, Sm, K, F>,
     cam_from_target: &Iso3,
     target_points: &[Pt3],
 ) -> Result<CorrespondenceView, Error>
@@ -115,6 +115,7 @@ where
     D: DistortionModel<Real>,
     Sm: SensorModel<Real>,
     K: IntrinsicsModel<Real>,
+    F: FieldModel<Real>,
 {
     let mut pixels = Vec::with_capacity(target_points.len());
     for (idx, pw) in target_points.iter().enumerate() {
@@ -134,8 +135,8 @@ where
 /// Project a planar target into the camera, keeping only projectable points.
 ///
 /// This is convenient for tests where the pose may place some points behind the camera.
-pub fn project_view_visible<P, D, Sm, K>(
-    camera: &Camera<Real, P, D, Sm, K>,
+pub fn project_view_visible<P, D, Sm, K, F>(
+    camera: &Camera<Real, P, D, Sm, K, F>,
     cam_from_target: &Iso3,
     target_points: &[Pt3],
 ) -> CorrespondenceView
@@ -144,6 +145,7 @@ where
     D: DistortionModel<Real>,
     Sm: SensorModel<Real>,
     K: IntrinsicsModel<Real>,
+    F: FieldModel<Real>,
 {
     let mut points_3d = Vec::with_capacity(target_points.len());
     let mut points_2d = Vec::with_capacity(target_points.len());
@@ -165,8 +167,8 @@ where
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if any point in any view is not projectable.
-pub fn project_views_all<P, D, Sm, K>(
-    camera: &Camera<Real, P, D, Sm, K>,
+pub fn project_views_all<P, D, Sm, K, F>(
+    camera: &Camera<Real, P, D, Sm, K, F>,
     target_points: &[Pt3],
     cam_from_target: &[Iso3],
 ) -> Result<Vec<CorrespondenceView>, Error>
@@ -175,6 +177,7 @@ where
     D: DistortionModel<Real>,
     Sm: SensorModel<Real>,
     K: IntrinsicsModel<Real>,
+    F: FieldModel<Real>,
 {
     cam_from_target
         .iter()
@@ -193,8 +196,8 @@ where
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if any point in any view is not projectable.
-pub fn project_views_noisy<P, D, Sm, K>(
-    camera: &Camera<Real, P, D, Sm, K>,
+pub fn project_views_noisy<P, D, Sm, K, F>(
+    camera: &Camera<Real, P, D, Sm, K, F>,
     target_points: &[Pt3],
     cam_from_target: &[Iso3],
     noise: &UniformPixelNoise,
@@ -204,6 +207,7 @@ where
     D: DistortionModel<Real>,
     Sm: SensorModel<Real>,
     K: IntrinsicsModel<Real>,
+    F: FieldModel<Real>,
 {
     cam_from_target
         .iter()

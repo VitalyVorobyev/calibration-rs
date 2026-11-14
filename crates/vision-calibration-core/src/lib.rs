@@ -96,10 +96,11 @@ pub use math::{
     normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,
 };
 pub use models::{
-    AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraFix, CameraModel,
-    CameraModelSpec, CameraParams, CameraProject, DistortionKind, DistortionModel,
-    DistortionParams, Division, Equidistant, FxFyCxCy, HomographySensor, IdentitySensor,
-    IntrinsicsModel, KannalaBrandt4, NoDistortion, Pinhole, ProjectionKind, ProjectionModel,
+    AnyDistortion, AnyProjection, AnySensor, BSplineField, BrownConrady5, Camera, CameraFix,
+    CameraModel, CameraModelSpec, CameraParams, CameraProject, DistortionKind, DistortionModel,
+    DistortionParams, Division, Equidistant, FIELD_MAX_CELLS, FIELD_MAX_LIPSCHITZ, FieldKind,
+    FieldModel, FieldParams, FxFyCxCy, HomographySensor, IdentitySensor, IntrinsicsModel,
+    KannalaBrandt4, NoDistortion, NoField, Pinhole, ProjectionKind, ProjectionModel,
     ProjectionParams, RationalPolynomial, Ray, ScheimpflugParams, SensorKind, SensorModel,
     SensorParams, ThinPrism,
 };
@@ -167,5 +168,6 @@ pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
             cx: camera.k.cx,
             cy: camera.k.cy,
         },
+        field: FieldParams::None,
     }
 }

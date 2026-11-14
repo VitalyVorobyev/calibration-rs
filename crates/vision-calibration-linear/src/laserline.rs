@@ -27,7 +27,8 @@
 use crate::Error;
 use nalgebra::{Point3, UnitVector3, Vector3};
 use vision_calibration_core::{
-    Camera, DistortionModel, IntrinsicsModel, Iso3, ProjectionModel, Pt2, Pt3, Real, SensorModel,
+    Camera, DistortionModel, FieldModel, IntrinsicsModel, Iso3, ProjectionModel, Pt2, Pt3, Real,
+    SensorModel,
 };
 
 /// Laser line observations for a single view.
@@ -184,15 +185,16 @@ impl LaserlinePlaneSolver {
     /// - At least 2 views with different poses
     /// - Total points across views >= 3
     /// - Views must be at sufficiently different angles to break collinearity
-    pub fn from_views<P, D, Sm, K>(
+    pub fn from_views<P, D, Sm, K, F>(
         views: &[PlaneFitView],
-        camera: &Camera<Real, P, D, Sm, K>,
+        camera: &Camera<Real, P, D, Sm, K, F>,
     ) -> Result<LinearPlaneEstimate, Error>
     where
         P: ProjectionModel<Real>,
         D: DistortionModel<Real>,
         Sm: SensorModel<Real>,
         K: IntrinsicsModel<Real>,
+        F: FieldModel<Real>,
     {
         if views.len() < 2 {
             return Err(Error::InsufficientData {
@@ -226,9 +228,9 @@ impl LaserlinePlaneSolver {
     /// 2. Transform ray to target frame (inverse of camera pose)
     /// 3. Intersect ray with target plane (Z=0)
     /// 4. Transform intersection point back to camera frame
-    fn compute_3d_points<P, D, Sm, K>(
+    fn compute_3d_points<P, D, Sm, K, F>(
         laser_pixels: &[Pt2],
-        camera: &Camera<Real, P, D, Sm, K>,
+        camera: &Camera<Real, P, D, Sm, K, F>,
         cam_se3_target: &Iso3,
     ) -> Result<Vec<Pt3>, Error>
     where
@@ -236,6 +238,7 @@ impl LaserlinePlaneSolver {
         D: DistortionModel<Real>,
         Sm: SensorModel<Real>,
         K: IntrinsicsModel<Real>,
+        F: FieldModel<Real>,
     {
         let mut points_camera = Vec::with_capacity(laser_pixels.len());
 

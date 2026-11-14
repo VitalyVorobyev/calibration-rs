@@ -80,6 +80,9 @@
 "core::CameraModel" = "CameraModel"
 "core::CameraModelSpec" = "CameraModelSpec"
 "core::CameraParams" = ["CameraParams", "types.CameraParams"]
+"core::BSplineField" = "BSplineField"
+"core::FieldKind" = "types.FieldKind"
+"core::FieldParams" = ["BSplineField", "types.FieldParams"]
 "core::CombinationTerm" = "CombinationTerm"
 "core::CorrespondenceView" = ["Observation", "types.CorrespondenceView"]
 "core::DistortionKind" = "types.DistortionKind"
@@ -373,6 +376,10 @@
 "core::Pt3" = "math alias; Python passes floats, tuples and numpy arrays"
 "core::Real" = "math alias; Python passes floats, tuples and numpy arrays"
 "core::SensorModel" = "camera-model trait; Python builds whole cameras from CameraParams as a CameraModel"
+"core::FieldModel" = "camera-model trait; Python builds whole cameras from CameraParams as a CameraModel"
+"core::NoField" = "a camera-model component (the absent residual field); Python's CameraParams.field is None"
+"core::FIELD_MAX_CELLS" = "a validation bound; building a CameraModel checks the field and raises with the bound"
+"core::FIELD_MAX_LIPSCHITZ" = "a validation bound; building a CameraModel checks the field and raises with the bound"
 "core::Vec2" = "math alias; Python passes floats, tuples and numpy arrays"
 "core::Vec3" = "math alias; Python passes floats, tuples and numpy arrays"
 "dataset_runner::PairedViews" = "the converters' view-pairing intermediate; the run results carry the paired image paths"

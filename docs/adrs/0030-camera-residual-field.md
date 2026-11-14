@@ -1,7 +1,9 @@
 # ADR 0030: A Residual Field Is a Camera Slot Evaluated at the Model's Own Projection
 
-Status: **proposed** (backlog CAM-RESIDUAL-FIELD). Designed and prototyped in
-the bench example `scheimpflug_model_study`; not in the library. The
+Status: **accepted, partly implemented** (backlog CAM-RESIDUAL-FIELD).
+Designed and prototyped in the bench example `scheimpflug_model_study`. The
+camera slot is in the library (core kernel, wire, every consumer, held
+fixed); the fit — gauge, penalty, selection, covariance — is not. The
 evidence is [`notes/camera-residual-field.md`](../notes/camera-residual-field.md).
 
 ## Context
@@ -39,10 +41,19 @@ pixel = F(K(sensor(distortion(projection(p_c)))))      F(u) = u + Σ_k β_k(u)·
 ```
 
 - `F` is a **`FieldKind`** slot of `CameraModelSpec` (ADR 0005): `None`
-  (default) or `BSpline { cells: [nx, ny] }`, a uniform bicubic B-spline
-  over the image rectangle `[0, w] × [0, h]` (the camera's image size,
-  which the spec then requires). Parameters: `2·(nx + 3)·(ny + 3)`
-  control displacements in pixels, `u` components then `v`.
+  (default) or `BSpline { cells: [nx, ny], image_size: [w, h] }`, a
+  uniform bicubic B-spline over the image rectangle `[0, w] × [0, h]`.
+  Parameters: `2·(nx + 3)·(ny + 3)` control displacements in pixels, `u`
+  components then `v`, each row-major (`v` index outer).
+- **The domain is part of the kind** (amended at implementation). A
+  library camera carries no image size, and the knot grid *is* the
+  basis: a field over 1280 × 1024 is a different function space from one
+  over 640 × 480. With the size in the kind the spec stays `Copy`/`Eq`,
+  fully describes the block layout and the kernel, and every factor that
+  carries a spec evaluates the field with no extra data. The size is
+  validated with the kind (`1..=1024` cells per axis, no more cells than
+  pixels); where a field is built from data (the fit), the size comes
+  from the dataset and is a typed error when absent.
 - **The basis is evaluated at the pixel the rest of the model produces**,
   never at a detection. Every projection, residual and Jacobian goes
   through the same kernel, generic over `T: RealField`.
@@ -99,11 +110,20 @@ real freedom (measured).
 
 ### Unprojection
 
-`u_par = u − F(u_par)`, fixed-point from `u_par = u`. Validation requires
-`L = max |∂F/∂u| ≤ 0.5` (bounded by the largest control-point difference
-over the knot spacing); then the iteration is a contraction, converges to
-1e-9 px in 30 steps, and `F` cannot fold. A field above the bound is a
-typed error at fit time, not a silent unprojection failure.
+`u_par = u − F(u_par)`, fixed-point from `u_par = u` until the step is
+below 1e-11 px (at most 100 steps), closed by one Newton step on
+`u_par + F(u_par) = u`. The Newton step leaves the value at rounding level
+and, under dual numbers, gives the converged point the derivative of the
+exact inverse, `−(I + ∂F/∂u)⁻¹ ∂F/∂c`, however few fixed-point steps ran
+(a laser residual back-projects its observed pixel, so this derivative
+matters once the field is estimated). Validation requires `L ≤ 0.5`, with
+`L` the Frobenius norm of the four per-entry bounds of `∂F/∂u` (each the
+largest control difference along that axis over the knot spacing, since a
+cubic B-spline's derivative is a convex combination of them): an upper
+bound on the spectral norm, so the iteration is a contraction and `F`
+cannot fold. A field above the bound is a typed error wherever a camera is
+built or packed (`CameraParams::build`, the problem builders), not a
+silent unprojection failure.
 
 ### Reach
 
@@ -113,11 +133,32 @@ typed error at fit time, not a silent unprojection failure.
   converged (that solution defines `A`), and it travels with the camera
   into every downstream workflow (hand-eye, rig, laser) held fixed or
   refined with the same constraint.
-- **Wire**: `CameraParams` gains the field (spec kind, cells, control
-  points); schema version bump; the export's camera covariance includes
-  the field block. Python: the `FieldKind` class and the `CameraParams`
-  member. Book: a chapter on when a residual field is warranted, how to
-  read its held-out gain, and why it must not be extrapolated.
+- **Wire**: `CameraParams` gains `field` (`{"type": "b_spline", cells,
+  image_size, du, dv}`), omitted when absent, so every existing file
+  reads unchanged and the export shapes and versions stay (an added
+  optional member keeps the version). A 1.0.0-rc.1 reader ignores
+  `field` and so reads a different camera, which the changelog states.
+  Rejecting unknown camera members was tried and dropped: committed sample
+  exports carry stray members (`_phantom` from an old serialization of the
+  runtime camera), so it would break files users already hold. Once a field is estimated, the export's camera
+  covariance includes its block. Python: the `BSplineField` dataclass and
+  the `CameraParams.field` member. Book: a chapter on when a residual field
+  is warranted, how to read its held-out gain, and why it must not be
+  extrapolated (with the fit, when the field becomes a user capability).
+- **Held fixed** (implemented). Until the fit lands, a field travels as a
+  fixed camera block: `add_camera_blocks` and the public problem builder
+  add a `field` block (`field/<i>` in a rig) fully fixed, the covariance
+  lists it among the fixed parameters by its name, and both backends take
+  a fully fixed field block out of the factor's variables and splice its
+  values back in as constants (tiny-solver would otherwise differentiate
+  through hundreds of fixed coordinates; factrs fuses a camera into one
+  static variable of at most 17). A field block that is not fully fixed is
+  a typed error on both backends. Projection derivatives
+  (`CameraJacobian`, projection uncertainty, view information) take the
+  field as part of the model, not a coordinate of `θ`.
+- **Config** (implemented): a workflow's `camera.model.field` is a typed
+  error, since no workflow estimates a field; the fit adds its own
+  options (`camera.field`).
 
 ## Consequences
 

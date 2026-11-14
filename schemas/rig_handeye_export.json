@@ -7,6 +7,10 @@
           "$ref": "#/$defs/DistortionParams",
           "description": "Distortion model parameters."
         },
+        "field": {
+          "$ref": "#/$defs/FieldParams",
+          "description": "Residual field: a smooth displacement in pixels applied after the\nintrinsics. Omitted from JSON when the camera has none."
+        },
         "intrinsics": {
           "$ref": "#/$defs/FxFyCxCy",
           "description": "Pinhole intrinsics (`fx, fy, cx, cy` in pixels)."
@@ -394,6 +398,79 @@
         "max"
       ],
       "type": "object"
+    },
+    "FieldParams": {
+      "description": "Serializable residual-field parameters.",
+      "oneOf": [
+        {
+          "description": "No residual field.",
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A uniform bicubic B-spline displacement over the image.",
+          "properties": {
+            "cells": {
+              "description": "Cells along `u` and `v`, each in `1..=1024` and at most the image\nsize along that axis.",
+              "items": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "du": {
+              "description": "Control displacements of the `u` component, in pixels, row-major over\nthe `(ny + 3) × (nx + 3)` control grid.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "dv": {
+              "description": "Control displacements of the `v` component, in pixels, laid out like\n[`du`](Self::du).",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "image_size": {
+              "description": "The image size `[width, height]` in pixels: the rectangle the spline\nspans.",
+              "items": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "b_spline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "cells",
+            "image_size",
+            "du",
+            "dv"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FrameKind": {
       "description": "What a frame depicts, distinguishing target images from laser-on images.\n\nLaser problem types capture two images per `(view, camera)` slot: one of\nthe calibration target and one with the laser line on. Both can appear in\nthe same [`ImageManifest`], discriminated by [`FrameRef::kind`].\n\nSerialized in `snake_case`; absent in JSON means [`FrameKind::Target`],\nwhich keeps exports without laser frames byte-stable and forward-readable.",

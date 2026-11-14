@@ -35,7 +35,7 @@ them; layouts, commands and component wiring go to rustdoc or
 - [0013 — Lens and sensor variants are camera slots](0013-sensor-variants.md)
 - [0011 — Seeded initialization](0011-seeded-initialization.md)
 - [0026 — Parameter uncertainty as a standard result](0026-parameter-uncertainty.md)
-- [0030 — A residual field is a camera slot](0030-camera-residual-field.md) (proposed, not implemented)
+- [0030 — A residual field is a camera slot](0030-camera-residual-field.md) (accepted; the slot is implemented, the fit is not)
 
 ## Data and tools
 

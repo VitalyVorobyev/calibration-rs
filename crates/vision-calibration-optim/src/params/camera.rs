@@ -6,16 +6,19 @@
 //! [`unpack_camera`] reads a camera back from a solution, and
 //! [`camera_block_labels`] names a camera block's coordinates for the
 //! covariance. The block names are part of the covariance and regression
-//! contract: `cam`, `proj`, `dist` and `sensor`, with a `/<camera>` suffix in
-//! a multi-camera problem.
+//! contract: `cam`, `proj`, `dist`, `sensor` and `field`, with a `/<camera>`
+//! suffix in a multi-camera problem.
+//!
+//! A residual field is held fixed: its block is in the IR, so every factor
+//! evaluates the camera with it, but no solve estimates it.
 
 use std::collections::HashMap;
 
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraModelSpec, CameraParams, DistortionParams, FixedParams, INTRINSICS_PARAM_NAMES,
-    ProjectionParams, SensorKind, SensorParams,
+    CameraModelSpec, CameraParams, DistortionParams, FieldParams, FixedParams,
+    INTRINSICS_PARAM_NAMES, ProjectionParams, SensorKind, SensorParams,
 };
 
 use crate::Error;
@@ -68,12 +71,15 @@ fn index_bounds(bounds: &[Option<(f64, f64)>]) -> Option<Vec<Bound>> {
 }
 
 /// The model of `camera`; a general homography sensor has none, so it
-/// cannot be calibrated.
+/// cannot be calibrated. A residual field must be well formed and
+/// invertible.
 ///
 /// # Errors
 ///
-/// [`Error::InvalidInput`] for a homography sensor.
+/// [`Error::InvalidInput`] for a homography sensor or an invalid residual
+/// field.
 pub(crate) fn camera_spec(camera: &CameraParams) -> Result<CameraModelSpec, Error> {
+    camera.field.validate()?;
     camera.spec().ok_or_else(|| {
         Error::invalid_input(
             "a calibrated camera needs a named sensor kind; a general homography sensor \
@@ -100,17 +106,19 @@ pub(crate) struct CameraBlockIds {
     projection: Option<ParamId>,
     distortion: Option<ParamId>,
     sensor: Option<ParamId>,
+    field: Option<ParamId>,
 }
 
 impl CameraBlockIds {
     /// The camera's blocks in factor order: `[intrinsics, projection?,
-    /// distortion?, sensor?]`, each optional block present exactly when its
-    /// kind has parameters.
+    /// distortion?, sensor?, field?]`, each optional block present exactly
+    /// when its kind has parameters.
     pub(crate) fn ids(&self) -> impl Iterator<Item = ParamId> + '_ {
         std::iter::once(self.intrinsics)
             .chain(self.projection)
             .chain(self.distortion)
             .chain(self.sensor)
+            .chain(self.field)
     }
 
     /// A factor's parameter list: the camera blocks followed by `chain`.
@@ -129,14 +137,16 @@ fn block_name(slot: &str, index: Option<usize>) -> String {
 }
 
 /// Add the blocks of `cameras` to `ir`, slot by slot: every camera's
-/// intrinsics (`cam`), then projection (`proj`), distortion (`dist`) and
-/// sensor (`sensor`) blocks for the kinds that have parameters. Blocks are
-/// named with a `/<camera>` suffix when `indexed`.
+/// intrinsics (`cam`), then projection (`proj`), distortion (`dist`),
+/// sensor (`sensor`) and residual-field (`field`) blocks for the kinds that
+/// have parameters. Blocks are named with a `/<camera>` suffix when
+/// `indexed`. A residual-field block is always fixed.
 ///
 /// # Errors
 ///
-/// [`Error::InvalidInput`] when a camera has a general homography sensor,
-/// or tilt bounds are given for a camera without a Scheimpflug sensor.
+/// [`Error::InvalidInput`] when a camera has a general homography sensor or
+/// an invalid residual field, or tilt bounds are given for a camera without
+/// a Scheimpflug sensor.
 pub(crate) fn add_camera_blocks(
     ir: &mut ProblemIR,
     initial: &mut HashMap<String, DVector<f64>>,
@@ -177,7 +187,7 @@ pub(crate) fn add_camera_blocks(
 
     let mut slot = |slot: &str,
                     dim: fn(CameraModelSpec) -> usize,
-                    fixed: fn(&FixedParams) -> &[usize],
+                    fixed: fn(&FixedParams, usize) -> FixedMask,
                     bounds: fn(&CameraBounds) -> Option<Vec<Bound>>,
                     pack: fn(&CameraParams) -> DVector<f64>|
      -> Vec<Option<ParamId>> {
@@ -193,7 +203,7 @@ pub(crate) fn add_camera_blocks(
                         &name,
                         dim,
                         ManifoldKind::Euclidean,
-                        FixedMask::fix_indices(fixed(camera.fixed)),
+                        fixed(camera.fixed, dim),
                         camera.bounds.and_then(bounds),
                     );
                     initial.insert(name, pack(camera.params));
@@ -205,23 +215,30 @@ pub(crate) fn add_camera_blocks(
     let projection = slot(
         "proj",
         |s| s.projection.dim(),
-        |f| f.projection.as_slice(),
+        |f, _| FixedMask::fix_indices(&f.projection),
         |_| None,
         |c| DVector::from_vec(c.projection.values()),
     );
     let distortion = slot(
         "dist",
         |s| s.distortion.dim(),
-        |f| f.distortion.as_slice(),
+        |f, _| FixedMask::fix_indices(&f.distortion),
         |_| None,
         |c| DVector::from_vec(c.distortion.values()),
     );
     let sensor = slot(
         "sensor",
         |s| s.sensor.dim(),
-        |f| f.sensor.as_slice(),
+        |f, _| FixedMask::fix_indices(&f.sensor),
         CameraBounds::sensor_bounds,
         |c| DVector::from_vec(c.sensor.values()),
+    );
+    let field = slot(
+        "field",
+        |s| s.field.dim(),
+        |_, dim| FixedMask::all_fixed(dim),
+        |_| None,
+        |c| DVector::from_vec(c.field.values()),
     );
 
     Ok(intrinsics
@@ -229,12 +246,14 @@ pub(crate) fn add_camera_blocks(
         .zip(projection)
         .zip(distortion)
         .zip(sensor)
+        .zip(field)
         .map(
-            |(((intrinsics, projection), distortion), sensor)| CameraBlockIds {
+            |((((intrinsics, projection), distortion), sensor), field)| CameraBlockIds {
                 intrinsics,
                 projection,
                 distortion,
                 sensor,
+                field,
             },
         )
         .collect())
@@ -271,12 +290,16 @@ pub(crate) fn unpack_camera(
         DistortionParams::from_values(spec.distortion, &values("dist", spec.distortion.dim())?)?,
         SensorParams::from_values(spec.sensor, &values("sensor", spec.sensor.dim())?)?,
         unpack_intrinsics(block("cam")?.as_view())?,
-    ))
+    )
+    .with_field(FieldParams::from_values(
+        spec.field,
+        &values("field", spec.field.dim())?,
+    )?))
 }
 
 /// The values of a camera's blocks in factor order (`[intrinsics,
-/// projection?, distortion?, sensor?]`), for evaluating a factor outside a
-/// solve.
+/// projection?, distortion?, sensor?, field?]`), for evaluating a factor
+/// outside a solve.
 pub(crate) fn camera_block_values(camera: &CameraParams) -> Vec<DVector<f64>> {
     camera
         .blocks()
@@ -287,14 +310,20 @@ pub(crate) fn camera_block_values(camera: &CameraParams) -> Vec<DVector<f64>> {
 }
 
 /// Labels of a camera block's coordinates, for a block whose slot name is
-/// `slot` (`cam`, `proj`, `dist` or `sensor`); `None` for any other block.
-/// `prefix` turns a parameter name into its label (adding `cam<i>.` in a
-/// multi-camera problem).
+/// `slot` (`cam`, `proj`, `dist`, `sensor` or `field`); `None` for any other
+/// block. `prefix` turns a parameter name into its label (adding `cam<i>.`
+/// in a multi-camera problem). A residual field, always held fixed, is
+/// listed among the fixed parameters by its block name (`field`), not by
+/// its hundreds of control displacements.
 pub(crate) fn camera_block_labels(
     slot: &str,
     spec: CameraModelSpec,
     prefix: impl Fn(&str) -> String,
 ) -> Option<BlockLabels> {
+    if slot == "field" {
+        let coordinates = spec.field.param_names().iter().map(|c| prefix(c)).collect();
+        return Some(BlockLabels::shared_owned(prefix("field"), coordinates).listed_whole());
+    }
     let (name, coordinates): (&str, &[&str]) = match slot {
         "cam" => ("intrinsics", &INTRINSICS_PARAM_NAMES),
         "proj" => ("projection", spec.projection.param_names()),

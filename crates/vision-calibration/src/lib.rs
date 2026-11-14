@@ -485,16 +485,18 @@ pub mod rig_handeye_laserline {
 /// live in [`analysis`], not here.
 pub mod core {
     pub use vision_calibration_core::{
-        BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel, CameraModelSpec,
-        CameraParams, CombinationTerm, CorrespondenceView, DistortionKind, DistortionParams,
-        Division, Equidistant, FixedParams, FrameKind, FrameRef, FxFyCxCy, Handeye,
+        BSplineField, BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel,
+        CameraModelSpec, CameraParams, CombinationTerm, CorrespondenceView, DistortionKind,
+        DistortionParams, Division, Equidistant, FIELD_MAX_CELLS, FIELD_MAX_LIPSCHITZ, FieldKind,
+        FieldModel, FieldParams, FixedParams, FrameKind, FrameRef, FxFyCxCy, Handeye,
         HomographySensor, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4, LaserPlane, Mat3,
-        NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
-        PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Ray, Real,
-        ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs, RobotFrame, RobotPose,
-        ScheimpflugParams, SecondOrderError, SensorKind, SensorModel, SensorParams, ThinPrism,
-        Uncertainty, UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
-        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
+        NoField, NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect,
+        PlanarDataset, PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3,
+        RationalPolynomial, Ray, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
+        RigViewObs, RobotFrame, RobotPose, ScheimpflugParams, SecondOrderError, SensorKind,
+        SensorModel, SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable, Vec2, Vec3,
+        View, ViewCovariance, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
+        pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].

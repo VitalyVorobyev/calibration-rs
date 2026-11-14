@@ -7,6 +7,7 @@ pub(crate) mod covariance;
 #[cfg(test)]
 mod covariance_tests;
 mod factrs_backend;
+mod held_field;
 mod lm;
 mod normal_equations;
 #[cfg(test)]

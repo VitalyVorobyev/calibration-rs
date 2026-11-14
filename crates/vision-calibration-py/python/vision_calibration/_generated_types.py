@@ -25,7 +25,8 @@ class _CameraConfigRequired(TypedDict):
     model: CameraModelSpec
     """The camera model, one kind per slot. Default: pinhole projection,
     Brown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity
-    (untilted) sensor — the model every workflow accepts.
+    (untilted) sensor — the model every workflow accepts. No workflow
+    estimates a residual field, so `model.field` must be left out.
     """
 
 
@@ -76,11 +77,8 @@ class CameraFix(TypedDict, total=False):
     """Fixed sensor parameters (`tilt_x`, `tilt_y`); default: none."""
 
 
-class CameraModelSpec(TypedDict):
-    """A camera model: the kind in each slot. The values live in
-    `CameraParams`; `CameraParams::spec`
-    recovers the spec from them.
-    """
+class _CameraModelSpecRequired(TypedDict):
+    """The keys of `CameraModelSpec` that every payload has."""
 
     distortion: DistortionKind
     """Distortion slot."""
@@ -90,6 +88,16 @@ class CameraModelSpec(TypedDict):
 
     sensor: SensorKind
     """Sensor slot."""
+
+
+class CameraModelSpec(_CameraModelSpecRequired, total=False):
+    """A camera model: the kind in each slot. The values live in
+    `CameraParams`; `CameraParams::spec`
+    recovers the spec from them.
+    """
+
+    field: FieldKind
+    """Residual-field slot; omitted from JSON when there is no field."""
 
 
 class _CameraOverrideRequired(TypedDict):
@@ -114,8 +122,8 @@ class CameraOverride(_CameraOverrideRequired, total=False):
     """
 
 
-class CameraParams(TypedDict):
-    """Serializable camera parameters for building a runtime model."""
+class _CameraParamsRequired(TypedDict):
+    """The keys of `CameraParams` that every payload has."""
 
     distortion: DistortionParams
     """Distortion model parameters."""
@@ -128,6 +136,15 @@ class CameraParams(TypedDict):
 
     sensor: SensorParams
     """Sensor model parameters."""
+
+
+class CameraParams(_CameraParamsRequired, total=False):
+    """Serializable camera parameters for building a runtime model."""
+
+    field: FieldParams
+    """Residual field: a smooth displacement in pixels applied after the
+    intrinsics. Omitted from JSON when the camera has none.
+    """
 
 
 class _CameraSourceRequired(TypedDict):
@@ -719,6 +736,74 @@ class FeatureResidualHistogram(TypedDict):
 
     mean: float
     """Mean error (pixels). `0.0` when `count == 0`."""
+
+
+class FieldKind_BSpline(TypedDict):
+    """A uniform bicubic B-spline over the image rectangle `[0, width] ×
+    [0, height]`: `2·(nx + 3)·(ny + 3)` control displacements in pixels,
+    the `u` components then the `v` components.
+    """
+
+    b_spline: FieldKind_BSpline_b_spline
+
+
+FieldKind: TypeAlias = Literal["none"] | FieldKind_BSpline
+"""Which residual field a camera carries: a smooth, camera-fixed
+displacement in pixels applied after the intrinsics (see
+`BSplineField`).
+
+`dim() == 0` means the camera has no field and no field block.
+
+- ``"none"``: No residual field; no parameter block.
+"""
+
+
+class FieldKind_BSpline_b_spline(TypedDict):
+    cells: tuple[int, int] | list[int]
+    """Cells `[nx, ny]` along `u` and `v`, each in `1..=1024` and at most
+    the image size along that axis.
+    """
+
+    image_size: tuple[int, int] | list[int]
+    """The image size `[width, height]` in pixels: the rectangle the
+    spline spans.
+    """
+
+
+class FieldParams_BSpline(TypedDict):
+    """A uniform bicubic B-spline displacement over the image."""
+
+    cells: tuple[int, int] | list[int]
+    """Cells along `u` and `v`, each in `1..=1024` and at most the image
+    size along that axis.
+    """
+
+    du: list[float]
+    """Control displacements of the `u` component, in pixels, row-major over
+    the `(ny + 3) × (nx + 3)` control grid.
+    """
+
+    dv: list[float]
+    """Control displacements of the `v` component, in pixels, laid out like
+    `du`.
+    """
+
+    image_size: tuple[int, int] | list[int]
+    """The image size `[width, height]` in pixels: the rectangle the spline
+    spans.
+    """
+
+    type: Literal["b_spline"]
+
+
+class FieldParams_None(TypedDict):
+    """No residual field."""
+
+    type: Literal["none"]
+
+
+FieldParams: TypeAlias = FieldParams_None | FieldParams_BSpline
+"""Serializable residual-field parameters."""
 
 
 FrameKind: TypeAlias = Literal["target", "laser"]
@@ -3756,6 +3841,12 @@ __all__ = [
     "DistortionParams_ThinPrism",
     "ExportDiagnostics",
     "FeatureResidualHistogram",
+    "FieldKind",
+    "FieldKind_BSpline",
+    "FieldKind_BSpline_b_spline",
+    "FieldParams",
+    "FieldParams_BSpline",
+    "FieldParams_None",
     "FrameKind",
     "FrameRef",
     "FxFyCxCy",

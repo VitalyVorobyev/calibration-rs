@@ -3,7 +3,8 @@ arrays.
 
 A :class:`CameraModel` is built from a camera's parameters — any result's
 ``camera`` / ``cameras[i]`` or a ``CameraParams`` payload — with any
-projection, distortion and sensor model.
+projection, distortion and sensor model, and the camera's residual field
+when it has one.
 
 .. code-block:: python
 
@@ -41,7 +42,8 @@ def _rows(values: ArrayLike, dim: int, name: str) -> tuple[NDArray[np.float64], 
 
 
 class CameraModel:
-    """A camera model: projection, distortion, sensor and intrinsics.
+    """A camera model: projection, distortion, sensor, intrinsics and an
+    optional residual field.
 
     Coordinates follow the camera frame: ``z`` forward, pixels ``(u, v)``.
     Every method takes an ``(N, k)`` array (or one ``(k,)`` vector) and
@@ -104,7 +106,8 @@ class CameraModel:
 
     def undistort(self, pixels: ArrayLike) -> NDArray[np.float64]:
         """Map pixels ``(N, 2)`` to where they land in an ideal pinhole image
-        with the same intrinsics: distortion and sensor tilt removed.
+        with the same intrinsics: distortion, sensor tilt and residual field
+        removed.
 
         A pixel whose ray does not reach the plane in front of the camera
         (a fisheye pixel beyond 90° from the axis) maps to NaN.

@@ -28,8 +28,6 @@ use num_dual::{DualDVec64, jacobian};
 use vision_calibration_core::{CameraParams, Iso3, Pt3};
 
 use crate::Error;
-use crate::factors::camera_blocks::CameraBlocks;
-use crate::ir::CameraModelSpec;
 use crate::projection::CameraVector;
 
 mod rig;
@@ -94,7 +92,7 @@ pub fn view_information(
             )));
         }
         x.rows_mut(n, 3).copy_from(&p_c);
-        let (q, j) = jacobian(|v: DVector<DualDVec64>| project(model.model, &v, n), &x);
+        let (q, j) = jacobian(|v: DVector<DualDVec64>| project(&model, &v, n), &x);
         if !q.iter().chain(j.iter()).all(|v| v.is_finite()) {
             return Err(Error::numerical(format!(
                 "the projection of target point {point} is not finite"
@@ -124,13 +122,8 @@ pub fn view_information(
 
 /// The pixel of camera-frame point `v[n..n + 3]` for camera parameters
 /// `v[..n]`.
-fn project(model: CameraModelSpec, v: &DVector<DualDVec64>, n: usize) -> SVector<DualDVec64, 2> {
-    let all = v.as_slice();
-    let (intrinsics, rest) = all.split_at(4);
-    let (projection, rest) = rest.split_at(model.projection.dim());
-    let (distortion, rest) = rest.split_at(model.distortion.dim());
-    let sensor = &rest[..model.sensor.dim()];
-    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
+fn project(model: &CameraVector, v: &DVector<DualDVec64>, n: usize) -> SVector<DualDVec64, 2> {
+    let camera = model.camera(v.as_slice());
     let p = Vector3::new(v[n].clone(), v[n + 1].clone(), v[n + 2].clone());
     let (u, w) = camera.project(&p);
     SVector::<DualDVec64, 2>::new(u, w)

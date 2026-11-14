@@ -147,6 +147,47 @@ class CameraModelTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             vc.CameraModel(singular)
 
+    def test_a_residual_field_moves_projection_and_round_trips(self) -> None:
+        cells, size = (4, 3), (1280, 720)
+        n = (cells[0] + 3) * (cells[1] + 3)
+        field = vc.BSplineField(
+            cells=cells,
+            image_size=size,
+            du=[2.0 * math.sin(0.7 * k) for k in range(n)],
+            dv=[1.5 * math.cos(0.4 * k) for k in range(n)],
+        )
+        plain = brown_conrady()
+        params = vc.CameraParams(
+            intrinsics=plain.intrinsics, distortion=plain.distortion, field=field
+        )
+        payload = params.to_payload()
+        self.assertEqual(payload["field"]["type"], "b_spline")
+        self.assertEqual(vc.CameraParams.from_payload(payload), params)
+        self.assertNotIn("field", plain.to_payload())
+        self.assertIsNone(vc.CameraParams.from_payload(plain.to_payload()).field)
+
+        cam = vc.CameraModel(params)
+        self.assertEqual(list(cam.params["field"]["cells"]), [4, 3])
+        pts = points(40)
+        px = cam.project(pts)
+        moved = np.abs(px - vc.CameraModel(plain).project(pts)).max()
+        self.assertGreater(moved, 0.1)
+        origins, directions = cam.unproject(px)
+        back = cam.project(origins + directions * pts[:, 2:3] / directions[:, 2:3])
+        np.testing.assert_allclose(back, px, rtol=0, atol=1e-8)
+
+    def test_a_folding_field_is_a_value_error(self) -> None:
+        n = 7 * 6
+        du = [0.0] * n
+        du[10] = 200.0
+        params = vc.CameraParams(
+            intrinsics=brown_conrady().intrinsics,
+            distortion=vc.NoDistortion(),
+            field=vc.BSplineField(cells=(4, 3), image_size=(1280, 720), du=du, dv=[0.0] * n),
+        )
+        with self.assertRaisesRegex(ValueError, "Lipschitz"):
+            vc.CameraModel(params)
+
 
 if __name__ == "__main__":
     unittest.main()

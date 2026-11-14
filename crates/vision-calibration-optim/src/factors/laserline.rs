@@ -616,6 +616,7 @@ mod tests {
                 &[],
                 dist.as_slice(),
                 sensor.as_slice(),
+                &[],
             ),
             pose.as_view(),
             plane_normal.as_view(),
@@ -650,6 +651,7 @@ mod tests {
                 &[],
                 dist.as_slice(),
                 sensor.as_slice(),
+                &[],
             ),
             pose.as_view(),
             plane_normal.as_view(),
@@ -678,6 +680,7 @@ mod tests {
             &[],
             dist.as_slice(),
             sensor.as_slice(),
+            &[],
         )
         .pixel_to_normalized([640.0, 360.0]);
         let (x_u, y_u): (f64, f64) = (n.x, n.y);
@@ -707,6 +710,7 @@ mod tests {
             &[],
             dist.as_slice(),
             sensor.as_slice(),
+            &[],
         )
         .pixel_to_normalized([u, v]);
         let (x_u, y_u): (f64, f64) = (n.x, n.y);
@@ -909,6 +913,7 @@ mod tests {
                     &[],
                     dist.as_slice(),
                     sensor.as_slice(),
+                    &[],
                 ),
                 pose_dv.as_view(),
                 plane_normal.as_view(),
@@ -933,6 +938,7 @@ mod tests {
                     &[],
                     dist.as_slice(),
                     sensor.as_slice(),
+                    &[],
                 ),
                 pose_dv.as_view(),
                 plane_normal.as_view(),

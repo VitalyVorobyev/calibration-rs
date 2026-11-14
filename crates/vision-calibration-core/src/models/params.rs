@@ -2,9 +2,10 @@ use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BrownConrady5, Camera, CameraModelSpec, DistortionKind, Division, Equidistant, FxFyCxCy,
-    HomographySensor, IdentitySensor, KannalaBrandt4, NoDistortion, Pinhole, ProjectionKind,
-    ProjectionModel, RationalPolynomial, ScheimpflugParams, SensorKind, SensorModel, ThinPrism,
+    BrownConrady5, Camera, CameraModelSpec, DistortionKind, Division, Equidistant, FieldParams,
+    FxFyCxCy, HomographySensor, IdentitySensor, KannalaBrandt4, NoDistortion, Pinhole,
+    ProjectionKind, ProjectionModel, RationalPolynomial, ScheimpflugParams, SensorKind,
+    SensorModel, ThinPrism,
 };
 use crate::{Error, Real};
 
@@ -337,15 +338,21 @@ pub struct CameraParams {
     pub sensor: SensorParams,
     /// Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
     pub intrinsics: FxFyCxCy<Real>,
+    /// Residual field: a smooth displacement in pixels applied after the
+    /// intrinsics. Omitted from JSON when the camera has none.
+    #[serde(default, skip_serializing_if = "FieldParams::is_none")]
+    pub field: FieldParams,
 }
 
 /// Concrete camera type built from parameters (f64).
-pub type CameraModel = Camera<Real, AnyProjection, AnyDistortion, AnySensor, FxFyCxCy<Real>>;
+pub type CameraModel =
+    Camera<Real, AnyProjection, AnyDistortion, AnySensor, FxFyCxCy<Real>, FieldParams>;
 
 impl CameraParams {
     /// Parameters of a camera from its four parts: the projection, the
     /// distortion and the sensor model parameters, and the pinhole
-    /// intrinsics.
+    /// intrinsics. The camera has no residual field; add one with
+    /// [`with_field`](Self::with_field).
     pub fn new(
         projection: ProjectionParams,
         distortion: DistortionParams,
@@ -357,7 +364,15 @@ impl CameraParams {
             distortion,
             sensor,
             intrinsics,
+            field: FieldParams::None,
         }
+    }
+
+    /// These parameters with the residual field replaced.
+    #[must_use]
+    pub fn with_field(mut self, field: FieldParams) -> Self {
+        self.field = field;
+        self
     }
 
     /// These parameters with the projection replaced.
@@ -391,24 +406,28 @@ impl CameraParams {
     /// The model spec of these parameters, or `None` for a general
     /// [`SensorParams::Homography`] sensor, which no spec describes.
     pub fn spec(&self) -> Option<CameraModelSpec> {
-        Some(CameraModelSpec::new(
-            self.projection.kind(),
-            self.distortion.kind(),
-            self.sensor.kind()?,
-        ))
+        Some(
+            CameraModelSpec::new(
+                self.projection.kind(),
+                self.distortion.kind(),
+                self.sensor.kind()?,
+            )
+            .with_field(self.field.kind()),
+        )
     }
 
     /// The camera's parameter blocks in solver order, each in the order of
     /// its kind's `param_names`: intrinsics (`fx, fy, cx, cy`), then the
-    /// projection, distortion and sensor values. A slot without parameters
-    /// gives an empty block.
-    pub fn blocks(&self) -> [Vec<Real>; 4] {
+    /// projection, distortion, sensor and residual-field values. A slot
+    /// without parameters gives an empty block.
+    pub fn blocks(&self) -> [Vec<Real>; 5] {
         let k = &self.intrinsics;
         [
             vec![k.fx, k.fy, k.cx, k.cy],
             self.projection.values(),
             self.distortion.values(),
             self.sensor.values(),
+            self.field.values(),
         ]
     }
 
@@ -417,10 +436,13 @@ impl CameraParams {
     /// # Errors
     ///
     /// Returns [`Error::Singular`] if a
-    /// [`SensorParams::Homography`] is not invertible. `CameraParams`
+    /// [`SensorParams::Homography`] is not invertible, and
+    /// [`Error::InvalidInput`] if the residual field is malformed or may
+    /// fold the image ([`FieldParams::validate`]). `CameraParams`
     /// deserializes straight from an export file, so this is reachable with
     /// hand-edited or corrupted input, not only with a programming mistake.
     pub fn build(&self) -> Result<CameraModel, Error> {
+        self.field.validate()?;
         let proj = match self.projection {
             ProjectionParams::Pinhole => AnyProjection::Pinhole(Pinhole),
             ProjectionParams::Equidistant => AnyProjection::Equidistant(Equidistant),
@@ -447,7 +469,7 @@ impl CameraParams {
             SensorParams::Scheimpflug { params } => AnySensor::Homography(params.compile()),
         };
 
-        Ok(Camera::new(proj, dist, sensor, self.intrinsics))
+        Ok(Camera::new(proj, dist, sensor, self.intrinsics).with_field(self.field.clone()))
     }
 }
 
@@ -570,6 +592,7 @@ mod tests {
                 cx: 640.0,
                 cy: 360.0,
             },
+            field: FieldParams::None,
         };
         let cam = params.build().unwrap();
         let px = cam.project_point_c(&nalgebra::Vector3::new(0.1, 0.2, 1.0));
