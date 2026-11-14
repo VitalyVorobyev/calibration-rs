@@ -113,6 +113,9 @@ evidence behind ADR 0011.
   calibration's covariance as consider parameters, what each holds exact,
   the Monte-Carlo gates, and the drift-gated board measurement of the
   regression suite.
+- [Scheimpflug rig accuracy: status](scheimpflug-accuracy-status.md) — the
+  closing record of the accuracy studies: what is delivered, what holds,
+  what was rejected, what is open and which capture settles it.
 - [Ringgrid bias](ringgrid-bias.md) — the projective ellipse-center bias
   is removed inside the `ringgrid` detector; the ring-grid reprojection
   floor is per-detection localization scatter under defocus blur.

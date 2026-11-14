@@ -76,6 +76,48 @@ This is used as the runtime representation compiled from `ScheimpflugParams`.
 
 For standard cameras (no tilt), use `SensorKind::Identity` (the default).
 
+## What Determines the Tilt
+
+The tilt matrix is a product of an upper-triangular matrix and a rotation,
+$H(\tau) = P_z(\tau)\,R(\tau)$. For a camera without lens distortion this
+gives
+
+$$
+K\,H(\tau)\,(R_v X + t_v) \;=\; K'\,(R\,R_v X + R\,t_v),
+\qquad K' = K\,P_z(\tau),
+$$
+
+and $K'$ is an ordinary zero-skew pinhole matrix. A tilted camera without
+distortion is therefore exactly a plain pinhole camera whose poses are all
+rotated by $R(\tau)$: no set of images can tell the two apart. The same
+holds in a rig, where each camera's extrinsic rotation absorbs $R(\tau)$,
+and in a hand-eye calibration, where the hand-eye rotation does.
+
+What makes the tilt observable is something tied to the lens axis:
+
+- **Lens distortion.** It is symmetric about the lens axis, and the tilt
+  moves the sensor relative to that axis. The tilt's uncertainty then scales
+  inversely with the distortion at the image corners and with the field of
+  view; it does not depend on how large the tilt is.
+- **A known mounting.** A tilt known from the mechanical design can be held
+  fixed, as can a camera orientation known independently.
+
+Consequences for a calibration:
+
+- With a weakly distorting lens the tilt is poorly determined, and its
+  correlation with the principal point is close to one. The projection is
+  still accurate; only the split between tilt, principal point and pose is
+  not. Fix the tilt at its design value in that case.
+- To first order the tilt acts like the tangential distortion terms
+  ($p_1 \approx -k_1 \tan\tau_x$, $p_2 \approx k_1 \tan\tau_y$). The two
+  cannot be estimated together, which is why the tangential terms are held
+  while a tilt is estimated. A lens that really is decentred then shows up
+  as a small tilt.
+- Views that cover the whole image determine the tilt several times better
+  than views that fill only its centre or one side. The depth range and the
+  board's own tilt do not change the tilt's uncertainty, though the focal
+  length still needs tilted views.
+
 ## Optimization of Tilt Parameters
 
 In the non-linear optimization stage, Scheimpflug parameters $(\tau_x, \tau_y)$ are treated as additional optimization variables. The tilt homography is generic over the scalar type, so it is differentiated by automatic differentiation, enabling joint optimization of tilt with intrinsics, distortion, and poses.

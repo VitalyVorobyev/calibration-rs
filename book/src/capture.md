@@ -243,3 +243,35 @@ That needs:
 
 The detection noise scales every σ above in proportion: a detector that
 finds corners to 0.1 px instead of 0.2 px halves them.
+
+### Blur
+
+Defocus costs accuracy before any algorithm runs, and it is not uniform: a
+tilted board, a shallow depth of field or a tilted sensor leaves part of
+every image sharper than the rest.
+
+- **Stop the aperture down** as far as the light allows. A smaller aperture
+  shrinks the blur everywhere and the difference in blur across the image
+  with it.
+- **Cover the depth range through focus**: views in front of and behind the
+  plane of best focus, not only on one side of it.
+- **Take a few frames at one fixed pose.** Their scatter is the detector's
+  noise on your images, measured rather than assumed.
+
+On blurred or low-contrast images of a ring grid, ask for the
+[photometric centre method](detection.md); edge-based ring centres carry a
+blur-dependent bias there.
+
+### A target shown on a display
+
+A display is a convenient target, but its pixels are part of the pattern:
+
+- **Make one cell a whole number of display pixels.** Otherwise each corner
+  or marker lands on the pixel grid with its own rounding offset, a fixed
+  error per feature that no number of views averages away.
+- **Render the pattern anti-aliased** when the display has grey levels. A
+  two-level rendering shifts each feature by a fraction of a display pixel;
+  the shift matters once a display pixel is larger than about half a camera
+  pixel.
+- **Measure the cell size on the display**, as on a print.
+- **Mind the surface**: a cover layer reflects light sources as glare.
