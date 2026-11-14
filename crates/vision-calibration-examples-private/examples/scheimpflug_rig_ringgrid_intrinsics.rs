@@ -123,7 +123,7 @@ fn main() -> Result<()> {
             .with_context(|| format!("pose {i} target"))?;
         let tiles = split_horizontal(&img, NUM_CAMERAS);
         for (c, tile) in tiles.iter().enumerate() {
-            if let Ok(v) = detect_ringgrid(tile, &board, ring_width_mm) {
+            if let Ok(v) = detect_ringgrid(tile, &board, ring_width_mm, Default::default()) {
                 det_markers[c] += v.points_2d.len();
                 per_cam_views[c].push(View::without_meta(v));
             }
