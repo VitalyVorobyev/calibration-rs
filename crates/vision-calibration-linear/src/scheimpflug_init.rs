@@ -70,6 +70,7 @@ impl Default for ScheimpflugIntrinsicsInitOptions {
 
 /// Result of tilt-aware Scheimpflug planar intrinsics initialization.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ScheimpflugIntrinsicsLinearInit {
     /// Initial pinhole intrinsics and Brown-Conrady distortion.
     pub camera: PinholeCamera,

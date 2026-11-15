@@ -8,10 +8,13 @@
 //!   `emit_schemas`).
 //! - `check-docs` fails when user-facing docs cite internal material or pin
 //!   a stale version (see `check_docs`).
+//! - `check-api` fails when a public type that could grow is exhaustive and
+//!   not allowlisted as fixed by definition (see `check_api`).
 
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
+mod check_api;
 mod check_docs;
 mod emit_schemas;
 mod manifest_doc;
@@ -20,7 +23,7 @@ mod py_types;
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let cmd = args.next().context(
-        "usage: cargo xtask <command>\n\ncommands:\n  emit-schemas [--check]\n  check-docs\n",
+        "usage: cargo xtask <command>\n\ncommands:\n  emit-schemas [--check]\n  check-docs\n  check-api\n",
     )?;
 
     match cmd.as_str() {
@@ -29,7 +32,10 @@ fn main() -> Result<()> {
             emit_schemas::run(&workspace_root()?, check)
         }
         "check-docs" => check_docs::run(&workspace_root()?),
-        other => bail!("unknown xtask `{other}`; available: emit-schemas [--check], check-docs"),
+        "check-api" => check_api::run(&workspace_root()?),
+        other => bail!(
+            "unknown xtask `{other}`; available: emit-schemas [--check], check-docs, check-api"
+        ),
     }
 }
 

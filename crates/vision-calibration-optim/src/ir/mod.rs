@@ -5,11 +5,12 @@ mod types;
 
 pub(crate) use custom::{CustomFactor, CustomNoise, CustomResidual};
 
-pub use types::{
-    Bound, CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandeyeMode, LaserChain,
-    ManifoldKind, ProblemIR, ReprojChain, ReprojSqrtInfo, ResidualBlock, RobustLoss, SensorKind,
+pub(crate) use types::{
+    Bound, FactorKind, LaserChain, ManifoldKind, ProblemIR, ReprojChain, ReprojSqrtInfo,
+    ResidualBlock,
 };
+pub use types::{CameraModelSpec, DistortionKind, FixedMask, HandeyeMode, RobustLoss, SensorKind};
 
 #[cfg(test)]
-pub use types::ParamSlotSpec;
+pub(crate) use types::ParamSlotSpec;
 pub(crate) use types::{CameraSpecLayout, ParamBlock, ParamId};

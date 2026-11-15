@@ -318,6 +318,7 @@ pub fn iso_from_rotation(r: &Mat3, t: &Vec3) -> Iso3 {
 
 /// Solution of a homogeneous least-squares ([`null_space`]) solve.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NullSpaceSolution {
     /// Unit right-singular vector of `A` with the smallest singular value — the
     /// minimizer of `‖A x‖` subject to `‖x‖ = 1`.

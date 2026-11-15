@@ -108,7 +108,7 @@ impl SolveReport {
 ///
 /// The `params` map uses the IR parameter block names.
 #[derive(Debug, Clone)]
-pub struct BackendSolution {
+pub(crate) struct BackendSolution {
     /// Optimized parameter vectors keyed by block name.
     pub params: HashMap<String, DVector<f64>>,
     /// Final robustified cost if supported by the backend.
