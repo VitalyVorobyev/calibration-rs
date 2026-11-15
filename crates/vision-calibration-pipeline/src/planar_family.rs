@@ -414,11 +414,9 @@ fn bootstrap_pinhole(
             (camera, Some(seed.sensor.unwrap_or_default()), poses)
         }
         SensorKind::Scheimpflug => {
-            let mut scheimpflug_opts = LinearScheimpflugIntrinsicsInitOptions {
-                iterations: init_opts.iterations,
-                distortion_opts: init_opts.distortion_opts,
-                ..Default::default()
-            };
+            let mut scheimpflug_opts = LinearScheimpflugIntrinsicsInitOptions::default();
+            scheimpflug_opts.iterations = init_opts.iterations;
+            scheimpflug_opts.distortion_opts = init_opts.distortion_opts;
             if let Some(manual) = seed.sensor {
                 scheimpflug_opts.tilt_x_seeds = vec![manual.tilt_x];
                 scheimpflug_opts.tilt_y_seeds = vec![manual.tilt_y];

@@ -101,6 +101,3 @@ reason = "a single-camera hand-eye solution is eye-in-hand or eye-to-hand, each 
 reason = "a two-view correspondence is a pair of image points"
 
 # ── Under review ────────────────────────────────────────────────────────────
-
-["vision_calibration_linear::ScheimpflugIntrinsicsInitOptions"]
-reason = "TODO(review): growable options; the pipeline builds it by literal with `..Default::default()`, which #[non_exhaustive] forbids across crates"

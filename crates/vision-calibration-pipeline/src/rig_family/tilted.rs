@@ -157,17 +157,13 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
     let mut seeds = Vec::with_capacity(12);
     seeds.push((initial.clone(), false));
     for tilt_x in [-0.16, -0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12, 0.16] {
-        let init = match estimate_scheimpflug_intrinsics_iterative(
-            dataset,
-            ScheimpflugIntrinsicsInitOptions {
-                iterations: init_iterations,
-                distortion_opts,
-                tilt_x_seeds: vec![tilt_x],
-                tilt_y_seeds: vec![0.0],
-                refine_rounds: 1,
-                ..Default::default()
-            },
-        ) {
+        let mut init_opts = ScheimpflugIntrinsicsInitOptions::default();
+        init_opts.iterations = init_iterations;
+        init_opts.distortion_opts = distortion_opts;
+        init_opts.tilt_x_seeds = vec![tilt_x];
+        init_opts.tilt_y_seeds = vec![0.0];
+        init_opts.refine_rounds = 1;
+        let init = match estimate_scheimpflug_intrinsics_iterative(dataset, init_opts) {
             Ok(init) => init,
             Err(e) => {
                 last_err = Some(Error::numerical(format!(
