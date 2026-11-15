@@ -148,13 +148,7 @@ fn synthetic_laserline_calibration_smoke_test() {
         if calib_pixels.len() >= 4 && laser_pixels.len() >= 3 {
             let target_view =
                 CorrespondenceView::new(target_points_3d.clone(), calib_pixels).unwrap();
-            views.push(View::new(
-                target_view,
-                LaserlineMeta {
-                    laser_pixels,
-                    laser_weights: Vec::new(),
-                },
-            ));
+            views.push(View::new(target_view, LaserlineMeta::new(laser_pixels)));
             used_poses.push(*pose);
         }
     }
@@ -216,10 +210,11 @@ fn synthetic_laserline_calibration_smoke_test() {
     // Run optimization
     let opts = LaserlineSolveOptions {
         // Hold `k3` and the tilt.
-        fix: CameraFix {
-            distortion: Some(vec!["k3".into()]),
-            sensor: Some(vec!["tilt_x".into(), "tilt_y".into()]),
-            ..CameraFix::default()
+        fix: {
+            let mut value = CameraFix::default();
+            value.distortion = Some(vec!["k3".into()]);
+            value.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);
+            value
         },
         fix_poses: vec![0],
         ..Default::default()
@@ -377,13 +372,7 @@ fn synthetic_laserline_line_dist_normalized_converges() {
         if calib_pixels.len() >= 4 && laser_pixels.len() >= 3 {
             let target_view =
                 CorrespondenceView::new(target_points_3d.clone(), calib_pixels).unwrap();
-            views.push(View::new(
-                target_view,
-                LaserlineMeta {
-                    laser_pixels,
-                    laser_weights: Vec::new(),
-                },
-            ));
+            views.push(View::new(target_view, LaserlineMeta::new(laser_pixels)));
             used_poses.push(*pose);
         }
     }
@@ -596,13 +585,7 @@ fn compare_point_plane_vs_line_dist() {
         if calib_pixels.len() >= 4 && laser_pixels.len() >= 3 {
             let target_view =
                 CorrespondenceView::new(target_points_3d.clone(), calib_pixels).unwrap();
-            views.push(View::new(
-                target_view,
-                LaserlineMeta {
-                    laser_pixels,
-                    laser_weights: Vec::new(),
-                },
-            ));
+            views.push(View::new(target_view, LaserlineMeta::new(laser_pixels)));
             used_poses.push(*pose);
         }
     }

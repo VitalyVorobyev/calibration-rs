@@ -15,6 +15,7 @@ use crate::Error;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CameraFix {
     /// Fixed intrinsics (`fx`, `fy`, `cx`, `cy`); default: none.
     #[serde(default, skip_serializing_if = "Option::is_none")]

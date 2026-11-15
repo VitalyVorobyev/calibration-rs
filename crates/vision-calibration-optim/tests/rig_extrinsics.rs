@@ -93,12 +93,7 @@ fn stereo_rig_extrinsics_converges() {
             cameras_obs.push(Some(CorrespondenceView::new(points_3d, points_2d).unwrap()));
         }
 
-        views.push(RigView {
-            obs: RigViewObs {
-                cameras: cameras_obs,
-            },
-            meta: NoMeta,
-        });
+        views.push(RigView::new(RigViewObs::new(cameras_obs), NoMeta));
     }
 
     let dataset = RigDataset::new(views, 2).unwrap();
@@ -368,10 +363,7 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                             Some(CorrespondenceView::new(p3, p2).unwrap())
                         })
                         .collect();
-                    RigView {
-                        meta: NoMeta,
-                        obs: RigViewObs { cameras },
-                    }
+                    RigView::new(RigViewObs::new(cameras), NoMeta)
                 })
                 .collect();
             let dataset = RigDataset::new(views, 2).unwrap();

@@ -27,6 +27,7 @@ use crate::{DetectError, Feature};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CharucoConfig {
     /// Number of squares along the rows axis (full grid, not interior
     /// corners — ChArUco boards are described by their square counts).
@@ -46,6 +47,28 @@ pub struct CharucoConfig {
     /// Optional ChESS corner-stage overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chess_corners: Option<ChessCornersConfig>,
+}
+
+impl CharucoConfig {
+    /// A `rows × cols`-square ChArUco board with `square_size_m` squares and
+    /// `marker_size_m` markers from `dictionary`, with the default ChESS
+    /// corner stage.
+    pub fn new(
+        rows: u32,
+        cols: u32,
+        square_size_m: f64,
+        marker_size_m: f64,
+        dictionary: impl Into<String>,
+    ) -> Self {
+        Self {
+            rows,
+            cols,
+            square_size_m,
+            marker_size_m,
+            dictionary: dictionary.into(),
+            chess_corners: None,
+        }
+    }
 }
 
 /// Check `name` against the ArUco dictionaries embedded in

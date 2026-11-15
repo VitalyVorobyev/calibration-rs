@@ -410,19 +410,15 @@ mod tests {
 
     fn covariance(labels: &[&str]) -> Uncertainty {
         let n = labels.len();
-        Uncertainty::Available(ParameterCovariance {
-            labels: labels.iter().map(|l| l.to_string()).collect(),
-            covariance: (0..n)
+        Uncertainty::Available(ParameterCovariance::new(
+            labels.iter().map(|l| l.to_string()).collect(),
+            (0..n)
                 .map(|i| (0..n).map(|j| f64::from(u8::from(i == j))).collect())
                 .collect(),
-            views: vec![],
-            fixed: vec![],
-            noise: vec![],
-            num_residuals: 10,
-            dof: 5,
-            view_scatter: None,
-            second_order: None,
-        })
+            vec![],
+            10,
+            5,
+        ))
     }
 
     const PLANES: [&str; 8] = [

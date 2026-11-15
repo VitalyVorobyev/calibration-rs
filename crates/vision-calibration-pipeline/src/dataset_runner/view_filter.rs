@@ -242,6 +242,7 @@ impl ViewFilter {
                 rows,
                 cols,
                 square_size_m,
+                ..
             } if scope != LabelScope::Image => Some((
                 ChessboardGrid {
                     rows,
@@ -333,10 +334,11 @@ mod tests {
         (0..height)
             .flat_map(|v| (0..width).map(move |u| (u, v)))
             .filter(|uv| !missing.contains(uv))
-            .map(|(u, v)| Feature {
-                cov_px: None,
-                image_xy: [10.0 * u as f64, 10.0 * v as f64],
-                world_xyz: [u as f64 * SQUARE, v as f64 * SQUARE, 0.0],
+            .map(|(u, v)| {
+                Feature::new(
+                    [10.0 * u as f64, 10.0 * v as f64],
+                    [u as f64 * SQUARE, v as f64 * SQUARE, 0.0],
+                )
             })
             .collect()
     }
@@ -437,28 +439,11 @@ mod tests {
     }
 
     fn spec(topology: ProblemKind, target: TargetSpec) -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: vec![],
-            target,
-            detector: None,
-            robot_poses: None,
-            laser: None,
-            upstream_calibration: None,
-            topology,
-            pose_pairing: None,
-            pose_convention: None,
-            unresolved: vec![],
-            description: None,
-        }
+        DatasetSpec::new(vec![], target, topology)
     }
 
     fn chessboard() -> TargetSpec {
-        TargetSpec::Chessboard {
-            rows: 10,
-            cols: 14,
-            square_size_m: SQUARE,
-        }
+        TargetSpec::chessboard(10, 14, SQUARE)
     }
 
     #[test]
@@ -486,10 +471,7 @@ mod tests {
 
     #[test]
     fn self_identifying_targets_are_not_screened_for_the_whole_board() {
-        let target = TargetSpec::Puzzleboard {
-            layout: "puzzle_10x14".into(),
-            cell_size_m: SQUARE,
-        };
+        let target = TargetSpec::puzzleboard("puzzle_10x14", SQUARE);
         let filter = ViewFilter::for_spec(&spec(ProblemKind::RigHandeye, target));
         assert_eq!(filter.check(&labels(4, 3, &[])), Ok(()));
     }

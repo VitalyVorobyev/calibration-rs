@@ -82,14 +82,12 @@ fn eye_in_hand_scheimpflug_converges() {
                 }
             }
         }
-        views.push(RigView {
-            obs: RigViewObs {
-                cameras: vec![Some(CorrespondenceView::new(points_3d, points_2d).unwrap())],
-            },
-            meta: RobotPoseMeta {
-                base_se3_gripper: *robot_pose,
-            },
-        });
+        views.push(RigView::new(
+            RigViewObs::new(vec![Some(
+                CorrespondenceView::new(points_3d, points_2d).unwrap(),
+            )]),
+            RobotPoseMeta::new(*robot_pose),
+        ));
     }
 
     let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
@@ -131,9 +129,10 @@ fn eye_in_hand_scheimpflug_converges() {
 
     // The tangential terms are solved (a tilted sensor's default fixes them).
     let opts = HandeyeSolveOptions {
-        fix: vec![CameraFix {
-            distortion: Some(vec!["k3".into()]),
-            ..CameraFix::default()
+        fix: vec![{
+            let mut value = CameraFix::default();
+            value.distortion = Some(vec!["k3".into()]);
+            value
         }],
         fix_extrinsics: vec![true],
         ..Default::default()

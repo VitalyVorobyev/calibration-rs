@@ -173,11 +173,13 @@ impl PublishedCorners {
             }
             CornerProblem::RigExtrinsics => {
                 let views = (0..object.len())
-                    .map(|i| RigView {
-                        meta: NoMeta,
-                        obs: RigViewObs {
-                            cameras: per_camera.iter().map(|cam| Some(cam[i].clone())).collect(),
-                        },
+                    .map(|i| {
+                        RigView::new(
+                            RigViewObs::new(
+                                per_camera.iter().map(|cam| Some(cam[i].clone())).collect(),
+                            ),
+                            NoMeta,
+                        )
                     })
                     .collect();
                 ProblemInput::RigExtrinsics(RigDataset::new(views, self.cameras.len())?)

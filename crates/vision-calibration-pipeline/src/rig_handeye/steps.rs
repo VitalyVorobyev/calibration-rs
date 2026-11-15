@@ -456,17 +456,13 @@ mod tests {
                 let pts0 = project_points(&cam0, &cam0_se3_target);
                 let pts1 = project_points(&cam1, &cam1_se3_target);
 
-                RigView {
-                    meta: RobotPoseMeta {
-                        base_se3_gripper: *robot_pose,
-                    },
-                    obs: RigViewObs {
-                        cameras: vec![
-                            Some(CorrespondenceView::new(board_pts.clone(), pts0).unwrap()),
-                            Some(CorrespondenceView::new(board_pts.clone(), pts1).unwrap()),
-                        ],
-                    },
-                }
+                RigView::new(
+                    RigViewObs::new(vec![
+                        Some(CorrespondenceView::new(board_pts.clone(), pts0).unwrap()),
+                        Some(CorrespondenceView::new(board_pts.clone(), pts1).unwrap()),
+                    ]),
+                    RobotPoseMeta::new(*robot_pose),
+                )
             })
             .collect();
 

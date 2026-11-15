@@ -29,6 +29,7 @@ use super::state::RigHandeyeLaserlineState;
 /// Input for joint rig hand-eye laserline calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RigHandeyeLaserlineInput {
     /// Per-view target observations, laser pixels, and robot poses.
     pub views: Vec<RigHandeyeLaserlineView>,
@@ -37,6 +38,11 @@ pub struct RigHandeyeLaserlineInput {
 }
 
 impl RigHandeyeLaserlineInput {
+    /// The views `views` of a rig of `num_cameras` cameras.
+    pub fn new(views: Vec<RigHandeyeLaserlineView>, num_cameras: usize) -> Self {
+        Self { views, num_cameras }
+    }
+
     /// Number of views.
     pub fn num_views(&self) -> usize {
         self.views.len()
@@ -58,20 +64,15 @@ impl RigHandeyeLaserlineInput {
             .map_err(Error::from)
     }
 
-    pub(crate) fn handeye_dataset(&self) -> RigDataset<vision_calibration_optim::RobotPoseMeta> {
-        RigDataset {
-            num_cameras: self.num_cameras,
-            views: self
-                .views
-                .iter()
-                .map(|v| RigView {
-                    meta: v.meta.clone(),
-                    obs: RigViewObs {
-                        cameras: v.obs.cameras.clone(),
-                    },
-                })
-                .collect(),
-        }
+    pub(crate) fn handeye_dataset(
+        &self,
+    ) -> Result<RigDataset<vision_calibration_optim::RobotPoseMeta>, Error> {
+        let views = self
+            .views
+            .iter()
+            .map(|v| RigView::new(RigViewObs::new(v.obs.cameras.clone()), v.meta.clone()))
+            .collect();
+        RigDataset::new(views, self.num_cameras).map_err(Error::from)
     }
 }
 
@@ -304,7 +305,7 @@ impl ProblemType for RigHandeyeLaserlineProblem {
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
         crate::rig_handeye::RigHandeyeProblem::validate_input_config(
-            &input.handeye_dataset(),
+            &input.handeye_dataset()?,
             &config.handeye,
         )?;
         let models: Vec<CameraModelSpec> = (0..input.num_cameras)
@@ -368,7 +369,7 @@ pub(crate) fn export_joint(
     );
     let mut per_feature_residuals = rig_target_residuals(
         &params.cameras,
-        &input.handeye_dataset(),
+        &input.handeye_dataset()?,
         &cam_se3_rig,
         &rig_se3_target,
     )?;
@@ -443,12 +444,12 @@ pub(crate) fn joint_fix(
 /// distortion terms held.
 fn joint_stage_default_fix(model: CameraModelSpec) -> CameraFix {
     let names = |v: &[&str]| Some(v.iter().map(|n| n.to_string()).collect());
-    CameraFix {
-        intrinsics: Some(Vec::new()),
-        projection: Some(Vec::new()),
-        distortion: names(&model.distortion.higher_order_names()),
-        sensor: Some(Vec::new()),
-    }
+    let mut fix = CameraFix::default();
+    fix.intrinsics = Some(Vec::new());
+    fix.projection = Some(Vec::new());
+    fix.distortion = names(&model.distortion.higher_order_names());
+    fix.sensor = Some(Vec::new());
+    fix
 }
 
 /// The joint stage pins the extrinsic of the configured reference camera
@@ -511,13 +512,11 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("one per camera"), "{err}");
-        config.fix = vec![
-            CameraFix::default(),
-            CameraFix {
-                sensor: Some(vec!["tilt_x".into()]),
-                ..CameraFix::default()
-            },
-        ];
+        config.fix = vec![CameraFix::default(), {
+            let mut value = CameraFix::default();
+            value.sensor = Some(vec!["tilt_x".into()]);
+            value
+        }];
         let err = joint_fix(&config, &[untilted, untilted])
             .unwrap_err()
             .to_string();

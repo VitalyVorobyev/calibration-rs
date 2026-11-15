@@ -41,6 +41,7 @@ pub enum CacheError {
 /// Composite cache key. Cheap to compute, hex-encoded for filesystem
 /// safety.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CacheKey {
     /// FNV-1a digest of the raw image bytes.
     pub image_hash: u64,
@@ -172,9 +173,17 @@ fn canonicalize(value: Value) -> Value {
 
 /// Cached detection result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CachedFeatures {
     /// The features that were originally produced by the detector.
     pub features: Vec<Feature>,
+}
+
+impl CachedFeatures {
+    /// A cache entry holding `features`.
+    pub fn new(features: Vec<Feature>) -> Self {
+        Self { features }
+    }
 }
 
 /// Detection cache backend.

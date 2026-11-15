@@ -458,15 +458,16 @@ pub fn detect_ringgrid(
     ring_width_mm: f64,
     center_method: RinggridCenterMethod,
 ) -> Result<CorrespondenceView> {
-    let config = DetectorConfig::Ringgrid(RinggridConfig {
-        pitch_m: spec.pitch_mm / 1000.0,
-        rows: spec.rows,
-        long_row_cols: spec.long_row_cols,
-        marker_outer_radius_m: spec.marker_outer_radius_mm / 1000.0,
-        marker_inner_radius_m: spec.marker_inner_radius_mm / 1000.0,
-        marker_ring_width_m: ring_width_mm / 1000.0,
-        center_method,
-    });
+    let mut ringgrid = RinggridConfig::new(
+        spec.pitch_mm / 1000.0,
+        spec.rows,
+        spec.long_row_cols,
+        spec.marker_outer_radius_mm / 1000.0,
+        spec.marker_inner_radius_mm / 1000.0,
+        ring_width_mm / 1000.0,
+    );
+    ringgrid.center_method = center_method;
+    let config = DetectorConfig::Ringgrid(ringgrid);
     let view = GrayImageView::new(tile.width(), tile.height(), tile.as_raw())
         .map_err(|e| anyhow!("ringgrid image: {e}"))?;
     let features = config

@@ -23,8 +23,8 @@ fn held_out_view(seed: u64) -> RigViewObs {
     let cameras = stereo_cameras();
     let board = planar::grid_points(COLS, ROWS, SQUARE);
     let rig_se3_board: Iso3 = make_iso((0.15, -0.12, 0.05), (-0.09, -0.06, 0.70));
-    RigViewObs {
-        cameras: (0..2)
+    RigViewObs::new(
+        (0..2)
             .map(|c| {
                 let pixels = board
                     .iter()
@@ -38,7 +38,7 @@ fn held_out_view(seed: u64) -> RigViewObs {
                 Some(CorrespondenceView::new(board.clone(), pixels).unwrap())
             })
             .collect(),
-    }
+    )
 }
 
 #[test]

@@ -109,12 +109,10 @@ fn make_dataset() -> (
             }
             cam_obs.push(Some(CorrespondenceView::new(pts3, pts2).unwrap()));
         }
-        views.push(RigView {
-            obs: RigViewObs { cameras: cam_obs },
-            meta: RobotPoseMeta {
-                base_se3_gripper: *robot_pose,
-            },
-        });
+        views.push(RigView::new(
+            RigViewObs::new(cam_obs),
+            RobotPoseMeta::new(*robot_pose),
+        ));
     }
 
     (RigDataset::new(views, 2).unwrap(), intrinsics, handeye_gt)

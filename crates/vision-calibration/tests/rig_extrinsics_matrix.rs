@@ -139,13 +139,15 @@ fn build_rig_dataset(
         .collect();
 
     let views: Vec<RigView<NoMeta>> = (0..rig_poses.len())
-        .map(|view_idx| RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: (0..num_cameras)
-                    .map(|cam_idx| Some(per_cam_views[cam_idx][view_idx].clone()))
-                    .collect(),
-            },
+        .map(|view_idx| {
+            RigView::new(
+                RigViewObs::new(
+                    (0..num_cameras)
+                        .map(|cam_idx| Some(per_cam_views[cam_idx][view_idx].clone()))
+                        .collect(),
+                ),
+                NoMeta,
+            )
         })
         .collect();
 
@@ -434,12 +436,7 @@ fn rig_extrinsics_rejects_disconnected_covisibility_graph() {
             // share a view.
             let cam0 = (view_idx < 4).then(|| per_cam_views[0][view_idx].clone());
             let cam1 = (view_idx >= 4).then(|| per_cam_views[1][view_idx].clone());
-            RigView {
-                meta: NoMeta,
-                obs: RigViewObs {
-                    cameras: vec![cam0, cam1],
-                },
-            }
+            RigView::new(RigViewObs::new(vec![cam0, cam1]), NoMeta)
         })
         .collect();
     let input = RigDataset::new(views, 2).expect("valid rig dataset");

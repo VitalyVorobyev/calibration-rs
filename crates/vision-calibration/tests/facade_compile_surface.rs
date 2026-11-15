@@ -27,23 +27,15 @@ fn facade_modules_compile_with_glob_import() {
     > = None;
 
     // Every input type is constructible from its workflow module and `common`.
-    let _rig_laserline_view = common::RigLaserlineView {
-        cameras: vec![None],
-        laser_pixels: vec![None],
-    };
+    let _rig_laserline_view = common::RigLaserlineView::new(vec![None], vec![None]);
     let _rig_laserline_dataset: Option<rig_laserline_device::RigLaserlineDataset> = None;
-    let _rig_handeye_laserline_input = rig_handeye_laserline::RigHandeyeLaserlineInput {
-        views: vec![rig_handeye_laserline::RigHandeyeLaserlineView {
-            obs: common::RigLaserlineView {
-                cameras: vec![None],
-                laser_pixels: vec![None],
-            },
-            meta: common::RobotPoseMeta {
-                base_se3_gripper: core::Iso3::identity(),
-            },
-        }],
-        num_cameras: 1,
-    };
+    let _rig_handeye_laserline_input = rig_handeye_laserline::RigHandeyeLaserlineInput::new(
+        vec![rig_handeye_laserline::RigHandeyeLaserlineView::new(
+            common::RigLaserlineView::new(vec![None], vec![None]),
+            common::RobotPoseMeta::new(core::Iso3::identity()),
+        )],
+        1,
+    );
 }
 
 /// Each problem names its `<Name>Input`, `<Name>Config`, output estimate and

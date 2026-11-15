@@ -117,7 +117,7 @@ use vision_calibration::session::CalibrationSession;
 // The laser views are the hand-eye run's views: its own board poses.
 let upstream = rig_export.to_upstream_calibration(rig_export.rig_se3_target.clone())?;
 let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
-session.set_input(RigLaserlineDeviceInput { dataset, upstream })?;
+session.set_input(RigLaserlineDeviceInput::new(dataset, upstream))?;
 run_calibration(&mut session)?;
 let export = session.export()?; // laser_planes_rig, laser_planes_cam, per_cam_stats, ...
 # Ok(())
@@ -165,7 +165,7 @@ warm-start values, because they trade off against the extrinsics and the
 laser planes. An entry's slot left out keeps the model's default, as in every
 `CameraFix`.
 
-The input is a `RigHandeyeLaserlineInput { views, num_cameras }`. Each `RigHandeyeLaserlineView` (exported from this module; its parts `RigLaserlineView` and `RobotPoseMeta` are in `vision_calibration::common`) carries the per-camera target observations, the laser pixels, and the robot pose (`base_se3_gripper`). There is a single entry point:
+The input is a `RigHandeyeLaserlineInput::new(views, num_cameras)`. Each `RigHandeyeLaserlineView` (exported from this module; its parts `RigLaserlineView` and `RobotPoseMeta` are in `vision_calibration::common`) carries the per-camera target observations, the laser pixels, and the robot pose (`base_se3_gripper`). There is a single entry point:
 
 ```rust,no_run
 use vision_calibration::rig_handeye_laserline::{

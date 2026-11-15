@@ -71,10 +71,7 @@ pub fn sweep() -> Result<()> {
                         }
                     }
                     if p3.len() >= 30 && views.len() < 20 {
-                        views.push(View {
-                            obs: CorrespondenceView::new(p3, p2)?,
-                            meta: NoMeta,
-                        });
+                        views.push(View::new(CorrespondenceView::new(p3, p2)?, NoMeta));
                         kept.push(*pose);
                     }
                 }

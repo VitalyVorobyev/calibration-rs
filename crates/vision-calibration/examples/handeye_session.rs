@@ -62,12 +62,7 @@ fn main() -> Result<()> {
     // Convert to SingleCamHandeyeInput
     let views: Vec<SingleCamHandeyeView> = samples
         .into_iter()
-        .map(|s| SingleCamHandeyeView {
-            obs: s.view,
-            meta: RobotPoseMeta {
-                base_se3_gripper: s.robot_pose,
-            },
-        })
+        .map(|s| SingleCamHandeyeView::new(s.view, RobotPoseMeta::new(s.robot_pose)))
         .collect();
 
     let input = SingleCamHandeyeInput::new(views)?;

@@ -318,16 +318,15 @@ fn image_sizes(spec: &DatasetSpec, paths: &[Vec<&PathBuf>]) -> Result<Vec<[u32; 
 /// The single-camera planar manifest of `spec`'s camera `camera`: the same
 /// images, region and target, without the other cameras or robot poses.
 pub fn camera_spec(spec: &DatasetSpec, camera: usize) -> DatasetSpec {
-    DatasetSpec {
-        cameras: vec![spec.cameras[camera].clone()],
-        topology: ProblemKind::PlanarIntrinsics,
-        robot_poses: None,
-        pose_pairing: None,
-        pose_convention: None,
-        laser: None,
-        upstream_calibration: None,
-        ..spec.clone()
-    }
+    let mut single = spec.clone();
+    single.cameras = vec![spec.cameras[camera].clone()];
+    single.topology = ProblemKind::PlanarIntrinsics;
+    single.robot_poses = None;
+    single.pose_pairing = None;
+    single.pose_convention = None;
+    single.laser = None;
+    single.upstream_calibration = None;
+    single
 }
 
 /// A detection cache that never hits and records how long each detection
@@ -379,9 +378,7 @@ impl DetectionCache for TimingCache {
             .limit
             .is_some_and(|limit| state.durations.len() >= limit)
         {
-            return Ok(Some(CachedFeatures {
-                features: Vec::new(),
-            }));
+            return Ok(Some(CachedFeatures::new(Vec::new())));
         }
         state.pending = Some(Instant::now());
         Ok(None)
@@ -425,19 +422,9 @@ mod tests {
 
     #[test]
     fn manifest_targets_with_a_fixed_corner_count() {
-        let chessboard = TargetSpec::Chessboard {
-            rows: 17,
-            cols: 28,
-            square_size_m: 0.02,
-        };
+        let chessboard = TargetSpec::chessboard(17, 28, 0.02);
         assert_eq!(target_feature_count(&chessboard), Some(17 * 28));
-        let charuco = TargetSpec::Charuco {
-            rows: 22,
-            cols: 22,
-            square_size_m: 0.0045,
-            marker_size_m: 0.0034,
-            dictionary: "DICT_4X4_1000".into(),
-        };
+        let charuco = TargetSpec::charuco(22, 22, 0.0045, 0.0034, "DICT_4X4_1000");
         assert_eq!(target_feature_count(&charuco), Some(21 * 21));
     }
 
@@ -447,9 +434,7 @@ mod tests {
         let key = CacheKey::from_inputs(b"img", "chessboard", &serde_json::json!({}));
         for _ in 0..2 {
             assert!(cache.get(&key).unwrap().is_none());
-            cache
-                .put(&key, &CachedFeatures { features: vec![] })
-                .unwrap();
+            cache.put(&key, &CachedFeatures::new(vec![])).unwrap();
         }
         // Past the limit every lookup is an empty hit.
         let skipped = cache.get(&key).unwrap().expect("hit");

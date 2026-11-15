@@ -4,8 +4,8 @@
 use nalgebra::{DMatrix, Vector3};
 use vision_calibration_core::synthetic::{noise::UniformPixelNoise, planar, poses};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionParams, FxFyCxCy, NoiseLevel, ProjectionParams,
-    ResidualKind, RigView, RigViewObs, ScheimpflugParams, SensorParams, Uncertainty,
+    BrownConrady5, CorrespondenceView, DistortionParams, FxFyCxCy, ProjectionParams, ResidualKind,
+    RigView, RigViewObs, ScheimpflugParams, SensorParams, Uncertainty,
 };
 
 use super::*;
@@ -372,12 +372,7 @@ fn solve_and_rebuild(mode: HandeyeMode, refine_robot_poses: bool) -> (DMatrix<f6
                     Some(CorrespondenceView::new(pts.clone(), pixels).unwrap())
                 })
                 .collect();
-            RigView {
-                meta: RobotPoseMeta {
-                    base_se3_gripper: *g,
-                },
-                obs: RigViewObs { cameras },
-            }
+            RigView::new(RigViewObs::new(cameras), RobotPoseMeta::new(*g))
         })
         .collect();
     let dataset = HandeyeDataset::new(views, 2, mode).unwrap();
@@ -411,9 +406,7 @@ fn solve_and_rebuild(mode: HandeyeMode, refine_robot_poses: bool) -> (DMatrix<f6
         .noise
         .iter()
         .find(|n| n.kind == ResidualKind::Reprojection)
-        .map(|n| match n.level {
-            NoiseLevel::Sigma(s) | NoiseLevel::Sigma0(s) => s,
-        })
+        .map(|n| n.level.value())
         .unwrap();
     let robot = if refine_robot_poses {
         RobotPose::Corrected { sigma, pixel_sigma }

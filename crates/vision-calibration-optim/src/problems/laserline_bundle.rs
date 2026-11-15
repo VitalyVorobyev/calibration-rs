@@ -37,6 +37,7 @@ use vision_calibration_core::{
 /// Metadata for a laserline view (laser pixels + optional weights).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct LaserlineMeta {
     /// Laser line pixel observations.
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<[f64; 2]>"))]
@@ -47,6 +48,14 @@ pub struct LaserlineMeta {
 }
 
 impl LaserlineMeta {
+    /// The laser pixels `laser_pixels` of one view, each weighted `1.0`.
+    pub fn new(laser_pixels: Vec<Pt2>) -> Self {
+        Self {
+            laser_pixels,
+            laser_weights: Vec::new(),
+        }
+    }
+
     /// Validate metadata consistency (non-empty pixels and optional weights).
     ///
     /// # Errors

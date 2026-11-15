@@ -423,14 +423,13 @@ fn stereo_iterative_intrinsics_left_no_gt() {
     .unwrap();
 
     // Run iterative estimation (NO ground truth used here)
-    let opts = IterativeIntrinsicsOptions {
-        iterations: 2,
-        distortion_opts: DistortionFitOptions {
-            fix_k3: true, // Conservative: only estimate k1, k2, p1, p2
-            fix_tangential: false,
-            iters: 8,
-        },
-    };
+    let mut distortion_opts = DistortionFitOptions::default();
+    distortion_opts.fix_k3 = true; // Conservative: only estimate k1, k2, p1, p2
+    distortion_opts.fix_tangential = false;
+    distortion_opts.iters = 8;
+    let mut opts = IterativeIntrinsicsOptions::default();
+    opts.iterations = 2;
+    opts.distortion_opts = distortion_opts;
 
     let result =
         estimate_intrinsics_iterative(&dataset, opts).expect("iterative intrinsics estimation");

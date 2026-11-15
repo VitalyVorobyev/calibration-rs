@@ -39,6 +39,7 @@ pub type SingleCamHandeyeView = View<RobotPoseMeta>;
 /// Input for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct SingleCamHandeyeInput {
     /// Per-view observations with robot poses.
     pub views: Vec<SingleCamHandeyeView>,
@@ -331,7 +332,7 @@ impl VersionedExport for SingleCamHandeyeExport {
 /// let mut views = Vec::new();
 /// for base_se3_gripper in stations {
 ///     let board_view = observe(&base_se3_gripper)?;
-///     views.push(SingleCamHandeyeView::new(board_view, RobotPoseMeta { base_se3_gripper }));
+///     views.push(SingleCamHandeyeView::new(board_view, RobotPoseMeta::new(base_se3_gripper)));
 /// }
 /// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 /// session.set_input(SingleCamHandeyeInput::new(views)?)?;
@@ -432,13 +433,11 @@ impl HandeyeStages for SingleCamHandeyeProblem {
         let views = input
             .views
             .iter()
-            .map(|v| RigView {
-                meta: RobotPoseMeta {
-                    base_se3_gripper: v.meta.base_se3_gripper,
-                },
-                obs: RigViewObs {
-                    cameras: vec![Some(v.obs.clone())],
-                },
+            .map(|v| {
+                RigView::new(
+                    RigViewObs::new(vec![Some(v.obs.clone())]),
+                    RobotPoseMeta::new(v.meta.base_se3_gripper),
+                )
             })
             .collect();
         Ok(HandeyeDataset::new(views, 1, mode)?)
@@ -613,9 +612,7 @@ mod tests {
                 ],
             )
             .unwrap(),
-            RobotPoseMeta {
-                base_se3_gripper: Iso3::identity(),
-            },
+            RobotPoseMeta::new(Iso3::identity()),
         )
     }
 

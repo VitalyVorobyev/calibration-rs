@@ -83,19 +83,15 @@ fn negligible_covariance() -> Uncertainty {
         labels.push(format!("cam1.cam_se3_rig.{c}"));
     }
     let n = labels.len();
-    Uncertainty::Available(ParameterCovariance {
-        covariance: (0..n)
+    Uncertainty::Available(ParameterCovariance::new(
+        labels,
+        (0..n)
             .map(|i| (0..n).map(|j| if i == j { 1e-20 } else { 0.0 }).collect())
             .collect(),
-        labels,
-        views: Vec::new(),
-        fixed: Vec::new(),
-        noise: Vec::new(),
-        num_residuals: 0,
-        dof: 0,
-        view_scatter: None,
-        second_order: None,
-    })
+        Vec::new(),
+        0,
+        0,
+    ))
 }
 
 fn stereo(camera: CameraParams, uncertainty: Uncertainty) -> CalibratedRig {

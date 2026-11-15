@@ -61,6 +61,7 @@ impl RinggridCenterMethod {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RinggridConfig {
     /// Center-to-center spacing between adjacent markers in metres.
     pub pitch_m: f64,
@@ -82,6 +83,28 @@ pub struct RinggridConfig {
 }
 
 impl RinggridConfig {
+    /// A coded ring grid of `rows` rows, `long_row_cols` markers in the long
+    /// rows and `pitch_m` spacing, with markers of the given outer and inner
+    /// radii and ring width (metres), and the default centre estimator.
+    pub fn new(
+        pitch_m: f64,
+        rows: u32,
+        long_row_cols: u32,
+        marker_outer_radius_m: f64,
+        marker_inner_radius_m: f64,
+        marker_ring_width_m: f64,
+    ) -> Self {
+        Self {
+            pitch_m,
+            rows,
+            long_row_cols,
+            marker_outer_radius_m,
+            marker_inner_radius_m,
+            marker_ring_width_m,
+            center_method: RinggridCenterMethod::default(),
+        }
+    }
+
     /// Build the `ringgrid` target layout this config describes. The
     /// `ringgrid` API works in millimetres, so metric fields are scaled
     /// here; geometry validation (radii ordering, marker-vs-pitch fit) is

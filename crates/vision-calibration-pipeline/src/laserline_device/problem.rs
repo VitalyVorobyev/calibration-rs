@@ -3,7 +3,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::stated_covariance;
-use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
+use vision_calibration_core::{CameraFix, SensorKind};
 use vision_calibration_core::{
     CameraParams, Iso3, LaserPlane, Uncertainty, build_feature_histogram,
     compute_planar_target_residuals_views,
@@ -66,7 +66,7 @@ use super::state::LaserlineDeviceState;
 /// let mut views = Vec::new();
 /// for (i, cam_se3_target) in board_poses.iter().enumerate() {
 ///     let (corners, laser_pixels) = observe(i, cam_se3_target)?;
-///     let meta = LaserlineMeta { laser_pixels, laser_weights: Vec::new() };
+///     let meta = LaserlineMeta::new(laser_pixels);
 ///     views.push(View::new(corners, meta));
 /// }
 /// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
@@ -191,12 +191,9 @@ impl LaserlineDeviceConfig {
             let names = self.camera.model.sensor.param_names();
             fix.sensor = Some(names.iter().map(|n| n.to_string()).collect());
             if fix.distortion.is_none() {
-                fix.distortion = CameraModelSpec {
-                    sensor: SensorKind::Identity,
-                    ..self.camera.model
-                }
-                .default_fix()
-                .distortion;
+                let mut untilted = self.camera.model;
+                untilted.sensor = SensorKind::Identity;
+                fix.distortion = untilted.default_fix().distortion;
             }
         }
         fix
@@ -452,10 +449,7 @@ mod tests {
                 .collect();
             views.push(View::new(
                 CorrespondenceView::new(board.clone(), target_pixels).unwrap(),
-                LaserlineMeta {
-                    laser_pixels,
-                    laser_weights: Vec::new(),
-                },
+                LaserlineMeta::new(laser_pixels),
             ));
         }
 
@@ -550,10 +544,7 @@ mod tests {
             .collect();
         let dataset = vec![View::new(
             CorrespondenceView::new(board.clone(), pixels).unwrap(),
-            LaserlineMeta {
-                laser_pixels: vec![Pt2::new(320.0, 240.0)],
-                laser_weights: Vec::new(),
-            },
+            LaserlineMeta::new(vec![Pt2::new(320.0, 240.0)]),
         )];
         let plane =
             LaserPlane::new((nalgebra::Vector3::new(0.0, 0.0, 1.0)).normalize(), -1.0).unwrap();
@@ -611,7 +602,7 @@ mod tests {
 
     #[test]
     fn the_linear_stage_fits_only_what_the_bundle_adjustment_estimates() {
-        use vision_calibration_core::DistortionKind;
+        use vision_calibration_core::{CameraModelSpec, DistortionKind};
         let tangential_held = |config: &LaserlineDeviceConfig| {
             config.init_opts().pinhole.distortion_opts.fix_tangential
         };

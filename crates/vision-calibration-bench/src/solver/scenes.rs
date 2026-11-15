@@ -1033,14 +1033,7 @@ fn single_handeye_scene(b: &Builder) -> Result<Scene> {
     let views: Vec<SingleCamHandeyeView> = obs
         .into_iter()
         .zip(&stations)
-        .map(|(mut v, t_bg)| {
-            View::new(
-                v.remove(0),
-                RobotPoseMeta {
-                    base_se3_gripper: *t_bg,
-                },
-            )
-        })
+        .map(|(mut v, t_bg)| View::new(v.remove(0), RobotPoseMeta::new(*t_bg)))
         .collect();
     let mut config = SingleCamHandeyeConfig::default();
     config.camera.model = b.spec.camera.model();
@@ -1094,15 +1087,7 @@ fn laserline_scene(b: &Builder) -> Result<Scene> {
     let views = obs
         .into_iter()
         .zip(stripes)
-        .map(|(mut v, laser_pixels)| {
-            View::new(
-                v.remove(0),
-                LaserlineMeta {
-                    laser_pixels,
-                    laser_weights: Vec::new(),
-                },
-            )
-        })
+        .map(|(mut v, laser_pixels)| View::new(v.remove(0), LaserlineMeta::new(laser_pixels)))
         .collect();
     let mut config = LaserlineDeviceConfig::default();
     config.camera.model = b.spec.camera.model();
@@ -1169,11 +1154,11 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
     let outliers = b.outliers(&mut obs);
     let views: Vec<RigView<NoMeta>> = obs
         .into_iter()
-        .map(|cams| RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: cams.into_iter().map(Some).collect(),
-            },
+        .map(|cams| {
+            RigView::new(
+                RigViewObs::new(cams.into_iter().map(Some).collect()),
+                NoMeta,
+            )
         })
         .collect();
     let input = RigDataset::new(views, cameras.len())?;
@@ -1228,13 +1213,11 @@ fn rig_handeye_scene(b: &Builder) -> Result<Scene> {
     let views: Vec<RigView<RobotPoseMeta>> = obs
         .into_iter()
         .zip(&stations)
-        .map(|(cams, t_bg)| RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: *t_bg,
-            },
-            obs: RigViewObs {
-                cameras: cams.into_iter().map(Some).collect(),
-            },
+        .map(|(cams, t_bg)| {
+            RigView::new(
+                RigViewObs::new(cams.into_iter().map(Some).collect()),
+                RobotPoseMeta::new(*t_bg),
+            )
         })
         .collect();
     let input = RigDataset::new(views, cameras.len())?;
@@ -1322,12 +1305,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
     let obs = b.observe_rig(&cameras, &layout, &rig_poses)?;
     let views = rig_laser_views(b, &cameras, &layout, &planes, &rig_poses, obs)?;
     let dataset = RigLaserlineDataset::new(views, cameras.len())?;
-    let upstream = RigUpstreamCalibration {
-        cameras,
-        cam_se3_rig: layout,
-        rig_se3_target: rig_poses,
-        uncertainty: Default::default(),
-    };
+    let upstream = RigUpstreamCalibration::new(cameras, layout, rig_poses);
     let mut config = RigLaserlineDeviceConfig::default();
     config.optimize.laser_residual_type = b.laser_residual(config.optimize.laser_residual_type);
     Ok(Scene {
@@ -1340,7 +1318,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
         },
         outliers: Vec::new(),
         data: SceneData::RigLaserline {
-            input: RigLaserlineDeviceInput { dataset, upstream },
+            input: RigLaserlineDeviceInput::new(dataset, upstream),
             config,
         },
     })
@@ -1368,9 +1346,11 @@ fn rig_laser_views(
     Ok(obs
         .into_iter()
         .enumerate()
-        .map(|(v, cams)| RigLaserlineView {
-            cameras: cams.into_iter().map(Some).collect(),
-            laser_pixels: stripes.iter().map(|s| Some(s[v].clone())).collect(),
+        .map(|(v, cams)| {
+            RigLaserlineView::new(
+                cams.into_iter().map(Some).collect(),
+                stripes.iter().map(|s| Some(s[v].clone())).collect(),
+            )
         })
         .collect())
 }
@@ -1388,12 +1368,7 @@ fn rig_handeye_laserline_scene(b: &Builder) -> Result<Scene> {
     let views: Vec<RigHandeyeLaserlineView> = laser_views
         .into_iter()
         .zip(&stations)
-        .map(|(obs, t_bg)| RigHandeyeLaserlineView {
-            obs,
-            meta: RobotPoseMeta {
-                base_se3_gripper: *t_bg,
-            },
-        })
+        .map(|(obs, t_bg)| RigHandeyeLaserlineView::new(obs, RobotPoseMeta::new(*t_bg)))
         .collect();
     let mut config = RigHandeyeLaserlineConfig::default();
     config.handeye.camera.model = b.spec.camera.model();
@@ -1413,10 +1388,7 @@ fn rig_handeye_laserline_scene(b: &Builder) -> Result<Scene> {
         },
         outliers,
         data: SceneData::RigHandeyeLaserline {
-            input: RigHandeyeLaserlineInput {
-                views,
-                num_cameras: 2,
-            },
+            input: RigHandeyeLaserlineInput::new(views, 2),
             config,
         },
     })

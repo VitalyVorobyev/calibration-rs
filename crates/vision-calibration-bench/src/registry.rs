@@ -629,41 +629,26 @@ mod tests {
             DistortionKind::BrownConrady5,
             SensorKind::Scheimpflug,
         ));
-        camera.fix = CameraFix {
-            distortion: names(distortion),
-            sensor: names(sensor),
-            ..CameraFix::default()
-        };
+        camera.fix = CameraFix::default();
+        camera.fix.distortion = names(distortion);
+        camera.fix.sensor = names(sensor);
         camera
     }
     use vision_calibration_dataset::{CameraSource, ImagePattern, ProblemKind, TargetSpec};
 
     fn sample_spec() -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: vec![CameraSource {
-                id: "cam0".into(),
-                images: ImagePattern::Glob {
+        let mut spec = DatasetSpec::new(
+            vec![CameraSource::new(
+                "cam0",
+                ImagePattern::Glob {
                     pattern: "cam0/*.png".into(),
                 },
-                roi_xywh: None,
-                laser_images: None,
-            }],
-            target: TargetSpec::Chessboard {
-                rows: 7,
-                cols: 11,
-                square_size_m: 0.03,
-            },
-            detector: None,
-            robot_poses: None,
-            laser: None,
-            upstream_calibration: None,
-            topology: ProblemKind::RigHandeye,
-            pose_pairing: None,
-            pose_convention: None,
-            unresolved: Vec::new(),
-            description: Some("130x130 Scheimpflug rig".into()),
-        }
+            )],
+            TargetSpec::chessboard(7, 11, 0.03),
+            ProblemKind::RigHandeye,
+        );
+        spec.description = Some("130x130 Scheimpflug rig".into());
+        spec
     }
 
     fn sample_entry() -> BenchEntry {

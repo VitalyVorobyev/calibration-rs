@@ -36,6 +36,7 @@ fn default_device_spec_version() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DeviceSpec {
     /// Format-version sentinel. Always `1` for now; bumped on breaking
     /// schema revisions.
@@ -55,10 +56,24 @@ pub struct DeviceSpec {
     pub description: Option<String>,
 }
 
+impl DeviceSpec {
+    /// A device spec of the current format version describing `cameras`,
+    /// with no rig layout and no description.
+    pub fn new(cameras: Vec<CameraDeviceSpec>) -> Self {
+        Self {
+            version: DEVICE_SPEC_VERSION,
+            cameras,
+            rig: None,
+            description: None,
+        }
+    }
+}
+
 /// Datasheet values for one camera.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CameraDeviceSpec {
     /// Stable camera identifier matching the dataset manifest
     /// (`CameraSource::id`).
@@ -85,6 +100,27 @@ pub struct CameraDeviceSpec {
     pub scheimpflug: Option<ScheimpflugMountSpec>,
 }
 
+impl CameraDeviceSpec {
+    /// Camera `id` with a `focal_mm` lens on a sensor of `pixel_pitch_um`
+    /// pixels and `resolution_px` (`[width, height]`), the principal point at
+    /// the image centre and no Scheimpflug mount.
+    pub fn new(
+        id: impl Into<String>,
+        focal_mm: f64,
+        pixel_pitch_um: f64,
+        resolution_px: [u32; 2],
+    ) -> Self {
+        Self {
+            id: id.into(),
+            focal_mm,
+            pixel_pitch_um,
+            resolution_px,
+            principal_point_px: None,
+            scheimpflug: None,
+        }
+    }
+}
+
 /// Mechanically-set Scheimpflug sensor tilt, in degrees.
 ///
 /// Maps onto `ScheimpflugParams { tilt_x, tilt_y }` (radians) at
@@ -92,6 +128,7 @@ pub struct CameraDeviceSpec {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ScheimpflugMountSpec {
     /// Tilt about the sensor x axis, degrees.
     #[serde(default)]
@@ -100,6 +137,16 @@ pub struct ScheimpflugMountSpec {
     /// Tilt about the sensor y axis, degrees.
     #[serde(default)]
     pub tilt_y_deg: f64,
+}
+
+impl ScheimpflugMountSpec {
+    /// A mount tilted by `tilt_x_deg` and `tilt_y_deg`.
+    pub fn new(tilt_x_deg: f64, tilt_y_deg: f64) -> Self {
+        Self {
+            tilt_x_deg,
+            tilt_y_deg,
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +158,7 @@ pub struct ScheimpflugMountSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RigLayoutSpec {
     /// Nominal camera mount poses, keyed by camera id. Every id must
     /// exist in [`DeviceSpec::cameras`]; cameras without a known mount
@@ -127,10 +175,23 @@ pub struct RigLayoutSpec {
     pub laser_planes: Option<Vec<LaserPlaneSpec>>,
 }
 
+impl RigLayoutSpec {
+    /// A rig layout of the camera mounts `cameras`, with no hand-eye mount
+    /// and no laser planes.
+    pub fn new(cameras: Vec<CameraMountSpec>) -> Self {
+        Self {
+            cameras,
+            handeye: None,
+            laser_planes: None,
+        }
+    }
+}
+
 /// Nominal mount pose of one camera in the rig frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CameraMountSpec {
     /// Camera id, matching [`DeviceSpec::cameras`].
     pub id: String,
@@ -140,6 +201,16 @@ pub struct CameraMountSpec {
     /// derivation inverts it into the `cam_se3_rig` the manual-init
     /// surface expects.
     pub rig_se3_cam: NominalPoseSpec,
+}
+
+impl CameraMountSpec {
+    /// Camera `id` mounted at the nominal pose `rig_se3_cam`.
+    pub fn new(id: impl Into<String>, rig_se3_cam: NominalPoseSpec) -> Self {
+        Self {
+            id: id.into(),
+            rig_se3_cam,
+        }
+    }
 }
 
 /// How the rig is mounted relative to the robot. The tag fixes the frame
@@ -169,6 +240,7 @@ pub enum HandeyeMountSpec {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct NominalPoseSpec {
     /// `[roll, pitch, yaw]` in degrees, fixed-axes XYZ.
     #[serde(default)]
@@ -179,11 +251,23 @@ pub struct NominalPoseSpec {
     pub translation_mm: [f64; 3],
 }
 
+impl NominalPoseSpec {
+    /// A nominal pose from roll-pitch-yaw angles `rpy_deg` and a translation
+    /// `translation_mm`.
+    pub fn new(rpy_deg: [f64; 3], translation_mm: [f64; 3]) -> Self {
+        Self {
+            rpy_deg,
+            translation_mm,
+        }
+    }
+}
+
 /// Nominal laser plane `{p : n·p = d}` in the **rig** frame, keyed to its
 /// paired camera.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct LaserPlaneSpec {
     /// The camera this laser is paired with, matching
     /// [`DeviceSpec::cameras`].
@@ -194,6 +278,18 @@ pub struct LaserPlaneSpec {
 
     /// Signed plane distance `d` in millimetres.
     pub distance_mm: f64,
+}
+
+impl LaserPlaneSpec {
+    /// The nominal laser plane paired with camera `camera_id`: unit normal
+    /// `normal` in the rig frame and signed distance `distance_mm`.
+    pub fn new(camera_id: impl Into<String>, normal: [f64; 3], distance_mm: f64) -> Self {
+        Self {
+            camera_id: camera_id.into(),
+            normal,
+            distance_mm,
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

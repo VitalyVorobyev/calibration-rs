@@ -21,6 +21,7 @@ use schemars::JsonSchema;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DatasetSpec {
     /// Manifest format version; must be [`DATASET_SPEC_VERSION`] (`1`).
     /// Required: a manifest without it, or with another value, is rejected.
@@ -86,6 +87,30 @@ pub struct DatasetSpec {
     pub description: Option<String>,
 }
 
+impl DatasetSpec {
+    /// A manifest of the current format version for `cameras` observing
+    /// `target`, calibrated as `topology`. Every optional section (detector
+    /// overrides, robot poses, laser extraction, upstream calibration, pose
+    /// pairing and convention, description) is absent; set the fields to add
+    /// them.
+    pub fn new(cameras: Vec<CameraSource>, target: TargetSpec, topology: ProblemKind) -> Self {
+        Self {
+            version: DATASET_SPEC_VERSION,
+            cameras,
+            target,
+            detector: None,
+            robot_poses: None,
+            laser: None,
+            upstream_calibration: None,
+            topology,
+            pose_pairing: None,
+            pose_convention: None,
+            unresolved: Vec::new(),
+            description: None,
+        }
+    }
+}
+
 /// The manifest format version this library reads and writes.
 pub const DATASET_SPEC_VERSION: u32 = 1;
 
@@ -97,6 +122,7 @@ pub const DATASET_SPEC_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CameraSource {
     /// Stable camera identifier (e.g. `"cam0"`). Used as a key in
     /// pose pairings and downstream exports.
@@ -118,6 +144,19 @@ pub struct CameraSource {
     /// Laser images pair with target views through `pose_pairing`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub laser_images: Option<ImagePattern>,
+}
+
+impl CameraSource {
+    /// Camera `id` with target images `images`, no region of interest and no
+    /// laser images.
+    pub fn new(id: impl Into<String>, images: ImagePattern) -> Self {
+        Self {
+            id: id.into(),
+            images,
+            roi_xywh: None,
+            laser_images: None,
+        }
+    }
 }
 
 /// How image paths for a camera are listed.
@@ -149,6 +188,7 @@ pub enum ImagePattern {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct LaserExtractionSpec {
     /// Scan direction. `cols` walks image columns (one point per
     /// column; for laser lines running mostly left-to-right), `rows`
@@ -216,6 +256,7 @@ pub enum TargetSpec {
     /// a board seen turned by 90° is dropped, and one seen upside down, or a
     /// square board seen turned by 90°, cannot be told apart. Use a ChArUco
     /// or PuzzleBoard target to calibrate a shared frame from partial views.
+    #[non_exhaustive]
     Chessboard {
         /// Number of interior corners down the board (the image's rows
         /// axis when the board is seen as declared).
@@ -228,6 +269,7 @@ pub enum TargetSpec {
     },
     /// ChArUco board. Marker IDs and dictionary live here so detection
     /// is fully deterministic from the manifest.
+    #[non_exhaustive]
     Charuco {
         /// Number of squares along the rows axis (full grid, not
         /// interior corners).
@@ -245,6 +287,7 @@ pub enum TargetSpec {
     /// Puzzleboard target: a self-identifying chessboard. The layout name
     /// carries the board's dimensions, so the manifest fully determines
     /// detection.
+    #[non_exhaustive]
     Puzzleboard {
         /// Board dimensions as `puzzle_<rows>x<cols>` (e.g.
         /// `"puzzle_12x12"`; the `puzzle_` prefix is optional).
@@ -255,6 +298,7 @@ pub enum TargetSpec {
     /// Coded ring-grid target (the `ringgrid` crate). The board is a
     /// hex-lattice of self-identifying ring markers; its geometry mirrors
     /// `ringgrid::BoardLayout` so the manifest fully determines detection.
+    #[non_exhaustive]
     Ringgrid {
         /// Center-to-center spacing between adjacent markers in metres.
         pitch_m: f64,
@@ -275,6 +319,68 @@ pub enum TargetSpec {
         #[serde(default, skip_serializing_if = "RinggridCenterSpec::is_default")]
         center_method: RinggridCenterSpec,
     },
+}
+
+impl TargetSpec {
+    /// A chessboard of `rows × cols` interior corners and `square_size_m`
+    /// squares.
+    pub fn chessboard(rows: u32, cols: u32, square_size_m: f64) -> Self {
+        Self::Chessboard {
+            rows,
+            cols,
+            square_size_m,
+        }
+    }
+
+    /// A `rows × cols`-square ChArUco board with `square_size_m` squares and
+    /// `marker_size_m` markers from `dictionary`.
+    pub fn charuco(
+        rows: u32,
+        cols: u32,
+        square_size_m: f64,
+        marker_size_m: f64,
+        dictionary: impl Into<String>,
+    ) -> Self {
+        Self::Charuco {
+            rows,
+            cols,
+            square_size_m,
+            marker_size_m,
+            dictionary: dictionary.into(),
+        }
+    }
+
+    /// A PuzzleBoard of the named `layout` (`puzzle_<rows>x<cols>`) with
+    /// `cell_size_m` cells.
+    pub fn puzzleboard(layout: impl Into<String>, cell_size_m: f64) -> Self {
+        Self::Puzzleboard {
+            layout: layout.into(),
+            cell_size_m,
+        }
+    }
+
+    /// A coded ring grid of `rows` rows, `long_row_cols` markers in the long
+    /// rows and `pitch_m` spacing, with markers of the given outer and inner
+    /// radii and ring width (metres), and the default (ellipse) centre
+    /// estimator.
+    pub fn ringgrid(
+        pitch_m: f64,
+        rows: u32,
+        long_row_cols: u32,
+        marker_outer_radius_m: f64,
+        marker_inner_radius_m: f64,
+        marker_ring_width_m: f64,
+    ) -> Self {
+        Self::Ringgrid {
+            pitch_m,
+            rows,
+            long_row_cols,
+            marker_outer_radius_m,
+            marker_inner_radius_m,
+            marker_ring_width_m,
+            center_method: RinggridCenterSpec::default(),
+        }
+    }
 }
 
 /// The ring-grid centre estimator: the manifest's own copy of the detector's
@@ -317,6 +423,7 @@ impl RinggridCenterSpec {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct DetectorSpec {
     /// ChESS corner extractor options shared by chessboard-like
     /// detectors (plain chessboard and ChArUco).
@@ -355,6 +462,7 @@ pub enum CornerStrategySpec {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct ChessCornersDetectorSpec {
     /// Corner detector. `None` keeps ChESS.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -411,12 +519,20 @@ pub struct ChessCornersDetectorSpec {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CornerCovarianceSpec {
     /// The image noise that the propagated covariance is expressed in.
     /// Defaults to `estimate`: the noise is estimated from each image, which
     /// is unreliable on JPEG or demosaiced images; give `stated` for those.
     #[serde(default)]
     pub image_noise: ImageNoiseSpec,
+}
+
+impl CornerCovarianceSpec {
+    /// Corner covariances expressed in the image noise `image_noise`.
+    pub fn new(image_noise: ImageNoiseSpec) -> Self {
+        Self { image_noise }
+    }
 }
 
 /// The pixel-noise level behind a corner covariance: estimated from the
@@ -447,6 +563,7 @@ pub enum ImageNoiseSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RobotPoseSource {
     /// Path to the pose file, relative to the manifest directory
     /// unless absolute.
@@ -468,6 +585,19 @@ pub struct RobotPoseSource {
     /// `translation_units`. No `pose_id` ⇒ `by_index` pairing only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matrix_field: Option<String>,
+}
+
+impl RobotPoseSource {
+    /// Robot poses read from `path` in `format`, with the format's default
+    /// column map and matrix field.
+    pub fn new(path: impl Into<PathBuf>, format: RobotPoseFormat) -> Self {
+        Self {
+            path: path.into(),
+            format,
+            columns: None,
+            matrix_field: None,
+        }
+    }
 }
 
 /// Robot-pose file format.
@@ -501,6 +631,7 @@ pub enum RobotPoseFormat {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct PoseColumnMap {
     /// Optional view-id column (string or integer). When absent, the
     /// pose row index is used as the implicit pose id.
@@ -515,6 +646,25 @@ pub struct PoseColumnMap {
     /// Rotation columns. Length and meaning depend on the
     /// `pose_convention.rotation_format`.
     pub rotation: Vec<String>,
+}
+
+impl PoseColumnMap {
+    /// Translation columns `tx`, `ty`, `tz` and the `rotation` columns, with
+    /// no pose-id column.
+    pub fn new(
+        tx: impl Into<String>,
+        ty: impl Into<String>,
+        tz: impl Into<String>,
+        rotation: Vec<String>,
+    ) -> Self {
+        Self {
+            pose_id: None,
+            tx: tx.into(),
+            ty: ty.into(),
+            tz: tz.into(),
+            rotation,
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -590,6 +740,7 @@ pub enum PosePairing {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct PoseConvention {
     /// Which transform the pose row encodes.
     pub transform: TransformConvention,
@@ -597,6 +748,22 @@ pub struct PoseConvention {
     pub rotation_format: RotationFormat,
     /// Translation units in the file.
     pub translation_units: TranslationUnits,
+}
+
+impl PoseConvention {
+    /// A pose convention from its transform direction, rotation format and
+    /// translation units.
+    pub fn new(
+        transform: TransformConvention,
+        rotation_format: RotationFormat,
+        translation_units: TranslationUnits,
+    ) -> Self {
+        Self {
+            transform,
+            rotation_format,
+            translation_units,
+        }
+    }
 }
 
 /// Which transform a pose row encodes.

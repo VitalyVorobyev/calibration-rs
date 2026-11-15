@@ -138,12 +138,10 @@ fn make_dataset(
             }
             cam_obs.push(Some(CorrespondenceView::new(pts3, pts2).unwrap()));
         }
-        views.push(RigView {
-            obs: RigViewObs { cameras: cam_obs },
-            meta: RobotPoseMeta {
-                base_se3_gripper: *robot_pose,
-            },
-        });
+        views.push(RigView::new(
+            RigViewObs::new(cam_obs),
+            RobotPoseMeta::new(*robot_pose),
+        ));
     }
 
     (RigDataset::new(views, 3).unwrap(), intrinsics, handeye_gt)
@@ -264,11 +262,11 @@ fn tilted_rig_dataset() -> RigDataset<NoMeta> {
         })
         .collect();
     let views = (0..num_views)
-        .map(|v| RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: per_cam.iter().map(|views| Some(views[v].clone())).collect(),
-            },
+        .map(|v| {
+            RigView::new(
+                RigViewObs::new(per_cam.iter().map(|views| Some(views[v].clone())).collect()),
+                NoMeta,
+            )
         })
         .collect();
     RigDataset::new(views, 4).expect("rig dataset")

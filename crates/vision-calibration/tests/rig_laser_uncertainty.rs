@@ -140,20 +140,20 @@ fn rig_handeye_export(seed: u64) -> vision_calibration::rig_handeye::RigHandeyeE
         .iter()
         .zip(robot_stations(&poses))
         .enumerate()
-        .map(|(v, (target, station))| RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: station,
-            },
-            obs: RigViewObs {
-                cameras: (0..CAMERAS)
-                    .map(|c| {
-                        let key = |i: usize, axis: u64| {
-                            (seed << 32) + 2 * (c * 1_000_000 + v * 10_000 + i) as u64 + axis
-                        };
-                        Some(corners(&cameras[c], &(layout[c] * target), key))
-                    })
-                    .collect(),
-            },
+        .map(|(v, (target, station))| {
+            RigView::new(
+                RigViewObs::new(
+                    (0..CAMERAS)
+                        .map(|c| {
+                            let key = |i: usize, axis: u64| {
+                                (seed << 32) + 2 * (c * 1_000_000 + v * 10_000 + i) as u64 + axis
+                            };
+                            Some(corners(&cameras[c], &(layout[c] * target), key))
+                        })
+                        .collect(),
+                ),
+                RobotPoseMeta::new(station),
+            )
         })
         .collect();
     let mut config = RigHandeyeConfig::default();
@@ -180,10 +180,7 @@ fn laser_dataset(seed: u64) -> RigLaserlineDataset {
         .iter()
         .enumerate()
         .map(|(v, target)| {
-            let mut view = RigLaserlineView {
-                cameras: Vec::new(),
-                laser_pixels: Vec::new(),
-            };
+            let mut view = RigLaserlineView::new(Vec::new(), Vec::new());
             for (c, camera) in cameras.iter().enumerate() {
                 let cam_se3_target = layout[c] * target;
                 let key = |i: usize, axis: u64| {
@@ -216,10 +213,7 @@ fn rig_laser_export(
 ) -> RigLaserlineDeviceExport {
     let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
     session
-        .set_input(RigLaserlineDeviceInput {
-            dataset: laser_dataset(seed),
-            upstream,
-        })
+        .set_input(RigLaserlineDeviceInput::new(laser_dataset(seed), upstream))
         .unwrap();
     vision_calibration::rig_laserline_device::run_calibration(&mut session).unwrap();
     session.export().unwrap()

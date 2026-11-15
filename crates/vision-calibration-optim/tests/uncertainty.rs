@@ -489,16 +489,18 @@ fn rig_extrinsics_covariance_matches_monte_carlo() {
         let views = rig_se3_target
             .iter()
             .enumerate()
-            .map(|(v, pose)| RigView {
-                meta: NoMeta,
-                obs: RigViewObs {
-                    cameras: (0..2)
-                        .map(|c| {
-                            let cam_se3_target = rig_se3_cam[c].inverse() * pose;
-                            Some(observe(&cameras[c], &cam_se3_target, &noise, 2 * v + c))
-                        })
-                        .collect(),
-                },
+            .map(|(v, pose)| {
+                RigView::new(
+                    RigViewObs::new(
+                        (0..2)
+                            .map(|c| {
+                                let cam_se3_target = rig_se3_cam[c].inverse() * pose;
+                                Some(observe(&cameras[c], &cam_se3_target, &noise, 2 * v + c))
+                            })
+                            .collect(),
+                    ),
+                    NoMeta,
+                )
             })
             .collect();
         let data = RigDataset::new(views, 2).unwrap();
@@ -585,13 +587,11 @@ impl EyeInHand {
             .iter()
             .zip(robot)
             .enumerate()
-            .map(|(v, (c, b))| RigView {
-                meta: RobotPoseMeta {
-                    base_se3_gripper: *b,
-                },
-                obs: RigViewObs {
-                    cameras: vec![Some(observe(&self.camera, c, noise, v))],
-                },
+            .map(|(v, (c, b))| {
+                RigView::new(
+                    RigViewObs::new(vec![Some(observe(&self.camera, c, noise, v))]),
+                    RobotPoseMeta::new(*b),
+                )
             })
             .collect();
         HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap()
@@ -799,10 +799,7 @@ fn laserline_covariance_matches_monte_carlo() {
             .map(|(v, pose)| {
                 View::new(
                     observe(&camera, pose, &corners, v),
-                    LaserlineMeta {
-                        laser_pixels: laser_pixels(&camera, pose, &plane, &laser, v),
-                        laser_weights: Vec::new(),
-                    },
+                    LaserlineMeta::new(laser_pixels(&camera, pose, &plane, &laser, v)),
                 )
             })
             .collect();

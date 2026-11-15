@@ -347,23 +347,14 @@ fn stereo(scene: &Scene, sigma_c: f64) -> CalibratedRig {
         v * sigma_c * sigma_c
     };
     let n = labels.len();
-    let covariance = ParameterCovariance {
-        covariance: (0..n)
-            .map(|i| {
-                (0..n)
-                    .map(|j| if i == j { variance(&labels[i]) } else { 0.0 })
-                    .collect()
-            })
-            .collect(),
-        labels,
-        views: Vec::new(),
-        fixed: Vec::new(),
-        noise: Vec::new(),
-        num_residuals: 0,
-        dof: 0,
-        view_scatter: None,
-        second_order: None,
-    };
+    let matrix = (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| if i == j { variance(&labels[i]) } else { 0.0 })
+                .collect()
+        })
+        .collect();
+    let covariance = ParameterCovariance::new(labels, matrix, Vec::new(), 0, 0);
     CalibratedRig::new(
         vec![scene.camera.clone(), scene.camera.clone()],
         vec![Iso3::identity(), right],

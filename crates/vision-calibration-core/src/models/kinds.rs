@@ -314,6 +314,7 @@ fn scheimpflug<T: RealField>(s: &[T]) -> ScheimpflugParams<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CameraModelSpec {
     /// Projection slot.
     pub projection: ProjectionKind,

@@ -391,12 +391,11 @@ fn optimize_tilted(
         bounds: None,
     };
     // A1: intrinsics and tilt held; the low-order radial terms free.
+    let mut low_order_radial_free = CameraFix::all(model);
+    low_order_radial_free.distortion = Some(all_but_low_order_radial(model.distortion));
     let free_low_order_radial = PlanarIntrinsicsSolveOptions {
         robust_loss: RobustLoss::None,
-        fix: CameraFix {
-            distortion: Some(all_but_low_order_radial(model.distortion)),
-            ..CameraFix::all(model)
-        },
+        fix: low_order_radial_free,
         fix_poses: Vec::new(),
         bounds: None,
     };

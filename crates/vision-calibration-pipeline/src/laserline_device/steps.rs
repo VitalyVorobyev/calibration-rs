@@ -4,8 +4,8 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::LaserPlane;
 use vision_calibration_core::{
-    CameraModel, CameraModelSpec, CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta,
-    PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
+    CameraModel, CameraParams, DistortionParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real,
+    ScheimpflugParams, SensorKind, SensorParams, View,
 };
 use vision_calibration_linear::laserline::{LaserlinePlaneSolver, PlaneFitView};
 use vision_calibration_optim::{
@@ -231,10 +231,8 @@ pub fn step_init_with_seed(
     let bootstrap = if holds_tilt {
         // A held tilt is known: initialize as an untilted camera, then
         // attach the tilt (the seed, or zero).
-        let untilted = CameraModelSpec {
-            sensor: SensorKind::Identity,
-            ..model
-        };
+        let mut untilted = model;
+        untilted.sensor = SensorKind::Identity;
         let seed = CameraSeed {
             sensor: None,
             ..seed

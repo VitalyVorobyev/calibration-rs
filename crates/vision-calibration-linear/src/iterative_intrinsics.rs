@@ -82,6 +82,7 @@ use vision_geometry::homography::dlt_homography;
 
 /// Options controlling iterative intrinsics estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct IterativeIntrinsicsOptions {
     /// Number of refinement iterations (distortion → K → distortion → K).
     ///

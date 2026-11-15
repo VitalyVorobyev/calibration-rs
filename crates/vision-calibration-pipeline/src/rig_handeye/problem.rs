@@ -266,8 +266,8 @@ impl VersionedExport for RigHandeyeExport {
 /// let mut views = Vec::new();
 /// for base_se3_gripper in stations {
 ///     let cameras = vec![observe(0, &base_se3_gripper)?, observe(1, &base_se3_gripper)?];
-///     let meta = RobotPoseMeta { base_se3_gripper };
-///     views.push(RigView { obs: RigViewObs { cameras }, meta });
+///     let meta = RobotPoseMeta::new(base_se3_gripper);
+///     views.push(RigView::new(RigViewObs::new(cameras), meta));
 /// }
 /// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
 /// session.set_input(RigHandeyeInput::new(views, 2)?)?;
@@ -571,13 +571,11 @@ mod tests {
 
     fn make_minimal_input() -> RigHandeyeInput {
         let views = (0..3)
-            .map(|_| RigView {
-                meta: RobotPoseMeta {
-                    base_se3_gripper: Iso3::identity(),
-                },
-                obs: RigViewObs {
-                    cameras: vec![Some(make_minimal_obs()), Some(make_minimal_obs())],
-                },
+            .map(|_| {
+                RigView::new(
+                    RigViewObs::new(vec![Some(make_minimal_obs()), Some(make_minimal_obs())]),
+                    RobotPoseMeta::new(Iso3::identity()),
+                )
             })
             .collect();
 
@@ -594,13 +592,11 @@ mod tests {
     #[test]
     fn validate_input_accepts_one_camera() {
         let views = (0..3)
-            .map(|_| RigView {
-                meta: RobotPoseMeta {
-                    base_se3_gripper: Iso3::identity(),
-                },
-                obs: RigViewObs {
-                    cameras: vec![Some(make_minimal_obs())],
-                },
+            .map(|_| {
+                RigView::new(
+                    RigViewObs::new(vec![Some(make_minimal_obs())]),
+                    RobotPoseMeta::new(Iso3::identity()),
+                )
             })
             .collect();
 
@@ -738,20 +734,16 @@ mod tests {
             },
             ..Default::default()
         };
-        let dummy_view = RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: Iso3::identity(),
-            },
-            obs: RigViewObs {
-                cameras: vec![Some(
-                    CorrespondenceView::new(
-                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
-                        vec![Pt2::new(0.0, 0.0); 4],
-                    )
-                    .unwrap(),
-                )],
-            },
-        };
+        let dummy_view = RigView::new(
+            RigViewObs::new(vec![Some(
+                CorrespondenceView::new(
+                    vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                    vec![Pt2::new(0.0, 0.0); 4],
+                )
+                .unwrap(),
+            )]),
+            RobotPoseMeta::new(Iso3::identity()),
+        );
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
@@ -775,20 +767,16 @@ mod tests {
             },
             ..Default::default()
         };
-        let dummy_view = RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: Iso3::identity(),
-            },
-            obs: RigViewObs {
-                cameras: vec![Some(
-                    CorrespondenceView::new(
-                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
-                        vec![Pt2::new(0.0, 0.0); 4],
-                    )
-                    .unwrap(),
-                )],
-            },
-        };
+        let dummy_view = RigView::new(
+            RigViewObs::new(vec![Some(
+                CorrespondenceView::new(
+                    vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                    vec![Pt2::new(0.0, 0.0); 4],
+                )
+                .unwrap(),
+            )]),
+            RobotPoseMeta::new(Iso3::identity()),
+        );
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
@@ -832,20 +820,16 @@ mod tests {
         // None and `skip_serializing_if` keeps existing serialized JSON byte-stable.
         let output = make_dummy_output();
         let config = RigHandeyeConfig::default();
-        let dummy_view = RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: Iso3::identity(),
-            },
-            obs: RigViewObs {
-                cameras: vec![Some(
-                    CorrespondenceView::new(
-                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
-                        vec![Pt2::new(0.0, 0.0); 4],
-                    )
-                    .unwrap(),
-                )],
-            },
-        };
+        let dummy_view = RigView::new(
+            RigViewObs::new(vec![Some(
+                CorrespondenceView::new(
+                    vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                    vec![Pt2::new(0.0, 0.0); 4],
+                )
+                .unwrap(),
+            )]),
+            RobotPoseMeta::new(Iso3::identity()),
+        );
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
         assert!(export.diagnostics.image_manifest.is_none());
@@ -873,20 +857,16 @@ mod tests {
 
         let output = make_dummy_output();
         let config = RigHandeyeConfig::default();
-        let dummy_view = RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: Iso3::identity(),
-            },
-            obs: RigViewObs {
-                cameras: vec![Some(
-                    CorrespondenceView::new(
-                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
-                        vec![Pt2::new(0.0, 0.0); 4],
-                    )
-                    .unwrap(),
-                )],
-            },
-        };
+        let dummy_view = RigView::new(
+            RigViewObs::new(vec![Some(
+                CorrespondenceView::new(
+                    vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                    vec![Pt2::new(0.0, 0.0); 4],
+                )
+                .unwrap(),
+            )]),
+            RobotPoseMeta::new(Iso3::identity()),
+        );
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let mut export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
         let frames: Vec<FrameRef> = (0..6)

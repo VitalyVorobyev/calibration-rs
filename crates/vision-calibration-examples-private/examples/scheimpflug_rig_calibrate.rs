@@ -42,8 +42,8 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use vision_calibration::common::{HandeyeSolution, RigIntrinsicsManualInit};
 use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
+use vision_calibration::common::{HandeyeSolution, RigIntrinsicsManualInit};
 use vision_calibration::{
     device_seed::{self, DEVICE_SPEC_FILENAME, DeviceSpec},
     rig_handeye::{self as rh, RigHandeyeConfig, RigHandeyeProblem},
@@ -175,11 +175,9 @@ fn main() -> Result<()> {
         DistortionKind::BrownConrady5,
         SensorKind::Scheimpflug,
     ));
-    cfg.camera.fix = CameraFix {
-        sensor: Some(Vec::new()),
-        distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
-        ..CameraFix::default()
-    };
+    cfg.camera.fix = CameraFix::default();
+    cfg.camera.fix.sensor = Some(Vec::new());
+    cfg.camera.fix.distortion = Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect());
     cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics = false;
     let robot_prior = cfg
@@ -342,10 +340,7 @@ fn main() -> Result<()> {
         let upstream = rig_export
             .to_upstream_calibration(rig_se3_target)
             .context("rig handeye export to laserline upstream")?;
-        let laserline_input = RigLaserlineDeviceInput {
-            dataset: laserline_dataset,
-            upstream,
-        };
+        let laserline_input = RigLaserlineDeviceInput::new(laserline_dataset, upstream);
 
         let mut laser_session = CalibrationSession::<RigLaserlineDeviceProblem>::with_description(
             "scheimpflug_rig_laser",
@@ -394,7 +389,10 @@ fn main() -> Result<()> {
             target_ref,
             laser_export.laser_planes_cam.clone(),
         );
-        let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|r| r.deltas.clone());
+        let initial_robot_deltas = rig_export
+            .robot_refinement
+            .as_ref()
+            .map(|r| r.deltas.clone());
         let (joint_initial_mean, _) = evaluate_rig_handeye_laserline(
             &joint_dataset,
             &joint_initial,
@@ -404,12 +402,10 @@ fn main() -> Result<()> {
 
         // k1, k2 free; k3 + tangential fixed. Tilts converged in per-camera
         // BA; hold them in the joint solve.
-        let cam_fix = CameraFix {
-            intrinsics: Some(Vec::new()),
-            distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
-            sensor: Some(vec!["tilt_x".to_string(), "tilt_y".to_string()]),
-            ..CameraFix::default()
-        };
+        let mut cam_fix = CameraFix::default();
+        cam_fix.intrinsics = Some(Vec::new());
+        cam_fix.distortion = Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect());
+        cam_fix.sensor = Some(vec!["tilt_x".to_string(), "tilt_y".to_string()]);
         let mut joint_opts = vision_calibration_optim::RigHandeyeLaserlineSolveOptions {
             laser_residual_type: LaserlineResidualType::PointToPlane,
             fix: vec![cam_fix; NUM_CAMERAS],
@@ -534,14 +530,10 @@ fn build_datasets(
             return Err(anyhow!("pose {i}: no target detections in any camera"));
         }
 
-        handeye_views.push(RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: pose.base_se3_gripper(),
-            },
-            obs: RigViewObs {
-                cameras: cam_obs.clone(),
-            },
-        });
+        handeye_views.push(RigView::new(
+            RigViewObs::new(cam_obs.clone()),
+            RobotPoseMeta::new(pose.base_se3_gripper()),
+        ));
 
         let mut laser_pixels: Vec<Option<Vec<Pt2>>> = vec![None; NUM_CAMERAS];
         // poses.json may list laser_image names for poses whose laser files
@@ -557,21 +549,13 @@ fn build_datasets(
                     if pts.is_empty() { None } else { Some(pts) }
                 })
                 .collect();
-            laser_views.push(RigLaserlineView {
-                cameras: cam_obs.clone(),
-                laser_pixels: laser_pixels.clone(),
-            });
+            laser_views.push(RigLaserlineView::new(cam_obs.clone(), laser_pixels.clone()));
             laser_pose_indices.push(i);
         }
-        joint_views.push(RigHandeyeLaserlineView {
-            obs: RigLaserlineView {
-                cameras: cam_obs,
-                laser_pixels,
-            },
-            meta: RobotPoseMeta {
-                base_se3_gripper: pose.base_se3_gripper(),
-            },
-        });
+        joint_views.push(RigHandeyeLaserlineView::new(
+            RigLaserlineView::new(cam_obs, laser_pixels),
+            RobotPoseMeta::new(pose.base_se3_gripper()),
+        ));
     }
 
     Ok(DetectedDatasets {

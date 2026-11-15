@@ -143,13 +143,7 @@ fn main() -> anyhow::Result<()> {
         let laser_pixels = laser_pixels_for_view(pose, &plane, &camera);
         if points_2d.len() >= 4 && !laser_pixels.is_empty() {
             let obs = CorrespondenceView::new(points_3d_view, points_2d)?;
-            views.push(View::new(
-                obs,
-                LaserlineMeta {
-                    laser_pixels,
-                    laser_weights: Vec::new(),
-                },
-            ));
+            views.push(View::new(obs, LaserlineMeta::new(laser_pixels)));
         }
     }
 

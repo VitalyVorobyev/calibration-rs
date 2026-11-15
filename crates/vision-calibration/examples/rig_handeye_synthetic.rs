@@ -121,14 +121,10 @@ fn main() -> Result<()> {
                 obs1.as_ref().map_or(0, |o| o.points_2d.len())
             );
 
-            RigView {
-                meta: RobotPoseMeta {
-                    base_se3_gripper: *robot_pose,
-                },
-                obs: RigViewObs {
-                    cameras: vec![obs0, obs1],
-                },
-            }
+            RigView::new(
+                RigViewObs::new(vec![obs0, obs1]),
+                RobotPoseMeta::new(*robot_pose),
+            )
         })
         .collect();
 

@@ -64,12 +64,20 @@ pub struct RigHandeyeLaserlineDataset {
 /// Per-view observations for [`RigHandeyeLaserlineDataset`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RigHandeyeLaserlineView {
     /// Target corners + laser pixels per camera (same shape as
     /// [`RigLaserlineView`]).
     pub obs: RigLaserlineView,
     /// Robot pose for this view (`base_se3_gripper`).
     pub meta: RobotPoseMeta,
+}
+
+impl RigHandeyeLaserlineView {
+    /// One view from its observations `obs` and robot pose `meta`.
+    pub fn new(obs: RigLaserlineView, meta: RobotPoseMeta) -> Self {
+        Self { obs, meta }
+    }
 }
 
 impl RigHandeyeLaserlineDataset {

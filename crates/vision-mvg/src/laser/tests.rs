@@ -278,23 +278,19 @@ impl Calibration {
     fn covariance(&self, keep: impl Fn(usize, usize) -> bool) -> ParameterCovariance {
         let sigma = &self.embed * &self.sigma_z * self.embed.transpose();
         let n = self.labels.len();
-        ParameterCovariance {
-            labels: self.labels.clone(),
-            covariance: (0..n)
+        ParameterCovariance::new(
+            self.labels.clone(),
+            (0..n)
                 .map(|r| {
                     (0..n)
                         .map(|c| if keep(r, c) { sigma[(r, c)] } else { 0.0 })
                         .collect()
                 })
                 .collect(),
-            views: Vec::new(),
-            fixed: Vec::new(),
-            noise: Vec::new(),
-            num_residuals: 100,
-            dof: 50,
-            view_scatter: None,
-            second_order: None,
-        }
+            Vec::new(),
+            100,
+            50,
+        )
     }
 
     fn rig_with(
@@ -879,19 +875,15 @@ impl OnRobot {
         };
         labels.extend(["rx", "ry", "rz", "tx", "ty", "tz"].map(|c| format!("{name}.{c}")));
         let m = labels.len();
-        let covariance = ParameterCovariance {
+        let covariance = ParameterCovariance::new(
             labels,
-            covariance: (0..m)
+            (0..m)
                 .map(|r| (0..m).map(|c| full[(r, c)]).collect())
                 .collect(),
-            views: Vec::new(),
-            fixed: Vec::new(),
-            noise: Vec::new(),
-            num_residuals: 100,
-            dof: 50,
-            view_scatter: None,
-            second_order: None,
-        };
+            Vec::new(),
+            100,
+            50,
+        );
         Self {
             cal,
             handeye,

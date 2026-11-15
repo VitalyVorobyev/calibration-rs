@@ -398,14 +398,8 @@ fn rig_study(runs: u64) -> Study {
                     (Some(a), Some(b))
                 })
                 .unzip();
-            with.push(RigView {
-                meta: NoMeta,
-                obs: RigViewObs { cameras: a },
-            });
-            without.push(RigView {
-                meta: NoMeta,
-                obs: RigViewObs { cameras: b },
-            });
+            with.push(RigView::new(RigViewObs::new(a), NoMeta));
+            without.push(RigView::new(RigViewObs::new(b), NoMeta));
         }
         let solve = |views| {
             let opts = RigExtrinsicsSolveOptions {

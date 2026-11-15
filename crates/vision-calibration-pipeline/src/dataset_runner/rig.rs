@@ -70,7 +70,7 @@ pub fn build_rig_extrinsics_input(
     } = build_rig_core(spec, base_dir, detection, control)?;
     let views = views
         .into_iter()
-        .map(|(obs, _token)| RigView { obs, meta: NoMeta })
+        .map(|(obs, _token)| RigView::new(obs, NoMeta))
         .collect();
     finish(views, spec.cameras.len(), view_paths, total_views, rejected)
 }
@@ -221,7 +221,7 @@ pub(super) fn build_rig_core(
                 }
             }
         }
-        views.push((RigViewObs { cameras: obs }, token.clone()));
+        views.push((RigViewObs::new(obs), token.clone()));
         view_paths.push(kept_paths);
     }
 
@@ -263,9 +263,8 @@ fn pair_poses_to_views(
     Ok(views
         .into_iter()
         .zip(matched)
-        .map(|((obs, _token), base_se3_gripper)| RigView {
-            obs,
-            meta: RobotPoseMeta { base_se3_gripper },
+        .map(|((obs, _token), base_se3_gripper)| {
+            RigView::new(obs, RobotPoseMeta::new(base_se3_gripper))
         })
         .collect())
 }
@@ -308,10 +307,11 @@ mod tests {
     /// the runner to accept the view.
     fn grid_features(n: usize) -> Vec<Feature> {
         (0..n)
-            .map(|i| Feature {
-                cov_px: None,
-                image_xy: [100.0 + 10.0 * i as f64, 200.0 + 5.0 * i as f64],
-                world_xyz: [0.025 * i as f64, 0.0, 0.0],
+            .map(|i| {
+                Feature::new(
+                    [100.0 + 10.0 * i as f64, 200.0 + 5.0 * i as f64],
+                    [0.025 * i as f64, 0.0, 0.0],
+                )
             })
             .collect()
     }
@@ -323,10 +323,11 @@ mod tests {
         (0..9u32)
             .flat_map(|v| (0..6u32).map(move |u| (u, v)))
             .filter(|uv| !missing.contains(uv))
-            .map(|(u, v)| Feature {
-                cov_px: None,
-                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
-                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+            .map(|(u, v)| {
+                Feature::new(
+                    [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                    [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                )
             })
             .collect()
     }
@@ -337,12 +338,7 @@ mod tests {
 
     fn detector_config() -> vision_calibration_detect::DetectorConfig {
         vision_calibration_detect::DetectorConfig::Chessboard(
-            vision_calibration_detect::ChessboardConfig {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-                chess_corners: None,
-            },
+            vision_calibration_detect::ChessboardConfig::new(9, 6, 0.025),
         )
     }
 
@@ -360,40 +356,29 @@ mod tests {
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
         let key = CacheKey::for_detection(bytes, &detector_config(), None);
-        cache.put(&key, &CachedFeatures { features }).unwrap();
+        cache.put(&key, &CachedFeatures::new(features)).unwrap();
         path
     }
 
     fn rig_spec(camera_lists: &[Vec<&str>]) -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: camera_lists
+        let mut spec = DatasetSpec::new(
+            camera_lists
                 .iter()
                 .enumerate()
-                .map(|(i, paths)| CameraSource {
-                    id: format!("cam{i}"),
-                    images: ImagePattern::List {
-                        paths: paths.iter().map(PathBuf::from).collect(),
-                    },
-                    roi_xywh: None,
-                    laser_images: None,
+                .map(|(i, paths)| {
+                    CameraSource::new(
+                        format!("cam{i}"),
+                        ImagePattern::List {
+                            paths: paths.iter().map(PathBuf::from).collect(),
+                        },
+                    )
                 })
                 .collect(),
-            target: TargetSpec::Chessboard {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-            },
-            detector: None,
-            robot_poses: None,
-            laser: None,
-            upstream_calibration: None,
-            topology: ProblemKind::RigExtrinsics,
-            pose_pairing: Some(PosePairing::ByIndex),
-            pose_convention: None,
-            unresolved: vec![],
-            description: None,
-        }
+            TargetSpec::chessboard(9, 6, 0.025),
+            ProblemKind::RigExtrinsics,
+        );
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        spec
     }
 
     #[test]
@@ -478,9 +463,10 @@ mod tests {
             vec!["cam0/a.png", "cam0/b.png"],
             vec!["cam1/a.png", "cam1/b.png"],
         ]);
-        spec.detector = Some(DetectorSpec {
-            min_features_per_view: Some(54),
-            ..DetectorSpec::default()
+        spec.detector = Some({
+            let mut value = DetectorSpec::default();
+            value.min_features_per_view = Some(54);
+            value
         });
         let result = build_rig_extrinsics_input(
             &spec,
@@ -507,10 +493,11 @@ mod tests {
     fn turned_board() -> Vec<Feature> {
         (0..6u32)
             .flat_map(|v| (0..9u32).map(move |u| (u, v)))
-            .map(|(u, v)| Feature {
-                cov_px: None,
-                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
-                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+            .map(|(u, v)| {
+                Feature::new(
+                    [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                    [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                )
             })
             .collect()
     }
@@ -640,11 +627,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let puzzle_config = vision_calibration_detect::DetectorConfig::Puzzleboard(
-            vision_calibration_detect::PuzzleboardConfig {
-                rows: 9,
-                cols: 6,
-                cell_size_m: 0.025,
-            },
+            vision_calibration_detect::PuzzleboardConfig::new(9, 6, 0.025),
         );
         for (rel, features) in [
             ("cam0/a.png", board_features()),
@@ -654,13 +637,10 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, rel.as_bytes()).unwrap();
             let key = CacheKey::for_detection(rel.as_bytes(), &puzzle_config, None);
-            cache.put(&key, &CachedFeatures { features }).unwrap();
+            cache.put(&key, &CachedFeatures::new(features)).unwrap();
         }
         let mut spec = rig_spec(&[vec!["cam0/a.png"], vec!["cam1/a.png"]]);
-        spec.target = TargetSpec::Puzzleboard {
-            layout: "puzzle_9x6".into(),
-            cell_size_m: 0.025,
-        };
+        spec.target = TargetSpec::puzzleboard("puzzle_9x6", 0.025);
         let result = build_rig_extrinsics_input(
             &spec,
             tmp.path(),
@@ -745,23 +725,21 @@ mod tests {
             vec!["cam1/img_0.png", "cam1/img_1.png", "cam1/img_2.png"],
         ]);
         spec.topology = ProblemKind::RigHandeye;
-        spec.robot_poses = Some(RobotPoseSource {
-            path: PathBuf::from("poses.csv"),
-            format: RobotPoseFormat::Csv,
-            columns: Some(PoseColumnMap {
-                pose_id: None,
-                tx: "tx".into(),
-                ty: "ty".into(),
-                tz: "tz".into(),
-                rotation: vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
-            }),
-            matrix_field: None,
+        spec.robot_poses = Some({
+            let mut value = RobotPoseSource::new(PathBuf::from("poses.csv"), RobotPoseFormat::Csv);
+            value.columns = Some(PoseColumnMap::new(
+                "tx",
+                "ty",
+                "tz",
+                vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
+            ));
+            value
         });
-        spec.pose_convention = Some(PoseConvention {
-            transform: TransformConvention::TBaseTcp,
-            rotation_format: RotationFormat::QuatXyzw,
-            translation_units: TranslationUnits::M,
-        });
+        spec.pose_convention = Some(PoseConvention::new(
+            TransformConvention::TBaseTcp,
+            RotationFormat::QuatXyzw,
+            TranslationUnits::M,
+        ));
         spec
     }
 

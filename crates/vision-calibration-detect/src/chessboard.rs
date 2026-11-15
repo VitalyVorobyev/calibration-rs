@@ -24,6 +24,7 @@ use crate::{DetectError, Feature};
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ChessboardConfig {
     /// Number of interior corners along the rows axis.
     pub rows: u32,
@@ -36,6 +37,19 @@ pub struct ChessboardConfig {
     /// Optional ChESS corner-stage overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chess_corners: Option<ChessCornersConfig>,
+}
+
+impl ChessboardConfig {
+    /// A chessboard of `rows × cols` interior corners and `square_size_m`
+    /// squares, with the default ChESS corner stage.
+    pub fn new(rows: u32, cols: u32, square_size_m: f64) -> Self {
+        Self {
+            rows,
+            cols,
+            square_size_m,
+            chess_corners: None,
+        }
+    }
 }
 
 /// Detect the chessboard `cfg` describes in `luma`: one [`Feature`] per

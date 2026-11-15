@@ -59,6 +59,7 @@ impl EquidistantInitOptions {
 
 /// Initial intrinsics, distortion and poses of a Kannala-Brandt camera.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EquidistantIntrinsicsLinearInit {
     /// Focal length (`fx = fy`, pixels per radian) and principal point.
     pub intrinsics: FxFyCxCy<Real>,

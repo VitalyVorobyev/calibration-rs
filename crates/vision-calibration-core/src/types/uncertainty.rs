@@ -84,6 +84,7 @@ pub enum UncertaintyUnavailable {
 /// The covariance of a result's estimated parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct ParameterCovariance {
     /// Labels of the shared parameters, in the order of `covariance`.
     pub labels: Vec<String>,
@@ -142,6 +143,7 @@ pub struct ParameterCovariance {
 /// noise's variance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct SecondOrderError {
     /// The predicted scatter of the worst combination of the shared
     /// parameters, over the σ the covariance states for it: 1 when the
@@ -158,10 +160,23 @@ pub struct SecondOrderError {
     pub combination: Vec<CombinationTerm>,
 }
 
+impl SecondOrderError {
+    /// A second-order prediction from its scatter ratio, NEES ratio and worst
+    /// combination.
+    pub fn new(max_scatter_ratio: f64, nees_ratio: f64, combination: Vec<CombinationTerm>) -> Self {
+        Self {
+            max_scatter_ratio,
+            nees_ratio,
+            combination,
+        }
+    }
+}
+
 /// One term of a combination of parameters: a parameter and its weight, in
 /// units of the parameter's σ.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct CombinationTerm {
     /// The parameter's label.
     pub label: String,
@@ -171,7 +186,41 @@ pub struct CombinationTerm {
     pub weight: f64,
 }
 
+impl CombinationTerm {
+    /// The term `weight · label / σ(label)`.
+    pub fn new(label: impl Into<String>, weight: f64) -> Self {
+        Self {
+            label: label.into(),
+            weight,
+        }
+    }
+}
+
 impl ParameterCovariance {
+    /// The covariance `covariance` of the shared parameters `labels`, with
+    /// the residual noise `noise`, `num_residuals` scalar residuals and `dof`
+    /// degrees of freedom. No per-view blocks, no fixed parameters, no view
+    /// scatter and no second-order prediction; set those fields to add them.
+    pub fn new(
+        labels: Vec<String>,
+        covariance: Vec<Vec<f64>>,
+        noise: Vec<ResidualNoise>,
+        num_residuals: usize,
+        dof: usize,
+    ) -> Self {
+        Self {
+            labels,
+            covariance,
+            views: Vec::new(),
+            fixed: Vec::new(),
+            noise,
+            num_residuals,
+            dof,
+            view_scatter: None,
+            second_order: None,
+        }
+    }
+
     /// Position of `label` among the shared parameters.
     pub fn index(&self, label: &str) -> Option<usize> {
         self.labels.iter().position(|l| l == label)
@@ -194,6 +243,7 @@ impl ParameterCovariance {
 /// The covariance of one view's own parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct ViewCovariance {
     /// View index, as in the result's per-view lists.
     pub view: usize,
@@ -203,9 +253,21 @@ pub struct ViewCovariance {
     pub covariance: Vec<Vec<f64>>,
 }
 
+impl ViewCovariance {
+    /// The covariance `covariance` of view `view`'s parameters `labels`.
+    pub fn new(view: usize, labels: Vec<String>, covariance: Vec<Vec<f64>>) -> Self {
+        Self {
+            view,
+            labels,
+            covariance,
+        }
+    }
+}
+
 /// The estimated noise level of one kind of residual.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct ResidualNoise {
     /// The kind of residual.
     pub kind: ResidualKind,
@@ -223,6 +285,20 @@ pub struct ResidualNoise {
     pub camera: Option<usize>,
 }
 
+impl ResidualNoise {
+    /// The noise level `level` of `count` scalar residuals of kind `kind`,
+    /// shared by every camera; set [`camera`](Self::camera) for a per-camera
+    /// level.
+    pub fn new(kind: ResidualKind, level: NoiseLevel, count: usize) -> Self {
+        Self {
+            kind,
+            level,
+            count,
+            camera: None,
+        }
+    }
+}
+
 /// The estimated noise level of one kind of residual: the
 /// Gaussian-equivalent standard deviation of one scalar residual (one pixel
 /// axis for reprojection), from the median absolute residual so that
@@ -232,6 +308,7 @@ pub struct ResidualNoise {
 /// `sigma0`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum NoiseLevel {
     /// `σ̂` in the residual kind's unit: pixels for reprojection and the
     /// laser line, metres for the laser plane.

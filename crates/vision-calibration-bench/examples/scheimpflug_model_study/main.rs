@@ -321,17 +321,16 @@ fn convert(camera: &CameraParams, kind: DistortionKind) -> Result<CameraParams> 
 }
 
 fn variant_fix(v: &Variant) -> CameraFix {
-    CameraFix {
-        distortion: Some(
-            v.kind
-                .param_names()
-                .iter()
-                .filter(|n| !v.free.contains(n))
-                .map(|n| n.to_string())
-                .collect(),
-        ),
-        ..CameraFix::none()
-    }
+    let mut fix = CameraFix::none();
+    fix.distortion = Some(
+        v.kind
+            .param_names()
+            .iter()
+            .filter(|n| !v.free.contains(n))
+            .map(|n| n.to_string())
+            .collect(),
+    );
+    fix
 }
 
 /// Refine `start` as variant `v`, every pose free, Huber loss, converged
@@ -2017,10 +2016,10 @@ fn split_views(
         }
         if p3.len() >= 8 {
             ids.push(i);
-            views.push(View {
-                obs: vision_calibration_core::CorrespondenceView::new(p3, p2)?,
-                meta: NoMeta,
-            });
+            views.push(View::new(
+                vision_calibration_core::CorrespondenceView::new(p3, p2)?,
+                NoMeta,
+            ));
         }
     }
     Ok((ids, views))

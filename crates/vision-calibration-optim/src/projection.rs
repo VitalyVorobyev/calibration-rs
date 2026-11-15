@@ -445,28 +445,23 @@ mod tests {
 
     fn covariance(labels: &[&str], variances: &[f64]) -> ParameterCovariance {
         let n = labels.len();
-        ParameterCovariance {
-            labels: labels.iter().map(|l| l.to_string()).collect(),
-            covariance: (0..n)
+        ParameterCovariance::new(
+            labels.iter().map(|l| l.to_string()).collect(),
+            (0..n)
                 .map(|i| {
                     (0..n)
                         .map(|j| if i == j { variances[i] } else { 0.0 })
                         .collect()
                 })
                 .collect(),
-            views: Vec::new(),
-            fixed: Vec::new(),
-            noise: vec![ResidualNoise {
-                kind: ResidualKind::Reprojection,
-                level: vision_calibration_core::NoiseLevel::Sigma(0.1),
-                count: 100,
-                camera: None,
-            }],
-            num_residuals: 100,
-            dof: 90,
-            view_scatter: None,
-            second_order: None,
-        }
+            vec![ResidualNoise::new(
+                ResidualKind::Reprojection,
+                vision_calibration_core::NoiseLevel::Sigma(0.1),
+                100,
+            )],
+            100,
+            90,
+        )
     }
 
     /// `params` with its parameters replaced by `theta` (Brown-Conrady,

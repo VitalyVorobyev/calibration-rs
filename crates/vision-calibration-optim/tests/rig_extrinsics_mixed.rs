@@ -111,12 +111,7 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
             }
             cameras_obs.push(Some(CorrespondenceView::new(points_3d, points_2d).unwrap()));
         }
-        views.push(RigView {
-            obs: RigViewObs {
-                cameras: cameras_obs,
-            },
-            meta: NoMeta,
-        });
+        views.push(RigView::new(RigViewObs::new(cameras_obs), NoMeta));
     }
 
     let dataset = RigDataset::new(views, 2).unwrap();
@@ -170,10 +165,8 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
 
     // Break gauge: fix cam0 pose. Both cameras keep k3 fixed and solve the
     // tangential terms (the tilted camera's default would fix them).
-    let k3_only = CameraFix {
-        distortion: Some(vec!["k3".into()]),
-        ..CameraFix::default()
-    };
+    let mut k3_only = CameraFix::default();
+    k3_only.distortion = Some(vec!["k3".into()]);
     let opts = RigExtrinsicsSolveOptions {
         fix: vec![k3_only.clone(), k3_only],
         fix_extrinsics: vec![true, false],

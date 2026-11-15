@@ -102,10 +102,8 @@ mod tests {
             }
         }
         let dynamic = GrayImageView::new(img.width(), img.height(), img.as_raw()).unwrap();
-        let spec = LaserExtractionSpec {
-            scan_axis: LaserScanAxis::Rows,
-            ..Default::default()
-        };
+        let mut spec = LaserExtractionSpec::default();
+        spec.scan_axis = LaserScanAxis::Rows;
         let points = VmLaserExtractor.extract(dynamic, &spec).unwrap();
         assert!(points.len() >= 20, "got {} points", points.len());
         for p in &points {

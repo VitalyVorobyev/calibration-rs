@@ -188,7 +188,7 @@ impl VersionedExport for RigExtrinsicsExport {
 /// let mut views = Vec::new();
 /// for rig_se3_target in &rig_poses {
 ///     let cameras = vec![observe(0, rig_se3_target)?, observe(1, rig_se3_target)?];
-///     views.push(RigView { obs: RigViewObs { cameras }, meta: NoMeta });
+///     views.push(RigView::new(RigViewObs::new(cameras), NoMeta));
 /// }
 /// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 /// session.set_input(RigExtrinsicsInput::new(views, 2)?)?;
@@ -333,11 +333,11 @@ mod tests {
 
     fn make_minimal_input() -> RigExtrinsicsInput {
         let views = (0..3)
-            .map(|_| RigView {
-                meta: NoMeta,
-                obs: RigViewObs {
-                    cameras: vec![Some(make_minimal_obs()), Some(make_minimal_obs())],
-                },
+            .map(|_| {
+                RigView::new(
+                    RigViewObs::new(vec![Some(make_minimal_obs()), Some(make_minimal_obs())]),
+                    NoMeta,
+                )
             })
             .collect();
 
@@ -375,12 +375,7 @@ mod tests {
     fn validate_input_requires_2_cameras() {
         // Create single-camera input (should fail)
         let views = (0..3)
-            .map(|_| RigView {
-                meta: NoMeta,
-                obs: RigViewObs {
-                    cameras: vec![Some(make_minimal_obs())],
-                },
-            })
+            .map(|_| RigView::new(RigViewObs::new(vec![Some(make_minimal_obs())]), NoMeta))
             .collect();
 
         let input = RigDataset::new(views, 1).unwrap();
@@ -522,10 +517,7 @@ mod tests {
                     CorrespondenceView::new(board.clone(), pixels).unwrap(),
                 ));
             }
-            views.push(RigView {
-                meta: NoMeta,
-                obs: RigViewObs { cameras },
-            });
+            views.push(RigView::new(RigViewObs::new(cameras), NoMeta));
         }
         let _ = View::<NoMeta>::without_meta; // silence unused import warning if any
         let dataset = RigDataset::new(views, 2).unwrap();
@@ -610,15 +602,13 @@ mod tests {
                 camera.project_point_c(&p_cam.coords).unwrap()
             })
             .collect();
-        let view = RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: vec![
-                    Some(CorrespondenceView::new(board.clone(), pixels.clone()).unwrap()),
-                    Some(CorrespondenceView::new(board.clone(), pixels).unwrap()),
-                ],
-            },
-        };
+        let view = RigView::new(
+            RigViewObs::new(vec![
+                Some(CorrespondenceView::new(board.clone(), pixels.clone()).unwrap()),
+                Some(CorrespondenceView::new(board.clone(), pixels).unwrap()),
+            ]),
+            NoMeta,
+        );
         let dataset = RigDataset::new(vec![view], 2).unwrap();
 
         let output = RigExtrinsicsEstimate::new(
@@ -688,15 +678,13 @@ mod tests {
                 camera.project_point_c(&p_cam.coords).unwrap()
             })
             .collect();
-        let view = RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: vec![
-                    Some(CorrespondenceView::new(board.clone(), pixels.clone()).unwrap()),
-                    Some(CorrespondenceView::new(board.clone(), pixels).unwrap()),
-                ],
-            },
-        };
+        let view = RigView::new(
+            RigViewObs::new(vec![
+                Some(CorrespondenceView::new(board.clone(), pixels.clone()).unwrap()),
+                Some(CorrespondenceView::new(board.clone(), pixels).unwrap()),
+            ]),
+            NoMeta,
+        );
         let dataset = RigDataset::new(vec![view], 2).unwrap();
         let output = RigExtrinsicsEstimate::new(
             RigExtrinsicsParams::new(

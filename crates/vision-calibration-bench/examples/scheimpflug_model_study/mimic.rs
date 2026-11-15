@@ -68,10 +68,10 @@ fn clean_views(fit: &GenFit, views: &[View<NoMeta>]) -> Result<Vec<View<NoMeta>>
         .iter()
         .enumerate()
         .map(|(i, v)| {
-            Ok(View {
-                obs: CorrespondenceView::new(v.obs.points_3d.clone(), by_view[&i].clone())?,
-                meta: NoMeta,
-            })
+            Ok(View::new(
+                CorrespondenceView::new(v.obs.points_3d.clone(), by_view[&i].clone())?,
+                NoMeta,
+            ))
         })
         .collect()
 }

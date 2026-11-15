@@ -53,6 +53,7 @@ impl Correspondence2D {
 /// [`CalibratedRig::reprojection_noise`](vision_calibration_core::CalibratedRig::reprojection_noise)
 /// (the calibration's level).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PixelMatch {
     /// The pixel in the first camera.
     pub pt1: Pt2,
@@ -109,6 +110,7 @@ pub struct TriangulatedPoint {
 /// frame the rig is fixed in (the gripper eye-in-hand, the base eye-to-hand)
 /// the robot does not enter, and every capture is the same one.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Captures<'a> {
     /// One capture: the points are stated in the rig frame (the reference
     /// camera's).

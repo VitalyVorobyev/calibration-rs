@@ -182,11 +182,10 @@ fn lower_registry_fields(entry: &BenchEntry) -> Result<DatasetSpec> {
         _ => None,
     };
     let chess_corners = entry.detector.as_ref().and_then(|d| d.chess_corners);
-    let detector =
-        (chess_corners.is_some() || min_features_per_view.is_some()).then_some(DetectorSpec {
-            chess_corners,
-            min_features_per_view,
-        });
+    let mut detector = DetectorSpec::default();
+    detector.chess_corners = chess_corners;
+    detector.min_features_per_view = min_features_per_view;
+    let detector = (chess_corners.is_some() || min_features_per_view.is_some()).then_some(detector);
 
     let topology = entry.problem;
     let hand_eye = matches!(
@@ -212,20 +211,17 @@ fn lower_registry_fields(entry: &BenchEntry) -> Result<DatasetSpec> {
         _ => Some(PosePairing::ByIndex),
     };
 
-    Ok(DatasetSpec {
-        version: 1,
-        cameras: entry.cameras.iter().map(camera_source).collect(),
+    let mut spec = DatasetSpec::new(
+        entry.cameras.iter().map(camera_source).collect(),
         target,
-        detector,
-        robot_poses,
-        laser: None,
-        upstream_calibration: None,
         topology,
-        pose_pairing,
-        pose_convention,
-        unresolved: Vec::new(),
-        description: entry.notes.clone(),
-    })
+    );
+    spec.detector = detector;
+    spec.robot_poses = robot_poses;
+    spec.pose_pairing = pose_pairing;
+    spec.pose_convention = pose_convention;
+    spec.description = entry.notes.clone();
+    Ok(spec)
 }
 
 /// The detection target a board describes, selected by its `layout`:
@@ -241,24 +237,17 @@ fn target(board: &BoardGeometry) -> Result<TargetSpec> {
             .context("a charuco board needs a `dictionary`")?;
         // The OpenCV ChArUco default marker scale.
         let marker_size_rel = f64::from(board.marker_size_rel.unwrap_or(0.75));
-        TargetSpec::Charuco {
+        TargetSpec::charuco(
             rows,
             cols,
-            square_size_m: board.cell_size_m,
-            marker_size_m: board.cell_size_m * marker_size_rel,
+            board.cell_size_m,
+            board.cell_size_m * marker_size_rel,
             dictionary,
-        }
+        )
     } else if layout.eq_ignore_ascii_case("puzzleboard") {
-        TargetSpec::Puzzleboard {
-            layout: format!("{rows}x{cols}"),
-            cell_size_m: board.cell_size_m,
-        }
+        TargetSpec::puzzleboard(format!("{rows}x{cols}"), board.cell_size_m)
     } else {
-        TargetSpec::Chessboard {
-            rows,
-            cols,
-            square_size_m: board.cell_size_m,
-        }
+        TargetSpec::chessboard(rows, cols, board.cell_size_m)
     })
 }
 
@@ -272,12 +261,9 @@ fn camera_source(camera: &CameraLayout) -> CameraSource {
             camera.filename_glob
         ),
     };
-    CameraSource {
-        id: camera.id.clone(),
-        images: ImagePattern::Glob { pattern },
-        roi_xywh: camera.tile,
-        laser_images: None,
-    }
+    let mut source = CameraSource::new(camera.id.clone(), ImagePattern::Glob { pattern });
+    source.roi_xywh = camera.tile;
+    source
 }
 
 fn robot_pose_source(source: &PoseSource) -> Result<(RobotPoseSource, PoseConvention)> {
@@ -306,18 +292,15 @@ fn robot_pose_source(source: &PoseSource) -> Result<(RobotPoseSource, PoseConven
         Some("m") | None => TranslationUnits::M,
         Some(other) => anyhow::bail!("unsupported pose units '{other}' (use 'mm' or 'm')"),
     };
+    let mut poses = RobotPoseSource::new(source.path.clone(), format);
+    poses.matrix_field = matrix_field;
     Ok((
-        RobotPoseSource {
-            path: source.path.clone(),
-            format,
-            columns: None,
-            matrix_field,
-        },
-        PoseConvention {
+        poses,
+        PoseConvention::new(
             transform,
-            rotation_format: RotationFormat::Matrix4x4RowMajor,
+            RotationFormat::Matrix4x4RowMajor,
             translation_units,
-        },
+        ),
     ))
 }
 
@@ -408,7 +391,7 @@ mod tests {
         validate(&spec).expect("valid");
         assert!(matches!(
             spec.target,
-            TargetSpec::Chessboard { rows: 7, cols: 11, square_size_m } if square_size_m == 0.03
+            TargetSpec::Chessboard { rows: 7, cols: 11, square_size_m, .. } if square_size_m == 0.03
         ));
         assert!(spec.detector.is_none());
         assert!(matches!(
@@ -493,9 +476,10 @@ mod tests {
             vec![camera("cam0", "", None)],
         );
         e.detector = Some(DetectorOverride {
-            chess_corners: Some(crate::registry::ChessCornersDetectorSpec {
-                threshold_value: Some(30.0),
-                ..Default::default()
+            chess_corners: Some({
+                let mut value = crate::registry::ChessCornersDetectorSpec::default();
+                value.threshold_value = Some(30.0);
+                value
             }),
             extra: Default::default(),
         });

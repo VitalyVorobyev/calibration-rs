@@ -101,12 +101,10 @@ fn main() -> Result<()> {
                 Err(_) => cams.push(None),
             }
         }
-        views.push(RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: pose.base_se3_gripper(),
-            },
-            obs: RigViewObs { cameras: cams },
-        });
+        views.push(RigView::new(
+            RigViewObs::new(cams),
+            RobotPoseMeta::new(pose.base_se3_gripper()),
+        ));
     }
     println!("detect: {:.2?}", t_det.elapsed());
     for c in 0..NUM_CAMERAS {
@@ -136,11 +134,9 @@ fn main() -> Result<()> {
         DistortionKind::BrownConrady5,
         SensorKind::Scheimpflug,
     ));
-    cfg.camera.fix = CameraFix {
-        sensor: Some(Vec::new()),
-        distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
-        ..CameraFix::default()
-    };
+    cfg.camera.fix = CameraFix::default();
+    cfg.camera.fix.sensor = Some(Vec::new());
+    cfg.camera.fix.distortion = Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect());
     cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics = false;
     session.set_config(cfg)?;

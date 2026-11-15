@@ -2662,14 +2662,11 @@ class RigLaserlineDataset(TypedDict):
     # };
     // Two views, two cameras; camera 1 missed the target in view 0.
     let views = vec![
-        RigLaserlineView {
-            cameras: vec![Some(board()), None],
-            laser_pixels: vec![Some(vec![]), None],
-        },
-        RigLaserlineView {
-            cameras: vec![Some(board()), Some(board())],
-            laser_pixels: vec![Some(vec![]), Some(vec![])],
-        },
+        RigLaserlineView::new(vec![Some(board()), None], vec![Some(vec![]), None]),
+        RigLaserlineView::new(
+            vec![Some(board()), Some(board())],
+            vec![Some(vec![]), Some(vec![])],
+        ),
     ];
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();
     assert_eq!(dataset.num_cameras, 2);

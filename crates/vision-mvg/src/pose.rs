@@ -45,6 +45,7 @@ const SETTLE_ROUNDS: usize = 3;
 /// One known object point seen by rig camera `camera`, with its pixel's
 /// stated noise.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PoseObservation {
     /// Index of the rig camera that saw the point.
     pub camera: usize,

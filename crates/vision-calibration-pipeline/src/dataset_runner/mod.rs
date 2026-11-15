@@ -483,16 +483,17 @@ pub enum CovarianceFault {
 /// The two structs are declared in sibling crates that cannot depend on each
 /// other — `vision-calibration-dataset` is a dependency-free manifest schema,
 /// and `vision-calibration-detect` pulls in `image` and the detector
-/// backends. This is the single place their fields are mapped, and the
-/// destructuring below is exhaustive on purpose: adding a knob to the
-/// manifest without wiring it through here is a compile error, not a silently
-/// ignored setting.
+/// backends. This is the single place their fields are mapped. The manifest
+/// types can grow, so the destructuring below cannot be exhaustive; the
+/// `lowering_covers_every_manifest_field` test fails instead when a knob is
+/// added to the manifest without being wired through here.
 fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> Result<ChessCornersConfig, RunError> {
     let ChessCornersDetectorSpec {
         strategy,
         threshold_value,
         min_corner_strength,
         covariance,
+        ..
     } = spec;
     let unsupported =
         |option: &'static str, value: String| RunError::UnsupportedOption { option, value };
@@ -507,7 +508,7 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> Result<ChessCornersCon
         })
         .transpose()?;
     let covariance = covariance
-        .map(|CornerCovarianceSpec { image_noise }| {
+        .map(|CornerCovarianceSpec { image_noise, .. }| {
             let image_noise = match image_noise {
                 ImageNoiseSpec::Estimate => ImageNoise::Estimate,
                 ImageNoiseSpec::Stated(sigma) => ImageNoise::Stated(sigma),
@@ -518,15 +519,15 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> Result<ChessCornersCon
                     ));
                 }
             };
-            Ok(CornerCovariance { image_noise })
+            Ok(CornerCovariance::new(image_noise))
         })
         .transpose()?;
-    Ok(ChessCornersConfig {
-        strategy,
-        threshold_value,
-        min_corner_strength,
-        covariance,
-    })
+    let mut config = ChessCornersConfig::default();
+    config.strategy = strategy;
+    config.threshold_value = threshold_value;
+    config.min_corner_strength = min_corner_strength;
+    config.covariance = covariance;
+    Ok(config)
 }
 
 fn target_to_detector_config(spec: &DatasetSpec) -> Result<DetectorConfig, RunError> {
@@ -592,18 +593,19 @@ fn detector_config(
             rows,
             cols,
             square_size_m,
-        } => Ok(DetectorConfig::Chessboard(ChessboardConfig {
-            rows: *rows,
-            cols: *cols,
-            square_size_m: *square_size_m,
-            chess_corners,
-        })),
+            ..
+        } => {
+            let mut config = ChessboardConfig::new(*rows, *cols, *square_size_m);
+            config.chess_corners = chess_corners;
+            Ok(DetectorConfig::Chessboard(config))
+        }
         TargetSpec::Charuco {
             rows,
             cols,
             square_size_m,
             marker_size_m,
             dictionary,
+            ..
         } => {
             // Fail fast before touching the filesystem on a manifest typo
             // (unknown dictionary) or an impossible board whose layout
@@ -613,18 +615,20 @@ fn detector_config(
                     message: e.to_string(),
                 }
             })?;
-            Ok(DetectorConfig::Charuco(CharucoConfig {
-                rows: *rows,
-                cols: *cols,
-                square_size_m: *square_size_m,
-                marker_size_m: *marker_size_m,
-                dictionary: dictionary.clone(),
-                chess_corners,
-            }))
+            let mut config = CharucoConfig::new(
+                *rows,
+                *cols,
+                *square_size_m,
+                *marker_size_m,
+                dictionary.clone(),
+            );
+            config.chess_corners = chess_corners;
+            Ok(DetectorConfig::Charuco(config))
         }
         TargetSpec::Puzzleboard {
             layout,
             cell_size_m,
+            ..
         } => {
             refuse_chess_override("puzzleboard")?;
             // The manifest names a layout (`"puzzle_130x130"`); the
@@ -632,11 +636,11 @@ fn detector_config(
             // fails before any image I/O.
             let (rows, cols) = parse_puzzleboard_layout(layout)
                 .map_err(|message| RunError::InvalidTargetConfig { message })?;
-            Ok(DetectorConfig::Puzzleboard(PuzzleboardConfig {
+            Ok(DetectorConfig::Puzzleboard(PuzzleboardConfig::new(
                 rows,
                 cols,
-                cell_size_m: *cell_size_m,
-            }))
+                *cell_size_m,
+            )))
         }
         TargetSpec::Ringgrid {
             pitch_m,
@@ -646,6 +650,7 @@ fn detector_config(
             marker_inner_radius_m,
             marker_ring_width_m,
             center_method,
+            ..
         } => {
             refuse_chess_override("ringgrid")?;
             let center_method = match center_method {
@@ -658,15 +663,16 @@ fn detector_config(
                     });
                 }
             };
-            Ok(DetectorConfig::Ringgrid(RinggridConfig {
-                pitch_m: *pitch_m,
-                rows: *rows,
-                long_row_cols: *long_row_cols,
-                marker_outer_radius_m: *marker_outer_radius_m,
-                marker_inner_radius_m: *marker_inner_radius_m,
-                marker_ring_width_m: *marker_ring_width_m,
-                center_method,
-            }))
+            let mut config = RinggridConfig::new(
+                *pitch_m,
+                *rows,
+                *long_row_cols,
+                *marker_outer_radius_m,
+                *marker_inner_radius_m,
+                *marker_ring_width_m,
+            );
+            config.center_method = center_method;
+            Ok(DetectorConfig::Ringgrid(config))
         }
         other => Err(RunError::UnsupportedTarget {
             kind: format!("{other:?}"),
@@ -930,6 +936,7 @@ fn check_corner_covariances(
 
 /// How the runner obtains each image's features.
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub enum Detection<'a> {
     /// Reuse the cached features of an image the cache has seen with the
     /// same detector and config; detect and store the others.
@@ -991,12 +998,7 @@ fn cached_or_detected(
         path: image_path.to_path_buf(),
         source: e,
     })?;
-    detection.store(
-        &key,
-        &CachedFeatures {
-            features: detected.clone(),
-        },
-    )?;
+    detection.store(&key, &CachedFeatures::new(detected.clone()))?;
     Ok((detected, false))
 }
 
@@ -1131,38 +1133,21 @@ mod tests {
     };
 
     fn spec_for_target(target: TargetSpec) -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: vec![CameraSource {
-                id: "cam0".into(),
-                images: ImagePattern::List { paths: vec![] },
-                roi_xywh: None,
-                laser_images: None,
-            }],
+        DatasetSpec::new(
+            vec![CameraSource::new(
+                "cam0",
+                ImagePattern::List { paths: vec![] },
+            )],
             target,
-            detector: None,
-            robot_poses: None,
-            laser: None,
-            upstream_calibration: None,
-            topology: ProblemKind::PlanarIntrinsics,
-            pose_pairing: None,
-            pose_convention: None,
-            unresolved: vec![],
-            description: None,
-        }
+            ProblemKind::PlanarIntrinsics,
+        )
     }
 
     #[test]
     fn charuco_target_maps_to_detector_config() {
         // 12×12 needs 72 markers, so the dictionary must hold at least
         // that many (DICT_4X4_50 would be rejected — see the capacity test).
-        let target = TargetSpec::Charuco {
-            rows: 12,
-            cols: 12,
-            square_size_m: 0.020,
-            marker_size_m: 0.015,
-            dictionary: "DICT_4X4_100".into(),
-        };
+        let target = TargetSpec::charuco(12, 12, 0.020, 0.015, "DICT_4X4_100");
         let spec = spec_for_target(target);
         let DetectorConfig::Charuco(config) = target_to_detector_config(&spec).unwrap() else {
             panic!("a charuco target lowers to the charuco detector");
@@ -1190,11 +1175,7 @@ mod tests {
     fn detect_target_finds_the_inner_corners_of_a_synthetic_board() {
         // 8×6 squares have 7×5 inner corners.
         let image = chessboard_image(8, 6, 40);
-        let target = TargetSpec::Chessboard {
-            rows: 5,
-            cols: 7,
-            square_size_m: 0.03,
-        };
+        let target = TargetSpec::chessboard(5, 7, 0.03);
         let features = detect_target(view(&image), &target, None).unwrap();
         assert_eq!(features.len(), 35);
         for f in &features {
@@ -1215,11 +1196,7 @@ mod tests {
     #[test]
     fn detect_target_on_a_blank_image_is_empty() {
         let image = image::GrayImage::from_pixel(200, 150, image::Luma([128]));
-        let target = TargetSpec::Chessboard {
-            rows: 5,
-            cols: 7,
-            square_size_m: 0.03,
-        };
+        let target = TargetSpec::chessboard(5, 7, 0.03);
         assert!(
             detect_target(view(&image), &target, None)
                 .unwrap()
@@ -1230,13 +1207,7 @@ mod tests {
     #[test]
     fn detect_target_rejects_an_impossible_target_before_detection() {
         let image = chessboard_image(8, 6, 40);
-        let target = TargetSpec::Charuco {
-            rows: 12,
-            cols: 12,
-            square_size_m: 0.020,
-            marker_size_m: 0.015,
-            dictionary: "DICT_TYPO_99".into(),
-        };
+        let target = TargetSpec::charuco(12, 12, 0.020, 0.015, "DICT_TYPO_99");
         let err = detect_target(view(&image), &target, None).unwrap_err();
         assert!(
             matches!(err, RunError::InvalidTargetConfig { .. }),
@@ -1246,13 +1217,7 @@ mod tests {
 
     #[test]
     fn charuco_bad_dictionary_fails_before_io() {
-        let target = TargetSpec::Charuco {
-            rows: 12,
-            cols: 12,
-            square_size_m: 0.020,
-            marker_size_m: 0.015,
-            dictionary: "DICT_TYPO_99".into(),
-        };
+        let target = TargetSpec::charuco(12, 12, 0.020, 0.015, "DICT_TYPO_99");
         let spec = spec_for_target(target);
         let err = target_to_detector_config(&spec).unwrap_err();
         match err {
@@ -1268,13 +1233,7 @@ mod tests {
         // A 12×12 board needs 72 markers in the OpenCV layout; DICT_4X4_50
         // only holds 50, so the manifest is impossible and must be
         // rejected up front rather than reaching a guaranteed-empty detect.
-        let target = TargetSpec::Charuco {
-            rows: 12,
-            cols: 12,
-            square_size_m: 0.020,
-            marker_size_m: 0.015,
-            dictionary: "DICT_4X4_50".into(),
-        };
+        let target = TargetSpec::charuco(12, 12, 0.020, 0.015, "DICT_4X4_50");
         let spec = spec_for_target(target);
         let err = target_to_detector_config(&spec).unwrap_err();
         match err {
@@ -1290,23 +1249,18 @@ mod tests {
 
     #[test]
     fn detector_override_maps_to_chess_corners_config() {
-        let mut spec = spec_for_target(TargetSpec::Charuco {
-            rows: 8,
-            cols: 8,
-            square_size_m: 0.020,
-            marker_size_m: 0.015,
-            dictionary: "DICT_4X4_50".into(),
-        });
-        spec.detector = Some(DetectorSpec {
-            chess_corners: Some(ChessCornersDetectorSpec {
-                strategy: Some(CornerStrategySpec::Radon),
-                threshold_value: Some(0.2),
-                covariance: Some(CornerCovarianceSpec {
-                    image_noise: ImageNoiseSpec::Stated(2.0),
-                }),
-                ..ChessCornersDetectorSpec::default()
-            }),
-            min_features_per_view: None,
+        let mut spec = spec_for_target(TargetSpec::charuco(8, 8, 0.020, 0.015, "DICT_4X4_50"));
+        spec.detector = Some({
+            let mut value = DetectorSpec::default();
+            value.chess_corners = Some({
+                let mut value = ChessCornersDetectorSpec::default();
+                value.strategy = Some(CornerStrategySpec::Radon);
+                value.threshold_value = Some(0.2);
+                value.covariance = Some(CornerCovarianceSpec::new(ImageNoiseSpec::Stated(2.0)));
+                value
+            });
+            value.min_features_per_view = None;
+            value
         });
         let DetectorConfig::Charuco(config) = target_to_detector_config(&spec).unwrap() else {
             panic!("a charuco target lowers to the charuco detector");
@@ -1318,20 +1272,17 @@ mod tests {
         assert_eq!(lowered.threshold_value, Some(0.2));
         assert_eq!(
             lowered.covariance,
-            Some(CornerCovariance {
-                image_noise: ImageNoise::Stated(2.0)
-            })
+            Some(CornerCovariance::new(ImageNoise::Stated(2.0)))
         );
         assert_eq!(
-            lower_chess_corners(ChessCornersDetectorSpec {
-                covariance: Some(CornerCovarianceSpec::default()),
-                ..ChessCornersDetectorSpec::default()
+            lower_chess_corners({
+                let mut value = ChessCornersDetectorSpec::default();
+                value.covariance = Some(CornerCovarianceSpec::default());
+                value
             })
             .unwrap()
             .covariance,
-            Some(CornerCovariance {
-                image_noise: ImageNoise::Estimate
-            })
+            Some(CornerCovariance::new(ImageNoise::Estimate))
         );
         assert_eq!(
             lowered,
@@ -1344,11 +1295,7 @@ mod tests {
         // An all-`None` override must not inject an empty `chess_corners`
         // object: that would change the detection-cache key for a manifest
         // that asked for nothing.
-        let mut spec = spec_for_target(TargetSpec::Chessboard {
-            rows: 9,
-            cols: 6,
-            square_size_m: 0.025,
-        });
+        let mut spec = spec_for_target(TargetSpec::chessboard(9, 6, 0.025));
         spec.detector = Some(DetectorSpec::default());
         let DetectorConfig::Chessboard(config) = target_to_detector_config(&spec).unwrap() else {
             panic!("a chessboard target lowers to the chessboard detector");
@@ -1358,28 +1305,18 @@ mod tests {
 
     #[test]
     fn puzzleboard_target_maps_to_detector_config() {
-        let target = TargetSpec::Puzzleboard {
-            layout: "puzzle_130x130".into(),
-            cell_size_m: 0.0052,
-        };
+        let target = TargetSpec::puzzleboard("puzzle_130x130", 0.0052);
         let spec = spec_for_target(target);
         let config = target_to_detector_config(&spec).unwrap();
         assert_eq!(
             config,
-            DetectorConfig::Puzzleboard(PuzzleboardConfig {
-                rows: 130,
-                cols: 130,
-                cell_size_m: 0.0052,
-            })
+            DetectorConfig::Puzzleboard(PuzzleboardConfig::new(130, 130, 0.0052))
         );
     }
 
     #[test]
     fn puzzleboard_bad_layout_fails_before_io() {
-        let target = TargetSpec::Puzzleboard {
-            layout: "not-a-grid".into(),
-            cell_size_m: 0.0052,
-        };
+        let target = TargetSpec::puzzleboard("not-a-grid", 0.0052);
         let spec = spec_for_target(target);
         let err = target_to_detector_config(&spec).unwrap_err();
         match err {
@@ -1392,15 +1329,10 @@ mod tests {
 
     #[test]
     fn ringgrid_target_maps_to_detector_config() {
-        let target = TargetSpec::Ringgrid {
-            pitch_m: 0.02,
-            rows: 5,
-            long_row_cols: 5,
-            marker_outer_radius_m: 0.006,
-            marker_inner_radius_m: 0.003,
-            marker_ring_width_m: 0.001,
-            center_method: RinggridCenterSpec::Photometric,
-        };
+        let mut target = TargetSpec::ringgrid(0.02, 5, 5, 0.006, 0.003, 0.001);
+        if let TargetSpec::Ringgrid { center_method, .. } = &mut target {
+            *center_method = RinggridCenterSpec::Photometric;
+        }
         let spec = spec_for_target(target);
         let DetectorConfig::Ringgrid(config) = target_to_detector_config(&spec).unwrap() else {
             panic!("a ringgrid target lowers to the ringgrid detector");
@@ -1439,12 +1371,7 @@ mod tests {
         // Two ROIs over the same image with the same detector config
         // must hash to different cache keys; otherwise a user editing
         // an ROI would silently re-use stale detections.
-        let config = DetectorConfig::Chessboard(ChessboardConfig {
-            rows: 9,
-            cols: 6,
-            square_size_m: 0.025,
-            chess_corners: None,
-        });
+        let config = DetectorConfig::Chessboard(ChessboardConfig::new(9, 6, 0.025));
         let key_no_roi = CacheKey::for_detection(b"img", &config, None);
         let key_roi_a = CacheKey::for_detection(b"img", &config, Some([10, 20, 100, 100]));
         let key_roi_b = CacheKey::for_detection(b"img", &config, Some([10, 20, 200, 100]));
@@ -1455,11 +1382,7 @@ mod tests {
 
     /// A one-camera planar spec over `paths`, with `roi`.
     fn sized_spec(paths: Vec<PathBuf>, roi: Option<[u32; 4]>) -> DatasetSpec {
-        let mut spec = spec_for_target(TargetSpec::Chessboard {
-            rows: 5,
-            cols: 4,
-            square_size_m: 0.03,
-        });
+        let mut spec = spec_for_target(TargetSpec::chessboard(5, 4, 0.03));
         spec.cameras[0].images = ImagePattern::List { paths };
         spec.cameras[0].roi_xywh = roi;
         spec
@@ -1547,5 +1470,69 @@ mod tests {
         };
         let err = camera_image_sizes(&spec, tmp.path()).unwrap_err();
         assert!(matches!(err, RunError::EmptyImageMatch { .. }), "{err:?}");
+    }
+
+    /// Every key of `T`'s JSON schema that names a field: the `properties`
+    /// of each object it describes, its own and its parts'.
+    #[cfg(feature = "schemars")]
+    fn schema_fields<T: schemars::JsonSchema>() -> std::collections::BTreeSet<String> {
+        fn collect(v: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
+            match v {
+                serde_json::Value::Object(map) => {
+                    if let Some(serde_json::Value::Object(props)) = map.get("properties") {
+                        out.extend(props.keys().cloned());
+                    }
+                    map.values().for_each(|v| collect(v, out));
+                }
+                serde_json::Value::Array(items) => items.iter().for_each(|v| collect(v, out)),
+                _ => {}
+            }
+        }
+        let mut out = std::collections::BTreeSet::new();
+        collect(
+            &serde_json::to_value(schemars::schema_for!(T)).unwrap(),
+            &mut out,
+        );
+        out
+    }
+
+    /// The manifest's target and chess-corner types can grow, so their
+    /// lowering to the detector configs destructures them with `..`. A field
+    /// added to the manifest must be wired through `lower_chess_corners` and
+    /// `target_to_detector_config` and then listed here.
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn lowering_covers_every_manifest_field() {
+        let set = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+        assert_eq!(
+            schema_fields::<ChessCornersDetectorSpec>(),
+            set(&[
+                "covariance",
+                "image_noise",
+                "min_corner_strength",
+                "stated",
+                "strategy",
+                "threshold_value",
+            ])
+        );
+        assert_eq!(
+            schema_fields::<TargetSpec>(),
+            set(&[
+                "cell_size_m",
+                "center_method",
+                "cols",
+                "dictionary",
+                "kind",
+                "layout",
+                "long_row_cols",
+                "marker_inner_radius_m",
+                "marker_outer_radius_m",
+                "marker_ring_width_m",
+                "marker_size_m",
+                "pitch_m",
+                "rows",
+                "square_size_m",
+            ])
+        );
     }
 }

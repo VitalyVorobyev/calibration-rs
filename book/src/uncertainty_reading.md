@@ -21,6 +21,7 @@ match &export.uncertainty {
             match noise.level {
                 NoiseLevel::Sigma(s) => println!("{:?} noise σ ≈ {s:.3}", noise.kind),
                 NoiseLevel::Sigma0(s) => println!("{:?} noise σ̂₀ ≈ {s:.3}", noise.kind),
+                other => println!("{:?} noise {other:?}", noise.kind),
             }
         }
     }

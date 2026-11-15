@@ -179,9 +179,10 @@ fn run_solve(
 
     let opts = PlanarIntrinsicsSolveOptions {
         fix_poses: vec![0],
-        fix: CameraFix {
-            distortion: fix_distortion,
-            ..CameraFix::default()
+        fix: {
+            let mut value = CameraFix::default();
+            value.distortion = fix_distortion;
+            value
         },
         ..Default::default()
     };

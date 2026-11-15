@@ -84,10 +84,8 @@ fn from_arrays(
         .iter()
         .zip(world_xyz.as_slice()?.as_chunks::<3>().0)
         .zip(covariances)
-        .map(|((&image_xy, &world_xyz), cov_px)| Feature {
-            image_xy,
-            world_xyz,
-            cov_px,
+        .map(|((&image_xy, &world_xyz), cov_px)| {
+            Feature::new(image_xy, world_xyz).with_cov_px(cov_px)
         })
         .collect())
 }
@@ -209,7 +207,7 @@ impl PyFsDetectionCache {
         let key: CacheKey = parse_checked(key, "key")?;
         let features = from_arrays(&image_xy, &world_xyz, cov_px.as_ref())?;
         self.inner
-            .put(&key, &CachedFeatures { features })
+            .put(&key, &CachedFeatures::new(features))
             .map_err(cache_err)
     }
 }

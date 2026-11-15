@@ -20,12 +20,7 @@
 //!     })
 //!     .collect();
 //!
-//! let config = DetectorConfig::Chessboard(ChessboardConfig {
-//!     rows: 7,
-//!     cols: 9,
-//!     square_size_m: 0.03,
-//!     chess_corners: None,
-//! });
+//! let config = DetectorConfig::Chessboard(ChessboardConfig::new(7, 9, 0.03));
 //! let features = config.detect(GrayImageView::new(width, height, &pixels)?)?;
 //! assert_eq!(features.len(), 63);
 //! # Ok::<(), vision_calibration_detect::DetectError>(())

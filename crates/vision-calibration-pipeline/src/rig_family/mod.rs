@@ -365,18 +365,13 @@ pub(crate) fn camera_views<M>(
 }
 
 /// A rig dataset's observations without their per-view metadata.
-pub(crate) fn without_meta<M>(dataset: &RigDataset<M>) -> RigDataset<NoMeta> {
-    RigDataset {
-        num_cameras: dataset.num_cameras,
-        views: dataset
-            .views
-            .iter()
-            .map(|v| RigView {
-                meta: NoMeta,
-                obs: v.obs.clone(),
-            })
-            .collect(),
-    }
+pub(crate) fn without_meta<M>(dataset: &RigDataset<M>) -> Result<RigDataset<NoMeta>, Error> {
+    let views = dataset
+        .views
+        .iter()
+        .map(|v| RigView::new(v.obs.clone(), NoMeta))
+        .collect();
+    Ok(RigDataset::new(views, dataset.num_cameras)?)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

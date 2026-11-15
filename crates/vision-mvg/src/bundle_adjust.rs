@@ -578,25 +578,23 @@ fn calibration_share(uncertainty: &Uncertainty) -> Uncertainty {
     let keep: Vec<usize> = (0..c.labels.len())
         .filter(|&i| is_calibration(&c.labels[i]))
         .collect();
-    Uncertainty::Available(ParameterCovariance {
-        labels: keep.iter().map(|&i| c.labels[i].clone()).collect(),
-        covariance: keep
-            .iter()
+    let mut share = ParameterCovariance::new(
+        keep.iter().map(|&i| c.labels[i].clone()).collect(),
+        keep.iter()
             .map(|&i| keep.iter().map(|&j| c.covariance[i][j]).collect())
             .collect(),
-        views: Vec::new(),
-        fixed: c
-            .fixed
-            .iter()
-            .filter(|l| is_calibration(l))
-            .cloned()
-            .collect(),
-        noise: c.noise.clone(),
-        num_residuals: c.num_residuals,
-        dof: c.dof,
-        view_scatter: c.view_scatter,
-        second_order: None,
-    })
+        c.noise.clone(),
+        c.num_residuals,
+        c.dof,
+    );
+    share.fixed = c
+        .fixed
+        .iter()
+        .filter(|l| is_calibration(l))
+        .cloned()
+        .collect();
+    share.view_scatter = c.view_scatter;
+    Uncertainty::Available(share)
 }
 
 /// An input the builder or the solve rejects is invalid input; its message says why.

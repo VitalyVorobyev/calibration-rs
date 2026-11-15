@@ -39,6 +39,7 @@ const DETECT_UPSCALE: u32 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct PuzzleboardConfig {
     /// Number of cells along the rows axis.
     pub rows: u32,
@@ -47,6 +48,17 @@ pub struct PuzzleboardConfig {
     /// Edge length of one cell in metres. Lifts each decoded saddle to a
     /// metric target point and bounds the in-board filter.
     pub cell_size_m: f64,
+}
+
+impl PuzzleboardConfig {
+    /// A PuzzleBoard of `rows × cols` cells of `cell_size_m`.
+    pub fn new(rows: u32, cols: u32, cell_size_m: f64) -> Self {
+        Self {
+            rows,
+            cols,
+            cell_size_m,
+        }
+    }
 }
 
 /// Detect the PuzzleBoard `cfg` describes in `luma`.
