@@ -1,9 +1,9 @@
 /** The ways a Run setup is loaded: a Quick Start preset, a sniffed folder,
  * a picked folder or a picked manifest file. Each failure becomes a run
  * status the banner shows. */
-import { invoke } from "@tauri-apps/api/core";
+import { call, capabilities } from "../../lib/backend";
 import * as TOML from "toml";
-import { dirnamePath, isTauriContext } from "../../lib/tauri";
+import { dirnamePath } from "../../lib/paths";
 import { useRunSetup } from "../../store/runSetup";
 import { pickFolder, pickManifestFile } from "../../shell/dialogs";
 import { mergeConfig, type EnabledPreset } from "./presets";
@@ -14,7 +14,7 @@ type Report = (status: RunStatus) => void;
 const needsTauri = (what: string): RunStatus => ({
   kind: "error",
   category: "no_tauri",
-  message: `${what} requires the Tauri runtime (bun run tauri dev).`,
+  message: `${what} requires the desktop app (bun run tauri dev).`,
 });
 
 /** Parse a manifest file's text by its extension: TOML or JSON. */
@@ -35,12 +35,12 @@ export interface SetupActions {
 /** The setup loaders, reporting failures (and the idle state after a
  * successful load) through `report`. */
 export function setupActions(report: Report): SetupActions {
-  const inTauri = isTauriContext();
+  const desktop = capabilities().desktop;
   const { loadSetup, setPaths, setManifest } = useRunSetup.getState();
 
   return {
     applyPreset: async (preset) => {
-      if (!inTauri) {
+      if (!desktop) {
         report(needsTauri("Preset loading"));
         return false;
       }
@@ -48,11 +48,11 @@ export function setupActions(report: Report): SetupActions {
         // A sample is downloaded on first use; its manifest path comes back.
         const path =
           "sample" in preset.source
-            ? await invoke<string>("fetch_sample_cmd", { id: preset.source.sample })
+            ? await call<string>("fetch_sample_cmd", { id: preset.source.sample })
             : preset.source.manifestPath;
         const parsed = parseManifest(
           path,
-          await invoke<string>("load_text_file", { path }),
+          await call<string>("load_text_file", { path }),
         );
         await loadSetup({
           manifest: preset.manifestOverrides
@@ -78,14 +78,14 @@ export function setupActions(report: Report): SetupActions {
     // A foreign dataset folder: the sniffer infers a manifest and leaves
     // what it cannot determine in `_unresolved`, which blocks Run.
     sniffFolder: async () => {
-      if (!inTauri) {
+      if (!desktop) {
         report(needsTauri("Folder sniffing"));
         return false;
       }
       try {
         const folder = await pickFolder("Pick a dataset folder to sniff");
         if (folder === null) return false;
-        const spec = await invoke<Record<string, unknown>>("sniff_folder", { folder });
+        const spec = await call<Record<string, unknown>>("sniff_folder", { folder });
         await loadSetup({
           manifest: spec,
           manifestDir: folder,
@@ -105,7 +105,7 @@ export function setupActions(report: Report): SetupActions {
     },
 
     pickDatasetFolder: async () => {
-      if (!inTauri) {
+      if (!desktop) {
         report(needsTauri("The folder picker"));
         return;
       }
@@ -118,7 +118,7 @@ export function setupActions(report: Report): SetupActions {
     },
 
     pickManifest: async () => {
-      if (!inTauri) {
+      if (!desktop) {
         report(needsTauri("The file picker"));
         return;
       }
@@ -128,7 +128,7 @@ export function setupActions(report: Report): SetupActions {
         setPaths({ manifestDir: dirnamePath(path), manifestPath: path });
         try {
           setManifest(
-            parseManifest(path, await invoke<string>("load_text_file", { path })),
+            parseManifest(path, await call<string>("load_text_file", { path })),
           );
         } catch {
           // Unreadable or malformed: keep the form as it is for the user to fix.

@@ -35,6 +35,13 @@ crate-type = ["lib", "cdylib", "staticlib"]
 name = "emit_schemas"
 path = "src/bin/emit_schemas.rs"
 
+# The browser report viewer: serves the built frontend and one run folder on
+# localhost (`calib-viewer <run-dir>`). It calls the same command bodies as
+# the desktop app and never starts the Tauri runtime.
+[[bin]]
+name = "calib-viewer"
+path = "src/bin/calib_viewer.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -58,6 +65,8 @@ dirs = "5"
 # Canonical paths without the Windows `\\?\` prefix, so the asset scope and
 # the webview's `convertFileSrc` URLs name a file the same way.
 dunce = "1"
+# calib-viewer's localhost HTTP server: synchronous, no async runtime.
+tiny_http = "0.12"
 # Optional: only pulled in by the `schema-export` feature for the
 # `emit_schemas` binary. schemars 1.x, matching the workspace pin.
 schemars = { version = "1", features = ["derive"], optional = true }

@@ -2,7 +2,7 @@
  * (`src-tauri/src/project.rs`). A project is a folder holding
  * `calibration-project.json`, the dataset manifest `dataset.json` and
  * `runs/<name>/`; the wire types are generated from the Rust ones. */
-import { invoke } from "@tauri-apps/api/core";
+import { call } from "../lib/backend";
 import type {
   ProjectError,
   ProjectErrorKind,
@@ -10,7 +10,7 @@ import type {
   RunDiagnostics,
   RunSummary,
 } from "../types/generated/diagnose-wire";
-import { joinPath } from "../lib/tauri";
+import { joinPath } from "../lib/paths";
 
 export type { ProjectError, ProjectInfo, RunDiagnostics, RunSummary };
 
@@ -56,18 +56,18 @@ export function createProject(
   datasetDir: string,
   manifest: unknown,
 ): Promise<ProjectInfo> {
-  return invoke("create_project", { dir, datasetDir, manifest });
+  return call<ProjectInfo>("create_project", { dir, datasetDir, manifest });
 }
 
 /** Open the project in `dir`; rejects with `not_a_project` for any other
  * folder. */
 export function openProject(dir: string): Promise<ProjectInfo> {
-  return invoke("open_project", { dir });
+  return call<ProjectInfo>("open_project", { dir });
 }
 
 /** Replace the project's `dataset.json`. */
 export function saveProjectManifest(dir: string, manifest: unknown): Promise<void> {
-  return invoke("save_project_manifest", { dir, manifest });
+  return call<void>("save_project_manifest", { dir, manifest });
 }
 
 /** Save a run as `runs/<name>/`; rejects with `run_exists` rather than
@@ -77,7 +77,7 @@ export function saveProjectRun(
   name: string,
   record: RunRecord,
 ): Promise<RunSummary> {
-  return invoke("save_project_run", { dir, name, record });
+  return call<RunSummary>("save_project_run", { dir, name, record });
 }
 
 /** The `export.json` of a saved run. */

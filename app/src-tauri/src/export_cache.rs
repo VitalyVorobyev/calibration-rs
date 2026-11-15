@@ -3,8 +3,9 @@
 //! `compute_epipolar_overlay` is invoked once per click in the epipolar
 //! workspace; re-reading and re-parsing the export JSON on every call
 //! would be wasteful. We hold the most recent export JSON in a
-//! `tauri::State<ExportCache>` singleton, populated by `load_export` and
-//! invalidated when a new export is loaded.
+//! `tauri::State<ExportCache>` singleton (the desktop app) or in the
+//! calib-viewer's server state, populated by `set_active_export` and
+//! replaced when a new export is made active.
 
 use std::sync::Mutex;
 
@@ -40,5 +41,15 @@ impl ExportCache {
     pub fn read<R>(&self, f: impl FnOnce(&CachedExport) -> R) -> Option<R> {
         let guard = self.inner.lock().expect("export cache mutex poisoned");
         guard.as_ref().map(f)
+    }
+
+    /// Run the command body `f` against the cached export; an error when no
+    /// export has been made active yet.
+    pub fn with<R>(
+        &self,
+        f: impl FnOnce(&serde_json::Value) -> Result<R, String>,
+    ) -> Result<R, String> {
+        self.read(|cached| f(&cached.value))
+            .ok_or_else(|| "no export loaded yet".to_string())?
     }
 }

@@ -6,6 +6,7 @@ import {
   type FrameCanvasHandle,
   type LaserOverlayData,
 } from "../../components/FrameCanvas";
+import { NoImageList } from "../../components/NoImageList";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
 import { ZoomControls } from "../../components/ZoomControls";
 import { useImageData } from "../../hooks/useImageData";
@@ -25,8 +26,7 @@ import type {
   TargetFeatureResidual,
 } from "../../types";
 import { ResidualStatsPanels } from "./ResidualStatsPanels";
-import { CursorChip, LaserResidualLegend, ResidualLegend } from "./ResidualLegends";
-import { RoiHistogram } from "./RoiHistogram";
+import { FrameFooter } from "./FrameFooter";
 import { UncertaintyPanels } from "./UncertaintyPanels";
 
 const HISTOGRAM_BINS = 64;
@@ -97,6 +97,7 @@ export function DiagnoseWorkspace() {
     [data],
   );
   const hasStats = targetResiduals.length > 0;
+  const hasImages = frames.some((f) => f.abs_path !== null);
 
   // A non-target export (or one loaded while stats are open) must not
   // strand the workspace on an empty panel. Adjusting state during render
@@ -287,7 +288,9 @@ export function DiagnoseWorkspace() {
 
       <div className="flex min-h-0 flex-1 gap-2.5 overflow-hidden">
         <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-control bg-raised p-2">
-          {data && frame && compare && rightFrame ? (
+          {data && !hasImages ? (
+            <NoImageList />
+          ) : data && frame && compare && rightFrame ? (
             <CompareViewer
               leftFrame={frame}
               rightFrame={rightFrame}
@@ -319,9 +322,8 @@ export function DiagnoseWorkspace() {
             </div>
           ) : (
             <div className="m-auto text-[13px] text-fg-muted">
-              Open an <code>export.json</code> from a calibration run with an
-              <code> diagnostics.image_manifest</code>. Use ← / → for pose, ↑ / ↓ for
-              camera; toggle Compare to view two frames side by side.
+              Open an <code>export.json</code> from a calibration run. Use ← / → for pose,
+              ↑ / ↓ for camera; toggle Compare to view two frames side by side.
             </div>
           )}
         </div>
@@ -354,37 +356,15 @@ export function DiagnoseWorkspace() {
       </div>
 
       {data && activeFrame && (
-        // Reserve a stable height so the panel doesn't shimmy when the
-        // histogram briefly drops out during a frame switch (imageData
-        // unloads → roiHistogram becomes null until the next decode).
-        // The histogram block always mounts; its bins go empty during
-        // the gap and re-fill once decode lands.
-        <div className="flex min-h-[3.25rem] flex-wrap items-center gap-x-4 gap-y-2">
-          {showLaser ? (
-            <LaserResidualLegend
-              residuals={laserResiduals.filter(
-                (r) => r.view === activeFrame.pose && r.camera === activeFrame.camera,
-              )}
-              hist={data.diagnostics.per_feature_residuals.laser_hist_per_cam?.[cameraA]}
-            />
-          ) : (
-            <ResidualLegend
-              residuals={data.diagnostics.per_feature_residuals.target.filter(
-                (r) => r.view === activeFrame.pose && r.camera === activeFrame.camera,
-              )}
-            />
-          )}
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
-              histogram
-            </span>
-            <RoiHistogram
-              counts={roiHistogram ?? []}
-              intensity={cursor?.intensity ?? null}
-            />
-          </div>
-          <CursorChip cursor={cursor} />
-        </div>
+        <FrameFooter
+          data={data}
+          frame={activeFrame}
+          laser={showLaser}
+          laserResiduals={laserResiduals}
+          camera={cameraA}
+          histogram={roiHistogram}
+          cursor={cursor}
+        />
       )}
     </section>
   );

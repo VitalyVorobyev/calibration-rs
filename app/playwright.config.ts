@@ -12,8 +12,9 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  // The screenshot suite has its own config (playwright.screens.config.ts).
-  testIgnore: "screens.spec.ts",
+  // The screenshot suite and the browser viewer's end-to-end test have their
+  // own configs (playwright.screens.config.ts, playwright.viewer.config.ts).
+  testIgnore: ["screens.spec.ts", "viewer.spec.ts"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

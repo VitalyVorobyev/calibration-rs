@@ -24,6 +24,7 @@ export default [
       "src/types/generated/**",
       "e2e/.screens/**",
       "test-results/**",
+      ".tmp-runs/**",
       // Node ESM build script outside tsconfig's `include: ["src"]`, so the
       // type-aware project service can't resolve it (B-QUAL2 codegen).
       "scripts/**",
@@ -74,5 +75,26 @@ export default [
       "src/workspaces/Viewer3DWorkspace/LaserTargetCuts.tsx",
     ],
     rules: { "vitavision/tokens-only": "off" },
+  },
+  {
+    // One frontend, two back ends: only the back-end seam talks to Tauri, so
+    // every feature also runs on the browser viewer's HTTP back end. Tests
+    // mock Tauri's IPC directly.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/lib/backend.ts", "src/**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@tauri-apps/*"],
+              message:
+                "Only src/lib/backend.ts imports Tauri: use its call, fileUrl or openDialog.",
+            },
+          ],
+        },
+      ],
+    },
   },
 ];

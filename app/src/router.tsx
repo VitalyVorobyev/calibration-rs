@@ -1,4 +1,5 @@
 import { createHashRouter, Navigate } from "react-router";
+import { DesktopOnly } from "./shell/DesktopOnly";
 import { Shell } from "./shell/Shell";
 import { DepthWorkspace } from "./workspaces/DepthWorkspace";
 import { DiagnoseWorkspace } from "./workspaces/DiagnoseWorkspace";
@@ -22,7 +23,14 @@ export const router = createHashRouter([
       },
       { path: "epipolar", element: <EpipolarWorkspace /> },
       { path: "depth", element: <DepthWorkspace /> },
-      { path: "run", element: <RunWorkspace /> },
+      {
+        path: "run",
+        element: (
+          <DesktopOnly>
+            <RunWorkspace />
+          </DesktopOnly>
+        ),
+      },
     ],
   },
 ]);

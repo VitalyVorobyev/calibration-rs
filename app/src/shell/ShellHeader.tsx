@@ -1,6 +1,6 @@
 import { Button, ThemeToggle } from "@vitavision/ui";
 import { Logo } from "../components/Logo";
-import { isTauriContext } from "../lib/tauri";
+import { capabilities, NO_BACKEND } from "../lib/backend";
 import { THEME_STORAGE_KEY } from "../lib/theme";
 import { folderName } from "../project/projectModel";
 import { useStore } from "../store";
@@ -8,26 +8,19 @@ import { exportKindLabel } from "../store/exportKind";
 import { pickExportFile } from "./dialogs";
 import { ProjectMenu } from "./ProjectMenu";
 
-const NO_TAURI =
-  "Tauri runtime not detected. Launch the app with `bun run tauri dev` " +
-  "(or the bundled binary). Plain `bun run dev` only starts Vite, so " +
-  "the file-dialog and IPC commands aren't wired up.";
-
-/** The top bar: the app's name and the loaded export's kind, the project
- * menu, the loaded export and Open Export…, and the theme toggle. */
+/** The top bar: the app's name and the loaded export's kind, then — in the
+ * desktop app — the project menu, the loaded export and Open Export…; in
+ * the browser viewer, the run it serves; and the theme toggle. */
 export function ShellHeader() {
   const exportPath = useStore((s) => s.exportPath);
+  const exportDir = useStore((s) => s.exportDir);
   const kind = useStore((s) => s.kind);
   const loadExport = useStore((s) => s.loadExport);
   const setLoadError = useStore((s) => s.setLoadError);
-  const tauriOk = isTauriContext();
+  const { desktop, viewer } = capabilities();
 
   const handleOpenExport = async () => {
     setLoadError(null);
-    if (!tauriOk) {
-      setLoadError(NO_TAURI);
-      return;
-    }
     let chosen: string | null;
     try {
       chosen = await pickExportFile();
@@ -37,6 +30,13 @@ export function ShellHeader() {
     }
     if (chosen) await loadExport(chosen);
   };
+
+  // The desktop names the export file; the browser viewer serves one run,
+  // named by its folder.
+  const loaded = desktop
+    ? exportPath && folderName(exportPath)
+    : exportDir && folderName(exportDir);
+  const label = !viewer ? "No back end" : (loaded ?? "No export loaded");
 
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-2.5">
@@ -50,16 +50,18 @@ export function ShellHeader() {
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <ProjectMenu enabled={tauriOk} />
+        {desktop && <ProjectMenu />}
         <span
           className="hidden max-w-[28rem] truncate font-mono text-[11px] text-fg-muted sm:inline"
-          title={exportPath ?? ""}
+          title={viewer ? (exportPath ?? "") : NO_BACKEND}
         >
-          {exportPath ? folderName(exportPath) : "No export loaded"}
+          {label}
         </span>
-        <Button size="sm" onClick={() => void handleOpenExport()} disabled={!tauriOk}>
-          Open Export…
-        </Button>
+        {desktop && (
+          <Button size="sm" onClick={() => void handleOpenExport()}>
+            Open Export…
+          </Button>
+        )}
         <ThemeToggle storageKey={THEME_STORAGE_KEY} />
       </div>
     </div>

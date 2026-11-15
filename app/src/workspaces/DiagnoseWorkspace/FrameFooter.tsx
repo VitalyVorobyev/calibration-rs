@@ -1,0 +1,62 @@
+import type { AnyExport } from "../../store/types";
+import type { CursorReadout, FrameKey, LaserFeatureResidual } from "../../types";
+import { CursorChip, LaserResidualLegend, ResidualLegend } from "./ResidualLegends";
+import { RoiHistogram } from "./RoiHistogram";
+
+interface FrameFooterProps {
+  data: AnyExport;
+  frame: FrameKey;
+  /** The laser frame and its residuals are shown, not the target's. */
+  laser: boolean;
+  laserResiduals: LaserFeatureResidual[];
+  camera: number;
+  /** The image's luminance histogram; `null` while it decodes. */
+  histogram: number[] | null;
+  cursor: CursorReadout | null;
+}
+
+/** Under the frame: its residual legend and, when the frame has an image,
+ * the luminance histogram and the cursor readout. */
+export function FrameFooter({
+  data,
+  frame,
+  laser,
+  laserResiduals,
+  camera,
+  histogram,
+  cursor,
+}: FrameFooterProps) {
+  const inFrame = (r: { view: number; camera: number }) =>
+    r.view === frame.pose && r.camera === frame.camera;
+  const residuals = data.diagnostics.per_feature_residuals;
+  return (
+    // Reserve a stable height so the panel doesn't shimmy when the
+    // histogram briefly drops out during a frame switch (the image unloads
+    // until the next decode). The histogram block always mounts; its bins go
+    // empty during the gap and re-fill once decode lands.
+    <div className="flex min-h-[3.25rem] flex-wrap items-center gap-x-4 gap-y-2">
+      {laser ? (
+        <LaserResidualLegend
+          residuals={laserResiduals.filter(inFrame)}
+          hist={residuals.laser_hist_per_cam?.[camera]}
+        />
+      ) : (
+        <ResidualLegend residuals={residuals.target.filter(inFrame)} />
+      )}
+      {frame.abs_path !== null && (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
+              histogram
+            </span>
+            <RoiHistogram
+              counts={histogram ?? []}
+              intensity={cursor?.intensity ?? null}
+            />
+          </div>
+          <CursorChip cursor={cursor} />
+        </>
+      )}
+    </div>
+  );
+}

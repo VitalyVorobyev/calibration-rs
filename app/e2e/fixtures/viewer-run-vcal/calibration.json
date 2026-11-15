@@ -1,0 +1,820 @@
+{
+  "kind": "rig_extrinsics",
+  "schema_version": 1,
+  "cameras": [
+    {
+      "projection": {
+        "type": "pinhole"
+      },
+      "distortion": {
+        "type": "none"
+      },
+      "sensor": {
+        "type": "identity"
+      },
+      "intrinsics": {
+        "fx": 200.0,
+        "fy": 200.0,
+        "cx": 79.5,
+        "cy": 59.5
+      }
+    },
+    {
+      "projection": {
+        "type": "pinhole"
+      },
+      "distortion": {
+        "type": "none"
+      },
+      "sensor": {
+        "type": "identity"
+      },
+      "intrinsics": {
+        "fx": 200.0,
+        "fy": 200.0,
+        "cx": 79.5,
+        "cy": 59.5
+      }
+    }
+  ],
+  "cam_se3_rig": [
+    {
+      "rotation": [0, 0, 0, 1],
+      "translation": [0, 0, 0]
+    },
+    {
+      "rotation": [0, 0, 0, 1],
+      "translation": [-0.03, 0, 0]
+    }
+  ],
+  "rig_se3_target": [
+    {
+      "rotation": [0, 0, 0, 1],
+      "translation": [-0.04, -0.03, 0.3]
+    },
+    {
+      "rotation": [-0.086410113286, 0.130029500652, 0.011376107231, 0.987672114351],
+      "translation": [-0.035, -0.03, 0.32]
+    }
+  ],
+  "mean_reproj_error": 0.3344,
+  "per_cam_reproj_errors": [0.3322, 0.3367],
+  "diagnostics": {
+    "per_feature_residuals": {
+      "target": [
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 0,
+          "target_xyz_m": [0.0, 0.0, 0.0],
+          "observed_px": [53.1706, 39.4549],
+          "projected_px": [52.8333, 39.5],
+          "error_px": 0.3402
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 1,
+          "target_xyz_m": [0.02, 0.0, 0.0],
+          "observed_px": [66.3471, 39.1616],
+          "projected_px": [66.1667, 39.5],
+          "error_px": 0.3835
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 2,
+          "target_xyz_m": [0.04, 0.0, 0.0],
+          "observed_px": [79.2593, 39.6323],
+          "projected_px": [79.5, 39.5],
+          "error_px": 0.2747
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 3,
+          "target_xyz_m": [0.06, 0.0, 0.0],
+          "observed_px": [92.5241, 39.8043],
+          "projected_px": [92.8333, 39.5],
+          "error_px": 0.4338
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 4,
+          "target_xyz_m": [0.08, 0.0, 0.0],
+          "observed_px": [106.242, 39.2893],
+          "projected_px": [106.1667, 39.5],
+          "error_px": 0.2238
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 5,
+          "target_xyz_m": [0.0, 0.02, 0.0],
+          "observed_px": [53.1828, 52.5833],
+          "projected_px": [52.8333, 52.8333],
+          "error_px": 0.4297
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 6,
+          "target_xyz_m": [0.02, 0.02, 0.0],
+          "observed_px": [66.2784, 53.1085],
+          "projected_px": [66.1667, 52.8333],
+          "error_px": 0.2969
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 7,
+          "target_xyz_m": [0.04, 0.02, 0.0],
+          "observed_px": [79.2103, 53.0124],
+          "projected_px": [79.5, 52.8333],
+          "error_px": 0.3406
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 8,
+          "target_xyz_m": [0.06, 0.02, 0.0],
+          "observed_px": [92.5666, 52.5121],
+          "projected_px": [92.8333, 52.8333],
+          "error_px": 0.4175
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 9,
+          "target_xyz_m": [0.08, 0.02, 0.0],
+          "observed_px": [106.3137, 52.737],
+          "projected_px": [106.1667, 52.8333],
+          "error_px": 0.1758
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 10,
+          "target_xyz_m": [0.0, 0.04, 0.0],
+          "observed_px": [53.1787, 66.5128],
+          "projected_px": [52.8333, 66.1667],
+          "error_px": 0.4889
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 11,
+          "target_xyz_m": [0.02, 0.04, 0.0],
+          "observed_px": [66.2044, 66.1738],
+          "projected_px": [66.1667, 66.1667],
+          "error_px": 0.0384
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 12,
+          "target_xyz_m": [0.04, 0.04, 0.0],
+          "observed_px": [79.1748, 65.8187],
+          "projected_px": [79.5, 66.1667],
+          "error_px": 0.4762
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 13,
+          "target_xyz_m": [0.06, 0.04, 0.0],
+          "observed_px": [92.6216, 66.2492],
+          "projected_px": [92.8333, 66.1667],
+          "error_px": 0.2272
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 14,
+          "target_xyz_m": [0.08, 0.04, 0.0],
+          "observed_px": [106.3786, 66.4933],
+          "projected_px": [106.1667, 66.1667],
+          "error_px": 0.3894
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 15,
+          "target_xyz_m": [0.0, 0.06, 0.0],
+          "observed_px": [53.1584, 79.3333],
+          "projected_px": [52.8333, 79.5],
+          "error_px": 0.3653
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 16,
+          "target_xyz_m": [0.02, 0.06, 0.0],
+          "observed_px": [66.1286, 79.2163],
+          "projected_px": [66.1667, 79.5],
+          "error_px": 0.2862
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 17,
+          "target_xyz_m": [0.04, 0.06, 0.0],
+          "observed_px": [79.1546, 79.7398],
+          "projected_px": [79.5, 79.5],
+          "error_px": 0.4205
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 18,
+          "target_xyz_m": [0.06, 0.06, 0.0],
+          "observed_px": [92.6866, 79.7219],
+          "projected_px": [92.8333, 79.5],
+          "error_px": 0.2661
+        },
+        {
+          "view": 0,
+          "camera": 0,
+          "feature": 19,
+          "target_xyz_m": [0.08, 0.06, 0.0],
+          "observed_px": [106.4336, 79.203],
+          "projected_px": [106.1667, 79.5],
+          "error_px": 0.3993
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 0,
+          "target_xyz_m": [0.0, 0.0, 0.0],
+          "observed_px": [33.1229, 39.3546],
+          "projected_px": [32.8333, 39.5],
+          "error_px": 0.324
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 1,
+          "target_xyz_m": [0.02, 0.0, 0.0],
+          "observed_px": [46.0547, 39.8345],
+          "projected_px": [46.1667, 39.5],
+          "error_px": 0.3527
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 2,
+          "target_xyz_m": [0.04, 0.0, 0.0],
+          "observed_px": [59.1505, 39.5592],
+          "projected_px": [59.5, 39.5],
+          "error_px": 0.3544
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 3,
+          "target_xyz_m": [0.06, 0.0, 0.0],
+          "observed_px": [72.7583, 39.1503],
+          "projected_px": [72.8333, 39.5],
+          "error_px": 0.3577
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 4,
+          "target_xyz_m": [0.08, 0.0, 0.0],
+          "observed_px": [86.476, 39.5309],
+          "projected_px": [86.1667, 39.5],
+          "error_px": 0.3109
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 5,
+          "target_xyz_m": [0.0, 0.02, 0.0],
+          "observed_px": [33.0738, 53.1751],
+          "projected_px": [32.8333, 52.8333],
+          "error_px": 0.4179
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 6,
+          "target_xyz_m": [0.02, 0.02, 0.0],
+          "observed_px": [45.986, 52.7143],
+          "projected_px": [46.1667, 52.8333],
+          "error_px": 0.2164
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 7,
+          "target_xyz_m": [0.04, 0.02, 0.0],
+          "observed_px": [59.1628, 52.5223],
+          "projected_px": [59.5, 52.8333],
+          "error_px": 0.4587
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 8,
+          "target_xyz_m": [0.06, 0.02, 0.0],
+          "observed_px": [72.8336, 53.0325],
+          "projected_px": [72.8333, 52.8333],
+          "error_px": 0.1992
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 9,
+          "target_xyz_m": [0.08, 0.02, 0.0],
+          "observed_px": [86.504, 53.0931],
+          "projected_px": [86.1667, 52.8333],
+          "error_px": 0.4257
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 10,
+          "target_xyz_m": [0.0, 0.04, 0.0],
+          "observed_px": [33.0135, 65.9006],
+          "projected_px": [32.8333, 66.1667],
+          "error_px": 0.3213
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 11,
+          "target_xyz_m": [0.02, 0.04, 0.0],
+          "observed_px": [45.9257, 65.9755],
+          "projected_px": [46.1667, 66.1667],
+          "error_px": 0.3076
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 12,
+          "target_xyz_m": [0.04, 0.04, 0.0],
+          "observed_px": [59.1909, 66.482],
+          "projected_px": [59.5, 66.1667],
+          "error_px": 0.4416
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 13,
+          "target_xyz_m": [0.06, 0.04, 0.0],
+          "observed_px": [72.9089, 66.2766],
+          "projected_px": [72.8333, 66.1667],
+          "error_px": 0.1334
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 14,
+          "target_xyz_m": [0.08, 0.04, 0.0],
+          "observed_px": [86.5162, 65.823],
+          "projected_px": [86.1667, 66.1667],
+          "error_px": 0.4902
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 15,
+          "target_xyz_m": [0.0, 0.06, 0.0],
+          "observed_px": [32.9447, 79.4786],
+          "projected_px": [32.8333, 79.5],
+          "error_px": 0.1134
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 16,
+          "target_xyz_m": [0.02, 0.06, 0.0],
+          "observed_px": [45.8768, 79.8492],
+          "projected_px": [46.1667, 79.5],
+          "error_px": 0.4539
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 17,
+          "target_xyz_m": [0.04, 0.06, 0.0],
+          "observed_px": [59.2335, 79.4314],
+          "projected_px": [59.5, 79.5],
+          "error_px": 0.2752
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 18,
+          "target_xyz_m": [0.06, 0.06, 0.0],
+          "observed_px": [72.9807, 79.1685],
+          "projected_px": [72.8333, 79.5],
+          "error_px": 0.3628
+        },
+        {
+          "view": 0,
+          "camera": 1,
+          "feature": 19,
+          "target_xyz_m": [0.08, 0.06, 0.0],
+          "observed_px": [86.512, 79.6541],
+          "projected_px": [86.1667, 79.5],
+          "error_px": 0.3781
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 0,
+          "target_xyz_m": [0.0, 0.0, 0.0],
+          "observed_px": [57.6624, 41.0418],
+          "projected_px": [57.625, 40.75],
+          "error_px": 0.2942
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 1,
+          "target_xyz_m": [0.02, 0.0, 0.0],
+          "observed_px": [69.2126, 40.2125],
+          "projected_px": [69.5379, 40.4417],
+          "error_px": 0.398
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 2,
+          "target_xyz_m": [0.04, 0.0, 0.0],
+          "observed_px": [81.6377, 39.8904],
+          "projected_px": [81.8491, 40.1231],
+          "error_px": 0.3144
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 3,
+          "target_xyz_m": [0.06, 0.0, 0.0],
+          "observed_px": [94.7912, 40.0829],
+          "projected_px": [94.579, 39.7937],
+          "error_px": 0.3587
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 4,
+          "target_xyz_m": [0.08, 0.0, 0.0],
+          "observed_px": [108.0741, 39.6111],
+          "projected_px": [107.7491, 39.4529],
+          "error_px": 0.3614
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 5,
+          "target_xyz_m": [0.0, 0.02, 0.0],
+          "observed_px": [56.7872, 52.6619],
+          "projected_px": [56.8255, 52.9919],
+          "error_px": 0.3322
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 6,
+          "target_xyz_m": [0.02, 0.02, 0.0],
+          "observed_px": [68.508, 52.8105],
+          "projected_px": [68.8534, 52.8837],
+          "error_px": 0.3531
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 7,
+          "target_xyz_m": [0.04, 0.02, 0.0],
+          "observed_px": [81.1414, 53.1207],
+          "projected_px": [81.2879, 52.7719],
+          "error_px": 0.3784
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 8,
+          "target_xyz_m": [0.06, 0.02, 0.0],
+          "observed_px": [94.417, 52.6395],
+          "projected_px": [94.1499, 52.6562],
+          "error_px": 0.2676
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 9,
+          "target_xyz_m": [0.08, 0.02, 0.0],
+          "observed_px": [107.7513, 52.192],
+          "projected_px": [107.4619, 52.5365],
+          "error_px": 0.4499
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 10,
+          "target_xyz_m": [0.0, 0.04, 0.0],
+          "observed_px": [55.8966, 65.6014],
+          "projected_px": [56.0089, 65.4959],
+          "error_px": 0.1541
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 11,
+          "target_xyz_m": [0.02, 0.04, 0.0],
+          "observed_px": [67.8046, 65.914],
+          "projected_px": [68.1541, 65.5966],
+          "error_px": 0.472
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 12,
+          "target_xyz_m": [0.04, 0.04, 0.0],
+          "observed_px": [80.6396, 65.5135],
+          "projected_px": [80.7143, 65.7008],
+          "error_px": 0.2016
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 13,
+          "target_xyz_m": [0.06, 0.04, 0.0],
+          "observed_px": [94.0207, 65.5395],
+          "projected_px": [93.7112, 65.8086],
+          "error_px": 0.4101
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 14,
+          "target_xyz_m": [0.08, 0.04, 0.0],
+          "observed_px": [107.4083, 66.1768],
+          "projected_px": [107.1681, 65.9202],
+          "error_px": 0.3515
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 15,
+          "target_xyz_m": [0.0, 0.06, 0.0],
+          "observed_px": [54.9936, 78.4736],
+          "projected_px": [55.1746, 78.2706],
+          "error_px": 0.2719
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 16,
+          "target_xyz_m": [0.02, 0.06, 0.0],
+          "observed_px": [67.1022, 78.2805],
+          "projected_px": [67.4393, 78.5894],
+          "error_px": 0.4572
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 17,
+          "target_xyz_m": [0.04, 0.06, 0.0],
+          "observed_px": [80.1284, 78.7959],
+          "projected_px": [80.1278, 78.9193],
+          "error_px": 0.1234
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 18,
+          "target_xyz_m": [0.06, 0.06, 0.0],
+          "observed_px": [93.6, 79.6014],
+          "projected_px": [93.2625, 79.2607],
+          "error_px": 0.4795
+        },
+        {
+          "view": 1,
+          "camera": 0,
+          "feature": 19,
+          "target_xyz_m": [0.08, 0.06, 0.0],
+          "observed_px": [107.0473, 79.6499],
+          "projected_px": [106.8674, 79.6144],
+          "error_px": 0.1834
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 0,
+          "target_xyz_m": [0.0, 0.0, 0.0],
+          "observed_px": [38.6338, 40.4001],
+          "projected_px": [38.875, 40.75],
+          "error_px": 0.4249
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 1,
+          "target_xyz_m": [0.02, 0.0, 0.0],
+          "observed_px": [50.1707, 40.4963],
+          "projected_px": [50.4796, 40.4417],
+          "error_px": 0.3137
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 2,
+          "target_xyz_m": [0.04, 0.0, 0.0],
+          "observed_px": [62.5482, 40.4589],
+          "projected_px": [62.4723, 40.1231],
+          "error_px": 0.3443
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 3,
+          "target_xyz_m": [0.06, 0.0, 0.0],
+          "observed_px": [75.2222, 39.6525],
+          "projected_px": [74.8727, 39.7937],
+          "error_px": 0.3769
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 4,
+          "target_xyz_m": [0.08, 0.0, 0.0],
+          "observed_px": [87.8131, 39.1534],
+          "projected_px": [87.702, 39.4529],
+          "error_px": 0.3194
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 5,
+          "target_xyz_m": [0.0, 0.02, 0.0],
+          "observed_px": [37.5868, 53.2102],
+          "projected_px": [37.8769, 52.9919],
+          "error_px": 0.363
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 6,
+          "target_xyz_m": [0.02, 0.02, 0.0],
+          "observed_px": [49.3236, 53.1269],
+          "projected_px": [49.5899, 52.8837],
+          "error_px": 0.3606
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 7,
+          "target_xyz_m": [0.04, 0.02, 0.0],
+          "observed_px": [61.8465, 52.4909],
+          "projected_px": [61.6988, 52.7719],
+          "error_px": 0.3174
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 8,
+          "target_xyz_m": [0.06, 0.02, 0.0],
+          "observed_px": [74.5694, 52.4855],
+          "projected_px": [74.2241, 52.6562],
+          "error_px": 0.3852
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 9,
+          "target_xyz_m": [0.08, 0.02, 0.0],
+          "observed_px": [87.2246, 52.8615],
+          "projected_px": [87.1875, 52.5365],
+          "error_px": 0.3271
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 10,
+          "target_xyz_m": [0.0, 0.04, 0.0],
+          "observed_px": [36.5319, 65.5829],
+          "projected_px": [36.8574, 65.4959],
+          "error_px": 0.3369
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 11,
+          "target_xyz_m": [0.02, 0.04, 0.0],
+          "observed_px": [48.4696, 65.2492],
+          "projected_px": [48.6808, 65.5966],
+          "error_px": 0.4066
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 12,
+          "target_xyz_m": [0.04, 0.04, 0.0],
+          "observed_px": [61.1207, 65.7033],
+          "projected_px": [60.9083, 65.7008],
+          "error_px": 0.2124
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 13,
+          "target_xyz_m": [0.06, 0.04, 0.0],
+          "observed_px": [73.8857, 66.1554],
+          "projected_px": [73.5609, 65.8086],
+          "error_px": 0.4751
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 14,
+          "target_xyz_m": [0.08, 0.04, 0.0],
+          "observed_px": [86.6226, 65.8284],
+          "projected_px": [86.6612, 65.9202],
+          "error_px": 0.0996
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 15,
+          "target_xyz_m": [0.0, 0.06, 0.0],
+          "observed_px": [35.4702, 77.9475],
+          "projected_px": [35.8158, 78.2706],
+          "error_px": 0.473
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 16,
+          "target_xyz_m": [0.02, 0.06, 0.0],
+          "observed_px": [47.6054, 78.7645],
+          "projected_px": [47.7517, 78.5894],
+          "error_px": 0.2281
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 17,
+          "target_xyz_m": [0.04, 0.06, 0.0],
+          "observed_px": [60.3673, 79.1972],
+          "projected_px": [60.1, 78.9193],
+          "error_px": 0.3856
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 18,
+          "target_xyz_m": [0.06, 0.06, 0.0],
+          "observed_px": [73.1718, 79.014],
+          "projected_px": [72.8826, 79.2607],
+          "error_px": 0.3802
+        },
+        {
+          "view": 1,
+          "camera": 1,
+          "feature": 19,
+          "target_xyz_m": [0.08, 0.06, 0.0],
+          "observed_px": [86.0101, 79.4],
+          "projected_px": [86.1227, 79.6144],
+          "error_px": 0.2421
+        }
+      ]
+    }
+  },
+  "uncertainty": {
+    "status": "available",
+    "labels": [
+      "cam0.fx",
+      "cam0.fy",
+      "cam0.cx",
+      "cam0.cy",
+      "cam1.fx",
+      "cam1.fy",
+      "cam1.cx",
+      "cam1.cy"
+    ],
+    "covariance": [
+      [0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      [0.0, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 0.09, 0.0, 0.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 0.0, 0.09, 0.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.36, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.0, 0.36, 0.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.16, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.16]
+    ],
+    "noise": [
+      {
+        "kind": "reprojection",
+        "sigma": 0.25,
+        "count": 160
+      }
+    ],
+    "num_residuals": 160,
+    "dof": 134
+  }
+}

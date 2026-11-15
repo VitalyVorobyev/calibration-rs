@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dirnamePath, joinPath } from "./tauri";
+import { dirnamePath, joinPath } from "./paths";
 
 describe("joinPath", () => {
   it("joins with / and drops duplicate separators", () => {

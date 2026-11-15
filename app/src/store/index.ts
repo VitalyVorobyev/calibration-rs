@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import { invoke } from "@tauri-apps/api/core";
-import { isTauriContext, joinPath } from "../lib/tauri";
+import { call, capabilities, NO_BACKEND } from "../lib/backend";
+import { joinPath } from "../lib/paths";
 import type { FrameKey } from "../types";
 import type { AnyExport, ExportKind, LoadExportResult } from "./types";
 import { detectExportKind } from "./exportKind";
@@ -28,8 +28,28 @@ interface MaterializedExport {
   cameraValues: number[];
   posesByCamera: Map<number, number[]>;
   camerasByPose: Map<number, number[]>;
-  first: FrameKey;
-  second: FrameKey;
+  /** The (pose, camera) slots selected first, in pane A and pane B. */
+  first: { pose: number; camera: number };
+  second: { pose: number; camera: number };
+}
+
+/** The (view, camera) slots that have residuals, as frames without an
+ * image, in view-then-camera order: what an export without an image list
+ * can still be navigated by. */
+function framesFromResiduals(residuals: { view: number; camera: number }[]): FrameKey[] {
+  const seen = new Map<string, FrameKey>();
+  for (const r of residuals) {
+    const key = `${r.view}|${r.camera}`;
+    if (!seen.has(key)) {
+      seen.set(key, {
+        pose: r.view,
+        camera: r.camera,
+        label: `pose ${r.view} · cam ${r.camera}`,
+        abs_path: null,
+      });
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.pose - b.pose || a.camera - b.camera);
 }
 
 function materializeExport(
@@ -38,33 +58,32 @@ function materializeExport(
 ): { ok: true; value: MaterializedExport } | { ok: false; error: string } {
   // Optional chaining: a hand-written export may lack the group.
   const manifest = data.diagnostics?.image_manifest;
-  if (!manifest) {
-    return {
-      ok: false,
-      error:
-        "This export has no diagnostics.image_manifest. v0 requires the manifest to render the source images alongside the residuals.",
-    };
-  }
-  const root = joinPath(exportDir, manifest.root);
-  const toKey = (f: (typeof manifest.frames)[number]): FrameKey => ({
-    pose: f.view,
-    camera: f.camera,
-    label: `pose ${f.view} · cam ${f.camera}`,
-    abs_path: joinPath(root, f.path),
-    roi: f.roi,
-  });
-  const frames: FrameKey[] = manifest.frames
-    .filter((f) => (f.kind ?? "target") === "target")
-    .map(toKey);
-  const laserFrames: FrameKey[] = manifest.frames
-    .filter((f) => f.kind === "laser")
-    .map(toKey);
-  if (frames.length === 0) {
-    return {
-      ok: false,
-      error:
-        "This export's image_manifest is empty. v0 needs at least one (pose, camera) frame to render.",
-    };
+  let frames: FrameKey[];
+  let laserFrames: FrameKey[];
+  if (manifest) {
+    const root = joinPath(exportDir, manifest.root);
+    const toKey = (f: (typeof manifest.frames)[number]): FrameKey => ({
+      pose: f.view,
+      camera: f.camera,
+      label: `pose ${f.view} · cam ${f.camera}`,
+      abs_path: joinPath(root, f.path),
+      roi: f.roi,
+    });
+    frames = manifest.frames.filter((f) => (f.kind ?? "target") === "target").map(toKey);
+    laserFrames = manifest.frames.filter((f) => f.kind === "laser").map(toKey);
+    if (frames.length === 0) {
+      return {
+        ok: false,
+        error:
+          "This export's image_manifest is empty: it lists no (pose, camera) frame to render.",
+      };
+    }
+  } else {
+    // No image list: navigate by the residuals; the image panes say why
+    // they are empty.
+    const residuals = data.diagnostics?.per_feature_residuals;
+    frames = framesFromResiduals(residuals?.target ?? []);
+    laserFrames = framesFromResiduals(residuals?.laser ?? []);
   }
 
   const poseSet = new Set<number>();
@@ -89,9 +108,12 @@ function materializeExport(
   const posesByCamera = new Map([...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]));
   const camerasByPose = new Map([...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]));
 
-  const first = frames[0]!;
+  // An export with neither an image list nor residuals has no frame to
+  // select; its first slot is (pose 0, cam 0) and the second (pose 0, cam 1).
+  const first = frames[0] ?? { pose: 0, camera: 0 };
   const second =
-    frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ?? first;
+    frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ??
+    (frames.length === 0 ? { pose: 0, camera: 1 } : first);
 
   return {
     ok: true,
@@ -169,16 +191,13 @@ export const useStore = create<AppState>()(
     loadError: null,
 
     loadExport: async (path: string) => {
-      if (!isTauriContext()) {
-        set({
-          loadError:
-            "Tauri runtime not detected. Launch the app with `bun run tauri dev`.",
-        });
+      if (!capabilities().viewer) {
+        set({ loadError: NO_BACKEND });
         return;
       }
       let result: LoadExportResult;
       try {
-        result = await invoke<LoadExportResult>("load_export", { path });
+        result = await call<LoadExportResult>("load_export", { path });
       } catch (e) {
         set({ loadError: `Could not load export: ${String(e)}` });
         return;
@@ -196,7 +215,7 @@ export const useStore = create<AppState>()(
       // about to interact with. If the commit fails the frontend
       // surfaces the error and stays on the previous export.
       try {
-        await invoke("set_active_export", { export: data });
+        await call<null>("set_active_export", { export: data });
       } catch (e) {
         set({
           loadError: `Could not commit export to backend cache: ${String(e)}`,

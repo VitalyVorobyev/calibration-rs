@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { call, capabilities } from "../../lib/backend";
 import { imageBorderPixels } from "@vitavision/three";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -6,17 +6,16 @@ import {
   pinholeBorderRays,
   raysFromUndistortedPixels,
 } from "../../lib/frustumRays";
-import { isTauriContext } from "../../lib/tauri";
 import type { FxFyCxCy } from "../../types/generated/diagnose-wire";
 
 /** The image border's viewing rays for camera `cameraIndex` (flat
  * `[x, y, 1, …]` on the camera's `z = 1` plane), for `CameraFrustum`.
  *
- * Starts from the distortion-free pinhole rays, then — inside Tauri —
- * asks the backend to back-project the border through the full camera
- * model (`undistort_points`) and switches to those. Stays on the pinhole
- * rays when the backend can't (no Tauri, or an export without a `cameras`
- * array such as a lifted `laserline_device`). See `lib/frustumRays.ts`. */
+ * Starts from the distortion-free pinhole rays, then — with a back end —
+ * asks it to back-project the border through the full camera model
+ * (`undistort_points`) and switches to those. Stays on the pinhole rays
+ * when the back end can't (none, or an export without a `cameras` array
+ * such as a lifted `laserline_device`). See `lib/frustumRays.ts`. */
 export function useBorderRays(
   cameraIndex: number,
   k: FxFyCxCy,
@@ -31,12 +30,12 @@ export function useBorderRays(
   );
 
   useEffect(() => {
-    if (!isTauriContext()) return;
+    if (!capabilities().viewer) return;
     let cancelled = false;
     const px = imageBorderPixels(width, height, BORDER_SAMPLES_PER_EDGE);
     const pointsPx: [number, number][] = [];
     for (let i = 0; i < px.length; i += 2) pointsPx.push([px[i]!, px[i + 1]!]);
-    invoke<[number, number][] | null>("undistort_points", {
+    call<[number, number][] | null>("undistort_points", {
       camera: cameraIndex,
       pointsPx,
     })

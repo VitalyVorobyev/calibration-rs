@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { call } from "../../lib/backend";
 import {
   Button,
   Empty,
@@ -8,6 +8,7 @@ import {
   ToggleChip,
 } from "@vitavision/ui";
 import { lazy, Suspense, useMemo, useState } from "react";
+import { NoImageList } from "../../components/NoImageList";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useStore } from "../../store";
 import type { DisparityResult } from "../../types/generated/diagnose-wire";
@@ -103,14 +104,27 @@ export function DepthWorkspace() {
     );
   }
 
+  if (!frames.some((f) => f.abs_path !== null)) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold tracking-tight text-fg">
+          Depth (dense stereo)
+        </h2>
+        <div className="flex flex-1 rounded-panel border border-dashed border-line bg-surface">
+          <NoImageList />
+        </div>
+      </div>
+    );
+  }
+
   const canCompute = frameA != null && frameB != null && cameraA !== cameraB && !loading;
 
   const compute = async () => {
-    if (!frameA || !frameB) return;
+    if (!frameA?.abs_path || !frameB?.abs_path) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await invoke<DisparityResult>("compute_disparity", {
+      const res = await call<DisparityResult>("compute_disparity", {
         pathA: frameA.abs_path,
         pathB: frameB.abs_path,
         camA: cameraA,

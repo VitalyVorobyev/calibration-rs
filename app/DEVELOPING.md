@@ -21,12 +21,13 @@ bun run generate:types # regenerate TS wire types from the Rust source
 bun run test           # Vitest: pure-logic unit tests + jsdom component tests
 bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall over
 bun run test:screens   # screenshots of every workspace vs. a local baseline
+bun run viewer -- <run-dir>  # the viewers in a browser over one run (calib-viewer)
+bun run test:e2e:viewer      # Playwright against the real calib-viewer (needs cargo)
 ```
 
 Use `bun run tauri dev`, **not** `bun run dev`: the latter only starts Vite at
-<http://localhost:1420>, so `__TAURI_INTERNALS__` is absent and any IPC call
-fails with `Cannot read properties of undefined (reading 'invoke')`. The app
-detects this and shows a banner.
+<http://localhost:1420> with no back end, so nothing loads; the header says
+"No back end" and the desktop-only features are hidden.
 
 ## Layout
 
@@ -43,9 +44,11 @@ detects this and shows a banner.
   each config's `<name>.default.json`; both emitted by `cargo xtask
   emit-schemas`), `types/generated/` (generated wire types).
 - Backend (`app/src-tauri/src/`): `project.rs` (project folders),
-  `assets.rs` (the asset-protocol scope), `commands.rs` (export loading,
-  undistortion, epipolar overlay, uncertainty), `run.rs` (calibration
-  runner), `disparity.rs` (dense stereo).
+  `assets.rs` (the asset-protocol scope), `ops.rs` (the viewer commands'
+  bodies: export loading, undistortion, epipolar overlay, uncertainty,
+  disparity), `commands.rs` (their Tauri commands), `run.rs` (calibration
+  runner), `disparity.rs` (dense stereo), `viewer/` (the `calib-viewer`
+  HTTP back end, see "Browser mode").
 - Module size: no `app/src` module over ~400 lines (generated files
   excepted). Split by responsibility: pure logic in a `.ts` module with its
   own unit test, views in `.tsx`, effects in a `use…` hook.
@@ -81,8 +84,9 @@ rules are in `project.rs` (temporary folders); the store is tested against
 
 ## Images and the asset protocol
 
-Source frames load straight from disk through Tauri's asset protocol:
-`lib/tauri.ts`'s `assetUrl(path)` wraps `convertFileSrc`, and
+Source frames load straight from disk through Tauri's asset protocol
+(in the browser viewer, through its scoped file route):
+`lib/backend.ts`'s `fileUrl(path)` wraps `convertFileSrc`, and
 `hooks/useImageData.ts` decodes the image (with `crossOrigin` set, so the
 canvas the luminance is read from stays untainted). `tauri.conf.json`
 enables the protocol with an empty scope; `assets.rs`'s `allow_dir` adds a
@@ -97,9 +101,72 @@ adding nonces to `style-src`, which would disable the `'unsafe-inline'` that
 React's `style` attributes need. `load_undistorted_image` returns PNG bytes
 as a binary IPC response (`tauri::ipc::Response`), shown through a blob URL.
 
-`lib/tauri.ts`'s `joinPath` resolves paths as the file system does: an
+`lib/paths.ts`'s `joinPath` resolves paths as the file system does: an
 absolute segment (an absolute image root) replaces the base, and `.`/`..`
 are folded, so the asset scope sees plain paths.
+
+## Browser mode (`calib-viewer`)
+
+The viewers (Diagnose, the 3D viewer, Epipolar, Depth) also run in a plain
+browser over one calibration run, served from localhost:
+
+```bash
+bun run viewer -- <run-dir | export.json> [--port N] [--no-open]
+```
+
+builds the frontend when `dist/` is missing or older than `src/`, then runs
+`src-tauri`'s second binary, `calib-viewer` (`src/bin/calib_viewer.rs`,
+`src/viewer/`). A run is a `vcal run -o` folder (`calibration.json`), a run
+the app saved (`runs/<name>/export.json`), or one export file. The server
+binds `127.0.0.1` only (a free port unless `--port`), serves `app/dist`
+(`--dist` overrides it) with `index.html` marked
+`<meta name="calib-backend" content="http">`, prints the address and opens
+the browser. On start the page asks `GET /api/session` for the export,
+loads it and lands on Diagnose. An export without an image list
+(`diagnostics.image_manifest`) opens too: its frames come from its
+residuals and the image panes say there are no images.
+
+**The seam.** `src/lib/backend.ts` is the only module that imports
+`@tauri-apps/*` (an ESLint rule enforces it outside tests). It exposes
+`call(command, args)`, `fileUrl(path)`, `openDialog`, `callStreaming` (the
+run's progress channel), `viewerSession` and `capabilities()`:
+`{ kind, viewer, desktop }`. The Tauri back end is the IPC; the HTTP back
+end is `POST /api/<command>` with the same camelCase argument object, the
+same JSON answer (or bytes, for `load_undistorted_image`) and the command's
+error value as the rejection, with a 4xx status. Without either (plain
+`bun run dev`), `kind` is `"none"`. Desktop features (the project menu,
+Open Export…, the Run workspace) show only when `capabilities().desktop`;
+there are no disabled stand-ins.
+
+**Adding a command to both back ends.** Write its body once in
+`src-tauri/src/ops.rs` as a plain function of its arguments and the
+`ExportCache`; wrap it in a `#[tauri::command]` (in `commands.rs`,
+registered in `lib.rs`) and add its route to `command()` in
+`src/viewer/http.rs` with a camelCase argument struct. A path argument goes
+through the file scope (`scoped(...)`) there, as the asset scope guards it
+in the app. A desktop-only command (dialogs, projects, runs) gets no route:
+it answers 404, and the UI hides it by capability.
+
+**File scope.** The server serves files only under the run folder and the
+export's image root (resolved against the export's folder), judged after
+canonicalising (`viewer/scope.rs`): `..`, other absolute paths and symbolic
+links out of them are 403. It answers only `Host: 127.0.0.1:<port>` or
+`localhost:<port>` and refuses a `POST` with a foreign `Origin`.
+
+**Developing in browser mode.** Run the server on a fixed port and Vite with
+the HTTP back end; Vite proxies `/api` to it (`vite.config.ts`,
+`CALIB_VIEWER_URL` overrides the target):
+
+```bash
+cargo run --manifest-path src-tauri/Cargo.toml --bin calib-viewer -- <run> --port 8765 --no-open
+VITE_CALIB_BACKEND=http bun run dev
+```
+
+**Sample runs.** `cargo test --manifest-path src-tauri/Cargo.toml
+write_viewer_sample_runs -- --ignored --nocapture` calibrates `data/kuka_1`
+and, when present locally, `data/stereo_charuco` (`CALIB_VIEWER_DATA`
+points elsewhere) and saves each as an app project under `app/.tmp-runs/`
+(git-ignored), ready for `bun run viewer -- .tmp-runs/kuka_1/runs/run-001`.
 
 ## 3D scene primitives
 
@@ -116,7 +183,7 @@ markers, board sizing from residuals, the laser-plane → fan placement
   image border's viewing rays. `useBorderRays` asks the backend's
   `undistort_points` to back-project the border through the full camera
   model (so a distorted field of view bows), and falls back to the pinhole
-  `K⁻¹` outside Tauri (`src/lib/frustumRays.ts`).
+  `K⁻¹` without a back end (`src/lib/frustumRays.ts`).
 - **Colours.** The packages read `@vitavision/ui` token names (`--signal`,
   `--fg-muted`, `--defect`, …), which `@vitavision/ui/styles.css` defines
   (see "Design system" below); `useSceneColors` re-reads them when `.dark`
@@ -215,10 +282,14 @@ file exists.
   (Node); `src/**/*.test.tsx` are jsdom component tests (opt in with
   `// @vitest-environment jsdom`). Component tests mock IPC with
   `@tauri-apps/api/mocks`' `mockIPC` (and `mockConvertFileSrc` where a
-  frame image is loaded); `src/test/setupTests.ts` stubs `ResizeObserver`.
+  frame image is loaded), which makes the back end the desktop app's; a
+  test of the browser viewer adds `<meta name="calib-backend"
+  content="http">` and stubs `fetch` (`lib/backend.test.ts`,
+  `shell/Shell.test.tsx`). `src/test/setupTests.ts` stubs `ResizeObserver`.
 - **Playwright (`bun run test:e2e`)** — `e2e/` smoke tests against the plain
   Vite dev server (no Tauri/Rust toolchain). `app.spec.ts` checks every
-  workspace mounts with no console errors and no Tauri mock;
+  workspace mounts with no console errors and no Tauri mock (the
+  desktop-only Run workspace with an empty one);
   `diagnose.spec.ts` injects a `window.__TAURI_INTERNALS__` shim
   (`e2e/support/tauriMock.ts`) via `page.addInitScript`; its `assetUrl`
   argument stands in for the asset protocol. Real desktop behavior is only
@@ -227,6 +298,15 @@ file exists.
   (`bun run tauri build --debug --no-bundle`, then run
   `src-tauri/target/debug/calibration-diagnose`). Install the browser once with
   `bunx playwright install chromium --with-deps`.
+- **Browser viewer (`bun run test:e2e:viewer`)** — `e2e/viewer.spec.ts`
+  (`playwright.viewer.config.ts`) builds the frontend and runs the real
+  `calib-viewer` on the committed fixture runs in `e2e/fixtures/`: a
+  synthetic two-camera `rig_extrinsics` run saved as the app saves one
+  (`viewer-run/`, 160×120 rendered chessboard images) and the same export
+  without an image list as `vcal run -o` writes it (`viewer-run-vcal/`).
+  It needs the Rust toolchain and is not part of CI's smoke run; the server's
+  routes, file scope and run detection are covered by `cargo test` in
+  `src/viewer/` on the same fixture.
 - **Screenshots (`bun run test:screens`)** — `e2e/screens.spec.ts`
   (`playwright.screens.config.ts`, port 1421) captures every workspace; the
   baseline in `e2e/.screens/` is local and uncommitted (`--update-snapshots`

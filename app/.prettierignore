@@ -7,6 +7,7 @@ tsconfig.tsbuildinfo
 bun.lock
 playwright-report
 test-results
+.tmp-runs
 
 # Rust-emitted JSON Schemas: byte-for-byte owned by their emitters and
 # drift-checked against them, so prettier must not reformat them.

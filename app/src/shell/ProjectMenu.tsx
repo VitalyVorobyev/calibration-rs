@@ -12,15 +12,11 @@ import { folderName } from "../project/projectModel";
 import { useRunSetup } from "../store/runSetup";
 import { pickFolder } from "./dialogs";
 
-interface ProjectMenuProps {
-  /** False outside the Tauri shell: no dialogs, no file system. */
-  enabled: boolean;
-}
-
 /** The header's project commands: new, open, save, close, and reopen a
- * recent project. A failure lands in the project store's `error`, which the
- * shell shows. */
-export function ProjectMenu({ enabled }: ProjectMenuProps) {
+ * recent project (desktop only: the shell shows it when the back end has
+ * dialogs and a file system). A failure lands in the project store's
+ * `error`, which the shell shows. */
+export function ProjectMenu() {
   const project = useProject((s) => s.project);
   const recent = useProject((s) => s.recent);
   const hasDataset = useRunSetup((s) => s.manifestDir !== null);
@@ -49,7 +45,7 @@ export function ProjectMenu({ enabled }: ProjectMenuProps) {
     <DropdownMenu
       align="end"
       trigger={
-        <Button size="sm" disabled={!enabled} title={project?.dir ?? "No project open"}>
+        <Button size="sm" title={project?.dir ?? "No project open"}>
           <span className="max-w-[14rem] truncate">
             {project ? folderName(project.dir) : "Project"}
           </span>
