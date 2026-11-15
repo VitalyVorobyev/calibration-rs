@@ -72,11 +72,17 @@ an `input` field.
   later override is not a breaking signature change.
 - **One path per type.** A type several problems share — step options
   (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …),
-  input parts (`RobotPoseMeta`, `RigLaserlineView`) and the hand-eye
-  estimate — is defined once and reached only through `common`; a problem
-  module exports only its own types. Two names for one shape are merged.
-  Results and seeds are per problem: same name, distinct type in each module
-  (`rig_handeye::IntrinsicsInitResult` is not
+  input parts (`RobotPoseMeta`, `RigLaserlineView`), the hand-eye
+  estimate, and the seeds and results of the stages the rig problems share
+  (`RigIntrinsicsManualInit`, `RigIntrinsicsInitResult`, `RigManualInit`,
+  `RigPoses`, `RigInitResult`) and of the hand-eye refinement
+  (`HandeyeOptimizeResult`) — is defined once and reached only through
+  `common`; a problem module exports only its own types. Two names for one
+  shape are merged. A shared type takes a `Rig` prefix only where its bare
+  name would collide with a distinct per-problem type
+  (`RigIntrinsicsInitResult` beside the one-camera `IntrinsicsInitResult`).
+  Every other result and seed is per problem: same name, distinct type in
+  each module (`single_cam_handeye::IntrinsicsInitResult` is not
   `planar_intrinsics::IntrinsicsInitResult`); the facade is module-first, so
   the names never meet.
 - `run_calibration(session: &mut CalibrationSession<P>) -> Result<(), Error>`

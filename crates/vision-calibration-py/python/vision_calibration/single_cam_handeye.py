@@ -17,6 +17,7 @@ from . import _vision_calibration as _native
 from .common import (
     HandeyeInitOptions,
     HandeyeOptimizeOptions,
+    HandeyeOptimizeResult,
     IntrinsicsInitOptions,
     IntrinsicsManualInit,
     IntrinsicsOptimizeOptions,
@@ -154,22 +155,6 @@ class HandeyeInitResult:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeInitResult:
         return cls(handeye=_camera_solution_from_payload(payload["handeye"]))
-
-
-@dataclass(frozen=True, slots=True)
-class HandeyeOptimizeResult:
-    """The solve metrics of the hand-eye refinement."""
-
-    mean_reproj_error: float
-    """Mean reprojection error, pixels."""
-    final_cost: float
-
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeOptimizeResult:
-        return cls(
-            mean_reproj_error=float(payload["mean_reproj_error"]),
-            final_cost=float(payload["final_cost"]),
-        )
 
 
 class SingleCamHandeyeSession(

@@ -173,6 +173,13 @@ pub mod control {
 ///   (planar intrinsics, single-camera hand-eye) and
 ///   [`RigIntrinsicsManualInit`](common::RigIntrinsicsManualInit) for each
 ///   camera of a rig (rig extrinsics, rig hand-eye).
+/// - The seeds and results of the stages both rig problems (rig extrinsics,
+///   rig hand-eye) run: [`RigIntrinsicsInitResult`](common::RigIntrinsicsInitResult)
+///   of the per-camera intrinsics init, [`RigManualInit`](common::RigManualInit)
+///   (with its [`RigPoses`](common::RigPoses)) and
+///   [`RigInitResult`](common::RigInitResult) of the rig init, and
+///   [`HandeyeOptimizeResult`](common::HandeyeOptimizeResult) of the hand-eye
+///   refinement both hand-eye problems run.
 /// - The shared input parts: [`RobotPoseMeta`](common::RobotPoseMeta) (a
 ///   view's robot pose) and [`RigLaserlineView`](common::RigLaserlineView)
 ///   (a rig view with laser pixels).
@@ -190,10 +197,11 @@ pub mod control {
 pub mod common {
     pub use vision_calibration_pipeline::common::{
         CalibratedCameras, ExportDiagnostics, HandeyeEstimate, HandeyeInitOptions,
-        HandeyeOptimizeOptions, HandeyeParams, HandeyeSolution, IntrinsicsInitOptions,
-        IntrinsicsManualInit, IntrinsicsOptimizeOptions, RigInitOptions, RigIntrinsicsManualInit,
-        RigLaserlineView, RigOptimizeOptions, RobotPoseMeta, RobotPoseSigma, RobotRefinement,
-        VersionedExport, calibrated_cameras, check_export_version,
+        HandeyeOptimizeOptions, HandeyeOptimizeResult, HandeyeParams, HandeyeSolution,
+        IntrinsicsInitOptions, IntrinsicsManualInit, IntrinsicsOptimizeOptions, RigInitOptions,
+        RigInitResult, RigIntrinsicsInitResult, RigIntrinsicsManualInit, RigLaserlineView,
+        RigManualInit, RigOptimizeOptions, RigPoses, RobotPoseMeta, RobotPoseSigma,
+        RobotRefinement, VersionedExport, calibrated_cameras, check_export_version,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -287,6 +295,9 @@ pub mod planar_intrinsics {
 /// 3. `step_handeye_init` - Tsai-Lenz linear estimation
 /// 4. `step_handeye_optimize` - Bundle adjustment
 ///
+/// `step_handeye_optimize` returns the shared
+/// [`common::HandeyeOptimizeResult`].
+///
 /// [`SingleCamHandeyeProblem`](crate::single_cam_handeye::SingleCamHandeyeProblem) has a runnable example.
 pub mod single_cam_handeye {
     // Problem, input, config, output (the solve's estimate) and export
@@ -300,8 +311,7 @@ pub mod single_cam_handeye {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::single_cam_handeye::{
-        HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
-        IntrinsicsOptimizeResult,
+        HandeyeInitResult, HandeyeManualInit, IntrinsicsInitResult, IntrinsicsOptimizeResult,
     };
 
     // Step functions
@@ -358,6 +368,10 @@ pub mod laserline_device {
 /// 3. `step_rig_init` - Linear estimation of camera-to-rig transforms
 /// 4. `step_rig_optimize` - Joint bundle adjustment
 ///
+/// The seeds and results of the stages both rig problems run
+/// (`RigIntrinsicsManualInit`, `RigIntrinsicsInitResult`, `RigManualInit`,
+/// `RigPoses`, `RigInitResult`) are in [`common`].
+///
 /// [`RigExtrinsicsProblem`](crate::rig_extrinsics::RigExtrinsicsProblem) has a runnable example.
 pub mod rig_extrinsics {
     // Problem, input, config, output (the solve's estimate) and export
@@ -368,8 +382,7 @@ pub mod rig_extrinsics {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_extrinsics::{
-        IntrinsicsInitResult, IntrinsicsOptimizeResult, RigInitResult, RigManualInit,
-        RigOptimizeResult, RigPoses,
+        IntrinsicsOptimizeResult, RigOptimizeResult,
     };
 
     // Parameters of the estimate
@@ -395,6 +408,11 @@ pub mod rig_extrinsics {
 /// 5. `step_handeye_init` - Tsai-Lenz linear estimation
 /// 6. `step_handeye_optimize` - Hand-eye bundle adjustment
 ///
+/// The seeds and results of the stages shared with [`rig_extrinsics`] and
+/// [`single_cam_handeye`] (`RigIntrinsicsManualInit`,
+/// `RigIntrinsicsInitResult`, `RigManualInit`, `RigPoses`, `RigInitResult`,
+/// `HandeyeOptimizeResult`) are in [`common`].
+///
 /// [`RigHandeyeProblem`](crate::rig_handeye::RigHandeyeProblem) has a runnable example.
 pub mod rig_handeye {
     // Problem, input, config, output (the solve's estimate) and export
@@ -407,8 +425,7 @@ pub mod rig_handeye {
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::rig_handeye::{
-        HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeResult, IntrinsicsInitResult,
-        IntrinsicsOptimizeResult, RigInitResult, RigManualInit, RigOptimizeResult, RigPoses,
+        HandeyeInitResult, HandeyeManualInit, IntrinsicsOptimizeResult, RigOptimizeResult,
     };
 
     // Step functions
@@ -485,16 +502,17 @@ pub mod rig_handeye_laserline {
 /// live in [`analysis`], not here.
 pub mod core {
     pub use vision_calibration_core::{
-        BrownConrady5, CalibratedRig, Camera, CameraFix, CameraModel, CameraModelSpec,
-        CameraParams, CombinationTerm, CorrespondenceView, DistortionKind, DistortionParams,
-        Division, Equidistant, FixedParams, FrameKind, FrameRef, FxFyCxCy, Handeye,
-        HomographySensor, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4, LaserPlane, Mat3,
-        NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
-        PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Ray, Real,
-        ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs, RobotFrame, RobotPose,
-        ScheimpflugParams, SecondOrderError, SensorKind, SensorModel, SensorParams, ThinPrism,
-        Uncertainty, UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
-        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
+        AnyDistortion, AnyProjection, AnySensor, BrownConrady5, CalibratedRig, Camera, CameraFix,
+        CameraModel, CameraModelSpec, CameraParams, CombinationTerm, CorrespondenceView,
+        DistortionKind, DistortionParams, Division, Equidistant, FixedParams, FrameKind, FrameRef,
+        FxFyCxCy, Handeye, HomographySensor, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4,
+        LaserPlane, Mat3, NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera,
+        PixelRect, PlanarDataset, PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3,
+        RationalPolynomial, Ray, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
+        RigViewObs, RobotFrame, RobotPose, ScheimpflugParams, SecondOrderError, SensorKind,
+        SensorModel, SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable, Vec2, Vec3,
+        View, ViewCovariance, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
+        pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].
@@ -516,14 +534,31 @@ pub mod core {
 /// lists real sample datasets with ready manifests and, with the `fetch`
 /// feature, downloads them.
 pub mod dataset {
-    pub use vision_calibration_dataset::samples;
     pub use vision_calibration_dataset::{
         CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec,
-        DatasetSpec, DetectorSpec, ImageNoiseSpec, ImagePattern, LaserExtractionSpec,
-        LaserScanAxis, ManifestError, PoseColumnMap, PoseConvention, PosePairing, ProblemKind,
-        RinggridCenterSpec, RobotPoseFormat, RobotPoseSource, RotationFormat, SniffError,
-        TargetSpec, TransformConvention, TranslationUnits, ValidationError, sniff_folder,
+        DATASET_SPEC_VERSION, DatasetSpec, DetectorSpec, ImageNoiseSpec, ImagePattern,
+        LaserExtractionSpec, LaserScanAxis, ManifestError, PoseColumnMap, PoseConvention,
+        PosePairing, ProblemKind, RinggridCenterSpec, RobotPoseFormat, RobotPoseSource,
+        RotationFormat, SniffError, TargetSpec, TransformConvention, TranslationUnits,
+        ValidationError, sniff_folder,
     };
+
+    /// Sample datasets: real calibration images with a ready manifest.
+    ///
+    /// [`catalogue`](samples::catalogue) lists the samples and
+    /// [`sample`](samples::sample) finds one by id. With the `fetch` feature,
+    /// `fetch` downloads one from its publisher at a pinned revision,
+    /// verifies every file against its SHA-256 and writes the sample's
+    /// manifest next to the files, so the returned path runs as is;
+    /// `default_cache_dir` is where it goes unless the caller names a
+    /// directory.
+    pub mod samples {
+        pub use vision_calibration_dataset::samples::{
+            CACHE_DIR_ENV, FetchError, Sample, catalogue, sample, sample_dir,
+        };
+        #[cfg(feature = "fetch")]
+        pub use vision_calibration_dataset::samples::{default_cache_dir, fetch};
+    }
 }
 
 /// Dataset-driven runner: turns a [`dataset::DatasetSpec`] manifest plus a

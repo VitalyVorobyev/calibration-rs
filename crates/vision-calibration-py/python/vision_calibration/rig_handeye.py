@@ -7,9 +7,9 @@ step: the cameras' intrinsics (``step_intrinsics_init_all``,
 ``step_handeye_optimize``). ``run_calibration`` runs all six, seeding the
 intrinsics stage from the config's ``manual_init``.
 
-The rig seeds and initial results have the shapes of
-:mod:`vision_calibration.rig_extrinsics`, whose classes this module
-re-exports; the intrinsics seed is :class:`RigIntrinsicsManualInit`.
+The seeds and results of the rig stages are the ones
+:mod:`vision_calibration.rig_extrinsics` uses, defined in
+:mod:`vision_calibration.common` and re-exported here.
 """
 
 from __future__ import annotations
@@ -22,11 +22,17 @@ from . import _vision_calibration as _native
 from .common import (
     HandeyeInitOptions,
     HandeyeOptimizeOptions,
+    HandeyeOptimizeResult,
     IntrinsicsInitOptions,
     IntrinsicsOptimizeOptions,
     RigInitOptions,
+    RigInitResult,
+    RigIntrinsicsInitResult,
     RigIntrinsicsManualInit,
+    RigManualInit,
     RigOptimizeOptions,
+    RigPoses,
+    _target_poses,
 )
 from .models import (
     CameraParams,
@@ -37,13 +43,6 @@ from .models import (
     RigHandeyeInput,
     HandeyeSolution,
     _rig_solution_from_payload,
-)
-from .rig_extrinsics import (
-    IntrinsicsInitResult,
-    RigInitResult,
-    RigManualInit,
-    RigPoses,
-    _target_poses,
 )
 from .session import (
     _run_calibration,
@@ -65,12 +64,12 @@ __all__ = [
     "HandeyeOptimizeOptions",
     "HandeyeOptimizeResult",
     "IntrinsicsInitOptions",
-    "IntrinsicsInitResult",
     "IntrinsicsOptimizeOptions",
     "IntrinsicsOptimizeResult",
     "RigHandeyeSession",
     "RigInitOptions",
     "RigInitResult",
+    "RigIntrinsicsInitResult",
     "RigIntrinsicsManualInit",
     "RigManualInit",
     "RigOptimizeOptions",
@@ -187,22 +186,6 @@ class HandeyeInitResult:
         return cls(handeye=_rig_solution_from_payload(payload["handeye"]))
 
 
-@dataclass(frozen=True, slots=True)
-class HandeyeOptimizeResult:
-    """The solve metrics of the hand-eye refinement."""
-
-    mean_reproj_error: float
-    """Mean reprojection error, pixels."""
-    final_cost: float
-
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeOptimizeResult:
-        return cls(
-            mean_reproj_error=float(payload["mean_reproj_error"]),
-            final_cost=float(payload["final_cost"]),
-        )
-
-
 class RigHandeyeSession(CalibrationSession[RigHandeyeInput, RigHandeyeConfig, RigHandeyeExport]):
     """A rig hand-eye calibration, step by step."""
 
@@ -214,9 +197,9 @@ class RigHandeyeSession(CalibrationSession[RigHandeyeInput, RigHandeyeConfig, Ri
 
     def step_intrinsics_init_all(
         self, options: IntrinsicsInitOptions | None = None
-    ) -> IntrinsicsInitResult:
+    ) -> RigIntrinsicsInitResult:
         """Fit every camera's initial intrinsics and target poses linearly."""
-        return IntrinsicsInitResult.from_payload(
+        return RigIntrinsicsInitResult.from_payload(
             self._native.step_intrinsics_init_all(_payload(options))
         )
 
@@ -224,9 +207,9 @@ class RigHandeyeSession(CalibrationSession[RigHandeyeInput, RigHandeyeConfig, Ri
         self,
         seed: RigIntrinsicsManualInit,
         options: IntrinsicsInitOptions | None = None,
-    ) -> IntrinsicsInitResult:
+    ) -> RigIntrinsicsInitResult:
         """``step_intrinsics_init_all`` from manual seeds."""
-        return IntrinsicsInitResult.from_payload(
+        return RigIntrinsicsInitResult.from_payload(
             self._native.step_intrinsics_init_all_with_seed(_payload(seed), _payload(options))
         )
 

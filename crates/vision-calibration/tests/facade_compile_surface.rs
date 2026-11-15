@@ -166,7 +166,7 @@ fn every_problem_follows_the_vocabulary() {
     let _: fn(
         &mut Sch,
         Option<common::HandeyeOptimizeOptions>,
-    ) -> Result<sch::HandeyeOptimizeResult, Error> = sch::step_handeye_optimize;
+    ) -> Result<common::HandeyeOptimizeResult, Error> = sch::step_handeye_optimize;
 
     type Ld = session::CalibrationSession<ld::LaserlineDeviceProblem>;
     let _: fn(&mut Ld, Option<ld::DeviceInitOptions>) -> Result<ld::DeviceInitResult, Error> =
@@ -185,23 +185,23 @@ fn every_problem_follows_the_vocabulary() {
     let _: fn(
         &mut Re,
         Option<common::IntrinsicsInitOptions>,
-    ) -> Result<re::IntrinsicsInitResult, Error> = re::step_intrinsics_init_all;
+    ) -> Result<common::RigIntrinsicsInitResult, Error> = re::step_intrinsics_init_all;
     let _: fn(
         &mut Re,
         common::RigIntrinsicsManualInit,
         Option<common::IntrinsicsInitOptions>,
-    ) -> Result<re::IntrinsicsInitResult, Error> = re::step_intrinsics_init_all_with_seed;
+    ) -> Result<common::RigIntrinsicsInitResult, Error> = re::step_intrinsics_init_all_with_seed;
     let _: fn(
         &mut Re,
         Option<common::IntrinsicsOptimizeOptions>,
     ) -> Result<re::IntrinsicsOptimizeResult, Error> = re::step_intrinsics_optimize_all;
-    let _: fn(&mut Re, Option<common::RigInitOptions>) -> Result<re::RigInitResult, Error> =
+    let _: fn(&mut Re, Option<common::RigInitOptions>) -> Result<common::RigInitResult, Error> =
         re::step_rig_init;
     let _: fn(
         &mut Re,
-        re::RigManualInit,
+        common::RigManualInit,
         Option<common::RigInitOptions>,
-    ) -> Result<re::RigInitResult, Error> = re::step_rig_init_with_seed;
+    ) -> Result<common::RigInitResult, Error> = re::step_rig_init_with_seed;
     let _: fn(&mut Re, Option<common::RigOptimizeOptions>) -> Result<re::RigOptimizeResult, Error> =
         re::step_rig_optimize;
 
@@ -209,23 +209,23 @@ fn every_problem_follows_the_vocabulary() {
     let _: fn(
         &mut Rh,
         Option<common::IntrinsicsInitOptions>,
-    ) -> Result<rh::IntrinsicsInitResult, Error> = rh::step_intrinsics_init_all;
+    ) -> Result<common::RigIntrinsicsInitResult, Error> = rh::step_intrinsics_init_all;
     let _: fn(
         &mut Rh,
         common::RigIntrinsicsManualInit,
         Option<common::IntrinsicsInitOptions>,
-    ) -> Result<rh::IntrinsicsInitResult, Error> = rh::step_intrinsics_init_all_with_seed;
+    ) -> Result<common::RigIntrinsicsInitResult, Error> = rh::step_intrinsics_init_all_with_seed;
     let _: fn(
         &mut Rh,
         Option<common::IntrinsicsOptimizeOptions>,
     ) -> Result<rh::IntrinsicsOptimizeResult, Error> = rh::step_intrinsics_optimize_all;
-    let _: fn(&mut Rh, Option<common::RigInitOptions>) -> Result<rh::RigInitResult, Error> =
+    let _: fn(&mut Rh, Option<common::RigInitOptions>) -> Result<common::RigInitResult, Error> =
         rh::step_rig_init;
     let _: fn(
         &mut Rh,
-        rh::RigManualInit,
+        common::RigManualInit,
         Option<common::RigInitOptions>,
-    ) -> Result<rh::RigInitResult, Error> = rh::step_rig_init_with_seed;
+    ) -> Result<common::RigInitResult, Error> = rh::step_rig_init_with_seed;
     let _: fn(&mut Rh, Option<common::RigOptimizeOptions>) -> Result<rh::RigOptimizeResult, Error> =
         rh::step_rig_optimize;
     let _: fn(&mut Rh, Option<common::HandeyeInitOptions>) -> Result<rh::HandeyeInitResult, Error> =
@@ -238,7 +238,7 @@ fn every_problem_follows_the_vocabulary() {
     let _: fn(
         &mut Rh,
         Option<common::HandeyeOptimizeOptions>,
-    ) -> Result<rh::HandeyeOptimizeResult, Error> = rh::step_handeye_optimize;
+    ) -> Result<common::HandeyeOptimizeResult, Error> = rh::step_handeye_optimize;
 
     type Rld = session::CalibrationSession<rld::RigLaserlineDeviceProblem>;
     let _: fn(&mut Rld, Option<rld::PlaneInitOptions>) -> Result<rld::PlaneInitResult, Error> =

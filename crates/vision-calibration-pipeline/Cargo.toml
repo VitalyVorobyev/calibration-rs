@@ -21,6 +21,7 @@ schemars = [
     "vision-calibration-linear/schemars",
     "vision-calibration-optim/schemars",
     "vision-calibration-dataset/schemars",
+    "vision-calibration-detect/schemars",
 ]
 
 [dependencies]

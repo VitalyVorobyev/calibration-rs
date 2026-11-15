@@ -106,7 +106,7 @@ let estimate = dlt_ransac(
     &world_pts, &image_pts, &K,
     &RansacOptions::new(5.0) // pixel reprojection error
 )?;
-// estimate.pose, estimate.inliers
+// estimate.cam_se3_world, estimate.inliers
 # Ok(())
 # }
 ```

@@ -109,7 +109,7 @@ impl RigPoses {
 /// target in a given view.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct IntrinsicsInitResult {
+pub struct RigIntrinsicsInitResult {
     /// Per-camera initial parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
     /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`cam_se3_target`).
@@ -219,7 +219,7 @@ pub(crate) fn init_intrinsics<P: RigStages>(
     session: &mut CalibrationSession<P>,
     manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<IntrinsicsInitResult, Error> {
+) -> Result<RigIntrinsicsInitResult, Error> {
     session.validate()?;
     let input = P::dataset(session.require_input()?);
     let opts = opts.unwrap_or_default();
@@ -256,7 +256,7 @@ pub(crate) fn init_intrinsics<P: RigStages>(
         ),
     );
 
-    Ok(IntrinsicsInitResult {
+    Ok(RigIntrinsicsInitResult {
         cameras: bootstrap.cameras,
         cam_se3_target: bootstrap.cam_se3_target,
     })

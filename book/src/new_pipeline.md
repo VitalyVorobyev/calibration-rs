@@ -163,8 +163,7 @@ mod steps;
 
 pub use problem::{MyConfig, MyEstimate, MyExport, MyInput, MyProblem};
 pub use steps::{
-    IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsOptimizeOptions,
-    IntrinsicsOptimizeResult, run_calibration, step_init, step_optimize,
+    IntrinsicsInitResult, IntrinsicsOptimizeResult, run_calibration, step_init, step_optimize,
 };
 ```
 
@@ -183,14 +182,13 @@ In `crates/vision-calibration/src/lib.rs`, list the public items explicitly (the
 ```rust,ignore
 pub mod my_problem {
     pub use vision_calibration_pipeline::my_problem::{
-        IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsOptimizeOptions,
-        IntrinsicsOptimizeResult, MyConfig, MyEstimate, MyExport, MyInput, MyProblem,
-        run_calibration, step_init, step_optimize,
+        IntrinsicsInitResult, IntrinsicsOptimizeResult, MyConfig, MyEstimate, MyExport, MyInput,
+        MyProblem, run_calibration, step_init, step_optimize,
     };
 }
 ```
 
-A workflow is reached through its module (`vision_calibration::<name>`), and each symbol through one path.
+A workflow is reached through its module (`vision_calibration::<name>`), and each symbol through one path: a type several problems share (the step options, a shared seed or result) is re-exported by `common`, never by a problem module.
 
 Add the Python binding in `vision-calibration-py`: one `session_class!` invocation in `src/session.rs` (the problem type, its steps with their option and result types), a `python/vision_calibration/<module>.py` with the session class and the seed and result dataclasses, a `run_<module>` runner, and an entry per new facade item in `scripts/binding_parity.toml`. The parity check fails until every facade item is bound or marked Rust-only with a reason.
 

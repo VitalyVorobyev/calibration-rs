@@ -8,7 +8,7 @@ use vision_calibration_core::{
     Vec3,
     test_utils::{CalibrationView, CornerInfo, ViewDetections, build_corner_info},
 };
-use vision_calibration_linear::planar_pose::PlanarPoseSolver;
+use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
 use vision_calibration_linear::zhang_intrinsics::PlanarIntrinsicsLinearInit;
 use vision_geometry::epipolar::{essential_5point, fundamental_8point};
 use vision_geometry::homography::dlt_homography;
@@ -238,7 +238,7 @@ fn stereo_planar_pose_matches_ground_truth() {
             }
 
             let h = dlt_homography(&world, &image).expect("homography");
-            let pose = PlanarPoseSolver::from_homography(&k_gt, &h).expect("planar pose");
+            let pose = estimate_planar_pose_from_h(&k_gt, &h).expect("planar pose");
 
             let gt = mat4_from_array(&extrinsics[view.view_index]);
             let (r_err, t_err) = pose_error(&pose, &gt);

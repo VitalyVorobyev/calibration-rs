@@ -9,12 +9,10 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::CameraParams;
 
 use crate::common::{
-    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigInitResult,
+    RigIntrinsicsInitResult, RigIntrinsicsManualInit, RigManualInit, RigOptimizeOptions,
 };
 use crate::rig_family::{self, rig_ba_notes};
-pub use crate::rig_family::{
-    IntrinsicsInitResult, RigInitResult, RigIntrinsicsManualInit, RigManualInit, RigPoses,
-};
 use crate::session::CalibrationSession;
 
 use super::problem::RigExtrinsicsProblem;
@@ -71,7 +69,7 @@ pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<IntrinsicsInitResult, Error> {
+) -> Result<RigIntrinsicsInitResult, Error> {
     rig_family::init_intrinsics(session, manual, opts)
 }
 
@@ -81,7 +79,7 @@ pub fn step_intrinsics_init_all_with_seed(
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<IntrinsicsInitResult, Error> {
+) -> Result<RigIntrinsicsInitResult, Error> {
     step_intrinsics_init_all_with_seed(session, RigIntrinsicsManualInit::default(), opts)
 }
 

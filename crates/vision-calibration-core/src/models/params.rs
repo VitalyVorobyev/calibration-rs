@@ -339,7 +339,10 @@ pub struct CameraParams {
     pub intrinsics: FxFyCxCy<Real>,
 }
 
-/// Concrete camera type built from parameters (f64).
+/// Concrete camera type built from parameters (f64), by
+/// [`CameraParams::build`]: its model slots are [`AnyProjection`],
+/// [`AnyDistortion`] and [`AnySensor`], each holding the model the parameters
+/// name.
 pub type CameraModel = Camera<Real, AnyProjection, AnyDistortion, AnySensor, FxFyCxCy<Real>>;
 
 impl CameraParams {
@@ -451,12 +454,19 @@ impl CameraParams {
     }
 }
 
-// Internal type-erased model wrappers to produce a single concrete Camera type.
-// These are intentionally doc-hidden from the public API surface.
+/// The projection slot of a [`CameraModel`]: any supported projection model,
+/// chosen at run time.
+///
+/// [`CameraParams::build`] fills it from the parameters'
+/// [`ProjectionParams`]; it projects through the model it holds. A
+/// projection model added later is a new variant, so a `match` needs a
+/// wildcard arm.
 #[derive(Clone, Debug)]
-#[doc(hidden)]
+#[non_exhaustive]
 pub enum AnyProjection {
+    /// Pinhole (perspective) projection.
     Pinhole(Pinhole),
+    /// Equidistant (fisheye, `r = θ`) projection.
     Equidistant(Equidistant),
 }
 
@@ -490,8 +500,15 @@ impl ProjectionModel<Real> for AnyProjection {
     }
 }
 
+/// The distortion slot of a [`CameraModel`]: any supported distortion model,
+/// chosen at run time.
+///
+/// [`CameraParams::build`] fills it from the parameters'
+/// [`DistortionParams`]; it distorts through the model it holds. A
+/// distortion model added later is a new variant, so a `match` needs a
+/// wildcard arm.
 #[derive(Clone, Debug)]
-#[doc(hidden)]
+#[non_exhaustive]
 pub enum AnyDistortion {
     /// Identity (no distortion).
     None(NoDistortion),
@@ -531,10 +548,19 @@ impl super::DistortionModel<Real> for AnyDistortion {
     }
 }
 
+/// The sensor slot of a [`CameraModel`]: any supported sensor model, chosen
+/// at run time.
+///
+/// [`CameraParams::build`] fills it from the parameters' [`SensorParams`]; a
+/// Scheimpflug tilt is compiled to its homography. A sensor model added later
+/// is a new variant, so a `match` needs a wildcard arm.
 #[derive(Clone, Debug)]
-#[doc(hidden)]
+#[non_exhaustive]
 pub enum AnySensor {
+    /// An untilted sensor: the identity map.
     Identity(IdentitySensor),
+    /// A sensor related to the normalized plane by a homography (a tilted,
+    /// Scheimpflug sensor among them).
     Homography(HomographySensor<Real>),
 }
 

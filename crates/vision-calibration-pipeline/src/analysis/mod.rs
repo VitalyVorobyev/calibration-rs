@@ -103,6 +103,10 @@ use crate::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeView};
 // Data model
 // ─────────────────────────────────────────────────────────────────────────────
 
+// The multi-level reprojection reports below are workspace-internal (the
+// benchmark crate reads them): `#[doc(hidden)]` and outside the semver
+// promise. The facade does not re-export them.
+
 /// Constraint level at which a board pose is determined before reprojection.
 ///
 /// Ordered from least to most constrained: an `Intrinsic`-level pose is free per
@@ -110,6 +114,7 @@ use crate::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeView};
 /// and the calibrated hand-eye chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[doc(hidden)]
 pub enum ReprojLevel {
     /// Board pose free per `(camera, view)` (PnP + per-view refinement).
     Intrinsic,
@@ -124,6 +129,7 @@ pub enum ReprojLevel {
 /// All fields are in pixels except `count`. When `count == 0` every numeric
 /// field is `0.0`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[doc(hidden)]
 pub struct LevelStats {
     /// Arithmetic mean of the finite errors.
     pub mean: f64,
@@ -201,6 +207,7 @@ fn percentile_linear(sorted: &[f64], q: f64) -> f64 {
 /// One constraint level of a [`ReprojReport`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[doc(hidden)]
 pub struct LevelReport {
     /// Which constraint level produced these residuals.
     pub level: ReprojLevel,
@@ -284,6 +291,7 @@ impl LevelReport {
 /// level, plus a single headline number.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[doc(hidden)]
 pub struct ReprojReport {
     /// The most-constrained level's `overall.mean` (pixels): `Handeye` if
     /// present, else `RigExtrinsic`, else `Intrinsic`. Equals the calibration's
@@ -306,6 +314,7 @@ impl ReprojReport {
 /// hand-eye chain constrains the target pose.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[doc(hidden)]
 pub struct RigStageReprojection {
     /// Per-camera extrinsics `cam_se3_rig` (`T_C_R`) from rig BA.
     pub cam_se3_rig: Vec<Iso3>,
@@ -362,6 +371,7 @@ fn level_rank(level: ReprojLevel) -> u8 {
 /// view, so the floor *is* the headline. Uses the export's own
 /// `per_feature_residuals` when present (they match the calibrated solution),
 /// else recomputes the floor from `views`.
+#[doc(hidden)]
 pub fn planar_intrinsics_report<M>(
     export: &PlanarIntrinsicsExport,
     views: &[View<M>],
@@ -384,6 +394,7 @@ pub fn planar_intrinsics_report<M>(
 /// `Handeye` level (the export's own residuals, board pose from the robot +
 /// hand-eye chain). The gap between them is the error the robot / hand-eye chain
 /// adds on top of the camera-only floor.
+#[doc(hidden)]
 pub fn single_cam_handeye_report(
     export: &SingleCamHandeyeExport,
     views: &[SingleCamHandeyeView],
@@ -412,6 +423,7 @@ pub fn single_cam_handeye_report(
 /// `RigExtrinsic` level (board pose shared across cameras via the rig
 /// extrinsics). Uses the export's own residuals for the constrained level when
 /// present, else recomputes from the dataset.
+#[doc(hidden)]
 pub fn rig_extrinsics_report<M>(
     export: &RigExtrinsicsExport,
     dataset: &RigDataset<M>,
@@ -436,46 +448,10 @@ pub fn rig_extrinsics_report<M>(
     Ok(ReprojReport::from_levels(vec![intrinsic_level, rig_level]))
 }
 
-/// Build a [`ReprojReport`] for a multi-camera rig hand-eye calibration.
-///
-/// Two levels: the `Intrinsic` floor (free per-`(camera, view)` PnP pose) and the
-/// `Handeye` level (the export's own residuals, board pose from the robot pose
-/// composed with the hand-eye chain). The gap localizes camera / detection error
-/// versus the rig + robot + hand-eye chain — the multi-camera analogue of the
-/// single-camera hand-eye diagnostic.
-///
-/// This builder reports two levels, not three: the export's `rig_se3_target`
-/// is itself derived from the hand-eye chain, so reprojecting through
-/// `cam_se3_rig * rig_se3_target` would reproduce the `Handeye` level exactly.
-/// Use [`rig_handeye_report_with_rig_stage`] instead when the caller still has
-/// the rig-BA poses, which gives a genuinely independent middle level.
-pub fn rig_handeye_report<M>(
-    export: &RigHandeyeExport,
-    dataset: &RigDataset<M>,
-) -> Result<ReprojReport, Error> {
-    let ncam = export.cameras.len();
-    let num_views = dataset.views.len();
-
-    let intrinsic = intrinsic_floor_rig_from_export(&export.cameras, dataset)?;
-    let intrinsic_level =
-        LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
-
-    let handeye_residuals = export.diagnostics.per_feature_residuals.target.clone();
-    let handeye_level = LevelReport::from_residuals(
-        ReprojLevel::Handeye,
-        handeye_residuals.clone(),
-        ncam,
-        num_views.max(max_pose(&handeye_residuals) + 1),
-    );
-    Ok(ReprojReport::from_levels(vec![
-        intrinsic_level,
-        handeye_level,
-    ]))
-}
-
 /// Build a [`ReprojReport`] for a multi-camera rig hand-eye calibration,
 /// including the rig-BA constrained level before the robot / hand-eye chain is
 /// applied.
+#[doc(hidden)]
 pub fn rig_handeye_report_with_rig_stage<M>(
     export: &RigHandeyeExport,
     dataset: &RigDataset<M>,
@@ -513,7 +489,7 @@ pub fn rig_handeye_report_with_rig_stage<M>(
 /// Intrinsic floor for a rig dataset: a free per-`(camera, view)` board pose
 /// recovered by PnP (homography seed for planar targets, EPnP fallback) +
 /// pose-only refinement, using each camera's final calibrated intrinsics. Shared
-/// by [`rig_extrinsics_report`] and [`rig_handeye_report`].
+/// by [`rig_extrinsics_report`] and [`rig_handeye_report_with_rig_stage`].
 fn intrinsic_floor_rig_from_export<M>(
     cameras: &[CameraParams],
     dataset: &RigDataset<M>,

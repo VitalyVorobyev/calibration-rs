@@ -9,26 +9,38 @@ The manual seeds of the intrinsics stages: :class:`IntrinsicsManualInit` for
 one camera (planar intrinsics, single-camera hand-eye) and
 :class:`RigIntrinsicsManualInit` for each camera of a rig (rig extrinsics,
 rig hand-eye).
+
+The seeds and results of the stages both rig problems run:
+:class:`RigIntrinsicsInitResult` of the per-camera intrinsics init,
+:class:`RigManualInit` (with its :class:`RigPoses`) and
+:class:`RigInitResult` of the rig init; and :class:`HandeyeOptimizeResult`
+of the hand-eye refinement both hand-eye problems run.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
-from typing import Any
+from typing import Any, cast
 
 from ._generated_types import HandeyeMethod
-from .models import Distortion, PinholeIntrinsics, Pose, ScheimpflugSensor
-from .session import _seed_payload
+from .models import CameraParams, Distortion, PinholeIntrinsics, Pose, ScheimpflugSensor
+from .session import _cameras, _optional_pose, _poses, _seed_payload
 
 __all__ = [
     "HandeyeInitOptions",
     "HandeyeOptimizeOptions",
+    "HandeyeOptimizeResult",
     "IntrinsicsInitOptions",
     "IntrinsicsManualInit",
     "IntrinsicsOptimizeOptions",
     "RigInitOptions",
+    "RigInitResult",
+    "RigIntrinsicsInitResult",
     "RigIntrinsicsManualInit",
+    "RigManualInit",
     "RigOptimizeOptions",
+    "RigPoses",
 ]
 
 
@@ -155,4 +167,94 @@ class RigIntrinsicsManualInit:
                 "per_cam_distortion": self.per_cam_distortion,
                 "per_cam_sensors": self.per_cam_sensors,
             }
+        )
+
+
+@dataclass(slots=True)
+class RigPoses:
+    """Seeded rig poses: the two go together.
+
+    ``cam_se3_rig`` is each camera's camera-from-rig pose (one per camera);
+    ``rig_se3_target`` each view's rig-from-target pose (one per view).
+    """
+
+    cam_se3_rig: list[Pose]
+    rig_se3_target: list[Pose]
+
+    def to_payload(self) -> dict[str, Any]:
+        return _seed_payload(
+            {"cam_se3_rig": self.cam_se3_rig, "rig_se3_target": self.rig_se3_target}
+        )
+
+
+@dataclass(slots=True)
+class RigManualInit:
+    """Manual seeds of the rig stage (rig extrinsics, rig hand-eye).
+
+    ``poses`` seeds the camera-from-rig and rig-from-target poses together;
+    ``None`` runs the linear extrinsics fit.
+    """
+
+    poses: RigPoses | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return _seed_payload({"poses": self.poses})
+
+
+def _target_poses(values: Any) -> list[list[Pose | None]]:
+    return [
+        [_optional_pose(p) for p in cast(Sequence[Any], row)]
+        for row in cast(Sequence[Any], values)
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class RigIntrinsicsInitResult:
+    """The initial per-camera estimate of a rig (rig extrinsics, rig
+    hand-eye)."""
+
+    cameras: list[CameraParams]
+    cam_se3_target: list[list[Pose | None]]
+    """``[view][camera]`` camera-from-target; ``None`` where the camera did
+    not see the target."""
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> RigIntrinsicsInitResult:
+        return cls(
+            cameras=_cameras(payload["cameras"]),
+            cam_se3_target=_target_poses(payload["cam_se3_target"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RigInitResult:
+    """The linear rig estimate (rig extrinsics, rig hand-eye)."""
+
+    initial_cam_se3_rig: list[Pose]
+    """Camera-from-rig per camera; the reference camera's is the identity."""
+    initial_rig_se3_target: list[Pose]
+    """Rig-from-target per view."""
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> RigInitResult:
+        return cls(
+            initial_cam_se3_rig=_poses(payload["initial_cam_se3_rig"]),
+            initial_rig_se3_target=_poses(payload["initial_rig_se3_target"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HandeyeOptimizeResult:
+    """The solve metrics of the hand-eye refinement (single-camera and rig
+    hand-eye)."""
+
+    mean_reproj_error: float
+    """Mean reprojection error, pixels."""
+    final_cost: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeOptimizeResult:
+        return cls(
+            mean_reproj_error=float(payload["mean_reproj_error"]),
+            final_cost=float(payload["final_cost"]),
         )

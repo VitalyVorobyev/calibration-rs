@@ -19,10 +19,6 @@ pub struct ExtrinsicPoses {
     pub rig_se3_target: Vec<Iso3>,
 }
 
-/// Linear initialisation of a camera rig from per-camera target poses.
-#[derive(Debug, Clone, Copy)]
-pub struct MultiCamExtrinsicsInit;
-
 /// Simple SE(3) averaging:
 /// - translations are averaged arithmetically
 /// - rotations are averaged in quaternion space (with hemisphere correction)

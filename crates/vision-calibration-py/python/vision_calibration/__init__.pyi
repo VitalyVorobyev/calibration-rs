@@ -114,12 +114,17 @@ from .camera import CameraModel as CameraModel
 from .common import (
     HandeyeInitOptions as HandeyeInitOptions,
     HandeyeOptimizeOptions as HandeyeOptimizeOptions,
+    HandeyeOptimizeResult as HandeyeOptimizeResult,
     IntrinsicsInitOptions as IntrinsicsInitOptions,
     IntrinsicsManualInit as IntrinsicsManualInit,
     IntrinsicsOptimizeOptions as IntrinsicsOptimizeOptions,
     RigInitOptions as RigInitOptions,
+    RigInitResult as RigInitResult,
+    RigIntrinsicsInitResult as RigIntrinsicsInitResult,
     RigIntrinsicsManualInit as RigIntrinsicsManualInit,
+    RigManualInit as RigManualInit,
     RigOptimizeOptions as RigOptimizeOptions,
+    RigPoses as RigPoses,
 )
 from .dataset import SniffError as SniffError, sniff_folder as sniff_folder
 from .dataset_runner import (

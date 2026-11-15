@@ -95,6 +95,7 @@ pub use math::{
     Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3, distort_to_pixel, from_homogeneous,
     normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,
 };
+pub use models::FixedParams;
 pub use models::{
     AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraFix, CameraModel,
     CameraModelSpec, CameraParams, CameraProject, DistortionKind, DistortionModel,
@@ -103,17 +104,19 @@ pub use models::{
     ProjectionParams, RationalPolynomial, Ray, ScheimpflugParams, SensorKind, SensorModel,
     SensorParams, ThinPrism,
 };
-// Workspace-internal: the parameter-fixing mask and intrinsics labels the
-// optimizer packs a camera with. Hidden from the docs and outside the semver
-// promise; name fixed parameters through `CameraFix`.
+// Workspace-internal: the intrinsics labels the optimizer packs a camera
+// with. Hidden from the docs and outside the semver promise.
 #[doc(hidden)]
-pub use models::{FixedParams, INTRINSICS_PARAM_NAMES};
+pub use models::INTRINSICS_PARAM_NAMES;
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
+// Workspace-internal: the per-view pose meta of the optimizer's mean
+// reprojection error. Hidden from the docs and outside the semver promise.
+#[doc(hidden)]
+pub use residuals::{TargetPose, compute_mean_reproj_error};
 pub use residuals::{
-    TargetPose, build_feature_histogram, compute_mean_reproj_error,
-    compute_planar_target_residuals, compute_planar_target_residuals_views,
-    compute_rig_reprojection_stats, compute_rig_reprojection_stats_per_camera,
-    compute_rig_target_residuals,
+    build_feature_histogram, compute_planar_target_residuals,
+    compute_planar_target_residuals_views, compute_rig_reprojection_stats,
+    compute_rig_reprojection_stats_per_camera, compute_rig_target_residuals,
 };
 pub use types::{
     CalibratedRig, CombinationTerm, CorrespondenceView, FeatureResidualHistogram, FrameKind,

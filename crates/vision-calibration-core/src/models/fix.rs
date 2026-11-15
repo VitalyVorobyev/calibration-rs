@@ -114,8 +114,24 @@ impl CameraFix {
 }
 
 /// Fixed camera parameters, as sorted indices into each slot's parameter
-/// block (the order of the kinds' `param_names`).
+/// block: what [`CameraFix::resolve`] returns for a camera model.
+///
+/// Each list is sorted and free of duplicates. An index counts into its
+/// slot's parameter names in order: `[fx, fy, cx, cy]` for the
+/// intrinsics, and [`ProjectionKind::param_names`](super::ProjectionKind::param_names),
+/// [`DistortionKind::param_names`] and [`SensorKind::param_names`] for the
+/// other slots. The default fixes nothing.
+///
+/// ```
+/// use vision_calibration_core::{CameraFix, CameraModelSpec, DistortionKind, SensorKind};
+///
+/// let spec = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+/// let fixed = CameraFix::default().resolve(spec).unwrap();
+/// assert_eq!(fixed.distortion, vec![2]); // `k3`, Brown-Conrady's default
+/// assert!(fixed.intrinsics.is_empty());
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FixedParams {
     /// Fixed indices into `[fx, fy, cx, cy]`.
     pub intrinsics: Vec<usize>,
