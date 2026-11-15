@@ -4,10 +4,10 @@ use vision_calibration::core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, LaserPlane, Pinhole, Pt2, Pt3,
     ScheimpflugParams, SensorModel, View,
 };
+use vision_calibration::laserline_device::{LaserlineDataset, LaserlineMeta, LaserlineView};
 use vision_calibration::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceProblem, run_calibration,
 };
-use vision_calibration::laserline_device::{LaserlineMeta, LaserlineView};
 use vision_calibration::session::CalibrationSession;
 
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};
@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-    session.set_input(views)?;
+    session.set_input(LaserlineDataset::new(views)?)?;
 
     session.set_config(LaserlineDeviceConfig::default())?;
     run_calibration(&mut session)?;

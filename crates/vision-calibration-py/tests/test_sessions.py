@@ -33,6 +33,12 @@ def observation(name: str) -> Any:
     return json.loads((OBSERVATIONS / f"{name}.json").read_text(encoding="utf-8"))["input"]
 
 
+def laserline_input() -> dict[str, Any]:
+    """The synthetic laserline device input; its observation file stores the
+    views as a bare list."""
+    return {"views": observation("synth_laserline")}
+
+
 def rig_handeye_input() -> dict[str, Any]:
     """The rig hand-eye part of the synthetic joint laser scene."""
     joint = observation("synth_rig_handeye_laserline")
@@ -336,21 +342,21 @@ class RigHandeyeSessionTest(unittest.TestCase):
 
 class LaserlineDeviceSessionTest(unittest.TestCase):
     def test_steps_match_the_one_shot_run(self) -> None:
-        payload = observation("synth_laserline")
+        payload = laserline_input()
         session = vc.LaserlineDeviceSession()
         session.set_input(payload)
         init = session.step_init(vc.DeviceInitOptions(iterations=2))
         self.assertIsNotNone(init.plane_rmse)
         optimized = session.step_optimize(vc.DeviceOptimizeOptions(max_iters=60))
         self.assertLess(optimized.mean_reproj_error, 1.0)
-        self.assertEqual(len(optimized.per_view_laser_errors), len(payload))
+        self.assertEqual(len(optimized.per_view_laser_errors), len(payload["views"]))
         result = session.export()
         reference = run_payload("laserline_device", payload)
         self.assertEqual(result.laser_plane, reference.laser_plane)
 
     def test_a_seeded_plane_has_no_fit_rmse(self) -> None:
         session = vc.LaserlineDeviceSession()
-        session.set_input(observation("synth_laserline"))
+        session.set_input(laserline_input())
         init = session.step_init()
         seeded = session.step_init_with_seed(laserline_device.DeviceManualInit(laser_plane=init.laser_plane))
         self.assertIsNone(seeded.plane_rmse)

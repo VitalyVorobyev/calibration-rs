@@ -338,8 +338,10 @@ pub mod laserline_device {
     // Config groups
     pub use vision_calibration_pipeline::laserline_device::DeviceOptimizeConfig;
 
-    // Input views
-    pub use vision_calibration_pipeline::laserline_device::{LaserlineMeta, LaserlineView};
+    // The input dataset and its views
+    pub use vision_calibration_pipeline::laserline_device::{
+        LaserlineDataset, LaserlineMeta, LaserlineView,
+    };
 
     // Step options, manual seeds and step results
     pub use vision_calibration_pipeline::laserline_device::{

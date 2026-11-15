@@ -45,7 +45,7 @@ use vision_calibration_optim::{
     rig_handeye_view_information,
 };
 
-use super::{input_error, invert_spd, log_det, rows};
+use super::{invert_spd, log_det, rows};
 use crate::Error;
 use crate::planar_intrinsics::MIN_VIEW_POINTS;
 use crate::rig_handeye::RigHandeyeExport;
@@ -279,7 +279,7 @@ impl<'a> RigPlanner<'a> {
             &vec![Vec::new(); export.cameras.len()],
             RobotPose::Exact,
         )
-        .map_err(input_error)?;
+        .map_err(Error::from_optim_input)?;
         let index = covariance
             .labels
             .iter()
@@ -360,7 +360,7 @@ impl<'a> RigPlanner<'a> {
             let robot = self.solved_robot_pose(rig_se3_target);
             let information =
                 rig_handeye_view_information(&self.geometry, &robot, view_points, self.robot)
-                    .map_err(input_error)?;
+                    .map_err(Error::from_optim_input)?;
             total += self.restrict(&information.matrix);
         }
         Ok(total)
@@ -420,7 +420,7 @@ impl<'a> RigPlanner<'a> {
         }
         let information =
             rig_handeye_view_information(&self.geometry, base_se3_gripper, &observed, self.robot)
-                .map_err(input_error)?;
+                .map_err(Error::from_optim_input)?;
         Ok((counts, Some(self.restrict(&information.matrix))))
     }
 
@@ -447,7 +447,8 @@ impl<'a> RigPlanner<'a> {
             .zip(self.image_sizes)
             .enumerate()
             .map(|(i, (camera, size))| {
-                projection_uncertainty(camera, covariance, i, *size).map_err(input_error)
+                projection_uncertainty(camera, covariance, i, *size)
+                    .map_err(Error::from_optim_input)
             })
             .collect()
     }

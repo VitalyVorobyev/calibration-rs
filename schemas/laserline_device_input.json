@@ -120,9 +120,19 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "items": {
-    "$ref": "#/$defs/View"
+  "description": "Dataset for laserline bundle adjustment: one camera's views, each pairing\nthe target observation with the laser-stripe pixels on the target.",
+  "properties": {
+    "views": {
+      "description": "The laserline views, in pose order.",
+      "items": {
+        "$ref": "#/$defs/View"
+      },
+      "type": "array"
+    }
   },
-  "title": "Array_of_View",
-  "type": "array"
+  "required": [
+    "views"
+  ],
+  "title": "LaserlineDataset",
+  "type": "object"
 }

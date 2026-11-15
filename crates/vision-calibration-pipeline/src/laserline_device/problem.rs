@@ -33,7 +33,7 @@ use super::state::LaserlineDeviceState;
 /// ```
 /// use vision_calibration_core::View;
 /// use vision_calibration_pipeline::laserline_device::{
-///     LaserlineDeviceProblem, LaserlineMeta, run_calibration,
+///     LaserlineDataset, LaserlineDeviceProblem, LaserlineMeta, run_calibration,
 /// };
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// # use vision_calibration_core::synthetic::{laser, noise::UniformPixelNoise, planar, poses};
@@ -70,7 +70,7 @@ use super::state::LaserlineDeviceState;
 ///     views.push(View::new(corners, meta));
 /// }
 /// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-/// session.set_input(views)?;
+/// session.set_input(LaserlineDataset::new(views)?)?;
 /// run_calibration(&mut session)?;
 ///
 /// let plane = session.export()?.laser_plane;
@@ -283,32 +283,20 @@ impl ProblemType for LaserlineDeviceProblem {
     }
 
     fn schema_version() -> u32 {
-        2
+        3
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
-        stated_covariance(input.iter().map(|v| &v.obs))?;
-        if input.len() < 3 {
+        stated_covariance(input.views.iter().map(|v| &v.obs))?;
+        if input.num_views() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,
-                got: input.len(),
+                got: input.num_views(),
             });
         }
-
-        for (i, view) in input.iter().enumerate() {
-            if view.obs.len() < 4 {
-                return Err(Error::invalid_input(format!(
-                    "view {} has too few points (need >= 4 for homography, got {})",
-                    i,
-                    view.obs.len()
-                )));
-            }
-            view.meta
-                .validate()
-                .map_err(|e| Error::invalid_input(format!("view {}: {}", i, e)))?;
-        }
-
-        Ok(())
+        // The per-view checks of `LaserlineDataset::new`, for an input that
+        // was deserialized rather than constructed.
+        input.validate().map_err(Error::from_optim_input)
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
@@ -348,7 +336,8 @@ impl ProblemType for LaserlineDeviceProblem {
             .camera
             .build()
             .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
-        let target = compute_planar_target_residuals_views(&camera, input, &params.cam_se3_target)?;
+        let target =
+            compute_planar_target_residuals_views(&camera, &input.views, &params.cam_se3_target)?;
         let mut per_feature_residuals = one_camera_target_residuals(target);
 
         let laser = compute_laserline_feature_residuals(input, params)?;
@@ -461,7 +450,10 @@ mod tests {
         .unwrap();
         let estimate = LaserlineEstimate::new(params, SolveReport::new(0.0, 0), Default::default());
         let stats = LaserlineStats::new(0.0, 0.0, vec![0.0, 0.0, 0.0], vec![0.0, 0.0, 0.0]);
-        (views, LaserlineDeviceEstimate { estimate, stats })
+        (
+            LaserlineDataset::new(views).unwrap(),
+            LaserlineDeviceEstimate { estimate, stats },
+        )
     }
 
     #[test]
@@ -542,10 +534,11 @@ mod tests {
                 camera.project_point_c(&p_cam.coords).unwrap()
             })
             .collect();
-        let dataset = vec![View::new(
+        let dataset = LaserlineDataset::new(vec![View::new(
             CorrespondenceView::new(board.clone(), pixels).unwrap(),
             LaserlineMeta::new(vec![Pt2::new(320.0, 240.0)]),
-        )];
+        )])
+        .unwrap();
         let plane =
             LaserPlane::new((nalgebra::Vector3::new(0.0, 0.0, 1.0)).normalize(), -1.0).unwrap();
         let params = LaserlineParams::new(
@@ -623,6 +616,25 @@ mod tests {
         assert!(!tangential_held(&config));
         config.camera.fix.sensor = Some(Vec::new());
         assert!(tangential_held(&config));
+    }
+
+    /// A session embeds its input: one written before the input became an
+    /// object (version 2) is rejected by the strict version check.
+    #[test]
+    fn a_session_of_the_list_input_is_rejected() {
+        let (dataset, _) = make_synthetic_scenario();
+        let mut session = crate::session::CalibrationSession::<LaserlineDeviceProblem>::new();
+        session.set_input(dataset).unwrap();
+        let json = session.to_json().unwrap();
+        assert!(json.contains("\"schema_version\": 3"), "{json}");
+        let old = json.replace("\"schema_version\": 3", "\"schema_version\": 2");
+        let err = crate::session::CalibrationSession::<LaserlineDeviceProblem>::from_json(&old)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("session schema version 2 does not match expected version 3"),
+            "{err}"
+        );
     }
 
     #[test]

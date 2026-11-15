@@ -12,7 +12,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
-    LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions,
+    LaserlineDataset, LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions,
     RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
     RigLaserlineDataset, RigLaserlineSolveOptions, RigLaserlineUpstream, RigLaserlineView,
     RobotPoseMeta, optimize_handeye, optimize_laserline, optimize_rig_handeye_laserline,
@@ -245,6 +245,7 @@ fn laserline_solves_every_camera_model() {
                     )
                 })
                 .collect();
+            let dataset = LaserlineDataset::new(dataset).unwrap();
             for residual in [
                 LaserlineResidualType::PointToPlane,
                 LaserlineResidualType::LineDistNormalized,

@@ -20,6 +20,13 @@ Each view provides two types of observations:
 1. **Calibration points**: 2D-3D correspondences from the chessboard (same as planar intrinsics)
 2. **Laser pixels**: 2D pixel positions where the laser line appears on the target
 
+The input is a `LaserlineDataset` (the problem's `LaserlineDeviceInput`): its
+`views`, each a `LaserlineView` pairing the correspondences with the
+`LaserlineMeta` laser pixels. `LaserlineDataset::new(views)` rejects an empty
+list, a view with fewer than four correspondences, and a view without laser
+pixels or with laser weights that do not match them. In JSON it is
+`{"views": [{"obs": …, "meta": {"laser_pixels": …}}, …]}`.
+
 ### Objective
 
 The cost function has two terms:
@@ -148,10 +155,10 @@ Since calibration residuals (in pixels) and laser residuals may have different s
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::laserline_device::*;
 # fn main() -> anyhow::Result<()> {
-# let laserline_input: LaserlineDeviceInput = unimplemented!("the observed views");
+# let views: Vec<LaserlineView> = unimplemented!("the observed views");
 
 let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-session.set_input(laserline_input)?;
+session.set_input(LaserlineDataset::new(views)?)?;
 
 run_calibration(&mut session)?;
 

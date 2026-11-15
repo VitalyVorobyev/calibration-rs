@@ -356,7 +356,7 @@ impl<'a> Planner<'a> {
         };
         let camera = &export.camera;
         let names: Vec<&'static str> = camera_parameters(camera)
-            .map_err(input_error)?
+            .map_err(Error::from_optim_input)?
             .into_iter()
             .map(|(label, _)| label)
             .collect();
@@ -429,7 +429,7 @@ impl<'a> Planner<'a> {
                 // The points do not determine the pose: a re-solve would not
                 // learn the camera from this view.
                 Err(OptimError::Numerical(_)) => return Ok((visible.len(), None)),
-                Err(err) => return Err(input_error(err)),
+                Err(err) => return Err(Error::from_optim_input(err)),
             };
         Ok((visible.len(), Some(self.restrict(&information.matrix))))
     }
@@ -448,7 +448,8 @@ impl<'a> Planner<'a> {
     }
 
     fn projection(&self, covariance: &ParameterCovariance) -> Result<ProjectionUncertainty, Error> {
-        projection_uncertainty(self.camera, covariance, 0, self.image_size).map_err(input_error)
+        projection_uncertainty(self.camera, covariance, 0, self.image_size)
+            .map_err(Error::from_optim_input)
     }
 }
 
@@ -495,7 +496,7 @@ fn existing_information(
                 ViewPose::Fixed
             },
         )
-        .map_err(input_error)?;
+        .map_err(Error::from_optim_input)?;
         total += DMatrix::from_fn(n, n, |i, j| information.matrix[(free[i], free[j])]);
     }
     Ok(total)
@@ -512,14 +513,6 @@ fn check_target_and_image(target_points: &[Pt3], image_size: [u32; 2]) -> Result
         )));
     }
     Ok(())
-}
-
-/// An optim input error as the pipeline's own; others propagate.
-fn input_error(err: OptimError) -> Error {
-    match err {
-        OptimError::InvalidInput { reason } => Error::InvalidInput { reason },
-        err => err.into(),
-    }
 }
 
 fn rows(m: &DMatrix<f64>) -> Vec<Vec<f64>> {

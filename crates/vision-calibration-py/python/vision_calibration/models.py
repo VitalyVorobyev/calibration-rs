@@ -891,8 +891,8 @@ class LaserlineDeviceInput:
 
     views: list[LaserlineView]
 
-    def to_payload(self) -> list[dict[str, Any]]:
-        return [view.to_payload() for view in self.views]
+    def to_payload(self) -> dict[str, Any]:
+        return {"views": [view.to_payload() for view in self.views]}
 
 
 @dataclass(slots=True)

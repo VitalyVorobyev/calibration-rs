@@ -198,7 +198,7 @@ pub fn step_init_with_seed(
 ) -> Result<DeviceInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
-    let view_count = input.len();
+    let view_count = input.num_views();
     let model = session.config.camera.model;
 
     let opts = opts.unwrap_or_default();
@@ -226,7 +226,7 @@ pub fn step_init_with_seed(
     provenance.note("cam_se3_target", manual.cam_se3_target.is_some());
     provenance.note("laser_plane", manual.laser_plane.is_some());
 
-    let planar_dataset = planar_dataset_from_input(input)?;
+    let planar_dataset = planar_dataset_from_input(&input.views)?;
     let holds_tilt = session.config.holds_tilt();
     let bootstrap = if holds_tilt {
         // A held tilt is known: initialize as an untilted camera, then
@@ -270,7 +270,7 @@ pub fn step_init_with_seed(
             let model = camera
                 .build()
                 .map_err(|e| Error::invalid_input(format!("camera model: {e}")))?;
-            let (p, rmse) = linear_plane_init(input, &model, &poses)?;
+            let (p, rmse) = linear_plane_init(&input.views, &model, &poses)?;
             (p, Some(rmse))
         }
     };

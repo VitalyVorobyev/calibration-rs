@@ -94,8 +94,63 @@ impl LaserlineMeta {
 /// A single view with calibration correspondences and laserline pixels.
 pub type LaserlineView = View<LaserlineMeta>;
 
-/// Dataset for laserline bundle adjustment.
-pub type LaserlineDataset = Vec<LaserlineView>;
+/// Dataset for laserline bundle adjustment: one camera's views, each pairing
+/// the target observation with the laser-stripe pixels on the target.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct LaserlineDataset {
+    /// The laserline views, in pose order.
+    pub views: Vec<LaserlineView>,
+}
+
+impl LaserlineDataset {
+    /// Construct a laserline dataset and validate its views.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `views` is empty, and
+    /// [`Error::InvalidInput`] if a view has fewer than 4 point
+    /// correspondences, no laser pixels, or laser weights that do not match
+    /// its pixels ([`LaserlineMeta::validate`]).
+    pub fn new(views: Vec<LaserlineView>) -> Result<Self, Error> {
+        let dataset = Self { views };
+        dataset.validate()?;
+        Ok(dataset)
+    }
+
+    /// Number of views.
+    pub fn num_views(&self) -> usize {
+        self.views.len()
+    }
+
+    /// The checks of [`Self::new`], for a dataset that did not come through
+    /// it (deserialized). Workspace-internal: the laserline session's input
+    /// check; hidden from the docs and outside the semver promise.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    #[doc(hidden)]
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.views.is_empty() {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
+        for (i, view) in self.views.iter().enumerate() {
+            if view.obs.len() < 4 {
+                return Err(Error::invalid_input(format!(
+                    "view {} has too few points (need >= 4 for homography, got {})",
+                    i,
+                    view.obs.len()
+                )));
+            }
+            view.meta
+                .validate()
+                .map_err(|e| Error::invalid_input(format!("view {}: {}", i, e)))?;
+        }
+        Ok(())
+    }
+}
 
 /// Initial values for laserline bundle adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -280,10 +335,10 @@ pub fn compute_laserline_stats(
     params: &LaserlineParams,
     residual_type: LaserlineResidualType,
 ) -> Result<LaserlineStats, Error> {
-    if dataset.len() != params.cam_se3_target.len() {
+    if dataset.num_views() != params.cam_se3_target.len() {
         return Err(Error::invalid_input(format!(
             "dataset has {} views but {} poses",
-            dataset.len(),
+            dataset.num_views(),
             params.cam_se3_target.len()
         )));
     }
@@ -292,15 +347,15 @@ pub fn compute_laserline_stats(
     let plane_normal = normal_to_dvec(&params.laser_plane);
     let plane_distance = distance_to_dvec(&params.laser_plane);
 
-    let mut per_view_reproj_errors = Vec::with_capacity(dataset.len());
-    let mut per_view_laser_errors = Vec::with_capacity(dataset.len());
+    let mut per_view_reproj_errors = Vec::with_capacity(dataset.num_views());
+    let mut per_view_laser_errors = Vec::with_capacity(dataset.num_views());
 
     let mut total_reproj_sum = 0.0;
     let mut total_reproj_count = 0usize;
     let mut total_laser_sum = 0.0;
     let mut total_laser_count = 0usize;
 
-    for (view_idx, view) in dataset.iter().enumerate() {
+    for (view_idx, view) in dataset.views.iter().enumerate() {
         let pose = &params.cam_se3_target[view_idx];
         let pose_vec = iso3_to_se3_dvec(pose);
 
@@ -400,23 +455,23 @@ pub struct LaserResidualRecords {
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if `dataset.len() != params.poses.len()`
+/// Returns [`Error::InvalidInput`] if `dataset.num_views() != params.poses.len()`
 /// or the camera has a general homography sensor.
 pub fn compute_laserline_feature_residuals(
     dataset: &LaserlineDataset,
     params: &LaserlineParams,
 ) -> Result<LaserResidualRecords, Error> {
-    if dataset.len() != params.cam_se3_target.len() {
+    if dataset.num_views() != params.cam_se3_target.len() {
         return Err(Error::invalid_input(format!(
             "dataset has {} views but {} poses",
-            dataset.len(),
+            dataset.num_views(),
             params.cam_se3_target.len()
         )));
     }
 
     let camera = LaserCameraModel::new(&params.camera)?;
     let mut out = LaserResidualRecords::default();
-    for (view_idx, view) in dataset.iter().enumerate() {
+    for (view_idx, view) in dataset.views.iter().enumerate() {
         camera.view_residuals(
             &params.cam_se3_target[view_idx],
             &params.laser_plane,
@@ -689,7 +744,7 @@ pub fn optimize_laserline(
     let spec = camera_spec(&initial.camera)?;
     let (ir, initial_map) = build_laserline_ir(dataset, initial, opts)?;
     let solution = backend::solve(&ir, &initial_map, backend_opts)?;
-    extract_solution(&ir, solution, spec, dataset.len())
+    extract_solution(&ir, solution, spec, dataset.num_views())
 }
 
 /// A parameter a laser plane was solved with held fixed, as a column of
@@ -783,17 +838,17 @@ fn build_laserline_ir(
     initial: &LaserlineParams,
     opts: &LaserlineSolveOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
-    if dataset.is_empty() {
+    if dataset.views.is_empty() {
         return Err(Error::invalid_input("need at least one view"));
     }
-    if dataset.len() != initial.cam_se3_target.len() {
+    if dataset.num_views() != initial.cam_se3_target.len() {
         return Err(Error::invalid_input(format!(
             "dataset has {} views but {} initial poses",
-            dataset.len(),
+            dataset.num_views(),
             initial.cam_se3_target.len()
         )));
     }
-    for (idx, view) in dataset.iter().enumerate() {
+    for (idx, view) in dataset.views.iter().enumerate() {
         view.meta
             .validate()
             .map_err(|e| Error::invalid_input(format!("view {}: {}", idx, e)))?;
@@ -859,7 +914,7 @@ fn build_laserline_ir(
     );
 
     // Add residual blocks
-    for (view_idx, view) in dataset.iter().enumerate() {
+    for (view_idx, view) in dataset.views.iter().enumerate() {
         let pose_id = pose_ids[view_idx];
 
         // Calibration reprojection residuals
@@ -947,7 +1002,7 @@ mod tests {
 
     #[test]
     fn ir_validation_catches_missing_param() {
-        let dataset = vec![View::new(
+        let dataset = LaserlineDataset::new(vec![View::new(
             CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
                 vec![Pt2::new(100.0, 100.0); 4],
@@ -957,7 +1012,8 @@ mod tests {
                 laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
                 laser_weights: Vec::new(),
             },
-        )];
+        )])
+        .unwrap();
 
         let intrinsics = FxFyCxCy {
             fx: 800.0,
@@ -1005,7 +1061,7 @@ mod tests {
     /// one a free tilt and its higher-order distortion terms held.
     #[test]
     fn default_fix_follows_the_camera_model() {
-        let dataset = vec![View::new(
+        let dataset = LaserlineDataset::new(vec![View::new(
             CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
                 vec![Pt2::new(100.0, 100.0); 4],
@@ -1015,7 +1071,8 @@ mod tests {
                 laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
                 laser_weights: Vec::new(),
             },
-        )];
+        )])
+        .unwrap();
         let k = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
@@ -1112,13 +1169,14 @@ mod tests {
             vec![Pt2::new(100.0, 100.0); 4],
         )
         .unwrap();
-        let dataset = vec![View::new(
+        let dataset = LaserlineDataset::new(vec![View::new(
             target_view,
             LaserlineMeta {
                 laser_pixels: laser_pixels.clone(),
                 laser_weights: Vec::new(),
             },
-        )];
+        )])
+        .unwrap();
 
         let params = LaserlineParams::new(
             bc_camera(intrinsics, distortion, SensorParams::Identity),
@@ -1226,13 +1284,14 @@ mod tests {
             vec![Pt2::new(100.0, 100.0); 4],
         )
         .unwrap();
-        let dataset = vec![View::new(
+        let dataset = LaserlineDataset::new(vec![View::new(
             target_view,
             LaserlineMeta {
                 laser_pixels: laser_pixels.clone(),
                 laser_weights: Vec::new(),
             },
-        )];
+        )])
+        .unwrap();
         let params = LaserlineParams::new(
             bc_camera(intrinsics, distortion, tilt(sensor)),
             vec![cam_se3_target],
@@ -1272,7 +1331,7 @@ mod tests {
         )
         .unwrap();
         // 2 dataset views, but only 1 pose in params → mismatch.
-        let dataset = vec![
+        let dataset = LaserlineDataset::new(vec![
             View::new(
                 target_view.clone(),
                 LaserlineMeta {
@@ -1287,7 +1346,8 @@ mod tests {
                     laser_weights: Vec::new(),
                 },
             ),
-        ];
+        ])
+        .unwrap();
         let params = LaserlineParams::new(
             bc_camera(intrinsics, distortion, tilt(sensor)),
             vec![Iso3::identity()],
@@ -1301,7 +1361,7 @@ mod tests {
 
     #[test]
     fn ir_uses_s2_for_plane_normal() {
-        let dataset = vec![View::new(
+        let dataset = LaserlineDataset::new(vec![View::new(
             CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
                 vec![Pt2::new(100.0, 100.0); 4],
@@ -1311,7 +1371,8 @@ mod tests {
                 laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
                 laser_weights: Vec::new(),
             },
-        )];
+        )])
+        .unwrap();
 
         let intrinsics = FxFyCxCy {
             fx: 800.0,

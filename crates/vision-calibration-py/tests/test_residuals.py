@@ -37,13 +37,14 @@ class PerFeatureResidualsTest(unittest.TestCase):
         self.assertEqual(res.target_hist_per_cam[0].bucket_edges_px, (1.0, 2.0, 5.0, 10.0))
 
     def test_laser_result_has_laser_tables(self) -> None:
-        payload = json.loads((OBSERVATIONS / "synth_laserline.json").read_text())["input"]
-        res = run_payload("laserline_device", payload).per_feature_residuals
-        pixels = sum(len(view["meta"]["laser_pixels"]) for view in payload)
+        # The observation file stores the views as a bare list.
+        views = json.loads((OBSERVATIONS / "synth_laserline.json").read_text())["input"]
+        res = run_payload("laserline_device", {"views": views}).per_feature_residuals
+        pixels = sum(len(view["meta"]["laser_pixels"]) for view in views)
         self.assertEqual(len(res.laser), pixels)
         self.assertFalse(np.isnan(res.laser.residual_px).any())
         self.assertLess(float(np.nanmean(np.abs(res.laser.residual_px))), 2.0)
-        self.assertEqual(len(res.laser_lines), len(payload))
+        self.assertEqual(len(res.laser_lines), len(views))
         self.assertEqual(res.laser_lines[0].points_px.shape[1], 2)
 
     def test_unset_values_are_nan(self) -> None:
