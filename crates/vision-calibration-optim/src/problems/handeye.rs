@@ -44,6 +44,7 @@ use vision_calibration_core::{
 /// Per-view robot metadata required by hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RobotPoseMeta {
     /// Gripper pose expressed in the robot base frame (T_B_G).
     #[serde(alias = "robot_pose")]
@@ -52,6 +53,13 @@ pub struct RobotPoseMeta {
         schemars(with = "vision_calibration_core::Iso3Schema")
     )]
     pub base_se3_gripper: Iso3,
+}
+
+impl RobotPoseMeta {
+    /// The robot's gripper pose `base_se3_gripper` (T_B_G) at a view.
+    pub fn new(base_se3_gripper: Iso3) -> Self {
+        Self { base_se3_gripper }
+    }
 }
 
 /// Dataset wrapper for hand-eye optimization.
@@ -70,21 +78,8 @@ impl HandeyeDataset {
         num_cameras: usize,
         mode: HandeyeMode,
     ) -> Result<Self, Error> {
-        if views.is_empty() {
-            return Err(Error::invalid_input("need at least one view"));
-        }
-        for (idx, view) in views.iter().enumerate() {
-            if view.obs.cameras.len() != num_cameras {
-                return Err(Error::invalid_input(format!(
-                    "view {} has {} cameras, expected {}",
-                    idx,
-                    view.obs.cameras.len(),
-                    num_cameras
-                )));
-            }
-        }
         Ok(Self {
-            data: RigDataset { views, num_cameras },
+            data: RigDataset::new(views, num_cameras)?,
             mode,
         })
     }
@@ -643,14 +638,12 @@ mod tests {
                 let cam_se3_target = (robot_pose * handeye).inverse() * target_in_base;
                 let obs = project_view(&camera, &cam_se3_target, &board_pts);
 
-                RigView {
-                    meta: RobotPoseMeta {
+                RigView::new(
+                    RigViewObs::new(vec![Some(obs)]),
+                    RobotPoseMeta {
                         base_se3_gripper: *robot_pose,
                     },
-                    obs: RigViewObs {
-                        cameras: vec![Some(obs)],
-                    },
-                }
+                )
             })
             .collect();
 
@@ -749,14 +742,12 @@ mod tests {
                     )
                     .unwrap(),
                 };
-                RigView {
-                    meta: RobotPoseMeta {
+                RigView::new(
+                    RigViewObs::new(vec![Some(obs)]),
+                    RobotPoseMeta {
                         base_se3_gripper: apply_robot_delta(&base_se3_gripper, &eps),
                     },
-                    obs: RigViewObs {
-                        cameras: vec![Some(obs)],
-                    },
-                }
+                )
             })
             .collect();
             HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap()

@@ -266,12 +266,10 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
     let observed = project_all(&camera, &rig_se3_target[0], &pts3);
     let obs = CorrespondenceView::new(pts3.clone(), observed).unwrap();
     let dataset = RigDataset::new(
-        vec![RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: vec![Some(obs.clone()), Some(obs)],
-            },
-        }],
+        vec![RigView::new(
+            RigViewObs::new(vec![Some(obs.clone()), Some(obs)]),
+            NoMeta,
+        )],
         2,
     )
     .unwrap();

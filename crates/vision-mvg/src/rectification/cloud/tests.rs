@@ -120,19 +120,15 @@ impl Fixture {
 
     fn covariance(&self) -> ParameterCovariance {
         let n = self.labels.len();
-        ParameterCovariance {
-            labels: self.labels.clone(),
-            covariance: (0..n)
+        ParameterCovariance::new(
+            self.labels.clone(),
+            (0..n)
                 .map(|r| (0..n).map(|c| self.sigma[(r, c)]).collect())
                 .collect(),
-            views: Vec::new(),
-            fixed: Vec::new(),
-            noise: Vec::new(),
-            num_residuals: 100,
-            dof: 50,
-            view_scatter: None,
-            second_order: None,
-        }
+            Vec::new(),
+            100,
+            50,
+        )
     }
 
     fn rig_with(&self, cameras: Vec<CameraParams>, cam_se3_rig: Vec<Iso3>) -> CalibratedRig {

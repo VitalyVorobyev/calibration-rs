@@ -740,21 +740,18 @@ mod tests {
         rotation_format: RotationFormat,
         translation_units: TranslationUnits,
     ) -> PoseConvention {
-        PoseConvention {
-            transform,
-            rotation_format,
-            translation_units,
-        }
+        PoseConvention::new(transform, rotation_format, translation_units)
     }
 
     fn quat_columns(pose_id: Option<&str>) -> PoseColumnMap {
-        PoseColumnMap {
-            pose_id: pose_id.map(str::to_string),
-            tx: "tx".into(),
-            ty: "ty".into(),
-            tz: "tz".into(),
-            rotation: vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
-        }
+        let mut map = PoseColumnMap::new(
+            "tx",
+            "ty",
+            "tz",
+            vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
+        );
+        map.pose_id = pose_id.map(str::to_string);
+        map
     }
 
     fn write_temp(content: &str, ext: &str) -> (tempfile::TempDir, PathBuf) {
@@ -766,12 +763,9 @@ mod tests {
     }
 
     fn source(path: &Path, format: RobotPoseFormat, columns: PoseColumnMap) -> RobotPoseSource {
-        RobotPoseSource {
-            path: path.to_path_buf(),
-            format,
-            columns: Some(columns),
-            matrix_field: None,
-        }
+        let mut source = RobotPoseSource::new(path.to_path_buf(), format);
+        source.columns = Some(columns);
+        source
     }
 
     const FRAC_1_SQRT_2: f64 = std::f64::consts::FRAC_1_SQRT_2;
@@ -880,12 +874,7 @@ mod tests {
     }
 
     fn matrix_source(path: &Path) -> RobotPoseSource {
-        RobotPoseSource {
-            path: path.to_path_buf(),
-            format: RobotPoseFormat::Rowmajor4x4,
-            columns: None,
-            matrix_field: None,
-        }
+        RobotPoseSource::new(path.to_path_buf(), RobotPoseFormat::Rowmajor4x4)
     }
 
     #[test]
@@ -1009,10 +998,8 @@ mod tests {
         }
         let text = format!("2\n{block}\n{block}");
         let (_dir, path) = write_temp(&text, "txt");
-        let source = RobotPoseSource {
-            format: RobotPoseFormat::Counted4x4,
-            ..matrix_source(&path)
-        };
+        let mut source = matrix_source(&path);
+        source.format = RobotPoseFormat::Counted4x4;
         let conv = convention(
             TransformConvention::TTcpBase,
             RotationFormat::Matrix4x4RowMajor,
@@ -1031,10 +1018,8 @@ mod tests {
     fn counted4x4_count_mismatch_is_actionable() {
         let text = format!("3\n{}", "1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1\n".repeat(2));
         let (_dir, path) = write_temp(&text, "txt");
-        let source = RobotPoseSource {
-            format: RobotPoseFormat::Counted4x4,
-            ..matrix_source(&path)
-        };
+        let mut source = matrix_source(&path);
+        source.format = RobotPoseFormat::Counted4x4;
         let conv = convention(
             TransformConvention::TBaseTcp,
             RotationFormat::Matrix4x4RowMajor,
@@ -1143,12 +1128,9 @@ mod tests {
     // ── matrix_field (ADR 0016) ─────────────────────────────────────────
 
     fn matrix_field_source(path: &Path, format: RobotPoseFormat) -> RobotPoseSource {
-        RobotPoseSource {
-            path: path.to_path_buf(),
-            format,
-            columns: None,
-            matrix_field: Some("tcp2base".into()),
-        }
+        let mut source = RobotPoseSource::new(path.to_path_buf(), format);
+        source.matrix_field = Some("tcp2base".into());
+        source
     }
 
     #[test]

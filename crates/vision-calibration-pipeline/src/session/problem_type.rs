@@ -12,6 +12,7 @@ use std::fmt::Debug;
 /// Used by [`ProblemType::on_input_change`] and [`ProblemType::on_config_change`]
 /// to specify what session fields should be cleared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InvalidationPolicy {
     /// Clear the problem-specific state (intermediate results).
     pub clear_state: bool,

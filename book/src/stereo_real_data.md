@@ -92,12 +92,8 @@ use vision_calibration::core::{CorrespondenceView, NoMeta, RigDataset, RigView, 
 # let left: Option<CorrespondenceView> = unimplemented!("the left camera's detection");
 # let right: Option<CorrespondenceView> = unimplemented!("the right camera's detection");
 
-views.push(RigView {
-    meta: NoMeta,
-    obs: RigViewObs {
-        cameras: vec![left, right], // each an Option<CorrespondenceView>
-    },
-});
+// One slot per camera, each an Option<CorrespondenceView>.
+views.push(RigView::new(RigViewObs::new(vec![left, right]), NoMeta));
 
 let input = RigDataset::new(views, 2)?; // 2 cameras
 # Ok(())

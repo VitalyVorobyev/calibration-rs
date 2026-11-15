@@ -172,7 +172,7 @@ pub fn views(cam: &Cam, c: &Cell, seed: u64) -> (Vec<View<NoMeta>>, Vec<Iso3>) {
         if p3.len() >= 12
             && let Ok(obs) = CorrespondenceView::new(p3, p2)
         {
-            views.push(View { obs, meta: NoMeta });
+            views.push(View::new(obs, NoMeta));
             kept.push(pose);
         }
     }
@@ -494,10 +494,10 @@ fn noisy(
             p2.push(Point2::new(u[0], u[1]));
             k += 1;
         }
-        out.push(View {
-            obs: CorrespondenceView::new(v.obs.points_3d.clone(), p2)?,
-            meta: NoMeta,
-        });
+        out.push(View::new(
+            CorrespondenceView::new(v.obs.points_3d.clone(), p2)?,
+            NoMeta,
+        ));
     }
     Ok((PlanarDataset::new(out)?, blur, poses))
 }

@@ -181,14 +181,7 @@ impl Scene {
         } else {
             *g
         };
-        RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: reported,
-            },
-            obs: RigViewObs {
-                cameras: observations,
-            },
-        }
+        RigView::new(RigViewObs::new(observations), RobotPoseMeta::new(reported))
     }
 
     fn calibrate(&self, views: Vec<RigView<RobotPoseMeta>>) -> RigHandeyeExport {

@@ -17,6 +17,7 @@ pub type Mat34 = Matrix3x4<Real>;
 
 /// Camera matrix decomposition into `K`, `R`, `t` with `K` upper-triangular.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CameraMatrixDecomposition {
     /// Intrinsics matrix (upper-triangular, positive diagonal).
     pub k: Mat3,

@@ -167,23 +167,19 @@ impl Scene {
 
     fn uncertainty(&self, keep: impl Fn(usize, usize) -> bool) -> Uncertainty {
         let n = self.labels.len();
-        Uncertainty::Available(ParameterCovariance {
-            labels: self.labels.clone(),
-            covariance: (0..n)
+        Uncertainty::Available(ParameterCovariance::new(
+            self.labels.clone(),
+            (0..n)
                 .map(|r| {
                     (0..n)
                         .map(|c| if keep(r, c) { self.sigma[(r, c)] } else { 0.0 })
                         .collect()
                 })
                 .collect(),
-            views: Vec::new(),
-            fixed: Vec::new(),
-            noise: Vec::new(),
-            num_residuals: 100,
-            dof: 50,
-            view_scatter: None,
-            second_order: None,
-        })
+            Vec::new(),
+            100,
+            50,
+        ))
     }
 
     /// The rig at `z = z₀ + δ`, labelled with `uncertainty`.

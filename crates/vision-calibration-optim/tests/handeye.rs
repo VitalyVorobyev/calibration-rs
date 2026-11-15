@@ -114,14 +114,10 @@ fn eye_in_hand_calibration_converges() {
 
         cameras_obs.push(Some(CorrespondenceView::new(points_3d, points_2d).unwrap()));
 
-        views.push(RigView {
-            obs: RigViewObs {
-                cameras: cameras_obs,
-            },
-            meta: RobotPoseMeta {
-                base_se3_gripper: *robot_pose,
-            },
-        });
+        views.push(RigView::new(
+            RigViewObs::new(cameras_obs),
+            RobotPoseMeta::new(*robot_pose),
+        ));
     }
 
     let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
@@ -468,14 +464,10 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         }
 
         let obs = CorrespondenceView::new(points_3d, points_2d).unwrap();
-        views.push(RigView {
-            obs: RigViewObs {
-                cameras: vec![Some(obs)],
-            },
-            meta: RobotPoseMeta {
-                base_se3_gripper: *robot_pose_meas,
-            },
-        });
+        views.push(RigView::new(
+            RigViewObs::new(vec![Some(obs)]),
+            RobotPoseMeta::new(*robot_pose_meas),
+        ));
     }
 
     let dataset = HandeyeDataset::new(views.clone(), 1, HandeyeMode::EyeInHand).unwrap();

@@ -51,6 +51,7 @@ use vision_calibration_core::{LaserPlane, se3_adjoint};
 /// `None` by the solver.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RigLaserlineView {
     /// Target correspondences per camera (`cam_idx` → `Option<CorrespondenceView>`).
     ///
@@ -63,6 +64,21 @@ pub struct RigLaserlineView {
     /// The slice length must equal `RigLaserlineDataset::num_cameras`.
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<Option<Vec<[f64; 2]>>>"))]
     pub laser_pixels: Vec<Option<Vec<Pt2>>>,
+}
+
+impl RigLaserlineView {
+    /// One rig view from its per-camera target correspondences and laser
+    /// pixels (one slot per camera in each, `None` where the camera saw
+    /// none).
+    pub fn new(
+        cameras: Vec<Option<CorrespondenceView>>,
+        laser_pixels: Vec<Option<Vec<Pt2>>>,
+    ) -> Self {
+        Self {
+            cameras,
+            laser_pixels,
+        }
+    }
 }
 
 /// Dataset for rig-level laserline calibration.
@@ -92,14 +108,11 @@ pub struct RigLaserlineView {
 /// # };
 /// // Two views, two cameras; camera 1 missed the target in view 0.
 /// let views = vec![
-///     RigLaserlineView {
-///         cameras: vec![Some(board()), None],
-///         laser_pixels: vec![Some(vec![]), None],
-///     },
-///     RigLaserlineView {
-///         cameras: vec![Some(board()), Some(board())],
-///         laser_pixels: vec![Some(vec![]), Some(vec![])],
-///     },
+///     RigLaserlineView::new(vec![Some(board()), None], vec![Some(vec![]), None]),
+///     RigLaserlineView::new(
+///         vec![Some(board()), Some(board())],
+///         vec![Some(vec![]), Some(vec![])],
+///     ),
 /// ];
 /// let dataset = RigLaserlineDataset::new(views, 2).unwrap();
 /// assert_eq!(dataset.num_cameras, 2);
@@ -107,6 +120,7 @@ pub struct RigLaserlineView {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RigLaserlineDataset {
     /// Per-view observation rows; length = number of views.
     ///
@@ -702,17 +716,16 @@ impl<'a> UpstreamShare<'a> {
         };
         let mut labels: Vec<String> = kept.iter().map(|&i| self.labels[i].clone()).collect();
         labels.extend(planes.labels);
-        Uncertainty::Available(ParameterCovariance {
+        let mut joint = ParameterCovariance::new(
             labels,
             covariance,
-            views: Vec::new(),
-            fixed: planes.fixed.into_iter().filter(|l| !covered(l)).collect(),
-            noise: planes.noise,
-            num_residuals: planes.num_residuals,
-            dof: planes.dof,
-            view_scatter: planes.view_scatter,
-            second_order: None,
-        })
+            planes.noise,
+            planes.num_residuals,
+            planes.dof,
+        );
+        joint.fixed = planes.fixed.into_iter().filter(|l| !covered(l)).collect();
+        joint.view_scatter = planes.view_scatter;
+        Uncertainty::Available(joint)
     }
 }
 
@@ -814,23 +827,22 @@ pub fn handeye_upstream_uncertainty(
     let sigma = DMatrix::from_fn(n, n, |a, b| covariance.covariance[a][b]);
     let mapped = &map * sigma * map.transpose();
     let m = mapped.nrows();
-    Ok(Uncertainty::Available(ParameterCovariance {
+    let mut upstream = ParameterCovariance::new(
         labels,
-        covariance: (0..m)
+        (0..m)
             .map(|a| {
                 (0..m)
                     .map(|b| 0.5 * (mapped[(a, b)] + mapped[(b, a)]))
                     .collect()
             })
             .collect(),
-        views: Vec::new(),
-        fixed: covariance.fixed.clone(),
-        noise: covariance.noise.clone(),
-        num_residuals: covariance.num_residuals,
-        dof: covariance.dof,
-        view_scatter: covariance.view_scatter,
-        second_order: None,
-    }))
+        covariance.noise.clone(),
+        covariance.num_residuals,
+        covariance.dof,
+    );
+    upstream.fixed = covariance.fixed.clone();
+    upstream.view_scatter = covariance.view_scatter;
+    Ok(Uncertainty::Available(upstream))
 }
 
 #[cfg(test)]

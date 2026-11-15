@@ -535,11 +535,10 @@ mod tests {
                 if flip_b {
                     b = bmax - b;
                 }
-                features.push(Feature {
-                    cov_px: None,
-                    image_xy: px,
-                    world_xyz: [a as f64 * SQUARE, b as f64 * SQUARE, 0.0],
-                });
+                features.push(Feature::new(
+                    px,
+                    [a as f64 * SQUARE, b as f64 * SQUARE, 0.0],
+                ));
                 ids.push((i, j));
             }
         }

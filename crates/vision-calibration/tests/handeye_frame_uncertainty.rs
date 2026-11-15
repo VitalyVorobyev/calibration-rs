@@ -142,10 +142,7 @@ fn calibrated_rig(seed: u64) -> CalibratedRig {
         .chain(laser_poses.iter().map(|t| (t, true)))
         .enumerate()
         .map(|(v, (target, laser))| {
-            let mut obs = RigLaserlineView {
-                cameras: Vec::new(),
-                laser_pixels: Vec::new(),
-            };
+            let mut obs = RigLaserlineView::new(Vec::new(), Vec::new());
             for (c, camera) in cameras.iter().enumerate() {
                 let cam_se3_target = layout[c] * target;
                 let key = |i: usize, axis: u64| {
@@ -167,12 +164,10 @@ fn calibrated_rig(seed: u64) -> CalibratedRig {
                         .collect()
                 }));
             }
-            vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineView {
+            vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineView::new(
                 obs,
-                meta: RobotPoseMeta {
-                    base_se3_gripper: station(target),
-                },
-            }
+                RobotPoseMeta::new(station(target)),
+            )
         })
         .collect();
     let mut config = RigHandeyeLaserlineConfig::default();
@@ -183,10 +178,7 @@ fn calibrated_rig(seed: u64) -> CalibratedRig {
     let mut session = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
     session.set_config(config).unwrap();
     session
-        .set_input(RigHandeyeLaserlineInput {
-            views,
-            num_cameras: CAMERAS,
-        })
+        .set_input(RigHandeyeLaserlineInput::new(views, CAMERAS))
         .unwrap();
     vision_calibration::rig_handeye_laserline::run_calibration(&mut session).unwrap();
     session.export().unwrap().calibrated_rig().unwrap()

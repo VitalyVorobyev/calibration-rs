@@ -47,10 +47,7 @@ use vision_calibration::single_cam_handeye::{
 
 let views: Vec<SingleCamHandeyeView> = samples
     .into_iter()
-    .map(|s| SingleCamHandeyeView {
-        obs: s.view,                                          // CorrespondenceView
-        meta: RobotPoseMeta { base_se3_gripper: s.robot_pose }, // T_B_G
-    })
+    .map(|s| SingleCamHandeyeView::new(s.view, RobotPoseMeta::new(s.robot_pose))) // T_B_G
     .collect();
 
 let input = SingleCamHandeyeInput::new(views)?;

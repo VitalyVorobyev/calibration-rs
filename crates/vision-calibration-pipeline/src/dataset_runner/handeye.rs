@@ -131,10 +131,7 @@ pub fn build_single_cam_handeye_input(
     let views: Vec<View<RobotPoseMeta>> = kept_obs
         .into_iter()
         .zip(matched)
-        .map(|(obs, base_se3_gripper)| View {
-            obs,
-            meta: RobotPoseMeta { base_se3_gripper },
-        })
+        .map(|(obs, base_se3_gripper)| View::new(obs, RobotPoseMeta::new(base_se3_gripper)))
         .collect();
 
     let usable_views = views.len();
@@ -167,10 +164,11 @@ mod tests {
 
     fn grid_features(n: usize) -> Vec<Feature> {
         (0..n)
-            .map(|i| Feature {
-                cov_px: None,
-                image_xy: [100.0 + 10.0 * i as f64, 200.0 + 5.0 * i as f64],
-                world_xyz: [0.025 * i as f64, 0.0, 0.0],
+            .map(|i| {
+                Feature::new(
+                    [100.0 + 10.0 * i as f64, 200.0 + 5.0 * i as f64],
+                    [0.025 * i as f64, 0.0, 0.0],
+                )
             })
             .collect()
     }
@@ -182,10 +180,11 @@ mod tests {
         (0..9u32)
             .flat_map(|v| (0..6u32).map(move |u| (u, v)))
             .filter(|uv| !missing.contains(uv))
-            .map(|(u, v)| Feature {
-                cov_px: None,
-                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
-                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+            .map(|(u, v)| {
+                Feature::new(
+                    [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                    [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                )
             })
             .collect()
     }
@@ -196,12 +195,7 @@ mod tests {
 
     fn detector_config() -> vision_calibration_detect::DetectorConfig {
         vision_calibration_detect::DetectorConfig::Chessboard(
-            vision_calibration_detect::ChessboardConfig {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-                chess_corners: None,
-            },
+            vision_calibration_detect::ChessboardConfig::new(9, 6, 0.025),
         )
     }
 
@@ -219,47 +213,34 @@ mod tests {
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
         let key = CacheKey::for_detection(bytes, &detector_config(), None);
-        cache.put(&key, &CachedFeatures { features }).unwrap();
+        cache.put(&key, &CachedFeatures::new(features)).unwrap();
         path
     }
 
     fn handeye_spec(dir: &Path, image_paths: &[&str], pose_lines: &str) -> DatasetSpec {
         let pose_path = dir.join("poses.txt");
         std::fs::write(&pose_path, pose_lines).unwrap();
-        DatasetSpec {
-            version: 1,
-            cameras: vec![CameraSource {
-                id: "cam0".into(),
-                images: ImagePattern::List {
+        let mut spec = DatasetSpec::new(
+            vec![CameraSource::new(
+                "cam0",
+                ImagePattern::List {
                     paths: image_paths.iter().map(PathBuf::from).collect(),
                 },
-                roi_xywh: None,
-                laser_images: None,
-            }],
-            target: TargetSpec::Chessboard {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-            },
-            detector: None,
-            robot_poses: Some(RobotPoseSource {
-                path: PathBuf::from("poses.txt"),
-                format: RobotPoseFormat::Rowmajor4x4,
-                columns: None,
-                matrix_field: None,
-            }),
-            laser: None,
-            upstream_calibration: None,
-            topology: ProblemKind::SingleCamHandeye,
-            pose_pairing: Some(PosePairing::ByIndex),
-            pose_convention: Some(PoseConvention {
-                transform: TransformConvention::TBaseTcp,
-                rotation_format: RotationFormat::Matrix4x4RowMajor,
-                translation_units: TranslationUnits::M,
-            }),
-            unresolved: vec![],
-            description: None,
-        }
+            )],
+            TargetSpec::chessboard(9, 6, 0.025),
+            ProblemKind::SingleCamHandeye,
+        );
+        spec.robot_poses = Some(RobotPoseSource::new(
+            PathBuf::from("poses.txt"),
+            RobotPoseFormat::Rowmajor4x4,
+        ));
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        spec.pose_convention = Some(PoseConvention::new(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        ));
+        spec
     }
 
     fn identity_pose_line(tx: f64) -> String {
@@ -483,23 +464,25 @@ mod tests {
                    0,0.1,0,0,0,0,0,1";
         let mut spec = handeye_spec(tmp.path(), &["img_0.png", "img_1.png"], "");
         std::fs::write(tmp.path().join("poses.csv"), csv).unwrap();
-        spec.robot_poses = Some(RobotPoseSource {
-            path: PathBuf::from("poses.csv"),
-            format: RobotPoseFormat::Csv,
-            columns: Some(PoseColumnMap {
-                pose_id: Some("view".into()),
-                tx: "tx".into(),
-                ty: "ty".into(),
-                tz: "tz".into(),
-                rotation: vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
-            }),
-            matrix_field: None,
+        spec.robot_poses = Some({
+            let mut value = RobotPoseSource::new(PathBuf::from("poses.csv"), RobotPoseFormat::Csv);
+            value.columns = Some({
+                let mut value = PoseColumnMap::new(
+                    "tx",
+                    "ty",
+                    "tz",
+                    vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
+                );
+                value.pose_id = Some("view".into());
+                value
+            });
+            value
         });
-        spec.pose_convention = Some(PoseConvention {
-            transform: TransformConvention::TBaseTcp,
-            rotation_format: RotationFormat::QuatXyzw,
-            translation_units: TranslationUnits::M,
-        });
+        spec.pose_convention = Some(PoseConvention::new(
+            TransformConvention::TBaseTcp,
+            RotationFormat::QuatXyzw,
+            TranslationUnits::M,
+        ));
         spec.pose_pairing = Some(PosePairing::SharedFilenameToken {
             regex: r"^img_(?<view>\d+)\.png$".into(),
             group: "view".into(),

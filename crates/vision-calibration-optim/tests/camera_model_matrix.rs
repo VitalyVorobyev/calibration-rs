@@ -187,15 +187,13 @@ fn handeye_solves_every_camera_model() {
             let model = truth.build().unwrap();
             let views: Vec<RigView<RobotPoseMeta>> = board_poses()
                 .iter()
-                .map(|cam_se3_target| RigView {
-                    obs: RigViewObs {
-                        cameras: vec![Some(observe(&model, cam_se3_target))],
-                    },
-                    meta: RobotPoseMeta {
-                        base_se3_gripper: base_se3_target
-                            * cam_se3_target.inverse()
-                            * gripper_se3_cam.inverse(),
-                    },
+                .map(|cam_se3_target| {
+                    RigView::new(
+                        RigViewObs::new(vec![Some(observe(&model, cam_se3_target))]),
+                        RobotPoseMeta::new(
+                            base_se3_target * cam_se3_target.inverse() * gripper_se3_cam.inverse(),
+                        ),
+                    )
                 })
                 .collect();
             let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
@@ -243,10 +241,7 @@ fn laserline_solves_every_camera_model() {
                 .map(|pose| {
                     View::new(
                         observe(&model, pose),
-                        LaserlineMeta {
-                            laser_pixels: laser_pixels(&model, pose, &plane),
-                            laser_weights: Vec::new(),
-                        },
+                        LaserlineMeta::new(laser_pixels(&model, pose, &plane)),
                     )
                 })
                 .collect();
@@ -334,10 +329,10 @@ fn rig_scene(kind: DistortionKind, sensor: &SensorParams) -> RigScene {
                     )
                 })
                 .collect();
-            RigLaserlineView {
-                cameras: per_cam.iter().map(|(obs, _)| obs.clone()).collect(),
-                laser_pixels: per_cam.into_iter().map(|(_, px)| px).collect(),
-            }
+            RigLaserlineView::new(
+                per_cam.iter().map(|(obs, _)| obs.clone()).collect(),
+                per_cam.into_iter().map(|(_, px)| px).collect(),
+            )
         })
         .collect();
     RigScene {

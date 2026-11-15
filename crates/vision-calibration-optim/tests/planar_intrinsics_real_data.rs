@@ -423,9 +423,10 @@ fn planar_intrinsics_parameter_fixing_works() {
     .unwrap();
 
     let opts = PlanarIntrinsicsSolveOptions {
-        fix: CameraFix {
-            distortion: Some(vec!["k3".into(), "p1".into(), "p2".into()]),
-            ..CameraFix::default()
+        fix: {
+            let mut value = CameraFix::default();
+            value.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
+            value
         },
         robust_loss: RobustLoss::None,
         ..Default::default()
@@ -513,9 +514,10 @@ fn planar_intrinsics_parameter_fixing_works() {
     .unwrap();
 
     let opts3 = PlanarIntrinsicsSolveOptions {
-        fix: CameraFix {
-            intrinsics: Some(vec!["fx".into(), "fy".into()]),
-            ..CameraFix::default()
+        fix: {
+            let mut value = CameraFix::default();
+            value.intrinsics = Some(vec!["fx".into(), "fy".into()]);
+            value
         },
         robust_loss: RobustLoss::None,
         ..Default::default()
@@ -600,14 +602,12 @@ fn planar_intrinsics_with_iterative_linear_init() {
 
         let dataset_iter = PlanarDataset::new(views_iter).expect("iter dataset");
 
-        let iter_opts = IterativeIntrinsicsOptions {
-            iterations: 2,
-            distortion_opts: DistortionFitOptions {
-                fix_k3: true,
-                fix_tangential: false,
-                iters: 8,
-            },
-        };
+        let mut iter_opts = IterativeIntrinsicsOptions::default();
+        iter_opts.iterations = 2;
+        iter_opts.distortion_opts = DistortionFitOptions::default();
+        iter_opts.distortion_opts.fix_k3 = true;
+        iter_opts.distortion_opts.fix_tangential = false;
+        iter_opts.distortion_opts.iters = 8;
 
         let iter_result =
             estimate_intrinsics_iterative(&dataset_iter, iter_opts).expect("iterative linear init");

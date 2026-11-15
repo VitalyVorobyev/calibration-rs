@@ -1635,12 +1635,12 @@ pub mod tier_b {
     /// and distortion terms held, the tilt free.
     fn tilted_bc5_fix(intrinsics: &[&str], distortion: &[&str]) -> CameraFix {
         let names = |n: &[&str]| Some(n.iter().map(|s| s.to_string()).collect());
-        CameraFix {
-            intrinsics: names(intrinsics),
-            projection: Some(Vec::new()),
-            distortion: names(distortion),
-            sensor: Some(Vec::new()),
-        }
+        let mut fix = CameraFix::default();
+        fix.intrinsics = names(intrinsics);
+        fix.projection = Some(Vec::new());
+        fix.distortion = names(distortion);
+        fix.sensor = Some(Vec::new());
+        fix
     }
 
     fn solve_centered_multistart(

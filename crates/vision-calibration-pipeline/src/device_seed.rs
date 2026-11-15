@@ -275,47 +275,25 @@ mod tests {
     use vision_calibration_dataset::{CameraMountSpec, RigLayoutSpec, ScheimpflugMountSpec};
 
     fn camera(id: &str) -> CameraDeviceSpec {
-        CameraDeviceSpec {
-            id: id.to_string(),
-            focal_mm: 8.0,
-            pixel_pitch_um: 7.0,
-            resolution_px: [720, 540],
-            principal_point_px: None,
-            scheimpflug: Some(ScheimpflugMountSpec {
-                tilt_x_deg: -5.0,
-                tilt_y_deg: 0.0,
-            }),
-        }
+        let mut camera = CameraDeviceSpec::new(id.to_string(), 8.0, 7.0, [720, 540]);
+        camera.scheimpflug = Some(ScheimpflugMountSpec::new(-5.0, 0.0));
+        camera
     }
 
     fn rig_spec() -> DeviceSpec {
-        DeviceSpec {
-            version: 1,
-            cameras: vec![camera("cam0"), camera("cam1")],
-            rig: Some(RigLayoutSpec {
-                cameras: vec![
-                    CameraMountSpec {
-                        id: "cam0".to_string(),
-                        rig_se3_cam: NominalPoseSpec {
-                            rpy_deg: [0.0, 0.0, 90.0],
-                            translation_mm: [100.0, 0.0, 0.0],
-                        },
-                    },
-                    CameraMountSpec {
-                        id: "cam1".to_string(),
-                        rig_se3_cam: NominalPoseSpec::default(),
-                    },
-                ],
-                handeye: Some(HandeyeMountSpec::EyeToHand {
-                    rig_se3_base: NominalPoseSpec {
-                        rpy_deg: [0.0, 0.0, 0.0],
-                        translation_mm: [0.0, 250.0, 0.0],
-                    },
-                }),
-                laser_planes: None,
-            }),
-            description: None,
-        }
+        let mut rig = RigLayoutSpec::new(vec![
+            CameraMountSpec::new(
+                "cam0",
+                NominalPoseSpec::new([0.0, 0.0, 90.0], [100.0, 0.0, 0.0]),
+            ),
+            CameraMountSpec::new("cam1", NominalPoseSpec::default()),
+        ]);
+        rig.handeye = Some(HandeyeMountSpec::EyeToHand {
+            rig_se3_base: NominalPoseSpec::new([0.0, 0.0, 0.0], [0.0, 250.0, 0.0]),
+        });
+        let mut spec = DeviceSpec::new(vec![camera("cam0"), camera("cam1")]);
+        spec.rig = Some(rig);
+        spec
     }
 
     #[test]
@@ -381,10 +359,7 @@ mod tests {
     #[test]
     fn rpy_convention_fixed_axes_xyz() {
         // roll = 90° about x maps ŷ → ẑ.
-        let pose = NominalPoseSpec {
-            rpy_deg: [90.0, 0.0, 0.0],
-            translation_mm: [0.0; 3],
-        };
+        let pose = NominalPoseSpec::new([90.0, 0.0, 0.0], [0.0; 3]);
         let iso = iso3_from_nominal(&pose);
         let mapped = iso * nalgebra::Vector3::y();
         assert!((mapped - nalgebra::Vector3::z()).norm() < 1e-12);
@@ -429,10 +404,8 @@ mod tests {
         let spec = rig_spec();
         // cam1's mount is identity, so a view anchored on cam1 has
         // rig_se3_target == cam_se3_target directly.
-        let target_pose = iso3_from_nominal(&NominalPoseSpec {
-            rpy_deg: [0.0, 0.0, 0.0],
-            translation_mm: [10.0, 20.0, 500.0],
-        });
+        let target_pose =
+            iso3_from_nominal(&NominalPoseSpec::new([0.0, 0.0, 0.0], [10.0, 20.0, 500.0]));
         // View 0: only cam0 sees the target; view 1: only cam1.
         let poses = vec![vec![Some(target_pose), None], vec![None, Some(target_pose)]];
         let seed = rig_layout_seed(&spec, &["cam0", "cam1"], &poses).unwrap();

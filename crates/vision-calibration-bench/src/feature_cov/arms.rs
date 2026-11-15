@@ -62,9 +62,7 @@ impl Arm {
         let mut spec = spec.clone();
         let detector = spec.detector.get_or_insert_default();
         let chess = detector.chess_corners.get_or_insert_default();
-        chess.covariance = self
-            .image_noise()
-            .map(|image_noise| CornerCovarianceSpec { image_noise });
+        chess.covariance = self.image_noise().map(CornerCovarianceSpec::new);
         spec
     }
 }

@@ -680,10 +680,7 @@ fn bad_camera_only_scheimpflug_rig_dataset(
         .map(|obs| {
             let mut cameras = vec![None; num_cameras];
             cameras[item.cam_idx] = obs;
-            RigView {
-                obs: RigViewObs { cameras },
-                meta: NoMeta,
-            }
+            RigView::new(RigViewObs::new(cameras), NoMeta)
         })
         .collect();
     RigDataset::new(views, num_cameras).map_err(Error::from)

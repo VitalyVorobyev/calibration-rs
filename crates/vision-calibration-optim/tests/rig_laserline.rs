@@ -134,10 +134,7 @@ fn stereo_rig_laserline_recovers_planes() {
             }
             laser_obs.push(Some(pixels));
         }
-        views.push(RigLaserlineView {
-            cameras: cam_obs,
-            laser_pixels: laser_obs,
-        });
+        views.push(RigLaserlineView::new(cam_obs, laser_obs));
     }
 
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();

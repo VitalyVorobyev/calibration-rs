@@ -166,12 +166,7 @@ fn scene(regime: &Regime, seed: u64) -> Scene {
         .map(|(obs, t_b_g)| {
             // The measured robot pose is off by a gripper-frame error.
             let measured = t_b_g * iso(rng.vec3(rot_noise), rng.vec3(trans_noise));
-            SingleCamHandeyeView {
-                obs,
-                meta: RobotPoseMeta {
-                    base_se3_gripper: measured,
-                },
-            }
+            SingleCamHandeyeView::new(obs, RobotPoseMeta::new(measured))
         })
         .collect();
     Scene {

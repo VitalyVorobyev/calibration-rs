@@ -40,6 +40,7 @@ pub enum CornerStrategy {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct ChessCornersConfig {
     /// Corner detector. `None` keeps ChESS.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -93,11 +94,19 @@ pub struct ChessCornersConfig {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CornerCovariance {
     /// The image noise the propagated covariance is expressed in. Defaults
     /// to [`ImageNoise::Estimate`].
     #[serde(default)]
     pub image_noise: ImageNoise,
+}
+
+impl CornerCovariance {
+    /// Corner covariances expressed in the image noise `image_noise`.
+    pub fn new(image_noise: ImageNoise) -> Self {
+        Self { image_noise }
+    }
 }
 
 /// The pixel-noise level behind a corner covariance.

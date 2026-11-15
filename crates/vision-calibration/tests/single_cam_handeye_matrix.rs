@@ -89,12 +89,7 @@ fn eye_in_hand_views(
         .expect("all board points projectable in every view");
     obs.into_iter()
         .zip(robot_poses.iter())
-        .map(|(obs, tbg)| SingleCamHandeyeView {
-            obs,
-            meta: RobotPoseMeta {
-                base_se3_gripper: *tbg,
-            },
-        })
+        .map(|(obs, tbg)| SingleCamHandeyeView::new(obs, RobotPoseMeta::new(*tbg)))
         .collect()
 }
 
@@ -339,12 +334,7 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
         let views: Vec<SingleCamHandeyeView> = obs
             .into_iter()
             .zip(robot_poses.iter())
-            .map(|(obs, tbg)| SingleCamHandeyeView {
-                obs,
-                meta: RobotPoseMeta {
-                    base_se3_gripper: *tbg,
-                },
-            })
+            .map(|(obs, tbg)| SingleCamHandeyeView::new(obs, RobotPoseMeta::new(*tbg)))
             .collect();
         let input = SingleCamHandeyeInput::new(views).expect("input");
         let export = solve(input, HandeyeMode::EyeToHand);

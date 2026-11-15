@@ -240,23 +240,25 @@ pub fn calibration_input(
     let views: Vec<RigView<NoMeta>> = poses
         .iter()
         .enumerate()
-        .map(|(v, rig_se3_target)| RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: (0..2)
-                    .map(|c| {
-                        let pixels = board
-                            .iter()
-                            .enumerate()
-                            .map(|(i, p)| {
-                                let key = (seed << 32) + (c * 1_000_000 + v * 1000 + i) as u64;
-                                stereo_noisy_pixel(cameras, c, &(rig_se3_target * p), key)
-                            })
-                            .collect();
-                        Some(CorrespondenceView::new(board.clone(), pixels).unwrap())
-                    })
-                    .collect(),
-            },
+        .map(|(v, rig_se3_target)| {
+            RigView::new(
+                RigViewObs::new(
+                    (0..2)
+                        .map(|c| {
+                            let pixels = board
+                                .iter()
+                                .enumerate()
+                                .map(|(i, p)| {
+                                    let key = (seed << 32) + (c * 1_000_000 + v * 1000 + i) as u64;
+                                    stereo_noisy_pixel(cameras, c, &(rig_se3_target * p), key)
+                                })
+                                .collect();
+                            Some(CorrespondenceView::new(board.clone(), pixels).unwrap())
+                        })
+                        .collect(),
+                ),
+                NoMeta,
+            )
         })
         .collect();
     RigDataset::new(views, 2).unwrap()

@@ -28,8 +28,8 @@ use std::time::Instant;
 #[path = "puzzle_130x130_rig/viewer.rs"]
 mod puzzle_viewer;
 
-use vision_calibration::common::{HandeyeSolution, RigIntrinsicsManualInit};
 use vision_calibration::common::config::{CameraConfig, RobotPoseConfig};
+use vision_calibration::common::{HandeyeSolution, RigIntrinsicsManualInit};
 use vision_calibration::{
     common::CalibratedCameras,
     mvg::{
@@ -158,11 +158,9 @@ fn main() -> Result<()> {
         DistortionKind::BrownConrady5,
         SensorKind::Scheimpflug,
     ));
-    cfg.camera.fix = CameraFix {
-        sensor: Some(vec!["tilt_y".to_string()]),
-        distortion: Some(vec!["k2".to_string(), "k3".to_string()]),
-        ..CameraFix::default()
-    };
+    cfg.camera.fix = CameraFix::default();
+    cfg.camera.fix.sensor = Some(vec!["tilt_y".to_string()]);
+    cfg.camera.fix.distortion = Some(vec!["k2".to_string(), "k3".to_string()]);
     cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics = false;
     let robot_prior = cfg
@@ -314,10 +312,7 @@ fn main() -> Result<()> {
     let upstream = rig_export
         .to_upstream_calibration(rig_se3_target)
         .context("rig handeye export to laserline upstream")?;
-    let laserline_input = RigLaserlineDeviceInput {
-        dataset: laserline_dataset,
-        upstream,
-    };
+    let laserline_input = RigLaserlineDeviceInput::new(laserline_dataset, upstream);
 
     let mut laser_session =
         CalibrationSession::<RigLaserlineDeviceProblem>::with_description("puzzle_130x130_laser");
@@ -379,7 +374,10 @@ fn main() -> Result<()> {
         target_ref,
         laser_export.laser_planes_cam.clone(),
     );
-    let initial_robot_deltas = rig_export.robot_refinement.as_ref().map(|r| r.deltas.clone());
+    let initial_robot_deltas = rig_export
+        .robot_refinement
+        .as_ref()
+        .map(|r| r.deltas.clone());
     let (joint_initial_mean, joint_initial_stats) = evaluate_rig_handeye_laserline(
         &joint_dataset,
         &joint_initial,
@@ -395,18 +393,16 @@ fn main() -> Result<()> {
     // value (narrow FOV); hold k3/p1/p2 too. Fix Scheimpflug tilts (they
     // were converged per camera). Free the intrinsics, except the reference
     // camera extrinsic for gauge.
-    let cam_fix = CameraFix {
-        intrinsics: Some(Vec::new()),
-        distortion: Some(
-            ["k2", "k3", "p1", "p2"]
-                .iter()
-                .map(|n| n.to_string())
-                .collect(),
-        ),
-        // Scheimpflug tilts converge well in per-camera BA — don't refit here.
-        sensor: Some(vec!["tilt_x".to_string(), "tilt_y".to_string()]),
-        ..CameraFix::default()
-    };
+    let mut cam_fix = CameraFix::default();
+    cam_fix.intrinsics = Some(Vec::new());
+    cam_fix.distortion = Some(
+        ["k2", "k3", "p1", "p2"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
+    );
+    // Scheimpflug tilts converge well in per-camera BA — don't refit here.
+    cam_fix.sensor = Some(vec!["tilt_x".to_string(), "tilt_y".to_string()]);
     let mut joint_opts = RigHandeyeLaserlineSolveOptions {
         // PointToPlane residual (meters): a 1 mm error is a 0.001 residual;
         // target reprojection is ~1-20 px, so the calib term naturally
@@ -467,7 +463,9 @@ fn main() -> Result<()> {
         );
     }
     print_param_deltas(&joint_initial, &joint_est.params);
-    print_robot_delta_summary("joint BA robot deltas", joint_est
+    print_robot_delta_summary(
+        "joint BA robot deltas",
+        joint_est
             .robot_refinement
             .as_ref()
             .map(|r| r.deltas.as_slice()),
@@ -795,14 +793,10 @@ fn build_datasets(data_dir: &Path, poses: &[PoseEntry]) -> Result<DetectedDatase
             return Err(anyhow!("pose {i}: no target detections in any camera"));
         }
 
-        handeye_views.push(RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: pose.base_se3_gripper(),
-            },
-            obs: RigViewObs {
-                cameras: cam_obs.clone(),
-            },
-        });
+        handeye_views.push(RigView::new(
+            RigViewObs::new(cam_obs.clone()),
+            RobotPoseMeta::new(pose.base_se3_gripper()),
+        ));
 
         let mut laser_pixels: Vec<Option<Vec<Pt2>>> = vec![None; NUM_CAMERAS];
         if pose.has_laser() {
@@ -816,25 +810,20 @@ fn build_datasets(data_dir: &Path, poses: &[PoseEntry]) -> Result<DetectedDatase
                     if pts.is_empty() { None } else { Some(pts) }
                 })
                 .collect();
-            laser_views.push(RigLaserlineView {
-                cameras: cam_obs,
-                laser_pixels: laser_pixels.clone(),
-            });
+            laser_views.push(RigLaserlineView::new(cam_obs, laser_pixels.clone()));
         }
-        joint_views.push(RigHandeyeLaserlineView {
-            obs: RigLaserlineView {
-                cameras: handeye_views
+        joint_views.push(RigHandeyeLaserlineView::new(
+            RigLaserlineView::new(
+                handeye_views
                     .last()
                     .expect("handeye view just pushed")
                     .obs
                     .cameras
                     .clone(),
                 laser_pixels,
-            },
-            meta: RobotPoseMeta {
-                base_se3_gripper: pose.base_se3_gripper(),
-            },
-        });
+            ),
+            RobotPoseMeta::new(pose.base_se3_gripper()),
+        ));
 
         // Drop per-pose images to limit peak memory.
         let _ = target_img;

@@ -136,10 +136,7 @@ fn make_dataset() -> (
             }
             laser_obs.push(Some(pixels));
         }
-        views.push(RigLaserlineView {
-            cameras: cam_obs,
-            laser_pixels: laser_obs,
-        });
+        views.push(RigLaserlineView::new(cam_obs, laser_obs));
     }
 
     let dataset = RigLaserlineDataset::new(views, 2).unwrap();
@@ -149,12 +146,11 @@ fn make_dataset() -> (
         vision_calibration_core::SensorParams::Scheimpflug { params: sensor },
         intrinsics,
     );
-    let upstream = RigUpstreamCalibration {
-        cameras: vec![camera.clone(), camera],
-        cam_se3_rig: rig_se3_cam.iter().map(|t| t.inverse()).collect(),
+    let upstream = RigUpstreamCalibration::new(
+        vec![camera.clone(), camera],
+        rig_se3_cam.iter().map(|t| t.inverse()).collect(),
         rig_se3_target,
-        uncertainty: Default::default(),
-    };
+    );
 
     (dataset, upstream, planes_rig_gt)
 }
@@ -184,7 +180,7 @@ fn pipeline_converges_rig_laserline() {
         })
         .collect();
 
-    let input = RigLaserlineDeviceInput { dataset, upstream };
+    let input = RigLaserlineDeviceInput::new(dataset, upstream);
 
     let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
     session.set_input(input).unwrap();
@@ -277,7 +273,7 @@ fn the_linear_init_reports_each_fits_rmse() {
     let (dataset, upstream, _) = make_dataset();
     let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
     session
-        .set_input(RigLaserlineDeviceInput { dataset, upstream })
+        .set_input(RigLaserlineDeviceInput::new(dataset, upstream))
         .unwrap();
     let init = step_init(&mut session, None).unwrap();
     assert_eq!(init.laser_planes_cam.len(), 2);
@@ -353,10 +349,7 @@ fn pinhole_upstream_converges_rig_laserline() {
         ));
     }
 
-    let input = RigLaserlineDeviceInput {
-        dataset,
-        upstream: converted,
-    };
+    let input = RigLaserlineDeviceInput::new(dataset, converted);
     let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
     session.set_input(input).unwrap();
     run_calibration(&mut session).unwrap();
@@ -391,10 +384,7 @@ fn calibrate(
     let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
     session.set_config(config).unwrap();
     session
-        .set_input(RigLaserlineDeviceInput {
-            dataset: dataset.clone(),
-            upstream,
-        })
+        .set_input(RigLaserlineDeviceInput::new(dataset.clone(), upstream))
         .unwrap();
     run_calibration(&mut session).unwrap();
     session.export().unwrap()
@@ -454,22 +444,17 @@ fn the_upstream_covariance_reaches_the_export() {
                 .collect()
         })
         .collect();
-    upstream.uncertainty = Uncertainty::Available(ParameterCovariance {
-        labels: labels.clone(),
-        covariance,
-        views: vec![vision_calibration_core::ViewCovariance {
-            view: 2,
-            labels: pose("rig_se3_target"),
-            covariance: (0..6)
+    upstream.uncertainty = Uncertainty::Available({
+        let mut value = ParameterCovariance::new(labels.clone(), covariance, Vec::new(), 0, 0);
+        value.views = vec![vision_calibration_core::ViewCovariance::new(
+            2,
+            pose("rig_se3_target"),
+            (0..6)
                 .map(|i| (0..6).map(|j| if i == j { 1e-8 } else { 0.0 }).collect())
                 .collect(),
-        }],
-        fixed: vec!["cam0.k3".into()],
-        noise: Vec::new(),
-        num_residuals: 0,
-        dof: 0,
-        view_scatter: None,
-        second_order: None,
+        )];
+        value.fixed = vec!["cam0.k3".into()];
+        value
     });
 
     let export = calibrate(&dataset, upstream.clone(), SolverBackend::TinySolver);
@@ -537,7 +522,7 @@ fn the_upstream_covariance_reaches_the_export() {
 #[test]
 fn an_upstream_without_covariance_is_held_exact() {
     let (dataset, upstream, _) = make_dataset();
-    let input = RigLaserlineDeviceInput { dataset, upstream };
+    let input = RigLaserlineDeviceInput::new(dataset, upstream);
     let mut json = serde_json::to_value(&input).unwrap();
     json["upstream"]
         .as_object_mut()
@@ -576,10 +561,7 @@ fn an_unseeded_camera_without_laser_pixels_is_an_error() {
             v
         })
         .collect();
-    let input = RigLaserlineDeviceInput {
-        dataset: RigLaserlineDataset::new(views, 2).unwrap(),
-        upstream,
-    };
+    let input = RigLaserlineDeviceInput::new(RigLaserlineDataset::new(views, 2).unwrap(), upstream);
 
     let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
     session.set_input(input).unwrap();
@@ -611,10 +593,10 @@ fn the_laser_loss_robustifies_the_plane_fit() {
         let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
         session.set_config(config).unwrap();
         session
-            .set_input(RigLaserlineDeviceInput {
-                dataset: dataset.clone(),
-                upstream: upstream.clone(),
-            })
+            .set_input(RigLaserlineDeviceInput::new(
+                dataset.clone(),
+                upstream.clone(),
+            ))
             .unwrap();
         run_calibration(&mut session).unwrap();
         let got = &session.export().unwrap().laser_planes_rig[0];

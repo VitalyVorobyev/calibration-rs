@@ -1171,35 +1171,27 @@ mod tests {
     }
 
     fn spec_with_rois(rois: &[Option<[u32; 4]>]) -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: rois
-                .iter()
-                .enumerate()
-                .map(|(i, roi)| CameraSource {
-                    id: format!("cam{i}"),
-                    images: ImagePattern::Glob {
+        let cameras = rois
+            .iter()
+            .enumerate()
+            .map(|(i, roi)| {
+                let mut camera = CameraSource::new(
+                    format!("cam{i}"),
+                    ImagePattern::Glob {
                         pattern: format!("cam{i}/*.png"),
                     },
-                    roi_xywh: *roi,
-                    laser_images: None,
-                })
-                .collect(),
-            target: TargetSpec::Chessboard {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-            },
-            detector: None,
-            robot_poses: None,
-            laser: None,
-            upstream_calibration: None,
-            topology: ProblemKind::RigExtrinsics,
-            pose_pairing: Some(PosePairing::ByIndex),
-            pose_convention: None,
-            unresolved: vec![],
-            description: None,
-        }
+                );
+                camera.roi_xywh = *roi;
+                camera
+            })
+            .collect();
+        let mut spec = DatasetSpec::new(
+            cameras,
+            TargetSpec::chessboard(9, 6, 0.025),
+            ProblemKind::RigExtrinsics,
+        );
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        spec
     }
 
     #[test]

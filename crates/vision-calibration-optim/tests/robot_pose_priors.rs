@@ -156,14 +156,10 @@ impl Scene {
                 let eps: [f64; 6] =
                     std::array::from_fn(|i| if i < 3 { robot.0 } else { robot.1 } * rng.gauss());
                 let error = apply_robot_delta(&Iso3::identity(), &eps);
-                RigView {
-                    meta: RobotPoseMeta {
-                        base_se3_gripper: if base_frame { error * b } else { b * error },
-                    },
-                    obs: RigViewObs {
-                        cameras: vec![Some(CorrespondenceView::new(p3, p2).unwrap())],
-                    },
-                }
+                RigView::new(
+                    RigViewObs::new(vec![Some(CorrespondenceView::new(p3, p2).unwrap())]),
+                    RobotPoseMeta::new(if base_frame { error * b } else { b * error }),
+                )
             })
             .collect();
         HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap()

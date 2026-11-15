@@ -632,6 +632,13 @@ fn variance_test(
         (NoiseLevel::Sigma(_), None) => {
             return QualityCheck::not_applicable(kind, camera, NO_EXPECTED_NOISE);
         }
+        _ => {
+            return QualityCheck::not_applicable(
+                kind,
+                camera,
+                "the result's noise level has no variance test",
+            );
+        }
     };
     if covariance.num_residuals == 0 {
         return QualityCheck::not_applicable(kind, camera, "the final solve has no residuals");
@@ -862,6 +869,13 @@ fn view_outliers(
     let (error_of, sigma_text): (fn(&TargetFeatureResidual) -> Option<f64>, String) = match level {
         NoiseLevel::Sigma(_) => (|r| r.error_px, format!("σ̂ = {sigma:.3} px")),
         NoiseLevel::Sigma0(_) => (|r| r.error_whitened, format!("σ̂₀ = {sigma:.3}, whitened")),
+        _ => {
+            return QualityCheck::not_applicable(
+                kind,
+                Some(camera),
+                "the result's noise level has no normalized residuals",
+            );
+        }
     };
     let mut views: BTreeMap<usize, (f64, usize)> = BTreeMap::new();
     for residual in target.iter().filter(|r| r.camera == camera) {

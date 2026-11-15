@@ -31,6 +31,7 @@ use vision_geometry::triangulation::triangulate_point_linear;
 /// One pixel of a point: seen by rig camera `camera` at capture `capture`,
 /// with its noise.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigObservation {
     /// Index of the capture that saw the point, into the call's
     /// [`Captures`].

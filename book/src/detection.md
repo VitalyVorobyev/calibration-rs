@@ -121,12 +121,7 @@ A `DetectorConfig` names the target and carries its typed configuration, one var
 use vision_calibration::detect::{ChessboardConfig, DetectorConfig, GrayImageView};
 # fn main() -> anyhow::Result<()> {
 
-let config = DetectorConfig::Chessboard(ChessboardConfig {
-    rows: 17,
-    cols: 28,
-    square_size_m: 0.02,
-    chess_corners: None,
-});
+let config = DetectorConfig::Chessboard(ChessboardConfig::new(17, 28, 0.02)); // rows, cols, square (m)
 let gray = image::open("data/kuka_1/01.png")?.to_luma8();
 let features = config.detect(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?)?;
 println!("{} corners", features.len());
@@ -146,7 +141,7 @@ use vision_calibration::dataset_runner::detect_target;
 use vision_calibration::detect::GrayImageView;
 # fn main() -> anyhow::Result<()> {
 
-let target = TargetSpec::Chessboard { rows: 17, cols: 28, square_size_m: 0.02 };
+let target = TargetSpec::chessboard(17, 28, 0.02); // rows, cols, square (m)
 let gray = image::open("data/kuka_1/01.png")?.to_luma8();
 let features = detect_target(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?, &target, None)?;
 # Ok(())
@@ -190,12 +185,7 @@ use vision_calibration::detect::{
     GrayImageView,
 };
 # fn main() -> anyhow::Result<()> {
-# let config = DetectorConfig::Chessboard(ChessboardConfig {
-#     rows: 17,
-#     cols: 28,
-#     square_size_m: 0.02,
-#     chess_corners: None,
-# });
+# let config = DetectorConfig::Chessboard(ChessboardConfig::new(17, 28, 0.02));
 
 let cache = FsDetectionCache::new("cache/kuka_1");   // created on first write
 let bytes = std::fs::read("data/kuka_1/01.png")?;
@@ -206,7 +196,7 @@ let features = match cache.get(&key)? {
     None => {
         let gray = image::load_from_memory(&bytes)?.to_luma8();
         let features = config.detect(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?)?;
-        cache.put(&key, &CachedFeatures { features: features.clone() })?;
+        cache.put(&key, &CachedFeatures::new(features.clone()))?;
         features
     }
 };

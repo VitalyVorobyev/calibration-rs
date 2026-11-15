@@ -15,8 +15,7 @@ use crate::problems::planar_intrinsics::{
 };
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFix, CorrespondenceView, FxFyCxCy, PlanarDataset, Real, ScheimpflugParams, SensorParams,
-    View,
+    CorrespondenceView, FxFyCxCy, PlanarDataset, Real, ScheimpflugParams, SensorParams, View,
 };
 
 /// Generous bounds centered on an intrinsics estimate: focals within
@@ -176,13 +175,12 @@ fn frozen_pp_opts(
     final_opts: &PlanarIntrinsicsSolveOptions,
     bounds: CameraBounds,
 ) -> PlanarIntrinsicsSolveOptions {
+    let mut fix = final_opts.fix.clone();
+    fix.intrinsics = Some(vec!["cx".to_string(), "cy".to_string()]);
+    fix.sensor = Some(Vec::new());
     PlanarIntrinsicsSolveOptions {
         robust_loss: final_opts.robust_loss,
-        fix: CameraFix {
-            intrinsics: Some(vec!["cx".to_string(), "cy".to_string()]),
-            sensor: Some(Vec::new()),
-            ..final_opts.fix.clone()
-        },
+        fix,
         fix_poses: final_opts.fix_poses.clone(),
         bounds: Some(bounds),
     }

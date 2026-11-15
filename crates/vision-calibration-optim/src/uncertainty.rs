@@ -155,37 +155,40 @@ pub(crate) fn labelled(
         labels[c.block].coordinates[c.index].clone()
     };
 
-    Uncertainty::Available(ParameterCovariance {
-        labels: shared.iter().map(|&i| local_label(i)).collect(),
-        covariance: block(&shared),
-        views: views
-            .into_iter()
-            .map(|(view, positions)| ViewCovariance {
+    let mut covariance = ParameterCovariance::new(
+        shared.iter().map(|&i| local_label(i)).collect(),
+        block(&shared),
+        residual_noise(noise),
+        estimate.num_residuals,
+        estimate.dof,
+    );
+    covariance.views = views
+        .into_iter()
+        .map(|(view, positions)| {
+            ViewCovariance::new(
                 view,
-                labels: positions.iter().map(|&i| local_label(i)).collect(),
-                covariance: block(&positions),
-            })
-            .collect(),
-        fixed: fixed_labels(ir, labels),
-        noise: residual_noise(noise),
-        num_residuals: estimate.num_residuals,
-        dof: estimate.dof,
-        view_scatter: estimate.view_scatter,
-        second_order: estimate.second_order.as_ref().and_then(|second| {
-            // `δ' = M δ`, so a function `aᵀ δ` is `(M⁻ᵀ a)ᵀ δ'`.
-            let coefficients = match &inverses {
-                Some(m) => m.clone().try_inverse()?.transpose() * &second.combination,
-                None => second.combination.clone(),
-            };
-            Some(second_order_error(
-                second,
-                &coefficients,
-                &matrix,
-                &shared,
-                local_label,
-            ))
-        }),
-    })
+                positions.iter().map(|&i| local_label(i)).collect(),
+                block(&positions),
+            )
+        })
+        .collect();
+    covariance.fixed = fixed_labels(ir, labels);
+    covariance.view_scatter = estimate.view_scatter;
+    covariance.second_order = estimate.second_order.as_ref().and_then(|second| {
+        // `δ' = M δ`, so a function `aᵀ δ` is `(M⁻ᵀ a)ᵀ δ'`.
+        let coefficients = match &inverses {
+            Some(m) => m.clone().try_inverse()?.transpose() * &second.combination,
+            None => second.combination.clone(),
+        };
+        Some(second_order_error(
+            second,
+            &coefficients,
+            &matrix,
+            &shared,
+            local_label,
+        ))
+    });
+    Uncertainty::Available(covariance)
 }
 
 /// A combination's terms are the shared parameters whose weight is at least
@@ -213,38 +216,34 @@ fn second_order_error(
     terms.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()).then(a.0.cmp(&b.0)));
     // The combination's sign is arbitrary: its largest weight is +1.
     let scale = terms.first().map_or(1.0, |t| t.1);
-    SecondOrderError {
-        max_scatter_ratio: second.max_variance_ratio.sqrt(),
-        nees_ratio: second.mean_variance_ratio,
-        combination: if scale != 0.0 {
-            terms
-                .iter()
-                .take(COMBINATION_TERMS)
-                .take_while(|t| (t.1 / scale).abs() >= COMBINATION_SHARE)
-                .map(|&(i, w)| CombinationTerm {
-                    label: label(i),
-                    weight: w / scale,
-                })
-                .collect()
-        } else {
-            Vec::new()
-        },
-    }
+    let combination = if scale != 0.0 {
+        terms
+            .iter()
+            .take(COMBINATION_TERMS)
+            .take_while(|t| (t.1 / scale).abs() >= COMBINATION_SHARE)
+            .map(|&(i, w)| CombinationTerm::new(label(i), w / scale))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    SecondOrderError::new(
+        second.max_variance_ratio.sqrt(),
+        second.mean_variance_ratio,
+        combination,
+    )
 }
 
 /// The noise levels of a solve's residual families, as results report them.
 pub(crate) fn residual_noise(noise: &[FamilyNoise]) -> Vec<ResidualNoise> {
     noise
         .iter()
-        .map(|f| ResidualNoise {
-            kind: f.family.clone(),
-            level: if f.whitened {
+        .map(|f| {
+            let level = if f.whitened {
                 NoiseLevel::Sigma0(f.sigma)
             } else {
                 NoiseLevel::Sigma(f.sigma)
-            },
-            count: f.num_residuals,
-            camera: None,
+            };
+            ResidualNoise::new(f.family.clone(), level, f.num_residuals)
         })
         .collect()
 }
@@ -428,26 +427,27 @@ pub(crate) fn per_camera(parts: &[Uncertainty], rig_fixed: Vec<String>) -> Uncer
                 .filter(|label| !label.starts_with("view"))
                 .map(|label| prefix(i, label)),
         );
-        noise.extend(cov.noise.iter().map(|level| ResidualNoise {
-            camera: multi_camera.then_some(i),
-            ..level.clone()
+        noise.extend(cov.noise.iter().map(|level| {
+            let mut level = level.clone();
+            level.camera = multi_camera.then_some(i);
+            level
         }));
     }
     fixed.extend(rig_fixed);
-    Uncertainty::Available(ParameterCovariance {
+    let mut covariance = ParameterCovariance::new(
         labels,
         covariance,
-        views: Vec::new(),
-        fixed,
         noise,
-        num_residuals: available.iter().map(|c| c.num_residuals).sum(),
-        dof: available.iter().map(|c| c.dof).sum(),
-        view_scatter: available
-            .iter()
-            .filter_map(|c| c.view_scatter)
-            .reduce(f64::max),
-        second_order: per_camera_second_order(&available, prefix),
-    })
+        available.iter().map(|c| c.num_residuals).sum(),
+        available.iter().map(|c| c.dof).sum(),
+    );
+    covariance.fixed = fixed;
+    covariance.view_scatter = available
+        .iter()
+        .filter_map(|c| c.view_scatter)
+        .reduce(f64::max);
+    covariance.second_order = per_camera_second_order(&available, prefix);
+    Uncertainty::Available(covariance)
 }
 
 /// The second-order error of cameras solved apart: the worst camera's
@@ -471,18 +471,14 @@ fn per_camera_second_order(
         .zip(&seconds)
         .map(|(c, s)| s.nees_ratio * c.labels.len() as f64)
         .sum();
-    Some(SecondOrderError {
-        max_scatter_ratio: max.max_scatter_ratio,
-        nees_ratio: if n > 0 { nees / n as f64 } else { 1.0 },
-        combination: max
-            .combination
+    Some(SecondOrderError::new(
+        max.max_scatter_ratio,
+        if n > 0 { nees / n as f64 } else { 1.0 },
+        max.combination
             .iter()
-            .map(|t| CombinationTerm {
-                label: prefix(worst, &t.label),
-                weight: t.weight,
-            })
+            .map(|t| CombinationTerm::new(prefix(worst, &t.label), t.weight))
             .collect(),
-    })
+    ))
 }
 
 /// A laser plane's unit normal, reported by its three components (the
@@ -848,21 +844,20 @@ mod tests {
     #[test]
     fn cameras_solved_apart_merge_block_diagonally() {
         let part = |sigma: f64| {
-            Uncertainty::Available(ParameterCovariance {
-                labels: vec!["plane.d".into()],
-                covariance: vec![vec![sigma * sigma]],
-                views: Vec::new(),
-                fixed: vec!["fx".into(), "view0.cam_se3_target".into()],
-                noise: vec![ResidualNoise {
-                    kind: ResidualKind::LaserLine,
-                    level: NoiseLevel::Sigma(sigma),
-                    count: 50,
-                    camera: None,
-                }],
-                num_residuals: 50,
-                dof: 49,
-                view_scatter: None,
-                second_order: None,
+            Uncertainty::Available({
+                let mut value = ParameterCovariance::new(
+                    vec!["plane.d".into()],
+                    vec![vec![sigma * sigma]],
+                    vec![ResidualNoise::new(
+                        ResidualKind::LaserLine,
+                        NoiseLevel::Sigma(sigma),
+                        50,
+                    )],
+                    50,
+                    49,
+                );
+                value.fixed = vec!["fx".into(), "view0.cam_se3_target".into()];
+                value
             })
         };
         let Uncertainty::Available(c) =

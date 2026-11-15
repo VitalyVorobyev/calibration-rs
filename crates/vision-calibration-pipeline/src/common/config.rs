@@ -301,10 +301,10 @@ impl IntrinsicsInitConfig {
         iterations_override: Option<usize>,
         camera: &CameraConfig,
     ) -> IterativeIntrinsicsOptions {
-        IterativeIntrinsicsOptions {
-            iterations: iterations_override.unwrap_or(self.iterations),
-            distortion_opts: self.distortion_fit_opts(camera),
-        }
+        let mut opts = IterativeIntrinsicsOptions::default();
+        opts.iterations = iterations_override.unwrap_or(self.iterations);
+        opts.distortion_opts = self.distortion_fit_opts(camera);
+        opts
     }
 
     /// The linear stage's distortion-fit options for `camera`, shared by
@@ -326,11 +326,11 @@ impl IntrinsicsInitConfig {
     ///   fit has no single-term option.
     pub(crate) fn distortion_fit_opts(&self, camera: &CameraConfig) -> DistortionFitOptions {
         let free = |n: &str| camera.fits_distortion_term(n);
-        DistortionFitOptions {
-            fix_k3: self.fix_k3 || !free("k3"),
-            fix_tangential: camera.estimates_tilt() || !(free("p1") && free("p2")),
-            iters: DISTORTION_FIT_ITERS,
-        }
+        let mut opts = DistortionFitOptions::default();
+        opts.fix_k3 = self.fix_k3 || !free("k3");
+        opts.fix_tangential = camera.estimates_tilt() || !(free("p1") && free("p2"));
+        opts.iters = DISTORTION_FIT_ITERS;
+        opts
     }
 
     /// The per-camera linear-init options for `camera`: Zhang's method with
@@ -836,10 +836,8 @@ mod tests {
         );
         assert!(CameraConfig::new(fisheye).validate().is_ok());
 
-        let tilted_fisheye = CameraModelSpec {
-            sensor: SensorKind::Scheimpflug,
-            ..fisheye
-        };
+        let mut tilted_fisheye = fisheye;
+        tilted_fisheye.sensor = SensorKind::Scheimpflug;
         let err = CameraConfig::new(tilted_fisheye)
             .validate()
             .unwrap_err()

@@ -43,6 +43,7 @@ use vision_calibration_core::{BrownConrady5, Mat3, Pt2, Real, Vec2, Vec3, View};
 
 /// Options controlling distortion parameter estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DistortionFitOptions {
     /// Fix tangential distortion coefficients (p1, p2) to zero.
     ///

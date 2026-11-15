@@ -143,17 +143,15 @@ pub fn predict_with_robot_poses(
     }
     let predicted = planner.predict(&added)?;
     let current = &planner.covariance;
-    let covariance = ParameterCovariance {
-        labels: current.labels.clone(),
-        covariance: rows(&predicted),
-        views: Vec::new(),
-        fixed: current.fixed.clone(),
-        noise: current.noise.clone(),
-        num_residuals: current.num_residuals + 2 * points_added,
-        dof: current.dof + 2 * points_added,
-        view_scatter: current.view_scatter,
-        second_order: None,
-    };
+    let mut covariance = ParameterCovariance::new(
+        current.labels.clone(),
+        rows(&predicted),
+        current.noise.clone(),
+        current.num_residuals + 2 * points_added,
+        current.dof + 2 * points_added,
+    );
+    covariance.fixed = current.fixed.clone();
+    covariance.view_scatter = current.view_scatter;
     let projection = planner.projections(&covariance)?;
     Ok(PredictedRigUncertainty {
         covariance,
@@ -495,6 +493,11 @@ fn robot_pose(
                 "the result's observations were whitened by stated per-point covariances, which \
                  a prediction does not model",
             ));
+        }
+        Some(other) => {
+            return Err(Error::invalid_input(format!(
+                "the result's reprojection noise level {other:?} is not one a prediction models"
+            )));
         }
         None => {
             return Err(Error::invalid_input(

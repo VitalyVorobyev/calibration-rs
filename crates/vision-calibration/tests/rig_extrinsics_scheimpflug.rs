@@ -114,11 +114,11 @@ fn dataset(seed: u64) -> RigExtrinsicsInput {
         })
         .collect();
     let views = (0..rig_se3_target.len())
-        .map(|v| RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: per_cam.iter().map(|views| Some(views[v].clone())).collect(),
-            },
+        .map(|v| {
+            RigView::new(
+                RigViewObs::new(per_cam.iter().map(|views| Some(views[v].clone())).collect()),
+                NoMeta,
+            )
         })
         .collect();
     RigDataset::new(views, 2).expect("rig dataset")

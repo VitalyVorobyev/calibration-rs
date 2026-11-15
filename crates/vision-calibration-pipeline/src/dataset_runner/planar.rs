@@ -131,41 +131,24 @@ mod tests {
     use vision_calibration_detect::FsDetectionCache;
 
     pub(crate) fn planar_spec_for_globless_test() -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: vec![CameraSource {
-                id: "cam0".into(),
-                images: ImagePattern::List { paths: vec![] },
-                roi_xywh: None,
-                laser_images: None,
-            }],
-            target: TargetSpec::Chessboard {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-            },
-            detector: None,
-            robot_poses: None,
-            laser: None,
-            upstream_calibration: None,
-            topology: ProblemKind::PlanarIntrinsics,
-            pose_pairing: None,
-            pose_convention: None,
-            unresolved: vec![],
-            description: None,
-        }
+        DatasetSpec::new(
+            vec![CameraSource::new(
+                "cam0",
+                ImagePattern::List { paths: vec![] },
+            )],
+            TargetSpec::chessboard(9, 6, 0.025),
+            ProblemKind::PlanarIntrinsics,
+        )
     }
 
     #[test]
     fn rejects_rig_topology() {
         let mut spec = planar_spec_for_globless_test();
         spec.topology = ProblemKind::RigExtrinsics;
-        spec.cameras.push(CameraSource {
-            id: "cam1".into(),
-            images: ImagePattern::List { paths: vec![] },
-            roi_xywh: None,
-            laser_images: None,
-        });
+        spec.cameras.push(CameraSource::new(
+            "cam1",
+            ImagePattern::List { paths: vec![] },
+        ));
         let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
         let err = build_planar_input(
             &spec,
@@ -185,27 +168,23 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let config = vision_calibration_detect::DetectorConfig::Chessboard(
-            vision_calibration_detect::ChessboardConfig {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-                chess_corners: None,
-            },
+            vision_calibration_detect::ChessboardConfig::new(9, 6, 0.025),
         );
         // Views showing 9, 5 and 3 of the board's 9 rows.
         let rel_paths = ["a.png", "b.png", "c.png"];
         for (rel, rows) in rel_paths.iter().zip([9u32, 5, 3]) {
             let features: Vec<Feature> = (0..rows)
                 .flat_map(|v| (0..6u32).map(move |u| (u, v)))
-                .map(|(u, v)| Feature {
-                    cov_px: None,
-                    image_xy: [40.0 * f64::from(u), 40.0 * f64::from(v)],
-                    world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                .map(|(u, v)| {
+                    Feature::new(
+                        [40.0 * f64::from(u), 40.0 * f64::from(v)],
+                        [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                    )
                 })
                 .collect();
             std::fs::write(tmp.path().join(rel), rel.as_bytes()).unwrap();
             let key = CacheKey::for_detection(rel.as_bytes(), &config, None);
-            cache.put(&key, &CachedFeatures { features }).unwrap();
+            cache.put(&key, &CachedFeatures::new(features)).unwrap();
         }
         let mut spec = planar_spec_for_globless_test();
         spec.cameras[0].images = ImagePattern::List {
@@ -255,12 +234,15 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         let mut spec = planar_spec_for_globless_test();
-        spec.detector = Some(DetectorSpec {
-            chess_corners: Some(ChessCornersDetectorSpec {
-                covariance: Some(CornerCovarianceSpec::default()),
-                ..ChessCornersDetectorSpec::default()
-            }),
-            min_features_per_view: None,
+        spec.detector = Some({
+            let mut value = DetectorSpec::default();
+            value.chess_corners = Some({
+                let mut value = ChessCornersDetectorSpec::default();
+                value.covariance = Some(CornerCovarianceSpec::default());
+                value
+            });
+            value.min_features_per_view = None;
+            value
         });
         spec.cameras[0].images = ImagePattern::List {
             paths: vec![PathBuf::from("a.png")],
@@ -268,7 +250,7 @@ mod tests {
         std::fs::write(tmp.path().join("a.png"), b"a.png").unwrap();
         let config = target_to_detector_config(&spec).unwrap();
         let key = CacheKey::for_detection(b"a.png", &config, None);
-        cache.put(&key, &CachedFeatures { features }).unwrap();
+        cache.put(&key, &CachedFeatures::new(features)).unwrap();
         build_planar_input(
             &spec,
             tmp.path(),
@@ -278,11 +260,11 @@ mod tests {
     }
 
     fn feature(i: u32, cov: Option<[f64; 3]>) -> vision_calibration_detect::Feature {
-        vision_calibration_detect::Feature {
-            image_xy: [10.0 * f64::from(i), 7.0 * f64::from(i % 3)],
-            world_xyz: [0.025 * f64::from(i), 0.025 * f64::from(i % 3), 0.0],
-            cov_px: cov,
-        }
+        vision_calibration_detect::Feature::new(
+            [10.0 * f64::from(i), 7.0 * f64::from(i % 3)],
+            [0.025 * f64::from(i), 0.025 * f64::from(i % 3), 0.0],
+        )
+        .with_cov_px(cov)
     }
 
     #[test]

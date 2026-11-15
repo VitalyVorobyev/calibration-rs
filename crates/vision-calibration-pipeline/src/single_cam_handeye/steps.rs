@@ -478,12 +478,10 @@ mod tests {
                     })
                     .collect();
 
-                super::super::problem::SingleCamHandeyeView {
-                    obs: CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
-                    meta: crate::common::RobotPoseMeta {
-                        base_se3_gripper: *robot_pose,
-                    },
-                }
+                super::super::problem::SingleCamHandeyeView::new(
+                    CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
+                    crate::common::RobotPoseMeta::new(*robot_pose),
+                )
             })
             .collect();
 

@@ -184,17 +184,15 @@ pub fn predict_with_views(
     }
     let predicted = planner.predict(&added)?;
     let current = &planner.covariance;
-    let covariance = ParameterCovariance {
-        labels: current.labels.clone(),
-        covariance: rows(&predicted),
-        views: Vec::new(),
-        fixed: current.fixed.clone(),
-        noise: current.noise.clone(),
-        num_residuals: current.num_residuals + 2 * points_added,
-        dof: (current.dof + 2 * points_added).saturating_sub(6 * views_added),
-        view_scatter: current.view_scatter,
-        second_order: None,
-    };
+    let mut covariance = ParameterCovariance::new(
+        current.labels.clone(),
+        rows(&predicted),
+        current.noise.clone(),
+        current.num_residuals + 2 * points_added,
+        (current.dof + 2 * points_added).saturating_sub(6 * views_added),
+    );
+    covariance.fixed = current.fixed.clone();
+    covariance.view_scatter = current.view_scatter;
     let projection = planner.projection(&covariance)?;
     Ok(PredictedUncertainty {
         covariance,

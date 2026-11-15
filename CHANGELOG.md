@@ -19,6 +19,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Configs, manifests, observation containers and results can grow
+  without a breaking release** (breaking). The types below are
+  `#[non_exhaustive]`: outside this library they are built with `new(...)`
+  (the required fields; optional ones start at their defaults and are set
+  on the value) or `Default` (set the fields after), never with a struct
+  literal or `..Default::default()`. A pattern that names their fields ends
+  in `..`, and a `match` on `NoiseLevel`, `Detection` or `Captures` needs a
+  wildcard arm. Their fields stay public and their JSON is unchanged.
+
+  ```rust
+  // before
+  let config = ChessboardConfig { rows: 17, cols: 28, square_size_m: 0.02, chess_corners: None };
+  let view = RigView { obs: RigViewObs { cameras: vec![left, right] }, meta: NoMeta };
+  let opts = IterativeIntrinsicsOptions { iterations: 2, ..Default::default() };
+  // after
+  let config = ChessboardConfig::new(17, 28, 0.02);
+  let view = RigView::new(RigViewObs::new(vec![left, right]), NoMeta);
+  let mut opts = IterativeIntrinsicsOptions::default();
+  opts.iterations = 2;
+  ```
+
+  - `core`: `CameraModelSpec::new`, `CameraFix` (`Default`),
+    `ParameterCovariance::new`, `ViewCovariance::new`, `ResidualNoise::new`,
+    `SecondOrderError::new`, `CombinationTerm::new`, `NoiseLevel`,
+    `View::new`, `RigViewObs::new`, `RigView::new`, `RigDataset::new`,
+    `PlanarDataset::new`.
+  - `detect`: `ChessboardConfig::new`, `CharucoConfig::new`,
+    `PuzzleboardConfig::new`, `RinggridConfig::new`, `ChessCornersConfig`
+    (`Default`), `CornerCovariance::new`, `Feature::new` (with
+    `with_cov_px`), `CacheKey` (`for_detection`, `from_inputs`),
+    `CachedFeatures::new`.
+  - `dataset`: `DatasetSpec::new` (the current format version),
+    `CameraSource::new`, `LaserExtractionSpec`, `DetectorSpec` and
+    `ChessCornersDetectorSpec` (`Default`), `CornerCovarianceSpec::new`,
+    `RobotPoseSource::new`, `PoseColumnMap::new`, `PoseConvention::new`, and
+    the `TargetSpec` variants, built with `TargetSpec::chessboard`,
+    `charuco`, `puzzleboard` and `ringgrid`.
+  - `device_seed`: `DeviceSpec::new`, `CameraDeviceSpec::new`,
+    `ScheimpflugMountSpec::new`, `RigLayoutSpec::new`,
+    `CameraMountSpec::new`, `NominalPoseSpec::new`, `LaserPlaneSpec::new`.
+  - `common`: `RobotPoseMeta::new`, `RigLaserlineView::new`.
+  - `single_cam_handeye`: `SingleCamHandeyeInput::new`.
+  - `laserline_device`: `LaserlineMeta::new`.
+  - `rig_laserline_device`: `RigLaserlineDeviceInput::new`,
+    `RigUpstreamCalibration::new` (no covariance; set `uncertainty` to add
+    it), `RigLaserlineDataset::new`.
+  - `rig_handeye_laserline`: `RigHandeyeLaserlineInput::new`,
+    `RigHandeyeLaserlineView::new`.
+  - `session`: `InvalidationPolicy` (its constants and `Default`).
+  - `dataset_runner`: `Detection` and the result `PairedViews`.
+  - `init`: `DistortionFitOptions` and `IterativeIntrinsicsOptions`
+    (`Default`), and the results `LinearPlaneEstimate`,
+    `EquidistantIntrinsicsLinearInit` and `ExtrinsicPoses`.
+  - `mvg`: `laser::LaserObservation::new`, `pose::PoseObservation::new`,
+    `triangulation::RigObservation::new`, `types::PixelMatch::new`,
+    `types::Captures`, and the results `laser::LaserPoint` and
+    `solvers::CameraMatrixDecomposition`.
+
 - The ring-grid detector is `ringgrid` 0.15.0. Its photometric centre method
   now fits a direction-dependent blur, so photometric centres move slightly
   (ellipse centres are unchanged). The detector version is part of the

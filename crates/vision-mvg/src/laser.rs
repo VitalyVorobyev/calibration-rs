@@ -66,6 +66,7 @@ const MIN_INCIDENCE_SINE: Real = 1e-9;
 /// One pixel of the laser line, seen by rig camera `camera` at capture
 /// `capture`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserObservation {
     /// Index of the capture that saw the line, into the call's
     /// [`Captures`]: 0 for a single capture.
@@ -95,6 +96,7 @@ impl LaserObservation {
 
 /// A 3D point of the laser line.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct LaserPoint {
     /// The point in the frame of the call's [`Captures`], metres.
     pub point: Pt3,
@@ -585,21 +587,17 @@ fn uncertainty(
     // Symmetrise away the rounding of the products.
     let sigma = (&sigma + sigma.transpose()) * 0.5;
 
-    Ok(Uncertainty::Available(ParameterCovariance {
-        labels: (0..n)
+    Ok(Uncertainty::Available(ParameterCovariance::new(
+        (0..n)
             .flat_map(|i| ["x", "y", "z"].map(|a| format!("p{i}.{a}")))
             .collect(),
-        covariance: (0..3 * n)
+        (0..3 * n)
             .map(|r| (0..3 * n).map(|c| sigma[(r, c)]).collect())
             .collect(),
-        views: Vec::new(),
-        fixed: Vec::new(),
-        noise: Vec::new(),
-        num_residuals: 2 * n,
-        dof: 0,
-        view_scatter: None,
-        second_order: None,
-    }))
+        Vec::new(),
+        2 * n,
+        0,
+    )))
 }
 
 #[cfg(test)]

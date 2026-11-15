@@ -171,12 +171,12 @@ fn camera_fix(free: FreeSet, kind: DistortionKind) -> CameraFix {
         .filter(|(i, _)| !idx.contains(i))
         .map(|(_, n)| n.to_string())
         .collect();
-    CameraFix {
-        intrinsics: Some(Vec::new()),
-        projection: Some(Vec::new()),
-        distortion: Some(dist),
-        sensor: Some(sensor),
-    }
+    let mut fix = CameraFix::default();
+    fix.intrinsics = Some(Vec::new());
+    fix.projection = Some(Vec::new());
+    fix.distortion = Some(dist);
+    fix.sensor = Some(sensor);
+    fix
 }
 
 /// Backend options; `tight` runs to a relative decrease of 1e-14.

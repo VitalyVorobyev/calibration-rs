@@ -240,13 +240,10 @@ pub fn build_laserline_device_input(
         if pixels.len() < laser_spec.min_points as usize {
             continue;
         }
-        views.push(View {
-            obs: features_to_obs(&features),
-            meta: LaserlineMeta {
-                laser_pixels: pixels,
-                laser_weights: vec![],
-            },
-        });
+        views.push(View::new(
+            features_to_obs(&features),
+            LaserlineMeta::new(pixels),
+        ));
         view_paths.push(path.clone());
         laser_paths.push(laser_path.clone());
     }
@@ -355,10 +352,7 @@ pub fn build_rig_laserline_device_input(
         .views
         .into_iter()
         .zip(laser.pixels)
-        .map(|((obs, _token), laser_pixels)| RigLaserlineView {
-            cameras: obs.cameras,
-            laser_pixels,
-        })
+        .map(|((obs, _token), laser_pixels)| RigLaserlineView::new(obs.cameras, laser_pixels))
         .collect();
     let usable_views = views.len();
     let dataset = RigLaserlineDataset::new(views, num_cameras).expect(
@@ -409,15 +403,12 @@ pub fn build_rig_handeye_laserline_input(
         .into_iter()
         .zip(laser.pixels)
         .zip(matched)
-        .map(
-            |(((obs, _token), laser_pixels), base_se3_gripper)| RigHandeyeLaserlineView {
-                obs: RigLaserlineView {
-                    cameras: obs.cameras,
-                    laser_pixels,
-                },
-                meta: RobotPoseMeta { base_se3_gripper },
-            },
-        )
+        .map(|(((obs, _token), laser_pixels), base_se3_gripper)| {
+            RigHandeyeLaserlineView::new(
+                RigLaserlineView::new(obs.cameras, laser_pixels),
+                RobotPoseMeta::new(base_se3_gripper),
+            )
+        })
         .collect();
     let usable_views = views.len();
     Ok(RigHandeyeLaserlineRunResult {
@@ -675,16 +666,12 @@ fn extract_laser_pixels(
         })?;
     detection.store(
         &key,
-        &CachedFeatures {
-            features: points
+        &CachedFeatures::new(
+            points
                 .iter()
-                .map(|p| Feature {
-                    cov_px: None,
-                    image_xy: *p,
-                    world_xyz: [0.0, 0.0, 0.0],
-                })
+                .map(|p| Feature::new(*p, [0.0, 0.0, 0.0]))
                 .collect(),
-        },
+        ),
     )?;
     Ok(points.into_iter().map(|p| Pt2::new(p[0], p[1])).collect())
 }
@@ -857,32 +844,24 @@ mod tests {
     fn board_features() -> Vec<Feature> {
         (0..9u32)
             .flat_map(|v| (0..6u32).map(move |u| (u, v)))
-            .map(|(u, v)| Feature {
-                cov_px: None,
-                image_xy: [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
-                world_xyz: [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+            .map(|(u, v)| {
+                Feature::new(
+                    [100.0 + 40.0 * f64::from(u), 50.0 + 40.0 * f64::from(v)],
+                    [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                )
             })
             .collect()
     }
 
     fn detector_config() -> vision_calibration_detect::DetectorConfig {
         vision_calibration_detect::DetectorConfig::Chessboard(
-            vision_calibration_detect::ChessboardConfig {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-                chess_corners: None,
-            },
+            vision_calibration_detect::ChessboardConfig::new(9, 6, 0.025),
         )
     }
 
     fn laser_features(n: usize) -> Vec<Feature> {
         (0..n)
-            .map(|i| Feature {
-                cov_px: None,
-                image_xy: [i as f64, 50.0],
-                world_xyz: [0.0, 0.0, 0.0],
-            })
+            .map(|i| Feature::new([i as f64, 50.0], [0.0, 0.0, 0.0]))
             .collect()
     }
 
@@ -901,7 +880,7 @@ mod tests {
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
         let key = CacheKey::for_detection(bytes, &detector_config(), None);
-        cache.put(&key, &CachedFeatures { features }).unwrap();
+        cache.put(&key, &CachedFeatures::new(features)).unwrap();
         path
     }
 
@@ -920,38 +899,27 @@ mod tests {
         f.write_all(bytes).unwrap();
         let key_config = laser_key_config(&LaserExtractionSpec::default(), None);
         let key = CacheKey::from_inputs(bytes, "laser:fake", &key_config);
-        cache.put(&key, &CachedFeatures { features }).unwrap();
+        cache.put(&key, &CachedFeatures::new(features)).unwrap();
         path
     }
 
     fn laserline_spec(image_paths: &[&str], laser_paths: &[&str]) -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: vec![CameraSource {
-                id: "cam0".into(),
-                images: ImagePattern::List {
-                    paths: image_paths.iter().map(PathBuf::from).collect(),
-                },
-                roi_xywh: None,
-                laser_images: Some(ImagePattern::List {
-                    paths: laser_paths.iter().map(PathBuf::from).collect(),
-                }),
-            }],
-            target: TargetSpec::Chessboard {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
+        let mut camera = CameraSource::new(
+            "cam0",
+            ImagePattern::List {
+                paths: image_paths.iter().map(PathBuf::from).collect(),
             },
-            detector: None,
-            robot_poses: None,
-            laser: None,
-            upstream_calibration: None,
-            topology: ProblemKind::LaserlineDevice,
-            pose_pairing: Some(PosePairing::ByIndex),
-            pose_convention: None,
-            unresolved: vec![],
-            description: None,
-        }
+        );
+        camera.laser_images = Some(ImagePattern::List {
+            paths: laser_paths.iter().map(PathBuf::from).collect(),
+        });
+        let mut spec = DatasetSpec::new(
+            vec![camera],
+            TargetSpec::chessboard(9, 6, 0.025),
+            ProblemKind::LaserlineDevice,
+        );
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        spec
     }
 
     #[test]
@@ -1239,47 +1207,39 @@ mod tests {
             serde_json::to_string(&upstream_export(2)).unwrap(),
         )
         .unwrap();
-        let cam = |idx: usize| CameraSource {
-            id: format!("cam{idx}"),
-            images: ImagePattern::List {
-                paths: (0..num_views)
-                    .map(|v| PathBuf::from(format!("cam{idx}/target_{v}.png")))
-                    .collect(),
-            },
-            roi_xywh: None,
-            laser_images: Some(ImagePattern::List {
+        let cam = |idx: usize| {
+            let mut value = CameraSource::new(
+                format!("cam{idx}"),
+                ImagePattern::List {
+                    paths: (0..num_views)
+                        .map(|v| PathBuf::from(format!("cam{idx}/target_{v}.png")))
+                        .collect(),
+                },
+            );
+            value.laser_images = Some(ImagePattern::List {
                 paths: (0..num_views)
                     .map(|v| PathBuf::from(format!("cam{idx}/laser_{v}.png")))
                     .collect(),
-            }),
+            });
+            value
         };
-        DatasetSpec {
-            version: 1,
-            cameras: vec![cam(0), cam(1)],
-            target: TargetSpec::Chessboard {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-            },
-            detector: None,
-            robot_poses: Some(RobotPoseSource {
-                path: PathBuf::from("poses.txt"),
-                format: RobotPoseFormat::Rowmajor4x4,
-                columns: None,
-                matrix_field: None,
-            }),
-            laser: None,
-            upstream_calibration: Some(PathBuf::from("rig_handeye_export.json")),
-            topology: ProblemKind::RigLaserlineDevice,
-            pose_pairing: Some(PosePairing::ByIndex),
-            pose_convention: Some(PoseConvention {
-                transform: TransformConvention::TBaseTcp,
-                rotation_format: RotationFormat::Matrix4x4RowMajor,
-                translation_units: TranslationUnits::M,
-            }),
-            unresolved: vec![],
-            description: None,
-        }
+        let mut spec = DatasetSpec::new(
+            vec![cam(0), cam(1)],
+            TargetSpec::chessboard(9, 6, 0.025),
+            ProblemKind::RigLaserlineDevice,
+        );
+        spec.robot_poses = Some(RobotPoseSource::new(
+            PathBuf::from("poses.txt"),
+            RobotPoseFormat::Rowmajor4x4,
+        ));
+        spec.upstream_calibration = Some(PathBuf::from("rig_handeye_export.json"));
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        spec.pose_convention = Some(PoseConvention::new(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        ));
+        spec
     }
 
     fn seed_rig_views(dir: &Path, cache: &FsDetectionCache, num_views: usize) {
@@ -1468,19 +1428,15 @@ mod tests {
         }
         let n = labels.len();
         upstream.uncertainty = vision_calibration_core::Uncertainty::Available(
-            vision_calibration_core::ParameterCovariance {
+            vision_calibration_core::ParameterCovariance::new(
                 labels,
-                covariance: (0..n)
+                (0..n)
                     .map(|i| (0..n).map(|j| if i == j { 1e-6 } else { 0.0 }).collect())
                     .collect(),
-                views: Vec::new(),
-                fixed: Vec::new(),
-                noise: Vec::new(),
-                num_residuals: 100,
-                dof: 87,
-                view_scatter: None,
-                second_order: None,
-            },
+                Vec::new(),
+                100,
+                87,
+            ),
         );
         std::fs::write(
             tmp.path().join("rig_handeye_export.json"),

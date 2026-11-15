@@ -101,13 +101,7 @@ pub fn build_dataset(
         }
         let laser_pixels = laser_pixels_for_view(&camera, pose, plane, view_idx, noise);
         let obs = CorrespondenceView::new(pts_3d, pts_2d).expect("corner correspondences");
-        views.push(View::new(
-            obs,
-            LaserlineMeta {
-                laser_pixels,
-                laser_weights: Vec::new(),
-            },
-        ));
+        views.push(View::new(obs, LaserlineMeta::new(laser_pixels)));
     }
     views
 }

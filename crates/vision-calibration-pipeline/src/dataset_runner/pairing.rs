@@ -18,6 +18,7 @@ use super::RunError;
 
 /// Per-camera image lists aligned into rig views.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct PairedViews {
     /// `paths[view][camera]` — `None` when a camera has no image for
     /// this view (only possible under token pairing).

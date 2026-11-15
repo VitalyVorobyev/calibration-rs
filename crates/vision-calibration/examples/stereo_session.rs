@@ -160,6 +160,7 @@ fn main() -> Result<()> {
                         "  Corner noise σ̂₀ ≈ {s:.3} × the stated ({} residuals)",
                         noise.count
                     ),
+                    other => println!("  Corner noise {other:?} ({} residuals)", noise.count),
                 }
             }
         }

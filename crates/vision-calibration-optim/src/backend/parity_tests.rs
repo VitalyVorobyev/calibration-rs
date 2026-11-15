@@ -24,10 +24,7 @@ const MODELS: [CameraModelSpec; 10] = [
     CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
     CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Identity),
     CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity),
-    CameraModelSpec {
-        sensor: crate::ir::SensorKind::Scheimpflug,
-        ..CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity)
-    },
+    CameraModelSpec::pinhole(DistortionKind::None, crate::ir::SensorKind::Scheimpflug),
     CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug),
     CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Scheimpflug),
     CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Scheimpflug),

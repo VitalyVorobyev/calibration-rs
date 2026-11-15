@@ -488,10 +488,8 @@ fn scheimpflug_config_json_roundtrip() {
     config.intrinsics_init.iterations = 3;
     config.solver.max_iters = 75;
     config.optimize.reprojection_loss = RobustLoss::Cauchy { scale: 0.9 };
-    config.camera.fix = CameraFix {
-        sensor: Some(vec!["tilt_x".into()]),
-        ..CameraFix::default()
-    };
+    config.camera.fix = CameraFix::default();
+    config.camera.fix.sensor = Some(vec!["tilt_x".into()]);
     let json = serde_json::to_string(&config).expect("serialize config");
     let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).expect("deserialize config");
     assert_eq!(restored.intrinsics_init.iterations, 3);

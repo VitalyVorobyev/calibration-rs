@@ -44,6 +44,7 @@ pub struct PlaneFitView {
 
 /// Result of linear laser plane estimation.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LinearPlaneEstimate {
     /// Unit normal vector in camera frame
     pub normal: UnitVector3<f64>,

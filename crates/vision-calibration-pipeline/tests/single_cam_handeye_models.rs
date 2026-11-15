@@ -76,11 +76,9 @@ fn input(camera: &CameraParams) -> SingleCamHandeyeInput {
             }
             SingleCamHandeyeView::new(
                 CorrespondenceView::new(p3, p2).unwrap(),
-                RobotPoseMeta {
-                    base_se3_gripper: base_se3_target
-                        * cam_se3_target.inverse()
-                        * gripper_se3_cam().inverse(),
-                },
+                RobotPoseMeta::new(
+                    base_se3_target * cam_se3_target.inverse() * gripper_se3_cam().inverse(),
+                ),
             )
         })
         .collect();

@@ -246,19 +246,15 @@ mod tests {
 
     fn cov(labels: &[&str], var: f64) -> ParameterCovariance {
         let n = labels.len();
-        ParameterCovariance {
-            labels: labels.iter().map(|l| l.to_string()).collect(),
-            covariance: (0..n)
+        ParameterCovariance::new(
+            labels.iter().map(|l| l.to_string()).collect(),
+            (0..n)
                 .map(|i| (0..n).map(|j| if i == j { var } else { 0.0 }).collect())
                 .collect(),
-            views: Vec::new(),
-            fixed: Vec::new(),
-            noise: Vec::new(),
-            num_residuals: 10,
-            dof: 5,
-            view_scatter: None,
-            second_order: None,
-        }
+            Vec::new(),
+            10,
+            5,
+        )
     }
 
     #[test]

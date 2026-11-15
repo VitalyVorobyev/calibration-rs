@@ -55,20 +55,13 @@ fn fixture() -> Fixture {
 
 /// The rig hand-eye stage run on its own, as a staged procedure would.
 fn rig_handeye_warm_start(f: &Fixture) -> RigHandeyeExport {
-    let dataset: RigHandeyeInput = RigDataset {
-        num_cameras: f.input.num_cameras,
-        views: f
-            .input
-            .views
-            .iter()
-            .map(|v| RigView {
-                meta: v.meta.clone(),
-                obs: RigViewObs {
-                    cameras: v.obs.cameras.clone(),
-                },
-            })
-            .collect(),
-    };
+    let views = f
+        .input
+        .views
+        .iter()
+        .map(|v| RigView::new(RigViewObs::new(v.obs.cameras.clone()), v.meta.clone()))
+        .collect();
+    let dataset: RigHandeyeInput = RigDataset::new(views, f.input.num_cameras).unwrap();
     let mut session = CalibrationSession::<RigHandeyeProblem>::new();
     session.set_input(dataset).unwrap();
     session.set_config(f.config.handeye.clone()).unwrap();

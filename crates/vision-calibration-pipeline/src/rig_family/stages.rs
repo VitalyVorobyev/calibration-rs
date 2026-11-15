@@ -555,14 +555,14 @@ pub(crate) fn optimize_rig<P: RigStages>(
     };
     let backend_opts =
         solver.step_backend_options(session.control(), opts.max_iters, opts.verbosity);
-    let output =
-        match optimize_rig_extrinsics(without_meta(input), initial, solve_opts, backend_opts) {
-            Ok(r) => r,
-            Err(e) => {
-                session.log_failure("rig_optimize", e.to_string());
-                return Err(Error::from(e));
-            }
-        };
+    let dataset = without_meta(input)?;
+    let output = match optimize_rig_extrinsics(dataset, initial, solve_opts, backend_opts) {
+        Ok(r) => r,
+        Err(e) => {
+            session.log_failure("rig_optimize", e.to_string());
+            return Err(Error::from(e));
+        }
+    };
 
     let stages = P::stages_mut(&mut session.state);
     stages.rig_ba_reproj_error = Some(output.mean_reproj_error);

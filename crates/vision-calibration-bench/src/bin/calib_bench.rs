@@ -1354,13 +1354,12 @@ fn threshold_case_name(threshold: f32) -> &'static str {
 }
 
 fn set_chess_threshold(entry: &mut BenchEntry, threshold: f32) {
+    let mut chess = ChessCornersDetectorSpec::default();
+    chess.threshold_value = Some(threshold);
     entry
         .detector
         .get_or_insert_with(DetectorOverride::default)
-        .chess_corners = Some(ChessCornersDetectorSpec {
-        threshold_value: Some(threshold),
-        ..ChessCornersDetectorSpec::default()
-    });
+        .chess_corners = Some(chess);
 }
 
 fn set_rig_distortion_and_tilt_masks(
@@ -1376,19 +1375,17 @@ fn set_rig_distortion_and_tilt_masks(
         DistortionKind::BrownConrady5,
         SensorKind::Scheimpflug,
     ));
-    camera.fix = CameraFix {
-        distortion: names(if fix_tangential {
-            &["k3", "p1", "p2"]
-        } else {
-            &["k3"]
-        }),
-        sensor: names(if fix_scheimpflug {
-            &["tilt_x", "tilt_y"]
-        } else {
-            &[]
-        }),
-        ..CameraFix::default()
-    };
+    camera.fix = CameraFix::default();
+    camera.fix.distortion = names(if fix_tangential {
+        &["k3", "p1", "p2"]
+    } else {
+        &["k3"]
+    });
+    camera.fix.sensor = names(if fix_scheimpflug {
+        &["tilt_x", "tilt_y"]
+    } else {
+        &[]
+    });
     overrides.camera = Some(camera);
     overrides.refine_sensor = Some(false);
 }

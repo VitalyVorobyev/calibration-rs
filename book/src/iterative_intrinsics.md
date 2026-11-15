@@ -101,14 +101,13 @@ use vision_calibration::init::{
 # fn main() -> anyhow::Result<()> {
 # let dataset: PlanarDataset = unimplemented!("the observed views");
 
-let opts = IterativeIntrinsicsOptions {
-    iterations: 2,
-    distortion_opts: DistortionFitOptions {
-        fix_k3: true,
-        fix_tangential: false,
-        iters: 8,
-    },
-};
+let mut distortion_opts = DistortionFitOptions::default();
+distortion_opts.fix_k3 = true;
+distortion_opts.fix_tangential = false;
+distortion_opts.iters = 8;
+let mut opts = IterativeIntrinsicsOptions::default();
+opts.iterations = 2;
+opts.distortion_opts = distortion_opts;
 
 let camera = estimate_intrinsics_iterative(&dataset, opts)?;
 // camera is PinholeCamera = Camera<f64, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCy>

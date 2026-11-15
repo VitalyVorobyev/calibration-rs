@@ -99,12 +99,10 @@ fn main() -> Result<()> {
 
             println!("  View {}: {} points", idx, points_2d.len());
 
-            SingleCamHandeyeView {
-                obs: CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
-                meta: RobotPoseMeta {
-                    base_se3_gripper: *robot_pose,
-                },
-            }
+            SingleCamHandeyeView::new(
+                CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
+                RobotPoseMeta::new(*robot_pose),
+            )
         })
         .collect();
 

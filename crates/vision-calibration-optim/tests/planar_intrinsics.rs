@@ -254,9 +254,10 @@ fn intrinsics_masking_keeps_fixed_params() {
 
     let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
     let opts = PlanarIntrinsicsSolveOptions {
-        fix: CameraFix {
-            intrinsics: Some(vec!["fx".into(), "fy".into()]),
-            ..CameraFix::default()
+        fix: {
+            let mut value = CameraFix::default();
+            value.intrinsics = Some(vec!["fx".into(), "fy".into()]);
+            value
         },
         ..PlanarIntrinsicsSolveOptions::default()
     };
@@ -493,9 +494,10 @@ fn distortion_parameter_masking_works() {
 
     // Fix k3, p1, p2 (they are zero in ground truth)
     let opts = PlanarIntrinsicsSolveOptions {
-        fix: CameraFix {
-            distortion: Some(vec!["k3".into(), "p1".into(), "p2".into()]),
-            ..CameraFix::default()
+        fix: {
+            let mut value = CameraFix::default();
+            value.distortion = Some(vec!["k3".into(), "p1".into(), "p2".into()]);
+            value
         },
         ..Default::default()
     };
@@ -622,9 +624,10 @@ fn rejects_unknown_fix_names() {
     } = build_synthetic_scenario(0.0);
     let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
     let opts = PlanarIntrinsicsSolveOptions {
-        fix: CameraFix {
-            sensor: Some(vec!["tilt_x".into()]),
-            ..CameraFix::default()
+        fix: {
+            let mut value = CameraFix::default();
+            value.sensor = Some(vec!["tilt_x".into()]);
+            value
         },
         ..Default::default()
     };

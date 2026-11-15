@@ -22,22 +22,19 @@ use crate::session::CalibrationSession;
 const IMAGE: [u32; 2] = [1280, 960];
 
 fn covariance(labels: &[&str], matrix: Vec<Vec<f64>>, sigma: f64) -> ParameterCovariance {
-    ParameterCovariance {
-        labels: labels.iter().map(|l| l.to_string()).collect(),
-        covariance: matrix,
-        views: Vec::<ViewCovariance>::new(),
-        fixed: Vec::new(),
-        noise: vec![ResidualNoise {
-            kind: ResidualKind::Reprojection,
-            level: NoiseLevel::Sigma(sigma),
-            count: 2000,
-            camera: None,
-        }],
-        num_residuals: 2000,
-        dof: 1900,
-        view_scatter: None,
-        second_order: None,
-    }
+    let mut cov = ParameterCovariance::new(
+        labels.iter().map(|l| l.to_string()).collect(),
+        matrix,
+        vec![ResidualNoise::new(
+            ResidualKind::Reprojection,
+            NoiseLevel::Sigma(sigma),
+            2000,
+        )],
+        2000,
+        1900,
+    );
+    cov.views = Vec::<ViewCovariance>::new();
+    cov
 }
 
 fn unavailable(reason: UncertaintyUnavailable) -> Uncertainty {
@@ -635,11 +632,10 @@ fn view_outliers_name_views_far_above_the_noise() {
 #[test]
 fn view_outliers_prefer_the_cameras_own_noise() {
     let mut cov = covariance(&["cam0.fx"], vec![vec![1.0]], 0.1);
-    cov.noise.push(ResidualNoise {
-        kind: ResidualKind::Reprojection,
-        level: NoiseLevel::Sigma(1.0),
-        count: 100,
-        camera: Some(1),
+    cov.noise.push({
+        let mut value = ResidualNoise::new(ResidualKind::Reprojection, NoiseLevel::Sigma(1.0), 100);
+        value.camera = Some(1);
+        value
     });
     assert_eq!(reprojection_sigma(&cov, 1), Some(NoiseLevel::Sigma(1.0)));
     assert_eq!(reprojection_sigma(&cov, 0), Some(NoiseLevel::Sigma(0.1)));
@@ -678,15 +674,12 @@ fn covariance_linearity_warns_above_the_limit_naming_the_combination() {
     let check = covariance_linearity(&Uncertainty::Available(cov.clone()), &thresholds);
     assert_eq!(check.status, CheckStatus::NotApplicable);
 
-    let term = |label: &str, weight: f64| CombinationTerm {
-        label: label.into(),
-        weight,
-    };
-    cov.second_order = Some(SecondOrderError {
-        max_scatter_ratio: 2.9,
-        nees_ratio: 1.6,
-        combination: vec![term("cam1.cam_se3_rig.ry", 1.0), term("cam0.cx", -0.7)],
-    });
+    let term = |label: &str, weight: f64| CombinationTerm::new(label, weight);
+    cov.second_order = Some(SecondOrderError::new(
+        2.9,
+        1.6,
+        vec![term("cam1.cam_se3_rig.ry", 1.0), term("cam0.cx", -0.7)],
+    ));
     let check = covariance_linearity(&Uncertainty::Available(cov.clone()), &thresholds);
     assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
     assert_eq!(check.subjects, vec!["cam1.cam_se3_rig.ry", "cam0.cx"]);

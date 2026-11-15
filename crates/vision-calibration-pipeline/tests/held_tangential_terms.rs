@@ -124,14 +124,14 @@ fn rig_views<M: Clone>(meta: impl Fn(&Iso3) -> M) -> RigDataset<M> {
     let cam1_se3_cam0 = Isometry3::translation(-0.02, 0.0, 0.0);
     let views = board_poses()
         .iter()
-        .map(|cam0_se3_target| RigView {
-            obs: RigViewObs {
-                cameras: vec![
+        .map(|cam0_se3_target| {
+            RigView::new(
+                RigViewObs::new(vec![
                     Some(view(cam0_se3_target)),
                     Some(view(&(cam1_se3_cam0 * cam0_se3_target))),
-                ],
-            },
-            meta: meta(cam0_se3_target),
+                ]),
+                meta(cam0_se3_target),
+            )
         })
         .collect();
     RigDataset::new(views, 2).unwrap()
@@ -160,14 +160,7 @@ fn planar_intrinsics() {
 fn single_cam_handeye() {
     let views = board_poses()
         .iter()
-        .map(|p| {
-            SingleCamHandeyeView::new(
-                view(p),
-                RobotPoseMeta {
-                    base_se3_gripper: base_se3_gripper(p),
-                },
-            )
-        })
+        .map(|p| SingleCamHandeyeView::new(view(p), RobotPoseMeta::new(base_se3_gripper(p))))
         .collect();
     let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
     session
@@ -208,9 +201,7 @@ fn rig_extrinsics() {
 fn rig_handeye() {
     let mut session = CalibrationSession::<RigHandeyeProblem>::new();
     session
-        .set_input(rig_views(|p| RobotPoseMeta {
-            base_se3_gripper: base_se3_gripper(p),
-        }))
+        .set_input(rig_views(|p| RobotPoseMeta::new(base_se3_gripper(p))))
         .unwrap();
     let mut config = session.config().clone();
     config.camera = held();

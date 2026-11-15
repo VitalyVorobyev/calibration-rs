@@ -31,6 +31,7 @@ use super::state::RigLaserlineDeviceState;
 /// `uncertainty` decides whether the planes' covariance carries theirs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RigUpstreamCalibration {
     /// Per-camera parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
@@ -59,6 +60,24 @@ pub struct RigUpstreamCalibration {
     /// from the hand-eye calibration's.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+}
+
+impl RigUpstreamCalibration {
+    /// An upstream calibration from per-camera parameters `cameras`,
+    /// extrinsics `cam_se3_rig` and per-view target poses `rig_se3_target`,
+    /// with no covariance: the planes' covariance is then conditional on it.
+    pub fn new(
+        cameras: Vec<CameraParams>,
+        cam_se3_rig: Vec<Iso3>,
+        rig_se3_target: Vec<Iso3>,
+    ) -> Self {
+        Self {
+            cameras,
+            cam_se3_rig,
+            rig_se3_target,
+            uncertainty: Uncertainty::default(),
+        }
+    }
 }
 
 impl RigHandeyeExport {
@@ -112,11 +131,20 @@ impl RigHandeyeExport {
 /// Input for rig laserline calibration: dataset + frozen upstream calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct RigLaserlineDeviceInput {
     /// Per-view, per-camera observations.
     pub dataset: RigLaserlineDataset,
     /// Upstream rig calibration (frozen).
     pub upstream: RigUpstreamCalibration,
+}
+
+impl RigLaserlineDeviceInput {
+    /// The laserline observations `dataset` over the frozen calibration
+    /// `upstream`.
+    pub fn new(dataset: RigLaserlineDataset, upstream: RigUpstreamCalibration) -> Self {
+        Self { dataset, upstream }
+    }
 }
 
 /// Configuration for rig laserline calibration.
@@ -338,20 +366,15 @@ impl ProblemType for RigLaserlineDeviceProblem {
 
         // Build a RigDataset<NoMeta> from the laser dataset's target slot for
         // target residual computation.
-        let target_dataset = RigDataset::<NoMeta> {
-            num_cameras: n,
-            views: input
+        let target_dataset = RigDataset::<NoMeta>::new(
+            input
                 .dataset
                 .views
                 .iter()
-                .map(|v| RigView {
-                    meta: NoMeta,
-                    obs: RigViewObs {
-                        cameras: v.cameras.clone(),
-                    },
-                })
+                .map(|v| RigView::new(RigViewObs::new(v.cameras.clone()), NoMeta))
                 .collect(),
-        };
+            n,
+        )?;
         let mut per_feature_residuals = rig_target_residuals(
             &upstream.cameras,
             &target_dataset,

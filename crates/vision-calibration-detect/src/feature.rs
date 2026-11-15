@@ -14,6 +14,7 @@ use schemars::JsonSchema;
 /// own frame (target origin at `(0, 0, 0)`, target plane at `z = 0`).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[non_exhaustive]
 pub struct Feature {
     /// Pixel coordinates `[x, y]` (column, row).
     pub image_xy: [f64; 2],
@@ -24,6 +25,25 @@ pub struct Feature {
     /// (`ChessCornersConfig::covariance`) and measured one; `None` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cov_px: Option<[f64; 3]>,
+}
+
+impl Feature {
+    /// The correspondence of pixel `image_xy` to target point `world_xyz`,
+    /// without a covariance.
+    pub fn new(image_xy: [f64; 2], world_xyz: [f64; 3]) -> Self {
+        Self {
+            image_xy,
+            world_xyz,
+            cov_px: None,
+        }
+    }
+
+    /// The same feature with the pixel covariance `cov_px` (`[xx, xy, yy]`,
+    /// px²), or none.
+    pub fn with_cov_px(mut self, cov_px: Option<[f64; 3]>) -> Self {
+        self.cov_px = cov_px;
+        self
+    }
 }
 
 /// Reject a detection whose image points are not distinct.

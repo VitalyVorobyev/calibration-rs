@@ -157,12 +157,10 @@ fn main() -> Result<()> {
                 det_markers[c] += v.points_2d.len();
             }
         }
-        views.push(RigView {
-            meta: RobotPoseMeta {
-                base_se3_gripper: pose.base_se3_gripper(),
-            },
-            obs: RigViewObs { cameras: cams },
-        });
+        views.push(RigView::new(
+            RigViewObs::new(cams),
+            RobotPoseMeta::new(pose.base_se3_gripper()),
+        ));
     }
     for c in 0..NUM_CAMERAS {
         println!(
@@ -198,11 +196,9 @@ fn main() -> Result<()> {
         DistortionKind::BrownConrady5,
         SensorKind::Scheimpflug,
     ));
-    cfg.camera.fix = CameraFix {
-        sensor: Some(Vec::new()),
-        distortion: Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect()),
-        ..CameraFix::default()
-    };
+    cfg.camera.fix = CameraFix::default();
+    cfg.camera.fix.sensor = Some(Vec::new());
+    cfg.camera.fix.distortion = Some(["k3", "p1", "p2"].iter().map(|n| n.to_string()).collect());
     cfg.rig.refine_sensor = false;
     cfg.rig.refine_intrinsics = false;
     // Robot-pose refinement on by default; `SCHEIMPFLUG_RIG_RINGGRID_REFINE_ROBOT=0` holds

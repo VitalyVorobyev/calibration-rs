@@ -110,7 +110,7 @@ pub fn run_calibration_with_seed(
             let mut handeye_session = CalibrationSession::<RigHandeyeProblem>::with_description(
                 "joint_warmstart_handeye",
             );
-            handeye_session.set_input(input.handeye_dataset())?;
+            handeye_session.set_input(input.handeye_dataset()?)?;
             handeye_session.set_config(config.handeye.clone())?;
             handeye_session.set_control(session.control().clone());
             run_rig_handeye_calibration(&mut handeye_session)?;

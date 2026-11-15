@@ -81,10 +81,7 @@ fn scene() -> (RigLaserlineDataset, RigLaserlineUpstream, Vec<LaserPlane>) {
         .iter()
         .enumerate()
         .map(|(v, target)| {
-            let mut view = RigLaserlineView {
-                cameras: Vec::new(),
-                laser_pixels: Vec::new(),
-            };
+            let mut view = RigLaserlineView::new(Vec::new(), Vec::new());
             for c in 0..CAMERAS {
                 let model = cameras[c].build().unwrap();
                 let pose = cam_se3_rig[c] * target;
@@ -243,9 +240,9 @@ impl Coordinate {
     fn alone(self, sigma: f64) -> Uncertainty {
         let (labels, at) = self.labels();
         let n = labels.len();
-        Uncertainty::Available(ParameterCovariance {
+        Uncertainty::Available(ParameterCovariance::new(
             labels,
-            covariance: (0..n)
+            (0..n)
                 .map(|i| {
                     (0..n)
                         .map(|j| {
@@ -258,14 +255,10 @@ impl Coordinate {
                         .collect()
                 })
                 .collect(),
-            views: Vec::new(),
-            fixed: Vec::new(),
-            noise: Vec::new(),
-            num_residuals: 0,
-            dof: 0,
-            view_scatter: None,
-            second_order: None,
-        })
+            Vec::new(),
+            0,
+            0,
+        ))
     }
 }
 
@@ -389,23 +382,20 @@ fn both_backends_give_the_upstream_share() {
         "rx" | "ry" | "rz" => 1e-7,
         _ => 1e-8,
     };
-    upstream.uncertainty = Uncertainty::Available(ParameterCovariance {
-        covariance: (0..n)
-            .map(|i| {
-                (0..n)
-                    .map(|j| if i == j { variance(&labels[i]) } else { 0.0 })
-                    .collect()
-            })
-            .collect(),
+    let covariance = (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| if i == j { variance(&labels[i]) } else { 0.0 })
+                .collect()
+        })
+        .collect();
+    upstream.uncertainty = Uncertainty::Available(ParameterCovariance::new(
         labels,
-        views: Vec::new(),
-        fixed: Vec::new(),
-        noise: Vec::new(),
-        num_residuals: 0,
-        dof: 0,
-        view_scatter: None,
-        second_order: None,
-    });
+        covariance,
+        Vec::new(),
+        0,
+        0,
+    ));
     let tiny = solve(&dataset, &upstream, &truth, SolverBackend::TinySolver);
     let factrs = solve(&dataset, &upstream, &truth, SolverBackend::Factrs);
     let (a, b) = (
@@ -460,16 +450,11 @@ fn the_handeye_chain_maps_into_the_target_poses() {
                         .collect()
                 })
                 .collect();
-            let calibration = Uncertainty::Available(ParameterCovariance {
-                labels: labels.clone(),
-                covariance,
-                views: Vec::new(),
-                fixed: vec!["cam0.cam_se3_rig".into()],
-                noise: Vec::new(),
-                num_residuals: 10,
-                dof: 3,
-                view_scatter: None,
-                second_order: None,
+            let calibration = Uncertainty::Available({
+                let mut value =
+                    ParameterCovariance::new(labels.clone(), covariance, Vec::new(), 10, 3);
+                value.fixed = vec!["cam0.cam_se3_rig".into()];
+                value
             });
             let mapped =
                 handeye_upstream_uncertainty(&calibration, mode, &handeye, 2, &poses).unwrap();

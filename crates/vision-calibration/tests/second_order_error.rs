@@ -48,29 +48,31 @@ fn stereo_input(poses: &[Iso3], sigma: f64, seed: u64) -> RigExtrinsicsInput {
     let views: Vec<RigView<NoMeta>> = poses
         .iter()
         .enumerate()
-        .map(|(v, rig_se3_target)| RigView {
-            meta: NoMeta,
-            obs: RigViewObs {
-                cameras: (0..2)
-                    .map(|c| {
-                        let pixels = board
-                            .iter()
-                            .enumerate()
-                            .map(|(i, p)| {
-                                let key = (seed << 32) + (c * 1_000_000 + v * 1000 + i) as u64;
-                                let q = cameras[c]
-                                    .project_point(&(cam_se3_rig[c] * rig_se3_target * p))
-                                    .unwrap();
-                                Pt2::new(
-                                    q.x + sigma * gauss(2 * key),
-                                    q.y + sigma * gauss(2 * key + 1),
-                                )
-                            })
-                            .collect();
-                        Some(CorrespondenceView::new(board.clone(), pixels).unwrap())
-                    })
-                    .collect(),
-            },
+        .map(|(v, rig_se3_target)| {
+            RigView::new(
+                RigViewObs::new(
+                    (0..2)
+                        .map(|c| {
+                            let pixels = board
+                                .iter()
+                                .enumerate()
+                                .map(|(i, p)| {
+                                    let key = (seed << 32) + (c * 1_000_000 + v * 1000 + i) as u64;
+                                    let q = cameras[c]
+                                        .project_point(&(cam_se3_rig[c] * rig_se3_target * p))
+                                        .unwrap();
+                                    Pt2::new(
+                                        q.x + sigma * gauss(2 * key),
+                                        q.y + sigma * gauss(2 * key + 1),
+                                    )
+                                })
+                                .collect();
+                            Some(CorrespondenceView::new(board.clone(), pixels).unwrap())
+                        })
+                        .collect(),
+                ),
+                NoMeta,
+            )
         })
         .collect();
     RigDataset::new(views, 2).unwrap()

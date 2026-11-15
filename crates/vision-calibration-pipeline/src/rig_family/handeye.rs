@@ -398,11 +398,11 @@ mod tests {
         let views = stations
             .iter()
             .zip(&observed)
-            .map(|(robot, pose)| single_cam_handeye::SingleCamHandeyeView {
-                obs: board_view(pose),
-                meta: RobotPoseMeta {
-                    base_se3_gripper: *robot,
-                },
+            .map(|(robot, pose)| {
+                single_cam_handeye::SingleCamHandeyeView::new(
+                    board_view(pose),
+                    RobotPoseMeta::new(*robot),
+                )
             })
             .collect();
         let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
@@ -423,13 +423,11 @@ mod tests {
         let views = stations
             .iter()
             .zip(&observed)
-            .map(|(robot, pose)| RigView {
-                meta: RobotPoseMeta {
-                    base_se3_gripper: *robot,
-                },
-                obs: RigViewObs {
-                    cameras: vec![Some(board_view(pose))],
-                },
+            .map(|(robot, pose)| {
+                RigView::new(
+                    RigViewObs::new(vec![Some(board_view(pose))]),
+                    RobotPoseMeta::new(*robot),
+                )
             })
             .collect();
         let mut session = CalibrationSession::<RigHandeyeProblem>::new();
