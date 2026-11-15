@@ -19,7 +19,7 @@ pub struct ParamId(pub usize);
 ///
 /// Each variant implies an expected ambient parameter dimension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ManifoldKind {
+pub(crate) enum ManifoldKind {
     /// Standard Euclidean vector space.
     Euclidean,
     /// SE(3) pose stored as `[qx, qy, qz, qw, tx, ty, tz]`.
@@ -46,7 +46,7 @@ impl ManifoldKind {
 ///
 /// Bounds are applied after each update in backends that support them.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Bound {
+pub(crate) struct Bound {
     pub idx: usize,
     pub lower: f64,
     pub upper: f64,
@@ -282,7 +282,7 @@ impl CameraSpecLayout for CameraModelSpec {
 /// which parameter blocks follow the camera blocks. Per-view measured robot
 /// poses are chain data, not parameter blocks.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ReprojChain {
+pub(crate) enum ReprojChain {
     /// Blocks: `[cam_se3_target]`. `P_camera = pose * P_target`.
     SinglePose,
     /// Blocks: `[extrinsics, pose]` (rig extrinsics).
@@ -350,7 +350,7 @@ impl ReprojChain {
 /// `[plane_normal (S2), plane_distance (1D)]`; the robot-delta correction, if
 /// present, comes last.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LaserChain {
+pub(crate) enum LaserChain {
     /// Blocks: `[cam_se3_target, plane_normal, plane_distance]`.
     SinglePose,
     /// Blocks: `[cam_se3_rig, handeye, target_ref, plane_normal,
@@ -434,7 +434,7 @@ impl LaserChain {
 /// different noise families, pixels and dimensionless. A
 /// [`Stated`](Self::Stated) residual is in neither family.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ReprojSqrtInfo {
+pub(crate) enum ReprojSqrtInfo {
     /// No stated covariance: `L = scale · I`, a residual in pixels (times
     /// `scale`).
     Isotropic {
@@ -530,7 +530,7 @@ impl ReprojSqrtInfo {
 /// One expected parameter slot of a factor: dimension, manifold, and a
 /// diagnostic role name used in validation error messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ParamSlotSpec {
+pub(crate) struct ParamSlotSpec {
     /// Exact ambient dimension expected for the block.
     pub dim: usize,
     /// Manifold expected for the block.
@@ -543,7 +543,7 @@ pub struct ParamSlotSpec {
 ///
 /// Each factor kind implies its parameter layout and residual dimension.
 #[derive(Debug, Clone, PartialEq)]
-pub enum FactorKind {
+pub(crate) enum FactorKind {
     /// Reprojection residual generic over camera model and pose chain.
     ///
     /// Parameters: the camera blocks implied by `model` (intrinsics,
@@ -718,7 +718,7 @@ impl FactorKind {
 ///
 /// This describes the storage layout and constraints for a single variable.
 #[derive(Debug, Clone)]
-pub struct ParamBlock {
+pub(crate) struct ParamBlock {
     /// Stable parameter block ID within this IR.
     pub id: ParamId,
     /// Human-readable parameter block name.
@@ -751,7 +751,7 @@ impl ParamBlock {
 ///
 /// The order of `params` must match the factor's expected parameter order.
 #[derive(Debug, Clone)]
-pub struct ResidualBlock {
+pub(crate) struct ResidualBlock {
     /// Parameter block IDs used by this residual (factor-dependent order).
     pub params: Vec<ParamId>,
     /// Robust loss applied to this residual block.
@@ -766,7 +766,7 @@ pub struct ResidualBlock {
 ///
 /// Backends compile this IR into solver-specific problems.
 #[derive(Debug, Default, Clone)]
-pub struct ProblemIR {
+pub(crate) struct ProblemIR {
     /// Parameter blocks in this optimization problem.
     pub params: Vec<ParamBlock>,
     /// Residual blocks in this optimization problem.

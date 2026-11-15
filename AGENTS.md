@@ -57,6 +57,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
 cargo xtask check-docs                    # user-facing docs (§9)
+cargo xtask check-api                     # public types are growable or allowlisted (§4)
 cargo xtask emit-schemas --check          # when config, input, export or suite-file types change
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 python3 scripts/check_pyi_coverage.py --check      # when the Python surface changes
@@ -77,8 +78,10 @@ app jobs (§12). No new warnings; `#[allow(...)]` only with a stated reason.
   [ADR 0024](docs/adrs/0024-api-vocabulary.md) (`step_<action>`,
   `<Stage><Action>Options`, `Init` never `Initialize`, `<frame>_se3_<frame>`,
   [ADR 0009](docs/adrs/0009-coordinate-and-pose-conventions.md)).
-* **Public types** — `Config` and `Export` types are `#[non_exhaustive]`;
-  config-field rustdoc gives units, valid range and why the default is what
+* **Public types** — a public struct with public fields, and a public
+  enum, is `#[non_exhaustive]` with a constructor, unless its shape is fixed
+  by definition; then `xtask/api_exhaustive.toml` names it with the reason.
+  Config-field rustdoc gives units, valid range and why the default is what
   it is.
 * **Config shape** — grouped by stage, shared stage structs reused, one name
   per concept; field semantics explicit and mode-safe.

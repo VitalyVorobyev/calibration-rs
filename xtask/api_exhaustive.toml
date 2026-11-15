@@ -1,0 +1,103 @@
+# Public types that stay exhaustive because their shape is fixed by
+# definition; `cargo xtask check-api` reports every other public struct with
+# all-public fields, and every public enum, that is not `#[non_exhaustive]`.
+#
+# One table per type, keyed `crate::Type` (or `crate::module::Type` when a
+# crate has two of the name), with the reason its shape cannot grow. An entry
+# that no longer matches a reported type fails the check.
+
+# ── vision_calibration_core: camera-model terms ─────────────────────────────
+
+["vision_calibration_core::FxFyCxCy"]
+reason = "the four pinhole intrinsics fx, fy, cx, cy; another intrinsics model is another IntrinsicsModel type"
+
+["vision_calibration_core::BrownConrady5"]
+reason = "the five Brown-Conrady coefficients and the undistortion iteration count; a richer model is another DistortionModel type"
+
+["vision_calibration_core::RationalPolynomial"]
+reason = "the rational model's eight coefficients and the undistortion iteration count; a richer model is another DistortionModel type"
+
+["vision_calibration_core::ThinPrism"]
+reason = "the nine radial, tangential and thin-prism coefficients and the undistortion iteration count; a richer model is another DistortionModel type"
+
+["vision_calibration_core::Division"]
+reason = "the one-parameter division model: its lambda"
+
+["vision_calibration_core::KannalaBrandt4"]
+reason = "the four Kannala-Brandt coefficients and the undistortion iteration count; a richer model is another DistortionModel type"
+
+["vision_calibration_core::Ray"]
+reason = "a ray is an origin and a direction"
+
+["vision_calibration_core::HomographySensor"]
+reason = "a homography and its inverse"
+
+["vision_calibration_core::ScheimpflugParams"]
+reason = "the two Scheimpflug tilt angles (OpenCV tau_x, tau_y)"
+
+# ── vision_calibration_core: hand-eye and uncertainty vocabulary ────────────
+
+["vision_calibration_core::Handeye"]
+reason = "a hand-eye mount is eye-in-hand or eye-to-hand, each fixed by its one pose"
+
+["vision_calibration_core::RobotFrame"]
+reason = "a robot measurement is stated in the gripper frame or the base frame"
+
+["vision_calibration_core::Uncertainty"]
+reason = "a covariance is available or unavailable for a reason; reasons grow in UncertaintyUnavailable"
+
+# ── vision_calibration_core: synthetic-data helpers ─────────────────────────
+
+["vision_calibration_core::BoardExtent"]
+reason = "an axis-aligned rectangle: its min and max corners"
+
+["vision_calibration_core::UniformPixelNoise"]
+reason = "uniform noise is a seed and a half-width"
+
+["vision_calibration_core::PoseError"]
+reason = "a pose discrepancy is a rotation angle and a translation distance"
+
+["vision_calibration_core::BoardPoseSpec"]
+reason = "three Euler angles and a depth offset"
+
+# ── vision_calibration_dataset ──────────────────────────────────────────────
+
+["vision_calibration_dataset::HandeyeMountSpec"]
+reason = "a hand-eye mount is eye-in-hand or eye-to-hand, each fixed by its one nominal pose"
+
+["vision_calibration_dataset::LaserScanAxis"]
+reason = "a laser line is scanned per image column or per image row"
+
+# ── vision_calibration_linear ───────────────────────────────────────────────
+
+["vision_calibration_linear::MetaHomography"]
+reason = "the view meta of distortion fitting is its one homography"
+
+["vision_calibration_linear::PlaneFitView"]
+reason = "a laser-plane fit view is the laser pixels and the camera pose that lifts them onto the target"
+
+# ── vision_calibration_optim ────────────────────────────────────────────────
+
+["vision_calibration_optim::HandeyeMode"]
+reason = "a hand-eye chain is eye-in-hand or eye-to-hand"
+
+# ── vision_calibration_pipeline ─────────────────────────────────────────────
+
+["vision_calibration_pipeline::Verdict"]
+reason = "the ordered severity scale pass < warn < fail"
+
+["vision_calibration_pipeline::CheckStatus"]
+reason = "a check passed, warned, failed or was not applicable"
+
+["vision_calibration_pipeline::HandeyeSolution"]
+reason = "a rig hand-eye solution is eye-in-hand or eye-to-hand, each with its two poses"
+
+["vision_calibration_pipeline::SingleCamHandeyeSolution"]
+reason = "a single-camera hand-eye solution is eye-in-hand or eye-to-hand, each with its two poses"
+
+# ── vision_mvg ──────────────────────────────────────────────────────────────
+
+["vision_mvg::Correspondence2D"]
+reason = "a two-view correspondence is a pair of image points"
+
+# ── Under review ────────────────────────────────────────────────────────────

@@ -4021,10 +4021,13 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "proc-macro2",
  "regex",
  "schemars",
  "serde",
  "serde_json",
+ "syn 2.0.119",
+ "toml",
  "vision-calibration-bench",
  "vision-calibration-core",
  "vision-calibration-dataset",

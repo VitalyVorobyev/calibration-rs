@@ -63,6 +63,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo run -p xtask -- check-docs
 
+      # A public type that can grow is #[non_exhaustive]; the exhaustive ones
+      # are listed with their reason in xtask/api_exhaustive.toml.
+      - name: Check public types are growable
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo run -p xtask -- check-api
+
       - name: Cargo doc
         if: matrix.os == 'ubuntu-latest'
         env:

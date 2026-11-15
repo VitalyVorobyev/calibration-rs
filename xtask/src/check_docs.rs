@@ -193,7 +193,7 @@ fn user_facing_files(root: &Path) -> Result<Vec<DocFile>> {
 }
 
 /// Crates under `crates/` whose manifest does not say `publish = false`.
-fn published_crates(root: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn published_crates(root: &Path) -> Result<Vec<PathBuf>> {
     let mut crates = Vec::new();
     for entry in fs::read_dir(root.join("crates")).context("reading crates/")? {
         let dir = entry?.path();
@@ -379,7 +379,7 @@ fn check_book_doctests(root: &Path) -> Result<Vec<String>> {
     Ok(findings)
 }
 
-fn rel(root: &Path, path: &Path) -> String {
+pub(crate) fn rel(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .display()

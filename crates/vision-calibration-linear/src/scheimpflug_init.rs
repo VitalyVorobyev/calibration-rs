@@ -31,6 +31,7 @@ use vision_geometry::homography::dlt_homography;
 
 /// Options controlling tilt-aware Scheimpflug planar intrinsics initialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheimpflugIntrinsicsInitOptions {
     /// Number of iterative K/distortion refinement rounds per tilt candidate.
     pub iterations: usize,
@@ -70,6 +71,7 @@ impl Default for ScheimpflugIntrinsicsInitOptions {
 
 /// Result of tilt-aware Scheimpflug planar intrinsics initialization.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ScheimpflugIntrinsicsLinearInit {
     /// Initial pinhole intrinsics and Brown-Conrady distortion.
     pub camera: PinholeCamera,
