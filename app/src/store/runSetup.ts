@@ -2,9 +2,8 @@
  * and where the dataset lives — as an app-wide store. It outlives the Run
  * workspace's mount, so opening a project from the shell fills it while
  * another workspace is showing, and a saved run records exactly what ran. */
-import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
-import { isTauriContext } from "../lib/tauri";
+import { call, capabilities } from "../lib/backend";
 import planarDefaultConfig from "../schemas/planar_intrinsics_config.default.json";
 import { mergeConfig } from "../workspaces/RunWorkspace/presets";
 
@@ -26,7 +25,7 @@ export const DEFAULT_DATASET: unknown = {
   topology: "planar_intrinsics",
 };
 
-// Browser-context fallback only — inside Tauri the defaults come from
+// Fallback outside the desktop app only — there the defaults come from
 // `default_config_cmd` (Rust `Config::default()`), the single source of
 // truth. This is the same value, emitted by `cargo xtask emit-schemas` (and
 // drift-checked in CI), so it cannot fall behind the Rust default.
@@ -38,12 +37,12 @@ export function topologyOf(manifest: unknown): string {
   return typeof m?.topology === "string" ? m.topology : "planar_intrinsics";
 }
 
-/** Default config for a topology: Rust-side defaults inside Tauri,
- * a static fallback in plain-browser dev. */
+/** Default config for a topology: Rust-side defaults in the desktop app,
+ * a static fallback elsewhere. */
 export async function fetchDefaultConfig(topology: string): Promise<unknown> {
-  if (isTauriContext()) {
+  if (capabilities().desktop) {
     try {
-      return await invoke<unknown>("default_config_cmd", { topology });
+      return await call<unknown>("default_config_cmd", { topology });
     } catch {
       // Fall through to the static fallback (e.g. unknown topology).
     }

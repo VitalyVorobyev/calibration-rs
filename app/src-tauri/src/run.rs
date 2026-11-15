@@ -1749,4 +1749,69 @@ mod tests {
         let frames = s.export["image_manifest"]["frames"].as_array().unwrap();
         assert_eq!(frames.len(), s.usable_views);
     }
+
+    /// Sample runs for the browser viewer (`calib-viewer`), as the app
+    /// saves them: a project per dataset with one run, `run-001`, whose
+    /// export carries its image list. Writes `kuka_1` (single-camera
+    /// hand-eye, committed) and `stereo_charuco` (a two-camera rig, when
+    /// present locally) under `$CALIB_VIEWER_SAMPLES` (default
+    /// `app/.tmp-runs`, git-ignored), reading the datasets from
+    /// `$CALIB_VIEWER_DATA` (default the repository's `data/`). Run:
+    /// `cargo test write_viewer_sample_runs -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a dev helper: detects and solves two datasets, writes app/.tmp-runs"]
+    fn write_viewer_sample_runs() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let out = std::env::var_os("CALIB_VIEWER_SAMPLES")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repo_root.join("app/.tmp-runs"));
+        let data = std::env::var_os("CALIB_VIEWER_DATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repo_root.join("data"));
+        for (name, manifest) in [
+            ("kuka_1", "kuka_1/dataset.toml"),
+            ("stereo_charuco", "stereo_charuco/dataset_rig.toml"),
+        ] {
+            let manifest_path = data.join(manifest);
+            if !manifest_path.is_file() {
+                eprintln!("skipping {name}: {} not present", manifest_path.display());
+                continue;
+            }
+            let raw = std::fs::read_to_string(&manifest_path).unwrap();
+            let manifest: serde_json::Value =
+                serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
+            let topology = manifest["topology"].as_str().unwrap().to_string();
+            let config = default_config_cmd(topology.clone()).unwrap();
+            let dataset_dir = manifest_path.parent().unwrap();
+            let response = run_blocking_test(
+                manifest.clone(),
+                config.clone(),
+                &dataset_dir.to_string_lossy(),
+            );
+            let RunResponse::Ok(success) = response else {
+                panic!("{name}: expected Ok, got {response:?}");
+            };
+            let project = out.join(name);
+            if project.join("calibration-project.json").is_file() {
+                std::fs::remove_dir_all(&project).unwrap();
+            }
+            std::fs::create_dir_all(&project).unwrap();
+            crate::project::create(&project, dataset_dir, &manifest).unwrap();
+            let record = crate::project::RunRecord {
+                manifest,
+                config,
+                export: success.export,
+                diagnostics: crate::project::RunDiagnostics {
+                    topology,
+                    usable_views: success.usable_views,
+                    total_views: success.total_views,
+                    duration_ms: success.duration_ms,
+                    cache_used: success.cache_used,
+                },
+                dataset_dir: dataset_dir.to_path_buf(),
+            };
+            crate::project::save_run(&project, "run-001", record).unwrap();
+            println!("{}", project.join("runs/run-001").display());
+        }
+    }
 }

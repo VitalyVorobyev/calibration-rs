@@ -1,33 +1,17 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
-
-/** True iff the page is running inside a Tauri webview (i.e. the IPC
- * internals have been injected). When the user runs `bun run dev` and
- * loads localhost:1420 in a regular browser, this is false and any
- * `invoke` / dialog call would throw `Cannot read properties of
- * undefined (reading 'invoke')`. We guard up-front so the failure mode
- * is a readable banner instead of an opaque TypeError. */
-export function isTauriContext(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    "__TAURI_INTERNALS__" in window &&
-    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ != null
-  );
-}
-
 /** Path helpers for absolute filesystem paths, normalized to `/`.
  *
  * `@tauri-apps/api/path`'s `join`/`dirname` would be the "native" choice,
  * but in Tauri 2 they're IPC calls (`invoke("plugin:path|join", …)`), which
- * would (a) turn every join/dirname site into an async round-trip and (b)
+ * would (a) turn every join/dirname site into an async round-trip, (b)
  * require every `mockIPC` test fixture to stub `plugin:path|*` commands on
- * top of the app's own commands. Instead we normalize once: Rust
- * commands can return backslash-separated paths on Windows, while export
- * manifest paths are always POSIX-style relative paths (export JSON) — so converting
- * every input to `/` up front and joining/splitting on `/` from then on
- * is separator-correct on every platform. Windows accepts `/` as a path
- * separator in both its own APIs and Rust's `std::fs`/`std::path`, so the
- * resulting forward-slash paths work unchanged when sent back to Tauri
- * commands like `load_text_file`. */
+ * top of the app's own commands and (c) not exist in the browser viewer.
+ * Instead we normalize once: the back end can return backslash-separated
+ * paths on Windows, while export manifest paths are always POSIX-style
+ * relative paths (export JSON) — so converting every input to `/` up front
+ * and joining/splitting on `/` from then on is separator-correct on every
+ * platform. Windows accepts `/` as a path separator in both its own APIs
+ * and Rust's `std::fs`/`std::path`, so the resulting forward-slash paths
+ * work unchanged when sent back to commands like `load_text_file`. */
 function normalizeSeparators(path: string): string {
   return path.replace(/\\/g, "/");
 }
@@ -41,8 +25,8 @@ function isAbsolute(path: string): boolean {
 /** Joins `dir` with `rest` as the file system would: an absolute segment
  * replaces what came before it (an export's image root may be absolute),
  * and `.` / `..` segments are folded, so equal paths compare equal and the
- * asset protocol sees a plain path. Separators are normalized to `/`
- * first (see `normalizeSeparators`). */
+ * back end's file scope sees a plain path. Separators are normalized to
+ * `/` first (see `normalizeSeparators`). */
 export function joinPath(dir: string, ...rest: string[]): string {
   let out = normalizeSeparators(dir);
   for (const segment of rest) {
@@ -73,12 +57,4 @@ export function dirnamePath(path: string): string {
   const normalized = normalizeSeparators(path).replace(/\/+$/, "");
   const idx = normalized.lastIndexOf("/");
   return idx >= 0 ? normalized.slice(0, idx) : normalized;
-}
-
-/** The asset-protocol URL of an absolute file path: the webview loads the
- * file straight from disk, with no bytes over IPC. The backend scopes the
- * protocol to the folders the user opened (a project's dataset, an
- * export's image root), so a path elsewhere fails to load. */
-export function assetUrl(path: string): string {
-  return convertFileSrc(normalizeSeparators(path));
 }

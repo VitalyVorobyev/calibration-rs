@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { call } from "../../lib/backend";
 import { useEffect, useState } from "react";
 import type { TargetFeatureResidual } from "../../types";
 
@@ -22,7 +22,7 @@ export function useUndistortedResiduals(
     let cancelled = false;
     const points: Promise<Px[]> =
       residuals.length > 0
-        ? invoke<Px[]>("undistort_points", {
+        ? call<Px[]>("undistort_points", {
             camera,
             pointsPx: residuals.map((r) => r.observed_px),
           })

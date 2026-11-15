@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { call, fileUrl } from "../lib/backend";
 import { decodeImage, type ImageData } from "../lib/imagePixels";
-import { assetUrl } from "../lib/tauri";
 import type { FrameKey } from "../types";
 
 export type { ImageData } from "../lib/imagePixels";
@@ -13,7 +12,7 @@ interface Loaded {
   data: ImageData;
 }
 
-/** Loads a frame's source image from disk through the asset protocol and
+/** Loads a frame's source image from disk through the back end's file URL and
  * decodes its luminance once, so both `FrameCanvas` (drawing) and
  * `DiagnoseWorkspace` (cursor readout + histogram) share one decode. */
 export function useImageData(
@@ -29,7 +28,7 @@ export function useImageData(
   useEffect(() => {
     if (path === null) return;
     let cancelled = false;
-    decodeImage(assetUrl(path))
+    decodeImage(fileUrl(path))
       .then((data) => {
         if (!cancelled) setLoaded({ key: path, data });
       })
@@ -73,7 +72,7 @@ export function useUndistortedImageData(
         : { x: roiX, y: roiY, w: roiW, h: roiH };
     let cancelled = false;
     let url: string | null = null;
-    invoke<ArrayBuffer>("load_undistorted_image", { path, camera, roi })
+    call<ArrayBuffer>("load_undistorted_image", { path, camera, roi })
       .then((bytes) => {
         if (cancelled) return null;
         url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));

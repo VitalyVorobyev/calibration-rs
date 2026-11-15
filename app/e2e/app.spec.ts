@@ -1,12 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
+import { installTauriMock } from "./support/tauriMock";
 
-/** Smoke tests: the app boots outside any Tauri runtime
+/** Smoke tests: the app boots outside any back end
  * (a plain `bun run dev` tab, exactly like a developer opening
- * localhost:1420 in a browser by mistake — see the app's own banner
- * copy about this) and every workspace mounts via left-rail navigation
+ * localhost:1420 in a browser by mistake — the header says there is no
+ * back end) and every workspace mounts via left-rail navigation
  * without throwing or logging a console error. No Tauri IPC is mocked
- * here; each workspace's empty state must render on its own with
- * `data` still `null` in the store.
+ * here (except to show the desktop-only Run workspace); each workspace's
+ * empty state must render on its own with `data` still `null` in the store.
  */
 
 function trackConsoleErrors(page: Page): string[] {
@@ -32,7 +33,7 @@ test("app boots and the shell renders", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-const WORKSPACES: { rail: string; hash: string; marker: RegExp }[] = [
+const WORKSPACES: { rail: string; hash: string; marker: RegExp; desktop?: boolean }[] = [
   { rail: "Diagnose", hash: "#/diagnose", marker: /Open an/ },
   {
     rail: "3D viewer",
@@ -50,12 +51,14 @@ const WORKSPACES: { rail: string; hash: string; marker: RegExp }[] = [
     marker:
       /Load a rig export \(two cameras \+ extrinsics\) to compute dense disparity\./,
   },
-  { rail: "Run calibration", hash: "#/run", marker: /Run calibration/ },
+  { rail: "Run calibration", hash: "#/run", marker: /Run calibration/, desktop: true },
 ];
 
 for (const ws of WORKSPACES) {
   test(`mounts the "${ws.rail}" workspace without console errors`, async ({ page }) => {
     const errors = trackConsoleErrors(page);
+    // The Run workspace needs the desktop back end: an empty IPC mock.
+    if (ws.desktop) await installTauriMock(page, {});
 
     await page.goto("/");
     await page.getByRole("link", { name: ws.rail }).click();
@@ -66,3 +69,12 @@ for (const ws of WORKSPACES) {
     expect(errors).toEqual([]);
   });
 }
+
+test("without a back end the desktop-only Run workspace is not offered", async ({
+  page,
+}) => {
+  await page.goto("/#/run");
+  await expect(page).toHaveURL(/#\/diagnose$/);
+  await expect(page.getByRole("link", { name: "Run calibration" })).toHaveCount(0);
+  await expect(page.getByText("No back end")).toBeVisible();
+});

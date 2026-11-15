@@ -419,7 +419,9 @@ carry the calibration's share.
 
 The app runs on the `@vitavision/workbench` shell with project folders and
 asset-protocol images (ADR 0014); the five workspaces are ported as they
-were. What is left reorganizes them around the project.
+were. Its viewers also run in a browser over one run (`calib-viewer`, the
+app's HTTP back end). What is left reorganizes them around the project and
+grows the report viewer.
 
 - [ ] APP-IA - Organize the app as Project → Dataset → Detect → Calibrate →
   Diagnose → Use.
@@ -454,6 +456,25 @@ were. What is left reorganizes them around the project.
   components read them, and emit the last three from
   `src-tauri/src/bin/emit_schemas.rs`. Gate: no hand-written mirror of a
   Rust type in `app/src`.
+- [ ] VIEW-ERRMAP - A continuous reprojection-error colour map in the
+  report viewer (desktop and `calib-viewer`): over each image, interpolated
+  from its features' residuals, and per camera, accumulated over all views
+  in sensor coordinates, so a distortion or tilt misfit shows as a field.
+  Gate: on a synthetic run with a known unmodelled radial term the
+  per-camera map shows the radial pattern; a Vitest for the binning.
+- [ ] VIEW-QUALITY - A verdict and checks panel from the run's
+  `quality.json` (`vcal run -o`; the app computes the same report for its
+  own runs). Gate: a fixture with a warn and a fail check renders both,
+  each linking to its camera.
+- [ ] VIEW-COMPARE - Two runs side by side in the report viewer: per-camera
+  parameters with their σ and the difference in σ units, residual
+  statistics, and the per-view matrix of differences. `calib-viewer` takes
+  two runs. Gate: two fixture runs whose difference is known.
+- [ ] VIEW-FEEDBACK - Notes attached to a camera, a view or a feature in
+  the report viewer, saved as `feedback.json` in the run folder (a typed,
+  versioned shape with a JSON Schema) for an agent to read. `calib-viewer`
+  writes only that file, inside the run folder. Gate: a round-trip test of
+  the file and a Playwright test that adds and reloads a note.
 
 ## Solver backends and performance (Phase 2)
 

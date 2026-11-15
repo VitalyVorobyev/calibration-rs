@@ -1,82 +1,48 @@
 //! Tauri commands exposed to the React frontend.
 //!
+//! The viewer commands are thin wrappers over [`crate::ops`], whose bodies
+//! the calib-viewer's HTTP server calls too; what is desktop-only here is
+//! the asset scope (`load_export` lets the webview load the export's
+//! images) and the Run workspace's helpers (samples, folder sniffing).
+//!
 //! The wire format is intentionally untyped (`serde_json::Value`) for
 //! `load_export` so we do not have to mirror every Rust field as a TS
-//! interface for the v0 viewer — the frontend narrows to the small subset
-//! it actually consumes (residuals + manifest + mean error). Trade-off
+//! interface — the frontend narrows to the subset it consumes. Trade-off
 //! recorded in ADR 0014.
 
-use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Runtime, State};
 use vision_calibration::core::PixelRect;
 use vision_calibration::dataset::samples;
-
-use crate::epipolar::{self, EpipolarOverlay};
-use crate::export_cache::ExportCache;
-use crate::uncertainty;
 use vision_calibration::optim::ProjectionUncertainty;
 
-/// Successful response for [`load_export`].
-#[derive(Serialize)]
-pub struct LoadExportResult {
-    /// Raw parsed export JSON. The frontend treats this as `AnyExport`
-    /// (subset interface) and ignores fields it does not render.
-    pub export: serde_json::Value,
-    /// Absolute path to the directory containing `export.json`. The
-    /// frontend joins this with the manifest's `root` and per-frame
-    /// `path` to obtain absolute image filenames, which it loads through
-    /// the asset protocol.
-    pub export_dir: String,
-}
+use crate::epipolar::EpipolarOverlay;
+use crate::export_cache::ExportCache;
+use crate::ops::{self, LoadExportResult};
 
 /// Read and parse a calibration export JSON file. Does NOT cache the
-/// result — the frontend validates the export (e.g. requires
-/// `image_manifest`) before the user can interact with it, and a
-/// rejected export must not displace the cache the previous session is
-/// still using. The frontend calls [`set_active_export`] explicitly
-/// once it accepts the file. The export's image root becomes loadable
-/// through the asset protocol.
+/// result — the frontend validates the export before the user can
+/// interact with it, and a rejected export must not displace the cache
+/// the previous session is still using. The frontend calls
+/// [`set_active_export`] explicitly once it accepts the file. The export's
+/// image root becomes loadable through the asset protocol.
 #[tauri::command]
 pub async fn load_export<R: Runtime>(
     app: AppHandle<R>,
     path: String,
 ) -> Result<LoadExportResult, String> {
-    let p = PathBuf::from(&path);
-    let parent = p
-        .parent()
-        .ok_or_else(|| format!("export path has no parent directory: {path}"))?
-        .to_path_buf();
-    let bytes = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-    let export: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", p.display()))?;
-    vision_calibration::common::check_export_version(&export.to_string())
-        .map_err(|e| format!("{}: {e}", p.display()))?;
-    let export_dir = dunce::canonicalize(&parent)
-        .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?;
-    if let Some(images) = image_root(&export, &export_dir) {
-        crate::assets::allow_dir(&app, &images)?;
+    let loaded = ops::read_export(Path::new(&path))?;
+    if let Some(images) = &loaded.image_root {
+        crate::assets::allow_dir(&app, images)?;
     }
-
-    Ok(LoadExportResult {
-        export,
-        export_dir: export_dir.to_string_lossy().replace('\\', "/"),
-    })
-}
-
-/// The folder an export's image manifest resolves against: its `root`
-/// joined onto the export's own folder. `None` without a manifest.
-fn image_root(export: &serde_json::Value, export_dir: &Path) -> Option<PathBuf> {
-    let root = export.get("image_manifest")?.get("root")?.as_str()?;
-    Some(export_dir.join(root))
+    Ok(loaded.result)
 }
 
 /// Commit the export the frontend has accepted as the active dataset.
 ///
 /// Called by the frontend after [`load_export`] returned and the
-/// frontend's validation (image_manifest required, frames non-empty,
-/// …) passed. Writes the parsed `export` into the
+/// frontend's validation passed. Writes the parsed `export` into the
 /// [`ExportCache`] so subsequent math commands operate on exactly the
 /// dataset the user is looking at.
 #[tauri::command]
@@ -96,7 +62,7 @@ pub async fn set_active_export(
 /// directly.
 #[tauri::command]
 pub async fn load_text_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))
+    ops::read_text_file(Path::new(&path))
 }
 
 /// Make the sample dataset `id` (one of
@@ -151,11 +117,7 @@ pub async fn load_undistorted_image(
     roi: Option<PixelRect>,
     cache: State<'_, ExportCache>,
 ) -> Result<Response, String> {
-    let path_buf = PathBuf::from(&path);
-    let bytes = cache
-        .read(|cached| epipolar::undistort_image_png(&cached.value, &path_buf, camera, roi))
-        .ok_or_else(|| "no export loaded yet".to_string())??;
-    Ok(Response::new(bytes))
+    ops::load_undistorted_image(&cache, Path::new(&path), camera, roi).map(Response::new)
 }
 
 /// Map raw/distorted camera pixels into the undistorted pixel frame
@@ -166,9 +128,7 @@ pub async fn undistort_points(
     points_px: Vec<[f64; 2]>,
     cache: State<'_, ExportCache>,
 ) -> Result<Vec<[f64; 2]>, String> {
-    cache
-        .read(|cached| epipolar::undistort_points(&cached.value, camera, points_px))
-        .ok_or_else(|| "no export loaded yet".to_string())?
+    ops::undistort_points(&cache, camera, points_px)
 }
 
 /// Compute the epipolar polyline + epipole for a click in pane A.
@@ -187,9 +147,7 @@ pub async fn compute_epipolar_overlay(
     point_px: [f64; 2],
     cache: State<'_, ExportCache>,
 ) -> Result<EpipolarOverlay, String> {
-    cache
-        .read(|cached| epipolar::compute_overlay(&cached.value, cam_a, cam_b, point_px))
-        .ok_or_else(|| "no export loaded yet".to_string())?
+    ops::compute_epipolar_overlay(&cache, cam_a, cam_b, point_px)
 }
 
 /// Compute a clipped straight epipolar segment in cam-B's undistorted
@@ -203,18 +161,13 @@ pub async fn compute_epipolar_overlay_undistorted(
     image_height_b: f64,
     cache: State<'_, ExportCache>,
 ) -> Result<EpipolarOverlay, String> {
-    cache
-        .read(|cached| {
-            epipolar::compute_overlay_undistorted(
-                &cached.value,
-                cam_a,
-                cam_b,
-                point_px,
-                image_width_b,
-                image_height_b,
-            )
-        })
-        .ok_or_else(|| "no export loaded yet".to_string())?
+    ops::compute_epipolar_overlay_undistorted(
+        &cache,
+        cam_a,
+        cam_b,
+        point_px,
+        [image_width_b, image_height_b],
+    )
 }
 
 /// The value of each labelled parameter of the cached export that is a
@@ -224,9 +177,7 @@ pub async fn camera_parameter_values(
     labels: Vec<String>,
     cache: State<'_, ExportCache>,
 ) -> Result<Vec<Option<f64>>, String> {
-    cache
-        .read(|cached| uncertainty::camera_parameter_values(&cached.value, &labels))
-        .ok_or_else(|| "no export loaded yet".to_string())?
+    ops::camera_parameter_values(&cache, &labels)
 }
 
 /// The projection uncertainty of one camera of the cached export over an
@@ -238,27 +189,12 @@ pub async fn projection_uncertainty(
     image_height: u32,
     cache: State<'_, ExportCache>,
 ) -> Result<ProjectionUncertainty, String> {
-    cache
-        .read(|cached| {
-            uncertainty::projection_uncertainty(&cached.value, camera, [image_width, image_height])
-        })
-        .ok_or_else(|| "no export loaded yet".to_string())?
+    ops::projection_uncertainty(&cache, camera, [image_width, image_height])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn image_root_joins_the_manifest_root_onto_the_export_folder() {
-        let export = json!({ "image_manifest": { "root": "../..", "frames": [] } });
-        assert_eq!(
-            image_root(&export, Path::new("/p/runs/a")),
-            Some(PathBuf::from("/p/runs/a/../.."))
-        );
-        assert_eq!(image_root(&json!({}), Path::new("/p")), None);
-    }
 
     #[test]
     fn fetch_sample_names_the_unknown_sample_and_the_known_ones() {

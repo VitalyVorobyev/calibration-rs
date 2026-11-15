@@ -48,8 +48,8 @@ const LASER_MANIFEST_EXPORT = {
 beforeEach(() => {
   // `useImageData` loads each frame through the asset protocol
   // (`convertFileSrc`); jsdom never fetches the URL, so any mapping
-  // will do. No IPC call is expected on mount, but the mock keeps
-  // `isTauriContext` true as in the app.
+  // will do. No IPC call is expected on mount, but the mock makes the
+  // back end the desktop app's, as in the app.
   mockIPC(() => null);
   mockConvertFileSrc("macos");
 });
@@ -78,6 +78,27 @@ describe("DiagnoseWorkspace", () => {
     expect(
       container.querySelector('[role="group"][aria-label="Frame viewer"]'),
     ).toBeTruthy();
+  });
+
+  it("navigates an export without an image list by its residuals", () => {
+    const diagnostics = {
+      per_feature_residuals: PLANAR_EXPORT_FIXTURE.diagnostics.per_feature_residuals,
+    };
+    useStore
+      .getState()
+      .acceptLiveRunExport({ ...PLANAR_EXPORT_FIXTURE, diagnostics }, "/fake/export/dir");
+    const state = useStore.getState();
+    expect(state.loadError).toBeNull();
+    expect(state.frames).toEqual([
+      { pose: 0, camera: 0, label: "pose 0 · cam 0", abs_path: null },
+    ]);
+
+    const { container } = render(<DiagnoseWorkspace />);
+    expect(screen.getByText(/This export has no image list/)).toBeTruthy();
+    expect(container.querySelector('[aria-label="Frame viewer"]')).toBeNull();
+    // The frame's residual legend is still there; the image histogram is not.
+    expect(screen.getByText("mean 0.220 px")).toBeTruthy();
+    expect(screen.queryByText("histogram")).toBeNull();
   });
 
   it("renders a laser-manifest export (laserline_device)", () => {

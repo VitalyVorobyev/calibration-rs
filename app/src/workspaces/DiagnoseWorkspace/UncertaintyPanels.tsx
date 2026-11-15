@@ -1,6 +1,6 @@
 import { ColormapLegend, colormapValue } from "@vitavision/charts";
 import { Callout, ErrorBox, Panel, Table, type Column } from "@vitavision/ui";
-import { invoke } from "@tauri-apps/api/core";
+import { call } from "../../lib/backend";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   correlationMatrix,
@@ -107,7 +107,7 @@ function ParametersPanel({ cov }: { cov: ParameterCovariance }) {
   const labels = cov.labels;
   useEffect(() => {
     let cancelled = false;
-    invoke<(number | null)[]>("camera_parameter_values", { labels })
+    call<(number | null)[]>("camera_parameter_values", { labels })
       .then((values) => {
         if (!cancelled) setFetched({ labels, values });
       })
@@ -242,7 +242,7 @@ function ProjectionPanel({ cov, camera, imageSize }: ProjectionPanelProps) {
     if (width === 0 || height === 0) return;
     let cancelled = false;
     const request = { cov, camera, width, height };
-    invoke<ProjectionUncertainty>("projection_uncertainty", {
+    call<ProjectionUncertainty>("projection_uncertainty", {
       camera,
       imageWidth: width,
       imageHeight: height,
@@ -273,7 +273,10 @@ function ProjectionPanel({ cov, camera, imageSize }: ProjectionPanelProps) {
       actions={<span className="font-mono text-[10px] text-fg-muted">cam {camera}</span>}
     >
       {imageSize === null ? (
-        <p className="text-[11px] text-fg-muted">Waiting for the frame to decode.</p>
+        <p className="text-[11px] text-fg-muted">
+          Needs the image size, which is read from the frame&apos;s image: waiting for it
+          to decode, or the export has no image list.
+        </p>
       ) : current === null ? (
         <p className="text-[11px] text-fg-muted">Computing…</p>
       ) : current.status === "error" ? (

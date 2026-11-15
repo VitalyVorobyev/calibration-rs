@@ -1,5 +1,6 @@
 import { useMemo, type RefObject } from "react";
 import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
+import { NoImageList } from "../../components/NoImageList";
 import type { FrameKey, ViewportTransform } from "../../types";
 import { EpipolarOverlay, type OverlayPoint } from "./EpipolarOverlay";
 
@@ -25,6 +26,13 @@ export function EpipolarPane(props: EpipolarPaneProps) {
     return (
       <div className="flex h-full items-center justify-center rounded-control border border-dashed border-line text-[12px] text-fg-muted">
         no frame for this (pose, camera)
+      </div>
+    );
+  }
+  if (frame.abs_path === null) {
+    return (
+      <div className="flex h-full rounded-control border border-dashed border-line">
+        <NoImageList />
       </div>
     );
   }

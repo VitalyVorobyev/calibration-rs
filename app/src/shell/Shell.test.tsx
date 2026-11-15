@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 /** The shell: the workspace rail marks the current route, the project
- * navigator appears with an open project and lists its runs, and a project
- * error is shown until dismissed. */
+ * navigator appears with an open project and lists its runs, a project
+ * error is shown until dismissed, and the browser viewer offers no desktop
+ * features. The desktop app's back end is Tauri's IPC, mocked. */
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { TooltipProvider } from "@vitavision/ui";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useProject } from "../project/projectStore";
 import { Shell } from "./Shell";
 
@@ -27,9 +29,15 @@ function renderShell() {
   );
 }
 
+beforeEach(() => {
+  mockIPC(() => null);
+});
+
 afterEach(() => {
+  clearMocks();
   cleanup();
   useProject.setState({ project: null, error: null });
+  document.head.querySelector('meta[name="calib-backend"]')?.remove();
 });
 
 describe("Shell", () => {
@@ -92,5 +100,21 @@ describe("Shell", () => {
     expect(screen.getByText("/tmp is not a calibration project")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByText("Not a project folder")).toBeNull();
+  });
+
+  it("offers no desktop features in the browser viewer", () => {
+    clearMocks();
+    const meta = document.createElement("meta");
+    meta.name = "calib-backend";
+    meta.content = "http";
+    document.head.append(meta);
+    renderShell();
+    for (const name of ["Diagnose", "3D viewer", "Epipolar", "Depth (dense stereo)"]) {
+      expect(screen.getByRole("link", { name })).toBeTruthy();
+    }
+    expect(screen.queryByRole("link", { name: "Run calibration" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open Export…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Project/ })).toBeNull();
+    expect(screen.getByText("No export loaded")).toBeTruthy();
   });
 });

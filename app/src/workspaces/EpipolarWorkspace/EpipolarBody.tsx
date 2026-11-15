@@ -1,5 +1,5 @@
 import { ErrorBox, Select, ToggleChip } from "@vitavision/ui";
-import { invoke } from "@tauri-apps/api/core";
+import { call } from "../../lib/backend";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FrameCanvasHandle } from "../../components/FrameCanvas";
 import { PoseStepper } from "../../components/PoseStepper";
@@ -121,7 +121,7 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
         return;
       }
       try {
-        const result = await invoke<EpipolarOverlayResult>(
+        const result = await call<EpipolarOverlayResult>(
           "compute_epipolar_overlay_undistorted",
           {
             camA: cameraA,

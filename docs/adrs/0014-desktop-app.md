@@ -52,6 +52,29 @@ workspace.**
 - Computed images (undistorted frames) come back as binary IPC responses,
   never as text.
 
+**One frontend, two back ends: the viewers also run in a browser.**
+- A run is reviewed where it lies, without the desktop app:
+  `calib-viewer <run-dir | export.json>` (a second binary of
+  `app/src-tauri`) serves the built frontend and one run on localhost and
+  opens a browser on it. A run is a `vcal run -o` folder
+  (`calibration.json`), a run the app saved (`runs/<name>/export.json`) or
+  one export file; anything else is an error that says what to pass.
+- The frontend reaches its back end through one module
+  (`app/src/lib/backend.ts`), the only one that imports Tauri, with two
+  implementations: Tauri IPC, and `POST /api/<command>` with the same
+  command names, arguments, answers and error values. The command bodies
+  are shared Rust functions that the Tauri commands and the HTTP handlers
+  both call. Capability flags hide what needs the desktop (dialogs,
+  projects, calibration runs): the browser is a viewer.
+- The server binds 127.0.0.1 only, answers only its own `Host` (no DNS
+  rebinding), refuses a foreign `Origin` and sends no CORS headers.
+- Its file access is scoped like the asset protocol: files under the run
+  folder and the export's image root, judged after canonicalising, so `..`
+  and symbolic links cannot leave them. Images of a private rig stay on the
+  machine.
+- An export without an image list opens too: navigation comes from its
+  residuals, and the image panes say there are no images.
+
 **Forms and wire types are generated from Rust.**
 - Every user-editable config, the manifest and every export derive a JSON
   Schema. `cargo xtask emit-schemas` writes them into the app, where one
@@ -73,6 +96,11 @@ How the shell, stores, commands and tests are built is in
   lies outside it breaks when that dataset moves, and the image load error
   says so. An image outside the opened folders fails to load; it is never
   read on the webview's behalf.
+- Every viewer feature works on both back ends or is gated by a capability;
+  a new command is added to both (the Tauri wrapper and the HTTP route over
+  one shared body), and a lint rule keeps Tauri imports in the seam.
+- `calib-viewer` needs the frontend built (`bun run build`); it serves
+  `app/dist` from the source tree and is not distributed on its own.
 
 ## Alternatives rejected
 
@@ -90,3 +118,14 @@ How the shell, stores, commands and tests are built is in
   - A folder holding two manifests would be ambiguous.
 - **An app-local shell.** It would drift from the studio layout the other
   lab apps share.
+- **A second, static report viewer** (a generated HTML page beside the run,
+  like `report.html`). It would re-implement the residual overlay, the
+  matrix, the 3D scene and the epipolar view, and drift from the app's; and
+  undistortion, epipolar lines and projection uncertainty need the Rust
+  camera models at view time.
+- **Serving the run to the network or embedding images in a page.** A page
+  that carries or serves a private rig's images can leave the machine;
+  localhost with scoped files cannot.
+- **An async HTTP stack (axum, hyper).** The viewer answers one local user;
+  a small synchronous server (`tiny_http`) on a few threads is enough and
+  adds no runtime.

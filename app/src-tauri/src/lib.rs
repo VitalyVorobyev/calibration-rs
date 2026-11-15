@@ -12,6 +12,10 @@
 //!
 //! Source images are not sent over IPC: the webview loads them through the
 //! asset protocol, scoped to the folders the user opened ([`assets`]).
+//!
+//! The viewer commands' bodies live in [`ops`], which the browser viewer
+//! ([`viewer`], the `calib-viewer` binary) serves over localhost HTTP too:
+//! one frontend, two back ends.
 
 mod assets;
 mod commands;
@@ -19,9 +23,11 @@ mod disparity;
 mod epipolar;
 mod export_cache;
 mod laser;
+mod ops;
 mod project;
 mod run;
 mod uncertainty;
+pub mod viewer;
 
 use export_cache::ExportCache;
 use run::RunRegistry;

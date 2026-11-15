@@ -10,7 +10,7 @@
 //! server-side.
 
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use base64::Engine;
 use nalgebra::Matrix3;
@@ -99,14 +99,12 @@ pub async fn compute_disparity(
     params: DisparityParams,
     cache: State<'_, ExportCache>,
 ) -> Result<DisparityResult, String> {
-    let (pa, pb) = (PathBuf::from(&path_a), PathBuf::from(&path_b));
-    cache
-        .read(|cached| compute(&cached.value, &pa, &pb, cam_a, cam_b, pose, &params))
-        .ok_or_else(|| "no export loaded yet".to_string())?
+    let paths = [Path::new(&path_a), Path::new(&path_b)];
+    crate::ops::compute_disparity(&cache, paths, cam_a, cam_b, pose, &params)
 }
 
 /// Core pipeline: parse calibration → rectify → match → render.
-fn compute(
+pub(crate) fn compute(
     export: &serde_json::Value,
     path_a: &Path,
     path_b: &Path,

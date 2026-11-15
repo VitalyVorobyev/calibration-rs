@@ -65,8 +65,9 @@ export interface FrameKey {
   pose: number;
   camera: number;
   label: string;
-  /** Absolute path to the PNG on disk. */
-  abs_path: string;
+  /** Absolute path to the image on disk; `null` when the export has no
+   * image list (the slot comes from its residuals). */
+  abs_path: string | null;
   roi?: PixelRect | undefined;
 }
 

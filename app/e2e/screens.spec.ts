@@ -2,14 +2,16 @@ import { expect, test } from "@playwright/test";
 import { installTauriMock } from "./support/tauriMock";
 import { ONE_PX_PNG_DATA_URL, PLANAR_EXPORT_FIXTURE } from "./support/fixtures";
 
-/** One screenshot per workspace with nothing loaded, and Diagnose with the planar fixture
- * loaded through the mocked Tauri IPC (the same path as `diagnose.spec.ts`). Run with
- * `playwright.screens.config.ts`. */
+/** One screenshot per workspace with nothing loaded, as the desktop app shows them (an
+ * empty Tauri IPC mock: the desktop-only Run workspace needs a desktop back end), and
+ * Diagnose with the planar fixture loaded through the mocked Tauri IPC (the same path as
+ * `diagnose.spec.ts`). Run with `playwright.screens.config.ts`. */
 
 const WORKSPACES = ["diagnose", "viewer3d", "epipolar", "depth", "run"];
 
 for (const ws of WORKSPACES) {
   test(`${ws}, empty`, async ({ page }) => {
+    await installTauriMock(page, {});
     await page.goto(`/#/${ws}`);
     await page.waitForLoadState("networkidle");
     await expect(page).toHaveScreenshot(`${ws}-empty.png`, { timeout: 30_000 });

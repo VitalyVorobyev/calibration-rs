@@ -2,7 +2,7 @@ import { DensityProvider, Empty, Panel } from "@vitavision/ui";
 import { TreeView, type TreeNode } from "@vitavision/workbench";
 import { FlaskConical } from "lucide-react";
 import { useMemo } from "react";
-import { joinPath } from "../lib/tauri";
+import { joinPath } from "../lib/paths";
 import { runExportPath, type ProjectInfo, type RunSummary } from "../project/projectApi";
 import { folderName } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
