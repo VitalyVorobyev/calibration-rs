@@ -43,7 +43,7 @@ where
 /// [`Error::UnsupportedExportVersion`] when `schema_version` is a different
 /// version than the one this library writes; [`Error::Serde`] when `json` is
 /// not JSON, the version is missing or the export does not deserialize.
-pub fn read_export<E>(json: &str) -> Result<E, Error>
+pub(crate) fn read_export<E>(json: &str) -> Result<E, Error>
 where
     E: VersionedExport + DeserializeOwned,
 {

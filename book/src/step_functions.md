@@ -102,7 +102,7 @@ Every problem module uses the same names, so code written against one problem re
 - The problem is `<Name>Problem`, with `<Name>Input`, `<Name>Config` and `<Name>Export` (`PlanarIntrinsicsInput`, `RigHandeyeConfig`, …). An input that is a shared data type is a type alias (`PlanarIntrinsicsInput = PlanarDataset`).
 - The problem's output is the final solve's estimate, `*Estimate` (`PlanarIntrinsicsEstimate`, `HandeyeEstimate`, …). The hand-eye estimate is shared by the single-camera and rig workflows and lives in `vision_calibration::common`.
 - A step of stage `<Stage>` and action `<Action>` takes `Option<<Stage><Action>Options>` (`None` keeps the session config) and returns `<Stage><Action>Result`; its `_with_seed` variant takes a `<Stage>ManualInit` before the options (the per-camera intrinsics stage of a rig takes `RigIntrinsicsManualInit`). The stages are `Intrinsics`, `Rig` and `Handeye`; the single-stage laser problems use `Device` (camera and laser plane, `laserline_device`) and `Plane` (the laser planes, `rig_laserline_device`); the joint rig laser solve is the `Joint` stage (`JointOptimizeConfig`, `JointManualInit`).
-- Option types shared by several problems (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …) are one type each, imported from `vision_calibration::common`. Step results and manual seeds are per problem: `rig_handeye::IntrinsicsInitResult` and `planar_intrinsics::IntrinsicsInitResult` are different types.
+- A type several problems share is one type, imported from `vision_calibration::common`: the step options (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …), and the seeds and results of the stages both rig problems run (`RigIntrinsicsManualInit`, `RigIntrinsicsInitResult`, `RigManualInit`, `RigInitResult`) and of the hand-eye refinement (`HandeyeOptimizeResult`). Every other step result and manual seed is per problem: `single_cam_handeye::IntrinsicsInitResult` and `planar_intrinsics::IntrinsicsInitResult` are different types, and each problem module exports only its own.
 - `run_calibration(session)` has the same signature in every problem and runs with the session's config.
 
 ## Pipeline Functions
@@ -164,23 +164,22 @@ The `*_with_seed` variants exist for `step_init` / `step_intrinsics_init` / `ste
 
 ## In Python
 
-The steps are methods of the problem's session class, with the same names. Options are dataclasses whose `None` fields keep the session config; results are dataclasses. The shared option types and intrinsics seeds are importable from the package root; each problem's other seeds and its results live in the problem's module, which mirrors the Rust module of the same name:
+The steps are methods of the problem's session class, with the same names. Options are dataclasses whose `None` fields keep the session config; results are dataclasses. The shared option types, seeds and results (the Rust `common` types) are importable from the package root and from `vision_calibration.common`; each problem's own seeds and results live in the problem's module, which mirrors the Rust module of the same name:
 
 ```python
 import vision_calibration as vc
-from vision_calibration import rig_extrinsics
 
 session = vc.RigExtrinsicsSession()
 session.set_input(dataset)
-init = session.step_intrinsics_init_all()           # rig_extrinsics.IntrinsicsInitResult
+init = session.step_intrinsics_init_all()           # vc.RigIntrinsicsInitResult
 session.step_intrinsics_optimize_all(vc.IntrinsicsOptimizeOptions(max_iters=200))
 rig = session.step_rig_init()
 session.step_rig_optimize()
 
 # Re-run the rig stage from its own estimate
 session.step_rig_init_with_seed(
-    rig_extrinsics.RigManualInit(
-        poses=rig_extrinsics.RigPoses(
+    vc.RigManualInit(
+        poses=vc.RigPoses(
             cam_se3_rig=rig.initial_cam_se3_rig,
             rig_se3_target=rig.initial_rig_se3_target,
         )

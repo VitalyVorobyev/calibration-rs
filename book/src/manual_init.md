@@ -66,11 +66,10 @@ cargo run -p vision-calibration --example manual_init --release
 
 ```rust,no_run
 use vision_calibration::session::CalibrationSession;
-use vision_calibration::common::RigIntrinsicsManualInit;
+use vision_calibration::common::{RigIntrinsicsManualInit, RigManualInit};
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsInput, RigExtrinsicsProblem, RigManualInit, RigPoses,
-    step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
-    step_rig_init_with_seed, step_rig_optimize,
+    RigExtrinsicsInput, RigExtrinsicsProblem, step_intrinsics_init_all_with_seed,
+    step_intrinsics_optimize_all, step_rig_init_with_seed, step_rig_optimize,
 };
 # fn load_input() -> anyhow::Result<RigExtrinsicsInput> { unimplemented!("the observed rig views") }
 # fn main() -> anyhow::Result<()> {
@@ -93,7 +92,8 @@ The values live in the typed results the steps return:
 
 ```rust,no_run
 use vision_calibration::core::DistortionParams;
-# use vision_calibration::rig_extrinsics::{IntrinsicsOptimizeResult, RigInitResult};
+# use vision_calibration::common::RigInitResult;
+# use vision_calibration::rig_extrinsics::IntrinsicsOptimizeResult;
 # fn main() {
 # let intr_opt_a: IntrinsicsOptimizeResult = unimplemented!("from the first run");
 # let rig_init_a: RigInitResult = unimplemented!("from the first run");
@@ -114,10 +114,10 @@ let per_cam_dist: Vec<DistortionParams> = cameras_a
 
 ```rust,no_run
 use vision_calibration::core::{DistortionParams, FxFyCxCy, Iso3};
-use vision_calibration::common::RigIntrinsicsManualInit;
+use vision_calibration::common::{RigIntrinsicsManualInit, RigManualInit, RigPoses};
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsInput, RigExtrinsicsProblem, RigManualInit, RigPoses,
-    step_intrinsics_init_all_with_seed, step_rig_init_with_seed, step_rig_optimize,
+    RigExtrinsicsInput, RigExtrinsicsProblem, step_intrinsics_init_all_with_seed,
+    step_rig_init_with_seed, step_rig_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 # fn load_input() -> anyhow::Result<RigExtrinsicsInput> { unimplemented!("the observed rig views") }

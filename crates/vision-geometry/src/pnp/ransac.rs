@@ -14,8 +14,8 @@ use vision_calibration_core::{
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PoseEstimate {
-    /// The pose `cam_se3_world`.
-    pub pose: Iso3,
+    /// The camera's pose: camera-from-world, `T_C_W`.
+    pub cam_se3_world: Iso3,
     /// Indices of the inlier correspondences.
     pub inliers: Vec<usize>,
 }
@@ -104,7 +104,7 @@ pub fn dlt_ransac(
         ));
     }
     Ok(PoseEstimate {
-        pose: res.model.expect("success guarantees a model"),
+        cam_se3_world: res.model.expect("success guarantees a model"),
         inliers: res.inliers,
     })
 }
@@ -161,7 +161,10 @@ mod tests {
             .with_seed(77)
             .with_refit_on_inliers(true);
 
-        let PoseEstimate { pose: est, inliers } = dlt_ransac(&world, &image, &k, &opts).unwrap();
+        let PoseEstimate {
+            cam_se3_world: est,
+            inliers,
+        } = dlt_ransac(&world, &image, &k, &opts).unwrap();
 
         assert!(inliers.len() >= inlier_count.saturating_sub(2));
         assert!(inliers.len() < world.len());

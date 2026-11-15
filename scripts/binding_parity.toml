@@ -62,6 +62,11 @@
 "common::IntrinsicsOptimizeOptions" = "IntrinsicsOptimizeOptions"
 "common::RigInitOptions" = "RigInitOptions"
 "common::RigIntrinsicsManualInit" = ["RigIntrinsicsManualInit", "types.RigIntrinsicsManualInit"]
+"common::RigIntrinsicsInitResult" = "RigIntrinsicsInitResult"
+"common::RigManualInit" = "RigManualInit"
+"common::RigPoses" = "RigPoses"
+"common::RigInitResult" = "RigInitResult"
+"common::HandeyeOptimizeResult" = "HandeyeOptimizeResult"
 "common::RigOptimizeOptions" = "RigOptimizeOptions"
 "common::config::CameraConfig" = "CameraConfig"
 "common::config::CameraOverride" = "CameraOverride"
@@ -145,13 +150,12 @@
 "dataset::LaserScanAxis" = "types.LaserScanAxis"
 "dataset::PosePairing" = "types.PosePairing"
 "dataset::SniffError" = "SniffError"
-"dataset::samples" = [
-    "samples.Sample",
-    "samples.SampleFetchError",
-    "samples.cache_dir",
-    "samples.catalogue",
-    "samples.fetch",
-]
+"dataset::samples::Sample" = "samples.Sample"
+"dataset::samples::FetchError" = "samples.SampleFetchError"
+"dataset::samples::catalogue" = "samples.catalogue"
+"dataset::samples::fetch" = "samples.fetch"
+"dataset::samples::default_cache_dir" = "samples.cache_dir"
+"dataset::samples::CACHE_DIR_ENV" = "samples.cache_dir"
 "dataset::TargetSpec" = "types.TargetSpec"
 "dataset::ProblemKind" = "types.ProblemKind"
 "dataset::sniff_folder" = "sniff_folder"
@@ -234,16 +238,12 @@
 "planar_intrinsics::step_init" = "planar_intrinsics.PlanarIntrinsicsSession.step_init"
 "planar_intrinsics::step_init_with_seed" = "planar_intrinsics.PlanarIntrinsicsSession.step_init_with_seed"
 "planar_intrinsics::step_optimize" = "planar_intrinsics.PlanarIntrinsicsSession.step_optimize"
-"rig_extrinsics::IntrinsicsInitResult" = "rig_extrinsics.IntrinsicsInitResult"
 "rig_extrinsics::IntrinsicsOptimizeResult" = "rig_extrinsics.IntrinsicsOptimizeResult"
 "rig_extrinsics::RigExtrinsicsConfig" = "RigExtrinsicsConfig"
 "rig_extrinsics::RigExtrinsicsEstimate" = "session.CalibrationSession.output"
 "rig_extrinsics::RigExtrinsicsExport" = "RigExtrinsicsExport"
 "rig_extrinsics::RigExtrinsicsInput" = "RigExtrinsicsInput"
 "rig_extrinsics::RigExtrinsicsProblem" = "RigExtrinsicsSession"
-"rig_extrinsics::RigInitResult" = "rig_extrinsics.RigInitResult"
-"rig_extrinsics::RigManualInit" = "rig_extrinsics.RigManualInit"
-"rig_extrinsics::RigPoses" = "rig_extrinsics.RigPoses"
 "rig_extrinsics::RigOptimizeResult" = "rig_extrinsics.RigOptimizeResult"
 "rig_extrinsics::run_calibration" = ["rig_extrinsics.run_calibration", "session.CalibrationSession.run_calibration"]
 "rig_extrinsics::step_intrinsics_init_all" = "rig_extrinsics.RigExtrinsicsSession.step_intrinsics_init_all"
@@ -255,16 +255,11 @@
 "rig_handeye::HandeyeInitResult" = "rig_handeye.HandeyeInitResult"
 "rig_handeye::HandeyeManualInit" = ["rig_handeye.EyeInHandManualInit", "rig_handeye.EyeToHandManualInit", "rig_handeye.HandeyeManualInit"]
 "rig_handeye::HandeyeOptimizeConfig" = "HandeyeOptimizeConfig"
-"rig_handeye::HandeyeOptimizeResult" = "rig_handeye.HandeyeOptimizeResult"
-"rig_handeye::IntrinsicsInitResult" = "rig_handeye.IntrinsicsInitResult"
 "rig_handeye::IntrinsicsOptimizeResult" = "rig_handeye.IntrinsicsOptimizeResult"
 "rig_handeye::RigHandeyeConfig" = "RigHandeyeConfig"
 "rig_handeye::RigHandeyeExport" = "RigHandeyeExport"
 "rig_handeye::RigHandeyeInput" = "RigHandeyeInput"
 "rig_handeye::RigHandeyeProblem" = "RigHandeyeSession"
-"rig_handeye::RigInitResult" = "rig_handeye.RigInitResult"
-"rig_handeye::RigManualInit" = "rig_handeye.RigManualInit"
-"rig_handeye::RigPoses" = "rig_handeye.RigPoses"
 "rig_handeye::RigOptimizeResult" = "rig_handeye.RigOptimizeResult"
 "rig_handeye::run_calibration" = ["rig_handeye.run_calibration", "session.CalibrationSession.run_calibration"]
 "rig_handeye::step_handeye_init" = "rig_handeye.RigHandeyeSession.step_handeye_init"
@@ -311,7 +306,6 @@
 "common::HandeyeEstimate" = "session.CalibrationSession.output"
 "single_cam_handeye::HandeyeInitResult" = "single_cam_handeye.HandeyeInitResult"
 "single_cam_handeye::HandeyeManualInit" = ["single_cam_handeye.EyeInHandManualInit", "single_cam_handeye.EyeToHandManualInit", "single_cam_handeye.HandeyeManualInit"]
-"single_cam_handeye::HandeyeOptimizeResult" = "single_cam_handeye.HandeyeOptimizeResult"
 "single_cam_handeye::IntrinsicsInitResult" = "single_cam_handeye.IntrinsicsInitResult"
 "single_cam_handeye::IntrinsicsOptimizeResult" = "single_cam_handeye.IntrinsicsOptimizeResult"
 "single_cam_handeye::SingleCamHandeyeConfig" = "SingleCamHandeyeConfig"
@@ -342,6 +336,12 @@
 "mvg::types" = ["mvg.PixelMatch", "mvg.TriangulatedPoint", "mvg.RobotCaptures"]
 
 [rust_only]
+"core::AnyProjection" = "the projection slot of the built Rust CameraModel; Python builds a camera from CameraParams and reads its models there"
+"core::AnyDistortion" = "the distortion slot of the built Rust CameraModel; Python builds a camera from CameraParams and reads its models there"
+"core::AnySensor" = "the sensor slot of the built Rust CameraModel; Python builds a camera from CameraParams and reads its models there"
+"dataset::samples::sample" = "Python finds a sample by id in samples.catalogue(), and samples.fetch takes the id directly"
+"dataset::samples::sample_dir" = "samples.fetch returns the path of the sample's manifest, inside the sample's directory"
+"dataset::DATASET_SPEC_VERSION" = "the manifest format version; a Python manifest is a types.DatasetSpec payload whose version key the native validator checks"
 "common::VersionedExport" = "the export types name their format version; Python reads it as the schema_version key of the export payload, which every *Export.from_payload checks"
 "common::check_export_version" = "Python checks the schema_version of an export in every *Export.from_payload and in the native readers behind projection_uncertainty and assess"
 "control::CancelToken" = "Python stops a long call with Ctrl-C (KeyboardInterrupt) or by raising from its progress callable, which cancels the token the binding holds"

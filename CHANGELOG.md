@@ -77,6 +77,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `types::Captures`, and the results `laser::LaserPoint` and
     `solvers::CameraMatrixDecomposition`.
 
+- **Every type is reached by one path** (breaking).
+  - The seeds and results of the stages both rig workflows run, and the
+    hand-eye refinement result both hand-eye workflows share, are in
+    `common` only. `rig_extrinsics::RigManualInit`,
+    `rig_handeye::RigManualInit` → `common::RigManualInit`;
+    `rig_extrinsics::RigPoses`, `rig_handeye::RigPoses` →
+    `common::RigPoses`; `rig_extrinsics::RigInitResult`,
+    `rig_handeye::RigInitResult` → `common::RigInitResult`;
+    `single_cam_handeye::HandeyeOptimizeResult`,
+    `rig_handeye::HandeyeOptimizeResult` → `common::HandeyeOptimizeResult`.
+    The per-camera intrinsics result of a rig is renamed so it does not
+    share a name with the one-camera result:
+    `rig_extrinsics::IntrinsicsInitResult`,
+    `rig_handeye::IntrinsicsInitResult` → `common::RigIntrinsicsInitResult`
+    (`planar_intrinsics::IntrinsicsInitResult` and
+    `single_cam_handeye::IntrinsicsInitResult` are unchanged). Python
+    follows: the classes are in `vision_calibration.common` and the package
+    root, and `rig_extrinsics.IntrinsicsInitResult` /
+    `rig_handeye.IntrinsicsInitResult` are `RigIntrinsicsInitResult`.
+
+    ```rust
+    // before
+    use vision_calibration::rig_extrinsics::{RigManualInit, RigPoses};
+    // after
+    use vision_calibration::common::{RigManualInit, RigPoses};
+    ```
+
+  - `dataset::samples` lists its public items (`Sample`, `FetchError`,
+    `CACHE_DIR_ENV`, `catalogue`, `sample`, `sample_dir`, and with the
+    `fetch` feature `fetch` and `default_cache_dir`); the undocumented
+    download helpers it also exposed are gone from the facade.
+  - `init::pnp::PoseEstimate::pose` is `cam_se3_world`, the name of the
+    pose it holds.
+
+    ```rust
+    // before
+    let pose = dlt_ransac(&world, &image, &k, &opts)?.pose;
+    // after
+    let pose = dlt_ransac(&world, &image, &k, &opts)?.cam_se3_world;
+    ```
+
+  - `core::FixedParams`, the fixed-parameter indices `CameraFix::resolve`
+    returns, is documented and `#[non_exhaustive]`. The model slots of
+    `core::CameraModel` (`core::AnyProjection`, `core::AnyDistortion`,
+    `core::AnySensor`) are documented and exported from `core`; they are
+    `#[non_exhaustive]`, so a `match` on them needs a wildcard arm.
+  - `dataset::DATASET_SPEC_VERSION`, the manifest format version, is
+    exported beside `DatasetSpec`.
+  - In the lower crates, items the facade does not offer are no longer
+    public API: `vision_calibration_linear::planar_pose::PlanarPoseSolver`
+    is removed (use `estimate_planar_pose_from_h`), as is the unused
+    `vision_calibration_linear::extrinsics::MultiCamExtrinsicsInit`; the
+    multi-level reprojection reports of
+    `vision_calibration_pipeline::analysis`, `vision_calibration_core`'s
+    `TargetPose` and `compute_mean_reproj_error`, and
+    `vision_calibration_optim`'s `LaserResidualRecords` and
+    `compute_*laserline_feature_residuals` are internal.
+
+- The `schemars` feature also derives `JsonSchema` on the detector configs
+  (`detect::ChessboardConfig`, `CharucoConfig`, `PuzzleboardConfig`,
+  `RinggridConfig`, `ChessCornersConfig` and their parts), like every other
+  config type.
+
 - The ring-grid detector is `ringgrid` 0.15.0. Its photometric centre method
   now fits a direction-dependent blur, so photometric centres move slightly
   (ellipse centres are unchanged). The detector version is part of the

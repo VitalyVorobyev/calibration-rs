@@ -143,12 +143,17 @@ from .camera import CameraModel
 from .common import (
     HandeyeInitOptions,
     HandeyeOptimizeOptions,
+    HandeyeOptimizeResult,
     IntrinsicsInitOptions,
     IntrinsicsManualInit,
     IntrinsicsOptimizeOptions,
     RigInitOptions,
+    RigInitResult,
+    RigIntrinsicsInitResult,
     RigIntrinsicsManualInit,
+    RigManualInit,
     RigOptimizeOptions,
+    RigPoses,
 )
 from .dataset import SniffError, sniff_folder
 from .dataset_runner import AskUserError, RunError, calibrate_dataset, detect_target
@@ -308,6 +313,12 @@ __all__ = [
     # Manual seeds of the intrinsics stages
     "IntrinsicsManualInit",
     "RigIntrinsicsManualInit",
+    # Seeds and results of the stages several problems share
+    "RigIntrinsicsInitResult",
+    "RigManualInit",
+    "RigPoses",
+    "RigInitResult",
+    "HandeyeOptimizeResult",
     # Cameras
     "CameraModel",
     # Manifest-driven runs and detection

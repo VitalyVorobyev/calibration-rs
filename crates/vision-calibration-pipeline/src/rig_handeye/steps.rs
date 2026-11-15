@@ -10,14 +10,11 @@ use vision_calibration_core::{CameraParams, Iso3};
 use vision_calibration_optim::HandeyeMode;
 
 use crate::common::{
-    HandeyeInitOptions, HandeyeOptimizeOptions, HandeyeSolution, IntrinsicsInitOptions,
-    IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+    HandeyeInitOptions, HandeyeOptimizeOptions, HandeyeOptimizeResult, HandeyeSolution,
+    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigInitResult,
+    RigIntrinsicsInitResult, RigIntrinsicsManualInit, RigManualInit, RigOptimizeOptions,
 };
 use crate::rig_family::{self, init_handeye, inverse_poses, optimize_handeye_stage, rig_ba_notes};
-pub use crate::rig_family::{
-    HandeyeOptimizeResult, IntrinsicsInitResult, RigInitResult, RigIntrinsicsManualInit,
-    RigManualInit, RigPoses,
-};
 use crate::session::CalibrationSession;
 
 use super::problem::RigHandeyeProblem;
@@ -163,7 +160,7 @@ pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<IntrinsicsInitResult, Error> {
+) -> Result<RigIntrinsicsInitResult, Error> {
     rig_family::init_intrinsics(session, manual, opts)
 }
 
@@ -175,7 +172,7 @@ pub fn step_intrinsics_init_all_with_seed(
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<IntrinsicsInitResult, Error> {
+) -> Result<RigIntrinsicsInitResult, Error> {
     let manual = session.config.manual_init.clone().unwrap_or_default();
     step_intrinsics_init_all_with_seed(session, manual, opts)
 }

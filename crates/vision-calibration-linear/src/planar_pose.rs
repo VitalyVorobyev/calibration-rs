@@ -9,90 +9,70 @@ use nalgebra::{Matrix3, SMatrix, SVector, Vector3};
 use vision_calibration_core::linalg::{iso_from_rotation, normalize_points_2d};
 use vision_calibration_core::{Iso3, Mat3, Pt2, Real};
 
-/// Linear pose initialisation from a homography and intrinsics.
-///
-/// This implements the classic decomposition of a plane-induced homography
-/// `H` into a rotation and translation, assuming the target lies on the plane
-/// `Z = 0` in its own coordinates.
-#[derive(Debug, Clone, Copy)]
-pub struct PlanarPoseSolver;
-
 /// Estimate pose of a planar board (Z = 0) relative to camera, given intrinsics
-/// `K` and homography `H` (plane -> image).
+/// `K` and homography `H` (plane -> image): the classic decomposition of a
+/// plane-induced homography into a rotation and translation.
 ///
-/// Returns an `Iso3` that maps board coordinates into camera coordinates.
+/// Returns `T_C_B`, an `Iso3` that maps board coordinates into camera
+/// coordinates. The rotation is projected onto SO(3); the translation is
+/// scaled so that the first two rotation columns have unit norm.
 ///
 /// # Errors
 ///
 /// Returns [`Error::Singular`] if `K` is not invertible, the homography is
 /// degenerate, or SVD fails during SO(3) projection.
 pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, Error> {
-    PlanarPoseSolver::from_homography(kmtx, hmtx)
-}
+    // K^{-1}
+    let k_inv = kmtx.try_inverse().ok_or(Error::Singular)?;
 
-impl PlanarPoseSolver {
-    /// Decompose a homography into a pose `T_C_B` given intrinsics `K`.
-    ///
-    /// The resulting rotation is projected onto SO(3); the translation is
-    /// scaled so that the first two rotation columns have unit norm.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Singular`] if `K` is not invertible, the homography is
-    /// degenerate, or SVD fails during SO(3) projection.
-    pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, Error> {
-        // K^{-1}
-        let k_inv = kmtx.try_inverse().ok_or(Error::Singular)?;
+    // Columns of H
+    let h1 = hmtx.column(0);
+    let h2 = hmtx.column(1);
+    let h3 = hmtx.column(2).into_owned();
 
-        // Columns of H
-        let h1 = hmtx.column(0);
-        let h2 = hmtx.column(1);
-        let h3 = hmtx.column(2).into_owned();
+    let k_inv_h1 = k_inv * h1;
+    let k_inv_h2 = k_inv * h2;
 
-        let k_inv_h1 = k_inv * h1;
-        let k_inv_h2 = k_inv * h2;
-
-        // Scale factor λ: normalize first two columns (average for robustness)
-        let norm1 = k_inv_h1.norm();
-        let norm2 = k_inv_h2.norm();
-        if norm1 <= 1e-12 || norm2 <= 1e-12 {
-            return Err(Error::Singular);
-        }
-        let denom = (norm1 + norm2) * 0.5;
-        if denom <= 1e-12 {
-            return Err(Error::Singular);
-        }
-        let lambda = 1.0 / denom;
-
-        let mut r1 = (lambda * k_inv_h1).into_owned();
-        let mut r2 = (lambda * k_inv_h2).into_owned();
-        let mut t_vec: Vector3<Real> = (lambda * (k_inv * h3)).into_owned();
-        if t_vec.z < 0.0 {
-            r1 = -r1;
-            r2 = -r2;
-            t_vec = -t_vec;
-        }
-        let r3 = r1.cross(&r2);
-        if r3.norm() <= 1e-12 {
-            return Err(Error::Singular);
-        }
-
-        let mut r_mat = Matrix3::<Real>::zeros();
-        r_mat.set_column(0, &r1);
-        r_mat.set_column(1, &r2);
-        r_mat.set_column(2, &r3);
-
-        // Project onto SO(3) (polar decomposition; see `math::project_to_so3`).
-        let mut r_orth = vision_calibration_core::linalg::project_to_so3(&r_mat)?;
-
-        if t_vec.z < 0.0 {
-            r_orth.column_mut(0).neg_mut();
-            r_orth.column_mut(1).neg_mut();
-            t_vec = -t_vec;
-        }
-
-        Ok(iso_from_rotation(&r_orth, &t_vec))
+    // Scale factor λ: normalize first two columns (average for robustness)
+    let norm1 = k_inv_h1.norm();
+    let norm2 = k_inv_h2.norm();
+    if norm1 <= 1e-12 || norm2 <= 1e-12 {
+        return Err(Error::Singular);
     }
+    let denom = (norm1 + norm2) * 0.5;
+    if denom <= 1e-12 {
+        return Err(Error::Singular);
+    }
+    let lambda = 1.0 / denom;
+
+    let mut r1 = (lambda * k_inv_h1).into_owned();
+    let mut r2 = (lambda * k_inv_h2).into_owned();
+    let mut t_vec: Vector3<Real> = (lambda * (k_inv * h3)).into_owned();
+    if t_vec.z < 0.0 {
+        r1 = -r1;
+        r2 = -r2;
+        t_vec = -t_vec;
+    }
+    let r3 = r1.cross(&r2);
+    if r3.norm() <= 1e-12 {
+        return Err(Error::Singular);
+    }
+
+    let mut r_mat = Matrix3::<Real>::zeros();
+    r_mat.set_column(0, &r1);
+    r_mat.set_column(1, &r2);
+    r_mat.set_column(2, &r3);
+
+    // Project onto SO(3) (polar decomposition; see `math::project_to_so3`).
+    let mut r_orth = vision_calibration_core::linalg::project_to_so3(&r_mat)?;
+
+    if t_vec.z < 0.0 {
+        r_orth.column_mut(0).neg_mut();
+        r_orth.column_mut(1).neg_mut();
+        t_vec = -t_vec;
+    }
+
+    Ok(iso_from_rotation(&r_orth, &t_vec))
 }
 
 /// Estimate the pose of a planar board (`Z = 0`) from the camera's bearing

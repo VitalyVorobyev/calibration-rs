@@ -20,8 +20,8 @@
 use vision_calibration_core::{FxFyCxCy, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::HandeyeMode;
 
-use crate::common::{IntrinsicsManualInit, RigIntrinsicsManualInit};
-use crate::rig_handeye::{HandeyeManualInit, RigManualInit, RigPoses};
+use crate::common::{IntrinsicsManualInit, RigIntrinsicsManualInit, RigManualInit, RigPoses};
+use crate::rig_handeye::HandeyeManualInit;
 
 // The schema types every consumer of this module needs, re-exported so the
 // facade can expose the full device-spec surface from one place.

@@ -83,13 +83,15 @@ pub use crate::problems::handeye::{
     HandeyeEstimate, HandeyeParams, RobotPoseMeta, handeye_observer_se3_target,
 };
 pub use crate::problems::laserline_bundle::{
-    LaserResidualRecords, LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams,
-    LaserlineResidualType, LaserlineStats, LaserlineView, compute_laserline_feature_residuals,
-    compute_laserline_stats,
+    LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams, LaserlineResidualType,
+    LaserlineStats, LaserlineView,
 };
+// Workspace-internal: the statistics the laser problem types fill their
+// exports with. Hidden from the docs and outside the semver promise.
+#[doc(hidden)]
+pub use crate::problems::laserline_bundle::compute_laserline_stats;
 pub use crate::problems::laserline_rig_bundle::{
     RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineView,
-    compute_rig_laserline_feature_residuals,
 };
 pub use crate::problems::planar_intrinsics::{PlanarIntrinsicsEstimate, PlanarIntrinsicsParams};
 pub use crate::problems::rig_extrinsics::{RigExtrinsicsEstimate, RigExtrinsicsParams};
@@ -119,11 +121,14 @@ pub use crate::problems::handeye::{
     HandeyeDataset, HandeyeSolveOptions, apply_robot_delta, optimize_handeye,
 };
 #[doc(hidden)]
-pub use crate::problems::laserline_bundle::{LaserlineSolveOptions, optimize_laserline};
+pub use crate::problems::laserline_bundle::{
+    LaserResidualRecords, LaserlineSolveOptions, compute_laserline_feature_residuals,
+    optimize_laserline,
+};
 #[doc(hidden)]
 pub use crate::problems::laserline_rig_bundle::{
-    RigLaserlineSolveOptions, RigLaserlineUpstream, handeye_upstream_uncertainty,
-    optimize_rig_laserline,
+    RigLaserlineSolveOptions, RigLaserlineUpstream, compute_rig_laserline_feature_residuals,
+    handeye_upstream_uncertainty, optimize_rig_laserline,
 };
 #[doc(hidden)]
 pub use crate::problems::planar_intrinsics::{

@@ -9,21 +9,24 @@ runs all four.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from . import _vision_calibration as _native
 from .common import (
     IntrinsicsInitOptions,
     IntrinsicsOptimizeOptions,
     RigInitOptions,
+    RigInitResult,
+    RigIntrinsicsInitResult,
     RigIntrinsicsManualInit,
+    RigManualInit,
     RigOptimizeOptions,
+    RigPoses,
 )
 from .models import (
     CameraParams,
-    Pose,
     RigExtrinsicsConfig,
     RigExtrinsicsExport,
     RigExtrinsicsInput,
@@ -33,21 +36,18 @@ from .session import (
     CalibrationSession,
     _cameras,
     _floats,
-    _optional_pose,
     _payload,
-    _poses,
-    _seed_payload,
 )
 from .types import ProgressCallback
 
 __all__ = [
     "IntrinsicsInitOptions",
-    "IntrinsicsInitResult",
     "IntrinsicsOptimizeOptions",
     "IntrinsicsOptimizeResult",
     "RigExtrinsicsSession",
     "RigInitOptions",
     "RigInitResult",
+    "RigIntrinsicsInitResult",
     "RigIntrinsicsManualInit",
     "RigManualInit",
     "RigOptimizeOptions",
@@ -55,61 +55,6 @@ __all__ = [
     "RigPoses",
     "run_calibration",
 ]
-
-
-@dataclass(slots=True)
-class RigPoses:
-    """Seeded rig poses: the two go together.
-
-    ``cam_se3_rig`` is each camera's camera-from-rig pose (one per camera);
-    ``rig_se3_target`` each view's rig-from-target pose (one per view).
-    """
-
-    cam_se3_rig: list[Pose]
-    rig_se3_target: list[Pose]
-
-    def to_payload(self) -> dict[str, Any]:
-        return _seed_payload(
-            {"cam_se3_rig": self.cam_se3_rig, "rig_se3_target": self.rig_se3_target}
-        )
-
-
-@dataclass(slots=True)
-class RigManualInit:
-    """Manual seeds of the rig stage.
-
-    ``poses`` seeds the camera-from-rig and rig-from-target poses together;
-    ``None`` runs the linear extrinsics fit.
-    """
-
-    poses: RigPoses | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        return _seed_payload({"poses": self.poses})
-
-
-def _target_poses(values: Any) -> list[list[Pose | None]]:
-    return [
-        [_optional_pose(p) for p in cast(Sequence[Any], row)]
-        for row in cast(Sequence[Any], values)
-    ]
-
-
-@dataclass(frozen=True, slots=True)
-class IntrinsicsInitResult:
-    """The initial per-camera estimate."""
-
-    cameras: list[CameraParams]
-    cam_se3_target: list[list[Pose | None]]
-    """``[view][camera]`` camera-from-target; ``None`` where the camera did
-    not see the target."""
-
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsInitResult:
-        return cls(
-            cameras=_cameras(payload["cameras"]),
-            cam_se3_target=_target_poses(payload["cam_se3_target"]),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,23 +70,6 @@ class IntrinsicsOptimizeResult:
         return cls(
             cameras=_cameras(payload["cameras"]),
             per_cam_reproj_errors=_floats(payload["per_cam_reproj_errors"]),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class RigInitResult:
-    """The linear rig estimate."""
-
-    initial_cam_se3_rig: list[Pose]
-    """Camera-from-rig per camera; the reference camera's is the identity."""
-    initial_rig_se3_target: list[Pose]
-    """Rig-from-target per view."""
-
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> RigInitResult:
-        return cls(
-            initial_cam_se3_rig=_poses(payload["initial_cam_se3_rig"]),
-            initial_rig_se3_target=_poses(payload["initial_rig_se3_target"]),
         )
 
 
@@ -176,9 +104,9 @@ class RigExtrinsicsSession(
 
     def step_intrinsics_init_all(
         self, options: IntrinsicsInitOptions | None = None
-    ) -> IntrinsicsInitResult:
+    ) -> RigIntrinsicsInitResult:
         """Fit every camera's initial intrinsics and target poses linearly."""
-        return IntrinsicsInitResult.from_payload(
+        return RigIntrinsicsInitResult.from_payload(
             self._native.step_intrinsics_init_all(_payload(options))
         )
 
@@ -186,9 +114,9 @@ class RigExtrinsicsSession(
         self,
         seed: RigIntrinsicsManualInit,
         options: IntrinsicsInitOptions | None = None,
-    ) -> IntrinsicsInitResult:
+    ) -> RigIntrinsicsInitResult:
         """``step_intrinsics_init_all`` from manual seeds."""
-        return IntrinsicsInitResult.from_payload(
+        return RigIntrinsicsInitResult.from_payload(
             self._native.step_intrinsics_init_all_with_seed(_payload(seed), _payload(options))
         )
 

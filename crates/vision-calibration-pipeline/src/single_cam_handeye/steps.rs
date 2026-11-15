@@ -12,7 +12,6 @@ use vision_calibration_core::{CameraParams, Iso3, NoMeta, PlanarDataset, View};
 use vision_calibration_optim::{HandeyeMode, PlanarIntrinsicsParams};
 
 use crate::planar_family::{check_camera_model, init_camera_with_seed, optimize_camera};
-pub use crate::rig_family::HandeyeOptimizeResult;
 use crate::rig_family::{init_handeye, optimize_handeye_stage};
 use crate::session::CalibrationSession;
 
@@ -23,8 +22,8 @@ use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHa
 // ─────────────────────────────────────────────────────────────────────────────
 
 use crate::common::{
-    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsManualInit,
-    IntrinsicsOptimizeOptions,
+    HandeyeInitOptions, HandeyeOptimizeOptions, HandeyeOptimizeResult, IntrinsicsInitOptions,
+    IntrinsicsManualInit, IntrinsicsOptimizeOptions,
 };
 
 /// Manual initialization seeds for the **hand-eye stage** of single-camera
