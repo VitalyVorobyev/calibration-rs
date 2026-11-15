@@ -16,7 +16,9 @@ use crate::ir::{
 use crate::params::camera::{CameraBlockIds, CameraBlockInput, add_camera_blocks, unpack_camera};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::rig_extrinsics::solved_pose;
-use crate::problems::robot_poses::{self, RobotPoseSigma, RobotRefinement, Weighting};
+use crate::problems::robot_poses::{
+    self, RobotPoseSigma, RobotRefinement, RobotSigmaParts, Weighting,
+};
 use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use std::collections::HashMap;
@@ -182,6 +184,9 @@ pub(crate) struct RobotSolve {
     pub priors: RobotPoseSigma,
     /// Estimate the robot's pose error from the corrections.
     pub estimate: bool,
+    /// Leave view-correlated corner noise out of the estimate (requires
+    /// `estimate`).
+    pub discount_view_scatter: bool,
 }
 
 /// A solved chain problem.
@@ -192,9 +197,10 @@ pub(crate) struct ChainSolution {
     pub report: SolveReport,
     /// The labelled covariance of the solved blocks.
     pub uncertainty: Uncertainty,
-    /// The robot pose error the corrections were weighed with, with
-    /// robot-pose refinement.
-    robot_pose_sigma: Option<RobotPoseSigma>,
+    /// The robot pose error the corrections were weighed with, and the
+    /// parts of an estimated one that are upper bounds, with robot-pose
+    /// refinement.
+    robot_pose_sigma: Option<(RobotPoseSigma, Option<RobotSigmaParts>)>,
 }
 
 /// Solves the IR `build` makes: reweighed against the robot-pose priors with
@@ -211,15 +217,21 @@ pub(crate) fn solve<F>(
 where
     F: Fn(Weighting) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error>,
 {
+    if robot.discount_view_scatter && !robot.estimate {
+        return Err(Error::invalid_input(
+            "discount_view_scatter requires estimate_robot_sigma",
+        ));
+    }
     let (ir, solution, robot_pose_sigma) = if robot.refine {
-        let (ir, solution, priors) = robot_poses::solve_weighted(
+        let (ir, solution, priors, unresolved) = robot_poses::solve_weighted(
             build,
             robot.priors,
             robot.estimate,
+            robot.discount_view_scatter,
             num_views,
             backend_opts,
         )?;
-        (ir, solution, Some(priors))
+        (ir, solution, Some((priors, unresolved)))
     } else {
         let (ir, initial_map) = build(Weighting::initial(robot.priors))?;
         let solution = backend::solve(&ir, &initial_map, backend_opts)?;
@@ -247,10 +259,11 @@ impl ChainSolution {
         num_views: usize,
     ) -> Result<Option<RobotRefinement>, Error> {
         self.robot_pose_sigma
-            .map(|sigma| {
+            .map(|(sigma, unresolved)| {
                 Ok(RobotRefinement {
                     deltas: robot_poses::solved_deltas(&self.params, num_views)?,
                     sigma,
+                    unresolved,
                 })
             })
             .transpose()

@@ -350,6 +350,10 @@ export type HandeyeSolution =
       rig_se3_base: Iso3Schema;
     };
 /**
+ * Parts of a [`RobotPoseSigma`]: its rotation, its translation or both.
+ */
+export type RobotSigmaParts = "rotation" | "translation" | "both";
+/**
  * What a long-running call reports to its observer.
  *
  * In JSON the variant is the `kind` field:
@@ -1411,6 +1415,16 @@ export interface RobotRefinement {
    * configured one, or the estimate when it was estimated.
    */
   sigma: RobotPoseSigma;
+  /**
+   * The parts of an estimated `sigma` that are upper bounds rather than
+   * estimates: the corrections could not separate the robot's error
+   * there from corner noise correlated within views, so that part of
+   * `sigma` counts some of the corner noise as the robot's. Reported only
+   * when the estimate leaves view-correlated corner noise out
+   * (`discount_view_scatter`); `None` when every estimated part was
+   * resolved, without that option, and when `sigma` was configured.
+   */
+  unresolved?: RobotSigmaParts | null;
 }
 /**
  * A robot's pose error: the standard deviations of the tool's orientation

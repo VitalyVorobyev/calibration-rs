@@ -186,7 +186,9 @@ pub mod control {
 /// - The hand-eye estimate ([`HandeyeEstimate`](common::HandeyeEstimate),
 ///   [`HandeyeParams`](common::HandeyeParams)) and the robot-pose
 ///   correction a refining solve reports
-///   ([`RobotRefinement`](common::RobotRefinement)).
+///   ([`RobotRefinement`](common::RobotRefinement), with
+///   [`RobotSigmaParts`](common::RobotSigmaParts) naming the parts of an
+///   estimated robot error that are upper bounds).
 /// - [`CalibratedCameras`](common::CalibratedCameras), every export's camera
 ///   view.
 ///
@@ -201,7 +203,8 @@ pub mod common {
         IntrinsicsInitOptions, IntrinsicsManualInit, IntrinsicsOptimizeOptions, RigInitOptions,
         RigInitResult, RigIntrinsicsInitResult, RigIntrinsicsManualInit, RigLaserlineView,
         RigManualInit, RigOptimizeOptions, RigPoses, RobotPoseMeta, RobotPoseSigma,
-        RobotRefinement, VersionedExport, calibrated_cameras, check_export_version,
+        RobotRefinement, RobotSigmaParts, VersionedExport, calibrated_cameras,
+        check_export_version,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`

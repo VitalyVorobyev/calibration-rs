@@ -38,6 +38,19 @@ need their measurement first and stay opt-in until it is in.
   `1/κ²` instead of unavailable. Return a typed `UncertaintyUnavailable`
   reason there. Gate: a laser scene with a Cauchy loss and 30 % outliers
   reports the reason; no result with `κ` well above zero moves.
+- [ ] UQ-ROBOT-SIGMA-SCATTER-DEFAULT - Decide whether the robot prior's
+  `discount_view_scatter` (`robot_poses.rs`, `estimated_priors`) becomes the
+  default. Today it is measured only on the single-camera eye-in-hand
+  synthetic scene of `view_correlated_noise_study`
+  (`optim/tests/robot_pose_priors.rs`), at view scatters of 3–9 (tiles) and
+  40–80 (radial); on `kuka_1` (view scatter about 4) it is barely resolved
+  (c = 46.8 against 2·se = 42.3) and moves `base_se3_target.tz` by 3.6σ with
+  no ground truth. Turn it on only after (1) a sweep at `kuka_1`-like view
+  scatter (about 4), (2) the same sweep over rig, eye-to-hand and rig laser
+  hand-eye scenes, each with (3) an oracle column (the hand-eye solved with
+  the true robot error as fixed priors), shows the hand-eye no further from
+  the truth than the plain estimate's in any cell and the estimate never
+  below the robot's error. Moving the default changes `kuka_1`'s reference.
 - [ ] UQ-CROSS-FRAME - Projection uncertainty across the reference-frame
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
   which results do not carry.

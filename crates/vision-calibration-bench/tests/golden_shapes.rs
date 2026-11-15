@@ -4,10 +4,10 @@
 //! session after `run_calibration` and the default config, plus one dataset
 //! manifest. Each test re-serializes the current value and compares its
 //! *shape* with the fixture's: the set of key paths and the value types, not
-//! the numbers. A difference means a wire format changed, and the matching
-//! version has to change with it.
+//! the numbers. A difference means a wire format changed: an added optional
+//! field keeps the version, any other change bumps the matching version.
 //!
-//! Regenerate the fixtures after the bump with
+//! Regenerate the fixtures (after the bump, where one is needed) with
 //! `GOLDEN_BLESS=1 cargo test -p vision-calibration-bench --test golden_shapes`.
 //! Fixtures keep the first four elements of every array: the shape of an
 //! array is the union of its elements' shapes, so nothing is lost and the
@@ -173,10 +173,12 @@ fn check(name: &str, value: &Value, bump: Bump) -> Value {
         }
         panic!(
             "the wire shape of {name} changed:\n{}\n\n\
-             A serialized format changed, so its version has to change: {}.\n\
+             A serialized format changed. An added optional field (serde default, \
+             skipped when absent) keeps the version; a removed, renamed or retyped \
+             key needs a version bump first: {}.\n\
              Then regenerate the fixtures with \
              `GOLDEN_BLESS=1 cargo test -p vision-calibration-bench --test golden_shapes` \
-             and commit them with the bump.",
+             and commit them with the change.",
             diff.join("\n"),
             bump.hint()
         );

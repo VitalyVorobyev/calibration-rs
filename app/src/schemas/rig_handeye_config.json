@@ -693,6 +693,11 @@
           "additionalProperties": false,
           "description": "Per-view se(3) corrections under the prior.",
           "properties": {
+            "discount_view_scatter": {
+              "default": false,
+              "description": "With `estimate_sigma`, leave corner noise correlated within views out\nof the estimated robot error. Each correction carries the pose-like\npart of its view's corner noise; when the residuals are correlated\nwithin views (a significant view scatter), that part is larger than\nthe independent-noise model says, and the plain estimate counts the\nexcess as the robot's. With this option the excess is taken out at\nthe view scatter's scale, measured on the shared parameters.\n\nIt helps where the correlation shifts a view's corners in patches,\nas a detector bias over a tile of the board does: there the plain\nestimate can be several times the robot's error and the hand-eye\nleans on the corners more than it should. Where the corrections do\nnot resolve the remaining robot error (by two standard errors over\nthe views), the estimate stays at the largest robot error they\ncannot tell from none; where the noise would explain more than the\ncorrections hold, nothing is taken out and the estimate is the plain\none. `robot_refinement.unresolved` names the parts of the estimate\nthat are such upper bounds.\n\nOff by default: the scale comes from the shared parameters, and how\nfar it holds for the poses has been measured only on synthetic\nsingle-camera scenes. Requires `estimate_sigma`.",
+              "type": "boolean"
+            },
             "estimate_sigma": {
               "description": "Estimate the robot's error from the corrections, starting from\n`rot_sigma` and `trans_sigma`: each prior's variance factor is\nestimated from the corrections and their redundancy, and the solve\nrepeats until it settles. The export reports the estimate\n(`robot_refinement.sigma`). On by default: the stated accuracy of an\narm is rarely its error in one calibration, and a prior that is too\nloose or too tight misstates the hand-eye and target standard\ndeviations. Off, `rot_sigma` and `trans_sigma` are taken as the\nrobot's true accuracy.",
               "type": "boolean"

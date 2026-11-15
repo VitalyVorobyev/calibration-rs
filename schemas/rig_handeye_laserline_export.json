@@ -1153,6 +1153,17 @@
         "sigma": {
           "$ref": "#/$defs/RobotPoseSigma",
           "description": "The robot's pose error the corrections were weighed with: the\nconfigured one, or the estimate when it was estimated."
+        },
+        "unresolved": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RobotSigmaParts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The parts of an estimated `sigma` that are upper bounds rather than\nestimates: the corrections could not separate the robot's error\nthere from corner noise correlated within views, so that part of\n`sigma` counts some of the corner noise as the robot's. Reported only\nwhen the estimate leaves view-correlated corner noise out\n(`discount_view_scatter`); `None` when every estimated part was\nresolved, without that option, and when `sigma` was configured."
         }
       },
       "required": [
@@ -1160,6 +1171,26 @@
         "sigma"
       ],
       "type": "object"
+    },
+    "RobotSigmaParts": {
+      "description": "Parts of a [`RobotPoseSigma`]: its rotation, its translation or both.",
+      "oneOf": [
+        {
+          "const": "rotation",
+          "description": "`rot_sigma`.",
+          "type": "string"
+        },
+        {
+          "const": "translation",
+          "description": "`trans_sigma`.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "`rot_sigma` and `trans_sigma`.",
+          "type": "string"
+        }
+      ]
     },
     "SecondOrderError": {
       "description": "The error of a result's shared parameters at second order, against\ntheir covariance.\n\nThe covariance is the first-order error: linear in the noise. Where the\nviews pin a combination of parameters down only through large errors of\nothers that cancel in it (centred, mildly tilted views leave a camera's\nrotation and its principal point to trade off this way), the error's\nsecond-order term, quadratic in the noise, can exceed the first along\nthat combination while every parameter's own σ still holds. A consumer\nthat takes the whole covariance as a Gaussian (a prior, a test of two\ncalibrations against each other) then trusts the combination too much.\n\nThe prediction comes from the residuals' curvature along simulated\nfirst-order errors, at the result's own noise level; it grows with the\nnoise's variance.",

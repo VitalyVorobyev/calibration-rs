@@ -2278,6 +2278,17 @@
             }
           ],
           "description": "The robot's pose error the corrections were weighed with: the\nconfigured one, or the estimate when it was estimated."
+        },
+        "unresolved": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RobotSigmaParts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The parts of an estimated `sigma` that are upper bounds rather than\nestimates: the corrections could not separate the robot's error\nthere from corner noise correlated within views, so that part of\n`sigma` counts some of the corner noise as the robot's. Reported only\nwhen the estimate leaves view-correlated corner noise out\n(`discount_view_scatter`); `None` when every estimated part was\nresolved, without that option, and when `sigma` was configured."
         }
       },
       "required": [
@@ -2285,6 +2296,26 @@
         "sigma"
       ],
       "type": "object"
+    },
+    "RobotSigmaParts": {
+      "description": "Parts of a [`RobotPoseSigma`]: its rotation, its translation or both.",
+      "oneOf": [
+        {
+          "const": "rotation",
+          "description": "`rot_sigma`.",
+          "type": "string"
+        },
+        {
+          "const": "translation",
+          "description": "`trans_sigma`.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "`rot_sigma` and `trans_sigma`.",
+          "type": "string"
+        }
+      ]
     },
     "RunDiagnostics": {
       "description": "`diagnostics.json`: how a run went.",

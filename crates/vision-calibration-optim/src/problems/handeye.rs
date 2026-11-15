@@ -172,6 +172,11 @@ pub struct HandeyeSolveOptions {
     /// estimate settles). Without it they are taken as the robot's true
     /// accuracy.
     pub estimate_robot_sigma: bool,
+    /// With [`Self::estimate_robot_sigma`], leave corner noise correlated
+    /// within views (a significant view scatter) out of the estimate, as far
+    /// as the corrections resolve it; see [`crate::RobotRefinement::unresolved`].
+    #[serde(default)]
+    pub discount_view_scatter: bool,
 }
 
 impl Default for HandeyeSolveOptions {
@@ -187,6 +192,7 @@ impl Default for HandeyeSolveOptions {
             robot_rot_sigma: std::f64::consts::PI / 360.0, // 0.5 deg
             robot_trans_sigma: 1.0e-3,                     // 1 mm
             estimate_robot_sigma: false,
+            discount_view_scatter: false,
         }
     }
 }
@@ -322,6 +328,7 @@ pub fn optimize_handeye(
             trans_sigma: opts.robot_trans_sigma,
         },
         estimate: opts.estimate_robot_sigma,
+        discount_view_scatter: opts.discount_view_scatter,
     };
     let solution = handeye_chain::solve(
         build,

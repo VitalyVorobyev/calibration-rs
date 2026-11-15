@@ -147,8 +147,13 @@ pub fn run_calibration_with_seed(
         .map(|r| r.deltas.clone())
         .filter(|deltas| deltas.len() == input.num_views());
     let n = input.num_cameras;
-    let (refine_robot_poses, robot_rot_sigma, robot_trans_sigma, estimate_robot_sigma) =
-        config.joint_optimize.robot_poses.solver_terms();
+    let (
+        refine_robot_poses,
+        robot_rot_sigma,
+        robot_trans_sigma,
+        estimate_robot_sigma,
+        discount_view_scatter,
+    ) = config.joint_optimize.robot_poses.solver_terms();
     let joint_opts = RigHandeyeLaserlineSolveOptions {
         laser_residual_type: config.joint_optimize.laser_residual_type,
         reprojection_loss: config.joint_optimize.reprojection_loss,
@@ -167,6 +172,7 @@ pub fn run_calibration_with_seed(
         robot_rot_sigma,
         robot_trans_sigma,
         estimate_robot_sigma,
+        discount_view_scatter,
         initial_robot_deltas,
     };
     let backend_opts = config.solver.backend_options(session.control());

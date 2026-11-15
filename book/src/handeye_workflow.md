@@ -116,9 +116,13 @@ and the solve repeats until both factors are 1. The export reports the
 estimate as `robot_refinement.sigma`, the robot's orientation and position error
 in this calibration. On synthetic scenes it recovers the simulated error
 from a prior ten times too tight or too loose, and the normalized errors of
-the hand-eye and target come out with an RMS of 1.02–1.13. With
-`estimate_sigma` off, the configured values are taken as the robot's true
-accuracy.
+the hand-eye and target come out with an RMS of 1.02–1.13. Corner noise
+correlated within views counts toward the estimate; with
+`discount_view_scatter` (off by default) the prior leaves it out as far as
+the corrections resolve it, and `robot_refinement.unresolved` names a part of
+the estimate that is an upper bound instead ([Limits and Unavailable
+Results](uncertainty_limits.md)). With `estimate_sigma` off, the
+configured values are taken as the robot's true accuracy.
 
 A correction common to every view looks exactly like a change of the
 transform carried by the gripper: the hand-eye in eye-in-hand, the target's
@@ -154,7 +158,8 @@ pub struct SingleCamHandeyeConfig {
     // Hand-eye bundle adjustment.
     pub handeye_optimize: SingleCamHandeyeOptimizeConfig,
     // { reprojection_loss: RobustLoss = None, robot_poses: RobotPoseConfig }
-    // robot_poses: Exact | Refine(RobotPosePrior { rot_sigma, trans_sigma, estimate_sigma }); default Refine
+    // robot_poses: Exact | Refine(RobotPosePrior { rot_sigma, trans_sigma, estimate_sigma,
+    //   discount_view_scatter = false }); default Refine
     // JSON: {"kind": "exact"} or {"kind": "refine", "rot_sigma": …, "trans_sigma": …, "estimate_sigma": true}
 
     // Solver engine, shared by both solve stages.
@@ -260,7 +265,7 @@ match export.handeye {
 
 In Python, `result.handeye` is a `CameraEyeInHand` or a `CameraEyeToHand`, and `result.handeye.mode` names the mode.
 
-`export.camera` is the calibrated camera (`CameraParams`) in the configured model, `export.robot_refinement` the per-view robot-pose corrections (`deltas`) and the robot error they were weighed with (`sigma`) when refinement is on, and `export.diagnostics.per_feature_residuals` the per-corner reprojection records (see [Per-Feature Residuals](per_feature_residuals.md)).
+`export.camera` is the calibrated camera (`CameraParams`) in the configured model, `export.robot_refinement` the per-view robot-pose corrections (`deltas`) and the robot error they were weighed with (`sigma`, with `unresolved` naming any part of an estimate that is an upper bound under `discount_view_scatter`) when refinement is on, and `export.diagnostics.per_feature_residuals` the per-corner reprojection records (see [Per-Feature Residuals](per_feature_residuals.md)).
 
 The `SingleCamHandeyeInput::new` constructor rejects an empty set of views and any view with fewer than 4 correspondences (the minimum for a homography). Each stage has a `*_with_seed` sibling and a typed step result (`IntrinsicsInitResult`, `HandeyeOptimizeResult`, ...); see [Seeding with Prior Knowledge](manual_init.md).
 

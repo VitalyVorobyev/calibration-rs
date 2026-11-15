@@ -131,8 +131,13 @@ pub(crate) fn handeye_solve_opts(
     fix_extrinsics: Vec<bool>,
     robot_poses: &RobotPoseConfig,
 ) -> HandeyeSolveOptions {
-    let (refine_robot_poses, robot_rot_sigma, robot_trans_sigma, estimate_robot_sigma) =
-        robot_poses.solver_terms();
+    let (
+        refine_robot_poses,
+        robot_rot_sigma,
+        robot_trans_sigma,
+        estimate_robot_sigma,
+        discount_view_scatter,
+    ) = robot_poses.solver_terms();
     HandeyeSolveOptions {
         robust_loss,
         fix,
@@ -144,6 +149,7 @@ pub(crate) fn handeye_solve_opts(
         robot_rot_sigma,
         robot_trans_sigma,
         estimate_robot_sigma,
+        discount_view_scatter,
     }
 }
 

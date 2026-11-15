@@ -537,15 +537,17 @@ impl RobotPoseConfig {
         }
     }
 
-    /// `(refine, rot_sigma, trans_sigma, estimate_sigma)` for the solver
-    /// options, whose sigmas are ignored when not refining.
-    pub(crate) fn solver_terms(&self) -> (bool, f64, f64, bool) {
+    /// `(refine, rot_sigma, trans_sigma, estimate_sigma,
+    /// discount_view_scatter)` for the solver options, whose sigmas are
+    /// ignored when not refining.
+    pub(crate) fn solver_terms(&self) -> (bool, f64, f64, bool, bool) {
         let prior = self.prior().cloned().unwrap_or_default();
         (
             self.prior().is_some(),
             prior.rot_sigma,
             prior.trans_sigma,
             prior.estimate_sigma,
+            prior.discount_view_scatter,
         )
     }
 }
@@ -585,6 +587,30 @@ pub struct RobotPosePrior {
     /// deviations. Off, `rot_sigma` and `trans_sigma` are taken as the
     /// robot's true accuracy.
     pub estimate_sigma: bool,
+    /// With `estimate_sigma`, leave corner noise correlated within views out
+    /// of the estimated robot error. Each correction carries the pose-like
+    /// part of its view's corner noise; when the residuals are correlated
+    /// within views (a significant view scatter), that part is larger than
+    /// the independent-noise model says, and the plain estimate counts the
+    /// excess as the robot's. With this option the excess is taken out at
+    /// the view scatter's scale, measured on the shared parameters.
+    ///
+    /// It helps where the correlation shifts a view's corners in patches,
+    /// as a detector bias over a tile of the board does: there the plain
+    /// estimate can be several times the robot's error and the hand-eye
+    /// leans on the corners more than it should. Where the corrections do
+    /// not resolve the remaining robot error (by two standard errors over
+    /// the views), the estimate stays at the largest robot error they
+    /// cannot tell from none; where the noise would explain more than the
+    /// corrections hold, nothing is taken out and the estimate is the plain
+    /// one. `robot_refinement.unresolved` names the parts of the estimate
+    /// that are such upper bounds.
+    ///
+    /// Off by default: the scale comes from the shared parameters, and how
+    /// far it holds for the poses has been measured only on synthetic
+    /// single-camera scenes. Requires `estimate_sigma`.
+    #[serde(default)]
+    pub discount_view_scatter: bool,
 }
 
 impl Default for RobotPosePrior {
@@ -593,6 +619,7 @@ impl Default for RobotPosePrior {
             rot_sigma: 0.5_f64.to_radians(),
             trans_sigma: 1.0e-3,
             estimate_sigma: true,
+            discount_view_scatter: false,
         }
     }
 }
@@ -609,7 +636,8 @@ impl RobotPosePrior {
     }
 
     /// Validate that `rot_sigma` and `trans_sigma` are finite and strictly
-    /// positive.
+    /// positive, and that `discount_view_scatter` comes with
+    /// `estimate_sigma`.
     ///
     /// # Errors
     ///
@@ -623,6 +651,11 @@ impl RobotPosePrior {
         if !(self.trans_sigma.is_finite() && self.trans_sigma > 0.0) {
             return Err(crate::Error::invalid_input(
                 "trans_sigma must be positive and finite",
+            ));
+        }
+        if self.discount_view_scatter && !self.estimate_sigma {
+            return Err(crate::Error::invalid_input(
+                "discount_view_scatter requires estimate_sigma",
             ));
         }
         Ok(())
@@ -789,6 +822,7 @@ mod tests {
         assert!((prior.rot_sigma - 0.5_f64.to_radians()).abs() < 1e-15);
         assert!((prior.trans_sigma - 1.0e-3).abs() < 1e-15);
         assert!(prior.estimate_sigma);
+        assert!(!prior.discount_view_scatter);
     }
 
     #[test]
@@ -962,6 +996,49 @@ mod tests {
             .validate()
             .expect_err("negative trans_sigma must be rejected");
         assert!(err.to_string().contains("trans_sigma"));
+    }
+
+    #[test]
+    fn robot_pose_config_validate_rejects_discount_without_estimate() {
+        let mut prior = RobotPosePrior::new(0.01, 1.0e-3);
+        prior.discount_view_scatter = true;
+        assert!(RobotPoseConfig::Refine(prior.clone()).validate().is_ok());
+        prior.estimate_sigma = false;
+        let err = RobotPoseConfig::Refine(prior)
+            .validate()
+            .expect_err("discount_view_scatter without estimate_sigma must be rejected");
+        assert!(err.to_string().contains("discount_view_scatter"));
+    }
+
+    #[test]
+    fn robot_pose_config_discount_view_scatter_json() {
+        // Always written, like `estimate_sigma`: one representation.
+        let default = serde_json::to_value(RobotPoseConfig::default()).unwrap();
+        assert_eq!(
+            default,
+            serde_json::json!({
+                "kind": "refine",
+                "rot_sigma": 0.5_f64.to_radians(),
+                "trans_sigma": 1.0e-3,
+                "estimate_sigma": true,
+                "discount_view_scatter": false
+            })
+        );
+        let back: RobotPoseConfig = serde_json::from_value(default).unwrap();
+        assert!(!back.prior().expect("refine").discount_view_scatter);
+        // A config written before the option existed still reads, with it off.
+        let old: RobotPoseConfig = serde_json::from_value(serde_json::json!({
+            "kind": "refine", "rot_sigma": 0.01, "trans_sigma": 0.002, "estimate_sigma": true
+        }))
+        .unwrap();
+        assert!(!old.prior().expect("refine").discount_view_scatter);
+        // On, it round-trips.
+        let mut prior = RobotPosePrior::new(0.01, 0.002);
+        prior.discount_view_scatter = true;
+        let json = serde_json::to_value(RobotPoseConfig::Refine(prior)).unwrap();
+        assert_eq!(json["discount_view_scatter"], true);
+        let back: RobotPoseConfig = serde_json::from_value(json).unwrap();
+        assert!(back.prior().expect("refine").discount_view_scatter);
     }
 
     #[test]
