@@ -6,6 +6,7 @@ keywords = ["camera", "calibration", "computer-vision", "robotics", "hand-eye"] 
 categories = ["computer-vision"]  # pick from crates.io list
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 homepage.workspace = true
@@ -15,12 +16,12 @@ repository.workspace = true
 workspace = true
 
 [package.metadata.docs.rs]
-features = ["synthetic", "fetch"]
+features = ["synthetic", "fetch", "schemars"]
 
 [features]
 default = []
-# Forward `schemars::JsonSchema` derives on the config + `*Export` types
-# (ADR 0014). Consumed by the diagnose app's schema emitter to generate
+# Forward `schemars::JsonSchema` derives on the config + `*Export` types.
+# Consumed by the diagnose app's schema emitter to generate
 # TypeScript from the Rust types. Off by default so library
 # consumers don't pull in schemars.
 schemars = ["vision-calibration-pipeline/schemars"]

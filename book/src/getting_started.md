@@ -19,7 +19,7 @@ anyhow = "1"
 ### Python
 
 ```bash
-pip install vision-calibration
+pip install --pre vision-calibration   # the release candidate
 ```
 
 Python 3.10 or newer. To build the extension from a checkout instead, run `maturin develop -m crates/vision-calibration-py/Cargo.toml`. The package is `vision_calibration`; the examples below import it as `vc`.
@@ -27,7 +27,7 @@ Python 3.10 or newer. To build the extension from a checkout instead, run `matur
 ### Command line
 
 ```bash
-cargo install vision-calibration-cli
+cargo install vision-calibration-cli --version 1.0.0-rc.1
 ```
 
 The Python package installs the same `vcal` program. It calibrates a folder of images without code: [The Command Line](cli.md).

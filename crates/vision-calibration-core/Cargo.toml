@@ -6,6 +6,7 @@ keywords = ["camera", "calibration", "computer-vision", "robotics", "hand-eye"] 
 categories = ["computer-vision"]  # pick from crates.io list
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 homepage.workspace = true
@@ -15,7 +16,7 @@ repository.workspace = true
 workspace = true
 
 [package.metadata.docs.rs]
-features = ["synthetic"]
+features = ["synthetic", "schemars"]
 
 [features]
 # Deterministic synthetic calibration data (target grids, poses, noise) for

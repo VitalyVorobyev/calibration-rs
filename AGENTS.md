@@ -167,13 +167,12 @@ vision-calibration-bench --test golden_shapes` and commit them with the bump.
 
 All published crates and the PyPI package share one version.
 
-* **Before 1.0** — a release that breaks the public API, a JSON schema or the
-  meaning of a result bumps the minor (`0.x.0`) and lists migration notes in
-  the CHANGELOG. Every other release, additive features included, is a patch
-  (`0.x.y`). Cargo treats `0.x.y` as compatible with `0.x.0`, so a break in a
-  patch reaches users silently.
-* **From 1.0** — standard SemVer: breaking → major, additive → minor, fixes →
-  patch.
+* **SemVer from 1.0** — a release that breaks the public API, a JSON schema
+  or the meaning of a result is a major; an additive one a minor; a fix a
+  patch. The CHANGELOG lists every change, a break with migration notes.
+* **The rc series** — no breaking change between `1.0.0-rc.*` releases or
+  from the last rc to 1.0.0: the `semver-rc` CI job checks every PR against
+  the latest `v1.0.0-rc.*` tag.
 * `cargo semver-checks` runs before every tag (the release workflow enforces
   it). Items under `#[doc(hidden)]` are exempt.
 * The procedure is [`docs/RELEASE-RUNBOOK.md`](docs/RELEASE-RUNBOOK.md); read

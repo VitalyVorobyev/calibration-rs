@@ -1,10 +1,10 @@
 # Release Runbook
 
 The procedure for cutting a `calibration-rs` release. Which number to bump
-is AGENTS.md §8: before 1.0, a release that breaks the public API, a JSON
-schema or the meaning of a result is a minor (`0.x.0`), and every other
-release, additive features included, is a patch (`0.x.y`). Breaking changes
-are batched into one minor rather than spread across several.
+is AGENTS.md §8, standard SemVer: a release that breaks the public API, a
+JSON schema or the meaning of a result is a major, an additive one a minor,
+a fix a patch. Breaking changes are batched into one major rather than
+spread across several; through the `1.0.0-rc.*` series there are none.
 
 ## 1. Procedure
 
@@ -25,8 +25,19 @@ the private examples:
    outside the workspace and CI, so a stale pin breaks only the private
    examples.
 
-On a minor bump, also move the install snippets to the new `"X.Y"`
-(`grep -rn 'vision-calibration = ' README.md crates/*/README.md book/src`).
+Also move the install snippets. Through the rc series they carry the full
+version: `vision-calibration = "1.0.0-rc.N"`, `pip install --pre
+vision-calibration` and `cargo install vision-calibration-cli --version
+1.0.0-rc.N`. At 1.0.0 they become `vision-calibration = "1"`, plain `pip
+install vision-calibration` and plain `cargo install vision-calibration-cli`
+(drop the "release candidate" notes beside them), and the pyproject
+classifier moves from `Development Status :: 4 - Beta` to
+`5 - Production/Stable`. Find them with:
+
+```bash
+grep -rnE 'vision-calibration = |pip install|cargo install vision-calibration-cli|1\.0\.0-rc' \
+  README.md crates/*/README.md book/src crates/vision-calibration-py/pyproject.toml
+```
 
 Then refresh the lockfiles:
 
@@ -44,8 +55,10 @@ alone in a library release. Its `vision-calibration` path dep carries no
 Rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and open a fresh empty
 `[Unreleased]` above it. Releases older than the previous minor family live
 verbatim in `docs/changelog/<version>.md`, one file per release, indexed under
-"Older releases" at the bottom of `CHANGELOG.md`; archive a family there when
-it leaves the active window.
+"Older releases" at the bottom of `CHANGELOG.md` with absolute repository
+links (`…/blob/main/docs/changelog/<version>.md`), since the CHANGELOG also
+renders outside the repository; archive a family there when it leaves the
+active window.
 
 ### 1.3 Run the checks locally
 
@@ -83,9 +96,9 @@ done
 
 Check every published crate against its last release
 (`cargo install cargo-semver-checks`). The tool reads the new version from
-the manifests and applies Cargo's rules, under which `0.x.0 → 0.x.y` must be
-compatible: a reported break in a patch means the release must be a minor
-(from 1.0, a major). Items marked `#[doc(hidden)]` are workspace-internal and
+the manifests and applies SemVer: a reported break in a minor or a patch
+means the release must be a major (and none is allowed through the rc
+series). Items marked `#[doc(hidden)]` are workspace-internal and
 exempt. `release.yml` runs the same command before publishing and stops the
 release on a break.
 
@@ -182,8 +195,9 @@ When a crate joins the publish set:
    that already exist. Do it right after the tagged release that published
    its workspace dependencies at the same version: `cargo publish` resolves
    them against crates.io, so before that release it fails on any
-   dependency item or feature the registry copy lacks (`vision-calibration-cli`
-   needs the facade's `fetch` feature, which 0.12.0 does not have).
+   dependency item or feature the registry copy lacks (a crate that needs a
+   feature or item its dependency gained in this release cannot publish
+   against the previous release).
 2. Add the Trusted Publisher entry on its crates.io settings page.
 3. The next tagged release then publishes it automatically.
 

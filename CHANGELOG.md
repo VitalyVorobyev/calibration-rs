@@ -7,145 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Ring-grid targets take an optional `center_method` (`RinggridCenterMethod`
-  in `RinggridConfig`, `RinggridCenterSpec` in the manifest's `ringgrid`
-  target): `"ellipse"` (the default, unchanged) or `"photometric"`, a
-  per-marker fit of the blurred marker pattern for blurred or low-contrast
-  images. It costs about 2.5 times the detection time and keeps only the
-  markers the fit refined. Existing manifests and detection caches are
-  unaffected.
-
-### Changed
-
-- **Configs, manifests, observation containers and results can grow
-  without a breaking release** (breaking). The types below are
-  `#[non_exhaustive]`: outside this library they are built with `new(...)`
-  (the required fields; optional ones start at their defaults and are set
-  on the value) or `Default` (set the fields after), never with a struct
-  literal or `..Default::default()`. A pattern that names their fields ends
-  in `..`, and a `match` on `NoiseLevel`, `Detection` or `Captures` needs a
-  wildcard arm. Their fields stay public and their JSON is unchanged.
-
-  ```rust
-  // before
-  let config = ChessboardConfig { rows: 17, cols: 28, square_size_m: 0.02, chess_corners: None };
-  let view = RigView { obs: RigViewObs { cameras: vec![left, right] }, meta: NoMeta };
-  let opts = IterativeIntrinsicsOptions { iterations: 2, ..Default::default() };
-  // after
-  let config = ChessboardConfig::new(17, 28, 0.02);
-  let view = RigView::new(RigViewObs::new(vec![left, right]), NoMeta);
-  let mut opts = IterativeIntrinsicsOptions::default();
-  opts.iterations = 2;
-  ```
-
-  - `core`: `CameraModelSpec::new`, `CameraFix` (`Default`),
-    `ParameterCovariance::new`, `ViewCovariance::new`, `ResidualNoise::new`,
-    `SecondOrderError::new`, `CombinationTerm::new`, `NoiseLevel`,
-    `View::new`, `RigViewObs::new`, `RigView::new`, `RigDataset::new`,
-    `PlanarDataset::new`.
-  - `detect`: `ChessboardConfig::new`, `CharucoConfig::new`,
-    `PuzzleboardConfig::new`, `RinggridConfig::new`, `ChessCornersConfig`
-    (`Default`), `CornerCovariance::new`, `Feature::new` (with
-    `with_cov_px`), `CacheKey` (`for_detection`, `from_inputs`),
-    `CachedFeatures::new`.
-  - `dataset`: `DatasetSpec::new` (the current format version),
-    `CameraSource::new`, `LaserExtractionSpec`, `DetectorSpec` and
-    `ChessCornersDetectorSpec` (`Default`), `CornerCovarianceSpec::new`,
-    `RobotPoseSource::new`, `PoseColumnMap::new`, `PoseConvention::new`, and
-    the `TargetSpec` variants, built with `TargetSpec::chessboard`,
-    `charuco`, `puzzleboard` and `ringgrid`.
-  - `device_seed`: `DeviceSpec::new`, `CameraDeviceSpec::new`,
-    `ScheimpflugMountSpec::new`, `RigLayoutSpec::new`,
-    `CameraMountSpec::new`, `NominalPoseSpec::new`, `LaserPlaneSpec::new`.
-  - `common`: `RobotPoseMeta::new`, `RigLaserlineView::new`.
-  - `single_cam_handeye`: `SingleCamHandeyeInput::new`.
-  - `laserline_device`: `LaserlineMeta::new`.
-  - `rig_laserline_device`: `RigLaserlineDeviceInput::new`,
-    `RigUpstreamCalibration::new` (no covariance; set `uncertainty` to add
-    it), `RigLaserlineDataset::new`.
-  - `rig_handeye_laserline`: `RigHandeyeLaserlineInput::new`,
-    `RigHandeyeLaserlineView::new`.
-  - `session`: `InvalidationPolicy` (its constants and `Default`).
-  - `dataset_runner`: `Detection` and the result `PairedViews`.
-  - `init`: `DistortionFitOptions` and `IterativeIntrinsicsOptions`
-    (`Default`), and the results `LinearPlaneEstimate`,
-    `EquidistantIntrinsicsLinearInit` and `ExtrinsicPoses`.
-  - `mvg`: `laser::LaserObservation::new`, `pose::PoseObservation::new`,
-    `triangulation::RigObservation::new`, `types::PixelMatch::new`,
-    `types::Captures`, and the results `laser::LaserPoint` and
-    `solvers::CameraMatrixDecomposition`.
-
-- **Every type is reached by one path** (breaking).
-  - The seeds and results of the stages both rig workflows run, and the
-    hand-eye refinement result both hand-eye workflows share, are in
-    `common` only. `rig_extrinsics::RigManualInit`,
-    `rig_handeye::RigManualInit` → `common::RigManualInit`;
-    `rig_extrinsics::RigPoses`, `rig_handeye::RigPoses` →
-    `common::RigPoses`; `rig_extrinsics::RigInitResult`,
-    `rig_handeye::RigInitResult` → `common::RigInitResult`;
-    `single_cam_handeye::HandeyeOptimizeResult`,
-    `rig_handeye::HandeyeOptimizeResult` → `common::HandeyeOptimizeResult`.
-    The per-camera intrinsics result of a rig is renamed so it does not
-    share a name with the one-camera result:
-    `rig_extrinsics::IntrinsicsInitResult`,
-    `rig_handeye::IntrinsicsInitResult` → `common::RigIntrinsicsInitResult`
-    (`planar_intrinsics::IntrinsicsInitResult` and
-    `single_cam_handeye::IntrinsicsInitResult` are unchanged). Python
-    follows: the classes are in `vision_calibration.common` and the package
-    root, and `rig_extrinsics.IntrinsicsInitResult` /
-    `rig_handeye.IntrinsicsInitResult` are `RigIntrinsicsInitResult`.
-
-    ```rust
-    // before
-    use vision_calibration::rig_extrinsics::{RigManualInit, RigPoses};
-    // after
-    use vision_calibration::common::{RigManualInit, RigPoses};
-    ```
-
-  - `dataset::samples` lists its public items (`Sample`, `FetchError`,
-    `CACHE_DIR_ENV`, `catalogue`, `sample`, `sample_dir`, and with the
-    `fetch` feature `fetch` and `default_cache_dir`); the undocumented
-    download helpers it also exposed are gone from the facade.
-  - `init::pnp::PoseEstimate::pose` is `cam_se3_world`, the name of the
-    pose it holds.
-
-    ```rust
-    // before
-    let pose = dlt_ransac(&world, &image, &k, &opts)?.pose;
-    // after
-    let pose = dlt_ransac(&world, &image, &k, &opts)?.cam_se3_world;
-    ```
-
-  - `core::FixedParams`, the fixed-parameter indices `CameraFix::resolve`
-    returns, is documented and `#[non_exhaustive]`. The model slots of
-    `core::CameraModel` (`core::AnyProjection`, `core::AnyDistortion`,
-    `core::AnySensor`) are documented and exported from `core`; they are
-    `#[non_exhaustive]`, so a `match` on them needs a wildcard arm.
-  - `dataset::DATASET_SPEC_VERSION`, the manifest format version, is
-    exported beside `DatasetSpec`.
-  - In the lower crates, items the facade does not offer are no longer
-    public API: `vision_calibration_linear::planar_pose::PlanarPoseSolver`
-    is removed (use `estimate_planar_pose_from_h`), as is the unused
-    `vision_calibration_linear::extrinsics::MultiCamExtrinsicsInit`; the
-    multi-level reprojection reports of
-    `vision_calibration_pipeline::analysis`, `vision_calibration_core`'s
-    `TargetPose` and `compute_mean_reproj_error`, and
-    `vision_calibration_optim`'s `LaserResidualRecords` and
-    `compute_*laserline_feature_residuals` are internal.
-
-- The `schemars` feature also derives `JsonSchema` on the detector configs
-  (`detect::ChessboardConfig`, `CharucoConfig`, `PuzzleboardConfig`,
-  `RinggridConfig`, `ChessCornersConfig` and their parts), like every other
-  config type.
-
-- The ring-grid detector is `ringgrid` 0.15.0. Its photometric centre method
-  now fits a direction-dependent blur, so photometric centres move slightly
-  (ellipse centres are unchanged). The detector version is part of the
-  detection-cache key, so ring-grid caches are rebuilt on the next run.
-
-## [1.0.0-rc.1] - 2026-11-13
+## [1.0.0-rc.1] - 2026-11-15
 
 ### Migration
 
@@ -680,6 +542,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `JsonArray` are `dict[str, Any]` and `list[Any]`; `Se3Delta` is
   `list[float]`.
 
+- **Configs, manifests, observation containers and results can grow
+  without a breaking release** (breaking). The types below are
+  `#[non_exhaustive]`: outside this library they are built with `new(...)`
+  (the required fields; optional ones start at their defaults and are set
+  on the value) or `Default` (set the fields after), never with a struct
+  literal or `..Default::default()`. A pattern that names their fields ends
+  in `..`, and a `match` on `NoiseLevel`, `Detection` or `Captures` needs a
+  wildcard arm. Their fields stay public and their JSON is unchanged.
+
+  ```rust
+  // before
+  let config = ChessboardConfig { rows: 17, cols: 28, square_size_m: 0.02, chess_corners: None };
+  let view = RigView { obs: RigViewObs { cameras: vec![left, right] }, meta: NoMeta };
+  let opts = IterativeIntrinsicsOptions { iterations: 2, ..Default::default() };
+  // after
+  let config = ChessboardConfig::new(17, 28, 0.02);
+  let view = RigView::new(RigViewObs::new(vec![left, right]), NoMeta);
+  let mut opts = IterativeIntrinsicsOptions::default();
+  opts.iterations = 2;
+  ```
+
+  - `core`: `CameraModelSpec::new`, `CameraFix` (`Default`),
+    `ParameterCovariance::new`, `ViewCovariance::new`, `ResidualNoise::new`,
+    `SecondOrderError::new`, `CombinationTerm::new`, `NoiseLevel`,
+    `View::new`, `RigViewObs::new`, `RigView::new`, `RigDataset::new`,
+    `PlanarDataset::new`.
+  - `detect`: `ChessboardConfig::new`, `CharucoConfig::new`,
+    `PuzzleboardConfig::new`, `RinggridConfig::new`, `ChessCornersConfig`
+    (`Default`), `CornerCovariance::new`, `Feature::new` (with
+    `with_cov_px`), `CacheKey` (`for_detection`, `from_inputs`),
+    `CachedFeatures::new`.
+  - `dataset`: `DatasetSpec::new` (the current format version),
+    `CameraSource::new`, `LaserExtractionSpec`, `DetectorSpec` and
+    `ChessCornersDetectorSpec` (`Default`), `CornerCovarianceSpec::new`,
+    `RobotPoseSource::new`, `PoseColumnMap::new`, `PoseConvention::new`, and
+    the `TargetSpec` variants, built with `TargetSpec::chessboard`,
+    `charuco`, `puzzleboard` and `ringgrid`.
+  - `device_seed`: `DeviceSpec::new`, `CameraDeviceSpec::new`,
+    `ScheimpflugMountSpec::new`, `RigLayoutSpec::new`,
+    `CameraMountSpec::new`, `NominalPoseSpec::new`, `LaserPlaneSpec::new`.
+  - `common`: `RobotPoseMeta::new`, `RigLaserlineView::new`.
+  - `single_cam_handeye`: `SingleCamHandeyeInput::new`.
+  - `laserline_device`: `LaserlineMeta::new`.
+  - `rig_laserline_device`: `RigLaserlineDeviceInput::new`,
+    `RigUpstreamCalibration::new` (no covariance; set `uncertainty` to add
+    it), `RigLaserlineDataset::new`.
+  - `rig_handeye_laserline`: `RigHandeyeLaserlineInput::new`,
+    `RigHandeyeLaserlineView::new`.
+  - `session`: `InvalidationPolicy` (its constants and `Default`).
+  - `dataset_runner`: `Detection` and the result `PairedViews`.
+  - `init`: `DistortionFitOptions` and `IterativeIntrinsicsOptions`
+    (`Default`), and the results `LinearPlaneEstimate`,
+    `EquidistantIntrinsicsLinearInit` and `ExtrinsicPoses`.
+  - `mvg`: `laser::LaserObservation::new`, `pose::PoseObservation::new`,
+    `triangulation::RigObservation::new`, `types::PixelMatch::new`,
+    `types::Captures`, and the results `laser::LaserPoint` and
+    `solvers::CameraMatrixDecomposition`.
+
+- **Every type is reached by one path** (breaking).
+  - The seeds and results of the stages both rig workflows run, and the
+    hand-eye refinement result both hand-eye workflows share, are in
+    `common` only. `rig_extrinsics::RigManualInit`,
+    `rig_handeye::RigManualInit` → `common::RigManualInit`;
+    `rig_extrinsics::RigPoses`, `rig_handeye::RigPoses` →
+    `common::RigPoses`; `rig_extrinsics::RigInitResult`,
+    `rig_handeye::RigInitResult` → `common::RigInitResult`;
+    `single_cam_handeye::HandeyeOptimizeResult`,
+    `rig_handeye::HandeyeOptimizeResult` → `common::HandeyeOptimizeResult`.
+    The per-camera intrinsics result of a rig is renamed so it does not
+    share a name with the one-camera result:
+    `rig_extrinsics::IntrinsicsInitResult`,
+    `rig_handeye::IntrinsicsInitResult` → `common::RigIntrinsicsInitResult`
+    (`planar_intrinsics::IntrinsicsInitResult` and
+    `single_cam_handeye::IntrinsicsInitResult` are unchanged). Python
+    follows: the classes are in `vision_calibration.common` and the package
+    root, and `rig_extrinsics.IntrinsicsInitResult` /
+    `rig_handeye.IntrinsicsInitResult` are `RigIntrinsicsInitResult`.
+
+    ```rust
+    // before
+    use vision_calibration::rig_extrinsics::{RigManualInit, RigPoses};
+    // after
+    use vision_calibration::common::{RigManualInit, RigPoses};
+    ```
+
+  - `dataset::samples` lists its public items (`Sample`, `FetchError`,
+    `CACHE_DIR_ENV`, `catalogue`, `sample`, `sample_dir`, and with the
+    `fetch` feature `fetch` and `default_cache_dir`); the undocumented
+    download helpers it also exposed are gone from the facade.
+  - `init::pnp::PoseEstimate::pose` is `cam_se3_world`, the name of the
+    pose it holds.
+
+    ```rust
+    // before
+    let pose = dlt_ransac(&world, &image, &k, &opts)?.pose;
+    // after
+    let pose = dlt_ransac(&world, &image, &k, &opts)?.cam_se3_world;
+    ```
+
+  - `core::FixedParams`, the fixed-parameter indices `CameraFix::resolve`
+    returns, is documented and `#[non_exhaustive]`. The model slots of
+    `core::CameraModel` (`core::AnyProjection`, `core::AnyDistortion`,
+    `core::AnySensor`) are documented and exported from `core`; they are
+    `#[non_exhaustive]`, so a `match` on them needs a wildcard arm.
+  - `dataset::DATASET_SPEC_VERSION`, the manifest format version, is
+    exported beside `DatasetSpec`.
+  - In the lower crates, items the facade does not offer are no longer
+    public API: `vision_calibration_linear::planar_pose::PlanarPoseSolver`
+    is removed (use `estimate_planar_pose_from_h`), as is the unused
+    `vision_calibration_linear::extrinsics::MultiCamExtrinsicsInit`; the
+    multi-level reprojection reports of
+    `vision_calibration_pipeline::analysis`, `vision_calibration_core`'s
+    `TargetPose` and `compute_mean_reproj_error`, and
+    `vision_calibration_optim`'s `LaserResidualRecords` and
+    `compute_*laserline_feature_residuals` are internal.
+
 ### Changed
 
 - **A hand-eye seed of one pose closes the other through the first view, in
@@ -708,6 +686,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hand-eye bundle adjustments are one stage. The rig's `handeye_init` log
   note names the hand-eye pose (`gripper_se3_rig |t|=…`) as the single
   camera's does, instead of `translation_norm=…`.
+- The ring-grid detector is `ringgrid` 0.15.0. The detector version is part
+  of the detection-cache key, so ring-grid caches are rebuilt on the next
+  run.
 
 ### Added
 
@@ -717,8 +698,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uncertainty, and the 2070 distances along board rows and columns, 1 to 7
   squares, are compared with the board's size. The reference result stores
   the mean and RMS error, the mean stated σ and the RMS of error over σ per
-  held-out view and length, and `calib-bench suite check` fails on any
-  change (with `--sigma k`, on a mean length that moves by `k` of its σ).
+  held-out view and length, and the suite's check fails on any change (or,
+  with a tolerance of `k` σ, on a mean length that moves by `k` of its σ).
   A suite entry asks for it with `measure_board = { square_size_m = ... }`.
   `opencv_fisheye_stereo` measures its held-out boards the same way, through
   the Kannala-Brandt model: 4896 lengths over 17 held-out views.
@@ -735,6 +716,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Every Rust block of the book compiles.** The book's chapters are doctests
   of the facade crate, so `cargo test --doc -p vision-calibration` fails on
   a block that no longer matches the API.
+- Ring-grid targets take an optional `center_method` (`RinggridCenterMethod`
+  in `RinggridConfig`, `RinggridCenterSpec` in the manifest's `ringgrid`
+  target): `"ellipse"` (the default, unchanged) or `"photometric"`, a
+  per-marker fit of the marker pattern under a direction-dependent blur, for
+  blurred or low-contrast images. It costs about 2.5 times the detection
+  time and keeps only the markers the fit refined. Existing manifests are
+  unaffected.
+- The `schemars` feature also derives `JsonSchema` on the detector configs
+  (`detect::ChessboardConfig`, `CharucoConfig`, `PuzzleboardConfig`,
+  `RinggridConfig`, `ChessCornersConfig` and their parts), like every other
+  config type.
 
 ### Fixed
 
@@ -860,26 +852,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Older releases
 
-Earlier releases are archived verbatim under [`docs/changelog/`](docs/changelog/), one file per version:
+Earlier releases are archived verbatim in the [repository](https://github.com/VitalyVorobyev/calibration-rs/tree/main/docs/changelog), one file per version:
 
-- [`0.17.0`](docs/changelog/0.17.0.md) - 2026-11-06
-- [`0.16.0`](docs/changelog/0.16.0.md) - 2026-11-04
-- [`0.15.0`](docs/changelog/0.15.0.md) - 2026-11-03
-- [`0.14.0`](docs/changelog/0.14.0.md) - 2026-11-03
-- [`0.13.0`](docs/changelog/0.13.0.md) - 2026-11-03
-- [`0.12.0`](docs/changelog/0.12.0.md) - 2026-11-02
-- [`0.11.0`](docs/changelog/0.11.0.md) - 2026-11-01
-- [`0.10.0`](docs/changelog/0.10.0.md) - 2026-10-31
-- [`0.9.0`](docs/changelog/0.9.0.md) - 2026-09-29
-- [`0.8.3`](docs/changelog/0.8.3.md) - 2026-09-28
-- [`0.8.2`](docs/changelog/0.8.2.md) - 2026-09-27
-- [`0.8.1`](docs/changelog/0.8.1.md) - 2026-09-07
-- [`0.8.0`](docs/changelog/0.8.0.md) - 2026-08-16
-- [`0.7.0`](docs/changelog/0.7.0.md) - 2026-07-10
-- [`0.6.0`](docs/changelog/0.6.0.md) - 2026-06-17
-- [`0.5.1`](docs/changelog/0.5.1.md) - 2026-05-23
-- [`0.5.0`](docs/changelog/0.5.0.md) - 2026-05-21
-- [`0.4.0`](docs/changelog/0.4.0.md) - 2026-04-29
-- [`0.3.0`](docs/changelog/0.3.0.md) - 2026-04-12
-- [`0.2.0`](docs/changelog/0.2.0.md) - 2026-03-07
-- [`0.1.2`](docs/changelog/0.1.2.md)
+- [`0.17.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.17.0.md) - 2026-11-06
+- [`0.16.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.16.0.md) - 2026-11-04
+- [`0.15.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.15.0.md) - 2026-11-03
+- [`0.14.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.14.0.md) - 2026-11-03
+- [`0.13.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.13.0.md) - 2026-11-03
+- [`0.12.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.12.0.md) - 2026-11-02
+- [`0.11.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.11.0.md) - 2026-11-01
+- [`0.10.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.10.0.md) - 2026-10-31
+- [`0.9.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.9.0.md) - 2026-09-29
+- [`0.8.3`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.8.3.md) - 2026-09-28
+- [`0.8.2`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.8.2.md) - 2026-09-27
+- [`0.8.1`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.8.1.md) - 2026-09-07
+- [`0.8.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.8.0.md) - 2026-08-16
+- [`0.7.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.7.0.md) - 2026-07-10
+- [`0.6.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.6.0.md) - 2026-06-17
+- [`0.5.1`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.5.1.md) - 2026-05-23
+- [`0.5.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.5.0.md) - 2026-05-21
+- [`0.4.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.4.0.md) - 2026-04-29
+- [`0.3.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.3.0.md) - 2026-04-12
+- [`0.2.0`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.2.0.md) - 2026-03-07
+- [`0.1.2`](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/changelog/0.1.2.md)
