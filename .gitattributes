@@ -12,3 +12,6 @@
 # Build-critical tiny assets stay as normal git blobs — CI checkouts do not
 # fetch LFS, and tauri::generate_context! must read a real PNG at compile time.
 app/src-tauri/icons/*.png -filter -diff -merge -text
+# The viewer test fixture images are read by `cargo test` in the app job,
+# whose checkout does not fetch LFS.
+app/e2e/fixtures/**/*.png -filter -diff -merge -text
