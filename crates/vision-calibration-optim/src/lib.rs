@@ -84,8 +84,12 @@ pub use crate::problems::handeye::{
 };
 pub use crate::problems::laserline_bundle::{
     LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams, LaserlineResidualType,
-    LaserlineStats, LaserlineView, compute_laserline_stats,
+    LaserlineStats, LaserlineView,
 };
+// Workspace-internal: the statistics the laser problem types fill their
+// exports with. Hidden from the docs and outside the semver promise.
+#[doc(hidden)]
+pub use crate::problems::laserline_bundle::compute_laserline_stats;
 pub use crate::problems::laserline_rig_bundle::{
     RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineView,
 };

@@ -35,9 +35,10 @@ pub(crate) use cameras::split_camera_label;
 pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use diagnostics::ExportDiagnostics;
 pub(crate) use diagnostics::one_camera_target_residuals;
+pub(crate) use export_version::read_export;
 pub(crate) use export_version::read_export_value;
 pub(crate) use export_version::read_schema_version;
-pub use export_version::{VersionedExport, check_export_version, read_export};
+pub use export_version::{VersionedExport, check_export_version};
 pub use handeye::HandeyeSolution;
 // The manual seeds of the intrinsics stages: one camera (planar intrinsics,
 // single-camera hand-eye) and each camera of a rig (the rig problems).

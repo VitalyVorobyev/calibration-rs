@@ -89,7 +89,9 @@ pub use error::Error;
 // Crate-root public surface, re-exported explicitly from the (private) modules.
 // Keep these lists curated: a new `pub` item in a private module is not public
 // until it is listed here.
+// Workspace-internal: the schema stand-in the derives name for a pose.
 #[cfg(feature = "schemars")]
+#[doc(hidden)]
 pub use math::Iso3Schema;
 pub use math::{
     Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3, distort_to_pixel, from_homogeneous,
@@ -113,6 +115,9 @@ pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 // reprojection error. Hidden from the docs and outside the semver promise.
 #[doc(hidden)]
 pub use residuals::{TargetPose, compute_mean_reproj_error};
+// Workspace-internal: the residual tables and statistics the problem types
+// fill their exports with. Hidden from the docs and outside the semver promise.
+#[doc(hidden)]
 pub use residuals::{
     build_feature_histogram, compute_planar_target_residuals,
     compute_planar_target_residuals_views, compute_rig_reprojection_stats,
@@ -124,8 +129,12 @@ pub use types::{
     ParameterCovariance, PerFeatureResiduals, PixelRect, PointCovariance,
     REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, ResidualKind, ResidualNoise, RobotFrame,
     RobotPose, SecondOrderError, TargetFeatureResidual, Uncertainty, UncertaintyUnavailable,
-    ViewCovariance, stated_covariance,
+    ViewCovariance,
 };
+// Workspace-internal: the input check that every view states a covariance or
+// none does. Hidden from the docs and outside the semver promise.
+#[doc(hidden)]
+pub use types::stated_covariance;
 // The frame Jacobians the measurement crates share; outside the semver
 // promise.
 #[doc(hidden)]
