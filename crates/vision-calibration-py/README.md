@@ -20,7 +20,7 @@ on numpy images, and calibrated cameras that project numpy arrays.
 ## Install
 
 ```bash
-pip install vision-calibration
+pip install --pre vision-calibration   # the release candidate
 ```
 
 To build from source instead:
@@ -183,8 +183,8 @@ print(f"{length.value:.4f} m +- {length.sigma:.4f} m")
 
 Workflow examples live in `crates/vision-calibration-py/examples/` and mirror the
 Rust examples in `crates/vision-calibration/examples/`. The real-image examples
-need the detector extras (`pip install "vision-calibration[examples]"`) and the
-datasets under `data/` in the repository.
+need the detector extras (`pip install --pre "vision-calibration[examples]"`)
+and the datasets under `data/` in the repository.
 
 ```bash
 for f in crates/vision-calibration-py/examples/*.py; do python "$f"; done

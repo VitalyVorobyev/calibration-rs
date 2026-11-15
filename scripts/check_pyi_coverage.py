@@ -70,6 +70,10 @@ def extract_rust_pyfunctions(lib_rs: Path) -> set[str]:
 
 GENERATED_TYPES = "_generated_types.py"
 
+# Native functions the package surfaces under another public name; the stub
+# must declare that name instead of the native one.
+NATIVE_SURFACED_AS = {"library_version": "__version__"}
+
 
 def hand_written_typed_dicts(pkg: Path) -> list[str]:
     """``TypedDict`` declarations outside the generated module, as ``file:line name``."""
@@ -101,7 +105,7 @@ def main() -> int:
 
     all_syms = extract_all(init_py)
     pyi_syms = extract_pyi_symbols(init_pyi)
-    rust_syms = extract_rust_pyfunctions(RUST_LIB)
+    rust_syms = {NATIVE_SURFACED_AS.get(n, n) for n in extract_rust_pyfunctions(RUST_LIB)}
 
     missing_from_pyi = sorted(all_syms - pyi_syms)
     untyped_rust = sorted(rust_syms - pyi_syms)

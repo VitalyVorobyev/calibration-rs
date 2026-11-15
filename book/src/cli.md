@@ -7,7 +7,7 @@ result and its quality report as JSON. It runs the same library calls as
 the numbers are the same.
 
 ```bash
-cargo install vision-calibration-cli   # or: pip install vision-calibration
+cargo install vision-calibration-cli --version 1.0.0-rc.1   # or: pip install --pre vision-calibration
 ```
 
 The Rust crate and the Python package install the same program.

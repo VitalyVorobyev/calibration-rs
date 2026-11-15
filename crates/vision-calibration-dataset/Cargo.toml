@@ -6,6 +6,7 @@ keywords = ["camera", "calibration", "computer-vision", "dataset", "manifest"]
 categories = ["computer-vision"]
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 homepage.workspace = true
@@ -15,7 +16,7 @@ repository.workspace = true
 workspace = true
 
 [package.metadata.docs.rs]
-features = ["fetch"]
+features = ["fetch", "schemars"]
 
 [features]
 schemars = ["dep:schemars"]

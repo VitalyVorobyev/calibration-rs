@@ -220,5 +220,8 @@ At the solution:
 - **Independent residuals.** The covariance treats every residual as
   independent. The workflows also measure how much the estimate varies
   between views beyond that (`view_scatter`). A problem of yours does not.
-- **The library's residuals.** Reprojection through a single pose is the
-  only built-in residual a problem can use so far.
+- **The library's residuals.** Reprojection (`add_reprojection`) is the one
+  built-in residual: through one pose or a camera of a rig, of a known or an
+  estimated point. `add_calibrated_rig` and `add_rig_pose` bring a
+  calibration and its uncertainty in ([Compose Your Own
+  Pipeline](compose_pipeline.md)); any other residual is one of yours.

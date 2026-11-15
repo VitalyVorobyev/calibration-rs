@@ -64,7 +64,7 @@ vision-calibration = "1.0.0-rc.1"
 ```
 
 ```bash
-pip install vision-calibration
+pip install --pre vision-calibration   # the release candidate
 ```
 
 The Rust facade is module-first — reach for `vision_calibration::<workflow>::…`
@@ -73,26 +73,37 @@ rather than broad top-level imports: `session::CalibrationSession`,
 
 ## Quick start
 
-Calibrate a single camera's intrinsics from planar correspondences:
+Calibrate a single camera's intrinsics from eight synthetic views of an 8×6
+board (40 mm pitch; the `synthetic` feature of `vision-calibration`):
 
 ```rust
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
 use vision_calibration::session::CalibrationSession;
-use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
-use vision_calibration::core::PlanarDataset;
+use vision_calibration::core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
+use vision_calibration::synthetic::{planar, poses};
 
-let dataset: PlanarDataset = /* your 2D↔3D correspondences, N views */;
+fn main() -> anyhow::Result<()> {
+    let truth = make_pinhole_camera(
+        FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
+        BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
+    );
+    let board = planar::grid_points(8, 6, 0.04);
+    let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
+    let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
+    let views = planar::project_views_all(&truth, &board, &poses)?;
+    let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 
-let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-session.set_input(dataset)?;
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session.set_input(dataset)?;
+    run_calibration(&mut session)?;
 
-step_init(&mut session, None)?;      // Zhang's method + linear distortion fit
-step_optimize(&mut session, None)?;  // Levenberg-Marquardt bundle adjustment
-
-let result = session.export()?;
-println!("{:?} at {:.4} px", result.camera, result.mean_reproj_error);
+    let export = session.export()?;
+    println!("fx = {:.2} px", export.camera.intrinsics.fx);
+    Ok(())
+}
 ```
 
-The same thing from Python:
+From Python:
 
 ```python
 import vision_calibration as vc
@@ -121,18 +132,24 @@ runner* detects features and builds the problem input for you:
 
 ```rust
 use std::path::Path;
-use vision_calibration::dataset::DatasetSpec;
 use vision_calibration::control::RunControl;
+use vision_calibration::dataset::DatasetSpec;
 use vision_calibration::dataset_runner::{Detection, build_planar_input};
 use vision_calibration::detect::FsDetectionCache;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
+use vision_calibration::session::CalibrationSession;
 
-let spec = DatasetSpec::from_path("dataset.toml")?; // TOML or JSON
-let cache = FsDetectionCache::new(".detect-cache");
-let run = build_planar_input(&spec, Path::new("."), Detection::Cached(&cache), &RunControl::default())?;
-println!("{} of {} views usable", run.usable_views, run.total_views);
+fn main() -> anyhow::Result<()> {
+    let spec = DatasetSpec::from_path("dataset.toml")?; // TOML or JSON
+    let cache = FsDetectionCache::new(".detect-cache");
+    let run = build_planar_input(&spec, Path::new("."), Detection::Cached(&cache), &RunControl::default())?;
+    println!("{} of {} views usable", run.usable_views, run.total_views);
 
-let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-session.set_input(run.input)?;
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session.set_input(run.input)?;
+    run_calibration(&mut session)?;
+    Ok(())
+}
 ```
 
 `vcal init <folder>` (the `vision-calibration-cli` crate) sniffs a folder and
@@ -169,11 +186,15 @@ cargo run -p vision-calibration --example handeye_session        # hand-eye, KUK
 cargo run -p vision-calibration --example rig_handeye_synthetic  # multi-camera rig hand-eye
 cargo run -p vision-calibration --example laserline_device_session  # camera + laser plane
 cargo run -p vision-calibration --example mvg_two_view           # two-view geometry
+cargo run -p vision-calibration --example fisheye_opencv         # fisheye (Kannala-Brandt) camera and stereo rig
+cargo run -p vision-calibration --example planar_synthetic_with_images  # planar intrinsics, synthesized images + manifest
+cargo run -p vision-calibration --example capture_planning       # how the capture shapes the uncertainty
+cargo run -p vision-calibration --example measure_board          # stereo measurement with error bars
 ```
 
 Python counterparts live in `crates/vision-calibration-py/examples/`; the
 real-image ones need the optional extras
-(`pip install "vision-calibration[examples]"`).
+(`pip install --pre "vision-calibration[examples]"`).
 
 ## Documentation
 
@@ -193,9 +214,10 @@ PyPI. The book's
 [architecture chapter](https://vitalyvorobyev.github.io/calibration-rs/architecture.html)
 shows how they layer.
 
-The project is pre-1.0: breaking changes still happen, and the CHANGELOG lists
-each with migration notes. MSRV is 1.93; a release may raise it, and the
-CHANGELOG says so.
+The compatibility promise covers the `vision_calibration` facade crate and the
+published JSON schemas. It follows SemVer, and the CHANGELOG lists each change.
+The lower crates are published for the facade and version in lockstep with it.
+MSRV is 1.93; a release may raise it, and the CHANGELOG says so.
 
 Licensed under the [MIT License](LICENSE). The calibration data in `data/`
 and `regression/` comes from its publishers, credited per entry in

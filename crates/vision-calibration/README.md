@@ -115,7 +115,8 @@ options.
 ## Examples
 
 Runnable examples (`cargo run --release -p vision-calibration --example <name>`)
-live in [`examples/`](examples/); the book's workflow chapters walk through them.
+live in [`examples/`](https://github.com/VitalyVorobyev/calibration-rs/tree/main/crates/vision-calibration/examples);
+the book's workflow chapters walk through them.
 
 ## See Also
 

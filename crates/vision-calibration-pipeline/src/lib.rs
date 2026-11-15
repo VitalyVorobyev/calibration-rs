@@ -54,7 +54,7 @@ mod planar_family;
 mod rig_family;
 pub mod session;
 
-// Device-spec → manual-init seed derivation (ADR 0011)
+// Device-spec → manual-init seed derivation
 pub mod device_seed;
 
 // Problem-specific modules
@@ -66,7 +66,7 @@ pub mod rig_handeye_laserline;
 pub mod rig_laserline_device;
 pub mod single_cam_handeye;
 
-// Manifest-driven dataset runner (ADR 0016 + ADR 0016)
+// Manifest-driven dataset runner: detection and problem input from a DatasetSpec
 pub mod dataset_runner;
 
 #[cfg(doctest)]

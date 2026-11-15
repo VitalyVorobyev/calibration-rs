@@ -7,7 +7,7 @@
 ## Three Ways In
 
 - **The desktop app** runs a calibration from a folder of images and shows the result, its residuals and its uncertainty, without code ([The Desktop App](app.md)).
-- **Python**: `pip install vision-calibration`, one call per workflow ([Getting Started](getting_started.md)).
+- **Python**: `pip install --pre vision-calibration` (the release candidate), one call per workflow ([Getting Started](getting_started.md)).
 - **Rust**: the `vision-calibration` crate, with the same workflows plus step-by-step sessions ([Getting Started](getting_started.md)).
 
 Not sure which workflow fits your hardware? [Choose Your Workflow](choose_workflow.md) maps your setup to a workflow and a camera model and says what to capture.

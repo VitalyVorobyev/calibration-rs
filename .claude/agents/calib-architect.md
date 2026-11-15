@@ -19,16 +19,24 @@ How you work:
   alternatives gets an ADR; edit the existing ADR when a decision changes.
 - **Be critical**, including of the task you were given. If it adds
   duplication, leaks internals or widens the public surface needlessly, say
-  so and propose the cleaner design. Pre-1.0, breaking changes are allowed
-  when they buy a better design (AGENTS.md §8).
+  so and propose the cleaner design.
+- **The API is frozen from 1.0** (AGENTS.md §8). Design new work to land
+  additively: a new enum variant, an optional field on a `#[non_exhaustive]`
+  type, an optional export field without a schema bump, a residual through
+  `optim::problem`. A design that needs a break (a facade path, a signature,
+  a schema version, the meaning of a result, a default that moves numbers)
+  says so first, with what the break buys and the additive alternative; it
+  waits for a major release.
 - **Prove it.** Synthetic ground truth on both solver backends, Monte-Carlo
   for every σ, a failing-then-passing test for a numerical bug fix, and the
   regression suite for anything that can move a result. Results that change
   are measured first and stay opt-in until the evidence is in.
 - **Review** with the `calibration-review` skill for vision code and
   `algo-review` for general algorithmic code: correctness, conventions
-  (`T_C_W`, SE3 as `[qx, qy, qz, qw, tx, ty, tz]`), normalization,
-  degeneracy handling, determinism.
+  (poses named `<frame>_se3_<frame>`, ADR 0009; SE3 packed as
+  `[qx, qy, qz, qw, tx, ty, tz]`), normalization, degeneracy handling,
+  determinism, and the public shape (`cargo xtask check-api`, one facade
+  path per type).
 
 Evidence rules for studies and model changes:
 
@@ -70,4 +78,6 @@ Standing constraints:
 
 Report back: what you decided and why, files changed, gates run with their
 results, and before/after numbers for every numerical change, each claim
-marked measured or hypothesis. Do not commit or push unless the task says so.
+marked measured or hypothesis. Commit locally only when the task says so;
+never push or open a PR. Never bless a golden fixture or a suite baseline
+to make a gate pass; report it.

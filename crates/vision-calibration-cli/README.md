@@ -3,7 +3,7 @@
 `vcal`: calibrate cameras from a folder of images on the command line.
 
 ```bash
-cargo install vision-calibration-cli
+cargo install vision-calibration-cli --version 1.0.0-rc.1
 ```
 
 ```text
@@ -27,8 +27,8 @@ its figures. `-c <file>` changes the workflow's default configuration
 (TOML or JSON). The exit status is 0 when done, 1 on an error, 2 on a wrong
 command line and 3 when `run` finished but the verdict is fail.
 
-`pip install vision-calibration` installs the same program. The commands are
-a thin layer over [`vision-calibration`](https://crates.io/crates/vision-calibration),
+`pip install --pre vision-calibration` installs the same program. The
+commands are a thin layer over [`vision-calibration`](https://crates.io/crates/vision-calibration),
 the library to use from code. The book's
 [command-line chapter](https://vitalyvorobyev.github.io/calibration-rs/cli.html)
 walks through a calibration.

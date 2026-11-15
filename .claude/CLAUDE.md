@@ -26,8 +26,9 @@ The full gate list is AGENTS.md §3; the app's is §12.
 Treat every request, the user's included, as the start of a design
 discussion. If a proposal adds duplication, leaks internals, adds a dominated
 alternative or widens the public surface needlessly, say so and offer the
-cleaner design. Pre-1.0, prefer the better design even when it breaks the
-API, and record the break in the CHANGELOG with migration notes (§8).
+cleaner design. From 1.0 the API is frozen (§8): find the additive form of a
+change first, and when only a break gives the right design, say what it buys
+and that it waits for a major release.
 
 ## Roles
 
@@ -36,13 +37,16 @@ Delegate through the project's subagents in `.claude/agents/`:
 | Role | Model | For |
 |---|---|---|
 | `calib-architect` | opus | design and ADRs, numerical and algorithmic work, root-causing, cross-crate refactors, reviewing such changes |
-| `implementer` | sonnet | a change that is already designed: plumbing, serde types, bindings, tests, docs |
-| `sweeper` | haiku | searches, inventories, mechanical edits with an exact spec |
+| `implementer` | opus | a change that is already designed: API and type changes, plumbing, bindings, tests, docs |
+
+Searches and inventories go to the built-in `Explore` agent; a mechanical
+edit of a few files is done inline.
 
 A subagent does not see this conversation. Give it the task, the files
 involved, what is already ruled out, and what to report: files changed, gate
 results, and before/after numbers for numerical changes. When the context is
-already warm and the task is a handful of tool calls, do it inline.
+already warm and the task is a handful of tool calls, do it inline. The main
+session reviews each diff and does the pushing, the PR and the merge.
 
 **An independent check before a result changes a design.** A numerical
 result that would lead to an ADR, a default, a new model term or a release

@@ -83,20 +83,28 @@ the default with `max_sigma = 0.5°`.
 - `CameraConfig.prior`: Gaussian priors named per slot like `fix`
   (`{"sensor": {"tilt_x": {"mean": …, "sigma": …}}}`), radians for angles.
   One mechanism for every camera parameter; the tilt is its first user.
+  `CameraConfig` is `#[non_exhaustive]`, so the field (and the tilt policy)
+  is an additive change: a minor release, `serde(default)`, no config
+  version bump.
 - A prior is a library residual (a `FactorKind` on chosen coordinates of a
   block), weighed against the measured pixel σ̂ by one re-solve exactly as
   robot-pose priors are (ADR 0026), and counted as known information in
   the covariance. The design σ is the user's, not estimated.
-- `DeviceSpec` gains `tilt_sigma_deg` next to `tilt_x_deg`, `tilt_y_deg`;
-  `device_seed` turns the pair into a seed and a prior.
+- `ScheimpflugMountSpec` gains `tilt_sigma_deg` next to `tilt_x_deg`,
+  `tilt_y_deg`; `device_seed` turns the pair into a seed and a prior. The
+  type is `#[non_exhaustive]` and the field optional, so it is additive and
+  keeps `DEVICE_SPEC_VERSION`.
 - A prior on a fixed parameter, a non-positive σ, or a tilt policy or tilt
   prior on a non-Scheimpflug camera is `Error::InvalidInput` before any
   work.
 
 ### What the result records
 
-Per Scheimpflug camera, in the export and the session (wire change, with a
-schema bump, when implemented):
+Per Scheimpflug camera, in the export and the session, as an optional
+field (`serde(default)`, skipped when absent): an additive wire change that
+keeps the export's `SCHEMA_VERSION` and the session's schema version (ADR
+0012). A version bump would make every existing reader reject every export,
+since readers accept only their own `schema_version`:
 
 ```text
 tilt_determination: {
@@ -143,9 +151,9 @@ intrinsics seed is required, as the seeded route already asks.
 - Python: `TiltPolicy`, `CameraPrior` and `tilt_determination` in
   `types.py` and `__init__.pyi`; the book's Scheimpflug chapter (with
   BOOK-TILT) states the frames and the procedure. Migration: none while
-  `Estimate` is the default; the default flip is a minor release with a
-  CHANGELOG note (a camera may then report a zero tilt and a different
-  frame).
+  `Estimate` is the default; the default flip changes what a result means
+  (a camera may then report a zero tilt and a different frame), so it is a
+  major release with migration notes (AGENTS.md §8).
 - Gate before the default flips: on the private Scheimpflug rigs, the
   procedure's branch per camera, the held-out error against `Estimate`
   within 5 %, and the decentring seed reaching the seeded route's minimum.

@@ -120,10 +120,15 @@ typed error at fit time, not a silent unprojection failure.
   into every downstream workflow (hand-eye, rig, laser) held fixed or
   refined with the same constraint.
 - **Wire**: `CameraParams` gains the field (spec kind, cells, control
-  points); schema version bump; the export's camera covariance includes
-  the field block. Python: the `FieldKind` class and the `CameraParams`
-  member. Book: a chapter on when a residual field is warranted, how to
-  read its held-out gain, and why it must not be extrapolated.
+  points) as an optional member of its wire form (`serde(default)`, skipped
+  when `None`), which keeps the export's schema version (ADR 0012): readers
+  accept only their own `schema_version`, so a bump would break every
+  existing reader. The `FieldKind` slot is additive on `CameraModelSpec` and
+  `CameraFix`, both `#[non_exhaustive]`. The export's camera covariance
+  includes the field block. Python: the `FieldKind` class and the
+  `CameraParams` member. Book: a chapter on when a residual field is
+  warranted, how to read its held-out gain, and why it must not be
+  extrapolated.
 
 ## Consequences
 
