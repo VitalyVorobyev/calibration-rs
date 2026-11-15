@@ -5,12 +5,17 @@
 //! takes it, plus the camera image sizes that tools without a camera model
 //! of their own (OpenCV's `calibrateCamera`) need. The `input` payload is the
 //! problem type's `Input`, so the file format has one definition — the one
-//! the pipeline and the Python package already read.
+//! the pipeline and the Python package already read — with one exception:
+//! a `laserline_device` input is stored as its bare list of views, the form
+//! the frozen files were written in, and read back through
+//! `LaserlineDataset::new`.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[cfg(feature = "schema")]
+use vision_calibration_optim::LaserlineView;
 use vision_calibration_optim::SolverBackend;
 use vision_calibration_pipeline::Error as PipelineError;
 use vision_calibration_pipeline::laserline_device::{self, LaserlineDeviceProblem};
@@ -64,7 +69,12 @@ pub enum ProblemInput {
     /// Hand-eye calibration of one camera.
     SingleCamHandeye(<SingleCamHandeyeProblem as ProblemType>::Input),
     /// One camera plus a laser plane.
-    LaserlineDevice(<LaserlineDeviceProblem as ProblemType>::Input),
+    // Stored as the bare list of its views (see the module docs).
+    LaserlineDevice(
+        #[serde(with = "laserline_views")]
+        #[cfg_attr(feature = "schema", schemars(with = "Vec<LaserlineView>"))]
+        <LaserlineDeviceProblem as ProblemType>::Input,
+    ),
     /// Extrinsics of a camera rig.
     RigExtrinsics(<RigExtrinsicsProblem as ProblemType>::Input),
     /// Hand-eye calibration of a camera rig.
@@ -157,6 +167,28 @@ impl ProblemInput {
                 rig_handeye_laserline::run_calibration,
             ),
         }
+    }
+}
+
+/// A laserline dataset as the bare list of its views: the observation
+/// file's `laserline_device` input, read back through
+/// [`LaserlineDataset::new`](vision_calibration_optim::LaserlineDataset::new).
+mod laserline_views {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use vision_calibration_optim::{LaserlineDataset, LaserlineView};
+
+    pub(super) fn serialize<S: Serializer>(
+        dataset: &LaserlineDataset,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        dataset.views.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<LaserlineDataset, D::Error> {
+        let views = Vec::<LaserlineView>::deserialize(deserializer)?;
+        LaserlineDataset::new(views).map_err(serde::de::Error::custom)
     }
 }
 

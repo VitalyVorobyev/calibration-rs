@@ -6,7 +6,7 @@ use vision_calibration_core::{
     BrownConrady5, Camera, CameraModelSpec, CorrespondenceView, DistortionKind, FxFyCxCy, Iso3,
     Pinhole, Pt2, Pt3, ScheimpflugParams, SensorKind, SensorModel, SensorParams, View,
 };
-use vision_calibration_optim::{LaserlineMeta, LaserlineView};
+use vision_calibration_optim::{LaserlineDataset, LaserlineMeta};
 use vision_calibration_pipeline::common::CalibratedCameras;
 use vision_calibration_pipeline::common::config::CameraConfig;
 use vision_calibration_pipeline::laserline_device::{
@@ -110,7 +110,7 @@ where
     pixels
 }
 
-fn make_dataset(sensor: ScheimpflugParams) -> (Vec<LaserlineView>, FxFyCxCy<f64>, LaserPlane) {
+fn make_dataset(sensor: ScheimpflugParams) -> (LaserlineDataset, FxFyCxCy<f64>, LaserPlane) {
     make_dataset_with(sensor, BrownConrady5::default(), make_poses())
 }
 
@@ -143,7 +143,7 @@ fn make_dataset_with(
     sensor: ScheimpflugParams,
     distortion: BrownConrady5<f64>,
     poses: Vec<Iso3>,
-) -> (Vec<LaserlineView>, FxFyCxCy<f64>, LaserPlane) {
+) -> (LaserlineDataset, FxFyCxCy<f64>, LaserPlane) {
     let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
@@ -174,7 +174,7 @@ fn make_dataset_with(
         }
     }
 
-    (views, intrinsics, plane)
+    (LaserlineDataset::new(views).unwrap(), intrinsics, plane)
 }
 
 #[test]
@@ -374,7 +374,7 @@ fn every_distortion_kind_calibrates() {
 fn pipeline_rejects_insufficient_views() {
     let sensor = ScheimpflugParams::default();
     let (mut dataset, _k, _plane) = make_dataset(sensor);
-    dataset.truncate(1);
+    dataset.views.truncate(1);
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     let err = session.set_input(dataset).unwrap_err().to_string();
@@ -385,10 +385,50 @@ fn pipeline_rejects_insufficient_views() {
 fn json_roundtrip_for_input_and_config() {
     let sensor = ScheimpflugParams::default();
     let (dataset, _k, _plane) = make_dataset(sensor);
-    let input_json = serde_json::to_string(&dataset).unwrap();
-    let _: Vec<LaserlineView> = serde_json::from_str(&input_json).unwrap();
+    let input_json = serde_json::to_value(&dataset).unwrap();
+    let views = input_json["views"]
+        .as_array()
+        .expect("an object with `views`");
+    assert_eq!(views.len(), dataset.num_views());
+    let restored: LaserlineDataset = serde_json::from_value(input_json).unwrap();
+    assert_eq!(restored.num_views(), dataset.num_views());
 
     let config = LaserlineDeviceConfig::default();
     let config_json = serde_json::to_string(&config).unwrap();
     let _: LaserlineDeviceConfig = serde_json::from_str(&config_json).unwrap();
+}
+
+/// The constructor and the session's input check apply the same per-view
+/// rules; a deserialized input that breaks one is rejected by `set_input`.
+#[test]
+fn constructor_and_session_reject_the_same_views() {
+    use vision_calibration_pipeline::Error;
+    let (dataset, _k, _plane) = make_dataset(ScheimpflugParams::default());
+
+    let err = LaserlineDataset::new(Vec::new()).unwrap_err().to_string();
+    assert!(err.contains("need 1"), "{err}");
+
+    let mut no_laser = dataset.views.clone();
+    no_laser[1].meta.laser_pixels.clear();
+    let mut few_points = dataset.views.clone();
+    few_points[2].obs = CorrespondenceView::new(
+        few_points[2].obs.points_3d[..3].to_vec(),
+        few_points[2].obs.points_2d[..3].to_vec(),
+    )
+    .unwrap();
+    for (views, expected) in [
+        (no_laser, "view 1:"),
+        (few_points, "view 2 has too few points"),
+    ] {
+        let err = LaserlineDataset::new(views.clone())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains(expected), "{err}");
+        let json = serde_json::json!({ "views": views });
+        let input: LaserlineDataset = serde_json::from_value(json).unwrap();
+        let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+        let err = session.set_input(input).unwrap_err();
+        assert!(matches!(err, Error::InvalidInput { .. }), "{err:?}");
+        assert!(err.to_string().contains(expected), "{err}");
+    }
 }

@@ -7,7 +7,7 @@ use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, Pt2, Pt3, Vec2, View,
     make_pinhole_camera,
 };
-use vision_calibration::laserline_device::{LaserlineMeta, LaserlineView};
+use vision_calibration::laserline_device::{LaserlineDataset, LaserlineMeta};
 use vision_calibration::synthetic::noise::UniformPixelNoise;
 use vision_calibration::synthetic::{laser, poses};
 
@@ -76,7 +76,7 @@ pub fn build_dataset(
     board: &[Pt3],
     poses: &[Iso3],
     noise: &UniformPixelNoise,
-) -> Vec<LaserlineView> {
+) -> LaserlineDataset {
     let distortion = BrownConrady5 {
         k1: 0.0,
         k2: 0.0,
@@ -103,7 +103,7 @@ pub fn build_dataset(
         let obs = CorrespondenceView::new(pts_3d, pts_2d).expect("corner correspondences");
         views.push(View::new(obs, LaserlineMeta::new(laser_pixels)));
     }
-    views
+    LaserlineDataset::new(views).expect("laserline views")
 }
 
 /// The true camera of the laser tests.
@@ -125,9 +125,9 @@ pub fn laser_truth() -> LaserPlane {
 
 /// The dataset of trial `seed`: the board corners and the laser-stripe
 /// pixels, each with Gaussian noise of σ [`PIXEL_SIGMA`](super::PIXEL_SIGMA).
-pub fn noisy_laser_dataset(seed: u64) -> Vec<LaserlineView> {
+pub fn noisy_laser_dataset(seed: u64) -> LaserlineDataset {
     let exact = UniformPixelNoise::default();
-    let mut views = build_dataset(
+    let mut dataset = build_dataset(
         &laser_truth(),
         &laser_intrinsics(),
         &board(),
@@ -136,7 +136,7 @@ pub fn noisy_laser_dataset(seed: u64) -> Vec<LaserlineView> {
     );
     let key =
         |view: usize, i: usize, axis: u64| (seed << 32) + 2 * (view * 10_000 + i) as u64 + axis;
-    for (v, view) in views.iter_mut().enumerate() {
+    for (v, view) in dataset.views.iter_mut().enumerate() {
         for (i, px) in view.obs.points_2d.iter_mut().enumerate() {
             px.x += super::PIXEL_SIGMA * super::gauss(key(v, i, 0));
             px.y += super::PIXEL_SIGMA * super::gauss(key(v, i, 1));
@@ -147,5 +147,5 @@ pub fn noisy_laser_dataset(seed: u64) -> Vec<LaserlineView> {
             px.y += super::PIXEL_SIGMA * super::gauss(key(v, 5_000 + i, 1));
         }
     }
-    views
+    dataset
 }

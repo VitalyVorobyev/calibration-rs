@@ -31,9 +31,9 @@ use crate::backend::BackendSolveOptions;
 use crate::ir::HandeyeMode;
 use crate::params::camera::camera_spec;
 use crate::problems::laserline_bundle::{
-    HeldParameter, LaserCameraModel, LaserResidualRecords, LaserlineMeta, LaserlineParams,
-    LaserlineResidualType, LaserlineSolveOptions, LaserlineStats, LaserlineView, PlaneSensitivity,
-    compute_laserline_stats, optimize_laserline, plane_sensitivity,
+    HeldParameter, LaserCameraModel, LaserResidualRecords, LaserlineDataset, LaserlineMeta,
+    LaserlineParams, LaserlineResidualType, LaserlineSolveOptions, LaserlineStats, LaserlineView,
+    PlaneSensitivity, compute_laserline_stats, optimize_laserline, plane_sensitivity,
 };
 use crate::uncertainty::{self, handeye_pose_names, pose_labels};
 use nalgebra::DMatrix;
@@ -406,6 +406,9 @@ pub fn optimize_rig_laserline(
             initial_plane_cam.clone(),
         )?;
 
+        // A struct literal, not `LaserlineDataset::new`: the rig's per-camera
+        // views keep the rig problem's own rules.
+        let views = LaserlineDataset { views };
         let est = optimize_laserline(&views, &initial, &per_cam_opts, backend_opts)?;
         let stats = compute_laserline_stats(&views, &est.params, opts.laser_residual_type)?;
         if let Some(share) = share.as_mut()

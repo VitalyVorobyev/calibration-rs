@@ -17,10 +17,11 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
-    LaserlineMeta, LaserlineParams, LaserlineSolveOptions, LaserlineView, PlanarIntrinsicsParams,
-    PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobotPoseMeta,
-    RobustLoss, apply_robot_delta, optimize_handeye, optimize_laserline,
-    optimize_planar_intrinsics, optimize_rig_extrinsics, projection_uncertainty,
+    LaserlineDataset, LaserlineMeta, LaserlineParams, LaserlineSolveOptions, LaserlineView,
+    PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
+    RigExtrinsicsSolveOptions, RobotPoseMeta, RobustLoss, apply_robot_delta, optimize_handeye,
+    optimize_laserline, optimize_planar_intrinsics, optimize_rig_extrinsics,
+    projection_uncertainty,
 };
 
 const RUNS: u64 = 200;
@@ -803,6 +804,7 @@ fn laserline_covariance_matches_monte_carlo() {
                 )
             })
             .collect();
+        let data = LaserlineDataset::new(data).unwrap();
         let est = optimize_laserline(
             &data,
             &gt,

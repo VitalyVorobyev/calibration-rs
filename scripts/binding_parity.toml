@@ -203,6 +203,7 @@
 "laserline_device::LaserlineDeviceConfig" = "LaserlineDeviceConfig"
 "laserline_device::LaserlineDeviceEstimate" = "session.CalibrationSession.output"
 "laserline_device::LaserlineDeviceExport" = "LaserlineDeviceExport"
+"laserline_device::LaserlineDataset" = ["LaserlineDeviceInput", "types.LaserlineDeviceInput"]
 "laserline_device::LaserlineDeviceInput" = "LaserlineDeviceInput"
 "laserline_device::LaserlineDeviceProblem" = "LaserlineDeviceSession"
 "laserline_device::LaserlineEstimate" = "session.CalibrationSession.output"

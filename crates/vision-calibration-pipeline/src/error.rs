@@ -98,6 +98,16 @@ impl Error {
         Self::Serde(err.to_string())
     }
 
+    /// An optim error raised by checking the caller's input: its invalid
+    /// input is the pipeline's own [`Error::InvalidInput`]; others propagate
+    /// as [`Error::Optim`].
+    pub(crate) fn from_optim_input(err: OptimError) -> Self {
+        match err {
+            OptimError::InvalidInput { reason } => Self::InvalidInput { reason },
+            err => err.into(),
+        }
+    }
+
     /// Construct an [`Error::InvalidInput`] with the given reason.
     pub(crate) fn invalid_input(reason: impl Into<String>) -> Self {
         Self::InvalidInput {

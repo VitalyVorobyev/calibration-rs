@@ -1293,17 +1293,13 @@ class LaserlineDeviceExport(TypedDict):
     """
 
 
-class LaserlineView(TypedDict):
-    """Single-camera observation view with attached metadata."""
+class LaserlineDeviceInput(TypedDict):
+    """Dataset for laserline bundle adjustment: one camera's views, each pairing
+    the target observation with the laser-stripe pixels on the target.
+    """
 
-    meta: LaserlineMeta
-    """Arbitrary metadata payload associated with the view."""
-
-    obs: CorrespondenceView
-    """2D-3D correspondences observed in this view."""
-
-
-LaserlineDeviceInput: TypeAlias = list[LaserlineView]
+    views: list[LaserlineView]
+    """The laserline views, in pose order."""
 
 
 class _LaserlineMetaRequired(TypedDict):
@@ -1352,6 +1348,16 @@ class LaserlineStats(TypedDict):
 
     per_view_reproj_errors: list[float]
     """Per-view mean reprojection error (pixels)."""
+
+
+class LaserlineView(TypedDict):
+    """Single-camera observation view with attached metadata."""
+
+    meta: LaserlineMeta
+    """Arbitrary metadata payload associated with the view."""
+
+    obs: CorrespondenceView
+    """2D-3D correspondences observed in this view."""
 
 
 class Measurement(TypedDict):

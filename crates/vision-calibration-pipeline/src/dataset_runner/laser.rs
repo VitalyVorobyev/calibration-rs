@@ -27,8 +27,8 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, GrayImageView};
 use vision_calibration_optim::{
-    LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView, RobotPoseMeta,
-    handeye_observer_se3_target,
+    LaserlineDataset, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset,
+    RigLaserlineView, RobotPoseMeta, handeye_observer_se3_target,
 };
 
 use crate::common::read_export;
@@ -259,8 +259,14 @@ pub fn build_laserline_device_input(
         });
     }
 
+    let input = LaserlineDataset::new(views).expect(
+        "LaserlineDataset::new failed after the runner kept only views with >=4 \
+         features and >=2 laser pixels; this indicates a regression in the \
+         optim crate's invariants",
+    );
+
     Ok(LaserlineRunResult {
-        input: views,
+        input,
         view_paths,
         laser_paths,
         usable_views,
@@ -954,9 +960,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
-        assert_eq!(result.input.len(), 3);
-        assert_eq!(result.input[0].meta.laser_pixels.len(), 30);
-        assert!(result.input[0].meta.laser_weights.is_empty());
+        assert_eq!(result.input.num_views(), 3);
+        assert_eq!(result.input.views[0].meta.laser_pixels.len(), 30);
+        assert!(result.input.views[0].meta.laser_weights.is_empty());
         assert!(result.view_paths[2].ends_with("target_2.png"));
         assert!(result.laser_paths[2].ends_with("laser_2.png"));
         // Everything was served from the cache.

@@ -8,8 +8,7 @@ use vision_calibration_core::{
     CalibratedRig, CameraParams, Handeye, Iso3, LaserPlane, ParameterCovariance, Uncertainty,
 };
 use vision_calibration_optim::{
-    Error as OptimError, ProjectionUncertainty, camera_parameters, projection_covariance_at,
-    projection_uncertainty,
+    ProjectionUncertainty, camera_parameters, projection_covariance_at, projection_uncertainty,
 };
 
 use crate::Error;
@@ -114,7 +113,8 @@ pub trait CalibratedCameras: super::sealed::Sealed {
         image_size: [u32; 2],
     ) -> Result<ProjectionUncertainty, Error> {
         let (params, covariance) = camera_with_covariance(self, camera)?;
-        projection_uncertainty(&params, covariance, camera, image_size).map_err(optim_error)
+        projection_uncertainty(&params, covariance, camera, image_size)
+            .map_err(Error::from_optim_input)
     }
 
     /// The 2×2 covariance, in px², of where the camera-frame ray through each
@@ -135,7 +135,8 @@ pub trait CalibratedCameras: super::sealed::Sealed {
         pixels: &[[f64; 2]],
     ) -> Result<Vec<Option<Matrix2<f64>>>, Error> {
         let (params, covariance) = camera_with_covariance(self, camera)?;
-        projection_covariance_at(&params, covariance, camera, pixels).map_err(optim_error)
+        projection_covariance_at(&params, covariance, camera, pixels)
+            .map_err(Error::from_optim_input)
     }
 }
 
@@ -156,14 +157,6 @@ fn camera_with_covariance<E: CalibratedCameras + ?Sized>(
         Uncertainty::Unavailable { reason } => Err(Error::CovarianceUnavailable {
             reason: reason.clone(),
         }),
-    }
-}
-
-/// An input the projection functions reject is the caller's invalid input.
-fn optim_error(err: OptimError) -> Error {
-    match err {
-        OptimError::InvalidInput { reason } => Error::InvalidInput { reason },
-        err => err.into(),
     }
 }
 

@@ -96,7 +96,7 @@ fn laserline_device_recovers_plane_across_grid_and_noise() {
                     max_abs_px: noise_px,
                 };
                 let dataset = build_dataset(&plane_gt, &gt_intr, &board, &poses, &noise);
-                for (i, v) in dataset.iter().enumerate() {
+                for (i, v) in dataset.views.iter().enumerate() {
                     assert!(
                         v.meta.laser_pixels.len() >= 8,
                         "orient={oi} z0={z0}: view {i} has only {} laser pixels",

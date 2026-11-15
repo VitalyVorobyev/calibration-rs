@@ -9,7 +9,7 @@ use vision_calibration_core::{
     SensorParams, View,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, LaserlineMeta, LaserlineParams, LaserlineResidualType,
+    BackendSolveOptions, LaserlineDataset, LaserlineMeta, LaserlineParams, LaserlineResidualType,
     LaserlineSolveOptions, optimize_laserline,
 };
 
@@ -155,7 +155,7 @@ fn synthetic_laserline_calibration_smoke_test() {
 
     assert!(!views.is_empty(), "failed to generate valid views for test");
 
-    let dataset = views;
+    let dataset = LaserlineDataset::new(views).unwrap();
 
     // Create perturbed initialization (10-20% error)
     let intrinsics_init = FxFyCxCy {
@@ -379,7 +379,7 @@ fn synthetic_laserline_line_dist_normalized_converges() {
 
     assert!(!views.is_empty(), "failed to generate valid views for test");
 
-    let dataset = views;
+    let dataset = LaserlineDataset::new(views).unwrap();
 
     let intrinsics_init = FxFyCxCy {
         fx: camera.k.fx * 1.1,
@@ -590,7 +590,7 @@ fn compare_point_plane_vs_line_dist() {
         }
     }
 
-    let dataset = views;
+    let dataset = LaserlineDataset::new(views).unwrap();
 
     let intrinsics_init = FxFyCxCy {
         fx: camera.k.fx * 1.1,

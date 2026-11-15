@@ -204,6 +204,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and their `schema_version` is bumped (3 and 2), so a session saved before
   this release is refused with a version error instead of a decoding error.
 
+- **The laserline device input is a dataset object** (breaking).
+  `laserline_device::LaserlineDeviceInput` is `LaserlineDataset`, no longer
+  a `Vec<LaserlineView>`: build it with `LaserlineDataset::new(views)?`,
+  which checks each view, and read the views from its `views` field. Its JSON
+  is `{"views": [...]}`, like the other inputs, instead of a bare array
+  (Python's `LaserlineDeviceInput.to_payload()` writes the new form). A
+  `laserline_device` session saved before this release is not readable: its
+  `schema_version` is bumped (3), so it is refused with a version error.
+
+  ```rust
+  // before
+  session.set_input(views)?;
+  // after
+  session.set_input(LaserlineDataset::new(views)?)?;
+  ```
+
 - **`mvg::dense::GrayImage` and `DisparityMap` check their size** (breaking).
   `new` returns a `Result` (an empty image, or a buffer whose length is not
   `width × height`, is an `InvalidInput` error; it used to panic), and the

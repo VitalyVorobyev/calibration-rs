@@ -20,7 +20,7 @@ use vision_calibration::core::{
     ProjectionParams, Pt2, Pt3, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams,
     View,
 };
-use vision_calibration::laserline_device::LaserlineMeta;
+use vision_calibration::laserline_device::{LaserlineDataset, LaserlineMeta};
 use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDeviceInput};
 use vision_calibration::optim::{HandeyeMode, RobustLoss, SolverBackend};
 use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
@@ -1089,6 +1089,7 @@ fn laserline_scene(b: &Builder) -> Result<Scene> {
         .zip(stripes)
         .map(|(mut v, laser_pixels)| View::new(v.remove(0), LaserlineMeta::new(laser_pixels)))
         .collect();
+    let views = LaserlineDataset::new(views)?;
     let mut config = LaserlineDeviceConfig::default();
     config.camera.model = b.spec.camera.model();
     config.optimize.laser_residual_type = b.laser_residual(config.optimize.laser_residual_type);
