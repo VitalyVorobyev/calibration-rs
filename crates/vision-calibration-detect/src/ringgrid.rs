@@ -94,13 +94,14 @@ pub enum RinggridCoding {
         /// target generator in the lattice gaps near the board centre.
         /// Defaults to `true`.
         ///
-        /// The detector labels a view by trying each placement of the visible
-        /// markers on the board (every shift, in every orientation of the
-        /// lattice) and keeping the one that puts the dots on dark ink. A
-        /// view yields no features when the dots are not in it, or when the
-        /// visible patch has more than 512 placements: on a 58 × 58 board, a
-        /// window of 14 × 11 markers has thousands, so a view must show most
-        /// of a large board.
+        /// The detector places a view on the board through the dots: it tries
+        /// each placement of the visible markers that puts the dot triad
+        /// among them, and keeps the one that puts the dots on dark ink when
+        /// it clearly beats every other. A view is therefore labelled in the
+        /// board frame whenever all three dots are in it among detected
+        /// markers, however small a part of the board it shows. A view
+        /// without the dots, or with only one or two of them, yields no
+        /// features rather than a guessed position.
         ///
         /// `false` (a plain board without dots) is not supported: such a
         /// board is labelled only up to the lattice symmetry, so its views
@@ -129,6 +130,14 @@ impl RinggridCoding {
 /// plain with origin dots ([`coding`](Self::coding)). The defaults describe a
 /// hexagonal lattice of coded rings, so a config that leaves both out keeps
 /// its meaning and its detection-cache key.
+///
+/// Detection reports a feature for a marker only when the view's placement
+/// on the board is corroborated (by agreeing decoded codes, or by the origin
+/// dots); a view without one yields no features rather than guessed
+/// positions. A marker is reported only with a perspective-corrected centre
+/// (or, with [`RinggridCenterMethod::Photometric`], a photometric one) and a
+/// confidence of at least 0.03, the `ringgrid` detector's default floor on
+/// its centre-accuracy score, which this wrapper keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -242,13 +251,12 @@ pub(crate) fn detect(
         detector.config_mut().circle_refinement = CircleRefinementMethod::Photometric;
     }
 
-    // Neither `ringgrid::DetectError` variant means "no board in this
-    // frame" — an empty frame yields `Ok` with zero markers.
-    // `UnsupportedTarget` is a configuration bug and `IncompleteBoard`
-    // can only fire under `require_complete_board`, which this wrapper
-    // never sets. Both are real failures and must not be flattened into
-    // an empty feature list, which would surface much later as an
-    // unexplained initialisation failure.
+    // No `ringgrid::DetectError` means "no board in this frame" — an empty
+    // frame yields `Ok` with zero markers. `IncompleteBoard` can only fire
+    // under `require_complete_board`, which this wrapper never sets. An
+    // error is a real failure and must not be flattened into an empty
+    // feature list, which would surface much later as an unexplained
+    // initialisation failure.
     let result = detector
         .detect_adaptive(luma)
         .map_err(|e| DetectError::Backend {
@@ -257,11 +265,13 @@ pub(crate) fn detect(
         })?;
 
     // A marker contributes a correspondence only when it maps to a known
-    // board position (`board_xy_mm`): a coded marker through its decoded id,
-    // a plain one through the origin dots of its view. Undecoded, off-board
-    // and unanchored detections carry none and are dropped. `center` is
-    // always raw image pixels. `board_xy_mm` is in millimetres → convert to
-    // metres.
+    // board position (`board_xy_mm`), which `ringgrid` sets only for a view
+    // whose board placement is corroborated: a coded view through its
+    // decoded ids, a plain one through its origin dots. Markers of an
+    // unanchored view, and off-board ones, carry none and are dropped. With
+    // photometric centres, only markers whose centre the fit produced are
+    // kept. `center` is always raw image pixels. `board_xy_mm` is in
+    // millimetres → convert to metres.
     Ok(crate::reject_ambiguous_detection(
         result
             .detected_markers
@@ -729,14 +739,16 @@ mod tests {
         assert!(features.len() < 160, "a partial view: {}", features.len());
     }
 
-    /// The detector anchors a plain view by trying every placement of the
-    /// visible patch on the board, and gives up (rather than guess) when
-    /// there are more than 512 of them: a 14 × 11 window of a 58 × 58 board,
-    /// dots and all, yields nothing.
+    /// A view is anchored by the origin dots, not by how much of the board
+    /// it shows: a 14 × 11 window around the dots of a 58 × 58 board (3364
+    /// markers) is labelled in the board frame.
     #[test]
-    fn plain_rect_small_window_of_a_large_board_yields_nothing() {
-        let (cfg, window, _) = plain_rect_window((58, 58), (14.0, 11.0));
-        assert!(detect(&cfg, &window).unwrap().is_empty());
+    fn plain_rect_small_window_of_a_large_board_gets_absolute_coordinates() {
+        let (cfg, window, frame) = plain_rect_window((58, 58), (14.0, 11.0));
+        let features = detect(&cfg, &window).unwrap();
+        // 14 × 11 pitches hold 13 × 10 whole markers or more.
+        assert_board_frame(&cfg, &features, frame, 100, RMS_PX);
+        assert!(features.len() < 180, "a partial view: {}", features.len());
     }
 
     /// Without the origin dots in view a plain board has no board frame: the
@@ -767,9 +779,11 @@ mod tests {
         let base = detect(&cfg, &img).unwrap();
         cfg.center_method = RinggridCenterMethod::Photometric;
         let photo = detect(&cfg, &img).unwrap();
-        // A few markers the fit declines are dropped.
+        // Of the 42 markers, the render's left and right columns touch the
+        // image border, where most fall below the detector's confidence
+        // floor, and the fit declines a few more.
         let frame = (img.width(), px_per_m, [0, 0]);
-        assert_board_frame(&cfg, &photo, frame, 36, RMS_PX);
+        assert_board_frame(&cfg, &photo, frame, 27, RMS_PX);
         let (rb, rp) = (affine_fit(&base).1, affine_fit(&photo).1);
         assert!(rp < 0.5 * rb, "photometric {rp} px vs default {rb} px");
     }

@@ -2685,11 +2685,10 @@ dependencies = [
 
 [[package]]
 name = "ringgrid"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bdbd147330cd1d64209eda853281c0e11aa270034178525bbd0d41955925d47"
+checksum = "fec37bb5c02c1636ef4f0737ef491748bb4d6aa9eb236a4c1adad97e3ff40eb0"
 dependencies = [
- "approx",
  "image",
  "nalgebra 0.35.0",
  "png",
