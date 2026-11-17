@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they ignore. Photometric centres work on plain markers. Existing manifests,
   configs and their detection-cache entries are unchanged.
 
+### Changed
+
+- The chessboard, ChArUco and PuzzleBoard detector is `calib-targets` 0.16.3.
+  A grid cell next to a missing corner no longer discards the connected
+  patch of the board around it, so partly occluded boards keep more corners.
+  The detector version is part of the detection-cache key, so these caches
+  are rebuilt on the next run.
+
 ## [1.0.0-rc.1] - 2026-11-15
 
 ### Migration
