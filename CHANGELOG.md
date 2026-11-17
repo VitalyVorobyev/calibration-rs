@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Ring-grid targets on a rectangular lattice and plain ring-grid targets.
+  The manifest's `ringgrid` target and `RinggridConfig` take an optional
+  `lattice` (`"hex"`, the default, or `"rect"`) and an optional `coding`
+  (`"coded"`, the default, or `{ plain = { origin_dots = true } }` for plain
+  rings anchored by a triad of origin dots), in the manifest as
+  `RinggridLatticeSpec` and `RinggridCodingSpec`, in the detector as
+  `RinggridLattice` and `RinggridCoding`. `TargetSpec::ringgrid_rect` and
+  `TargetSpec::ringgrid_plain` build them. A plain view is labelled in the
+  board frame when it shows the origin dots and most of the board, and yields
+  no features otherwise; a plain board without origin dots is rejected
+  before detection. Plain boards may leave out `marker_ring_width_m`, which
+  they ignore. Photometric centres work on plain markers. Existing manifests,
+  configs and their detection-cache entries are unchanged.
+
 ### Changed
 
 - The chessboard, ChArUco and PuzzleBoard detector is `calib-targets` 0.16.3.

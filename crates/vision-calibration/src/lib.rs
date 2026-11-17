@@ -543,9 +543,9 @@ pub mod dataset {
         CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec,
         DATASET_SPEC_VERSION, DatasetSpec, DetectorSpec, ImageNoiseSpec, ImagePattern,
         LaserExtractionSpec, LaserScanAxis, ManifestError, PoseColumnMap, PoseConvention,
-        PosePairing, ProblemKind, RinggridCenterSpec, RobotPoseFormat, RobotPoseSource,
-        RotationFormat, SniffError, TargetSpec, TransformConvention, TranslationUnits,
-        ValidationError, sniff_folder,
+        PosePairing, ProblemKind, RinggridCenterSpec, RinggridCodingSpec, RinggridLatticeSpec,
+        RobotPoseFormat, RobotPoseSource, RotationFormat, SniffError, TargetSpec,
+        TransformConvention, TranslationUnits, ValidationError, sniff_folder,
     };
 
     /// Sample datasets: real calibration images with a ready manifest.
@@ -602,7 +602,7 @@ pub mod detect {
         CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
         CornerCovariance, CornerStrategy, DetectError, DetectionCache, DetectorConfig, Feature,
         FsDetectionCache, GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod,
-        RinggridConfig, reject_ambiguous_detection,
+        RinggridCoding, RinggridConfig, RinggridLattice, reject_ambiguous_detection,
     };
 }
 

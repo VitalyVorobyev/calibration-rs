@@ -53,8 +53,8 @@ pub use spec::{
     CameraSource, ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec,
     DATASET_SPEC_VERSION, DatasetSpec, DetectorSpec, ImageNoiseSpec, ImagePattern,
     LaserExtractionSpec, LaserScanAxis, PoseColumnMap, PoseConvention, PosePairing, ProblemKind,
-    RinggridCenterSpec, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
-    TransformConvention, TranslationUnits,
+    RinggridCenterSpec, RinggridCodingSpec, RinggridLatticeSpec, RobotPoseFormat, RobotPoseSource,
+    RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
 };
 pub use validator::{ValidationError, validate};
 

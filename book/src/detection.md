@@ -28,7 +28,7 @@ The target is chosen by the manifest's `[target]` table, `kind` being one of the
 | `chessboard` | `rows`, `cols` (interior corners), `square_size_m` | Saddle corners of a plain checkerboard |
 | `charuco` | `rows`, `cols` (squares), `square_size_m`, `marker_size_m`, `dictionary` | Chessboard corners identified by embedded ArUco markers |
 | `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Saddles of a self-identifying chessboard variant |
-| `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m`, optional `center_method` | Centres of coded ring markers on a hexagonal lattice |
+| `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` (coded markers), optional `lattice`, `coding`, `center_method` | Centres of ring markers on a hexagonal or rectangular lattice, coded or plain with origin dots |
 
 ### Chessboard
 
@@ -61,11 +61,39 @@ Two fixed parts of the recipe are not configurable: the image is upscaled 2x bef
 
 ### Ring Grid
 
-A coded ring grid is a hexagonal lattice of ring markers, each carrying a 16-sector code. A decoded marker contributes one correspondence at its centre when its code maps to a known board position. `rows` is the number of marker rows and `long_row_cols` the number of columns of the longest (even-indexed) row; the shorter rows follow from the lattice. The three radii describe one marker (outer radius, inner radius, ring-band width) and are validated against `pitch_m` when the board layout is built. Detection runs in adaptive-scale mode, since the marker pixel size is unknown for an arbitrary image.
+A ring grid is a lattice of ring markers, and each detected marker contributes one correspondence at its centre once it is placed on the board. Two choices describe the board:
 
-The detector fits a flat shape: a hexagonal lattice of coded rings. Rectangular lattices and plain uncoded annuli are not exposed.
+- **`lattice`**: `"hex"` (the default) or `"rect"`. On a hexagonal lattice `long_row_cols` is the number of columns of the longest (even-indexed) rows, and the shorter rows follow from the lattice; on a rectangular lattice every row has `long_row_cols` markers, `pitch_m` apart in both directions.
+- **`coding`**: `"coded"` (the default) or `{ plain = { origin_dots = true } }`. A coded marker carries a 16-sector code between its two rings that names its board position, so any visible part of the board is labelled. Plain markers are bare rings; the board is anchored by a triad of filled origin dots that the target generator prints in the gaps near the board centre.
 
-The optional `center_method` picks how each marker's centre is estimated. The default, `"ellipse"`, takes the projective centre of the fitted inner and outer ellipses: fast, and accurate on sharp images. On a blurred or low-contrast image the edge points of a ring carry a blur- and code-dependent bias; `"photometric"` instead fits the marker's pixels with the printed ring and code pattern, blurred by a fitted Gaussian, and removes that bias. It costs roughly 2.5 times the detection time, and it returns only the markers the fit refined, so a marker that could not be fitted is dropped rather than mixed in at lower accuracy. It stays opt-in until its benefit on real calibration data is established. It does not report a per-point covariance, so the calibration stays unweighted.
+`rows` is the number of marker rows. The radii describe one marker and are validated against `pitch_m` (and, on a plain board, against the room the dots need) when the board layout is built. `marker_ring_width_m`, the width of each ring band, is required for coded markers and ignored for plain ones, which may leave it out. Detection runs in adaptive-scale mode, since the marker pixel size is unknown for an arbitrary image.
+
+A plain view is placed on the board by trying every placement of its visible markers, every shift in every orientation of the lattice, and keeping the one that puts the origin dots on dark ink. A view yields no features when the dots are out of view, or when its markers fit the board in more than 512 ways, so the placement is too ambiguous to trust: a view must show most of a large plain board (a 14 x 11 window of a 58 x 58 board has thousands of placements). Nothing is ever labelled from a guess. A plain board without origin dots (`origin_dots = false`) is labelled only up to the symmetry of the lattice, so its views carry no board coordinates; it is rejected before any detection. Where views must cover only part of a large board, use a coded board.
+
+```toml
+[target]
+kind = "ringgrid"
+pitch_m = 0.002
+rows = 40
+long_row_cols = 40
+marker_outer_radius_m = 0.0008
+marker_inner_radius_m = 0.0004
+lattice = "rect"
+coding = { plain = { origin_dots = true } }
+```
+
+In Rust, `TargetSpec::ringgrid` builds a coded hexagonal board, `TargetSpec::ringgrid_rect` a coded rectangular one and `TargetSpec::ringgrid_plain` a plain board with origin dots on either lattice; the detector's own `RinggridConfig` has the same `lattice` and `coding` fields.
+
+```rust
+use vision_calibration::dataset::{RinggridLatticeSpec, TargetSpec};
+
+// pitch, rows, cols, outer and inner radius (m)
+let target = TargetSpec::ringgrid_plain(RinggridLatticeSpec::Rect, 0.002, 40, 40, 0.0008, 0.0004);
+let json = serde_json::to_string(&target).unwrap();
+assert!(json.contains(r#""coding":{"plain":{"origin_dots":true}}"#));
+```
+
+The optional `center_method` picks how each marker's centre is estimated. The default, `"ellipse"`, takes the projective centre of the fitted inner and outer ellipses: fast, and accurate on sharp images. On a blurred or low-contrast image the edge points of a ring carry a blur- and code-dependent bias; `"photometric"` instead fits the marker's pixels with the printed ring (and code) pattern, blurred by a fitted Gaussian, and removes that bias. It works on coded and plain markers alike. It costs roughly 2.5 times the detection time, and it returns only the markers the fit refined, so a marker that could not be fitted is dropped rather than mixed in at lower accuracy. It stays opt-in until its benefit on real calibration data is established. It does not report a per-point covariance, so the calibration stays unweighted.
 
 ```toml
 [target]
@@ -213,6 +241,7 @@ In Python, `vc.FsDetectionCache(root)` is the filesystem cache, passed as `cache
 The detectors differ in what a *partial* view gives you:
 
 - A **chessboard** is labelled from its own top-left corner in each image, so only complete views of the board are safe in a rig or hand-eye run (see above).
-- **ChArUco**, **PuzzleBoard** and **ring-grid** targets identify every corner or marker, so any visible part of the board is usable and the target frame is the same in every view. This matters when a robot occludes the board or the board is larger than the field of view of some cameras.
+- **ChArUco**, **PuzzleBoard** and **coded ring-grid** targets identify every corner or marker, so any visible part of the board is usable and the target frame is the same in every view. This matters when a robot occludes the board or the board is larger than the field of view of some cameras.
+- A **plain ring grid** with origin dots is labelled in the board frame too, but only in views that show the dots and most of the board (see above).
 
 Whatever the target, the accuracy of the calibration is bounded by the accuracy of the detected points. The reprojection floor on real data is usually set by the detector and the print quality, not by the solver. The [per-feature residuals](per_feature_residuals.md) show whether the error is spread evenly or concentrated on a few views or corners.

@@ -422,6 +422,51 @@
         }
       ]
     },
+    "RinggridCodingSpec": {
+      "description": "How ring-grid markers are told apart: the manifest's own copy of the\ndetector's coding, which has the same JSON spelling.\n\nIn JSON: `\"coded\"`, or `{\"plain\": {\"origin_dots\": true}}`; in TOML,\n`coding = { plain = { origin_dots = true } }`.",
+      "oneOf": [
+        {
+          "const": "coded",
+          "description": "Every marker carries a 16-sector code between its two rings and\nidentifies its own board position, so any partial view is labelled.\nThe default.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plain rings without a code; the board frame comes from the origin\ndots.",
+          "properties": {
+            "plain": {
+              "properties": {
+                "origin_dots": {
+                  "default": true,
+                  "description": "The board carries the triad of filled origin dots that the\ntarget generator places near its centre. Defaults to `true`.\n\nA view is labelled only when the dots are in it and the visible\nmarkers fit on the board in at most 512 ways (every shift, in\nevery orientation of the lattice), so a view must show most of a\nlarge board; other views yield no features. `false`, a plain board\nwithout dots, is not supported: its views have no board\ncoordinates, and a manifest that sets it is rejected before\ndetection.",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "plain"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RinggridLatticeSpec": {
+      "description": "The ring-grid marker lattice: the manifest's own copy of the detector's\nlattice, which has the same JSON spelling.",
+      "oneOf": [
+        {
+          "const": "hex",
+          "description": "A hexagonal lattice: rows alternate between `long_row_cols` markers\nand one fewer, offset by half a step. The default.",
+          "type": "string"
+        },
+        {
+          "const": "rect",
+          "description": "A rectangular lattice of `rows × long_row_cols` markers, `pitch_m`\napart along both axes.",
+          "type": "string"
+        }
+      ]
+    },
     "RobotPoseFormat": {
       "description": "Robot-pose file format.",
       "oneOf": [
@@ -639,18 +684,26 @@
           "type": "object"
         },
         {
-          "description": "Coded ring-grid target (the `ringgrid` crate). The board is a\nhex-lattice of self-identifying ring markers; its geometry mirrors\n`ringgrid::BoardLayout` so the manifest fully determines detection.",
+          "description": "Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal\nor rectangular lattice, either coded (self-identifying) or plain with\na triad of origin dots. Its geometry mirrors the `ringgrid` target\nlayout, so the manifest fully determines detection.",
           "properties": {
             "center_method": {
               "$ref": "#/$defs/RinggridCenterSpec",
               "description": "How each marker's centre is estimated. Omitted keeps the\nellipse-based centre; `\"photometric\"` fits the blurred marker\npattern instead, for blurred or low-contrast images."
             },
+            "coding": {
+              "$ref": "#/$defs/RinggridCodingSpec",
+              "description": "How the markers are told apart. Omitted keeps `\"coded\"`."
+            },
             "kind": {
               "const": "ringgrid",
               "type": "string"
             },
+            "lattice": {
+              "$ref": "#/$defs/RinggridLatticeSpec",
+              "description": "The marker lattice. Omitted keeps `\"hex\"`."
+            },
             "long_row_cols": {
-              "description": "Number of columns in the longest (even-indexed) row. Shorter\nrows are derived by the hex-lattice layout.",
+              "description": "Number of columns: on a hexagonal lattice, of the longest\n(even-indexed) rows, the shorter rows being derived by the\nlayout; on a rectangular lattice, of every row.",
               "format": "uint32",
               "minimum": 0,
               "type": "integer"
@@ -666,12 +719,13 @@
               "type": "number"
             },
             "marker_ring_width_m": {
-              "description": "Width of each ring band in metres.",
+              "default": 0.0,
+              "description": "Width of each ring band in metres. Coded markers need it, greater\nthan zero; plain markers ignore it, so it may be left out for\nthem.",
               "format": "double",
               "type": "number"
             },
             "pitch_m": {
-              "description": "Center-to-center spacing between adjacent markers in metres.",
+              "description": "Center-to-center spacing between adjacent markers in metres. On a\nrectangular lattice it is both the row and the column step.",
               "format": "double",
               "type": "number"
             },
@@ -688,8 +742,7 @@
             "rows",
             "long_row_cols",
             "marker_outer_radius_m",
-            "marker_inner_radius_m",
-            "marker_ring_width_m"
+            "marker_inner_radius_m"
           ],
           "type": "object"
         }

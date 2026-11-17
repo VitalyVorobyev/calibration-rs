@@ -8,7 +8,9 @@ use anyhow::{Context, Result, bail};
 use ringgrid::{CircleRefinementMethod, Detector, TargetLayout};
 use vision_calibration_bench::manifest::dataset_spec;
 use vision_calibration_bench::registry::BenchEntry;
-use vision_calibration_dataset::{ImagePattern, TargetSpec};
+use vision_calibration_dataset::{
+    ImagePattern, RinggridCodingSpec, RinggridLatticeSpec, TargetSpec,
+};
 
 /// Position key at 1e-4 px.
 pub fn key(px: [f64; 2]) -> (i64, i64) {
@@ -25,12 +27,17 @@ pub fn blur_map(entry: &BenchEntry) -> Result<BTreeMap<(i64, i64), f64>> {
         marker_outer_radius_m,
         marker_inner_radius_m,
         marker_ring_width_m,
+        lattice,
+        coding,
         ..
     } = spec.target
     else {
         // Only the ring-grid detector fits a blur; other targets have none.
         return Ok(BTreeMap::new());
     };
+    if lattice != RinggridLatticeSpec::Hex || coding != RinggridCodingSpec::Coded {
+        bail!("the blur map reads coded hex ring grids only");
+    }
     let mm = |m: f64| (m * 1000.0) as f32;
     let layout = TargetLayout::coded_hex(
         mm(pitch_m),

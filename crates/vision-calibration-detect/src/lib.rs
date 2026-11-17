@@ -63,7 +63,7 @@ pub use chessboard::ChessboardConfig;
 #[cfg(feature = "puzzleboard")]
 pub use puzzleboard::PuzzleboardConfig;
 #[cfg(feature = "ringgrid")]
-pub use ringgrid::{RinggridCenterMethod, RinggridConfig};
+pub use ringgrid::{RinggridCenterMethod, RinggridCoding, RinggridConfig, RinggridLattice};
 
 mod image_view;
 
@@ -98,7 +98,7 @@ pub enum DetectorConfig {
     /// A PuzzleBoard (`calib-targets`).
     #[cfg(feature = "puzzleboard")]
     Puzzleboard(PuzzleboardConfig),
-    /// A hexagonal coded ring grid (`ringgrid`).
+    /// A ring grid (`ringgrid`): coded or plain, on a hex or rect lattice.
     #[cfg(feature = "ringgrid")]
     Ringgrid(RinggridConfig),
 }
