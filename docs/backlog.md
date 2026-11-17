@@ -166,7 +166,7 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   and carries over to the second detector; the display moves at most 16 %;
   no lens term derived from decentred optics carries it. A camera slot
   fitted on one capture would bake a capture-dependent average into the
-  camera. A held-fixed implementation exists on `feat/cam-field-core`,
+  camera. A held-fixed implementation exists under the tag `archive/cam-field-core`,
   unmerged. Reopens with CAM-FIELD-ORIGIN: a field that stays put with the
   aperture and through focus.
 - [ ] CAM-FIELD-ORIGIN - Decide whether the defocus-coupled part of the
