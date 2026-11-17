@@ -294,10 +294,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
         diagnostics: crate::common::ExportDiagnostics::new(per_feature_residuals),
         uncertainty: Default::default(),
     };
-    let rig_stage = RigStageReprojection {
-        cam_se3_rig,
-        rig_se3_target,
-    };
+    let rig_stage = RigStageReprojection::new(export.cameras.clone(), cam_se3_rig, rig_se3_target);
 
     let report = rig_handeye_report_with_rig_stage(&export, &dataset, &rig_stage).unwrap();
     let levels: Vec<_> = report.levels.iter().map(|level| level.level).collect();
@@ -310,4 +307,156 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
         ]
     );
     assert_eq!(report.headline_px, report.levels[2].overall.mean);
+}
+
+/// A two-camera eye-in-hand rig scene with corner noise whose *measured* robot
+/// poses carry a small error: the true poses project the corners, the
+/// perturbed ones go into the view metadata.
+fn rig_handeye_input_with_robot_error() -> crate::rig_handeye::RigHandeyeInput {
+    use crate::common::RobotPoseMeta;
+    use nalgebra::Rotation3;
+
+    let iso = |r: (f64, f64, f64), t: (f64, f64, f64)| {
+        Iso3::from_parts(
+            Translation3::new(t.0, t.1, t.2),
+            Rotation3::from_euler_angles(r.0, r.1, r.2).into(),
+        )
+    };
+    let camera = |offset: f64| {
+        make_pinhole_camera(
+            FxFyCxCy {
+                fx: 800.0 + offset,
+                fy: 780.0 + offset,
+                cx: 640.0,
+                cy: 360.0,
+            },
+            BrownConrady5::default(),
+        )
+    };
+    let cameras = [camera(0.0), camera(10.0)];
+    let cam_se3_rig = [Iso3::identity(), iso((0.0, 0.0, 0.1), (0.2, 0.0, 0.0))];
+    let gripper_se3_rig = iso((0.05, -0.03, 0.02), (0.03, -0.02, 0.08));
+    let base_se3_target = iso((0.0, 0.0, 0.0), (0.0, 0.0, 1.2));
+    let pts3 = board(5, 6, 0.05);
+    let robot_poses = [
+        iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+        iso((0.3, 0.0, 0.0), (0.0, -0.3, 0.0)),
+        iso((0.0, 0.3, 0.0), (0.3, 0.0, 0.0)),
+        iso((0.2, 0.2, 0.0), (0.2, -0.2, 0.0)),
+        iso((-0.3, 0.0, 0.1), (0.0, 0.3, 0.05)),
+        iso((0.0, -0.3, -0.1), (-0.3, 0.0, -0.05)),
+        iso((0.25, -0.2, 0.2), (-0.2, -0.25, 0.0)),
+        iso((-0.2, 0.25, -0.2), (0.25, 0.2, 0.05)),
+    ];
+
+    let mut rng = Lcg(0x9E37_79B9_7F4A_7C15);
+    let views = robot_poses
+        .iter()
+        .map(|base_se3_gripper| {
+            let rig_se3_target = (base_se3_gripper * gripper_se3_rig).inverse() * base_se3_target;
+            let obs = cameras
+                .iter()
+                .zip(&cam_se3_rig)
+                .map(|(camera, cam_se3_rig)| {
+                    let pts2 = project_all(camera, &(cam_se3_rig * rig_se3_target), &pts3)
+                        .into_iter()
+                        .map(|p| {
+                            Pt2::new(p.x + 0.15 * rng.next_unit(), p.y + 0.15 * rng.next_unit())
+                        })
+                        .collect();
+                    Some(CorrespondenceView::new(pts3.clone(), pts2).unwrap())
+                })
+                .collect();
+            // About 0.05° and 0.5 mm of robot error per view.
+            let delta = SVector::<f64, 6>::from_fn(|i, _| {
+                let scale = if i < 3 { 0.001 } else { 0.0005 };
+                scale * rng.next_unit()
+            });
+            let measured = apply_left_tangent(base_se3_gripper, &delta);
+            RigView::new(RigViewObs::new(obs), RobotPoseMeta::new(measured))
+        })
+        .collect();
+    RigDataset::new(views, 2).unwrap()
+}
+
+/// With rigid robot poses the hand-eye BA moves the intrinsics away from the
+/// rig stage's to absorb the robot error. The rig-extrinsic level must still
+/// read the rig stage's own fit — its cameras, rig extrinsics and target
+/// poses — at the noise level, not the rig-stage poses seen through the final
+/// cameras.
+#[test]
+fn rig_extrinsic_level_reads_the_rig_stage_cameras() {
+    use crate::common::config::RobotPoseConfig;
+    use crate::rig_handeye::{
+        RigHandeyeConfig, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,
+        step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    };
+    use crate::session::CalibrationSession;
+
+    let dataset = rig_handeye_input_with_robot_error();
+    let mut config = RigHandeyeConfig::default();
+    config.handeye_optimize.robot_poses = RobotPoseConfig::Exact;
+    config.handeye_optimize.refine_intrinsics = true;
+    let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+    session.set_config(config).unwrap();
+    session.set_input(dataset.clone()).unwrap();
+    step_intrinsics_init_all(&mut session, None).unwrap();
+    step_intrinsics_optimize_all(&mut session, None).unwrap();
+    step_rig_init(&mut session, None).unwrap();
+    let rig_stage_fit = step_rig_optimize(&mut session, None).unwrap();
+    step_handeye_init(&mut session, None).unwrap();
+    step_handeye_optimize(&mut session, None).unwrap();
+    let export = session.export().unwrap();
+
+    // The rig stage's own residuals, recomputed from its state.
+    let stage_cameras = session.state.rig.cameras.clone().unwrap();
+    let stage_cam_se3_rig = session.state.rig_ba_cam_se3_rig.clone().unwrap();
+    let stage_rig_se3_target = session.state.rig_ba_rig_se3_target.clone().unwrap();
+    let stage_residuals = compute_rig_target_residuals(
+        &rig_camera_models(&stage_cameras).unwrap(),
+        &dataset,
+        &stage_cam_se3_rig,
+        &stage_rig_se3_target,
+    )
+    .unwrap();
+    let stage_mean = LevelStats::from_residuals(&stage_residuals).mean;
+    assert!(
+        (stage_mean - rig_stage_fit.mean_reproj_error).abs() < 1e-9,
+        "recomputed rig-stage mean {stage_mean} vs the step's {}",
+        rig_stage_fit.mean_reproj_error
+    );
+
+    // The setup: the final cameras moved away from the rig stage's.
+    let dfx = (export.cameras[0].intrinsics.fx - stage_cameras[0].intrinsics.fx).abs();
+    assert!(
+        dfx > 0.5,
+        "final fx should move off the rig stage's, Δfx = {dfx}"
+    );
+
+    let rig_stage = RigStageReprojection::from_session(&session).unwrap();
+    assert_eq!(
+        serde_json::to_value(&rig_stage.cameras).unwrap(),
+        serde_json::to_value(&stage_cameras).unwrap()
+    );
+    assert_eq!(rig_stage.cam_se3_rig, stage_cam_se3_rig);
+    assert_eq!(rig_stage.rig_se3_target, stage_rig_se3_target);
+    let report = rig_handeye_report_with_rig_stage(&export, &dataset, &rig_stage).unwrap();
+    let rig_level = report.level(ReprojLevel::RigExtrinsic).unwrap();
+    let handeye_level = report.level(ReprojLevel::Handeye).unwrap();
+    assert!(
+        (rig_level.overall.mean - stage_mean).abs() < 1e-9,
+        "rig-extrinsic level {} px should equal the rig stage's own {} px",
+        rig_level.overall.mean,
+        stage_mean
+    );
+    assert!(
+        stage_mean < 0.2,
+        "rig stage at the noise level, got {stage_mean} px"
+    );
+    assert!(
+        handeye_level.overall.mean > 2.0 * rig_level.overall.mean,
+        "hand-eye level {} px should exceed the rig-extrinsic level {} px",
+        handeye_level.overall.mean,
+        rig_level.overall.mean
+    );
 }
