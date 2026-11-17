@@ -34,7 +34,7 @@ Repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [project.optional-dependencies]
 examples = [
-  "calib-targets>=0.16.1",
+  "calib-targets>=0.16.3",
   "Pillow",
 ]
 
