@@ -78,7 +78,7 @@ pub use image_view::GrayImageView;
 /// alone does not move them.
 pub(crate) mod backend {
     #[cfg(any(feature = "chessboard", feature = "charuco", feature = "puzzleboard"))]
-    pub const CALIB_TARGETS: &str = "calib-targets 0.16.1 / chess-corners 2.1.0";
+    pub const CALIB_TARGETS: &str = "calib-targets 0.16.3 / chess-corners 2.1.0";
     #[cfg(feature = "ringgrid")]
     pub const RINGGRID: &str = "ringgrid 0.15.0";
 }
