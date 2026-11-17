@@ -2857,6 +2857,53 @@ centre method, which has the same JSON spelling.
 """
 
 
+class RinggridCodingSpec_Plain(TypedDict):
+    """Plain rings without a code; the board frame comes from the origin
+    dots.
+    """
+
+    plain: RinggridCodingSpec_Plain_plain
+
+
+RinggridCodingSpec: TypeAlias = Literal["coded"] | RinggridCodingSpec_Plain
+"""How ring-grid markers are told apart: the manifest's own copy of the
+detector's coding, which has the same JSON spelling.
+
+In JSON: `"coded"`, or `{"plain": {"origin_dots": true}}`; in TOML,
+`coding = { plain = { origin_dots = true } }`.
+
+- ``"coded"``: Every marker carries a 16-sector code between its two rings and
+  identifies its own board position, so any partial view is labelled.
+  The default.
+"""
+
+
+class RinggridCodingSpec_Plain_plain(TypedDict, total=False):
+    origin_dots: bool
+    """The board carries the triad of filled origin dots that the
+    target generator places near its centre. Defaults to `true`.
+
+    A view is labelled only when the dots are in it and the visible
+    markers fit on the board in at most 512 ways (every shift, in
+    every orientation of the lattice), so a view must show most of a
+    large board; other views yield no features. `false`, a plain board
+    without dots, is not supported: its views have no board
+    coordinates, and a manifest that sets it is rejected before
+    detection.
+    """
+
+
+RinggridLatticeSpec: TypeAlias = Literal["hex", "rect"]
+"""The ring-grid marker lattice: the manifest's own copy of the detector's
+lattice, which has the same JSON spelling.
+
+- ``"hex"``: A hexagonal lattice: rows alternate between `long_row_cols` markers
+  and one fewer, offset by half a step. The default.
+- ``"rect"``: A rectangular lattice of `rows × long_row_cols` markers, `pitch_m`
+  apart along both axes.
+"""
+
+
 class RobotPoseConfig_Exact(TypedDict):
     """The robot poses are taken as exact."""
 
@@ -3552,8 +3599,9 @@ class _TargetSpec_RinggridRequired(TypedDict):
 
     kind: Literal["ringgrid"]
     long_row_cols: int
-    """Number of columns in the longest (even-indexed) row. Shorter
-    rows are derived by the hex-lattice layout.
+    """Number of columns: on a hexagonal lattice, of the longest
+    (even-indexed) rows, the shorter rows being derived by the
+    layout; on a rectangular lattice, of every row.
     """
 
     marker_inner_radius_m: float
@@ -3562,26 +3610,38 @@ class _TargetSpec_RinggridRequired(TypedDict):
     marker_outer_radius_m: float
     """Outer ring radius in metres."""
 
-    marker_ring_width_m: float
-    """Width of each ring band in metres."""
-
     pitch_m: float
-    """Center-to-center spacing between adjacent markers in metres."""
+    """Center-to-center spacing between adjacent markers in metres. On a
+    rectangular lattice it is both the row and the column step.
+    """
 
     rows: int
     """Number of marker rows."""
 
 
 class TargetSpec_Ringgrid(_TargetSpec_RinggridRequired, total=False):
-    """Coded ring-grid target (the `ringgrid` crate). The board is a
-    hex-lattice of self-identifying ring markers; its geometry mirrors
-    `ringgrid::BoardLayout` so the manifest fully determines detection.
+    """Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal
+    or rectangular lattice, either coded (self-identifying) or plain with
+    a triad of origin dots. Its geometry mirrors the `ringgrid` target
+    layout, so the manifest fully determines detection.
     """
 
     center_method: RinggridCenterSpec
     """How each marker's centre is estimated. Omitted keeps the
     ellipse-based centre; `"photometric"` fits the blurred marker
     pattern instead, for blurred or low-contrast images.
+    """
+
+    coding: RinggridCodingSpec
+    """How the markers are told apart. Omitted keeps `"coded"`."""
+
+    lattice: RinggridLatticeSpec
+    """The marker lattice. Omitted keeps `"hex"`."""
+
+    marker_ring_width_m: float
+    """Width of each ring band in metres. Coded markers need it, greater
+    than zero; plain markers ignore it, so it may be left out for
+    them.
     """
 
 
@@ -3904,6 +3964,10 @@ __all__ = [
     "RigUpstreamCalibration",
     "RigViewObs",
     "RinggridCenterSpec",
+    "RinggridCodingSpec",
+    "RinggridCodingSpec_Plain",
+    "RinggridCodingSpec_Plain_plain",
+    "RinggridLatticeSpec",
     "RobotPoseConfig",
     "RobotPoseConfig_Exact",
     "RobotPoseConfig_Refine",

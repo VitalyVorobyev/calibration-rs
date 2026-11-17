@@ -66,6 +66,24 @@ class DetectTargetTest(unittest.TestCase):
             vc.detect_target(np.zeros((10, 10), np.uint8), target)
         self.assertEqual(ctx.exception.kind, "invalid_target_config")
 
+    def test_plain_ring_grids_need_origin_dots(self) -> None:
+        target: dict[str, Any] = {
+            "kind": "ringgrid",
+            "pitch_m": 0.002,
+            "rows": 58,
+            "long_row_cols": 58,
+            "marker_outer_radius_m": 0.0008,
+            "marker_inner_radius_m": 0.0004,
+            "lattice": "rect",
+            "coding": {"plain": {"origin_dots": True}},
+        }
+        blank = np.full((120, 160), 128, np.uint8)
+        self.assertEqual(len(vc.detect_target(blank, target)), 0)
+        no_dots = {**target, "coding": {"plain": {"origin_dots": False}}}
+        with self.assertRaises(vc.RunError) as ctx:
+            vc.detect_target(blank, no_dots)
+        self.assertEqual(ctx.exception.kind, "invalid_target_config")
+
     def test_features_feed_a_session(self) -> None:
         views = []
         for r, t in _images.board_poses(6):

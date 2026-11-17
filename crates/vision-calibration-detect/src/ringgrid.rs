@@ -1,17 +1,22 @@
-//! Coded ring-grid detector wrapping the `ringgrid` crate.
+//! Ring-grid detector wrapping the `ringgrid` crate.
 //!
-//! Ring markers are self-identifying: each decoded marker carries a unique
-//! codebook id whose board position is known from the layout, so a single
-//! partial view yields globally-consistent correspondences. The detector
-//! returns one [`Feature`] per decoded marker that maps to a board
-//! position, with metric target coordinates in the board's own frame.
+//! A ring grid is a hexagonal or rectangular lattice of ring markers
+//! ([`RinggridLattice`]). Coded markers are self-identifying: each decoded
+//! marker carries a unique codebook id whose board position is known from the
+//! layout, so a single partial view yields globally consistent
+//! correspondences. Plain markers carry no identity; a plain board is anchored
+//! by a triad of filled origin dots printed near its centre
+//! ([`RinggridCoding`]). The detector returns one [`Feature`] per marker that
+//! maps to a board position, with metric target coordinates in the board's
+//! own frame.
 //!
 //! Detection runs in adaptive-scale mode (`Detector::detect_adaptive`): the
 //! marker pixel size is unknown for an arbitrary dataset image, and adaptive
 //! mode auto-selects scale tiers rather than relying on a hand-tuned prior.
 
 use ringgrid::{
-    CenterSource, CircleRefinementMethod, Detector as RinggridDetectorImpl, TargetLayout,
+    CenterSource, CircleRefinementMethod, Detector as RinggridDetectorImpl, OriginDots,
+    TargetLayout,
 };
 use serde::{Deserialize, Serialize};
 
@@ -48,44 +53,125 @@ impl RinggridCenterMethod {
     }
 }
 
-/// Coded ring-grid detector configuration. Mirrors the geometry of the
-/// ringgrid variant in `vision_calibration_dataset::TargetSpec` so the
-/// dispatcher can translate one to the other directly.
+/// The lattice the ring markers sit on; see [`RinggridConfig::lattice`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RinggridLattice {
+    /// A hexagonal lattice: rows alternate between `long_row_cols` markers
+    /// and one fewer, offset by half a step. The default.
+    #[default]
+    Hex,
+    /// A rectangular lattice of `rows × long_row_cols` markers, `pitch_m`
+    /// apart along both axes.
+    Rect,
+}
+
+impl RinggridLattice {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// How the ring markers are told apart; see [`RinggridConfig::coding`].
 ///
-/// The flat shape below describes exactly one point in `ringgrid`'s
-/// compositional target space: a **hexagonal lattice of 16-sector coded
-/// rings, with no origin fiducials**. `ringgrid` 0.9+ can also express
-/// rectangular lattices and plain (uncoded) annuli; those are deliberately
-/// not surfaced here — no dataset in this workspace uses them, and a config
-/// knob without a consumer is a knob that rots.
+/// In JSON: `"coded"`, or `{"plain": {"origin_dots": true}}`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RinggridCoding {
+    /// Every marker carries a 16-sector code between its two rings, so each
+    /// detected marker identifies its own board position and any partial
+    /// view is labelled in the board frame. The default.
+    #[default]
+    Coded,
+    /// Plain rings without a code. The markers do not identify themselves:
+    /// the board frame comes from the origin dots.
+    Plain {
+        /// The board carries a triad of filled origin dots, placed by the
+        /// target generator in the lattice gaps near the board centre.
+        /// Defaults to `true`.
+        ///
+        /// The detector labels a view by trying each placement of the visible
+        /// markers on the board (every shift, in every orientation of the
+        /// lattice) and keeping the one that puts the dots on dark ink. A
+        /// view yields no features when the dots are not in it, or when the
+        /// visible patch has more than 512 placements: on a 58 × 58 board, a
+        /// window of 14 × 11 markers has thousands, so a view must show most
+        /// of a large board.
+        ///
+        /// `false` (a plain board without dots) is not supported: such a
+        /// board is labelled only up to the lattice symmetry, so its views
+        /// carry no board coordinates. A config that sets it is rejected
+        /// before detection.
+        #[serde(default = "origin_dots_default")]
+        origin_dots: bool,
+    },
+}
+
+fn origin_dots_default() -> bool {
+    true
+}
+
+impl RinggridCoding {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Ring-grid detector configuration. Mirrors the geometry of the ringgrid
+/// variant in `vision_calibration_dataset::TargetSpec` so the dispatcher can
+/// translate one to the other directly.
+///
+/// The board is a [`lattice`](Self::lattice) of ring markers, either coded or
+/// plain with origin dots ([`coding`](Self::coding)). The defaults describe a
+/// hexagonal lattice of coded rings, so a config that leaves both out keeps
+/// its meaning and its detection-cache key.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct RinggridConfig {
-    /// Center-to-center spacing between adjacent markers in metres.
+    /// Center-to-center spacing between adjacent markers in metres. On a
+    /// rectangular lattice it is both the row and the column step.
     pub pitch_m: f64,
     /// Number of marker rows.
     pub rows: u32,
-    /// Number of columns in the longest (even-indexed) row.
+    /// Number of columns: on a hexagonal lattice, of the longest
+    /// (even-indexed) rows; on a rectangular lattice, of every row.
     pub long_row_cols: u32,
     /// Outer ring radius in metres.
     pub marker_outer_radius_m: f64,
     /// Inner ring radius in metres.
     pub marker_inner_radius_m: f64,
-    /// Width of each ring band in metres.
+    /// Width of each ring band in metres. Coded markers need it, greater
+    /// than zero; plain markers ignore it, so it may be left out (`0`) for
+    /// them.
+    #[serde(default)]
     pub marker_ring_width_m: f64,
     /// Centre estimator. Defaults to [`RinggridCenterMethod::Ellipse`]; an
     /// omitted key keeps it, and the default is left out when serializing so
     /// existing detection-cache entries stay valid.
     #[serde(default, skip_serializing_if = "RinggridCenterMethod::is_default")]
     pub center_method: RinggridCenterMethod,
+    /// Marker lattice. Defaults to [`RinggridLattice::Hex`]; the default is
+    /// left out when serializing, like `center_method`'s.
+    #[serde(default, skip_serializing_if = "RinggridLattice::is_default")]
+    pub lattice: RinggridLattice,
+    /// Marker coding. Defaults to [`RinggridCoding::Coded`]; the default is
+    /// left out when serializing, like `center_method`'s.
+    #[serde(default, skip_serializing_if = "RinggridCoding::is_default")]
+    pub coding: RinggridCoding,
 }
 
 impl RinggridConfig {
-    /// A coded ring grid of `rows` rows, `long_row_cols` markers in the long
-    /// rows and `pitch_m` spacing, with markers of the given outer and inner
-    /// radii and ring width (metres), and the default centre estimator.
+    /// A coded ring grid on a hexagonal lattice of `rows` rows,
+    /// `long_row_cols` markers in the long rows and `pitch_m` spacing, with
+    /// markers of the given outer and inner radii and ring width (metres),
+    /// and the default centre estimator. Set [`lattice`](Self::lattice) and
+    /// [`coding`](Self::coding) for the other boards.
     pub fn new(
         pitch_m: f64,
         rows: u32,
@@ -102,27 +188,46 @@ impl RinggridConfig {
             marker_inner_radius_m,
             marker_ring_width_m,
             center_method: RinggridCenterMethod::default(),
+            lattice: RinggridLattice::default(),
+            coding: RinggridCoding::default(),
         }
     }
 
     /// Build the `ringgrid` target layout this config describes. The
     /// `ringgrid` API works in millimetres, so metric fields are scaled
-    /// here; geometry validation (radii ordering, marker-vs-pitch fit) is
-    /// delegated to `TargetLayout::coded_hex`.
-    ///
-    /// `coded_hex` takes the six board-geometry arguments and derives a
-    /// geometry-based board name.
+    /// here; geometry validation (radii ordering, marker-vs-pitch fit, room
+    /// for the origin dots) is delegated to the `TargetLayout` constructors,
+    /// which derive a geometry-based board name. A plain board without
+    /// origin dots is rejected here, before any detection.
     fn board_layout(&self) -> Result<TargetLayout, DetectError> {
         let mm = |m: f64| (m * 1000.0) as f32;
-        TargetLayout::coded_hex(
-            mm(self.pitch_m),
-            self.rows as usize,
-            self.long_row_cols as usize,
-            mm(self.marker_outer_radius_m),
-            mm(self.marker_inner_radius_m),
-            mm(self.marker_ring_width_m),
-        )
-        .map_err(|e| DetectError::InvalidConfig(format!("invalid ringgrid board: {e}")))
+        let pitch = mm(self.pitch_m);
+        let (rows, cols) = (self.rows as usize, self.long_row_cols as usize);
+        let outer = mm(self.marker_outer_radius_m);
+        let inner = mm(self.marker_inner_radius_m);
+        let ring_width = mm(self.marker_ring_width_m);
+        let layout = match (self.lattice, self.coding) {
+            (RinggridLattice::Hex, RinggridCoding::Coded) => {
+                TargetLayout::coded_hex(pitch, rows, cols, outer, inner, ring_width)
+            }
+            (RinggridLattice::Rect, RinggridCoding::Coded) => {
+                TargetLayout::coded_rect(pitch, rows, cols, outer, inner, ring_width)
+            }
+            (RinggridLattice::Hex, RinggridCoding::Plain { origin_dots: true }) => {
+                TargetLayout::plain_hex(pitch, rows, cols, outer, inner, OriginDots::Auto)
+            }
+            (RinggridLattice::Rect, RinggridCoding::Plain { origin_dots: true }) => {
+                TargetLayout::plain_rect(pitch, rows, cols, outer, inner, OriginDots::Auto)
+            }
+            (_, RinggridCoding::Plain { origin_dots: false }) => {
+                return Err(DetectError::InvalidConfig(
+                    "a plain ring grid without origin dots is not supported: its views carry \
+                     no board coordinates"
+                        .to_string(),
+                ));
+            }
+        };
+        layout.map_err(|e| DetectError::InvalidConfig(format!("invalid ringgrid board: {e}")))
     }
 }
 
@@ -151,10 +256,12 @@ pub(crate) fn detect(
             message: e.to_string(),
         })?;
 
-    // A decoded marker contributes a correspondence only when its id
-    // maps to a known board position (`board_xy_mm`); undecoded or
-    // off-board detections are dropped. `center` is always raw image
-    // pixels. `board_xy_mm` is in millimetres → convert to metres.
+    // A marker contributes a correspondence only when it maps to a known
+    // board position (`board_xy_mm`): a coded marker through its decoded id,
+    // a plain one through the origin dots of its view. Undecoded, off-board
+    // and unanchored detections carry none and are dropped. `center` is
+    // always raw image pixels. `board_xy_mm` is in millimetres → convert to
+    // metres.
     Ok(crate::reject_ambiguous_detection(
         result
             .detected_markers
@@ -359,53 +466,366 @@ mod tests {
         // The render is frontal at a uniform scale: every marker centre is an
         // affine image of its board position, so the fit residual of that
         // affine map measures localisation error without ground truth.
-        let rms = |fs: &[Feature]| -> f64 {
-            // Least squares of u = c . [X, Y, 1] by the normal equations,
-            // solved with Cramer's rule.
-            let det = |m: [[f64; 3]; 3]| {
-                m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-                    - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-                    + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
-            };
-            let mut ata = [[0.0; 3]; 3];
-            let mut atb = [[0.0; 3]; 2];
-            for f in fs {
-                let a = [f.world_xyz[0], f.world_xyz[1], 1.0];
-                for i in 0..3 {
-                    for j in 0..3 {
-                        ata[i][j] += a[i] * a[j];
-                    }
-                    atb[0][i] += a[i] * f.image_xy[0];
-                    atb[1][i] += a[i] * f.image_xy[1];
-                }
-            }
-            let d = det(ata);
-            let solve = |b: [f64; 3]| -> [f64; 3] {
-                let mut c = [0.0; 3];
-                for k in 0..3 {
-                    let mut m = ata;
-                    for r in 0..3 {
-                        m[r][k] = b[r];
-                    }
-                    c[k] = det(m) / d;
-                }
-                c
-            };
-            let c = [solve(atb[0]), solve(atb[1])];
-            let mut sum = 0.0;
-            for f in fs {
-                let a = [f.world_xyz[0], f.world_xyz[1], 1.0];
-                for (axis, ck) in c.iter().enumerate() {
-                    let pred: f64 = (0..3).map(|i| ck[i] * a[i]).sum();
-                    sum += (pred - f.image_xy[axis]).powi(2);
-                }
-            }
-            (sum / fs.len() as f64).sqrt()
-        };
-        let (rb, rp) = (rms(&base), rms(&photo));
+        let (rb, rp) = (affine_fit(&base).1, affine_fit(&photo).1);
         // On this render the ellipse centres scatter ~0.5 px and the
         // photometric ones ~0.015 px; the bound is loose on purpose.
         assert!(rp < 0.5 * rb, "photometric {rp} px vs default {rb} px");
+    }
+
+    /// The least-squares affine map `image = A · [X, Y, 1]` from the
+    /// features' board positions (metres) to their image centres, and its RMS
+    /// residual in pixels.
+    fn affine_fit(fs: &[Feature]) -> ([[f64; 3]; 2], f64) {
+        // Least squares of u = c . [X, Y, 1] by the normal equations,
+        // solved with Cramer's rule.
+        let det = |m: [[f64; 3]; 3]| {
+            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+        };
+        let mut ata = [[0.0; 3]; 3];
+        let mut atb = [[0.0; 3]; 2];
+        for f in fs {
+            let a = [f.world_xyz[0], f.world_xyz[1], 1.0];
+            for i in 0..3 {
+                for j in 0..3 {
+                    ata[i][j] += a[i] * a[j];
+                }
+                atb[0][i] += a[i] * f.image_xy[0];
+                atb[1][i] += a[i] * f.image_xy[1];
+            }
+        }
+        let d = det(ata);
+        let solve = |b: [f64; 3]| -> [f64; 3] {
+            let mut c = [0.0; 3];
+            for k in 0..3 {
+                let mut m = ata;
+                for r in 0..3 {
+                    m[r][k] = b[r];
+                }
+                c[k] = det(m) / d;
+            }
+            c
+        };
+        let c = [solve(atb[0]), solve(atb[1])];
+        let mut sum = 0.0;
+        for f in fs {
+            let a = [f.world_xyz[0], f.world_xyz[1], 1.0];
+            for (axis, ck) in c.iter().enumerate() {
+                let pred: f64 = (0..3).map(|i| ck[i] * a[i]).sum();
+                sum += (pred - f.image_xy[axis]).powi(2);
+            }
+        }
+        (c, (sum / fs.len() as f64).sqrt())
+    }
+
+    // ── The other lattice × coding combinations ─────────────────────────────
+
+    /// A frontal render of the board `cfg` describes at `dpi`, blurred by a
+    /// Gaussian of `blur_px` (0 = sharp), with its scale in pixels per metre.
+    fn render(cfg: &RinggridConfig, dpi: f32, blur_px: f32) -> (image::GrayImage, f64) {
+        let options = TargetRenderOptions {
+            png_dpi: dpi,
+            ..TargetRenderOptions::default()
+        };
+        let gray = cfg
+            .board_layout()
+            .unwrap()
+            .render_target_png(&options)
+            .expect("render ring-grid PNG");
+        let gray = if blur_px > 0.0 {
+            image::imageops::blur(&gray, blur_px)
+        } else {
+            gray
+        };
+        (gray, f64::from(dpi) / 0.0254)
+    }
+
+    /// Where the render of `cfg` (`width_px` wide, `px_per_m`) puts the board
+    /// point `xy_m`, in the pixels of a window cropped at `crop`. The render
+    /// centres the board's marker extent on a square page and samples pixel
+    /// `i` at `i` (not `i + 0.5`), so this is exact up to the page's rounding
+    /// to whole pixels.
+    fn rendered_px(
+        cfg: &RinggridConfig,
+        width_px: u32,
+        px_per_m: f64,
+        crop: [u32; 2],
+        xy_m: [f64; 2],
+    ) -> [f64; 2] {
+        let (min, max) = cfg.board_layout().unwrap().marker_bounds_mm().unwrap();
+        std::array::from_fn(|axis| {
+            let centre_m = 0.5e-3 * f64::from(min[axis] + max[axis]);
+            0.5 * f64::from(width_px) + (xy_m[axis] - centre_m) * px_per_m - f64::from(crop[axis])
+        })
+    }
+
+    /// Check `features`, detected on the render of `cfg` (`width_px` wide,
+    /// `px_per_m`, cropped at `crop`), against the board: there are at least
+    /// `min_features`, every target point is a distinct cell of the layout,
+    /// every centre is within a quarter pitch of where the render drew that
+    /// cell (a view labelled up to a lattice symmetry, or shifted by a cell,
+    /// is off by a pitch), and the centres scatter about the drawn ones by
+    /// less than `rms_px`.
+    fn assert_board_frame(
+        cfg: &RinggridConfig,
+        features: &[Feature],
+        (width_px, px_per_m, crop): (u32, f64, [u32; 2]),
+        min_features: usize,
+        rms_px: f64,
+    ) {
+        assert!(
+            features.len() >= min_features,
+            "expected >= {min_features} markers, got {}",
+            features.len()
+        );
+        let layout = cfg.board_layout().unwrap();
+        let mut cells = std::collections::BTreeSet::new();
+        let (mut worst, mut sum_sq): (f64, f64) = (0.0, 0.0);
+        for f in features {
+            assert_eq!(f.world_xyz[2], 0.0, "target is planar");
+            let cell = layout
+                .cells()
+                .iter()
+                .position(|c| {
+                    (f64::from(c.xy_mm[0]) - f.world_xyz[0] * 1e3).abs() < 1e-3
+                        && (f64::from(c.xy_mm[1]) - f.world_xyz[1] * 1e3).abs() < 1e-3
+                })
+                .unwrap_or_else(|| panic!("{:?} is not a cell of the board", f.world_xyz));
+            assert!(cells.insert(cell), "cell {cell} reported twice");
+            let want = rendered_px(
+                cfg,
+                width_px,
+                px_per_m,
+                crop,
+                [f.world_xyz[0], f.world_xyz[1]],
+            );
+            let err = (f.image_xy[0] - want[0]).hypot(f.image_xy[1] - want[1]);
+            worst = worst.max(err);
+            sum_sq += err * err;
+        }
+        let quarter_pitch_px = 0.25 * cfg.pitch_m * px_per_m;
+        assert!(
+            worst < quarter_pitch_px,
+            "a centre is {worst} px from its rendered position: mislabelled"
+        );
+        let rms = (sum_sq / features.len() as f64).sqrt();
+        assert!(
+            rms < rms_px,
+            "centres scatter {rms} px about the drawn ones"
+        );
+    }
+
+    fn config_with(
+        lattice: RinggridLattice,
+        coding: RinggridCoding,
+        (pitch_m, rows, cols): (f64, u32, u32),
+        (outer_m, inner_m): (f64, f64),
+    ) -> RinggridConfig {
+        let mut cfg = RinggridConfig::new(pitch_m, rows, cols, outer_m, inner_m, RING_WIDTH_M);
+        cfg.lattice = lattice;
+        cfg.coding = coding;
+        cfg
+    }
+
+    const DOTS: RinggridCoding = RinggridCoding::Plain { origin_dots: true };
+    const MARKER: (f64, f64) = (OUTER_M, INNER_M);
+    /// The renders below are at 100 dpi with a 1 px blur: markers ~47 px
+    /// across, the size range adaptive detection is tuned for, and edges as
+    /// soft as a focused lens leaves them.
+    const DPI: f32 = 100.0;
+    /// Bound on the RMS distance of the centres from the drawn ones. Ellipse
+    /// centres on these renders scatter ~0.5 px (see
+    /// `photometric_centres_match_or_beat_the_default`), with the odd marker
+    /// ~2 px off; the distance also includes the ~0.2 px every centre is
+    /// shifted by the page's rounding to whole pixels.
+    const RMS_PX: f64 = 0.75;
+
+    /// Detect on the standard render of `cfg` and check it against the board.
+    fn detect_and_check(cfg: &RinggridConfig, min_features: usize) {
+        let (img, px_per_m) = render(cfg, DPI, 1.0);
+        let features = detect(cfg, &img).unwrap();
+        let frame = (img.width(), px_per_m, [0, 0]);
+        assert_board_frame(cfg, &features, frame, min_features, RMS_PX);
+    }
+
+    #[test]
+    fn coded_hex_centres_match_the_board() {
+        let cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
+        detect_and_check(&cfg, 21);
+    }
+
+    #[test]
+    fn coded_rect_centres_match_the_board() {
+        let geometry = (PITCH_M, 4, 5);
+        let cfg = config_with(
+            RinggridLattice::Rect,
+            RinggridCoding::Coded,
+            geometry,
+            MARKER,
+        );
+        let layout = cfg.board_layout().unwrap();
+        assert_eq!(layout.n_cells(), 20, "4 rows of 5 columns");
+        assert!(layout.is_coded());
+        detect_and_check(&cfg, 18);
+    }
+
+    #[test]
+    fn plain_rect_with_origin_dots_centres_match_the_board() {
+        let cfg = config_with(RinggridLattice::Rect, DOTS, (PITCH_M, 6, 7), MARKER);
+        let layout = cfg.board_layout().unwrap();
+        assert_eq!(layout.n_cells(), 42, "6 rows of 7 columns");
+        assert!(!layout.is_coded());
+        assert_eq!(layout.fiducial_dots_mm().len(), 3, "an origin-dot triad");
+        detect_and_check(&cfg, 40);
+    }
+
+    #[test]
+    fn plain_hex_with_origin_dots_centres_match_the_board() {
+        let cfg = config_with(RinggridLattice::Hex, DOTS, (PITCH_M, 5, 5), MARKER);
+        let layout = cfg.board_layout().unwrap();
+        assert_eq!(layout.n_cells(), 23);
+        assert!(!layout.is_coded());
+        assert_eq!(layout.fiducial_dots_mm().len(), 3, "an origin-dot triad");
+        detect_and_check(&cfg, 21);
+    }
+
+    /// A frontal 300 dpi render of a `rows × cols` plain rect board at 2 mm
+    /// pitch with 0.8 / 0.4 mm rings (~19 px per marker), and the window of
+    /// `w × h` pitches whose `(0.4, 0.6)` point is the origin dots' centroid:
+    /// the dots in view, off its centre. Returns the config, the window, and
+    /// its frame for [`assert_board_frame`].
+    fn plain_rect_window(
+        (rows, cols): (u32, u32),
+        (w, h): (f64, f64),
+    ) -> (RinggridConfig, image::GrayImage, (u32, f64, [u32; 2])) {
+        let cfg = config_with(
+            RinggridLattice::Rect,
+            DOTS,
+            (0.002, rows, cols),
+            (0.0008, 0.0004),
+        );
+        let (full, px_per_m) = render(&cfg, 300.0, 0.0);
+        let layout = cfg.board_layout().unwrap();
+        let dots = layout.fiducial_dots_mm();
+        let dots_m: [f64; 2] = std::array::from_fn(|axis| {
+            dots.iter().map(|d| f64::from(d[axis])).sum::<f64>() / 3.0 * 1e-3
+        });
+        let dots_px = rendered_px(&cfg, full.width(), px_per_m, [0, 0], dots_m);
+        let (w, h) = (w * cfg.pitch_m * px_per_m, h * cfg.pitch_m * px_per_m);
+        let crop = [(dots_px[0] - 0.4 * w) as u32, (dots_px[1] - 0.6 * h) as u32];
+        let window = image::imageops::crop_imm(&full, crop[0], crop[1], w as u32, h as u32);
+        (cfg, window.to_image(), (full.width(), px_per_m, crop))
+    }
+
+    /// Only a window around the origin dots is in view: the view is still
+    /// labelled in the board frame.
+    #[test]
+    fn plain_rect_partial_view_keeps_absolute_board_coordinates() {
+        let (cfg, window, frame) = plain_rect_window((18, 16), (13.0, 11.0));
+        let features = detect(&cfg, &window).unwrap();
+        // 13 × 11 pitches hold 12 × 10 whole markers or more, of 288.
+        assert_board_frame(&cfg, &features, frame, 100, RMS_PX);
+        assert!(features.len() < 160, "a partial view: {}", features.len());
+    }
+
+    /// The detector anchors a plain view by trying every placement of the
+    /// visible patch on the board, and gives up (rather than guess) when
+    /// there are more than 512 of them: a 14 × 11 window of a 58 × 58 board,
+    /// dots and all, yields nothing.
+    #[test]
+    fn plain_rect_small_window_of_a_large_board_yields_nothing() {
+        let (cfg, window, _) = plain_rect_window((58, 58), (14.0, 11.0));
+        assert!(detect(&cfg, &window).unwrap().is_empty());
+    }
+
+    /// Without the origin dots in view a plain board has no board frame: the
+    /// view yields no features rather than mislabelled ones.
+    #[test]
+    fn plain_rect_view_without_the_origin_dots_yields_nothing() {
+        let cfg = config_with(
+            RinggridLattice::Rect,
+            DOTS,
+            (0.002, 18, 16),
+            (0.0008, 0.0004),
+        );
+        let (full, px_per_m) = render(&cfg, 300.0, 0.0);
+        let side = (6.0 * cfg.pitch_m * px_per_m) as u32;
+        let corner = image::imageops::crop_imm(&full, 0, 0, side, side);
+        assert!(detect(&cfg, &corner.to_image()).unwrap().is_empty());
+    }
+
+    /// Photometric centres work on plain markers: every returned marker was
+    /// refined, labelled in the board frame, and closer to its drawn centre
+    /// than the ellipse centres are.
+    #[test]
+    fn plain_board_with_photometric_centres() {
+        let mut cfg = config_with(RinggridLattice::Rect, DOTS, (PITCH_M, 6, 7), MARKER);
+        // The photometric fit models a blurred marker; see
+        // `photometric_centres_match_or_beat_the_default`.
+        let (img, px_per_m) = render(&cfg, DPI, 2.0);
+        let base = detect(&cfg, &img).unwrap();
+        cfg.center_method = RinggridCenterMethod::Photometric;
+        let photo = detect(&cfg, &img).unwrap();
+        // A few markers the fit declines are dropped.
+        let frame = (img.width(), px_per_m, [0, 0]);
+        assert_board_frame(&cfg, &photo, frame, 36, RMS_PX);
+        let (rb, rp) = (affine_fit(&base).1, affine_fit(&photo).1);
+        assert!(rp < 0.5 * rb, "photometric {rp} px vs default {rb} px");
+    }
+
+    #[test]
+    fn plain_board_without_origin_dots_is_rejected_before_detection() {
+        let no_dots = RinggridCoding::Plain { origin_dots: false };
+        let cfg = config_with(RinggridLattice::Rect, no_dots, (PITCH_M, 6, 7), MARKER);
+        let err = detect(&cfg, &image::GrayImage::new(64, 64)).unwrap_err();
+        assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
+        assert!(format!("{err}").contains("without origin dots"), "{err}");
+    }
+
+    /// Plain markers have no code band, so their ring width is neither
+    /// needed nor checked.
+    #[test]
+    fn plain_board_ignores_the_ring_width() {
+        let mut cfg = config_with(RinggridLattice::Hex, DOTS, (PITCH_M, 5, 5), MARKER);
+        cfg.marker_ring_width_m = 0.0;
+        assert!(cfg.board_layout().is_ok());
+        cfg.coding = RinggridCoding::Coded;
+        assert!(cfg.board_layout().is_err(), "a coded board needs it");
+    }
+
+    #[test]
+    fn lattice_and_coding_json() {
+        // A config without the keys is the coded hex board, and writes none.
+        let old: RinggridConfig = serde_json::from_value(board_config()).unwrap();
+        assert_eq!(old.lattice, RinggridLattice::Hex);
+        assert_eq!(old.coding, RinggridCoding::Coded);
+        assert_eq!(serde_json::to_value(old).unwrap(), board_config());
+
+        let plain = json!({
+            "pitch_m": 0.002,
+            "rows": 58,
+            "long_row_cols": 58,
+            "marker_outer_radius_m": 0.0008,
+            "marker_inner_radius_m": 0.0004,
+            "lattice": "rect",
+            "coding": {"plain": {"origin_dots": true}},
+        });
+        let cfg: RinggridConfig = serde_json::from_value(plain).unwrap();
+        assert_eq!(cfg.lattice, RinggridLattice::Rect);
+        assert_eq!(cfg.coding, DOTS);
+        assert_eq!(cfg.marker_ring_width_m, 0.0, "plain boards may omit it");
+        let back: RinggridConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, back);
+
+        // The dots default to on; the defaults are spelled "coded" and "hex".
+        let coding: RinggridCoding = serde_json::from_value(json!({"plain": {}})).unwrap();
+        assert_eq!(coding, DOTS);
+        let coding: RinggridCoding = serde_json::from_value(json!("coded")).unwrap();
+        assert_eq!(coding, RinggridCoding::Coded);
+        let lattice: RinggridLattice = serde_json::from_value(json!("hex")).unwrap();
+        assert_eq!(lattice, RinggridLattice::Hex);
     }
 }
 
@@ -423,13 +843,53 @@ mod cache_tests {
             marker_inner_radius_m: 0.003,
             marker_ring_width_m: 0.001,
             center_method: RinggridCenterMethod::Ellipse,
+            lattice: RinggridLattice::Hex,
+            coding: RinggridCoding::Coded,
         };
         let photometric = RinggridConfig {
             center_method: RinggridCenterMethod::Photometric,
             ..base
         };
-        let key =
-            |c| crate::CacheKey::for_detection(b"img", &crate::DetectorConfig::Ringgrid(c), None);
         assert_ne!(key(base), key(photometric));
+    }
+
+    fn base() -> RinggridConfig {
+        RinggridConfig::new(0.02, 5, 5, 0.006, 0.003, 0.001)
+    }
+
+    fn key(c: RinggridConfig) -> crate::CacheKey {
+        crate::CacheKey::for_detection(b"img", &crate::DetectorConfig::Ringgrid(c), None)
+    }
+
+    /// The key hashes the config's JSON. A coded hex board writes exactly
+    /// the keys it always had, so its cached detections stay valid.
+    #[test]
+    fn coded_hex_cache_key_is_unchanged() {
+        assert_eq!(
+            serde_json::to_string(&crate::DetectorConfig::Ringgrid(base())).unwrap(),
+            r#"{"detector":"ringgrid","pitch_m":0.02,"rows":5,"long_row_cols":5,"marker_outer_radius_m":0.006,"marker_inner_radius_m":0.003,"marker_ring_width_m":0.001}"#
+        );
+    }
+
+    #[test]
+    fn lattice_and_coding_change_the_cache_key() {
+        let rect = RinggridConfig {
+            lattice: RinggridLattice::Rect,
+            ..base()
+        };
+        let plain = RinggridConfig {
+            coding: RinggridCoding::Plain { origin_dots: true },
+            ..base()
+        };
+        let plain_rect = RinggridConfig {
+            coding: plain.coding,
+            ..rect
+        };
+        let keys = [key(base()), key(rect), key(plain), key(plain_rect)];
+        for (i, a) in keys.iter().enumerate() {
+            for b in &keys[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
     }
 }

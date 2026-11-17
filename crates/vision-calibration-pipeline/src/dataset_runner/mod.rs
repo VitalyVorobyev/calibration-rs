@@ -60,12 +60,14 @@ use vision_calibration_core::{
 };
 use vision_calibration_dataset::{
     ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
-    ImageNoiseSpec, ImagePattern, ProblemKind, RinggridCenterSpec, TargetSpec, ValidationError,
+    ImageNoiseSpec, ImagePattern, ProblemKind, RinggridCenterSpec, RinggridCodingSpec,
+    RinggridLatticeSpec, TargetSpec, ValidationError,
 };
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
     CornerCovariance, CornerStrategy, DetectionCache, DetectorConfig, Feature, GrayImageView,
-    ImageNoise, PuzzleboardConfig, RinggridCenterMethod, RinggridConfig, validate_charuco_layout,
+    ImageNoise, PuzzleboardConfig, RinggridCenterMethod, RinggridCoding, RinggridConfig,
+    RinggridLattice, validate_charuco_layout,
 };
 
 mod board_turn;
@@ -650,6 +652,8 @@ fn detector_config(
             marker_inner_radius_m,
             marker_ring_width_m,
             center_method,
+            lattice,
+            coding,
             ..
         } => {
             refuse_chess_override("ringgrid")?;
@@ -663,6 +667,37 @@ fn detector_config(
                     });
                 }
             };
+            let lattice = match lattice {
+                RinggridLatticeSpec::Hex => RinggridLattice::Hex,
+                RinggridLatticeSpec::Rect => RinggridLattice::Rect,
+                other => {
+                    return Err(RunError::UnsupportedOption {
+                        option: "target.lattice",
+                        value: format!("{other:?}"),
+                    });
+                }
+            };
+            let coding = match coding {
+                RinggridCodingSpec::Coded => RinggridCoding::Coded,
+                RinggridCodingSpec::Plain { origin_dots: true } => {
+                    RinggridCoding::Plain { origin_dots: true }
+                }
+                // Its views would carry no board coordinates: refuse it
+                // here rather than drop every view after detection.
+                RinggridCodingSpec::Plain { origin_dots: false } => {
+                    return Err(RunError::InvalidTargetConfig {
+                        message: "a plain ring grid without origin dots \
+                                  (target.coding.plain.origin_dots = false) is not supported"
+                            .to_string(),
+                    });
+                }
+                other => {
+                    return Err(RunError::UnsupportedOption {
+                        option: "target.coding",
+                        value: format!("{other:?}"),
+                    });
+                }
+            };
             let mut config = RinggridConfig::new(
                 *pitch_m,
                 *rows,
@@ -672,6 +707,8 @@ fn detector_config(
                 *marker_ring_width_m,
             );
             config.center_method = center_method;
+            config.lattice = lattice;
+            config.coding = coding;
             Ok(DetectorConfig::Ringgrid(config))
         }
         other => Err(RunError::UnsupportedTarget {
@@ -1340,6 +1377,47 @@ mod tests {
         assert_eq!(config.center_method, RinggridCenterMethod::Photometric);
         assert_eq!(config.long_row_cols, 5);
         assert_eq!(config.marker_outer_radius_m, 0.006);
+        assert_eq!(config.lattice, RinggridLattice::Hex);
+        assert_eq!(config.coding, RinggridCoding::Coded);
+    }
+
+    #[test]
+    fn plain_rect_ringgrid_target_maps_to_detector_config() {
+        let target =
+            TargetSpec::ringgrid_plain(RinggridLatticeSpec::Rect, 0.002, 58, 58, 0.0008, 0.0004);
+        let spec = spec_for_target(target);
+        let DetectorConfig::Ringgrid(config) = target_to_detector_config(&spec).unwrap() else {
+            panic!("a ringgrid target lowers to the ringgrid detector");
+        };
+        assert_eq!(config.lattice, RinggridLattice::Rect);
+        assert_eq!(config.coding, RinggridCoding::Plain { origin_dots: true });
+        assert_eq!((config.rows, config.long_row_cols), (58, 58));
+        assert_eq!(config.pitch_m, 0.002);
+
+        let coded_rect = TargetSpec::ringgrid_rect(0.014, 20, 20, 0.0048, 0.0032, 0.001152);
+        let DetectorConfig::Ringgrid(config) =
+            target_to_detector_config(&spec_for_target(coded_rect)).unwrap()
+        else {
+            panic!("a ringgrid target lowers to the ringgrid detector");
+        };
+        assert_eq!(config.lattice, RinggridLattice::Rect);
+        assert_eq!(config.coding, RinggridCoding::Coded);
+        assert_eq!(config.marker_ring_width_m, 0.001152);
+    }
+
+    #[test]
+    fn plain_ringgrid_without_origin_dots_is_refused_before_detection() {
+        let mut target =
+            TargetSpec::ringgrid_plain(RinggridLatticeSpec::Hex, 0.02, 5, 5, 0.006, 0.003);
+        if let TargetSpec::Ringgrid { coding, .. } = &mut target {
+            *coding = RinggridCodingSpec::Plain { origin_dots: false };
+        }
+        match target_to_detector_config(&spec_for_target(target)) {
+            Err(RunError::InvalidTargetConfig { message }) => {
+                assert!(message.contains("origin dots"), "got: {message}");
+            }
+            other => panic!("expected InvalidTargetConfig, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1520,16 +1598,20 @@ mod tests {
             set(&[
                 "cell_size_m",
                 "center_method",
+                "coding",
                 "cols",
                 "dictionary",
                 "kind",
+                "lattice",
                 "layout",
                 "long_row_cols",
                 "marker_inner_radius_m",
                 "marker_outer_radius_m",
                 "marker_ring_width_m",
                 "marker_size_m",
+                "origin_dots",
                 "pitch_m",
+                "plain",
                 "rows",
                 "square_size_m",
             ])

@@ -295,29 +295,41 @@ pub enum TargetSpec {
         /// Edge length of one cell in metres.
         cell_size_m: f64,
     },
-    /// Coded ring-grid target (the `ringgrid` crate). The board is a
-    /// hex-lattice of self-identifying ring markers; its geometry mirrors
-    /// `ringgrid::BoardLayout` so the manifest fully determines detection.
+    /// Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal
+    /// or rectangular lattice, either coded (self-identifying) or plain with
+    /// a triad of origin dots. Its geometry mirrors the `ringgrid` target
+    /// layout, so the manifest fully determines detection.
     #[non_exhaustive]
     Ringgrid {
-        /// Center-to-center spacing between adjacent markers in metres.
+        /// Center-to-center spacing between adjacent markers in metres. On a
+        /// rectangular lattice it is both the row and the column step.
         pitch_m: f64,
         /// Number of marker rows.
         rows: u32,
-        /// Number of columns in the longest (even-indexed) row. Shorter
-        /// rows are derived by the hex-lattice layout.
+        /// Number of columns: on a hexagonal lattice, of the longest
+        /// (even-indexed) rows, the shorter rows being derived by the
+        /// layout; on a rectangular lattice, of every row.
         long_row_cols: u32,
         /// Outer ring radius in metres.
         marker_outer_radius_m: f64,
         /// Inner ring radius in metres.
         marker_inner_radius_m: f64,
-        /// Width of each ring band in metres.
+        /// Width of each ring band in metres. Coded markers need it, greater
+        /// than zero; plain markers ignore it, so it may be left out for
+        /// them.
+        #[serde(default)]
         marker_ring_width_m: f64,
         /// How each marker's centre is estimated. Omitted keeps the
         /// ellipse-based centre; `"photometric"` fits the blurred marker
         /// pattern instead, for blurred or low-contrast images.
         #[serde(default, skip_serializing_if = "RinggridCenterSpec::is_default")]
         center_method: RinggridCenterSpec,
+        /// The marker lattice. Omitted keeps `"hex"`.
+        #[serde(default, skip_serializing_if = "RinggridLatticeSpec::is_default")]
+        lattice: RinggridLatticeSpec,
+        /// How the markers are told apart. Omitted keeps `"coded"`.
+        #[serde(default, skip_serializing_if = "RinggridCodingSpec::is_default")]
+        coding: RinggridCodingSpec,
     },
 }
 
@@ -359,10 +371,10 @@ impl TargetSpec {
         }
     }
 
-    /// A coded ring grid of `rows` rows, `long_row_cols` markers in the long
-    /// rows and `pitch_m` spacing, with markers of the given outer and inner
-    /// radii and ring width (metres), and the default (ellipse) centre
-    /// estimator.
+    /// A coded ring grid on a hexagonal lattice of `rows` rows,
+    /// `long_row_cols` markers in the long rows and `pitch_m` spacing, with
+    /// markers of the given outer and inner radii and ring width (metres),
+    /// and the default (ellipse) centre estimator.
     pub fn ringgrid(
         pitch_m: f64,
         rows: u32,
@@ -379,7 +391,123 @@ impl TargetSpec {
             marker_inner_radius_m,
             marker_ring_width_m,
             center_method: RinggridCenterSpec::default(),
+            lattice: RinggridLatticeSpec::default(),
+            coding: RinggridCodingSpec::default(),
         }
+    }
+
+    /// A coded ring grid on a rectangular lattice of `rows × cols` markers at
+    /// `pitch_m` spacing, with markers of the given outer and inner radii and
+    /// ring width (metres), and the default (ellipse) centre estimator.
+    pub fn ringgrid_rect(
+        pitch_m: f64,
+        rows: u32,
+        cols: u32,
+        marker_outer_radius_m: f64,
+        marker_inner_radius_m: f64,
+        marker_ring_width_m: f64,
+    ) -> Self {
+        Self::Ringgrid {
+            pitch_m,
+            rows,
+            long_row_cols: cols,
+            marker_outer_radius_m,
+            marker_inner_radius_m,
+            marker_ring_width_m,
+            center_method: RinggridCenterSpec::default(),
+            lattice: RinggridLatticeSpec::Rect,
+            coding: RinggridCodingSpec::default(),
+        }
+    }
+
+    /// A plain ring grid with origin dots on `lattice`: `rows` rows of `cols`
+    /// markers (on a hexagonal lattice, `cols` in the long rows) at `pitch_m`
+    /// spacing, with rings of the given outer and inner radii (metres), and
+    /// the default (ellipse) centre estimator.
+    pub fn ringgrid_plain(
+        lattice: RinggridLatticeSpec,
+        pitch_m: f64,
+        rows: u32,
+        cols: u32,
+        marker_outer_radius_m: f64,
+        marker_inner_radius_m: f64,
+    ) -> Self {
+        Self::Ringgrid {
+            pitch_m,
+            rows,
+            long_row_cols: cols,
+            marker_outer_radius_m,
+            marker_inner_radius_m,
+            marker_ring_width_m: 0.0,
+            center_method: RinggridCenterSpec::default(),
+            lattice,
+            coding: RinggridCodingSpec::Plain { origin_dots: true },
+        }
+    }
+}
+
+/// The ring-grid marker lattice: the manifest's own copy of the detector's
+/// lattice, which has the same JSON spelling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RinggridLatticeSpec {
+    /// A hexagonal lattice: rows alternate between `long_row_cols` markers
+    /// and one fewer, offset by half a step. The default.
+    #[default]
+    Hex,
+    /// A rectangular lattice of `rows × long_row_cols` markers, `pitch_m`
+    /// apart along both axes.
+    Rect,
+}
+
+impl RinggridLatticeSpec {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// How ring-grid markers are told apart: the manifest's own copy of the
+/// detector's coding, which has the same JSON spelling.
+///
+/// In JSON: `"coded"`, or `{"plain": {"origin_dots": true}}`; in TOML,
+/// `coding = { plain = { origin_dots = true } }`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RinggridCodingSpec {
+    /// Every marker carries a 16-sector code between its two rings and
+    /// identifies its own board position, so any partial view is labelled.
+    /// The default.
+    #[default]
+    Coded,
+    /// Plain rings without a code; the board frame comes from the origin
+    /// dots.
+    Plain {
+        /// The board carries the triad of filled origin dots that the
+        /// target generator places near its centre. Defaults to `true`.
+        ///
+        /// A view is labelled only when the dots are in it and the visible
+        /// markers fit on the board in at most 512 ways (every shift, in
+        /// every orientation of the lattice), so a view must show most of a
+        /// large board; other views yield no features. `false`, a plain board
+        /// without dots, is not supported: its views have no board
+        /// coordinates, and a manifest that sets it is rejected before
+        /// detection.
+        #[serde(default = "origin_dots_default")]
+        origin_dots: bool,
+    },
+}
+
+fn origin_dots_default() -> bool {
+    true
+}
+
+impl RinggridCodingSpec {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
     }
 }
 
@@ -845,6 +973,90 @@ mod tests {
                 .unwrap();
         let json = serde_json::to_string(&photometric).unwrap();
         assert!(json.contains(r#""center_method":"photometric""#), "{json}");
+        let back: TargetSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), json);
+    }
+
+    #[test]
+    fn ringgrid_without_lattice_or_coding_is_the_coded_hex_board() {
+        let old: serde_json::Value = serde_json::from_str(&format!("{RINGGRID}}}")).unwrap();
+        let spec: TargetSpec = serde_json::from_value(old.clone()).unwrap();
+        let TargetSpec::Ringgrid {
+            lattice, coding, ..
+        } = &spec
+        else {
+            panic!("ringgrid target");
+        };
+        assert_eq!(*lattice, RinggridLatticeSpec::Hex);
+        assert_eq!(*coding, RinggridCodingSpec::Coded);
+        // Written back with exactly the keys it was read with.
+        assert_eq!(serde_json::to_value(&spec).unwrap(), old);
+        let built = TargetSpec::ringgrid(0.02, 5, 5, 0.006, 0.003, 0.001);
+        assert_eq!(serde_json::to_value(&built).unwrap(), old);
+    }
+
+    #[test]
+    fn plain_rect_ringgrid_roundtrips() {
+        let json = r#"{"kind":"ringgrid","pitch_m":0.002,"rows":58,"long_row_cols":58,
+            "marker_outer_radius_m":0.0008,"marker_inner_radius_m":0.0004,
+            "lattice":"rect","coding":{"plain":{"origin_dots":true}}}"#;
+        let spec: TargetSpec = serde_json::from_str(json).unwrap();
+        let TargetSpec::Ringgrid {
+            lattice,
+            coding,
+            marker_ring_width_m,
+            ..
+        } = &spec
+        else {
+            panic!("ringgrid target");
+        };
+        assert_eq!(*lattice, RinggridLatticeSpec::Rect);
+        assert_eq!(*coding, RinggridCodingSpec::Plain { origin_dots: true });
+        assert_eq!(*marker_ring_width_m, 0.0, "plain boards may leave it out");
+
+        let built =
+            TargetSpec::ringgrid_plain(RinggridLatticeSpec::Rect, 0.002, 58, 58, 0.0008, 0.0004);
+        assert_eq!(
+            serde_json::to_value(&built).unwrap(),
+            serde_json::to_value(&spec).unwrap()
+        );
+        let text = serde_json::to_string(&spec).unwrap();
+        let back: TargetSpec = serde_json::from_str(&text).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), text);
+
+        // The dots default to on.
+        let coding: RinggridCodingSpec = serde_json::from_str(r#"{"plain":{}}"#).unwrap();
+        assert_eq!(coding, RinggridCodingSpec::Plain { origin_dots: true });
+
+        // The same board in a TOML manifest.
+        let toml_spec: TargetSpec = toml::from_str(
+            r#"
+            kind = "ringgrid"
+            pitch_m = 0.002
+            rows = 58
+            long_row_cols = 58
+            marker_outer_radius_m = 0.0008
+            marker_inner_radius_m = 0.0004
+            lattice = "rect"
+            coding = { plain = { origin_dots = true } }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&toml_spec).unwrap(),
+            serde_json::to_value(&spec).unwrap()
+        );
+    }
+
+    #[test]
+    fn coded_rect_ringgrid_roundtrips() {
+        let spec = TargetSpec::ringgrid_rect(0.014, 20, 20, 0.0048, 0.0032, 0.001152);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(json.contains(r#""lattice":"rect""#), "{json}");
+        assert!(
+            !json.contains("coding"),
+            "the coded default is omitted: {json}"
+        );
         let back: TargetSpec = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&back).unwrap(), json);
     }

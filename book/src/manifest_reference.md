@@ -91,17 +91,19 @@ A plain chessboard has no markers: each view is labelled from the detection's ow
 | `cell_size_m` | number | yes | Edge length of one cell in metres. |
 | `layout` | string | yes | Board dimensions as `puzzle_<rows>x<cols>` (e.g. `"puzzle_12x12"`; the `puzzle_` prefix is optional). |
 
-**`kind = "ringgrid"`**: Coded ring-grid target (the `ringgrid` crate). The board is a hex-lattice of self-identifying ring markers; its geometry mirrors `ringgrid::BoardLayout` so the manifest fully determines detection.
+**`kind = "ringgrid"`**: Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal or rectangular lattice, either coded (self-identifying) or plain with a triad of origin dots. Its geometry mirrors the `ringgrid` target layout, so the manifest fully determines detection.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `long_row_cols` | integer | yes | Number of columns in the longest (even-indexed) row. Shorter rows are derived by the hex-lattice layout. |
-| `marker_inner_radius_m` | number | yes | Inner ring radius in metres. |
-| `marker_outer_radius_m` | number | yes | Outer ring radius in metres. |
-| `marker_ring_width_m` | number | yes | Width of each ring band in metres. |
-| `pitch_m` | number | yes | Center-to-center spacing between adjacent markers in metres. |
-| `rows` | integer | yes | Number of marker rows. |
-| `center_method` | [RinggridCenterSpec](#ringgridcenterspec) | no | How each marker's centre is estimated. Omitted keeps the ellipse-based centre; `"photometric"` fits the blurred marker pattern instead, for blurred or low-contrast images. |
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `long_row_cols` | integer | yes | | Number of columns: on a hexagonal lattice, of the longest (even-indexed) rows, the shorter rows being derived by the layout; on a rectangular lattice, of every row. |
+| `marker_inner_radius_m` | number | yes | | Inner ring radius in metres. |
+| `marker_outer_radius_m` | number | yes | | Outer ring radius in metres. |
+| `pitch_m` | number | yes | | Center-to-center spacing between adjacent markers in metres. On a rectangular lattice it is both the row and the column step. |
+| `rows` | integer | yes | | Number of marker rows. |
+| `center_method` | [RinggridCenterSpec](#ringgridcenterspec) | no | | How each marker's centre is estimated. Omitted keeps the ellipse-based centre; `"photometric"` fits the blurred marker pattern instead, for blurred or low-contrast images. |
+| `coding` | [RinggridCodingSpec](#ringgridcodingspec) | no | | How the markers are told apart. Omitted keeps `"coded"`. |
+| `lattice` | [RinggridLatticeSpec](#ringgridlatticespec) | no | | The marker lattice. Omitted keeps `"hex"`. |
+| `marker_ring_width_m` | number | no | `0.0` | Width of each ring band in metres. Coded markers need it, greater than zero; plain markers ignore it, so it may be left out for them. |
 
 ## RinggridCenterSpec
 
@@ -111,6 +113,31 @@ The ring-grid centre estimator: the manifest's own copy of the detector's centre
 |---|---|
 | `ellipse` | The projective centre recovered from the fitted inner and outer ellipses. Fast and accurate on sharp images; the default. |
 | `photometric` | A per-marker photometric fit of the blurred marker pattern. Use it on blurred or low-contrast images; it costs about 2.5x the detection time, and markers it cannot refine are dropped. |
+
+## RinggridCodingSpec
+
+How ring-grid markers are told apart: the manifest's own copy of the detector's coding, which has the same JSON spelling.
+
+In JSON: `"coded"`, or `{"plain": {"origin_dots": true}}`; in TOML, `coding = { plain = { origin_dots = true } }`.
+
+One of:
+
+**`"coded"`**: Every marker carries a 16-sector code between its two rings and identifies its own board position, so any partial view is labelled. The default.
+
+**`plain`** (object): Plain rings without a code; the board frame comes from the origin dots.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `origin_dots` | boolean | no | `true` | The board carries the triad of filled origin dots that the target generator places near its centre. Defaults to `true`.<br><br>A view is labelled only when the dots are in it and the visible markers fit on the board in at most 512 ways (every shift, in every orientation of the lattice), so a view must show most of a large board; other views yield no features. `false`, a plain board without dots, is not supported: its views have no board coordinates, and a manifest that sets it is rejected before detection. |
+
+## RinggridLatticeSpec
+
+The ring-grid marker lattice: the manifest's own copy of the detector's lattice, which has the same JSON spelling.
+
+| Value | Description |
+|---|---|
+| `hex` | A hexagonal lattice: rows alternate between `long_row_cols` markers and one fewer, offset by half a step. The default. |
+| `rect` | A rectangular lattice of `rows × long_row_cols` markers, `pitch_m` apart along both axes. |
 
 ## ProblemKind
 
@@ -172,17 +199,11 @@ The pixel-noise level behind a corner covariance: estimated from the image, or s
 
 In JSON / TOML: `"estimate"` or `{ stated = 2.0 }`.
 
-Tagged on `kind`; the fields depend on the variant.
+One of:
 
-**`kind = ""`**: Estimate the noise from each image. Unreliable on JPEG or demosaiced images, where a corner then reports no covariance and the run fails.
+**`"estimate"`**: Estimate the noise from each image. Unreliable on JPEG or demosaiced images, where a corner then reports no covariance and the run fails.
 
-**`kind = ""`**: The standard deviation of the image's pixel noise, in gray levels of the 8-bit image (finite and `>= 0`), e.g. the standard deviation of the difference of two frames of a static scene divided by `√2`.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `stated` | number | yes |  |
-
-Unknown fields are rejected.
+**`stated`** (number): The standard deviation of the image's pixel noise, in gray levels of the 8-bit image (finite and `>= 0`), e.g. the standard deviation of the difference of two frames of a static scene divided by `√2`.
 
 ## CornerStrategySpec
 

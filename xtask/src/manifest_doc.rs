@@ -149,6 +149,38 @@ fn render_definition(out: &mut String, def: &Value) {
             let _ = writeln!(out, "| `{value}` | {} |", cell(description(variant)));
         }
         out.push('\n');
+    } else if !variants
+        .iter()
+        .any(|v| v["properties"].get("kind").is_some())
+    {
+        // Externally tagged: a bare string per unit variant, an object of
+        // one key, the variant's name, per variant with data.
+        out.push_str("One of:\n\n");
+        for variant in variants {
+            if let Some(value) = variant.get("const").and_then(Value::as_str) {
+                let _ = writeln!(
+                    out,
+                    "**`\"{value}\"`**: {}\n",
+                    paragraph(description(variant))
+                );
+                continue;
+            }
+            let Some((name, inner)) = variant
+                .get("properties")
+                .and_then(Value::as_object)
+                .filter(|props| props.len() == 1)
+                .and_then(|props| props.iter().next())
+            else {
+                continue;
+            };
+            let _ = writeln!(
+                out,
+                "**`{name}`** ({}): {}\n",
+                type_string(inner),
+                paragraph(description(variant))
+            );
+            render_object(out, inner, None);
+        }
     } else {
         out.push_str("Tagged on `kind`; the fields depend on the variant.\n\n");
         for variant in variants {
@@ -318,5 +350,29 @@ mod tests {
         assert!(md.contains("Unknown fields are rejected."));
         // Definitions follow the order of first mention.
         assert!(md.find("## Mode").unwrap() < md.find("## Target").unwrap());
+    }
+
+    #[test]
+    fn renders_externally_tagged_enums() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"coding": {"$ref": "#/$defs/Coding"}},
+            "$defs": {
+                "Coding": {"description": "A coding.", "oneOf": [
+                    {"const": "coded", "type": "string", "description": "Coded."},
+                    {"description": "Plain.", "type": "object", "required": ["plain"],
+                     "properties": {"plain": {"type": "object", "properties": {
+                         "dots": {"type": "boolean", "description": "Dots."}}}}},
+                    {"description": "Stated.", "type": "object", "required": ["stated"],
+                     "properties": {"stated": {"type": "number"}}}
+                ]}
+            }
+        });
+        let md = render(&schema);
+        assert!(!md.contains("Tagged on"), "{md}");
+        assert!(md.contains("**`\"coded\"`**: Coded."), "{md}");
+        assert!(md.contains("**`plain`** (object): Plain."), "{md}");
+        assert!(md.contains("| `dots` | boolean | no | Dots. |"), "{md}");
+        assert!(md.contains("**`stated`** (number): Stated."), "{md}");
     }
 }
