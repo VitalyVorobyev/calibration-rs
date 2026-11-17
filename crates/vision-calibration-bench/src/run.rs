@@ -1279,8 +1279,7 @@ pub mod tier_b {
         let _ = rh_rig_init(&mut session, None).context("step_rig_init failed")?;
         let rig_init_ms = ms_since(s);
         let s = Instant::now();
-        let rig_stage_output =
-            rh_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
+        let _ = rh_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
         let rig_optimize_ms = ms_since(s);
         let s = Instant::now();
         let _ = rh_handeye_init(&mut session, None).context("step_handeye_init failed")?;
@@ -1363,14 +1362,15 @@ pub mod tier_b {
         };
 
         // Hierarchical report: Intrinsic floor (free per-(cam,view) PnP) +
-        // Handeye level (board pose through the robot + hand-eye chain).
-        let rig_stage = RigStageReprojection::new(
-            rig_stage_output.cam_se3_rig,
-            rig_stage_output.rig_se3_target,
-        );
+        // RigExtrinsic level (the rig stage's own cameras, extrinsics and
+        // target poses) + Handeye level (board pose through the robot +
+        // hand-eye chain).
+        let rig_stage = RigStageReprojection::from_session(&session).ok();
         let (reproj_report, residual_sidecar) = split_reproj_report(
             entry,
-            rig_handeye_report_with_rig_stage(&export, &dataset_for_report, &rig_stage).ok(),
+            rig_stage.and_then(|rig_stage| {
+                rig_handeye_report_with_rig_stage(&export, &dataset_for_report, &rig_stage).ok()
+            }),
         );
         // The robot error the corrections were weighed with: the estimate
         // when the solve made one, else the configured prior (the export

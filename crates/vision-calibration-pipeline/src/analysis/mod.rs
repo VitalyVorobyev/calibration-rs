@@ -96,7 +96,8 @@ use crate::Error;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
 use crate::rig_family::rig_camera_models;
-use crate::rig_handeye::RigHandeyeExport;
+use crate::rig_handeye::{RigHandeyeExport, RigHandeyeProblem};
+use crate::session::CalibrationSession;
 use crate::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeView};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -310,12 +311,18 @@ impl ReprojReport {
     }
 }
 
-/// Rig-stage poses used to evaluate a rig-hand-eye solve before the robot /
-/// hand-eye chain constrains the target pose.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The rig stage of a rig-hand-eye solve, used to evaluate it before the
+/// robot / hand-eye chain constrains the target pose.
+///
+/// All three parts come from the rig bundle adjustment: the hand-eye BA may
+/// refine the cameras further, and the rig-stage target poses are consistent
+/// only with the rig stage's own cameras.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 #[doc(hidden)]
 pub struct RigStageReprojection {
+    /// Per-camera parameters from rig BA, each in its camera's model.
+    pub cameras: Vec<CameraParams>,
     /// Per-camera extrinsics `cam_se3_rig` (`T_C_R`) from rig BA.
     pub cam_se3_rig: Vec<Iso3>,
     /// Per-view target poses `rig_se3_target` (`T_R_T`) from rig BA.
@@ -323,11 +330,34 @@ pub struct RigStageReprojection {
 }
 impl RigStageReprojection {
     /// A [`RigStageReprojection`] with the given fields.
-    pub fn new(cam_se3_rig: Vec<Iso3>, rig_se3_target: Vec<Iso3>) -> Self {
+    pub fn new(
+        cameras: Vec<CameraParams>,
+        cam_se3_rig: Vec<Iso3>,
+        rig_se3_target: Vec<Iso3>,
+    ) -> Self {
         Self {
+            cameras,
             cam_se3_rig,
             rig_se3_target,
         }
+    }
+
+    /// The rig stage a rig-hand-eye session holds once `step_rig_optimize`
+    /// has run: the cameras, rig extrinsics and target poses of its rig BA.
+    /// The hand-eye stage leaves them in place, so this reads the same before
+    /// and after `step_handeye_optimize`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAvailable`] before `step_rig_optimize`.
+    pub fn from_session(session: &CalibrationSession<RigHandeyeProblem>) -> Result<Self, Error> {
+        let state = &session.state;
+        let missing = || Error::not_available("rig BA results (call step_rig_optimize first)");
+        Ok(Self::new(
+            state.rig.cameras.clone().ok_or_else(missing)?,
+            state.rig_ba_cam_se3_rig.clone().ok_or_else(missing)?,
+            state.rig_ba_rig_se3_target.clone().ok_or_else(missing)?,
+        ))
     }
 }
 
@@ -450,7 +480,9 @@ pub fn rig_extrinsics_report<M>(
 
 /// Build a [`ReprojReport`] for a multi-camera rig hand-eye calibration,
 /// including the rig-BA constrained level before the robot / hand-eye chain is
-/// applied.
+/// applied. That level is evaluated wholly from `rig_stage` — its cameras, rig
+/// extrinsics and target poses — so it reads the rig stage's own fit even when
+/// the hand-eye BA refined the cameras further.
 #[doc(hidden)]
 pub fn rig_handeye_report_with_rig_stage<M>(
     export: &RigHandeyeExport,
@@ -464,7 +496,7 @@ pub fn rig_handeye_report_with_rig_stage<M>(
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
-    let rig_residuals = rig_handeye_rig_stage_residuals(export, dataset, rig_stage)?;
+    let rig_residuals = rig_stage_residuals(dataset, rig_stage)?;
     let rig_level = LevelReport::from_residuals(
         ReprojLevel::RigExtrinsic,
         rig_residuals.clone(),
@@ -819,13 +851,14 @@ fn rig_constrained_residuals<M>(
     Ok(out)
 }
 
-fn rig_handeye_rig_stage_residuals<M>(
-    export: &RigHandeyeExport,
+/// The rig stage's own residuals: its target poses through its rig
+/// extrinsics and its cameras.
+fn rig_stage_residuals<M>(
     dataset: &RigDataset<M>,
     rig_stage: &RigStageReprojection,
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
     compute_rig_target_residuals(
-        &rig_camera_models(&export.cameras)?,
+        &rig_camera_models(&rig_stage.cameras)?,
         dataset,
         &rig_stage.cam_se3_rig,
         &rig_stage.rig_se3_target,
