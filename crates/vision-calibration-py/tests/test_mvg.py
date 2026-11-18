@@ -423,6 +423,15 @@ class MvgTest(unittest.TestCase):
         as_list = [((a[0], a[1]), (b[0], b[1])) for a, b in pairs]
         again = mvg.estimate_homography(as_list, mvg.RansacOptions(thresh=2.0, min_inliers=20))
         self.assertEqual(again.inliers, estimate.inliers)
+        # 20 of the 100 pairs are outliers: an 80 % consensus is the most.
+        enough = mvg.RansacOptions(thresh=2.0, min_inlier_fraction=0.75)
+        robust = mvg.estimate_homography(pairs, enough)
+        self.assertGreaterEqual(len(robust.inliers), 75)
+        self.assertTrue(set(outliers.tolist()).isdisjoint(robust.inliers))
+        with self.assertRaises(RuntimeError):
+            mvg.estimate_homography(pairs, mvg.RansacOptions(thresh=2.0, min_inlier_fraction=0.85))
+        with self.assertRaises(ValueError):
+            mvg.estimate_homography(pairs, mvg.RansacOptions(thresh=2.0, min_inlier_fraction=1.5))
         with self.assertRaises(ValueError):
             mvg.estimate_homography(pairs[:3], mvg.RansacOptions(thresh=2.0))
         with self.assertRaises(ValueError):

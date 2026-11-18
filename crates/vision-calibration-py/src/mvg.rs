@@ -230,6 +230,8 @@ struct RansacPayload {
     thresh: f64,
     max_iters: usize,
     min_inliers: usize,
+    #[serde(default)]
+    min_inlier_fraction: f64,
     confidence: f64,
     seed: u64,
     refit_on_inliers: bool,
@@ -240,6 +242,7 @@ impl From<RansacPayload> for RansacOptions {
         RansacOptions::new(p.thresh)
             .with_max_iters(p.max_iters)
             .with_min_inliers(p.min_inliers)
+            .with_min_inlier_fraction(p.min_inlier_fraction)
             .with_confidence(p.confidence)
             .with_seed(p.seed)
             .with_refit_on_inliers(p.refit_on_inliers)
@@ -894,6 +897,7 @@ pub(crate) fn mvg_defaults(py: Python<'_>) -> PyResult<Py<PyAny>> {
         &serde_json::json!({
             "ransac": {
                 "max_iters": r.max_iters, "min_inliers": r.min_inliers,
+                "min_inlier_fraction": r.min_inlier_fraction,
                 "confidence": r.confidence, "seed": r.seed,
                 "refit_on_inliers": r.refit_on_inliers,
             },

@@ -15,6 +15,11 @@
 //! 2. Intersects each ray with the target plane to get 3D points
 //! 3. Fits a plane to the 3D points via SVD (covariance eigenvector)
 //!
+//! [`LaserlinePlaneSolver::from_views_ransac`] and
+//! [`LaserlinePlaneSolver::from_points_3d_ransac`] replace step 3 by a seeded
+//! RANSAC over the same fit, for points with outliers (stray reflections,
+//! pixels off the stripe).
+//!
 //! The resulting laser plane is parameterized as (n̂, d) where n̂ is the unit
 //! normal vector and d is the signed distance from the camera origin.
 //!
@@ -27,7 +32,8 @@
 use crate::Error;
 use nalgebra::{Point3, UnitVector3, Vector3};
 use vision_calibration_core::{
-    Camera, DistortionModel, IntrinsicsModel, Iso3, ProjectionModel, Pt2, Pt3, Real, SensorModel,
+    Camera, DistortionModel, Estimator, IntrinsicsModel, Iso3, ProjectionModel, Pt2, Pt3,
+    RansacOptions, Real, SensorModel, ransac_fit,
 };
 
 /// Laser line observations for a single view.
@@ -42,7 +48,8 @@ pub struct PlaneFitView {
     pub cam_se3_target: Iso3,
 }
 
-/// Result of linear laser plane estimation.
+/// Result of linear laser plane estimation: the plane `normal · p + distance
+/// = 0` in the camera frame.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LinearPlaneEstimate {
@@ -50,9 +57,13 @@ pub struct LinearPlaneEstimate {
     pub normal: UnitVector3<f64>,
     /// Signed distance from camera origin
     pub distance: f64,
-    /// Indices of inlier observations (all if no outlier rejection)
+    /// Indices of the points the plane was accepted on, ascending: every
+    /// point for the closed-form fits, the RANSAC consensus set for the
+    /// `_ransac` fits. For a fit from views, a point's index is its laser
+    /// pixel's position in the views' pixels taken in order, view by view.
     pub inliers: Vec<usize>,
-    /// Root mean square point-to-plane distance
+    /// Root mean square point-to-plane distance, in the unit of the points,
+    /// over [`inliers`](Self::inliers).
     pub rmse: f64,
 }
 
@@ -74,91 +85,123 @@ impl LaserlinePlaneSolver {
     /// 4. Compute distance as -n̂ · centroid
     ///
     /// Requires at least 3 non-collinear points. Collinearity is detected
-    /// by checking if the smallest eigenvalue is negligibly small compared
-    /// to the second-smallest.
+    /// by checking if the second-smallest eigenvalue is negligibly small
+    /// compared to the largest.
+    ///
+    /// Every point counts: one outlier tilts the plane. For points with
+    /// outliers, [`Self::from_points_3d_ransac`] runs this fit inside a
+    /// seeded RANSAC.
     ///
     /// # Errors
     ///
     /// Returns [`Error::InsufficientData`] if fewer than 3 points are given,
-    /// or [`Error::Singular`] if the point cloud is collinear (smallest
-    /// eigenvalue vanishes) and a unique plane cannot be determined.
+    /// or [`Error::InvalidInput`] if the point cloud is collinear and a
+    /// unique plane cannot be determined.
     pub fn from_points_3d(points_camera: &[Pt3]) -> Result<LinearPlaneEstimate, Error> {
-        if points_camera.len() < 3 {
-            return Err(Error::InsufficientData {
-                need: 3,
-                got: points_camera.len(),
-            });
-        }
-
-        // Use covariance-based approach for numerical stability
+        let (normal, distance) = fit_plane(points_camera.iter())?;
         let n = points_camera.len();
-        // Compute centroid
-        let mut centroid = Vector3::zeros();
-        for pt in points_camera {
-            centroid += pt.coords;
-        }
-        centroid /= n as f64;
-
-        // Build 3x3 covariance matrix of centered points
-        let mut cov = nalgebra::Matrix3::zeros();
-        for pt in points_camera {
-            let centered = pt.coords - centroid;
-            cov += centered * centered.transpose();
-        }
-
-        // Smallest eigenvector of covariance matrix is plane normal
-        let eigen = cov.symmetric_eigen();
-
-        // Sort eigenvalues to identify smallest and second-smallest
-        let mut indexed_eigenvalues: Vec<(usize, f64)> =
-            eigen.eigenvalues.iter().copied().enumerate().collect();
-        indexed_eigenvalues.sort_by(|a, b| a.1.total_cmp(&b.1));
-
-        let (min_idx, min_eigenvalue) = indexed_eigenvalues[0];
-        let (_second_idx, second_eigenvalue) = indexed_eigenvalues[1];
-        let (_max_idx, max_eigenvalue) = indexed_eigenvalues[2];
-
-        // Check for collinearity: points are collinear if the smallest eigenvalue
-        // is negligible AND the second-smallest is significant (i.e., rank 1).
-        // For a proper plane, we expect rank 2: two significant eigenvalues.
-        // For collinear points (rank 1): only one significant eigenvalue.
-        // The ratio of second-smallest to largest should be significant for planes.
-        const RANK_THRESHOLD: f64 = 1e-8;
-        if max_eigenvalue > RANK_THRESHOLD {
-            // Relative threshold: check if points span 2D (plane) or 1D (line)
-            let rank1_ratio = second_eigenvalue / max_eigenvalue;
-            if rank1_ratio < RANK_THRESHOLD {
-                return Err(Error::invalid_input(
-                    "collinear points: cannot fit plane to points along a single line",
-                ));
-            }
-        } else if min_eigenvalue.abs() < RANK_THRESHOLD && second_eigenvalue < RANK_THRESHOLD {
-            // All eigenvalues near zero: degenerate (all points at same location)
-            return Err(Error::invalid_input(
-                "collinear points: cannot fit plane to points along a single line",
-            ));
-        }
-
-        let normal_vec = eigen.eigenvectors.column(min_idx);
-        let normal = UnitVector3::new_normalize(normal_vec.into());
-
-        // Compute signed distance: d = -n · centroid
-        let distance = -normal.dot(&centroid);
-
-        // Compute RMSE
-        let mut sum_sq_dist = 0.0;
-        for pt in points_camera {
-            let dist = normal.dot(&pt.coords) + distance;
-            sum_sq_dist += dist * dist;
-        }
-        let rmse = (sum_sq_dist / n as f64).sqrt();
-
+        let sum_sq_dist: f64 = points_camera
+            .iter()
+            .map(|pt| {
+                let dist = normal.dot(&pt.coords) + distance;
+                dist * dist
+            })
+            .sum();
         Ok(LinearPlaneEstimate {
             normal,
             distance,
             inliers: (0..n).collect(),
-            rmse,
+            rmse: (sum_sq_dist / n as f64).sqrt(),
         })
+    }
+
+    /// Estimate laser plane from 3D points with outliers by seeded RANSAC
+    /// over the fit of [`Self::from_points_3d`].
+    ///
+    /// Each iteration fits a plane to 3 sampled points and counts as inliers
+    /// the points within `opts.thresh` of it; the residual is the
+    /// point-to-plane distance in the unit of the points (meters for points
+    /// from a calibration in meters). The options set the rest of the
+    /// policy:
+    ///
+    /// - `max_iters` caps the iterations and `confidence` stops them early
+    ///   once an all-inlier sample is that likely to have been drawn;
+    /// - `min_inliers` and `min_inlier_fraction` (a share of all the
+    ///   points) are what a plane needs to be accepted;
+    /// - `refit_on_inliers` refits each candidate on its inliers with the
+    ///   closed-form fit and rescores it; without it the plane is the one
+    ///   through the best 3-point sample;
+    /// - `seed` makes the run reproducible: the same points and options
+    ///   give the same plane.
+    ///
+    /// The estimate's `inliers` are the consensus set and its `rmse` is over
+    /// them.
+    ///
+    /// # Errors
+    ///
+    /// - The options out of range ([`RansacOptions::validate`]).
+    /// - [`Error::InsufficientData`] for fewer than 3 points.
+    /// - [`Error::NoConsensus`] when no plane reaches `min_inliers` and
+    ///   `min_inlier_fraction` within the iterations, as when the outliers
+    ///   outnumber what the options allow.
+    pub fn from_points_3d_ransac(
+        points_camera: &[Pt3],
+        opts: &RansacOptions,
+    ) -> Result<LinearPlaneEstimate, Error> {
+        opts.validate()?;
+        if points_camera.len() < PlaneEstimator::MIN_SAMPLES {
+            return Err(Error::InsufficientData {
+                need: PlaneEstimator::MIN_SAMPLES,
+                got: points_camera.len(),
+            });
+        }
+        let result = ransac_fit::<PlaneEstimator>(points_camera, opts);
+        let Some((normal, distance)) = result.model.filter(|_| result.success) else {
+            log::debug!(
+                "no plane through the {} points has at least {} inliers and an inlier \
+                 fraction of {} within {} in {} RANSAC iterations",
+                points_camera.len(),
+                opts.min_inliers,
+                opts.min_inlier_fraction,
+                opts.thresh,
+                opts.max_iters,
+            );
+            return Err(Error::NoConsensus);
+        };
+        Ok(LinearPlaneEstimate {
+            normal,
+            distance,
+            inliers: result.inliers,
+            rmse: result.inlier_rms,
+        })
+    }
+
+    /// Estimate laser plane from multiple views with known camera poses, by
+    /// seeded RANSAC.
+    ///
+    /// The points are those of [`Self::from_views`], so the same view
+    /// requirements hold; the plane is [`Self::from_points_3d_ransac`] on
+    /// them, which states the options and errors. `opts.min_inlier_fraction`
+    /// is a share of all the reconstructed points, one per laser pixel, and
+    /// the estimate's `inliers` index the pixels taken in order, view by
+    /// view.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`Self::from_views`] and of [`Self::from_points_3d_ransac`].
+    pub fn from_views_ransac<P, D, Sm, K>(
+        views: &[PlaneFitView],
+        camera: &Camera<Real, P, D, Sm, K>,
+        opts: &RansacOptions,
+    ) -> Result<LinearPlaneEstimate, Error>
+    where
+        P: ProjectionModel<Real>,
+        D: DistortionModel<Real>,
+        Sm: SensorModel<Real>,
+        K: IntrinsicsModel<Real>,
+    {
+        opts.validate()?;
+        Self::from_points_3d_ransac(&Self::points_from_views(views, camera)?, opts)
     }
 
     /// Estimate laser plane from multiple views with known camera poses.
@@ -195,29 +238,40 @@ impl LaserlinePlaneSolver {
         Sm: SensorModel<Real>,
         K: IntrinsicsModel<Real>,
     {
+        Self::from_points_3d(&Self::points_from_views(views, camera)?)
+    }
+
+    /// The laser points of `views` in the camera frame, one per pixel, view
+    /// by view, checked as [`Self::from_views`] states (at least 2 views and
+    /// 3 points).
+    fn points_from_views<P, D, Sm, K>(
+        views: &[PlaneFitView],
+        camera: &Camera<Real, P, D, Sm, K>,
+    ) -> Result<Vec<Pt3>, Error>
+    where
+        P: ProjectionModel<Real>,
+        D: DistortionModel<Real>,
+        Sm: SensorModel<Real>,
+        K: IntrinsicsModel<Real>,
+    {
         if views.len() < 2 {
             return Err(Error::InsufficientData {
                 need: 2,
                 got: views.len(),
             });
         }
-
-        // Gather all 3D points from all views
         let mut all_points = Vec::new();
         for view in views {
             let points = Self::compute_3d_points(&view.laser_pixels, camera, &view.cam_se3_target)?;
             all_points.extend(points);
         }
-
         if all_points.len() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,
                 got: all_points.len(),
             });
         }
-
-        // Fit plane to 3D points
-        Self::from_points_3d(&all_points)
+        Ok(all_points)
     }
 
     /// Compute 3D laser points in camera frame from pixel observations.
@@ -271,6 +325,92 @@ impl LaserlinePlaneSolver {
         }
 
         Ok(points_camera)
+    }
+}
+
+/// The plane `normal · p + distance = 0` through `points` by the smallest
+/// eigenvector of their scatter matrix: the one fit behind every
+/// [`LaserlinePlaneSolver`] method, so the closed-form and the RANSAC fits
+/// cannot drift apart. Two passes over `points`, no allocation.
+fn fit_plane<'a>(
+    points: impl Iterator<Item = &'a Pt3> + Clone,
+) -> Result<(UnitVector3<f64>, f64), Error> {
+    let mut n = 0usize;
+    let mut centroid = Vector3::zeros();
+    for pt in points.clone() {
+        centroid += pt.coords;
+        n += 1;
+    }
+    if n < 3 {
+        return Err(Error::InsufficientData { need: 3, got: n });
+    }
+    centroid /= n as f64;
+
+    // Build 3x3 covariance matrix of centered points
+    let mut cov = nalgebra::Matrix3::zeros();
+    for pt in points {
+        let centered = pt.coords - centroid;
+        cov += centered * centered.transpose();
+    }
+
+    // Smallest eigenvector of covariance matrix is plane normal
+    let eigen = cov.symmetric_eigen();
+
+    // Sort eigenvalues to identify smallest and second-smallest
+    let mut indexed_eigenvalues = [0, 1, 2].map(|i| (i, eigen.eigenvalues[i]));
+    indexed_eigenvalues.sort_by(|a, b| a.1.total_cmp(&b.1));
+
+    let (min_idx, min_eigenvalue) = indexed_eigenvalues[0];
+    let (_second_idx, second_eigenvalue) = indexed_eigenvalues[1];
+    let (_max_idx, max_eigenvalue) = indexed_eigenvalues[2];
+
+    // Check for collinearity: points are collinear if the smallest eigenvalue
+    // is negligible AND the second-smallest is significant (i.e., rank 1).
+    // For a proper plane, we expect rank 2: two significant eigenvalues.
+    // For collinear points (rank 1): only one significant eigenvalue.
+    // The ratio of second-smallest to largest should be significant for planes.
+    const RANK_THRESHOLD: f64 = 1e-8;
+    if max_eigenvalue > RANK_THRESHOLD {
+        // Relative threshold: check if points span 2D (plane) or 1D (line)
+        let rank1_ratio = second_eigenvalue / max_eigenvalue;
+        if rank1_ratio < RANK_THRESHOLD {
+            return Err(Error::invalid_input(
+                "collinear points: cannot fit plane to points along a single line",
+            ));
+        }
+    } else if min_eigenvalue.abs() < RANK_THRESHOLD && second_eigenvalue < RANK_THRESHOLD {
+        // All eigenvalues near zero: degenerate (all points at same location)
+        return Err(Error::invalid_input(
+            "collinear points: cannot fit plane to points along a single line",
+        ));
+    }
+
+    let normal_vec = eigen.eigenvectors.column(min_idx);
+    let normal = UnitVector3::new_normalize(normal_vec.into());
+
+    // Compute signed distance: d = -n · centroid
+    let distance = -normal.dot(&centroid);
+
+    Ok((normal, distance))
+}
+
+/// The [`Estimator`] of [`LaserlinePlaneSolver::from_points_3d_ransac`]: a
+/// plane through 3 points, the point-to-plane distance as residual, and the
+/// same fit on the inliers as refit.
+struct PlaneEstimator;
+
+impl Estimator for PlaneEstimator {
+    type Datum = Pt3;
+    type Model = (UnitVector3<f64>, f64);
+
+    const MIN_SAMPLES: usize = 3;
+
+    fn fit(data: &[Pt3], sample_indices: &[usize]) -> Option<Self::Model> {
+        fit_plane(sample_indices.iter().map(|&i| &data[i])).ok()
+    }
+
+    fn residual(model: &Self::Model, datum: &Pt3) -> f64 {
+        (model.0.dot(&datum.coords) + model.1).abs()
     }
 }
 
@@ -433,5 +573,234 @@ mod tests {
         let result = LaserlinePlaneSolver::from_views(&[view1, view2], &camera);
         // This should succeed (may not match ground truth due to simplified setup)
         assert!(result.is_ok(), "from_views should succeed: {:?}", result);
+    }
+
+    // --- Seeded RANSAC fit ------------------------------------------------
+
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    /// The true plane of the RANSAC fixtures: tilted, 0.5 m from the camera.
+    fn ransac_gt() -> (UnitVector3<f64>, f64) {
+        (
+            UnitVector3::new_normalize(Vector3::new(0.25, -0.4, 1.0)),
+            -0.5,
+        )
+    }
+
+    /// `n_in` points within ±0.2 mm of the true plane, then `n_out` points
+    /// 5–50 mm off it on either side, from a seeded generator: the inlier
+    /// fraction is exactly `n_in / (n_in + n_out)` for any threshold in
+    /// (0.2 mm, 5 mm).
+    fn plane_cloud(n_in: usize, n_out: usize, seed: u64) -> Vec<Pt3> {
+        let (normal, distance) = ransac_gt();
+        let n = normal.into_inner();
+        let u = n.cross(&Vector3::x()).normalize();
+        let v = n.cross(&u);
+        let on_plane = -distance * n;
+        let mut rng = StdRng::seed_from_u64(seed);
+        let point = |offset: f64, rng: &mut StdRng| {
+            let a: f64 = rng.random_range(-0.15..0.15);
+            let b: f64 = rng.random_range(-0.10..0.10);
+            Pt3::from(on_plane + a * u + b * v + offset * n)
+        };
+        let mut points: Vec<Pt3> = (0..n_in)
+            .map(|_| {
+                let e: f64 = rng.random_range(-0.2e-3..0.2e-3);
+                point(e, &mut rng)
+            })
+            .collect();
+        for _ in 0..n_out {
+            let off: f64 = rng.random_range(5e-3..50e-3);
+            let sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
+            points.push(point(sign * off, &mut rng));
+        }
+        points
+    }
+
+    fn ransac_opts() -> RansacOptions {
+        RansacOptions::new(1e-3).with_min_inliers(3).with_seed(42)
+    }
+
+    fn angle_to_gt(normal: &UnitVector3<f64>) -> f64 {
+        normal.dot(&ransac_gt().0).abs().min(1.0).acos()
+    }
+
+    /// 70 inliers, 30 outliers: the fraction 0.7 is accepted at and below
+    /// 0.7 and rejected above it, and the accepted plane is the true one
+    /// while the closed-form fit on every point is pulled off it.
+    #[test]
+    fn ransac_plane_passes_and_fails_across_the_inlier_fraction() {
+        let points = plane_cloud(70, 30, 7);
+        for fraction in [0.5, 0.65, 0.7] {
+            let est = LaserlinePlaneSolver::from_points_3d_ransac(
+                &points,
+                &ransac_opts().with_min_inlier_fraction(fraction),
+            )
+            .unwrap_or_else(|e| panic!("fraction {fraction}: {e}"));
+            assert_eq!(
+                est.inliers,
+                (0..70).collect::<Vec<_>>(),
+                "fraction {fraction}"
+            );
+            assert!(
+                angle_to_gt(&est.normal) < 2e-3,
+                "{}",
+                angle_to_gt(&est.normal)
+            );
+            let sign = est.normal.dot(&ransac_gt().0).signum();
+            assert!(
+                (sign * est.distance - ransac_gt().1).abs() < 1e-4,
+                "{}",
+                est.distance
+            );
+            assert!(est.rmse < 0.2e-3, "{}", est.rmse);
+        }
+        for fraction in [0.71, 0.75, 1.0] {
+            let err = LaserlinePlaneSolver::from_points_3d_ransac(
+                &points,
+                &ransac_opts().with_min_inlier_fraction(fraction),
+            )
+            .expect_err("the consensus is 0.7");
+            assert!(matches!(err, Error::NoConsensus), "{err}");
+        }
+        let all = LaserlinePlaneSolver::from_points_3d(&points).unwrap();
+        assert!(
+            all.rmse > 5e-3,
+            "the outliers should spoil the closed-form fit: rmse {}",
+            all.rmse
+        );
+    }
+
+    /// The same points, options and seed give the same plane, bit for bit;
+    /// another seed finds the same consensus.
+    #[test]
+    fn ransac_plane_is_reproducible_for_a_seed() {
+        let points = plane_cloud(70, 30, 7);
+        let opts = ransac_opts().with_min_inlier_fraction(0.6);
+        let a = LaserlinePlaneSolver::from_points_3d_ransac(&points, &opts).unwrap();
+        let b = LaserlinePlaneSolver::from_points_3d_ransac(&points, &opts).unwrap();
+        assert_eq!(a.normal.into_inner(), b.normal.into_inner());
+        assert_eq!(a.distance.to_bits(), b.distance.to_bits());
+        assert_eq!(a.inliers, b.inliers);
+        assert_eq!(a.rmse.to_bits(), b.rmse.to_bits());
+        let c = LaserlinePlaneSolver::from_points_3d_ransac(&points, &opts.with_seed(9)).unwrap();
+        assert_eq!(a.inliers, c.inliers);
+    }
+
+    /// With the refit the plane is the closed-form fit of its consensus set;
+    /// without it, the plane through the best 3-point sample, which passes
+    /// through 3 of the inliers and has the larger RMS on the same set.
+    #[test]
+    fn disabling_the_refit_keeps_the_sample_plane() {
+        let points = plane_cloud(70, 30, 7);
+        let opts = ransac_opts().with_min_inlier_fraction(0.6);
+        let refit = LaserlinePlaneSolver::from_points_3d_ransac(&points, &opts).unwrap();
+        let sample = LaserlinePlaneSolver::from_points_3d_ransac(
+            &points,
+            &opts.with_refit_on_inliers(false),
+        )
+        .unwrap();
+        assert_eq!(refit.inliers, sample.inliers);
+
+        let inlier_points: Vec<Pt3> = refit.inliers.iter().map(|&i| points[i]).collect();
+        let closed_form = LaserlinePlaneSolver::from_points_3d(&inlier_points).unwrap();
+        let same = refit.normal.dot(&closed_form.normal);
+        assert!(same.abs() > 1.0 - 1e-12);
+        assert!((refit.distance - same.signum() * closed_form.distance).abs() < 1e-12);
+
+        let on_sample_plane = inlier_points
+            .iter()
+            .filter(|p| (sample.normal.dot(&p.coords) + sample.distance).abs() < 1e-12)
+            .count();
+        assert!(on_sample_plane >= 3, "{on_sample_plane}");
+        assert!(refit.normal.dot(&sample.normal).abs() < 1.0 - 1e-12);
+        assert!(
+            refit.rmse < sample.rmse,
+            "{} vs {}",
+            refit.rmse,
+            sample.rmse
+        );
+    }
+
+    #[test]
+    fn ransac_plane_rejects_bad_options_and_too_few_points() {
+        let points = plane_cloud(10, 0, 1);
+        for bad in [
+            RansacOptions::new(0.0),
+            RansacOptions::new(1e-3).with_min_inlier_fraction(1.5),
+        ] {
+            let err = LaserlinePlaneSolver::from_points_3d_ransac(&points, &bad).unwrap_err();
+            assert!(matches!(err, Error::Core(_)), "{err}");
+        }
+        let err =
+            LaserlinePlaneSolver::from_points_3d_ransac(&points[..2], &ransac_opts()).unwrap_err();
+        assert!(
+            matches!(err, Error::InsufficientData { need: 3, got: 2 }),
+            "{err}"
+        );
+    }
+
+    /// From views: stripes of a known plane on tilted boards plus stray
+    /// pixels off the stripe. The RANSAC fit recovers the plane and drops
+    /// exactly the stray pixels, indexed view by view.
+    #[test]
+    fn from_views_ransac_drops_stray_pixels() {
+        use vision_calibration_core::synthetic::laser::{BoardExtent, laser_stripe_pixels};
+        use vision_calibration_core::synthetic::noise::UniformPixelNoise;
+        use vision_calibration_core::synthetic::poses::{BoardPoseSpec, centered_board_poses};
+
+        let camera = make_test_camera();
+        // 16.7° about y, crossing the optical axis at 0.5 m.
+        let normal = Vector3::new(0.30, 0.0, 1.0).normalize();
+        let distance = -normal.z * 0.5;
+        let board = BoardExtent::from_grid(9, 7, 0.03);
+        let specs = [
+            BoardPoseSpec::new(0.12, -0.05, 0.35, -0.012),
+            BoardPoseSpec::new(-0.10, 0.09, -0.40, 0.010),
+            BoardPoseSpec::new(0.06, 0.14, 0.60, 0.014),
+        ];
+        let poses = centered_board_poses(&specs, (0.12, 0.09), 0.5);
+        let no_noise = UniformPixelNoise::default();
+        let mut stray = Vec::new();
+        let mut offset = 0;
+        let views: Vec<PlaneFitView> = poses
+            .iter()
+            .enumerate()
+            .map(|(i, pose)| {
+                let mut pixels =
+                    laser_stripe_pixels(&camera, pose, &normal, distance, &board, i, &no_noise);
+                assert!(pixels.len() > 10, "view {i}: stripe off the board");
+                // Two stray pixels per view, 40 px off the stripe's middle.
+                let mid = pixels[pixels.len() / 2];
+                for dx in [40.0, -40.0] {
+                    stray.push(offset + pixels.len());
+                    pixels.push(Pt2::new(mid.x + dx, mid.y));
+                }
+                offset += pixels.len();
+                PlaneFitView {
+                    laser_pixels: pixels,
+                    cam_se3_target: *pose,
+                }
+            })
+            .collect();
+
+        let opts = RansacOptions::new(1e-4).with_min_inlier_fraction(0.9);
+        let est = LaserlinePlaneSolver::from_views_ransac(&views, &camera, &opts).unwrap();
+        let expected: Vec<usize> = (0..offset).filter(|i| !stray.contains(i)).collect();
+        assert_eq!(est.inliers, expected);
+        let same = est.normal.dot(&normal);
+        assert!(same.abs() > 1.0 - 1e-9, "{same}");
+        assert!(
+            (same.signum() * est.distance - distance).abs() < 1e-6,
+            "{}",
+            est.distance
+        );
+
+        let all = LaserlinePlaneSolver::from_views(&views, &camera).unwrap();
+        assert!(
+            all.rmse > 1e-3,
+            "the stray pixels should spoil the closed-form fit: rmse {}",
+            all.rmse
+        );
     }
 }

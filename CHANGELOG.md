@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without origin dots is rejected before detection. Plain boards may leave out `marker_ring_width_m`, which
   they ignore. Photometric centres work on plain markers. Existing manifests,
   configs and their detection-cache entries are unchanged.
+- A robust laser-plane fit. `LaserlinePlaneSolver::from_views_ransac` and
+  `from_points_3d_ransac` fit the plane by seeded RANSAC over the same
+  closed-form fit, with a metric inlier threshold, an iteration cap, a
+  confidence, a minimum inlier count and fraction, an optional refit on the
+  inliers and a seed; the estimate lists the inlier indices. A fitted plane
+  can seed a laser workflow through its manual initialization.
+- `RansacOptions::min_inlier_fraction` (with `with_min_inlier_fraction`, and
+  `min_inlier_fraction` on the Python `RansacOptions`): the share of all the
+  data, in `[0, 1]`, a model's inliers must reach to be accepted, alongside
+  `min_inliers`. Every RANSAC-based estimator honours it; the default `0`
+  keeps results unchanged.
 
 ### Changed
 

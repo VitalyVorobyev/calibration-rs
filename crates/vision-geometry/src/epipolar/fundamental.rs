@@ -238,7 +238,8 @@ pub struct FundamentalEstimate {
 /// [`GeometryError::InvalidInput`] if `opts.thresh` is not finite and
 /// positive, [`GeometryError::InsufficientData`] for fewer than 8
 /// correspondences, [`GeometryError::CountMismatch`] for unequal slices and
-/// [`GeometryError::NoConsensus`] if no model reaches `opts.min_inliers`.
+/// [`GeometryError::NoConsensus`] if no model reaches `opts.min_inliers` and
+/// `opts.min_inlier_fraction`.
 pub fn fundamental_8point_ransac(
     pts1: &[Pt2],
     pts2: &[Pt2],

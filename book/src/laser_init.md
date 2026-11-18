@@ -11,7 +11,7 @@ In laser triangulation, a laser line is projected onto the scene and a camera ob
 
 **Find**: Laser plane $(\hat{\mathbf{n}}, d)$ in the camera frame, where $\hat{\mathbf{n}}$ is the unit normal and $d$ is the signed distance from the camera origin:
 
-$$\hat{\mathbf{n}}^T \mathbf{P} = d$$
+$$\hat{\mathbf{n}}^T \mathbf{P} + d = 0$$
 
 for all 3D points $\mathbf{P}$ on the laser plane (in camera coordinates).
 
@@ -37,7 +37,7 @@ Given $N$ 3D points $\{\mathbf{P}_i\}$ on the laser plane:
 3. **Covariance matrix**: $C = \sum \mathbf{Q}_i \mathbf{Q}_i^T$
 4. **SVD**: $C = U \Sigma V^T$
 5. **Normal**: $\hat{\mathbf{n}}$ is the eigenvector corresponding to the smallest singular value (last column of $V$)
-6. **Distance**: $d = \hat{\mathbf{n}}^T \bar{\mathbf{P}}$
+6. **Distance**: $d = -\hat{\mathbf{n}}^T \bar{\mathbf{P}}$
 
 ### Degeneracy Detection
 
@@ -46,6 +46,20 @@ If all 3D points are nearly collinear (e.g., because all views have the same tar
 $$\frac{\sigma_2}{\sigma_1} < \epsilon$$
 
 If the points are too close to collinear, the plane fit fails with an error.
+
+### Robust Fit
+
+The SVD fit weighs every point: a stray reflection or a pixel picked off the
+stripe tilts the plane. `from_views_ransac` and `from_points_3d_ransac` run the
+same fit inside a seeded [RANSAC](ransac.md) instead: each iteration fits a
+plane to 3 sampled points, the inliers are the points within `thresh` of it
+(the point-to-plane distance, in the unit of the points), and the plane with
+the largest consensus wins. With `refit_on_inliers` each candidate is refit on
+its inliers by the SVD fit above and rescored; without it the plane is the one
+through the best 3-point sample. A plane is accepted only when its inliers
+reach both `min_inliers` and `min_inlier_fraction`, the share of **all** the
+points (one per laser pixel for a fit from views); otherwise the fit returns
+an error rather than a plane fitted to the outliers.
 
 ## Plane Representation for Optimization
 
@@ -68,6 +82,8 @@ Typical accuracy: 1-5° normal direction error, 5-20% distance error. Refined in
 
 ## API
 
+The closed-form fit from views:
+
 ```rust,no_run
 use vision_calibration::core::{Iso3, PinholeCamera, Pt2};
 use vision_calibration::init::{LaserlinePlaneSolver, PlaneFitView};
@@ -88,6 +104,96 @@ let plane = LaserlinePlaneSolver::from_views(&views, &camera)?;
 // plane.normal: UnitVector3<f64> (unit normal in camera frame)
 // plane.distance: f64 (signed distance from camera origin)
 // plane.rmse: f64 (fit residual)
+# Ok(())
+# }
+```
+
+The robust fit takes `RansacOptions`: the threshold (meters here), the
+iteration cap, the confidence, the minimum inlier count and fraction, the
+refit and the seed. The same points and options give the same plane, and the
+estimate lists the inliers by index. Here 70 points lie on the plane
+$z = 0.5 + 0.3x$ and 30 lie 10 mm off it:
+
+```rust
+use vision_calibration::core::Pt3;
+use vision_calibration::init::LaserlinePlaneSolver;
+use vision_calibration::mvg::RansacOptions;
+# fn main() -> anyhow::Result<()> {
+let mut points: Vec<Pt3> = (0..70)
+    .map(|i| {
+        let (x, y) = ((i % 10) as f64 * 0.02, (i / 10) as f64 * 0.02);
+        Pt3::new(x, y, 0.5 + 0.3 * x)
+    })
+    .collect();
+points.extend((0..30).map(|i| {
+    let (x, y) = ((i % 10) as f64 * 0.02, (i / 10) as f64 * 0.03);
+    Pt3::new(x, y, 0.51 + 0.3 * x)
+}));
+
+let opts = RansacOptions::new(1e-3) // inlier within 1 mm of the plane
+    .with_max_iters(500)
+    .with_confidence(0.999)
+    .with_min_inliers(20)
+    .with_min_inlier_fraction(0.6) // of all 100 points
+    .with_refit_on_inliers(true)
+    .with_seed(7);
+let plane = LaserlinePlaneSolver::from_points_3d_ransac(&points, &opts)?;
+assert_eq!(plane.inliers, (0..70).collect::<Vec<_>>());
+assert!(plane.rmse < 1e-9);
+
+// A policy the data cannot meet is an error, not a plane through outliers.
+let strict = opts.clone().with_min_inlier_fraction(0.8);
+assert!(LaserlinePlaneSolver::from_points_3d_ransac(&points, &strict).is_err());
+# Ok(())
+# }
+```
+
+`LaserlinePlaneSolver::from_views_ransac(&views, &camera, &opts)` is the same
+fit on the points of the views; its `inliers` index the laser pixels taken
+in order, view by view.
+
+### Seeding a Workflow
+
+The laser workflows initialize the plane with the closed-form fit. To start
+one from the robust fit instead, fit each camera's plane and pass it as the
+manual seed; for a rig:
+
+```rust,no_run
+use vision_calibration::core::LaserPlane;
+use vision_calibration::init::{LaserlinePlaneSolver, PlaneFitView};
+use vision_calibration::mvg::RansacOptions;
+use vision_calibration::rig_laserline_device::{
+    PlaneManualInit, RigLaserlineDeviceProblem, step_init_with_seed, step_optimize,
+};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session: CalibrationSession<RigLaserlineDeviceProblem> =
+#     unimplemented!("a session with its input set");
+let opts = RansacOptions::new(0.5e-3).with_min_inlier_fraction(0.8).with_seed(1);
+let input = session.require_input()?.clone();
+let mut planes = Vec::new();
+for cam in 0..input.dataset.num_cameras {
+    let camera = input.upstream.cameras[cam].build()?;
+    let views: Vec<PlaneFitView> = input
+        .dataset
+        .views
+        .iter()
+        .zip(&input.upstream.rig_se3_target)
+        .filter_map(|(view, rig_se3_target)| {
+            let pixels = view.laser_pixels[cam].clone()?;
+            Some(PlaneFitView {
+                laser_pixels: pixels,
+                cam_se3_target: input.upstream.cam_se3_rig[cam] * rig_se3_target,
+            })
+        })
+        .collect();
+    let fit = LaserlinePlaneSolver::from_views_ransac(&views, &camera, &opts)?;
+    planes.push(LaserPlane::new(fit.normal.into_inner(), fit.distance)?);
+}
+let mut seed = PlaneManualInit::default();
+seed.laser_planes_cam = Some(planes);
+step_init_with_seed(&mut session, seed, None)?;
+step_optimize(&mut session, None)?;
 # Ok(())
 # }
 ```

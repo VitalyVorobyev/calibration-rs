@@ -3517,6 +3517,7 @@ dependencies = [
  "criterion",
  "log",
  "nalgebra 0.34.2",
+ "rand 0.10.4",
  "schemars",
  "serde",
  "serde_json",

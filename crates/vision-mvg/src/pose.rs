@@ -80,8 +80,9 @@ pub struct PoseOptions {
     /// RANSAC over the observations of the initializing camera (the one with
     /// the most). `thresh` is in σ of the stated noise: the Mahalanobis
     /// reprojection distance, `3.0` keeps about 99.7 % of the inliers
-    /// whatever the focal length or camera model. `None`: every observation
-    /// is an inlier.
+    /// whatever the focal length or camera model; `min_inlier_fraction` is a
+    /// share of that camera's observations. `None`: every observation is an
+    /// inlier.
     pub ransac: Option<RansacOptions>,
     /// Robust loss of the refinement, its scale in σ units (the residuals are
     /// whitened by their stated noise). The covariance takes the residuals
