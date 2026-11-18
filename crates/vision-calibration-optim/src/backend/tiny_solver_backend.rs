@@ -19,6 +19,7 @@ use tiny_solver::manifold::se3::SE3Manifold;
 use tiny_solver::manifold::so3::QuaternionManifold;
 use tiny_solver::parameter_block::ParameterBlock;
 use tiny_solver::problem::{Problem, SymbolicStructure};
+use tiny_solver::{GaussNewtonOptimizer, Optimizer};
 
 /// tiny-solver backend adapter.
 #[derive(Debug, Clone, Copy)]
@@ -207,6 +208,12 @@ const PROBE_CHUNK: usize = 256;
 /// blocks spread over threads, and sums each chunk's share in chunk order,
 /// so a result does not depend on the thread count. Losses and bounds do not
 /// apply: the residuals are raw, and a step is not clamped.
+///
+/// tiny-solver's `Problem::compute_residuals` gives the same residuals, but
+/// per call it looks each block up by name and clones its values for every
+/// residual block: one call per step made the prediction 5–6× slower on the
+/// regression suite's rigs (2–2.5× with the steps spread over threads), so
+/// the factors are evaluated here, over buffers reused across the steps.
 pub(crate) struct ResidualProbe<'ir> {
     ir: &'ir ProblemIR,
     /// Per IR block, the tiny-solver block at the solution (with its
@@ -470,9 +477,15 @@ impl LinearizationEngine for TinySolverEngine<'_> {
             .compute_residual_and_jacobian(x, &self.col_idx, symbolic)
     }
 
+    /// tiny-solver's own step, the inverse of the column layout of
+    /// `get_variable_name_to_col_idx_dict`: each block's tangent step through
+    /// `ParameterBlock::plus_f64` (a Euclidean block's fixed components
+    /// skipped), then `ParameterBlock::update_params`, which clamps the bounds
+    /// and restores the fixed values. It is a provided method of tiny-solver's
+    /// `Optimizer` trait, called on its stateless Gauss-Newton optimizer.
     fn retract(&self, x: &Self::State, dx: &DVector<f64>) -> Self::State {
         let mut out = x.clone();
-        apply_dx(dx, &mut out, &self.col_idx);
+        GaussNewtonOptimizer::new().apply_dx2(dx, &mut out, &self.col_idx);
         out
     }
 
@@ -522,38 +535,6 @@ fn total_variable_dimension(
             }
         })
         .sum()
-}
-
-fn apply_dx(
-    dx: &DVector<f64>,
-    params: &mut HashMap<String, ParameterBlock>,
-    variable_name_to_col_idx_dict: &HashMap<String, usize>,
-) {
-    params.iter_mut().for_each(|(key, param)| {
-        if let Some(col_idx) = variable_name_to_col_idx_dict.get(key) {
-            let tangent_size = param.tangent_size();
-            let effective_size = if param.manifold.is_some() {
-                tangent_size
-            } else {
-                tangent_size - param.fixed_variables.len()
-            };
-
-            let dx_reduced = dx.rows(*col_idx, effective_size);
-            let mut dx_full = DVector::zeros(tangent_size);
-            if param.manifold.is_some() {
-                dx_full.copy_from(&dx_reduced);
-            } else {
-                let mut reduced_idx = 0;
-                for i in 0..tangent_size {
-                    if !param.fixed_variables.contains(&i) {
-                        dx_full[i] = dx_reduced[reduced_idx];
-                        reduced_idx += 1;
-                    }
-                }
-            }
-            param.update_params(param.plus_f64(dx_full.rows(0, tangent_size)));
-        }
-    });
 }
 
 fn params_from_blocks(

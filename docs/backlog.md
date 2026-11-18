@@ -436,15 +436,22 @@ Design: ADR 0014; developer guide: `app/DEVELOPING.md`.
   (0.19.0 carries the rest): a sphere manifold; the nalgebra 0.35 / faer
   0.24 bump; the sort-free symbolic structure (Jacobian pattern by counting
   sort, values scattered in place — `Problem::build_symbolic_structure`
-  still argsorts the triplets); and a true SE(3) exponential map. Its
-  `SE3Manifold` retracts with a "fake exp" (rotation and translation
-  stepped separately, `x·(Exp(ω), v)`, no `V(ω)`), while factrs 0.3 uses
-  the true SE(3) exp, so the two backends agree only to first order; the
-  true exp makes them agree to second order. On release: replace
-  `backend/s2.rs` with the upstream sphere manifold, rerun `calib-bench
-  solver` for the symbolic structure, and see NALGEBRA-035; adopting the
-  true SE(3) exp changes results slightly, so measure it on both backends
-  (`calib-bench suite check`, the solver benchmark) first.
+  still argsorts the triplets); a true SE(3) exponential map; and a
+  residual evaluation that borrows the block values. Its `SE3Manifold`
+  retracts with a "fake exp" (rotation and translation stepped separately,
+  `x·(Exp(ω), v)`, no `V(ω)`), while factrs 0.3 uses the true SE(3) exp, so
+  the two backends agree only to first order; the true exp makes them agree
+  to second order. `ResidualBlock::residual` clones the block values and
+  `Problem::compute_residuals` looks every block up by name, so the
+  second-order `ResidualProbe` keeps its own threaded evaluator (one
+  `compute_residuals` call per step measured 5–6× slower on the regression
+  suite's rigs, 2–2.5× with the steps spread over threads). On release:
+  replace `UnitVector3Manifold` (`backend/tiny_solver_manifolds.rs`) with
+  the upstream sphere manifold, rerun `calib-bench solver` for the symbolic
+  structure, move the probe onto upstream evaluation if it is no slower,
+  and see NALGEBRA-035; adopting the true SE(3) exp changes results
+  slightly, so measure it on both backends (`calib-bench suite check`, the
+  solver benchmark) first.
 - [~] O-FACTRS-PARALLEL - Parallel linearization for factrs: rpl-cmu/fact-rs
   #56 is merged but unreleased (the release is breaking, so 0.4.0). Expected
   ~3.9× over serial factrs on 12 threads, bit-identical.
