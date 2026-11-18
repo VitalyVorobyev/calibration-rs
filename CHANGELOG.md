@@ -53,6 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - With `center_method = "photometric"`, far more plain markers keep a
     photometric centre, so plain boards return more features.
 
+### Fixed
+
+- The book, the READMEs and the API-reference link now match the code: the
+  manifold retractions (a pose step is `T·exp(ξ)`, the unit-sphere step is
+  its exponential map), the six residual families and their parameter-block
+  names, the solver's stopping rules, the per-stage robust-loss defaults and
+  the crate graph. The published API reference opens at
+  `api/vision_calibration/`. The Python example for selecting the factrs
+  backend keeps the workflow's iteration budget.
+
 ## [1.0.0-rc.1] - 2026-11-15
 
 ### Migration

@@ -5,15 +5,15 @@ This chapter is for contributors working inside `vision-calibration-optim`: it w
 ## Overview
 
 Most new problems compose the **existing** factor families (`ReprojPoint`,
-`LaserPointToPlane`, `LaserLineDistance`, `Se3TangentPrior`) with a
-`CameraModelSpec` and a chain — in that case skip straight to Step 3 and emit
-the existing factors from your builder. The steps below cover the rarer case
-of a genuinely **new residual family**:
+`ReprojFreePoint`, `LaserPointToPlane`, `LaserLineDistance`,
+`Se3TangentPrior`) with a `CameraModelSpec` and a chain — in that case skip
+straight to Step 3 and emit the existing factors from your builder. The steps
+below cover the rarer case of a genuinely **new residual family**:
 
 1. Define the generic residual function in `factors/`
 2. Add a `FactorKind` variant in `ir/types.rs`
 3. Create a problem builder in `problems/`
-4. Integrate with both backends (`backend/tiny_solver_backend.rs` and `backend/factrs_backend/`)
+4. Integrate with both backends (`backend/tiny_solver_backend.rs` and `backend/factrs_backend/`) and the covariance family map (`backend/covariance.rs`)
 5. Write tests with synthetic ground truth
 
 (Adding a new **camera model** is a different, smaller recipe: a variant of
@@ -30,13 +30,13 @@ pub fn my_residual_generic<T: RealField>(
     param_a: DVectorView<'_, T>,  // optimizable parameters
     param_b: DVectorView<'_, T>,
     constant_data: [f64; 3],      // per-residual constants (f64, not T)
-    w: f64,                        // weight
+    w: f64,                        // square-root weight
 ) -> SVector<T, 2> {              // residual dimension
     // Convert constants to T
     let cx = T::from_f64(constant_data[0]).unwrap();
 
     // Compute residual using param_a, param_b, cx
-    // Use .clone() liberally, avoid in-place ops
+    // (RealField is not Copy: clone a value you use twice)
     let r_x = /* ... */;
     let r_y = /* ... */;
 
@@ -49,7 +49,7 @@ pub fn my_residual_generic<T: RealField>(
 - Generic over `T: RealField` for autodiff
 - Optimizable parameters as `DVectorView<'_, T>`
 - Constants as `f64` (converted inside)
-- Use `.clone()`, no in-place mutation
+- `.clone()` a value used more than once
 - Return `SVector<T, N>` for fixed residual dimension
 
 ## Step 2: FactorKind Variant
@@ -185,7 +185,10 @@ residual and Jacobian.
 
 ## Step 5: Tests
 
-Write a test with synthetic ground truth in `crates/vision-calibration-optim/tests/`:
+The IR, the builder and `backend::solve` are crate-private, so the test is a
+unit test inside the crate: add a module under
+`crates/vision-calibration-optim/src/tests/` (next to `ir_scheimpflug.rs` and
+`ir_distortion_models.rs`) and run it on both backends:
 
 ```rust,ignore
 #[test]
@@ -213,8 +216,8 @@ fn my_problem_converges() {
 ## Checklist
 
 - [ ] Generic residual function with `T: RealField`
-- [ ] `FactorKind` variant with validation
+- [ ] `FactorKind` variant with its `param_layout()`, `residual_dim()` and `name()` arms
 - [ ] Problem builder producing `ProblemIR` + initial values
-- [ ] Backend compilation for the new factor
+- [ ] Backend compilation for the new factor (both backends), the cross-backend parity case and the covariance family arm
 - [ ] Synthetic ground truth test verifying convergence
 - [ ] (Optional) Pipeline integration with session framework

@@ -40,22 +40,19 @@ JSON config:
 Python:
 
 ```python
-config = vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(backend="factrs"))
+config = vc.PlanarIntrinsicsConfig(
+    solver=vc.SolverConfig(backend="factrs", max_iters=120),
+)
 ```
+
+A `SolverConfig` replaces the whole solver group, so pass the workflow's
+`max_iters` with it: `vc.SolverConfig()` alone has `max_iters=50`, while
+planar intrinsics defaults to 120.
 
 In the desktop app, the backend is a field of the solver group of each
 config form. The joint rig, hand-eye and laser workflow embeds two other
 configs and has a solver group for each of them as well as its own, each with
 its own backend.
-
-In code, set it on the config's solver group:
-
-```rust
-# use vision_calibration::optim::SolverBackend;
-# use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
-let mut config = PlanarIntrinsicsConfig::default();
-config.solver.backend = SolverBackend::Factrs;
-```
 
 ## The Levenberg–Marquardt Loop
 
@@ -89,13 +86,20 @@ where $\rho_i$ is the residual block's loss ($\rho(s) = s$ without one; see
    $\max(1/3,\, 1 - (2\varrho - 1)^3)$; a rejected one doubles $\lambda$ and
    retries, up to 32 times.
 
-The loop stops when $F$ falls below `min_error`, when its absolute or
-relative decrease falls below `min_abs_decrease` / `min_rel_decrease`, when
-a step can no longer change the parameters
-($\lVert\boldsymbol{\delta}\rVert \le 10^{-8}(\lVert\mathbf{x}\rVert +
-10^{-8})$), when no step is accepted after 32 retries, or after `max_iters`
-iterations. Parameters held fixed never move, and the same input gives
-bit-identical results run to run.
+The loop stops at the first of:
+
+- the cost $2F$ falls below $10^{-10}$;
+- an accepted step decreases $2F$ by less than $10^{-5}$, in absolute terms
+  or relative to its previous value;
+- a step can no longer change the parameters
+  ($\lVert\boldsymbol{\delta}\rVert \le 10^{-8}(\lVert\mathbf{x}\rVert +
+  10^{-8})$);
+- no step is accepted after 32 retries, which is a minimum to working
+  precision;
+- `max_iters` iterations, the one threshold the solver settings set.
+
+Parameters held fixed never move, and the same input gives bit-identical
+results run to run.
 
 ## How the Backends Differ
 
@@ -111,9 +115,11 @@ step up to rounding. With a robust loss they take different steps towards
 the same minimum, so iteration counts can differ.
 
 factrs supports what the calibration problems use. It rejects an IR it
-cannot map, with an `InvalidInput` error: a partially fixed SE(3) or S²
-block, bounds on a non-vector block, or one camera's parameter blocks
-combined differently in two factors.
+cannot map, with an `InvalidInput` error: a residual of your own (see
+[Your Own Residual](custom_residual.md)), which runs on tiny-solver only,
+bounds on a non-vector block, or one camera's parameter blocks combined
+differently in two factors. Both backends reject a partially fixed SE(3),
+SO(3) or S² block.
 
 ## Performance and Quality
 
@@ -157,9 +163,8 @@ application running many calibrations at once.
 
 Each solve stage's `SolverConfig` sets the `backend`, the iteration budget
 `max_iters` and the `verbosity`; the robust loss belongs to the stage's
-optimize group, not the solver (see [Robust Loss Functions](robust_loss.md)). The loop stops when the
-cost decreases by less than 1e-5 in absolute or relative terms, or falls
-below 1e-10.
+optimize group, not the solver (see [Robust Loss Functions](robust_loss.md)). The stopping rules are
+those of [the loop above](#the-levenbergmarquardt-loop).
 
 The damped normal equations are always solved by sparse Cholesky. When the
 factorization fails (the damped $J^TJ$ is not numerically positive
@@ -185,8 +190,7 @@ For a well-initialized planar intrinsics problem:
 
 - **Final cost**: $\sim 10^{-2}$–$10^0$ (sub-pixel residuals)
 - **Iterations**: 5–50 (depends on problem size and initial quality)
-- **Termination**: usually the relative decrease falling below
-  `min_rel_decrease`
+- **Termination**: usually the relative decrease falling below $10^{-5}$
 
 ## Error Handling
 

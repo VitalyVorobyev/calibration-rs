@@ -29,7 +29,7 @@ fn reproj_residual_generic<T: RealField>(
     pose: DVectorView<'_, T>,  // [qx, qy, qz, qw, tx, ty, tz]
     pw: [f64; 3],              // 3D world point (constant)
     uv: [f64; 2],              // observed pixel (constant)
-    w: f64,                    // weight (constant)
+    sqrt_info: [f64; 3],       // [l00, l01, l11] of L = [[l00, l01], [0, l11]] (constant)
 ) -> SVector<T, 2>
 ```
 
@@ -37,19 +37,19 @@ When called with `T = f64`, this computes the residual value. When called with a
 
 ### Design Rules for Autodiff-Compatible Code
 
-1. **Use `.clone()` liberally**: Dual numbers are small structs; cloning is cheap and avoids borrow checker issues with operator overloading.
+1. **Use `.clone()` liberally**: `RealField` is not `Copy`, so a value used twice is cloned. Dual numbers are small structs, so cloning is cheap.
 
-2. **Avoid in-place operations**: Operations like `x += y` or `v[i] = expr` can cause issues with dual number tracking. Prefer functional style.
+2. **Convert constants**: Use `T::from_f64(1.0).unwrap()` to convert floating-point literals. Do not use `1.0` directly where a `T` is expected.
 
-3. **Convert constants**: Use `T::from_f64(1.0).unwrap()` to convert floating-point literals. Do not use `1.0` directly where a `T` is expected.
-
-4. **Constant data as `f64`**: World points, observed pixels, and weights are constant data — not optimized. Keep them as `f64` and convert to `T` inside the function.
+3. **Constant data as `f64`**: World points, observed pixels, and the square-root information are constant data — not optimized. Keep them as `f64` and convert to `T` inside the function.
 
 ## Walkthrough: Reprojection Residual
 
 The core reprojection residual computes:
 
-$$\mathbf{r} = w \cdot \left( \pi(K, \mathbf{d}, T, \mathbf{P}) - \mathbf{p}_{\text{obs}} \right)$$
+$$\mathbf{r} = L \left( \mathbf{p}_{\text{obs}} - \pi(K, \mathbf{d}, T, \mathbf{P}) \right)$$
+
+where $L$ is the upper-triangular square-root information of the observation: $\sqrt{w}\,I$ for a point without a stated covariance, or $L^T L = \Sigma^{-1}$ for a point stating its covariance $\Sigma$ (see the [Factor Catalog](factor_catalog.md)).
 
 Step by step:
 
@@ -68,7 +68,7 @@ let k2 = dist[1].clone();
 
 ### 2. SE(3) Transform: World to Camera
 
-Apply the pose to the 3D world point using the exponential map or direct quaternion rotation:
+Apply the pose block's rotation and translation to the 3D world point:
 
 $$\mathbf{P}_c = R(\mathbf{q}) \cdot \mathbf{P}_w + \mathbf{t}$$
 
@@ -92,8 +92,8 @@ $$v = f_y \cdot y_d + c_y$$
 
 ### 6. Compute Residual
 
-$$r_x = w \cdot (u - u_{\text{obs}})$$
-$$r_y = w \cdot (v - v_{\text{obs}})$$
+$$\mathbf{e} = (u_{\text{obs}} - u,\ v_{\text{obs}} - v)$$
+$$r_x = l_{00}\, e_x + l_{01}\, e_y, \qquad r_y = l_{11}\, e_y$$
 
 Every arithmetic operation on `T` values propagates derivatives automatically through the dual number mechanism.
 
@@ -111,13 +111,13 @@ Both evaluate it with dual numbers to get residuals and Jacobians in one pass. t
 
 ## SE(3) Exponential Map
 
-A critical autodiff-compatible function is `se3_exp<T>()`, which maps a 6D tangent vector to an SE(3) transform:
+A pose block is stored as a quaternion and a translation, so the residual above applies it directly. A residual that reads a 6D se(3) tangent vector instead, such as the per-view robot-pose correction `robot_delta` applied as $T_{B,G} \cdot \exp(\boldsymbol{\xi})$, maps it to a rotation and a translation inside the residual:
 
 ```rust,ignore
-fn se3_exp<T: RealField>(xi: &[T; 6]) -> [[T; 4]; 4]
+fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T>, Vector3<T>)
 ```
 
-This implements Rodrigues' formula with a special case for small angles ($\|\boldsymbol{\omega}\| < \epsilon$) using Taylor expansions to avoid numerical issues with the dual number's infinitesimal part.
+For $\boldsymbol{\xi} = [\boldsymbol{\omega}, \mathbf{v}]$ it returns $\exp([\boldsymbol{\omega}]_\times)$ and $V(\boldsymbol{\omega})\,\mathbf{v}$, the exponential map of [Manifold Optimization](manifolds.md). Below a rotation angle of $10^{-4}$ rad the rotation and the coefficients of $V$ are their Taylor series, exact to working precision there. The closed forms are not differentiable at $\boldsymbol{\omega} = 0$ (an axis-angle conversion returns the identity for a zero vector, so its derivative there is zero), and a correction that starts at zero, as every robot-pose correction does, would otherwise see no rotation Jacobian.
 
 ## Performance Considerations
 

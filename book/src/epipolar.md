@@ -120,7 +120,7 @@ let estimate = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
 # }
 ```
 
-Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`mvg::solvers::essential_5point`) returns multiple candidates and is used directly; the calibrated `mvg::robust::estimate_essential` wraps it in RANSAC on bearings, scoring each match by its covariance-weighted Sampson error: the epipolar constraint over its first-order σ, from the pixels' stated noise (see [Pose Recovery and Triangulation](mvg_pose.md)).
+Among the closed-form epipolar solvers, the 8-point fundamental matrix solver is the one with a RANSAC wrapper of its own. The 5-point essential matrix solver (`mvg::solvers::essential_5point`) returns multiple candidates; `mvg::robust::estimate_essential` wraps it in RANSAC on bearings, scoring each match by its covariance-weighted Sampson error: the epipolar constraint over its first-order σ, from the pixels' stated noise (see [Pose Recovery and Triangulation](mvg_pose.md)). The other robust estimators are `mvg::robust::estimate_homography` for a plane homography and `init::pnp::dlt_ransac` for a camera pose from 3D-2D points.
 
 > **OpenCV equivalence**: `cv::findFundamentalMat` (8-point and 7-point), `cv::findEssentialMat` (5-point with RANSAC).
 

@@ -28,39 +28,8 @@ From Python, install the `vision-calibration` package from PyPI instead.
 
 ```toml
 [dependencies]
-vision-calibration = { version = "1.0.0-rc.1", features = ["synthetic"] }
+vision-calibration = { version = "1.0.0-rc.1", features = ["fetch"] }
 ```
-
-Eight synthetic views of an 8×6 board (40 mm pitch) calibrate a camera:
-
-```rust
-use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, run_calibration};
-use vision_calibration::session::CalibrationSession;
-use vision_calibration::core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
-use vision_calibration::synthetic::{planar, poses};
-
-fn main() -> anyhow::Result<()> {
-    let truth = make_pinhole_camera(
-        FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
-        BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
-    );
-    let board = planar::grid_points(8, 6, 0.04);
-    let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
-    let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
-    let views = planar::project_views_all(&truth, &board, &poses)?;
-    let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
-
-    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-    session.set_input(dataset)?;
-    run_calibration(&mut session)?;
-
-    let export = session.export()?;
-    println!("fx = {:.2} px", export.camera.intrinsics.fx);
-    Ok(())
-}
-```
-
-### On real images
 
 A dataset manifest names the images, the target and the workflow;
 `calibrate_dataset` detects the target and runs the workflow. The `fetch`
@@ -80,6 +49,11 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 ```
+
+The crate documentation opens with a calibration on synthetic data (the
+`synthetic` feature), and the book's
+[Getting Started](https://vitalyvorobyev.github.io/calibration-rs/getting_started.html)
+walks through both, in Rust and Python.
 
 ## Problem Types
 
@@ -102,13 +76,15 @@ options.
 | Module | Description |
 |--------|-------------|
 | `session`, `common` | Session framework (`CalibrationSession`, `ProblemType`) and shared step/config types |
+| `control` | Progress reports and cancellation of a long-running call |
 | `planar_intrinsics` | Single-camera intrinsics (Zhang's method), for any camera model including a Scheimpflug sensor |
 | `single_cam_handeye`, `laserline_device` | Hand-eye and camera + laser plane calibration, for any camera model |
 | `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, `rig_handeye_laserline` | Multi-camera rig workflows |
 | `device_seed`, `dataset_runner` | Device-spec seeding and manifest-driven dataset runs |
 | `dataset`, `detect` | Dataset manifests and target detection |
 | `analysis` | Quality verdict, reprojection reports and per-feature residuals |
-| `core`, `optim` | Math types and camera models; the optimization vocabulary (robust losses, solver backends, projection uncertainty) |
+| `core`, `optim` | Math types and camera models; the optimization vocabulary (robust losses, solver backends, projection uncertainty) and `optim::problem` for a problem of your own |
+| `init` | Closed-form initial values (Zhang, fisheye, PnP, hand-eye, planes) |
 | `mvg` | Two-view solvers and N-view MVG (triangulation, bundle adjustment, rectification, dense stereo) |
 | `synthetic` | Deterministic synthetic data generation (feature `synthetic`) |
 
@@ -121,5 +97,5 @@ the book's workflow chapters walk through them.
 ## See Also
 
 - [Book](https://vitalyvorobyev.github.io/calibration-rs)
-- [API reference](https://vitalyvorobyev.github.io/calibration-rs/api/vision-calibration/index.html)
+- [API reference](https://vitalyvorobyev.github.io/calibration-rs/api/vision_calibration/index.html)
 - [vision-calibration-pipeline](https://crates.io/crates/vision-calibration-pipeline): pipelines and session API

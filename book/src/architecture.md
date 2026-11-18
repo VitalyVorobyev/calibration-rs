@@ -10,15 +10,18 @@ vision-calibration (facade: re-exports everything)
     ├── vision-calibration-pipeline   (sessions, problem types, dataset runner)
     │       ├── vision-calibration-optim     (non-linear optimization)
     │       ├── vision-calibration-linear    (closed-form initialization)
+    │       │       └── vision-geometry
     │       ├── vision-calibration-dataset   (dataset manifest)
     │       ├── vision-calibration-detect    (target detectors, detection cache)
-    │       └── vision-geometry
+    │       └── vision-geometry              (two-view and PnP solvers)
     │
     └── vision-mvg                    (N-view geometry, rectification, dense stereo)
-            └── vision-geometry       (two-view solvers)
+            ├── vision-geometry
+            └── vision-calibration-optim
 
-vision-calibration-core is the base layer: linear, optim, vision-geometry
-and vision-mvg all depend on it.
+vision-calibration-core is the base layer: pipeline, linear, optim,
+vision-geometry and vision-mvg all depend on it. vision-calibration-dataset
+and vision-calibration-detect depend on no other crate of the workspace.
 ```
 
 **Key rule**: `vision-calibration-linear` and `vision-calibration-optim` are peers. They both depend on `vision-calibration-core` but never on each other. This keeps initialization algorithms free of optimization dependencies and vice versa. `vision-calibration-linear` may also use `vision-geometry`; `vision-calibration-pipeline` does not depend on `vision-mvg` (the facade re-exports it directly).

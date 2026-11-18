@@ -139,6 +139,8 @@ print(f"fx={k.fx:.1f}, fy={k.fy:.1f}, cx={k.cx:.1f}, cy={k.cy:.1f}")
 print(f"Mean reprojection error: {result.mean_reproj_error:.4f} px")
 ```
 
+The synthetic data is noise-free, so both programs recover the ground truth almost exactly; on real images expect under 2 % error on the intrinsics and under 1 px mean reprojection error. [Planar Intrinsics Calibration](planar_intrinsics.md) describes what the two steps do.
+
 Real data replaces step 2 in both languages: detect the board corners in each image and pair every corner with its position on the board. [Calibrate Your Own Images](#calibrate-your-own-images) below does that for a folder of images; [Planar Intrinsics with Real Data](planar_real_data.md) shows the detection step by hand.
 
 ### Step by Step in Python
@@ -159,35 +161,11 @@ print(cam.project([0.0, 0.0, 1.0]))        # the principal point
 
 ## Calibrate Your Own Images
 
-A folder of photographs of a calibration board is enough to start. Without code, `vcal init <folder>` and `vcal run <folder>/dataset.toml` do what this section does ([The Command Line](cli.md)). The program below takes three steps. It drafts a *dataset manifest* that describes the folder, waits for you to fill in what only you know, and then detects the board, calibrates and judges the result. It works for any [workflow](choose_workflow.md): the manifest's `topology` picks it.
+A folder of photographs of a calibration board is enough to start. A *dataset manifest* describes it: where the images are, which board is on them, and the workflow to run (its `topology`, any [workflow](choose_workflow.md)). Without code, `vcal init <folder>` drafts the manifest from the file names and `vcal run` calibrates it; [The Command Line](cli.md#a-folder-of-images) walks through both.
 
-### 1. Draft the manifest
+The programs below do the same from code. They draft the manifest when it is missing and stop: what the file names cannot tell, the board above all, is left as a placeholder and listed under `_unresolved`. Describe the board ([Calibration Targets and Detection](detection.md), [The Dataset Manifest](manifest.md)) and delete `_unresolved`; the calibration refuses a manifest with placeholders left. On the next run the program detects the board, calibrates and judges the result.
 
-The folder sniffer reads file and folder names, never image content. It groups images into cameras, finds a robot-pose file if there is one and picks the topology. What it cannot know, the board above all, it leaves as a placeholder and lists under `_unresolved`. For a folder of board images from one camera, the draft is:
-
-```json
-{
-  "version": 1,
-  "topology": "planar_intrinsics",
-  "cameras": [{ "id": "cam0", "images": { "kind": "glob", "pattern": "*.png" } }],
-  "target": { "kind": "chessboard", "rows": 0, "cols": 0, "square_size_m": 0.0 },
-  "_unresolved": ["target"]
-}
-```
-
-### 2. Fill in what only you know
-
-Describe the board and delete `_unresolved`. For a chessboard, `rows` and `cols` count the inner corners, where four squares meet, and `square_size_m` is the measured side of a printed square in metres:
-
-```json
-"target": { "kind": "chessboard", "rows": 7, "cols": 11, "square_size_m": 0.03 }
-```
-
-The calibration refuses a manifest whose `_unresolved` list is not empty, so a placeholder never reaches a result. ChArUco boards, PuzzleBoards and ring grids are described in [Calibration Targets and Detection](detection.md), and robot poses and the other fields in [The Dataset Manifest](manifest.md).
-
-### 3. Calibrate and judge
-
-#### Rust
+### Rust
 
 ```toml
 [dependencies]
@@ -257,7 +235,7 @@ fn main() -> Result<()> {
 cargo run --release -p vision-calibration --example calibrate_folder -- my_board_images 1024 576
 ```
 
-#### Python
+### Python
 
 ```python
 import json
@@ -304,7 +282,7 @@ verdict: warn
   projection_sigma warn projection σ up to 7.065 px over the 1024×576 image (centre 1.665 px, corners 7.065 px)
 ```
 
-Read it from the bottom up. The verdict is `warn`, not `pass`: where a ray lands in the image is uncertain by up to 7 px in the corners, against 1.7 px in the centre. The views did not cover the image corners well enough to pin the focal length down to better than about 1 % (σ(fx) ≈ 7.7 px). More views with the board near the corners and tilted would shrink it; [Planning the Next View](uncertainty_next_view.md) ranks candidate poses by how much each would help. The variance check is not applicable until you state the detector's noise (`expected_feature_noise_px`). [Judging a Result](quality.md) explains every check, and [Reading the Covariance](uncertainty_reading.md) the σ.
+The verdict is `warn`: the views did not cover the image corners, so a ray's landing point is uncertain by up to 7 px there and the focal length by about 1 %. [Capturing Calibration Images](capture.md) says which views fix that, [Judging a Result](quality.md) explains every check, and [Reading the Covariance](uncertainty_reading.md) the σ.
 
 ### No images at hand: a sample dataset
 
@@ -401,34 +379,10 @@ result = vc.planar_intrinsics.run_calibration(dataset, config)
 result = vc.calibrate_dataset("my_board_images/dataset.json", config)  # from a manifest
 ```
 
-## What Happens in Each Step
-
-### Step 1: Linear Initialization
-
-`step_init` (`session.step_init()` in Python; `planar_intrinsics.run_calibration` runs it first):
-
-1. Computes a homography from each view's 2D-3D correspondences using DLT (direct linear transform)
-2. Estimates intrinsics $K$ from the homographies using Zhang's method
-3. Estimates lens distortion coefficients from homography residuals
-4. Iterates steps 2-3 to refine the joint $K$ + distortion estimate
-5. Recovers each view's camera pose from its homography and $K$
-
-After this step, intrinsics are typically within 10-40% of the true values: good enough to start the non-linear optimization.
-
-### Step 2: Bundle Adjustment
-
-`step_optimize` runs Levenberg-Marquardt, minimizing the total reprojection error:
-
-$$\min_{K,\,\mathbf{d},\,\{T_i\}} \sum_{i=1}^{N} \sum_{j=1}^{M_i} \left\| \pi(K, \mathbf{d}, T_i, \mathbf{P}_j) - \mathbf{p}_{ij} \right\|^2$$
-
-where $\pi$ is the camera projection function, $T_i$ is the pose of view $i$, $\mathbf{d}$ are distortion coefficients, $\mathbf{P}_j$ are known 3D board points, and $\mathbf{p}_{ij}$ are observed pixel coordinates.
-
-After optimization, expect under 2% error on intrinsics and under 1 px mean reprojection error on real data. The synthetic data above is noise-free, so both programs recover the ground truth almost exactly.
-
 ## Where to Go Next
 
 - [Stereo Rig with Real Data](stereo_real_data.md): a two-camera rig from detected corners, in under a minute.
-- [Planar Intrinsics Calibration](planar_intrinsics.md): the full mathematical treatment of this workflow.
+- [Planar Intrinsics Calibration](planar_intrinsics.md): what `step_init` and `step_optimize` do, and the mathematics of this workflow.
 - [Parameter Uncertainty](uncertainty.md): every result carries the covariance of its parameters.
 - [Architecture Overview](architecture.md): how the crates fit together.
 - [The Dataset Manifest](manifest.md): every field of the manifest, robot poses and image pairing included.

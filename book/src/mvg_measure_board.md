@@ -47,7 +47,7 @@ The examples keep the measurement in a few functions and print the table below; 
 
 ## The Result
 
-Run on 2026-11-03, library 0.14.0, the sample revision above. 17 calibration views; 14 of the 17 held-out views measured (in three, one camera did not see the whole board). The calibration has a mean reprojection error of 0.280 px and a stated pixel noise σ̂ of 0.217 px in both cameras. Over the 14 views the board's triangulated corners lie 0.43 mm RMS from their best-fit plane. All lengths in millimetres.
+Run on the sample revision above. 17 calibration views; 14 of the 17 held-out views measured (in three, one camera did not see the whole board). The calibration has a mean reprojection error of 0.280 px and a stated pixel noise σ̂ of 0.217 px in both cameras. Over the 14 views the board's triangulated corners lie 0.43 mm RMS from their best-fit plane. All lengths in millimetres.
 
 | squares | pairs | mean error | RMS error | mean σ | z RMS | mean σ, observations only | z RMS, observations only |
 |---|---|---|---|---|---|---|---|

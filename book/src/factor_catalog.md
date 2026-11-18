@@ -10,12 +10,16 @@ three independent axes carried **as data**, not baked into variant names:
    reaches the camera frame and which trailing parameter blocks exist.
 3. **Residual family** (the `FactorKind` variant) — what is measured.
 
+There are six residual families:
+
 ```rust,ignore
 pub enum FactorKind {
     ReprojPoint       { model: CameraModelSpec, chain: ReprojChain, pw: [f64; 3], uv: [f64; 2], sqrt_info: ReprojSqrtInfo },
+    ReprojFreePoint   { model: CameraModelSpec, chain: ReprojChain, uv: [f64; 2], sqrt_info: ReprojSqrtInfo },
     LaserPointToPlane { model: CameraModelSpec, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
     LaserLineDistance { model: CameraModelSpec, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
     Se3TangentPrior   { sqrt_info: [f64; 6], residual_sigma: f64 },
+    Custom(CustomResidual),
 }
 ```
 
@@ -23,8 +27,8 @@ pub enum FactorKind {
 
 ```rust,ignore
 pub struct CameraModelSpec {
-    pub projection: ProjectionKind, // Pinhole
-    pub distortion: DistortionKind, // None | BrownConrady5 | Rational8 | ThinPrism9 | Division1
+    pub projection: ProjectionKind, // Pinhole | Equidistant
+    pub distortion: DistortionKind, // None | BrownConrady5 | Rational8 | ThinPrism9 | Division1 | KannalaBrandt4
     pub sensor: SensorKind,         // Identity | Scheimpflug
 }
 ```
@@ -78,6 +82,15 @@ where `extrinsics` maps camera → rig and `pose` maps target → rig.
 
 **Use case**: multi-camera rig extrinsics.
 
+### `ReprojChain::Rig`
+
+**Chain blocks**: `[cam_se3_rig(7), rig_se3_target(7)]`
+
+$$\mathbf{P}_c = T_{C,R} \cdot T_{R,T} \cdot \mathbf{P}_w$$
+
+**Use case**: a camera of a rig whose pose is given as `cam_se3_rig`, as the
+public problem builder adds it for a calibrated rig.
+
 ### `ReprojChain::Handeye { base_se3_gripper, mode }`
 
 **Chain blocks**: `[extrinsics(7), handeye(7), target(7)]`
@@ -107,6 +120,19 @@ $$T_{B,G}' = T_{B,G} \cdot \exp(\boldsymbol{\xi}_{\text{delta}})$$
 The correction is regularized by an `Se3TangentPrior` factor.
 
 **Use case**: hand-eye calibration with imprecise robot kinematics.
+
+## ReprojFreePoint
+
+The same residual as `ReprojPoint`, for a point that is **estimated**
+rather than known: the target-frame point is the last parameter block, a
+Euclidean 3-vector, instead of factor data.
+
+**Chain blocks**: those of `ReprojChain::SinglePose` or `ReprojChain::Rig`
+(the only chains it accepts), then `[point(3)]`.
+
+**Use case**: triangulation and bundle adjustment over calibrated cameras,
+which the public problem builder lowers to this factor for a point given as
+a block.
 
 ## Laser Factors
 
@@ -164,14 +190,28 @@ $$\mathbf{r} = \operatorname{diag}(\mathbf{s}) \cdot \boldsymbol{\xi} \in \mathb
 **Use case**: zero-mean Gaussian prior on robot pose corrections
 (`robot_delta`) to penalize deviations from the nominal robot kinematics.
 
+## Custom Residuals
+
+### Custom
+
+**Parameters**: the blocks the residual declares, of the dimensions it
+declares, on any manifold (it reads their stored values).
+
+**Computation**: the user's own residual, written through the public
+`optim::problem` builder (see [Your Own Residual](custom_residual.md)).
+Custom residuals run on the tiny-solver backend only: factrs fixes each
+variable's size at compile time, so it rejects an IR that holds one.
+
 ## Summary Table
 
 | Factor | Blocks | Res. dim | Units |
 |--------|--------|---------|-------|
-| `ReprojPoint` | camera blocks + 1–4 chain blocks | 2 | pixels |
+| `ReprojPoint` | camera blocks + 1–4 chain blocks | 2 | pixels (whitened: dimensionless) |
+| `ReprojFreePoint` | camera blocks + 1–2 chain blocks + point | 2 | pixels (whitened: dimensionless) |
 | `LaserPointToPlane` | camera blocks + 3–6 chain blocks | 1 | meters |
 | `LaserLineDistance` | camera blocks + 3–6 chain blocks | 1 | pixels |
 | `Se3TangentPrior` | 1 | 6 | normalized |
+| `Custom` | as declared | as declared | the residual's own |
 
 Camera blocks = 1 (intrinsics) + 1 for each of projection, distortion and
 sensor whose kind has parameters. For example, `ReprojPoint` with a pinhole,

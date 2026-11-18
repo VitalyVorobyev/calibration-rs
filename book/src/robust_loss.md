@@ -101,19 +101,18 @@ session.update_config(|c| {
 To make a whole problem robust, set the loss in every stage that solves the
 corners:
 
-| Problem | Stages that take a `reprojection_loss` |
-|---|---|
-| planar intrinsics | `optimize` |
-| single-camera hand-eye | `intrinsics_optimize`, `handeye_optimize` |
-| rig extrinsics | `intrinsics_optimize`, `rig` |
-| rig hand-eye | `intrinsics_optimize`, `rig`, `handeye_optimize` |
-| laserline device | `optimize` (`reprojection_loss` and `laser_loss`) |
-| rig laserline device | `optimize` (`laser_loss`; the per-camera stages come from the upstream calibration) |
-| rig hand-eye laserline | `joint_optimize` (`reprojection_loss` and `laser_loss`), plus the hand-eye and laserline-init groups it embeds |
+| Problem | Stages that take a loss | Default |
+|---|---|---|
+| planar intrinsics | `optimize` | `None` |
+| single-camera hand-eye | `intrinsics_optimize`, `handeye_optimize` | `None` |
+| rig extrinsics | `intrinsics_optimize`, `rig` | `None` |
+| rig hand-eye | `intrinsics_optimize`, `rig`, `handeye_optimize` | `None` |
+| laserline device | `optimize` (`reprojection_loss` and `laser_loss`) | Huber, scale 1.0, on both |
+| rig laserline device | `optimize` (`laser_loss`; the per-camera stages come from the upstream calibration) | Huber, scale 1.0 |
+| rig hand-eye laserline | `joint_optimize` (`reprojection_loss` and `laser_loss`), plus the hand-eye and laserline-init groups it embeds | `None` in `joint_optimize`; each embedded group keeps its own default (Huber 1.0 on `laserline_init.optimize.laser_loss`) |
 
-The default is `None` everywhere, except the laser stages, which default to
-Huber with scale 1.0. The laserline device's initial camera-only tilt solve
-(the cold start of a Scheimpflug sensor) is plain least squares.
+The laserline device's initial camera-only tilt solve (the cold start of a
+Scheimpflug sensor) is plain least squares.
 
 The backend applies the loss function during residual evaluation, modifying both the cost and the Jacobian.
 
