@@ -1,4 +1,4 @@
-# Keep in sync with app/.gitignore / eslint.config.js ignores.
+# Keep in sync with app/.gitignore / .oxlintrc.json ignorePatterns.
 dist
 node_modules
 src-tauri/target
