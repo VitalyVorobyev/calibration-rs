@@ -79,9 +79,15 @@ and is selected by `SolverBackend` (`TinySolver` default, `Factrs`) in
 `SolverConfig.backend`.
 
 A backend must allocate one parameter per block keyed by name, apply its
-manifold, fixed mask and bounds, evaluate every residual through its
-factor's generic kernel with its loss, drive the shared loop, and report
-`final_cost = ½ Σ ρ(‖r‖²)`. It is accepted when every factor kind
+manifold, fixed mask and bounds, evaluate every residual through the shared
+kernel set with its loss, drive the shared loop, and report
+`final_cost = ½ Σ ρ(‖r‖²)`. The kernel set is `backend/kernels.rs`: one
+`Kernel` per built-in factor, generic over the scalar type, which each
+backend adapts to its own factor trait (tiny-solver implements its
+`Factor<T>` on it once; factrs has one residual type per variable layout,
+since it sizes its duals at compile time). The solve itself is shared too:
+`solve_on` runs the loop on a backend's engine, reads the solution back and
+estimates its covariance. It is accepted when every factor kind
 linearizes like the existing backend (`backend/parity_tests.rs`) and it
 reproduces the optim problem tests from the same initial values.
 
@@ -99,8 +105,8 @@ single `RobustLoss::rho` / `rho_prime` definition on both backends.
   and 1e-9 (Jacobian), solves to 1e-6.
 - The default backend changes only on a measured comparison and the
   maintainer's decision.
-- A new factor kind needs a kernel, a factor on each backend and a parity
-  case. The `FactorKind` enum grows per residual family, not per model; a
+- A new factor kind needs an arm in the shared kernel, its factrs variable
+  layout and a parity case. The `FactorKind` enum grows per residual family, not per model; a
   residual a user needs comes through `Custom` and adds no variant.
 - nalgebra and faer versions are pinned jointly by both backends; an
   upgrade moves both.

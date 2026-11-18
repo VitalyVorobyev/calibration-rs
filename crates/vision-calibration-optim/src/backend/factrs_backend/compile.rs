@@ -26,6 +26,7 @@ use nalgebra::DVector;
 use super::residuals::build_factor;
 use super::variables::{PlaneVar, VECTOR_DIMS, se3_from_ir, se3_to_ir, with_vector_dim};
 use crate::Error;
+use crate::backend::kernels::Kernel;
 use crate::ir::{CameraSpecLayout, FactorKind, ManifoldKind, ParamBlock, ProblemIR};
 
 /// A factrs variable and the IR blocks fused into it.
@@ -204,27 +205,8 @@ pub(super) fn compile(
              factrs fixes each variable's size at compile time",
         ));
     }
-    let init: Vec<&DVector<f64>> = ir
-        .params
-        .iter()
-        .map(|p| {
-            let v = initial.get(&p.name).ok_or_else(|| {
-                Error::invalid_input(format!(
-                    "initial values missing parameter {} (id {:?})",
-                    p.name, p.id
-                ))
-            })?;
-            if v.len() != p.dim {
-                return Err(Error::invalid_input(format!(
-                    "initial dimension mismatch for {}: expected {}, got {}",
-                    p.name,
-                    p.dim,
-                    v.len()
-                )));
-            }
-            Ok(v)
-        })
-        .collect::<Result<_, _>>()?;
+    ir.check_initial(initial)?;
+    let init: Vec<&DVector<f64>> = ir.params.iter().map(|p| &initial[&p.name]).collect();
 
     // Variables, in first-use order over the residuals.
     let mut layout = Layout::new(ir.params.len());
@@ -395,7 +377,8 @@ pub(super) fn compile(
     let mut graph = Graph::with_capacity(ir.residuals.len());
     for (residual, vars) in ir.residuals.iter().zip(&factor_vars) {
         let keys: Vec<Key> = vars.iter().map(|&v| Key(v as u64)).collect();
-        graph.add_factor(build_factor(&residual.factor, &keys, residual.loss)?);
+        let kernel = Kernel::new(&residual.factor).expect("custom residuals are rejected above");
+        graph.add_factor(build_factor(kernel, &keys, residual.loss));
     }
 
     Ok(Compiled {

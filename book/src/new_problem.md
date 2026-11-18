@@ -13,7 +13,7 @@ below cover the rarer case of a genuinely **new residual family**:
 1. Define the generic residual function in `factors/`
 2. Add a `FactorKind` variant in `ir/types.rs`
 3. Create a problem builder in `problems/`
-4. Integrate with both backends (`backend/tiny_solver_backend.rs` and `backend/factrs_backend/`) and the covariance family map (`backend/covariance.rs`)
+4. Add its arm to the shared kernel set (`backend/kernels.rs`), its variable layout to the factrs backend (`backend/factrs_backend/residuals.rs`) and its arm to the covariance family map (`backend/covariance.rs`)
 5. Write tests with synthetic ground truth
 
 (Adding a new **camera model** is a different, smaller recipe: a variant of
@@ -139,49 +139,37 @@ pub fn build_my_problem_ir(
 
 ## Step 4: Backend Integration
 
-Both backends compile every factor kind. In
-`crates/vision-calibration-optim/src/backend/tiny_solver_backend.rs`, add a
-factor struct implementing tiny-solver's `Factor<T>` plus a match arm in
-`compile_factor()`:
+Both backends evaluate the same kernel set: `Kernel` in
+`crates/vision-calibration-optim/src/backend/kernels.rs` wraps a built-in
+`FactorKind` and evaluates it, generic over the scalar type, on the IR's
+parameter blocks in slot order. Add the new kind's arm to `Kernel::eval`:
 
 ```rust,ignore
-#[derive(Debug, Clone)]
-struct TinyMyNewFactor {
-    constant_data: [f64; 3],
-    w: f64,
+FactorKind::MyNewFactor { constant_data, w } => {
+    let r = my_residual_generic(
+        params[0].as_view(),
+        params[1].as_view(),
+        *constant_data,
+        *w,
+    );
+    DVector::from_column_slice(r.as_slice())
 }
-
-impl<T: nalgebra::RealField> Factor<T> for TinyMyNewFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let r = my_residual_generic(
-            params[0].as_view(),
-            params[1].as_view(),
-            self.constant_data,
-            self.w,
-        );
-        DVector::from_row_slice(r.as_slice())
-    }
-}
-
-// in compile_factor():
-FactorKind::MyNewFactor { constant_data, w } => Ok((
-    Box::new(TinyMyNewFactor { constant_data: *constant_data, w: *w }),
-    loss,
-)),
 ```
 
-If the new family is camera-model-aware, carry a `CameraModelSpec` in the
-factor and evaluate the camera through `CameraBlocks`, the way
-`TinyReprojFactor` does.
+and, if it reads a camera, to `Kernel::camera`. If the new family is
+camera-model-aware, carry a `CameraModelSpec` in the factor and evaluate the
+camera through `CameraBlocks`, the way the reprojection kernels do.
 
-In `backend/factrs_backend/residuals.rs`, add the factrs residual: a struct
-implementing factrs' `Residual` and the `ResidualN` trait for its variable
-count, whose `residualN` unpacks the variables into the IR's parameter
-blocks and calls the same generic function, plus an arm in
-`build_factor()`. Camera-aware factors use the `camera_residual!` macro.
-Then add the new kind to the cross-backend parity cases in
-`backend/parity_tests.rs`, which check that both backends produce the same
-residual and Jacobian.
+The tiny-solver backend needs nothing more: it implements its `Factor<T>`
+for `Kernel` once, for every kind. factrs fixes each variable's size and
+each residual's tangent dimension at compile time, so its adapter in
+`backend/factrs_backend/residuals.rs` has one residual type per variable
+layout. Declare the new layout with the `camera_residual!` macro (or by hand,
+as `TangentPrior` is, for a factor without a camera), whose `residualN`
+unpacks the factrs variables into the IR's parameter blocks and calls
+`Kernel::eval`, and add its arm to `build_factor()`. Then add the new kind to
+the cross-backend parity cases in `backend/parity_tests.rs`, which check that
+both backends produce the same residual and Jacobian.
 
 ## Step 5: Tests
 
@@ -218,6 +206,6 @@ fn my_problem_converges() {
 - [ ] Generic residual function with `T: RealField`
 - [ ] `FactorKind` variant with its `param_layout()`, `residual_dim()` and `name()` arms
 - [ ] Problem builder producing `ProblemIR` + initial values
-- [ ] Backend compilation for the new factor (both backends), the cross-backend parity case and the covariance family arm
+- [ ] The `Kernel::eval` arm, the factrs variable layout, the cross-backend parity case and the covariance family arm
 - [ ] Synthetic ground truth test verifying convergence
 - [ ] (Optional) Pipeline integration with session framework

@@ -28,14 +28,13 @@
 //! the poses.
 
 use nalgebra::{DMatrix, Matrix3, Vector3};
-use num_dual::{DualDVec64, jacobian};
 use vision_calibration_core::{CameraParams, Iso3, Pt3};
 
-use super::{invert_spd, project};
+use super::invert_spd;
 use crate::Error;
 use crate::ir::HandeyeMode;
 use crate::problems::RobotPoseSigma;
-use crate::projection::CameraVector;
+use crate::projection::{CameraVector, project_with_jacobian};
 
 /// A rig hand-eye calibration at its estimate: the chain a view's target
 /// points are projected through.
@@ -146,15 +145,11 @@ pub fn rig_handeye_view_information(
                 )));
             }
             x.rows_mut(m, 3).copy_from(&p);
-            let (q, j) = jacobian(
-                |v: nalgebra::DVector<DualDVec64>| project(model.model, &v, m),
-                &x,
-            );
-            if !q.iter().chain(j.iter()).all(|v| v.is_finite()) {
-                return Err(Error::numerical(format!(
+            let (_, j) = project_with_jacobian(model.model, &x).ok_or_else(|| {
+                Error::numerical(format!(
                     "the projection of target point {point} by camera {i} is not finite"
-                )));
-            }
+                ))
+            })?;
             let j_p = j.fixed_columns::<3>(m).into_owned();
             row.fill(0.0);
             let start = layout.camera[i];

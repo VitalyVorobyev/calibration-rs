@@ -7,6 +7,7 @@ pub(crate) mod covariance;
 #[cfg(test)]
 mod covariance_tests;
 mod factrs_backend;
+mod kernels;
 mod lm;
 mod normal_equations;
 #[cfg(test)]
@@ -130,6 +131,66 @@ pub trait OptimBackend {
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution, Error>;
+}
+
+/// A backend's [`lm::LinearizationEngine`], with what the shared solve
+/// ([`solve_on`]) needs beyond the LM loop.
+trait SolveEngine: lm::LinearizationEngine {
+    /// The backend's name, for the error message.
+    const NAME: &'static str;
+
+    /// The IR parameter blocks at `x`.
+    fn read_back(&self, ir: &ProblemIR, x: &Self::State) -> HashMap<String, DVector<f64>>;
+
+    /// The engine's own linearization at `x`, with each IR block's columns,
+    /// for an engine whose problem has no robust loss; `None` when every
+    /// coordinate is fixed.
+    fn raw_at(&self, ir: &ProblemIR, x: &Self::State) -> Option<covariance::RawLinearization>;
+
+    /// The loss-free linearization of `ir` at `params`, from a fresh compile
+    /// on this backend; `None` when every coordinate is fixed.
+    fn raw_linearization(
+        ir: &ProblemIR,
+        params: &HashMap<String, DVector<f64>>,
+    ) -> Result<Option<covariance::RawLinearization>, Error>;
+}
+
+/// Solve `ir` on `engine` from `x0` with the shared LM, then read the
+/// solution back and estimate its covariance; the second-order prediction
+/// only when `second_order` is set.
+fn solve_on<E: SolveEngine>(
+    ir: &ProblemIR,
+    engine: &E,
+    x0: E::State,
+    opts: &BackendSolveOptions,
+    second_order: bool,
+) -> Result<BackendSolution, Error> {
+    let lm::LmSolution {
+        state,
+        cost,
+        num_iters,
+        converged,
+    } = lm::levenberg_marquardt(engine, x0, opts).map_err(|failure| match failure {
+        lm::LmFailure::Failed => Error::numerical(format!("{} failed to converge", E::NAME)),
+        lm::LmFailure::Cancelled => Error::Cancelled,
+    })?;
+
+    let params = engine.read_back(ir, &state);
+    // Without a robust loss the solve's own linearization is the raw one.
+    let raw = if ir.has_robust_loss() {
+        E::raw_linearization(ir, &params)?
+    } else {
+        engine.raw_at(ir, &state)
+    };
+    Ok(BackendSolution {
+        noise: covariance::noise(ir, raw.as_ref()),
+        uncertainty: covariance::estimate(ir, &params, raw, converged, second_order),
+        params,
+        solve_report: SolveReport {
+            final_cost: 0.5 * cost,
+            num_iters,
+        },
+    })
 }
 
 /// The loss-free residual and Jacobian of `ir` at `params`, with each IR

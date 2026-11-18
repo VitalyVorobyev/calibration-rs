@@ -244,7 +244,8 @@ All published crates and the PyPI package share one version.
   then reaches every workflow. It ships with a math note, a synthetic matrix
   test across every problem type, the Python class and a book chapter.
 * **A residual (factor)** — a `FactorKind` variant in optim, its generic
-  residual, and an arm in both backends and the covariance family map; the
+  residual, its arm in the shared kernel set (`backend/kernels.rs`), its
+  variable layout in the factrs adapter, and the covariance family map; the
   book's "Adding a New Optimization Problem" chapter walks through it. A
   residual a user needs is not a variant: it comes through the public
   `optim::problem` builder ([ADR 0027](docs/adrs/0027-public-optimization-extension.md),

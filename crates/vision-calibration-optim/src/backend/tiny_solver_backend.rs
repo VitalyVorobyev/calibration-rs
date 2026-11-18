@@ -1,20 +1,17 @@
 use crate::Error;
 use crate::backend::covariance::{self, RawLinearization};
-use crate::backend::lm::{self, LinearizationEngine, LmFailure, LmSolution};
+use crate::backend::kernels::Kernel;
+use crate::backend::lm::LinearizationEngine;
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
-use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
-use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
-use crate::factors::reprojection_model::{reproj_free_point_residual, reproj_residual};
-use crate::ir::{
-    CameraModelSpec, CustomFactor, FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR,
-    ReprojChain, ReprojSqrtInfo, RobustLoss,
-};
+use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveEngine, solve_on};
+use crate::ir::{CustomFactor, FactorKind, ManifoldKind, ParamBlock, ProblemIR, RobustLoss};
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tiny_solver::factors::{DualStride, Factor};
 use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
+use tiny_solver::manifold::Manifold;
 use tiny_solver::manifold::se3::SE3Manifold;
 use tiny_solver::manifold::so3::QuaternionManifold;
 use tiny_solver::parameter_block::ParameterBlock;
@@ -32,73 +29,26 @@ impl TinySolverBackend {
         initial: &HashMap<String, DVector<f64>>,
     ) -> Result<Problem, Error> {
         ir.validate()?;
+        ir.check_initial(initial)?;
 
         let mut problem = Problem::new();
 
         for param in &ir.params {
-            let init = initial.get(&param.name).ok_or_else(|| {
-                Error::invalid_input(format!(
-                    "initial values missing parameter {} (id {:?})",
-                    param.name, param.id
-                ))
-            })?;
-            if init.len() != param.dim {
-                return Err(Error::invalid_input(format!(
-                    "initial dimension mismatch for {}: expected {}, got {}",
-                    param.name,
-                    param.dim,
-                    init.len()
-                )));
-            }
-
-            let mut set_manifold = true;
-
-            match param.manifold {
-                ManifoldKind::Euclidean => {}
-                ManifoldKind::SE3 => {
-                    if !param.fixed.is_empty() {
-                        if param.fixed.is_all_fixed(param.dim) {
-                            set_manifold = false;
-                        } else {
-                            return Err(Error::invalid_input(format!(
-                                "tiny-solver cannot partially fix SE3 manifold {}",
-                                param.name
-                            )));
-                        }
-                    }
-                    if set_manifold {
-                        problem.set_variable_manifold(&param.name, Arc::new(SE3Manifold));
-                    }
-                }
-                ManifoldKind::SO3 => {
-                    if !param.fixed.is_empty() {
-                        if param.fixed.is_all_fixed(param.dim) {
-                            set_manifold = false;
-                        } else {
-                            return Err(Error::invalid_input(format!(
-                                "tiny-solver cannot partially fix SO3 manifold {}",
-                                param.name
-                            )));
-                        }
-                    }
-                    if set_manifold {
-                        problem.set_variable_manifold(&param.name, Arc::new(QuaternionManifold));
-                    }
-                }
-                ManifoldKind::S2 => {
-                    if !param.fixed.is_empty() {
-                        if param.fixed.is_all_fixed(param.dim) {
-                            set_manifold = false;
-                        } else {
-                            return Err(Error::invalid_input(format!(
-                                "tiny-solver cannot partially fix S2 manifold {}",
-                                param.name
-                            )));
-                        }
-                    }
-                    if set_manifold {
-                        problem.set_variable_manifold(&param.name, Arc::new(UnitVector3Manifold));
-                    }
+            let manifold: Option<Arc<dyn Manifold + Sync + Send>> = match param.manifold {
+                ManifoldKind::Euclidean => None,
+                ManifoldKind::SE3 => Some(Arc::new(SE3Manifold)),
+                ManifoldKind::SO3 => Some(Arc::new(QuaternionManifold)),
+                ManifoldKind::S2 => Some(Arc::new(UnitVector3Manifold)),
+            };
+            // A fully fixed manifold block keeps its value without one.
+            if let Some(manifold) = manifold {
+                if param.fixed.is_empty() {
+                    problem.set_variable_manifold(&param.name, manifold);
+                } else if !param.fixed.is_all_fixed(param.dim) {
+                    return Err(Error::invalid_input(format!(
+                        "tiny-solver cannot partially fix {:?} manifold {}",
+                        param.manifold, param.name
+                    )));
                 }
             }
 
@@ -114,7 +64,7 @@ impl TinySolverBackend {
         }
 
         for residual in &ir.residuals {
-            let (factor, loss) = compile_factor(residual)?;
+            let (factor, loss) = compile_factor(residual);
             let param_names: Vec<&str> = residual
                 .params
                 .iter()
@@ -151,32 +101,7 @@ impl TinySolverBackend {
         let problem = self.compile(ir, initial)?;
         let blocks = problem.initialize_parameter_blocks(initial);
         let engine = TinySolverEngine::new(&problem, &blocks);
-        let LmSolution {
-            state,
-            cost,
-            num_iters,
-            converged,
-        } = lm::levenberg_marquardt(&engine, blocks, opts).map_err(|failure| match failure {
-            LmFailure::Failed => Error::numerical("tiny-solver failed to converge"),
-            LmFailure::Cancelled => Error::Cancelled,
-        })?;
-
-        let params = params_from_blocks(&state);
-        // Without a robust loss the solve's own linearization is the raw one.
-        let raw = if ir.has_robust_loss() {
-            self.raw_linearization(ir, &params)?
-        } else {
-            raw_from_engine(ir, &engine, &state)
-        };
-        Ok(BackendSolution {
-            noise: covariance::noise(ir, raw.as_ref()),
-            uncertainty: covariance::estimate(ir, &params, raw, converged, second_order),
-            params,
-            solve_report: SolveReport {
-                final_cost: 0.5 * cost,
-                num_iters,
-            },
-        })
+        solve_on(ir, &engine, blocks, opts, second_order)
     }
 }
 
@@ -339,8 +264,8 @@ impl<'ir> ResidualProbe<'ir> {
     ) -> Option<nalgebra::DMatrix<f64>> {
         let factors: Vec<_> = self.ir.residuals[range.clone()]
             .iter()
-            .map(|residual| compile_factor(residual).ok().map(|(factor, _)| factor))
-            .collect::<Option<_>>()?;
+            .map(|residual| compile_factor(residual).0)
+            .collect();
         let mut sum = nalgebra::DMatrix::zeros(q, moved.len());
         let mut scratch: Vec<DVector<f64>> = Vec::new();
         for (k, values) in moved.iter().enumerate() {
@@ -498,6 +423,25 @@ impl LinearizationEngine for TinySolverEngine<'_> {
     }
 }
 
+impl SolveEngine for TinySolverEngine<'_> {
+    const NAME: &'static str = "tiny-solver";
+
+    fn read_back(&self, _ir: &ProblemIR, x: &Self::State) -> HashMap<String, DVector<f64>> {
+        params_from_blocks(x)
+    }
+
+    fn raw_at(&self, ir: &ProblemIR, x: &Self::State) -> Option<RawLinearization> {
+        raw_from_engine(ir, self, x)
+    }
+
+    fn raw_linearization(
+        ir: &ProblemIR,
+        params: &HashMap<String, DVector<f64>>,
+    ) -> Result<Option<RawLinearization>, Error> {
+        TinySolverBackend.raw_linearization(ir, params)
+    }
+}
+
 /// Residual, dense Jacobian and robust cost `Σρ` of `ir` at `initial`, as
 /// the shared LM sees them.
 #[cfg(test)]
@@ -562,78 +506,25 @@ type CompiledFactor = (
     Option<Box<dyn Loss + Send>>,
 );
 
-fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor, Error> {
+fn compile_factor(residual: &crate::ir::ResidualBlock) -> CompiledFactor {
     let loss = compile_loss(residual.loss);
-    match &residual.factor {
-        FactorKind::Se3TangentPrior { sqrt_info, .. } => {
-            let factor = TinySe3TangentPriorFactor {
-                sqrt_info: *sqrt_info,
-            };
-            Ok((Box::new(factor), loss))
-        }
-        FactorKind::ReprojPoint {
-            model,
-            chain,
-            pw,
-            uv,
-            sqrt_info,
-        } => {
-            let factor = TinyReprojFactor {
-                model: *model,
-                chain: *chain,
-                pw: *pw,
-                uv: *uv,
-                sqrt_info: *sqrt_info,
-            };
-            Ok((Box::new(factor), loss))
-        }
-        FactorKind::ReprojFreePoint {
-            model,
-            chain,
-            uv,
-            sqrt_info,
-        } => {
-            let factor = TinyReprojFreePointFactor {
-                model: *model,
-                chain: *chain,
-                uv: *uv,
-                sqrt_info: *sqrt_info,
-            };
-            Ok((Box::new(factor), loss))
-        }
-        FactorKind::LaserPointToPlane {
-            model,
-            chain,
-            laser_pixel,
-            w,
-        } => {
-            let factor = TinyLaserFactor {
-                metric: LaserMetric::PointToPlane,
-                model: *model,
-                chain: *chain,
-                laser_pixel: *laser_pixel,
-                w: *w,
-            };
-            Ok((Box::new(factor), loss))
-        }
-        FactorKind::LaserLineDistance {
-            model,
-            chain,
-            laser_pixel,
-            w,
-        } => {
-            let factor = TinyLaserFactor {
-                metric: LaserMetric::LineDistance,
-                model: *model,
-                chain: *chain,
-                laser_pixel: *laser_pixel,
-                w: *w,
-            };
-            Ok((Box::new(factor), loss))
-        }
-        FactorKind::Custom(custom) => {
-            Ok((Box::new(TinyCustomFactor(Arc::clone(&custom.factor))), loss))
-        }
+    let factor: Box<dyn tiny_solver::factors::FactorImpl + Send> =
+        match Kernel::new(&residual.factor) {
+            Some(kernel) => Box::new(kernel),
+            None => {
+                let FactorKind::Custom(custom) = &residual.factor else {
+                    unreachable!("only a custom residual has no kernel");
+                };
+                Box::new(TinyCustomFactor(Arc::clone(&custom.factor)))
+            }
+        };
+    (factor, loss)
+}
+
+/// A built-in factor at the two scalar types tiny-solver linearizes with.
+impl<T: nalgebra::RealField> Factor<T> for Kernel {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        self.eval(params)
     }
 }
 
@@ -653,92 +544,12 @@ impl Factor<DualStride> for TinyCustomFactor {
     }
 }
 
-#[derive(Debug, Clone)]
-struct TinyReprojFactor {
-    model: CameraModelSpec,
-    chain: ReprojChain,
-    pw: [f64; 3],
-    uv: [f64; 2],
-    sqrt_info: ReprojSqrtInfo,
-}
-
-impl<T: nalgebra::RealField> Factor<T> for TinyReprojFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let r = reproj_residual(
-            self.model,
-            &self.chain,
-            params,
-            self.pw,
-            self.uv,
-            &self.sqrt_info,
-        );
-        DVector::from_row_slice(r.as_slice())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct TinyReprojFreePointFactor {
-    model: CameraModelSpec,
-    chain: ReprojChain,
-    uv: [f64; 2],
-    sqrt_info: ReprojSqrtInfo,
-}
-
-impl<T: nalgebra::RealField> Factor<T> for TinyReprojFreePointFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let r =
-            reproj_free_point_residual(self.model, &self.chain, params, self.uv, &self.sqrt_info);
-        DVector::from_row_slice(r.as_slice())
-    }
-}
-
-/// Which laser residual a [`TinyLaserFactor`] evaluates.
-#[derive(Debug, Clone, Copy)]
-enum LaserMetric {
-    PointToPlane,
-    LineDistance,
-}
-
-#[derive(Debug, Clone)]
-struct TinyLaserFactor {
-    metric: LaserMetric,
-    model: CameraModelSpec,
-    chain: LaserChain,
-    laser_pixel: [f64; 2],
-    w: f64,
-}
-
-impl<T: nalgebra::RealField> Factor<T> for TinyLaserFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let residual = match self.metric {
-            LaserMetric::PointToPlane => laser_point_to_plane_residual,
-            LaserMetric::LineDistance => laser_line_distance_residual,
-        };
-        let r = residual(self.model, &self.chain, params, self.laser_pixel, self.w);
-        DVector::from_row_slice(r.as_slice())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct TinySe3TangentPriorFactor {
-    sqrt_info: [f64; 6],
-}
-
-impl<T: nalgebra::RealField> Factor<T> for TinySe3TangentPriorFactor {
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        debug_assert_eq!(params.len(), 1, "expected [robot_delta] parameter blocks");
-        DVector::from_fn(6, |idx, _| {
-            let w = T::from_f64(self.sqrt_info[idx]).unwrap();
-            params[0][idx].clone() * w
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::HandeyeMode;
+    use crate::backend::lm;
     use crate::ir::{DistortionKind, SensorKind};
+    use crate::ir::{HandeyeMode, LaserChain, ReprojChain, ReprojSqrtInfo};
     use faer_ext::IntoNalgebra;
     use nalgebra::RealField;
 

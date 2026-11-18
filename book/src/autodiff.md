@@ -99,7 +99,7 @@ Every arithmetic operation on `T` values propagates derivatives automatically th
 
 ## Backend Integration
 
-Each backend wraps the same generic residual function in its own residual type. The factor carries its camera model as data, and the residual evaluates it per slot through the core camera-model kinds:
+Both backends evaluate one kernel per factor, generic over the scalar type; each adapts it to its own residual type. The factor carries its camera model as data, and the kernel evaluates it per slot through the core camera-model kinds:
 
 ```text
 FactorKind::ReprojPoint { model: pinhole + Brown-Conrady, chain: SinglePose, pw, uv, sqrt_info }
