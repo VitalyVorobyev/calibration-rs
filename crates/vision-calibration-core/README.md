@@ -50,15 +50,25 @@ if let Some(pixel) = camera.project_point(&p_cam) {
 }
 ```
 
-## Modules
+## Contents
+
+At the crate root:
+
+| Items | Description |
+|--------|-------------|
+| `Real`, `Pt2`, `Pt3`, `Vec3`, `Mat3`, `Iso3`, ... | Type aliases and homogeneous-coordinate helpers |
+| `Camera`, `CameraParams`, `CameraModelSpec`, `ProjectionKind`, `DistortionKind`, `SensorKind`, ... | Camera, projection, distortion and sensor models |
+| `ransac_fit`, `Estimator`, `RansacOptions` | Generic RANSAC engine |
+| `CorrespondenceView`, `View`, `PlanarDataset`, `RigDataset`, `Uncertainty`, ... | Observation, dataset and result types |
+| `RunControl`, `CancelToken`, `Progress` | Progress reports and cancellation |
+
+Modules:
 
 | Module | Description |
 |--------|-------------|
-| `math` | Type aliases and homogeneous coordinate helpers |
-| `models` | Camera, projection, distortion, sensor traits and impls |
-| `ransac` | Generic RANSAC engine with configurable parameters |
-| `synthetic` | Deterministic synthetic data generation |
-| `types` | Common observation and result types |
+| `linalg` | Hartley normalization, polynomial roots, null space and SVD helpers shared by the solver crates |
+| `synthetic` | Deterministic synthetic data generation (feature `synthetic`) |
+| `error` | The crate's error type |
 
 ## See Also
 

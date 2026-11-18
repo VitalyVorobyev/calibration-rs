@@ -9,9 +9,11 @@ Problem Builder  →  ProblemIR  →  Backend.compile()  →  Backend.solve()
  (domain code)      (generic)     (solver-specific)     (optimization)
 ```
 
-1. **Problem Builder**: Domain code (e.g., `build_planar_intrinsics_ir()`) constructs a `ProblemIR` from calibration data and initial parameter estimates
+1. **Problem Builder**: Domain code in `vision-calibration-optim`'s `problems/` (one builder per calibration problem) constructs a `ProblemIR` from calibration data and initial parameter estimates
 2. **Backend Compilation**: The backend the solver config selects (tiny-solver or factrs) translates the IR into its own variables and residuals
 3. **Solving**: The shared Levenberg–Marquardt loop runs on that backend's linearization and returns a `BackendSolution` (see [Solver Backends](solver_backends.md))
+
+These types are internal to `vision-calibration-optim`. A problem of your own goes through the public builder of [Your Own Residual](custom_residual.md), which lowers to the same IR.
 
 ## ProblemIR
 
@@ -24,7 +26,7 @@ pub struct ProblemIR {
 }
 ```
 
-It is validated on construction to ensure all parameter references are valid, dimensions match, and manifold constraints are respected.
+`ProblemIR::new()` creates an empty problem; builders add blocks with `add_param_block` and `add_residual_block`, then call `validate()` (see [Validation](#validation)). Both backends validate the IR again before compiling it.
 
 ## ParamBlock
 
@@ -43,26 +45,34 @@ pub struct ParamBlock {
 
 | Field | Description |
 |-------|-------------|
-| `id` | Unique identifier within the problem |
-| `name` | Human-readable name (e.g., `"cam"`, `"pose/0"`, `"plane"`) |
+| `id` | Index of the block in `params` |
+| `name` | Name, unique within the problem (e.g., `"cam"`, `"pose/0"`, `"plane_n"`) |
 | `dim` | Ambient dimension (e.g., 4 for intrinsics, 7 for SE3) |
-| `manifold` | Geometry of the parameter space |
+| `manifold` | Geometry of the parameter space: `Euclidean`, `SE3`, `SO3` or `S2` |
 | `fixed` | Which indices (or the whole block) are held constant |
 | `bounds` | Optional box constraints on parameter values |
 
-### Naming Conventions
+### Block Names
 
-Problem builders use consistent naming:
+The problem builders name their blocks as follows; `{i}` is a camera index, `{v}` a view index:
 
-- `"intrinsics"` or `"cam"` — intrinsics ($f_x, f_y, c_x, c_y$), dimension 4
-- `"distortion"` or `"dist"` — distortion ($k_1, k_2, k_3, p_1, p_2$), dimension 5
-- `"sensor"` — Scheimpflug tilt ($\tau_x, \tau_y$), dimension 2
-- `"pose/0"`, `"pose/1"`, ... — per-view SE(3) poses (planar, rig), dimension 7
-- `"pose_0"`, `"pose_1"`, ... — per-view SE(3) poses (laserline), dimension 7
-- `"plane_normal"` — laser plane unit normal, dimension 3, $S^2$ manifold
-- `"plane_distance"` — laser plane distance, dimension 1
-- `"handeye"` — hand-eye SE(3), dimension 7
-- `"extrinsics/0"`, ... — per-camera SE(3) extrinsics, dimension 7
+| Name | Dim | Manifold | Holds |
+|------|-----|----------|-------|
+| `cam` | 4 | Euclidean | intrinsics $f_x, f_y, c_x, c_y$ |
+| `proj` | model | Euclidean | projection parameters, when the projection has any |
+| `dist` | model | Euclidean | distortion coefficients (5 for Brown-Conrady), absent without distortion |
+| `sensor` | 2 | Euclidean | Scheimpflug tilt $\tau_x, \tau_y$, absent for an identity sensor |
+| `pose/{v}` | 7 | SE3 | per-view `cam_se3_target` (planar intrinsics, laserline device) |
+| `extr/{i}` | 7 | SE3 | per-camera extrinsics (rig, hand-eye) |
+| `rig_pose/{v}` | 7 | SE3 | per-view `rig_se3_target` (rig extrinsics) |
+| `handeye` | 7 | SE3 | the hand-eye transform |
+| `target`, `target/{v}` | 7 | SE3 | the target pose of a hand-eye problem, shared or per view |
+| `target_ref` | 7 | SE3 | the target pose of the joint rig, hand-eye and laser problem |
+| `robot_delta/{v}` | 6 | Euclidean | per-view se(3) correction of the measured robot pose |
+| `plane_n`, `plane_n/{i}` | 3 | S2 | laser-plane unit normal, one or per camera |
+| `plane_d`, `plane_d/{i}` | 1 | Euclidean | laser-plane distance, one or per camera |
+
+A problem with several cameras indexes the camera blocks per camera: `cam/{i}`, `proj/{i}`, `dist/{i}`, `sensor/{i}`.
 
 ## FixedMask
 
@@ -76,7 +86,7 @@ FixedMask::fix_indices(&[2])       // fix specific indices
 ```
 
 - **Euclidean parameters**: Individual indices can be fixed. For example, `FixedMask::fix_indices(&[2])` on intrinsics fixes $c_x$ while allowing $f_x, f_y, c_y$ to vary.
-- **Manifold parameters**: All-or-nothing. If any index is fixed, the entire block is fixed. (The tangent space does not support partial fixing.)
+- **Manifold parameters**: All or nothing. Both backends reject a partially fixed SE3, SO3 or S2 block with an `InvalidInput` error, since no tangent coordinate corresponds to one stored component.
 
 ## ResidualBlock
 
@@ -93,91 +103,21 @@ pub struct ResidualBlock {
 
 The `params` vector references `ParamBlock`s by their `ParamId`. The ordering must match what the factor expects.
 
-## FactorKind
+## Factors
 
-A factor is one of four residual families. The camera model and pose chain
-are **data** carried by the factor, not separate enum variants:
+A `FactorKind` variant names the residual family (what is measured); the camera model (`CameraModelSpec`) and the pose chain (`ReprojChain` / `LaserChain`) are **data** carried by the factor, together with the per-residual constants (the 3D point, the observed pixel, the square-root information, the measured robot pose). Adding a camera model therefore adds no factor kind.
 
-```rust,ignore
-pub enum FactorKind {
-    /// 2D pixel reprojection residual.
-    ReprojPoint {
-        model: CameraModelSpec,
-        chain: ReprojChain,
-        pw: [f64; 3], uv: [f64; 2], sqrt_info: ReprojSqrtInfo,
-    },
-    /// 1D point-to-plane laser residual (meters).
-    LaserPointToPlane {
-        model: CameraModelSpec,
-        chain: LaserChain,
-        laser_pixel: [f64; 2], w: f64,
-    },
-    /// 1D line-distance laser residual (pixels).
-    LaserLineDistance {
-        model: CameraModelSpec,
-        chain: LaserChain,
-        laser_pixel: [f64; 2], w: f64,
-    },
-    /// Zero-mean prior on a 6D se(3) tangent block.
-    Se3TangentPrior { sqrt_info: [f64; 6], residual_sigma: f64 },
-}
-```
-
-Each factor also carries the **per-residual data** (3D point coordinates,
-observed pixel, weight, measured robot pose, …) that is not part of the
-optimizable parameters.
-
-### Camera model as data
-
-```rust,ignore
-pub struct CameraModelSpec {
-    pub projection: ProjectionKind, // Pinhole
-    pub distortion: DistortionKind, // None | BrownConrady5 | Rational8 | ThinPrism9 | Division1
-    pub sensor: SensorKind,         // Identity | Scheimpflug
-}
-```
-
-A kind with no parameters contributes no parameter block; the layout is
-`[intrinsics, projection?, distortion?, sensor?]`. Evaluation dispatches per
-slot through the kinds' methods in `vision-calibration-core`, generic over the
-autodiff scalar type, so adding a camera model (a distortion, a projection)
-extends a core enum and adds no factor kind.
-
-### Chains as data
-
-`ReprojChain` selects the pose chain and the trailing parameter blocks:
-
-| Chain | Chain blocks | Transform |
-|-------|-------------|-----------|
-| `SinglePose` | [pose] | $P_c = T \cdot P_w$ |
-| `TwoSe3` | [extrinsics, pose] | $P_c = T_{extr}^{-1} T_{pose} P_w$ |
-| `Handeye { base_se3_gripper, mode }` | [extrinsics, handeye, target] | mode-dependent hand-eye chain |
-| `HandeyeRobotDelta { … }` | [extrinsics, handeye, target, robot_delta] | hand-eye + per-view se(3) correction |
-
-`LaserChain` mirrors this for the laser families (`SinglePose`,
-`RigHandeye`, `RigHandeyeRobotDelta`); every laser chain ends with the
-`plane_normal` (S², dim 3) and `plane_distance` (dim 1) blocks, with
-`robot_delta` last when present.
-
-### Layout-derived validation
-
-`FactorKind::param_layout()` derives the full expected block list —
-`[intrinsics, distortion?, sensor?, <chain blocks…>]` — as
-`Vec<ParamSlotSpec { dim, manifold, role }>`. Validation is a single zip of
-this layout against the referenced parameter blocks; there are no
-per-variant validation arms to maintain.
-
-See the [Factor Catalog](factor_catalog.md) for the full chain math and
-residual definitions.
+`FactorKind::param_layout()` derives each factor's expected block list, `[intrinsics, projection?, distortion?, sensor?, <chain blocks…>]`, as `Vec<ParamSlotSpec { dim, manifold, role }>`. The [Factor Catalog](factor_catalog.md) lists every factor kind and chain with its blocks and residual.
 
 ## Validation
 
-`ProblemIR::new()` validates:
+`ProblemIR::validate()` checks that:
 
-- All `ParamId` references in residual blocks resolve to existing parameter blocks
-- Parameter dimensions match what each factor expects
-- Manifold kinds are compatible with the factor requirements
-- No duplicate parameter IDs
+- each block's `id` is its index, its manifold fits its dimension, and its fixed indices and bounds are in range (a bound with `lower > upper` or a NaN is rejected);
+- each residual's robust loss has a positive scale and its `residual_dim` matches the factor;
+- every referenced `ParamId` exists, and the referenced blocks match the factor's `param_layout()` in count, dimension and manifold (a custom residual reads its blocks on any manifold);
+- the reprojection residuals' square-root information is finite, and either all of them are whitened by stated covariances or none are;
+- a free-point reprojection uses a single-pose or rig chain, and a laser line-distance residual a projection that images lines as lines.
 
 ## Initial Values
 
@@ -185,7 +125,7 @@ Parameter blocks carry only their structural definition (dimension, manifold, fi
 
 ## Example: Planar Intrinsics IR
 
-For a 10-view planar intrinsics problem with 48 points per view:
+For a 10-view planar intrinsics problem with 48 points per view and a pinhole, Brown-Conrady camera:
 
 ```text
 Parameters:
@@ -194,7 +134,9 @@ Parameters:
   - "pose/0"..."pose/9": dim=7, SE3
 
 Residuals: 480 blocks
-  - Each: ReprojPoint { model: PINHOLE4_DIST5, chain: SinglePose, pw, uv, w=1.0 }
+  - Each: ReprojPoint { model: CameraModelSpec { Pinhole, BrownConrady5, Identity },
+                        chain: SinglePose, pw, uv,
+                        sqrt_info: Isotropic { scale: 1.0 } }
   - Params: [cam_id, dist_id, pose_k_id]
   - Residual dim: 2
 

@@ -14,14 +14,14 @@ non-linear refinement in `vision-calibration-optim` or `vision-calibration-pipel
 | Category | Algorithms |
 |----------|------------|
 | **Intrinsics** | Zhang's method, iterative with distortion, Scheimpflug-tilt initialization, Kannala-Brandt fisheye from bearings |
-| **Pose (PnP)** | DLT, P3P, EPnP, DLT in RANSAC |
 | **Planar pose** | Pose from homography + intrinsics, or from bearing vectors (any central camera) |
 | **Rig** | Multi-camera extrinsics initialization |
 | **Hand-eye** | Tsai-Lenz, Park-Martin, Daniilidis (AX=XB) and Shah (AX=ZB), eye-in-hand and eye-to-hand |
 | **Laserline** | Multi-view laser plane fitting |
 
 Two-view solvers (homography DLT, fundamental/essential matrices, camera matrix,
-linear triangulation) live in
+linear triangulation) and the PnP pose solvers (DLT, P3P, EPnP, DLT in RANSAC)
+live in
 [`vision-geometry`](https://crates.io/crates/vision-geometry).
 
 ## Expected Accuracy

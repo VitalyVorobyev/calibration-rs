@@ -154,17 +154,9 @@ The JSON Schemas of the configurations (with a `.default.json` beside each), inp
 
 ## Invalidation Policies
 
-When input or configuration changes, computed state may need to be cleared:
-
-| Event | Default policy |
-|-------|---------------|
-| `set_input()` | Clear state and output (`CLEAR_COMPUTED`) |
-| `update_config()` | Keep everything (`KEEP_ALL`) |
-| `clear_input()` | Same as `set_input()` (`CLEAR_COMPUTED`), then the input is removed |
-
-Each problem type may override these policies. A kept output still means
-what it meant when it was solved: a hand-eye result records the mode it was
-solved in, and its export reads that mode, not the current config's.
+Setting or clearing the input clears the computed state and output; updating
+the configuration keeps them. Each problem type may change these defaults;
+[The ProblemType Trait](problem_type.md#invalidation-policies) lists them.
 
 ## Audit Log
 

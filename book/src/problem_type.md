@@ -100,9 +100,19 @@ impl InvalidationPolicy {
 }
 ```
 
-Defaults:
-- Input change → `CLEAR_COMPUTED` (re-running steps is needed)
-- Config change → `KEEP_ALL` (output is still valid, but may not reflect new config)
+The trait's `on_input_change()` and `on_config_change()` return the policy
+for each event:
+
+| Event | Default policy |
+|-------|---------------|
+| `set_input()` | Clear state and output (`CLEAR_COMPUTED`): the steps need to run again |
+| `update_config()` / `set_config()` | Keep everything (`KEEP_ALL`): the output stays, though it may not reflect the new config |
+| `clear_input()` | Same as `set_input()`, then the input is removed |
+
+A problem type may override either; `RigHandeyeLaserlineProblem` clears its
+computed state and output on a config change too. A kept output still means what it meant when it
+was solved: a hand-eye result records the mode it was solved in, and its
+export reads that mode, not the current config's.
 
 ## Problem Types
 

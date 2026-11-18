@@ -8,37 +8,8 @@
 //!
 //! A [`CalibrationSession`](session::CalibrationSession) holds a problem's
 //! input, config, intermediate state and export; step functions advance it.
-//! Here eight synthetic views of an 8×6 board (40 mm pitch) calibrate a camera:
-//!
-//! ```
-//! use vision_calibration_core::synthetic::{planar, poses};
-//! use vision_calibration_core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
-//! use vision_calibration_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblem, step_init, step_optimize,
-//! };
-//! use vision_calibration_pipeline::session::CalibrationSession;
-//! # fn main() -> anyhow::Result<()> {
-//!
-//! let truth = make_pinhole_camera(
-//!     FxFyCxCy { fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0 },
-//!     BrownConrady5 { k1: 0.05, k2: -0.02, ..BrownConrady5::default() },
-//! );
-//! let board = planar::grid_points(8, 6, 0.04);
-//! let specs = poses::seeded_board_pose_specs(8, 0.35, 3);
-//! let poses = poses::centered_board_poses(&specs, (0.14, 0.10), 0.6);
-//! let views = planar::project_views_all(&truth, &board, &poses)?;
-//! let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
-//!
-//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-//! session.set_input(dataset)?;
-//! step_init(&mut session, None)?;
-//! step_optimize(&mut session, None)?;
-//!
-//! let export = session.export()?;
-//! assert!((export.camera.intrinsics.fx - 800.0).abs() < 1e-3);
-//! # Ok(())
-//! # }
-//! ```
+//! The `vision-calibration` crate documentation opens with a session
+//! calibrating a camera on synthetic data.
 
 mod error;
 pub use error::Error;

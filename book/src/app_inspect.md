@@ -1,6 +1,6 @@
 # Inspecting Results
 
-The four result workspaces work on the currently loaded export. Load one with **Open Export…** in the top bar (any `*Export.json` produced by a calibration session, with `diagnostics.image_manifest` populated), or arrive with one from a run. The viewer infers the export kind from its JSON shape (planar, rig hand-eye, rig plus laserline, ...) and shows the matching header label. It works for all eight export kinds, single-camera or rig, with or without a laser stage.
+The four result workspaces work on the currently loaded export. Load one with **Open Export…** in the top bar (any `*Export.json` produced by a calibration session, with `diagnostics.image_manifest` populated), or arrive with one from a run. The viewer reads the export kind from its `kind` field (planar, rig hand-eye, rig plus laserline, ...) and shows the matching header label. It works for all seven export kinds, single-camera or rig, with or without a laser stage.
 
 ## Diagnose
 

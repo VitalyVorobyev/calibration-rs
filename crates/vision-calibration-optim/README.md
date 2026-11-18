@@ -13,8 +13,8 @@ intermediate representation: parameter blocks on their manifolds (SE(3)
 poses, the unit sphere for a plane normal), residual factors generic over
 `RealField` for automatic differentiation, and robust losses (`Huber`,
 `Cauchy`, `Arctan`). One Levenberg–Marquardt loop solves it over two
-linearization engines, tiny-solver (default) and factrs, with sparse Cholesky
-or QR linear solvers.
+linearization engines, tiny-solver (default) and factrs, solving the damped
+normal equations by sparse Cholesky.
 
 ## Public surface
 

@@ -15,7 +15,6 @@ decomposition.
 
 | Module | Description |
 |--------|-------------|
-| `math` | Hartley normalization and small linear-algebra helpers |
 | `epipolar` | Fundamental and essential matrix estimation and decomposition |
 | `homography` | Normalized DLT homography estimation |
 | `triangulation` | Linear DLT triangulation of bearings from multiple views |
@@ -25,7 +24,10 @@ decomposition.
 ## Coordinate Conventions
 
 - Fundamental matrix solvers accept pixel coordinates.
-- Essential matrix solvers expect calibrated coordinates after applying `K^-1`.
+- Essential matrix solvers and triangulation take bearings: rays in each
+  camera's frame, from the camera's own unprojection (any nonzero length). A
+  pinhole's `(x, y, 1)` of normalized coordinates is one; a fisheye's bearing
+  may point more than 90° off the axis.
 - Pose outputs follow the `T_C_W` convention: world to camera.
 - PnP solvers take pixel coordinates and intrinsics `K`; pass the identity `K` with
   normalized coordinates (`x/z`, `y/z`) to use them with any camera model.

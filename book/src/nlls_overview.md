@@ -56,13 +56,7 @@ LM is a **trust region method**: $\lambda$ controls the size of the region where
 
 ### Convergence Criteria
 
-LM terminates when any of:
-
-- **Cost threshold**: $F(\boldsymbol{\theta}) < \epsilon_{\text{min}}$
-- **Absolute decrease**: $|F_k - F_{k+1}| < \epsilon_{\text{abs}}$
-- **Relative decrease**: $|F_k - F_{k+1}| / F_k < \epsilon_{\text{rel}}$
-- **Maximum iterations**: $k > k_{\max}$
-- **Parameter change**: $\|\boldsymbol{\delta}\| < \epsilon_{\text{param}}$
+LM stops when the cost is small enough, when it stops decreasing, when a step can no longer change the parameters, or after an iteration budget. The exact rules and thresholds calibration-rs uses are in [The Levenberg–Marquardt Loop](solver_backends.md#the-levenbergmarquardt-loop).
 
 ## Sparsity
 
@@ -78,12 +72,12 @@ These are related but not identical: the cost weights large errors quadratically
 
 ## With Robust Losses
 
-When a robust loss $\rho$ is used, the objective becomes:
+When a robust loss $\rho$ is used, it acts on the squared norm $s_i = \lVert \mathbf{r}_i \rVert^2$ of each residual block, and the objective becomes:
 
-$$\min_{\boldsymbol{\theta}} \sum_{i=1}^{N} \rho(\|\mathbf{r}_i\|)$$
+$$\min_{\boldsymbol{\theta}} \quad F(\boldsymbol{\theta}) = \frac{1}{2} \sum_{i=1}^{N} \rho\left(s_i\right), \qquad s_i = \lVert \mathbf{r}_i(\boldsymbol{\theta}) \rVert^2$$
 
-The normal equations are modified to incorporate the loss function's weight:
+Its gradient is $\sum_i \rho'(s_i)\, J_i^T \mathbf{r}_i$, so to first order the normal equations become the weighted system
 
-$$J^T W J \, \boldsymbol{\delta} = -J^T W \mathbf{r}$$
+$$J^T W J \, \boldsymbol{\delta} = -J^T W \mathbf{r}, \qquad W = \text{diag}\left(\rho'(s_i)\right)$$
 
-where $W = \text{diag}(\rho'(\|\mathbf{r}_i\|) / \|\mathbf{r}_i\|)$ is the iteratively reweighted diagonal matrix. See [Robust Loss Functions](robust_loss.md) for details.
+with each block's weight repeated over its rows: iteratively reweighted least squares. See [Robust Loss Functions](robust_loss.md) for the loss functions and how each backend folds them into the linearization.

@@ -23,7 +23,9 @@ where $\pi$ is the full camera projection pipeline: SE(3) transform → pinhole 
 
 With robust loss $\rho$:
 
-$$\min_{K, \mathbf{d}, \{T_v\}} \sum_{v=1}^{M} \sum_{j=1}^{N_v} \rho\left( \left\| \pi(K, \mathbf{d}, T_v, \mathbf{P}_j) - \mathbf{p}_{vj} \right\| \right)$$
+$$\min_{K, \mathbf{d}, \{T_v\}} \sum_{v=1}^{M} \sum_{j=1}^{N_v} \rho\left( \left\| \pi(K, \mathbf{d}, T_v, \mathbf{P}_j) - \mathbf{p}_{vj} \right\|^2 \right)$$
+
+with $\rho$ acting on the squared residual norm, as in [Robust Loss Functions](robust_loss.md).
 
 ## Two-Step Pipeline
 
@@ -41,7 +43,7 @@ After initialization, intrinsics are typically within 10-40% of the true values.
 Constructs the optimization problem as IR:
 
 - **Parameter blocks**: `"cam"` (4D, Euclidean), `"dist"` (the distortion model's coefficients, Euclidean; absent for no distortion), `"sensor"` (`tilt_x, tilt_y`, Scheimpflug sensor only), `"pose/0"`...`"pose/M-1"` (7D, SE3)
-- **Residual blocks**: One `ReprojPoint { model: PINHOLE4_DIST5, chain: SinglePose, .. }` per observation (2D residual)
+- **Residual blocks**: One `ReprojPoint { model, chain: SinglePose, pw, uv, sqrt_info }` per observation (2D residual), where `model` is the configured `CameraModelSpec` (pinhole with Brown-Conrady by default) and `sqrt_info` is the identity, or the whitening of the point's stated covariance (see the [Factor Catalog](factor_catalog.md))
 - **Solver**: the Levenberg–Marquardt loop on the backend `solver.backend` selects (tiny-solver by default; see [Solver Backends](solver_backends.md))
 
 After optimization, expect <2% intrinsics error and <1 px mean reprojection error.

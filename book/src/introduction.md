@@ -2,7 +2,7 @@
 
 **calibration-rs** is a Rust library for camera calibration — the process of estimating the internal parameters (intrinsics, lens distortion) and external parameters (pose, rig geometry, hand-eye transforms) of camera systems from observed correspondences between known 3D points and their 2D projections.
 
-[API reference](https://vitalyvorobyev.github.io/calibration-rs/api)
+[API reference](https://vitalyvorobyev.github.io/calibration-rs/api/vision_calibration/index.html)
 
 ## Three Ways In
 
@@ -34,20 +34,7 @@ The library covers the full calibration pipeline:
 
 ## Workspace Structure
 
-calibration-rs is organized as a layered Rust workspace with a layered architecture:
-
-```text
-vision-calibration (facade)
-    → vision-calibration-pipeline (sessions, workflows, dataset runner)
-        → vision-calibration-optim (non-linear refinement)
-        → vision-calibration-linear (initialization)
-        → vision-calibration-dataset / -detect (manifest, detectors)
-    → vision-mvg (N-view geometry, rectification, dense stereo)
-        → vision-geometry (two-view solvers)
-            → vision-calibration-core (primitives, camera models, RANSAC)
-```
-
-The **key dependency rule**: the linear and optimization crates are peers — they both depend on `vision-calibration-core` but not on each other. This separation keeps initialization algorithms independent of the optimization backend.
+calibration-rs is a layered Rust workspace: the `vision-calibration` facade re-exports the calibration workflows, the closed-form initialization and non-linear refinement beneath them, the dataset manifest and target detectors, and the multiple-view geometry tools, all built on one crate of primitives and camera models. The initialization and optimization crates are peers, neither depending on the other. [Architecture Overview](architecture.md) draws the crate graph and what each crate holds.
 
 ## Relation to OpenCV
 
@@ -77,7 +64,9 @@ The book is the one user guide for the library. It is organized by what you want
 - **Multiple-View Geometry**: pose recovery, triangulation, bundle adjustment, rectification and dense stereo for calibrated cameras.
 - **The Desktop App**: running calibrations and inspecting the results without writing code.
 - **Theory**: the camera model, geometric primitives and robust estimation, the linear initialization algorithms and the non-linear optimization machinery, each with a formal problem statement and derivation.
-- **Reference and Development**: the regression suite, extending the library, synthetic data and a type reference.
+- **Extending the Library**: a residual of your own solved with the library's, and a pipeline composed from its pieces.
+- **Reference**: synthetic data generation, a type reference and further reading.
+- **Contributing to the Library**: adding an optimization problem or a pipeline problem type, and the regression suite.
 
 Each algorithm chapter in the theory parts includes a formal **problem statement**, **objective function**, **assumptions**, and a **full derivation** leading to the implementation.
 

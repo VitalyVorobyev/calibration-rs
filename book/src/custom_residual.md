@@ -15,8 +15,8 @@ Python function cannot be.
 [`optim::problem`](https://docs.rs/vision-calibration/latest/vision_calibration/optim/problem/)
 holds them:
 
-- a `Problem` of **parameter blocks**: a Euclidean vector, an SE(3) pose or
-  a unit 3-vector, each with a name;
+- a `Problem` of **parameter blocks**: a Euclidean vector, an SE(3) pose, an
+  SO(3) rotation or a unit 3-vector, each with a name;
 - **residuals** that read blocks: ones you write (the `Residual` trait), and
   the library's reprojection residual through a camera you add;
 - `solve`, which returns a `Solution`: each block's value, the solve report,
