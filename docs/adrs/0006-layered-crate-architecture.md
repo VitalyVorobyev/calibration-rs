@@ -51,11 +51,9 @@ vision-calibration (facade: re-exports only)       vision-calibration-py
     two-view solvers sit at the root of `mvg`, and `linear` and `geometry`
     are used directly.
   - `nalgebra` is the one public dependency, re-exported as
-    `vision_calibration::nalgebra`; its version moves only with a
-    breaking release of ours. The version is not ours to pick: optim
-    passes nalgebra and faer types across both solver-backend boundaries,
-    so `nalgebra`, `faer` and `faer-ext` follow what tiny-solver and factrs
-    are built against, and a bump waits for both backends.
+    `vision_calibration::nalgebra`; its version follows both solver
+    backends and moves only with a major release (the policy is
+    AGENTS.md §7).
   - What the workspace's own crates need from each other but users do not
     (optim's `optimize_*` and their options, core's parameter masks) is
     `#[doc(hidden)]`: callable, undocumented, outside the semver promise.

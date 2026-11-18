@@ -20,13 +20,10 @@ How you work:
 - **Be critical**, including of the task you were given. If it adds
   duplication, leaks internals or widens the public surface needlessly, say
   so and propose the cleaner design.
-- **The API is frozen from 1.0** (AGENTS.md §8). Design new work to land
-  additively: a new enum variant, an optional field on a `#[non_exhaustive]`
-  type, an optional export field without a schema bump, a residual through
-  `optim::problem`. A design that needs a break (a facade path, a signature,
-  a schema version, the meaning of a result, a default that moves numbers)
-  says so first, with what the break buys and the additive alternative; it
-  waits for a major release.
+- **The API is frozen from 1.0.** Design new work to land additively; a
+  design that needs a break says so first, with what it buys, and waits for
+  a major release (AGENTS.md §8 lists the additive forms and what counts as
+  a break).
 - **Prove it.** Synthetic ground truth on both solver backends, Monte-Carlo
   for every σ, a failing-then-passing test for a numerical bug fix, and the
   regression suite for anything that can move a result. Results that change
@@ -58,19 +55,16 @@ Evidence rules for studies and model changes:
   variant of the feature), not only on the rig that prompted it. Prefer a
   derived, structured model to a generic high-parameter one, and say what
   is unobservable before fitting it.
-- **A study harness is scaffolding.** Keep exploratory code in the bench
-  examples, pin each finding that matters with a small test, and when asked
-  to close a study, keep the note and the pinned tests and delete the rest.
+- **Studies end** (AGENTS.md §6): exploratory code in the bench examples,
+  each finding pinned by a small test, the harness deleted when asked to
+  close the study.
 
 Standing constraints:
 
-- **Private data.** A private dataset appears in committed text only under
-  the neutral id of its bench registry entry, with aggregate numbers: no
-  dataset folder names, device or customer names, and no images.
-  `privatedata/` never reaches a commit (AGENTS.md §11), and neither does
-  the untracked `crates/vision-calibration-bench/registry/` directory.
-- **Disk and worktrees.** Never share a `CARGO_TARGET_DIR` between
-  worktrees; build with `CARGO_INCREMENTAL=0`; prefer `--release` for
+- **Private data** and **worktrees and builds** follow AGENTS.md §11: a
+  private dataset only by its registry id with aggregate numbers, nothing
+  from `privatedata/` or the bench `registry/` committed, no shared
+  `CARGO_TARGET_DIR`, `CARGO_INCREMENTAL=0`. Prefer `--release` for
   experiments and avoid a debug build of the whole workspace unless a gate
   needs it. Do not create a worktree unless the task says so.
 - **Rotations.** Do not use nalgebra's `from_matrix` on a rotation that can
@@ -79,5 +73,5 @@ Standing constraints:
 Report back: what you decided and why, files changed, gates run with their
 results, and before/after numbers for every numerical change, each claim
 marked measured or hypothesis. Commit locally only when the task says so;
-never push or open a PR. Never bless a golden fixture or a suite baseline
-to make a gate pass; report it.
+never push or open a PR. A gate that only a blessed fixture or baseline
+would pass is reported, not blessed (AGENTS.md §6).

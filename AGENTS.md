@@ -36,7 +36,7 @@ The workspace is a strict layered DAG ([ADR 0006](docs/adrs/0006-layered-crate-a
 | `vision-calibration` | all of the above | the facade: re-exports only, no logic |
 | `vision-calibration-cli` | the facade | the `vcal` program: a thin command layer over the facade |
 | `vision-calibration-py` | the facade, the CLI | PyO3/maturin bindings; the `vcal` console script runs the CLI |
-| `vision-calibration-bench` | facade, pipeline, core, optim, dataset, linear | benchmarks, acceptance, the public regression suite |
+| `vision-calibration-bench` | facade, pipeline, core, optim, dataset, linear; detect (feature `tier-b`), the git dependency `vision-metrology` (feature `laser`) | benchmarks, acceptance, the public regression suite |
 
 `linear` and `optim` are peers (no edge either way). The pipeline does not
 depend on `vision-mvg`; the facade re-exports it.
@@ -64,12 +64,18 @@ python3 scripts/check_pyi_coverage.py --check      # when the Python surface cha
 python3 scripts/check_binding_parity.py --check    # when a public capability changes
 ```
 
-CI also runs heavier jobs worth running locally when your change touches
-them: the MSRV check (`--locked` on the `rust-version` toolchain), the
-`wasm32` build of core and dataset, the LFS image tests, the regression suite
-(`calib-bench suite check` on both backends, `suite compare`), the uncertainty
-gates (Monte-Carlo, robot-error, next-view), the Python runtime tests, and the
-app jobs (§12). No new warnings; `#[allow(...)]` only with a stated reason.
+CI (`.github/workflows/ci.yml`) also runs heavier jobs; run the ones your
+change touches locally: the MSRV check (`--locked` on the `rust-version`
+toolchain), the `semver-rc` check (§8), the `wasm32` build of core and
+dataset, the LFS image tests, the regression suite (`calib-bench suite check`
+on both backends, `suite compare`) and the suite images' checksums, the
+uncertainty gates (release-mode `--ignored` tests: Monte-Carlo, rig laser
+points, dense cloud, second-order error, tilted rig, robot-frame points,
+robot-error estimate, next-view prediction, feature covariance; the
+`uncertainty-gates` job lists the commands), the install smoke test (the
+wheel's examples and `vcal` run outside the checkout), the Python runtime
+tests, and the app jobs (§12). No new warnings; `#[allow(...)]` only with a
+stated reason.
 
 ## 4) Coding conventions
 
@@ -148,18 +154,27 @@ renamed or retyped key needs the bump of the matching version (the export's
 `SCHEMA_VERSION`, `ProblemType::schema_version()` for the session, or
 `DATASET_SPEC_VERSION`) first. Regenerate with `GOLDEN_BLESS=1 cargo test -p
 vision-calibration-bench --test golden_shapes` and commit the fixtures with
-the change.
+the change. Never bless a fixture or a suite baseline only to make a gate
+pass.
+
+**Studies end.** A study harness is scaffolding: exploratory code lives in
+the bench examples, and each finding that matters is pinned by a small test.
+When the study's question is settled, its note in `docs/notes/` and the
+pinned tests stay; the harness is deleted in the PR that closes it.
 
 ## 7) Dependencies and MSRV
 
 * Core stays lightweight; heavy dependencies elsewhere go behind features.
   New dependencies need a reason and a compatible license.
-* `nalgebra` is the one public dependency, re-exported as
-  `vision_calibration::nalgebra`. Its version, with `faer` / `faer-ext`,
-  follows what both solver backends are built against, so a bump is a
-  breaking release of ours ([ADR 0006](docs/adrs/0006-layered-crate-architecture.md)).
-  `serde` derives appear on every config and export type; nothing else
-  reaches a facade signature.
+* **`nalgebra`** is the one public dependency, re-exported as
+  `vision_calibration::nalgebra`; `serde` derives appear on every config and
+  export type; nothing else reaches a facade signature
+  ([ADR 0006](docs/adrs/0006-layered-crate-architecture.md)). optim passes
+  nalgebra and faer types across both solver backends, so `nalgebra`, `faer`
+  and `faer-ext` follow what tiny-solver and factrs are built against (the
+  root `Cargo.toml` records the versions), a bump waits for both backends,
+  and it is a major release of ours. 1.0 ships on nalgebra 0.34; the move to
+  0.35 is backlog NALGEBRA-035.
 * **MSRV** — `rust-version` in the root `Cargo.toml` is the single source;
   the `MSRV` CI job checks every target and feature on it with `--locked`.
   Raise it when a dependency needs a newer toolchain or a stable feature
@@ -173,9 +188,17 @@ All published crates and the PyPI package share one version.
 * **SemVer from 1.0** — a release that breaks the public API, a JSON schema
   or the meaning of a result is a major; an additive one a minor; a fix a
   patch. The CHANGELOG lists every change, a break with migration notes.
+* **The API is frozen from 1.0.** Design a change to land additively: a new
+  enum variant or an optional field on a `#[non_exhaustive]` type, an
+  optional export field without a schema bump, a residual through
+  `optim::problem`. A design that needs a break (a facade path, a
+  signature, a schema version, the meaning of a result, a default that
+  moves numbers) says so first, with what the break buys and the additive
+  alternative, and waits for a major release.
 * **The rc series** — no breaking change between `1.0.0-rc.*` releases or
-  from the last rc to 1.0.0: the `semver-rc` CI job checks every PR against
-  the latest `v1.0.0-rc.*` tag.
+  from the last rc to 1.0.0. The `semver-rc` CI job checks every PR against
+  the latest `v1.0.0-rc.*` tag; it binds from the first such tag and passes
+  without checking until then.
 * `cargo semver-checks` runs before every tag (the release workflow enforces
   it). Items under `#[doc(hidden)]` are exempt.
 * The procedure is [`docs/RELEASE-RUNBOOK.md`](docs/RELEASE-RUNBOOK.md); read
@@ -244,8 +267,14 @@ All published crates and the PyPI package share one version.
   track heading), add the user-visible change to `CHANGELOG.md` under
   `[Unreleased]`, and update the docs next to the code (rustdoc, ADRs, the
   book). No per-task report files; the commit and PR carry the rest.
-* `privatedata/` (git-ignored) never reaches a commit, PR or report beyond
-  aggregate numbers.
+* **Private data.** `privatedata/` (git-ignored) and the untracked
+  `crates/vision-calibration-bench/registry/` never reach a commit. Committed
+  text, PRs and reports name a private dataset only by the neutral id of its
+  bench registry entry, with aggregate numbers: no dataset folder, device or
+  customer names, and no images.
+* **Worktrees and builds.** Never share a `CARGO_TARGET_DIR` between
+  worktrees (cargo reuses stale artifacts across bases); build with
+  `CARGO_INCREMENTAL=0`.
 * The sibling crates `../calib-targets-rs` and `../vision-metrology` are
   separate repositories: an edit there is its own commit in that repo, called
   out as a cross-repo change.
@@ -265,7 +294,13 @@ Tauri 2 + React 19 + TypeScript; the developer guide is
   `@vitavision/three(-react)`; no app-local component kit, colour only from
   design tokens. No `app/src` module over ~400 lines (generated files
   excepted). Source images load over the asset protocol, never as IPC text.
-* Gates (from `app/`): `bun run lint`, `bun run format:check`,
-  `bun run typecheck`, `bun run test`, `bun run build`; from `app/src-tauri`:
-  `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
-  `cargo test`.
+* Gates, as CI runs them. From `app/`: `bun run lint` (oxlint, zero
+  warnings), `bun run format:check`, `bun run typecheck`, `bun run test`
+  (Vitest), `bun run test:e2e` (Playwright), and `bun run generate:types:ts`
+  leaving `src/types/generated` unchanged. From `app/src-tauri`:
+  `cargo fmt --check`, `cargo clippy --all-targets --features schema-export
+  -- -D warnings`, `cargo test`, and `cargo run --features schema-export
+  --bin emit_schemas -- --check`. `bun run generate:types` regenerates both
+  stages. `bun run build` runs in CI only inside the bundle workflow (on a
+  release tag or by hand); run it locally when a change touches the build
+  setup.

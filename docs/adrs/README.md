@@ -6,9 +6,11 @@ detail belongs in rustdoc, algorithms and evidence in
 [`docs/notes/`](../notes/README.md), rules in `AGENTS.md`, and work in
 [`docs/backlog.md`](../backlog.md).
 
-Every ADR listed here is in force, except one marked *proposed*: a design
-agreed for a backlog task and not yet implemented. When a decision changes, edit its ADR to
-state the new decision; do not append history. Numbers are stable
+Every ADR listed here is in force except two: 0031 is *proposed* (a design
+agreed for a backlog task and not yet implemented) and 0030 is *on hold* (a
+design whose premise the evidence has not borne out; its status says what
+would reopen it). When a decision changes, edit its ADR to state the new
+decision; do not append history. Numbers are stable
 identifiers and are not reused, so the sequence has gaps.
 
 Shape: **Context** (the forces, briefly), **Decision** (what holds, stated

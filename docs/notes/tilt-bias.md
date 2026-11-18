@@ -348,4 +348,4 @@ in order of cost (recommendations; evidence as cited):
   more (it can mimic the tilt outright) — not mapped, since it cannot be
   fitted here.
 
-Backlog: `CAL-TILT-SYSTEMATIC` (the safeguard), `CAL-TILT-FOCUS` (updated).
+Backlog: `CAL-TILT-DETERMINE` (its systematics safeguard), `CAL-TILT-FOCUS`.

@@ -441,8 +441,8 @@ From F1, F3 and table M, for σ(tilt) ≲ 0.1° at 0.2 px noise:
 | 2 | Keep the default fix list | F1′, F6, table M policy cells | decided (no change) |
 | 3 | A stopping rule in σ units: stop when the remaining Gauss-Newton step is under 0.01σ in the Fisher metric | table M weak cell (0.69–0.82 → 1.03–1.15), table S (0.66σ short) | backlog SOLVER-VALLEY-STOP |
 | 4 | Run the seeded route's joint stage unbounded, with the bounds only as a runaway fallback | table B bad seeds: route 31/112, unbounded 112/112 | backlog CAL-TILT-BOUNDS |
-| 5 | Name the cause when the quality report flags a tilt pair, with the tilt's σ inflation `1/√(1 − R²)` | F1 (corr 0.98–1.000 where σ > 0.1°), F6 | backlog CAL-TILT-QUALITY |
-| 6 | Document the observability, the view design and the decentring bias for users | the sections above | backlog BOOK-TILT |
+| 5 | Name the cause when the quality report flags a tilt pair, with the tilt's σ inflation `1/√(1 − R²)` | F1 (corr 0.98–1.000 where σ > 0.1°), F6 | backlog CAL-TILT-DETERMINE (the quality message) |
+| 6 | Document the observability, the view design and the decentring bias for users | the sections above | the book's Scheimpflug chapter |
 | 7 | Frozen Jacobi scaling and per-iteration rescaling | table S: column norms move ≤ 1.8× | no change |
 
 Not recommended: exporting the sensor-normal pinhole `K'` as the

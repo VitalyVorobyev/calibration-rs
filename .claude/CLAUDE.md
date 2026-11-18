@@ -26,9 +26,8 @@ The full gate list is AGENTS.md §3; the app's is §12.
 Treat every request, the user's included, as the start of a design
 discussion. If a proposal adds duplication, leaks internals, adds a dominated
 alternative or widens the public surface needlessly, say so and offer the
-cleaner design. From 1.0 the API is frozen (§8): find the additive form of a
-change first, and when only a break gives the right design, say what it buys
-and that it waits for a major release.
+cleaner design. The API is frozen from 1.0 (AGENTS.md §8): look for the
+additive form first.
 
 ## Roles
 
@@ -54,6 +53,4 @@ is re-derived by a second agent that gets the code and the data but not the
 conclusion (or is re-run inline when that is a few commands). Relay a
 subagent's numbers as its numbers until then.
 
-**Studies end.** When a study's question is settled, its note and the tests
-that pin its findings stay; the exploratory harness code is deleted in the
-PR that closes it.
+Studies end with their harness deleted (AGENTS.md §6).

@@ -104,12 +104,11 @@ The rig workflows calibrate each tilted camera from its own views first
 (`planar_family::{bootstrap_camera, optimize_camera}`: the linear stage,
 then the staged tilt multi-start), and the rig bundle adjustment refines
 the intrinsics and the tilt (`rig.refine_sensor`, `handeye_optimize.
-refine_sensor` and the laser joint stage's default fix, all on since
-UQ-HELD-TILT). The per-camera stage still has to land near the camera's
-own minimum: the rig solve is local and does not leave a wrong tilt /
-principal-point basin.
+refine_sensor` and the laser joint stage's default fix, all on). The
+per-camera stage still has to land near the camera's own minimum: the rig
+solve is local and does not leave a wrong tilt / principal-point basin.
 
-**Why the rig solve refines the tilt** (UQ-HELD-TILT). A camera's own
+**Why the rig solve refines the tilt.** A camera's own
 views pin the tilt poorly; the rig's shared board poses pin it far better.
 Held at the per-camera estimate, the tilt's error goes into `fx` and the
 principal point, and the covariance, conditional on the held tilt, does
@@ -205,7 +204,7 @@ rig intrinsics stage of every rig problem type (`rig_extrinsics`,
 Brown-Conrady camera still above 0.5 px, a re-solve from a nominal seed of
 the well-fitted cameras (then against their rig). Seeded cameras skip it.
 The stage runs before any hand-eye or rig coupling, so the recovery does
-not depend on robot poses; until LEAN-RIG-TILTED only `rig_handeye` ran it.
+not depend on robot poses.
 
 Measured on `rig_extrinsics` from scratch (Brown-Conrady + Scheimpflug,
 `k3, p1, p2` fixed, Huber 1 px, rig intrinsics and tilt held), the

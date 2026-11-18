@@ -84,13 +84,13 @@ unknown until the solve ends. The sandwich covariance holds for the
 weights the solve used, so it stays right; a user who wants a family to
 count divides its residual by an expected σ.
 
-`ResidualKind` gains `Custom(String)` (losing `Copy`), and the estimator
-keys families by `&ResidualKind`, so a user family is pooled on its own and
-reported in `ResidualNoise` like a built-in one. The view-scatter scaling
-(ADR 0026) is not applied to a user problem: it reads views from IR block
-names, which lowering does not produce, so a user problem's covariance
-treats residuals as independent. Grouping blocks into views can come with a
-need.
+`ResidualKind` has a `Custom(String)` variant (so it is not `Copy`), and the
+estimator keys families by `&ResidualKind`, so a user family is pooled on
+its own and reported in `ResidualNoise` like a built-in one. The
+view-scatter scaling (ADR 0026) is not applied to a user problem: it reads
+views from IR block names, which lowering does not produce, so a user
+problem's covariance treats residuals as independent. Grouping blocks into
+views can come with a need.
 
 A free block that no residual reads has no columns in tiny-solver's
 Jacobian and would drop out of the covariance unnoticed; `solve` reports
@@ -140,18 +140,20 @@ contract stay the library's own.
 
 ## Consequences
 
-- New public, semver-bound surface: `Problem`, `BlockId`, `CameraId`,
+- The public, semver-bound surface: `Problem`, `BlockId`, `CameraId`,
   `Manifold`, `Residual`, `Noise`, `se3`, `SolveOptions`, `Solution`,
   `SolveReport` on the facade, and the `init` re-exports; the enums and
   option structs are `#[non_exhaustive]`.
-- `FactorKind` gains `Custom`; its `PartialEq` compares that arm by pointer.
-- `ResidualKind` gains `Custom(String)` and is no longer `Copy`: a break of
-  the public API and of the export schemas (a new variant).
+- `FactorKind` has a `Custom` arm; its `PartialEq` compares that arm by
+  pointer.
+- `ResidualKind::Custom(String)` is part of the export schemas, so a user
+  family's noise is reported like a built-in one.
 - A user residual is monomorphized in the user's crate, not ours.
-- Python stays Rust-only here (recorded in the binding parity check): a
+- Python is Rust-only here (recorded in the binding parity check): a
   Python residual would be a per-evaluation callback that cannot take dual
   numbers.
-- The book gains "Your own residual" and "Compose your own pipeline".
+- The book's "Your Own Residual" and "Compose Your Own Pipeline" chapters
+  cover it.
 - [ADR 0028](0028-measurements-from-a-calibration.md) extends the builder
   for measurements: a calibration with its covariance (`add_calibrated_rig`),
   point-block and rig-chain reprojection, whitened reprojection.

@@ -149,10 +149,10 @@ to the tilted optics and their focus gradient.
 
 Backlog entries, each with its evidence in a note: CAL-TILT-DETERMINE and
 CAM-PARAM-PRIOR (estimate the tilt only when the data determine it, else a
-prior, else zero with the tangential terms freed), CAL-TILT-SYSTEMATIC,
-CAL-TILT-FOCUS, CAL-TARGET-OFFSETS, SOLVER-VALLEY-STOP, CAL-TILT-BOUNDS,
-CAL-TILT-QUALITY, CAM-FIELD-ORIGIN. The ring-grid centre covariance is not
-passed into calibration yet.
+prior, else zero with the tangential terms freed; with a systematics
+safeguard and a named quality message), CAL-TILT-FOCUS, CAL-TARGET-OFFSETS,
+SOLVER-VALLEY-STOP, CAL-TILT-BOUNDS, CAM-FIELD-ORIGIN. The ring-grid centre
+covariance is not passed into calibration.
 
 ## The study harness
 

@@ -125,4 +125,5 @@ evidence behind ADR 0011.
   pre-registered study: does weighting by the detector's corner covariance
   improve held-out geometry or the honesty of the stated σ? No; it advises
   against it, and finds the stated projection σ 2–5 times short of the real
-  split-half scatter for every arm.
+  split-half scatter for every arm without the view-scatter scaling; with
+  it the pooled split-half `r` is 1.03 ([uncertainty](uncertainty.md)).

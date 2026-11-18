@@ -20,114 +20,55 @@ itself in four ways:
 
 ## State
 
-Phase 1b is done and the v1.0 exit criteria hold (swept 2026-11-12). The
-release is a `1.0.0-rc` series: the `semver-rc` CI job fails a pull request
-that breaks the API of the latest rc, and 1.0.0 follows an rc that needed no
-break. From 1.0 the version rule is standard SemVer (AGENTS.md §8). The
-published packages are listed in AGENTS.md.
+Phase 1b is done and the v1.0 exit criteria hold (swept 2026-11-12):
+(1) acceptance through the seeded route; (2) the public regression suite
+gates every PR; (3) every result carries its covariance, checked by
+Monte-Carlo and real split-half scatter; (4) a proof pack per algorithm
+family; (5) a frozen facade with no break through the rc series; (6) Python
+parity; (7) measurements with σ on public real data; (8) a user residual and
+pipeline from the facade alone; (9) onboarding from a crates.io / PyPI
+install; (10) app CI green; (11) current docs; (12) only `nalgebra` in facade
+signatures (AGENTS.md §7).
+
+The workspace version is `1.0.0-rc.1`; the tag is pending (backlog D4-RELEASE).
+The release is a `1.0.0-rc` series and 1.0.0 follows an rc that needed no
+break; the version rules are AGENTS.md §8, the published packages
+[`RELEASE-RUNBOOK.md`](RELEASE-RUNBOOK.md) §2.
 
 ## Phases
 
-**Phase 1** (done, 0.12) built the foundation. **Phase 1b** makes the
-library clear to use, extensible and measured, and holds every remaining
-breaking change; it ends with v1.0 (done, 1.0.0-rc.1). **Phase 2** adds capability in 1.x
-without breaking the API. The book and app tracks are not bound by semver
-and run alongside. Track names below match the backlog headings.
-
-### Phase 1 — Foundation (done)
-
-One camera-model spec across every problem type (`#[non_exhaustive]`
-enums, Kannala-Brandt fisheye as the second projection, agreeing with
-OpenCV's `fisheye` within 0.01σ); parameter uncertainty whose stated σ
-matches real split-half scatter (`r` 1.03 pooled); the quality report;
-Python parity enforced in CI; the public regression suite fetched from its
-publishers; the API audit and the public-dependency policy.
-
-### Phase 1b — Usable, extensible, measured (done)
-
-The 0.12 review found a library that calibrates well but is not ready to
-freeze: a first real-image run needs a source checkout, a user cannot add
-a residual or compose a pipeline without forking, and multiple-view
-geometry takes a bare `K`, carries no covariance and has no demonstration.
-
-| Track | Goal | Gate |
-|---|---|---|
-| USE | A newcomer reaches a result on their own images from the book alone: a workflow chooser, a real-image quickstart, sample data fetched without a checkout, runnable docs.rs examples, capture guidance | Every quickstart and example runs from a crates.io / PyPI install; `check-docs` |
-| CLI | `vcal`: manifest in, export and report out, plus `init`, `check` and sample fetch, as a thin layer over the dataset runner; one HTML report shared with the app | CLI integration tests on the public suite data; the report renders every workflow |
-| EXT | Build your own pipeline: a public residual trait and IR builder with covariance over labelled blocks, the closed-form initializers on the facade, and a book chapter on each | A downstream test crate that uses only the facade defines a residual, solves and reads σ |
-| MVG | Measurements with error bars: MVG takes calibrated cameras (any camera model, rig exports), observations carry covariance, triangulation, BA, stereo and a metrology API return σ that includes the calibration's covariance; BA and every σ through the public problem builder (ADR 0028) | Monte-Carlo agreement for every propagated σ; a real-data walk-through measuring known board lengths with predicted σ checked against the actual error; Python bindings |
-| CORRECT | Rig initialization through a co-visibility graph, more hand-eye initializers, progress and cancellation through the solver | Synthetic-GT matrix per feature |
-| LEAN | Shared step logic of the problem types factored once; MVG and geometry free of duplicate solvers | Library code lines down, results bit-identical |
-
-### v1.0 exit criteria
-
-1. **Acceptance** — `calib-bench accept` passes every on-disk registered
-   dataset through the seeded official route, gated by the quality report.
-2. **Public regression suite** — a versioned public suite (observations in
-   the repository, images fetched from their publishers and verified by
-   checksum) gates every PR, with reference results compared against OpenCV
-   wherever OpenCV has an equivalent calibration.
-3. **Uncertainty** — every result carries its parameter covariance,
-   projection uncertainty and quality report, validated by Monte-Carlo and
-   against real-image scatter (split-half consistency). The detector's
-   per-corner covariance does not weight results by default
-   (`notes/feature-covariance-study.md`).
-4. **Soundness** — every shipped algorithm family has a proof pack
-   ([`notes/`](notes/README.md)): math note, synthetic-GT matrix test,
-   property tests where an invariant exists, and a committed regression
-   baseline with a drift gate.
-5. **Frozen API** — facade-only consumers; one camera-model spec across all
-   problem types and MVG; normalized configs
-   ([ADR 0024](adrs/0024-api-vocabulary.md)); typed errors; one path per
-   public symbol (the per-problem seeds and step results share names across
-   problem modules by design, ADR 0024) and no deprecated shims; no breaking
-   change through a `1.0.0-rc` series (`semver-checks` against the last rc
-   on every PR).
-6. **Python parity** — every facade capability, MVG included, is in the
-   Python package, enforced in CI.
-7. **Measurements** — a measurement from a calibrated system (point,
-   distance, depth) comes with σ that includes the calibration's
-   covariance, demonstrated on public real data.
-8. **Extensible** — a user residual and a composed pipeline work from the
-   facade alone, exercised by MVG bundle adjustment.
-9. **Onboarding** — the book's quickstarts, the examples and `vcal` work
-   from a crates.io / PyPI install, without a source checkout.
-10. **App CI green** — lint (zero warnings), format, typecheck, unit,
-    component and smoke tests, generated IPC types in sync.
-11. **Docs current** — README, crate READMEs, the book, ADRs and this file
-    describe the code as it is, and user-facing docs carry no internal
-    references (`cargo xtask check-docs`).
-12. **Public dependencies** — only `nalgebra` reaches the facade's
-    signatures; its version follows the solver backends, and a bump is a
-    breaking release (AGENTS.md §7). 1.0 ships on nalgebra 0.34 and does not
-    wait for the backends' move to 0.35; that bump is a 2.0 change
-    (NALGEBRA-035).
+**Phase 1** (0.12) built the foundation: one camera-model spec, parameter
+uncertainty matched to real scatter, the quality report, Python parity, the
+public regression suite. **Phase 1b** (to 1.0) made the library usable from
+an install, extensible through a public problem builder, measured (MVG with
+σ, the CLI) and held every breaking change; the CHANGELOG has the detail.
+**Phase 2** adds capability in 1.x without breaking the API. The tracks
+marked *alongside* are not bound by semver and run in both phases. Track
+names below are the backlog headings.
 
 ### Phase 2 — Growth in 1.x
 
 | Track | Goal | Gate |
 |---|---|---|
-| CAM | EUCM, double sphere and telecentric projection in every problem type, plus model selection | Per model: math note, synthetic matrix test, Python, book chapter; OpenCV comparison for fisheye |
-| CAL | Multi-target scenes, robot-pose and target-flatness uncertainty, cross-frame projection uncertainty | Synthetic-GT matrix per feature |
-| MVG | Two-view robustness and uncertainty (optimal triangulation, F/E/H covariance, GRIC, LO-RANSAC), comparison against PoseLib/pycolmap | Monte-Carlo agreement; published comparison |
-| PERF | Released solver speed-ups, analytic reprojection Jacobians, published timings | `calib-bench solver` against committed numbers |
+| Parameter uncertainty | Cross-frame projection uncertainty, robust-loss and composed-covariance edge cases, the robot-prior default | Monte-Carlo agreement for every new σ |
+| Camera models | EUCM, double sphere and telecentric projection in every problem type, plus model selection; a camera-fixed residual field once one is shown to exist | Per model: math note, synthetic matrix test, Python, book chapter; OpenCV comparison for fisheye |
+| Calibration problems | Scheimpflug tilt determined only when the data determine it (with priors, a systematics safeguard and a named quality message), a focus-tied tilt, non-ideal target geometry, a sturdier tilt seed and basin, multi-target scenes, report sections for hand-eye and laser | Synthetic-GT matrix per feature; real-data gates where an entry names one |
+| Multiple-view geometry | Two-view robustness and uncertainty (optimal triangulation, F/H covariance, GRIC, LO-RANSAC, P3P/EPnP in RANSAC) | Monte-Carlo agreement |
+| Solver backends and performance | A σ-based stopping rule, upstreamed solver work, analytic reprojection Jacobians, external comparisons (PoseLib, pycolmap, Ceres), published timings | `calib-bench solver` against committed numbers; published comparison |
 
 ### Alongside both phases
 
 | Track | Goal | Gate |
 |---|---|---|
-| Book | The one user guide; next, a results page generated from the regression suite and interactive demos running the library in the browser through a wasm build (MVG σ, planar σ, the camera models) | `check-docs`; every demo runs in the published book |
-| App | Rebuilt frontend on the `@vitavision/workbench` shell, organized as Project → Dataset → Detect → Calibrate → Diagnose → Use. Saved runs, reports, solver progress with cancel, installers that run without a source checkout | App gates (AGENTS.md §12) plus a frontend review with no high-severity findings |
+| Datasets and the regression suite | View identity in every export, more licensed public entries | `calib-bench suite check` on both backends |
 | Bindings and internals | One source per type and per helper: Python types generated from the Rust schemas, MVG results with a schema, the fixed problems built through the public builder | No hand-written copy of a Rust type in Python; results bit-identical or measured |
+| Book | The one user guide; next, a results page generated from the regression suite and interactive demos running the library in the browser through a wasm build (MVG σ, planar σ, the camera models) | `check-docs`; every demo runs in the published book |
+| App | The desktop app and its browser report viewer (`calib-viewer`), organized as Project → Dataset → Detect → Calibrate → Diagnose → Use; next, the report viewer grows an error map, a quality panel, run comparison and feedback notes, and the app's run dispatch and wire types come from the library | App gates (AGENTS.md §12) plus a frontend review with no high-severity findings |
 
 ## Ordering
 
-Phase 1b ran USE, the CLI, EXT, the MVG chain, CORRECT and LEAN, then a
-pre-release review that froze the wire contract and the facade. The
-release is a `1.0.0-rc` series. The browser demos follow MVG σ, since they
-show it.
-
-Phase 2 tracks are independent of each other and are picked by need.
+Phase 2 tracks are independent of each other and are picked by need. The
+browser demos follow the wasm build.
 
 ## Landscape
 
@@ -145,7 +86,7 @@ laser-plane and Scheimpflug calibration exist nowhere else in Rust.
 | `sophus`, `rust-cv`, `kornia-rs`, `cam-geom`, `sqpnp`, `factrs` | permissive | Lie groups, camera geometry, PnP, solvers | No calibration; `rust-cv` inactive since 2020; `factrs` is one of our backends |
 
 The gap to the closest rival is adoption, not capability. The levers are
-Phase 1b's onboarding and CLI, a published comparison against OpenCV
+onboarding from an install and the CLI, a published comparison against OpenCV
 (BOOK-RESULTS), and measurements with error bars, which no rival offers.
 Revisit the table when a crate adds calibration pipelines or covariance.
 
@@ -159,8 +100,8 @@ are not design:
 - Cross-platform only: the library, its comparison harnesses and its CI
   jobs run on Linux, macOS and Windows. Linux-only tools (mrcal, Kalibr)
   are compared through their published results, not run in the suite.
-- A change that alters results is measured first, opt-in until the
-  evidence is in, and lands with a migration note.
+- A change that alters results follows AGENTS.md §5 (measured first,
+  opt-in until the evidence is in).
 
 ## Out of scope
 
