@@ -52,45 +52,6 @@ enum Command {
     /// Solver benchmark on synthetic ground-truth scenes: wall time, the
     /// solver-independent objective and parameter errors, per problem type.
     Solver(SolverArgs),
-    /// The pre-registered real-data study of detector feature covariance:
-    /// every arm through the dataset runner, E1–E5 and the decision rule.
-    /// Writes `target/feature-cov/` (summary.json, report.md, one file per
-    /// camera and per downstream dataset).
-    FeatureCov(FeatureCovArgs),
-}
-
-/// Arguments for the `feature-cov` subcommand.
-#[derive(Parser)]
-struct FeatureCovArgs {
-    /// Where the datasets come from.
-    #[command(flatten)]
-    datasets: DatasetSources,
-    /// Only these study datasets (repeat or comma-separate).
-    #[arg(long, value_delimiter = ',')]
-    only: Vec<String>,
-    /// Output directory (default: the workspace's `target/feature-cov`).
-    #[arg(long)]
-    out: Option<PathBuf>,
-    /// Seeded random half-splits besides the even/odd split (the protocol
-    /// uses 20).
-    #[arg(long, default_value_t = 20)]
-    random_splits: usize,
-    /// Bootstrap resamples (the protocol uses 10 000).
-    #[arg(long, default_value_t = 10_000)]
-    resamples: usize,
-    /// Calibrations run in parallel (default: the available cores).
-    #[arg(long)]
-    threads: Option<usize>,
-    /// Time at most this many images per camera (the protocol times all).
-    #[arg(long)]
-    timing_images: Option<usize>,
-    /// Skip the detection-time measurement (E5).
-    #[arg(long)]
-    skip_timing: bool,
-    /// Run only E5 and write `timing.json` (the single-threaded child
-    /// process the study starts).
-    #[arg(long, hide = true)]
-    timing_only: bool,
 }
 
 /// Arguments for the `solver` subcommand.
@@ -360,8 +321,8 @@ struct DiagnoseStagesArgs {
     max_images: Option<usize>,
 }
 
-/// The datasets of `run`, `diagnose` and `feature-cov`: the regression
-/// suite's image entries (public) and the registries' entries (private).
+/// The datasets of `run` and `diagnose`: the regression suite's image
+/// entries (public) and the registries' entries (private).
 #[derive(clap::Args)]
 struct DatasetSources {
     /// Registry JSON path(s) of the private datasets. May be repeated.
@@ -1752,74 +1713,6 @@ fn fetch_images(
     anyhow::bail!("`suite fetch` needs `--features tier-b`")
 }
 
-#[cfg(feature = "tier-b")]
-fn cmd_feature_cov(args: &FeatureCovArgs) -> Result<()> {
-    use vision_calibration_bench::feature_cov::{self, Options, timing};
-
-    let entries = args.datasets.load(&args.only)?;
-    let defaults = Options::default();
-    let options = Options {
-        out: args.out.clone().unwrap_or(defaults.out),
-        random_splits: args.random_splits,
-        resamples: args.resamples,
-        threads: args.threads.unwrap_or(defaults.threads),
-        timing_images: args.timing_images,
-    };
-    let selected = feature_cov::select(&entries, &args.only)?;
-    let timing_path = options.out.join("timing.json");
-    if args.timing_only {
-        let measured = timing::measure(
-            &feature_cov::timing_inputs(&selected)?,
-            options.timing_images,
-        )?;
-        std::fs::create_dir_all(&options.out)?;
-        std::fs::write(&timing_path, serde_json::to_string_pretty(&measured)?)
-            .with_context(|| format!("write {}", timing_path.display()))?;
-        return Ok(());
-    }
-
-    let study = feature_cov::study(&selected, &options)?;
-    let measured = if args.skip_timing {
-        None
-    } else {
-        // E5 runs in a child process whose detector is single-threaded.
-        let mut child = std::process::Command::new(std::env::current_exe()?);
-        child
-            .args(["feature-cov", "--timing-only", "--out"])
-            .arg(&options.out)
-            .env("RAYON_NUM_THREADS", "1");
-        for path in args.datasets.registries() {
-            child.arg("--registry").arg(path);
-        }
-        if let Some(images) = &args.datasets.images {
-            child.arg("--images").arg(images);
-        }
-        if !args.only.is_empty() {
-            child.arg("--only").arg(args.only.join(","));
-        }
-        if let Some(n) = options.timing_images {
-            child.arg("--timing-images").arg(n.to_string());
-        }
-        let status = child.status().context("start the E5 timing process")?;
-        anyhow::ensure!(status.success(), "the E5 timing process failed: {status}");
-        let text = std::fs::read_to_string(&timing_path)
-            .with_context(|| format!("read {}", timing_path.display()))?;
-        Some(serde_json::from_str::<timing::Timing>(&text)?)
-    };
-    let decision = feature_cov::finish(&study, measured.as_ref(), &options)?;
-    println!(
-        "feature-cov: outcome {:?}; report {}",
-        decision.outcome,
-        options.out.join("report.md").display()
-    );
-    Ok(())
-}
-
-#[cfg(not(feature = "tier-b"))]
-fn cmd_feature_cov(_args: &FeatureCovArgs) -> Result<()> {
-    anyhow::bail!("feature-cov requires --features tier-b")
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -1830,7 +1723,6 @@ fn main() -> Result<()> {
         Command::Diagnose(args) => cmd_diagnose(&args)?,
         Command::Basin(args) => cmd_basin(&args)?,
         Command::Solver(args) => cmd_solver(&args)?,
-        Command::FeatureCov(args) => cmd_feature_cov(&args)?,
     }
     Ok(())
 }

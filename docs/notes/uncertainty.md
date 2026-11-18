@@ -111,7 +111,8 @@ sets more than that, so the covariance is scaled by a measured factor
   One scene's `r` spans 0.50–1.50 (5–95 %, 96 synthetic scenes of 24 views
   with an exact σ), so a single camera's `r` is a weak check; the gate is
   the pooled value. Without any view scatter the real cameras' `r` is
-  4.9–26.
+  4.9–26. The synthetic rows of the last column are the truth gates of
+  `bench/tests/split_half_honesty.rs`.
 
 ## Second-order error
 
