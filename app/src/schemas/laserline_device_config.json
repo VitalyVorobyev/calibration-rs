@@ -322,7 +322,7 @@
       "oneOf": [
         {
           "const": "tiny_solver",
-          "description": "`tiny-solver`: dynamic-size forward-mode dual numbers; a robust loss\nenters through the Triggs correction (second-order exact).",
+          "description": "`tiny-solver`: forward-mode dual numbers on the stack, each residual\nblock differentiated in passes of four directions; a robust loss\nenters through the Triggs correction (second-order exact).",
           "type": "string"
         },
         {

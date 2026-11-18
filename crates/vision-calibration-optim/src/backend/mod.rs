@@ -36,7 +36,8 @@ use tiny_solver_backend::TinySolverBackend;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum SolverBackend {
-    /// `tiny-solver`: dynamic-size forward-mode dual numbers; a robust loss
+    /// `tiny-solver`: forward-mode dual numbers on the stack, each residual
+    /// block differentiated in passes of four directions; a robust loss
     /// enters through the Triggs correction (second-order exact).
     #[default]
     TinySolver,
