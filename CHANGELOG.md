@@ -7,110 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- The optimization problem builder takes laser planes and the laser
-  residual: `Problem::add_plane` (a laser plane, labelled `<name>.nx` …
-  `<name>.d`), `fix_plane`, `Solution::plane`, and `Problem::add_laser`, the
-  point-to-plane (metres) or line-distance (pixels) laser residual of a
-  pixel through one pose or a rig chain (`cam_se3_rig · rig_se3_target`),
-  with `LaserNoise::Estimated`. With them a rig without robot poses solves
-  its shared per-capture board poses, its laser planes and, as chosen, its
-  cameras and extrinsics in one problem, on both solver backends, with the
-  covariance. The book's "A Rig Without a Robot" shows the recipe.
-- Solve reports say why the solver stopped. `SolveReport` gains an optional
-  `termination`, a `SolveTermination`: the stopping rule that ended the
-  solve (`relative_step`, `min_error`, `min_abs_decrease`,
-  `min_rel_decrease`), `no_accepted_step`, `max_iters` when the iteration
-  budget ran out, or `all_parameters_fixed`; `SolveTermination::is_converged`
-  is false only for `max_iters`. It reaches every estimate, `problem::Solution`
-  and the bundle adjustment through their reports, and the step results that
-  run a solve as `termination` (`per_cam_terminations` for the per-camera
-  intrinsics stage of the rig workflows and the rig laser planes, whose
-  `RigLaserlineEstimate` gains `per_cam_reports`); Python's step results and
-  `BundleAdjustment` carry it as a string. A report saved without it reads
-  back as `None`, unknown, and is written as before.
-
-- Ring-grid targets on a rectangular lattice and plain ring-grid targets.
-  The manifest's `ringgrid` target and `RinggridConfig` take an optional
-  `lattice` (`"hex"`, the default, or `"rect"`) and an optional `coding`
-  (`"coded"`, the default, or `{ plain = { origin_dots = true } }` for plain
-  rings anchored by a triad of origin dots), in the manifest as
-  `RinggridLatticeSpec` and `RinggridCodingSpec`, in the detector as
-  `RinggridLattice` and `RinggridCoding`. `TargetSpec::ringgrid_rect` and
-  `TargetSpec::ringgrid_plain` build them. A plain view is labelled in the
-  board frame whenever it shows the origin dots, however small a part of a
-  large board it covers, and yields no features otherwise; a plain board
-  without origin dots is rejected before detection. Plain boards may leave out `marker_ring_width_m`, which
-  they ignore. Photometric centres work on plain markers. Existing manifests,
-  configs and their detection-cache entries are unchanged.
-- A robust laser-plane fit. `LaserlinePlaneSolver::from_views_ransac` and
-  `from_points_3d_ransac` fit the plane by seeded RANSAC over the same
-  closed-form fit, with a metric inlier threshold, an iteration cap, a
-  confidence, a minimum inlier count and fraction, an optional refit on the
-  inliers and a seed; the estimate lists the inlier indices. A fitted plane
-  can seed a laser workflow through its manual initialization.
-- `RansacOptions::min_inlier_fraction` (with `with_min_inlier_fraction`, and
-  `min_inlier_fraction` on the Python `RansacOptions`): the share of all the
-  data, in `[0, 1]`, a model's inliers must reach to be accepted, alongside
-  `min_inliers`. Every RANSAC-based estimator honours it; the default `0`
-  keeps results unchanged.
-
-### Changed
-
-- The default solver backend runs on `tiny-solver` 0.19, which builds each
-  Jacobian with dual numbers on the stack and assembles it without locking.
-  Non-linear solves are 1.5–2.9× faster per workflow with all cores (2.1× at
-  the median) and 3.0–3.7× faster on one thread. Results are unchanged: bit
-  for bit, except some laser workflows with a fisheye camera, which differ
-  at the level of floating-point rounding (final cost within 1e-13
-  relative).
-- The Python package is built on PyO3 0.30 (with `numpy` and `pythonize`
-  0.30). It still supports Python 3.10 and later, and its API is unchanged.
-- Config validation errors name the full path of the field they reject:
-  `solver.max_iters`, `intrinsics_init.iterations` and
-  `handeye_init.min_motion_angle_deg`, the same in every problem type. In
-  Python, a feature or laser-extractor array with the wrong number of
-  columns is reported as `<name> must have shape (N, cols)`, like every
-  other array argument, and a feature array with the wrong number of rows
-  names that array. The checks themselves are unchanged.
-- The chessboard, ChArUco and PuzzleBoard detector is `calib-targets` 0.16.3.
-  A grid cell next to a missing corner no longer discards the connected
-  patch of the board around it, so partly occluded boards keep more corners.
-  The detector version is part of the detection-cache key, so these caches
-  are rebuilt on the next run.
-- The ring-grid detector is `ringgrid` 0.16.0. Its version is part of the
-  detection-cache key, so ring-grid caches are rebuilt on the next run. What
-  ring-grid targets now give:
-  - Features only from a view whose place on the board is corroborated (by
-    agreeing decoded codes, or by the origin dots); a view with a few
-    isolated markers or unreadable codes yields none, instead of possibly
-    wrong board positions. A coded marker takes the position of the grid
-    cell it sits in, so a misread code no longer mislabels it, and more
-    markers are labelled on tilted and partial views.
-  - Only markers with a perspective-corrected centre, and with a confidence
-    of at least 0.03 on the detector's new centre-accuracy score; markers
-    whose centre is less certain are left out, so the feature count per view
-    can drop, mostly for small, strongly tilted rings.
-  - With `center_method = "photometric"`, far more plain markers keep a
-    photometric centre, so plain boards return more features.
-
-### Fixed
-
-- A solve with every parameter fixed returns `Error::Cancelled` when its
-  token is cancelled, like any other cancelled solve; it returned a
-  solution on the tiny-solver backend. On the factrs backend such a solve
-  now runs no iteration (`num_iters` 0), as on tiny-solver, instead of one
-  that could not move anything; the solution is unchanged.
-- The book, the READMEs and the API-reference link now match the code: the
-  manifold retractions (a pose step is `T·exp(ξ)`, the unit-sphere step is
-  its exponential map), the six residual families and their parameter-block
-  names, the solver's stopping rules, the per-stage robust-loss defaults and
-  the crate graph. The published API reference opens at
-  `api/vision_calibration/`. The Python example for selecting the factrs
-  backend keeps the workflow's iteration budget.
-
-## [1.0.0-rc.1] - 2026-11-15
+## [1.0.0-rc.1] - 2026-11-18
 
 ### Migration
 
@@ -779,6 +676,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The default solver backend runs on `tiny-solver` 0.19, which builds each
+  Jacobian with dual numbers on the stack and assembles it without locking.
+  Non-linear solves are 1.5–2.9× faster per workflow with all cores (2.1× at
+  the median) and 3.0–3.7× faster on one thread. Results are unchanged: bit
+  for bit, except some laser workflows with a fisheye camera, which differ
+  at the level of floating-point rounding (final cost within 1e-13
+  relative).
+- The Python package is built on PyO3 0.30 (with `numpy` and `pythonize`
+  0.30). It still supports Python 3.10 and later, and its API is unchanged.
+- Config validation errors name the full path of the field they reject:
+  `solver.max_iters`, `intrinsics_init.iterations` and
+  `handeye_init.min_motion_angle_deg`, the same in every problem type. In
+  Python, a feature or laser-extractor array with the wrong number of
+  columns is reported as `<name> must have shape (N, cols)`, like every
+  other array argument, and a feature array with the wrong number of rows
+  names that array. The checks themselves are unchanged.
+- The chessboard, ChArUco and PuzzleBoard detector is `calib-targets` 0.16.3.
+  A grid cell next to a missing corner no longer discards the connected
+  patch of the board around it, so partly occluded boards keep more corners.
+  The detector version is part of the detection-cache key, so these caches
+  are rebuilt on the next run.
+- The ring-grid detector is `ringgrid` 0.16.0. Its version is part of the
+  detection-cache key, so ring-grid caches are rebuilt on the next run. What
+  ring-grid targets now give:
+  - Features only from a view whose place on the board is corroborated (by
+    agreeing decoded codes, or by the origin dots); a view with a few
+    isolated markers or unreadable codes yields none, instead of possibly
+    wrong board positions. A coded marker takes the position of the grid
+    cell it sits in, so a misread code no longer mislabels it, and more
+    markers are labelled on tilted and partial views.
+  - Only markers with a perspective-corrected centre, and with a confidence
+    of at least 0.03 on the detector's new centre-accuracy score; markers
+    whose centre is less certain are left out, so the feature count per view
+    can drop, mostly for small, strongly tilted rings.
+  - With `center_method = "photometric"`, far more plain markers keep a
+    photometric centre, so plain boards return more features.
 - **A hand-eye seed of one pose closes the other through the first view, in
   both modes and both hand-eye workflows** (a changed initialization for
   four seed combinations). `single_cam_handeye` and `rig_handeye` now run
@@ -811,6 +744,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The optimization problem builder takes laser planes and the laser
+  residual: `Problem::add_plane` (a laser plane, labelled `<name>.nx` …
+  `<name>.d`), `fix_plane`, `Solution::plane`, and `Problem::add_laser`, the
+  point-to-plane (metres) or line-distance (pixels) laser residual of a
+  pixel through one pose or a rig chain (`cam_se3_rig · rig_se3_target`),
+  with `LaserNoise::Estimated`. With them a rig without robot poses solves
+  its shared per-capture board poses, its laser planes and, as chosen, its
+  cameras and extrinsics in one problem, on both solver backends, with the
+  covariance. The book's "A Rig Without a Robot" shows the recipe.
+- Solve reports say why the solver stopped. `SolveReport` gains an optional
+  `termination`, a `SolveTermination`: the stopping rule that ended the
+  solve (`relative_step`, `min_error`, `min_abs_decrease`,
+  `min_rel_decrease`), `no_accepted_step`, `max_iters` when the iteration
+  budget ran out, or `all_parameters_fixed`; `SolveTermination::is_converged`
+  is false only for `max_iters`. It reaches every estimate, `problem::Solution`
+  and the bundle adjustment through their reports, and the step results that
+  run a solve as `termination` (`per_cam_terminations` for the per-camera
+  intrinsics stage of the rig workflows and the rig laser planes, whose
+  `RigLaserlineEstimate` gains `per_cam_reports`); Python's step results and
+  `BundleAdjustment` carry it as a string. A report saved without it reads
+  back as `None`, unknown, and is written as before.
+
+- Ring-grid targets on a rectangular lattice and plain ring-grid targets.
+  The manifest's `ringgrid` target and `RinggridConfig` take an optional
+  `lattice` (`"hex"`, the default, or `"rect"`) and an optional `coding`
+  (`"coded"`, the default, or `{ plain = { origin_dots = true } }` for plain
+  rings anchored by a triad of origin dots), in the manifest as
+  `RinggridLatticeSpec` and `RinggridCodingSpec`, in the detector as
+  `RinggridLattice` and `RinggridCoding`. `TargetSpec::ringgrid_rect` and
+  `TargetSpec::ringgrid_plain` build them. A plain view is labelled in the
+  board frame whenever it shows the origin dots, however small a part of a
+  large board it covers, and yields no features otherwise; a plain board
+  without origin dots is rejected before detection. Plain boards may leave out `marker_ring_width_m`, which
+  they ignore. Photometric centres work on plain markers. Existing manifests,
+  configs and their detection-cache entries are unchanged.
+- A robust laser-plane fit. `LaserlinePlaneSolver::from_views_ransac` and
+  `from_points_3d_ransac` fit the plane by seeded RANSAC over the same
+  closed-form fit, with a metric inlier threshold, an iteration cap, a
+  confidence, a minimum inlier count and fraction, an optional refit on the
+  inliers and a seed; the estimate lists the inlier indices. A fitted plane
+  can seed a laser workflow through its manual initialization.
+- `RansacOptions::min_inlier_fraction` (with `with_min_inlier_fraction`, and
+  `min_inlier_fraction` on the Python `RansacOptions`): the share of all the
+  data, in `[0, 1]`, a model's inliers must reach to be accepted, alongside
+  `min_inliers`. Every RANSAC-based estimator honours it; the default `0`
+  keeps results unchanged.
 - **An opt-in correction of the estimated robot error for corner noise
   correlated within views.** With `estimate_sigma`, each robot-pose
   correction carries the pose-like part of its view's corner noise. When the
@@ -876,6 +855,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A solve with every parameter fixed returns `Error::Cancelled` when its
+  token is cancelled, like any other cancelled solve; it returned a
+  solution on the tiny-solver backend. On the factrs backend such a solve
+  now runs no iteration (`num_iters` 0), as on tiny-solver, instead of one
+  that could not move anything; the solution is unchanged.
+- The book, the READMEs and the API-reference link now match the code: the
+  manifold retractions (a pose step is `T·exp(ξ)`, the unit-sphere step is
+  its exponential map), the six residual families and their parameter-block
+  names, the solver's stopping rules, the per-stage robust-loss defaults and
+  the crate graph. The published API reference opens at
+  `api/vision_calibration/`. The Python example for selecting the factrs
+  backend keeps the workflow's iteration budget.
 - `optimize_rig_handeye_laserline` returns an `Error::Numerical` naming the
   block when the solver's solution lacks one of the problem's parameter
   blocks; it used to panic.
