@@ -1,9 +1,9 @@
 //! The suite's image entries as benchmark datasets.
 //!
-//! The public datasets of `calib-bench run`, `diagnose` and `feature-cov`
-//! are the suite's image entries: each one's dataset manifest and the
-//! directory its paths resolve against. The suite is their single
-//! definition; the bench registry holds only private datasets.
+//! The public datasets of `calib-bench run` and `diagnose` are the suite's
+//! image entries: each one's dataset manifest and the directory its paths
+//! resolve against. The suite is their single definition; the bench
+//! registry holds only private datasets.
 
 use std::path::{Path, PathBuf};
 

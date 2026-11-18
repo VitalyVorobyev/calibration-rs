@@ -18,10 +18,8 @@
 #[cfg(feature = "tier-b")]
 pub use tier_b::{
     DetectedScheimpflugCamera, ScheimpflugSeededSolve, detect_scheimpflug_seeded_input,
-    diagnose_intrinsics, planar_intrinsics_config, progress_label, rig_extrinsics_config,
-    rig_handeye_config, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
-    run_scheimpflug_intrinsics, run_single_cam_handeye, single_cam_handeye_config,
-    solve_scheimpflug_seeded,
+    diagnose_intrinsics, progress_label, run_planar_intrinsics, run_rig_extrinsics,
+    run_rig_handeye, run_scheimpflug_intrinsics, run_single_cam_handeye, solve_scheimpflug_seeded,
 };
 
 #[cfg(feature = "tier-b")]

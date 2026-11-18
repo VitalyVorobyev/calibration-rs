@@ -170,7 +170,7 @@ observations no longer match `SHA256SUMS`.
 
 The image entries are also the public datasets of the benchmark commands
 that run detection: `calib-bench run --dataset <id>` and `calib-bench
-feature-cov` read each entry's dataset manifest, and `--images <dir>` reads
+diagnose` read each entry's dataset manifest, and `--images <dir>` reads
 the fetchable entries from the `suite fetch` cache.
 
 ## The observation format
