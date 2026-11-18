@@ -3436,7 +3436,8 @@ Both run the same Levenberg–Marquardt loop over the same residual
 kernels and reach the same minimizer; they differ in how they build the
 Jacobian and how they fold in a robust loss.
 
-- ``"tiny_solver"``: `tiny-solver`: dynamic-size forward-mode dual numbers; a robust loss
+- ``"tiny_solver"``: `tiny-solver`: forward-mode dual numbers on the stack, each residual
+  block differentiated in passes of four directions; a robust loss
   enters through the Triggs correction (second-order exact).
 - ``"factrs"``: `factrs`: static-size forward-mode dual numbers; a robust loss enters
   through iterative reweighting (each block scaled by `√ρ′`).

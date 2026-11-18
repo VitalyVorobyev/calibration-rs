@@ -11,10 +11,9 @@ use crate::ir::{
 };
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
-use num_dual::DualDVec64;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tiny_solver::factors::Factor;
+use tiny_solver::factors::{DualStride, Factor};
 use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
 use tiny_solver::manifold::se3::SE3Manifold;
 use tiny_solver::manifold::so3::QuaternionManifold;
@@ -437,7 +436,7 @@ struct TinySolverEngine<'p> {
 impl<'p> TinySolverEngine<'p> {
     fn new(problem: &'p Problem, blocks: &HashMap<String, ParameterBlock>) -> Self {
         let col_idx = problem.get_variable_name_to_col_idx_dict(blocks);
-        let dim = total_variable_dimension(blocks);
+        let dim = total_variable_dimension(blocks, &col_idx);
         let symbolic = (dim > 0).then(|| problem.build_symbolic_structure(blocks, dim, &col_idx));
         let mut block_names: Vec<String> = blocks.keys().cloned().collect();
         block_names.sort_unstable();
@@ -505,10 +504,17 @@ pub(super) fn linearize_at(
     )
 }
 
-fn total_variable_dimension(parameter_blocks: &HashMap<String, ParameterBlock>) -> usize {
+/// The number of Jacobian columns: the free tangent coordinates of the
+/// blocks that have columns. A block no residual reads gets none (it stays
+/// unchanged), so it is not counted.
+fn total_variable_dimension(
+    parameter_blocks: &HashMap<String, ParameterBlock>,
+    col_idx: &HashMap<String, usize>,
+) -> usize {
     parameter_blocks
-        .values()
-        .map(|p| {
+        .iter()
+        .filter(|(name, _)| col_idx.contains_key(*name))
+        .map(|(_, p)| {
             if p.manifold.is_some() {
                 p.tangent_size()
             } else {
@@ -660,8 +666,8 @@ impl Factor<f64> for TinyCustomFactor {
     }
 }
 
-impl Factor<DualDVec64> for TinyCustomFactor {
-    fn residual_func(&self, params: &[DVector<DualDVec64>]) -> DVector<DualDVec64> {
+impl Factor<DualStride> for TinyCustomFactor {
+    fn residual_func(&self, params: &[DVector<DualStride>]) -> DVector<DualStride> {
         self.0.eval_dual(params)
     }
 }

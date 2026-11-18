@@ -546,3 +546,79 @@ fn null_quantile_of_a_projection_is_chi_square() {
     let scaled = null_quantile([20.0, 40.0, 80.0]);
     assert!((scaled - 2.0 * q).abs() < 1e-9, "{scaled}");
 }
+
+/// A free block that no residual reads leaves the solve bit for bit as it
+/// was without it, and stays where it started, on both backends.
+#[test]
+fn unread_free_block_leaves_the_solve_unchanged() {
+    let scene = planar_scene();
+    let noise = UniformPixelNoise {
+        seed: 9,
+        max_abs_px: 0.3,
+    };
+    let (ir, initial) = planar_ir(&scene, noise, RobustLoss::None);
+    let mut with_unread = ir.clone();
+    let mut initial_unread = initial.clone();
+    let unread = with_unread.add_param_block(
+        "unread",
+        3,
+        ManifoldKind::Euclidean,
+        FixedMask::all_free(),
+        None,
+    );
+    let unread_pose = with_unread.add_param_block(
+        "unread_pose",
+        7,
+        ManifoldKind::SE3,
+        FixedMask::all_free(),
+        None,
+    );
+    let start = DVector::from_row_slice(&[0.1, -0.2, 0.3]);
+    let start_pose = se3_vec(&scene.poses[0]);
+    initial_unread.insert("unread".to_string(), start.clone());
+    initial_unread.insert("unread_pose".to_string(), start_pose.clone());
+    let unread_coordinates: Vec<Coordinate> = (0..3)
+        .map(|index| Coordinate {
+            block: unread.0,
+            index,
+        })
+        .chain((0..6).map(|index| Coordinate {
+            block: unread_pose.0,
+            index,
+        }))
+        .collect();
+    for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
+        let plain = solve(&ir, &initial, &options(backend)).unwrap();
+        let solution = solve(&with_unread, &initial_unread, &options(backend)).unwrap();
+        assert_eq!(
+            plain.solve_report.final_cost.to_bits(),
+            solution.solve_report.final_cost.to_bits(),
+            "{backend:?}"
+        );
+        assert_eq!(
+            plain.solve_report.num_iters, solution.solve_report.num_iters,
+            "{backend:?}"
+        );
+        for (name, value) in &plain.params {
+            assert_eq!(value, &solution.params[name], "{backend:?}: {name}");
+        }
+        assert_eq!(solution.params["unread"], start, "{backend:?}");
+        assert_eq!(solution.params["unread_pose"], start_pose, "{backend:?}");
+        // The backends differ on the covariance: tiny-solver gives the block
+        // no columns, so it is left out like a fixed one; factrs keeps zero
+        // columns, which the estimate reports unobservable. The public
+        // problem builder reports an unread block itself on both.
+        match (backend, solution.uncertainty) {
+            (SolverBackend::TinySolver, ParamUncertainty::Available(estimate)) => {
+                let reference = available(plain.uncertainty);
+                assert_eq!(estimate.coordinates, reference.coordinates);
+                assert_eq!(estimate.matrix, reference.matrix);
+            }
+            (
+                SolverBackend::Factrs,
+                ParamUncertainty::Unavailable(UnavailableReason::RankDeficient { unobservable }),
+            ) => assert_eq!(unobservable, unread_coordinates),
+            (_, other) => panic!("{backend:?}: {other:?}"),
+        }
+    }
+}

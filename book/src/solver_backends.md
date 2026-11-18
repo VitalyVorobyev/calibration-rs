@@ -6,14 +6,17 @@ the residuals and their Jacobian with the robust loss folded in, the robust
 objective, and the retraction that applies a step to each parameter
 manifold. Two backends are available:
 
-- **tiny-solver** (the default): forward-mode autodiff with dynamic-size
-  dual numbers; a robust loss enters through the Triggs correction.
+- **tiny-solver** (the default): forward-mode autodiff with stack dual
+  numbers, four tangent directions per pass; a robust loss enters through
+  the Triggs correction.
 - **factrs**: forward-mode autodiff with static-size dual numbers; a robust
   loss enters through iterative reweighting.
 
-Both evaluate the same residual kernels, retract SE(3) and S² the same way,
-and minimize the same objective, so they reach the same minimizer. They
-differ in how fast they build the Jacobian and, on robust problems, in the
+Both evaluate the same residual kernels, retract S² the same way, and
+minimize the same objective, so they reach the same minimizer. Both apply an
+SE(3) step on the right; factrs maps it through the exponential map, while
+tiny-solver applies the rotation and the translation parts separately; the
+two agree to first order. They differ in how fast they build the Jacobian and, on robust problems, in the
 path they take to the minimum.
 
 ## Selecting a Backend
@@ -105,7 +108,7 @@ results run to run.
 
 | | tiny-solver | factrs |
 |---|---|---|
-| Dual numbers | dynamic size (heap) | static size: the factor's tangent dimension |
+| Dual numbers | four directions, on the stack; a block takes one pass per four tangent coordinates | static size: the factor's tangent dimension, one pass |
 | Robust loss | Triggs correction: second-order exact in $\rho$ | iterative reweighting: block scaled by $\sqrt{\rho'}$ |
 | Variables | one per parameter block | a camera's intrinsics, distortion and sensor fuse into one vector; a laser plane's normal and distance into one plane variable |
 | Fixed parameters | removed from the system | kept, with their Jacobian columns zeroed |
@@ -123,41 +126,47 @@ SO(3) or S² block.
 
 ## Performance and Quality
 
-Measured on a synthetic benchmark of the seven workflows, with planar
-intrinsics and rig extrinsics each run with a straight and a tilted
-(Scheimpflug) sensor: 150 scenes across
-three sizes (8 to 36 views), two pixel-noise levels and 5 % outliers under
-Huber or Cauchy losses, timed as the median of three runs on an Apple M4 Pro
+Measured on a synthetic benchmark of the seven workflows, each with a
+pinhole and a fisheye (Kannala-Brandt) camera, and planar intrinsics and rig
+extrinsics also with a tilted (Scheimpflug) sensor: 264 scenes across three
+sizes (8 to 36 views), two pixel-noise levels and 5 % outliers under Huber
+or Cauchy losses, timed as the median of three runs on an Apple M4 Pro
 (8 performance + 4 efficiency cores). Times are the median non-linear solve
-per scene, all stages included.
+per scene, all stages and the covariance included; the ratio is the median
+of the per-scene ratios.
 
 | Problem | tiny-solver | factrs | factrs / tiny-solver | final-cost agreement |
 |---|---:|---:|---:|---:|
-| Planar intrinsics (pinhole) | 27 ms | 33 ms | 1.24× | ≤ 4e-07 |
-| Planar intrinsics (Scheimpflug) | 195 ms | 423 ms | 2.19× | ≤ 3e-07 |
-| Single-camera hand-eye | 186 ms | 254 ms | 1.39× | ≤ 1e-08 |
-| Laserline device | 73 ms | 158 ms | 2.14× | ≤ 2e-05 |
-| Rig extrinsics | 92 ms | 135 ms | 1.49× | ≤ 9e-06 |
-| Rig extrinsics (Scheimpflug) | 388 ms | 791 ms | 2.04× | ≤ 4e-07 |
-| Rig hand-eye | 414 ms | 611 ms | 1.46× | ≤ 2e-04 |
-| Rig laserline | 28 ms | 70 ms | 2.48× | — |
-| Rig hand-eye + laser | 819 ms | 1499 ms | 1.68× | ≤ 2e-05 |
+| Planar intrinsics | 19 ms | 39 ms | 2.14× | ≤ 4e-07 |
+| Planar intrinsics (Scheimpflug) | 105 ms | 523 ms | 5.31× | ≤ 4e-07 |
+| Planar intrinsics (fisheye) | 20 ms | 50 ms | 2.56× | ≤ 2e-08 |
+| Single-camera hand-eye | 324 ms | 1390 ms | 3.92× | ≤ 2e-08 |
+| Single-camera hand-eye (fisheye) | 304 ms | 1716 ms | 5.25× | ≤ 3e-08 |
+| Laserline device | 30 ms | 100 ms | 3.34× | ≤ 4e-08 |
+| Laserline device (fisheye) | 31 ms | 136 ms | 4.60× | ≤ 2e-06 |
+| Rig extrinsics | 119 ms | 216 ms | 1.84× | ≤ 5e-08 |
+| Rig extrinsics (Scheimpflug) | 292 ms | 983 ms | 3.35× | ≤ 7e-07 |
+| Rig extrinsics (fisheye) | 107 ms | 360 ms | 3.17× | ≤ 2e-09 |
+| Rig hand-eye | 791 ms | 3164 ms | 3.67× | ≤ 8e-08 |
+| Rig hand-eye (fisheye) | 672 ms | 3448 ms | 4.52× | ≤ 2e-08 |
+| Rig laserline | 25 ms | 93 ms | 3.77× | — |
+| Rig laserline (fisheye) | 23 ms | 76 ms | 3.17× | — |
+| Rig hand-eye + laser | 1727 ms | 7546 ms | 4.37× | ≤ 5e-07 |
+| Rig hand-eye + laser (fisheye) | 1966 ms | 6837 ms | 3.42× | ≤ 2e-08 |
 
 **Quality is the same.** The backends end at the same final cost (the
-largest relative difference is 2e-4, typically below 1e-7), take the same
-number of iterations in 137 of 144 scenes, and recover the same parameters.
+largest relative difference is 1e-6, the median 3e-10), take the same
+number of iterations in 246 of 252 scenes, and recover the same parameters.
 
-**Speed depends on the cores available.** tiny-solver evaluates residual
-blocks in parallel; factrs evaluates them on one thread. On a single thread
-factrs is 2.4–3.3× *faster* (measured on the planar intrinsics, laserline
-device and rig hand-eye scenes); its dual numbers have a fixed size and live
-on the stack, while tiny-solver's are allocated on the heap. With all cores,
-tiny-solver's 3.7–5.7× parallel speed-up wins.
+**tiny-solver is faster.** It evaluates residual blocks in parallel (2.2–3.5×
+over one thread); factrs evaluates them on one thread. On a single thread
+(measured on the planar intrinsics, laserline device and rig hand-eye
+scenes) the two are within 10 % on planar intrinsics with a pinhole or
+fisheye camera, and tiny-solver is 1.2–2.6× faster on the others.
 
-**Which to use.** tiny-solver, the default, is faster whenever the solve has
-the machine's cores to itself. factrs uses a core more efficiently, so it is
-the better choice when cores are scarce: a single-threaded deployment, or an
-application running many calibrations at once.
+**Which to use.** tiny-solver, the default, is the faster backend. factrs
+is an independent second linearization of the same problem: it reaches the
+same minimum by a different path, which makes it a cross-check of a result.
 
 ## Solver Options
 

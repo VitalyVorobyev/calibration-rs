@@ -9,7 +9,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use nalgebra::DVector;
-use num_dual::DualDVec64;
+use tiny_solver::factors::DualStride;
 use vision_calibration_core::ResidualKind;
 
 /// A residual over blocks, evaluated at `f64` and at dual numbers.
@@ -21,7 +21,7 @@ pub(crate) trait CustomFactor: Send + Sync {
     /// The residual at `f64` blocks.
     fn eval_f64(&self, blocks: &[DVector<f64>]) -> DVector<f64>;
     /// The residual at dual-number blocks, for the Jacobian.
-    fn eval_dual(&self, blocks: &[DVector<DualDVec64>]) -> DVector<DualDVec64>;
+    fn eval_dual(&self, blocks: &[DVector<DualStride>]) -> DVector<DualStride>;
 }
 
 /// How a custom residual's noise enters the covariance.

@@ -504,27 +504,13 @@ grows the report viewer.
   `calib-bench suite check` and the solver benchmark's iteration counts,
   both backends.
 
-- [ ] TS-UPSTREAM - Propose the remaining tiny-solver fork branches upstream:
-  variables no residual uses left out of the solve; a sphere manifold; the
-  nalgebra 0.35 / faer 0.24 bump; the internal perf changes (Mutex-free
-  assembly, sort-free symbolic structure). Keep the backend's layout for a
-  fully fixed manifold block (no manifold, so no columns): upstream keeps its
-  tangent columns with a zero Jacobian, which would make `JᵀJ` singular for
-  the covariance. On release: replace
-  `backend/s2.rs` with the upstream sphere manifold, and see
-  O-TINYSOLVER-PERF and NALGEBRA-035.
-- [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver speed-ups once released.
-  Results stay bit-identical and no code changes here; expected 3.9× faster
-  solves on 12 threads, which `calib-bench solver` should confirm.
-  - Mutex-free residual and Jacobian assembly (fits 0.18.x).
-  - Jacobian pattern by counting sort, values scattered in place (fits
-    0.18.x).
-  - Stack duals in passes of 4 directions, as Ceres'
-    `DynamicAutoDiffCostFunction` (adds supertraits to `FactorImpl` and
-    `Manifold`, so a 0.19 change).
-
-  **Trigger**: the release that carries them. Bump the floor, rerun
-  `calib-bench solver`.
+- [ ] TS-UPSTREAM - Propose the remaining tiny-solver fork branches upstream
+  (0.19.0 carries the rest): a sphere manifold; the nalgebra 0.35 / faer
+  0.24 bump; the sort-free symbolic structure (Jacobian pattern by counting
+  sort, values scattered in place — `Problem::build_symbolic_structure`
+  still argsorts the triplets). On release: replace `backend/s2.rs` with the
+  upstream sphere manifold, rerun `calib-bench solver` for the symbolic
+  structure, and see NALGEBRA-035.
 - [~] O-FACTRS-PARALLEL - Parallel linearization for factrs: rpl-cmu/fact-rs
   #56 is merged but unreleased (the release is breaking, so 0.4.0). Expected
   ~3.9× over serial factrs on 12 threads, bit-identical.
@@ -538,11 +524,15 @@ grows the report viewer.
   `vision-calibration/tests/handeye_init_comparison.rs`). Profile it and cut
   the repeated work; results stay bit-identical.
 - [ ] PERF-ANALYTIC - Close the gap to Ceres. Planar intrinsics against Ceres
-  2.2 at matched tolerances is 7–9× slower on 12 threads and about 21× on
-  one (2.6× and 4.5× with the O-TINYSOLVER-PERF changes). What remains is
-  linearization: per-block library overhead, num-dual against Ceres' `Jet`,
-  and differentiation through the SE(3) retraction. Next lever: an analytic
-  `ReprojPoint` Jacobian, checked against autodiff in tests.
+  2.2 at matched tolerances measured 7–9× slower on 12 threads and about 21×
+  on one with tiny-solver 0.18. tiny-solver 0.19 makes the planar solve 2.1×
+  (12 threads) and 3.2× (one thread) faster in `calib-bench solver`, which
+  puts the gap at an estimated 3–4× and ~7× (not re-measured against Ceres;
+  the fork with the counting-sort pattern measured 2.6× and 4.5×). What
+  remains is linearization: per-block library overhead, num-dual against
+  Ceres' `Jet`, and differentiation through the SE(3) retraction. Next
+  lever: an analytic `ReprojPoint` Jacobian, checked against autodiff in
+  tests.
 - [ ] BENCH-COMPARE - Extend the external comparisons: the OpenCV harness to
   stereo rectification; `camera-intrinsic-calibration`
   (Rust, cross-platform) for the KB4 and EUCM models on the same

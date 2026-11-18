@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The default solver backend runs on `tiny-solver` 0.19, which builds each
+  Jacobian with dual numbers on the stack and assembles it without locking.
+  Non-linear solves are 1.5–2.9× faster per workflow with all cores (2.1× at
+  the median) and 3.0–3.7× faster on one thread. Results are unchanged: bit
+  for bit, except some laser workflows with a fisheye camera, which differ
+  at the level of floating-point rounding (final cost within 1e-13
+  relative).
 - Config validation errors name the full path of the field they reject:
   `solver.max_iters`, `intrinsics_init.iterations` and
   `handeye_init.min_motion_angle_deg`, the same in every problem type. In

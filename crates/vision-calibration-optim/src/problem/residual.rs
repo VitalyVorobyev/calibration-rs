@@ -2,7 +2,7 @@
 //! bridge to the backend's object-safe factor.
 
 use nalgebra::{DVector, Isometry3, Quaternion, RealField, Translation3, UnitQuaternion};
-use num_dual::DualDVec64;
+use tiny_solver::factors::DualStride;
 
 use crate::factors::reprojection_model::se3_from_block;
 use crate::ir::CustomFactor;
@@ -164,7 +164,7 @@ impl<R: Residual> CustomFactor for Bridge<R> {
         self.checked(blocks)
     }
 
-    fn eval_dual(&self, blocks: &[DVector<DualDVec64>]) -> DVector<DualDVec64> {
+    fn eval_dual(&self, blocks: &[DVector<DualStride>]) -> DVector<DualStride> {
         self.checked(blocks)
     }
 }

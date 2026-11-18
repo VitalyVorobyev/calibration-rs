@@ -107,7 +107,7 @@ FactorKind::ReprojPoint { model: pinhole + Brown-Conrady, chain: SinglePose, pw,
 residual(params) = reproj_residual(model, chain, params, pw, uv, sqrt_info)
 ```
 
-Both evaluate it with dual numbers to get residuals and Jacobians in one pass. tiny-solver's duals have a dynamic size; factrs' are sized at compile time to the factor's tangent dimension (for example 15 for a Brown-Conrady camera and one SE(3) pose), so they live on the stack.
+Both evaluate it with dual numbers on the stack to get residuals and Jacobians. tiny-solver's duals carry four derivative directions, so it evaluates a residual block in passes of four tangent directions (as Ceres' dynamic autodiff does); factrs' are sized at compile time to the factor's tangent dimension (for example 15 for a Brown-Conrady camera and one SE(3) pose) and take every direction in one pass.
 
 ## SE(3) Exponential Map
 
