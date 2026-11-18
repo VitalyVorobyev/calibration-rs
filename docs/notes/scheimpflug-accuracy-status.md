@@ -70,7 +70,8 @@ observations, and neither run shows a scale bias.
   and passes held-out checks; evaluated at the projection the gain is half
   as large and mostly the defocus coupling
   ([camera-residual-field](camera-residual-field.md)). ADR 0030 is on hold;
-  the held-field slot implementation stays on its branch.
+  the held-field slot implementation is kept under the tag
+  `archive/cam-field-core`.
 - **A blur gradient across each marker as the cause of the defocus
   coupling.** Real in synthetic scenes (bias ≈ gradient × blur width), but
   calibrating with a blur-gradient term in the detector model left the
@@ -93,6 +94,56 @@ observations, and neither run shows a scale bias.
 | About 0.05 px of scatter on sharp markers beyond the pixel-noise covariance | repeated frames at one fixed pose; a printed target |
 | Why the rigid rig reaches 0.258 px where each camera alone reaches 0.142 px | not investigated |
 | The stated hand-eye translation σ of 40–65 mm on a 110 mm translation, and no stated σ for rig extrinsics | not investigated |
+
+## Later captures: untilted devices, optimized and precision targets
+
+Three captures taken after the studies above, on plain-pinhole devices,
+measured with the bench (`calib-bench run`, `diagnose floor`) and
+leave-one-view-out fits. Mean reprojection error in pixels, default
+distortion (`k1 k2 p1 p2`), photometric ring centres:
+
+| capture | floor (RMS) | intrinsics | rig | hand-eye, rigid robot poses |
+|---|---|---|---|---|
+| three cameras, PuzzleBoard rendered on whole display pixels | 0.067 | 0.056 | 0.067 | 0.25 |
+| three cameras, anti-aliased coded ring grid on the display | 0.030–0.037 | 0.030–0.036 | 0.049–0.054 | 0.34–0.38 |
+| two cameras, precision plain ring plate (62 px/mm) | 0.015 | 0.034 | 0.060 | 3.9 |
+
+- **Intrinsics and the rig stage are below 0.1 px on every capture**; the
+  held-out error is within 10 % of the fitted one, and the calibrated residual sits at the
+  calibration-free floor. On the precision plate that is under a micrometre
+  on the target, so neither the pipeline nor the photometric ring centres
+  carry a floor of their own. Ellipse centres do: 0.16–0.30 px on the same
+  images.
+- **A target's quality is a length, not a pixel count.** The floor is about
+  24 µm on the aliased PuzzleBoard, 18 µm on the whole-pixel one and 8 µm on
+  the anti-aliased ring grid; whether that is under 0.1 px depends on the
+  camera's magnification. The whole-pixel rendering removes the repeatable
+  per-corner offset (16 µm → 4 µm).
+- **The tangential terms are real on these lenses** (`p1`, `p2` up to
+  2.7e-3, repeating across captures); holding them costs 0.03–0.05 px at the
+  rig stage.
+- **Hand-eye against the robot poses as given is limited by the robot.** Two
+  views commanded to the same pose differ by 0.11 mm on the precision plate;
+  the per-pose discrepancy is about 0.1 mm and 0.1° on both devices and
+  repeats between captures of one day. Rounding of the pose file explains at
+  most 0.27 px of 4.4. In pixels the stage scales with magnification (0.3 px
+  at 3.7 px/mm, 4 px at 62 px/mm), so its meaningful unit is millimetres at
+  the tool.
+- **Hand-eye with per-view robot corrections reproduces the rig number** and
+  validates nothing by itself: with few views the corrections absorb the
+  whole discrepancy.
+- **A pose set of rotations about one point leaves the target's scale
+  unobservable** (a free scale fits 1.11 at no cost). Captures need
+  translations and more than one rotation centre.
+- Open on these captures: robot repeatability against drift against
+  kinematic error (repeated visits to one pose over a session would tell);
+  a view-by-view disagreement between the two cameras of the plate capture
+  that follows the tool orientation (rig flex or a view-angle centre bias);
+  a shared out-of-plane shape of about 0.35 mm on the display.
+
+For the tilted rigs above this narrows the cause: the same detector and
+pipeline reach the floor on untilted optics, so what remains there belongs
+to the tilted optics and their focus gradient.
 
 ## What is designed and not built
 

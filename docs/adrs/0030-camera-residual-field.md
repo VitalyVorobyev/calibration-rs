@@ -192,8 +192,9 @@ distribution of depth and defocus over the image. **That undercuts this
 slot as designed**: fitted on one capture, it bakes a capture-dependent
 average into the camera and carries it into every downstream workflow, and
 the held-out selection rule cannot see it, because every fold shares the
-capture's depth distribution. The held-fixed implementation on branch
-`feat/cam-field-core` should not merge on this evidence. What would reopen
+capture's depth distribution. The held-fixed implementation, kept
+under the tag `archive/cam-field-core`, should not merge on this evidence.
+What would reopen
 the slot: a capture that shows a field which does not change with the
 aperture and through focus (the camera-fixed part), or the coupling traced
 to the detector and fixed there, leaving a field. If the coupling is
