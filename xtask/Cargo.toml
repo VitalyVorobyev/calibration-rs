@@ -14,7 +14,7 @@ regex = { workspace = true }
 # `check-api`: parse the published crates' sources; line numbers need
 # `span-locations`.
 proc-macro2 = { version = "1", features = ["span-locations"] }
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 toml = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
