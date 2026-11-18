@@ -2,53 +2,72 @@
 //! or rig against its target observations.
 
 use crate::{
-    CameraProject, Error, FeatureResidualHistogram, Iso3, PlanarDataset, PointCovariance, Pt2,
-    REPROJECTION_HISTOGRAM_EDGES_PX, Real, ReprojectionStats, RigDataset, TargetFeatureResidual,
-    View,
+    CameraProject, CorrespondenceView, Error, FeatureResidualHistogram, Iso3, PlanarDataset,
+    PointCovariance, Pt2, REPROJECTION_HISTOGRAM_EDGES_PX, Real, ReprojectionStats, RigDataset,
+    TargetFeatureResidual, View,
 };
 
-/// Metadata carrying the per-view pose `cam_se3_target`.
-pub struct TargetPose {
-    /// Pose of target frame in camera frame (`T_C_T`).
-    pub cam_se3_target: Iso3,
-}
-
-/// Compute mean per-point reprojection error for a calibrated camera and posed views.
+/// Compute the mean per-point reprojection error of a camera over posed
+/// views, skipping the points that do not project.
 ///
-/// The transform chain is `p_cam = T_C_T * p_target`.
-///
-/// Accepts any camera implementing [`CameraProject`] (e.g.
-/// [`PinholeCamera`](crate::PinholeCamera) or the model-agnostic
-/// [`CameraModel`](crate::CameraModel)).
+/// Each view is its correspondences with its pose `cam_se3_target`
+/// (`T_C_T`); the transform chain is `p_cam = T_C_T * p_target`.
 ///
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if no points could be projected.
-pub fn compute_mean_reproj_error<C: CameraProject>(
+pub fn compute_mean_reproj_error<'a, C: CameraProject>(
     camera: &C,
-    views: &[View<TargetPose>],
+    views: impl IntoIterator<Item = (&'a CorrespondenceView, Iso3)>,
 ) -> Result<Real, Error> {
-    let mut total_error = 0.0;
-    let mut total_points = 0;
-
-    for view in views {
-        for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
-            let p_cam = view.meta.cam_se3_target * p3d;
-            if let Some(projected) = camera.project_camera_point(&p_cam.coords) {
-                let error = (projected - *p2d).norm();
-                total_error += error;
-                total_points += 1;
-            }
-        }
-    }
-
-    if total_points == 0 {
+    let (sum, count) = reproj_error_sum(camera, views, false);
+    if count == 0 {
         return Err(Error::invalid_input(
             "no valid projections for error computation",
         ));
     }
+    Ok(sum / count as Real)
+}
 
-    Ok(total_error / total_points as Real)
+/// The mean of the finite reprojection errors (px) of a camera over posed
+/// views (as in [`compute_mean_reproj_error`]); `None` when no point
+/// projects to a finite error.
+///
+/// Multi-start stages rank candidates by this value, so a candidate that
+/// sends a few points to a non-finite pixel is still scored on the rest.
+pub fn mean_finite_reproj_error<'a, C: CameraProject>(
+    camera: &C,
+    views: impl IntoIterator<Item = (&'a CorrespondenceView, Iso3)>,
+) -> Option<Real> {
+    let (sum, count) = reproj_error_sum(camera, views, true);
+    (count > 0).then_some(sum / count as Real)
+}
+
+/// Sum and count of the reprojection errors over posed views, in view and
+/// point order; points that do not project are skipped, and so are
+/// non-finite errors when `finite_only`.
+fn reproj_error_sum<'a, C: CameraProject>(
+    camera: &C,
+    views: impl IntoIterator<Item = (&'a CorrespondenceView, Iso3)>,
+    finite_only: bool,
+) -> (Real, usize) {
+    let mut sum = 0.0;
+    let mut count = 0usize;
+    for (obs, cam_se3_target) in views {
+        for (p3d, p2d) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
+            let p_cam = cam_se3_target * p3d;
+            let Some(projected) = camera.project_camera_point(&p_cam.coords) else {
+                continue;
+            };
+            let err = (projected - *p2d).norm();
+            if finite_only && !err.is_finite() {
+                continue;
+            }
+            sum += err;
+            count += 1;
+        }
+    }
+    (sum, count)
 }
 
 /// Compute reprojection error statistics for a multi-camera rig dataset.
@@ -456,17 +475,11 @@ pub fn build_feature_histogram(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::synthetic::poses::make_iso;
     use crate::{
         BrownConrady5, CorrespondenceView, FxFyCxCy, NoMeta, PinholeCamera, Pt3, RigView,
         RigViewObs, make_pinhole_camera,
     };
-    use nalgebra::{Rotation3, Translation3};
-
-    fn make_iso(angles: (Real, Real, Real), t: (Real, Real, Real)) -> Iso3 {
-        let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
-        let tr = Translation3::new(t.0, t.1, t.2);
-        Iso3::from_parts(tr, rot.into())
-    }
 
     #[test]
     fn rig_reprojection_stats_zero_for_perfect_data() -> anyhow::Result<()> {

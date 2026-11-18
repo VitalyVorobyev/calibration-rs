@@ -17,7 +17,7 @@ use vision_calibration::detect::{
 
 use crate::errors::run_err;
 use crate::session::{parse_checked, parse_optional_checked, to_py};
-use crate::validation::value_err;
+use crate::validation::{array_rows, value_err};
 
 type FeatureArrays<'py> = (
     Bound<'py, PyArray2<f64>>,
@@ -54,21 +54,21 @@ fn from_arrays(
     world_xyz: &PyReadonlyArray2<'_, f64>,
     cov_px: Option<&PyReadonlyArray2<'_, f64>>,
 ) -> PyResult<Vec<Feature>> {
-    let (a, b) = (image_xy.shape(), world_xyz.shape());
-    if a[1] != 2 || b[1] != 3 || a[0] != b[0] {
-        return Err(value_err(format!(
-            "features need image_xy (N, 2) and world_xyz (N, 3), got {a:?} and {b:?}"
-        )));
-    }
+    let n = array_rows(image_xy, 2, "image_xy")?;
+    let same_rows = |rows: usize, name: &str| {
+        if rows == n {
+            Ok(())
+        } else {
+            Err(value_err(format!(
+                "{name} must have one row per image_xy row ({n}), got {rows}"
+            )))
+        }
+    };
+    same_rows(array_rows(world_xyz, 3, "world_xyz")?, "world_xyz")?;
     let covariances: Vec<Option<[f64; 3]>> = match cov_px {
-        None => vec![None; a[0]],
+        None => vec![None; n],
         Some(cov) => {
-            let c = cov.shape();
-            if c[1] != 3 || c[0] != a[0] {
-                return Err(value_err(format!(
-                    "features need cov_px (N, 3) matching image_xy {a:?}, got {c:?}"
-                )));
-            }
+            same_rows(array_rows(cov, 3, "cov_px")?, "cov_px")?;
             cov.as_slice()?
                 .as_chunks::<3>()
                 .0

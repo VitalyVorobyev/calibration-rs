@@ -296,9 +296,7 @@ impl ProblemType for RigHandeyeLaserlineProblem {
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         RigHandeyeProblem::validate_config(&config.handeye)?;
         RigLaserlineDeviceProblem::validate_config(&config.laserline_init)?;
-        if config.solver.max_iters == 0 {
-            return Err(Error::invalid_input("solver.max_iters must be positive"));
-        }
+        config.solver.validate()?;
         config.joint_optimize.robot_poses.validate()?;
         Ok(())
     }
@@ -324,10 +322,6 @@ impl ProblemType for RigHandeyeLaserlineProblem {
             )?;
         }
         joint_fix(&config.joint_optimize, &models).map(|_| ())
-    }
-
-    fn on_input_change() -> InvalidationPolicy {
-        InvalidationPolicy::CLEAR_COMPUTED
     }
 
     fn on_config_change() -> InvalidationPolicy {

@@ -17,7 +17,7 @@ use crate::rig_family::{
     RigStages, RigStagesState, inverse_poses, rig_target_residuals, validate_rig_input,
     validate_rig_input_config,
 };
-use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
+use crate::session::{ProblemState, ProblemType};
 
 use super::state::RigExtrinsicsState;
 
@@ -260,27 +260,13 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.solver.max_iters == 0 {
-            return Err(Error::invalid_input("max_iters must be positive"));
-        }
-        if config.intrinsics_init.iterations == 0 {
-            return Err(Error::invalid_input(
-                "intrinsics_init.iterations must be positive",
-            ));
-        }
+        config.solver.validate()?;
+        config.intrinsics_init.validate()?;
         validate_rig_cameras(&config.camera, &config.camera_overrides)
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
         validate_rig_input_config(&config.rig, &config.camera_overrides, input.num_cameras)
-    }
-
-    fn on_input_change() -> InvalidationPolicy {
-        InvalidationPolicy::CLEAR_COMPUTED
-    }
-
-    fn on_config_change() -> InvalidationPolicy {
-        InvalidationPolicy::KEEP_ALL
     }
 
     fn export(

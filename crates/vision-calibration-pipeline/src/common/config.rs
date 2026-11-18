@@ -283,6 +283,16 @@ impl Default for IntrinsicsInitConfig {
 }
 
 impl IntrinsicsInitConfig {
+    /// Check the stage as the `intrinsics_init` group of a config.
+    pub(crate) fn validate(&self) -> Result<(), crate::Error> {
+        if self.iterations == 0 {
+            return Err(crate::Error::invalid_input(
+                "intrinsics_init.iterations must be positive",
+            ));
+        }
+        Ok(())
+    }
+
     /// Convert to `vision-calibration-linear`'s
     /// [`IterativeIntrinsicsOptions`], the shape every per-camera Zhang's
     /// method bootstrap consumes.
@@ -437,6 +447,16 @@ impl Default for SolverConfig {
 }
 
 impl SolverConfig {
+    /// Check the stage as the `solver` group of a config.
+    pub(crate) fn validate(&self) -> Result<(), crate::Error> {
+        if self.max_iters == 0 {
+            return Err(crate::Error::invalid_input(
+                "solver.max_iters must be positive",
+            ));
+        }
+        Ok(())
+    }
+
     /// The solver options this stage runs with, reporting to and polled
     /// through `control` (the session's). A step that adjusts them (an
     /// iteration budget, say) overrides fields of this value, so the backend
@@ -687,6 +707,18 @@ pub struct HandeyeInitConfig {
     /// it must rotate the robot about two non-parallel axes. Positive.
     /// Default 5°: smaller rotations amplify noise into the translation.
     pub min_motion_angle_deg: f64,
+}
+
+impl HandeyeInitConfig {
+    /// Check the stage as the `handeye_init` group of a config.
+    pub(crate) fn validate(&self) -> Result<(), crate::Error> {
+        if self.min_motion_angle_deg <= 0.0 {
+            return Err(crate::Error::invalid_input(
+                "handeye_init.min_motion_angle_deg must be positive",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for HandeyeInitConfig {

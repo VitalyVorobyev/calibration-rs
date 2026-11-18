@@ -12,10 +12,12 @@ use vision_calibration_core::{
     BrownConrady5, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
     DistortionParams, FxFyCxCy, Iso3, Mat3, PinholeCamera, PlanarDataset, ProjectionKind,
     ProjectionParams, Pt2, Real, ScheimpflugParams, SensorKind, SensorParams, make_pinhole_camera,
+    stated_covariance,
 };
 
 use crate::Error;
 use crate::common::config::{CameraConfig, CameraInitOptions};
+use crate::planar_intrinsics::MIN_VIEW_POINTS;
 use vision_calibration_linear::prelude::{
     EquidistantInitOptions, IterativeIntrinsicsOptions, dlt_homography,
     estimate_equidistant_intrinsics, estimate_intrinsics_iterative,
@@ -30,6 +32,38 @@ use vision_calibration_optim::{
     PlanarIntrinsicsSolveOptions, RobustLoss, ScheimpflugStagedInitOptions,
     optimize_planar_intrinsics, optimize_scheimpflug_intrinsics_staged,
 };
+
+/// Check the views of a one-camera planar input before any work: one
+/// point-covariance convention across them, and at least the three views
+/// that determine the intrinsics.
+pub(crate) fn validate_planar_views<'a>(
+    views: impl ExactSizeIterator<Item = &'a CorrespondenceView> + Clone,
+) -> Result<(), Error> {
+    stated_covariance(views.clone())?;
+    if views.len() < 3 {
+        return Err(Error::InsufficientData {
+            need: 3,
+            got: views.len(),
+        });
+    }
+    Ok(())
+}
+
+/// Check that every view holds the [`MIN_VIEW_POINTS`] its homography needs.
+pub(crate) fn validate_view_points<'a>(
+    views: impl IntoIterator<Item = &'a CorrespondenceView>,
+) -> Result<(), Error> {
+    for (i, obs) in views.into_iter().enumerate() {
+        if obs.len() < MIN_VIEW_POINTS {
+            return Err(Error::invalid_input(format!(
+                "view {} has too few points (need >= {MIN_VIEW_POINTS} for homography, got {})",
+                i,
+                obs.len()
+            )));
+        }
+    }
+    Ok(())
+}
 
 fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
     let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();

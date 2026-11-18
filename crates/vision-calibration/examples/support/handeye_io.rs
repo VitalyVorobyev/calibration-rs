@@ -13,10 +13,6 @@ pub struct ViewSample {
     pub view: CorrespondenceView,
     #[allow(dead_code)] // `planar_real` uses the views alone
     pub robot_pose: Iso3,
-    #[allow(dead_code)]
-    pub image_index: usize,
-    #[allow(dead_code)]
-    pub num_corners: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -72,14 +68,11 @@ where
         };
 
         let view = detection_to_view_data(detection, square_size_m)?;
-        let num_corners = view.points_2d.len();
-        total_corners += num_corners;
+        total_corners += view.points_2d.len();
 
         samples.push(ViewSample {
             view,
             robot_pose: *robot_pose,
-            image_index,
-            num_corners,
         });
     }
 

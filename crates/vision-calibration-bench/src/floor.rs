@@ -46,6 +46,8 @@ use anyhow::{Result, ensure};
 use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
 
+use crate::stats::median;
+
 /// A view needs at least this many points for the smooth fit (and at least
 /// this many inliers after rejection).
 pub const MIN_VIEW_POINTS: usize = 27;
@@ -293,19 +295,6 @@ pub struct FloorReport {
 
 // ───────────────────────── numerics ─────────────────────────
 
-fn median(values: &mut [f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    values.sort_by(f64::total_cmp);
-    let n = values.len();
-    if n % 2 == 1 {
-        values[n / 2]
-    } else {
-        0.5 * (values[n / 2 - 1] + values[n / 2])
-    }
-}
-
 fn rms(values: &[f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -542,7 +531,8 @@ fn fit_view(points: &[FloorPoint], idx: &[usize], degree: usize) -> Option<ViewF
     for _ in 0..REJECTION_ROUNDS {
         let coef = solve_normal(&rows, &obs, &keep)?;
         let mags: Vec<f64> = residuals(&coef).iter().map(|r| r[0].hypot(r[1])).collect();
-        let threshold = (REJECTION_MEDIANS * median(&mut mags.clone())).max(REJECTION_FLOOR_PX);
+        let threshold =
+            (REJECTION_MEDIANS * median(&mut mags.clone()).unwrap_or(0.0)).max(REJECTION_FLOOR_PX);
         keep = mags.iter().map(|&m| m <= threshold).collect();
         if keep.iter().filter(|&&k| k).count() < MIN_VIEW_POINTS {
             return None;
@@ -629,8 +619,8 @@ fn smooth_stats(fits: &[&CameraFit], degree: usize) -> SmoothFitStats {
         points: mags.len(),
         outliers,
         rms_px: rms(&mags),
-        median_px: median(&mut mags),
-        median_scale_px_per_mm: median(&mut scales),
+        median_px: median(&mut mags).unwrap_or(0.0),
+        median_scale_px_per_mm: median(&mut scales).unwrap_or(0.0),
     }
 }
 
@@ -814,9 +804,9 @@ fn calibrated_stats(
     CalibratedStats {
         points: inlier.len(),
         rms_px,
-        median_px: median(&mut inlier.clone()),
+        median_px: median(&mut inlier.clone()).unwrap_or(0.0),
         rms_all_px: rms(&all),
-        median_all_px: median(&mut all.clone()),
+        median_all_px: median(&mut all.clone()).unwrap_or(0.0),
         smooth_rms_px: smooth.rms_px,
         smooth_median_px: smooth.median_px,
         smooth_gap_rms_px: (rms_px * rms_px - smooth.rms_px * smooth.rms_px)

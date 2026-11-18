@@ -5,7 +5,6 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraParams, Handeye, Iso3, RigView, RigViewObs, Uncertainty, View,
     compute_planar_target_residuals_views,
@@ -23,9 +22,9 @@ use crate::common::{
     ExportDiagnostics, ProblemKind, VersionedExport, one_camera_target_residuals,
     read_schema_version,
 };
-use crate::planar_family::check_camera_model;
+use crate::planar_family::{check_camera_model, validate_planar_views, validate_view_points};
 use crate::rig_family::{HandeyePoses, HandeyeStages, handeye_solve_opts};
-use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
+use crate::session::{ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
 
@@ -479,51 +478,16 @@ impl ProblemType for SingleCamHandeyeProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
-        stated_covariance(input.views.iter().map(|v| &v.obs))?;
-        if input.num_views() < 3 {
-            return Err(Error::InsufficientData {
-                need: 3,
-                got: input.num_views(),
-            });
-        }
-
-        for (i, view) in input.views.iter().enumerate() {
-            if view.obs.len() < 4 {
-                return Err(Error::invalid_input(format!(
-                    "view {} has too few points (need >= 4 for homography, got {})",
-                    i,
-                    view.obs.len()
-                )));
-            }
-        }
-
-        Ok(())
+        validate_planar_views(input.views.iter().map(|v| &v.obs))?;
+        validate_view_points(input.views.iter().map(|v| &v.obs))
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.solver.max_iters == 0 {
-            return Err(Error::invalid_input("max_iters must be positive"));
-        }
-        if config.intrinsics_init.iterations == 0 {
-            return Err(Error::invalid_input(
-                "intrinsics_init.iterations must be positive",
-            ));
-        }
-        if config.handeye_init.min_motion_angle_deg <= 0.0 {
-            return Err(Error::invalid_input(
-                "min_motion_angle_deg must be positive",
-            ));
-        }
+        config.solver.validate()?;
+        config.intrinsics_init.validate()?;
+        config.handeye_init.validate()?;
         config.handeye_optimize.robot_poses.validate()?;
         config.camera.validate_single_camera()
-    }
-
-    fn on_input_change() -> InvalidationPolicy {
-        InvalidationPolicy::CLEAR_COMPUTED
-    }
-
-    fn on_config_change() -> InvalidationPolicy {
-        InvalidationPolicy::KEEP_ALL
     }
 
     fn export(

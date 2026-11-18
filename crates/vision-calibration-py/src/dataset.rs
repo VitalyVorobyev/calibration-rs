@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2};
 use pyo3::exceptions::PyKeyboardInterrupt;
 use pyo3::prelude::*;
 use serde::Serialize;
@@ -19,7 +19,7 @@ use crate::detect::PyFsDetectionCache;
 use crate::errors::{calib_err, fetch_err, run_err, sniff_err};
 use crate::parse_payload;
 use crate::session::to_py;
-use crate::validation::{reject_non_finite, value_err};
+use crate::validation::{array_rows, reject_non_finite, value_err};
 use vision_calibration::control::RunControl;
 
 fn load_manifest_file(path: &Path) -> PyResult<DatasetSpec> {
@@ -77,13 +77,11 @@ impl PyLaserExtractor {
             let spec = to_py(py, spec)?;
             let out = self.object.call_method1(py, "extract", (array, spec))?;
             let points: PyReadonlyArray2<'_, f64> = out.extract(py)?;
-            if points.shape()[1] != 2 {
-                return Err(value_err(format!(
-                    "laser extractor {:?} must return an (N, 2) array, got {:?}",
-                    self.name,
-                    points.shape()
-                )));
-            }
+            array_rows(
+                &points,
+                2,
+                &format!("the output of laser extractor {:?}", self.name),
+            )?;
             Ok(points.as_slice()?.as_chunks::<2>().0.to_vec())
         })
     }

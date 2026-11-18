@@ -26,7 +26,7 @@ use crate::rig_family::{
     check_camera_models, handeye_solve_opts, inverse_poses, rig_ba_fix, rig_target_residuals,
     validate_rig_input, validate_rig_input_config,
 };
-use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
+use crate::session::{ProblemState, ProblemType};
 
 use super::state::RigHandeyeState;
 
@@ -461,33 +461,15 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.solver.max_iters == 0 {
-            return Err(Error::invalid_input("max_iters must be positive"));
-        }
-        if config.intrinsics_init.iterations == 0 {
-            return Err(Error::invalid_input(
-                "intrinsics.iterations must be positive",
-            ));
-        }
-        if config.handeye_init.min_motion_angle_deg <= 0.0 {
-            return Err(Error::invalid_input(
-                "min_motion_angle_deg must be positive",
-            ));
-        }
+        config.solver.validate()?;
+        config.intrinsics_init.validate()?;
+        config.handeye_init.validate()?;
         config.handeye_optimize.robot_poses.validate()?;
         validate_rig_cameras(&config.camera, &config.camera_overrides)
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
         validate_rig_input_config(&config.rig, &config.camera_overrides, input.num_cameras)
-    }
-
-    fn on_input_change() -> InvalidationPolicy {
-        InvalidationPolicy::CLEAR_COMPUTED
-    }
-
-    fn on_config_change() -> InvalidationPolicy {
-        InvalidationPolicy::KEEP_ALL
     }
 
     fn export(

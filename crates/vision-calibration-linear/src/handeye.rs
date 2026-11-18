@@ -570,7 +570,7 @@ fn log_so3(r: &Matrix3<Real>) -> Vector3<Real> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Rotation3;
+    use vision_calibration_core::synthetic::poses::make_iso;
 
     const METHODS: [HandeyeMethod; 4] = [
         HandeyeMethod::TsaiLenz,
@@ -578,11 +578,6 @@ mod tests {
         HandeyeMethod::Daniilidis,
         HandeyeMethod::Shah,
     ];
-
-    fn make_iso(angles: (Real, Real, Real), t: (Real, Real, Real)) -> Iso3 {
-        let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
-        Isometry3::from_parts(Translation3::new(t.0, t.1, t.2), rot.into())
-    }
 
     /// (Δtranslation, Δrotation angle) between two poses.
     fn pose_error(a: &Iso3, b: &Iso3) -> (Real, Real) {

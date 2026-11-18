@@ -1,9 +1,26 @@
+use numpy::{PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyFloat, PyList, PySequence, PyString, PyTuple};
 
 pub(crate) fn value_err(message: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(message.to_string())
+}
+
+/// Row count of an `(N, cols)` array, or a `ValueError` naming `name`.
+pub(crate) fn array_rows(
+    array: &PyReadonlyArray2<'_, f64>,
+    cols: usize,
+    name: &str,
+) -> PyResult<usize> {
+    let shape = array.shape();
+    if shape[1] != cols {
+        return Err(value_err(format!(
+            "{name} must have shape (N, {cols}), got ({}, {})",
+            shape[0], shape[1]
+        )));
+    }
+    Ok(shape[0])
 }
 
 /// Recursively walk a Python payload and reject non-finite float leaves.

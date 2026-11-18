@@ -42,7 +42,7 @@ use vision_calibration::optim::problem::Use;
 use crate::control::PyRunControl;
 use crate::runtime_err;
 use crate::session::{parse_checked, parse_optional_checked, to_py};
-use crate::validation::value_err;
+use crate::validation::{array_rows, value_err};
 
 // ---------------------------------------------------------------------------
 // Boundary helpers
@@ -199,18 +199,14 @@ fn captures_of(
     }
 }
 
+/// The row-major data of a finite `(N, cols)` array, or a `ValueError`
+/// naming `name`.
 fn array_2d<'a>(
     array: &'a PyReadonlyArray2<'_, f64>,
     cols: usize,
     name: &str,
 ) -> PyResult<&'a [f64]> {
-    let shape = array.shape();
-    if shape[1] != cols {
-        return Err(value_err(format!(
-            "{name} must have shape (N, {cols}), got ({}, {})",
-            shape[0], shape[1]
-        )));
-    }
+    array_rows(array, cols, name)?;
     let data = array.as_slice()?;
     if data.iter().any(|v| !v.is_finite()) {
         return Err(value_err(format!("{name}: non-finite value")));

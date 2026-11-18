@@ -214,7 +214,7 @@ pub fn run_calibration(
 mod tests {
     use super::super::problem::RigExtrinsicsInput;
     use super::*;
-    use nalgebra::{Rotation3, Translation3};
+    use vision_calibration_core::synthetic::poses::make_iso;
     use vision_calibration_core::{
         BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, RigDataset, RigView,
         RigViewObs, make_pinhole_camera,
@@ -231,12 +231,6 @@ mod tests {
             },
             BrownConrady5::default(),
         )
-    }
-
-    fn make_iso(angles: (f64, f64, f64), t: (f64, f64, f64)) -> Iso3 {
-        let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
-        let tr = Translation3::new(t.0, t.1, t.2);
-        Iso3::from_parts(tr, rot.into())
     }
 
     fn make_test_input() -> RigExtrinsicsInput {

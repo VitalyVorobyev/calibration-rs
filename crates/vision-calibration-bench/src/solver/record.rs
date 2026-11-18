@@ -8,6 +8,7 @@ use vision_calibration_optim::{SolveReport, SolverBackend};
 
 use super::metrics::QualityMetrics;
 use super::scenes::SceneSpec;
+use crate::stats::median;
 
 /// Report schema version; bumped on any incompatible change.
 pub const SOLVER_SCHEMA_VERSION: u32 = 2;
@@ -42,32 +43,27 @@ impl SolverTiming {
         if samples.is_empty() {
             return None;
         }
-        let init: Vec<f64> = samples.iter().filter_map(|s| s.init_ms).collect();
-        let init_ms = (init.len() == samples.len()).then(|| median(init));
-        let optimize_ms = median(samples.iter().map(|s| s.optimize_ms).collect());
+        let mut init: Vec<f64> = samples.iter().filter_map(|s| s.init_ms).collect();
+        let init_ms = if init.len() == samples.len() {
+            median(&mut init)
+        } else {
+            None
+        };
+        let optimize_ms = median(&mut samples.iter().map(|s| s.optimize_ms).collect::<Vec<_>>())
+            .expect("samples is non-empty");
         let total_ms = median(
-            samples
+            &mut samples
                 .iter()
                 .map(|s| s.init_ms.unwrap_or(0.0) + s.optimize_ms)
-                .collect(),
-        );
+                .collect::<Vec<_>>(),
+        )
+        .expect("samples is non-empty");
         Some(Self {
             init_ms,
             optimize_ms,
             total_ms,
             samples,
         })
-    }
-}
-
-/// Median of a non-empty list (mean of the middle pair for even lengths).
-pub fn median(mut v: Vec<f64>) -> f64 {
-    v.sort_by(f64::total_cmp);
-    let n = v.len();
-    if n % 2 == 1 {
-        v[n / 2]
-    } else {
-        0.5 * (v[n / 2 - 1] + v[n / 2])
     }
 }
 
@@ -139,12 +135,6 @@ pub struct SolverBenchReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn median_handles_odd_even_and_unsorted() {
-        assert_eq!(median(vec![3.0, 1.0, 2.0]), 2.0);
-        assert_eq!(median(vec![4.0, 1.0, 2.0, 3.0]), 2.5);
-    }
 
     #[test]
     fn timing_summarizes_samples() {
