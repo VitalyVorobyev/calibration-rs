@@ -18,7 +18,9 @@ holds them:
 - a `Problem` of **parameter blocks**: a Euclidean vector, an SE(3) pose, an
   SO(3) rotation or a unit 3-vector, each with a name;
 - **residuals** that read blocks: ones you write (the `Residual` trait), and
-  the library's reprojection residual through a camera you add;
+  the library's reprojection and laser residuals through a camera you add
+  (a laser residual also reads a laser plane, `add_plane`; see
+  [A Rig Without a Robot](scheimpflug_laser_rigs.md#a-rig-without-a-robot));
 - `solve`, which returns a `Solution`: each block's value, the solve report,
   the noise level of each residual family and the parameter covariance.
 

@@ -52,8 +52,12 @@ fn fixture(role: &str, dim: usize) -> DVector<f64> {
             -0.11, 0.07, 0.012, 0.0015, -0.0023, 0.0007, -0.0004, 0.0003, 0.0002,
         ]),
         ("sensor", 2) => DVector::from_row_slice(&[0.021, -0.013]),
-        ("cam_se3_target" | "pose", 7) => se3([0.10, -0.04, 0.08], [0.04, 0.02, 0.92]),
-        ("extrinsics" | "cam_se3_rig", 7) => se3([0.04, 0.07, -0.02], [0.08, -0.03, 0.05]),
+        ("cam_se3_target" | "pose" | "rig_se3_target", 7) => {
+            se3([0.10, -0.04, 0.08], [0.04, 0.02, 0.92])
+        }
+        ("extrinsics" | "cam_se3_rig" | "rig_se3_cam", 7) => {
+            se3([0.04, 0.07, -0.02], [0.08, -0.03, 0.05])
+        }
         ("handeye", 7) => se3([-0.06, 0.04, 0.02], [0.03, -0.02, 0.10]),
         ("target" | "target_ref", 7) => se3([0.08, 0.10, -0.04], [0.10, 0.05, 0.85]),
         ("robot_delta", 6) => {
@@ -141,6 +145,7 @@ fn all_factors() -> Vec<FactorKind> {
         }
         for chain in [
             LaserChain::SinglePose,
+            LaserChain::Rig,
             LaserChain::RigHandeye {
                 base_se3_gripper: robot,
                 mode: HandeyeMode::EyeInHand,
@@ -171,7 +176,7 @@ fn all_factors() -> Vec<FactorKind> {
 #[test]
 fn every_factor_linearizes_identically_in_both_backends() {
     let factors = all_factors();
-    assert_eq!(factors.len(), 1 + MODELS.len() * (4 * 2 + 3 * 2));
+    assert_eq!(factors.len(), 1 + MODELS.len() * (4 * 2 + 4 * 2));
     for factor in factors {
         let (ir, init) = one_residual_ir(factor.clone(), RobustLoss::None);
         let (rt, jt, ct) = tiny_solver_backend::linearize_at(&ir, &init);

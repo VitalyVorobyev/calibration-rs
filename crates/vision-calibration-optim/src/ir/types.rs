@@ -353,10 +353,16 @@ impl ReprojChain {
 pub(crate) enum LaserChain {
     /// Blocks: `[cam_se3_target, plane_normal, plane_distance]`.
     SinglePose,
-    /// Blocks: `[cam_se3_rig, handeye, target_ref, plane_normal,
+    /// Blocks: `[cam_se3_rig, rig_se3_target, plane_normal,
+    /// plane_distance]` (a camera of a rig, as [`ReprojChain::Rig`]).
+    ///
+    /// The target pose in the camera frame is `cam_se3_rig ·
+    /// rig_se3_target`.
+    Rig,
+    /// Blocks: `[rig_se3_cam, handeye, target_ref, plane_normal,
     /// plane_distance]` (rig + hand-eye).
     ///
-    /// The target pose in the camera frame is composed from `cam_se3_rig`,
+    /// The target pose in the camera frame is composed from `rig_se3_cam`,
     /// `handeye`, `target_ref`, and the measured robot pose according to
     /// [`HandeyeMode`].
     RigHandeye {
@@ -365,7 +371,7 @@ pub(crate) enum LaserChain {
         /// Hand-eye mode defining the transform chain.
         mode: HandeyeMode,
     },
-    /// Blocks: `[cam_se3_rig, handeye, target_ref, plane_normal,
+    /// Blocks: `[rig_se3_cam, handeye, target_ref, plane_normal,
     /// plane_distance, robot_delta]`.
     ///
     /// `robot_delta` is a 6D se(3) tangent correction applied as
@@ -409,13 +415,18 @@ impl LaserChain {
                 v.extend(plane);
                 v
             }
+            LaserChain::Rig => {
+                let mut v = vec![se3("cam_se3_rig"), se3("rig_se3_target")];
+                v.extend(plane);
+                v
+            }
             LaserChain::RigHandeye { .. } => {
-                let mut v = vec![se3("cam_se3_rig"), se3("handeye"), se3("target_ref")];
+                let mut v = vec![se3("rig_se3_cam"), se3("handeye"), se3("target_ref")];
                 v.extend(plane);
                 v
             }
             LaserChain::RigHandeyeRobotDelta { .. } => {
-                let mut v = vec![se3("cam_se3_rig"), se3("handeye"), se3("target_ref")];
+                let mut v = vec![se3("rig_se3_cam"), se3("handeye"), se3("target_ref")];
                 v.extend(plane);
                 v.push(robot_delta);
                 v
@@ -1091,6 +1102,7 @@ mod tests {
         let robot = [0.0, 0.0, 0.0, 1.0, 0.1, 0.2, 0.3];
         vec![
             LaserChain::SinglePose,
+            LaserChain::Rig,
             LaserChain::RigHandeye {
                 base_se3_gripper: robot,
                 mode: HandeyeMode::EyeToHand,

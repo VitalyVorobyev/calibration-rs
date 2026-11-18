@@ -111,6 +111,27 @@ covariances (whitened reprojection) and more chains (rig, hand-eye, laser)
 are added as constructors when a need is shown; the IR's chain enums stay
 private.
 
+The laser residual came with the need for a robotless joint rig + laser
+solve (a seeded rig, board poses per capture, a plane per camera, no robot
+poses). `add_plane(name, &LaserPlane) -> PlaneId` adds a plane as a pair of
+blocks, a unit normal and a distance, behind one handle, so a residual can
+never read a normal with another plane's distance (factrs fuses the pair
+into one variable); `fix_plane` holds it and `Solution::plane` reads it
+back. Its labels are `<name>.nx`, `.ny`, `.nz`, `.d`, so `cam<i>.plane`
+gives the workflows' labels and the covariance builds a `CalibratedRig`.
+`add_laser(camera, PoseChain, PlaneId, pixel, LaserlineResidualType,
+LaserNoise, loss)` takes the workflows' two laser measures through the same
+`PoseChain` as reprojection: one pose (`LaserChain::SinglePose`) or
+`cam_se3_rig · rig_se3_target` (`LaserChain::Rig`, added for it). It
+checks, when added, that a line-distance residual has a projection that
+images lines as lines and that the pixel's ray meets the board in front of
+the camera at the initial values (the kernel answers a miss with a constant
+that has no gradient). `LaserNoise` has one variant, `Estimated`: each
+measure is one family (`LaserPlane`, metres; `LaserLine`, pixels). A stated
+σ would need a noise role on the IR's laser factors, and is added the same
+way when needed; until then a problem with a laser residual cannot take a
+`Use::Prior` calibration, which needs every noise stated.
+
 ### One solve, with the covariance
 
 `solve(&Problem, &SolveOptions) -> Result<Solution, Error>` runs the shared
@@ -141,9 +162,9 @@ contract stay the library's own.
 ## Consequences
 
 - The public, semver-bound surface: `Problem`, `BlockId`, `CameraId`,
-  `Manifold`, `Residual`, `Noise`, `se3`, `SolveOptions`, `Solution`,
-  `SolveReport` on the facade, and the `init` re-exports; the enums and
-  option structs are `#[non_exhaustive]`.
+  `PlaneId`, `Manifold`, `Residual`, `Noise`, `LaserNoise`, `se3`,
+  `SolveOptions`, `Solution`, `SolveReport` on the facade, and the `init`
+  re-exports; the enums and option structs are `#[non_exhaustive]`.
 - `FactorKind` has a `Custom` arm; its `PartialEq` compares that arm by
   pointer.
 - `ResidualKind::Custom(String)` is part of the export schemas, so a user
@@ -151,7 +172,9 @@ contract stay the library's own.
 - A user residual is monomorphized in the user's crate, not ours.
 - Python is Rust-only here (recorded in the binding parity check): a
   Python residual would be a per-evaluation callback that cannot take dual
-  numbers.
+  numbers. The builder is Rust-only as a whole, so a problem of built-in
+  residuals alone (the robotless rig + laser solve) is too; a Python need
+  for it would be a workflow of its own.
 - The book's "Your Own Residual" and "Compose Your Own Pipeline" chapters
   cover it.
 - [ADR 0028](0028-measurements-from-a-calibration.md) extends the builder

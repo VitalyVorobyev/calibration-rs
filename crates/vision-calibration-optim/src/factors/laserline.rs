@@ -9,14 +9,16 @@
 //! [`LaserChain`]:
 //! - [`LaserChain::SinglePose`]: the residual takes a direct `cam_se3_target`
 //!   SE3 parameter block.
+//! - [`LaserChain::Rig`]: the residual composes `cam_se3_target =
+//!   cam_se3_rig · rig_se3_target`, as the rig reprojection chain does.
 //! - [`LaserChain::RigHandeye`] / [`LaserChain::RigHandeyeRobotDelta`]: the
-//!   residual composes `cam_se3_target` from (`cam_se3_rig`, `handeye`,
+//!   residual composes `cam_se3_target` from (`rig_se3_cam`, `handeye`,
 //!   `target_ref`, robot pose) according to [`HandeyeMode`], so that rig
 //!   extrinsics, hand-eye transform, and target reference pose all move under
 //!   a single cost with the laser geometry constraint.
 
 use crate::factors::camera_blocks::CameraBlocks;
-use crate::factors::reprojection_model::se3_exp;
+use crate::factors::reprojection_model::{se3_exp, se3_from_block};
 use crate::ir::{CameraModelSpec, HandeyeMode, LaserChain};
 use nalgebra::{
     DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3,
@@ -475,6 +477,15 @@ fn resolve_laser_chain_pose<T: RealField>(
         LaserChain::SinglePose => {
             debug_assert!(blocks.len() == 3, "SinglePose laser chain expects 3 blocks");
             (blocks[0].clone(), 1, 2)
+        }
+        LaserChain::Rig => {
+            debug_assert!(blocks.len() == 4, "Rig laser chain expects 4 blocks");
+            let (cam_q, cam_t) = se3_from_block(&blocks[0]);
+            let (rig_q, rig_t) = se3_from_block(&blocks[1]);
+            // cam_se3_target = cam_se3_rig · rig_se3_target.
+            let rot = cam_q.clone() * rig_q;
+            let t = cam_q.transform_vector(&rig_t) + cam_t;
+            (se3_from_rot_trans(&rot, &t), 2, 3)
         }
         LaserChain::RigHandeye {
             base_se3_gripper,
@@ -950,6 +961,55 @@ mod tests {
                 r_rig_ln[0]
             );
         }
+    }
+
+    /// The rig chain equals the single-pose chain at the composed pose
+    /// `cam_se3_rig · rig_se3_target`, for both laser metrics.
+    #[test]
+    fn rig_laser_residuals_match_single_pose_via_composition() {
+        let intr = DVector::from_vec(vec![900.0, 880.0, 640.0, 360.0]);
+        let dist = DVector::from_vec(vec![0.05, -0.1, 0.001, -0.002, 0.01]);
+        let sensor = DVector::from_vec(vec![0.02, -0.01]);
+        let n = Vector3::new(0.1, 0.2, 1.0).normalize();
+        let plane_normal = DVector::from_vec(vec![n.x, n.y, n.z]);
+        let plane_distance = DVector::from_vec(vec![-0.35]);
+        let laser_pixel = [712.0, 388.0];
+        let w = 2.0;
+        let cam_se3_rig = Isometry3::from_parts(
+            Translation3::new(0.05, -0.03, 0.10),
+            UQ::from_axis_angle(&Vector3::y_axis(), 0.25_f64),
+        );
+        let rig_se3_target = Isometry3::from_parts(
+            Translation3::new(0.02, 0.05, 0.62),
+            UQ::from_axis_angle(&Vector3::z_axis(), 0.35_f64)
+                * UQ::from_axis_angle(&Vector3::x_axis(), -0.2_f64),
+        );
+        let single = [
+            intr.clone(),
+            dist.clone(),
+            sensor.clone(),
+            pack(&(cam_se3_rig * rig_se3_target)),
+            plane_normal.clone(),
+            plane_distance.clone(),
+        ];
+        let rig = [
+            intr,
+            dist,
+            sensor,
+            pack(&cam_se3_rig),
+            pack(&rig_se3_target),
+            plane_normal,
+            plane_distance,
+        ];
+        let p2p_single =
+            laser_point_to_plane_residual(SPEC, &LaserChain::SinglePose, &single, laser_pixel, w);
+        let p2p_rig = laser_point_to_plane_residual(SPEC, &LaserChain::Rig, &rig, laser_pixel, w);
+        assert!(p2p_single[0].abs() > 1e-6, "a non-trivial residual");
+        assert!((p2p_single[0] - p2p_rig[0]).abs() < 1e-12);
+        let line_single =
+            laser_line_distance_residual(SPEC, &LaserChain::SinglePose, &single, laser_pixel, w);
+        let line_rig = laser_line_distance_residual(SPEC, &LaserChain::Rig, &rig, laser_pixel, w);
+        assert!((line_single[0] - line_rig[0]).abs() < 1e-9 * line_single[0].abs().max(1.0));
     }
 
     /// The robot-delta chain must equal the no-delta chain evaluated at the

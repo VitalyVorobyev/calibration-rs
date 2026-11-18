@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The optimization problem builder takes laser planes and the laser
+  residual: `Problem::add_plane` (a laser plane, labelled `<name>.nx` …
+  `<name>.d`), `fix_plane`, `Solution::plane`, and `Problem::add_laser`, the
+  point-to-plane (metres) or line-distance (pixels) laser residual of a
+  pixel through one pose or a rig chain (`cam_se3_rig · rig_se3_target`),
+  with `LaserNoise::Estimated`. With them a rig without robot poses solves
+  its shared per-capture board poses, its laser planes and, as chosen, its
+  cameras and extrinsics in one problem, on both solver backends, with the
+  covariance. The book's "A Rig Without a Robot" shows the recipe.
 - Ring-grid targets on a rectangular lattice and plain ring-grid targets.
   The manifest's `ringgrid` target and `RinggridConfig` take an optional
   `lattice` (`"hex"`, the default, or `"rect"`) and an optional `coding`
