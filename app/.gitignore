@@ -1,4 +1,4 @@
-# Keep in sync with app/.prettierignore / eslint.config.js ignores.
+# Keep in sync with app/.prettierignore / .oxlintrc.json ignorePatterns.
 node_modules
 src-tauri/target
 src-tauri/gen

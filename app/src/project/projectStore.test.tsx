@@ -24,7 +24,7 @@ let calls: { cmd: string; args: Record<string, unknown> }[] = [];
 
 /** A command's rejection as Tauri delivers it: the serialized error. */
 function rejection(error: ProjectError): Promise<never> {
-  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- Tauri rejects with the command's serialized error object, not an Error
+  // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Tauri rejects with the command's serialized error object, not an Error
   return Promise.reject(error);
 }
 

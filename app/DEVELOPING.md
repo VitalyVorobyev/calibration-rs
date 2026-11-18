@@ -18,6 +18,7 @@ bun run tauri dev      # launch the desktop app
 bun run build          # TS compile + Vite build (frontend only, no Tauri shell)
 bun run tauri build    # bundle the desktop app (installer/binary)
 bun run generate:types # regenerate TS wire types from the Rust source
+bun run lint           # oxlint, type-aware on TypeScript 7; no warnings allowed
 bun run test           # Vitest: pure-logic unit tests + jsdom component tests
 bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall over
 bun run test:screens   # screenshots of every workspace vs. a local baseline
@@ -127,7 +128,7 @@ loads it and lands on Diagnose. An export without an image list
 residuals and the image panes say there are no images.
 
 **The seam.** `src/lib/backend.ts` is the only module that imports
-`@tauri-apps/*` (an ESLint rule enforces it outside tests). It exposes
+`@tauri-apps/*` (an oxlint rule enforces it outside tests). It exposes
 `call(command, args)`, `fileUrl(path)`, `openDialog`, `callStreaming` (the
 run's progress channel), `viewerSession` and `capabilities()`:
 `{ kind, viewer, desktop }`. The Tauri back end is the IPC; the HTTP back
@@ -233,11 +234,11 @@ no app-local component kit.
   `initTheme("calib-theme")` so "system" keeps following the OS, and wraps
   the app in `TooltipProvider` (`ThemeToggle` and `Tooltip` throw without
   it). The header's `ThemeToggle` cycles system → light → dark.
-- **Lint.** `eslint.config.js` applies `tokensOnly(["src/**"])`
-  from `@vitavision/config-eslint`: no raw Tailwind palette classes
-  (`bg-slate-500`) and no hex literals in `src/`. The only exemptions are
-  data-colour files listed there with their reason (the residual colour ramp
-  in `lib/errorColors.ts`, the per-laser palette in `LaserTargetCuts.tsx`).
+- **Lint.** `.oxlintrc.json` turns on `vitavision/tokens-only` from
+  `@vitavision/config-oxlint` for `src/`: no raw Tailwind palette classes
+  (`bg-slate-500`) and no hex literals. The only exemptions are data-colour
+  files listed there with their reason (the residual colour ramp in
+  `lib/errorColors.ts`, the per-laser palette in `LaserTargetCuts.tsx`).
 
 `components/FrameCanvas.tsx` is the 2D frame viewer: an `ImageStage` from
 [`@vitavision/stage2d`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/stage2d)
@@ -326,6 +327,6 @@ bun run generate:types:ts  # stage 2 (bun): schema -> src/types/generated/*.ts
 
 Both outputs are committed. CI enforces sync: `app-src-tauri` runs
 `generate:schemas:check` and `app-frontend` regenerates the TS and
-`git diff --exit-code`s it. `src/types/generated/` is eslint-ignored and
+`git diff --exit-code`s it. `src/types/generated/` is lint-ignored and
 `schemas-generated/` prettier-ignored. The export discriminator lives in
 `src/store/exportKind.ts` (`detectExportKind`).

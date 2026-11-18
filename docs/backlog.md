@@ -447,9 +447,6 @@ grows the report viewer.
     with σ (from `mvg::metrology`, on the stereo of `StereoRectification`).
   - Also covers empty states and the fail-fast error surfaces. Gate: a
     frontend review with no high-severity findings.
-- [ ] B-QUAL-TS7 - Move to TypeScript 7. **Blocked**: `typescript-eslint`
-  rejects TS 7 (typescript-eslint#10940), and adopting it would drop the
-  type-aware lint config. Revisit when typescript-eslint supports TS 7.
 - [ ] APP-RUN-DISPATCH - The app's `run.rs` keeps its own topology dispatch
   (`run_*_topology`) beside `dataset_runner::calibrate_dataset`, which
   Python and `vcal` share. It keeps it for per-stage progress events and

@@ -34,7 +34,7 @@ export async function installTauriMock(
       ).__TAURI_INTERNALS__ = {
         invoke: (cmd: string) => {
           if (Object.prototype.hasOwnProperty.call(responsesArg, cmd)) {
-            return Promise.resolve((responsesArg as Record<string, unknown>)[cmd]);
+            return Promise.resolve(responsesArg[cmd]);
           }
           return Promise.resolve(null);
         },
