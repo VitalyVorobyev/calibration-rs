@@ -438,7 +438,7 @@
               "properties": {
                 "origin_dots": {
                   "default": true,
-                  "description": "The board carries the triad of filled origin dots that the\ntarget generator places near its centre. Defaults to `true`.\n\nA view is labelled only when the dots are in it and the visible\nmarkers fit on the board in at most 512 ways (every shift, in\nevery orientation of the lattice), so a view must show most of a\nlarge board; other views yield no features. `false`, a plain board\nwithout dots, is not supported: its views have no board\ncoordinates, and a manifest that sets it is rejected before\ndetection.",
+                  "description": "The board carries the triad of filled origin dots that the\ntarget generator places near its centre. Defaults to `true`.\n\nA view is labelled in the board frame whenever all three dots are\nin it among detected markers, however small a part of the board\nit shows; a view without them, or with only one or two, yields no\nfeatures. `false`, a plain board without dots, is not supported:\nits views have no board coordinates, and a manifest that sets it\nis rejected before detection.",
                   "type": "boolean"
                 }
               },

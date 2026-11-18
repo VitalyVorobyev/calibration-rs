@@ -2883,13 +2883,12 @@ class RinggridCodingSpec_Plain_plain(TypedDict, total=False):
     """The board carries the triad of filled origin dots that the
     target generator places near its centre. Defaults to `true`.
 
-    A view is labelled only when the dots are in it and the visible
-    markers fit on the board in at most 512 ways (every shift, in
-    every orientation of the lattice), so a view must show most of a
-    large board; other views yield no features. `false`, a plain board
-    without dots, is not supported: its views have no board
-    coordinates, and a manifest that sets it is rejected before
-    detection.
+    A view is labelled in the board frame whenever all three dots are
+    in it among detected markers, however small a part of the board
+    it shows; a view without them, or with only one or two, yields no
+    features. `false`, a plain board without dots, is not supported:
+    its views have no board coordinates, and a manifest that sets it
+    is rejected before detection.
     """
 
 

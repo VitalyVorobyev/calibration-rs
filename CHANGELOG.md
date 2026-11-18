@@ -17,9 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RinggridLatticeSpec` and `RinggridCodingSpec`, in the detector as
   `RinggridLattice` and `RinggridCoding`. `TargetSpec::ringgrid_rect` and
   `TargetSpec::ringgrid_plain` build them. A plain view is labelled in the
-  board frame when it shows the origin dots and most of the board, and yields
-  no features otherwise; a plain board without origin dots is rejected
-  before detection. Plain boards may leave out `marker_ring_width_m`, which
+  board frame whenever it shows the origin dots, however small a part of a
+  large board it covers, and yields no features otherwise; a plain board
+  without origin dots is rejected before detection. Plain boards may leave out `marker_ring_width_m`, which
   they ignore. Photometric centres work on plain markers. Existing manifests,
   configs and their detection-cache entries are unchanged.
 
@@ -30,6 +30,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   patch of the board around it, so partly occluded boards keep more corners.
   The detector version is part of the detection-cache key, so these caches
   are rebuilt on the next run.
+- The ring-grid detector is `ringgrid` 0.16.0. Its version is part of the
+  detection-cache key, so ring-grid caches are rebuilt on the next run. What
+  ring-grid targets now give:
+  - Features only from a view whose place on the board is corroborated (by
+    agreeing decoded codes, or by the origin dots); a view with a few
+    isolated markers or unreadable codes yields none, instead of possibly
+    wrong board positions. A coded marker takes the position of the grid
+    cell it sits in, so a misread code no longer mislabels it, and more
+    markers are labelled on tilted and partial views.
+  - Only markers with a perspective-corrected centre, and with a confidence
+    of at least 0.03 on the detector's new centre-accuracy score; markers
+    whose centre is less certain are left out, so the feature count per view
+    can drop, mostly for small, strongly tilted rings.
+  - With `center_method = "photometric"`, far more plain markers keep a
+    photometric centre, so plain boards return more features.
 
 ## [1.0.0-rc.1] - 2026-11-15
 
