@@ -1,8 +1,8 @@
 use crate::Error;
 use crate::ir::custom::CustomResidual;
-use nalgebra::RealField;
+use nalgebra::{DVector, RealField};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 pub use vision_calibration_core::{
     CameraModelSpec, DistortionKind, INTRINSICS_PARAM_NAMES, SensorKind,
 };
@@ -791,6 +791,31 @@ impl ProblemIR {
             residual.loss = RobustLoss::None;
         }
         ir
+    }
+
+    /// Checks that `initial` holds a value of the right dimension for every
+    /// parameter block.
+    pub(crate) fn check_initial(
+        &self,
+        initial: &HashMap<String, DVector<f64>>,
+    ) -> Result<(), Error> {
+        for param in &self.params {
+            let init = initial.get(&param.name).ok_or_else(|| {
+                Error::invalid_input(format!(
+                    "initial values missing parameter {} (id {:?})",
+                    param.name, param.id
+                ))
+            })?;
+            if init.len() != param.dim {
+                return Err(Error::invalid_input(format!(
+                    "initial dimension mismatch for {}: expected {}, got {}",
+                    param.name,
+                    param.dim,
+                    init.len()
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Adds a parameter block and returns its `ParamId`.

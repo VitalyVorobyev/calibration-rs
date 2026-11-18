@@ -24,9 +24,9 @@ use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 
 use crate::Error;
-use crate::backend::covariance::{self, RawLinearization};
-use crate::backend::lm::{self, LinearizationEngine, LmFailure, LmSolution};
-use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
+use crate::backend::covariance::RawLinearization;
+use crate::backend::lm::LinearizationEngine;
+use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveEngine, solve_on};
 use crate::ir::ProblemIR;
 use compile::Compiled;
 
@@ -57,34 +57,7 @@ impl FactrsBackend {
     ) -> Result<BackendSolution, Error> {
         let compiled = compile::compile(ir, initial)?;
         let engine = FactrsEngine::new(&compiled);
-        let LmSolution {
-            state,
-            cost,
-            num_iters,
-            converged,
-        } = lm::levenberg_marquardt(&engine, compiled.values.clone(), opts).map_err(|failure| {
-            match failure {
-                LmFailure::Failed => Error::numerical("factrs failed to converge"),
-                LmFailure::Cancelled => Error::Cancelled,
-            }
-        })?;
-
-        let params = compiled.read_back(ir, &state);
-        // Without a robust loss the solve's own linearization is the raw one.
-        let raw = if ir.has_robust_loss() {
-            raw_linearization(ir, &params)?
-        } else {
-            raw_from_engine(ir, &engine, &compiled, &state)
-        };
-        Ok(BackendSolution {
-            noise: covariance::noise(ir, raw.as_ref()),
-            uncertainty: covariance::estimate(ir, &params, raw, converged, second_order),
-            params,
-            solve_report: SolveReport {
-                final_cost: 0.5 * cost,
-                num_iters,
-            },
-        })
+        solve_on(ir, &engine, compiled.values.clone(), opts, second_order)
     }
 }
 
@@ -203,5 +176,24 @@ impl LinearizationEngine for FactrsEngine<'_> {
 
     fn norm(&self, x: &Values) -> f64 {
         self.compiled.ambient_norm(x)
+    }
+}
+
+impl SolveEngine for FactrsEngine<'_> {
+    const NAME: &'static str = "factrs";
+
+    fn read_back(&self, ir: &ProblemIR, x: &Values) -> HashMap<String, DVector<f64>> {
+        self.compiled.read_back(ir, x)
+    }
+
+    fn raw_at(&self, ir: &ProblemIR, x: &Values) -> Option<RawLinearization> {
+        raw_from_engine(ir, self, self.compiled, x)
+    }
+
+    fn raw_linearization(
+        ir: &ProblemIR,
+        params: &HashMap<String, DVector<f64>>,
+    ) -> Result<Option<RawLinearization>, Error> {
+        raw_linearization(ir, params)
     }
 }

@@ -64,6 +64,30 @@ impl<'a, T: RealField> CameraBlocks<'a, T> {
         (camera, rest)
     }
 
+    /// Split a flat parameter vector `[intrinsics, projection, distortion,
+    /// sensor, rest…]` into the camera implied by `spec` and the rest.
+    pub(crate) fn from_flat(spec: CameraModelSpec, flat: &'a [T]) -> (Self, &'a [T]) {
+        let (intrinsics, rest) = flat.split_at(4);
+        let (projection, rest) = rest.split_at(spec.projection.dim());
+        let (distortion, rest) = rest.split_at(spec.distortion.dim());
+        let (sensor, rest) = rest.split_at(spec.sensor.dim());
+        let camera = Self::new(spec, intrinsics, projection, distortion, sensor);
+        (camera, rest)
+    }
+
+    /// The camera's parameter blocks in IR order, those without parameters
+    /// left out: the inverse of [`Self::split`].
+    pub(crate) fn blocks(&self) -> impl Iterator<Item = &'a [T]> {
+        [
+            self.intrinsics,
+            self.projection,
+            self.distortion,
+            self.sensor,
+        ]
+        .into_iter()
+        .filter(|block| !block.is_empty())
+    }
+
     /// The intrinsics block `[fx, fy, cx, cy]`.
     pub(crate) fn intrinsics(&self) -> &'a [T] {
         self.intrinsics

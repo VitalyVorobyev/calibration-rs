@@ -23,14 +23,11 @@
 //! the Schur complement does not depend on how the marginalized block is
 //! parametrized.
 
-use nalgebra::{DMatrix, DVector, SVector, Vector3};
-use num_dual::{DualDVec64, jacobian};
+use nalgebra::{DMatrix, Vector3};
 use vision_calibration_core::{CameraParams, Iso3, Pt3};
 
 use crate::Error;
-use crate::factors::camera_blocks::CameraBlocks;
-use crate::ir::CameraModelSpec;
-use crate::projection::CameraVector;
+use crate::projection::{CameraVector, project_with_jacobian};
 
 mod rig;
 pub use rig::{RigHandeyeGeometry, RigViewInformation, RobotPose, rig_handeye_view_information};
@@ -94,12 +91,11 @@ pub fn view_information(
             )));
         }
         x.rows_mut(n, 3).copy_from(&p_c);
-        let (q, j) = jacobian(|v: DVector<DualDVec64>| project(model.model, &v, n), &x);
-        if !q.iter().chain(j.iter()).all(|v| v.is_finite()) {
-            return Err(Error::numerical(format!(
+        let (_, j) = project_with_jacobian(model.model, &x).ok_or_else(|| {
+            Error::numerical(format!(
                 "the projection of target point {point} is not finite"
-            )));
-        }
+            ))
+        })?;
         let j = to_pose_tangent(&j, n, &p_c);
         a.gemm_tr(1.0, &j, &j, 1.0);
     }
@@ -120,20 +116,6 @@ pub fn view_information(
         labels: model.labels,
         matrix,
     })
-}
-
-/// The pixel of camera-frame point `v[n..n + 3]` for camera parameters
-/// `v[..n]`.
-fn project(model: CameraModelSpec, v: &DVector<DualDVec64>, n: usize) -> SVector<DualDVec64, 2> {
-    let all = v.as_slice();
-    let (intrinsics, rest) = all.split_at(4);
-    let (projection, rest) = rest.split_at(model.projection.dim());
-    let (distortion, rest) = rest.split_at(model.distortion.dim());
-    let sensor = &rest[..model.sensor.dim()];
-    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
-    let p = Vector3::new(v[n].clone(), v[n + 1].clone(), v[n + 2].clone());
-    let (u, w) = camera.project(&p);
-    SVector::<DualDVec64, 2>::new(u, w)
 }
 
 /// `J` over `[θ, p]`, `p` the camera-frame point in the last three columns,

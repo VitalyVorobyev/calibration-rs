@@ -245,11 +245,7 @@ impl CameraJacobian {
         for k in 0..3 {
             x[n + k] = point[k];
         }
-        let model = self.0.model;
-        let (q, j) = jacobian(|v: DVector<DualDVec64>| project_point(model, &v, n), &x);
-        if !(q.iter().all(|v| v.is_finite()) && j.iter().all(|v| v.is_finite())) {
-            return None;
-        }
+        let (q, j) = project_with_jacobian(self.0.model, &x)?;
         Some(ProjectedPoint {
             pixel: Pt2::new(q[0], q[1]),
             d_point: j.fixed_columns::<3>(n).into_owned(),
@@ -258,19 +254,25 @@ impl CameraJacobian {
     }
 }
 
-/// The pixel of the point `v[n..n + 3]` for camera parameters `v[..n]`.
-fn project_point(
+/// The pixel of the camera-frame point `x[n..n + 3]` for the camera
+/// parameters `x[..n]` (`[intrinsics, projection, distortion, sensor]`,
+/// concatenated), and its forward-mode Jacobian over all of `x`; `None` when
+/// either is not finite.
+pub(crate) fn project_with_jacobian(
     model: CameraModelSpec,
-    v: &DVector<DualDVec64>,
-    n: usize,
-) -> SVector<DualDVec64, 2> {
-    let all = v.as_slice();
-    let (intrinsics, rest) = all.split_at(4);
-    let (projection, rest) = rest.split_at(model.projection.dim());
-    let (distortion, rest) = rest.split_at(model.distortion.dim());
-    let sensor = &rest[..model.sensor.dim()];
-    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
-    let point = Vector3::new(v[n].clone(), v[n + 1].clone(), v[n + 2].clone());
+    x: &DVector<f64>,
+) -> Option<(Vector2<f64>, OMatrix<f64, U2, Dyn>)> {
+    let (q, j) = jacobian(|v: DVector<DualDVec64>| project_point(model, &v), x);
+    q.iter()
+        .chain(j.iter())
+        .all(|v| v.is_finite())
+        .then_some((q, j))
+}
+
+/// The pixel of the point that follows the camera parameters in `v`.
+fn project_point(model: CameraModelSpec, v: &DVector<DualDVec64>) -> SVector<DualDVec64, 2> {
+    let (camera, point) = CameraBlocks::from_flat(model, v.as_slice());
+    let point = Vector3::new(point[0].clone(), point[1].clone(), point[2].clone());
     let (u, w) = camera.project(&point);
     SVector::<DualDVec64, 2>::new(u, w)
 }
@@ -374,7 +376,7 @@ fn node_jacobian(
     // Variables: θ, then the ray's tangent-plane coordinates (a, b).
     let mut x = theta.clone().resize_vertically(n + 2, 0.0);
     for _ in 0..MAX_NEWTON_STEPS {
-        let (q, j) = jacobian(|v: DVector<DualDVec64>| project(model, &v, n, &basis), &x);
+        let (q, j) = jacobian(|v: DVector<DualDVec64>| project_ray(model, &v, &basis), &x);
         let miss = pixel - q;
         if !miss.iter().all(|v| v.is_finite()) {
             return None;
@@ -392,21 +394,15 @@ fn node_jacobian(
 /// The pixel of the ray `d + v[n] e₁ + v[n + 1] e₂` (`basis = [d, e₁, e₂]`)
 /// for camera parameters `v[..n]` (`[intrinsics, projection, distortion,
 /// sensor]`, concatenated).
-fn project(
+fn project_ray(
     model: CameraModelSpec,
     v: &DVector<DualDVec64>,
-    n: usize,
     basis: &[Vector3<f64>; 3],
 ) -> SVector<DualDVec64, 2> {
-    let all = v.as_slice();
-    let (intrinsics, rest) = all.split_at(4);
-    let (projection, rest) = rest.split_at(model.projection.dim());
-    let (distortion, rest) = rest.split_at(model.distortion.dim());
-    let sensor = &rest[..model.sensor.dim()];
-    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
+    let (camera, ab) = CameraBlocks::from_flat(model, v.as_slice());
     let [d, e1, e2] = basis;
     let ray = Vector3::from_fn(|i, _| {
-        DualDVec64::from_re(d[i]) + v[n].clone() * e1[i] + v[n + 1].clone() * e2[i]
+        DualDVec64::from_re(d[i]) + ab[0].clone() * e1[i] + ab[1].clone() * e2[i]
     });
     let (u, w) = camera.project(&ray);
     SVector::<DualDVec64, 2>::new(u, w)
