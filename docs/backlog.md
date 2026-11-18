@@ -496,11 +496,11 @@ Design: ADR 0014; developer guide: `app/DEVELOPING.md`.
 
 ## v1.0 release
 
-- [ ] D4-RELEASE - Tag and publish `1.0.0-rc.1` by `docs/RELEASE-RUNBOOK.md`.
-  The version sources already say `1.0.0-rc.1`; fold `[Unreleased]` into
-  the rc.1 section of the CHANGELOG. `vision-calibration-cli` has never been
-  published, so `release.yml` skips it: publish it by hand right after the
-  tag and register its Trusted Publisher (runbook §4), so the next release
-  publishes it. Then 1.0.0 after an rc series with no breaking change; the
-  `semver-rc` CI job checks every PR from the first `v1.0.0-rc.*` tag on.
+- [ ] D4-RELEASE - Release 1.0.0 after the `1.0.0-rc` series. `v1.0.0-rc.1`
+  is tagged; `vision-calibration-cli` was never published, so `release.yml`
+  skipped it: publish it by hand at `1.0.0-rc.1` and register its Trusted
+  Publisher (runbook §4), then drop its `--exclude` from the semver checks
+  in `release.yml`, `ci.yml` (`semver-rc`) and the runbook. The `semver-rc`
+  CI job checks every PR against the latest rc tag; 1.0.0 follows an rc
+  that needed no break (runbook §1.1 for the snippets and classifier).
   Done when: `v1.0.0` is tagged and on crates.io and PyPI.

@@ -30,9 +30,9 @@ pipeline from the facade alone; (9) onboarding from a crates.io / PyPI
 install; (10) app CI green; (11) current docs; (12) only `nalgebra` in facade
 signatures (AGENTS.md §7).
 
-The workspace version is `1.0.0-rc.1`; the tag is pending (backlog D4-RELEASE).
-The release is a `1.0.0-rc` series and 1.0.0 follows an rc that needed no
-break; the version rules are AGENTS.md §8, the published packages
+`1.0.0-rc.1` is released (2026-11-18); what remains before 1.0.0 is
+backlog D4-RELEASE. The release is a `1.0.0-rc` series and 1.0.0 follows an
+rc that needed no break; the version rules are AGENTS.md §8, the published packages
 [`RELEASE-RUNBOOK.md`](RELEASE-RUNBOOK.md) §2.
 
 ## Phases
