@@ -19,7 +19,7 @@ members = [
 # from the workspace root. See ADR 0014.
 exclude = ["app"]
 
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 version = "1.0.0-rc.1"

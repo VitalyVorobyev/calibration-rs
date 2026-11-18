@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for bit, except some laser workflows with a fisheye camera, which differ
   at the level of floating-point rounding (final cost within 1e-13
   relative).
+- The Python package is built on PyO3 0.30 (with `numpy` and `pythonize`
+  0.30). It still supports Python 3.10 and later, and its API is unchanged.
 - Config validation errors name the full path of the field they reject:
   `solver.max_iters`, `intrinsics_init.iterations` and
   `handeye_init.min_motion_angle_deg`, the same in every problem type. In
